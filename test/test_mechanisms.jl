@@ -1,6 +1,6 @@
 @testset "Uni-Uni" begin
     function rate_seq_uniuni(p, c)
-        S = _getc(c, :S); P = _getc(c, :P)
+        S = c.S; P = c.P
         f = [p.k1f * S, p.k2f]
         r = [p.k1r, p.k2r * P]
         return _unicyclic_flux(f, r, p.Et)
@@ -68,7 +68,7 @@ end
 
 @testset "Seq Uni-Bi" begin
     function rate_seq_unibi(p, c)
-        S1 = _getc(c, :S1); P1 = _getc(c, :P1); P2 = _getc(c, :P2)
+        S1 = c.S1; P1 = c.P1; P2 = c.P2
         f = [p.k1f * S1, p.k2f, p.k3f, p.k4f]
         r = [p.k1r, p.k2r, p.k3r * P1, p.k4r * P2]
         return _unicyclic_flux(f, r, p.Et)
@@ -197,7 +197,7 @@ end
 
 @testset "Seq Bi-Uni" begin
     function rate_seq_biuni(p, c)
-        S1 = _getc(c, :S1); S2 = _getc(c, :S2); P1 = _getc(c, :P1)
+        S1 = c.S1; S2 = c.S2; P1 = c.P1
         f = [p.k1f * S1, p.k2f * S2, p.k3f, p.k4f]
         r = [p.k1r, p.k2r, p.k3r, p.k4r * P1]
         return _unicyclic_flux(f, r, p.Et)
@@ -239,8 +239,8 @@ end
 
 @testset "Seq Bi-Bi" begin
     function rate_seq_bibi(p, c)
-        S1 = _getc(c, :S1); S2 = _getc(c, :S2)
-        P1 = _getc(c, :P1); P2 = _getc(c, :P2)
+        S1 = c.S1; S2 = c.S2
+        P1 = c.P1; P2 = c.P2
         f = [p.k1f * S1, p.k2f * S2, p.k3f, p.k4f, p.k5f]
         r = [p.k1r, p.k2r, p.k3r, p.k4r * P1, p.k5r * P2]
         return _unicyclic_flux(f, r, p.Et)
@@ -317,8 +317,8 @@ end
 
 @testset "Seq Bi-Ter" begin
     function rate_seq_biter(p, c)
-        S1 = _getc(c, :S1); S2 = _getc(c, :S2)
-        P1 = _getc(c, :P1); P2 = _getc(c, :P2); P3 = _getc(c, :P3)
+        S1 = c.S1; S2 = c.S2
+        P1 = c.P1; P2 = c.P2; P3 = c.P3
         f = [p.k1f * S1, p.k2f * S2, p.k3f, p.k4f, p.k5f, p.k6f]
         r = [p.k1r, p.k2r, p.k3r, p.k4r * P1, p.k5r * P2, p.k6r * P3]
         return _unicyclic_flux(f, r, p.Et)
@@ -366,8 +366,8 @@ end
 
 @testset "Seq Ter-Bi" begin
     function rate_seq_terbi(p, c)
-        S1 = _getc(c, :S1); S2 = _getc(c, :S2); S3 = _getc(c, :S3)
-        P1 = _getc(c, :P1); P2 = _getc(c, :P2)
+        S1 = c.S1; S2 = c.S2; S3 = c.S3
+        P1 = c.P1; P2 = c.P2
         f = [p.k1f * S1, p.k2f * S2, p.k3f * S3, p.k4f, p.k5f, p.k6f]
         r = [p.k1r, p.k2r, p.k3r, p.k4r, p.k5r * P1, p.k6r * P2]
         return _unicyclic_flux(f, r, p.Et)
@@ -415,8 +415,8 @@ end
 
 @testset "Seq Ter-Ter" begin
     function rate_seq_terter(p, c)
-        S1 = _getc(c, :S1); S2 = _getc(c, :S2); S3 = _getc(c, :S3)
-        P1 = _getc(c, :P1); P2 = _getc(c, :P2); P3 = _getc(c, :P3)
+        S1 = c.S1; S2 = c.S2; S3 = c.S3
+        P1 = c.P1; P2 = c.P2; P3 = c.P3
         f = [p.k1f * S1, p.k2f * S2, p.k3f * S3, p.k4f, p.k5f, p.k6f, p.k7f]
         r = [p.k1r, p.k2r, p.k3r, p.k4r, p.k5r * P1, p.k6r * P2, p.k7r * P3]
         return _unicyclic_flux(f, r, p.Et)

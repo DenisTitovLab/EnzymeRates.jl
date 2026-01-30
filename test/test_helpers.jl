@@ -78,9 +78,6 @@ function reference_king_altman(m::EnzymeMechanism, params::NamedTuple, concs::Na
     return v
 end
 
-# Safe getter: missing concentration -> 0
-_getc(c::NamedTuple, sym::Symbol) = haskey(c, sym) ? getfield(c, sym) : 0.0
-
 """
     _unicyclic_denominator(f, r)
 
