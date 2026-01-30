@@ -13,6 +13,7 @@ julia = "1.9"
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+OrdinaryDiffEqFIRK = "5960d6e9-dd7a-4743-88e7-cf307b64f125"
 
 [targets]
-test = ["Test", "Random"]
+test = ["Test", "Random", "OrdinaryDiffEqFIRK"]
