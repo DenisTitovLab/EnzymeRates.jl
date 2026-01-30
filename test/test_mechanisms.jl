@@ -1,8 +1,16 @@
 @testset "Uni-Uni reversible" begin
-    E  = Species(:E,  enzyme)
+    function expected_uni_uni_rate_eq(p, c)
+        k1f, k1r, k2f, k2r, Et = p.k1f, p.k1r, p.k2f, p.k2r, p.Etotal
+        S, P = c.S, c.P
+        denom = (k1r + k2f) + k1f * S + k2r * P
+        numer = Et * (k1f * k2f * S - k1r * k2r * P)
+        return numer / denom
+    end
+
+    E = Species(:E, enzyme)
     ES = Species(:ES, enzyme)
-    S  = Species(:S,  metabolite, Dict(:C => 1))
-    P  = Species(:P,  metabolite, Dict(:C => 1))
+    S = Species(:S, metabolite, Dict(:C => 1))
+    P = Species(:P, metabolite, Dict(:C => 1))
 
     m = EnzymeMechanism([[E, S] => [ES], [ES] => [E, P]])
 
@@ -32,7 +40,7 @@
         concs = (S=0.7, P=0.3)
         fn = rate_function(m)
         v = fn(params, concs)
-        @test v ≈ 0.9091 atol=0.001
+        @test v ≈ 0.9091 atol = 0.001
     end
 
     @testset "Reference comparison" begin
@@ -42,7 +50,7 @@
             fn = rate_function(m)
             v_ka = fn(params, concs)
             v_ref = reference_king_altman(m, params, concs)
-            @test v_ka ≈ v_ref rtol=1e-10
+            @test v_ka ≈ v_ref rtol = 1e-10
         end
     end
 
@@ -66,13 +74,13 @@
 end
 
 @testset "Uni-Bi ordered" begin
-    E   = Species(:E,   enzyme)
-    ES  = Species(:ES,  enzyme)
+    E = Species(:E, enzyme)
+    ES = Species(:ES, enzyme)
     EPQ = Species(:EPQ, enzyme)
-    EQ  = Species(:EQ,  enzyme)
-    S   = Species(:S,   metabolite, Dict(:C => 1, :H => 1))
-    P   = Species(:P,   metabolite, Dict(:C => 1))
-    Q   = Species(:Q,   metabolite, Dict(:H => 1))
+    EQ = Species(:EQ, enzyme)
+    S = Species(:S, metabolite, Dict(:C => 1, :H => 1))
+    P = Species(:P, metabolite, Dict(:C => 1))
+    Q = Species(:Q, metabolite, Dict(:H => 1))
 
     m = EnzymeMechanism([
         [E, S] => [ES], [ES] => [EPQ], [EPQ] => [EQ, P], [EQ] => [E, Q]
@@ -92,7 +100,7 @@ end
         concs = (S=0.8, P=0.5, Q=0.3)
         fn = rate_function(m)
         v = fn(params, concs)
-        @test v ≈ 0.4625 atol=0.001
+        @test v ≈ 0.4625 atol = 0.001
     end
 
     @testset "Reference comparison" begin
@@ -102,7 +110,7 @@ end
             fn = rate_function(m)
             v_ka = fn(params, concs)
             v_ref = reference_king_altman(m, params, concs)
-            @test v_ka ≈ v_ref rtol=1e-8
+            @test v_ka ≈ v_ref rtol = 1e-8
         end
     end
 
@@ -121,10 +129,10 @@ end
 end
 
 @testset "Ping-Pong Bi-Bi" begin
-    E  = Species(:E,  enzyme)
+    E = Species(:E, enzyme)
     EA = Species(:EA, enzyme)
     FP = Species(:FP, enzyme)
-    F  = Species(:F,  enzyme)
+    F = Species(:F, enzyme)
     FB = Species(:FB, enzyme)
     EQ = Species(:EQ, enzyme)
 
@@ -156,7 +164,7 @@ end
     @testset "Denominator structure" begin
         fn = rate_function(m)
         base_params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-                       k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7)
+            k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7)
         eps_val = 1e-10
         concs = (A=eps_val, P=eps_val, B=eps_val, Q=eps_val)
         v = fn(base_params, concs)
@@ -178,17 +186,17 @@ end
             fn = rate_function(m)
             v_ka = fn(params, concs)
             v_ref = reference_king_altman(m, params, concs)
-            @test v_ka ≈ v_ref rtol=1e-8
+            @test v_ka ≈ v_ref rtol = 1e-8
         end
     end
 end
 
 @testset "Bi-Bi Sequential ordered" begin
-    E   = Species(:E,   enzyme)
-    EA  = Species(:EA,  enzyme)
+    E = Species(:E, enzyme)
+    EA = Species(:EA, enzyme)
     EAB = Species(:EAB, enzyme)
     EPQ = Species(:EPQ, enzyme)
-    EQ  = Species(:EQ,  enzyme)
+    EQ = Species(:EQ, enzyme)
 
     A = Species(:A, metabolite, Dict(:C => 2))
     B = Species(:B, metabolite, Dict(:C => 3))
@@ -225,7 +233,7 @@ end
             fn = rate_function(m)
             v_ka = fn(params, concs)
             v_ref = reference_king_altman(m, params, concs)
-            @test v_ka ≈ v_ref rtol=1e-8
+            @test v_ka ≈ v_ref rtol = 1e-8
         end
     end
 
@@ -233,9 +241,11 @@ end
         params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7)
         Keq = prod(params[Symbol("k$(i)f")] for i in 1:5) /
               prod(params[Symbol("k$(i)r")] for i in 1:5)
-        A_eq = 1.0; B_eq = 1.0
+        A_eq = 1.0
+        B_eq = 1.0
         PQ = Keq * A_eq * B_eq
-        P_eq = sqrt(PQ); Q_eq = sqrt(PQ)
+        P_eq = sqrt(PQ)
+        Q_eq = sqrt(PQ)
         fn = rate_function(m)
         v = fn(params, (A=A_eq, B=B_eq, P=P_eq, Q=Q_eq))
         @test abs(v) < 1e-10
