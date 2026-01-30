@@ -43,6 +43,18 @@
         @test v ≈ 0.9091 atol = 0.001
     end
 
+    @testset "Expected rate equation" begin
+        rng = Random.MersenneTwister(1001)
+        fn = rate_function(m)
+        for _ in 1:20
+            params, concs = random_params_concs(m, [:S, :P]; rng=rng)
+            Etotal = 0.1 + 9.9 * rand(rng)
+            p = merge(params, (Etotal=Etotal,))
+            c_pkg = merge(concs, (E_total=Etotal,))
+            @test fn(params, c_pkg) ≈ expected_uni_uni_rate_eq(p, concs) rtol=1e-12
+        end
+    end
+
     @testset "Reference comparison" begin
         rng = Random.MersenneTwister(42)
         for _ in 1:10
