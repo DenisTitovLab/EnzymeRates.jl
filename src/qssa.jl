@@ -3,7 +3,7 @@ using Combinatorics: permutations
 """
     _symbolic_rate_expr(N, Steps, CNames)
 
-Build a symbolic `Expr` for the King-Altman rate equation using Laplacian cofactor
+Build a symbolic `Expr` for the QSSA rate equation using Laplacian cofactor
 determinants expanded via the Leibniz formula. All work is purely symbolic — the
 returned expression contains only `+` and `*` on `params.*` and `concs.*` fields.
 
@@ -133,7 +133,7 @@ end
 """
     rate_equation(::TypedMechanism{N,Steps}, params::NamedTuple, concs::NamedTuple)
 
-Compute the King-Altman steady-state rate. The body is generated at compile time
+Compute the QSSA steady-state rate. The body is generated at compile time
 as a single arithmetic expression with no allocations, loops, or matrix ops.
 """
 @generated function rate_equation(
@@ -179,7 +179,7 @@ end
 """
     rate_function(m::EnzymeMechanism)
 
-Return a function `(params, concs) -> rate` that computes the King-Altman rate equation.
+Return a function `(params, concs) -> rate` that computes the QSSA rate equation.
 Uses `@generated` `rate_equation` internally for zero-allocation evaluation.
 """
 function rate_function(m::EnzymeMechanism)

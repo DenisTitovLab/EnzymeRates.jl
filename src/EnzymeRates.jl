@@ -14,7 +14,7 @@ include("dsl.jl")
 include("accessors.jl")
 include("validate.jl")
 include("constraints.jl")
-include("king_altman.jl")
+include("qssa.jl")
 include("enumerate.jl")
 
 end

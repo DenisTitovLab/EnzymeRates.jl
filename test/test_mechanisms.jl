@@ -50,7 +50,7 @@
             params, concs = random_params_concs(m, [:S, :P]; rng=rng)
             fn = rate_function(m)
             v_ka = fn(params, concs)
-            v_ref = reference_king_altman(m, params, concs)
+            v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-10
         end
     end
@@ -120,7 +120,7 @@ end
             params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
             fn = rate_function(m)
             v_ka = fn(params, concs)
-            v_ref = reference_king_altman(m, params, concs)
+            v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-8
         end
     end
@@ -204,7 +204,7 @@ end
             params, concs = random_params_concs(m, [:A, :P, :B, :Q]; rng=rng)
             fn = rate_function(m)
             v_ka = fn(params, concs)
-            v_ref = reference_king_altman(m, params, concs)
+            v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-8
         end
     end
@@ -328,7 +328,7 @@ end
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
             fn = rate_function(m)
             v_ka = fn(params, concs)
-            v_ref = reference_king_altman(m, params, concs)
+            v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-8
         end
     end
@@ -574,7 +574,7 @@ end
         for _ in 1:20
             params, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
             v_ka = fn(params, concs)
-            v_ref = reference_king_altman(m, params, concs)
+            v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-8
         end
     end
@@ -589,7 +589,7 @@ end
         for _ in 1:10
             _, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
             v_ka = fn(params, concs)
-            v_ref = reference_king_altman(m, params, concs)
+            v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-10
         end
     end

@@ -2,9 +2,9 @@ using LinearAlgebra
 using Random
 
 """
-Independent reference: compute King-Altman rate using Laplacian cofactor method.
+Independent reference: compute QSSA rate using Laplacian cofactor method.
 """
-function reference_king_altman(m::EnzymeMechanism, params::NamedTuple, concs::NamedTuple; E_total=1.0)
+function reference_qssa(m::EnzymeMechanism, params::NamedTuple, concs::NamedTuple; E_total=1.0)
     forms = enzyme_forms(m)
     n = length(forms)
     name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
@@ -81,7 +81,7 @@ end
 """
     _unicyclic_denominator(f, r)
 
-King–Altman denominator for a unicyclic network with forward rates `f[i]`
+QSSA denominator for a unicyclic network with forward rates `f[i]`
 and reverse rates `r[i]` around the cycle (1-indexed; cyclic).
 """
 function _unicyclic_denominator(f::AbstractVector, r::AbstractVector)
