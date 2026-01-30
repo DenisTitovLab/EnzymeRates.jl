@@ -3,17 +3,19 @@ uuid = "e7a1c2d3-4b5f-6a7e-8c9d-0e1f2a3b4c5d"
 version = "0.1.0"
 
 [deps]
+Combinatorics = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
 Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [compat]
+Combinatorics = "1.1.0"
 Graphs = "1"
 julia = "1.9"
 
 [extras]
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 OrdinaryDiffEqFIRK = "5960d6e9-dd7a-4743-88e7-cf307b64f125"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test", "Random", "OrdinaryDiffEqFIRK"]

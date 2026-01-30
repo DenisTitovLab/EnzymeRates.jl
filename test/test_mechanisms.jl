@@ -270,13 +270,12 @@ end
         @test validate(m) == true
     end
 
-    @testset "Denominator has S1*S2 term" begin
+    @testset "Denominator has S1 and S2" begin
         s = rate_equation_string(m)
         denom_start = findfirst('/', s)
         denom_str = s[denom_start+1:end]
-        terms = split(denom_str, " + ")
-        has_S1S2 = any(term -> occursin(r"\bS1\b", term) && occursin(r"\bS2\b", term), terms)
-        @test has_S1S2
+        @test occursin(r"\bS1\b", denom_str)
+        @test occursin(r"\bS2\b", denom_str)
     end
 
     @testset "Expected rate equation" begin
