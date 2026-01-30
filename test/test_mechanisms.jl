@@ -1,10 +1,9 @@
 @testset "Uni-Uni reversible" begin
-    function expected_uni_uni_rate_eq(p, c)
-        k1f, k1r, k2f, k2r, Et = p.k1f, p.k1r, p.k2f, p.k2r, p.Etotal
-        S, P = c.S, c.P
-        denom = (k1r + k2f) + k1f * S + k2r * P
-        numer = Et * (k1f * k2f * S - k1r * k2r * P)
-        return numer / denom
+    function rate_seq_uniuni(p, c)
+        S = _getc(c, :S); P = _getc(c, :P)
+        f = [p.k1f * S, p.k2f]
+        r = [p.k1r, p.k2r * P]
+        return _unicyclic_flux(f, r, p.Et)
     end
 
     E = Species(:E, enzyme)
@@ -48,10 +47,10 @@
         fn = rate_function(m)
         for _ in 1:20
             params, concs = random_params_concs(m, [:S, :P]; rng=rng)
-            Etotal = 0.1 + 9.9 * rand(rng)
-            p = merge(params, (Etotal=Etotal,))
-            c_pkg = merge(concs, (E_total=Etotal,))
-            @test fn(params, c_pkg) ≈ expected_uni_uni_rate_eq(p, concs) rtol=1e-12
+            Et = 0.1 + 9.9 * rand(rng)
+            p = merge(params, (Et=Et,))
+            c_pkg = merge(concs, (E_total=Et,))
+            @test fn(params, c_pkg) ≈ rate_seq_uniuni(p, concs) rtol=1e-12
         end
     end
 
@@ -261,5 +260,194 @@ end
         fn = rate_function(m)
         v = fn(params, (A=A_eq, B=B_eq, P=P_eq, Q=Q_eq))
         @test abs(v) < 1e-10
+    end
+end
+
+@testset "Seq Bi-Uni" begin
+    function rate_seq_biuni(p, c)
+        S1 = _getc(c, :S1); S2 = _getc(c, :S2); P1 = _getc(c, :P1)
+        f = [p.k1f * S1, p.k2f * S2, p.k3f, p.k4f]
+        r = [p.k1r, p.k2r, p.k3r, p.k4r * P1]
+        return _unicyclic_flux(f, r, p.Et)
+    end
+
+    E      = Species(:E,      enzyme)
+    ES1    = Species(:ES1,    enzyme)
+    ES1S2  = Species(:ES1S2,  enzyme)
+    EP1    = Species(:EP1,    enzyme)
+    S1     = Species(:S1, metabolite, Dict(:C => 1))
+    S2     = Species(:S2, metabolite, Dict(:H => 1))
+    P1     = Species(:P1, metabolite, Dict(:C => 1, :H => 1))
+
+    m = EnzymeMechanism([
+        [E, S1] => [ES1],
+        [ES1, S2] => [ES1S2],
+        [ES1S2] => [EP1],
+        [EP1] => [E, P1]
+    ])
+
+    @testset "Structure" begin
+        @test n_states(m) == 4
+        @test length(metabolites(m)) == 3
+        @test validate(m) == true
+    end
+
+    @testset "Expected rate equation" begin
+        rng = Random.MersenneTwister(2001)
+        fn = rate_function(m)
+        for _ in 1:20
+            params, concs = random_params_concs(m, [:S1, :S2, :P1]; rng=rng)
+            Et = 0.1 + 9.9 * rand(rng)
+            p = merge(params, (Et=Et,))
+            c_pkg = merge(concs, (E_total=Et,))
+            @test fn(params, c_pkg) ≈ rate_seq_biuni(p, concs) rtol=1e-10
+        end
+    end
+end
+
+@testset "Seq Bi-Bi" begin
+    function rate_seq_bibi(p, c)
+        S1 = _getc(c, :S1); S2 = _getc(c, :S2)
+        P1 = _getc(c, :P1); P2 = _getc(c, :P2)
+        f = [p.k1f * S1, p.k2f * S2, p.k3f, p.k4f, p.k5f]
+        r = [p.k1r, p.k2r, p.k3r, p.k4r * P1, p.k5r * P2]
+        return _unicyclic_flux(f, r, p.Et)
+    end
+
+    E      = Species(:E,      enzyme)
+    ES1    = Species(:ES1,    enzyme)
+    ES1S2  = Species(:ES1S2,  enzyme)
+    EP1P2  = Species(:EP1P2,  enzyme)
+    EP2    = Species(:EP2,    enzyme)
+    S1     = Species(:S1, metabolite, Dict(:C => 1))
+    S2     = Species(:S2, metabolite, Dict(:H => 1))
+    P1     = Species(:P1, metabolite, Dict(:C => 1))
+    P2     = Species(:P2, metabolite, Dict(:H => 1))
+
+    m = EnzymeMechanism([
+        [E, S1] => [ES1],
+        [ES1, S2] => [ES1S2],
+        [ES1S2] => [EP1P2],
+        [EP1P2] => [EP2, P1],
+        [EP2] => [E, P2]
+    ])
+
+    @testset "Structure" begin
+        @test n_states(m) == 5
+        @test length(metabolites(m)) == 4
+        @test validate(m) == true
+    end
+
+    @testset "Expected rate equation" begin
+        rng = Random.MersenneTwister(2002)
+        fn = rate_function(m)
+        for _ in 1:20
+            params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
+            Et = 0.1 + 9.9 * rand(rng)
+            p = merge(params, (Et=Et,))
+            c_pkg = merge(concs, (E_total=Et,))
+            @test fn(params, c_pkg) ≈ rate_seq_bibi(p, concs) rtol=1e-10
+        end
+    end
+end
+
+@testset "Seq Ter-Bi" begin
+    function rate_seq_terbi(p, c)
+        S1 = _getc(c, :S1); S2 = _getc(c, :S2); S3 = _getc(c, :S3)
+        P1 = _getc(c, :P1); P2 = _getc(c, :P2)
+        f = [p.k1f * S1, p.k2f * S2, p.k3f * S3, p.k4f, p.k5f, p.k6f]
+        r = [p.k1r, p.k2r, p.k3r, p.k4r, p.k5r * P1, p.k6r * P2]
+        return _unicyclic_flux(f, r, p.Et)
+    end
+
+    E        = Species(:E,        enzyme)
+    ES1      = Species(:ES1,      enzyme)
+    ES1S2    = Species(:ES1S2,    enzyme)
+    ES1S2S3  = Species(:ES1S2S3,  enzyme)
+    EP1P2    = Species(:EP1P2,    enzyme)
+    EP2      = Species(:EP2,      enzyme)
+    S1       = Species(:S1, metabolite, Dict(:C => 1))
+    S2       = Species(:S2, metabolite, Dict(:H => 1))
+    S3       = Species(:S3, metabolite, Dict(:N => 1))
+    P1       = Species(:P1, metabolite, Dict(:C => 1, :H => 1))
+    P2       = Species(:P2, metabolite, Dict(:N => 1))
+
+    m = EnzymeMechanism([
+        [E, S1] => [ES1],
+        [ES1, S2] => [ES1S2],
+        [ES1S2, S3] => [ES1S2S3],
+        [ES1S2S3] => [EP1P2],
+        [EP1P2] => [EP2, P1],
+        [EP2] => [E, P2]
+    ])
+
+    @testset "Structure" begin
+        @test n_states(m) == 6
+        @test length(metabolites(m)) == 5
+        @test validate(m) == true
+    end
+
+    @testset "Expected rate equation" begin
+        rng = Random.MersenneTwister(2003)
+        fn = rate_function(m)
+        for _ in 1:20
+            params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2]; rng=rng)
+            Et = 0.1 + 9.9 * rand(rng)
+            p = merge(params, (Et=Et,))
+            c_pkg = merge(concs, (E_total=Et,))
+            @test fn(params, c_pkg) ≈ rate_seq_terbi(p, concs) rtol=1e-10
+        end
+    end
+end
+
+@testset "Seq Ter-Ter" begin
+    function rate_seq_terter(p, c)
+        S1 = _getc(c, :S1); S2 = _getc(c, :S2); S3 = _getc(c, :S3)
+        P1 = _getc(c, :P1); P2 = _getc(c, :P2); P3 = _getc(c, :P3)
+        f = [p.k1f * S1, p.k2f * S2, p.k3f * S3, p.k4f, p.k5f, p.k6f, p.k7f]
+        r = [p.k1r, p.k2r, p.k3r, p.k4r, p.k5r * P1, p.k6r * P2, p.k7r * P3]
+        return _unicyclic_flux(f, r, p.Et)
+    end
+
+    E          = Species(:E,          enzyme)
+    ES1        = Species(:ES1,        enzyme)
+    ES1S2      = Species(:ES1S2,      enzyme)
+    ES1S2S3    = Species(:ES1S2S3,    enzyme)
+    EP1P2P3    = Species(:EP1P2P3,    enzyme)
+    EP2P3      = Species(:EP2P3,      enzyme)
+    EP3        = Species(:EP3,        enzyme)
+    S1         = Species(:S1, metabolite, Dict(:C => 1))
+    S2         = Species(:S2, metabolite, Dict(:H => 1))
+    S3         = Species(:S3, metabolite, Dict(:N => 1))
+    P1         = Species(:P1, metabolite, Dict(:C => 1))
+    P2         = Species(:P2, metabolite, Dict(:H => 1))
+    P3         = Species(:P3, metabolite, Dict(:N => 1))
+
+    m = EnzymeMechanism([
+        [E, S1] => [ES1],
+        [ES1, S2] => [ES1S2],
+        [ES1S2, S3] => [ES1S2S3],
+        [ES1S2S3] => [EP1P2P3],
+        [EP1P2P3] => [EP2P3, P1],
+        [EP2P3] => [EP3, P2],
+        [EP3] => [E, P3]
+    ])
+
+    @testset "Structure" begin
+        @test n_states(m) == 7
+        @test length(metabolites(m)) == 6
+        @test validate(m) == true
+    end
+
+    @testset "Expected rate equation" begin
+        rng = Random.MersenneTwister(2004)
+        fn = rate_function(m)
+        for _ in 1:20
+            params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
+            Et = 0.1 + 9.9 * rand(rng)
+            p = merge(params, (Et=Et,))
+            c_pkg = merge(concs, (E_total=Et,))
+            @test fn(params, c_pkg) ≈ rate_seq_terter(p, concs) rtol=1e-10
+        end
     end
 end
