@@ -140,3 +140,15 @@ function random_params_concs(m::EnzymeMechanism, met_names::Vector{Symbol}; rng=
 
     return params, concs
 end
+
+"""
+Test that `rate_equation` is non-allocating and fast for the given mechanism.
+Must be a standalone function to avoid @testset closure boxing.
+"""
+function test_rate_equation_performance(m, params, concs)
+    tm = typed_mechanism(m)
+    rate_equation(tm, params, concs) # warmup/compile
+    allocs = @allocated rate_equation(tm, params, concs)
+    t = @elapsed for _ in 1:10_000; rate_equation(tm, params, concs); end
+    return allocs, t / 10_000
+end

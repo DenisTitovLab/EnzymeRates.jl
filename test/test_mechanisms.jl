@@ -64,6 +64,13 @@
         v = fn(params, (S=S_eq, P=P_eq))
         @test abs(v) < 1e-12
     end
+
+    @testset "Performance" begin
+        allocs, t = test_rate_equation_performance(m,
+            (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1), (S=1.0, P=0.5))
+        @test allocs == 0
+        @test t < 100e-9
+    end
 end
 
 @testset "Seq Uni-Bi" begin
@@ -130,6 +137,14 @@ end
         v = fn(params, (S1=S1_eq, P1=P1_eq, P2=P2_eq))
         @test abs(v) < 1e-10
     end
+
+    @testset "Performance" begin
+        allocs, t = test_rate_equation_performance(m,
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6),
+            (S1=1.0, P1=0.5, P2=0.3))
+        @test allocs == 0
+        @test t < 100e-9
+    end
 end
 
 @testset "Ping-Pong Bi-Bi" begin
@@ -193,6 +208,15 @@ end
             @test v_ka ≈ v_ref rtol=1e-8
         end
     end
+
+    @testset "Performance" begin
+        allocs, t = test_rate_equation_performance(m,
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
+             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7),
+            (A=1.0, P=0.5, B=0.8, Q=0.3))
+        @test allocs == 0
+        @test t < 100e-9
+    end
 end
 
 @testset "Seq Bi-Uni" begin
@@ -234,6 +258,14 @@ end
             c_pkg = merge(concs, (E_total=Et,))
             @test fn(params, c_pkg) ≈ rate_seq_biuni(p, concs) rtol=1e-10
         end
+    end
+
+    @testset "Performance" begin
+        allocs, t = test_rate_equation_performance(m,
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6),
+            (S1=1.0, S2=0.8, P1=0.5))
+        @test allocs == 0
+        @test t < 100e-9
     end
 end
 
@@ -312,6 +344,14 @@ end
         v = fn(params, (S1=S1_eq, S2=S2_eq, P1=P1_eq, P2=P2_eq))
         @test abs(v) < 1e-10
     end
+
+    @testset "Performance" begin
+        allocs, t = test_rate_equation_performance(m,
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7),
+            (S1=1.0, S2=0.8, P1=0.5, P2=0.3))
+        @test allocs == 0
+        @test t < 100e-9
+    end
 end
 
 @testset "Seq Bi-Ter" begin
@@ -361,6 +401,15 @@ end
             @test fn(params, c_pkg) ≈ rate_seq_biter(p, concs) rtol=1e-10
         end
     end
+
+    @testset "Performance" begin
+        allocs, t = test_rate_equation_performance(m,
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
+             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2),
+            (S1=1.0, S2=0.8, P1=0.5, P2=0.3, P3=0.2))
+        @test allocs == 0
+        @test t < 100e-9
+    end
 end
 
 @testset "Seq Ter-Bi" begin
@@ -409,6 +458,15 @@ end
             c_pkg = merge(concs, (E_total=Et,))
             @test fn(params, c_pkg) ≈ rate_seq_terbi(p, concs) rtol=1e-10
         end
+    end
+
+    @testset "Performance" begin
+        allocs, t = test_rate_equation_performance(m,
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
+             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2),
+            (S1=1.0, S2=0.8, S3=0.6, P1=0.5, P2=0.3))
+        @test allocs == 0
+        @test t < 100e-9
     end
 end
 
@@ -461,6 +519,15 @@ end
             c_pkg = merge(concs, (E_total=Et,))
             @test fn(params, c_pkg) ≈ rate_seq_terter(p, concs) rtol=1e-10
         end
+    end
+
+    @testset "Performance" begin
+        allocs, t = test_rate_equation_performance(m,
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
+             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2, k7f=3.0, k7r=0.9),
+            (S1=1.0, S2=0.8, S3=0.6, P1=0.5, P2=0.3, P3=0.2))
+        @test allocs == 0
+        @test t < 100e-9
     end
 end
 
@@ -525,5 +592,14 @@ end
             v_ref = reference_king_altman(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-10
         end
+    end
+
+    @testset "Performance" begin
+        allocs, t = test_rate_equation_performance(m,
+            (k1f=2.0, k1r=0.5, k2f=1.5, k2r=0.3, k3f=3.0, k3r=0.4,
+             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8),
+            (A=1.0, B=0.8, P=0.5, Q=0.3))
+        @test allocs == 0
+        @test t < 100e-9
     end
 end
