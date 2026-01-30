@@ -10,7 +10,7 @@ returned expression contains only `+` and `*` on `params.*` and `concs.*` fields
 Zero entries in the sparse Laplacian are tracked so that permutations hitting a zero
 are skipped entirely, keeping the expression compact.
 """
-function _symbolic_rate_expr(N, Steps, CNames)
+function _symbolic_rate_expr(N, Steps, PNames, CNames)
     # 1. Build symbolic rate matrix R[i,j] as Expr (or 0 meaning absent)
     R = fill(0, N, N)  # 0 = no expression yet; will become Expr when assigned
 
@@ -96,8 +96,8 @@ function _symbolic_rate_expr(N, Steps, CNames)
     rr_expr = met_r === nothing ? :(params.$kr) : :(params.$kr * concs.$met_r)
 
     # E_total
-    has_etotal = :E_total in CNames
-    et_expr = has_etotal ? :(concs.E_total) : 1.0
+    has_etotal = :E_total in PNames
+    et_expr = has_etotal ? :(params.E_total) : 1.0
 
     num = :($et_expr * ($rf_expr * $(D[i]) - $rr_expr * $(D[j])))
 
@@ -141,7 +141,7 @@ as a single arithmetic expression with no allocations, loops, or matrix ops.
     params::NamedTuple{PNames},
     concs::NamedTuple{CNames}
 ) where {N, Steps, PNames, CNames}
-    _symbolic_rate_expr(N, Steps, CNames)
+    _symbolic_rate_expr(N, Steps, PNames, CNames)
 end
 
 """
@@ -155,21 +155,19 @@ function rate_equation_string(m::EnzymeMechanism)
 end
 
 function _rate_equation_string(::TypedMechanism{N, Steps}) where {N, Steps}
-    # Use a dummy CNames without E_total to get the symbolic expression with E_total literal
-    # But we want E_total in the string, so we build with a CNames that excludes it
-    # and the expression will have 1.0 for E_total. Instead, let's just substitute.
-    # Actually, the plan says E_total should appear in the string. Let's use a CNames with E_total.
-    # We'll just format the expression nicely.
-
-    # Build step info to get metabolite names
+    # Build step info to get metabolite and parameter names
     met_names = Symbol[]
+    param_names = Symbol[]
     for (i, j, kf, kr, met_f, met_r) in Steps
         met_f !== nothing && met_f ∉ met_names && push!(met_names, met_f)
         met_r !== nothing && met_r ∉ met_names && push!(met_names, met_r)
+        push!(param_names, kf)
+        push!(param_names, kr)
     end
 
-    CNames = tuple(met_names..., :E_total)
-    expr = _symbolic_rate_expr(N, Steps, CNames)
+    PNames = tuple(param_names..., :E_total)
+    CNames = tuple(met_names...)
+    expr = _symbolic_rate_expr(N, Steps, PNames, CNames)
 
     # Convert to string, then strip `params.` and `concs.` prefixes
     s = string(expr)

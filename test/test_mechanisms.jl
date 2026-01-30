@@ -39,8 +39,8 @@
             params, concs = random_params_concs(m, [:S, :P]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
-            c_pkg = merge(concs, (E_total=Et,))
-            @test fn(params, c_pkg) ≈ rate_seq_uniuni(p, concs) rtol=1e-12
+            p_pkg = merge(params, (E_total=Et,))
+            @test fn(p_pkg, concs) ≈ rate_seq_uniuni(p, concs) rtol=1e-12
         end
     end
 
@@ -109,8 +109,8 @@ end
             params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
-            c_pkg = merge(concs, (E_total=Et,))
-            @test fn(params, c_pkg) ≈ rate_seq_unibi(p, concs) rtol=1e-10
+            p_pkg = merge(params, (E_total=Et,))
+            @test fn(p_pkg, concs) ≈ rate_seq_unibi(p, concs) rtol=1e-10
         end
     end
 
@@ -255,8 +255,8 @@ end
             params, concs = random_params_concs(m, [:S1, :S2, :P1]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
-            c_pkg = merge(concs, (E_total=Et,))
-            @test fn(params, c_pkg) ≈ rate_seq_biuni(p, concs) rtol=1e-10
+            p_pkg = merge(params, (E_total=Et,))
+            @test fn(p_pkg, concs) ≈ rate_seq_biuni(p, concs) rtol=1e-10
         end
     end
 
@@ -317,8 +317,8 @@ end
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
-            c_pkg = merge(concs, (E_total=Et,))
-            @test fn(params, c_pkg) ≈ rate_seq_bibi(p, concs) rtol=1e-10
+            p_pkg = merge(params, (E_total=Et,))
+            @test fn(p_pkg, concs) ≈ rate_seq_bibi(p, concs) rtol=1e-10
         end
     end
 
@@ -397,8 +397,8 @@ end
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2, :P3]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
-            c_pkg = merge(concs, (E_total=Et,))
-            @test fn(params, c_pkg) ≈ rate_seq_biter(p, concs) rtol=1e-10
+            p_pkg = merge(params, (E_total=Et,))
+            @test fn(p_pkg, concs) ≈ rate_seq_biter(p, concs) rtol=1e-10
         end
     end
 
@@ -455,8 +455,8 @@ end
             params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
-            c_pkg = merge(concs, (E_total=Et,))
-            @test fn(params, c_pkg) ≈ rate_seq_terbi(p, concs) rtol=1e-10
+            p_pkg = merge(params, (E_total=Et,))
+            @test fn(p_pkg, concs) ≈ rate_seq_terbi(p, concs) rtol=1e-10
         end
     end
 
@@ -516,8 +516,8 @@ end
             params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
-            c_pkg = merge(concs, (E_total=Et,))
-            @test fn(params, c_pkg) ≈ rate_seq_terter(p, concs) rtol=1e-10
+            p_pkg = merge(params, (E_total=Et,))
+            @test fn(p_pkg, concs) ≈ rate_seq_terter(p, concs) rtol=1e-10
         end
     end
 
