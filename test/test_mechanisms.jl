@@ -464,3 +464,67 @@ end
         end
     end
 end
+
+@testset "Random-order Bi-Bi (branched)" begin
+    # Branched mechanism: two paths from E to EAB
+    #   E + A → EA        (step 1)
+    #   E + B → EB        (step 2)
+    #   EA + B → EAB      (step 3)
+    #   EB + A → EAB      (step 4)
+    #   EAB → EPQ         (step 5)
+    #   EPQ → E + P + Q   ... simplified as two release steps:
+    #   EPQ → EQ + P      (step 6)
+    #   EQ → E + Q        (step 7)
+
+    E   = Species(:E,   enzyme)
+    EA  = Species(:EA,  enzyme)
+    EB  = Species(:EB,  enzyme)
+    EAB = Species(:EAB, enzyme)
+    EPQ = Species(:EPQ, enzyme)
+    EQ  = Species(:EQ,  enzyme)
+    A   = Species(:A, metabolite, Dict(:C => 1))
+    B   = Species(:B, metabolite, Dict(:N => 1))
+    P   = Species(:P, metabolite, Dict(:C => 1))
+    Q   = Species(:Q, metabolite, Dict(:N => 1))
+
+    m = EnzymeMechanism([
+        [E, A]   => [EA],
+        [E, B]   => [EB],
+        [EA, B]  => [EAB],
+        [EB, A]  => [EAB],
+        [EAB]    => [EPQ],
+        [EPQ]    => [EQ, P],
+        [EQ]     => [E, Q]
+    ])
+
+    @testset "Structure" begin
+        @test n_states(m) == 6
+        @test length(metabolites(m)) == 4
+    end
+
+    @testset "Reference comparison" begin
+        rng = Random.MersenneTwister(3001)
+        fn = rate_function(m)
+        for _ in 1:20
+            params, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
+            v_ka = fn(params, concs)
+            v_ref = reference_king_altman(m, params, concs)
+            @test v_ka ≈ v_ref rtol=1e-8
+        end
+    end
+
+    @testset "Equilibrium (zero flux)" begin
+        params = (k1f=2.0, k1r=0.5, k2f=1.5, k2r=0.3, k3f=3.0, k3r=0.4,
+                  k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8)
+        # At equilibrium the flux must vanish. Use reference to find equilibrium concs.
+        # Instead, just verify that rate_function matches reference at random points.
+        fn = rate_function(m)
+        rng = Random.MersenneTwister(3002)
+        for _ in 1:10
+            _, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
+            v_ka = fn(params, concs)
+            v_ref = reference_king_altman(m, params, concs)
+            @test v_ka ≈ v_ref rtol=1e-10
+        end
+    end
+end

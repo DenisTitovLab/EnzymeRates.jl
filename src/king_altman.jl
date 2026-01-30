@@ -115,9 +115,13 @@ end
 
 """
 Precompute all King-Altman data needed by both `rate_function` and `rate_equation_string`.
+
+Returns `(edges, trees_by_root, step_info, n)` where `step_info` is a vector of
+`(i, j, kf_name, kr_name, met_lhs, met_rhs)` tuples describing each mechanism step
+(enzyme form indices i→j, rate constant symbols, and metabolite names or nothing).
 """
 function _king_altman_data(m::EnzymeMechanism)
-    edges, forms, _ = _build_rate_info(m)
+    edges, forms, name_to_idx = _build_rate_info(m)
     n = length(forms)
 
     all_dir_edges = collect(keys(edges))
@@ -127,17 +131,23 @@ function _king_altman_data(m::EnzymeMechanism)
         trees_by_root[root] = _spanning_trees_toward(n, all_dir_edges, root)
     end
 
-    # Collect forward/reverse rate info from mechanism steps
-    fwd_rates = Tuple{Symbol, Union{Symbol,Nothing}}[]
-    rev_rates = Tuple{Symbol, Union{Symbol,Nothing}}[]
+    # Collect per-step info: enzyme form indices + rate constants + metabolites
+    step_info = Tuple{Int, Int, Symbol, Symbol, Union{Symbol,Nothing}, Union{Symbol,Nothing}}[]
     for (step_idx, (lhs, rhs)) in enumerate(m.steps)
+        e_lhs = [s for s in lhs if s.role == enzyme][1]
+        e_rhs = [s for s in rhs if s.role == enzyme][1]
+        i = name_to_idx[e_lhs.name]
+        j = name_to_idx[e_rhs.name]
         m_lhs = [s for s in lhs if s.role == metabolite]
         m_rhs = [s for s in rhs if s.role == metabolite]
-        push!(fwd_rates, (Symbol("k$(step_idx)f"), isempty(m_lhs) ? nothing : m_lhs[1].name))
-        push!(rev_rates, (Symbol("k$(step_idx)r"), isempty(m_rhs) ? nothing : m_rhs[1].name))
+        kf = Symbol("k$(step_idx)f")
+        kr = Symbol("k$(step_idx)r")
+        met_f = isempty(m_lhs) ? nothing : m_lhs[1].name
+        met_r = isempty(m_rhs) ? nothing : m_rhs[1].name
+        push!(step_info, (i, j, kf, kr, met_f, met_r))
     end
 
-    return edges, trees_by_root, fwd_rates, rev_rates, n
+    return edges, trees_by_root, step_info, n
 end
 
 function _rate_term_str(k_name, met_name)
@@ -152,14 +162,14 @@ and concs has metabolite concentration keys like :S, :P, ...
 Plus :E_total for total enzyme concentration.
 """
 function rate_function(m::EnzymeMechanism)
-    edges, trees_by_root, fwd_rates, rev_rates, n = _king_altman_data(m)
+    edges, trees_by_root, step_info, n = _king_altman_data(m)
 
-    let edges=edges, trees_by_root=trees_by_root, n=n, fwd_rates=fwd_rates, rev_rates=rev_rates
+    let edges=edges, trees_by_root=trees_by_root, n=n, step_info=step_info
         function(params, concs)
             E_total = haskey(concs, :E_total) ? concs[:E_total] : 1.0
 
-            # Compute denominator: sum over all roots of sum of spanning tree products
-            denom = 0.0
+            # Compute D[root] for each root (cofactors)
+            D = zeros(n)
             for root in 1:n
                 for tree in trees_by_root[root]
                     prod_val = 1.0
@@ -174,27 +184,25 @@ function rate_function(m::EnzymeMechanism)
                         end
                         prod_val *= edge_rate
                     end
-                    denom += prod_val
+                    D[root] += prod_val
                 end
             end
 
-            # Compute numerator
-            num_fwd = 1.0
-            for (k_name, met_name) in fwd_rates
-                num_fwd *= params[k_name]
-                if met_name !== nothing
-                    num_fwd *= concs[met_name]
-                end
+            D_total = sum(D)
+
+            # Numerator: flux through step 1 (net consumption of first substrate)
+            # v = E_total * (R_fwd * D[i] - R_rev * D[j]) / D_total
+            i, j, kf, kr, met_f, met_r = step_info[1]
+            rf = Float64(params[kf])
+            if met_f !== nothing
+                rf *= concs[met_f]
             end
-            num_rev = 1.0
-            for (k_name, met_name) in rev_rates
-                num_rev *= params[k_name]
-                if met_name !== nothing
-                    num_rev *= concs[met_name]
-                end
+            rr = Float64(params[kr])
+            if met_r !== nothing
+                rr *= concs[met_r]
             end
 
-            E_total * (num_fwd - num_rev) / denom
+            E_total * (rf * D[i] - rr * D[j]) / D_total
         end
     end
 end
@@ -202,30 +210,46 @@ end
 """
 Return a string representation of the rate equation.
 """
-function rate_equation_string(m::EnzymeMechanism)
-    edges, trees_by_root, fwd_rates, rev_rates, n = _king_altman_data(m)
-
-    # Numerator
-    fwd_terms = [_rate_term_str(k, met) for (k, met) in fwd_rates]
-    rev_terms = [_rate_term_str(k, met) for (k, met) in rev_rates]
-    num_str = "E_total * ($(join(fwd_terms, "*")) - $(join(rev_terms, "*")))"
-
-    # Denominator
-    denom_parts = String[]
-    for root in 1:n
-        for tree in trees_by_root[root]
-            term_parts = String[]
-            for (i, j) in tree
-                edge_terms = [_rate_term_str(k, met) for (k, met) in edges[(i, j)]]
-                if length(edge_terms) == 1
-                    push!(term_parts, edge_terms[1])
-                else
-                    push!(term_parts, "($(join(edge_terms, " + ")))")
-                end
+function _denom_tree_str(trees, edges)
+    parts = String[]
+    for tree in trees
+        term_parts = String[]
+        for (i, j) in tree
+            edge_terms = [_rate_term_str(k, met) for (k, met) in edges[(i, j)]]
+            if length(edge_terms) == 1
+                push!(term_parts, edge_terms[1])
+            else
+                push!(term_parts, "($(join(edge_terms, " + ")))")
             end
-            push!(denom_parts, join(term_parts, "*"))
         end
+        push!(parts, join(term_parts, "*"))
+    end
+    parts
+end
+
+function rate_equation_string(m::EnzymeMechanism)
+    edges, trees_by_root, step_info, n = _king_altman_data(m)
+
+    # Build D[root] strings
+    D_strs = String[]
+    for root in 1:n
+        parts = _denom_tree_str(trees_by_root[root], edges)
+        push!(D_strs, join(parts, " + "))
     end
 
-    "($num_str) / ($(join(denom_parts, " + ")))"
+    # Numerator: flux through step 1
+    i, j, kf, kr, met_f, met_r = step_info[1]
+    fwd_str = _rate_term_str(kf, met_f)
+    rev_str = _rate_term_str(kr, met_r)
+    Di_str = D_strs[i]
+    Dj_str = D_strs[j]
+    num_str = "E_total * ($fwd_str * ($Di_str) - $rev_str * ($Dj_str))"
+
+    # Denominator: sum of all D[root]
+    all_denom_parts = String[]
+    for root in 1:n
+        append!(all_denom_parts, _denom_tree_str(trees_by_root[root], edges))
+    end
+
+    "($num_str) / ($(join(all_denom_parts, " + ")))"
 end
