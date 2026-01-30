@@ -114,77 +114,21 @@ function _reaches_root(edges, non_root, root, n)
 end
 
 """
-Compute the King-Altman rate equation symbolically and return a compiled function.
-The function signature is: f(params::NamedTuple, concs::NamedTuple) -> Float64
-where params has keys like :k1f, :k1r, :k2f, :k2r, ...
-and concs has metabolite concentration keys like :S, :P, ...
-Plus :E_total for total enzyme concentration.
+Precompute all King-Altman data needed by both `rate_function` and `rate_equation_string`.
 """
-function rate_function(m::EnzymeMechanism)
-    edges, forms, name_to_idx = _build_rate_info(m)
+function _king_altman_data(m::EnzymeMechanism)
+    edges, forms, _ = _build_rate_info(m)
     n = length(forms)
 
-    # Build list of all directed edges for spanning tree enumeration
-    all_dir_edges = Tuple{Int,Int}[]
-    for (i, j) in keys(edges)
-        push!(all_dir_edges, (i, j))
-    end
+    all_dir_edges = collect(keys(edges))
 
-    # For each root node, enumerate spanning trees toward that root
-    # D[root] = sum of products of edge rates for all spanning trees toward root
-    tree_products = Dict{Int, Vector{Vector{Tuple{Tuple{Int,Int}, Tuple{Symbol, Union{Symbol,Nothing}}}}}}()
-
-    for root in 1:n
-        trees = _spanning_trees_toward(n, all_dir_edges, root)
-        tree_products[root] = Vector{Vector{Tuple{Tuple{Int,Int}, Tuple{Symbol, Union{Symbol,Nothing}}}}}()
-        for tree in trees
-            # For each edge in the tree, get the rate contributions
-            # Multiple rate constants can contribute to same directed edge (parallel edges)
-            # The combined rate for edge i→j is sum of individual rates
-            # But in spanning tree, we use the combined edge rate
-            # Actually, King-Altman with combined edges: the rate for edge i→j is
-            # the SUM of all individual rate terms for that direction
-            # So each spanning tree contributes a product of combined edge rates
-            # But expanding: it's a sum of products where each factor picks one
-            # individual rate term from each edge.
-
-            # For simplicity with combined edges, we'll handle it in the numeric function
-            edge_info = Tuple{Tuple{Int,Int}, Tuple{Symbol, Union{Symbol,Nothing}}}[]
-            for (i, j) in tree
-                # This edge uses the combined rate for i→j
-                push!(edge_info, ((i, j), (:_combined, nothing)))
-            end
-            push!(tree_products[root], edge_info)
-        end
-    end
-
-    # Build the rate function as a closure
-    # Combined edge rate for (i,j): sum of k*[met] for all rate terms on that edge
-    function _eval_edge_rate(i, j, params, concs, edges)
-        rate = 0.0
-        for (k_name, met_name) in edges[(i, j)]
-            r = params[k_name]
-            if met_name !== nothing
-                r *= concs[met_name]
-            end
-            rate += r
-        end
-        rate
-    end
-
-    # Precompute the spanning trees structure
     trees_by_root = Dict{Int, Vector{Vector{Tuple{Int,Int}}}}()
     for root in 1:n
         trees_by_root[root] = _spanning_trees_toward(n, all_dir_edges, root)
     end
 
-    # The numerator: use any step to compute net flux
-    # v = sum over all steps of (forward_flux - reverse_flux) ... but actually
-    # for King-Altman: numerator = E_total * (prod_all_forward - prod_all_reverse)
-    # where the products are over all steps in the cycle
-
-    # Collect all forward and reverse rate constants and their metabolites
-    fwd_rates = Tuple{Symbol, Union{Symbol,Nothing}}[]  # (k_name, met_or_nothing)
+    # Collect forward/reverse rate info from mechanism steps
+    fwd_rates = Tuple{Symbol, Union{Symbol,Nothing}}[]
     rev_rates = Tuple{Symbol, Union{Symbol,Nothing}}[]
     for (step_idx, (lhs, rhs)) in enumerate(m.steps)
         m_lhs = [s for s in lhs if s.role == metabolite]
@@ -192,6 +136,23 @@ function rate_function(m::EnzymeMechanism)
         push!(fwd_rates, (Symbol("k$(step_idx)f"), isempty(m_lhs) ? nothing : m_lhs[1].name))
         push!(rev_rates, (Symbol("k$(step_idx)r"), isempty(m_rhs) ? nothing : m_rhs[1].name))
     end
+
+    return edges, trees_by_root, fwd_rates, rev_rates, n
+end
+
+function _rate_term_str(k_name, met_name)
+    met_name === nothing ? string(k_name) : "$(k_name)*$(met_name)"
+end
+
+"""
+Compute the King-Altman rate equation symbolically and return a compiled function.
+The function signature is: f(params::NamedTuple, concs::NamedTuple) -> Float64
+where params has keys like :k1f, :k1r, :k2f, :k2r, ...
+and concs has metabolite concentration keys like :S, :P, ...
+Plus :E_total for total enzyme concentration.
+"""
+function rate_function(m::EnzymeMechanism)
+    edges, trees_by_root, fwd_rates, rev_rates, n = _king_altman_data(m)
 
     let edges=edges, trees_by_root=trees_by_root, n=n, fwd_rates=fwd_rates, rev_rates=rev_rates
         function(params, concs)
@@ -203,7 +164,6 @@ function rate_function(m::EnzymeMechanism)
                 for tree in trees_by_root[root]
                     prod_val = 1.0
                     for (i, j) in tree
-                        # Combined edge rate
                         edge_rate = 0.0
                         for (k_name, met_name) in edges[(i, j)]
                             r = params[k_name]
@@ -243,35 +203,11 @@ end
 Return a string representation of the rate equation.
 """
 function rate_equation_string(m::EnzymeMechanism)
-    edges, forms, name_to_idx = _build_rate_info(m)
-    n = length(forms)
-
-    all_dir_edges = collect(keys(edges))
-
-    trees_by_root = Dict{Int, Vector{Vector{Tuple{Int,Int}}}}()
-    for root in 1:n
-        trees_by_root[root] = _spanning_trees_toward(n, all_dir_edges, root)
-    end
-
-    # Build numerator string
-    function _rate_term_str(k_name, met_name)
-        if met_name === nothing
-            return string(k_name)
-        else
-            return "$(k_name)*$(met_name)"
-        end
-    end
+    edges, trees_by_root, fwd_rates, rev_rates, n = _king_altman_data(m)
 
     # Numerator
-    fwd_terms = String[]
-    rev_terms = String[]
-    for (step_idx, (lhs, rhs)) in enumerate(m.steps)
-        m_lhs = [s for s in lhs if s.role == metabolite]
-        m_rhs = [s for s in rhs if s.role == metabolite]
-        push!(fwd_terms, _rate_term_str(Symbol("k$(step_idx)f"), isempty(m_lhs) ? nothing : m_lhs[1].name))
-        push!(rev_terms, _rate_term_str(Symbol("k$(step_idx)r"), isempty(m_rhs) ? nothing : m_rhs[1].name))
-    end
-
+    fwd_terms = [_rate_term_str(k, met) for (k, met) in fwd_rates]
+    rev_terms = [_rate_term_str(k, met) for (k, met) in rev_rates]
     num_str = "E_total * ($(join(fwd_terms, "*")) - $(join(rev_terms, "*")))"
 
     # Denominator
@@ -280,10 +216,7 @@ function rate_equation_string(m::EnzymeMechanism)
         for tree in trees_by_root[root]
             term_parts = String[]
             for (i, j) in tree
-                edge_terms = String[]
-                for (k_name, met_name) in edges[(i, j)]
-                    push!(edge_terms, _rate_term_str(k_name, met_name))
-                end
+                edge_terms = [_rate_term_str(k, met) for (k, met) in edges[(i, j)]]
                 if length(edge_terms) == 1
                     push!(term_parts, edge_terms[1])
                 else
