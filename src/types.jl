@@ -26,30 +26,67 @@ end
 
 ReactionSpec(s, p) = ReactionSpec(s, p, Species[])
 
-struct EnzymeMechanism
-    steps::Vector{Pair{Vector{Species},Vector{Species}}}
-end
+"""
+    AbstractEnzymeMechanism
+
+Abstract supertype for enzyme mechanisms. Used as element type in collections
+of mechanisms with different type parameters (e.g. from `enumerate_mechanisms`).
+"""
+abstract type AbstractEnzymeMechanism end
 
 """
-    TypedMechanism{N, Steps}
+    EnzymeMechanism{N, Steps, FormNames, MetAtoms}
 
-Type-level encoding of an enzyme mechanism for use with `@generated` functions.
-- `N`: number of enzyme forms
+Singleton type encoding an enzyme mechanism entirely in type parameters for
+compile-time rate equation generation.
+
+- `N::Int`: number of enzyme forms
 - `Steps`: tuple of tuples `(i, j, kf, kr, met_f_or_nothing, met_r_or_nothing)`
+- `FormNames`: tuple of `Symbol`s naming the enzyme forms in order
+- `MetAtoms`: tuple of `(name, ((atom, count), ...))` for each metabolite
 """
-struct TypedMechanism{N, Steps} end
+struct EnzymeMechanism{N, Steps, FormNames, MetAtoms} <: AbstractEnzymeMechanism end
 
 """
-    typed_mechanism(m::EnzymeMechanism) -> TypedMechanism{N, Steps}
+    EnzymeMechanism(steps::Vector{Pair{Vector{Species},Vector{Species}}})
 
-Convert an `EnzymeMechanism` to a `TypedMechanism` with structure encoded in type parameters.
+Construct an `EnzymeMechanism` from a vector of elementary steps, encoding all
+mechanism data into type parameters.
 """
-function typed_mechanism(m::EnzymeMechanism)
-    forms = enzyme_forms(m)
-    name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
+function EnzymeMechanism(steps::Vector{Pair{Vector{Species},Vector{Species}}})
+    # Extract enzyme forms in discovery order
+    forms = Species[]
+    seen = Set{Symbol}()
+    for (lhs, rhs) in steps
+        for s in vcat(lhs, rhs)
+            if s.role == enzyme && s.name ∉ seen
+                push!(seen, s.name)
+                push!(forms, s)
+            end
+        end
+    end
     n = length(forms)
+    name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
+    form_names = Tuple(s.name for s in forms)
 
-    step_tuples = map(enumerate(m.steps)) do (step_idx, (lhs, rhs))
+    # Extract metabolites with atoms
+    mets = Species[]
+    met_seen = Set{Symbol}()
+    for (lhs, rhs) in steps
+        for s in vcat(lhs, rhs)
+            if s.role == metabolite && s.name ∉ met_seen
+                push!(met_seen, s.name)
+                push!(mets, s)
+            end
+        end
+    end
+    met_atoms = Tuple(
+        (s.name, Tuple(Tuple(p) for p in sort!(collect(s.atoms); by=first)))
+        for s in mets
+    )
+
+    # Encode steps
+    step_tuples = map(enumerate(steps)) do (step_idx, (lhs, rhs))
         e_lhs = first(s for s in lhs if s.role == enzyme)
         e_rhs = first(s for s in rhs if s.role == enzyme)
         i = name_to_idx[e_lhs.name]
@@ -63,5 +100,5 @@ function typed_mechanism(m::EnzymeMechanism)
         (i, j, kf, kr, met_f, met_r)
     end
 
-    TypedMechanism{n, Tuple(step_tuples)}()
+    EnzymeMechanism{n, Tuple(step_tuples), form_names, met_atoms}()
 end

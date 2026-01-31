@@ -1,53 +1,27 @@
 using Graphs
 
 """Return all distinct enzyme forms in the mechanism."""
-function enzyme_forms(m::EnzymeMechanism)
-    forms = Species[]
-    seen = Set{Symbol}()
-    for (lhs, rhs) in m.steps
-        for s in vcat(lhs, rhs)
-            if s.role == enzyme && s.name ∉ seen
-                push!(seen, s.name)
-                push!(forms, s)
-            end
-        end
-    end
-    forms
+function enzyme_forms(::EnzymeMechanism{N, Steps, FormNames, MetAtoms}) where {N, Steps, FormNames, MetAtoms}
+    [Species(name, enzyme) for name in FormNames]
 end
 
 """Return all distinct metabolites in the mechanism."""
-function metabolites(m::EnzymeMechanism)
-    mets = Species[]
-    seen = Set{Symbol}()
-    for (lhs, rhs) in m.steps
-        for s in vcat(lhs, rhs)
-            if s.role == metabolite && s.name ∉ seen
-                push!(seen, s.name)
-                push!(mets, s)
-            end
-        end
-    end
-    mets
+function metabolites(::EnzymeMechanism{N, Steps, FormNames, MetAtoms}) where {N, Steps, FormNames, MetAtoms}
+    [Species(name, metabolite, Dict{Symbol,Int}(atom => count for (atom, count) in atoms))
+     for (name, atoms) in MetAtoms]
 end
 
 """Number of distinct enzyme states."""
-n_states(m::EnzymeMechanism) = length(enzyme_forms(m))
+n_states(::EnzymeMechanism{N}) where {N} = N
 
 """
 Build a directed graph of enzyme-form connectivity.
 Returns (graph, forms) where forms[i] is the Species for node i.
 """
-function graph(m::EnzymeMechanism)
+function graph(m::EnzymeMechanism{N, Steps}) where {N, Steps}
     forms = enzyme_forms(m)
-    name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
-    n = length(forms)
-    g = SimpleDiGraph(n)
-    for (lhs, rhs) in m.steps
-        e_lhs = [s for s in lhs if s.role == enzyme]
-        e_rhs = [s for s in rhs if s.role == enzyme]
-        length(e_lhs) == 1 && length(e_rhs) == 1 || error("Each step must have exactly one enzyme form on each side")
-        i = name_to_idx[e_lhs[1].name]
-        j = name_to_idx[e_rhs[1].name]
+    g = SimpleDiGraph(N)
+    for (i, j, kf, kr, met_f, met_r) in Steps
         add_edge!(g, i, j)
         add_edge!(g, j, i)
     end
@@ -58,17 +32,13 @@ end
 Stoichiometry matrix: rows = metabolites, columns = steps.
 Positive = produced, negative = consumed.
 """
-function stoich_matrix(m::EnzymeMechanism)
+function stoich_matrix(m::EnzymeMechanism{N, Steps, FormNames, MetAtoms}) where {N, Steps, FormNames, MetAtoms}
     mets = metabolites(m)
     met_idx = Dict(s.name => i for (i, s) in enumerate(mets))
-    S = zeros(Int, length(mets), length(m.steps))
-    for (j, (lhs, rhs)) in enumerate(m.steps)
-        for s in lhs
-            s.role == metabolite && (S[met_idx[s.name], j] -= 1)
-        end
-        for s in rhs
-            s.role == metabolite && (S[met_idx[s.name], j] += 1)
-        end
+    S = zeros(Int, length(mets), length(Steps))
+    for (step_j, (i, j, kf, kr, met_f, met_r)) in enumerate(Steps)
+        met_f !== nothing && (S[met_idx[met_f], step_j] -= 1)
+        met_r !== nothing && (S[met_idx[met_r], step_j] += 1)
     end
     S
 end
@@ -77,23 +47,39 @@ end
 Default parameter grouping: steps that bind/release the same metabolite share parameters.
 Returns a vector of vectors of step indices.
 """
-function param_groups(m::EnzymeMechanism)
-    # Group by the set of metabolites involved in each step
+function param_groups(m::EnzymeMechanism{N, Steps}) where {N, Steps}
     groups = Dict{Set{Symbol}, Vector{Int}}()
-    for (i, (lhs, rhs)) in enumerate(m.steps)
+    for (step_i, (i, j, kf, kr, met_f, met_r)) in enumerate(Steps)
         mets_in_step = Set{Symbol}()
-        for s in vcat(lhs, rhs)
-            s.role == metabolite && push!(mets_in_step, s.name)
-        end
-        key = mets_in_step
-        push!(get!(groups, key, Int[]), i)
+        met_f !== nothing && push!(mets_in_step, met_f)
+        met_r !== nothing && push!(mets_in_step, met_r)
+        push!(get!(groups, mets_in_step, Int[]), step_i)
     end
     collect(values(groups))
 end
 
 function param_groups(m::EnzymeMechanism, overrides::Dict)
-    # Allow custom grouping
-    base = param_groups(m)
-    # overrides could map step indices to group labels
-    base
+    param_groups(m)
 end
+
+"""
+Reconstruct the raw steps as `Vector{Pair{Vector{Species}, Vector{Species}}}`.
+"""
+function steps(::EnzymeMechanism{N, Steps, FormNames, MetAtoms}) where {N, Steps, FormNames, MetAtoms}
+    met_species = Dict{Symbol, Species}()
+    for (name, atoms) in MetAtoms
+        met_species[name] = Species(name, metabolite, Dict{Symbol,Int}(a => c for (a, c) in atoms))
+    end
+    result = Pair{Vector{Species}, Vector{Species}}[]
+    for (i, j, kf, kr, met_f, met_r) in Steps
+        lhs = Species[Species(FormNames[i], enzyme)]
+        met_f !== nothing && push!(lhs, met_species[met_f])
+        rhs = Species[Species(FormNames[j], enzyme)]
+        met_r !== nothing && push!(rhs, met_species[met_r])
+        push!(result, lhs => rhs)
+    end
+    result
+end
+
+"""Number of steps in the mechanism."""
+n_steps(::EnzymeMechanism{N, Steps}) where {N, Steps} = length(Steps)

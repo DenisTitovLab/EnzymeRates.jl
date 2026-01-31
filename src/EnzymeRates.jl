@@ -1,12 +1,12 @@
 module EnzymeRates
 
-export Species, SpeciesRole, enzyme, metabolite, ReactionSpec, EnzymeMechanism
+export Species, SpeciesRole, enzyme, metabolite, ReactionSpec
+export AbstractEnzymeMechanism, EnzymeMechanism
 export @enzyme_reaction, @mechanism
-export enzyme_forms, metabolites, n_states, graph, stoich_matrix, param_groups
+export enzyme_forms, metabolites, n_states, graph, stoich_matrix, param_groups, steps, n_steps
 export n_independent_params
 export validate
-export rate_function, rate_equation, rate_equation_string
-export TypedMechanism, typed_mechanism
+export rate_equation, rate_equation_string
 export enumerate_mechanisms
 
 include("types.jl")

@@ -1,7 +1,7 @@
 using Graphs
 
 """
-    enumerate_mechanisms(spec::ReactionSpec, n_params::Int) -> Vector{EnzymeMechanism}
+    enumerate_mechanisms(spec::ReactionSpec, n_params::Int) -> Vector{AbstractEnzymeMechanism}
 
 Enumerate all valid enzyme mechanisms for the given reaction specification
 that have exactly `n_params` independent kinetic parameters.
@@ -46,15 +46,6 @@ function enumerate_mechanisms(spec::ReactionSpec, n_params::Int)
     end
 
     # Generate ALL candidate steps between pairs of enzyme forms.
-    # A step connects two enzyme forms and may involve metabolite binding/release.
-    # For forms fi (bound: mi) and fj (bound: mj):
-    #   - Binding: fi + met => fj  where mj = mi ∪ {met}
-    #   - Release: fi => fj + met  where mi = mj ∪ {met}
-    #   - Catalytic release: fi => fj + met_out  where fi has bound metabolites
-    #     that can be converted to met_out (validated by atom conservation later)
-    #   - Catalytic binding+release: fi + met_in => fj + met_out
-    #   - Internal isomerization: fi => fj (same bound metabolites, different arrangement)
-
     candidate_steps = Pair{Vector{Species}, Vector{Species}}[]
 
     for i in 1:length(all_enzyme_forms)
@@ -66,7 +57,7 @@ function enumerate_mechanisms(spec::ReactionSpec, n_params::Int)
             mi_names = Set(s.name for s in mi)
             mj_names = Set(s.name for s in mj)
 
-            # Case 1: Simple binding — fj has exactly one more metabolite than fi
+            # Case 1: Simple binding
             if length(mj) == length(mi) + 1
                 extra = setdiff(mj_names, mi_names)
                 missing_from_j = setdiff(mi_names, mj_names)
@@ -77,19 +68,14 @@ function enumerate_mechanisms(spec::ReactionSpec, n_params::Int)
                 end
             end
 
-            # Case 2: Catalytic release — fi has bound metabolites, fj has fewer,
-            # and a free metabolite is released that differs from what was bound
-            # e.g., ES => E + P  (fi=ES bound:[S], fj=E bound:[], release P)
+            # Case 2: Catalytic release
             if length(mi) == length(mj) + 1
                 lost_names = setdiff(mi_names, mj_names)
                 gained_names = setdiff(mj_names, mi_names)
                 if length(lost_names) == 1 && isempty(gained_names)
-                    # fi has one more bound metabolite than fj
-                    # Can release: the same metabolite (simple unbinding)
-                    # OR a different metabolite (catalytic conversion)
                     lost_name = first(lost_names)
 
-                    # Simple unbinding: release the same metabolite
+                    # Simple unbinding
                     met = _find_met(all_metabolites, lost_name)
                     met !== nothing && push!(candidate_steps, [fi] => [fj, met])
 
@@ -101,13 +87,12 @@ function enumerate_mechanisms(spec::ReactionSpec, n_params::Int)
                 end
             end
 
-            # Case 3: Internal isomerization (same bound metabolites)
+            # Case 3: Internal isomerization
             if mi_names == mj_names && !isempty(mi_names) && fi.name < fj.name
                 push!(candidate_steps, [fi] => [fj])
             end
 
-            # Case 4: Catalytic exchange — one metabolite in, different one out
-            # fi + met_in => fj + met_out, where bound metabolites change
+            # Case 4: Catalytic exchange
             if length(mi) == length(mj)
                 lost = setdiff(mi_names, mj_names)
                 gained = setdiff(mj_names, mi_names)
@@ -125,10 +110,10 @@ function enumerate_mechanisms(spec::ReactionSpec, n_params::Int)
     # Deduplicate candidate steps
     unique!(candidate_steps)
 
-    # Enumerate valid mechanisms
-    results = EnzymeMechanism[]
-    _enumerate_subsets!(results, candidate_steps, spec, n_params)
-    results
+    # Enumerate valid mechanisms — work on raw steps, only construct EnzymeMechanism for valid ones
+    valid_step_sets = Vector{Pair{Vector{Species},Vector{Species}}}[]
+    _enumerate_subsets!(valid_step_sets, candidate_steps, spec, n_params)
+    AbstractEnzymeMechanism[EnzymeMechanism(s) for s in valid_step_sets]
 end
 
 function _find_met(all_metabolites, name)
@@ -177,8 +162,7 @@ end
 
 function _combinations!(results, candidates, spec, target_n_params, size, start, current)
     if length(current) == size
-        m = EnzymeMechanism(copy(current))
-        _check_and_add!(results, m, spec, target_n_params)
+        _check_and_add_raw!(results, current, spec, target_n_params)
         return
     end
     for i in start:length(candidates)
@@ -188,16 +172,59 @@ function _combinations!(results, candidates, spec, target_n_params, size, start,
     end
 end
 
-function _check_and_add!(results, m, spec, target_n_params)
-    forms = enzyme_forms(m)
+"""Check validity of raw steps and add to results if valid."""
+function _check_and_add_raw!(results, raw_steps, spec, target_n_params)
+    # Extract enzyme forms
+    forms = Species[]
+    seen = Set{Symbol}()
+    for (lhs, rhs) in raw_steps
+        for s in vcat(lhs, rhs)
+            if s.role == enzyme && s.name ∉ seen
+                push!(seen, s.name)
+                push!(forms, s)
+            end
+        end
+    end
+
     any(f -> f.name == :E, forms) || return
 
-    g, f = graph(m)
+    # Build graph
+    n = length(forms)
+    name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
+    g = SimpleDiGraph(n)
+    for (lhs, rhs) in raw_steps
+        e_lhs = [s for s in lhs if s.role == enzyme]
+        e_rhs = [s for s in rhs if s.role == enzyme]
+        length(e_lhs) == 1 && length(e_rhs) == 1 || continue
+        i = name_to_idx[e_lhs[1].name]
+        j = name_to_idx[e_rhs[1].name]
+        add_edge!(g, i, j)
+        add_edge!(g, j, i)
+    end
     is_connected(g) || return
 
-    SM = stoich_matrix(m)
+    # Stoichiometry check
+    mets = Species[]
+    met_seen = Set{Symbol}()
+    for (lhs, rhs) in raw_steps
+        for s in vcat(lhs, rhs)
+            if s.role == metabolite && s.name ∉ met_seen
+                push!(met_seen, s.name)
+                push!(mets, s)
+            end
+        end
+    end
+    met_idx = Dict(s.name => i for (i, s) in enumerate(mets))
+    SM = zeros(Int, length(mets), length(raw_steps))
+    for (j, (lhs, rhs)) in enumerate(raw_steps)
+        for s in lhs
+            s.role == metabolite && (SM[met_idx[s.name], j] -= 1)
+        end
+        for s in rhs
+            s.role == metabolite && (SM[met_idx[s.name], j] += 1)
+        end
+    end
     net = vec(sum(SM, dims=2))
-    mets = metabolites(m)
 
     for sub in spec.substrates
         idx = findfirst(s -> s.name == sub.name, mets)
@@ -210,13 +237,97 @@ function _check_and_add!(results, m, spec, target_n_params)
         net[idx] > 0 || return
     end
 
-    validate(m) || return
+    # Validate atomic conservation (on raw steps)
+    _validate_raw(raw_steps, forms) || return
 
-    try
-        n_independent_params(m) == target_n_params || return
-    catch
-        return
+    # Independent params count (on raw steps)
+    s = length(raw_steps)
+    edges_set = Set{Set{Symbol}}()
+    for (lhs, rhs) in raw_steps
+        e_lhs = [sp for sp in lhs if sp.role == enzyme][1].name
+        e_rhs = [sp for sp in rhs if sp.role == enzyme][1].name
+        push!(edges_set, Set([e_lhs, e_rhs]))
+    end
+    n_unique_edges = length(edges_set)
+    n_parallel_extra = s - n_unique_edges
+    n_graph_cycles = n_unique_edges - n + 1
+    n_cycles = n_graph_cycles + n_parallel_extra
+    if n_cycles == 0
+        n_cycles = 1
+    end
+    n_indep = 2 * s - n_cycles
+    n_indep == target_n_params || return
+
+    push!(results, copy(raw_steps))
+end
+
+"""Validate atomic conservation on raw steps without constructing EnzymeMechanism."""
+function _validate_raw(raw_steps, forms)
+    name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
+    enzyme_atoms = Dict{Symbol, Dict{Symbol,Int}}()
+
+    root_name = forms[1].name
+    enzyme_atoms[root_name] = Dict{Symbol,Int}()
+    visited = Set{Symbol}([root_name])
+    queue = [root_name]
+
+    while !isempty(queue)
+        current = popfirst!(queue)
+        for (lhs, rhs) in raw_steps
+            e_lhs = [s for s in lhs if s.role == enzyme]
+            e_rhs = [s for s in rhs if s.role == enzyme]
+            length(e_lhs) == 1 && length(e_rhs) == 1 || continue
+
+            src = e_lhs[1].name
+            dst = e_rhs[1].name
+
+            for (from, to, consumed, produced) in [
+                (src, dst, lhs, rhs),
+                (dst, src, rhs, lhs)
+            ]
+                if from == current && to ∉ visited
+                    new_atoms = copy(enzyme_atoms[from])
+                    for s in consumed
+                        s.role == metabolite || continue
+                        for (atom, count) in s.atoms
+                            new_atoms[atom] = get(new_atoms, atom, 0) + count
+                        end
+                    end
+                    for s in produced
+                        s.role == metabolite || continue
+                        for (atom, count) in s.atoms
+                            new_atoms[atom] = get(new_atoms, atom, 0) - count
+                        end
+                    end
+                    filter!(p -> p.second != 0, new_atoms)
+                    enzyme_atoms[to] = new_atoms
+                    push!(visited, to)
+                    push!(queue, to)
+                end
+            end
+        end
     end
 
-    push!(results, m)
+    for (lhs, rhs) in raw_steps
+        lhs_atoms = Dict{Symbol,Int}()
+        for s in lhs
+            atoms_to_add = s.role == enzyme ? get(enzyme_atoms, s.name, Dict{Symbol,Int}()) : s.atoms
+            for (atom, count) in atoms_to_add
+                lhs_atoms[atom] = get(lhs_atoms, atom, 0) + count
+            end
+        end
+        rhs_atoms = Dict{Symbol,Int}()
+        for s in rhs
+            atoms_to_add = s.role == enzyme ? get(enzyme_atoms, s.name, Dict{Symbol,Int}()) : s.atoms
+            for (atom, count) in atoms_to_add
+                rhs_atoms[atom] = get(rhs_atoms, atom, 0) + count
+            end
+        end
+        filter!(p -> p.second != 0, lhs_atoms)
+        filter!(p -> p.second != 0, rhs_atoms)
+        if lhs_atoms != rhs_atoms
+            return false
+        end
+    end
+    return true
 end

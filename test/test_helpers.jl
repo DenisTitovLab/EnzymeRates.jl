@@ -4,14 +4,15 @@ using Random
 """
 Independent reference: compute QSSA rate using Laplacian cofactor method.
 """
-function reference_qssa(m::EnzymeMechanism, params::NamedTuple, concs::NamedTuple; E_total=1.0)
+function reference_qssa(m, params::NamedTuple, concs::NamedTuple; E_total=1.0)
     forms = enzyme_forms(m)
     n = length(forms)
     name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
+    raw = steps(m)
 
     # Build rate matrix R[i,j] = pseudo-first-order rate from i to j
     R = zeros(n, n)
-    for (step_idx, (lhs, rhs)) in enumerate(m.steps)
+    for (step_idx, (lhs, rhs)) in enumerate(raw)
         e_lhs = [s for s in lhs if s.role == enzyme][1]
         e_rhs = [s for s in rhs if s.role == enzyme][1]
         i = name_to_idx[e_lhs.name]
@@ -59,7 +60,7 @@ function reference_qssa(m::EnzymeMechanism, params::NamedTuple, concs::NamedTupl
     E_conc = D ./ D_total .* E_total
 
     # Compute rate using first step
-    lhs, rhs = m.steps[1]
+    lhs, rhs = raw[1]
     e_lhs = [s for s in lhs if s.role == enzyme][1]
     e_rhs = [s for s in rhs if s.role == enzyme][1]
     i = name_to_idx[e_lhs.name]
@@ -123,11 +124,11 @@ function _unicyclic_flux(f::AbstractVector, r::AbstractVector, Et)
 end
 
 
-function random_params_concs(m::EnzymeMechanism, met_names::Vector{Symbol}; rng=Random.default_rng())
-    n_steps = length(m.steps)
+function random_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rng())
+    ns = n_steps(m)
     param_keys = Symbol[]
     param_vals = Float64[]
-    for i in 1:n_steps
+    for i in 1:ns
         push!(param_keys, Symbol("k$(i)f"))
         push!(param_vals, 0.1 + 9.9 * rand(rng))
         push!(param_keys, Symbol("k$(i)r"))
@@ -146,9 +147,8 @@ Test that `rate_equation` is non-allocating and fast for the given mechanism.
 Must be a standalone function to avoid @testset closure boxing.
 """
 function test_rate_equation_performance(m, params, concs)
-    tm = typed_mechanism(m)
-    rate_equation(tm, params, concs) # warmup/compile
-    allocs = @allocated rate_equation(tm, params, concs)
-    t = @elapsed for _ in 1:10_000; rate_equation(tm, params, concs); end
+    rate_equation(m, params, concs) # warmup/compile
+    allocs = @allocated rate_equation(m, params, concs)
+    t = @elapsed for _ in 1:10_000; rate_equation(m, params, concs); end
     return allocs, t / 10_000
 end

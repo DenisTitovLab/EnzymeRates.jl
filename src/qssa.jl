@@ -1,7 +1,7 @@
 using Combinatorics: permutations
 
 """
-    _symbolic_rate_expr(N, Steps, CNames)
+    _symbolic_rate_expr(N, Steps, PNames, CNames)
 
 Build a symbolic `Expr` for the QSSA rate equation using Laplacian cofactor
 determinants expanded via the Leibniz formula. All work is purely symbolic — the
@@ -131,13 +131,13 @@ function _perm_sign(perm)
 end
 
 """
-    rate_equation(::TypedMechanism{N,Steps}, params::NamedTuple, concs::NamedTuple)
+    rate_equation(::EnzymeMechanism{N,Steps}, params::NamedTuple, concs::NamedTuple)
 
 Compute the QSSA steady-state rate. The body is generated at compile time
 as a single arithmetic expression with no allocations, loops, or matrix ops.
 """
 @generated function rate_equation(
-    ::TypedMechanism{N, Steps},
+    ::EnzymeMechanism{N, Steps},
     params::NamedTuple{PNames},
     concs::NamedTuple{CNames}
 ) where {N, Steps, PNames, CNames}
@@ -150,11 +150,10 @@ end
 Return a string representation of the rate equation, matching what `rate_equation` computes.
 """
 function rate_equation_string(m::EnzymeMechanism)
-    tm = typed_mechanism(m)
-    _rate_equation_string(tm)
+    _rate_equation_string(m)
 end
 
-function _rate_equation_string(::TypedMechanism{N, Steps}) where {N, Steps}
+function _rate_equation_string(::EnzymeMechanism{N, Steps}) where {N, Steps}
     # Build step info to get metabolite and parameter names
     met_names = Symbol[]
     param_names = Symbol[]
@@ -174,15 +173,4 @@ function _rate_equation_string(::TypedMechanism{N, Steps}) where {N, Steps}
     s = replace(s, "params." => "")
     s = replace(s, "concs." => "")
     s
-end
-
-"""
-    rate_function(m::EnzymeMechanism)
-
-Return a function `(params, concs) -> rate` that computes the QSSA rate equation.
-Uses `@generated` `rate_equation` internally for zero-allocation evaluation.
-"""
-function rate_function(m::EnzymeMechanism)
-    tm = typed_mechanism(m)
-    (params, concs) -> rate_equation(tm, params, concs)
 end

@@ -34,13 +34,12 @@
 
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(1001)
-        fn = rate_function(m)
         for _ in 1:20
             params, concs = random_params_concs(m, [:S, :P]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
             p_pkg = merge(params, (E_total=Et,))
-            @test fn(p_pkg, concs) ≈ rate_seq_uniuni(p, concs) rtol=1e-12
+            @test rate_equation(m, p_pkg, concs) ≈ rate_seq_uniuni(p, concs) rtol=1e-12
         end
     end
 
@@ -48,8 +47,7 @@
         rng = Random.MersenneTwister(42)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S, :P]; rng=rng)
-            fn = rate_function(m)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-10
         end
@@ -60,8 +58,7 @@
         Keq = params.k1f * params.k2f / (params.k1r * params.k2r)
         S_eq = 1.0
         P_eq = Keq * S_eq
-        fn = rate_function(m)
-        v = fn(params, (S=S_eq, P=P_eq))
+        v = rate_equation(m, params, (S=S_eq, P=P_eq))
         @test abs(v) < 1e-12
     end
 
@@ -104,13 +101,12 @@ end
 
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(1002)
-        fn = rate_function(m)
         for _ in 1:20
             params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
             p_pkg = merge(params, (E_total=Et,))
-            @test fn(p_pkg, concs) ≈ rate_seq_unibi(p, concs) rtol=1e-10
+            @test rate_equation(m, p_pkg, concs) ≈ rate_seq_unibi(p, concs) rtol=1e-10
         end
     end
 
@@ -118,8 +114,7 @@ end
         rng = Random.MersenneTwister(123)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
-            fn = rate_function(m)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-8
         end
@@ -133,8 +128,7 @@ end
         P_prod = Keq * S1_eq
         P1_eq = sqrt(P_prod)
         P2_eq = sqrt(P_prod)
-        fn = rate_function(m)
-        v = fn(params, (S1=S1_eq, P1=P1_eq, P2=P2_eq))
+        v = rate_equation(m, params, (S1=S1_eq, P1=P1_eq, P2=P2_eq))
         @test abs(v) < 1e-10
     end
 
@@ -181,12 +175,11 @@ end
     end
 
     @testset "Denominator structure" begin
-        fn = rate_function(m)
         base_params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7)
         eps_val = 1e-10
         concs = (A=eps_val, P=eps_val, B=eps_val, Q=eps_val)
-        v = fn(base_params, concs)
+        v = rate_equation(m, base_params, concs)
         pf = prod(base_params[Symbol("k$(i)f")] for i in 1:6)
         pr = prod(base_params[Symbol("k$(i)r")] for i in 1:6)
         num = pf * eps_val * eps_val - pr * eps_val * eps_val
@@ -202,8 +195,7 @@ end
         rng = Random.MersenneTwister(456)
         for _ in 1:10
             params, concs = random_params_concs(m, [:A, :P, :B, :Q]; rng=rng)
-            fn = rate_function(m)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-8
         end
@@ -250,13 +242,12 @@ end
 
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2001)
-        fn = rate_function(m)
         for _ in 1:20
             params, concs = random_params_concs(m, [:S1, :S2, :P1]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
             p_pkg = merge(params, (E_total=Et,))
-            @test fn(p_pkg, concs) ≈ rate_seq_biuni(p, concs) rtol=1e-10
+            @test rate_equation(m, p_pkg, concs) ≈ rate_seq_biuni(p, concs) rtol=1e-10
         end
     end
 
@@ -312,13 +303,12 @@ end
 
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2002)
-        fn = rate_function(m)
         for _ in 1:20
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
             p_pkg = merge(params, (E_total=Et,))
-            @test fn(p_pkg, concs) ≈ rate_seq_bibi(p, concs) rtol=1e-10
+            @test rate_equation(m, p_pkg, concs) ≈ rate_seq_bibi(p, concs) rtol=1e-10
         end
     end
 
@@ -326,8 +316,7 @@ end
         rng = Random.MersenneTwister(789)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
-            fn = rate_function(m)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-8
         end
@@ -340,8 +329,7 @@ end
         S1_eq = 1.0; S2_eq = 1.0
         P_prod = Keq * S1_eq * S2_eq
         P1_eq = sqrt(P_prod); P2_eq = sqrt(P_prod)
-        fn = rate_function(m)
-        v = fn(params, (S1=S1_eq, S2=S2_eq, P1=P1_eq, P2=P2_eq))
+        v = rate_equation(m, params, (S1=S1_eq, S2=S2_eq, P1=P1_eq, P2=P2_eq))
         @test abs(v) < 1e-10
     end
 
@@ -392,13 +380,12 @@ end
 
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2005)
-        fn = rate_function(m)
         for _ in 1:20
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2, :P3]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
             p_pkg = merge(params, (E_total=Et,))
-            @test fn(p_pkg, concs) ≈ rate_seq_biter(p, concs) rtol=1e-10
+            @test rate_equation(m, p_pkg, concs) ≈ rate_seq_biter(p, concs) rtol=1e-10
         end
     end
 
@@ -450,13 +437,12 @@ end
 
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2003)
-        fn = rate_function(m)
         for _ in 1:20
             params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
             p_pkg = merge(params, (E_total=Et,))
-            @test fn(p_pkg, concs) ≈ rate_seq_terbi(p, concs) rtol=1e-10
+            @test rate_equation(m, p_pkg, concs) ≈ rate_seq_terbi(p, concs) rtol=1e-10
         end
     end
 
@@ -511,13 +497,12 @@ end
 
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2004)
-        fn = rate_function(m)
         for _ in 1:20
             params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(params, (Et=Et,))
             p_pkg = merge(params, (E_total=Et,))
-            @test fn(p_pkg, concs) ≈ rate_seq_terter(p, concs) rtol=1e-10
+            @test rate_equation(m, p_pkg, concs) ≈ rate_seq_terter(p, concs) rtol=1e-10
         end
     end
 
@@ -570,10 +555,9 @@ end
 
     @testset "Reference comparison" begin
         rng = Random.MersenneTwister(3001)
-        fn = rate_function(m)
         for _ in 1:20
             params, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-8
         end
@@ -583,12 +567,11 @@ end
         params = (k1f=2.0, k1r=0.5, k2f=1.5, k2r=0.3, k3f=3.0, k3r=0.4,
                   k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8)
         # At equilibrium the flux must vanish. Use reference to find equilibrium concs.
-        # Instead, just verify that rate_function matches reference at random points.
-        fn = rate_function(m)
+        # Instead, just verify that rate_equation matches reference at random points.
         rng = Random.MersenneTwister(3002)
         for _ in 1:10
             _, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             v_ref = reference_qssa(m, params, concs)
             @test v_ka ≈ v_ref rtol=1e-10
         end

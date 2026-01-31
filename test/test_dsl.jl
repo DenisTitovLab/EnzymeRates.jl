@@ -28,14 +28,15 @@
             [ES] --> [E, P(C=1)]
         end
         @test m isa EnzymeMechanism
-        @test length(m.steps) == 2
+        @test n_steps(m) == 2
         @test n_states(m) == 2
         @test Set(s.name for s in enzyme_forms(m)) == Set([:E, :ES])
         @test Set(s.name for s in metabolites(m)) == Set([:S, :P])
         @test validate(m) == true
 
         # Verify species roles and atoms
-        all_species = vcat(m.steps[1].first, m.steps[1].second, m.steps[2].first, m.steps[2].second)
+        raw = steps(m)
+        all_species = vcat(raw[1].first, raw[1].second, raw[2].first, raw[2].second)
         e_sp = filter(s -> s.name == :E, all_species)[1]
         s_sp = filter(s -> s.name == :S, all_species)[1]
         @test e_sp.role == enzyme
@@ -45,8 +46,7 @@
         # Numeric check: same as Uni-Uni spot check
         params = (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1)
         concs = (S=0.7, P=0.3)
-        fn = rate_function(m)
-        @test fn(params, concs) ≈ 0.9091 atol=0.001
+        @test rate_equation(m, params, concs) ≈ 0.9091 atol=0.001
 
         # Multi-step mechanism
         m2 = @mechanism begin

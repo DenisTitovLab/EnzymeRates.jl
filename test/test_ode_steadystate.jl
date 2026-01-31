@@ -1,12 +1,12 @@
 using OrdinaryDiffEqFIRK
 
-function build_ode_rhs(m::EnzymeMechanism, params, concs)
+function build_ode_rhs(m, params, concs)
     forms = enzyme_forms(m)
     name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
 
     # Precompute pseudo-first-order rates for each step
     step_data = []
-    for (step_idx, (lhs, rhs)) in enumerate(m.steps)
+    for (step_idx, (lhs, rhs)) in enumerate(steps(m))
         e_lhs = [s for s in lhs if s.role == enzyme][1]
         e_rhs = [s for s in rhs if s.role == enzyme][1]
         i = name_to_idx[e_lhs.name]
@@ -36,7 +36,7 @@ function build_ode_rhs(m::EnzymeMechanism, params, concs)
     return rhs!
 end
 
-function ode_steady_state_flux(m::EnzymeMechanism, params, concs; E_total=1.0)
+function ode_steady_state_flux(m, params, concs; E_total=1.0)
     forms = enzyme_forms(m)
     n = length(forms)
 
@@ -49,7 +49,7 @@ function ode_steady_state_flux(m::EnzymeMechanism, params, concs; E_total=1.0)
     u_ss = sol.u[end]
 
     # Flux through step 1
-    lhs, rhs = m.steps[1]
+    lhs, rhs = steps(m)[1]
     name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
     e_lhs = [s for s in lhs if s.role == enzyme][1]
     e_rhs = [s for s in rhs if s.role == enzyme][1]
@@ -76,13 +76,11 @@ end
         P = Species(:P, metabolite, Dict(:C => 1))
 
         m = EnzymeMechanism([[E, S] => [ES], [ES] => [E, P]])
-        fn = rate_function(m)
-
         rng = Random.MersenneTwister(2001)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S, :P]; rng=rng)
             v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -102,13 +100,11 @@ end
             [EP1P2] => [EP2, P1],
             [EP2] => [E, P2]
         ])
-        fn = rate_function(m)
-
         rng = Random.MersenneTwister(3001)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
             v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -129,13 +125,11 @@ end
             [E, A] => [EA], [EA] => [FP], [FP] => [F, P_met],
             [F, B] => [FB], [FB] => [EQ], [EQ] => [E, Q]
         ])
-        fn = rate_function(m)
-
         rng = Random.MersenneTwister(3002)
         for _ in 1:10
             params, concs = random_params_concs(m, [:A, :P, :B, :Q]; rng=rng)
             v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -155,13 +149,11 @@ end
             [ES1S2] => [EP1],
             [EP1] => [E, P1]
         ])
-        fn = rate_function(m)
-
         rng = Random.MersenneTwister(3003)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :P1]; rng=rng)
             v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -184,13 +176,11 @@ end
             [EP1P2] => [EP2, P1],
             [EP2] => [E, P2]
         ])
-        fn = rate_function(m)
-
         rng = Random.MersenneTwister(3004)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
             v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -216,13 +206,11 @@ end
             [EP2P3] => [EP3, P2],
             [EP3] => [E, P3]
         ])
-        fn = rate_function(m)
-
         rng = Random.MersenneTwister(3005)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2, :P3]; rng=rng)
             v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -248,13 +236,11 @@ end
             [EP1P2] => [EP2, P1],
             [EP2] => [E, P2]
         ])
-        fn = rate_function(m)
-
         rng = Random.MersenneTwister(3006)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2]; rng=rng)
             v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -283,13 +269,11 @@ end
             [EP2P3] => [EP3, P2],
             [EP3] => [E, P3]
         ])
-        fn = rate_function(m)
-
         rng = Random.MersenneTwister(3007)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
             v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -315,13 +299,11 @@ end
             [EPQ]    => [EQ, P],
             [EQ]     => [E, Q]
         ])
-        fn = rate_function(m)
-
         rng = Random.MersenneTwister(3008)
         for _ in 1:10
             params, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
             v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = fn(params, concs)
+            v_ka = rate_equation(m, params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end

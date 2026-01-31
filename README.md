@@ -30,9 +30,8 @@ end
 
 validate(m)  # true
 
-# Compiled rate function: fn(params, concs) -> Float64
-fn = rate_function(m)
-v = fn((k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1), (S=0.7, P=0.3))
+# Compute rate: rate_equation(m, params, concs) -> Float64
+v = rate_equation(m, (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1), (S=0.7, P=0.3))
 
 # Human-readable equation
 rate_equation_string(m)
@@ -77,7 +76,7 @@ m = EnzymeMechanism([[E, S] => [ES], [ES] => [E, P]])
 
 ## Rate Equations
 
-`rate_function(m)` returns a closure `(params, concs) -> Float64`:
+`rate_equation(m, params, concs)` computes the steady-state rate, returning `Float64`:
 
 - `params`: `NamedTuple` of rate constants (`k1f`, `k1r`, `k2f`, `k2r`, ...) and optionally `E_total` (defaults to `1.0`)
 - `concs`: `NamedTuple` of metabolite concentrations (`S`, `P`, ...)
@@ -123,7 +122,7 @@ Each returned mechanism is guaranteed to contain free enzyme `E`, have a connect
 
 | Function | Description |
 |----------|-------------|
-| `rate_function(m)` | Compiled QSSA rate equation: `(params, concs) -> Float64`. |
+| `rate_equation(m, params, concs)` | Compiled QSSA rate equation → `Float64`. Zero allocations. |
 | `rate_equation_string(m)` | Human-readable rate equation string. |
 | `enzyme_forms(m)` | Distinct enzyme states. |
 | `metabolites(m)` | Distinct metabolites. |
