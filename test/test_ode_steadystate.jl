@@ -39,6 +39,7 @@ end
 function ode_steady_state_flux(m, params, concs; E_total=1.0)
     forms = enzyme_forms(m)
     n = length(forms)
+    ref_name, nu_ref = _reference_metabolite(m)
 
     u0 = zeros(n)
     u0[1] = E_total
@@ -48,24 +49,31 @@ function ode_steady_state_flux(m, params, concs; E_total=1.0)
     sol = solve(prob, RadauIIA9(); abstol=1e-12, reltol=1e-12)
     u_ss = sol.u[end]
 
-    # Flux through step 1
-    lhs, rhs = steps(m)[1]
     name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
-    e_lhs = [s for s in lhs if s.role == enzyme][1]
-    e_rhs = [s for s in rhs if s.role == enzyme][1]
-    i = name_to_idx[e_lhs.name]
-    j = name_to_idx[e_rhs.name]
+    v = 0.0
+    for (step_idx, (lhs, rhs)) in enumerate(steps(m))
+        e_lhs = [s for s in lhs if s.role == enzyme][1]
+        e_rhs = [s for s in rhs if s.role == enzyme][1]
+        i = name_to_idx[e_lhs.name]
+        j = name_to_idx[e_rhs.name]
 
-    m_lhs = [s for s in lhs if s.role == metabolite]
-    m_rhs = [s for s in rhs if s.role == metabolite]
+        m_lhs = [s for s in lhs if s.role == metabolite]
+        m_rhs = [s for s in rhs if s.role == metabolite]
 
-    step_idx = 1
-    kf = Float64(params[Symbol("k$(step_idx)f")])
-    kr = Float64(params[Symbol("k$(step_idx)r")])
-    rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1].name]
-    rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1].name]
+        kf = Float64(params[Symbol("k$(step_idx)f")])
+        kr = Float64(params[Symbol("k$(step_idx)r")])
+        rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1].name]
+        rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1].name]
 
-    return rf * u_ss[i] - rr * u_ss[j]
+        flux = rf * u_ss[i] - rr * u_ss[j]
+        if !isempty(m_lhs) && m_lhs[1].name == ref_name
+            v += flux
+        elseif !isempty(m_rhs) && m_rhs[1].name == ref_name
+            v -= flux
+        end
+    end
+
+    return v / abs(nu_ref)
 end
 
 @testset "ODE steady-state validation" begin

@@ -10,6 +10,8 @@ function reference_qssa(m, params::NamedTuple, concs::NamedTuple; E_total=1.0)
     name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
     raw = steps(m)
 
+    ref_name, nu_ref = _reference_metabolite(m)
+
     # Build rate matrix R[i,j] = pseudo-first-order rate from i to j
     R = zeros(n, n)
     for (step_idx, (lhs, rhs)) in enumerate(raw)
@@ -59,24 +61,32 @@ function reference_qssa(m, params::NamedTuple, concs::NamedTuple; E_total=1.0)
     D_total = sum(D)
     E_conc = D ./ D_total .* E_total
 
-    # Compute rate using first step
-    lhs, rhs = raw[1]
-    e_lhs = [s for s in lhs if s.role == enzyme][1]
-    e_rhs = [s for s in rhs if s.role == enzyme][1]
-    i = name_to_idx[e_lhs.name]
-    j = name_to_idx[e_rhs.name]
+    # Compute net consumption of reference substrate
+    v = 0.0
+    for (step_idx, (lhs, rhs)) in enumerate(raw)
+        e_lhs = [s for s in lhs if s.role == enzyme][1]
+        e_rhs = [s for s in rhs if s.role == enzyme][1]
+        i = name_to_idx[e_lhs.name]
+        j = name_to_idx[e_rhs.name]
 
-    m_lhs = [s for s in lhs if s.role == metabolite]
-    m_rhs = [s for s in rhs if s.role == metabolite]
+        m_lhs = [s for s in lhs if s.role == metabolite]
+        m_rhs = [s for s in rhs if s.role == metabolite]
 
-    kf = params[:k1f]
-    kr = params[:k1r]
+        kf = params[Symbol("k$(step_idx)f")]
+        kr = params[Symbol("k$(step_idx)r")]
 
-    rf = kf * (isempty(m_lhs) ? 1.0 : concs[m_lhs[1].name])
-    rr = kr * (isempty(m_rhs) ? 1.0 : concs[m_rhs[1].name])
+        rf = kf * (isempty(m_lhs) ? 1.0 : concs[m_lhs[1].name])
+        rr = kr * (isempty(m_rhs) ? 1.0 : concs[m_rhs[1].name])
 
-    v = rf * E_conc[i] - rr * E_conc[j]
-    return v
+        flux = rf * E_conc[i] - rr * E_conc[j]
+        if !isempty(m_lhs) && m_lhs[1].name == ref_name
+            v += flux
+        elseif !isempty(m_rhs) && m_rhs[1].name == ref_name
+            v -= flux
+        end
+    end
+
+    return v / abs(nu_ref)
 end
 
 """
@@ -151,4 +161,36 @@ function test_rate_equation_performance(m, params, concs)
     allocs = @allocated rate_equation(m, params, concs)
     t = @elapsed for _ in 1:10_000; rate_equation(m, params, concs); end
     return allocs, t / 10_000
+end
+
+function _reference_metabolite(m)
+    raw = steps(m)
+    met_order = Symbol[]
+    seen = Set{Symbol}()
+    net = Dict{Symbol,Int}()
+
+    for (lhs, rhs) in raw
+        for s in lhs
+            s.role == metabolite || continue
+            if s.name ∉ seen
+                push!(seen, s.name)
+                push!(met_order, s.name)
+            end
+            net[s.name] = get(net, s.name, 0) - 1
+        end
+        for s in rhs
+            s.role == metabolite || continue
+            if s.name ∉ seen
+                push!(seen, s.name)
+                push!(met_order, s.name)
+            end
+            net[s.name] = get(net, s.name, 0) + 1
+        end
+    end
+
+    for name in met_order
+        coeff = get(net, name, 0)
+        coeff < 0 && return name, coeff
+    end
+    error("No substrate found in mechanism")
 end

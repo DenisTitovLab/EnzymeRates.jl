@@ -60,4 +60,25 @@
         @test n_states(m2) == 6
         @test validate(m2) == true
     end
+
+    @testset "Elementary steps" begin
+        @test_throws ErrorException @mechanism begin
+            [E, S(C=1), P(C=1)] --> [ESP]
+        end
+
+        spec = @enzyme_reaction begin
+            substrates: S(C=1)
+            products:   P(C=1)
+            regulators: I(C=1)
+        end
+
+        E = Species(:E, enzyme)
+        ES = Species(:ES, enzyme)
+        EI = Species(:EI, enzyme)
+        S = Species(:S, metabolite, Dict(:C => 1))
+        P = Species(:P, metabolite, Dict(:C => 1))
+        I = Species(:I, metabolite, Dict(:C => 1))
+        steps = [[E, S] => [ES], [ES] => [E, P], [E, I] => [EI]]
+        @test_throws ErrorException EnzymeMechanism(spec, steps)
+    end
 end

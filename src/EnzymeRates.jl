@@ -3,6 +3,7 @@ module EnzymeRates
 export Species, SpeciesRole, enzyme, metabolite, ReactionSpec
 export AbstractEnzymeMechanism, EnzymeMechanism
 export @enzyme_reaction, @mechanism
+export substrates, products, regulators
 export enzyme_forms, metabolites, n_states, graph, stoich_matrix, param_groups, steps, n_steps
 export n_independent_params
 export validate

@@ -76,7 +76,8 @@ m = EnzymeMechanism([[E, S] => [ES], [ES] => [E, P]])
 
 ## Rate Equations
 
-`rate_equation(m, params, concs)` computes the steady-state rate, returning `Float64`:
+`rate_equation(m, params, concs)` computes the steady-state rate (net consumption of the
+first substrate, normalized by its stoichiometric coefficient), returning `Float64`:
 
 - `params`: `NamedTuple` of rate constants (`k1f`, `k1r`, `k2f`, `k2r`, ...) and optionally `E_total` (defaults to `1.0`)
 - `concs`: `NamedTuple` of metabolite concentrations (`S`, `P`, ...)

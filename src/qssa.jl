@@ -1,20 +1,60 @@
 using Combinatorics: permutations
 
+function _steps_from_species_reactions(Species, Reactions)
+    enzs = Species[4]
+    enz_names = Tuple(e[1] for e in enzs)
+    steps = map(enumerate(Reactions)) do (step_idx, (lhs, rhs))
+        e_lhs = nothing
+        e_rhs = nothing
+        m_lhs = nothing
+        m_rhs = nothing
+        for s in lhs
+            if s in enz_names
+                e_lhs = s
+            else
+                m_lhs = s
+            end
+        end
+        for s in rhs
+            if s in enz_names
+                e_rhs = s
+            else
+                m_rhs = s
+            end
+        end
+        i = findfirst(==(e_lhs), enz_names)
+        j = findfirst(==(e_rhs), enz_names)
+        kf = Symbol("k$(step_idx)f")
+        kr = Symbol("k$(step_idx)r")
+        (i, j, kf, kr, m_lhs, m_rhs)
+    end
+    return Tuple(steps)
+end
+
 """
-    _symbolic_rate_expr(N, Steps, PNames, CNames)
+    _symbolic_rate_expr(Species, Reactions, PNames, CNames)
 
 Build a symbolic `Expr` for the QSSA rate equation using Laplacian cofactor
-determinants expanded via the Leibniz formula. All work is purely symbolic — the
-returned expression contains only `+` and `*` on `params.*` and `concs.*` fields.
-
-Zero entries in the sparse Laplacian are tracked so that permutations hitting a zero
-are skipped entirely, keeping the expression compact.
+determinants expanded via the Leibniz formula. The rate is defined as the
+net consumption of the first substrate, normalized by its stoichiometry.
 """
-function _symbolic_rate_expr(N, Steps, PNames, CNames)
-    # 1. Build symbolic rate matrix R[i,j] as Expr (or 0 meaning absent)
-    R = fill(0, N, N)  # 0 = no expression yet; will become Expr when assigned
+function _symbolic_rate_expr(Species, Reactions, PNames, CNames)
+    subs, prods, _, enzs = Species
+    isempty(subs) && error("No substrates defined")
+    ref_name = subs[1][1]
+    nu_ref = 0
+    for (name, _) in subs
+        name == ref_name && (nu_ref -= 1)
+    end
+    for (name, _) in prods
+        name == ref_name && (nu_ref += 1)
+    end
+    nu_ref == 0 && error("Reference substrate has zero net stoichiometry")
 
-    # We need a matrix of Union{Int,Expr}
+    Steps = _steps_from_species_reactions(Species, Reactions)
+    N = length(enzs)
+
+    # 1. Build symbolic rate matrix R[i,j] as Expr (or 0 meaning absent)
     R = Matrix{Any}(fill(0, N, N))
 
     for (i, j, kf, kr, met_f, met_r) in Steps
@@ -90,22 +130,31 @@ function _symbolic_rate_expr(N, Steps, PNames, CNames)
         end
     end
 
-    # 4. Numerator: flux through step 1
-    i, j, kf, kr, met_f, met_r = Steps[1]
-    rf_expr = met_f === nothing ? :(params.$kf) : :(params.$kf * concs.$met_f)
-    rr_expr = met_r === nothing ? :(params.$kr) : :(params.$kr * concs.$met_r)
+    # 4. Denominator: sum of all cofactors
+    nonzero_D = [D[k] for k in 1:N if D[k] != 0]
+    denom = length(nonzero_D) == 1 ? nonzero_D[1] : Expr(:call, :+, nonzero_D...)
 
     # E_total
     has_etotal = :E_total in PNames
     et_expr = has_etotal ? :(params.E_total) : 1.0
 
-    num = :($et_expr * ($rf_expr * $(D[i]) - $rr_expr * $(D[j])))
+    # 5. Net consumption of reference substrate
+    terms = Any[]
+    for (i, j, kf, kr, met_f, met_r) in Steps
+        rf_expr = met_f === nothing ? :(params.$kf) : :(params.$kf * concs.$met_f)
+        rr_expr = met_r === nothing ? :(params.$kr) : :(params.$kr * concs.$met_r)
+        flux = :($et_expr * ($rf_expr * $(D[i]) - $rr_expr * $(D[j])) / $denom)
+        if met_f === ref_name
+            push!(terms, flux)
+        elseif met_r === ref_name
+            push!(terms, :(-$flux))
+        end
+    end
 
-    # 5. Denominator: sum of all cofactors
-    nonzero_D = [D[k] for k in 1:N if D[k] != 0]
-    denom = length(nonzero_D) == 1 ? nonzero_D[1] : Expr(:call, :+, nonzero_D...)
-
-    return :($num / $denom)
+    net_expr = isempty(terms) ? 0 :
+               length(terms) == 1 ? terms[1] : Expr(:call, :+, terms...)
+    abs_nu = abs(nu_ref)
+    abs_nu == 1 ? net_expr : :($net_expr / $abs_nu)
 end
 
 """Compute sign of a permutation (as +1 or -1)."""
@@ -131,17 +180,19 @@ function _perm_sign(perm)
 end
 
 """
-    rate_equation(::EnzymeMechanism{N,Steps}, params::NamedTuple, concs::NamedTuple)
+    rate_equation(::EnzymeMechanism{Species,Reactions}, params::NamedTuple, concs::NamedTuple)
 
-Compute the QSSA steady-state rate. The body is generated at compile time
-as a single arithmetic expression with no allocations, loops, or matrix ops.
+Compute the QSSA steady-state rate (net consumption of the first substrate,
+normalized by its stoichiometric coefficient). The body is generated at
+compile time as a single arithmetic expression with no allocations, loops,
+or matrix ops.
 """
 @generated function rate_equation(
-    ::EnzymeMechanism{N, Steps},
+    ::EnzymeMechanism{Species, Reactions},
     params::NamedTuple{PNames},
     concs::NamedTuple{CNames}
-) where {N, Steps, PNames, CNames}
-    _symbolic_rate_expr(N, Steps, PNames, CNames)
+) where {Species, Reactions, PNames, CNames}
+    _symbolic_rate_expr(Species, Reactions, PNames, CNames)
 end
 
 """
@@ -153,8 +204,11 @@ function rate_equation_string(m::EnzymeMechanism)
     _rate_equation_string(m)
 end
 
-function _rate_equation_string(::EnzymeMechanism{N, Steps}) where {N, Steps}
-    # Build step info to get metabolite and parameter names
+function _rate_equation_string(m::EnzymeMechanism)
+    Species = _species_data(m)
+    Reactions = _reactions_data(m)
+    Steps = _steps_from_species_reactions(Species, Reactions)
+
     met_names = Symbol[]
     param_names = Symbol[]
     for (i, j, kf, kr, met_f, met_r) in Steps
@@ -166,7 +220,7 @@ function _rate_equation_string(::EnzymeMechanism{N, Steps}) where {N, Steps}
 
     PNames = tuple(param_names..., :E_total)
     CNames = tuple(met_names...)
-    expr = _symbolic_rate_expr(N, Steps, PNames, CNames)
+    expr = _symbolic_rate_expr(Species, Reactions, PNames, CNames)
 
     # Convert to string, then strip `params.` and `concs.` prefixes
     s = string(expr)
