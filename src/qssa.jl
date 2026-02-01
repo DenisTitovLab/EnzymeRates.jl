@@ -1,23 +1,48 @@
 using Combinatorics: permutations
 
 """
-    _symbolic_rate_expr(N, Steps, PNames, CNames)
+    _symbolic_rate_expr(::Type{<:EnzymeMechanism})
 
 Build a symbolic `Expr` for the QSSA rate equation using Laplacian cofactor
-determinants expanded via the Leibniz formula. All work is purely symbolic — the
-returned expression contains only `+` and `*` on `params.*` and `concs.*` fields.
-
-Zero entries in the sparse Laplacian are tracked so that permutations hitting a zero
-are skipped entirely, keeping the expression compact.
+determinants expanded via the Leibniz formula. The rate is defined as the
+net consumption of the first substrate, normalized by its stoichiometry.
 """
-function _symbolic_rate_expr(N, Steps, PNames, CNames)
-    # 1. Build symbolic rate matrix R[i,j] as Expr (or 0 meaning absent)
-    R = fill(0, N, N)  # 0 = no expression yet; will become Expr when assigned
+function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
+    m = M()
+    subs = substrates(m)
+    prods = products(m)
+    enzs = enzyme_forms(m)
+    rxns = reactions(m)
 
-    # We need a matrix of Union{Int,Expr}
+    isempty(subs) && error("No substrates defined")
+    ref_name = subs[1][1]
+    nu_ref = 0
+    for (name, _) in subs
+        name == ref_name && (nu_ref -= 1)
+    end
+    for (name, _) in prods
+        name == ref_name && (nu_ref += 1)
+    end
+    nu_ref == 0 && error("Reference substrate has zero net stoichiometry")
+
+    enz_names = Tuple(e[1] for e in enzs)
+    N = length(enzs)
+
+    # 1. Build symbolic rate matrix R[i,j] as Expr (or 0 meaning absent)
     R = Matrix{Any}(fill(0, N, N))
 
-    for (i, j, kf, kr, met_f, met_r) in Steps
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        e_lhs = first(s for s in lhs if s in enz_names)
+        e_rhs = first(s for s in rhs if s in enz_names)
+        i = findfirst(==(e_lhs), enz_names)
+        j = findfirst(==(e_rhs), enz_names)
+        kf = Symbol("k$(idx)f")
+        kr = Symbol("k$(idx)r")
+        m_it = iterate(s for s in lhs if s ∉ enz_names)
+        met_f = m_it === nothing ? nothing : m_it[1]
+        m_it = iterate(s for s in rhs if s ∉ enz_names)
+        met_r = m_it === nothing ? nothing : m_it[1]
+
         # Forward: i → j
         fwd = met_f === nothing ? :(params.$kf) : :(params.$kf * concs.$met_f)
         R[i, j] = R[i, j] == 0 ? fwd : :($(R[i, j]) + $fwd)
@@ -90,22 +115,41 @@ function _symbolic_rate_expr(N, Steps, PNames, CNames)
         end
     end
 
-    # 4. Numerator: flux through step 1
-    i, j, kf, kr, met_f, met_r = Steps[1]
-    rf_expr = met_f === nothing ? :(params.$kf) : :(params.$kf * concs.$met_f)
-    rr_expr = met_r === nothing ? :(params.$kr) : :(params.$kr * concs.$met_r)
-
-    # E_total
-    has_etotal = :E_total in PNames
-    et_expr = has_etotal ? :(params.E_total) : 1.0
-
-    num = :($et_expr * ($rf_expr * $(D[i]) - $rr_expr * $(D[j])))
-
-    # 5. Denominator: sum of all cofactors
+    # 4. Denominator: sum of all cofactors
     nonzero_D = [D[k] for k in 1:N if D[k] != 0]
     denom = length(nonzero_D) == 1 ? nonzero_D[1] : Expr(:call, :+, nonzero_D...)
 
-    return :($num / $denom)
+    # E_total
+    et_expr = :(params.E_total)
+
+    # 5. Net consumption of reference substrate
+    terms = Any[]
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        e_lhs = first(s for s in lhs if s in enz_names)
+        e_rhs = first(s for s in rhs if s in enz_names)
+        i = findfirst(==(e_lhs), enz_names)
+        j = findfirst(==(e_rhs), enz_names)
+        kf = Symbol("k$(idx)f")
+        kr = Symbol("k$(idx)r")
+        m_it = iterate(s for s in lhs if s ∉ enz_names)
+        met_f = m_it === nothing ? nothing : m_it[1]
+        m_it = iterate(s for s in rhs if s ∉ enz_names)
+        met_r = m_it === nothing ? nothing : m_it[1]
+
+        rf_expr = met_f === nothing ? :(params.$kf) : :(params.$kf * concs.$met_f)
+        rr_expr = met_r === nothing ? :(params.$kr) : :(params.$kr * concs.$met_r)
+        flux = :($et_expr * ($rf_expr * $(D[i]) - $rr_expr * $(D[j])) / $denom)
+        if met_f === ref_name
+            push!(terms, flux)
+        elseif met_r === ref_name
+            push!(terms, :(-$flux))
+        end
+    end
+
+    net_expr = isempty(terms) ? 0 :
+               length(terms) == 1 ? terms[1] : Expr(:call, :+, terms...)
+    abs_nu = abs(nu_ref)
+    abs_nu == 1 ? net_expr : :($net_expr / $abs_nu)
 end
 
 """Compute sign of a permutation (as +1 or -1)."""
@@ -131,17 +175,17 @@ function _perm_sign(perm)
 end
 
 """
-    rate_equation(::EnzymeMechanism{N,Steps}, params::NamedTuple, concs::NamedTuple)
+    rate_equation(::EnzymeMechanism{Species,Reactions}, params::NamedTuple, concs::NamedTuple)
 
-Compute the QSSA steady-state rate. The body is generated at compile time
-as a single arithmetic expression with no allocations, loops, or matrix ops.
+Compute the QSSA steady-state rate (net consumption of the first substrate,
+normalized by its stoichiometric coefficient). The body is generated at
+compile time as a single arithmetic expression with no allocations, loops,
+or matrix ops.
 """
 @generated function rate_equation(
-    ::EnzymeMechanism{N, Steps},
-    params::NamedTuple{PNames},
-    concs::NamedTuple{CNames}
-) where {N, Steps, PNames, CNames}
-    _symbolic_rate_expr(N, Steps, PNames, CNames)
+    m::M, params::NamedTuple, concs::NamedTuple
+) where {M <: EnzymeMechanism}
+    _symbolic_rate_expr(M)
 end
 
 """
@@ -153,24 +197,9 @@ function rate_equation_string(m::EnzymeMechanism)
     _rate_equation_string(m)
 end
 
-function _rate_equation_string(::EnzymeMechanism{N, Steps}) where {N, Steps}
-    # Build step info to get metabolite and parameter names
-    met_names = Symbol[]
-    param_names = Symbol[]
-    for (i, j, kf, kr, met_f, met_r) in Steps
-        met_f !== nothing && met_f ∉ met_names && push!(met_names, met_f)
-        met_r !== nothing && met_r ∉ met_names && push!(met_names, met_r)
-        push!(param_names, kf)
-        push!(param_names, kr)
-    end
-
-    PNames = tuple(param_names..., :E_total)
-    CNames = tuple(met_names...)
-    expr = _symbolic_rate_expr(N, Steps, PNames, CNames)
-
-    # Convert to string, then strip `params.` and `concs.` prefixes
+function _rate_equation_string(::M) where {M <: EnzymeMechanism}
+    expr = _symbolic_rate_expr(M)
     s = string(expr)
     s = replace(s, "params." => "")
-    s = replace(s, "concs." => "")
-    s
+    replace(s, "concs." => "")
 end

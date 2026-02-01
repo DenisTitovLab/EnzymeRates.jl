@@ -1,30 +1,31 @@
 using OrdinaryDiffEqFIRK
 
-function build_ode_rhs(m, params, concs)
-    forms = enzyme_forms(m)
-    name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
+function build_ode_rhs(m::EnzymeMechanism{Species, Reactions}, params, concs) where {Species, Reactions}
+    enzs = enzyme_forms(m)
+    enz_names = Tuple(e[1] for e in enzs)
+    name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
+    enz_set = Set(enz_names)
 
-    # Precompute pseudo-first-order rates for each step
     step_data = []
-    for (step_idx, (lhs, rhs)) in enumerate(steps(m))
-        e_lhs = [s for s in lhs if s.role == enzyme][1]
-        e_rhs = [s for s in rhs if s.role == enzyme][1]
-        i = name_to_idx[e_lhs.name]
-        j = name_to_idx[e_rhs.name]
+    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        i = name_to_idx[e_lhs]
+        j = name_to_idx[e_rhs]
 
-        m_lhs = [s for s in lhs if s.role == metabolite]
-        m_rhs = [s for s in rhs if s.role == metabolite]
+        m_lhs = [s for s in lhs if s ∉ enz_set]
+        m_rhs = [s for s in rhs if s ∉ enz_set]
 
         kf = Float64(params[Symbol("k$(step_idx)f")])
         kr = Float64(params[Symbol("k$(step_idx)r")])
 
-        rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1].name]
-        rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1].name]
+        rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1]]
+        rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1]]
 
         push!(step_data, (i, j, rf, rr))
     end
 
-    n = length(forms)
+    n = length(enzs)
     function rhs!(du, u, p, t)
         fill!(du, 0.0)
         for (i, j, rf, rr) in step_data
@@ -36,9 +37,13 @@ function build_ode_rhs(m, params, concs)
     return rhs!
 end
 
-function ode_steady_state_flux(m, params, concs; E_total=1.0)
-    forms = enzyme_forms(m)
-    n = length(forms)
+function ode_steady_state_flux(m::EnzymeMechanism{Species, Reactions}, params, concs) where {Species, Reactions}
+    E_total = params.E_total
+    enzs = enzyme_forms(m)
+    n = length(enzs)
+    enz_names = Tuple(e[1] for e in enzs)
+    enz_set = Set(enz_names)
+    ref_name, nu_ref = _reference_metabolite(m)
 
     u0 = zeros(n)
     u0[1] = E_total
@@ -48,34 +53,43 @@ function ode_steady_state_flux(m, params, concs; E_total=1.0)
     sol = solve(prob, RadauIIA9(); abstol=1e-12, reltol=1e-12)
     u_ss = sol.u[end]
 
-    # Flux through step 1
-    lhs, rhs = steps(m)[1]
-    name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
-    e_lhs = [s for s in lhs if s.role == enzyme][1]
-    e_rhs = [s for s in rhs if s.role == enzyme][1]
-    i = name_to_idx[e_lhs.name]
-    j = name_to_idx[e_rhs.name]
+    name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
+    v = 0.0
+    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        i = name_to_idx[e_lhs]
+        j = name_to_idx[e_rhs]
 
-    m_lhs = [s for s in lhs if s.role == metabolite]
-    m_rhs = [s for s in rhs if s.role == metabolite]
+        m_lhs = [s for s in lhs if s ∉ enz_set]
+        m_rhs = [s for s in rhs if s ∉ enz_set]
 
-    step_idx = 1
-    kf = Float64(params[Symbol("k$(step_idx)f")])
-    kr = Float64(params[Symbol("k$(step_idx)r")])
-    rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1].name]
-    rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1].name]
+        kf = Float64(params[Symbol("k$(step_idx)f")])
+        kr = Float64(params[Symbol("k$(step_idx)r")])
+        rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1]]
+        rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1]]
 
-    return rf * u_ss[i] - rr * u_ss[j]
+        flux = rf * u_ss[i] - rr * u_ss[j]
+        if !isempty(m_lhs) && m_lhs[1] == ref_name
+            v += flux
+        elseif !isempty(m_rhs) && m_rhs[1] == ref_name
+            v -= flux
+        end
+    end
+
+    return v / abs(nu_ref)
 end
 
 @testset "ODE steady-state validation" begin
     @testset "Uni-Uni" begin
-        E = Species(:E, enzyme)
-        ES = Species(:ES, enzyme)
-        S = Species(:S, metabolite, Dict(:C => 1))
-        P = Species(:P, metabolite, Dict(:C => 1))
-
-        m = EnzymeMechanism([[E, S] => [ES], [ES] => [E, P]])
+        species = (
+            ((:S, ((:C, 1),)),),
+            ((:P, ((:C, 1),)),),
+            (),
+            ((:E, ()), (:ES, ((:C, 1),))),
+        )
+        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
+        m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(2001)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S, :P]; rng=rng)
@@ -86,20 +100,19 @@ end
     end
 
     @testset "Seq Uni-Bi" begin
-        E     = Species(:E,     enzyme)
-        ES1   = Species(:ES1,   enzyme)
-        EP1P2 = Species(:EP1P2, enzyme)
-        EP2   = Species(:EP2,   enzyme)
-        S1    = Species(:S1, metabolite, Dict(:C => 1, :H => 1))
-        P1    = Species(:P1, metabolite, Dict(:C => 1))
-        P2    = Species(:P2, metabolite, Dict(:H => 1))
-
-        m = EnzymeMechanism([
-            [E, S1] => [ES1],
-            [ES1] => [EP1P2],
-            [EP1P2] => [EP2, P1],
-            [EP2] => [E, P2]
-        ])
+        species = (
+            ((:S1, ((:C, 1), (:H, 1))),),
+            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1), (:H, 1))), (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)),
+            ((:ES1,), (:EP1P2,)),
+            ((:EP1P2,), (:EP2, :P1)),
+            ((:EP2,), (:E, :P2)),
+        )
+        m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3001)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
@@ -110,21 +123,18 @@ end
     end
 
     @testset "Ping-Pong Bi-Bi" begin
-        E  = Species(:E,  enzyme)
-        EA = Species(:EA, enzyme)
-        FP = Species(:FP, enzyme)
-        F  = Species(:F,  enzyme)
-        FB = Species(:FB, enzyme)
-        EQ = Species(:EQ, enzyme)
-        A     = Species(:A, metabolite, Dict(:C => 2, :N => 1))
-        P_met = Species(:P, metabolite, Dict(:C => 2))
-        B     = Species(:B, metabolite, Dict(:C => 3))
-        Q     = Species(:Q, metabolite, Dict(:C => 3, :N => 1))
-
-        m = EnzymeMechanism([
-            [E, A] => [EA], [EA] => [FP], [FP] => [F, P_met],
-            [F, B] => [FB], [FB] => [EQ], [EQ] => [E, Q]
-        ])
+        species = (
+            ((:A, ((:C, 2), (:N, 1))), (:B, ((:C, 3),))),
+            ((:P, ((:C, 2),)), (:Q, ((:C, 3), (:N, 1)))),
+            (),
+            ((:E, ()), (:EA, ((:C, 2), (:N, 1))), (:FP, ((:C, 2), (:N, 1))),
+             (:F, ((:N, 1),)), (:FB, ((:C, 3), (:N, 1))), (:EQ, ((:C, 3), (:N, 1)))),
+        )
+        rxns = (
+            ((:E, :A), (:EA,)), ((:EA,), (:FP,)), ((:FP,), (:F, :P)),
+            ((:F, :B), (:FB,)), ((:FB,), (:EQ,)), ((:EQ,), (:E, :Q)),
+        )
+        m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3002)
         for _ in 1:10
             params, concs = random_params_concs(m, [:A, :P, :B, :Q]; rng=rng)
@@ -135,20 +145,19 @@ end
     end
 
     @testset "Seq Bi-Uni" begin
-        E      = Species(:E,      enzyme)
-        ES1    = Species(:ES1,    enzyme)
-        ES1S2  = Species(:ES1S2,  enzyme)
-        EP1    = Species(:EP1,    enzyme)
-        S1     = Species(:S1, metabolite, Dict(:C => 1))
-        S2     = Species(:S2, metabolite, Dict(:H => 1))
-        P1     = Species(:P1, metabolite, Dict(:C => 1, :H => 1))
-
-        m = EnzymeMechanism([
-            [E, S1] => [ES1],
-            [ES1, S2] => [ES1S2],
-            [ES1S2] => [EP1],
-            [EP1] => [E, P1]
-        ])
+        species = (
+            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
+            ((:P1, ((:C, 1), (:H, 1))),),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))), (:EP1, ((:C, 1), (:H, 1)))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)),
+            ((:ES1, :S2), (:ES1S2,)),
+            ((:ES1S2,), (:EP1,)),
+            ((:EP1,), (:E, :P1)),
+        )
+        m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3003)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :P1]; rng=rng)
@@ -159,23 +168,21 @@ end
     end
 
     @testset "Seq Bi-Bi" begin
-        E      = Species(:E,      enzyme)
-        ES1    = Species(:ES1,    enzyme)
-        ES1S2  = Species(:ES1S2,  enzyme)
-        EP1P2  = Species(:EP1P2,  enzyme)
-        EP2    = Species(:EP2,    enzyme)
-        S1     = Species(:S1, metabolite, Dict(:C => 1))
-        S2     = Species(:S2, metabolite, Dict(:H => 1))
-        P1     = Species(:P1, metabolite, Dict(:C => 1))
-        P2     = Species(:P2, metabolite, Dict(:H => 1))
-
-        m = EnzymeMechanism([
-            [E, S1] => [ES1],
-            [ES1, S2] => [ES1S2],
-            [ES1S2] => [EP1P2],
-            [EP1P2] => [EP2, P1],
-            [EP2] => [E, P2]
-        ])
+        species = (
+            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
+            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
+             (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)),
+            ((:ES1, :S2), (:ES1S2,)),
+            ((:ES1S2,), (:EP1P2,)),
+            ((:EP1P2,), (:EP2, :P1)),
+            ((:EP2,), (:E, :P2)),
+        )
+        m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3004)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
@@ -186,26 +193,22 @@ end
     end
 
     @testset "Seq Bi-Ter" begin
-        E        = Species(:E,        enzyme)
-        ES1      = Species(:ES1,      enzyme)
-        ES1S2    = Species(:ES1S2,    enzyme)
-        EP1P2P3  = Species(:EP1P2P3,  enzyme)
-        EP2P3    = Species(:EP2P3,    enzyme)
-        EP3      = Species(:EP3,      enzyme)
-        S1       = Species(:S1, metabolite, Dict(:C => 1))
-        S2       = Species(:S2, metabolite, Dict(:H => 1, :N => 1))
-        P1       = Species(:P1, metabolite, Dict(:C => 1))
-        P2       = Species(:P2, metabolite, Dict(:H => 1))
-        P3       = Species(:P3, metabolite, Dict(:N => 1))
-
-        m = EnzymeMechanism([
-            [E, S1] => [ES1],
-            [ES1, S2] => [ES1S2],
-            [ES1S2] => [EP1P2P3],
-            [EP1P2P3] => [EP2P3, P1],
-            [EP2P3] => [EP3, P2],
-            [EP3] => [E, P3]
-        ])
+        species = (
+            ((:S1, ((:C, 1),)), (:S2, ((:H, 1), (:N, 1)))),
+            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),)), (:P3, ((:N, 1),))),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1), (:N, 1))),
+             (:EP1P2P3, ((:C, 1), (:H, 1), (:N, 1))), (:EP2P3, ((:H, 1), (:N, 1))), (:EP3, ((:N, 1),))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)),
+            ((:ES1, :S2), (:ES1S2,)),
+            ((:ES1S2,), (:EP1P2P3,)),
+            ((:EP1P2P3,), (:EP2P3, :P1)),
+            ((:EP2P3,), (:EP3, :P2)),
+            ((:EP3,), (:E, :P3)),
+        )
+        m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3005)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2, :P3]; rng=rng)
@@ -216,26 +219,22 @@ end
     end
 
     @testset "Seq Ter-Bi" begin
-        E        = Species(:E,        enzyme)
-        ES1      = Species(:ES1,      enzyme)
-        ES1S2    = Species(:ES1S2,    enzyme)
-        ES1S2S3  = Species(:ES1S2S3,  enzyme)
-        EP1P2    = Species(:EP1P2,    enzyme)
-        EP2      = Species(:EP2,      enzyme)
-        S1       = Species(:S1, metabolite, Dict(:C => 1))
-        S2       = Species(:S2, metabolite, Dict(:H => 1))
-        S3       = Species(:S3, metabolite, Dict(:N => 1))
-        P1       = Species(:P1, metabolite, Dict(:C => 1, :H => 1))
-        P2       = Species(:P2, metabolite, Dict(:N => 1))
-
-        m = EnzymeMechanism([
-            [E, S1] => [ES1],
-            [ES1, S2] => [ES1S2],
-            [ES1S2, S3] => [ES1S2S3],
-            [ES1S2S3] => [EP1P2],
-            [EP1P2] => [EP2, P1],
-            [EP2] => [E, P2]
-        ])
+        species = (
+            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),)), (:S3, ((:N, 1),))),
+            ((:P1, ((:C, 1), (:H, 1))), (:P2, ((:N, 1),))),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
+             (:ES1S2S3, ((:C, 1), (:H, 1), (:N, 1))), (:EP1P2, ((:C, 1), (:H, 1), (:N, 1))), (:EP2, ((:N, 1),))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)),
+            ((:ES1, :S2), (:ES1S2,)),
+            ((:ES1S2, :S3), (:ES1S2S3,)),
+            ((:ES1S2S3,), (:EP1P2,)),
+            ((:EP1P2,), (:EP2, :P1)),
+            ((:EP2,), (:E, :P2)),
+        )
+        m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3006)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2]; rng=rng)
@@ -246,29 +245,24 @@ end
     end
 
     @testset "Seq Ter-Ter" begin
-        E          = Species(:E,          enzyme)
-        ES1        = Species(:ES1,        enzyme)
-        ES1S2      = Species(:ES1S2,      enzyme)
-        ES1S2S3    = Species(:ES1S2S3,    enzyme)
-        EP1P2P3    = Species(:EP1P2P3,    enzyme)
-        EP2P3      = Species(:EP2P3,      enzyme)
-        EP3        = Species(:EP3,        enzyme)
-        S1         = Species(:S1, metabolite, Dict(:C => 1))
-        S2         = Species(:S2, metabolite, Dict(:H => 1))
-        S3         = Species(:S3, metabolite, Dict(:N => 1))
-        P1         = Species(:P1, metabolite, Dict(:C => 1))
-        P2         = Species(:P2, metabolite, Dict(:H => 1))
-        P3         = Species(:P3, metabolite, Dict(:N => 1))
-
-        m = EnzymeMechanism([
-            [E, S1] => [ES1],
-            [ES1, S2] => [ES1S2],
-            [ES1S2, S3] => [ES1S2S3],
-            [ES1S2S3] => [EP1P2P3],
-            [EP1P2P3] => [EP2P3, P1],
-            [EP2P3] => [EP3, P2],
-            [EP3] => [E, P3]
-        ])
+        species = (
+            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),)), (:S3, ((:N, 1),))),
+            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),)), (:P3, ((:N, 1),))),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
+             (:ES1S2S3, ((:C, 1), (:H, 1), (:N, 1))), (:EP1P2P3, ((:C, 1), (:H, 1), (:N, 1))),
+             (:EP2P3, ((:H, 1), (:N, 1))), (:EP3, ((:N, 1),))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)),
+            ((:ES1, :S2), (:ES1S2,)),
+            ((:ES1S2, :S3), (:ES1S2S3,)),
+            ((:ES1S2S3,), (:EP1P2P3,)),
+            ((:EP1P2P3,), (:EP2P3, :P1)),
+            ((:EP2P3,), (:EP3, :P2)),
+            ((:EP3,), (:E, :P3)),
+        )
+        m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3007)
         for _ in 1:10
             params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
@@ -279,26 +273,23 @@ end
     end
 
     @testset "Random-order Bi-Bi (branched)" begin
-        E   = Species(:E,   enzyme)
-        EA  = Species(:EA,  enzyme)
-        EB  = Species(:EB,  enzyme)
-        EAB = Species(:EAB, enzyme)
-        EPQ = Species(:EPQ, enzyme)
-        EQ  = Species(:EQ,  enzyme)
-        A   = Species(:A, metabolite, Dict(:C => 1))
-        B   = Species(:B, metabolite, Dict(:N => 1))
-        P   = Species(:P, metabolite, Dict(:C => 1))
-        Q   = Species(:Q, metabolite, Dict(:N => 1))
-
-        m = EnzymeMechanism([
-            [E, A]   => [EA],
-            [E, B]   => [EB],
-            [EA, B]  => [EAB],
-            [EB, A]  => [EAB],
-            [EAB]    => [EPQ],
-            [EPQ]    => [EQ, P],
-            [EQ]     => [E, Q]
-        ])
+        species = (
+            ((:A, ((:C, 1),)), (:B, ((:N, 1),))),
+            ((:P, ((:C, 1),)), (:Q, ((:N, 1),))),
+            (),
+            ((:E, ()), (:EA, ((:C, 1),)), (:EB, ((:N, 1),)),
+             (:EAB, ((:C, 1), (:N, 1))), (:EPQ, ((:C, 1), (:N, 1))), (:EQ, ((:N, 1),))),
+        )
+        rxns = (
+            ((:E, :A), (:EA,)),
+            ((:E, :B), (:EB,)),
+            ((:EA, :B), (:EAB,)),
+            ((:EB, :A), (:EAB,)),
+            ((:EAB,), (:EPQ,)),
+            ((:EPQ,), (:EQ, :P)),
+            ((:EQ,), (:E, :Q)),
+        )
+        m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3008)
         for _ in 1:10
             params, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)

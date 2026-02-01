@@ -1,104 +1,197 @@
-@enum SpeciesRole enzyme metabolite
+"""
+    AbstractEnzymeReaction
 
-struct Species
-    name::Symbol
-    role::SpeciesRole
-    atoms::Dict{Symbol,Int}
+Abstract supertype for enzyme reactions with different type parameters.
+"""
+abstract type AbstractEnzymeReaction end
+
+"""
+    EnzymeReaction{Substrates, Products, Regulators}
+
+Singleton type encoding an enzyme reaction specification in type parameters.
+
+Each of `Substrates`, `Products`, `Regulators` is a tuple of
+`(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+"""
+struct EnzymeReaction{Substrates, Products, Regulators} <: AbstractEnzymeReaction end
+
+function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
+    subs_names = Set(s[1] for s in subs)
+    prods_names = Set(s[1] for s in prods)
+    regs_names = Set(s[1] for s in regs)
+    for name in regs_names
+        name in subs_names && error("Regulator $(name) also listed as substrate")
+        name in prods_names && error("Regulator $(name) also listed as product")
+    end
+    EnzymeReaction{subs, prods, regs}()
 end
-
-Species(name::Symbol, role::SpeciesRole) = Species(name, role, Dict{Symbol,Int}())
-
-function Base.:(==)(a::Species, b::Species)
-    a.name == b.name && a.role == b.role && a.atoms == b.atoms
-end
-
-function Base.hash(a::Species, h::UInt)
-    hash(a.name, hash(a.role, hash(a.atoms, h)))
-end
-
-Base.show(io::IO, s::Species) = print(io, s.name)
-
-struct ReactionSpec
-    substrates::Vector{Species}
-    products::Vector{Species}
-    regulators::Vector{Species}
-end
-
-ReactionSpec(s, p) = ReactionSpec(s, p, Species[])
 
 """
     AbstractEnzymeMechanism
 
 Abstract supertype for enzyme mechanisms. Used as element type in collections
-of mechanisms with different type parameters (e.g. from `enumerate_mechanisms`).
+of mechanisms with different type parameters.
 """
 abstract type AbstractEnzymeMechanism end
 
 """
-    EnzymeMechanism{N, Steps, FormNames, MetAtoms}
+    EnzymeMechanism{Species,Reactions}
 
-Singleton type encoding an enzyme mechanism entirely in type parameters for
-compile-time rate equation generation.
+Singleton type encoding an enzyme mechanism in type parameters.
 
-- `N::Int`: number of enzyme forms
-- `Steps`: tuple of tuples `(i, j, kf, kr, met_f_or_nothing, met_r_or_nothing)`
-- `FormNames`: tuple of `Symbol`s naming the enzyme forms in order
-- `MetAtoms`: tuple of `(name, ((atom, count), ...))` for each metabolite
+- `Species`: `(substrates, products, regulators, enzyme_species)` where each entry is a tuple
+  of `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+- `Reactions`: tuple of `(lhs, rhs)` where each side is a tuple of species `Symbol`s.
 """
-struct EnzymeMechanism{N, Steps, FormNames, MetAtoms} <: AbstractEnzymeMechanism end
+struct EnzymeMechanism{Species, Reactions} <: AbstractEnzymeMechanism end
 
 """
-    EnzymeMechanism(steps::Vector{Pair{Vector{Species},Vector{Species}}})
+    EnzymeMechanism(species::Tuple, reactions::Tuple)
 
-Construct an `EnzymeMechanism` from a vector of elementary steps, encoding all
-mechanism data into type parameters.
+Construct an `EnzymeMechanism` from explicit species and reaction tuples.
+
+- `species` must be `(substrates, products, regulators, enzymes)` where each entry is a tuple
+  of `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+- `reactions` is a tuple of `(lhs, rhs)`; each side is a tuple of symbols.
 """
-function EnzymeMechanism(steps::Vector{Pair{Vector{Species},Vector{Species}}})
-    # Extract enzyme forms in discovery order
-    forms = Species[]
-    seen = Set{Symbol}()
-    for (lhs, rhs) in steps
-        for s in vcat(lhs, rhs)
-            if s.role == enzyme && s.name ∉ seen
-                push!(seen, s.name)
-                push!(forms, s)
-            end
+function EnzymeMechanism(species::Tuple, reactions::Tuple)
+    length(species) == 4 || error("species must be (substrates, products, regulators, enzymes)")
+    subs, prods, regs, enzs = species
+    subs isa Tuple || error("substrates must be a tuple of (name, atoms)")
+    prods isa Tuple || error("products must be a tuple of (name, atoms)")
+    regs isa Tuple || error("regulators must be a tuple of (name, atoms)")
+    enzs isa Tuple || error("enzymes must be a tuple of (name, atoms)")
+
+    met_atoms = Dict{Symbol,Dict{Symbol,Int}}()
+    function add_met(name, atoms)
+        atoms_dict = Dict{Symbol,Int}(a => c for (a, c) in atoms)
+        if haskey(met_atoms, name)
+            met_atoms[name] == atoms_dict || error("Inconsistent atoms for metabolite $(name)")
+        else
+            met_atoms[name] = atoms_dict
         end
     end
-    n = length(forms)
-    name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
-    form_names = Tuple(s.name for s in forms)
+    for (name, atoms) in subs
+        add_met(name, atoms)
+    end
+    for (name, atoms) in prods
+        add_met(name, atoms)
+    end
+    for (name, atoms) in regs
+        add_met(name, atoms)
+    end
 
-    # Extract metabolites with atoms
-    mets = Species[]
-    met_seen = Set{Symbol}()
-    for (lhs, rhs) in steps
-        for s in vcat(lhs, rhs)
-            if s.role == metabolite && s.name ∉ met_seen
-                push!(met_seen, s.name)
-                push!(mets, s)
+    subs_names = [name for (name, _) in subs]
+    prods_names = [name for (name, _) in prods]
+    regs_names = [name for (name, _) in regs]
+    regs_set = Set(regs_names)
+    for name in subs_names
+        name in regs_set && error("Regulator $(name) also listed as substrate")
+    end
+    for name in prods_names
+        name in regs_set && error("Regulator $(name) also listed as product")
+    end
+
+    enzyme_atoms = Dict{Symbol,Dict{Symbol,Int}}()
+    for (name, atoms) in enzs
+        haskey(enzyme_atoms, name) && error("Duplicate enzyme species $(name)")
+        enzyme_atoms[name] = Dict{Symbol,Int}(a => c for (a, c) in atoms)
+    end
+    isempty(enzyme_atoms) && error("No enzyme species defined")
+
+    for name in keys(enzyme_atoms)
+        haskey(met_atoms, name) && error("Species $(name) defined as both enzyme and metabolite")
+    end
+
+    expected = Dict{Symbol,Int}()
+    for name in subs_names
+        expected[name] = get(expected, name, 0) - 1
+    end
+    for name in prods_names
+        expected[name] = get(expected, name, 0) + 1
+    end
+    for name in regs_names
+        expected[name] = get(expected, name, 0) + 0
+    end
+    for name in regs_names
+        get(expected, name, 0) == 0 || error("Regulator $(name) has nonzero net stoichiometry")
+    end
+
+    enzyme_set = Set(keys(enzyme_atoms))
+    metabolite_set = Set(keys(met_atoms))
+    net = Dict{Symbol,Int}()
+
+    for (step_idx, reaction) in enumerate(reactions)
+        reaction isa Tuple || error("Reaction $(step_idx) is not a tuple")
+        length(reaction) == 2 || error("Reaction $(step_idx) must be (lhs, rhs)")
+        lhs, rhs = reaction
+        lhs isa Tuple || error("Reaction $(step_idx) lhs must be a tuple")
+        rhs isa Tuple || error("Reaction $(step_idx) rhs must be a tuple")
+
+        lhs_enz = 0
+        rhs_enz = 0
+        lhs_mets = 0
+        rhs_mets = 0
+
+        lhs_atoms = Dict{Symbol,Int}()
+        rhs_atoms = Dict{Symbol,Int}()
+
+        for s in lhs
+            if s in enzyme_set
+                lhs_enz += 1
+                for (atom, count) in enzyme_atoms[s]
+                    lhs_atoms[atom] = get(lhs_atoms, atom, 0) + count
+                end
+            elseif s in metabolite_set
+                lhs_mets += 1
+                for (atom, count) in met_atoms[s]
+                    lhs_atoms[atom] = get(lhs_atoms, atom, 0) + count
+                end
+                net[s] = get(net, s, 0) - 1
+            else
+                error("Reaction $(step_idx) uses unknown species $(s)")
             end
         end
-    end
-    met_atoms = Tuple(
-        (s.name, Tuple(Tuple(p) for p in sort!(collect(s.atoms); by=first)))
-        for s in mets
-    )
+        for s in rhs
+            if s in enzyme_set
+                rhs_enz += 1
+                for (atom, count) in enzyme_atoms[s]
+                    rhs_atoms[atom] = get(rhs_atoms, atom, 0) + count
+                end
+            elseif s in metabolite_set
+                rhs_mets += 1
+                for (atom, count) in met_atoms[s]
+                    rhs_atoms[atom] = get(rhs_atoms, atom, 0) + count
+                end
+                net[s] = get(net, s, 0) + 1
+            else
+                error("Reaction $(step_idx) uses unknown species $(s)")
+            end
+        end
 
-    # Encode steps
-    step_tuples = map(enumerate(steps)) do (step_idx, (lhs, rhs))
-        e_lhs = first(s for s in lhs if s.role == enzyme)
-        e_rhs = first(s for s in rhs if s.role == enzyme)
-        i = name_to_idx[e_lhs.name]
-        j = name_to_idx[e_rhs.name]
-        m_lhs = [s for s in lhs if s.role == metabolite]
-        m_rhs = [s for s in rhs if s.role == metabolite]
-        kf = Symbol("k$(step_idx)f")
-        kr = Symbol("k$(step_idx)r")
-        met_f = isempty(m_lhs) ? nothing : m_lhs[1].name
-        met_r = isempty(m_rhs) ? nothing : m_rhs[1].name
-        (i, j, kf, kr, met_f, met_r)
+        lhs_enz == 1 || error("Reaction $(step_idx) lhs must contain exactly one enzyme form")
+        rhs_enz == 1 || error("Reaction $(step_idx) rhs must contain exactly one enzyme form")
+        lhs_mets <= 1 || error("Reaction $(step_idx) lhs has more than one metabolite")
+        rhs_mets <= 1 || error("Reaction $(step_idx) rhs has more than one metabolite")
+
+        filter!(p -> p.second != 0, lhs_atoms)
+        filter!(p -> p.second != 0, rhs_atoms)
+        lhs_atoms == rhs_atoms || error("Atomic conservation failed at step $(step_idx)")
     end
 
-    EnzymeMechanism{n, Tuple(step_tuples), form_names, met_atoms}()
+    for (name, coeff) in expected
+        net_coeff = get(net, name, 0)
+        if coeff == 0
+            net_coeff == 0 || error("Regulator $(name) has nonzero net stoichiometry")
+        else
+            net_coeff == 0 && error("Net stoichiometry mismatch for $(name)")
+            sign(net_coeff) == sign(coeff) || error("Net stoichiometry mismatch for $(name)")
+            abs(net_coeff) % abs(coeff) == 0 || error("Net stoichiometry mismatch for $(name)")
+        end
+    end
+    for (name, _) in net
+        haskey(expected, name) || error("Metabolite $(name) not in species tuple")
+    end
+
+    EnzymeMechanism{species, reactions}()
 end

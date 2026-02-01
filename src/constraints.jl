@@ -1,5 +1,3 @@
-using Graphs
-
 """
 Count independent thermodynamic cycles (Wegscheider conditions).
 For a mechanism with N states and S steps, the number of independent cycles
@@ -14,18 +12,21 @@ Total raw params = 2 * n_steps.
 Constraints = n_cycles (Wegscheider, which includes Haldane).
 Independent params = 2 * n_steps - n_cycles.
 """
-function n_independent_params(m::EnzymeMechanism{N, Steps, FormNames}) where {N, Steps, FormNames}
-    s = length(Steps)
-    g, _ = graph(m)
+function n_independent_params(m::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
+    enz_names = Set(name for (name, _) in Species[4])
+    n = length(enz_names)
+    s = length(Reactions)
 
     edges_set = Set{Set{Symbol}}()
-    for (i, j, kf, kr, met_f, met_r) in Steps
-        push!(edges_set, Set([FormNames[i], FormNames[j]]))
+    for (lhs, rhs) in Reactions
+        e_lhs = first(s for s in lhs if s in enz_names)
+        e_rhs = first(s for s in rhs if s in enz_names)
+        push!(edges_set, Set([e_lhs, e_rhs]))
     end
     n_unique_edges = length(edges_set)
 
     n_parallel_extra = s - n_unique_edges
-    n_graph_cycles = n_unique_edges - N + 1
+    n_graph_cycles = n_unique_edges - n + 1
     n_cycles = n_graph_cycles + n_parallel_extra
 
     if n_cycles == 0
