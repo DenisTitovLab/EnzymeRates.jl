@@ -66,7 +66,7 @@
     end
 
     @testset "Haldane relation" begin
-        params = (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1)
+        params = (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1, E_total=1.0)
         Keq = params.k1f * params.k2f / (params.k1r * params.k2r)
         S_eq = 1.0
         P_eq = Keq * S_eq
@@ -76,7 +76,7 @@
 
     @testset "Performance" begin
         allocs, t = test_rate_equation_performance(m,
-            (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1), (S=1.0, P=0.5))
+            (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1, E_total=1.0), (S=1.0, P=0.5))
         @test allocs == 0
         @test t < 100e-9
     end
@@ -131,7 +131,7 @@ end
     end
 
     @testset "Haldane relation" begin
-        params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6)
+        params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, E_total=1.0)
         Keq = prod(params[Symbol("k$(i)f")] for i in 1:4) /
               prod(params[Symbol("k$(i)r")] for i in 1:4)
         S1_eq = 1.0
@@ -144,7 +144,7 @@ end
 
     @testset "Performance" begin
         allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6),
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, E_total=1.0),
             (S1=1.0, P1=0.5, P2=0.3))
         @test allocs == 0
         @test t < 100e-9
@@ -180,7 +180,7 @@ end
 
     @testset "Denominator structure" begin
         base_params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-            k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7)
+            k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, E_total=1.0)
         eps_val = 1e-10
         concs = (A=eps_val, P=eps_val, B=eps_val, Q=eps_val)
         v = rate_equation(m, base_params, concs)
@@ -208,7 +208,7 @@ end
     @testset "Performance" begin
         allocs, t = test_rate_equation_performance(m,
             (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7),
+             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, E_total=1.0),
             (A=1.0, P=0.5, B=0.8, Q=0.3))
         @test allocs == 0
         @test t < 100e-9
@@ -255,7 +255,7 @@ end
 
     @testset "Performance" begin
         allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6),
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, E_total=1.0),
             (S1=1.0, S2=0.8, P1=0.5))
         @test allocs == 0
         @test t < 100e-9
@@ -319,7 +319,7 @@ end
     end
 
     @testset "Haldane relation" begin
-        params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7)
+        params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, E_total=1.0)
         Keq = prod(params[Symbol("k$(i)f")] for i in 1:5) /
               prod(params[Symbol("k$(i)r")] for i in 1:5)
         S1_eq = 1.0; S2_eq = 1.0
@@ -331,7 +331,7 @@ end
 
     @testset "Performance" begin
         allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7),
+            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, E_total=1.0),
             (S1=1.0, S2=0.8, P1=0.5, P2=0.3))
         @test allocs == 0
         @test t < 100e-9
@@ -383,7 +383,7 @@ end
     @testset "Performance" begin
         allocs, t = test_rate_equation_performance(m,
             (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2),
+             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2, E_total=1.0),
             (S1=1.0, S2=0.8, P1=0.5, P2=0.3, P3=0.2))
         @test allocs == 0
         @test t < 100e-9
@@ -435,7 +435,7 @@ end
     @testset "Performance" begin
         allocs, t = test_rate_equation_performance(m,
             (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2),
+             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2, E_total=1.0),
             (S1=1.0, S2=0.8, S3=0.6, P1=0.5, P2=0.3))
         @test allocs == 0
         @test t < 100e-9
@@ -489,7 +489,7 @@ end
     @testset "Performance" begin
         allocs, t = test_rate_equation_performance(m,
             (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2, k7f=3.0, k7r=0.9),
+             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2, k7f=3.0, k7r=0.9, E_total=1.0),
             (S1=1.0, S2=0.8, S3=0.6, P1=0.5, P2=0.3, P3=0.2))
         @test allocs == 0
         @test t < 100e-9
@@ -532,7 +532,7 @@ end
 
     @testset "Equilibrium (zero flux)" begin
         params = (k1f=2.0, k1r=0.5, k2f=1.5, k2r=0.3, k3f=3.0, k3r=0.4,
-                  k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8)
+                  k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8, E_total=1.0)
         rng = Random.MersenneTwister(3002)
         for _ in 1:10
             _, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
@@ -545,7 +545,7 @@ end
     @testset "Performance" begin
         allocs, t = test_rate_equation_performance(m,
             (k1f=2.0, k1r=0.5, k2f=1.5, k2r=0.3, k3f=3.0, k3r=0.4,
-             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8),
+             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8, E_total=1.0),
             (A=1.0, B=0.8, P=0.5, Q=0.3))
         @test allocs == 0
         @test t < 100e-9

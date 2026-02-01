@@ -12,8 +12,8 @@ Total raw params = 2 * n_steps.
 Constraints = n_cycles (Wegscheider, which includes Haldane).
 Independent params = 2 * n_steps - n_cycles.
 """
-function n_independent_params(m::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions}
-    enz_names = Set(name for (name, _) in SpeciesT[4])
+function n_independent_params(m::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
+    enz_names = Set(name for (name, _) in Species[4])
     n = length(enz_names)
     s = length(Reactions)
 

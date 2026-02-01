@@ -5,7 +5,7 @@ using Random
 Independent reference: compute QSSA rate using Laplacian cofactor method.
 Works directly with EnzymeMechanism type parameters.
 """
-function reference_qssa(m::EnzymeMechanism{SpeciesT, Reactions}, params::NamedTuple, concs::NamedTuple; E_total=1.0) where {SpeciesT, Reactions}
+function reference_qssa(m::EnzymeMechanism{Species, Reactions}, params::NamedTuple, concs::NamedTuple) where {Species, Reactions}
     enzs = enzyme_forms(m)
     n = length(enzs)
     enz_names = Tuple(e[1] for e in enzs)
@@ -55,7 +55,7 @@ function reference_qssa(m::EnzymeMechanism{SpeciesT, Reactions}, params::NamedTu
     end
 
     D_total = sum(D)
-    E_conc = D ./ D_total .* E_total
+    E_conc = D ./ D_total .* params.E_total
 
     # Compute net consumption of reference substrate
     v = 0.0
@@ -140,6 +140,8 @@ function random_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rn
         push!(param_keys, Symbol("k$(i)r"))
         push!(param_vals, 0.1 + 9.9 * rand(rng))
     end
+    push!(param_keys, :E_total)
+    push!(param_vals, 0.1 + 9.9 * rand(rng))
     params = NamedTuple{Tuple(param_keys)}(Tuple(param_vals))
 
     conc_vals = [0.1 + 9.9 * rand(rng) for _ in met_names]

@@ -39,7 +39,7 @@
         @test Set(m[1] for m in metabolites(m)) == Set([:S, :P])
 
         # Numeric check: same as Uni-Uni spot check
-        params = (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1)
+        params = (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1, E_total=1.0)
         concs = (S=0.7, P=0.3)
         @test rate_equation(m, params, concs) ≈ 0.9091 atol=0.001
 
