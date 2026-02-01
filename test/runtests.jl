@@ -6,6 +6,7 @@ using Random
 include("test_helpers.jl")
 
 @testset "EnzymeRates.jl" begin
+    include("test_accessors.jl")
     include("test_types.jl")
     include("test_dsl.jl")
     include("test_mechanisms.jl")

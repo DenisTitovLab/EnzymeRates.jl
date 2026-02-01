@@ -8,10 +8,11 @@ determinants expanded via the Leibniz formula. The rate is defined as the
 net consumption of the first substrate, normalized by its stoichiometry.
 """
 function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
-    subs = substrates(M)
-    prods = products(M)
-    enzs = enzyme_forms(M)
-    rxns = reactions(M)
+    m = M()
+    subs = substrates(m)
+    prods = products(m)
+    enzs = enzyme_forms(m)
+    rxns = reactions(m)
 
     isempty(subs) && error("No substrates defined")
     ref_name = subs[1][1]
