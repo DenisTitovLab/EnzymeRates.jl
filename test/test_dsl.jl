@@ -24,16 +24,21 @@
 
     @testset "@mechanism" begin
         m = @mechanism begin
-            [E, S(C=1)] --> [ES]
-            [ES] --> [E, P(C=1)]
+            species: begin
+                substrates: S(C=1)
+                products:   P(C=1)
+                enzymes:    E(), ES(C=1)
+            end
+            steps: begin
+                [E, S] --> [ES]
+                [ES] --> [E, P]
+            end
         end
         @test m isa EnzymeMechanism
         @test n_steps(m) == 2
         @test n_states(m) == 2
         @test Set(s.name for s in enzyme_forms(m)) == Set([:E, :ES])
         @test Set(s.name for s in metabolites(m)) == Set([:S, :P])
-        @test validate(m) == true
-
         # Verify species roles and atoms
         raw = steps(m)
         all_species = vcat(raw[1].first, raw[1].second, raw[2].first, raw[2].second)
@@ -50,20 +55,33 @@
 
         # Multi-step mechanism
         m2 = @mechanism begin
-            [E, A(C=2, N=1)] --> [EA]
-            [EA] --> [FP]
-            [FP] --> [F, P(C=2)]
-            [F, B(C=3)] --> [FB]
-            [FB] --> [EQ]
-            [EQ] --> [E, Q(C=3, N=1)]
+            species: begin
+                substrates: A(C=2, N=1), B(C=3)
+                products:   P(C=2), Q(C=3, N=1)
+                enzymes:    E(), EA(C=2, N=1), FP(C=2, N=1), F(N=1), FB(C=3, N=1), EQ(C=3, N=1)
+            end
+            steps: begin
+                [E, A] --> [EA]
+                [EA] --> [FP]
+                [FP] --> [F, P]
+                [F, B] --> [FB]
+                [FB] --> [EQ]
+                [EQ] --> [E, Q]
+            end
         end
         @test n_states(m2) == 6
-        @test validate(m2) == true
     end
 
     @testset "Elementary steps" begin
         @test_throws ErrorException @mechanism begin
-            [E, S(C=1), P(C=1)] --> [ESP]
+            species: begin
+                substrates: S(C=1)
+                products:   P(C=1)
+                enzymes:    E(), ESP(C=1)
+            end
+            steps: begin
+                [E, S, P] --> [ESP]
+            end
         end
 
         spec = @enzyme_reaction begin
@@ -72,13 +90,17 @@
             regulators: I(C=1)
         end
 
-        E = Species(:E, enzyme)
-        ES = Species(:ES, enzyme)
-        EI = Species(:EI, enzyme)
-        S = Species(:S, metabolite, Dict(:C => 1))
-        P = Species(:P, metabolite, Dict(:C => 1))
-        I = Species(:I, metabolite, Dict(:C => 1))
-        steps = [[E, S] => [ES], [ES] => [E, P], [E, I] => [EI]]
-        @test_throws ErrorException EnzymeMechanism(spec, steps)
+        species = (
+            ( (:S, ((:C, 1),)), ),           # substrates
+            ( (:P, ((:C, 1),)), ),           # products
+            ( (:I, ((:C, 1),)), ),           # regulators
+            ( (:E, ()), (:ES, ((:C, 1),)), (:EI, ((:C, 1),)) ),  # enzymes
+        )
+        reactions = (
+            ((:E, :S), (:ES,)),
+            ((:ES,), (:E, :P)),
+            ((:E, :I), (:EI,)),
+        )
+        @test_throws ErrorException EnzymeMechanism(species, reactions)
     end
 end

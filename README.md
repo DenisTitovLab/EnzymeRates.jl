@@ -24,11 +24,16 @@ using EnzymeRates
 
 # Define a reversible Uni-Uni mechanism
 m = @mechanism begin
-    [E, S(C=1)] --> [ES]
-    [ES] --> [E, P(C=1)]
+    species: begin
+        substrates: S(C=1)
+        products:   P(C=1)
+        enzymes:    E(), ES(C=1)
+    end
+    steps: begin
+        [E, S] --> [ES]
+        [ES] --> [E, P]
+    end
 end
-
-validate(m)  # true
 
 # Compute rate: rate_equation(m, params, concs) -> Float64
 v = rate_equation(m, (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1), (S=0.7, P=0.3))
@@ -42,12 +47,19 @@ rate_equation_string(m)
 
 ### `@mechanism` macro
 
-Each line is a reversible step `[reactants] --> [products]`. Bare symbols are enzyme forms; symbols with keyword arguments are metabolites with atomic compositions:
+`@mechanism` requires explicit species and steps blocks. Species include substrates, products, regulators, and enzyme forms with their atomic compositions:
 
 ```julia
 m = @mechanism begin
-    [E, S(C=6, H=12, O=6)] --> [ES]
-    [ES] --> [E, P(C=6, H=12, O=6)]
+    species: begin
+        substrates: S(C=6, H=12, O=6)
+        products:   P(C=6, H=12, O=6)
+        enzymes:    E(), ES(C=6, H=12, O=6)
+    end
+    steps: begin
+        [E, S] --> [ES]
+        [ES] --> [E, P]
+    end
 end
 ```
 
@@ -66,12 +78,18 @@ end
 ### Programmatic construction
 
 ```julia
-E  = Species(:E, enzyme)
-ES = Species(:ES, enzyme)
-S  = Species(:S, metabolite, Dict(:C => 1))
-P  = Species(:P, metabolite, Dict(:C => 1))
+species = (
+    ( (:S, ((:C, 1),)), ),      # substrates
+    ( (:P, ((:C, 1),)), ),      # products
+    (),                         # regulators
+    ( (:E, ()), (:ES, ((:C, 1),)) ),  # enzyme forms
+)
+reactions = (
+    ((:E, :S), (:ES,)),
+    ((:ES,), (:E, :P)),
+)
 
-m = EnzymeMechanism([[E, S] => [ES], [ES] => [E, P]])
+m = EnzymeMechanism(species, reactions)
 ```
 
 ## Rate Equations
@@ -86,6 +104,9 @@ Rate constants are named by step index. Each step has a forward (`kNf`) and reve
 
 ## Querying a Mechanism
 
+Mechanisms are validated at construction (elementary-step structure, atomic
+conservation, regulator balance). There is no separate `validate` API.
+
 ```julia
 enzyme_forms(m)          # distinct enzyme states
 metabolites(m)           # distinct metabolites
@@ -93,7 +114,6 @@ n_states(m)              # number of enzyme states
 graph(m)                 # (SimpleDiGraph, Vector{Species})
 stoich_matrix(m)         # metabolites x steps matrix
 n_independent_params(m)  # independent params after thermodynamic constraints
-validate(m)              # atomic conservation check
 ```
 
 ## Mechanism Enumeration
@@ -117,7 +137,7 @@ Each returned mechanism is guaranteed to contain free enzyme `E`, have a connect
 |------|-------------|
 | `Species(name, role[, atoms])` | Chemical species. `role` is `enzyme` or `metabolite`. |
 | `ReactionSpec(substrates, products[, regulators])` | Overall reaction specification. |
-| `EnzymeMechanism(steps)` | Mechanism: vector of `Pair{Vector{Species}, Vector{Species}}`. |
+| `EnzymeMechanism(species, reactions)` | Mechanism from explicit species + reactions tuples. |
 
 ### Functions
 
@@ -131,7 +151,6 @@ Each returned mechanism is guaranteed to contain free enzyme `E`, have a connect
 | `graph(m)` | Enzyme-form connectivity graph. |
 | `stoich_matrix(m)` | Stoichiometry matrix (metabolites x steps). |
 | `n_independent_params(m)` | Independent parameters after thermodynamic constraints. |
-| `validate(m)` | Check atomic conservation. |
 | `enumerate_mechanisms(spec, n)` | All valid mechanisms with `n` independent parameters. |
 
 ## Running Tests

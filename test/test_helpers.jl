@@ -163,34 +163,34 @@ function test_rate_equation_performance(m, params, concs)
     return allocs, t / 10_000
 end
 
+function _atoms_tuple_from_dict(atoms::Dict{Symbol,Int})
+    Tuple((a, c) for (a, c) in sort!(collect(atoms); by=first))
+end
+
+function species_tuple(subs::Vector{Species}, prods::Vector{Species}, regs::Vector{Species}, enzs::Vector{Species})
+    (
+        Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in subs),
+        Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in prods),
+        Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in regs),
+        Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in enzs),
+    )
+end
+
+function reactions_tuple(raw_steps::Vector{Pair{Vector{Species},Vector{Species}}})
+    reactions = map(raw_steps) do (lhs, rhs)
+        (Tuple(s.name for s in lhs), Tuple(s.name for s in rhs))
+    end
+    Tuple(reactions)
+end
+
+function mechanism_from_species(subs, prods, regs, enzs, raw_steps)
+    EnzymeMechanism(species_tuple(subs, prods, regs, enzs), reactions_tuple(raw_steps))
+end
+
 function _reference_metabolite(m)
-    raw = steps(m)
-    met_order = Symbol[]
-    seen = Set{Symbol}()
-    net = Dict{Symbol,Int}()
-
-    for (lhs, rhs) in raw
-        for s in lhs
-            s.role == metabolite || continue
-            if s.name ∉ seen
-                push!(seen, s.name)
-                push!(met_order, s.name)
-            end
-            net[s.name] = get(net, s.name, 0) - 1
-        end
-        for s in rhs
-            s.role == metabolite || continue
-            if s.name ∉ seen
-                push!(seen, s.name)
-                push!(met_order, s.name)
-            end
-            net[s.name] = get(net, s.name, 0) + 1
-        end
-    end
-
-    for name in met_order
-        coeff = get(net, name, 0)
-        coeff < 0 && return name, coeff
-    end
-    error("No substrate found in mechanism")
+    subs = substrates(m)
+    isempty(subs) && error("No substrate found in mechanism")
+    name = subs[1].name
+    coeff = -count(s -> s.name == name, subs)
+    return name, coeff
 end

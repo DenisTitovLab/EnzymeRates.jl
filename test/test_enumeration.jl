@@ -10,7 +10,6 @@
 
     # Each mechanism should be valid
     for m in mechanisms
-        @test validate(m) == true
         @test n_independent_params(m) == 3
     end
 end

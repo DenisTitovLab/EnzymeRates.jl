@@ -150,6 +150,97 @@ function _generate_ping_pong_forms(spec::ReactionSpec, all_metabolites::Vector{S
     forms
 end
 
+function _atoms_tuple_from_dict(atoms::Dict{Symbol,Int})
+    Tuple((a, c) for (a, c) in sort!(collect(atoms); by=first))
+end
+
+function _collect_enzyme_names_from_steps(raw_steps)
+    names = Symbol[]
+    seen = Set{Symbol}()
+    for (lhs, rhs) in raw_steps
+        for s in vcat(lhs, rhs)
+            s.role == enzyme || continue
+            if s.name ∉ seen
+                push!(seen, s.name)
+                push!(names, s.name)
+            end
+        end
+    end
+    names
+end
+
+function _build_reactions_tuple_from_steps(raw_steps)
+    reactions = map(raw_steps) do (lhs, rhs)
+        e_lhs = [s for s in lhs if s.role == enzyme][1].name
+        e_rhs = [s for s in rhs if s.role == enzyme][1].name
+        m_lhs = [s for s in lhs if s.role == metabolite]
+        m_rhs = [s for s in rhs if s.role == metabolite]
+        lhs_syms = isempty(m_lhs) ? (e_lhs,) : (e_lhs, m_lhs[1].name)
+        rhs_syms = isempty(m_rhs) ? (e_rhs,) : (e_rhs, m_rhs[1].name)
+        (lhs_syms, rhs_syms)
+    end
+    return Tuple(reactions)
+end
+
+function _infer_enzyme_atoms_from_steps(enzyme_names, reactions, met_atoms::Dict{Symbol,Dict{Symbol,Int}})
+    root = :E
+    root in enzyme_names || error("Free enzyme :E not found in enzyme forms")
+    enzyme_set = Set(enzyme_names)
+
+    enzyme_atoms = Dict{Symbol,Dict{Symbol,Int}}()
+    enzyme_atoms[root] = Dict{Symbol,Int}()
+
+    visited = Set{Symbol}([root])
+    queue = [root]
+
+    while !isempty(queue)
+        current = popfirst!(queue)
+        for (lhs, rhs) in reactions
+            e_lhs = first(s for s in lhs if s in enzyme_set)
+            e_rhs = first(s for s in rhs if s in enzyme_set)
+            m_lhs = nothing
+            m_rhs = nothing
+            for s in lhs
+                s in enzyme_set && continue
+                m_lhs = s
+            end
+            for s in rhs
+                s in enzyme_set && continue
+                m_rhs = s
+            end
+
+            for (from, to, consumed, produced) in (
+                (e_lhs, e_rhs, m_lhs, m_rhs),
+                (e_rhs, e_lhs, m_rhs, m_lhs),
+            )
+                from == current || continue
+                new_atoms = copy(enzyme_atoms[from])
+                if consumed !== nothing
+                    for (atom, count) in met_atoms[consumed]
+                        new_atoms[atom] = get(new_atoms, atom, 0) + count
+                    end
+                end
+                if produced !== nothing
+                    for (atom, count) in met_atoms[produced]
+                        new_atoms[atom] = get(new_atoms, atom, 0) - count
+                    end
+                end
+                filter!(p -> p.second != 0, new_atoms)
+                if to in visited
+                    new_atoms == enzyme_atoms[to] || return nothing
+                else
+                    enzyme_atoms[to] = new_atoms
+                    push!(visited, to)
+                    push!(queue, to)
+                end
+            end
+        end
+    end
+
+    length(visited) == length(enzyme_names) || return nothing
+    return enzyme_atoms
+end
+
 """Enumerate subsets of candidate steps that form valid mechanisms."""
 function _enumerate_subsets!(results, candidate_steps, spec, target_n_params)
     n_steps = length(candidate_steps)
@@ -260,8 +351,29 @@ function _check_and_add_raw!(results, raw_steps, spec, target_n_params)
     n_indep = 2 * s - n_cycles
     n_indep == target_n_params || return
 
+    met_atoms = Dict{Symbol,Dict{Symbol,Int}}()
+    for s in spec.substrates
+        met_atoms[s.name] = copy(s.atoms)
+    end
+    for s in spec.products
+        met_atoms[s.name] = copy(s.atoms)
+    end
+    for s in spec.regulators
+        met_atoms[s.name] = copy(s.atoms)
+    end
+
+    enzyme_names = _collect_enzyme_names_from_steps(raw_steps)
+    reactions = _build_reactions_tuple_from_steps(raw_steps)
+    enzyme_atoms = _infer_enzyme_atoms_from_steps(enzyme_names, reactions, met_atoms)
+    enzyme_atoms === nothing && return
+
+    subs_t = Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in spec.substrates)
+    prods_t = Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in spec.products)
+    regs_t = Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in spec.regulators)
+    enzs_t = Tuple((name, _atoms_tuple_from_dict(enzyme_atoms[name])) for name in enzyme_names)
+
     try
-        m = EnzymeMechanism(spec, raw_steps)
+        m = EnzymeMechanism((subs_t, prods_t, regs_t, enzs_t), reactions)
         push!(results, m)
     catch
         return

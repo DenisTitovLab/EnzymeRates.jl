@@ -1,9 +1,9 @@
 using Combinatorics: permutations
 
-function _steps_from_species_reactions(Species, Reactions)
-    enzs = Species[4]
+function _steps_from_species_reactions(species_data, reactions_data)
+    enzs = species_data[4]
     enz_names = Tuple(e[1] for e in enzs)
-    steps = map(enumerate(Reactions)) do (step_idx, (lhs, rhs))
+    steps = map(enumerate(reactions_data)) do (step_idx, (lhs, rhs))
         e_lhs = nothing
         e_rhs = nothing
         m_lhs = nothing
@@ -38,8 +38,8 @@ Build a symbolic `Expr` for the QSSA rate equation using Laplacian cofactor
 determinants expanded via the Leibniz formula. The rate is defined as the
 net consumption of the first substrate, normalized by its stoichiometry.
 """
-function _symbolic_rate_expr(Species, Reactions, PNames, CNames)
-    subs, prods, _, enzs = Species
+function _symbolic_rate_expr(species_data, reactions_data, PNames, CNames)
+    subs, prods, _, enzs = species_data
     isempty(subs) && error("No substrates defined")
     ref_name = subs[1][1]
     nu_ref = 0
@@ -51,7 +51,7 @@ function _symbolic_rate_expr(Species, Reactions, PNames, CNames)
     end
     nu_ref == 0 && error("Reference substrate has zero net stoichiometry")
 
-    Steps = _steps_from_species_reactions(Species, Reactions)
+    Steps = _steps_from_species_reactions(species_data, reactions_data)
     N = length(enzs)
 
     # 1. Build symbolic rate matrix R[i,j] as Expr (or 0 meaning absent)
@@ -188,11 +188,11 @@ compile time as a single arithmetic expression with no allocations, loops,
 or matrix ops.
 """
 @generated function rate_equation(
-    ::EnzymeMechanism{Species, Reactions},
+    ::EnzymeMechanism{SpeciesT, Reactions},
     params::NamedTuple{PNames},
     concs::NamedTuple{CNames}
-) where {Species, Reactions, PNames, CNames}
-    _symbolic_rate_expr(Species, Reactions, PNames, CNames)
+) where {SpeciesT, Reactions, PNames, CNames}
+    _symbolic_rate_expr(SpeciesT, Reactions, PNames, CNames)
 end
 
 """
@@ -204,10 +204,8 @@ function rate_equation_string(m::EnzymeMechanism)
     _rate_equation_string(m)
 end
 
-function _rate_equation_string(m::EnzymeMechanism)
-    Species = _species_data(m)
-    Reactions = _reactions_data(m)
-    Steps = _steps_from_species_reactions(Species, Reactions)
+function _rate_equation_string(::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions}
+    Steps = _steps_from_species_reactions(SpeciesT, Reactions)
 
     met_names = Symbol[]
     param_names = Symbol[]
@@ -220,7 +218,7 @@ function _rate_equation_string(m::EnzymeMechanism)
 
     PNames = tuple(param_names..., :E_total)
     CNames = tuple(met_names...)
-    expr = _symbolic_rate_expr(Species, Reactions, PNames, CNames)
+    expr = _symbolic_rate_expr(SpeciesT, Reactions, PNames, CNames)
 
     # Convert to string, then strip `params.` and `concs.` prefixes
     s = string(expr)
