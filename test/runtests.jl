@@ -11,4 +11,5 @@ include("test_helpers.jl")
     include("test_mechanisms.jl")
     include("test_enumeration.jl")
     include("test_ode_steadystate.jl")
+    include("test_aqua_jet.jl")
 end

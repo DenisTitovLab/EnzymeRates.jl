@@ -8,14 +8,22 @@ Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [compat]
+Aqua = "0.8"
 Combinatorics = "1.1.0"
 Graphs = "1"
+JET = "0.11"
+LinearAlgebra = "1"
+OrdinaryDiffEqFIRK = "1"
+Random = "1"
+Test = "1"
 julia = "1.9"
 
 [extras]
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 OrdinaryDiffEqFIRK = "5960d6e9-dd7a-4743-88e7-cf307b64f125"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "Random", "OrdinaryDiffEqFIRK"]
+test = ["Test", "Random", "OrdinaryDiffEqFIRK", "Aqua", "JET"]
