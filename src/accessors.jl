@@ -91,28 +91,6 @@ Positive = produced, negative = consumed.
     return S
 end
 
-"""
-Default parameter grouping: steps that bind/release the same metabolite share parameters.
-Returns a vector of vectors of step indices.
-"""
-function param_groups(m::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
-    groups = Dict{Set{Symbol}, Vector{Int}}()
-    enz_names = Set(e[1] for e in enzyme_forms(m))
-    for (step_i, (lhs, rhs)) in enumerate(Reactions)
-        mets_in_step = Set{Symbol}()
-        for s in lhs
-            s in enz_names || push!(mets_in_step, s)
-        end
-        for s in rhs
-            s in enz_names || push!(mets_in_step, s)
-        end
-        push!(get!(groups, mets_in_step, Int[]), step_i)
-    end
-    collect(values(groups))
-end
-
-param_groups(m::EnzymeMechanism, overrides::Dict) = param_groups(m)
-
 """Return rate constant names as a tuple of Symbols, e.g. `(:k1f, :k1r, :k2f, :k2r)`."""
 @generated function parameters(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
     return ntuple(i -> Symbol("k", (i+1)÷2, isodd(i) ? "f" : "r"), 2 * length(Reactions))
