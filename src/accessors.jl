@@ -102,3 +102,24 @@ function param_groups(m::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, 
 end
 
 param_groups(m::EnzymeMechanism, overrides::Dict) = param_groups(m)
+
+"""Return parsed steps as a tuple of `(i, j, kf, kr, met_lhs, met_rhs)` per reaction."""
+steps(::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions} =
+    _steps(SpeciesT, Reactions)
+
+function _steps(species_data, reactions_data)
+    enz_names = Tuple(e[1] for e in species_data[4])
+    Tuple(
+        let (lhs, rhs) = reaction,
+            e_lhs = first(s for s in lhs if s in enz_names),
+            e_rhs = first(s for s in rhs if s in enz_names),
+            m_lhs = iterate(s for s in lhs if s ∉ enz_names),
+            m_rhs = iterate(s for s in rhs if s ∉ enz_names)
+            (findfirst(==(e_lhs), enz_names), findfirst(==(e_rhs), enz_names),
+             Symbol("k$(idx)f"), Symbol("k$(idx)r"),
+             m_lhs === nothing ? nothing : m_lhs[1],
+             m_rhs === nothing ? nothing : m_rhs[1])
+        end
+        for (idx, reaction) in enumerate(reactions_data)
+    )
+end

@@ -1,36 +1,5 @@
 using Combinatorics: permutations
 
-function _steps_from_species_reactions(species_data, reactions_data)
-    enzs = species_data[4]
-    enz_names = Tuple(e[1] for e in enzs)
-    steps = map(enumerate(reactions_data)) do (step_idx, (lhs, rhs))
-        e_lhs = nothing
-        e_rhs = nothing
-        m_lhs = nothing
-        m_rhs = nothing
-        for s in lhs
-            if s in enz_names
-                e_lhs = s
-            else
-                m_lhs = s
-            end
-        end
-        for s in rhs
-            if s in enz_names
-                e_rhs = s
-            else
-                m_rhs = s
-            end
-        end
-        i = findfirst(==(e_lhs), enz_names)
-        j = findfirst(==(e_rhs), enz_names)
-        kf = Symbol("k$(step_idx)f")
-        kr = Symbol("k$(step_idx)r")
-        (i, j, kf, kr, m_lhs, m_rhs)
-    end
-    return Tuple(steps)
-end
-
 """
     _symbolic_rate_expr(Species, Reactions, PNames, CNames)
 
@@ -51,7 +20,7 @@ function _symbolic_rate_expr(species_data, reactions_data, PNames, CNames)
     end
     nu_ref == 0 && error("Reference substrate has zero net stoichiometry")
 
-    Steps = _steps_from_species_reactions(species_data, reactions_data)
+    Steps = _steps(species_data, reactions_data)
     N = length(enzs)
 
     # 1. Build symbolic rate matrix R[i,j] as Expr (or 0 meaning absent)
@@ -205,7 +174,7 @@ function rate_equation_string(m::EnzymeMechanism)
 end
 
 function _rate_equation_string(::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions}
-    Steps = _steps_from_species_reactions(SpeciesT, Reactions)
+    Steps = _steps(SpeciesT, Reactions)
 
     met_names = Symbol[]
     param_names = Symbol[]
