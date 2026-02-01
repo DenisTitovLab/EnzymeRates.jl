@@ -30,7 +30,7 @@ end
     AbstractEnzymeMechanism
 
 Abstract supertype for enzyme mechanisms. Used as element type in collections
-of mechanisms with different type parameters (e.g. from `enumerate_mechanisms`).
+of mechanisms with different type parameters.
 """
 abstract type AbstractEnzymeMechanism end
 

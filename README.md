@@ -8,7 +8,6 @@ A Julia package for deriving and evaluating steady-state enzyme rate equations v
 - Validate mechanisms via atomic conservation checking
 - Derive QSSA rate equations compiled into zero-allocation numeric functions
 - Count independent kinetic parameters (Haldane/Wegscheider constraints)
-- Enumerate all valid mechanisms for a given reaction and parameter count
 
 ## Installation
 
@@ -63,18 +62,6 @@ m = @mechanism begin
 end
 ```
 
-### `@enzyme_reaction` macro
-
-Defines the overall reaction for use with `enumerate_mechanisms`:
-
-```julia
-spec = @enzyme_reaction begin
-    substrates: S(C=6), ATP(C=10, N=5, P=3)
-    products:   G6P(C=6, P=1), ADP(C=10, N=5, P=2)
-    regulators: I(C=5)  # optional
-end
-```
-
 ### Programmatic construction
 
 ```julia
@@ -116,19 +103,6 @@ stoich_matrix(m)         # metabolites x steps matrix
 n_independent_params(m)  # independent params after thermodynamic constraints
 ```
 
-## Mechanism Enumeration
-
-```julia
-spec = @enzyme_reaction begin
-    substrates: S(C=1)
-    products:   P(C=1)
-end
-
-mechanisms = enumerate_mechanisms(spec, 3)  # all valid mechanisms with 3 indep. params
-```
-
-Each returned mechanism is guaranteed to contain free enzyme `E`, have a connected graph, conserve atoms, match the reaction spec, and have the requested parameter count.
-
 ## API Reference
 
 ### Types
@@ -151,7 +125,6 @@ Each returned mechanism is guaranteed to contain free enzyme `E`, have a connect
 | `graph(m)` | Enzyme-form connectivity graph. |
 | `stoich_matrix(m)` | Stoichiometry matrix (metabolites x steps). |
 | `n_independent_params(m)` | Independent parameters after thermodynamic constraints. |
-| `enumerate_mechanisms(spec, n)` | All valid mechanisms with `n` independent parameters. |
 
 ## Running Tests
 
