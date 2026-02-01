@@ -1,90 +1,3 @@
-"""
-Parse a species expression like `S(C=6, H=12, O=6)` into a Species constructor Expr.
-"""
-function _parse_species_expr(expr)
-    if expr isa Symbol
-        return :(Species($(QuoteNode(expr)), metabolite, Dict{Symbol,Int}()))
-    elseif expr isa Expr && expr.head == :call
-        name = expr.args[1]
-        atoms = Expr(:call, :(Dict{Symbol,Int}))
-        for i in 2:length(expr.args)
-            arg = expr.args[i]
-            if arg isa Expr && arg.head == :kw
-                push!(atoms.args, :($(Expr(:call, :(=>), QuoteNode(arg.args[1]), arg.args[2]))))
-            end
-        end
-        return :(Species($(QuoteNode(name)), metabolite, $atoms))
-    else
-        error("Cannot parse species expression: $expr")
-    end
-end
-
-"""
-    @enzyme_reaction begin
-        substrates: S(C=1)
-        products:   P(C=1)
-        regulators: I(C=5)
-    end
-
-Create a `ReactionSpec` from a DSL block.
-
-Multi-species lines use comma separation:
-    substrates: S(C=6, H=12), ATP(C=10)
-which Julia parses as a tuple `(substrates: S(C=6,H=12), ATP(C=10))`.
-"""
-macro enzyme_reaction(block)
-    substrates = nothing
-    products = nothing
-    regulators = nothing
-
-    # Collect lines, handling both plain exprs and tuples
-    items = Any[]
-    for arg in block.args
-        arg isa LineNumberNode && continue
-        push!(items, arg)
-    end
-
-    # Process items: a tuple means multi-species line, a call means single-species line
-    i = 1
-    while i <= length(items)
-        item = items[i]
-        if item isa Expr && item.head == :tuple
-            # First element is `label: Species(...)`, rest are additional species
-            first_elem = item.args[1]
-            label, first_species = _parse_label_species(first_elem)
-            species_list = Expr(:vect, first_species)
-            for j in 2:length(item.args)
-                push!(species_list.args, _parse_species_expr(item.args[j]))
-            end
-            if label == :substrates
-                substrates = species_list
-            elseif label == :products
-                products = species_list
-            elseif label == :regulators
-                regulators = species_list
-            end
-        elseif item isa Expr && item.head == :call && item.args[1] == :(:)
-            label = item.args[2]
-            species_expr = item.args[3]
-            species_list = Expr(:vect, _parse_species_expr(species_expr))
-            if label == :substrates
-                substrates = species_list
-            elseif label == :products
-                products = species_list
-            elseif label == :regulators
-                regulators = species_list
-            end
-        end
-        i += 1
-    end
-
-    substrates === nothing && error("substrates not specified")
-    products === nothing && error("products not specified")
-    regulators === nothing && (regulators = :(Species[]))
-
-    return esc(:(ReactionSpec($substrates, $products, $regulators)))
-end
-
 function _parse_species_tuple_expr(expr)
     if expr isa Symbol
         atoms = Expr(:tuple)
@@ -111,6 +24,68 @@ function _parse_label_species_tuple(expr)
         return label, species
     end
     error("Expected label: species, got $expr")
+end
+
+"""
+    @enzyme_reaction begin
+        substrates: S(C=1)
+        products:   P(C=1)
+        regulators: I(C=5)
+    end
+
+Create an `EnzymeReaction` from a DSL block.
+
+Multi-species lines use comma separation:
+    substrates: S(C=6, H=12), ATP(C=10)
+"""
+macro enzyme_reaction(block)
+    subs = nothing
+    prods = nothing
+    regs = nothing
+
+    items = Any[]
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        push!(items, arg)
+    end
+
+    i = 1
+    while i <= length(items)
+        item = items[i]
+        if item isa Expr && item.head == :tuple
+            first_elem = item.args[1]
+            label, first_species = _parse_label_species_tuple(first_elem)
+            species_list = Expr(:tuple, first_species)
+            for j in 2:length(item.args)
+                push!(species_list.args, _parse_species_tuple_expr(item.args[j]))
+            end
+            if label == :substrates
+                subs = species_list
+            elseif label == :products
+                prods = species_list
+            elseif label == :regulators
+                regs = species_list
+            end
+        elseif item isa Expr && item.head == :call && item.args[1] == :(:)
+            label = item.args[2]
+            species_expr = item.args[3]
+            species_list = Expr(:tuple, _parse_species_tuple_expr(species_expr))
+            if label == :substrates
+                subs = species_list
+            elseif label == :products
+                prods = species_list
+            elseif label == :regulators
+                regs = species_list
+            end
+        end
+        i += 1
+    end
+
+    subs === nothing && error("substrates not specified")
+    prods === nothing && error("products not specified")
+    regs === nothing && (regs = Expr(:tuple))
+
+    return esc(:(EnzymeReaction{$subs, $prods, $regs}()))
 end
 
 function _parse_species_block(block)
@@ -232,14 +207,4 @@ macro mechanism(block)
     end
 
     return esc(:(EnzymeMechanism($species_tuple, $reactions)))
-end
-
-function _parse_label_species(expr)
-    # expr is `label: Species(...)` which is Expr(:call, :(:), :label, species_expr)
-    if expr isa Expr && expr.head == :call && expr.args[1] == :(:)
-        label = expr.args[2]
-        species = _parse_species_expr(expr.args[3])
-        return label, species
-    end
-    error("Expected label: species, got $expr")
 end

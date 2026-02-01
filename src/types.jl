@@ -1,30 +1,30 @@
-@enum SpeciesRole enzyme metabolite
+"""
+    AbstractEnzymeReaction
 
-struct Species
-    name::Symbol
-    role::SpeciesRole
-    atoms::Dict{Symbol,Int}
+Abstract supertype for enzyme reactions with different type parameters.
+"""
+abstract type AbstractEnzymeReaction end
+
+"""
+    EnzymeReaction{Substrates, Products, Regulators}
+
+Singleton type encoding an enzyme reaction specification in type parameters.
+
+Each of `Substrates`, `Products`, `Regulators` is a tuple of
+`(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+"""
+struct EnzymeReaction{Substrates, Products, Regulators} <: AbstractEnzymeReaction end
+
+function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
+    subs_names = Set(s[1] for s in subs)
+    prods_names = Set(s[1] for s in prods)
+    regs_names = Set(s[1] for s in regs)
+    for name in regs_names
+        name in subs_names && error("Regulator $(name) also listed as substrate")
+        name in prods_names && error("Regulator $(name) also listed as product")
+    end
+    EnzymeReaction{subs, prods, regs}()
 end
-
-Species(name::Symbol, role::SpeciesRole) = Species(name, role, Dict{Symbol,Int}())
-
-function Base.:(==)(a::Species, b::Species)
-    a.name == b.name && a.role == b.role && a.atoms == b.atoms
-end
-
-function Base.hash(a::Species, h::UInt)
-    hash(a.name, hash(a.role, hash(a.atoms, h)))
-end
-
-Base.show(io::IO, s::Species) = print(io, s.name)
-
-struct ReactionSpec
-    substrates::Vector{Species}
-    products::Vector{Species}
-    regulators::Vector{Species}
-end
-
-ReactionSpec(s, p) = ReactionSpec(s, p, Species[])
 
 """
     AbstractEnzymeMechanism

@@ -3,39 +3,35 @@ using Random
 
 """
 Independent reference: compute QSSA rate using Laplacian cofactor method.
+Works directly with EnzymeMechanism type parameters.
 """
-function reference_qssa(m, params::NamedTuple, concs::NamedTuple; E_total=1.0)
-    forms = enzyme_forms(m)
-    n = length(forms)
-    name_to_idx = Dict(s.name => i for (i, s) in enumerate(forms))
-    raw = steps(m)
+function reference_qssa(m::EnzymeMechanism{SpeciesT, Reactions}, params::NamedTuple, concs::NamedTuple; E_total=1.0) where {SpeciesT, Reactions}
+    enzs = enzyme_forms(m)
+    n = length(enzs)
+    enz_names = Tuple(e[1] for e in enzs)
+    name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
+    enz_set = Set(enz_names)
 
     ref_name, nu_ref = _reference_metabolite(m)
 
     # Build rate matrix R[i,j] = pseudo-first-order rate from i to j
     R = zeros(n, n)
-    for (step_idx, (lhs, rhs)) in enumerate(raw)
-        e_lhs = [s for s in lhs if s.role == enzyme][1]
-        e_rhs = [s for s in rhs if s.role == enzyme][1]
-        i = name_to_idx[e_lhs.name]
-        j = name_to_idx[e_rhs.name]
+    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        i = name_to_idx[e_lhs]
+        j = name_to_idx[e_rhs]
 
-        m_lhs = [s for s in lhs if s.role == metabolite]
-        m_rhs = [s for s in rhs if s.role == metabolite]
+        m_lhs = [s for s in lhs if s ∉ enz_set]
+        m_rhs = [s for s in rhs if s ∉ enz_set]
 
         kf = params[Symbol("k$(step_idx)f")]
         kr = params[Symbol("k$(step_idx)r")]
 
-        rf = kf
-        if !isempty(m_lhs)
-            rf *= concs[m_lhs[1].name]
-        end
+        rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1]]
         R[i, j] += rf
 
-        rr = kr
-        if !isempty(m_rhs)
-            rr *= concs[m_rhs[1].name]
-        end
+        rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1]]
         R[j, i] += rr
     end
 
@@ -63,25 +59,25 @@ function reference_qssa(m, params::NamedTuple, concs::NamedTuple; E_total=1.0)
 
     # Compute net consumption of reference substrate
     v = 0.0
-    for (step_idx, (lhs, rhs)) in enumerate(raw)
-        e_lhs = [s for s in lhs if s.role == enzyme][1]
-        e_rhs = [s for s in rhs if s.role == enzyme][1]
-        i = name_to_idx[e_lhs.name]
-        j = name_to_idx[e_rhs.name]
+    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        i = name_to_idx[e_lhs]
+        j = name_to_idx[e_rhs]
 
-        m_lhs = [s for s in lhs if s.role == metabolite]
-        m_rhs = [s for s in rhs if s.role == metabolite]
+        m_lhs = [s for s in lhs if s ∉ enz_set]
+        m_rhs = [s for s in rhs if s ∉ enz_set]
 
         kf = params[Symbol("k$(step_idx)f")]
         kr = params[Symbol("k$(step_idx)r")]
 
-        rf = kf * (isempty(m_lhs) ? 1.0 : concs[m_lhs[1].name])
-        rr = kr * (isempty(m_rhs) ? 1.0 : concs[m_rhs[1].name])
+        rf = kf * (isempty(m_lhs) ? 1.0 : concs[m_lhs[1]])
+        rr = kr * (isempty(m_rhs) ? 1.0 : concs[m_rhs[1]])
 
         flux = rf * E_conc[i] - rr * E_conc[j]
-        if !isempty(m_lhs) && m_lhs[1].name == ref_name
+        if !isempty(m_lhs) && m_lhs[1] == ref_name
             v += flux
-        elseif !isempty(m_rhs) && m_rhs[1].name == ref_name
+        elseif !isempty(m_rhs) && m_rhs[1] == ref_name
             v -= flux
         end
     end
@@ -163,34 +159,10 @@ function test_rate_equation_performance(m, params, concs)
     return allocs, t / 10_000
 end
 
-function _atoms_tuple_from_dict(atoms::Dict{Symbol,Int})
-    Tuple((a, c) for (a, c) in sort!(collect(atoms); by=first))
-end
-
-function species_tuple(subs::Vector{Species}, prods::Vector{Species}, regs::Vector{Species}, enzs::Vector{Species})
-    (
-        Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in subs),
-        Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in prods),
-        Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in regs),
-        Tuple((s.name, _atoms_tuple_from_dict(s.atoms)) for s in enzs),
-    )
-end
-
-function reactions_tuple(raw_steps::Vector{Pair{Vector{Species},Vector{Species}}})
-    reactions = map(raw_steps) do (lhs, rhs)
-        (Tuple(s.name for s in lhs), Tuple(s.name for s in rhs))
-    end
-    Tuple(reactions)
-end
-
-function mechanism_from_species(subs, prods, regs, enzs, raw_steps)
-    EnzymeMechanism(species_tuple(subs, prods, regs, enzs), reactions_tuple(raw_steps))
-end
-
 function _reference_metabolite(m)
     subs = substrates(m)
     isempty(subs) && error("No substrate found in mechanism")
-    name = subs[1].name
-    coeff = -count(s -> s.name == name, subs)
+    name = subs[1][1]
+    coeff = -count(s -> s[1] == name, subs)
     return name, coeff
 end

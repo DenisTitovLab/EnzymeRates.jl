@@ -1,70 +1,62 @@
 using Graphs
 
-_atoms_dict(atoms) = Dict{Symbol,Int}(atom => count for (atom, count) in atoms)
+"""Return substrates (with stoichiometric multiplicity)."""
+substrates(::EnzymeMechanism{SpeciesT}) where {SpeciesT} = SpeciesT[1]
+substrates(::EnzymeReaction{S,P,R}) where {S,P,R} = S
 
-function _species_from_group(group, role)
-    [Species(name, role, _atoms_dict(atoms)) for (name, atoms) in group]
-end
+"""Return products (with stoichiometric multiplicity)."""
+products(::EnzymeMechanism{SpeciesT}) where {SpeciesT} = SpeciesT[2]
+products(::EnzymeReaction{S,P,R}) where {S,P,R} = P
 
-"""Return substrates (with stoichiometric multiplicity) for the mechanism."""
-function substrates(::EnzymeMechanism{SpeciesT}) where {SpeciesT}
-    _species_from_group(SpeciesT[1], metabolite)
-end
+"""Return regulators."""
+regulators(::EnzymeMechanism{SpeciesT}) where {SpeciesT} = SpeciesT[3]
+regulators(::EnzymeReaction{S,P,R}) where {S,P,R} = R
 
-"""Return products (with stoichiometric multiplicity) for the mechanism."""
-function products(::EnzymeMechanism{SpeciesT}) where {SpeciesT}
-    _species_from_group(SpeciesT[2], metabolite)
-end
+"""Return all enzyme forms as a tuple of (name, atoms)."""
+enzyme_forms(::EnzymeMechanism{SpeciesT}) where {SpeciesT} = SpeciesT[4]
 
-"""Return regulators (with multiplicity as defined) for the mechanism."""
-function regulators(::EnzymeMechanism{SpeciesT}) where {SpeciesT}
-    _species_from_group(SpeciesT[3], metabolite)
-end
-
-"""Return all distinct enzyme forms in the mechanism."""
-function enzyme_forms(::EnzymeMechanism{SpeciesT}) where {SpeciesT}
-    enzs = SpeciesT[4]
-    [Species(name, enzyme, _atoms_dict(atoms)) for (name, atoms) in enzs]
-end
-
-"""Return all distinct metabolites in the mechanism."""
+"""Return unique metabolites as a tuple of (name, atoms)."""
 function metabolites(::EnzymeMechanism{SpeciesT}) where {SpeciesT}
     subs, prods, regs = SpeciesT[1:3]
     seen = Set{Symbol}()
-    mets = Species[]
+    mets = Tuple{Symbol,Any}[]
     for group in (subs, prods, regs)
         for (name, atoms) in group
             if name ∉ seen
                 push!(seen, name)
-                push!(mets, Species(name, metabolite, _atoms_dict(atoms)))
+                push!(mets, (name, atoms))
             end
         end
     end
-    mets
+    Tuple(mets)
 end
 
 """Number of distinct enzyme states."""
-function n_states(::EnzymeMechanism{SpeciesT}) where {SpeciesT}
-    length(SpeciesT[4])
-end
+n_states(::EnzymeMechanism{SpeciesT}) where {SpeciesT} = length(SpeciesT[4])
+
+"""Number of steps in the mechanism."""
+n_steps(::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions} = length(Reactions)
+
+"""Return the reactions tuple directly."""
+reactions(::EnzymeMechanism{SpeciesT, R}) where {SpeciesT, R} = R
 
 """
 Build a directed graph of enzyme-form connectivity.
-Returns (graph, forms) where forms[i] is the Species for node i.
+Returns (graph, enzyme_forms_tuple).
 """
-function graph(m::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions}
-    forms = enzyme_forms(m)
-    enz_names = Tuple(s.name for s in forms)
+function graph(::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions}
+    enzs = SpeciesT[4]
+    enz_names = Tuple(e[1] for e in enzs)
     name_to_idx = Dict(n => i for (i, n) in enumerate(enz_names))
     enz_set = Set(enz_names)
-    g = SimpleDiGraph(length(forms))
+    g = SimpleDiGraph(length(enzs))
     for (lhs, rhs) in Reactions
         e_lhs = first(s for s in lhs if s in enz_set)
         e_rhs = first(s for s in rhs if s in enz_set)
         add_edge!(g, name_to_idx[e_lhs], name_to_idx[e_rhs])
         add_edge!(g, name_to_idx[e_rhs], name_to_idx[e_lhs])
     end
-    g, forms
+    g, enzs
 end
 
 """
@@ -73,8 +65,8 @@ Positive = produced, negative = consumed.
 """
 function stoich_matrix(m::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions}
     mets = metabolites(m)
-    met_idx = Dict(s.name => i for (i, s) in enumerate(mets))
-    enz_names = Set(s.name for s in enzyme_forms(m))
+    met_idx = Dict(m[1] => i for (i, m) in enumerate(mets))
+    enz_names = Set(e[1] for e in enzyme_forms(m))
     S = zeros(Int, length(mets), length(Reactions))
     for (step_j, (lhs, rhs)) in enumerate(Reactions)
         for s in lhs
@@ -95,7 +87,7 @@ Returns a vector of vectors of step indices.
 """
 function param_groups(m::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions}
     groups = Dict{Set{Symbol}, Vector{Int}}()
-    enz_names = Set(s.name for s in enzyme_forms(m))
+    enz_names = Set(e[1] for e in enzyme_forms(m))
     for (step_i, (lhs, rhs)) in enumerate(Reactions)
         mets_in_step = Set{Symbol}()
         for s in lhs
@@ -109,44 +101,4 @@ function param_groups(m::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, 
     collect(values(groups))
 end
 
-function param_groups(m::EnzymeMechanism, overrides::Dict)
-    param_groups(m)
-end
-
-"""
-Reconstruct the raw steps as `Vector{Pair{Vector{Species}, Vector{Species}}}`.
-"""
-function steps(::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions}
-    subs, prods, regs, enzs = SpeciesT
-
-    met_species = Dict{Symbol, Species}()
-    for (name, atoms) in (subs..., prods..., regs...)
-        if !haskey(met_species, name)
-            met_species[name] = Species(name, metabolite, _atoms_dict(atoms))
-        end
-    end
-
-    enz_species = Dict{Symbol, Species}()
-    for (name, atoms) in enzs
-        enz_species[name] = Species(name, enzyme, _atoms_dict(atoms))
-    end
-
-    result = Pair{Vector{Species}, Vector{Species}}[]
-    for (lhs, rhs) in Reactions
-        lhs_vec = Species[]
-        rhs_vec = Species[]
-        for s in lhs
-            push!(lhs_vec, haskey(enz_species, s) ? enz_species[s] : met_species[s])
-        end
-        for s in rhs
-            push!(rhs_vec, haskey(enz_species, s) ? enz_species[s] : met_species[s])
-        end
-        push!(result, lhs_vec => rhs_vec)
-    end
-    result
-end
-
-"""Number of steps in the mechanism."""
-function n_steps(::EnzymeMechanism{SpeciesT, Reactions}) where {SpeciesT, Reactions}
-    length(Reactions)
-end
+param_groups(m::EnzymeMechanism, overrides::Dict) = param_groups(m)

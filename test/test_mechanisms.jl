@@ -6,26 +6,38 @@
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    E = Species(:E, enzyme, Dict{Symbol,Int}())
-    ES = Species(:ES, enzyme, Dict(:C => 1))
-    S = Species(:S, metabolite, Dict(:C => 1))
-    P = Species(:P, metabolite, Dict(:C => 1))
-
-    steps = [[E, S] => [ES], [ES] => [E, P]]
-    m = mechanism_from_species([S], [P], Species[], [E, ES], steps)
+    species = (
+        ((:S, ((:C, 1),)),),          # substrates
+        ((:P, ((:C, 1),)),),          # products
+        (),                            # regulators
+        ((:E, ()), (:ES, ((:C, 1),))),  # enzymes
+    )
+    rxns = (
+        ((:E, :S), (:ES,)),
+        ((:ES,), (:E, :P)),
+    )
+    m = EnzymeMechanism(species, rxns)
 
     @testset "Structure" begin
         @test n_states(m) == 2
         @test length(enzyme_forms(m)) == 2
         @test length(metabolites(m)) == 2
-        @test Set(s.name for s in enzyme_forms(m)) == Set([:E, :ES])
-        @test Set(s.name for s in metabolites(m)) == Set([:S, :P])
+        @test Set(e[1] for e in enzyme_forms(m)) == Set([:E, :ES])
+        @test Set(mt[1] for mt in metabolites(m)) == Set([:S, :P])
     end
 
     @testset "Validation" begin
-        S_bad = Species(:S, metabolite, Dict(:C => 2))
-        steps_bad = [[E, S_bad] => [ES], [ES] => [E, P]]
-        @test_throws ErrorException mechanism_from_species([S_bad], [P], Species[], [E, ES], steps_bad)
+        species_bad = (
+            ((:S, ((:C, 2),)),),
+            ((:P, ((:C, 1),)),),
+            (),
+            ((:E, ()), (:ES, ((:C, 2),))),
+        )
+        rxns_bad = (
+            ((:E, :S), (:ES,)),
+            ((:ES,), (:E, :P)),
+        )
+        @test_throws ErrorException EnzymeMechanism(species_bad, rxns_bad)
     end
 
     @testset "Independent params" begin
@@ -78,21 +90,19 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    E     = Species(:E,     enzyme, Dict{Symbol,Int}())
-    ES1   = Species(:ES1,   enzyme, Dict(:C => 1, :H => 1))
-    EP1P2 = Species(:EP1P2, enzyme, Dict(:C => 1, :H => 1))
-    EP2   = Species(:EP2,   enzyme, Dict(:H => 1))
-    S1    = Species(:S1, metabolite, Dict(:C => 1, :H => 1))
-    P1    = Species(:P1, metabolite, Dict(:C => 1))
-    P2    = Species(:P2, metabolite, Dict(:H => 1))
-
-    steps = [
-        [E, S1] => [ES1],
-        [ES1] => [EP1P2],
-        [EP1P2] => [EP2, P1],
-        [EP2] => [E, P2]
-    ]
-    m = mechanism_from_species([S1], [P1, P2], Species[], [E, ES1, EP1P2, EP2], steps)
+    species = (
+        ((:S1, ((:C, 1), (:H, 1))),),
+        ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
+        (),
+        ((:E, ()), (:ES1, ((:C, 1), (:H, 1))), (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
+    )
+    rxns = (
+        ((:E, :S1), (:ES1,)),
+        ((:ES1,), (:EP1P2,)),
+        ((:EP1P2,), (:EP2, :P1)),
+        ((:EP2,), (:E, :P2)),
+    )
+    m = EnzymeMechanism(species, rxns)
 
     @testset "Structure" begin
         @test n_states(m) == 4
@@ -142,27 +152,21 @@ end
 end
 
 @testset "Ping-Pong Bi-Bi" begin
-    E = Species(:E, enzyme, Dict{Symbol,Int}())
-    EA = Species(:EA, enzyme, Dict(:C => 2, :N => 1))
-    FP = Species(:FP, enzyme, Dict(:C => 2, :N => 1))
-    F = Species(:F, enzyme, Dict(:N => 1))
-    FB = Species(:FB, enzyme, Dict(:C => 3, :N => 1))
-    EQ = Species(:EQ, enzyme, Dict(:C => 3, :N => 1))
-
-    A = Species(:A, metabolite, Dict(:C => 2, :N => 1))
-    P_met = Species(:P, metabolite, Dict(:C => 2))
-    B = Species(:B, metabolite, Dict(:C => 3))
-    Q = Species(:Q, metabolite, Dict(:C => 3, :N => 1))
-
-    steps = [
-        [E, A] => [EA], [EA] => [FP], [FP] => [F, P_met],
-        [F, B] => [FB], [FB] => [EQ], [EQ] => [E, Q]
-    ]
-    m = mechanism_from_species([A, B], [P_met, Q], Species[], [E, EA, FP, F, FB, EQ], steps)
+    species = (
+        ((:A, ((:C, 2), (:N, 1))), (:B, ((:C, 3),))),
+        ((:P, ((:C, 2),)), (:Q, ((:C, 3), (:N, 1)))),
+        (),
+        ((:E, ()), (:EA, ((:C, 2), (:N, 1))), (:FP, ((:C, 2), (:N, 1))), (:F, ((:N, 1),)), (:FB, ((:C, 3), (:N, 1))), (:EQ, ((:C, 3), (:N, 1)))),
+    )
+    rxns = (
+        ((:E, :A), (:EA,)), ((:EA,), (:FP,)), ((:FP,), (:F, :P)),
+        ((:F, :B), (:FB,)), ((:FB,), (:EQ,)), ((:EQ,), (:E, :Q)),
+    )
+    m = EnzymeMechanism(species, rxns)
 
     @testset "Structure" begin
         @test n_states(m) == 6
-        @test Set(s.name for s in enzyme_forms(m)) == Set([:E, :EA, :FP, :F, :FB, :EQ])
+        @test Set(e[1] for e in enzyme_forms(m)) == Set([:E, :EA, :FP, :F, :FB, :EQ])
     end
 
     @testset "Validation" begin
@@ -219,21 +223,19 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    E      = Species(:E,      enzyme, Dict{Symbol,Int}())
-    ES1    = Species(:ES1,    enzyme, Dict(:C => 1))
-    ES1S2  = Species(:ES1S2,  enzyme, Dict(:C => 1, :H => 1))
-    EP1    = Species(:EP1,    enzyme, Dict(:C => 1, :H => 1))
-    S1     = Species(:S1, metabolite, Dict(:C => 1))
-    S2     = Species(:S2, metabolite, Dict(:H => 1))
-    P1     = Species(:P1, metabolite, Dict(:C => 1, :H => 1))
-
-    steps = [
-        [E, S1] => [ES1],
-        [ES1, S2] => [ES1S2],
-        [ES1S2] => [EP1],
-        [EP1] => [E, P1]
-    ]
-    m = mechanism_from_species([S1, S2], [P1], Species[], [E, ES1, ES1S2, EP1], steps)
+    species = (
+        ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
+        ((:P1, ((:C, 1), (:H, 1))),),
+        (),
+        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))), (:EP1, ((:C, 1), (:H, 1)))),
+    )
+    rxns = (
+        ((:E, :S1), (:ES1,)),
+        ((:ES1, :S2), (:ES1S2,)),
+        ((:ES1S2,), (:EP1,)),
+        ((:EP1,), (:E, :P1)),
+    )
+    m = EnzymeMechanism(species, rxns)
 
     @testset "Structure" begin
         @test n_states(m) == 4
@@ -269,24 +271,20 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    E      = Species(:E,      enzyme, Dict{Symbol,Int}())
-    ES1    = Species(:ES1,    enzyme, Dict(:C => 1))
-    ES1S2  = Species(:ES1S2,  enzyme, Dict(:C => 1, :H => 1))
-    EP1P2  = Species(:EP1P2,  enzyme, Dict(:C => 1, :H => 1))
-    EP2    = Species(:EP2,    enzyme, Dict(:H => 1))
-    S1     = Species(:S1, metabolite, Dict(:C => 1))
-    S2     = Species(:S2, metabolite, Dict(:H => 1))
-    P1     = Species(:P1, metabolite, Dict(:C => 1))
-    P2     = Species(:P2, metabolite, Dict(:H => 1))
-
-    steps = [
-        [E, S1] => [ES1],
-        [ES1, S2] => [ES1S2],
-        [ES1S2] => [EP1P2],
-        [EP1P2] => [EP2, P1],
-        [EP2] => [E, P2]
-    ]
-    m = mechanism_from_species([S1, S2], [P1, P2], Species[], [E, ES1, ES1S2, EP1P2, EP2], steps)
+    species = (
+        ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
+        ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
+        (),
+        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))), (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
+    )
+    rxns = (
+        ((:E, :S1), (:ES1,)),
+        ((:ES1, :S2), (:ES1S2,)),
+        ((:ES1S2,), (:EP1P2,)),
+        ((:EP1P2,), (:EP2, :P1)),
+        ((:EP2,), (:E, :P2)),
+    )
+    m = EnzymeMechanism(species, rxns)
 
     @testset "Structure" begin
         @test n_states(m) == 5
@@ -349,27 +347,22 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    E        = Species(:E,        enzyme, Dict{Symbol,Int}())
-    ES1      = Species(:ES1,      enzyme, Dict(:C => 1))
-    ES1S2    = Species(:ES1S2,    enzyme, Dict(:C => 1, :H => 1, :N => 1))
-    EP1P2P3  = Species(:EP1P2P3,  enzyme, Dict(:C => 1, :H => 1, :N => 1))
-    EP2P3    = Species(:EP2P3,    enzyme, Dict(:H => 1, :N => 1))
-    EP3      = Species(:EP3,      enzyme, Dict(:N => 1))
-    S1       = Species(:S1, metabolite, Dict(:C => 1))
-    S2       = Species(:S2, metabolite, Dict(:H => 1, :N => 1))
-    P1       = Species(:P1, metabolite, Dict(:C => 1))
-    P2       = Species(:P2, metabolite, Dict(:H => 1))
-    P3       = Species(:P3, metabolite, Dict(:N => 1))
-
-    steps = [
-        [E, S1] => [ES1],
-        [ES1, S2] => [ES1S2],
-        [ES1S2] => [EP1P2P3],
-        [EP1P2P3] => [EP2P3, P1],
-        [EP2P3] => [EP3, P2],
-        [EP3] => [E, P3]
-    ]
-    m = mechanism_from_species([S1, S2], [P1, P2, P3], Species[], [E, ES1, ES1S2, EP1P2P3, EP2P3, EP3], steps)
+    species = (
+        ((:S1, ((:C, 1),)), (:S2, ((:H, 1), (:N, 1)))),
+        ((:P1, ((:C, 1),)), (:P2, ((:H, 1),)), (:P3, ((:N, 1),))),
+        (),
+        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1), (:N, 1))),
+         (:EP1P2P3, ((:C, 1), (:H, 1), (:N, 1))), (:EP2P3, ((:H, 1), (:N, 1))), (:EP3, ((:N, 1),))),
+    )
+    rxns = (
+        ((:E, :S1), (:ES1,)),
+        ((:ES1, :S2), (:ES1S2,)),
+        ((:ES1S2,), (:EP1P2P3,)),
+        ((:EP1P2P3,), (:EP2P3, :P1)),
+        ((:EP2P3,), (:EP3, :P2)),
+        ((:EP3,), (:E, :P3)),
+    )
+    m = EnzymeMechanism(species, rxns)
 
     @testset "Structure" begin
         @test n_states(m) == 6
@@ -406,27 +399,22 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    E        = Species(:E,        enzyme, Dict{Symbol,Int}())
-    ES1      = Species(:ES1,      enzyme, Dict(:C => 1))
-    ES1S2    = Species(:ES1S2,    enzyme, Dict(:C => 1, :H => 1))
-    ES1S2S3  = Species(:ES1S2S3,  enzyme, Dict(:C => 1, :H => 1, :N => 1))
-    EP1P2    = Species(:EP1P2,    enzyme, Dict(:C => 1, :H => 1, :N => 1))
-    EP2      = Species(:EP2,      enzyme, Dict(:N => 1))
-    S1       = Species(:S1, metabolite, Dict(:C => 1))
-    S2       = Species(:S2, metabolite, Dict(:H => 1))
-    S3       = Species(:S3, metabolite, Dict(:N => 1))
-    P1       = Species(:P1, metabolite, Dict(:C => 1, :H => 1))
-    P2       = Species(:P2, metabolite, Dict(:N => 1))
-
-    steps = [
-        [E, S1] => [ES1],
-        [ES1, S2] => [ES1S2],
-        [ES1S2, S3] => [ES1S2S3],
-        [ES1S2S3] => [EP1P2],
-        [EP1P2] => [EP2, P1],
-        [EP2] => [E, P2]
-    ]
-    m = mechanism_from_species([S1, S2, S3], [P1, P2], Species[], [E, ES1, ES1S2, ES1S2S3, EP1P2, EP2], steps)
+    species = (
+        ((:S1, ((:C, 1),)), (:S2, ((:H, 1),)), (:S3, ((:N, 1),))),
+        ((:P1, ((:C, 1), (:H, 1))), (:P2, ((:N, 1),))),
+        (),
+        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
+         (:ES1S2S3, ((:C, 1), (:H, 1), (:N, 1))), (:EP1P2, ((:C, 1), (:H, 1), (:N, 1))), (:EP2, ((:N, 1),))),
+    )
+    rxns = (
+        ((:E, :S1), (:ES1,)),
+        ((:ES1, :S2), (:ES1S2,)),
+        ((:ES1S2, :S3), (:ES1S2S3,)),
+        ((:ES1S2S3,), (:EP1P2,)),
+        ((:EP1P2,), (:EP2, :P1)),
+        ((:EP2,), (:E, :P2)),
+    )
+    m = EnzymeMechanism(species, rxns)
 
     @testset "Structure" begin
         @test n_states(m) == 6
@@ -463,30 +451,24 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    E          = Species(:E,          enzyme, Dict{Symbol,Int}())
-    ES1        = Species(:ES1,        enzyme, Dict(:C => 1))
-    ES1S2      = Species(:ES1S2,      enzyme, Dict(:C => 1, :H => 1))
-    ES1S2S3    = Species(:ES1S2S3,    enzyme, Dict(:C => 1, :H => 1, :N => 1))
-    EP1P2P3    = Species(:EP1P2P3,    enzyme, Dict(:C => 1, :H => 1, :N => 1))
-    EP2P3      = Species(:EP2P3,      enzyme, Dict(:H => 1, :N => 1))
-    EP3        = Species(:EP3,        enzyme, Dict(:N => 1))
-    S1         = Species(:S1, metabolite, Dict(:C => 1))
-    S2         = Species(:S2, metabolite, Dict(:H => 1))
-    S3         = Species(:S3, metabolite, Dict(:N => 1))
-    P1         = Species(:P1, metabolite, Dict(:C => 1))
-    P2         = Species(:P2, metabolite, Dict(:H => 1))
-    P3         = Species(:P3, metabolite, Dict(:N => 1))
-
-    steps = [
-        [E, S1] => [ES1],
-        [ES1, S2] => [ES1S2],
-        [ES1S2, S3] => [ES1S2S3],
-        [ES1S2S3] => [EP1P2P3],
-        [EP1P2P3] => [EP2P3, P1],
-        [EP2P3] => [EP3, P2],
-        [EP3] => [E, P3]
-    ]
-    m = mechanism_from_species([S1, S2, S3], [P1, P2, P3], Species[], [E, ES1, ES1S2, ES1S2S3, EP1P2P3, EP2P3, EP3], steps)
+    species = (
+        ((:S1, ((:C, 1),)), (:S2, ((:H, 1),)), (:S3, ((:N, 1),))),
+        ((:P1, ((:C, 1),)), (:P2, ((:H, 1),)), (:P3, ((:N, 1),))),
+        (),
+        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
+         (:ES1S2S3, ((:C, 1), (:H, 1), (:N, 1))), (:EP1P2P3, ((:C, 1), (:H, 1), (:N, 1))),
+         (:EP2P3, ((:H, 1), (:N, 1))), (:EP3, ((:N, 1),))),
+    )
+    rxns = (
+        ((:E, :S1), (:ES1,)),
+        ((:ES1, :S2), (:ES1S2,)),
+        ((:ES1S2, :S3), (:ES1S2S3,)),
+        ((:ES1S2S3,), (:EP1P2P3,)),
+        ((:EP1P2P3,), (:EP2P3, :P1)),
+        ((:EP2P3,), (:EP3, :P2)),
+        ((:EP3,), (:E, :P3)),
+    )
+    m = EnzymeMechanism(species, rxns)
 
     @testset "Structure" begin
         @test n_states(m) == 7
@@ -515,37 +497,23 @@ end
 end
 
 @testset "Random-order Bi-Bi (branched)" begin
-    # Branched mechanism: two paths from E to EAB
-    #   E + A → EA        (step 1)
-    #   E + B → EB        (step 2)
-    #   EA + B → EAB      (step 3)
-    #   EB + A → EAB      (step 4)
-    #   EAB → EPQ         (step 5)
-    #   EPQ → E + P + Q   ... simplified as two release steps:
-    #   EPQ → EQ + P      (step 6)
-    #   EQ → E + Q        (step 7)
-
-    E   = Species(:E,   enzyme, Dict{Symbol,Int}())
-    EA  = Species(:EA,  enzyme, Dict(:C => 1))
-    EB  = Species(:EB,  enzyme, Dict(:N => 1))
-    EAB = Species(:EAB, enzyme, Dict(:C => 1, :N => 1))
-    EPQ = Species(:EPQ, enzyme, Dict(:C => 1, :N => 1))
-    EQ  = Species(:EQ,  enzyme, Dict(:N => 1))
-    A   = Species(:A, metabolite, Dict(:C => 1))
-    B   = Species(:B, metabolite, Dict(:N => 1))
-    P   = Species(:P, metabolite, Dict(:C => 1))
-    Q   = Species(:Q, metabolite, Dict(:N => 1))
-
-    steps = [
-        [E, A]   => [EA],
-        [E, B]   => [EB],
-        [EA, B]  => [EAB],
-        [EB, A]  => [EAB],
-        [EAB]    => [EPQ],
-        [EPQ]    => [EQ, P],
-        [EQ]     => [E, Q]
-    ]
-    m = mechanism_from_species([A, B], [P, Q], Species[], [E, EA, EB, EAB, EPQ, EQ], steps)
+    species = (
+        ((:A, ((:C, 1),)), (:B, ((:N, 1),))),
+        ((:P, ((:C, 1),)), (:Q, ((:N, 1),))),
+        (),
+        ((:E, ()), (:EA, ((:C, 1),)), (:EB, ((:N, 1),)),
+         (:EAB, ((:C, 1), (:N, 1))), (:EPQ, ((:C, 1), (:N, 1))), (:EQ, ((:N, 1),))),
+    )
+    rxns = (
+        ((:E, :A), (:EA,)),
+        ((:E, :B), (:EB,)),
+        ((:EA, :B), (:EAB,)),
+        ((:EB, :A), (:EAB,)),
+        ((:EAB,), (:EPQ,)),
+        ((:EPQ,), (:EQ, :P)),
+        ((:EQ,), (:E, :Q)),
+    )
+    m = EnzymeMechanism(species, rxns)
 
     @testset "Structure" begin
         @test n_states(m) == 6
@@ -565,8 +533,6 @@ end
     @testset "Equilibrium (zero flux)" begin
         params = (k1f=2.0, k1r=0.5, k2f=1.5, k2r=0.3, k3f=3.0, k3r=0.4,
                   k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8)
-        # At equilibrium the flux must vanish. Use reference to find equilibrium concs.
-        # Instead, just verify that rate_equation matches reference at random points.
         rng = Random.MersenneTwister(3002)
         for _ in 1:10
             _, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
