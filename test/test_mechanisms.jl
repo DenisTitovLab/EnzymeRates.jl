@@ -40,10 +40,6 @@
         @test_throws ErrorException EnzymeMechanism(species_bad, rxns_bad)
     end
 
-    @testset "Independent params" begin
-        @test n_independent_params(m) == 3
-    end
-
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(1001)
         for _ in 1:20

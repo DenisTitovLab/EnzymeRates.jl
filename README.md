@@ -100,7 +100,6 @@ metabolites(m)           # distinct metabolites
 n_states(m)              # number of enzyme states
 graph(m)                 # (SimpleDiGraph, Vector{Species})
 stoich_matrix(m)         # metabolites x steps matrix
-n_independent_params(m)  # independent params after thermodynamic constraints
 ```
 
 ## API Reference
@@ -124,7 +123,6 @@ n_independent_params(m)  # independent params after thermodynamic constraints
 | `n_states(m)` | Number of enzyme states. |
 | `graph(m)` | Enzyme-form connectivity graph. |
 | `stoich_matrix(m)` | Stoichiometry matrix (metabolites x steps). |
-| `n_independent_params(m)` | Independent parameters after thermodynamic constraints. |
 
 ## Running Tests
 
