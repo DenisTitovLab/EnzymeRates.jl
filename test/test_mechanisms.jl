@@ -551,3 +551,238 @@ end
         @test t < 100e-9
     end
 end
+
+@testset "rate_equation_string formatting" begin
+    # Helper: parse rate_equation_string and evaluate numerically
+    function _eval_rate_string(s, params, concs)
+        bindings = vcat(
+            ["$k = $(params[k])" for k in keys(params)],
+            ["$k = $(concs[k])" for k in keys(concs)],
+        )
+        code = "let $(join(bindings, ", "))\n  $s\nend"
+        eval(Meta.parse(code))
+    end
+
+    @testset "General formatting properties (Uni-Uni)" begin
+        species = (
+            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
+            ((:E, ()), (:ES, ((:C, 1),))),
+        )
+        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+
+        @test !occursin("params.", s)
+        @test !occursin("concs.", s)
+        @test !occursin("+ -", s)
+        @test !occursin("- -", s)
+        @test startswith(s, "E_total * (")
+        @test occursin(") / (", s)
+        @test !occursin("((", s)
+        @test !occursin("))", s)
+    end
+
+    @testset "Uni-Uni exact string" begin
+        species = (
+            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
+            ((:E, ()), (:ES, ((:C, 1),))),
+        )
+        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
+        m = EnzymeMechanism(species, rxns)
+        @test rate_equation_string(m) == "E_total * (k1f * k2f * S - k1r * k2r * P) / (k1f * S + k1r + k2f + k2r * P)"
+    end
+
+    @testset "Uni-Uni numerical equivalence" begin
+        species = (
+            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
+            ((:E, ()), (:ES, ((:C, 1),))),
+        )
+        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+        rng = Random.MersenneTwister(9001)
+        for _ in 1:10
+            params, concs = random_params_concs(m, [:S, :P]; rng=rng)
+            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+        end
+    end
+
+    @testset "Seq Uni-Bi" begin
+        species = (
+            ((:S1, ((:C, 1), (:H, 1))),),
+            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1), (:H, 1))), (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)), ((:ES1,), (:EP1P2,)),
+            ((:EP1P2,), (:EP2, :P1)), ((:EP2,), (:E, :P2)),
+        )
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+        @test startswith(s, "E_total * (")
+        @test !occursin("params.", s)
+        @test !occursin("concs.", s)
+        @test !occursin("+ -", s)
+        rng = Random.MersenneTwister(9002)
+        for _ in 1:10
+            params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
+            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+        end
+    end
+
+    @testset "Seq Bi-Uni" begin
+        species = (
+            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
+            ((:P1, ((:C, 1), (:H, 1))),),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))), (:EP1, ((:C, 1), (:H, 1)))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)), ((:ES1, :S2), (:ES1S2,)),
+            ((:ES1S2,), (:EP1,)), ((:EP1,), (:E, :P1)),
+        )
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+        @test startswith(s, "E_total * (")
+        @test !occursin("+ -", s)
+        rng = Random.MersenneTwister(9003)
+        for _ in 1:10
+            params, concs = random_params_concs(m, [:S1, :S2, :P1]; rng=rng)
+            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+        end
+    end
+
+    @testset "Seq Bi-Bi" begin
+        species = (
+            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
+            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
+             (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)), ((:ES1, :S2), (:ES1S2,)),
+            ((:ES1S2,), (:EP1P2,)), ((:EP1P2,), (:EP2, :P1)),
+            ((:EP2,), (:E, :P2)),
+        )
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+        @test startswith(s, "E_total * (")
+        @test occursin(") / (", s)
+        @test !occursin("+ -", s)
+        @test occursin("S1", s)
+        @test occursin("S2", s)
+        @test occursin("P1", s)
+        @test occursin("P2", s)
+        rng = Random.MersenneTwister(9004)
+        for _ in 1:10
+            params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
+            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+        end
+    end
+
+    @testset "Ping-Pong Bi-Bi" begin
+        species = (
+            ((:A, ((:C, 2), (:N, 1))), (:B, ((:C, 3),))),
+            ((:P, ((:C, 2),)), (:Q, ((:C, 3), (:N, 1)))),
+            (),
+            ((:E, ()), (:EA, ((:C, 2), (:N, 1))), (:FP, ((:C, 2), (:N, 1))),
+             (:F, ((:N, 1),)), (:FB, ((:C, 3), (:N, 1))), (:EQ, ((:C, 3), (:N, 1)))),
+        )
+        rxns = (
+            ((:E, :A), (:EA,)), ((:EA,), (:FP,)), ((:FP,), (:F, :P)),
+            ((:F, :B), (:FB,)), ((:FB,), (:EQ,)), ((:EQ,), (:E, :Q)),
+        )
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+        @test startswith(s, "E_total * (")
+        @test !occursin("+ -", s)
+        @test occursin("A", s)
+        @test occursin("B", s)
+        rng = Random.MersenneTwister(9005)
+        for _ in 1:10
+            params, concs = random_params_concs(m, [:A, :P, :B, :Q]; rng=rng)
+            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+        end
+    end
+
+    @testset "Random-order Bi-Bi (branched)" begin
+        species = (
+            ((:A, ((:C, 1),)), (:B, ((:N, 1),))),
+            ((:P, ((:C, 1),)), (:Q, ((:N, 1),))),
+            (),
+            ((:E, ()), (:EA, ((:C, 1),)), (:EB, ((:N, 1),)),
+             (:EAB, ((:C, 1), (:N, 1))), (:EPQ, ((:C, 1), (:N, 1))), (:EQ, ((:N, 1),))),
+        )
+        rxns = (
+            ((:E, :A), (:EA,)), ((:E, :B), (:EB,)),
+            ((:EA, :B), (:EAB,)), ((:EB, :A), (:EAB,)),
+            ((:EAB,), (:EPQ,)), ((:EPQ,), (:EQ, :P)), ((:EQ,), (:E, :Q)),
+        )
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+        @test startswith(s, "E_total * (")
+        @test !occursin("+ -", s)
+        @test !occursin("- -", s)
+        @test !occursin("((", s)
+        @test occursin("A", s)
+        @test occursin("B", s)
+        rng = Random.MersenneTwister(9006)
+        for _ in 1:10
+            params, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
+            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+        end
+    end
+
+    @testset "Seq Ter-Ter" begin
+        species = (
+            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),)), (:S3, ((:N, 1),))),
+            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),)), (:P3, ((:N, 1),))),
+            (),
+            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
+             (:ES1S2S3, ((:C, 1), (:H, 1), (:N, 1))), (:EP1P2P3, ((:C, 1), (:H, 1), (:N, 1))),
+             (:EP2P3, ((:H, 1), (:N, 1))), (:EP3, ((:N, 1),))),
+        )
+        rxns = (
+            ((:E, :S1), (:ES1,)), ((:ES1, :S2), (:ES1S2,)),
+            ((:ES1S2, :S3), (:ES1S2S3,)), ((:ES1S2S3,), (:EP1P2P3,)),
+            ((:EP1P2P3,), (:EP2P3, :P1)), ((:EP2P3,), (:EP3, :P2)),
+            ((:EP3,), (:E, :P3)),
+        )
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+        @test startswith(s, "E_total * (")
+        @test !occursin("+ -", s)
+        rng = Random.MersenneTwister(9007)
+        for _ in 1:10
+            params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
+            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+        end
+    end
+
+    @testset "k-constants sorted before metabolites" begin
+        species = (
+            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
+            ((:E, ()), (:ES, ((:C, 1),))),
+        )
+        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+        @test occursin("k1f * k2f * S", s)
+        @test occursin("k1r * k2r * P", s)
+    end
+
+    @testset "Denominator has no subtraction (Uni-Uni)" begin
+        species = (
+            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
+            ((:E, ()), (:ES, ((:C, 1),))),
+        )
+        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
+        m = EnzymeMechanism(species, rxns)
+        s = rate_equation_string(m)
+        denom_start = findlast(") / (", s)
+        denom = s[denom_start.stop+1:end-1]
+        @test !occursin(" - ", denom)
+    end
+end

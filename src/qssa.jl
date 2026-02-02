@@ -188,18 +188,49 @@ or matrix ops.
     _symbolic_rate_expr(M)
 end
 
+# Polynomial representation: monomial (sorted Symbol vector) → integer coefficient.
+# Converting the Expr tree to this form automatically expands products over sums,
+# cancels opposite terms (coefficients sum to zero), and sorts factors within each monomial.
+const _Poly = Dict{Vector{Symbol},Int}
+# Sort key: k-constants before metabolites, alphabetically within each group
+_sk(s) = (startswith(string(s), "k") ? 0 : 1, string(s))
+# Multiply two polynomials: distribute every term pair, concatenate and sort monomials
+_pmul(a::_Poly, b::_Poly) = (r = _Poly(); for (k1,v1) in a, (k2,v2) in b; k = sort([k1;k2]; by=_sk); r[k] = get(r,k,0) + v1*v2; end; filter!(p -> p[2] != 0, r))
+# Add two polynomials: merge coefficients, drop zeros (this is where cancellation happens)
+_padd(a::_Poly, b::_Poly) = (r = copy(a); for (k,v) in b; r[k] = get(r,k,0) + v; end; filter!(p -> p[2] != 0, r))
+
+# Recursively convert an Expr (without /) into a polynomial, stripping params./concs. prefixes
+function _to_poly(e)
+    e isa Expr && e.head == :. && return _Poly([e.args[2].value] => 1)
+    (e isa Expr && e.head == :call) || return _Poly(Symbol[] => (e isa Integer ? e : 1))
+    op, a = e.args[1], e.args[2:end]
+    op == :* ? reduce(_pmul, _to_poly.(a)) : op == :+ ? reduce(_padd, _to_poly.(a)) :
+    op == :- && length(a) == 1 ? _Poly(k => -v for (k,v) in _to_poly(a[1])) :
+    op == :- ? _padd(_to_poly(a[1]), _Poly(k => -v for (k,v) in _to_poly(a[2]))) : _Poly(Symbol[] => 1)
+end
+
+# Split numerator and denominator: _strip_div removes all / nodes (keeping numerator sides),
+# _find_denom finds the first denominator in the tree (all fractions share the same one)
+_strip_div(e) = (e isa Expr && e.head == :call) ? (e.args[1] == :/ ? _strip_div(e.args[2]) :
+    Expr(:call, e.args[1], _strip_div.(e.args[2:end])...)) : e
+_find_denom(e) = (e isa Expr && e.head == :call) ? (e.args[1] == :/ ? e.args[3] :
+    foldl((r, a) -> r !== nothing ? r : _find_denom(a), e.args[2:end]; init=nothing)) : nothing
+
+# Pretty-print a polynomial: positive terms first, then negative, joined with + / -
+function _poly_str(p::_Poly)
+    isempty(p) && return "0"
+    ts = sort(collect(p); by=x -> (x[2] < 0, x[1]))
+    join([begin m = isempty(k) ? "$(abs(v))" : abs(v) == 1 ? join(k, " * ") : "$(abs(v)) * " * join(k, " * ")
+        i == 1 ? (v < 0 ? "-$m" : m) : (v < 0 ? " - $m" : " + $m") end for (i,(k,v)) in enumerate(ts)])
+end
+
 """
     rate_equation_string(m::EnzymeMechanism)
 
 Return a string representation of the rate equation, matching what `rate_equation` computes.
 """
-function rate_equation_string(m::EnzymeMechanism)
-    _rate_equation_string(m)
-end
-
-function _rate_equation_string(::M) where {M <: EnzymeMechanism}
+function rate_equation_string(::M) where {M<:EnzymeMechanism}
     expr = _symbolic_rate_expr(M)
-    s = string(expr)
-    s = replace(s, "params." => "")
-    replace(s, "concs." => "")
+    np = _Poly(filter(!=(:E_total), k) => v for (k,v) in _to_poly(_strip_div(expr)))
+    "E_total * ($(_poly_str(np))) / ($(_poly_str(_to_poly(_find_denom(expr)))))"
 end
