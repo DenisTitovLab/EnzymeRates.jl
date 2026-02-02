@@ -218,3 +218,53 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
 
     EnzymeMechanism{sorted_species, Tuple(rxns)}()
 end
+
+# --- Pretty printing ---
+
+function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}
+    subs_str = join([string(name) for (name, _) in S], " + ")
+    prods_str = join([string(name) for (name, _) in P], " + ")
+    print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
+    if !isempty(R)
+        regs_str = join([string(name) for (name, _) in R], ", ")
+        print(io, " | regulators: ", regs_str)
+    end
+end
+
+function Base.show(io::IO, ::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
+    subs, prods, regs, enzs = Species
+    enz_names = Set(e[1] for e in enzs)
+
+    # Check if mechanism is linear (each enzyme form appears on LHS and RHS at most once)
+    lhs_counts = Dict{Symbol,Int}()
+    rhs_counts = Dict{Symbol,Int}()
+    for (lhs, rhs) in Reactions
+        for s in lhs; s in enz_names && (lhs_counts[s] = get(lhs_counts, s, 0) + 1); end
+        for s in rhs; s in enz_names && (rhs_counts[s] = get(rhs_counts, s, 0) + 1); end
+    end
+    is_linear = all(v <= 1 for v in values(lhs_counts)) && all(v <= 1 for v in values(rhs_counts))
+
+    if is_linear
+        # Compact chain: E + S ⇌ ES ⇌ E + P
+        parts = String[]
+        for (i, (lhs, rhs)) in enumerate(Reactions)
+            if i == 1
+                push!(parts, join(lhs, " + "))
+            end
+            push!(parts, join(rhs, " + "))
+        end
+        print(io, "EnzymeMechanism: ", join(parts, " ⇌ "))
+    else
+        # Multi-line for branched mechanisms
+        n = length(Reactions)
+        ne = length(enzs)
+        print(io, "EnzymeMechanism (", n, " steps, ", ne, " enzyme forms):")
+        for (lhs, rhs) in Reactions
+            print(io, "\n  ", join(lhs, " + "), " ⇌ ", join(rhs, " + "))
+        end
+    end
+    if !isempty(regs)
+        regs_str = join([string(name) for (name, _) in regs], ", ")
+        print(io, " | regulators: ", regs_str)
+    end
+end
