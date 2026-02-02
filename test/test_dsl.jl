@@ -1,8 +1,8 @@
 @testset "DSL" begin
     @testset "@enzyme_reaction" begin
         spec = @enzyme_reaction begin
-            substrates: S(C=1)
-            products:   P(C=1)
+            substrates: S[C]
+            products:   P[C]
         end
         @test spec isa EnzymeReaction
         @test substrates(spec) == ((:S, ((:C, 1),)),)
@@ -10,9 +10,9 @@
         @test regulators(spec) == ()
 
         spec2 = @enzyme_reaction begin
-            substrates: S(C=6, H=12, O=6), ATP(C=10, H=16, N=5, O=13, P=3)
-            products:   G6P(C=6, H=13, O=9, P=1), ADP(C=10, H=15, N=5, O=10, P=2)
-            regulators: I(C=5, H=8, N=2)
+            substrates: S[C6H12O6], ATP[C10H16N5O13P3]
+            products:   G6P[C6H13O9P], ADP[C10H15N5O10P2]
+            regulators: I[C5H8N2]
         end
         @test length(substrates(spec2)) == 2
         @test length(products(spec2)) == 2
@@ -23,13 +23,13 @@
     @testset "@mechanism" begin
         m = @mechanism begin
             species: begin
-                substrates: S(C=1)
-                products:   P(C=1)
-                enzymes:    E(), ES(C=1)
+                substrates: S[C]
+                products:   P[C]
+                enzymes:    E, ES[C]
             end
             steps: begin
-                [E, S] --> [ES]
-                [ES] --> [E, P]
+                [E, S] <--> [ES]
+                [ES] <--> [E, P]
             end
         end
         @test m isa EnzymeMechanism
@@ -46,17 +46,17 @@
         # Multi-step mechanism
         m2 = @mechanism begin
             species: begin
-                substrates: A(C=2, N=1), B(C=3)
-                products:   P(C=2), Q(C=3, N=1)
-                enzymes:    E(), EA(C=2, N=1), FP(C=2, N=1), F(N=1), FB(C=3, N=1), EQ(C=3, N=1)
+                substrates: A[C2N], B[C3]
+                products:   P[C2], Q[C3N]
+                enzymes:    E, EA[C2N], FP[C2N], F[N], FB[C3N], EQ[C3N]
             end
             steps: begin
-                [E, A] --> [EA]
-                [EA] --> [FP]
-                [FP] --> [F, P]
-                [F, B] --> [FB]
-                [FB] --> [EQ]
-                [EQ] --> [E, Q]
+                [E, A] <--> [EA]
+                [EA] <--> [FP]
+                [FP] <--> [F, P]
+                [F, B] <--> [FB]
+                [FB] <--> [EQ]
+                [EQ] <--> [E, Q]
             end
         end
         @test n_states(m2) == 6
@@ -65,19 +65,19 @@
     @testset "Elementary steps" begin
         @test_throws ErrorException @mechanism begin
             species: begin
-                substrates: S(C=1)
-                products:   P(C=1)
-                enzymes:    E(), ESP(C=1)
+                substrates: S[C]
+                products:   P[C]
+                enzymes:    E, ESP[C]
             end
             steps: begin
-                [E, S, P] --> [ESP]
+                [E, S, P] <--> [ESP]
             end
         end
 
         spec = @enzyme_reaction begin
-            substrates: S(C=1)
-            products:   P(C=1)
-            regulators: I(C=1)
+            substrates: S[C]
+            products:   P[C]
+            regulators: I[C]
         end
         @test spec isa EnzymeReaction
 
@@ -91,6 +91,38 @@
             ((:E, :S), (:ES,)),
             ((:ES,), (:E, :P)),
             ((:E, :I), (:EI,)),
+        )
+        @test_throws ErrorException EnzymeMechanism(species, rxns)
+    end
+
+    @testset "No-atom species" begin
+        # All metabolites without atoms — should skip conservation checks
+        m = @mechanism begin
+            species: begin
+                substrates: S
+                products:   P
+                enzymes:    E, ES
+            end
+            steps: begin
+                [E, S] <--> [ES]
+                [ES] <--> [E, P]
+            end
+        end
+        @test m isa EnzymeMechanism
+        @test n_steps(m) == 2
+    end
+
+    @testset "Mixed atoms error" begin
+        # Some metabolites with atoms, some without — should error
+        species = (
+            ( (:S, ((:C, 1),)), ),   # substrates — has atoms
+            ( (:P, ()), ),           # products — no atoms
+            (),                      # regulators
+            ( (:E, ()), (:ES, ((:C, 1),)) ),  # enzymes
+        )
+        rxns = (
+            ((:E, :S), (:ES,)),
+            ((:ES,), (:E, :P)),
         )
         @test_throws ErrorException EnzymeMechanism(species, rxns)
     end

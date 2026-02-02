@@ -129,6 +129,14 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
     free_enzymes = [name for (name, atoms) in enzs if isempty(atoms)]
     isempty(free_enzymes) && error("No free enzyme form (enzyme with empty atoms) defined")
 
+    # Check all-or-nothing atoms for metabolites (substrates + products + regulators)
+    n_with = count(s -> !isempty(s[2]), Iterators.flatten((subs, prods, regs)))
+    n_total = length(subs) + length(prods) + length(regs)
+    if 0 < n_with < n_total
+        error("All metabolites must either have atoms or all lack atoms; found a mix")
+    end
+    skip_atom_checks = n_with == 0
+
     # 4. Compute expected net stoichiometry from species lists
     expected = Dict{Symbol,Int}()
     for name in subs_names
@@ -146,7 +154,6 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
 
     # 6. Per-reaction validation
     enzyme_set = Set(keys(enzyme_atoms))
-    metabolite_set = Set(keys(met_atoms))
     net = Dict{Symbol,Int}()
 
     for (step_idx, reaction) in enumerate(reactions)
@@ -167,9 +174,11 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
         lhs_mets <= 1 || error("Reaction $(step_idx) lhs has more than one metabolite")
         rhs_mets <= 1 || error("Reaction $(step_idx) rhs has more than one metabolite")
 
-        filter!(p -> p.second != 0, lhs_atoms)
-        filter!(p -> p.second != 0, rhs_atoms)
-        lhs_atoms == rhs_atoms || error("Atomic conservation failed at step $(step_idx)")
+        if !skip_atom_checks
+            filter!(p -> p.second != 0, lhs_atoms)
+            filter!(p -> p.second != 0, rhs_atoms)
+            lhs_atoms == rhs_atoms || error("Atomic conservation failed at step $(step_idx)")
+        end
     end
 
     # 7. Overall net stoichiometry validation
