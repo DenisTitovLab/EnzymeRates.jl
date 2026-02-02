@@ -1,3 +1,6 @@
+"""Sort species tuples alphabetically by name (first element)."""
+_sort_species(t::Tuple) = Tuple(sort(collect(t); by = s -> s[1]))
+
 """
     AbstractEnzymeReaction
 
@@ -23,6 +26,9 @@ function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
         name in subs_names && error("Regulator $(name) also listed as substrate")
         name in prods_names && error("Regulator $(name) also listed as product")
     end
+    subs = _sort_species(subs)
+    prods = _sort_species(prods)
+    regs = _sort_species(regs)
     EnzymeReaction{subs, prods, regs}()
 end
 
@@ -193,5 +199,22 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
         haskey(expected, name) || error("Metabolite $(name) not in species tuple")
     end
 
-    EnzymeMechanism{species, reactions}()
+    # Canonical ordering: sort species alphabetically within each category
+    sorted_species = (_sort_species(subs), _sort_species(prods), _sort_species(regs), _sort_species(enzs))
+
+    # Normalize each reaction side so enzyme symbol comes first
+    _norm(side) = Tuple(sort(collect(side); by = s -> s in enzyme_set ? Symbol("") : s))
+    rxns = [(_norm(lhs), _norm(rhs)) for (lhs, rhs) in reactions]
+
+    # Compute each enzyme form's distance from free enzyme along the reaction pathway
+    _enz(side) = first(s for s in side if s in enzyme_set)
+    free_enz = first(name for (name, atoms) in enzs if isempty(atoms))
+    depth = Dict{Symbol,Int}(free_enz => 0)
+    for _ in rxns, r in rxns
+        haskey(depth, _enz(r[1])) && !haskey(depth, _enz(r[2])) && (depth[_enz(r[2])] = depth[_enz(r[1])] + 1)
+    end
+    # Sort reactions by LHS enzyme depth, then alphabetically by LHS metabolites
+    sort!(rxns; by = r -> (depth[_enz(r[1])], sort([s for s in r[1] if s ∉ enzyme_set])))
+
+    EnzymeMechanism{sorted_species, Tuple(rxns)}()
 end

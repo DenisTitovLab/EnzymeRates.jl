@@ -85,7 +85,7 @@ macro enzyme_reaction(block)
     prods === nothing && error("products not specified")
     regs === nothing && (regs = Expr(:tuple))
 
-    return esc(:(EnzymeReaction{$subs, $prods, $regs}()))
+    return esc(:(EnzymeReaction($subs, $prods, $regs)))
 end
 
 function _parse_species_block(block)
