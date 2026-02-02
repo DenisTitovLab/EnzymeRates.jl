@@ -13,80 +13,68 @@
     reactions(m); n_states(m); n_steps(m); parameters(m); metabolites(m)
     graph(m); stoich_matrix(m)
 
+    # Use minimum of multiple timing runs to avoid GC noise
+    function best_ns_per_call(f, arg; n=10_000, trials=5)
+        minimum(begin
+            t = @elapsed for _ in 1:n
+                f(arg)
+            end
+            t / n
+        end for _ in 1:trials)
+    end
+
     @testset "substrates: zero-alloc and <100ns" begin
-        allocs = @allocated substrates(m)
-        t = @elapsed for _ in 1:10_000; substrates(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated substrates(m)) == 0
+        @test best_ns_per_call(substrates, m) < 100e-9
     end
 
     @testset "products: zero-alloc and <100ns" begin
-        allocs = @allocated products(m)
-        t = @elapsed for _ in 1:10_000; products(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated products(m)) == 0
+        @test best_ns_per_call(products, m) < 100e-9
     end
 
     @testset "regulators: zero-alloc and <100ns" begin
-        allocs = @allocated regulators(m)
-        t = @elapsed for _ in 1:10_000; regulators(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated regulators(m)) == 0
+        @test best_ns_per_call(regulators, m) < 100e-9
     end
 
     @testset "enzyme_forms: zero-alloc and <100ns" begin
-        allocs = @allocated enzyme_forms(m)
-        t = @elapsed for _ in 1:10_000; enzyme_forms(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated enzyme_forms(m)) == 0
+        @test best_ns_per_call(enzyme_forms, m) < 100e-9
     end
 
     @testset "reactions: zero-alloc and <100ns" begin
-        allocs = @allocated reactions(m)
-        t = @elapsed for _ in 1:10_000; reactions(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated reactions(m)) == 0
+        @test best_ns_per_call(reactions, m) < 100e-9
     end
 
     @testset "n_states: zero-alloc and <100ns" begin
-        allocs = @allocated n_states(m)
-        t = @elapsed for _ in 1:10_000; n_states(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated n_states(m)) == 0
+        @test best_ns_per_call(n_states, m) < 100e-9
     end
 
     @testset "n_steps: zero-alloc and <100ns" begin
-        allocs = @allocated n_steps(m)
-        t = @elapsed for _ in 1:10_000; n_steps(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated n_steps(m)) == 0
+        @test best_ns_per_call(n_steps, m) < 100e-9
     end
 
     @testset "parameters: zero-alloc and <100ns" begin
-        allocs = @allocated parameters(m)
-        t = @elapsed for _ in 1:10_000; parameters(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated parameters(m)) == 0
+        @test best_ns_per_call(parameters, m) < 100e-9
     end
 
     @testset "metabolites: zero-alloc and <100ns" begin
-        allocs = @allocated metabolites(m)
-        t = @elapsed for _ in 1:10_000; metabolites(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated metabolites(m)) == 0
+        @test best_ns_per_call(metabolites, m) < 100e-9
     end
 
     @testset "graph: zero-alloc and <100ns" begin
-        allocs = @allocated graph(m)
-        t = @elapsed for _ in 1:10_000; graph(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated graph(m)) == 0
+        @test best_ns_per_call(graph, m) < 100e-9
     end
 
     @testset "stoich_matrix: zero-alloc and <100ns" begin
-        allocs = @allocated stoich_matrix(m)
-        t = @elapsed for _ in 1:10_000; stoich_matrix(m); end
-        @test allocs == 0
-        @test t / 10_000 < 100e-9
+        @test (@allocated stoich_matrix(m)) == 0
+        @test best_ns_per_call(stoich_matrix, m) < 100e-9
     end
 end
