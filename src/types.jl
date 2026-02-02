@@ -19,13 +19,12 @@ Each of `Substrates`, `Products`, `Regulators` is a tuple of
 struct EnzymeReaction{Substrates, Products, Regulators} <: AbstractEnzymeReaction end
 
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
-    subs_names = Set(s[1] for s in subs)
-    prods_names = Set(s[1] for s in prods)
-    regs_names = Set(s[1] for s in regs)
-    for name in regs_names
-        name in subs_names && error("Regulator $(name) also listed as substrate")
-        name in prods_names && error("Regulator $(name) also listed as product")
-    end
+    isempty(subs) && error("Substrates must not be empty")
+    isempty(prods) && error("Products must not be empty")
+    subs_names = [s[1] for s in subs]
+    prods_names = [s[1] for s in prods]
+    length(subs_names) != length(Set(subs_names)) && error("Duplicate substrate names")
+    length(prods_names) != length(Set(prods_names)) && error("Duplicate product names")
     subs = _sort_species(subs)
     prods = _sort_species(prods)
     regs = _sort_species(regs)
@@ -51,6 +50,23 @@ Singleton type encoding an enzyme mechanism in type parameters.
 """
 struct EnzymeMechanism{Species, Reactions} <: AbstractEnzymeMechanism end
 
+"""Count enzymes, metabolites, atoms, and metabolite names on one side of a reaction."""
+function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
+    n_enz, n_met, atoms, mets = 0, 0, Dict{Symbol,Int}(), Symbol[]
+    for s in side
+        if s in enzyme_set
+            n_enz += 1
+            for (a, c) in enzyme_atoms[s]; atoms[a] = get(atoms, a, 0) + c; end
+        elseif haskey(met_atoms, s)
+            n_met += 1; push!(mets, s)
+            for (a, c) in met_atoms[s]; atoms[a] = get(atoms, a, 0) + c; end
+        else
+            error("Reaction $(step_idx) uses unknown species $(s)")
+        end
+    end
+    (n_enz, n_met, atoms, mets)
+end
+
 """
     EnzymeMechanism(species::Tuple, reactions::Tuple)
 
@@ -61,6 +77,7 @@ Construct an `EnzymeMechanism` from explicit species and reaction tuples.
 - `reactions` is a tuple of `(lhs, rhs)`; each side is a tuple of symbols.
 """
 function EnzymeMechanism(species::Tuple, reactions::Tuple)
+    # 1. Validate species tuple structure
     length(species) == 4 || error("species must be (substrates, products, regulators, enzymes)")
     subs, prods, regs, enzs = species
     subs isa Tuple || error("substrates must be a tuple of (name, atoms)")
@@ -68,6 +85,15 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
     regs isa Tuple || error("regulators must be a tuple of (name, atoms)")
     enzs isa Tuple || error("enzymes must be a tuple of (name, atoms)")
 
+    # Check for duplicate names within each metabolite category
+    subs_names = [name for (name, _) in subs]
+    prods_names = [name for (name, _) in prods]
+    regs_names = [name for (name, _) in regs]
+    length(subs_names) != length(Set(subs_names)) && error("Duplicate substrate names")
+    length(prods_names) != length(Set(prods_names)) && error("Duplicate product names")
+    length(regs_names) != length(Set(regs_names)) && error("Duplicate regulator names")
+
+    # 2. Check atom consistency across metabolite definitions
     met_atoms = Dict{Symbol,Dict{Symbol,Int}}()
     function add_met(name, atoms)
         atoms_dict = Dict{Symbol,Int}(a => c for (a, c) in atoms)
@@ -87,17 +113,7 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
         add_met(name, atoms)
     end
 
-    subs_names = [name for (name, _) in subs]
-    prods_names = [name for (name, _) in prods]
-    regs_names = [name for (name, _) in regs]
-    regs_set = Set(regs_names)
-    for name in subs_names
-        name in regs_set && error("Regulator $(name) also listed as substrate")
-    end
-    for name in prods_names
-        name in regs_set && error("Regulator $(name) also listed as product")
-    end
-
+    # 3. Validate enzyme species (no duplicates, not empty, no overlap with metabolites)
     enzyme_atoms = Dict{Symbol,Dict{Symbol,Int}}()
     for (name, atoms) in enzs
         haskey(enzyme_atoms, name) && error("Duplicate enzyme species $(name)")
@@ -109,6 +125,11 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
         haskey(met_atoms, name) && error("Species $(name) defined as both enzyme and metabolite")
     end
 
+    # Check free enzyme existence
+    free_enzymes = [name for (name, atoms) in enzs if isempty(atoms)]
+    isempty(free_enzymes) && error("No free enzyme form (enzyme with empty atoms) defined")
+
+    # 4. Compute expected net stoichiometry from species lists
     expected = Dict{Symbol,Int}()
     for name in subs_names
         expected[name] = get(expected, name, 0) - 1
@@ -119,10 +140,11 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
     for name in regs_names
         expected[name] = get(expected, name, 0) + 0
     end
-    for name in regs_names
-        get(expected, name, 0) == 0 || error("Regulator $(name) has nonzero net stoichiometry")
-    end
 
+    # 5. Validate reactions not empty
+    isempty(reactions) && error("Reactions tuple must not be empty")
+
+    # 6. Per-reaction validation
     enzyme_set = Set(keys(enzyme_atoms))
     metabolite_set = Set(keys(met_atoms))
     net = Dict{Symbol,Int}()
@@ -134,46 +156,11 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
         lhs isa Tuple || error("Reaction $(step_idx) lhs must be a tuple")
         rhs isa Tuple || error("Reaction $(step_idx) rhs must be a tuple")
 
-        lhs_enz = 0
-        rhs_enz = 0
-        lhs_mets = 0
-        rhs_mets = 0
+        lhs_enz, lhs_mets, lhs_atoms, lhs_met_names = _count_side(lhs, enzyme_set, enzyme_atoms, met_atoms, step_idx)
+        rhs_enz, rhs_mets, rhs_atoms, rhs_met_names = _count_side(rhs, enzyme_set, enzyme_atoms, met_atoms, step_idx)
 
-        lhs_atoms = Dict{Symbol,Int}()
-        rhs_atoms = Dict{Symbol,Int}()
-
-        for s in lhs
-            if s in enzyme_set
-                lhs_enz += 1
-                for (atom, count) in enzyme_atoms[s]
-                    lhs_atoms[atom] = get(lhs_atoms, atom, 0) + count
-                end
-            elseif s in metabolite_set
-                lhs_mets += 1
-                for (atom, count) in met_atoms[s]
-                    lhs_atoms[atom] = get(lhs_atoms, atom, 0) + count
-                end
-                net[s] = get(net, s, 0) - 1
-            else
-                error("Reaction $(step_idx) uses unknown species $(s)")
-            end
-        end
-        for s in rhs
-            if s in enzyme_set
-                rhs_enz += 1
-                for (atom, count) in enzyme_atoms[s]
-                    rhs_atoms[atom] = get(rhs_atoms, atom, 0) + count
-                end
-            elseif s in metabolite_set
-                rhs_mets += 1
-                for (atom, count) in met_atoms[s]
-                    rhs_atoms[atom] = get(rhs_atoms, atom, 0) + count
-                end
-                net[s] = get(net, s, 0) + 1
-            else
-                error("Reaction $(step_idx) uses unknown species $(s)")
-            end
-        end
+        for s in lhs_met_names; net[s] = get(net, s, 0) - 1; end
+        for s in rhs_met_names; net[s] = get(net, s, 0) + 1; end
 
         lhs_enz == 1 || error("Reaction $(step_idx) lhs must contain exactly one enzyme form")
         rhs_enz == 1 || error("Reaction $(step_idx) rhs must contain exactly one enzyme form")
@@ -185,6 +172,7 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
         lhs_atoms == rhs_atoms || error("Atomic conservation failed at step $(step_idx)")
     end
 
+    # 7. Overall net stoichiometry validation
     for (name, coeff) in expected
         net_coeff = get(net, name, 0)
         if coeff == 0
@@ -199,20 +187,30 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
         haskey(expected, name) || error("Metabolite $(name) not in species tuple")
     end
 
-    # Canonical ordering: sort species alphabetically within each category
+    # 8. Canonical ordering and normalization
     sorted_species = (_sort_species(subs), _sort_species(prods), _sort_species(regs), _sort_species(enzs))
 
     # Normalize each reaction side so enzyme symbol comes first
     _norm(side) = Tuple(sort(collect(side); by = s -> s in enzyme_set ? Symbol("") : s))
     rxns = [(_norm(lhs), _norm(rhs)) for (lhs, rhs) in reactions]
 
+    # Check for duplicate reactions (after normalization)
+    length(rxns) != length(Set(rxns)) && error("Duplicate reactions")
+
     # Compute each enzyme form's distance from free enzyme along the reaction pathway
     _enz(side) = first(s for s in side if s in enzyme_set)
-    free_enz = first(name for (name, atoms) in enzs if isempty(atoms))
+    free_enz = first(free_enzymes)
     depth = Dict{Symbol,Int}(free_enz => 0)
     for _ in rxns, r in rxns
         haskey(depth, _enz(r[1])) && !haskey(depth, _enz(r[2])) && (depth[_enz(r[2])] = depth[_enz(r[1])] + 1)
+        haskey(depth, _enz(r[2])) && !haskey(depth, _enz(r[1])) && (depth[_enz(r[1])] = depth[_enz(r[2])] + 1)
     end
+
+    # Check all enzyme forms are reachable from free enzyme
+    for name in keys(enzyme_atoms)
+        haskey(depth, name) || error("Enzyme form $(name) is not reachable from free enzyme")
+    end
+
     # Sort reactions by LHS enzyme depth, then alphabetically by LHS metabolites
     sort!(rxns; by = r -> (depth[_enz(r[1])], sort([s for s in r[1] if s ∉ enzyme_set])))
 
