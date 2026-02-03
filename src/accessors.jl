@@ -15,8 +15,8 @@ regulators(::EnzymeReaction{S,P,R}) where {S,P,R} = R
 """Return all enzyme forms as a tuple of (name, atoms)."""
 enzyme_forms(::EnzymeMechanism{Species}) where {Species} = Species[4]
 
-"""Return unique metabolites as a tuple of (name, atoms)."""
-@generated function metabolites(::EnzymeMechanism{Species}) where {Species}
+"""Compile-time helper: collect unique metabolites from Species type parameter."""
+function _unique_metabolites(Species)
     subs, prods, regs = Species[1:3]
     seen = Set{Symbol}()
     mets = Tuple{Symbol,Any}[]
@@ -28,7 +28,12 @@ enzyme_forms(::EnzymeMechanism{Species}) where {Species} = Species[4]
             end
         end
     end
-    return Tuple(mets)
+    return mets
+end
+
+"""Return unique metabolites as a tuple of (name, atoms)."""
+@generated function metabolites(::EnzymeMechanism{Species}) where {Species}
+    return Tuple(_unique_metabolites(Species))
 end
 
 """Number of distinct enzyme states."""
@@ -64,17 +69,7 @@ Stoichiometry matrix: rows = metabolites, columns = steps.
 Positive = produced, negative = consumed.
 """
 @generated function stoich_matrix(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
-    subs, prods, regs = Species[1:3]
-    seen = Set{Symbol}()
-    mets = Tuple{Symbol,Any}[]
-    for group in (subs, prods, regs)
-        for (name, atoms) in group
-            if name ∉ seen
-                push!(seen, name)
-                push!(mets, (name, atoms))
-            end
-        end
-    end
+    mets = _unique_metabolites(Species)
     met_idx = Dict(m[1] => i for (i, m) in enumerate(mets))
     enz_names = Set(e[1] for e in Species[4])
     S = zeros(Int, length(mets), length(Reactions))
@@ -94,4 +89,23 @@ end
 """Return rate constant names as a tuple of Symbols, e.g. `(:k1f, :k1r, :k2f, :k2r)`."""
 @generated function parameters(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
     return ntuple(i -> Symbol("k", (i+1)÷2, isodd(i) ? "f" : "r"), 2 * length(Reactions))
+end
+
+"""Return all rate constant names (same as `parameters`)."""
+all_parameters(m::EnzymeMechanism) = parameters(m)
+
+"""Return only independent parameter names (excludes dependent k's, Keq, E_total)."""
+@generated function independent_parameters(::M) where {M <: EnzymeMechanism}
+    _, indep = _dependent_param_exprs(M)
+    return indep
+end
+
+"""Return dependent parameters as a tuple of `(symbol, expression_string)` pairs."""
+@generated function dependent_parameters(::M) where {M <: EnzymeMechanism}
+    dep_exprs, _ = _dependent_param_exprs(M)
+    pairs = Tuple{Symbol, String}[]
+    for (sym, expr) in sort(collect(dep_exprs); by=first)
+        push!(pairs, (sym, string(expr)))
+    end
+    return Tuple(pairs)
 end

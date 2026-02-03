@@ -1,13 +1,12 @@
 using Combinatorics: permutations
 
 """
-    _symbolic_rate_expr(::Type{<:EnzymeMechanism})
+    _raw_symbolic_rate_expr(::Type{<:EnzymeMechanism})
 
 Build a symbolic `Expr` for the QSSA rate equation using Laplacian cofactor
-determinants expanded via the Leibniz formula. The rate is defined as the
-net consumption of the first substrate, normalized by its stoichiometry.
+determinants expanded via the Leibniz formula, using all k parameters (no substitution).
 """
-function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
+function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     m = M()
     subs = substrates(m)
     prods = products(m)
@@ -26,22 +25,21 @@ function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     nu_ref == 0 && error("Reference substrate has zero net stoichiometry")
 
     enz_names = Tuple(e[1] for e in enzs)
+    enz_set = Set(enz_names)
     N = length(enzs)
 
     # 1. Build symbolic rate matrix R[i,j] as Expr (or 0 meaning absent)
     R = Matrix{Any}(fill(0, N, N))
 
     for (idx, (lhs, rhs)) in enumerate(rxns)
-        e_lhs = first(s for s in lhs if s in enz_names)
-        e_rhs = first(s for s in rhs if s in enz_names)
+        e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
+        e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
         i = findfirst(==(e_lhs), enz_names)
         j = findfirst(==(e_rhs), enz_names)
         kf = Symbol("k$(idx)f")
         kr = Symbol("k$(idx)r")
-        m_it = iterate(s for s in lhs if s ∉ enz_names)
-        met_f = m_it === nothing ? nothing : m_it[1]
-        m_it = iterate(s for s in rhs if s ∉ enz_names)
-        met_r = m_it === nothing ? nothing : m_it[1]
+        met_f = isempty(m_lhs) ? nothing : first(m_lhs)
+        met_r = isempty(m_rhs) ? nothing : first(m_rhs)
 
         # Forward: i → j
         fwd = met_f === nothing ? :(params.$kf) : :(params.$kf * concs.$met_f)
@@ -69,6 +67,7 @@ function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     end
 
     # 3. Cofactor determinants via Leibniz formula with sparsity pruning
+    @assert N <= 12 "Leibniz expansion is O(N!); N=$N exceeds the safety limit of 12"
     D = Vector{Any}(undef, N)
     for root in 1:N
         # Delete row root and col root
@@ -125,16 +124,14 @@ function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     # 5. Net consumption of reference substrate
     terms = Any[]
     for (idx, (lhs, rhs)) in enumerate(rxns)
-        e_lhs = first(s for s in lhs if s in enz_names)
-        e_rhs = first(s for s in rhs if s in enz_names)
+        e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
+        e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
         i = findfirst(==(e_lhs), enz_names)
         j = findfirst(==(e_rhs), enz_names)
         kf = Symbol("k$(idx)f")
         kr = Symbol("k$(idx)r")
-        m_it = iterate(s for s in lhs if s ∉ enz_names)
-        met_f = m_it === nothing ? nothing : m_it[1]
-        m_it = iterate(s for s in rhs if s ∉ enz_names)
-        met_r = m_it === nothing ? nothing : m_it[1]
+        met_f = isempty(m_lhs) ? nothing : first(m_lhs)
+        met_r = isempty(m_rhs) ? nothing : first(m_rhs)
 
         rf_expr = met_f === nothing ? :(params.$kf) : :(params.$kf * concs.$met_f)
         rr_expr = met_r === nothing ? :(params.$kr) : :(params.$kr * concs.$met_r)
@@ -150,6 +147,37 @@ function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
                length(terms) == 1 ? terms[1] : Expr(:call, :+, terms...)
     abs_nu = abs(nu_ref)
     abs_nu == 1 ? net_expr : :($net_expr / $abs_nu)
+end
+
+"""
+    _symbolic_rate_expr(::Type{<:EnzymeMechanism})
+
+Build a symbolic `Expr` for the QSSA rate equation with dependent parameters
+substituted by expressions in terms of independent params + Keq.
+"""
+function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
+    raw_expr = _raw_symbolic_rate_expr(M)
+    dep_exprs, _ = _dependent_param_exprs(M)
+    if !isempty(dep_exprs)
+        raw_expr = _substitute_params(raw_expr, dep_exprs)
+    end
+    return raw_expr
+end
+
+"""Recursively substitute `params.dep_sym` with its expression in an Expr tree."""
+function _substitute_params(expr, subs::Dict{Symbol, Expr})
+    # Match params.X pattern
+    if expr isa Expr && expr.head == :. && length(expr.args) == 2 &&
+       expr.args[1] == :params && expr.args[2] isa QuoteNode
+        sym = expr.args[2].value
+        if haskey(subs, sym)
+            return subs[sym]
+        end
+        return expr
+    end
+    expr isa Expr || return expr
+    new_args = Any[_substitute_params(a, subs) for a in expr.args]
+    return Expr(expr.head, new_args...)
 end
 
 """Compute sign of a permutation (as +1 or -1)."""
@@ -188,40 +216,140 @@ or matrix ops.
     _symbolic_rate_expr(M)
 end
 
-# Polynomial representation: monomial (sorted Symbol vector) → integer coefficient.
+# ─── Polynomial representation for pretty-printing ──────────────────────────
+#
+# A monomial is represented as a sorted Vector{Symbol} (with repetition for
+# powers), and a polynomial is a Dict mapping monomials to integer coefficients.
 # Converting the Expr tree to this form automatically expands products over sums,
-# cancels opposite terms (coefficients sum to zero), and sorts factors within each monomial.
-const _Poly = Dict{Vector{Symbol},Int}
-# Sort key: k-constants before metabolites, alphabetically within each group
-_sk(s) = (startswith(string(s), "k") ? 0 : 1, string(s))
-# Multiply two polynomials: distribute every term pair, concatenate and sort monomials
-_pmul(a::_Poly, b::_Poly) = (r = _Poly(); for (k1,v1) in a, (k2,v2) in b; k = sort([k1;k2]; by=_sk); r[k] = get(r,k,0) + v1*v2; end; filter!(p -> p[2] != 0, r))
-# Add two polynomials: merge coefficients, drop zeros (this is where cancellation happens)
-_padd(a::_Poly, b::_Poly) = (r = copy(a); for (k,v) in b; r[k] = get(r,k,0) + v; end; filter!(p -> p[2] != 0, r))
+# cancels opposite terms (coefficients sum to zero), and sorts factors within
+# each monomial.
 
-# Recursively convert an Expr (without /) into a polynomial, stripping params./concs. prefixes
-function _to_poly(e)
-    e isa Expr && e.head == :. && return _Poly([e.args[2].value] => 1)
-    (e isa Expr && e.head == :call) || return _Poly(Symbol[] => (e isa Integer ? e : 1))
-    op, a = e.args[1], e.args[2:end]
-    op == :* ? reduce(_pmul, _to_poly.(a)) : op == :+ ? reduce(_padd, _to_poly.(a)) :
-    op == :- && length(a) == 1 ? _Poly(k => -v for (k,v) in _to_poly(a[1])) :
-    op == :- ? _padd(_to_poly(a[1]), _Poly(k => -v for (k,v) in _to_poly(a[2]))) : _Poly(Symbol[] => 1)
+const _Poly = Dict{Vector{Symbol},Int}
+
+"""Sort key for symbols inside a monomial: k-constants before metabolites, then alphabetical."""
+_sk(s) = (startswith(string(s), "k") ? 0 : 1, string(s))
+
+"""
+    _pmul(a, b) → _Poly
+
+Multiply two polynomials by distributing every term pair.  Monomial keys are
+formed by concatenating and re-sorting the two factor lists.
+"""
+function _pmul(a::_Poly, b::_Poly)
+    r = _Poly()
+    for (k1, v1) in a, (k2, v2) in b
+        k = sort([k1; k2]; by=_sk)
+        r[k] = get(r, k, 0) + v1 * v2
+    end
+    filter!(p -> p[2] != 0, r)
 end
 
-# Split numerator and denominator: _strip_div removes all / nodes (keeping numerator sides),
-# _find_denom finds the first denominator in the tree (all fractions share the same one)
-_strip_div(e) = (e isa Expr && e.head == :call) ? (e.args[1] == :/ ? _strip_div(e.args[2]) :
-    Expr(:call, e.args[1], _strip_div.(e.args[2:end])...)) : e
-_find_denom(e) = (e isa Expr && e.head == :call) ? (e.args[1] == :/ ? e.args[3] :
-    foldl((r, a) -> r !== nothing ? r : _find_denom(a), e.args[2:end]; init=nothing)) : nothing
+"""
+    _padd(a, b) → _Poly
 
-# Pretty-print a polynomial: positive terms first, then negative, joined with + / -
+Add two polynomials by merging coefficients.  Zero-coefficient terms are
+dropped — this is where symbolic cancellation happens.
+"""
+function _padd(a::_Poly, b::_Poly)
+    r = copy(a)
+    for (k, v) in b
+        r[k] = get(r, k, 0) + v
+    end
+    filter!(p -> p[2] != 0, r)
+end
+
+"""
+    _to_poly(e) → _Poly
+
+Recursively convert an `Expr` (that does not contain `/`) into a polynomial,
+stripping `params.` and `concs.` prefixes so that only bare symbol names remain.
+"""
+function _to_poly(e)
+    # Leaf: params.X or concs.X accessor
+    if e isa Expr && e.head == :.
+        return _Poly([e.args[2].value] => 1)
+    end
+    # Non-call or literal: treat as scalar constant
+    if !(e isa Expr && e.head == :call)
+        return _Poly(Symbol[] => (e isa Integer ? e : 1))
+    end
+    op = e.args[1]
+    a = e.args[2:end]
+    if op == :*
+        return reduce(_pmul, _to_poly.(a))
+    elseif op == :+
+        return reduce(_padd, _to_poly.(a))
+    elseif op == :- && length(a) == 1
+        # Unary minus: negate all coefficients
+        return _Poly(k => -v for (k, v) in _to_poly(a[1]))
+    elseif op == :-
+        # Binary minus: a[1] - a[2]
+        return _padd(_to_poly(a[1]), _Poly(k => -v for (k, v) in _to_poly(a[2])))
+    else
+        return _Poly(Symbol[] => 1)
+    end
+end
+
+"""
+    _strip_div(e)
+
+Recursively strip all `/` call nodes from an expression tree, keeping only the
+numerator side.  Used together with `_find_denom` to separate a rational Expr
+into numerator and denominator polynomials.
+"""
+function _strip_div(e)
+    if e isa Expr && e.head == :call
+        if e.args[1] == :/
+            return _strip_div(e.args[2])
+        else
+            return Expr(:call, e.args[1], _strip_div.(e.args[2:end])...)
+        end
+    end
+    return e
+end
+
+"""
+    _find_denom(e)
+
+Walk the expression tree and return the first denominator sub-expression found
+inside a `/` call node, or `nothing` if no division is present.  All fractions
+in the QSSA rate expression share the same denominator, so one match suffices.
+"""
+function _find_denom(e)
+    if e isa Expr && e.head == :call
+        if e.args[1] == :/
+            return e.args[3]
+        end
+        return foldl((r, a) -> r !== nothing ? r : _find_denom(a), e.args[2:end]; init=nothing)
+    end
+    return nothing
+end
+
+"""
+    _poly_str(p) → String
+
+Pretty-print a polynomial: positive terms first, then negative, joined with
+`+` / `-` operators.
+"""
 function _poly_str(p::_Poly)
     isempty(p) && return "0"
     ts = sort(collect(p); by=x -> (x[2] < 0, x[1]))
-    join([begin m = isempty(k) ? "$(abs(v))" : abs(v) == 1 ? join(k, " * ") : "$(abs(v)) * " * join(k, " * ")
-        i == 1 ? (v < 0 ? "-$m" : m) : (v < 0 ? " - $m" : " + $m") end for (i,(k,v)) in enumerate(ts)])
+    parts = String[]
+    for (i, (k, v)) in enumerate(ts)
+        m = if isempty(k)
+            "$(abs(v))"
+        elseif abs(v) == 1
+            join(k, " * ")
+        else
+            "$(abs(v)) * " * join(k, " * ")
+        end
+        if i == 1
+            push!(parts, v < 0 ? "-$m" : m)
+        else
+            push!(parts, v < 0 ? " - $m" : " + $m")
+        end
+    end
+    return join(parts)
 end
 
 """
@@ -230,7 +358,7 @@ end
 Return a string representation of the rate equation, matching what `rate_equation` computes.
 """
 function rate_equation_string(::M) where {M<:EnzymeMechanism}
-    expr = _symbolic_rate_expr(M)
+    expr = _raw_symbolic_rate_expr(M)
     np = _Poly(filter(!=(:E_total), k) => v for (k,v) in _to_poly(_strip_div(expr)))
     "E_total * ($(_poly_str(np))) / ($(_poly_str(_to_poly(_find_denom(expr)))))"
 end
