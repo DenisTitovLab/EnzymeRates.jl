@@ -7,13 +7,14 @@ A Julia package for deriving and evaluating steady-state enzyme rate equations v
 - Define enzyme mechanisms using a concise DSL or programmatic API
 - Validate mechanisms via atomic conservation checking
 - Derive QSSA rate equations compiled into zero-allocation numeric functions
-- Count independent kinetic parameters (Haldane/Wegscheider constraints)
+- Automatic Haldane/Wegscheider constraint detection and dependent parameter elimination
+- Human-readable rate equation output
 
 ## Installation
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/your-username/EnzymeRates.jl")
+Pkg.add(url="https://github.com/DenisTitovLab/EnzymeRates.jl")
 ```
 
 ## Quick Start
@@ -24,41 +25,57 @@ using EnzymeRates
 # Define a reversible Uni-Uni mechanism
 m = @mechanism begin
     species: begin
-        substrates: S(C=1)
-        products:   P(C=1)
-        enzymes:    E(), ES(C=1)
+        substrates: S[C]
+        products:   P[C]
+        enzymes:    E, ES[C]
     end
     steps: begin
-        [E, S] --> [ES]
-        [ES] --> [E, P]
+        [E, S] <--> [ES]
+        [ES] <--> [E, P]
     end
 end
 
-# Compute rate: rate_equation(m, params, concs) -> Float64
-v = rate_equation(m, (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1), (S=0.7, P=0.3))
+# Independent parameters + Keq + E_total (dependent k's are computed internally)
+params = (k1f=3.2, k2f=2.5, k2r=1.1, Keq=5.0, E_total=1.0)
+concs = (S=0.7, P=0.3)
+
+# Compute rate: zero allocations, compiled at first call
+v = rate_equation(m, params, concs)
 
 # Human-readable equation
 rate_equation_string(m)
-# (E_total * (k1f*S*k2f - k1r*k2r*P)) / ((k1r + k2f) + (k1f*S + k2r*P))
 ```
 
 ## Defining Mechanisms
 
 ### `@mechanism` macro
 
-`@mechanism` requires explicit species and steps blocks. Species include substrates, products, regulators, and enzyme forms with their atomic compositions:
+`@mechanism` requires explicit species and steps blocks. Species include substrates, products, regulators, and enzyme forms. Atoms use chemical formula bracket syntax (`S[C6H12O6]`); bare symbols are allowed when all metabolites omit atoms.
+
+Steps use the `<-->` arrow between bracketed sides:
 
 ```julia
 m = @mechanism begin
     species: begin
-        substrates: S(C=6, H=12, O=6)
-        products:   P(C=6, H=12, O=6)
-        enzymes:    E(), ES(C=6, H=12, O=6)
+        substrates: S[C6H12O6]
+        products:   P[C6H12O6]
+        enzymes:    E, ES[C6H12O6]
     end
     steps: begin
-        [E, S] --> [ES]
-        [ES] --> [E, P]
+        [E, S] <--> [ES]
+        [ES] <--> [E, P]
     end
+end
+```
+
+### `@enzyme_reaction` macro
+
+Define an overall reaction (substrates, products, optional regulators) without specifying the mechanism steps:
+
+```julia
+rxn = @enzyme_reaction begin
+    substrates: A[C6H12O6], B[C10H16N5O13P3]
+    products:   P[C6H12O6], Q[C10H16N5O13P3]
 end
 ```
 
@@ -66,10 +83,10 @@ end
 
 ```julia
 species = (
-    ( (:S, ((:C, 1),)), ),      # substrates
-    ( (:P, ((:C, 1),)), ),      # products
-    (),                         # regulators
-    ( (:E, ()), (:ES, ((:C, 1),)) ),  # enzyme forms
+    ((:S, ((:C, 1),)),),       # substrates
+    ((:P, ((:C, 1),)),),       # products
+    (),                        # regulators
+    ((:E, ()), (:ES, ((:C, 1),))),  # enzyme forms
 )
 reactions = (
     ((:E, :S), (:ES,)),
@@ -82,12 +99,12 @@ m = EnzymeMechanism(species, reactions)
 ## Rate Equations
 
 `rate_equation(m, params, concs)` computes the steady-state rate (net consumption of the
-first substrate, normalized by its stoichiometric coefficient), returning `Float64`:
+first substrate, normalized by its stoichiometric coefficient):
 
-- `params`: `NamedTuple` of rate constants (`k1f`, `k1r`, `k2f`, `k2r`, ...) and optionally `E_total` (defaults to `1.0`)
+- `params`: `NamedTuple` containing independent rate constants (`k1f`, `k1r`, ...), `Keq` (equilibrium constant), and `E_total` (total enzyme concentration). Dependent rate constants (determined by Haldane/Wegscheider constraints) are computed internally and should not be included.
 - `concs`: `NamedTuple` of metabolite concentrations (`S`, `P`, ...)
 
-Rate constants are named by step index. Each step has a forward (`kNf`) and reverse (`kNr`) constant. Binding steps yield pseudo-first-order rates: `kNf * [metabolite]`.
+Use `independent_parameters(m)` and `dependent_parameters(m)` to inspect which rate constants are independent vs. derived from constraints.
 
 ## Querying a Mechanism
 
@@ -95,11 +112,19 @@ Mechanisms are validated at construction (elementary-step structure, atomic
 conservation, regulator balance). There is no separate `validate` API.
 
 ```julia
-enzyme_forms(m)          # distinct enzyme states
-metabolites(m)           # distinct metabolites
-n_states(m)              # number of enzyme states
-graph(m)                 # (SimpleDiGraph, Vector{Species})
-stoich_matrix(m)         # metabolites x steps matrix
+substrates(m)              # substrates with stoichiometric multiplicity
+products(m)                # products with stoichiometric multiplicity
+regulators(m)              # regulators
+enzyme_forms(m)            # distinct enzyme states
+metabolites(m)             # distinct metabolites
+reactions(m)               # reaction steps as tuples of (lhs, rhs)
+n_states(m)                # number of enzyme states
+n_steps(m)                 # number of mechanism steps
+graph(m)                   # (SimpleDiGraph, enzyme_forms)
+stoich_matrix(m)           # metabolites × steps matrix
+parameters(m)              # all rate constant names (k1f, k1r, ...)
+independent_parameters(m)  # independent rate constant names
+dependent_parameters(m)    # dependent params as (symbol, expression_string) pairs
 ```
 
 ## API Reference
@@ -108,21 +133,36 @@ stoich_matrix(m)         # metabolites x steps matrix
 
 | Type | Description |
 |------|-------------|
-| `Species(name, role[, atoms])` | Chemical species. `role` is `enzyme` or `metabolite`. |
-| `ReactionSpec(substrates, products[, regulators])` | Overall reaction specification. |
-| `EnzymeMechanism(species, reactions)` | Mechanism from explicit species + reactions tuples. |
+| `EnzymeReaction{S,P,R}` | Overall reaction specification (substrates, products, regulators encoded in type parameters). |
+| `EnzymeMechanism{Species,Reactions}` | Full mechanism with species and elementary steps encoded in type parameters. |
+
+### Macros
+
+| Macro | Description |
+|-------|-------------|
+| `@enzyme_reaction` | Create an `EnzymeReaction` from a DSL block. |
+| `@mechanism` | Create an `EnzymeMechanism` from species + steps DSL blocks. |
 
 ### Functions
 
 | Function | Description |
 |----------|-------------|
-| `rate_equation(m, params, concs)` | Compiled QSSA rate equation → `Float64`. Zero allocations. |
+| `rate_equation(m, params, concs)` | Compiled QSSA rate equation. Zero allocations. |
 | `rate_equation_string(m)` | Human-readable rate equation string. |
+| `substrates(m)` | Substrates (with stoichiometric multiplicity). |
+| `products(m)` | Products (with stoichiometric multiplicity). |
+| `regulators(m)` | Regulators. |
 | `enzyme_forms(m)` | Distinct enzyme states. |
 | `metabolites(m)` | Distinct metabolites. |
+| `reactions(m)` | Reaction steps as `(lhs, rhs)` tuples. |
 | `n_states(m)` | Number of enzyme states. |
+| `n_steps(m)` | Number of mechanism steps. |
 | `graph(m)` | Enzyme-form connectivity graph. |
-| `stoich_matrix(m)` | Stoichiometry matrix (metabolites x steps). |
+| `stoich_matrix(m)` | Stoichiometry matrix (metabolites × steps). |
+| `parameters(m)` | All rate constant names. |
+| `all_parameters(m)` | Same as `parameters`. |
+| `independent_parameters(m)` | Independent rate constant names (excludes dependent k's, Keq, E_total). |
+| `dependent_parameters(m)` | Dependent parameters as `(symbol, expression_string)` pairs. |
 
 ## Running Tests
 
