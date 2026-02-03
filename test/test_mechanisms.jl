@@ -371,11 +371,13 @@ end
 @testset "rate_equation_string formatting" begin
     # Helper: parse rate_equation_string and evaluate numerically
     function _eval_rate_string(s, params, concs)
+        # Extract just the equation line (after "v = ")
+        eq_line = last(split(s, "v = "; limit=2))
         bindings = vcat(
             ["$k = $(params[k])" for k in keys(params)],
             ["$k = $(concs[k])" for k in keys(concs)],
         )
-        code = "let $(join(bindings, ", "))\n  $s\nend"
+        code = "let $(join(bindings, ", "))\n  $eq_line\nend"
         eval(Meta.parse(code))
     end
 
@@ -387,7 +389,7 @@ end
         @test !occursin("concs.", s)
         @test !occursin("+ -", s)
         @test !occursin("- -", s)
-        @test startswith(s, "E_total * (")
+        @test occursin("v = E_total * (", s)
         @test occursin(") / (", s)
     end
 
@@ -404,7 +406,7 @@ end
     @testset "Seq Uni-Bi" begin
         m, met_names = make_seq_unibi()
         s = rate_equation_string(m)
-        @test startswith(s, "E_total * (")
+        @test occursin("v = E_total * (", s)
         @test !occursin("params.", s)
         @test !occursin("concs.", s)
         @test !occursin("+ -", s)
@@ -418,7 +420,7 @@ end
     @testset "Seq Bi-Uni" begin
         m, met_names = make_seq_biuni()
         s = rate_equation_string(m)
-        @test startswith(s, "E_total * (")
+        @test occursin("v = E_total * (", s)
         @test !occursin("+ -", s)
         rng = Random.MersenneTwister(9003)
         for _ in 1:10
@@ -430,7 +432,7 @@ end
     @testset "Seq Bi-Bi" begin
         m, met_names = make_seq_bibi()
         s = rate_equation_string(m)
-        @test startswith(s, "E_total * (")
+        @test occursin("v = E_total * (", s)
         @test occursin(") / (", s)
         @test !occursin("+ -", s)
         @test occursin("S1", s)
@@ -447,7 +449,7 @@ end
     @testset "Ping-Pong Bi-Bi" begin
         m, met_names = make_pingpong_bibi()
         s = rate_equation_string(m)
-        @test startswith(s, "E_total * (")
+        @test occursin("v = E_total * (", s)
         @test !occursin("+ -", s)
         @test occursin("A", s)
         @test occursin("B", s)
@@ -461,7 +463,7 @@ end
     @testset "Random-order Bi-Bi (branched)" begin
         m, met_names = make_random_bibi()
         s = rate_equation_string(m)
-        @test startswith(s, "E_total * (")
+        @test occursin("v = E_total * (", s)
         @test !occursin("+ -", s)
         @test !occursin("- -", s)
         @test occursin("A", s)
@@ -476,7 +478,7 @@ end
     @testset "Seq Ter-Ter" begin
         m, met_names = make_seq_terter()
         s = rate_equation_string(m)
-        @test startswith(s, "E_total * (")
+        @test occursin("v = E_total * (", s)
         @test !occursin("+ -", s)
         rng = Random.MersenneTwister(9007)
         for _ in 1:10

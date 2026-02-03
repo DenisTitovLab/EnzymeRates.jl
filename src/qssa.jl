@@ -360,5 +360,21 @@ Return a string representation of the rate equation, matching what `rate_equatio
 function rate_equation_string(::M) where {M<:EnzymeMechanism}
     expr = _raw_symbolic_rate_expr(M)
     np = _Poly(filter(!=(:E_total), k) => v for (k,v) in _to_poly(_strip_div(expr)))
-    "E_total * ($(_poly_str(np))) / ($(_poly_str(_to_poly(_find_denom(expr)))))"
+    eq = "v = E_total * ($(_poly_str(np))) / ($(_poly_str(_to_poly(_find_denom(expr)))))"
+    constraints = _constraint_expr_strings(M)
+    if isempty(constraints)
+        return eq
+    else
+        return join(constraints, "\n") * "\n\n" * eq
+    end
+end
+
+"""
+    constraint_strings(m::EnzymeMechanism)
+
+Return a tuple of human-readable constraint strings for the dependent parameters.
+"""
+@generated function constraint_strings(::M) where {M<:EnzymeMechanism}
+    strs = _constraint_expr_strings(M)
+    return Tuple(strs)
 end

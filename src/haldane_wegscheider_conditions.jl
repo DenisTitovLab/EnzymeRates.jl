@@ -447,3 +447,22 @@ function _power_term(sym::Symbol, exp::Rational)
         return :($base ^ $(Float64(exp)))
     end
 end
+
+"""
+    _constraint_expr_strings(M::Type{<:EnzymeMechanism})
+
+Return a `Vector{String}` of human-readable constraint equations, one per
+dependent parameter, e.g. `"k5f = Keq * k1r * k2r / (k1f * k2f)"`.
+"""
+function _constraint_expr_strings(M::Type{<:EnzymeMechanism})
+    dep_exprs, _ = _dependent_param_exprs(M)
+    isempty(dep_exprs) && return String[]
+    pairs = sort(collect(dep_exprs); by = p -> string(p[1]))
+    result = String[]
+    for (dep_sym, expr) in pairs
+        s = string(expr)
+        s = replace(s, "params." => "")
+        push!(result, "$dep_sym = $s")
+    end
+    return result
+end
