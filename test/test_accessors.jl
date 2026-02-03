@@ -77,4 +77,22 @@
         @test (@allocated stoich_matrix(m)) == 0
         @test best_ns_per_call(stoich_matrix, m) < 100e-9
     end
+
+    # Warmup new accessors
+    all_parameters(m); independent_parameters(m); dependent_parameters(m)
+
+    @testset "all_parameters: zero-alloc and <100ns" begin
+        @test (@allocated all_parameters(m)) == 0
+        @test best_ns_per_call(all_parameters, m) < 100e-9
+    end
+
+    @testset "independent_parameters: zero-alloc and <100ns" begin
+        @test (@allocated independent_parameters(m)) == 0
+        @test best_ns_per_call(independent_parameters, m) < 100e-9
+    end
+
+    @testset "dependent_parameters: zero-alloc and <100ns" begin
+        @test (@allocated dependent_parameters(m)) == 0
+        @test best_ns_per_call(dependent_parameters, m) < 100e-9
+    end
 end

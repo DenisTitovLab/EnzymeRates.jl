@@ -92,9 +92,9 @@ end
         m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(2001)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S, :P]; rng=rng)
-            v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = rate_equation(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, [:S, :P]; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -115,9 +115,9 @@ end
         m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3001)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
-            v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = rate_equation(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, [:S1, :P1, :P2]; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -137,9 +137,9 @@ end
         m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3002)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:A, :P, :B, :Q]; rng=rng)
-            v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = rate_equation(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, [:A, :P, :B, :Q]; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -160,9 +160,9 @@ end
         m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3003)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :S2, :P1]; rng=rng)
-            v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = rate_equation(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, [:S1, :S2, :P1]; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -185,9 +185,9 @@ end
         m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3004)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
-            v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = rate_equation(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -211,9 +211,9 @@ end
         m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3005)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2, :P3]; rng=rng)
-            v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = rate_equation(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, [:S1, :S2, :P1, :P2, :P3]; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -237,9 +237,9 @@ end
         m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3006)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2]; rng=rng)
-            v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = rate_equation(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, [:S1, :S2, :S3, :P1, :P2]; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -265,9 +265,9 @@ end
         m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3007)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
-            v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = rate_equation(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end
@@ -292,9 +292,9 @@ end
         m = EnzymeMechanism(species, rxns)
         rng = Random.MersenneTwister(3008)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
-            v_ode = ode_steady_state_flux(m, params, concs)
-            v_ka = rate_equation(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
             @test v_ode ≈ v_ka rtol=1e-6
         end
     end

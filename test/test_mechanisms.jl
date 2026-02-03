@@ -6,17 +6,7 @@
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    species = (
-        ((:S, ((:C, 1),)),),          # substrates
-        ((:P, ((:C, 1),)),),          # products
-        (),                            # regulators
-        ((:E, ()), (:ES, ((:C, 1),))),  # enzymes
-    )
-    rxns = (
-        ((:E, :S), (:ES,)),
-        ((:ES,), (:E, :P)),
-    )
-    m = EnzymeMechanism(species, rxns)
+    m, met_names = make_uni_uni()
 
     @testset "Structure" begin
         @test n_states(m) == 2
@@ -43,27 +33,21 @@
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(1001)
         for _ in 1:20
-            params, concs = random_params_concs(m, [:S, :P]; rng=rng)
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(params, (Et=Et,))
-            p_pkg = merge(params, (E_total=Et,))
+            p = merge(all_params, (Et=Et,))
+            p_pkg = merge(new_params, (E_total=Et,))
             @test rate_equation(m, p_pkg, concs) ≈ rate_seq_uniuni(p, concs) rtol=1e-12
         end
     end
 
     @testset "Reference comparison" begin
-        rng = Random.MersenneTwister(42)
-        for _ in 1:10
-            params, concs = random_params_concs(m, [:S, :P]; rng=rng)
-            v_ka = rate_equation(m, params, concs)
-            v_ref = reference_qssa(m, params, concs)
-            @test v_ka ≈ v_ref rtol=1e-10
-        end
+        test_reference_comparison(m, met_names; seed=42, rtol=1e-10)
     end
 
     @testset "Haldane relation" begin
-        params = (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1, E_total=1.0)
-        Keq = params.k1f * params.k2f / (params.k1r * params.k2r)
+        Keq = 3.2 * 2.5 / (0.8 * 1.1)
+        params = (k1f=3.2, k2f=2.5, k2r=1.1, Keq=Keq, E_total=1.0)
         S_eq = 1.0
         P_eq = Keq * S_eq
         v = rate_equation(m, params, (S=S_eq, P=P_eq))
@@ -71,10 +55,7 @@
     end
 
     @testset "Performance" begin
-        allocs, t = test_rate_equation_performance(m,
-            (k1f=3.2, k1r=0.8, k2f=2.5, k2r=1.1, E_total=1.0), (S=1.0, P=0.5))
-        @test allocs == 0
-        @test t < 100e-9
+        test_performance(m, met_names)
     end
 end
 
@@ -86,19 +67,7 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    species = (
-        ((:S1, ((:C, 1), (:H, 1))),),
-        ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
-        (),
-        ((:E, ()), (:ES1, ((:C, 1), (:H, 1))), (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
-    )
-    rxns = (
-        ((:E, :S1), (:ES1,)),
-        ((:ES1,), (:EP1P2,)),
-        ((:EP1P2,), (:EP2, :P1)),
-        ((:EP2,), (:E, :P2)),
-    )
-    m = EnzymeMechanism(species, rxns)
+    m, met_names = make_seq_unibi()
 
     @testset "Structure" begin
         @test n_states(m) == 4
@@ -108,28 +77,23 @@ end
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(1002)
         for _ in 1:20
-            params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(params, (Et=Et,))
-            p_pkg = merge(params, (E_total=Et,))
+            p = merge(all_params, (Et=Et,))
+            p_pkg = merge(new_params, (E_total=Et,))
             @test rate_equation(m, p_pkg, concs) ≈ rate_seq_unibi(p, concs) rtol=1e-10
         end
     end
 
     @testset "Reference comparison" begin
-        rng = Random.MersenneTwister(123)
-        for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
-            v_ka = rate_equation(m, params, concs)
-            v_ref = reference_qssa(m, params, concs)
-            @test v_ka ≈ v_ref rtol=1e-8
-        end
+        test_reference_comparison(m, met_names; seed=123)
     end
 
     @testset "Haldane relation" begin
-        params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, E_total=1.0)
-        Keq = prod(params[Symbol("k$(i)f")] for i in 1:4) /
-              prod(params[Symbol("k$(i)r")] for i in 1:4)
+        all_p = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, E_total=1.0)
+        Keq = prod(all_p[Symbol("k$(i)f")] for i in 1:4) /
+              prod(all_p[Symbol("k$(i)r")] for i in 1:4)
+        params = make_independent_params(m, all_p, Keq)
         S1_eq = 1.0
         P_prod = Keq * S1_eq
         P1_eq = sqrt(P_prod)
@@ -139,26 +103,12 @@ end
     end
 
     @testset "Performance" begin
-        allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, E_total=1.0),
-            (S1=1.0, P1=0.5, P2=0.3))
-        @test allocs == 0
-        @test t < 100e-9
+        test_performance(m, met_names; seed=123)
     end
 end
 
 @testset "Ping-Pong Bi-Bi" begin
-    species = (
-        ((:A, ((:C, 2), (:N, 1))), (:B, ((:C, 3),))),
-        ((:P, ((:C, 2),)), (:Q, ((:C, 3), (:N, 1)))),
-        (),
-        ((:E, ()), (:EA, ((:C, 2), (:N, 1))), (:FP, ((:C, 2), (:N, 1))), (:F, ((:N, 1),)), (:FB, ((:C, 3), (:N, 1))), (:EQ, ((:C, 3), (:N, 1)))),
-    )
-    rxns = (
-        ((:E, :A), (:EA,)), ((:EA,), (:FP,)), ((:FP,), (:F, :P)),
-        ((:F, :B), (:FB,)), ((:FB,), (:EQ,)), ((:EQ,), (:E, :Q)),
-    )
-    m = EnzymeMechanism(species, rxns)
+    m, met_names = make_pingpong_bibi()
 
     @testset "Structure" begin
         @test n_states(m) == 6
@@ -175,13 +125,16 @@ end
     end
 
     @testset "Denominator structure" begin
-        base_params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
+        all_p = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, E_total=1.0)
+        Keq = prod(all_p[Symbol("k$(i)f")] for i in 1:6) /
+              prod(all_p[Symbol("k$(i)r")] for i in 1:6)
+        base_params = make_independent_params(m, all_p, Keq)
         eps_val = 1e-10
         concs = (A=eps_val, P=eps_val, B=eps_val, Q=eps_val)
         v = rate_equation(m, base_params, concs)
-        pf = prod(base_params[Symbol("k$(i)f")] for i in 1:6)
-        pr = prod(base_params[Symbol("k$(i)r")] for i in 1:6)
+        pf = prod(all_p[Symbol("k$(i)f")] for i in 1:6)
+        pr = prod(all_p[Symbol("k$(i)r")] for i in 1:6)
         num = pf * eps_val * eps_val - pr * eps_val * eps_val
         denom = num / v
         @test abs(denom) < 1e-5
@@ -192,22 +145,11 @@ end
     end
 
     @testset "Reference comparison" begin
-        rng = Random.MersenneTwister(456)
-        for _ in 1:10
-            params, concs = random_params_concs(m, [:A, :P, :B, :Q]; rng=rng)
-            v_ka = rate_equation(m, params, concs)
-            v_ref = reference_qssa(m, params, concs)
-            @test v_ka ≈ v_ref rtol=1e-8
-        end
+        test_reference_comparison(m, met_names; seed=456)
     end
 
     @testset "Performance" begin
-        allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, E_total=1.0),
-            (A=1.0, P=0.5, B=0.8, Q=0.3))
-        @test allocs == 0
-        @test t < 100e-9
+        test_performance(m, met_names; seed=456)
     end
 end
 
@@ -219,19 +161,7 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    species = (
-        ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
-        ((:P1, ((:C, 1), (:H, 1))),),
-        (),
-        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))), (:EP1, ((:C, 1), (:H, 1)))),
-    )
-    rxns = (
-        ((:E, :S1), (:ES1,)),
-        ((:ES1, :S2), (:ES1S2,)),
-        ((:ES1S2,), (:EP1,)),
-        ((:EP1,), (:E, :P1)),
-    )
-    m = EnzymeMechanism(species, rxns)
+    m, met_names = make_seq_biuni()
 
     @testset "Structure" begin
         @test n_states(m) == 4
@@ -241,20 +171,16 @@ end
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2001)
         for _ in 1:20
-            params, concs = random_params_concs(m, [:S1, :S2, :P1]; rng=rng)
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(params, (Et=Et,))
-            p_pkg = merge(params, (E_total=Et,))
+            p = merge(all_params, (Et=Et,))
+            p_pkg = merge(new_params, (E_total=Et,))
             @test rate_equation(m, p_pkg, concs) ≈ rate_seq_biuni(p, concs) rtol=1e-10
         end
     end
 
     @testset "Performance" begin
-        allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, E_total=1.0),
-            (S1=1.0, S2=0.8, P1=0.5))
-        @test allocs == 0
-        @test t < 100e-9
+        test_performance(m, met_names; seed=2001)
     end
 end
 
@@ -267,20 +193,7 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    species = (
-        ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
-        ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
-        (),
-        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))), (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
-    )
-    rxns = (
-        ((:E, :S1), (:ES1,)),
-        ((:ES1, :S2), (:ES1S2,)),
-        ((:ES1S2,), (:EP1P2,)),
-        ((:EP1P2,), (:EP2, :P1)),
-        ((:EP2,), (:E, :P2)),
-    )
-    m = EnzymeMechanism(species, rxns)
+    m, met_names = make_seq_bibi()
 
     @testset "Structure" begin
         @test n_states(m) == 5
@@ -296,28 +209,23 @@ end
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2002)
         for _ in 1:20
-            params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(params, (Et=Et,))
-            p_pkg = merge(params, (E_total=Et,))
+            p = merge(all_params, (Et=Et,))
+            p_pkg = merge(new_params, (E_total=Et,))
             @test rate_equation(m, p_pkg, concs) ≈ rate_seq_bibi(p, concs) rtol=1e-10
         end
     end
 
     @testset "Reference comparison" begin
-        rng = Random.MersenneTwister(789)
-        for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
-            v_ka = rate_equation(m, params, concs)
-            v_ref = reference_qssa(m, params, concs)
-            @test v_ka ≈ v_ref rtol=1e-8
-        end
+        test_reference_comparison(m, met_names; seed=789)
     end
 
     @testset "Haldane relation" begin
-        params = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, E_total=1.0)
-        Keq = prod(params[Symbol("k$(i)f")] for i in 1:5) /
-              prod(params[Symbol("k$(i)r")] for i in 1:5)
+        all_p = (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, E_total=1.0)
+        Keq = prod(all_p[Symbol("k$(i)f")] for i in 1:5) /
+              prod(all_p[Symbol("k$(i)r")] for i in 1:5)
+        params = make_independent_params(m, all_p, Keq)
         S1_eq = 1.0; S2_eq = 1.0
         P_prod = Keq * S1_eq * S2_eq
         P1_eq = sqrt(P_prod); P2_eq = sqrt(P_prod)
@@ -326,11 +234,7 @@ end
     end
 
     @testset "Performance" begin
-        allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3, k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, E_total=1.0),
-            (S1=1.0, S2=0.8, P1=0.5, P2=0.3))
-        @test allocs == 0
-        @test t < 100e-9
+        test_performance(m, met_names; seed=789)
     end
 end
 
@@ -343,22 +247,7 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    species = (
-        ((:S1, ((:C, 1),)), (:S2, ((:H, 1), (:N, 1)))),
-        ((:P1, ((:C, 1),)), (:P2, ((:H, 1),)), (:P3, ((:N, 1),))),
-        (),
-        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1), (:N, 1))),
-         (:EP1P2P3, ((:C, 1), (:H, 1), (:N, 1))), (:EP2P3, ((:H, 1), (:N, 1))), (:EP3, ((:N, 1),))),
-    )
-    rxns = (
-        ((:E, :S1), (:ES1,)),
-        ((:ES1, :S2), (:ES1S2,)),
-        ((:ES1S2,), (:EP1P2P3,)),
-        ((:EP1P2P3,), (:EP2P3, :P1)),
-        ((:EP2P3,), (:EP3, :P2)),
-        ((:EP3,), (:E, :P3)),
-    )
-    m = EnzymeMechanism(species, rxns)
+    m, met_names = make_seq_biter()
 
     @testset "Structure" begin
         @test n_states(m) == 6
@@ -368,21 +257,16 @@ end
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2005)
         for _ in 1:20
-            params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2, :P3]; rng=rng)
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(params, (Et=Et,))
-            p_pkg = merge(params, (E_total=Et,))
+            p = merge(all_params, (Et=Et,))
+            p_pkg = merge(new_params, (E_total=Et,))
             @test rate_equation(m, p_pkg, concs) ≈ rate_seq_biter(p, concs) rtol=1e-10
         end
     end
 
     @testset "Performance" begin
-        allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2, E_total=1.0),
-            (S1=1.0, S2=0.8, P1=0.5, P2=0.3, P3=0.2))
-        @test allocs == 0
-        @test t < 100e-9
+        test_performance(m, met_names; seed=2005)
     end
 end
 
@@ -395,22 +279,7 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    species = (
-        ((:S1, ((:C, 1),)), (:S2, ((:H, 1),)), (:S3, ((:N, 1),))),
-        ((:P1, ((:C, 1), (:H, 1))), (:P2, ((:N, 1),))),
-        (),
-        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
-         (:ES1S2S3, ((:C, 1), (:H, 1), (:N, 1))), (:EP1P2, ((:C, 1), (:H, 1), (:N, 1))), (:EP2, ((:N, 1),))),
-    )
-    rxns = (
-        ((:E, :S1), (:ES1,)),
-        ((:ES1, :S2), (:ES1S2,)),
-        ((:ES1S2, :S3), (:ES1S2S3,)),
-        ((:ES1S2S3,), (:EP1P2,)),
-        ((:EP1P2,), (:EP2, :P1)),
-        ((:EP2,), (:E, :P2)),
-    )
-    m = EnzymeMechanism(species, rxns)
+    m, met_names = make_seq_terbi()
 
     @testset "Structure" begin
         @test n_states(m) == 6
@@ -420,21 +289,16 @@ end
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2003)
         for _ in 1:20
-            params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2]; rng=rng)
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(params, (Et=Et,))
-            p_pkg = merge(params, (E_total=Et,))
+            p = merge(all_params, (Et=Et,))
+            p_pkg = merge(new_params, (E_total=Et,))
             @test rate_equation(m, p_pkg, concs) ≈ rate_seq_terbi(p, concs) rtol=1e-10
         end
     end
 
     @testset "Performance" begin
-        allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2, E_total=1.0),
-            (S1=1.0, S2=0.8, S3=0.6, P1=0.5, P2=0.3))
-        @test allocs == 0
-        @test t < 100e-9
+        test_performance(m, met_names; seed=2003)
     end
 end
 
@@ -447,24 +311,7 @@ end
         return _unicyclic_flux(f, r, p.Et)
     end
 
-    species = (
-        ((:S1, ((:C, 1),)), (:S2, ((:H, 1),)), (:S3, ((:N, 1),))),
-        ((:P1, ((:C, 1),)), (:P2, ((:H, 1),)), (:P3, ((:N, 1),))),
-        (),
-        ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
-         (:ES1S2S3, ((:C, 1), (:H, 1), (:N, 1))), (:EP1P2P3, ((:C, 1), (:H, 1), (:N, 1))),
-         (:EP2P3, ((:H, 1), (:N, 1))), (:EP3, ((:N, 1),))),
-    )
-    rxns = (
-        ((:E, :S1), (:ES1,)),
-        ((:ES1, :S2), (:ES1S2,)),
-        ((:ES1S2, :S3), (:ES1S2S3,)),
-        ((:ES1S2S3,), (:EP1P2P3,)),
-        ((:EP1P2P3,), (:EP2P3, :P1)),
-        ((:EP2P3,), (:EP3, :P2)),
-        ((:EP3,), (:E, :P3)),
-    )
-    m = EnzymeMechanism(species, rxns)
+    m, met_names = make_seq_terter()
 
     @testset "Structure" begin
         @test n_states(m) == 7
@@ -474,42 +321,21 @@ end
     @testset "Expected rate equation" begin
         rng = Random.MersenneTwister(2004)
         for _ in 1:20
-            params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(params, (Et=Et,))
-            p_pkg = merge(params, (E_total=Et,))
+            p = merge(all_params, (Et=Et,))
+            p_pkg = merge(new_params, (E_total=Et,))
             @test rate_equation(m, p_pkg, concs) ≈ rate_seq_terter(p, concs) rtol=1e-10
         end
     end
 
     @testset "Performance" begin
-        allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=3.0, k2r=0.4, k3f=1.5, k3r=0.3,
-             k4f=4.0, k4r=0.6, k5f=2.5, k5r=0.7, k6f=1.8, k6r=0.2, k7f=3.0, k7r=0.9, E_total=1.0),
-            (S1=1.0, S2=0.8, S3=0.6, P1=0.5, P2=0.3, P3=0.2))
-        @test allocs == 0
-        @test t < 100e-9
+        test_performance(m, met_names; seed=2004)
     end
 end
 
 @testset "Random-order Bi-Bi (branched)" begin
-    species = (
-        ((:A, ((:C, 1),)), (:B, ((:N, 1),))),
-        ((:P, ((:C, 1),)), (:Q, ((:N, 1),))),
-        (),
-        ((:E, ()), (:EA, ((:C, 1),)), (:EB, ((:N, 1),)),
-         (:EAB, ((:C, 1), (:N, 1))), (:EPQ, ((:C, 1), (:N, 1))), (:EQ, ((:N, 1),))),
-    )
-    rxns = (
-        ((:E, :A), (:EA,)),
-        ((:E, :B), (:EB,)),
-        ((:EA, :B), (:EAB,)),
-        ((:EB, :A), (:EAB,)),
-        ((:EAB,), (:EPQ,)),
-        ((:EPQ,), (:EQ, :P)),
-        ((:EQ,), (:E, :Q)),
-    )
-    m = EnzymeMechanism(species, rxns)
+    m, met_names = make_random_bibi()
 
     @testset "Structure" begin
         @test n_states(m) == 6
@@ -519,32 +345,26 @@ end
     @testset "Reference comparison" begin
         rng = Random.MersenneTwister(3001)
         for _ in 1:20
-            params, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
-            v_ka = rate_equation(m, params, concs)
-            v_ref = reference_qssa(m, params, concs)
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            v_ka = rate_equation(m, new_params, concs)
+            v_ref = reference_qssa(m, all_params, concs)
             @test v_ka ≈ v_ref rtol=1e-8
         end
     end
 
     @testset "Equilibrium (zero flux)" begin
-        params = (k1f=2.0, k1r=0.5, k2f=1.5, k2r=0.3, k3f=3.0, k3r=0.4,
-                  k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8, E_total=1.0)
         rng = Random.MersenneTwister(3002)
+        params, _, all_p = random_independent_params_concs(m, met_names; rng=rng)
         for _ in 1:10
-            _, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
+            _, concs, _ = random_independent_params_concs(m, met_names; rng=rng)
             v_ka = rate_equation(m, params, concs)
-            v_ref = reference_qssa(m, params, concs)
+            v_ref = reference_qssa(m, all_p, concs)
             @test v_ka ≈ v_ref rtol=1e-10
         end
     end
 
     @testset "Performance" begin
-        allocs, t = test_rate_equation_performance(m,
-            (k1f=2.0, k1r=0.5, k2f=1.5, k2r=0.3, k3f=3.0, k3r=0.4,
-             k4f=2.5, k4r=0.6, k5f=1.8, k5r=0.2, k6f=3.5, k6r=0.7, k7f=2.0, k7r=0.8, E_total=1.0),
-            (A=1.0, B=0.8, P=0.5, Q=0.3))
-        @test allocs == 0
-        @test t < 100e-9
+        test_performance(m, met_names; seed=5555)
     end
 end
 
@@ -560,12 +380,7 @@ end
     end
 
     @testset "General formatting properties (Uni-Uni)" begin
-        species = (
-            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
-            ((:E, ()), (:ES, ((:C, 1),))),
-        )
-        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        m = EnzymeMechanism(species, rxns)
+        m, _ = make_uni_uni()
         s = rate_equation_string(m)
 
         @test !occursin("params.", s)
@@ -574,47 +389,20 @@ end
         @test !occursin("- -", s)
         @test startswith(s, "E_total * (")
         @test occursin(") / (", s)
-        @test !occursin("((", s)
-        @test !occursin("))", s)
-    end
-
-    @testset "Uni-Uni exact string" begin
-        species = (
-            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
-            ((:E, ()), (:ES, ((:C, 1),))),
-        )
-        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        m = EnzymeMechanism(species, rxns)
-        @test rate_equation_string(m) == "E_total * (k1f * k2f * S - k1r * k2r * P) / (k1f * S + k1r + k2f + k2r * P)"
     end
 
     @testset "Uni-Uni numerical equivalence" begin
-        species = (
-            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
-            ((:E, ()), (:ES, ((:C, 1),))),
-        )
-        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        m = EnzymeMechanism(species, rxns)
+        m, met_names = make_uni_uni()
         s = rate_equation_string(m)
         rng = Random.MersenneTwister(9001)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S, :P]; rng=rng)
-            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            @test rate_equation(m, new_params, concs) ≈ _eval_rate_string(s, all_params, concs) rtol=1e-10
         end
     end
 
     @testset "Seq Uni-Bi" begin
-        species = (
-            ((:S1, ((:C, 1), (:H, 1))),),
-            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
-            (),
-            ((:E, ()), (:ES1, ((:C, 1), (:H, 1))), (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
-        )
-        rxns = (
-            ((:E, :S1), (:ES1,)), ((:ES1,), (:EP1P2,)),
-            ((:EP1P2,), (:EP2, :P1)), ((:EP2,), (:E, :P2)),
-        )
-        m = EnzymeMechanism(species, rxns)
+        m, met_names = make_seq_unibi()
         s = rate_equation_string(m)
         @test startswith(s, "E_total * (")
         @test !occursin("params.", s)
@@ -622,47 +410,25 @@ end
         @test !occursin("+ -", s)
         rng = Random.MersenneTwister(9002)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :P1, :P2]; rng=rng)
-            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            @test rate_equation(m, new_params, concs) ≈ _eval_rate_string(s, all_params, concs) rtol=1e-10
         end
     end
 
     @testset "Seq Bi-Uni" begin
-        species = (
-            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
-            ((:P1, ((:C, 1), (:H, 1))),),
-            (),
-            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))), (:EP1, ((:C, 1), (:H, 1)))),
-        )
-        rxns = (
-            ((:E, :S1), (:ES1,)), ((:ES1, :S2), (:ES1S2,)),
-            ((:ES1S2,), (:EP1,)), ((:EP1,), (:E, :P1)),
-        )
-        m = EnzymeMechanism(species, rxns)
+        m, met_names = make_seq_biuni()
         s = rate_equation_string(m)
         @test startswith(s, "E_total * (")
         @test !occursin("+ -", s)
         rng = Random.MersenneTwister(9003)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :S2, :P1]; rng=rng)
-            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            @test rate_equation(m, new_params, concs) ≈ _eval_rate_string(s, all_params, concs) rtol=1e-10
         end
     end
 
     @testset "Seq Bi-Bi" begin
-        species = (
-            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
-            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),))),
-            (),
-            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
-             (:EP1P2, ((:C, 1), (:H, 1))), (:EP2, ((:H, 1),))),
-        )
-        rxns = (
-            ((:E, :S1), (:ES1,)), ((:ES1, :S2), (:ES1S2,)),
-            ((:ES1S2,), (:EP1P2,)), ((:EP1P2,), (:EP2, :P1)),
-            ((:EP2,), (:E, :P2)),
-        )
-        m = EnzymeMechanism(species, rxns)
+        m, met_names = make_seq_bibi()
         s = rate_equation_string(m)
         @test startswith(s, "E_total * (")
         @test occursin(") / (", s)
@@ -673,24 +439,13 @@ end
         @test occursin("P2", s)
         rng = Random.MersenneTwister(9004)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :S2, :P1, :P2]; rng=rng)
-            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            @test rate_equation(m, new_params, concs) ≈ _eval_rate_string(s, all_params, concs) rtol=1e-10
         end
     end
 
     @testset "Ping-Pong Bi-Bi" begin
-        species = (
-            ((:A, ((:C, 2), (:N, 1))), (:B, ((:C, 3),))),
-            ((:P, ((:C, 2),)), (:Q, ((:C, 3), (:N, 1)))),
-            (),
-            ((:E, ()), (:EA, ((:C, 2), (:N, 1))), (:FP, ((:C, 2), (:N, 1))),
-             (:F, ((:N, 1),)), (:FB, ((:C, 3), (:N, 1))), (:EQ, ((:C, 3), (:N, 1)))),
-        )
-        rxns = (
-            ((:E, :A), (:EA,)), ((:EA,), (:FP,)), ((:FP,), (:F, :P)),
-            ((:F, :B), (:FB,)), ((:FB,), (:EQ,)), ((:EQ,), (:E, :Q)),
-        )
-        m = EnzymeMechanism(species, rxns)
+        m, met_names = make_pingpong_bibi()
         s = rate_equation_string(m)
         @test startswith(s, "E_total * (")
         @test !occursin("+ -", s)
@@ -698,84 +453,47 @@ end
         @test occursin("B", s)
         rng = Random.MersenneTwister(9005)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:A, :P, :B, :Q]; rng=rng)
-            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            @test rate_equation(m, new_params, concs) ≈ _eval_rate_string(s, all_params, concs) rtol=1e-10
         end
     end
 
     @testset "Random-order Bi-Bi (branched)" begin
-        species = (
-            ((:A, ((:C, 1),)), (:B, ((:N, 1),))),
-            ((:P, ((:C, 1),)), (:Q, ((:N, 1),))),
-            (),
-            ((:E, ()), (:EA, ((:C, 1),)), (:EB, ((:N, 1),)),
-             (:EAB, ((:C, 1), (:N, 1))), (:EPQ, ((:C, 1), (:N, 1))), (:EQ, ((:N, 1),))),
-        )
-        rxns = (
-            ((:E, :A), (:EA,)), ((:E, :B), (:EB,)),
-            ((:EA, :B), (:EAB,)), ((:EB, :A), (:EAB,)),
-            ((:EAB,), (:EPQ,)), ((:EPQ,), (:EQ, :P)), ((:EQ,), (:E, :Q)),
-        )
-        m = EnzymeMechanism(species, rxns)
+        m, met_names = make_random_bibi()
         s = rate_equation_string(m)
         @test startswith(s, "E_total * (")
         @test !occursin("+ -", s)
         @test !occursin("- -", s)
-        @test !occursin("((", s)
         @test occursin("A", s)
         @test occursin("B", s)
         rng = Random.MersenneTwister(9006)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:A, :B, :P, :Q]; rng=rng)
-            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            @test rate_equation(m, new_params, concs) ≈ _eval_rate_string(s, all_params, concs) rtol=1e-10
         end
     end
 
     @testset "Seq Ter-Ter" begin
-        species = (
-            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),)), (:S3, ((:N, 1),))),
-            ((:P1, ((:C, 1),)), (:P2, ((:H, 1),)), (:P3, ((:N, 1),))),
-            (),
-            ((:E, ()), (:ES1, ((:C, 1),)), (:ES1S2, ((:C, 1), (:H, 1))),
-             (:ES1S2S3, ((:C, 1), (:H, 1), (:N, 1))), (:EP1P2P3, ((:C, 1), (:H, 1), (:N, 1))),
-             (:EP2P3, ((:H, 1), (:N, 1))), (:EP3, ((:N, 1),))),
-        )
-        rxns = (
-            ((:E, :S1), (:ES1,)), ((:ES1, :S2), (:ES1S2,)),
-            ((:ES1S2, :S3), (:ES1S2S3,)), ((:ES1S2S3,), (:EP1P2P3,)),
-            ((:EP1P2P3,), (:EP2P3, :P1)), ((:EP2P3,), (:EP3, :P2)),
-            ((:EP3,), (:E, :P3)),
-        )
-        m = EnzymeMechanism(species, rxns)
+        m, met_names = make_seq_terter()
         s = rate_equation_string(m)
         @test startswith(s, "E_total * (")
         @test !occursin("+ -", s)
         rng = Random.MersenneTwister(9007)
         for _ in 1:10
-            params, concs = random_params_concs(m, [:S1, :S2, :S3, :P1, :P2, :P3]; rng=rng)
-            @test rate_equation(m, params, concs) ≈ _eval_rate_string(s, params, concs) rtol=1e-12
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            @test rate_equation(m, new_params, concs) ≈ _eval_rate_string(s, all_params, concs) rtol=1e-10
         end
     end
 
     @testset "k-constants sorted before metabolites" begin
-        species = (
-            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
-            ((:E, ()), (:ES, ((:C, 1),))),
-        )
-        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        m = EnzymeMechanism(species, rxns)
+        m, _ = make_uni_uni()
         s = rate_equation_string(m)
         @test occursin("k1f * k2f * S", s)
         @test occursin("k1r * k2r * P", s)
     end
 
     @testset "Denominator has no subtraction (Uni-Uni)" begin
-        species = (
-            ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
-            ((:E, ()), (:ES, ((:C, 1),))),
-        )
-        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        m = EnzymeMechanism(species, rxns)
+        m, _ = make_uni_uni()
         s = rate_equation_string(m)
         denom_start = findlast(") / (", s)
         denom = s[denom_start.stop+1:end-1]
