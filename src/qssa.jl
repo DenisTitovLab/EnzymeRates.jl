@@ -42,11 +42,13 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
         met_r = isempty(m_rhs) ? nothing : first(m_rhs)
 
         # Forward: i → j
-        fwd = met_f === nothing ? :(params.$kf) : :(params.$kf * concs.$met_f)
+        fwd = met_f === nothing ? make_param_accessor(kf) :
+              :($(make_param_accessor(kf)) * $(make_conc_accessor(met_f)))
         R[i, j] = R[i, j] == 0 ? fwd : :($(R[i, j]) + $fwd)
 
         # Reverse: j → i
-        rev = met_r === nothing ? :(params.$kr) : :(params.$kr * concs.$met_r)
+        rev = met_r === nothing ? make_param_accessor(kr) :
+              :($(make_param_accessor(kr)) * $(make_conc_accessor(met_r)))
         R[j, i] = R[j, i] == 0 ? rev : :($(R[j, i]) + $rev)
     end
 
@@ -82,7 +84,6 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
 
         terms = Any[]
         for perm in permutations(1:n_sub)
-            # Compute sign of permutation
             sign = _perm_sign(perm)
 
             # Product of L_sub[k, perm[k]] = L[rows[k], cols[perm[k]]]
@@ -119,7 +120,7 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     denom = length(nonzero_D) == 1 ? nonzero_D[1] : Expr(:call, :+, nonzero_D...)
 
     # E_total
-    et_expr = :(params.E_total)
+    et_expr = make_param_accessor(:E_total)
 
     # 5. Net consumption of reference substrate
     terms = Any[]
@@ -133,8 +134,10 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
         met_f = isempty(m_lhs) ? nothing : first(m_lhs)
         met_r = isempty(m_rhs) ? nothing : first(m_rhs)
 
-        rf_expr = met_f === nothing ? :(params.$kf) : :(params.$kf * concs.$met_f)
-        rr_expr = met_r === nothing ? :(params.$kr) : :(params.$kr * concs.$met_r)
+        rf_expr = met_f === nothing ? make_param_accessor(kf) :
+                  :($(make_param_accessor(kf)) * $(make_conc_accessor(met_f)))
+        rr_expr = met_r === nothing ? make_param_accessor(kr) :
+                  :($(make_param_accessor(kr)) * $(make_conc_accessor(met_r)))
         flux = :($et_expr * ($rf_expr * $(D[i]) - $rr_expr * $(D[j])) / $denom)
         if met_f === ref_name
             push!(terms, flux)
@@ -159,28 +162,12 @@ function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     raw_expr = _raw_symbolic_rate_expr(M)
     dep_exprs, _ = _dependent_param_exprs(M)
     if !isempty(dep_exprs)
-        raw_expr = _substitute_params(raw_expr, dep_exprs)
+        raw_expr = substitute_params(raw_expr, dep_exprs)
     end
     return raw_expr
 end
 
-"""Recursively substitute `params.dep_sym` with its expression in an Expr tree."""
-function _substitute_params(expr, subs::Dict{Symbol, Expr})
-    # Match params.X pattern
-    if expr isa Expr && expr.head == :. && length(expr.args) == 2 &&
-       expr.args[1] == :params && expr.args[2] isa QuoteNode
-        sym = expr.args[2].value
-        if haskey(subs, sym)
-            return subs[sym]
-        end
-        return expr
-    end
-    expr isa Expr || return expr
-    new_args = Any[_substitute_params(a, subs) for a in expr.args]
-    return Expr(expr.head, new_args...)
-end
-
-"""Compute sign of a permutation (as +1 or -1)."""
+"""Compute sign of a permutation (as +1 or -1) using cycle decomposition."""
 function _perm_sign(perm)
     n = length(perm)
     visited = falses(n)
@@ -202,19 +189,49 @@ function _perm_sign(perm)
     sign
 end
 
+# ─── Mode-dispatched rate_equation ───────────────────────────────────────────
+
 """
-    rate_equation(::EnzymeMechanism{Species,Reactions}, params::NamedTuple, concs::NamedTuple)
+    rate_equation(m::EnzymeMechanism, params, concs, [mode])
 
 Compute the QSSA steady-state rate (net consumption of the first substrate,
 normalized by its stoichiometric coefficient). The body is generated at
 compile time as a single arithmetic expression with no allocations, loops,
 or matrix ops.
+
+# Modes
+- `IdentifiableHaldaneWegscheider` (default): Uses identifiable parameter combinations + Keq
+- `HaldaneWegscheider`: Uses independent k-parameters + Keq (Haldane/Wegscheider constraints)
+- `Raw`: Uses all 2N microscopic rate constants (no constraints)
+
+# Parameters
+The `params` NamedTuple must contain the parameters appropriate for the mode:
+- `Raw`: all k's (k1f, k1r, k2f, k2r, ...) + E_total
+- `HaldaneWegscheider`: independent k's + Keq + E_total
+- `IdentifiableHaldaneWegscheider`: identifiable combinations + Keq + E_total
 """
+function rate_equation end
+
+# Default: IdentifiableHaldaneWegscheider mode
+rate_equation(m::EnzymeMechanism, params, concs) =
+    rate_equation(m, params, concs, IdentifiableHaldaneWegscheider)
+
+# Raw mode: all 2N k-parameters
 @generated function rate_equation(
-    m::M, params::NamedTuple, concs::NamedTuple
+    m::M, params::NamedTuple, concs::NamedTuple, ::RawMode
+) where {M <: EnzymeMechanism}
+    _raw_symbolic_rate_expr(M)
+end
+
+# HaldaneWegscheider mode: independent k-parameters + Keq
+@generated function rate_equation(
+    m::M, params::NamedTuple, concs::NamedTuple, ::HaldaneWegscheiderMode
 ) where {M <: EnzymeMechanism}
     _symbolic_rate_expr(M)
 end
+
+# IdentifiableHaldaneWegscheider mode: identifiable combinations + Keq
+# (Defined in identifiability.jl after the required functions are available)
 
 # ─── Polynomial representation for pretty-printing ──────────────────────────
 #
@@ -227,18 +244,17 @@ end
 const _Poly = Dict{Vector{Symbol},Int}
 
 """Sort key for symbols inside a monomial: k-constants before metabolites, then alphabetical."""
-_sk(s) = (startswith(string(s), "k") ? 0 : 1, string(s))
+_monomial_sort_key(s) = (startswith(string(s), "k") ? 0 : 1, string(s))
 
 """
     _pmul(a, b) → _Poly
 
-Multiply two polynomials by distributing every term pair.  Monomial keys are
-formed by concatenating and re-sorting the two factor lists.
+Multiply two polynomials by distributing every term pair.
 """
 function _pmul(a::_Poly, b::_Poly)
     r = _Poly()
     for (k1, v1) in a, (k2, v2) in b
-        k = sort([k1; k2]; by=_sk)
+        k = sort([k1; k2]; by=_monomial_sort_key)
         r[k] = get(r, k, 0) + v1 * v2
     end
     filter!(p -> p[2] != 0, r)
@@ -247,8 +263,7 @@ end
 """
     _padd(a, b) → _Poly
 
-Add two polynomials by merging coefficients.  Zero-coefficient terms are
-dropped — this is where symbolic cancellation happens.
+Add two polynomials by merging coefficients. Zero-coefficient terms are dropped.
 """
 function _padd(a::_Poly, b::_Poly)
     r = copy(a)
@@ -266,25 +281,25 @@ stripping `params.` and `concs.` prefixes so that only bare symbol names remain.
 """
 function _to_poly(e)
     # Leaf: params.X or concs.X accessor
-    if e isa Expr && e.head == :.
-        return _Poly([e.args[2].value] => 1)
+    if is_param_accessor(e) || is_conc_accessor(e)
+        return _Poly([get_accessor_symbol(e)] => 1)
     end
     # Non-call or literal: treat as scalar constant
     if !(e isa Expr && e.head == :call)
         return _Poly(Symbol[] => (e isa Integer ? e : 1))
     end
-    op = e.args[1]
-    a = e.args[2:end]
+    op = get_call_op(e)
+    args = get_call_args(e)
     if op == :*
-        return reduce(_pmul, _to_poly.(a))
+        return reduce(_pmul, _to_poly.(args))
     elseif op == :+
-        return reduce(_padd, _to_poly.(a))
-    elseif op == :- && length(a) == 1
+        return reduce(_padd, _to_poly.(args))
+    elseif op == :- && length(args) == 1
         # Unary minus: negate all coefficients
-        return _Poly(k => -v for (k, v) in _to_poly(a[1]))
+        return _Poly(k => -v for (k, v) in _to_poly(args[1]))
     elseif op == :-
-        # Binary minus: a[1] - a[2]
-        return _padd(_to_poly(a[1]), _Poly(k => -v for (k, v) in _to_poly(a[2])))
+        # Binary minus: args[1] - args[2]
+        return _padd(_to_poly(args[1]), _Poly(k => -v for (k, v) in _to_poly(args[2])))
     else
         return _Poly(Symbol[] => 1)
     end
@@ -293,17 +308,13 @@ end
 """
     _strip_div(e)
 
-Recursively strip all `/` call nodes from an expression tree, keeping only the
-numerator side.  Used together with `_find_denom` to separate a rational Expr
-into numerator and denominator polynomials.
+Recursively strip all `/` call nodes, keeping only the numerator side.
 """
 function _strip_div(e)
-    if e isa Expr && e.head == :call
-        if e.args[1] == :/
-            return _strip_div(e.args[2])
-        else
-            return Expr(:call, e.args[1], _strip_div.(e.args[2:end])...)
-        end
+    if is_call_expr(e, :/)
+        return _strip_div(get_call_args(e)[1])
+    elseif e isa Expr && e.head == :call
+        return Expr(:call, e.args[1], _strip_div.(e.args[2:end])...)
     end
     return e
 end
@@ -311,16 +322,17 @@ end
 """
     _find_denom(e)
 
-Walk the expression tree and return the first denominator sub-expression found
-inside a `/` call node, or `nothing` if no division is present.  All fractions
-in the QSSA rate expression share the same denominator, so one match suffices.
+Walk the expression tree and return the first denominator found inside a `/` call,
+or `nothing` if no division is present.
 """
 function _find_denom(e)
-    if e isa Expr && e.head == :call
-        if e.args[1] == :/
-            return e.args[3]
+    if is_call_expr(e, :/)
+        return get_call_args(e)[2]
+    elseif e isa Expr && e.head == :call
+        for arg in get_call_args(e)
+            d = _find_denom(arg)
+            d !== nothing && return d
         end
-        return foldl((r, a) -> r !== nothing ? r : _find_denom(a), e.args[2:end]; init=nothing)
     end
     return nothing
 end
@@ -328,8 +340,7 @@ end
 """
     _poly_str(p) → String
 
-Pretty-print a polynomial: positive terms first, then negative, joined with
-`+` / `-` operators.
+Pretty-print a polynomial: positive terms first, then negative, joined with +/-.
 """
 function _poly_str(p::_Poly)
     isempty(p) && return "0"
@@ -352,15 +363,46 @@ function _poly_str(p::_Poly)
     return join(parts)
 end
 
-"""
-    rate_equation_string(m::EnzymeMechanism)
+# ─── Consolidated rate_equation_string (Option D) ────────────────────────────
 
-Return a string representation of the rate equation, matching what `rate_equation` computes.
 """
-function rate_equation_string(::M) where {M<:EnzymeMechanism}
+    rate_equation_string(m::EnzymeMechanism, [mode])
+
+Return a string representation of the rate equation.
+
+# Modes
+- `IdentifiableHaldaneWegscheider` (default): Shows identifiable parameters and constraints
+- `HaldaneWegscheider`: Shows Haldane/Wegscheider constraints and independent parameters
+- `Raw`: Shows raw equation with all 2N k-parameters
+"""
+function rate_equation_string end
+
+# Default: IdentifiableHaldaneWegscheider mode
+rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, IdentifiableHaldaneWegscheider)
+
+"""
+    _format_rate_equation_core(expr) → String
+
+Format a rate expression as "v = E_total * (numerator) / (denominator)".
+This is the common formatting logic shared by all modes.
+"""
+function _format_rate_equation_core(expr)
+    num_poly = _Poly(filter(!=(:E_total), k) => v for (k, v) in _to_poly(_strip_div(expr)))
+    denom_expr = _find_denom(expr)
+    denom_poly = denom_expr === nothing ? _Poly(Symbol[] => 1) : _to_poly(denom_expr)
+    "v = E_total * ($(_poly_str(num_poly))) / ($(_poly_str(denom_poly)))"
+end
+
+# Raw mode: all 2N k-parameters, no constraints
+function rate_equation_string(::M, ::RawMode) where {M<:EnzymeMechanism}
     expr = _raw_symbolic_rate_expr(M)
-    np = _Poly(filter(!=(:E_total), k) => v for (k,v) in _to_poly(_strip_div(expr)))
-    eq = "v = E_total * ($(_poly_str(np))) / ($(_poly_str(_to_poly(_find_denom(expr)))))"
+    _format_rate_equation_core(expr)
+end
+
+# HaldaneWegscheider mode: with Haldane/Wegscheider constraints prepended
+function rate_equation_string(::M, ::HaldaneWegscheiderMode) where {M<:EnzymeMechanism}
+    expr = _raw_symbolic_rate_expr(M)
+    eq = _format_rate_equation_core(expr)
     constraints = _constraint_expr_strings(M)
     if isempty(constraints)
         return eq
@@ -368,6 +410,8 @@ function rate_equation_string(::M) where {M<:EnzymeMechanism}
         return join(constraints, "\n") * "\n\n" * eq
     end
 end
+
+# IdentifiableHaldaneWegscheider mode: defined in identifiability.jl
 
 """
     constraint_strings(m::EnzymeMechanism)

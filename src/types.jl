@@ -226,6 +226,54 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
     EnzymeMechanism{sorted_species, Tuple(rxns)}()
 end
 
+# --- Rate equation mode types ---
+
+"""
+    RateEquationMode
+
+Abstract supertype for rate equation parameterization modes.
+Controls which form of the rate equation is used and what parameters are expected.
+"""
+abstract type RateEquationMode end
+
+"""
+    RawMode <: RateEquationMode
+
+Raw rate equation mode using all 2N microscopic rate constants (k1f, k1r, k2f, k2r, ...).
+No thermodynamic constraints applied. Parameters: all k's + E_total.
+"""
+struct RawMode <: RateEquationMode end
+
+"""
+    HaldaneWegscheiderMode <: RateEquationMode
+
+Rate equation with Haldane-Wegscheider thermodynamic constraints applied.
+Dependent parameters are substituted in terms of independent k's and Keq.
+Parameters: independent k's + Keq + E_total.
+"""
+struct HaldaneWegscheiderMode <: RateEquationMode end
+
+"""
+    IdentifiableHaldaneWegscheiderMode <: RateEquationMode
+
+Rate equation with both Haldane-Wegscheider constraints and structural identifiability
+reparameterization. Non-identifiable parameter combinations are merged.
+Parameters: identifiable combinations + Keq + E_total.
+
+This is the recommended mode for parameter fitting as it uses the minimal set of
+structurally identifiable parameters.
+"""
+struct IdentifiableHaldaneWegscheiderMode <: RateEquationMode end
+
+"""Singleton instance for raw mode."""
+const Raw = RawMode()
+
+"""Singleton instance for Haldane-Wegscheider mode."""
+const HaldaneWegscheider = HaldaneWegscheiderMode()
+
+"""Singleton instance for identifiable Haldane-Wegscheider mode (default)."""
+const IdentifiableHaldaneWegscheider = IdentifiableHaldaneWegscheiderMode()
+
 # --- Pretty printing ---
 
 function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}

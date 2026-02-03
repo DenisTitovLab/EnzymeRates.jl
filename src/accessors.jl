@@ -86,13 +86,51 @@ Positive = produced, negative = consumed.
     return S
 end
 
-"""Return rate constant names as a tuple of Symbols, e.g. `(:k1f, :k1r, :k2f, :k2r)`."""
-@generated function parameters(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
-    return ntuple(i -> Symbol("k", (i+1)÷2, isodd(i) ? "f" : "r"), 2 * length(Reactions))
+# ─── Mode-dispatched parameters ──────────────────────────────────────────────
+
+"""
+    parameters(m::EnzymeMechanism, [mode])
+
+Return the parameter names required for the given mode as a tuple of Symbols.
+
+# Modes
+- `IdentifiableHaldaneWegscheider` (default): identifiable combinations + Keq + E_total
+- `HaldaneWegscheider`: independent k's + Keq + E_total
+- `Raw`: all 2N k's + E_total
+
+# Examples
+```julia
+parameters(m)                          # identifiable + Keq + E_total
+parameters(m, Raw)                     # all k's + E_total
+parameters(m, HaldaneWegscheider)      # independent k's + Keq + E_total
+```
+"""
+function parameters end
+
+# Default: IdentifiableHaldaneWegscheider mode
+parameters(m::EnzymeMechanism) = parameters(m, IdentifiableHaldaneWegscheider)
+
+# Raw mode: all 2N k-parameters + E_total
+@generated function parameters(::EnzymeMechanism{Species, Reactions}, ::RawMode) where {Species, Reactions}
+    ks = ntuple(i -> Symbol("k", (i+1)÷2, isodd(i) ? "f" : "r"), 2 * length(Reactions))
+    return (ks..., :E_total)
 end
 
-"""Return all rate constant names (same as `parameters`)."""
-all_parameters(m::EnzymeMechanism) = parameters(m)
+# HaldaneWegscheider mode: independent k's + Keq + E_total
+@generated function parameters(::M, ::HaldaneWegscheiderMode) where {M <: EnzymeMechanism}
+    _, indep = _dependent_param_exprs(M)
+    return (indep..., :Keq, :E_total)
+end
+
+# IdentifiableHaldaneWegscheider mode: identifiable combinations + Keq + E_total
+# (Defined in identifiability.jl after the required functions are available)
+
+# ─── Legacy API (for backwards compatibility) ────────────────────────────────
+
+"""Return all rate constant names (all 2N k's). Equivalent to `parameters(m, Raw)` without E_total."""
+@generated function all_parameters(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
+    return ntuple(i -> Symbol("k", (i+1)÷2, isodd(i) ? "f" : "r"), 2 * length(Reactions))
+end
 
 """Return only independent parameter names (excludes dependent k's, Keq, E_total)."""
 @generated function independent_parameters(::M) where {M <: EnzymeMechanism}
