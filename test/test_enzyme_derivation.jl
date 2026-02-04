@@ -1,0 +1,516 @@
+# Tests for enzyme rate equation derivation
+# Validates structure, constraints, identifiability, and correctness of derived rate equations
+
+using OrdinaryDiffEqFIRK
+
+# ── Helper functions ────────────────────────────────────────────────────────
+
+# ── Reference QSSA implementation ───────────────────────────────────────────
+
+"""
+Independent reference: compute QSSA rate using Laplacian cofactor method.
+Works directly with EnzymeMechanism type parameters.
+"""
+function reference_qssa(m::EnzymeMechanism{Species, Reactions}, params::NamedTuple, concs::NamedTuple) where {Species, Reactions}
+    enzs = EnzymeRates.enzyme_forms(m)
+    n = length(enzs)
+    enz_names = Tuple(e[1] for e in enzs)
+    name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
+    enz_set = Set(enz_names)
+
+    ref_name, nu_ref = _reference_metabolite(m)
+
+    # Build rate matrix R[i,j] = pseudo-first-order rate from i to j
+    R = zeros(n, n)
+    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        i = name_to_idx[e_lhs]
+        j = name_to_idx[e_rhs]
+
+        m_lhs = [s for s in lhs if s ∉ enz_set]
+        m_rhs = [s for s in rhs if s ∉ enz_set]
+
+        kf = params[Symbol("k$(step_idx)f")]
+        kr = params[Symbol("k$(step_idx)r")]
+
+        rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1]]
+        R[i, j] += rf
+
+        rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1]]
+        R[j, i] += rr
+    end
+
+    # Build Laplacian
+    L = zeros(n, n)
+    for i in 1:n
+        for j in 1:n
+            if i != j
+                L[i, j] = -R[i, j]
+                L[i, i] += R[i, j]
+            end
+        end
+    end
+
+    # Cofactors
+    D = zeros(n)
+    for i in 1:n
+        rows = [r for r in 1:n if r != i]
+        cols = [c for c in 1:n if c != i]
+        D[i] = det(L[rows, cols])
+    end
+
+    D_total = sum(D)
+    E_conc = D ./ D_total .* params.E_total
+
+    # Compute net consumption of reference substrate
+    v = 0.0
+    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        i = name_to_idx[e_lhs]
+        j = name_to_idx[e_rhs]
+
+        m_lhs = [s for s in lhs if s ∉ enz_set]
+        m_rhs = [s for s in rhs if s ∉ enz_set]
+
+        kf = params[Symbol("k$(step_idx)f")]
+        kr = params[Symbol("k$(step_idx)r")]
+
+        rf = kf * (isempty(m_lhs) ? 1.0 : concs[m_lhs[1]])
+        rr = kr * (isempty(m_rhs) ? 1.0 : concs[m_rhs[1]])
+
+        flux = rf * E_conc[i] - rr * E_conc[j]
+        if !isempty(m_lhs) && m_lhs[1] == ref_name
+            v += flux
+        elseif !isempty(m_rhs) && m_rhs[1] == ref_name
+            v -= flux
+        end
+    end
+
+    return v / abs(nu_ref)
+end
+
+# ── Unicyclic flux helpers ──────────────────────────────────────────────────
+
+"""
+    _unicyclic_denominator(f, r)
+
+QSSA denominator for a unicyclic network with forward rates `f[i]`
+and reverse rates `r[i]` around the cycle (1-indexed; cyclic).
+"""
+function _unicyclic_denominator(f::AbstractVector, r::AbstractVector)
+    n = length(f)
+    @assert length(r) == n
+    T = promote_type(eltype(f), eltype(r))
+    D = zero(T)
+
+    for i in 1:n
+        Ti = zero(T)
+        for m in 0:n-1
+            pr = one(T)
+            for j in 0:m-1
+                pr *= r[mod1(i + j, n)]
+            end
+            pf = one(T)
+            for j in (m+1):(n-1)
+                pf *= f[mod1(i + j, n)]
+            end
+            Ti += pr * pf
+        end
+        D += Ti
+    end
+
+    return D
+end
+
+"""
+    _unicyclic_flux(f, r, Et) -> v
+
+Closed-form QSSA flux for a unicyclic enzyme-state cycle.
+v = Et*(prod(f)-prod(r)) / sum(tree_weights)
+"""
+function _unicyclic_flux(f::AbstractVector, r::AbstractVector, Et)
+    pf = prod(f)
+    pr = prod(r)
+    D  = _unicyclic_denominator(f, r)
+    return Et * (pf - pr) / D
+end
+
+# ── Parameter generation helpers ────────────────────────────────────────────
+
+function random_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rng())
+    ns = EnzymeRates.n_steps(m)
+    param_keys = Symbol[]
+    param_vals = Float64[]
+    for i in 1:ns
+        push!(param_keys, Symbol("k$(i)f"))
+        push!(param_vals, 0.1 + 9.9 * rand(rng))
+        push!(param_keys, Symbol("k$(i)r"))
+        push!(param_vals, 0.1 + 9.9 * rand(rng))
+    end
+    push!(param_keys, :E_total)
+    push!(param_vals, 0.1 + 9.9 * rand(rng))
+    params = NamedTuple{Tuple(param_keys)}(Tuple(param_vals))
+
+    conc_vals = [0.1 + 9.9 * rand(rng) for _ in met_names]
+    concs = NamedTuple{Tuple(met_names)}(Tuple(conc_vals))
+
+    return params, concs
+end
+
+"""
+Test that `rate_equation` is non-allocating and fast for the given mechanism.
+Must be a standalone function to avoid @testset closure boxing.
+"""
+function test_rate_equation_performance(m, params, concs)
+    rate_equation(m, params, concs) # warmup/compile
+    allocs = @allocated rate_equation(m, params, concs)
+    t = @elapsed for _ in 1:10_000; rate_equation(m, params, concs); end
+    return allocs, t / 10_000
+end
+
+"""
+Get independent parameter symbols from mechanism using internal API.
+"""
+function _get_independent_params(m)
+    _, indep = EnzymeRates._dependent_param_exprs(typeof(m))
+    return indep
+end
+
+"""
+Get dependent parameter expressions from mechanism using internal API.
+Returns vector of (symbol, expression_string) pairs.
+"""
+function _get_dependent_params(m)
+    dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
+    pairs = Tuple{Symbol, String}[]
+    for (sym, expr) in sort(collect(dep_exprs); by=first)
+        s = string(expr)
+        s = replace(s, "params." => "")
+        push!(pairs, (sym, s))
+    end
+    return pairs
+end
+
+"""
+Build a NamedTuple with only independent params + Keq + E_total,
+given all_params (with all k's + E_total) and a Keq value.
+"""
+function make_independent_params(m, all_params, Keq)
+    indep = _get_independent_params(m)
+    keys_out = (indep..., :Keq, :E_total)
+    vals_out = Tuple(k == :Keq ? Keq : k == :E_total ? all_params.E_total : all_params[k] for k in keys_out)
+    return NamedTuple{keys_out}(vals_out)
+end
+
+"""
+Compute all k values from independent params + Keq by evaluating dependent parameter expressions.
+Returns a NamedTuple with all k's + E_total.
+"""
+function compute_all_params(m, new_params)
+    ns = EnzymeRates.n_steps(m)
+    dep = _get_dependent_params(m)
+    # Build all k values: start with independent ones from new_params, add dependent computed ones
+    all_keys = Symbol[]
+    all_vals = Float64[]
+    for i in 1:ns
+        push!(all_keys, Symbol("k$(i)f"))
+        push!(all_keys, Symbol("k$(i)r"))
+    end
+    push!(all_keys, :E_total)
+    # Evaluate dependent expressions using new_params as the "params" namespace
+    dep_dict = Dict{Symbol, Float64}()
+    for (sym, expr_str) in dep
+        # Replace params.X with actual values
+        val = _eval_dep_expr(expr_str, new_params)
+        dep_dict[sym] = val
+    end
+    all_vals = Float64[haskey(dep_dict, k) ? dep_dict[k] :
+                       haskey(new_params, k) ? Float64(new_params[k]) :
+                       error("Missing parameter $k")
+                       for k in all_keys]
+    return NamedTuple{Tuple(all_keys)}(Tuple(all_vals))
+end
+
+function _eval_dep_expr(expr_str::String, params::NamedTuple)
+    # Build let bindings from params - bind each key directly so bare names work
+    bindings = ["$(k) = $(params[k])" for k in keys(params)]
+    code = "let $(join(bindings, ", "))\n  $expr_str\nend"
+    return Float64(eval(Meta.parse(code)))
+end
+
+"""
+Generate random independent params + Keq + E_total for testing.
+Also returns all_params (old-style with all k's + E_total) for reference comparison.
+"""
+function random_independent_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rng())
+    indep = _get_independent_params(m)
+    # Generate random values for independent params + Keq + E_total
+    param_keys = (indep..., :Keq, :E_total)
+    param_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in param_keys)
+    new_params = NamedTuple{param_keys}(param_vals)
+
+    conc_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in met_names)
+    concs = NamedTuple{Tuple(met_names)}(conc_vals)
+
+    all_params = compute_all_params(m, new_params)
+    return new_params, concs, all_params
+end
+
+function _reference_metabolite(m)
+    subs = EnzymeRates.substrates(m)
+    isempty(subs) && error("No substrate found in mechanism")
+    name = subs[1][1]
+    coeff = -count(s -> s[1] == name, subs)
+    return name, coeff
+end
+
+# ── ODE steady-state helpers ────────────────────────────────────────────────
+
+function build_ode_rhs(m::EnzymeMechanism{Species, Reactions}, params, concs) where {Species, Reactions}
+    enzs = EnzymeRates.enzyme_forms(m)
+    enz_names = Tuple(e[1] for e in enzs)
+    name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
+    enz_set = Set(enz_names)
+
+    step_data = []
+    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        i = name_to_idx[e_lhs]
+        j = name_to_idx[e_rhs]
+
+        m_lhs = [s for s in lhs if s ∉ enz_set]
+        m_rhs = [s for s in rhs if s ∉ enz_set]
+
+        kf = Float64(params[Symbol("k$(step_idx)f")])
+        kr = Float64(params[Symbol("k$(step_idx)r")])
+
+        rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1]]
+        rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1]]
+
+        push!(step_data, (i, j, rf, rr))
+    end
+
+    n = length(enzs)
+    function rhs!(du, u, p, t)
+        fill!(du, 0.0)
+        for (i, j, rf, rr) in step_data
+            flux = rf * u[i] - rr * u[j]
+            du[i] -= flux
+            du[j] += flux
+        end
+    end
+    return rhs!
+end
+
+function ode_steady_state_flux(m::EnzymeMechanism{Species, Reactions}, params, concs) where {Species, Reactions}
+    E_total = params.E_total
+    enzs = EnzymeRates.enzyme_forms(m)
+    n = length(enzs)
+    enz_names = Tuple(e[1] for e in enzs)
+    enz_set = Set(enz_names)
+    ref_name, nu_ref = _reference_metabolite(m)
+
+    u0 = zeros(n)
+    u0[1] = E_total
+
+    rhs! = build_ode_rhs(m, params, concs)
+    prob = ODEProblem(rhs!, u0, (0.0, 1e6))
+    sol = solve(prob, RadauIIA9(); abstol=1e-12, reltol=1e-12)
+    u_ss = sol.u[end]
+
+    name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
+    v = 0.0
+    for (step_idx, (lhs, rhs)) in enumerate(Reactions)
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        i = name_to_idx[e_lhs]
+        j = name_to_idx[e_rhs]
+
+        m_lhs = [s for s in lhs if s ∉ enz_set]
+        m_rhs = [s for s in rhs if s ∉ enz_set]
+
+        kf = Float64(params[Symbol("k$(step_idx)f")])
+        kr = Float64(params[Symbol("k$(step_idx)r")])
+        rf = isempty(m_lhs) ? kf : kf * concs[m_lhs[1]]
+        rr = isempty(m_rhs) ? kr : kr * concs[m_rhs[1]]
+
+        flux = rf * u_ss[i] - rr * u_ss[j]
+        if !isempty(m_lhs) && m_lhs[1] == ref_name
+            v += flux
+        elseif !isempty(m_rhs) && m_rhs[1] == ref_name
+            v -= flux
+        end
+    end
+
+    return v / abs(nu_ref)
+end
+
+# ── Rate equation string evaluation helper ──────────────────────────────────
+
+function _eval_rate_string(s, params, concs)
+    # Extract just the equation line (after "v = ")
+    eq_line = last(split(s, "v = "; limit=2))
+    bindings = vcat(
+        ["$k = $(params[k])" for k in keys(params)],
+        ["$k = $(concs[k])" for k in keys(concs)],
+    )
+    code = "let $(join(bindings, ", "))\n  $eq_line\nend"
+    eval(Meta.parse(code))
+end
+
+# ── Modular test functions for MechanismTestSpec ────────────────────────────
+
+function test_structure(spec::MechanismTestSpec)
+    m = spec.mechanism
+    @testset "Structure" begin
+        @test EnzymeRates.n_states(m) == spec.expected_n_states
+        @test EnzymeRates.n_steps(m) == spec.expected_n_steps
+        @test length(metabolites(m)) == spec.expected_n_metabolites
+    end
+end
+
+function test_constraint_counting(spec::MechanismTestSpec)
+    m = spec.mechanism
+    @testset "Constraints" begin
+        dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m))
+        n_dep = length(dep_exprs)
+        @test n_dep == spec.expected_n_haldane + spec.expected_n_wegscheider
+        @test length(indep) == spec.expected_n_independent_params
+    end
+end
+
+function test_identifiability(spec::MechanismTestSpec)
+    m = spec.mechanism
+    @testset "Identifiability" begin
+        @test structural_identifiability_deficit(m) == spec.expected_identifiability_deficit
+        @test is_identifiable(m) == spec.expected_is_identifiable
+    end
+end
+
+function test_reference_qssa(spec::MechanismTestSpec; n_trials=20, seed=42)
+    m = spec.mechanism
+    met_names = spec.metabolite_names
+    @testset "Reference QSSA" begin
+        rng = Random.MersenneTwister(seed)
+        for _ in 1:n_trials
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            @test rate_equation(m, new_params, concs) ≈ reference_qssa(m, all_params, concs) rtol=spec.reference_rtol
+        end
+    end
+end
+
+function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
+    # Skip if no analytical rate function provided
+    spec.analytical_rate_fn === nothing && return
+
+    m = spec.mechanism
+    met_names = spec.metabolite_names
+    @testset "Analytical Rate" begin
+        rng = Random.MersenneTwister(seed)
+        for _ in 1:n_trials
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            Et = 0.1 + 9.9 * rand(rng)
+            p = merge(all_params, (Et=Et,))
+            p_pkg = merge(new_params, (E_total=Et,))
+            @test rate_equation(m, p_pkg, concs) ≈ spec.analytical_rate_fn(p, concs) rtol=1e-10
+        end
+    end
+end
+
+function test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
+    m = spec.mechanism
+    met_names = spec.metabolite_names
+    @testset "Haldane Equilibrium" begin
+        rng = Random.MersenneTwister(seed)
+        new_params, _, _ = random_independent_params_concs(m, met_names; rng=rng)
+        Keq = new_params.Keq
+        n_prods = length(EnzymeRates.products(m))
+        # Build equilibrium concentrations: prod(P_i) / prod(S_i) = Keq
+        # Set all substrates to 1.0, distribute Keq^(1/n_prods) across products
+        sub_names = [s[1] for s in EnzymeRates.substrates(m)]
+        prod_names = [p[1] for p in EnzymeRates.products(m)]
+        eq_vals = Dict{Symbol,Float64}()
+        for s in sub_names; eq_vals[s] = 1.0; end
+        p_each = Keq^(1.0 / n_prods)
+        for p in prod_names; eq_vals[p] = p_each; end
+        eq_concs = NamedTuple{Tuple(met_names)}(Tuple(eq_vals[s] for s in met_names))
+        v_eq = rate_equation(m, new_params, eq_concs)
+        @test abs(v_eq) < 1e-10
+    end
+end
+
+function test_performance(spec::MechanismTestSpec; seed=42)
+    m = spec.mechanism
+    met_names = spec.metabolite_names
+    @testset "Performance" begin
+        rng = Random.MersenneTwister(seed)
+        params, concs, _ = random_independent_params_concs(m, met_names; rng=rng)
+        allocs, t = test_rate_equation_performance(m, params, concs)
+        @test allocs == 0
+        @test t < 100e-9
+    end
+end
+
+function test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
+    m = spec.mechanism
+    met_names = spec.metabolite_names
+    @testset "ODE Steady-State" begin
+        rng = Random.MersenneTwister(seed)
+        for _ in 1:n_trials
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            v_ode = ode_steady_state_flux(m, all_params, concs)
+            v_ka = rate_equation(m, new_params, concs)
+            @test v_ode ≈ v_ka rtol=spec.ode_rtol
+        end
+    end
+end
+
+function test_rate_equation_string(spec::MechanismTestSpec)
+    m = spec.mechanism
+    met_names = spec.metabolite_names
+    @testset "Rate Equation String" begin
+        s = rate_equation_string(m)
+        @test !occursin("params.", s)   # No module prefixes
+        @test !occursin("concs.", s)    # No module prefixes
+        @test !occursin("+ -", s)       # No malformed signs
+        @test !occursin("- -", s)       # No malformed signs
+        @test occursin("v = E_total * (", s)  # Proper format
+        @test occursin(") / (", s)      # Has denominator
+
+        # Numerical equivalence test
+        rng = Random.MersenneTwister(9000 + hash(spec.name) % 1000)
+        for _ in 1:10
+            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            @test rate_equation(m, new_params, concs) ≈ _eval_rate_string(s, all_params, concs) rtol=1e-10
+        end
+    end
+end
+
+"""
+Run all tests for a mechanism specification.
+Organizes tests by mechanism: all tests for one mechanism together.
+"""
+function run_all_tests(spec::MechanismTestSpec)
+    @testset "$(spec.name)" begin
+        test_structure(spec)
+        test_constraint_counting(spec)
+        test_identifiability(spec)
+        test_reference_qssa(spec)
+        test_analytical_rate(spec)      # Only runs if analytical_rate_fn provided
+        test_haldane_equilibrium(spec)
+        test_performance(spec)
+        test_rate_equation_string(spec)
+        spec.run_ode_test && test_ode_steadystate(spec)
+    end
+end
+
+# ── Main test loop ──────────────────────────────────────────────────────────
+
+@testset "Enzyme Derivation Tests" begin
+    for spec in MECHANISM_TEST_SPECS
+        run_all_tests(spec)
+    end
+end
