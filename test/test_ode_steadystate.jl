@@ -1,7 +1,7 @@
 using OrdinaryDiffEqFIRK
 
 function build_ode_rhs(m::EnzymeMechanism{Species, Reactions}, params, concs) where {Species, Reactions}
-    enzs = enzyme_forms(m)
+    enzs = EnzymeRates.enzyme_forms(m)
     enz_names = Tuple(e[1] for e in enzs)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
     enz_set = Set(enz_names)
@@ -39,7 +39,7 @@ end
 
 function ode_steady_state_flux(m::EnzymeMechanism{Species, Reactions}, params, concs) where {Species, Reactions}
     E_total = params.E_total
-    enzs = enzyme_forms(m)
+    enzs = EnzymeRates.enzyme_forms(m)
     n = length(enzs)
     enz_names = Tuple(e[1] for e in enzs)
     enz_set = Set(enz_names)

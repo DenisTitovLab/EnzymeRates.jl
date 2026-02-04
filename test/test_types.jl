@@ -5,9 +5,9 @@
             ((:P, ((:C, 1),)),),
         )
         @test r isa EnzymeReaction
-        @test substrates(r) == ((:S, ((:C, 1),)),)
-        @test products(r) == ((:P, ((:C, 1),)),)
-        @test regulators(r) == ()
+        @test EnzymeRates.substrates(r) == ((:S, ((:C, 1),)),)
+        @test EnzymeRates.products(r) == ((:P, ((:C, 1),)),)
+        @test EnzymeRates.regulators(r) == ()
     end
 
     @testset "EnzymeReaction with regulators" begin
@@ -16,7 +16,7 @@
             ((:P, ((:C, 1),)),),
             ((:I, ((:C, 2),)),),
         )
-        @test regulators(r) == ((:I, ((:C, 2),)),)
+        @test EnzymeRates.regulators(r) == ((:I, ((:C, 2),)),)
     end
 
     @testset "EnzymeReaction canonical ordering" begin
@@ -29,7 +29,7 @@
             ((:P1, ((:C, 1),)), (:P2, ((:C, 2),))),
         )
         @test typeof(r1) === typeof(r2)
-        @test substrates(r1) == ((:S1, ((:C, 1),)), (:S2, ((:C, 2),)))
+        @test EnzymeRates.substrates(r1) == ((:S1, ((:C, 1),)), (:S2, ((:C, 2),)))
     end
 
     @testset "EnzymeReaction regulator same as substrate allowed" begin

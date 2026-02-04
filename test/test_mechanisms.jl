@@ -9,10 +9,10 @@
     m, met_names = make_uni_uni()
 
     @testset "Structure" begin
-        @test n_states(m) == 2
-        @test length(enzyme_forms(m)) == 2
+        @test EnzymeRates.n_states(m) == 2
+        @test length(EnzymeRates.enzyme_forms(m)) == 2
         @test length(metabolites(m)) == 2
-        @test Set(e[1] for e in enzyme_forms(m)) == Set([:E, :ES])
+        @test Set(e[1] for e in EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
         @test Set(mt[1] for mt in metabolites(m)) == Set([:S, :P])
     end
 
@@ -70,7 +70,7 @@ end
     m, met_names = make_seq_unibi()
 
     @testset "Structure" begin
-        @test n_states(m) == 4
+        @test EnzymeRates.n_states(m) == 4
         @test length(metabolites(m)) == 3
     end
 
@@ -111,8 +111,8 @@ end
     m, met_names = make_pingpong_bibi()
 
     @testset "Structure" begin
-        @test n_states(m) == 6
-        @test Set(e[1] for e in enzyme_forms(m)) == Set([:E, :EA, :FP, :F, :FB, :EQ])
+        @test EnzymeRates.n_states(m) == 6
+        @test Set(e[1] for e in EnzymeRates.enzyme_forms(m)) == Set([:E, :EA, :FP, :F, :FB, :EQ])
     end
 
     @testset "Validation" begin
@@ -164,7 +164,7 @@ end
     m, met_names = make_seq_biuni()
 
     @testset "Structure" begin
-        @test n_states(m) == 4
+        @test EnzymeRates.n_states(m) == 4
         @test length(metabolites(m)) == 3
     end
 
@@ -196,7 +196,7 @@ end
     m, met_names = make_seq_bibi()
 
     @testset "Structure" begin
-        @test n_states(m) == 5
+        @test EnzymeRates.n_states(m) == 5
         @test length(metabolites(m)) == 4
     end
 
@@ -250,7 +250,7 @@ end
     m, met_names = make_seq_biter()
 
     @testset "Structure" begin
-        @test n_states(m) == 6
+        @test EnzymeRates.n_states(m) == 6
         @test length(metabolites(m)) == 5
     end
 
@@ -282,7 +282,7 @@ end
     m, met_names = make_seq_terbi()
 
     @testset "Structure" begin
-        @test n_states(m) == 6
+        @test EnzymeRates.n_states(m) == 6
         @test length(metabolites(m)) == 5
     end
 
@@ -314,7 +314,7 @@ end
     m, met_names = make_seq_terter()
 
     @testset "Structure" begin
-        @test n_states(m) == 7
+        @test EnzymeRates.n_states(m) == 7
         @test length(metabolites(m)) == 6
     end
 
@@ -338,7 +338,7 @@ end
     m, met_names = make_random_bibi()
 
     @testset "Structure" begin
-        @test n_states(m) == 6
+        @test EnzymeRates.n_states(m) == 6
         @test length(metabolites(m)) == 4
     end
 

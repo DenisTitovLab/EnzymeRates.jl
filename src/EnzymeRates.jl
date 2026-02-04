@@ -1,34 +1,21 @@
 module EnzymeRates
 
+# Types
 export AbstractEnzymeReaction, EnzymeReaction
 export AbstractEnzymeMechanism, EnzymeMechanism
-export @enzyme_reaction, @mechanism
-export substrates, products, regulators
-export enzyme_forms, metabolites, n_states, graph, stoich_matrix, reactions, n_steps
 
-# Mode types for rate equations
-export RateEquationMode, RawMode, HaldaneWegscheiderMode, IdentifiableHaldaneWegscheiderMode
-export Raw, HaldaneWegscheider, IdentifiableHaldaneWegscheider
+# DSL
+export @enzyme_reaction, @enzyme_mechanism
 
-# Core API (mode-dispatched)
-export parameters, rate_equation, rate_equation_string
+# Core API
+export rate_equation, rate_equation_string, parameters, metabolites
 
-# Legacy/helper functions
-export all_parameters, independent_parameters, dependent_parameters
-export constraint_strings
-
-# Permutation symmetry detection (placeholders for future implementation)
-export has_permutation_symmetry, permutation_symmetric_params
-
-# Structural identifiability detection
-export structural_identifiability_deficit, is_structurally_identifiable
+# Identifiability
+export is_identifiable, structural_identifiability_deficit
 
 include("types.jl")
-include("expr_utils.jl")
 include("dsl.jl")
-include("accessors.jl")
-include("haldane_wegscheider_conditions.jl")
-include("qssa.jl")
-include("identifiability.jl")
+include("rate_equation_constraints.jl")
+include("rate_equation_derivation.jl")
 
 end

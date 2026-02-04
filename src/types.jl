@@ -1,3 +1,5 @@
+using Graphs
+
 """Sort species tuples alphabetically by name (first element)."""
 _sort_species(t::Tuple) = Tuple(sort(collect(t); by = s -> s[1]))
 
@@ -253,26 +255,11 @@ Parameters: independent k's + Keq + E_total.
 """
 struct HaldaneWegscheiderMode <: RateEquationMode end
 
-"""
-    IdentifiableHaldaneWegscheiderMode <: RateEquationMode
-
-Rate equation with both Haldane-Wegscheider constraints and structural identifiability
-reparameterization. Non-identifiable parameter combinations are merged.
-Parameters: identifiable combinations + Keq + E_total.
-
-This is the recommended mode for parameter fitting as it uses the minimal set of
-structurally identifiable parameters.
-"""
-struct IdentifiableHaldaneWegscheiderMode <: RateEquationMode end
-
 """Singleton instance for raw mode."""
 const Raw = RawMode()
 
 """Singleton instance for Haldane-Wegscheider mode."""
 const HaldaneWegscheider = HaldaneWegscheiderMode()
-
-"""Singleton instance for identifiable Haldane-Wegscheider mode (default)."""
-const IdentifiableHaldaneWegscheider = IdentifiableHaldaneWegscheiderMode()
 
 # --- Pretty printing ---
 
@@ -322,4 +309,92 @@ function Base.show(io::IO, ::EnzymeMechanism{Species, Reactions}) where {Species
         regs_str = join([string(name) for (name, _) in regs], ", ")
         print(io, " | regulators: ", regs_str)
     end
+end
+
+# ─── Accessors ─────────────────────────────────────────────────────────────────
+
+"""Return substrates (with stoichiometric multiplicity)."""
+substrates(::EnzymeMechanism{Species}) where {Species} = Species[1]
+substrates(::EnzymeReaction{S,P,R}) where {S,P,R} = S
+
+"""Return products (with stoichiometric multiplicity)."""
+products(::EnzymeMechanism{Species}) where {Species} = Species[2]
+products(::EnzymeReaction{S,P,R}) where {S,P,R} = P
+
+"""Return regulators."""
+regulators(::EnzymeMechanism{Species}) where {Species} = Species[3]
+regulators(::EnzymeReaction{S,P,R}) where {S,P,R} = R
+
+"""Return all enzyme forms as a tuple of (name, atoms)."""
+enzyme_forms(::EnzymeMechanism{Species}) where {Species} = Species[4]
+
+"""Compile-time helper: collect unique metabolites from Species type parameter."""
+function _unique_metabolites(Species)
+    subs, prods, regs = Species[1:3]
+    seen = Set{Symbol}()
+    mets = Tuple{Symbol,Any}[]
+    for group in (subs, prods, regs)
+        for (name, atoms) in group
+            if name ∉ seen
+                push!(seen, name)
+                push!(mets, (name, atoms))
+            end
+        end
+    end
+    return mets
+end
+
+"""Return unique metabolites as a tuple of (name, atoms)."""
+@generated function metabolites(::EnzymeMechanism{Species}) where {Species}
+    return Tuple(_unique_metabolites(Species))
+end
+
+"""Number of distinct enzyme states."""
+n_states(::EnzymeMechanism{Species}) where {Species} = length(Species[4])
+
+"""Number of steps in the mechanism."""
+n_steps(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions} = length(Reactions)
+
+"""Return the reactions tuple directly."""
+reactions(::EnzymeMechanism{Species, R}) where {Species, R} = R
+
+"""
+Build a directed graph of enzyme-form connectivity.
+Returns (graph, enzyme_forms_tuple).
+"""
+@generated function graph(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
+    enzs = Species[4]
+    enz_names = Tuple(e[1] for e in enzs)
+    name_to_idx = Dict(n => i for (i, n) in enumerate(enz_names))
+    enz_set = Set(enz_names)
+    g = SimpleDiGraph(length(enzs))
+    for (lhs, rhs) in Reactions
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        add_edge!(g, name_to_idx[e_lhs], name_to_idx[e_rhs])
+        add_edge!(g, name_to_idx[e_rhs], name_to_idx[e_lhs])
+    end
+    return g, enzs
+end
+
+"""
+Stoichiometry matrix: rows = metabolites, columns = steps.
+Positive = produced, negative = consumed.
+"""
+@generated function stoich_matrix(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
+    mets = _unique_metabolites(Species)
+    met_idx = Dict(m[1] => i for (i, m) in enumerate(mets))
+    enz_names = Set(e[1] for e in Species[4])
+    S = zeros(Int, length(mets), length(Reactions))
+    for (step_j, (lhs, rhs)) in enumerate(Reactions)
+        for s in lhs
+            s in enz_names && continue
+            S[met_idx[s], step_j] -= 1
+        end
+        for s in rhs
+            s in enz_names && continue
+            S[met_idx[s], step_j] += 1
+        end
+    end
+    return S
 end

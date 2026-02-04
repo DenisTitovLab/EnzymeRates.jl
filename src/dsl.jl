@@ -118,7 +118,7 @@ function _parse_step_side_symbols(expr)
 end
 
 """
-    @mechanism begin
+    @enzyme_mechanism begin
         species: begin
             substrates: S[C]
             products:   P[C]
@@ -136,7 +136,7 @@ Species atoms use chemical formula bracket syntax: `S[C6H12O6]`. Bare symbols
 (no brackets) are allowed when all metabolites omit atoms.
 Steps use the `<-->` arrow.
 """
-macro mechanism(block)
+macro enzyme_mechanism(block)
     species_block = nothing
     steps_block = nothing
 

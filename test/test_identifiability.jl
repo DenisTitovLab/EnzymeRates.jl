@@ -9,7 +9,7 @@
     @testset "Uni-Uni is identifiable" begin
         m_uu, _ = make_uni_uni()
         @test structural_identifiability_deficit(m_uu) == 0
-        @test is_structurally_identifiable(m_uu)
+        @test is_identifiable(m_uu)
     end
 
     # 3-step isomerization (E + S ⇌ ES ⇌ ES' ⇌ E + P)
@@ -19,7 +19,7 @@
     @testset "Three-step isomerization is non-identifiable" begin
         m_3step, _ = make_three_step_isomerization()
         @test structural_identifiability_deficit(m_3step) == 2
-        @test !is_structurally_identifiable(m_3step)
+        @test !is_identifiable(m_3step)
     end
 
     # Sequential Bi-Bi (E + S1 ⇌ ES1 ⇌ ES1S2 ⇌ EP1P2 ⇌ EP2 ⇌ E + P2)
@@ -29,9 +29,12 @@
         m_bb, _ = make_seq_bibi()
         deficit = structural_identifiability_deficit(m_bb)
         @test deficit < 0  # Overdetermined
-        @test is_structurally_identifiable(m_bb)
+        @test is_identifiable(m_bb)
         # The mechanism has 9 independent k's after Haldane
-        @test length(independent_parameters(m_bb)) == 9
+        # Compute number of independent params from parameters(m) minus Keq and E_total
+        all_params = parameters(m_bb)
+        n_indep = length(all_params) - 2  # minus Keq and E_total
+        @test n_indep == 9
     end
 
     # Random-order Bi-Bi (has Wegscheider condition)
@@ -42,10 +45,11 @@
         m_ro, _ = make_random_bibi()
         deficit = structural_identifiability_deficit(m_ro)
         @test deficit < 0  # Overdetermined
-        @test is_structurally_identifiable(m_ro)
+        @test is_identifiable(m_ro)
         # Verify the mechanism has Wegscheider (2 constraints total)
-        @test length(dependent_parameters(m_ro)) == 2
-        @test length(independent_parameters(m_ro)) == 12
+        dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m_ro))
+        @test length(dep_exprs) == 2
+        @test length(indep) == 12
     end
 
     # Doubly branched mechanism (has Wegscheider cycle)
@@ -54,10 +58,11 @@
         m_db, _ = make_doubly_branched()
         deficit = structural_identifiability_deficit(m_db)
         @test deficit > 0  # Underdetermined
-        @test !is_structurally_identifiable(m_db)
+        @test !is_identifiable(m_db)
         # Verify the mechanism has 2 constraints (Haldane + Wegscheider)
-        @test length(dependent_parameters(m_db)) == 2
-        @test length(independent_parameters(m_db)) == 8
+        dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m_db))
+        @test length(dep_exprs) == 2
+        @test length(indep) == 8
     end
 
     # Ping-pong Bi-Bi
@@ -65,7 +70,7 @@
         m_pp, _ = make_pingpong_bibi()
         deficit = structural_identifiability_deficit(m_pp)
         @test deficit > 0  # Underdetermined
-        @test !is_structurally_identifiable(m_pp)
+        @test !is_identifiable(m_pp)
         @test deficit isa Int
     end
 
@@ -96,7 +101,8 @@
 
         for (make_fn, label) in mechanisms
             m, _ = make_fn()
-            n_indep = length(independent_parameters(m))
+            _, indep = EnzymeRates._dependent_param_exprs(typeof(m))
+            n_indep = length(indep)
             deficit = structural_identifiability_deficit(m)
             n_num, n_denom = EnzymeRates._count_rate_monomials(typeof(m))
             n_identifiable = (n_num - 1) + (n_denom - 1)
@@ -104,8 +110,8 @@
             # Verify the formula: deficit = n_k - n_identifiable (can be negative for overdetermined)
             @test deficit == n_indep - n_identifiable
 
-            # Verify is_structurally_identifiable consistency (identifiable when deficit <= 0)
-            @test is_structurally_identifiable(m) == (deficit <= 0)
+            # Verify is_identifiable consistency (identifiable when deficit <= 0)
+            @test is_identifiable(m) == (deficit <= 0)
         end
     end
 end

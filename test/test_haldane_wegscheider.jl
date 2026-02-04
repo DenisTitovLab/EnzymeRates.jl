@@ -6,33 +6,39 @@
 
     @testset "Constraint counting" begin
         # Uni-Uni: 2 steps, 2 states → 1 constraint (1 Haldane)
-        @test length(dependent_parameters(m_uu)) == 1
-        @test length(independent_parameters(m_uu)) == 3  # 2*2 - 1 = 3
+        dep_uu, indep_uu = EnzymeRates._dependent_param_exprs(typeof(m_uu))
+        @test length(dep_uu) == 1
+        @test length(indep_uu) == 3  # 2*2 - 1 = 3
 
         # Seq Bi-Bi: 5 steps, 5 states → 1 constraint (1 Haldane)
-        @test length(dependent_parameters(m_bb)) == 1
-        @test length(independent_parameters(m_bb)) == 9  # 2*5 - 1 = 9
+        dep_bb, indep_bb = EnzymeRates._dependent_param_exprs(typeof(m_bb))
+        @test length(dep_bb) == 1
+        @test length(indep_bb) == 9  # 2*5 - 1 = 9
 
         # Random-order Bi-Bi: 7 steps, 6 states → 2 constraints
-        @test length(dependent_parameters(m_ro)) == 2
-        @test length(independent_parameters(m_ro)) == 12  # 2*7 - 2 = 12
+        dep_ro, indep_ro = EnzymeRates._dependent_param_exprs(typeof(m_ro))
+        @test length(dep_ro) == 2
+        @test length(indep_ro) == 12  # 2*7 - 2 = 12
     end
 
     @testset "Free-enzyme-binding steps are independent" begin
         # Uni-Uni: k1f (free enzyme binding) and k2r (free enzyme releasing) should be independent
-        indep = Set(independent_parameters(m_uu))
-        dep = Set(d[1] for d in dependent_parameters(m_uu))
-        @test :k1f in indep
-        @test :k2r in indep
+        _, indep = EnzymeRates._dependent_param_exprs(typeof(m_uu))
+        indep_set = Set(indep)
+        dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m_uu))
+        dep_set = Set(keys(dep_exprs))
+        @test :k1f in indep_set
+        @test :k2r in indep_set
 
         # Random-order Bi-Bi: steps 1,2,7 involve free enzyme
-        indep_ro = Set(independent_parameters(m_ro))
-        @test :k1f in indep_ro
-        @test :k1r in indep_ro
-        @test :k2f in indep_ro
-        @test :k2r in indep_ro
-        @test :k7f in indep_ro
-        @test :k7r in indep_ro
+        _, indep_ro = EnzymeRates._dependent_param_exprs(typeof(m_ro))
+        indep_ro_set = Set(indep_ro)
+        @test :k1f in indep_ro_set
+        @test :k1r in indep_ro_set
+        @test :k2f in indep_ro_set
+        @test :k2r in indep_ro_set
+        @test :k7f in indep_ro_set
+        @test :k7r in indep_ro_set
     end
 
     @testset "Numerical equivalence with all-params formula" begin
@@ -82,9 +88,13 @@
         end
     end
 
-    @testset "all_parameters returns all k's" begin
-        @test all_parameters(m_uu) == (:k1f, :k1r, :k2f, :k2r)
-        @test Set(independent_parameters(m_uu)) ∪ Set(d[1] for d in dependent_parameters(m_uu)) == Set(all_parameters(m_uu))
+    @testset "all k parameters can be accessed via Raw mode" begin
+        raw_params = parameters(m_uu, EnzymeRates.Raw)
+        @test raw_params == (:k1f, :k1r, :k2f, :k2r, :E_total)
+        # Check union of independent + dependent equals all k's
+        dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m_uu))
+        all_k = Set([:k1f, :k1r, :k2f, :k2r])
+        @test Set(indep) ∪ Set(keys(dep_exprs)) == all_k
     end
 
     @testset "Roundtrip consistency" begin
@@ -100,7 +110,7 @@
             for _ in 1:10
                 new_params, _, all_params = random_independent_params_concs(m, met_names; rng=rng)
                 if !is_branched
-                    ns = n_steps(m)
+                    ns = EnzymeRates.n_steps(m)
                     kf_prod = prod(all_params[Symbol("k$(i)f")] for i in 1:ns)
                     kr_prod = prod(all_params[Symbol("k$(i)r")] for i in 1:ns)
                     @test kf_prod / kr_prod ≈ new_params.Keq rtol=1e-10
@@ -119,7 +129,7 @@
         new_params, concs, _ = random_independent_params_concs(m, met_names; rng=rng)
         v_base = rate_equation(m, new_params, concs)
 
-        indep = independent_parameters(m)
+        _, indep = EnzymeRates._dependent_param_exprs(typeof(m))
         for k in indep
             perturbed = merge(new_params, NamedTuple{(k,)}((new_params[k] * 1.01,)))
             v_pert = rate_equation(m, perturbed, concs)
@@ -134,12 +144,12 @@
         v_et = rate_equation(m, perturbed_et, concs)
         @test v_et / v_base ≈ 1.01 rtol=1e-10
 
-        dep = dependent_parameters(m)
-        dep_keys = Tuple(d[1] for d in dep)
-        dep_vals = Tuple(999.0 for _ in dep)
+        dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
+        dep_keys = Tuple(keys(dep_exprs))
+        dep_vals = Tuple(999.0 for _ in dep_keys)
         params_with_dep = merge(new_params, NamedTuple{dep_keys}(dep_vals))
         @test rate_equation(m, params_with_dep, concs) == v_base
-        for (dk, _) in dep
+        for dk in keys(dep_exprs)
             perturbed_dep = merge(new_params, NamedTuple{(dk,)}((0.001,)))
             @test rate_equation(m, perturbed_dep, concs) == v_base
             perturbed_dep2 = merge(new_params, NamedTuple{(dk,)}((1e8,)))
@@ -150,7 +160,7 @@
     @testset "Extreme parameter values: $label" for (label, m, met_names) in uu_and_ro
         rng = Random.MersenneTwister(8003)
 
-        indep = independent_parameters(m)
+        _, indep = EnzymeRates._dependent_param_exprs(typeof(m))
         param_keys = (indep..., :Keq, :E_total)
         param_vals = Tuple(exp(rand(rng) * 16 * log(10) - 8 * log(10)) for _ in param_keys)
         new_params = NamedTuple{param_keys}(param_vals)
@@ -181,8 +191,9 @@
 
     @testset "Doubly-branched mechanism (Wegscheider cycle)" begin
         # 1. Constraint counting
-        @test length(dependent_parameters(m_db)) == 2
-        @test length(independent_parameters(m_db)) == 8  # 2*5 - 2 = 8
+        dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m_db))
+        @test length(dep_exprs) == 2
+        @test length(indep) == 8  # 2*5 - 2 = 8
 
         # 2. Numerical equivalence
         rng = Random.MersenneTwister(8004)
@@ -212,7 +223,8 @@
         @test abs(v_eq) < 1e-12
 
         # 5. Performance: zero allocations
-        p = (;(k => 1.0 + i * 0.1 for (i, k) in enumerate(independent_parameters(m_db)))..., Keq=5.0, E_total=1.0)
+        _, indep_db = EnzymeRates._dependent_param_exprs(typeof(m_db))
+        p = (;(k => 1.0 + i * 0.1 for (i, k) in enumerate(indep_db))..., Keq=5.0, E_total=1.0)
         c = (S=1.0, P=0.5)
         allocs, t = test_rate_equation_performance(m_db, p, c)
         @test allocs == 0

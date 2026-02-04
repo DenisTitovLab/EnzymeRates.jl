@@ -5,23 +5,23 @@
             products:   P[C]
         end
         @test spec isa EnzymeReaction
-        @test substrates(spec) == ((:S, ((:C, 1),)),)
-        @test products(spec) == ((:P, ((:C, 1),)),)
-        @test regulators(spec) == ()
+        @test EnzymeRates.substrates(spec) == ((:S, ((:C, 1),)),)
+        @test EnzymeRates.products(spec) == ((:P, ((:C, 1),)),)
+        @test EnzymeRates.regulators(spec) == ()
 
         spec2 = @enzyme_reaction begin
             substrates: S[C6H12O6], ATP[C10H16N5O13P3]
             products:   G6P[C6H13O9P], ADP[C10H15N5O10P2]
             regulators: I[C5H8N2]
         end
-        @test length(substrates(spec2)) == 2
-        @test length(products(spec2)) == 2
-        @test length(regulators(spec2)) == 1
-        @test regulators(spec2)[1][1] == :I
+        @test length(EnzymeRates.substrates(spec2)) == 2
+        @test length(EnzymeRates.products(spec2)) == 2
+        @test length(EnzymeRates.regulators(spec2)) == 1
+        @test EnzymeRates.regulators(spec2)[1][1] == :I
     end
 
-    @testset "@mechanism" begin
-        m = @mechanism begin
+    @testset "@enzyme_mechanism" begin
+        m = @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
                 products:   P[C]
@@ -33,9 +33,9 @@
             end
         end
         @test m isa EnzymeMechanism
-        @test n_steps(m) == 2
-        @test n_states(m) == 2
-        @test Set(e[1] for e in enzyme_forms(m)) == Set([:E, :ES])
+        @test EnzymeRates.n_steps(m) == 2
+        @test EnzymeRates.n_states(m) == 2
+        @test Set(e[1] for e in EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
         @test Set(m[1] for m in metabolites(m)) == Set([:S, :P])
 
         # Numeric check: same as Uni-Uni spot check
@@ -45,7 +45,7 @@
         @test rate_equation(m, params, concs) ≈ 0.9091 atol=0.001
 
         # Multi-step mechanism
-        m2 = @mechanism begin
+        m2 = @enzyme_mechanism begin
             species: begin
                 substrates: A[C2N], B[C3]
                 products:   P[C2], Q[C3N]
@@ -60,11 +60,11 @@
                 [EQ] <--> [E, Q]
             end
         end
-        @test n_states(m2) == 6
+        @test EnzymeRates.n_states(m2) == 6
     end
 
     @testset "Elementary steps" begin
-        @test_throws ErrorException @mechanism begin
+        @test_throws ErrorException @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
                 products:   P[C]
@@ -98,7 +98,7 @@
 
     @testset "No-atom species" begin
         # All metabolites without atoms — should skip conservation checks
-        m = @mechanism begin
+        m = @enzyme_mechanism begin
             species: begin
                 substrates: S
                 products:   P
@@ -110,7 +110,7 @@
             end
         end
         @test m isa EnzymeMechanism
-        @test n_steps(m) == 2
+        @test EnzymeRates.n_steps(m) == 2
     end
 
     @testset "Mixed atoms error" begin

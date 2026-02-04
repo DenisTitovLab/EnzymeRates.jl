@@ -6,7 +6,7 @@ Independent reference: compute QSSA rate using Laplacian cofactor method.
 Works directly with EnzymeMechanism type parameters.
 """
 function reference_qssa(m::EnzymeMechanism{Species, Reactions}, params::NamedTuple, concs::NamedTuple) where {Species, Reactions}
-    enzs = enzyme_forms(m)
+    enzs = EnzymeRates.enzyme_forms(m)
     n = length(enzs)
     enz_names = Tuple(e[1] for e in enzs)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
@@ -131,7 +131,7 @@ end
 
 
 function random_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rng())
-    ns = n_steps(m)
+    ns = EnzymeRates.n_steps(m)
     param_keys = Symbol[]
     param_vals = Float64[]
     for i in 1:ns
@@ -162,11 +162,34 @@ function test_rate_equation_performance(m, params, concs)
 end
 
 """
+Get independent parameter symbols from mechanism using internal API.
+"""
+function _get_independent_params(m)
+    _, indep = EnzymeRates._dependent_param_exprs(typeof(m))
+    return indep
+end
+
+"""
+Get dependent parameter expressions from mechanism using internal API.
+Returns vector of (symbol, expression_string) pairs.
+"""
+function _get_dependent_params(m)
+    dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
+    pairs = Tuple{Symbol, String}[]
+    for (sym, expr) in sort(collect(dep_exprs); by=first)
+        s = string(expr)
+        s = replace(s, "params." => "")
+        push!(pairs, (sym, s))
+    end
+    return pairs
+end
+
+"""
 Build a NamedTuple with only independent params + Keq + E_total,
 given all_params (with all k's + E_total) and a Keq value.
 """
 function make_independent_params(m, all_params, Keq)
-    indep = independent_parameters(m)
+    indep = _get_independent_params(m)
     keys_out = (indep..., :Keq, :E_total)
     vals_out = Tuple(k == :Keq ? Keq : k == :E_total ? all_params.E_total : all_params[k] for k in keys_out)
     return NamedTuple{keys_out}(vals_out)
@@ -177,8 +200,8 @@ Compute all k values from independent params + Keq by evaluating dependent param
 Returns a NamedTuple with all k's + E_total.
 """
 function compute_all_params(m, new_params)
-    ns = n_steps(m)
-    dep = dependent_parameters(m)
+    ns = EnzymeRates.n_steps(m)
+    dep = _get_dependent_params(m)
     # Build all k values: start with independent ones from new_params, add dependent computed ones
     all_keys = Symbol[]
     all_vals = Float64[]
@@ -202,9 +225,9 @@ function compute_all_params(m, new_params)
 end
 
 function _eval_dep_expr(expr_str::String, params::NamedTuple)
-    # Build let bindings from params
+    # Build let bindings from params - bind each key directly so bare names work
     bindings = ["$(k) = $(params[k])" for k in keys(params)]
-    code = "let params = (; $(join(bindings, ", ")))\n  $expr_str\nend"
+    code = "let $(join(bindings, ", "))\n  $expr_str\nend"
     return Float64(eval(Meta.parse(code)))
 end
 
@@ -213,7 +236,7 @@ Generate random independent params + Keq + E_total for testing.
 Also returns all_params (old-style with all k's + E_total) for reference comparison.
 """
 function random_independent_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rng())
-    indep = independent_parameters(m)
+    indep = _get_independent_params(m)
     # Generate random values for independent params + Keq + E_total
     param_keys = (indep..., :Keq, :E_total)
     param_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in param_keys)
@@ -227,7 +250,7 @@ function random_independent_params_concs(m, met_names::Vector{Symbol}; rng=Rando
 end
 
 function _reference_metabolite(m)
-    subs = substrates(m)
+    subs = EnzymeRates.substrates(m)
     isempty(subs) && error("No substrate found in mechanism")
     name = subs[1][1]
     coeff = -count(s -> s[1] == name, subs)
@@ -423,12 +446,12 @@ function test_haldane_equilibrium(m, met_names; seed=42)
     rng = Random.MersenneTwister(seed)
     new_params, _, _ = random_independent_params_concs(m, met_names; rng=rng)
     Keq = new_params.Keq
-    n_subs = length(substrates(m))
-    n_prods = length(products(m))
+    n_subs = length(EnzymeRates.substrates(m))
+    n_prods = length(EnzymeRates.products(m))
     # Build equilibrium concentrations: prod(P_i) / prod(S_i) = Keq
     # Set all substrates to 1.0, distribute Keq^(1/n_prods) across products
-    sub_names = [s[1] for s in substrates(m)]
-    prod_names = [p[1] for p in products(m)]
+    sub_names = [s[1] for s in EnzymeRates.substrates(m)]
+    prod_names = [p[1] for p in EnzymeRates.products(m)]
     eq_vals = Dict{Symbol,Float64}()
     for s in sub_names; eq_vals[s] = 1.0; end
     p_each = Keq^(1.0 / n_prods)
