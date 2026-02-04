@@ -383,6 +383,21 @@ function make_doubly_branched()
     EnzymeMechanism(species, rxns), [:S, :P]
 end
 
+function make_three_step_isomerization()
+    # E + S ⇌ ES ⇌ ES' ⇌ E + P
+    # 3 steps, 6 k's, 1 Haldane → 5 independent k's
+    # Rate equation has same form as uni-uni: (a*S - b*P)/(1 + c*S + d*P)
+    # So: 3 identifiable coefficients, deficit = 5 - 3 = 2
+    species = (
+        ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
+        ((:E, ()), (:ES, ((:C, 1),)), (:ES2, ((:C, 1),))),
+    )
+    rxns = (
+        ((:E, :S), (:ES,)), ((:ES,), (:ES2,)), ((:ES2,), (:E, :P)),
+    )
+    EnzymeMechanism(species, rxns), [:S, :P]
+end
+
 # ── Shared parametric test helpers ──────────────────────────────────────────
 
 """Run reference_qssa comparison for n_trials random param sets."""

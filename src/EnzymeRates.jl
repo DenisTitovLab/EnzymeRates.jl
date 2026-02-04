@@ -20,6 +20,9 @@ export constraint_strings
 # Permutation symmetry detection (placeholders for future implementation)
 export has_permutation_symmetry, permutation_symmetric_params
 
+# Structural identifiability detection
+export structural_identifiability_deficit, is_structurally_identifiable
+
 include("types.jl")
 include("expr_utils.jl")
 include("dsl.jl")
