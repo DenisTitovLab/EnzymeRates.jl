@@ -16,7 +16,9 @@ export parameters, rate_equation, rate_equation_string
 # Legacy/helper functions
 export all_parameters, independent_parameters, dependent_parameters
 export constraint_strings
-export is_identifiable, non_identifiable_directions, identifiable_combinations
+
+# Permutation symmetry detection (placeholders for future implementation)
+export has_permutation_symmetry, permutation_symmetric_params
 
 include("types.jl")
 include("expr_utils.jl")
