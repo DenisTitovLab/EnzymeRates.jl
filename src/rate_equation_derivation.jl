@@ -537,21 +537,24 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     et_expr = make_param_accessor(:E_total)
 
     # 5. Numerator: net consumption of reference substrate through SS steps
-    # First check if ref_name appears in any SS step
+    # Check if ref_name appears in SS steps and/or RE steps
     ref_in_ss = false
+    ref_in_re = false
     for (idx, (lhs, rhs)) in enumerate(rxns)
-        eq_steps[idx] && continue
         _, m_lhs = _split_reaction_side(lhs, enz_set)
         _, m_rhs = _split_reaction_side(rhs, enz_set)
         met_f = isempty(m_lhs) ? nothing : first(m_lhs)
         met_r = isempty(m_rhs) ? nothing : first(m_rhs)
         if met_f === ref_name || met_r === ref_name
-            ref_in_ss = true
-            break
+            if eq_steps[idx]
+                ref_in_re = true
+            else
+                ref_in_ss = true
+            end
         end
     end
 
-    if ref_in_ss
+    if ref_in_ss && !ref_in_re
         # Standard case: compute flux through SS steps involving ref_name
         terms = Any[]
         for (idx, (lhs, rhs)) in enumerate(rxns)
@@ -600,8 +603,10 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
 end
 
 """
-Compute numerator when reference substrate only appears in RE steps.
-Find an alternate metabolite that appears in an SS step and use stoichiometric ratio.
+Compute numerator using an alternate metabolite that appears in SS steps.
+Called when the reference substrate only appears in RE steps or appears in both RE and SS steps
+(where direct SS flux counting would miss indirect consumption through RE equilibrium shifts).
+Prefers metabolites that appear exclusively in SS steps for accurate flux counting.
 """
 function _compute_numerator_fallback(
     rxns, eq_steps, enz_names, enz_set, alpha, form_to_group, D, denom, et_expr,
@@ -616,20 +621,26 @@ function _compute_numerator_fallback(
         all_mets[name] = get(all_mets, name, 0) + 1
     end
 
-    # Find metabolites in SS steps
+    # Find metabolites in SS steps and RE steps
     ss_mets = Set{Symbol}()
+    re_mets = Set{Symbol}()
     for (idx, (lhs, rhs)) in enumerate(rxns)
-        eq_steps[idx] && continue
         _, m_lhs = _split_reaction_side(lhs, enz_set)
         _, m_rhs = _split_reaction_side(rhs, enz_set)
-        for met in m_lhs; push!(ss_mets, met); end
-        for met in m_rhs; push!(ss_mets, met); end
+        target = eq_steps[idx] ? re_mets : ss_mets
+        for met in m_lhs; push!(target, met); end
+        for met in m_rhs; push!(target, met); end
     end
 
     if !isempty(ss_mets)
+        # Prefer metabolites that appear in SS steps but NOT in RE steps,
+        # so the flux count is complete (no indirect RE consumption missed)
+        ss_only_mets = setdiff(ss_mets, re_mets)
+        search_order = isempty(ss_only_mets) ? ss_mets : ss_only_mets
+
         # Use alternate metabolite with nonzero stoichiometry if possible
         alt_name = nothing
-        for met in ss_mets
+        for met in search_order
             if haskey(all_mets, met) && all_mets[met] != 0
                 alt_name = met
                 break

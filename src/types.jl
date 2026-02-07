@@ -82,7 +82,7 @@ Construct an `EnzymeMechanism` from explicit species, reaction tuples, and equil
 - `eq_steps` is a tuple of `Bool` of the same length as `reactions`, where `true` marks a
   rapid-equilibrium step and `false` marks a steady-state step.
 """
-function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Vararg{Bool}}=ntuple(Returns(false), length(reactions)))
+function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Vararg{Bool}})
     # 0. Validate eq_steps length
     length(eq_steps) == length(reactions) || error("eq_steps length must match reactions length")
     # At least one SS step required

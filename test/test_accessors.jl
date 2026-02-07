@@ -6,7 +6,7 @@
         ((:E, ()), (:ES, ((:C, 1),))),
     )
     rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-    m = EnzymeMechanism(species, rxns)
+    m = EnzymeMechanism(species, rxns, (false, false))
 
     # Warmup - use qualified names for internal functions
     EnzymeRates.substrates(m); EnzymeRates.products(m); EnzymeRates.regulators(m); EnzymeRates.enzyme_forms(m)

@@ -93,15 +93,24 @@ end
 
 # ── Parameter generation helpers ────────────────────────────────────────────
 
+"""Check if mechanism has any rapid-equilibrium steps."""
+_has_re_steps(m) = any(EnzymeRates.equilibrium_steps(m))
+
 function random_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rng())
+    eq = EnzymeRates.equilibrium_steps(m)
     ns = EnzymeRates.n_steps(m)
     param_keys = Symbol[]
     param_vals = Float64[]
     for i in 1:ns
-        push!(param_keys, Symbol("k$(i)f"))
-        push!(param_vals, 0.1 + 9.9 * rand(rng))
-        push!(param_keys, Symbol("k$(i)r"))
-        push!(param_vals, 0.1 + 9.9 * rand(rng))
+        if eq[i]
+            push!(param_keys, Symbol("K$i"))
+            push!(param_vals, 0.1 + 9.9 * rand(rng))
+        else
+            push!(param_keys, Symbol("k$(i)f"))
+            push!(param_vals, 0.1 + 9.9 * rand(rng))
+            push!(param_keys, Symbol("k$(i)r"))
+            push!(param_vals, 0.1 + 9.9 * rand(rng))
+        end
     end
     push!(param_keys, :E_total)
     push!(param_vals, 0.1 + 9.9 * rand(rng))
@@ -163,20 +172,23 @@ Compute all k values from independent params + Keq by evaluating dependent param
 Returns a NamedTuple with all k's + E_total.
 """
 function compute_all_params(m, new_params)
+    eq = EnzymeRates.equilibrium_steps(m)
     ns = EnzymeRates.n_steps(m)
     dep = _get_dependent_params(m)
-    # Build all k values: start with independent ones from new_params, add dependent computed ones
+    # Build all raw param keys: K_i for RE steps, k_if/k_ir for SS steps
     all_keys = Symbol[]
-    all_vals = Float64[]
     for i in 1:ns
-        push!(all_keys, Symbol("k$(i)f"))
-        push!(all_keys, Symbol("k$(i)r"))
+        if eq[i]
+            push!(all_keys, Symbol("K$i"))
+        else
+            push!(all_keys, Symbol("k$(i)f"))
+            push!(all_keys, Symbol("k$(i)r"))
+        end
     end
     push!(all_keys, :E_total)
     # Evaluate dependent expressions using new_params as the "params" namespace
     dep_dict = Dict{Symbol, Float64}()
     for (sym, expr_str) in dep
-        # Replace params.X with actual values
         val = _eval_dep_expr(expr_str, new_params)
         dep_dict[sym] = val
     end
@@ -210,6 +222,32 @@ function random_independent_params_concs(m, met_names::Vector{Symbol}; rng=Rando
 
     all_params = compute_all_params(m, new_params)
     return new_params, concs, all_params
+end
+
+"""
+Convert raw params (with K_i for RE steps) to ODE params (with large k_if/k_ir for all steps).
+For RE steps: k_if = 1e6 * K_i, k_ir = 1e6 (so K_i = k_if/k_ir is preserved).
+"""
+function raw_to_ode_params(m, raw_params)
+    eq = EnzymeRates.equilibrium_steps(m)
+    ns = EnzymeRates.n_steps(m)
+    param_keys = Symbol[]
+    param_vals = Float64[]
+    for i in 1:ns
+        push!(param_keys, Symbol("k$(i)f"))
+        push!(param_keys, Symbol("k$(i)r"))
+        if eq[i]
+            K = Float64(raw_params[Symbol("K$i")])
+            push!(param_vals, 1e6 * K)
+            push!(param_vals, 1e6)
+        else
+            push!(param_vals, Float64(raw_params[Symbol("k$(i)f")]))
+            push!(param_vals, Float64(raw_params[Symbol("k$(i)r")]))
+        end
+    end
+    push!(param_keys, :E_total)
+    push!(param_vals, Float64(raw_params[:E_total]))
+    return NamedTuple{Tuple(param_keys)}(Tuple(param_vals))
 end
 
 function _reference_metabolite(m)
@@ -346,6 +384,8 @@ end
 
 function test_reference_qssa(spec::MechanismTestSpec; n_trials=20, seed=42)
     m = spec.mechanism
+    # Reference QSSA only works for all-SS mechanisms
+    _has_re_steps(m) && return
     met_names = spec.metabolite_names
     @testset "Reference QSSA" begin
         rng = Random.MersenneTwister(seed)
@@ -413,11 +453,16 @@ function test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
     met_names = spec.metabolite_names
     @testset "ODE Steady-State" begin
         rng = Random.MersenneTwister(seed)
+        has_re = _has_re_steps(m)
         for _ in 1:n_trials
             new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
-            v_ode = ode_steady_state_flux(m, all_params, concs)
+            # For RE mechanisms, convert K_i to large k_if/k_ir for ODE simulation
+            ode_params = has_re ? raw_to_ode_params(m, all_params) : all_params
+            v_ode = ode_steady_state_flux(m, ode_params, concs)
             v_ka = rate_equation(m, new_params, concs)
-            @test v_ode ≈ v_ka rtol=spec.ode_rtol
+            # Use looser tolerance for RE mechanisms (large rate approximation)
+            rtol = has_re ? 1e-3 : spec.ode_rtol
+            @test v_ode ≈ v_ka rtol=rtol
         end
     end
 end
