@@ -81,7 +81,7 @@
             ((:E, ()), (:ES, ((:C, 1),))),
         )
         m = EnzymeMechanism(species, (((:E, :S), (:ES,)), ((:ES,), (:E, :P))))
-        @test sprint(show, m) == "EnzymeMechanism: E + S ⇌ ES ⇌ E + P"
+        @test sprint(show, m) == "EnzymeMechanism: E + S <--> ES <--> E + P"
 
         # Branched mechanism: multi-line
         species_b = (
@@ -100,8 +100,8 @@
         m_b = EnzymeMechanism(species_b, rxns_b)
         str = sprint(show, m_b)
         @test startswith(str, "EnzymeMechanism (7 steps, 6 enzyme forms):")
-        @test contains(str, "E + S1 ⇌ ES1")
-        @test contains(str, "EP2 ⇌ E + P2")
+        @test contains(str, "E + S1 <--> ES1")
+        @test contains(str, "EP2 <--> E + P2")
     end
 
     @testset "EnzymeMechanism canonical ordering" begin

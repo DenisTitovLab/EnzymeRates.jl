@@ -36,11 +36,16 @@ end
 """
     is_k_parameter(sym::Symbol) → Bool
 
-Check if a symbol is a k-parameter (rate constant), not Keq or other params.
+Check if a symbol is a rate/equilibrium parameter (k or K), not Keq or E_total.
+Matches k1f, k1r, K1, K2, etc.
 """
 function is_k_parameter(sym::Symbol)
     s = string(sym)
-    startswith(s, "k") && sym != :Keq
+    sym == :Keq && return false
+    sym == :E_total && return false
+    startswith(s, "k") && return true
+    startswith(s, "K") && length(s) > 1 && isdigit(s[2]) && return true
+    return false
 end
 
 """
@@ -225,10 +230,18 @@ function parameters end
 # Default: HaldaneWegscheider mode
 parameters(m::EnzymeMechanism) = parameters(m, HaldaneWegscheider)
 
-# Raw mode: all 2N k-parameters + E_total
-@generated function parameters(::EnzymeMechanism{Species, Reactions}, ::RawMode) where {Species, Reactions}
-    ks = ntuple(i -> Symbol("k", (i+1)÷2, isodd(i) ? "f" : "r"), 2 * length(Reactions))
-    return (ks..., :E_total)
+# Raw mode: K_i for RE steps, k_jf/k_jr for SS steps, + E_total
+@generated function parameters(::EnzymeMechanism{Species, Reactions, EqSteps}, ::RawMode) where {Species, Reactions, EqSteps}
+    params = Symbol[]
+    for (i, is_re) in enumerate(EqSteps)
+        if is_re
+            push!(params, Symbol("K$i"))
+        else
+            push!(params, Symbol("k$(i)f"))
+            push!(params, Symbol("k$(i)r"))
+        end
+    end
+    return (Tuple(params)..., :E_total)
 end
 
 # HaldaneWegscheider mode: independent k's + Keq + E_total
@@ -237,28 +250,176 @@ end
     return (indep..., :Keq, :E_total)
 end
 
-# ─── Raw Rate Equation Derivation (King-Altman) ───────────────────────────────
+# ─── RE Group Helpers ─────────────────────────────────────────────────────────
+
+"""
+    _compute_re_groups(enz_names, enz_set, rxns, eq_steps)
+
+Compute connected components of enzyme forms linked by rapid-equilibrium steps.
+Returns `(groups, form_to_group)` where:
+- `groups[g]` is a Vector{Int} of form indices in group g
+- `form_to_group[i]` is the group index for form i
+When all eq_steps are false, each form is its own singleton group.
+"""
+function _compute_re_groups(enz_names, enz_set, rxns, eq_steps)
+    N = length(enz_names)
+    # Union-Find
+    parent = collect(1:N)
+    function find(x)
+        while parent[x] != x
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        end
+        x
+    end
+    function union!(a, b)
+        ra, rb = find(a), find(b)
+        ra != rb && (parent[ra] = rb)
+    end
+
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        eq_steps[idx] || continue
+        e_lhs = first(s for s in lhs if s in enz_set)
+        e_rhs = first(s for s in rhs if s in enz_set)
+        i = findfirst(==(e_lhs), enz_names)
+        j = findfirst(==(e_rhs), enz_names)
+        union!(i, j)
+    end
+
+    # Build groups indexed by canonical root
+    root_to_group = Dict{Int, Int}()
+    groups = Vector{Vector{Int}}()
+    form_to_group = zeros(Int, N)
+    for i in 1:N
+        r = find(i)
+        if !haskey(root_to_group, r)
+            push!(groups, Int[])
+            root_to_group[r] = length(groups)
+        end
+        g = root_to_group[r]
+        push!(groups[g], i)
+        form_to_group[i] = g
+    end
+    return groups, form_to_group
+end
+
+"""
+    _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
+
+For each RE group, compute alpha factors (relative concentrations within group)
+and sigma (sum of alphas = group normalization).
+
+For form i in group g: `[E_i] = alpha[i] * V_g` where V_g is a virtual reference.
+The reference form (first in group) has `alpha = 1`.
+
+Returns `(alpha, sigma)` where:
+- `alpha[i]` is an Expr (or `:(1)` for singletons)
+- `sigma[g]` is an Expr (or `:(1)` for singletons)
+"""
+function _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
+    N = length(enz_names)
+    alpha = Vector{Any}(fill(:(1), N))
+
+    for group in groups
+        length(group) == 1 && continue
+
+        # BFS from reference form (group[1])
+        ref = group[1]
+        visited = Set{Int}([ref])
+        queue = [ref]
+
+        # Build adjacency for RE steps within this group
+        while !isempty(queue)
+            current = popfirst!(queue)
+            for (idx, (lhs, rhs)) in enumerate(rxns)
+                eq_steps[idx] || continue
+                e_lhs = first(s for s in lhs if s in enz_set)
+                e_rhs = first(s for s in rhs if s in enz_set)
+                i_form = findfirst(==(e_lhs), enz_names)
+                j_form = findfirst(==(e_rhs), enz_names)
+
+                m_lhs = [s for s in lhs if s ∉ enz_set]
+                m_rhs = [s for s in rhs if s ∉ enz_set]
+
+                K_sym = Symbol("K$idx")
+
+                if i_form == current && j_form ∉ visited
+                    # Forward traversal: E_a + Met_lhs ⇌ E_b + Met_rhs
+                    # K = [E_b][Met_rhs] / ([E_a][Met_lhs])
+                    # alpha_b = alpha_a * K * [Met_lhs] / [Met_rhs]
+                    factors = Any[alpha[current], make_param_accessor(K_sym)]
+                    for met in m_lhs
+                        push!(factors, make_conc_accessor(met))
+                    end
+                    a_expr = make_product(factors)
+                    if !isempty(m_rhs)
+                        a_expr = :($a_expr / $(make_conc_accessor(m_rhs[1])))
+                    end
+                    alpha[j_form] = a_expr
+                    push!(visited, j_form)
+                    push!(queue, j_form)
+                elseif j_form == current && i_form ∉ visited
+                    # Reverse traversal: E_b + Met_rhs ⇌ E_a + Met_lhs (going backward)
+                    # alpha_a = alpha_b / K / [Met_lhs] * [Met_rhs]
+                    # = alpha_b * [Met_rhs] / (K * [Met_lhs])
+                    denom_factors = Any[make_param_accessor(K_sym)]
+                    for met in m_lhs
+                        push!(denom_factors, make_conc_accessor(met))
+                    end
+                    num_factors = Any[alpha[current]]
+                    for met in m_rhs
+                        push!(num_factors, make_conc_accessor(met))
+                    end
+                    a_expr = make_product(num_factors)
+                    d_expr = make_product(denom_factors)
+                    if d_expr != :(1)
+                        a_expr = :($a_expr / $d_expr)
+                    end
+                    alpha[i_form] = a_expr
+                    push!(visited, i_form)
+                    push!(queue, i_form)
+                end
+            end
+        end
+    end
+
+    # Compute sigma per group
+    sigma = Vector{Any}(undef, length(groups))
+    for (g, group) in enumerate(groups)
+        if length(group) == 1
+            sigma[g] = :(1)
+        else
+            sigma[g] = make_sum([alpha[i] for i in group])
+        end
+    end
+
+    return alpha, sigma
+end
+
+# ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ────────────────
 
 """
     _raw_symbolic_rate_expr(::Type{<:EnzymeMechanism})
 
-Build a symbolic `Expr` for the QSSA rate equation using Laplacian cofactor
-determinants expanded via the Leibniz formula, using all k parameters (no substitution).
+Build a symbolic `Expr` for the rate equation using the unified Cha method.
+When all steps are steady-state, this is identical to the standard QSSA/King-Altman.
+When some steps are rapid-equilibrium, it produces the Cha method result.
 """
 function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     m = M()
-    subs = substrates(m)
-    prods = products(m)
+    subs_species = substrates(m)
+    prods_species = products(m)
     enzs = enzyme_forms(m)
     rxns = reactions(m)
+    eq_steps = equilibrium_steps(m)
 
-    isempty(subs) && error("No substrates defined")
-    ref_name = subs[1][1]
+    isempty(subs_species) && error("No substrates defined")
+    ref_name = subs_species[1][1]
     nu_ref = 0
-    for (name, _) in subs
+    for (name, _) in subs_species
         name == ref_name && (nu_ref -= 1)
     end
-    for (name, _) in prods
+    for (name, _) in prods_species
         name == ref_name && (nu_ref += 1)
     end
     nu_ref == 0 && error("Reference substrate has zero net stoichiometry")
@@ -267,35 +428,47 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     enz_set = Set(enz_names)
     N = length(enzs)
 
-    # 1. Build symbolic rate matrix R[i,j] as Expr (or 0 meaning absent)
-    R = Matrix{Any}(fill(0, N, N))
+    # Compute RE partition
+    groups, form_to_group = _compute_re_groups(enz_names, enz_set, rxns, eq_steps)
+    alpha, sigma = _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
+    G = length(groups)
+
+    # 1. Build rate matrix R[g1,g2] over groups — skip RE steps, include alpha factors
+    R = Matrix{Any}(fill(0, G, G))
 
     for (idx, (lhs, rhs)) in enumerate(rxns)
+        eq_steps[idx] && continue  # skip RE steps
         e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
         e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
-        i = findfirst(==(e_lhs), enz_names)
-        j = findfirst(==(e_rhs), enz_names)
+        i_form = findfirst(==(e_lhs), enz_names)
+        j_form = findfirst(==(e_rhs), enz_names)
+        g1 = form_to_group[i_form]
+        g2 = form_to_group[j_form]
         kf = Symbol("k$(idx)f")
         kr = Symbol("k$(idx)r")
         met_f = isempty(m_lhs) ? nothing : first(m_lhs)
         met_r = isempty(m_rhs) ? nothing : first(m_rhs)
 
-        # Forward: i → j
-        fwd = met_f === nothing ? make_param_accessor(kf) :
-              :($(make_param_accessor(kf)) * $(make_conc_accessor(met_f)))
-        R[i, j] = R[i, j] == 0 ? fwd : :($(R[i, j]) + $fwd)
+        # Forward: g1 → g2 with alpha factor (NO sigma division)
+        fwd_factors = Any[make_param_accessor(kf)]
+        met_f !== nothing && push!(fwd_factors, make_conc_accessor(met_f))
+        alpha[i_form] != :(1) && push!(fwd_factors, alpha[i_form])
+        fwd = make_product(fwd_factors)
+        R[g1, g2] = R[g1, g2] == 0 ? fwd : :($(R[g1, g2]) + $fwd)
 
-        # Reverse: j → i
-        rev = met_r === nothing ? make_param_accessor(kr) :
-              :($(make_param_accessor(kr)) * $(make_conc_accessor(met_r)))
-        R[j, i] = R[j, i] == 0 ? rev : :($(R[j, i]) + $rev)
+        # Reverse: g2 → g1 with alpha factor
+        rev_factors = Any[make_param_accessor(kr)]
+        met_r !== nothing && push!(rev_factors, make_conc_accessor(met_r))
+        alpha[j_form] != :(1) && push!(rev_factors, alpha[j_form])
+        rev = make_product(rev_factors)
+        R[g2, g1] = R[g2, g1] == 0 ? rev : :($(R[g2, g1]) + $rev)
     end
 
-    # 2. Build symbolic Laplacian
-    L = Matrix{Any}(fill(0, N, N))
-    for i in 1:N
+    # 2. Build symbolic Laplacian (G×G)
+    L = Matrix{Any}(fill(0, G, G))
+    for i in 1:G
         diag_terms = Any[]
-        for j in 1:N
+        for j in 1:G
             i == j && continue
             if R[i, j] != 0
                 L[i, j] = :(-$(R[i, j]))
@@ -307,14 +480,13 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
         end
     end
 
-    # 3. Cofactor determinants via Leibniz formula with sparsity pruning
-    @assert N <= 12 "Leibniz expansion is O(N!); N=$N exceeds the safety limit of 12"
-    D = Vector{Any}(undef, N)
-    for root in 1:N
-        # Delete row root and col root
-        rows = [r for r in 1:N if r != root]
-        cols = [c for c in 1:N if c != root]
-        n_sub = N - 1
+    # 3. Cofactor determinants via Leibniz formula (G×G)
+    @assert G <= 12 "Leibniz expansion is O(N!); G=$G exceeds the safety limit of 12"
+    D = Vector{Any}(undef, G)
+    for root in 1:G
+        rows = [r for r in 1:G if r != root]
+        cols = [c for c in 1:G if c != root]
+        n_sub = G - 1
 
         if n_sub == 0
             D[root] = 1
@@ -324,8 +496,6 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
         terms = Any[]
         for perm in permutations(1:n_sub)
             sign = _perm_sign(perm)
-
-            # Product of L_sub[k, perm[k]] = L[rows[k], cols[perm[k]]]
             factors = Any[]
             all_nonzero = true
             for k in 1:n_sub
@@ -354,41 +524,206 @@ function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
         end
     end
 
-    # 4. Denominator: sum of all cofactors
-    nonzero_D = [D[k] for k in 1:N if D[k] != 0]
-    denom = length(nonzero_D) == 1 ? nonzero_D[1] : Expr(:call, :+, nonzero_D...)
+    # 4. Denominator: sum of sigma_g * D[g]
+    denom_terms = Any[]
+    for g in 1:G
+        D[g] == 0 && continue
+        term = sigma[g] == :(1) ? D[g] : :($(sigma[g]) * $(D[g]))
+        push!(denom_terms, term)
+    end
+    denom = make_sum(denom_terms)
 
     # E_total
     et_expr = make_param_accessor(:E_total)
 
-    # 5. Net consumption of reference substrate
-    terms = Any[]
+    # 5. Numerator: net consumption of reference substrate through SS steps
+    # First check if ref_name appears in any SS step
+    ref_in_ss = false
     for (idx, (lhs, rhs)) in enumerate(rxns)
-        e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
-        e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
-        i = findfirst(==(e_lhs), enz_names)
-        j = findfirst(==(e_rhs), enz_names)
-        kf = Symbol("k$(idx)f")
-        kr = Symbol("k$(idx)r")
+        eq_steps[idx] && continue
+        _, m_lhs = _split_reaction_side(lhs, enz_set)
+        _, m_rhs = _split_reaction_side(rhs, enz_set)
         met_f = isempty(m_lhs) ? nothing : first(m_lhs)
         met_r = isempty(m_rhs) ? nothing : first(m_rhs)
-
-        rf_expr = met_f === nothing ? make_param_accessor(kf) :
-                  :($(make_param_accessor(kf)) * $(make_conc_accessor(met_f)))
-        rr_expr = met_r === nothing ? make_param_accessor(kr) :
-                  :($(make_param_accessor(kr)) * $(make_conc_accessor(met_r)))
-        flux = :($et_expr * ($rf_expr * $(D[i]) - $rr_expr * $(D[j])) / $denom)
-        if met_f === ref_name
-            push!(terms, flux)
-        elseif met_r === ref_name
-            push!(terms, :(-$flux))
+        if met_f === ref_name || met_r === ref_name
+            ref_in_ss = true
+            break
         end
     end
 
-    net_expr = isempty(terms) ? 0 :
-               length(terms) == 1 ? terms[1] : Expr(:call, :+, terms...)
+    if ref_in_ss
+        # Standard case: compute flux through SS steps involving ref_name
+        terms = Any[]
+        for (idx, (lhs, rhs)) in enumerate(rxns)
+            eq_steps[idx] && continue
+            e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
+            e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
+            i_form = findfirst(==(e_lhs), enz_names)
+            j_form = findfirst(==(e_rhs), enz_names)
+            g1 = form_to_group[i_form]
+            g2 = form_to_group[j_form]
+            kf = Symbol("k$(idx)f")
+            kr = Symbol("k$(idx)r")
+            met_f = isempty(m_lhs) ? nothing : first(m_lhs)
+            met_r = isempty(m_rhs) ? nothing : first(m_rhs)
+
+            # Build rf and rr with alpha factors
+            rf_factors = Any[make_param_accessor(kf)]
+            met_f !== nothing && push!(rf_factors, make_conc_accessor(met_f))
+            alpha[i_form] != :(1) && push!(rf_factors, alpha[i_form])
+            rf_expr = make_product(rf_factors)
+
+            rr_factors = Any[make_param_accessor(kr)]
+            met_r !== nothing && push!(rr_factors, make_conc_accessor(met_r))
+            alpha[j_form] != :(1) && push!(rr_factors, alpha[j_form])
+            rr_expr = make_product(rr_factors)
+
+            flux = :($et_expr * ($rf_expr * $(D[g1]) - $rr_expr * $(D[g2])) / $denom)
+            if met_f === ref_name
+                push!(terms, flux)
+            elseif met_r === ref_name
+                push!(terms, :(-$flux))
+            end
+        end
+        net_expr = isempty(terms) ? 0 :
+                   length(terms) == 1 ? terms[1] : Expr(:call, :+, terms...)
+    else
+        # Fallback: ref_name only in RE steps. Find alternate metabolite in SS step.
+        net_expr = _compute_numerator_fallback(
+            rxns, eq_steps, enz_names, enz_set, alpha, form_to_group, D, denom, et_expr,
+            ref_name, nu_ref, subs_species, prods_species
+        )
+    end
+
     abs_nu = abs(nu_ref)
     abs_nu == 1 ? net_expr : :($net_expr / $abs_nu)
+end
+
+"""
+Compute numerator when reference substrate only appears in RE steps.
+Find an alternate metabolite that appears in an SS step and use stoichiometric ratio.
+"""
+function _compute_numerator_fallback(
+    rxns, eq_steps, enz_names, enz_set, alpha, form_to_group, D, denom, et_expr,
+    ref_name, nu_ref, subs_species, prods_species
+)
+    # Compute net stoichiometry for all metabolites
+    all_mets = Dict{Symbol, Int}()
+    for (name, _) in subs_species
+        all_mets[name] = get(all_mets, name, 0) - 1
+    end
+    for (name, _) in prods_species
+        all_mets[name] = get(all_mets, name, 0) + 1
+    end
+
+    # Find metabolites in SS steps
+    ss_mets = Set{Symbol}()
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        eq_steps[idx] && continue
+        _, m_lhs = _split_reaction_side(lhs, enz_set)
+        _, m_rhs = _split_reaction_side(rhs, enz_set)
+        for met in m_lhs; push!(ss_mets, met); end
+        for met in m_rhs; push!(ss_mets, met); end
+    end
+
+    if !isempty(ss_mets)
+        # Use alternate metabolite with nonzero stoichiometry if possible
+        alt_name = nothing
+        for met in ss_mets
+            if haskey(all_mets, met) && all_mets[met] != 0
+                alt_name = met
+                break
+            end
+        end
+        # If no metabolite with net stoichiometry, use any SS metabolite (isomerization)
+        if alt_name === nothing
+            alt_name = first(ss_mets)
+        end
+
+        nu_alt = get(all_mets, alt_name, 0)
+
+        # Compute flux through SS steps involving alt_name
+        terms = Any[]
+        for (idx, (lhs, rhs)) in enumerate(rxns)
+            eq_steps[idx] && continue
+            e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
+            e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
+            i_form = findfirst(==(e_lhs), enz_names)
+            j_form = findfirst(==(e_rhs), enz_names)
+            g1 = form_to_group[i_form]
+            g2 = form_to_group[j_form]
+            kf = Symbol("k$(idx)f")
+            kr = Symbol("k$(idx)r")
+            met_f = isempty(m_lhs) ? nothing : first(m_lhs)
+            met_r = isempty(m_rhs) ? nothing : first(m_rhs)
+
+            rf_factors = Any[make_param_accessor(kf)]
+            met_f !== nothing && push!(rf_factors, make_conc_accessor(met_f))
+            alpha[i_form] != :(1) && push!(rf_factors, alpha[i_form])
+            rf_expr = make_product(rf_factors)
+
+            rr_factors = Any[make_param_accessor(kr)]
+            met_r !== nothing && push!(rr_factors, make_conc_accessor(met_r))
+            alpha[j_form] != :(1) && push!(rr_factors, alpha[j_form])
+            rr_expr = make_product(rr_factors)
+
+            flux = :($et_expr * ($rf_expr * $(D[g1]) - $rr_expr * $(D[g2])) / $denom)
+            if met_f === alt_name
+                push!(terms, flux)
+            elseif met_r === alt_name
+                push!(terms, :(-$flux))
+            end
+        end
+        alt_flux = isempty(terms) ? 0 :
+                   length(terms) == 1 ? terms[1] : Expr(:call, :+, terms...)
+
+        # Scale: v_ref / |nu_ref| = v_alt / |nu_alt|
+        # So v_ref = v_alt * |nu_ref| / |nu_alt|  (before dividing by |nu_ref|)
+        # But we'll divide by abs(nu_ref) in the caller, so return: alt_flux * nu_ref / nu_alt
+        if nu_alt != 0
+            ratio = nu_ref // nu_alt
+            if ratio == 1
+                return alt_flux
+            elseif ratio == -1
+                return :(-$alt_flux)
+            else
+                return :($alt_flux * $(Float64(ratio)))
+            end
+        else
+            return alt_flux
+        end
+    else
+        # ALL metabolites in RE steps only, all SS steps are isomerizations
+        # Use net flux through any SS step directly
+        for (idx, (lhs, rhs)) in enumerate(rxns)
+            eq_steps[idx] && continue
+            e_lhs, _ = _split_reaction_side(lhs, enz_set)
+            e_rhs, _ = _split_reaction_side(rhs, enz_set)
+            i_form = findfirst(==(e_lhs), enz_names)
+            j_form = findfirst(==(e_rhs), enz_names)
+            g1 = form_to_group[i_form]
+            g2 = form_to_group[j_form]
+            kf = Symbol("k$(idx)f")
+            kr = Symbol("k$(idx)r")
+
+            rf_factors = Any[make_param_accessor(kf)]
+            alpha[i_form] != :(1) && push!(rf_factors, alpha[i_form])
+            rf_expr = make_product(rf_factors)
+
+            rr_factors = Any[make_param_accessor(kr)]
+            alpha[j_form] != :(1) && push!(rr_factors, alpha[j_form])
+            rr_expr = make_product(rr_factors)
+
+            # For unicyclic: net flux through any SS step = overall net rate
+            # The flux (rf*D[g1] - rr*D[g2]) through the SS step going forward
+            # equals the rate of the overall forward reaction.
+            # The rate of consumption of ref substrate = this flux (positive = forward).
+            # The caller divides by abs(nu_ref), so we just return flux directly.
+            flux = :($et_expr * ($rf_expr * $(D[g1]) - $rr_expr * $(D[g2])) / $denom)
+            return flux
+        end
+        error("No SS steps found for numerator computation")
+    end
 end
 
 """
@@ -477,8 +812,8 @@ end
 
 const _Poly = Dict{Vector{Symbol},Int}
 
-"""Sort key for symbols inside a monomial: k-constants before metabolites, then alphabetical."""
-_monomial_sort_key(s) = (startswith(string(s), "k") ? 0 : 1, string(s))
+"""Sort key for symbols inside a monomial: rate/eq constants before metabolites, then alphabetical."""
+_monomial_sort_key(s) = (is_k_parameter(s) ? 0 : 1, string(s))
 
 """
     _pmul(a, b) → _Poly

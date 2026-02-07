@@ -218,55 +218,87 @@ end
 # ─── Sub-functions for _dependent_param_exprs ───────────────────────────────
 
 """
-    _build_log_constraint_matrix(C, rhs_coeffs, nsteps)
+    _build_log_constraint_matrix(C, rhs_coeffs, nsteps, eq_steps)
 
 Expand the cycle matrix C (over steps) into a constraint matrix A over individual
-rate constants (2*nsteps columns: kf and kr for each step).
+rate/equilibrium parameters. RE steps get 1 column (K_i), SS steps get 2 (k_jf, k_jr).
 
-Returns `(A, rhs)` where A is n_constraints × 2*nsteps Rational matrix and
-rhs is the Rational right-hand-side vector.
+For an RE step with cycle coefficient c: the column gets coefficient c (since log(K) = log(kf/kr)).
+For an SS step with cycle coefficient c: kf column gets +c, kr column gets -c.
+
+Returns `(A, rhs, step_cols)` where:
+- A is n_constraints × n_vars Rational matrix
+- rhs is the Rational right-hand-side vector
+- step_cols maps step index to column index (RE) or (kf_col, kr_col) tuple (SS)
 """
-function _build_log_constraint_matrix(C, rhs_coeffs, nsteps)
+function _build_log_constraint_matrix(C, rhs_coeffs, nsteps, eq_steps)
     n_constraints = size(C, 1)
-    A = zeros(Rational{BigInt}, n_constraints, 2 * nsteps)
+    n_vars = sum(is_re ? 1 : 2 for is_re in eq_steps)
+    A = zeros(Rational{BigInt}, n_constraints, n_vars)
     rhs = Rational{BigInt}.(rhs_coeffs)
-    for i in 1:n_constraints
-        for j in 1:nsteps
-            A[i, 2j-1] = C[i, j]    # coefficient for log(k_jf)
-            A[i, 2j] = -C[i, j]     # coefficient for log(k_jr)
+
+    # Map step index to column(s)
+    step_cols = Vector{Any}(undef, nsteps)
+    col = 1
+    for (idx, is_re) in enumerate(eq_steps)
+        if is_re
+            step_cols[idx] = col
+            col += 1
+        else
+            step_cols[idx] = (col, col + 1)
+            col += 2
         end
     end
-    return A, rhs
+
+    # Fill constraint matrix
+    for i in 1:n_constraints
+        for j in 1:nsteps
+            C[i, j] == 0 && continue
+            if eq_steps[j]
+                A[i, step_cols[j]] = C[i, j]  # log(K_j) = log(k_jf) - log(k_jr)
+            else
+                kf_col, kr_col = step_cols[j]
+                A[i, kf_col] = C[i, j]        # log(k_jf)
+                A[i, kr_col] = -C[i, j]       # log(k_jr)
+            end
+        end
+    end
+    return A, rhs, step_cols
 end
 
 """
-    _pivot_priority(nsteps, free_binding, step_has_met_lhs, step_has_met_rhs)
+    _pivot_priority(nsteps, free_binding, step_has_met_lhs, step_has_met_rhs, eq_steps, step_cols)
 
-Compute a priority vector over 2*nsteps rate-constant columns.  Higher priority
+Compute a priority vector over n_vars columns.  Higher priority
 means the variable is more preferred as a pivot (i.e. more likely to become dependent).
+
+RE steps have 1 column (K_i), SS steps have 2 columns (k_jf, k_jr).
 
 Tiers (from highest to lowest priority):
   - Tier 3 (base 20): internal isomerisation steps (no metabolite on either side)
   - Tier 2 (base 10): metabolite-involving steps that do NOT touch free enzyme
   - Tier 1 (base  0): free-enzyme binding/release steps (keep independent)
 
-Within each tier, +1 bonus for the direction (kf/kr) that does NOT face a metabolite,
-so that the more physically interpretable binding rate stays independent.
+Within each tier for SS steps, +1 bonus for the direction (kf/kr) that does NOT face a metabolite.
+RE steps get base priority.
 """
-function _pivot_priority(nsteps, free_binding, step_has_met_lhs, step_has_met_rhs)
-    priority = zeros(Int, 2 * nsteps)
+function _pivot_priority(nsteps, free_binding, step_has_met_lhs, step_has_met_rhs, eq_steps, step_cols, n_vars)
+    priority = zeros(Int, n_vars)
     for j in 1:nsteps
         if j in free_binding
-            base = 0   # Tier 1: free-enzyme binding — keep independent
+            base = 0
         elseif !(step_has_met_lhs[j] || step_has_met_rhs[j])
-            base = 20  # Tier 3: internal isomerisation — prefer to eliminate
+            base = 20
         else
-            base = 10  # Tier 2: metabolite step, not free-enzyme
+            base = 10
         end
-        # kf (2j-1): bonus if no metabolite on LHS (binding rate is more interpretable)
-        priority[2j-1] = base + (step_has_met_lhs[j] ? 0 : 1)
-        # kr (2j):   bonus if no metabolite on RHS
-        priority[2j] = base + (step_has_met_rhs[j] ? 0 : 1)
+        if eq_steps[j]
+            priority[step_cols[j]] = base
+        else
+            kf_col, kr_col = step_cols[j]
+            priority[kf_col] = base + (step_has_met_lhs[j] ? 0 : 1)
+            priority[kr_col] = base + (step_has_met_rhs[j] ? 0 : 1)
+        end
     end
     return priority
 end
@@ -317,29 +349,37 @@ function _pivoted_gaussian_elimination(A, rhs, priority)
 end
 
 """
-    _exprs_from_elimination(work_A, work_rhs, pivot_cols, nsteps)
+    _exprs_from_elimination(work_A, work_rhs, pivot_cols, nsteps, eq_steps, step_cols, n_vars)
 
 Read off dependent-parameter expressions from the reduced row echelon form.
+Maps columns back to K_i or k_jf/k_jr symbols.
 Returns `dep_exprs::Dict{Symbol, Expr}`.
 """
-function _exprs_from_elimination(work_A, work_rhs, pivot_cols, nsteps)
+function _exprs_from_elimination(work_A, work_rhs, pivot_cols, nsteps, eq_steps, step_cols, n_vars)
+    # Build reverse map: column → symbol
+    col_to_sym = Dict{Int, Symbol}()
+    for j in 1:nsteps
+        if eq_steps[j]
+            col_to_sym[step_cols[j]] = Symbol("K$j")
+        else
+            kf_col, kr_col = step_cols[j]
+            col_to_sym[kf_col] = Symbol("k$(j)f")
+            col_to_sym[kr_col] = Symbol("k$(j)r")
+        end
+    end
+
     dep_exprs = Dict{Symbol, Expr}()
     for (i, pcol) in enumerate(pivot_cols)
-        step_idx = (pcol + 1) ÷ 2
-        is_forward = isodd(pcol)
-        dep_sym = Symbol("k$(step_idx)", is_forward ? "f" : "r")
+        dep_sym = col_to_sym[pcol]
 
         keq_exp = work_rhs[i]
         factors = Tuple{Symbol, Rational{BigInt}}[]
 
-        for c in 1:2*nsteps
+        for c in 1:n_vars
             c == pcol && continue
             work_A[i, c] == 0 && continue
             coeff = work_A[i, c]
-            s_idx = (c + 1) ÷ 2
-            is_fwd = isodd(c)
-            k_sym = Symbol("k$(s_idx)", is_fwd ? "f" : "r")
-            push!(factors, (k_sym, -coeff))
+            push!(factors, (col_to_sym[c], -coeff))
         end
 
         dep_exprs[dep_sym] = _build_power_expr(keq_exp, factors)
@@ -353,8 +393,9 @@ end
     _dependent_param_exprs(M::Type{<:EnzymeMechanism})
 
 Select dependent parameters and build substitution expressions.
+Handles mixed K_i (RE steps) and k_jf/k_jr (SS steps) parameters.
 Returns `(dep_exprs, indep_params)`:
-- `dep_exprs`: Dict mapping dependent k Symbol to Expr using `params.independent_k` and `params.Keq`
+- `dep_exprs`: Dict mapping dependent param Symbol to Expr using `params.independent_params` and `params.Keq`
 - `indep_params`: tuple of independent parameter Symbols (not including Keq, E_total)
 """
 function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
@@ -362,22 +403,31 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     n_constraints = size(C, 1)
     nsteps = size(C, 2)
 
-    # If no constraints, all params are independent
-    if n_constraints == 0
-        all_k = Symbol[]
-        for i in 1:nsteps
-            push!(all_k, Symbol("k$(i)f"))
-            push!(all_k, Symbol("k$(i)r"))
+    m = M()
+    eq_steps = equilibrium_steps(m)
+
+    # Build all param list based on step types
+    all_params = Symbol[]
+    for i in 1:nsteps
+        if eq_steps[i]
+            push!(all_params, Symbol("K$i"))
+        else
+            push!(all_params, Symbol("k$(i)f"))
+            push!(all_params, Symbol("k$(i)r"))
         end
-        return Dict{Symbol, Expr}(), Tuple(all_k)
     end
 
-    A, rhs = _build_log_constraint_matrix(C, rhs_coeffs, nsteps)
+    # If no constraints, all params are independent
+    if n_constraints == 0
+        return Dict{Symbol, Expr}(), Tuple(all_params)
+    end
+
+    A, rhs, step_cols = _build_log_constraint_matrix(C, rhs_coeffs, nsteps, eq_steps)
+    n_vars = size(A, 2)
 
     free_binding = Set(_free_enzyme_binding_steps(M))
 
     # Determine which steps have metabolites on LHS or RHS
-    m = M()
     rxns = reactions(m)
     enzs = enzyme_forms(m)
     enz_set = Set(e[1] for e in enzs)
@@ -388,20 +438,14 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
         push!(step_has_met_rhs, any(s ∉ enz_set for s in rhs_side))
     end
 
-    priority = _pivot_priority(nsteps, free_binding, step_has_met_lhs, step_has_met_rhs)
+    priority = _pivot_priority(nsteps, free_binding, step_has_met_lhs, step_has_met_rhs, eq_steps, step_cols, n_vars)
     work_A, work_rhs, pivot_cols = _pivoted_gaussian_elimination(A, rhs, priority)
-    dep_exprs = _exprs_from_elimination(work_A, work_rhs, pivot_cols, nsteps)
+    dep_exprs = _exprs_from_elimination(work_A, work_rhs, pivot_cols, nsteps, eq_steps, step_cols, n_vars)
 
     dep_set = Set(keys(dep_exprs))
 
-    # Independent params: all k's not in dep_set
-    indep = Symbol[]
-    for j in 1:nsteps
-        kf = Symbol("k$(j)f")
-        kr = Symbol("k$(j)r")
-        kf ∉ dep_set && push!(indep, kf)
-        kr ∉ dep_set && push!(indep, kr)
-    end
+    # Independent params: all params not in dep_set
+    indep = Symbol[p for p in all_params if p ∉ dep_set]
 
     return dep_exprs, Tuple(indep)
 end

@@ -162,16 +162,22 @@ macro enzyme_mechanism(block)
 
     species_tuple = _parse_species_block(species_block)
     reactions = Expr(:tuple)
+    eq_steps = Expr(:tuple)
     for arg in steps_block.args
         arg isa LineNumberNode && continue
+        is_re = false
         if arg isa Expr && arg.head == :call && arg.args[1] == :(<-->)
-            lhs = _parse_step_side_symbols(arg.args[2])
-            rhs = _parse_step_side_symbols(arg.args[3])
-            push!(reactions.args, Expr(:tuple, lhs, rhs))
+            is_re = false
+        elseif arg isa Expr && arg.head == :call && arg.args[1] == :⇌
+            is_re = true
         else
-            error("Expected [lhs] <--> [rhs], got $arg")
+            error("Expected [lhs] <--> [rhs] or [lhs] ⇌ [rhs], got $arg")
         end
+        lhs = _parse_step_side_symbols(arg.args[2])
+        rhs = _parse_step_side_symbols(arg.args[3])
+        push!(reactions.args, Expr(:tuple, lhs, rhs))
+        push!(eq_steps.args, is_re)
     end
 
-    return esc(:(EnzymeMechanism($species_tuple, $reactions)))
+    return esc(:(EnzymeMechanism($species_tuple, $reactions, $eq_steps)))
 end
