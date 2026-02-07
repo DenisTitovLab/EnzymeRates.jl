@@ -6,12 +6,12 @@
         ((:E, ()), (:ES, ((:C, 1),))),
     )
     rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-    m = EnzymeMechanism(species, rxns)
+    m = EnzymeMechanism(species, rxns, (false, false))
 
     # Warmup - use qualified names for internal functions
     EnzymeRates.substrates(m); EnzymeRates.products(m); EnzymeRates.regulators(m); EnzymeRates.enzyme_forms(m)
     EnzymeRates.reactions(m); EnzymeRates.n_states(m); EnzymeRates.n_steps(m); parameters(m); metabolites(m)
-    EnzymeRates.graph(m); EnzymeRates.stoich_matrix(m)
+    EnzymeRates.graph(m); EnzymeRates.stoich_matrix(m); EnzymeRates.equilibrium_steps(m)
 
     # Use minimum of multiple timing runs to avoid GC noise
     function best_ns_per_call(f, arg; n=10_000, trials=5)
@@ -76,5 +76,10 @@
     @testset "stoich_matrix: zero-alloc and <100ns" begin
         @test (@allocated EnzymeRates.stoich_matrix(m)) == 0
         @test best_ns_per_call(EnzymeRates.stoich_matrix, m) < 100e-9
+    end
+
+    @testset "equilibrium_steps: zero-alloc and <100ns" begin
+        @test (@allocated EnzymeRates.equilibrium_steps(m)) == 0
+        @test best_ns_per_call(EnzymeRates.equilibrium_steps, m) < 100e-9
     end
 end

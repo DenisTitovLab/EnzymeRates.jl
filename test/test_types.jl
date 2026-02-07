@@ -80,8 +80,8 @@
             ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
             ((:E, ()), (:ES, ((:C, 1),))),
         )
-        m = EnzymeMechanism(species, (((:E, :S), (:ES,)), ((:ES,), (:E, :P))))
-        @test sprint(show, m) == "EnzymeMechanism: E + S ⇌ ES ⇌ E + P"
+        m = EnzymeMechanism(species, (((:E, :S), (:ES,)), ((:ES,), (:E, :P))), (false, false))
+        @test sprint(show, m) == "EnzymeMechanism: E + S <--> ES <--> E + P"
 
         # Branched mechanism: multi-line
         species_b = (
@@ -97,11 +97,11 @@
             ((:ES1, :S2), (:ES1S2,)), ((:ES2, :S1), (:ES1S2,)),
             ((:ES1S2,), (:EP1P2,)), ((:EP1P2,), (:EP2, :P1)), ((:EP2,), (:E, :P2)),
         )
-        m_b = EnzymeMechanism(species_b, rxns_b)
+        m_b = EnzymeMechanism(species_b, rxns_b, ntuple(Returns(false), length(rxns_b)))
         str = sprint(show, m_b)
         @test startswith(str, "EnzymeMechanism (7 steps, 6 enzyme forms):")
-        @test contains(str, "E + S1 ⇌ ES1")
-        @test contains(str, "EP2 ⇌ E + P2")
+        @test contains(str, "E + S1 <--> ES1")
+        @test contains(str, "EP2 <--> E + P2")
     end
 
     @testset "EnzymeMechanism canonical ordering" begin
@@ -121,8 +121,8 @@
             ((:ES,), (:E, :P)),
             ((:E, :S), (:ES,)),
         )
-        m1 = EnzymeMechanism(species, rxns1)
-        m2 = EnzymeMechanism(species, rxns2)
+        m1 = EnzymeMechanism(species, rxns1, (false, false))
+        m2 = EnzymeMechanism(species, rxns2, (false, false))
         @test typeof(m1) === typeof(m2)
 
         # Reversed species within reaction sides (metabolite before enzyme)
@@ -130,7 +130,7 @@
             ((:S, :E), (:ES,)),
             ((:ES,), (:P, :E)),
         )
-        m3 = EnzymeMechanism(species, rxns3)
+        m3 = EnzymeMechanism(species, rxns3, (false, false))
         @test typeof(m1) === typeof(m3)
     end
 
@@ -144,7 +144,7 @@
         base_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
 
         # Empty reactions tuple
-        @test_throws ErrorException EnzymeMechanism(base_species, ())
+        @test_throws ErrorException EnzymeMechanism(base_species, (), ())
 
         # Duplicate substrate names in species
         dup_subs_species = (
@@ -153,7 +153,7 @@
             (),
             ((:E, ()), (:ES, ((:C, 1),))),
         )
-        @test_throws ErrorException EnzymeMechanism(dup_subs_species, base_rxns)
+        @test_throws ErrorException EnzymeMechanism(dup_subs_species, base_rxns, (false, false))
 
         # No free enzyme form (all enzymes have atoms)
         no_free_species = (
@@ -162,11 +162,11 @@
             (),
             ((:E, ((:X, 1),)), (:ES, ((:C, 1), (:X, 1)))),
         )
-        @test_throws ErrorException EnzymeMechanism(no_free_species, base_rxns)
+        @test_throws ErrorException EnzymeMechanism(no_free_species, base_rxns, (false, false))
 
         # Reaction with zero enzymes on LHS
         no_enz_rxns = (((:S,), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(base_species, no_enz_rxns)
+        @test_throws ErrorException EnzymeMechanism(base_species, no_enz_rxns, (false, false))
 
         # Reaction with two metabolites on one side
         two_met_species = (
@@ -176,11 +176,11 @@
             ((:E, ()), (:ES, ((:C, 1), (:H, 1)))),
         )
         two_met_rxns = (((:E, :S1, :S2), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(two_met_species, two_met_rxns)
+        @test_throws ErrorException EnzymeMechanism(two_met_species, two_met_rxns, (false, false))
 
         # Unknown species in reaction
         unknown_rxns = (((:E, :X), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(base_species, unknown_rxns)
+        @test_throws ErrorException EnzymeMechanism(base_species, unknown_rxns, (false, false))
 
         # Atomic conservation failure
         bad_atom_species = (
@@ -190,7 +190,7 @@
             ((:E, ()), (:ES, ((:C, 1),))),
         )
         bad_atom_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(bad_atom_species, bad_atom_rxns)
+        @test_throws ErrorException EnzymeMechanism(bad_atom_species, bad_atom_rxns, (false, false))
 
         # Net stoichiometry mismatch (substrate consumed but not produced)
         net_mismatch_species = (
@@ -200,7 +200,7 @@
             ((:E, ()), (:ES, ((:C, 1),))),
         )
         net_mismatch_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(net_mismatch_species, net_mismatch_rxns)
+        @test_throws ErrorException EnzymeMechanism(net_mismatch_species, net_mismatch_rxns, (false, false))
 
         # Species defined as both enzyme and metabolite
         overlap_species = (
@@ -209,11 +209,11 @@
             (),
             ((:E, ()), (:ES, ((:C, 1),))),
         )
-        @test_throws ErrorException EnzymeMechanism(overlap_species, base_rxns)
+        @test_throws ErrorException EnzymeMechanism(overlap_species, base_rxns, (false, false))
 
         # Duplicate reactions
         dup_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)), ((:E, :S), (:ES,)))
-        @test_throws ErrorException EnzymeMechanism(base_species, dup_rxns)
+        @test_throws ErrorException EnzymeMechanism(base_species, dup_rxns, (false, false, false))
 
         # Unreachable enzyme form
         unreachable_species = (
@@ -223,7 +223,7 @@
             ((:E, ()), (:ES, ((:C, 1),)), (:EX, ((:H, 1),))),
         )
         unreachable_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(unreachable_species, unreachable_rxns)
+        @test_throws ErrorException EnzymeMechanism(unreachable_species, unreachable_rxns, (false, false))
     end
 
     @testset "EnzymeMechanism valid with reachable enzyme forms" begin
@@ -234,7 +234,7 @@
             ((:E, ()), (:ES, ((:C, 1),))),
         )
         rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        m = EnzymeMechanism(species, rxns)
+        m = EnzymeMechanism(species, rxns, (false, false))
         @test m isa EnzymeMechanism
     end
 end

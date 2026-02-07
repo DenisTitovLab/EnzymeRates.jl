@@ -841,6 +841,136 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # ── Rapid-Equilibrium (RE) Mechanisms ──────────────────────────────────────
+
+    # 16. RE Uni-Uni: E + A ⇌_RE EA <-->_SS E + P
+    #     Rapid-equilibrium substrate binding, steady-state catalysis
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C]
+            end
+            steps: begin
+                [E, A] ⇌ [EA]
+                [EA] <--> [E, P]
+            end
+        end
+
+        # Rapid-equilibrium Michaelis-Menten:
+        # K1 = [EA]/([E][A]), rate = E_t * (k2f*K1*A - k2r*P) / (1 + K1*A)
+        function rate_re_uni_uni(params, concs)
+            (; K1, k2f, k2r, Et) = params
+            (; A, P) = concs
+            num = k2f * K1 * A - k2r * P
+            denom = 1.0 + K1 * A
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "RE Uni-Uni",
+            mechanism = m,
+            metabolite_names = [:A, :P],
+            expected_n_states = 2,
+            expected_n_steps = 2,
+            expected_n_metabolites = 2,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 2,
+            expected_identifiability_deficit = 0,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) -> rate_re_uni_uni(merge(p, (Et=p.Et,)), c)
+        ))
+    end
+
+    # 17. RE Ordered Bi-Bi: substrate binding is RE, catalysis and product release are SS
+    #     E + A ⇌_RE EA, EA + B ⇌_RE EAB, (EAB≡EPQ) <-->_SS EQ + P, EQ <-->_SS E + Q
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products:   P[C], Q[N]
+                enzymes:    E, EA[C], EABEPQ[CN], EQ[N]
+            end
+            steps: begin
+                [E, A] ⇌ [EA]
+                [EA, B] ⇌ [EABEPQ]
+                [EABEPQ] <--> [EQ, P]
+                [EQ] <--> [E, Q]
+            end
+        end
+
+        # Groups: {E, EA, EAB} (RE group, σ = 1 + K1*A + K1*K2*A*B) and {EQ} (singleton)
+        # Rate matrix (2×2 over groups):
+        #   R[g1→g2] = k3f*K1*K2*A*B + k4r*Q  (step 3 fwd + step 4 rev)
+        #   R[g2→g1] = k3r*P + k4f              (step 3 rev + step 4 fwd)
+        # D[g1] = R[g2→g1], D[g2] = R[g1→g2]
+        # num = k3f*k4f*K1*K2*A*B - k3r*k4r*P*Q
+        # denom = (1+K1*A+K1*K2*A*B)*(k3r*P+k4f) + k3f*K1*K2*A*B + k4r*Q
+        function rate_re_ordered_bi_bi(params, concs)
+            (; K1, K2, k3f, k3r, k4f, k4r, Et) = params
+            (; A, B, P, Q) = concs
+            num = k3f * k4f * K1 * K2 * A * B - k3r * k4r * P * Q
+            sigma1 = 1.0 + K1 * A + K1 * K2 * A * B
+            R12 = k3f * K1 * K2 * A * B + k4r * Q
+            R21 = k3r * P + k4f
+            denom = sigma1 * R21 + R12
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "RE Ordered Bi-Bi",
+            mechanism = m,
+            metabolite_names = [:A, :B, :P, :Q],
+            expected_n_states = 4,
+            expected_n_steps = 4,
+            expected_n_metabolites = 4,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 5,
+            expected_identifiability_deficit = -2,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) -> rate_re_ordered_bi_bi(merge(p, (Et=p.Et,)), c)
+        ))
+    end
+
+    # 18. RE Random Bi-Bi: binding to free enzyme is RE, other steps are SS
+    #     E + A ⇌_RE EA, E + B ⇌_RE EB, EA + B <-->_SS EAB, EB + A <-->_SS EAB,
+    #     EAB <-->_SS EPQ, EPQ <-->_SS EQ + P, EQ <-->_SS E + Q
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products:   P[C], Q[N]
+                enzymes:    E, EA[C], EB[N], EAB[CN], EPQ[CN], EQ[N]
+            end
+            steps: begin
+                [E, A] ⇌ [EA]
+                [E, B] ⇌ [EB]
+                [EA, B] <--> [EAB]
+                [EB, A] <--> [EAB]
+                [EAB] <--> [EPQ]
+                [EPQ] <--> [EQ, P]
+                [EQ] <--> [E, Q]
+            end
+        end
+        push!(specs, MechanismTestSpec(
+            name = "RE Random Bi-Bi",
+            mechanism = m,
+            metabolite_names = [:A, :B, :P, :Q],
+            expected_n_states = 6,
+            expected_n_steps = 7,
+            expected_n_metabolites = 4,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 1,
+            expected_n_independent_params = 10,
+            expected_identifiability_deficit = 0,
+            expected_is_identifiable = true,
+            analytical_rate_fn = nothing
+        ))
+    end
+
     return specs
 end
 

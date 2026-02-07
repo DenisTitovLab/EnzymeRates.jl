@@ -93,7 +93,7 @@
             ((:ES,), (:E, :P)),
             ((:E, :I), (:EI,)),
         )
-        @test_throws ErrorException EnzymeMechanism(species, rxns)
+        @test_throws ErrorException EnzymeMechanism(species, rxns, (false, false, false))
     end
 
     @testset "No-atom species" begin
@@ -125,6 +125,6 @@
             ((:E, :S), (:ES,)),
             ((:ES,), (:E, :P)),
         )
-        @test_throws ErrorException EnzymeMechanism(species, rxns)
+        @test_throws ErrorException EnzymeMechanism(species, rxns, (false, false))
     end
 end

@@ -42,15 +42,17 @@ of mechanisms with different type parameters.
 abstract type AbstractEnzymeMechanism end
 
 """
-    EnzymeMechanism{Species,Reactions}
+    EnzymeMechanism{Species,Reactions,EquilibriumSteps}
 
 Singleton type encoding an enzyme mechanism in type parameters.
 
 - `Species`: `(substrates, products, regulators, enzyme_species)` where each entry is a tuple
   of `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
 - `Reactions`: tuple of `(lhs, rhs)` where each side is a tuple of species `Symbol`s.
+- `EquilibriumSteps`: tuple of `Bool` indicating which steps are rapid-equilibrium (`true`)
+  vs steady-state (`false`).
 """
-struct EnzymeMechanism{Species, Reactions} <: AbstractEnzymeMechanism end
+struct EnzymeMechanism{Species, Reactions, EquilibriumSteps} <: AbstractEnzymeMechanism end
 
 """Count enzymes, metabolites, atoms, and metabolite names on one side of a reaction."""
 function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
@@ -70,15 +72,22 @@ function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
 end
 
 """
-    EnzymeMechanism(species::Tuple, reactions::Tuple)
+    EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Vararg{Bool}})
 
-Construct an `EnzymeMechanism` from explicit species and reaction tuples.
+Construct an `EnzymeMechanism` from explicit species, reaction tuples, and equilibrium step flags.
 
 - `species` must be `(substrates, products, regulators, enzymes)` where each entry is a tuple
   of `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
 - `reactions` is a tuple of `(lhs, rhs)`; each side is a tuple of symbols.
+- `eq_steps` is a tuple of `Bool` of the same length as `reactions`, where `true` marks a
+  rapid-equilibrium step and `false` marks a steady-state step.
 """
-function EnzymeMechanism(species::Tuple, reactions::Tuple)
+function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Vararg{Bool}})
+    # 0. Validate eq_steps length
+    length(eq_steps) == length(reactions) || error("eq_steps length must match reactions length")
+    # At least one SS step required
+    all(eq_steps) && !isempty(eq_steps) && error("At least one steady-state step is required (not all steps can be rapid-equilibrium)")
+
     # 1. Validate species tuple structure
     length(species) == 4 || error("species must be (substrates, products, regulators, enzymes)")
     subs, prods, regs, enzs = species
@@ -223,9 +232,13 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple)
     end
 
     # Sort reactions by LHS enzyme depth, then alphabetically by LHS metabolites
-    sort!(rxns; by = r -> (depth[_enz(r[1])], sort([s for s in r[1] if s ∉ enzyme_set])))
+    # Sort eq_steps together with reactions
+    rxn_pairs = collect(zip(rxns, collect(eq_steps)))
+    sort!(rxn_pairs; by = pair -> (depth[_enz(pair[1][1])], sort([s for s in pair[1][1] if s ∉ enzyme_set])))
+    sorted_rxns = [p[1] for p in rxn_pairs]
+    sorted_eq = Tuple(p[2] for p in rxn_pairs)
 
-    EnzymeMechanism{sorted_species, Tuple(rxns)}()
+    EnzymeMechanism{sorted_species, Tuple(sorted_rxns), sorted_eq}()
 end
 
 # --- Rate equation mode types ---
@@ -273,7 +286,7 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}
     end
 end
 
-function Base.show(io::IO, ::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
+function Base.show(io::IO, ::EnzymeMechanism{Species, Reactions, EqSteps}) where {Species, Reactions, EqSteps}
     subs, prods, regs, enzs = Species
     enz_names = Set(e[1] for e in enzs)
 
@@ -286,23 +299,31 @@ function Base.show(io::IO, ::EnzymeMechanism{Species, Reactions}) where {Species
     end
     is_linear = all(v <= 1 for v in values(lhs_counts)) && all(v <= 1 for v in values(rhs_counts))
 
+    _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
+
     if is_linear
-        # Compact chain: E + S ⇌ ES ⇌ E + P
+        # Compact chain: E + S ⇌ ES <--> E + P
         parts = String[]
+        arrows = String[]
         for (i, (lhs, rhs)) in enumerate(Reactions)
             if i == 1
                 push!(parts, join(lhs, " + "))
             end
+            push!(arrows, _arrow(EqSteps[i]))
             push!(parts, join(rhs, " + "))
         end
-        print(io, "EnzymeMechanism: ", join(parts, " ⇌ "))
+        print(io, "EnzymeMechanism: ")
+        for (i, part) in enumerate(parts)
+            i > 1 && print(io, arrows[i-1])
+            print(io, part)
+        end
     else
         # Multi-line for branched mechanisms
         n = length(Reactions)
         ne = length(enzs)
         print(io, "EnzymeMechanism (", n, " steps, ", ne, " enzyme forms):")
-        for (lhs, rhs) in Reactions
-            print(io, "\n  ", join(lhs, " + "), " ⇌ ", join(rhs, " + "))
+        for (i, (lhs, rhs)) in enumerate(Reactions)
+            print(io, "\n  ", join(lhs, " + "), _arrow(EqSteps[i]), join(rhs, " + "))
         end
     end
     if !isempty(regs)
@@ -358,6 +379,9 @@ n_steps(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions} = leng
 """Return the reactions tuple directly."""
 reactions(::EnzymeMechanism{Species, R}) where {Species, R} = R
 
+"""Return the equilibrium steps tuple (true = rapid-equilibrium, false = steady-state)."""
+equilibrium_steps(::EnzymeMechanism{Sp, Rx, Eq}) where {Sp, Rx, Eq} = Eq
+
 """
 Build a directed graph of enzyme-form connectivity.
 Returns (graph, enzyme_forms_tuple).
@@ -381,7 +405,7 @@ end
 Stoichiometry matrix: rows = metabolites, columns = steps.
 Positive = produced, negative = consumed.
 """
-@generated function stoich_matrix(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
+@generated function stoich_matrix(::EnzymeMechanism{Species, Reactions, EqSteps}) where {Species, Reactions, EqSteps}
     mets = _unique_metabolites(Species)
     met_idx = Dict(m[1] => i for (i, m) in enumerate(mets))
     enz_names = Set(e[1] for e in Species[4])
