@@ -91,52 +91,6 @@ function reference_qssa(m::EnzymeMechanism{Species, Reactions}, params::NamedTup
     return v / abs(nu_ref)
 end
 
-# ── Unicyclic flux helpers ──────────────────────────────────────────────────
-
-"""
-    _unicyclic_denominator(f, r)
-
-QSSA denominator for a unicyclic network with forward rates `f[i]`
-and reverse rates `r[i]` around the cycle (1-indexed; cyclic).
-"""
-function _unicyclic_denominator(f::AbstractVector, r::AbstractVector)
-    n = length(f)
-    @assert length(r) == n
-    T = promote_type(eltype(f), eltype(r))
-    D = zero(T)
-
-    for i in 1:n
-        Ti = zero(T)
-        for m in 0:n-1
-            pr = one(T)
-            for j in 0:m-1
-                pr *= r[mod1(i + j, n)]
-            end
-            pf = one(T)
-            for j in (m+1):(n-1)
-                pf *= f[mod1(i + j, n)]
-            end
-            Ti += pr * pf
-        end
-        D += Ti
-    end
-
-    return D
-end
-
-"""
-    _unicyclic_flux(f, r, Et) -> v
-
-Closed-form QSSA flux for a unicyclic enzyme-state cycle.
-v = Et*(prod(f)-prod(r)) / sum(tree_weights)
-"""
-function _unicyclic_flux(f::AbstractVector, r::AbstractVector, Et)
-    pf = prod(f)
-    pr = prod(r)
-    D  = _unicyclic_denominator(f, r)
-    return Et * (pf - pr) / D
-end
-
 # ── Parameter generation helpers ────────────────────────────────────────────
 
 function random_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rng())
