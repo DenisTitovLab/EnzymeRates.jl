@@ -858,13 +858,13 @@ function build_mechanism_test_specs()
             end
         end
 
-        # Rapid-equilibrium Michaelis-Menten:
-        # K1 = [EA]/([E][A]), rate = E_t * (k2f*K1*A - k2r*P) / (1 + K1*A)
+        # Rapid-equilibrium Michaelis-Menten (K1 = Kd = [E][A]/[EA]):
+        # rate = E_t * (k2f * A/K1 - k2r * P) / (1 + A/K1)
         function rate_re_uni_uni(params, concs)
             (; K1, k2f, k2r, Et) = params
             (; A, P) = concs
-            num = k2f * K1 * A - k2r * P
-            denom = 1.0 + K1 * A
+            num = k2f * A / K1 - k2r * P
+            denom = 1.0 + A / K1
             return Et * num / denom
         end
 
@@ -901,19 +901,17 @@ function build_mechanism_test_specs()
             end
         end
 
-        # Groups: {E, EA, EAB} (RE group, σ = 1 + K1*A + K1*K2*A*B) and {EQ} (singleton)
-        # Rate matrix (2×2 over groups):
-        #   R[g1→g2] = k3f*K1*K2*A*B + k4r*Q  (step 3 fwd + step 4 rev)
-        #   R[g2→g1] = k3r*P + k4f              (step 3 rev + step 4 fwd)
-        # D[g1] = R[g2→g1], D[g2] = R[g1→g2]
-        # num = k3f*k4f*K1*K2*A*B - k3r*k4r*P*Q
-        # denom = (1+K1*A+K1*K2*A*B)*(k3r*P+k4f) + k3f*K1*K2*A*B + k4r*Q
+        # Groups: {E, EA, EAB} (RE group) and {EQ} (singleton)
+        # K1, K2 are Kd (dissociation constants):
+        #   σ = 1 + A/K1 + A*B/(K1*K2)
+        # num = k3f*k4f*A*B/(K1*K2) - k3r*k4r*P*Q
+        # denom = (1+A/K1+A*B/(K1*K2))*(k3r*P+k4f) + k3f*A*B/(K1*K2) + k4r*Q
         function rate_re_ordered_bi_bi(params, concs)
             (; K1, K2, k3f, k3r, k4f, k4r, Et) = params
             (; A, B, P, Q) = concs
-            num = k3f * k4f * K1 * K2 * A * B - k3r * k4r * P * Q
-            sigma1 = 1.0 + K1 * A + K1 * K2 * A * B
-            R12 = k3f * K1 * K2 * A * B + k4r * Q
+            num = k3f * k4f * A * B / (K1 * K2) - k3r * k4r * P * Q
+            sigma1 = 1.0 + A / K1 + A * B / (K1 * K2)
+            R12 = k3f * A * B / (K1 * K2) + k4r * Q
             R21 = k3r * P + k4f
             denom = sigma1 * R21 + R12
             return Et * num / denom
@@ -968,6 +966,94 @@ function build_mechanism_test_specs()
             expected_identifiability_deficit = 0,
             expected_is_identifiable = true,
             analytical_rate_fn = nothing
+        ))
+    end
+
+    # 19. RE Product Release: E + A <-->_SS EA ⇌_RE E + P
+    #     Substrate binding is SS, product release is RE (K2 is Ka, NOT inverted)
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] ⇌ [E, P]
+            end
+        end
+
+        # K2 = Ka (forward eq const for EA ⇌ E + P), NOT inverted
+        # All forms in one RE group (G=1): sigma = K2 + P (cleared den = K2)
+        # num = k1f * K2 * A - k1r * P
+        # denom = K2 + P
+        function rate_re_product_release(params, concs)
+            (; k1f, k1r, K2, Et) = params
+            (; A, P) = concs
+            num = k1f * K2 * A - k1r * P
+            denom = K2 + P
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "RE Product Release",
+            mechanism = m,
+            metabolite_names = [:A, :P],
+            expected_n_states = 2,
+            expected_n_steps = 2,
+            expected_n_metabolites = 2,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 2,
+            expected_identifiability_deficit = 0,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) -> rate_re_product_release(merge(p, (Et=p.Et,)), c)
+        ))
+    end
+
+    # 20. RE Both Directions: E + A ⇌_RE EA <-->_SS EP ⇌_RE E + P
+    #     Substrate binding RE (K1 = Kd, inverted), product release RE (K3 = Ka, NOT inverted)
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] ⇌ [EA]
+                [EA] <--> [EP]
+                [EP] ⇌ [E, P]
+            end
+        end
+
+        # All forms in one RE group (G=1)
+        # K1 = Kd (inverted), K3 = Ka (not inverted)
+        # sigma_num = K3 + K3*A/K1 + P  (cleared den = K3 from alpha_den[EP])
+        # num = k2f * K3 * A / K1 - k2r * P
+        # denom = K3 + K3 * A / K1 + P
+        function rate_re_both_directions(params, concs)
+            (; K1, k2f, k2r, K3, Et) = params
+            (; A, P) = concs
+            num = k2f * K3 * A / K1 - k2r * P
+            denom = K3 + K3 * A / K1 + P
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "RE Both Directions",
+            mechanism = m,
+            metabolite_names = [:A, :P],
+            expected_n_states = 3,
+            expected_n_steps = 3,
+            expected_n_metabolites = 2,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 3,
+            expected_identifiability_deficit = 0,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) -> rate_re_both_directions(merge(p, (Et=p.Et,)), c)
         ))
     end
 

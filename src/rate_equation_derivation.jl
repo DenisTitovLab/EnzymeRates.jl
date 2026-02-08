@@ -347,6 +347,19 @@ end
 
 # ─── Expr generation from Poly ───────────────────────────────────────────────
 
+"""
+Identify K symbols for binding RE steps (where K should be Kd, not Ka).
+A binding step has: metabolite(s) on LHS, only enzyme forms on RHS.
+"""
+function _binding_K_symbols(M::Type{<:EnzymeMechanism})
+    m = M()
+    rxns = reactions(m)
+    eq = equilibrium_steps(m)
+    enz_set = Set(e[1] for e in enzyme_forms(m))
+    [Symbol("K$i") for (i, (lhs, rhs)) in enumerate(rxns)
+     if eq[i] && any(s ∉ enz_set for s in lhs) && all(s ∈ enz_set for s in rhs)]
+end
+
 function _build_param_conc_sets(M::Type{<:EnzymeMechanism})
     m = M()
     eq_steps = equilibrium_steps(m)
@@ -362,13 +375,25 @@ end
 function _raw_symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     num, den = _raw_symbolic_rate_polys(M)
     param_syms, conc_syms = _build_param_conc_sets(M)
-    to_rate_expr(num, den, param_syms, conc_syms)
+    expr = to_rate_expr(num, den, param_syms, conc_syms)
+    # Flip binding Ks from Ka to Kd
+    for K in _binding_K_symbols(M)
+        expr = substitute_params_expr(expr, Dict(K => :(inv(params.$K))))
+    end
+    expr
 end
 
 function _symbolic_rate_expr(M::Type{<:EnzymeMechanism})
     raw_expr = _raw_symbolic_rate_expr(M)
     dep_exprs, _ = _dependent_param_exprs(M)
-    isempty(dep_exprs) ? raw_expr : substitute_params_expr(raw_expr, dep_exprs)
+    isempty(dep_exprs) && return raw_expr
+    # Apply K→1/K to dep_exprs values so they match the Kd convention
+    binding_Ks = _binding_K_symbols(M)
+    if !isempty(binding_Ks)
+        inv_subs = Dict(K => :(inv(params.$K)) for K in binding_Ks)
+        dep_exprs = Dict(k => substitute_params_expr(v, inv_subs) for (k, v) in dep_exprs)
+    end
+    substitute_params_expr(raw_expr, dep_exprs)
 end
 
 # ─── Mode-dispatched rate_equation ────────────────────────────────────────────
@@ -404,7 +429,8 @@ rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, HaldaneWegsch
 
 function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
     num, den = _raw_symbolic_rate_polys(M)
-    "v = E_total * ($(poly_str(num))) / ($(poly_str(den)))"
+    inv_set = Set(_binding_K_symbols(M))
+    "v = E_total * ($(poly_str(num, inv_set))) / ($(poly_str(den, inv_set)))"
 end
 
 function rate_equation_string(::M, ::RawMode) where {M<:EnzymeMechanism}
