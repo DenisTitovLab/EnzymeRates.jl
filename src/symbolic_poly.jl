@@ -133,21 +133,38 @@ function _mono_sort_key(mono::Mono, param_syms::Set{Symbol})
 end
 
 # Pretty-print a polynomial (bare symbols, no params./concs. prefix)
-function poly_str(p::Poly)
+function poly_str(p::Poly, inverted_params::Set{Symbol}=Set{Symbol}())
     isempty(p) && return "0"
     ts = sort(collect(p); by=x -> (x[2] < 0, _str_sort_key(x[1])))
     parts = String[]
     for (i, (mono, coeff)) in enumerate(ts)
-        syms = String[]
+        num_syms = String[]
+        den_syms = String[]
         for (s, e) in sort(mono; by=sp -> (_sym_sort_priority(sp.first), string(sp.first)))
-            e == 1 ? push!(syms, string(s)) : push!(syms, "$(s)^$e")
+            if s in inverted_params
+                # Inverted: K appears as 1/K, so positive exponent -> denominator
+                if e > 0
+                    e == 1 ? push!(den_syms, string(s)) : push!(den_syms, "$(s)^$e")
+                elseif e < 0
+                    (-e) == 1 ? push!(num_syms, string(s)) : push!(num_syms, "$(s)^$(-e)")
+                end
+            else
+                if e == 1; push!(num_syms, string(s))
+                else push!(num_syms, "$(s)^$e"); end
+            end
         end
-        m = if isempty(syms)
-            "$(abs(coeff))"
-        elseif abs(coeff) == 1
-            join(syms, " * ")
+        abs_c = abs(coeff)
+        # Build numerator part
+        num_parts = String[]
+        abs_c != 1 && push!(num_parts, "$abs_c")
+        append!(num_parts, num_syms)
+        num_str = isempty(num_parts) ? "$abs_c" : join(num_parts, " * ")
+        # Build full monomial string
+        m = if isempty(den_syms)
+            num_str
         else
-            "$(abs(coeff)) * " * join(syms, " * ")
+            den_str = length(den_syms) == 1 ? den_syms[1] : "($(join(den_syms, " * ")))"
+            "$num_str / $den_str"
         end
         if i == 1
             push!(parts, coeff < 0 ? "-$m" : m)

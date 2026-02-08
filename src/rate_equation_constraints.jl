@@ -167,10 +167,11 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
         has_lhs = !isempty(m_lhs); has_rhs = !isempty(m_rhs)
         is_free = e_lhs_sym in free_enz_set || e_rhs_sym in free_enz_set
         base = (has_lhs || has_rhs) ? (is_free ? 0 : 10) : 20
-        if eq_steps[j]; priority[step_cols[j]] = base
+        if eq_steps[j]
+            priority[step_cols[j]] = (is_free && (has_lhs || has_rhs)) ? -1 : base
         else kf_col, kr_col = step_cols[j]
-            priority[kf_col] = base + (has_lhs ? 0 : 1)
-            priority[kr_col] = base + (has_rhs ? 0 : 1)
+            priority[kf_col] = base
+            priority[kr_col] = base + 1
         end
     end
 
@@ -216,8 +217,10 @@ end
 function _constraint_expr_strings(M::Type{<:EnzymeMechanism})
     dep_exprs, _ = _dependent_param_exprs(M)
     isempty(dep_exprs) && return String[]
+    subs = Dict(K => :(1 / params.$K) for K in _binding_K_symbols(M))
     result = String[]
     for (dep_sym, expr) in sort(collect(dep_exprs); by=p -> string(p[1]))
+        expr = isempty(subs) ? expr : substitute_params_expr(expr, subs)
         s = replace(string(expr), "params." => "")
         push!(result, "$dep_sym = $s")
     end

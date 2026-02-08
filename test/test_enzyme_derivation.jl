@@ -144,9 +144,15 @@ end
 """
 Get dependent parameter expressions from mechanism using internal API.
 Returns vector of (symbol, expression_string) pairs.
+Applies K→1/K substitution for binding RE steps (Kd convention).
 """
 function _get_dependent_params(m)
     dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
+    binding_Ks = EnzymeRates._binding_K_symbols(typeof(m))
+    if !isempty(binding_Ks)
+        inv_subs = Dict(K => :(1 / params.$K) for K in binding_Ks)
+        dep_exprs = Dict(k => EnzymeRates.substitute_params_expr(v, inv_subs) for (k, v) in dep_exprs)
+    end
     pairs = Tuple{Symbol, String}[]
     for (sym, expr) in sort(collect(dep_exprs); by=first)
         s = string(expr)
@@ -226,11 +232,13 @@ end
 
 """
 Convert raw params (with K_i for RE steps) to ODE params (with large k_if/k_ir for all steps).
-For RE steps: k_if = 1e6 * K_i, k_ir = 1e6 (so K_i = k_if/k_ir is preserved).
+For binding RE steps: K=Kd=kr/kf, so k_if = 1e6, k_ir = 1e6 * K.
+For non-binding RE steps: K=Ka=kf/kr, so k_if = 1e6 * K, k_ir = 1e6.
 """
 function raw_to_ode_params(m, raw_params)
     eq = EnzymeRates.equilibrium_steps(m)
     ns = EnzymeRates.n_steps(m)
+    binding_Ks = Set(EnzymeRates._binding_K_symbols(typeof(m)))
     param_keys = Symbol[]
     param_vals = Float64[]
     for i in 1:ns
@@ -238,8 +246,15 @@ function raw_to_ode_params(m, raw_params)
         push!(param_keys, Symbol("k$(i)r"))
         if eq[i]
             K = Float64(raw_params[Symbol("K$i")])
-            push!(param_vals, 1e6 * K)
-            push!(param_vals, 1e6)
+            if Symbol("K$i") in binding_Ks
+                # Binding step: K = Kd = kr/kf
+                push!(param_vals, 1e6)
+                push!(param_vals, 1e6 * K)
+            else
+                # Non-binding RE step: K = Ka = kf/kr
+                push!(param_vals, 1e6 * K)
+                push!(param_vals, 1e6)
+            end
         else
             push!(param_vals, Float64(raw_params[Symbol("k$(i)f")]))
             push!(param_vals, Float64(raw_params[Symbol("k$(i)r")]))
