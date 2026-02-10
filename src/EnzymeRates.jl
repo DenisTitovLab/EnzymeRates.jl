@@ -13,10 +13,18 @@ export rate_equation, rate_equation_string, parameters, metabolites
 # Identifiability
 export is_identifiable, structural_identifiability_deficit
 
+# Fitting
+export FittingProblem, fit_rate_equation
+export fitted_params, metabolite_names
+
+using Tables
+using Optimization
+
 include("types.jl")
 include("dsl.jl")
 include("sym_poly_for_rate_eq_derivation.jl")
 include("rate_eq_derivation.jl")
 include("rate_eq_rewriting.jl")
+include("fitting.jl")
 
 end

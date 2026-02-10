@@ -22,6 +22,12 @@ end
     (indep..., :Keq, :E_total)
 end
 
+"""Independent rate constant names for fitting (excludes Keq, E_total)."""
+@generated function fitted_params(::M) where {M <: EnzymeMechanism}
+    _, indep = _dependent_param_exprs(M)
+    Tuple(indep)
+end
+
 # ─── RE Group Helpers ─────────────────────────────────────────────────────────
 
 function _split_reaction_side(side, enz_set)

@@ -370,6 +370,12 @@ end
     return Tuple(_unique_metabolites(Species))
 end
 
+"""Metabolite names as a tuple of Symbols (projection of `metabolites`)."""
+@generated function metabolite_names(::EnzymeMechanism{Species}) where {Species}
+    mets = _unique_metabolites(Species)
+    Tuple(m[1] for m in mets)
+end
+
 """Number of distinct enzyme states."""
 n_states(::EnzymeMechanism{Species}) where {Species} = length(Species[4])
 
