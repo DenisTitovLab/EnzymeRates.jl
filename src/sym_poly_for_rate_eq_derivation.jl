@@ -61,7 +61,18 @@ function to_rate_expr(num::Poly, den::Poly, param_syms::Set{Symbol}, conc_syms::
                       inverted_params::Set{Symbol}=Set{Symbol}())
     num_expr = _poly_to_expr(num, param_syms, conc_syms, inverted_params)
     den_expr = _poly_to_expr(den, param_syms, conc_syms, inverted_params)
-    :(E_total * ($num_expr) / ($den_expr))
+    _binarize(:(E_total * ($num_expr) / ($den_expr)))
+end
+
+"""Convert n-ary +/* calls to left-folded binary for efficient codegen (avoids vararg dispatch)."""
+_binarize(x) = x
+function _binarize(ex::Expr)
+    args = Any[_binarize(a) for a in ex.args]
+    if ex.head == :call && length(args) > 3 && args[1] in (:+, :*)
+        foldl((a, b) -> Expr(:call, args[1], a, b), args[2:end])
+    else
+        Expr(ex.head, args...)
+    end
 end
 
 function _poly_to_expr(p::Poly, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
@@ -93,10 +104,8 @@ function _combine_terms(pos::Vector{Any}, neg::Vector{Any})
     pe !== nothing ? pe : ne !== nothing ? :(- $ne) : 0
 end
 
-"""Build nested binary operator calls: +(a, +(b, +(c, d))) to avoid N-ary allocation."""
-function _nest_binary(op::Symbol, terms::Vector{Any})
-    foldr((a, b) -> Expr(:call, op, a, b), terms)
-end
+"""Build n-ary operator call: +(a, b, c, d) — prints as `a + b + c + d`."""
+_nest_binary(op::Symbol, terms::Vector{Any}) = length(terms) == 1 ? terms[1] : Expr(:call, op, terms...)
 
 """Check if a symbol is a rate/equilibrium parameter (k or K), not Keq or E_total."""
 function is_k_parameter(sym::Symbol)
