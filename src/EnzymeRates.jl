@@ -15,8 +15,8 @@ export is_identifiable, structural_identifiability_deficit
 
 include("types.jl")
 include("dsl.jl")
-include("symbolic_poly.jl")
-include("rate_equation_constraints.jl")
-include("rate_equation_derivation.jl")
+include("sym_poly_for_rate_eq_derivation.jl")
+include("rate_eq_derivation.jl")
+include("rate_eq_rewriting.jl")
 
 end

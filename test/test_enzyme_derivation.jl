@@ -150,14 +150,12 @@ function _get_dependent_params(m)
     dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
     binding_Ks = EnzymeRates._binding_K_symbols(typeof(m))
     if !isempty(binding_Ks)
-        inv_subs = Dict(K => :(1 / params.$K) for K in binding_Ks)
+        inv_subs = Dict(K => :(1 / $K) for K in binding_Ks)
         dep_exprs = Dict(k => EnzymeRates.substitute_params_expr(v, inv_subs) for (k, v) in dep_exprs)
     end
     pairs = Tuple{Symbol, String}[]
     for (sym, expr) in sort(collect(dep_exprs); by=first)
-        s = string(expr)
-        s = replace(s, "params." => "")
-        push!(pairs, (sym, s))
+        push!(pairs, (sym, string(expr)))
     end
     return pairs
 end
@@ -358,8 +356,19 @@ end
 # ── Rate equation string evaluation helper ──────────────────────────────────
 
 function _eval_rate_string(s, params, concs)
-    # Extract just the equation line (after "v = ")
-    eq_line = last(split(s, "v = "; limit=2))
+    # Filter out destructuring lines ("= params", "= concs"), keep constraint + v = lines
+    lines = split(s, "\n")
+    eval_lines = String[]
+    for line in lines
+        stripped = strip(line)
+        isempty(stripped) && continue
+        endswith(stripped, "= params") && continue
+        endswith(stripped, "= concs") && continue
+        push!(eval_lines, stripped)
+    end
+    # The last line should be "v = ..." — extract the expression after "v = "
+    code_body = join(eval_lines, "\n")
+    eq_line = last(split(code_body, "v = "; limit=2))
     bindings = vcat(
         ["$k = $(params[k])" for k in keys(params)],
         ["$k = $(concs[k])" for k in keys(concs)],
@@ -487,12 +496,14 @@ function test_rate_equation_string(spec::MechanismTestSpec)
     met_names = spec.metabolite_names
     @testset "Rate Equation String" begin
         s = rate_equation_string(m)
-        @test !occursin("params.", s)   # No module prefixes
-        @test !occursin("concs.", s)    # No module prefixes
+        @test !occursin("params.", s)   # No field-access prefixes
+        @test !occursin("concs.", s)    # No field-access prefixes
         @test !occursin("+ -", s)       # No malformed signs
         @test !occursin("- -", s)       # No malformed signs
         @test occursin("v = E_total * (", s)  # Proper format
         @test occursin(") / (", s)      # Has denominator
+        @test occursin("= params", s)   # Has params destructuring
+        @test occursin("= concs", s)    # Has concs destructuring
 
         # Numerical equivalence test
         rng = Random.MersenneTwister(9000 + hash(spec.name) % 1000)
