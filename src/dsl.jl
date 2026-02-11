@@ -136,9 +136,37 @@ Species atoms use chemical formula bracket syntax: `S[C6H12O6]`. Bare symbols
 (no brackets) are allowed when all metabolites omit atoms.
 Steps use the `<-->` arrow.
 """
+# Decompose a constraint RHS expression into (coeff::Int, factors_tuple_expr).
+# Handles: symbols, `a * b`, `a / b`, integer literals, and combinations.
+function _parse_constraint_rhs(expr)
+    factors = Dict{Symbol,Int}()
+    coeff = Ref(1)
+    _walk_rhs!(expr, factors, coeff, 1)
+    factors_expr = Expr(:tuple)
+    for (sym, exp) in factors
+        push!(factors_expr.args, Expr(:tuple, QuoteNode(sym), exp))
+    end
+    coeff[], factors_expr
+end
+
+function _walk_rhs!(expr, factors::Dict{Symbol,Int}, coeff::Ref{Int}, sign::Int)
+    if expr isa Symbol
+        factors[expr] = get(factors, expr, 0) + sign
+    elseif expr isa Integer
+        sign > 0 || error("Integer divisors not supported in constraints")
+        coeff[] *= expr
+    elseif expr isa Expr && expr.head == :call
+        op = expr.args[1]
+        if op == :*; for i in 2:length(expr.args); _walk_rhs!(expr.args[i], factors, coeff, sign); end
+        elseif op == :/; _walk_rhs!(expr.args[2], factors, coeff, sign); _walk_rhs!(expr.args[3], factors, coeff, -sign)
+        else error("Unsupported operator in constraint: $op"); end
+    else error("Unsupported constraint expression: $expr"); end
+end
+
 macro enzyme_mechanism(block)
     species_block = nothing
     steps_block = nothing
+    constraints_block = nothing
 
     for arg in block.args
         arg isa LineNumberNode && continue
@@ -149,11 +177,13 @@ macro enzyme_mechanism(block)
                 species_block = value
             elseif label == :steps
                 steps_block = value
+            elseif label == :constraints
+                constraints_block = value
             else
                 error("Unknown @mechanism block label: $label")
             end
         else
-            error("Expected species: begin ... end and steps: begin ... end blocks")
+            error("Expected species: begin ... end, steps: begin ... end, and optional constraints: begin ... end blocks")
         end
     end
 
@@ -177,6 +207,22 @@ macro enzyme_mechanism(block)
         rhs = _parse_step_side_symbols(arg.args[3])
         push!(reactions.args, Expr(:tuple, lhs, rhs))
         push!(eq_steps.args, is_re)
+    end
+
+    # Parse constraints block if present
+    if constraints_block !== nothing
+        constraints = Expr(:tuple)
+        for arg in constraints_block.args
+            arg isa LineNumberNode && continue
+            if !(arg isa Expr && arg.head == :(=))
+                error("Each constraint must be an assignment: target = rhs_expr, got $arg")
+            end
+            target = arg.args[1]
+            target isa Symbol || error("Constraint target must be a symbol, got $target")
+            coeff, factors = _parse_constraint_rhs(arg.args[2])
+            push!(constraints.args, Expr(:tuple, QuoteNode(target), coeff, factors))
+        end
+        return esc(:(EnzymeMechanism($species_tuple, $reactions, $eq_steps, $constraints)))
     end
 
     return esc(:(EnzymeMechanism($species_tuple, $reactions, $eq_steps)))

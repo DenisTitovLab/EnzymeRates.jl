@@ -117,28 +117,28 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     nsteps = size(C, 2)
     m = M()
     eq_steps = equilibrium_steps(m)
-    all_params = _raw_param_symbols(eq_steps)
+    constrained = Set(c[1] for c in param_constraints(m))
+    all_params = [p for p in _raw_param_symbols(eq_steps) if p ∉ constrained]
     nc == 0 && return Dict{Symbol, Expr}(), Tuple(all_params)
 
-    # Build log-space constraint matrix and col→symbol map simultaneously
-    n_vars = sum(is_re ? 1 : 2 for is_re in eq_steps)
+    # Constraint substitution map: target → factors (for log-space column merging)
+    csub = Dict(target => factors for (target, _, factors) in param_constraints(m))
+
+    # Build log-space constraint matrix directly for non-constrained params only.
+    # Constrained params are substituted inline: if K3=K1, K3's column merges into K1's.
+    sym_col = Dict(p => i for (i, p) in enumerate(all_params))
+    n_vars = length(all_params)
     A = zeros(Rational{BigInt}, nc, n_vars)
     rhs = Rational{BigInt}.(rhs_coeffs)
-    step_cols = Vector{Any}(undef, nsteps)
-    col_sym = Vector{Symbol}(undef, n_vars)
-    col = 1
-    for (j, is_re) in enumerate(eq_steps)
-        if is_re
-            step_cols[j] = col; col_sym[col] = Symbol("K$j"); col += 1
-        else
-            step_cols[j] = (col, col + 1)
-            col_sym[col] = Symbol("k$(j)f"); col_sym[col+1] = Symbol("k$(j)r"); col += 2
-        end
-    end
     for i in 1:nc, j in 1:nsteps
         C[i, j] == 0 && continue
-        if eq_steps[j]; A[i, step_cols[j]] = C[i, j]
-        else kf, kr = step_cols[j]; A[i, kf] = C[i, j]; A[i, kr] = -C[i, j]; end
+        pairs = eq_steps[j] ? [(Symbol("K$j"), 1)] : [(Symbol("k$(j)f"), 1), (Symbol("k$(j)r"), -1)]
+        for (sym, sign) in pairs
+            targets = haskey(csub, sym) ? [(s, sign * e) for (s, e) in csub[sym]] : [(sym, sign)]
+            for (s, sgn) in targets
+                haskey(sym_col, s) && (A[i, sym_col[s]] += C[i, j] * sgn)
+            end
+        end
     end
 
     # Pivot priority: internal isomerizations > metabolite steps > free-enzyme binding
@@ -147,15 +147,21 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     enz_set = Set(e[1] for e in enzs)
     free_enz_set = Set(e[1] for e in enzs if isempty(e[2]))
     priority = zeros(Int, n_vars)
-    for j in 1:nsteps
-        e_lhs, m_lhs = _split_reaction_side(rxns[j][1], enz_set)
-        e_rhs, m_rhs = _split_reaction_side(rxns[j][2], enz_set)
+    for (j, (lhs, rhs_rxn)) in enumerate(rxns)
+        e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
+        e_rhs, m_rhs = _split_reaction_side(rhs_rxn, enz_set)
         has_met = !isempty(m_lhs) || !isempty(m_rhs)
         is_free = e_lhs in free_enz_set || e_rhs in free_enz_set
         base = has_met ? (is_free ? 0 : 10) : 20
         if eq_steps[j]
-            priority[step_cols[j]] = (is_free && has_met) ? -1 : base
-        else kf, kr = step_cols[j]; priority[kf] = base; priority[kr] = base + 1; end
+            s = Symbol("K$j")
+            haskey(sym_col, s) && (priority[sym_col[s]] = (is_free && has_met) ? -1 : base)
+        else
+            for (suffix, offset) in (("f", 0), ("r", 1))
+                s = Symbol("k$(j)$suffix")
+                haskey(sym_col, s) && (priority[sym_col[s]] = base + offset)
+            end
+        end
     end
 
     # Gaussian elimination with priority pivoting
@@ -177,19 +183,29 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
 
     dep_exprs = Dict{Symbol, Expr}()
     for (i, pcol) in enumerate(pivot_cols)
-        factors = [(col_sym[c], -wA[i, c]) for c in 1:n_vars if c != pcol && wA[i, c] != 0]
-        dep_exprs[col_sym[pcol]] = build_power_expr(wrhs[i], factors)
+        factors = [(all_params[c], -wA[i, c]) for c in 1:n_vars if c != pcol && wA[i, c] != 0]
+        dep_exprs[all_params[pcol]] = build_power_expr(wrhs[i], factors)
     end
     dep_set = Set(keys(dep_exprs))
     return dep_exprs, Tuple(p for p in all_params if p ∉ dep_set)
 end
 
 function _constraint_expr_strings(M::Type{<:EnzymeMechanism})
+    m = M()
+    lines = String[]
+    # User constraints first
+    for (target, coeff, factors) in param_constraints(m)
+        push!(lines, _user_constraint_to_string(target, coeff, factors))
+    end
+    # Then HW constraints
     dep_exprs, _ = _dependent_param_exprs(M)
-    isempty(dep_exprs) && return String[]
-    subs = Dict(K => :(1 / $K) for K in _binding_K_symbols(M))
-    ["$sym = $(string(isempty(subs) ? expr : substitute_params_expr(expr, subs)))"
-     for (sym, expr) in sort(collect(dep_exprs); by=p -> string(p[1]))]
+    if !isempty(dep_exprs)
+        subs = Dict(K => :(1 / $K) for K in _binding_K_symbols(M))
+        for (sym, expr) in sort(collect(dep_exprs); by=p -> string(p[1]))
+            push!(lines, "$sym = $(string(isempty(subs) ? expr : substitute_params_expr(expr, subs)))")
+        end
+    end
+    lines
 end
 
 # ─── Preamble Building Helpers ───────────────────────────────────────────────
@@ -199,9 +215,11 @@ function _destructuring_expr(syms, source::Symbol)
     Expr(:(=), Expr(:tuple, Expr(:parameters, syms...)), source)
 end
 
-"""Collect sorted raw parameter symbols (k1f, k1r, K1, ..., E_total) for a mechanism."""
+"""Collect sorted raw parameter symbols (k1f, k1r, K1, ..., E_total) for a mechanism, excluding constrained params."""
 function _sorted_raw_param_symbols(M::Type{<:EnzymeMechanism})
-    Tuple((_raw_param_symbols(equilibrium_steps(M()))..., :E_total))
+    m = M()
+    constrained = Set(c[1] for c in param_constraints(m))
+    Tuple(p for p in (_raw_param_symbols(equilibrium_steps(m))..., :E_total) if p ∉ constrained)
 end
 
 """Collect sorted concentration symbols for a mechanism."""
