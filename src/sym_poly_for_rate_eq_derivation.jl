@@ -129,3 +129,33 @@ end
 substitute_params_expr(expr, subs::Dict{Symbol, Expr}) =
     expr isa Symbol ? get(subs, expr, expr) :
     expr isa Expr ? Expr(expr.head, Any[substitute_params_expr(a, subs) for a in expr.args]...) : expr
+
+# ─── Parameter constraint substitution in Poly ───────────────────────────────
+
+"""
+Substitute `target` symbol in polynomial `p` with `coeff * prod(sym^exp for (sym,exp) in replacement)`.
+"""
+function _substitute_sym_in_poly(p::Poly, target::Symbol, coeff::Int, replacement)
+    result = Poly()
+    for (mono, val) in p
+        idx = findfirst(pair -> pair.first == target, mono)
+        if idx === nothing
+            result[mono] = get(result, mono, 0) + val
+        else
+            e = mono[idx].second
+            base = Mono([pair for (i, pair) in enumerate(mono) if i != idx])
+            repl = sort!(Mono([sym => exp * e for (sym, exp) in replacement]); by=first)
+            final = _mono_mul(base, repl)
+            result[final] = get(result, final, 0) + val * coeff^e
+        end
+    end
+    filter!(p -> p.second != 0, result)
+end
+
+"""Apply all parameter constraints sequentially to a polynomial."""
+function _apply_param_constraints(p::Poly, constraints)
+    for (target, coeff, factors) in constraints
+        p = _substitute_sym_in_poly(p, target, coeff, factors)
+    end
+    p
+end

@@ -127,4 +127,103 @@
         )
         @test_throws ErrorException EnzymeMechanism(species, rxns, (false, false))
     end
+
+    @testset "Constraint DSL parsing" begin
+        # Simple K constraint via DSL
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] ⇌ [EA]
+                [EA] <--> [EP]
+                [EP] ⇌ [E, P]
+            end
+            constraints: begin
+                K3 = K1
+            end
+        end
+        @test m isa EnzymeMechanism
+        pc = EnzymeRates.param_constraints(m)
+        @test length(pc) == 1
+        @test pc[1][1] == :K3  # target
+        @test pc[1][2] == 1    # coeff
+        @test pc[1][3] == ((:K1, 1),)  # factors
+
+        # k constraint via DSL
+        m2 = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] <--> [EP]
+                [EP] <--> [E, P]
+            end
+            constraints: begin
+                k3r = k1r
+            end
+        end
+        pc2 = EnzymeRates.param_constraints(m2)
+        @test length(pc2) == 1
+        @test pc2[1][1] == :k3r
+
+        # Coefficient constraint
+        m3 = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] <--> [EP]
+                [EP] <--> [E, P]
+            end
+            constraints: begin
+                k3r = 2 * k1r
+            end
+        end
+        pc3 = EnzymeRates.param_constraints(m3)
+        @test pc3[1][2] == 2  # coeff = 2
+
+        # Division constraint
+        m4 = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] <--> [EP]
+                [EP] <--> [E, P]
+            end
+            constraints: begin
+                k3r = k1f * k2f / k2r
+            end
+        end
+        pc4 = EnzymeRates.param_constraints(m4)
+        @test pc4[1][1] == :k3r
+        @test Set((sym, exp) for (sym, exp) in pc4[1][3]) == Set([(:k1f, 1), (:k2f, 1), (:k2r, -1)])
+    end
+
+    @testset "No constraints backward compat" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                enzymes:    E, ES[C]
+            end
+            steps: begin
+                [E, S] <--> [ES]
+                [ES] <--> [E, P]
+            end
+        end
+        @test EnzymeRates.param_constraints(m) == ()
+    end
 end

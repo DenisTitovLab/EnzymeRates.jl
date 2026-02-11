@@ -13,8 +13,9 @@ function parameters end
 
 parameters(m::EnzymeMechanism) = parameters(m, HaldaneWegscheider)
 
-@generated function parameters(::EnzymeMechanism{Species, Reactions, EqSteps}, ::RawMode) where {Species, Reactions, EqSteps}
-    (_raw_param_symbols(EqSteps)..., :E_total)
+@generated function parameters(::EnzymeMechanism{Species, Reactions, EqSteps, PC}, ::RawMode) where {Species, Reactions, EqSteps, PC}
+    constrained = Set(c[1] for c in PC)
+    Tuple(p for p in (_raw_param_symbols(EqSteps)..., :E_total) if p ∉ constrained)
 end
 
 @generated function parameters(::M, ::HaldaneWegscheiderMode) where {M <: EnzymeMechanism}
@@ -189,6 +190,11 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         denom = poly_mul(denom, poly_const(abs_nu))
     end
 
+    # Apply user-defined parameter constraints
+    constraints = param_constraints(M())
+    num = _apply_param_constraints(num, constraints)
+    denom = _apply_param_constraints(denom, constraints)
+
     num, denom
 end
 
@@ -283,9 +289,10 @@ Returns `(expr, all_params, sorted_concs)`.
 function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
     num, den = _raw_symbolic_rate_polys(M)
     m = M()
-    param_syms = Set{Symbol}(_raw_param_symbols(equilibrium_steps(m)))
+    constrained = Set(c[1] for c in param_constraints(m))
+    param_syms = Set{Symbol}(p for p in _raw_param_symbols(equilibrium_steps(m)) if p ∉ constrained)
     conc_syms = Set{Symbol}(mt[1] for mt in metabolites(m))
-    inv_set = Set(_binding_K_symbols(M))
+    inv_set = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
     expr = to_rate_expr(num, den, param_syms, conc_syms, inv_set)
     all_params = _sorted_raw_param_symbols(M)
     sorted_concs = _sorted_conc_symbols(M)
@@ -326,16 +333,22 @@ rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, HaldaneWegsch
 function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
     num, den = _raw_symbolic_rate_polys(M)
     m = M()
-    ps = Set{Symbol}(_raw_param_symbols(equilibrium_steps(m)))
+    constrained = Set(c[1] for c in param_constraints(m))
+    ps = Set{Symbol}(p for p in _raw_param_symbols(equilibrium_steps(m)) if p ∉ constrained)
     cs = Set{Symbol}(mt[1] for mt in metabolites(m))
-    inv = Set(_binding_K_symbols(M))
+    inv = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
     "v = E_total * ($(string(_poly_to_expr(num, ps, cs, inv)))) / ($(string(_poly_to_expr(den, ps, cs, inv))))"
 end
 
 function rate_equation_string(::M, ::RawMode) where {M<:EnzymeMechanism}
-    join(["(; $(join(_sorted_raw_param_symbols(M), ", "))) = params",
-          "(; $(join(_sorted_conc_symbols(M), ", "))) = concs",
-          _format_rate_equation_core(M)], "\n")
+    lines = ["(; $(join(_sorted_raw_param_symbols(M), ", "))) = params",
+             "(; $(join(_sorted_conc_symbols(M), ", "))) = concs"]
+    pc = param_constraints(M())
+    for (target, coeff, factors) in pc
+        push!(lines, _user_constraint_to_string(target, coeff, factors))
+    end
+    push!(lines, _format_rate_equation_core(M))
+    join(lines, "\n")
 end
 
 function rate_equation_string(::M, ::HaldaneWegscheiderMode) where {M<:EnzymeMechanism}

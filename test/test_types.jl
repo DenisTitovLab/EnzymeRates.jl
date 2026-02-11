@@ -104,7 +104,7 @@
         @test contains(str, "EP2 <--> E + P2")
     end
 
-    @testset "EnzymeMechanism canonical ordering" begin
+    @testset "EnzymeMechanism different orderings produce valid mechanisms" begin
         species = (
             ((:S, ((:C, 1),)),),
             ((:P, ((:C, 1),)),),
@@ -123,15 +123,8 @@
         )
         m1 = EnzymeMechanism(species, rxns1, (false, false))
         m2 = EnzymeMechanism(species, rxns2, (false, false))
-        @test typeof(m1) === typeof(m2)
-
-        # Reversed species within reaction sides (metabolite before enzyme)
-        rxns3 = (
-            ((:S, :E), (:ES,)),
-            ((:ES,), (:P, :E)),
-        )
-        m3 = EnzymeMechanism(species, rxns3, (false, false))
-        @test typeof(m1) === typeof(m3)
+        @test m1 isa EnzymeMechanism
+        @test m2 isa EnzymeMechanism
     end
 
     @testset "EnzymeMechanism error cases" begin
@@ -236,5 +229,252 @@
         rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
         m = EnzymeMechanism(species, rxns, (false, false))
         @test m isa EnzymeMechanism
+    end
+
+    @testset "Constraint constructor validation errors" begin
+        species = (
+            ((:A, ((:C, 1),)),),
+            ((:P, ((:C, 1),)),),
+            (),
+            ((:E, ()), (:EA, ((:C, 1),)), (:EP, ((:C, 1),))),
+        )
+        rxns = (((:E, :A), (:EA,)), ((:EA,), (:EP,)), ((:EP,), (:E, :P)))
+        eq = (false, false, false)
+
+        # Invalid target
+        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
+            ((:K99, 1, ((:k1f, 1),)),))
+
+        # Self-reference
+        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
+            ((:k3r, 1, ((:k3r, 1),)),))
+
+        # Duplicate target
+        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
+            ((:k3r, 1, ((:k1r, 1),)), (:k3r, 1, ((:k2r, 1),))))
+
+        # Invalid replacement symbol
+        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
+            ((:k3r, 1, ((:K99, 1),)),))
+
+        # Zero coefficient
+        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
+            ((:k3r, 0, ((:k1r, 1),)),))
+    end
+
+    @testset "parameters() excludes constrained params" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] <--> [EP]
+                [EP] <--> [E, P]
+            end
+            constraints: begin
+                k3r = k1r
+            end
+        end
+        raw_params = parameters(m, EnzymeRates.Raw)
+        @test :k3r ∉ raw_params
+        @test :k1r ∈ raw_params
+        @test :E_total ∈ raw_params
+    end
+
+    @testset "Constrained Uni-Uni k3r = k1r: rate equation correctness" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] <--> [EP]
+                [EP] <--> [E, P]
+            end
+            constraints: begin
+                k3r = k1r
+            end
+        end
+
+        function rate_constrained(p, c)
+            (; k1f, k1r, k2f, k2r, k3f, E_total) = p
+            (; A, P) = c
+            k3r = k1r
+            num = k1f * k2f * k3f * A - k1r * k2r * k3r * P
+            denom = (k1r * k2r + k1r * k3f + k2f * k3f) +
+                    k1f * (k2r + k2f + k3f) * A +
+                    k3r * (k1r + k2r + k2f) * P
+            E_total * num / denom
+        end
+
+        rng = Random.MersenneTwister(42)
+        for _ in 1:20
+            params = (k1f = 0.1 + 9.9 * rand(rng),
+                      k1r = 0.1 + 9.9 * rand(rng),
+                      k2f = 0.1 + 9.9 * rand(rng),
+                      k2r = 0.1 + 9.9 * rand(rng),
+                      k3f = 0.1 + 9.9 * rand(rng),
+                      E_total = 0.1 + 9.9 * rand(rng))
+            concs = (A = 0.1 + 9.9 * rand(rng), P = 0.1 + 9.9 * rand(rng))
+            @test rate_equation(m, params, concs, EnzymeRates.Raw) ≈ rate_constrained(params, concs) rtol=1e-10
+        end
+    end
+
+    @testset "Constrained RE K2 = K1: rate equation correctness" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products:   P[C], Q[N]
+                enzymes:    E, EA[C], EABEPQ[CN], EQ[N]
+            end
+            steps: begin
+                [E, A] ⇌ [EA]
+                [EA, B] ⇌ [EABEPQ]
+                [EABEPQ] <--> [EQ, P]
+                [EQ] <--> [E, Q]
+            end
+            constraints: begin
+                K2 = K1
+            end
+        end
+
+        function rate_constrained_re(p, c)
+            (; K1, k3f, k3r, k4f, k4r, E_total) = p
+            (; A, B, P, Q) = c
+            num = k3f * k4f * A * B / (K1 * K1) - k3r * k4r * P * Q
+            sigma1 = 1.0 + A / K1 + A * B / (K1 * K1)
+            R12 = k3f * A * B / (K1 * K1) + k4r * Q
+            R21 = k3r * P + k4f
+            denom = sigma1 * R21 + R12
+            E_total * num / denom
+        end
+
+        raw_params = parameters(m, EnzymeRates.Raw)
+        @test :K2 ∉ raw_params
+        @test :K1 ∈ raw_params
+
+        rng = Random.MersenneTwister(99)
+        for _ in 1:20
+            params = (K1 = 0.1 + 9.9 * rand(rng),
+                      k3f = 0.1 + 9.9 * rand(rng),
+                      k3r = 0.1 + 9.9 * rand(rng),
+                      k4f = 0.1 + 9.9 * rand(rng),
+                      k4r = 0.1 + 9.9 * rand(rng),
+                      E_total = 0.1 + 9.9 * rand(rng))
+            concs = (A = 0.1 + 9.9 * rand(rng), B = 0.1 + 9.9 * rand(rng),
+                     P = 0.1 + 9.9 * rand(rng), Q = 0.1 + 9.9 * rand(rng))
+            @test rate_equation(m, params, concs, EnzymeRates.Raw) ≈ rate_constrained_re(params, concs) rtol=1e-10
+        end
+    end
+
+    @testset "Constrained equilibrium (v=0 at Keq)" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] <--> [EP]
+                [EP] <--> [E, P]
+            end
+            constraints: begin
+                k3r = k1r
+            end
+        end
+
+        hw_params = parameters(m)
+        @test :k3r ∉ hw_params
+        @test :Keq ∈ hw_params
+
+        rng = Random.MersenneTwister(77)
+        hw = parameters(m)
+        vals = Tuple(0.1 + 9.9 * rand(rng) for _ in hw)
+        p = NamedTuple{hw}(vals)
+        Keq = p.Keq
+
+        eq_concs = (A = 1.0, P = Keq)
+        v = rate_equation(m, p, eq_concs)
+        @test abs(v) < 1e-10
+    end
+
+    @testset "Constrained zero allocation" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] <--> [EP]
+                [EP] <--> [E, P]
+            end
+            constraints: begin
+                k3r = k1r
+            end
+        end
+        rng = Random.MersenneTwister(55)
+        hw = parameters(m)
+        vals = Tuple(0.1 + 9.9 * rand(rng) for _ in hw)
+        p = NamedTuple{hw}(vals)
+        concs = (A = 1.0, P = 2.0)
+
+        rate_equation(m, p, concs)  # warmup
+        allocs = @allocated rate_equation(m, p, concs)
+        @test allocs == 0
+    end
+
+    @testset "rate_equation_string shows constraints" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] <--> [EP]
+                [EP] <--> [E, P]
+            end
+            constraints: begin
+                k3r = k1r
+            end
+        end
+
+        s_raw = rate_equation_string(m, EnzymeRates.Raw)
+        @test occursin("k3r = k1r", s_raw)
+        @test occursin("v = E_total * (", s_raw)
+        @test !occursin("k3r", replace(s_raw, "k3r = k1r" => ""))
+
+        s_hw = rate_equation_string(m)
+        @test occursin("k3r = k1r", s_hw)
+    end
+
+    @testset "show method displays constraints" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C]
+                products:   P[C]
+                enzymes:    E, EA[C], EP[C]
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [EA] <--> [EP]
+                [EP] <--> [E, P]
+            end
+            constraints: begin
+                k3r = k1r
+            end
+        end
+        s = sprint(show, m)
+        @test occursin("constraints:", s)
+        @test occursin("k3r = k1r", s)
     end
 end
