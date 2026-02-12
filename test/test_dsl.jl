@@ -5,8 +5,8 @@
             products:   P[C]
         end
         @test spec isa EnzymeReaction
-        @test EnzymeRates.substrates(spec) == ((:S, ((:C, 1),)),)
-        @test EnzymeRates.products(spec) == ((:P, ((:C, 1),)),)
+        @test EnzymeRates.substrates(spec) == ((:S, ((:C, 1),), 1),)
+        @test EnzymeRates.products(spec) == ((:P, ((:C, 1),), 1),)
         @test EnzymeRates.regulators(spec) == ()
 
         spec2 = @enzyme_reaction begin

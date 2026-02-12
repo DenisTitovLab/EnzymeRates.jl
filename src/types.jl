@@ -3,6 +3,15 @@ using Graphs
 """Sort species tuples alphabetically by name (first element)."""
 _sort_species(t::Tuple) = Tuple(sort(collect(t); by = s -> s[1]))
 
+"""Normalize species tuples to 3-element `(name, atoms, max_sites)`, defaulting max_sites to 1."""
+function _normalize_species_with_sites(t::Tuple)
+    Tuple(begin
+        length(s) == 2 ? (s[1], s[2], 1) :
+        length(s) == 3 ? s :
+        error("Species tuple must have 2 or 3 elements, got $(length(s))")
+    end for s in t)
+end
+
 """
     AbstractEnzymeReaction
 
@@ -16,13 +25,21 @@ abstract type AbstractEnzymeReaction end
 Singleton type encoding an enzyme reaction specification in type parameters.
 
 Each of `Substrates`, `Products`, `Regulators` is a tuple of
-`(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+`(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}}, max_sites::Int)`.
+For backward compatibility, 2-element `(name, atoms)` tuples are auto-normalized
+to 3-element with `max_sites=1`.
 """
 struct EnzymeReaction{Substrates, Products, Regulators} <: AbstractEnzymeReaction end
 
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
+    subs = _normalize_species_with_sites(subs)
+    prods = _normalize_species_with_sites(prods)
+    regs = _normalize_species_with_sites(regs)
+    for group in (subs, prods, regs), s in group
+        s[3] >= 1 || error("max_sites must be ≥ 1, got $(s[3]) for $(s[1])")
+    end
     subs_names = [s[1] for s in subs]
     prods_names = [s[1] for s in prods]
     length(subs_names) != length(Set(subs_names)) && error("Duplicate substrate names")
@@ -236,6 +253,21 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}
         regs_str = join([string(name) for (name, _) in R], ", ")
         print(io, " | regulators: ", regs_str)
     end
+    ms_parts = String[]
+    for group in (S, P, R), s in group
+        length(s) >= 3 && s[3] > 1 && push!(ms_parts, "$(s[1])=$(s[3])")
+    end
+    if !isempty(ms_parts)
+        print(io, " | max_sites: ", join(ms_parts, ", "))
+    end
+end
+
+"""Return the max binding sites for a metabolite in the reaction."""
+function max_binding_sites(::EnzymeReaction{S,P,R}, name::Symbol) where {S,P,R}
+    for group in (S, P, R), s in group
+        s[1] == name && return (length(s) >= 3 ? s[3] : 1)
+    end
+    error("Metabolite $name not found in reaction")
 end
 
 function Base.show(io::IO, m::EnzymeMechanism{Species, Reactions, EqSteps, PC}) where {Species, Reactions, EqSteps, PC}
