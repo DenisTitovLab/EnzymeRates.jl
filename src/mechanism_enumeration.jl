@@ -1,7 +1,8 @@
 # ─── Enzyme Form Enumeration ─────────────────────────────────────────────────
 #
-# Given an EnzymeReaction with per-metabolite max binding sites (occupancy),
-# enumerate all possible enzyme forms. Each binding site is distinguishable.
+# Given an EnzymeReaction with per-metabolite max binding sites,
+# enumerate all possible enzyme forms via unified Cartesian product
+# over per-site options (standard + ping-pong residuals).
 
 """
     SiteState
@@ -31,311 +32,101 @@ struct EnzymeFormSpec
     sites::Vector{SiteState}
 end
 
-function Base.show(io::IO, f::EnzymeFormSpec)
-    print(io, "EnzymeFormSpec(", f.name, ")")
-end
-
-"""Total atoms of an enzyme form, computed by summing across all occupied sites."""
-function total_atoms(form::EnzymeFormSpec)
-    result = Dict{Symbol, Int}()
-    for site in form.sites
-        site.atoms === nothing && continue
-        for (atom, count) in site.atoms
-            result[atom] = get(result, atom, 0) + count
-        end
-    end
-    sort([k => v for (k, v) in result]; by=first)
-end
-
-# ─── Internal Helpers ────────────────────────────────────────────────────────
-
-"""Template for a binding site: metabolite, index, and full atom content when occupied."""
-struct _SiteTemplate
-    metabolite::Symbol
-    index::Int
-    full_atoms::Vector{Pair{Symbol,Int}}
-end
-
 """
-Build the ordered list of site templates for a reaction.
+    enumerate_enzyme_forms(reaction::EnzymeReaction)
 
-Site order:
-1. Core sites: 1st site for each substrate (sorted), then 1st site for each product (sorted)
-2. Extra sites: 2nd+ sites for substrates (sorted), then 2nd+ sites for products (sorted)
-3. Regulator sites: all regulator sites (sorted)
+Enumerate all possible enzyme forms for the given reaction.
+
+Each binding site is distinguishable. Forms include standard forms (each site
+independently empty or fully occupied) and ping-pong intermediates (sites with
+partial residual atom content after product release).
+
+**Exclusion rule**: Forms where all substrate sites are fully bound while any
+product site is occupied (or vice versa) are excluded as physically impossible.
+Ping-pong residuals count as "occupied" but not "fully bound."
+
+Site order: core substrates, core products, extra substrate sites, extra product
+sites, regulator sites.
+
+Returns a `Vector{EnzymeFormSpec}`.
 """
-function _build_site_list(S, P, R)
-    templates = _SiteTemplate[]
+function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
+    fatoms(spec) = sort([a => c for (a, c) in spec[2]]; by=first)
+    nsites(spec) = length(spec) >= 3 ? spec[3] : 1
+    astr(v) = join(string(s) * (c > 1 ? string(c) : "") for (s, c) in v)
 
-    _make_atoms(spec) = sort([a => c for (a, c) in spec[2]]; by=first)
-    _max_sites(spec) = length(spec) >= 3 ? spec[3] : 1
-
-    # Core sites: 1st site per substrate, then 1st site per product
-    for s in S
-        push!(templates, _SiteTemplate(s[1], 1, _make_atoms(s)))
-    end
-    for p in P
-        push!(templates, _SiteTemplate(p[1], 1, _make_atoms(p)))
-    end
-
-    # Extra sites: 2nd+ for substrates, then products
-    for s in S
-        atoms = _make_atoms(s)
-        for i in 2:_max_sites(s)
-            push!(templates, _SiteTemplate(s[1], i, atoms))
-        end
-    end
-    for p in P
-        atoms = _make_atoms(p)
-        for i in 2:_max_sites(p)
-            push!(templates, _SiteTemplate(p[1], i, atoms))
-        end
-    end
-
-    # Regulator sites
-    for r in R
-        atoms = _make_atoms(r)
-        for i in 1:_max_sites(r)
-            push!(templates, _SiteTemplate(r[1], i, atoms))
-        end
-    end
-
-    return templates
-end
-
-"""Format atoms as a string like `CX` or `C2N`."""
-function _atoms_to_string(atoms::Vector{Pair{Symbol,Int}})
-    io = IOBuffer()
-    for (sym, count) in sort(atoms; by=first)
-        print(io, sym)
-        count > 1 && print(io, count)
-    end
-    String(take!(io))
-end
-
-"""Compute the canonical name for an enzyme form from its site contents."""
-function _form_name(templates, contents)
-    parts = ["E"]
-    for (t, content) in zip(templates, contents)
-        if content === nothing
-            push!(parts, "0")
-        elseif content == t.full_atoms
-            push!(parts, string(t.metabolite))
-        else
-            push!(parts, _atoms_to_string(content))
-        end
-    end
-    Symbol(join(parts, "_"))
-end
-
-# ─── Standard Form Enumeration ───────────────────────────────────────────────
-
-"""Enumerate all standard forms (each site either empty or fully occupied by its metabolite)."""
-function _enumerate_standard_forms(templates, max_total_bound)
-    n = length(templates)
-    forms = EnzymeFormSpec[]
-
-    for mask in 0:(2^n - 1)
-        count_ones(mask) > max_total_bound && continue
-
-        contents = Vector{Union{Nothing, Vector{Pair{Symbol,Int}}}}(undef, n)
-        sites = Vector{SiteState}(undef, n)
-        for i in 1:n
-            occupied = (mask >> (i-1)) & 1 == 1
-            c = occupied ? copy(templates[i].full_atoms) : nothing
-            contents[i] = c
-            sites[i] = SiteState(templates[i].metabolite, templates[i].index, c)
-        end
-
-        name = _form_name(templates, contents)
-        push!(forms, EnzymeFormSpec(name, sites))
-    end
-
-    return forms
-end
-
-# ─── Ping-Pong Residual Computation ─────────────────────────────────────────
-
-"""
-Compute valid ping-pong residual atom contents for substrate sites.
-
-For each substrate, find partial atom contents that could remain in its site
-after releasing one or more products (whose combined atoms are a proper subset
-of the substrate's atoms).
-
-Returns `Dict{Symbol, Vector{Vector{Pair{Symbol,Int}}}}` mapping substrate name
-to a list of valid residual atom vectors.
-"""
-function _compute_ping_pong_residuals(S, P)
+    # 1. Ping-pong residuals: partial atom contents remaining after product release
+    prod_atoms_list = [Dict{Symbol,Int}(a => c for (a, c) in p[2])
+                       for p in P if !isempty(p[2])]
     residuals = Dict{Symbol, Vector{Vector{Pair{Symbol,Int}}}}()
-
     for sub_spec in S
-        sub_name = sub_spec[1]
-        sub_atoms_raw = sub_spec[2]
-        isempty(sub_atoms_raw) && continue
-        sub_atoms = Dict{Symbol,Int}(a => c for (a, c) in sub_atoms_raw)
-
-        prod_atoms_list = Dict{Symbol,Int}[]
-        for prod_spec in P
-            prod_atoms_raw = prod_spec[2]
-            isempty(prod_atoms_raw) && continue
-            push!(prod_atoms_list, Dict{Symbol,Int}(a => c for (a, c) in prod_atoms_raw))
-        end
+        isempty(sub_spec[2]) && continue
         isempty(prod_atoms_list) && continue
-
+        sub_atoms = Dict{Symbol,Int}(a => c for (a, c) in sub_spec[2])
         sub_residuals = Vector{Pair{Symbol,Int}}[]
-
         for mask in 1:(2^length(prod_atoms_list) - 1)
-            combined = Dict{Symbol,Int}()
-            for (i, pa) in enumerate(prod_atoms_list)
-                if (mask >> (i-1)) & 1 == 1
-                    for (atom, count) in pa
-                        combined[atom] = get(combined, atom, 0) + count
-                    end
-                end
-            end
-
-            # Check combined atoms are a subset of substrate atoms
-            valid = true
-            residual = Dict{Symbol,Int}()
-            for (atom, count) in sub_atoms
-                diff = count - get(combined, atom, 0)
-                if diff < 0
-                    valid = false
-                    break
-                elseif diff > 0
-                    residual[atom] = diff
-                end
-            end
-            if valid
-                for atom in keys(combined)
-                    if !haskey(sub_atoms, atom)
-                        valid = false
-                        break
-                    end
-                end
-            end
-
-            # Residual must be non-empty (not fully released) and differ from full substrate
-            if valid && !isempty(residual) && residual != sub_atoms
+            combined = reduce(mergewith(+),
+                (prod_atoms_list[i] for i in 1:length(prod_atoms_list) if (mask >> (i-1)) & 1 == 1))
+            all(get(sub_atoms, atom, 0) >= count for (atom, count) in combined) || continue
+            residual = Dict{Symbol,Int}(atom => count - get(combined, atom, 0)
+                                         for (atom, count) in sub_atoms
+                                         if count > get(combined, atom, 0))
+            if !isempty(residual) && residual != sub_atoms
                 r = sort([k => v for (k, v) in residual]; by=first)
                 r ∉ sub_residuals && push!(sub_residuals, r)
             end
         end
-
-        if !isempty(sub_residuals)
-            residuals[sub_name] = sub_residuals
-        end
+        !isempty(sub_residuals) && (residuals[sub_spec[1]] = sub_residuals)
     end
 
-    return residuals
-end
+    # 2. Build per-site data with pre-computed (content, label) options
+    mets = Symbol[]; idxs = Int[]; fulls = Vector{Pair{Symbol,Int}}[]
+    roles = Symbol[]  # :sub, :prod, :reg
+    opts = Vector{Tuple{Union{Nothing, Vector{Pair{Symbol,Int}}}, String}}[]
+    function add!(met, idx, full, role)
+        push!(mets, met); push!(idxs, idx); push!(fulls, full); push!(roles, role)
+        site_opts = Tuple{Union{Nothing, Vector{Pair{Symbol,Int}}}, String}[
+            (nothing, "0"), (full, string(met))]
+        for r in get(residuals, met, Vector{Pair{Symbol,Int}}[])
+            push!(site_opts, (r, astr(r)))
+        end
+        push!(opts, site_opts)
+    end
+    for s in S; add!(s[1], 1, fatoms(s), :sub); end
+    for p in P; add!(p[1], 1, fatoms(p), :prod); end
+    for s in S; for i in 2:nsites(s); add!(s[1], i, fatoms(s), :sub); end; end
+    for p in P; for i in 2:nsites(p); add!(p[1], i, fatoms(p), :prod); end; end
+    for r in R; for i in 1:nsites(r); add!(r[1], i, fatoms(r), :reg); end; end
 
-# ─── Ping-Pong Form Enumeration ─────────────────────────────────────────────
-
-"""
-Enumerate ping-pong intermediate forms.
-
-For each site that can have a partial (residual) atom content, enumerate all
-combinations of standard occupancy on the other sites.
-"""
-function _enumerate_ping_pong_forms(templates, residuals, max_total_bound)
-    n = length(templates)
+    # 3. Enumerate Cartesian product with exclusion filter
+    #    Uses flat modular-arithmetic indexing to avoid Iterators.product splat,
+    #    which would create 2^n specialized tuple types and explode compilation.
+    n = length(mets)
     forms = EnzymeFormSpec[]
-    seen_names = Set{Symbol}()
-
-    for (pp_idx, t) in enumerate(templates)
-        haskey(residuals, t.metabolite) || continue
-
-        other_indices = [j for j in 1:n if j != pp_idx]
-        n_other = length(other_indices)
-
-        for residual_atoms in residuals[t.metabolite]
-            for mask in 0:(2^n_other - 1)
-                n_bound = count_ones(mask) + 1  # +1 for the partial site
-                n_bound > max_total_bound && continue
-
-                contents = Vector{Union{Nothing, Vector{Pair{Symbol,Int}}}}(undef, n)
-                sites = Vector{SiteState}(undef, n)
-
-                contents[pp_idx] = copy(residual_atoms)
-                sites[pp_idx] = SiteState(t.metabolite, t.index, copy(residual_atoms))
-
-                for (k, j) in enumerate(other_indices)
-                    occupied = (mask >> (k-1)) & 1 == 1
-                    c = occupied ? copy(templates[j].full_atoms) : nothing
-                    contents[j] = c
-                    sites[j] = SiteState(templates[j].metabolite, templates[j].index, c)
-                end
-
-                name = _form_name(templates, contents)
-                if name ∉ seen_names
-                    push!(seen_names, name)
-                    push!(forms, EnzymeFormSpec(name, sites))
-                end
+    total = prod(length(o) for o in opts)
+    name_parts = Vector{String}(undef, n)
+    sites = Vector{SiteState}(undef, n)
+    for idx in 0:total-1
+        rem = idx
+        all_sub_full = true; all_prod_full = true
+        any_sub_occ = false; any_prod_occ = false
+        for i in n:-1:1
+            content, label = opts[i][rem % length(opts[i]) + 1]
+            rem ÷= length(opts[i])
+            name_parts[i] = label
+            sites[i] = SiteState(mets[i], idxs[i],
+                                 content === nothing ? nothing : copy(content))
+            if roles[i] == :sub
+                content != fulls[i] && (all_sub_full = false)
+                content !== nothing && (any_sub_occ = true)
+            elseif roles[i] == :prod
+                content != fulls[i] && (all_prod_full = false)
+                content !== nothing && (any_prod_occ = true)
             end
         end
-    end
-
-    return forms
-end
-
-# ─── Main API ────────────────────────────────────────────────────────────────
-
-"""
-    enumerate_enzyme_forms(reaction::EnzymeReaction; max_total_bound=4, max_ping_pong_intermediates=2)
-
-Enumerate all possible enzyme forms for the given reaction.
-
-Each binding site is distinguishable (site 1 and site 2 for the same metabolite
-are distinct). Forms include:
-
-- **Standard forms**: each site independently empty or occupied by its full metabolite
-- **Ping-pong intermediates**: sites with partial atom content (residual atoms
-  remaining after product release)
-
-# Arguments
-- `reaction`: The enzyme reaction specification (with per-metabolite max binding sites)
-- `max_total_bound`: Maximum number of simultaneously occupied sites (default 4)
-- `max_ping_pong_intermediates`: Maximum number of sites that can simultaneously
-  have partial (residual) atom content (default 2). Set to 0 to disable ping-pong
-  intermediate enumeration entirely.
-
-# Returns
-A `Vector{EnzymeFormSpec}` of all valid enzyme forms.
-"""
-function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R};
-    max_total_bound::Int = 4,
-    max_ping_pong_intermediates::Int = 2) where {S,P,R}
-
-    templates = _build_site_list(S, P, R)
-
-    # Standard forms
-    forms = _enumerate_standard_forms(templates, max_total_bound)
-    seen_names = Set{Symbol}(f.name for f in forms)
-
-    # Ping-pong intermediate forms
-    if max_ping_pong_intermediates > 0
-        has_atoms = any(!isempty(s[2]) for group in (S, P) for s in group)
-        if !has_atoms
-            n_subs = length(S)
-            n_prods = length(P)
-            if n_subs >= 2 || n_prods >= 2
-                @warn "Reaction has no atom annotations; ping-pong intermediates cannot be determined. " *
-                      "Add atom annotations (e.g., A[CX]) to enable ping-pong intermediate enumeration."
-            end
-        else
-            pp_residuals = _compute_ping_pong_residuals(S, P)
-            if !isempty(pp_residuals)
-                pp_forms = _enumerate_ping_pong_forms(templates, pp_residuals, max_total_bound)
-                for f in pp_forms
-                    if f.name ∉ seen_names
-                        push!(seen_names, f.name)
-                        push!(forms, f)
-                    end
-                end
-            end
-        end
+        (all_sub_full && any_prod_occ) && continue
+        (all_prod_full && any_sub_occ) && continue
+        push!(forms, EnzymeFormSpec(Symbol("E_" * join(name_parts, "_")), sites))
     end
 
     return forms

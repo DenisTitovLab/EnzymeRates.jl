@@ -6,32 +6,27 @@
         end
         forms = enumerate_enzyme_forms(r)
         names = Set(f.name for f in forms)
-        # Sites: S₁, P₁ → 2² = 4 standard forms, no ping-pong (same atoms)
-        @test length(forms) == 4
+        # Sites: S₁, P₁ → 2² = 4 minus 1 excluded (E_S_P) = 3
+        @test length(forms) == 3
         @test :E_0_0 ∈ names
         @test :E_S_0 ∈ names
         @test :E_0_P ∈ names
-        @test :E_S_P ∈ names
     end
 
     @testset "Uni-Uni with max_sites(S)=2" begin
         r = @enzyme_reaction begin
-            substrates: S[C]
+            substrates: S[C, 2]
             products:   P[C]
-            max_sites:  S => 2
         end
         forms = enumerate_enzyme_forms(r)
         names = Set(f.name for f in forms)
-        # Sites: S₁, P₁, S₂ → 2³ = 8 standard forms
-        @test length(forms) == 8
+        # Sites: S₁, P₁, S₂ → 2³ = 8 minus 3 excluded = 5
+        @test length(forms) == 5
         @test :E_0_0_0 ∈ names   # free enzyme
         @test :E_S_0_0 ∈ names   # S in core site
-        @test :E_0_P_0 ∈ names   # P in core site
         @test :E_0_0_S ∈ names   # S in extra site
-        @test :E_S_P_0 ∈ names   # S + P in core sites
         @test :E_S_0_S ∈ names   # S in both sites
-        @test :E_0_P_S ∈ names   # S in both sites
-        @test :E_S_P_S ∈ names   # all occupied
+        @test :E_0_P_0 ∈ names   # P in core site
     end
 
     @testset "Bi-Bi default max_sites" begin
@@ -41,12 +36,11 @@
         end
         forms = enumerate_enzyme_forms(r)
         names = Set(f.name for f in forms)
-        # Sites: A₁, B₁, P₁, Q₁ → 2⁴ = 16 standard forms
-        # No ping-pong: A[C]→P[C] leaves empty residual, A[C]→Q[N] atoms don't match
-        @test length(forms) == 16
+        # Sites: A₁, B₁, P₁, Q₁ → 2⁴ = 16 minus 5 excluded = 11
+        @test length(forms) == 11
         @test :E_0_0_0_0 ∈ names  # free enzyme
-        @test :E_A_B_P_Q ∈ names  # all occupied
         @test :E_A_0_0_0 ∈ names  # only A bound
+        @test :E_0_0_P_Q ∈ names  # both products (but not all substrates)
     end
 
     @testset "Ping-Pong Bi-Bi" begin
@@ -56,61 +50,14 @@
         end
         forms = enumerate_enzyme_forms(r)
         names = Set(f.name for f in forms)
-        # Sites: A₁, B₁, P₁, Q₁ → 16 standard + ping-pong intermediates
-        # A[CX] - P[C] = {X} → valid residual for A₁
+        # Sites: A₁, B₁, P₁, Q₁ → 16 standard + 8 ping-pong - 7 excluded = 17
         @test :E_0_0_0_0 ∈ names     # free enzyme
         @test :E_A_0_0_0 ∈ names     # A bound
         @test :E_X_0_0_0 ∈ names     # ping-pong intermediate (residual X in A₁)
         @test :E_X_B_0_0 ∈ names     # intermediate with B bound
         @test :E_X_0_P_0 ∈ names     # intermediate with P bound
         @test :E_X_0_0_Q ∈ names     # intermediate with Q bound
-
-        # Count: 16 standard + 8 ping-pong (A₁={X}, others 2³)
-        @test length(forms) == 24
-    end
-
-    @testset "max_ping_pong_intermediates=0 disables ping-pong" begin
-        r = @enzyme_reaction begin
-            substrates: A[CX], B[N]
-            products:   P[C], Q[NX]
-        end
-        forms_no_pp = enumerate_enzyme_forms(r; max_ping_pong_intermediates=0)
-        names_no_pp = Set(f.name for f in forms_no_pp)
-        # Without ping-pong: 4 sites → 2⁴ = 16 standard forms only
-        @test length(forms_no_pp) == 16
-        @test :E_X_0_0_0 ∉ names_no_pp  # no ping-pong intermediates
-
-        # With ping-pong (default): should have more forms
-        forms_with_pp = enumerate_enzyme_forms(r)
-        @test length(forms_with_pp) > 16
-        @test :E_X_0_0_0 ∈ Set(f.name for f in forms_with_pp)
-    end
-
-    @testset "max_total_bound limits forms" begin
-        r = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
-        end
-        # max_total_bound=1 means at most 1 site occupied
-        forms = enumerate_enzyme_forms(r; max_total_bound=1)
-        names = Set(f.name for f in forms)
-        # Free enzyme + 4 single-bound forms = 5
-        @test length(forms) == 5
-        @test :E_0_0_0_0 ∈ names
-        @test :E_A_0_0_0 ∈ names
-        @test :E_0_B_0_0 ∈ names
-        @test :E_0_0_P_0 ∈ names
-        @test :E_0_0_0_Q ∈ names
-    end
-
-    @testset "max_total_bound=0 gives free enzyme only" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        forms = enumerate_enzyme_forms(r; max_total_bound=0)
-        @test length(forms) == 1
-        @test forms[1].name == :E_0_0
+        @test length(forms) == 17
     end
 
     @testset "Regulators add sites" begin
@@ -121,8 +68,8 @@
         end
         forms = enumerate_enzyme_forms(r)
         names = Set(f.name for f in forms)
-        # Sites: S₁, P₁, I₁ → 2³ = 8
-        @test length(forms) == 8
+        # Sites: S₁, P₁, I₁ → 2³ = 8 minus 2 excluded (E_S_P_0, E_S_P_I) = 6
+        @test length(forms) == 6
         @test :E_0_0_0 ∈ names
         @test :E_S_0_I ∈ names   # S + inhibitor
         @test :E_0_P_I ∈ names   # P + inhibitor
@@ -135,42 +82,11 @@
         end
         forms = enumerate_enzyme_forms(r)
         names = Set(f.name for f in forms)
-        # Sites: S₁, P₁ → 4 standard, no ping-pong (no atoms)
-        @test length(forms) == 4
+        # Sites: S₁, P₁ → 4 minus 1 excluded (E_S_P) = 3
+        @test length(forms) == 3
         @test :E_0_0 ∈ names
         @test :E_S_0 ∈ names
         @test :E_0_P ∈ names
-        @test :E_S_P ∈ names
-    end
-
-    @testset "SiteState and total_atoms" begin
-        r = @enzyme_reaction begin
-            substrates: A[CX], B[N]
-            products:   P[C], Q[NX]
-        end
-        forms = enumerate_enzyme_forms(r)
-        # Find the ping-pong intermediate E_X_0_0_0
-        f = first(f for f in forms if f.name == :E_X_0_0_0)
-        @test total_atoms(f) == [:X => 1]
-
-        # Find full A bound
-        f_a = first(f for f in forms if f.name == :E_A_0_0_0)
-        @test total_atoms(f_a) == [:C => 1, :X => 1]
-
-        # Free enzyme has no atoms
-        f_free = first(f for f in forms if f.name == :E_0_0_0_0)
-        @test total_atoms(f_free) == Pair{Symbol,Int}[]
-    end
-
-    @testset "max_binding_sites accessor" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            max_sites:  S => 2
-        end
-        @test max_binding_sites(r, :S) == 2
-        @test max_binding_sites(r, :P) == 1
-        @test_throws ErrorException max_binding_sites(r, :X)
     end
 
     @testset "Backward compat: 2-element tuples" begin
@@ -179,10 +95,8 @@
             ((:S, ((:C, 1),)),),
             ((:P, ((:C, 1),)),),
         )
-        @test max_binding_sites(r, :S) == 1
-        @test max_binding_sites(r, :P) == 1
         forms = enumerate_enzyme_forms(r)
-        @test length(forms) == 4
+        @test length(forms) == 3
     end
 
     @testset "DSL produces 3-element tuples" begin
@@ -195,9 +109,8 @@
         @test subs[1][3] == 1  # default max_sites
 
         r2 = @enzyme_reaction begin
-            substrates: S[C]
+            substrates: S[C, 3]
             products:   P[C]
-            max_sites:  S => 3
         end
         subs2 = EnzymeRates.substrates(r2)
         @test subs2[1][3] == 3
@@ -205,9 +118,8 @@
 
     @testset "Site ordering" begin
         r = @enzyme_reaction begin
-            substrates: A[C], B[N]
+            substrates: A[C, 2], B[N]
             products:   P[C], Q[N]
-            max_sites:  A => 2
         end
         forms = enumerate_enzyme_forms(r)
         # Site order: A₁(core), B₁(core), P₁(core), Q₁(core), A₂(extra)
@@ -235,19 +147,25 @@
         @test :E_X_0_0_0_0 ∈ names   # residual {X} after both P releases
     end
 
-    @testset "show method" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
+    @testset "Compilation time: 7-site reaction" begin
+        # Guards against specialization explosion (e.g., Iterators.product splat
+        # creating 2^n tuple types). Runs in a fresh subprocess to measure cold
+        # compilation, then warm run in the same process.
+        script = """
+        using EnzymeRates
+        rxn = @enzyme_reaction begin
+            substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
+            products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
+            regulators: Phosphate[PO4], G6P[C6H13O9P], G6P[C6H13O9P]
         end
-        @test sprint(show, r) == "EnzymeReaction: S ⇌ P"  # no max_sites shown (all default)
-
-        r2 = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            max_sites:  S => 2
-        end
-        s = sprint(show, r2)
-        @test contains(s, "max_sites: S=2")
+        t1 = @elapsed enumerate_enzyme_forms(rxn)
+        t2 = @elapsed enumerate_enzyme_forms(rxn)
+        print(t1, " ", t2)
+        """
+        proj = dirname(@__DIR__)
+        output = read(`$(Base.julia_cmd()) --project=$proj -e $script`, String)
+        t_cold, t_warm = parse.(Float64, split(output))
+        @test t_cold < 1.0
+        @test t_warm < 0.1
     end
 end

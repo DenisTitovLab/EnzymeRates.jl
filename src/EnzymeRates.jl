@@ -18,7 +18,7 @@ export FittingProblem, fit_rate_equation
 export fitted_params, metabolite_names
 
 # Mechanism enumeration
-export SiteState, EnzymeFormSpec, enumerate_enzyme_forms, max_binding_sites, total_atoms
+export SiteState, EnzymeFormSpec, enumerate_enzyme_forms
 
 using Tables
 using Optimization
