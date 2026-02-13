@@ -288,6 +288,14 @@ function _build_reaction_graph(forms::Vector{EnzymeFormSpec}, @nospecialize(reac
     nsites = length(forms[1].sites)
     edges = ReactionEdge[]
 
+    # Full atom content per metabolite — used to distinguish standard binding from
+    # ping-pong residuals.  Only standard binding (empty ↔ fully occupied) is valid;
+    # transitions between different occupancy levels are handled by the ping-pong case.
+    met_full_atoms = Dict{Symbol, Vector{Pair{Symbol,Int}}}()
+    for spec in Iterators.flatten((substrates(reaction), products(reaction), regulators(reaction)))
+        met_full_atoms[spec[1]] = sort([a => c for (a, c) in spec[2]]; by=first)
+    end
+
     # Identify which sites are core substrate/product (index 1, non-regulator)
     sub_names = Set(s[1] for s in substrates(reaction))
     prod_names = Set(p[1] for p in products(reaction))
@@ -309,12 +317,18 @@ function _build_reaction_graph(forms::Vector{EnzymeFormSpec}, @nospecialize(reac
             si, sj = fi.sites[diff_idx], fj.sites[diff_idx]
             if si.atoms === nothing && sj.atoms !== nothing
                 # i is unoccupied, j is occupied → i + M → j (binding)
-                push!(edges, ReactionEdge(i, j, sj.metabolite, :binding))
-                push!(edges, ReactionEdge(j, i, sj.metabolite, :release))
+                # Only valid when j has full metabolite atoms (not a ping-pong residual)
+                if sj.atoms == met_full_atoms[sj.metabolite]
+                    push!(edges, ReactionEdge(i, j, sj.metabolite, :binding))
+                    push!(edges, ReactionEdge(j, i, sj.metabolite, :release))
+                end
             elseif si.atoms !== nothing && sj.atoms === nothing
                 # i is occupied, j is unoccupied → i → j + M (release)
-                push!(edges, ReactionEdge(i, j, si.metabolite, :release))
-                push!(edges, ReactionEdge(j, i, si.metabolite, :binding))
+                # Only valid when i has full metabolite atoms (not a ping-pong residual)
+                if si.atoms == met_full_atoms[si.metabolite]
+                    push!(edges, ReactionEdge(i, j, si.metabolite, :release))
+                    push!(edges, ReactionEdge(j, i, si.metabolite, :binding))
+                end
             elseif si.atoms !== nothing && sj.atoms !== nothing
                 # Both occupied with different atoms → ping-pong partial release
                 ai = Dict{Symbol,Int}(a => c for (a, c) in si.atoms)

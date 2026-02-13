@@ -427,4 +427,29 @@
         end
         @test n_sites(r2) == 2 + 1 + 1 + 1 + 3  # A(2) + B(1) + P(1) + Q(1) + I(3)
     end
+
+    @testset "Ping-pong: no invalid empty→residual edges" begin
+        # Regression: binding edges from empty to ping-pong residual states caused
+        # atom conservation failures and ~200× slowdown.
+        rxn1 = @enzyme_reaction begin
+            substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
+            products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
+        end
+        rxn2 = @enzyme_reaction begin
+            substrates: A[C], B[C2]
+            products: P[C2], Q[C]
+        end
+
+        # Correctness: all enumerated mechanisms must pass constructor validation
+        for (label, rxn) in [("rxn1", rxn1), ("rxn2", rxn2)]
+            iter = enumerate_mechanisms(rxn; max_forms=6)
+            @test all(spec -> EnzymeMechanism(spec) isa EnzymeMechanism, iter)
+        end
+
+        # Performance: complex-atom reaction should not be orders of magnitude
+        # slower than simple-atom reaction with similar structure
+        t1 = @elapsed enumerate_mechanisms(rxn1; max_forms=6)
+        t2 = @elapsed enumerate_mechanisms(rxn2; max_forms=6)
+        @test t1 < t2 * 20  # should be within ~20× (was >200× before fix)
+    end
 end
