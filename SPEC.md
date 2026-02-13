@@ -123,6 +123,27 @@ A catalytic topology is a connected subgraph of the reaction graph such that:
 
 Futile cycles with 0× stoichiometry (e.g., E→EA→EAB→EB→E in random-order Bi-Bi where net = bind A, bind B, release A, release B = 0) are allowed. They are natural consequences of branched mechanisms and represent thermodynamic equilibration between alternative binding orders. Cycles involving regulator binding/release (e.g., E→EA→EAS→EA→E for activator A) are valid as long as the regulator has 0 net stoichiometry and substrates/products have the correct 1× stoichiometry.
 
+### Cycle DFS Bound
+
+The DFS that finds individual 1× cycles uses a tighter depth limit than `max_forms` to prevent combinatorial explosion when regulators create many enzyme forms:
+
+```
+max_cycle_forms = n_only_sub_patterns + n_only_prod_patterns + 1 + 2 * n_regulators
+```
+
+- **n_only_sub_patterns**: distinct catalytic-site fingerprints (projected onto positions 1:n_catalytic) where only substrate positions are occupied (includes ping-pong residuals)
+- **n_only_prod_patterns**: same for product positions
+- **+1**: free enzyme
+- **+2 × n_reg**: each regulator could be an essential activator (bind + unbind = 2 extra forms per cycle)
+
+The bound is safe because every form in a valid 1× cycle must have either only substrates or only products at catalytic positions — forms with mixed sub+prod at catalytic sites violate 1× stoichiometry. This is separate from `max_forms`, which limits total topology size including dead-ends.
+
+| Reaction | only_sub | only_prod | regs | Bound | Max valid cycle |
+|----------|----------|-----------|------|-------|-----------------|
+| Uni-Uni S→P | 1 | 1 | 0 | 3 | 3 |
+| Bi-Bi A,B→P,Q | 3 | 3 | 0 | 7 | 7 (random-order) |
+| Uni-Uni + 1 reg | 1 | 1 | 1 | 5 | 5 |
+
 ### Enumeration Algorithm
 
 The exact algorithm is implementation-defined but must:

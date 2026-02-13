@@ -229,6 +229,13 @@ end
 
 # ─── Shared Helpers ──────────────────────────────────────────────────────────
 
+"""Number of catalytic (substrate + product) site positions in a form's sites vector.
+Sites at positions > n_catalytic are regulator sites."""
+function _n_catalytic_sites(@nospecialize(reaction::EnzymeReaction))
+    sum(length(s) >= 3 ? s[3] : 1 for s in substrates(reaction)) +
+    sum(length(p) >= 3 ? p[3] : 1 for p in products(reaction))
+end
+
 """Undirected edge key for deduplication: canonical (min, max, metabolite) triple."""
 _undirected_key(e::ReactionEdge) = (min(e.from, e.to), max(e.from, e.to), e.metabolite)
 
@@ -246,6 +253,43 @@ function _free_enzyme_index(forms::Vector{EnzymeFormSpec})
     findfirst(f -> all(s.atoms === nothing for s in f.sites), forms)
 end
 
+"""
+    _max_cycle_forms(forms, reaction)
+
+Upper bound on the number of forms in any valid 1× catalytic cycle.
+
+Formula: `n_only_sub_patterns + n_only_prod_patterns + 1 + 2 * n_regulators`
+
+- `n_only_sub_patterns`: distinct catalytic-site fingerprints with only substrate positions occupied
+- `n_only_prod_patterns`: same for product positions
+- `+1`: free enzyme
+- `+2 * n_reg`: each regulator could be an essential activator (bind + unbind = 2 extra forms)
+
+The bound is safe because every form in a valid 1× cycle must have either only substrates
+or only products at catalytic positions (mixed sub+prod violates stoichiometry).
+"""
+function _max_cycle_forms(forms::Vector{EnzymeFormSpec}, @nospecialize(reaction::EnzymeReaction))
+    n_cat = _n_catalytic_sites(reaction)
+    n_reg = length(regulators(reaction))
+    sub_names = Set(s[1] for s in substrates(reaction))
+    is_sub = [forms[1].sites[k].metabolite in sub_names for k in 1:n_cat]
+
+    only_sub = Set{Vector{Union{Nothing, Vector{Pair{Symbol,Int}}}}}()
+    only_prod = Set{Vector{Union{Nothing, Vector{Pair{Symbol,Int}}}}}()
+
+    for form in forms
+        fp = Vector{Union{Nothing, Vector{Pair{Symbol,Int}}}}([form.sites[k].atoms for k in 1:n_cat])
+        has_sub = any(fp[k] !== nothing for k in 1:n_cat if is_sub[k])
+        has_prod = any(fp[k] !== nothing for k in 1:n_cat if !is_sub[k])
+        if has_sub && !has_prod
+            push!(only_sub, fp)
+        elseif has_prod && !has_sub
+            push!(only_prod, fp)
+        end
+    end
+    length(only_sub) + length(only_prod) + 1 + 2 * n_reg
+end
+
 # ─── Reaction Graph Construction ─────────────────────────────────────────────
 
 """Build lookup from sorted atom vectors to metabolite symbols."""
@@ -260,16 +304,14 @@ end
 
 """
 Compute the atom content of a form at its core catalytic sites.
-Core sites = index-1 sites for substrates and products.
+Core sites = index-1 sites at positions 1:n_catalytic (substrates and products only).
 """
-function _core_atoms(form::EnzymeFormSpec)
+function _core_atoms(form::EnzymeFormSpec, n_catalytic::Int)
     atoms = Dict{Symbol,Int}()
-    for site in form.sites
+    for k in 1:n_catalytic
+        site = form.sites[k]
         site.index != 1 && continue
         site.atoms === nothing && continue
-        # Only substrate/product core sites contribute — but we don't have role info
-        # on the form. We include all index-1 sites' atoms; regulator index-1 sites
-        # are handled by the "non-core must match" check.
         for (a, c) in site.atoms
             atoms[a] = get(atoms, a, 0) + c
         end
@@ -299,6 +341,10 @@ function _build_reaction_graph(forms::Vector{EnzymeFormSpec}, @nospecialize(reac
     # Identify which sites are core substrate/product (index 1, non-regulator)
     sub_names = Set(s[1] for s in substrates(reaction))
     prod_names = Set(p[1] for p in products(reaction))
+
+    # Number of catalytic site positions (substrates + products).
+    # Sites at positions > n_catalytic are regulator sites.
+    n_catalytic = _n_catalytic_sites(reaction)
 
     for i in 1:n, j in (i+1):n
         fi, fj = forms[i], forms[j]
@@ -362,10 +408,16 @@ function _build_reaction_graph(forms::Vector{EnzymeFormSpec}, @nospecialize(reac
                 end
             end
         elseif n_diff >= 2
-            # Check for isomerization: all diffs must be at core catalytic sites (index 1 sub/prod)
+            # Check for isomerization: all diffs must be at catalytic site positions
+            # (positions 1:n_catalytic), with index 1 and sub/prod metabolite.
+            # Regulator sites (positions > n_catalytic) must not change.
             all_core = true
             for k in 1:nsites
                 fi.sites[k].atoms == fj.sites[k].atoms && continue
+                if k > n_catalytic
+                    all_core = false
+                    break
+                end
                 site = fi.sites[k]
                 if site.index != 1 || !(site.metabolite in sub_names || site.metabolite in prod_names)
                     all_core = false
@@ -374,12 +426,14 @@ function _build_reaction_graph(forms::Vector{EnzymeFormSpec}, @nospecialize(reac
             end
             if all_core
                 # Check isomerization rule: F1 has all sub sites occupied + all prod sites empty,
-                # F2 has all sub sites empty + all prod sites occupied (or vice versa)
+                # F2 has all sub sites empty + all prod sites occupied (or vice versa).
+                # Only check catalytic site positions (1:n_catalytic) — regulator sites
+                # may share metabolite names with products but are not part of catalysis.
                 i_sub_occ = true; i_prod_empty = true
                 j_sub_occ = true; j_prod_empty = true
                 i_sub_empty = true; i_prod_occ = true
                 j_sub_empty = true; j_prod_occ = true
-                for k in 1:nsites
+                for k in 1:n_catalytic
                     site = fi.sites[k]
                     site.index != 1 && continue
                     if site.metabolite in sub_names
@@ -397,9 +451,9 @@ function _build_reaction_graph(forms::Vector{EnzymeFormSpec}, @nospecialize(reac
                 valid_iso = (i_sub_occ && i_prod_empty && j_sub_empty && j_prod_occ) ||
                             (i_sub_empty && i_prod_occ && j_sub_occ && j_prod_empty)
                 if valid_iso
-                    # Verify atom conservation across core sites
-                    atoms_i = _core_atoms(fi)
-                    atoms_j = _core_atoms(fj)
+                    # Verify atom conservation across core catalytic sites only
+                    atoms_i = _core_atoms(fi, n_catalytic)
+                    atoms_j = _core_atoms(fj, n_catalytic)
                     if atoms_i == atoms_j
                         push!(edges, ReactionEdge(i, j, nothing, :isomerization))
                         push!(edges, ReactionEdge(j, i, nothing, :isomerization))
@@ -426,9 +480,12 @@ end
 Find all simple directed 1× cycles through the free enzyme.
 
 A 1× cycle has net stoichiometry: -1 for each substrate, +1 for each product, 0 for regulators.
+Cycles are limited to at most `max_cycle_forms` forms to prevent combinatorial explosion
+when regulators create many enzyme forms.
 """
 function _find_valid_cycles(forms::Vector{EnzymeFormSpec}, edges::Vector{ReactionEdge},
-                            adj::Vector{Vector{Int}}, @nospecialize(reaction::EnzymeReaction))
+                            adj::Vector{Vector{Int}}, max_cycle_forms::Int,
+                            @nospecialize(reaction::EnzymeReaction))
     free_idx = _free_enzyme_index(forms)
     free_idx === nothing && return Vector{ReactionEdge}[]
 
@@ -439,6 +496,10 @@ function _find_valid_cycles(forms::Vector{EnzymeFormSpec}, edges::Vector{Reactio
     path_edges = ReactionEdge[]
 
     function dfs(node::Int)
+        # path_edges has N edges → N+1 forms visited (including free_idx).
+        # Closing back to free_idx adds one edge but no new form.
+        # So a cycle with K forms has K edges, and path_edges has K-1 before closing.
+        length(path_edges) >= max_cycle_forms && return
         for ei in adj[node]
             e = edges[ei]
             if e.to == free_idx && length(path_edges) >= 2
@@ -1105,7 +1166,8 @@ function enumerate_mechanisms(@nospecialize(reaction::EnzymeReaction);
     forms = enumerate_enzyme_forms(reaction)
     edges = _build_reaction_graph(forms, reaction)
     adj = _build_adjacency(forms, edges)
-    cycles = _find_valid_cycles(forms, edges, adj, reaction)
+    max_cf = min(_max_cycle_forms(forms, reaction), max_forms)
+    cycles = _find_valid_cycles(forms, edges, adj, max_cf, reaction)
     topologies = _combine_cycles(cycles, forms, edges, max_forms, reaction)
 
     # Build set of catalytic metabolites (substrates + products) — dead-end inhibition

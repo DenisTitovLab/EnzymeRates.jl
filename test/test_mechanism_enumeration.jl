@@ -428,4 +428,51 @@
         t2 = @elapsed enumerate_mechanisms(rxn2; max_forms=6)
         @test t1 < t2 * 20  # should be within ~20× (was >200× before fix)
     end
+
+    @testset "_max_cycle_forms bound" begin
+        r1 = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+        end
+        @test EnzymeRates._max_cycle_forms(enumerate_enzyme_forms(r1), r1) == 3
+
+        r2 = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products:   P[C], Q[N]
+        end
+        @test EnzymeRates._max_cycle_forms(enumerate_enzyme_forms(r2), r2) == 7
+
+        r3 = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            regulators: I[N]
+        end
+        @test EnzymeRates._max_cycle_forms(enumerate_enzyme_forms(r3), r3) == 5
+    end
+
+    @testset "Regulators: performance and correctness" begin
+        # Regression: many regulators caused _find_valid_cycles DFS to hang
+        # due to combinatorial explosion of forms (184 forms, 1160 edges).
+        # With depth-limited DFS and fixed isomerization checks, this completes in <5s.
+        rxn_reg = @enzyme_reaction begin
+            substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
+            products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
+            regulators: Phosphate[PO4], G6P[C6H13O9P], G6P[C6H13O9P]
+        end
+        rxn_no_reg = @enzyme_reaction begin
+            substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
+            products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
+        end
+
+        # Must complete quickly (was hanging before fix)
+        t = @elapsed begin
+            mechs_reg = collect(enumerate_mechanisms(rxn_reg; max_forms=5))
+        end
+        @test t < 30  # generous timeout; typically <2s
+
+        # Same catalytic cycles as without regulators at max_forms=5
+        # (regulators can't fit in cycles at this budget)
+        mechs_no_reg = collect(enumerate_mechanisms(rxn_no_reg; max_forms=5))
+        @test length(mechs_reg) == length(mechs_no_reg)
+    end
 end
