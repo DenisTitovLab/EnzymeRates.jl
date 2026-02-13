@@ -82,6 +82,7 @@
         end
         @test spec isa EnzymeReaction
 
+        # Dead-end inhibitor: valid mechanism (competitive inhibition)
         species = (
             ( (:S, ((:C, 1),)), ),           # substrates
             ( (:P, ((:C, 1),)), ),           # products
@@ -93,7 +94,7 @@
             ((:ES,), (:E, :P)),
             ((:E, :I), (:EI,)),
         )
-        @test_throws ErrorException EnzymeMechanism(species, rxns, (false, false, false))
+        @test EnzymeMechanism(species, rxns, (false, false, false)) isa EnzymeMechanism
     end
 
     @testset "No-atom species" begin

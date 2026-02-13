@@ -5,10 +5,10 @@
 Add `enumerate_mechanisms(reaction::EnzymeReaction)` that generates all valid `EnzymeMechanism` configurations for a given reaction, using the enzyme forms from `enumerate_enzyme_forms`. Returns a lazy iterator over lightweight `MechanismSpec` structs (not type-parameterized `EnzymeMechanism` instances) to avoid compiling millions of types. Users convert selected candidates to `EnzymeMechanism` on demand via `EnzymeMechanism(spec)`.
 
 The enumeration is factored into independent combinatorial dimensions:
-1. **Catalytic topology** — the graph structure of the core catalytic cycle (substrate/product binding, release, isomerization steps)
-2. **Dead-end attachments** — which regulator-bound forms attach to each cycle form
+1. **Catalytic topology** — the graph structure of the catalytic cycle, including substrate/product binding, release, isomerization steps, and optionally regulator binding/release (for activator mechanisms)
+2. **Dead-end attachments** — which non-cycle forms (substrate, product, or regulator-bound) attach as dead-ends to cycle forms
 3. **RE/SS assignments** — which steps are rapid-equilibrium vs steady-state
-4. **Symmetry constraints** — constrained (K_i = K_j) and unconstrained variants for structurally symmetric steps
+4. **Equivalent step constraints** — constrained (K_i = K_j) and unconstrained variants for equivalent steps
 
 The iterator lazily computes the Cartesian product across dimensions without materializing all combinations.
 
@@ -20,12 +20,12 @@ The iterator lazily computes the Cartesian product across dimensions without mat
 
 ```julia
 enumerate_mechanisms(reaction::EnzymeReaction;
-                     max_forms::Int = 2 * n_sites(reaction)
+                     max_forms::Int = 3 * n_sites(reaction)
                     ) -> MechanismIterator
 ```
 
 - `reaction`: the `EnzymeReaction` defining substrates, products, regulators with atoms and max binding sites.
-- `max_forms`: maximum number of enzyme forms (including dead-end forms) in any single mechanism. Default = 2 × number of distinct binding sites in the `EnzymeFormSpec` (i.e., total sites from core substrates + core products + extra substrates + extra products + regulators). User can override.
+- `max_forms`: maximum number of enzyme forms (including dead-end forms) in any single mechanism. Default = 3 × number of distinct binding sites in the `EnzymeFormSpec` (i.e., total sites from core substrates + core products + extra substrates + extra products + regulators). User can override.
 - Returns a `MechanismIterator` that yields `MechanismSpec` structs.
 
 ### Helper
@@ -40,10 +40,10 @@ Lightweight data struct (not type-parameterized):
 
 ```julia
 struct MechanismSpec
-    species::NTuple{4, Vector{Tuple{Symbol, Vector{Tuple{Symbol,Int}}}}}
-    # (substrates, products, regulators, enzymes) — each a vector of (name, atoms)
-    reactions::Vector{Tuple{NTuple{N,Symbol} where N, NTuple{M,Symbol} where M}}
-    # Each reaction is (lhs_symbols, rhs_symbols)
+    reaction::Any                    # source EnzymeReaction (untyped to avoid specialization)
+    forms::Vector{Symbol}            # enzyme form names
+    form_atoms::Vector{Vector{Pair{Symbol,Int}}}  # atoms for each enzyme form
+    reactions::Vector{Tuple{Vector{Symbol}, Vector{Symbol}}}  # (lhs, rhs) per step
     equilibrium_steps::Vector{Bool}
     param_constraints::Vector{Tuple{Symbol, Int, Vector{Tuple{Symbol,Int}}}}
 end
@@ -84,13 +84,13 @@ Reaction: `[F1_name, metabolite] → [F2_name]`
 
 ### 2. Release
 
-Reverse of binding: F2 has one site unoccupied that is occupied in F1.
+Reverse of binding. For standard binding/release (site goes empty↔occupied), the metabolite is the site's designated metabolite. For ping-pong partial release (site atoms decrease but site stays occupied), the metabolite is identified by the exact atom difference between the two site states, matched against known metabolite atoms.
 
 Reaction: `[F1_name] → [F2_name, metabolite]`
 
 ### 3. Isomerization (catalytic conversion)
 
-F1 and F2 differ only in **core catalytic sites** (index-1 sites of substrates and products). All non-catalytic sites (extra substrate/product sites with index ≥ 2, and all regulator sites) must be identical between F1 and F2. The total atom content across all core catalytic sites must be conserved (equal on both sides). F1 and F2 must not be the same form.
+F1 must have ALL core substrate sites (index=1 for each substrate) occupied and ALL core product sites (index=1 for each product) unoccupied. F2 must have the reverse: ALL product sites occupied, ALL substrate sites unoccupied. (Or vice versa.) All non-core sites (extra substrate/product sites with index ≥ 2, and all regulator sites) must be identical between F1 and F2. The total atom content across all core catalytic sites must be conserved (equal on both sides). F1 and F2 must not be the same form.
 
 Reaction: `[F1_name] → [F2_name]`
 
@@ -105,24 +105,23 @@ Reaction: `[F1_name] → [F2_name]`
 
 ### Definitions
 
-- **Core forms**: EnzymeFormSpecs with no regulator sites occupied.
-- **Free enzyme**: the core form with all sites unoccupied (e.g., `E_0_0_0_0`).
-- **Reaction graph**: nodes = core forms, edges = all valid elementary reactions between core forms (binding, release, isomerization per rules above).
+- **Free enzyme**: the EnzymeFormSpec with all sites unoccupied (e.g., `E_0_0_0_0`).
+- **Reaction graph**: nodes = all EnzymeFormSpecs from `enumerate_enzyme_forms`, edges = all valid elementary reactions between forms (binding, release, isomerization per rules above). This includes forms with regulator sites occupied, enabling activator mechanisms where a regulator must be bound for catalysis.
 
 ### Valid Catalytic Topology
 
-A catalytic topology is a connected subgraph of the core reaction graph such that:
+A catalytic topology is a connected subgraph of the reaction graph such that:
 
 1. **Contains the free enzyme form.**
 2. **All forms are reachable** from the free enzyme via the included edges.
-3. **Per-cycle stoichiometry = 1x**: Every simple cycle through the free enzyme has net stoichiometry equal to exactly 1× the reaction (each substrate consumed once, each product produced once), or 0× (futile exchange cycle in branched mechanisms).
+3. **Per-cycle stoichiometry = 1x**: Every simple cycle through the free enzyme has net stoichiometry equal to exactly 1× the reaction (each substrate consumed once, each product produced once) with 0× for regulators (any regulator bound within the cycle must also be released), or 0× for all metabolites (futile exchange cycle in branched mechanisms).
 4. **At least one 1x cycle exists**: The mechanism must have at least one cycle that catalyzes the net reaction.
 5. **Form count ≤ max_forms** (before adding dead-ends).
 6. **No isolated forms**: Every form participates in at least one reaction.
 
 ### Futile Cycles
 
-Futile cycles with 0× stoichiometry (e.g., E→EA→EAB→EB→E in random-order Bi-Bi where net = bind A, bind B, release A, release B = 0) are allowed. They are natural consequences of branched mechanisms and represent thermodynamic equilibration between alternative binding orders.
+Futile cycles with 0× stoichiometry (e.g., E→EA→EAB→EB→E in random-order Bi-Bi where net = bind A, bind B, release A, release B = 0) are allowed. They are natural consequences of branched mechanisms and represent thermodynamic equilibration between alternative binding orders. Cycles involving regulator binding/release (e.g., E→EA→EAS→EA→E for activator A) are valid as long as the regulator has 0 net stoichiometry and substrates/products have the correct 1× stoichiometry.
 
 ### Enumeration Algorithm
 
@@ -134,23 +133,30 @@ The exact algorithm is implementation-defined but must:
 
 ---
 
-## Dead-End Regulator Attachments
+## Dead-End Attachments
 
 ### Definitions
 
-- **Dead-end form**: an EnzymeFormSpec that has the same core substrate/product site states as some catalytic-cycle form, plus one or more regulator sites occupied.
-- **Dead-end chain**: A sequence of dead-end forms where each successive form has one additional regulator site occupied. Chains are allowed when separate binding sites exist for the regulator (per `max_sites` from the EnzymeReaction). E.g., if G6P has 2 regulator sites, then E→E_G6P→E_G6P_G6P is a valid chain.
+- **Dead-end form**: an EnzymeFormSpec that (a) is NOT part of the catalytic topology, (b) is connected to some cycle form via a valid elementary reaction (binding of one metabolite — substrate, product, or regulator), and (c) exists in the `enumerate_enzyme_forms` output.
+- **Dead-end chain**: A sequence of dead-end forms where each successive form has one additional site occupied. Chains arise from multiple binding sites for the same metabolite (e.g., E→E_G6P→E_G6P_G6P for a regulator with 2 sites) or from successive binding of different metabolites (e.g., E→EP→EPQ for product inhibition).
+
+Dead-end forms include:
+- **Regulator-bound forms**: inhibitor or activator binding to cycle forms (e.g., EI, ESI)
+- **Product-bound forms**: product inhibition (e.g., E + P ⇌ EP in a Bi-Bi mechanism where the cycle releases P from EQ, not E)
+- **Abortive complexes**: forms with substrate/product combinations that cannot proceed catalytically (e.g., EAQ where substrate A and product Q are simultaneously bound)
+
+Note: Forms that are part of the catalytic topology (e.g., EA in an essential activator mechanism E→EA→EAS→EA→E) are cycle forms, not dead-ends. Dead-ends are only those forms that branch off the cycle without participating in any cycle.
 
 ### Dead-End Options Per Cycle Form
 
-For each catalytic-cycle form F, determine all EnzymeFormSpecs that:
-- Match F's core substrate/product site states exactly
-- Have one or more regulator sites additionally occupied
+For each form F in the catalytic topology, determine all EnzymeFormSpecs that:
+- Differ from F by exactly one additional site occupied (any metabolite: substrate, product, or regulator)
+- Are NOT already in the catalytic topology
 - Exist in the `enumerate_enzyme_forms` output
 
-These dead-end extensions form a lattice ordered by set inclusion of occupied regulator sites.
+These dead-end extensions form a lattice ordered by set inclusion of occupied sites.
 
-A valid dead-end configuration for form F is any **downward-closed subset** of this lattice. "Downward-closed" means: if a form with regulators {R1, R2} is included, then forms with {R1} and {R2} must also be included (because binding is one-at-a-time elementary).
+A valid dead-end configuration for form F is any **downward-closed subset** of this lattice. "Downward-closed" means: if a form reachable via 2 binding steps is included, the intermediate form (reachable via 1 step) must also be included, because binding is one-at-a-time elementary.
 
 ### Factoring
 
@@ -174,25 +180,26 @@ This dimension is independent of topology and dead-ends.
 
 ---
 
-## Symmetry Constraint Detection
+## Equivalent Step Detection
 
-Two steps in a mechanism are **structurally symmetric** if they represent the same metabolite binding to/releasing from equivalent sites. Specifically:
+Two steps in a mechanism are **equivalent** if they represent the same metabolite binding at the same site index but to different enzyme states. Specifically:
 
-- Both steps involve the same metabolite
-- Both are binding reactions (or both release reactions)
-- The binding sites have the same metabolite species and differ only by site index (e.g., site 1 vs site 2 of the same metabolite's extra sites)
+- Both steps are binding reactions
+- Both bind the same metabolite
+- Both bind at the same site index (e.g., both at site 1 of metabolite I)
+- They differ only in the enzyme form they bind to (different enzyme state context)
 
-For each set of symmetric steps, generate two variants:
+For each set of equivalent steps, generate two variants:
 1. **Unconstrained**: all parameters independent
 2. **Constrained**: equilibrium/rate constants are equal (e.g., `K_i = K_j` for RE steps, or `k_if = k_jf, k_ir = k_jr` for SS steps)
 
-If there are M independent symmetry groups, this adds up to 2^M variants per mechanism.
+If there are M independent equivalence groups, this adds up to 2^M variants per mechanism.
 
 ---
 
 ## Size Limits
 
-- **Default `max_forms`** = 2 × (number of distinct binding sites in EnzymeFormSpec). For the glucokinase example with 7 sites (Glu₁, ATP₁, G6P₁, ADP₁, Phosphate₁, G6P_reg₁, G6P_reg₂), this gives max_forms = 14.
+- **Default `max_forms`** = 3 × (number of distinct binding sites in EnzymeFormSpec). For the glucokinase example with 7 sites (Glu₁, ATP₁, G6P₁, ADP₁, Phosphate₁, G6P_reg₁, G6P_reg₂), this gives max_forms = 21.
 - This cap applies to the total number of enzyme forms including dead-end forms.
 - User can override with a different value.
 
@@ -241,8 +248,7 @@ mechs = collect(enumerate_mechanisms(r))
 ```
 
 Expected mechanisms (catalytic topologies only, no regulators):
-- **2-step**: E + S ⇌ ES, ES ⇌ E + P (ordered Uni-Uni, no isomerization)
-- **3-step**: E + S ⇌ ES, ES ⇌ EP, EP ⇌ E + P (with isomerization intermediate)
+- **3-step**: E + S ⇌ ES, ES ⇌ EP, EP ⇌ E + P (with isomerization intermediate; simplest valid Uni-Uni)
 
 Each topology × RE/SS assignments. Verify expected count.
 
@@ -273,6 +279,38 @@ mechs = collect(enumerate_mechanisms(r))
 ```
 
 Must include dead-end inhibitor complexes (EI, ESI, etc.) attached to cycle forms.
+
+### 3b. Correctness: Activator Mechanism
+
+```julia
+r = @enzyme_reaction begin
+    substrates: S[C]
+    products:   P[C]
+    regulators: A[N]
+end
+mechs = collect(enumerate_mechanisms(r))
+```
+
+Must include activator mechanisms where A is part of the catalytic cycle, e.g.:
+- E + A ⇌ EA, EA + S ⇌ EAS, EAS ⇌ EA + P (essential activator: A stays bound during catalysis, cycle = E→EA→EAS→EA→E)
+- Verify that cycles through the free enzyme have 0× net stoichiometry for the regulator A (bound and released each cycle)
+
+Must also include dead-end inhibitor mechanisms (same regulator as inhibitor: EI, ESI branching off cycle forms).
+
+### 3c. Correctness: Product Inhibition / Abortive Complexes
+
+```julia
+r = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products:   P[C], Q[N]
+end
+mechs = collect(enumerate_mechanisms(r))
+```
+
+For an ordered Bi-Bi topology (E→EA→EAB→EPQ→EQ→E), must include mechanisms with dead-end forms such as:
+- **Product inhibition**: EP (product P binding to free enzyme E, which normally only binds substrate A first)
+- **Abortive complexes**: EAQ (substrate A + product Q simultaneously bound)
+- Verify these dead-end forms are connected to cycle forms via valid elementary reactions
 
 ### 4. Validation: All Mechanisms Constructible
 

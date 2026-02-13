@@ -31,7 +31,7 @@ julia --project
 - `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API (`parameters`, `fitted_params`, `param_count_estimate`)
 - `src/rate_eq_rewriting.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
-- `src/mechanism_enumeration.jl` — Combinatorial enumeration across 5 dimensions (atom contents, topology, SS/RE, constraints, isomers)
+- `src/mechanism_enumeration.jl` — `enumerate_enzyme_forms` (all valid enzyme forms), `enumerate_mechanisms` (reaction graph → cycle enumeration → topology combination → dead-end lattice → RE/SS × equivalent step constraints)
 - `src/mechanism_selection.jl` — `select_mechanism` (beam search + leave-one-figure-out CV + 1-SE rule)
 
 ## Performance Pattern: Function Barriers

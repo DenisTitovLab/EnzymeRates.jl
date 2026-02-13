@@ -160,14 +160,13 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
         end
     end
 
+    # Net stoichiometry validation: cycle steps give k× the reaction, but dead-end
+    # binding steps add extra consumption that may shift or cancel net contributions.
+    # We require: each substrate/product appears in at least one reaction,
+    # and no unexpected metabolites appear.
     for (name, coeff) in expected
-        net_coeff = get(net, name, 0)
-        if coeff == 0
-            net_coeff == 0 || error("Regulator $name has nonzero net stoichiometry")
-        else
-            net_coeff == 0 && error("Net stoichiometry mismatch for $name")
-            sign(net_coeff) == sign(coeff) || error("Net stoichiometry mismatch for $name")
-            abs(net_coeff) % abs(coeff) == 0 || error("Net stoichiometry mismatch for $name")
+        if coeff != 0
+            haskey(net, name) || error("$(coeff < 0 ? "Substrate" : "Product") $name does not appear in any reaction")
         end
     end
     for (name, _) in net
