@@ -5,11 +5,14 @@ _sort_species(t::Tuple) = Tuple(sort(collect(t); by = s -> s[1]))
 
 """Normalize species tuples to 3-element `(name, atoms, max_sites)`, defaulting max_sites to 1."""
 function _normalize_species_with_sites(t::Tuple)
-    Tuple(begin
-        length(s) == 2 ? (s[1], s[2], 1) :
-        length(s) == 3 ? s :
-        error("Species tuple must have 2 or 3 elements, got $(length(s))")
-    end for s in t)
+    Tuple(_normalize_one_species(s) for s in t)
+end
+
+function _normalize_one_species(s)
+    n = length(s)
+    n == 2 && return (s[1], s[2], 1)
+    n == 3 && return s
+    error("Species tuple must have 2 or 3 elements, got $n")
 end
 
 """

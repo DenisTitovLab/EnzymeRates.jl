@@ -80,11 +80,16 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
     end
 
     # 2. Build per-site data with pre-computed (content, label) options
-    mets = Symbol[]; idxs = Int[]; fulls = Vector{Pair{Symbol,Int}}[]
+    mets = Symbol[]
+    idxs = Int[]
+    fulls = Vector{Pair{Symbol,Int}}[]
     roles = Symbol[]  # :sub, :prod, :reg
     opts = Vector{Tuple{Union{Nothing, Vector{Pair{Symbol,Int}}}, String}}[]
     function add!(met, idx, full, role)
-        push!(mets, met); push!(idxs, idx); push!(fulls, full); push!(roles, role)
+        push!(mets, met)
+        push!(idxs, idx)
+        push!(fulls, full)
+        push!(roles, role)
         site_opts = Tuple{Union{Nothing, Vector{Pair{Symbol,Int}}}, String}[
             (nothing, "0"), (full, string(met))]
         for r in get(residuals, met, Vector{Pair{Symbol,Int}}[])
@@ -92,11 +97,12 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
         end
         push!(opts, site_opts)
     end
-    for s in S; add!(s[1], 1, fatoms(s), :sub); end
-    for p in P; add!(p[1], 1, fatoms(p), :prod); end
-    for s in S; for i in 2:nsites(s); add!(s[1], i, fatoms(s), :sub); end; end
-    for p in P; for i in 2:nsites(p); add!(p[1], i, fatoms(p), :prod); end; end
-    for r in R; for i in 1:nsites(r); add!(r[1], i, fatoms(r), :reg); end; end
+    # Site order: core substrates, core products, extra substrate sites, extra product sites, regulators
+    for s in S;  add!(s[1], 1, fatoms(s), :sub);  end
+    for p in P;  add!(p[1], 1, fatoms(p), :prod); end
+    for s in S, i in 2:nsites(s);  add!(s[1], i, fatoms(s), :sub);  end
+    for p in P, i in 2:nsites(p);  add!(p[1], i, fatoms(p), :prod); end
+    for r in R, i in 1:nsites(r);  add!(r[1], i, fatoms(r), :reg);  end
 
     # 3. Enumerate Cartesian product with exclusion filter
     #    Uses flat modular-arithmetic indexing to avoid Iterators.product splat,
@@ -108,8 +114,10 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
     sites = Vector{SiteState}(undef, n)
     for idx in 0:total-1
         rem = idx
-        all_sub_full = true; all_prod_full = true
-        any_sub_occ = false; any_prod_occ = false
+        all_sub_full = true
+        all_prod_full = true
+        any_sub_occ = false
+        any_prod_occ = false
         for i in n:-1:1
             content, label = opts[i][rem % length(opts[i]) + 1]
             rem ÷= length(opts[i])
@@ -217,6 +225,25 @@ function n_sites(@nospecialize(reaction::EnzymeReaction))
         count += length(spec) >= 3 ? spec[3] : 1
     end
     count
+end
+
+# ─── Shared Helpers ──────────────────────────────────────────────────────────
+
+"""Undirected edge key for deduplication: canonical (min, max, metabolite) triple."""
+_undirected_key(e::ReactionEdge) = (min(e.from, e.to), max(e.from, e.to), e.metabolite)
+
+"""Build expected net stoichiometry from a reaction: -1 per substrate, +1 per product, 0 per regulator."""
+function _expected_stoichiometry(@nospecialize(reaction::EnzymeReaction))
+    stoich = Dict{Symbol,Int}()
+    for s in substrates(reaction); stoich[s[1]] = get(stoich, s[1], 0) - 1; end
+    for p in products(reaction); stoich[p[1]] = get(stoich, p[1], 0) + 1; end
+    for r in regulators(reaction); stoich[r[1]] = get(stoich, r[1], 0); end
+    stoich
+end
+
+"""Find the index of the free enzyme form (all sites empty)."""
+function _free_enzyme_index(forms::Vector{EnzymeFormSpec})
+    findfirst(f -> all(s.atoms === nothing for s in f.sites), forms)
 end
 
 # ─── Reaction Graph Construction ─────────────────────────────────────────────
@@ -388,14 +415,10 @@ A 1× cycle has net stoichiometry: -1 for each substrate, +1 for each product, 0
 """
 function _find_valid_cycles(forms::Vector{EnzymeFormSpec}, edges::Vector{ReactionEdge},
                             adj::Vector{Vector{Int}}, @nospecialize(reaction::EnzymeReaction))
-    # Find free enzyme (all sites empty)
-    free_idx = findfirst(f -> all(s.atoms === nothing for s in f.sites), forms)
+    free_idx = _free_enzyme_index(forms)
     free_idx === nothing && return Vector{ReactionEdge}[]
 
-    expected_stoich = Dict{Symbol,Int}()
-    for s in substrates(reaction); expected_stoich[s[1]] = get(expected_stoich, s[1], 0) - 1; end
-    for p in products(reaction); expected_stoich[p[1]] = get(expected_stoich, p[1], 0) + 1; end
-    for r in regulators(reaction); expected_stoich[r[1]] = get(expected_stoich, r[1], 0); end
+    expected_stoich = _expected_stoichiometry(reaction)
 
     cycles = Vector{ReactionEdge}[]
     visited = falses(length(forms))
@@ -405,28 +428,9 @@ function _find_valid_cycles(forms::Vector{EnzymeFormSpec}, edges::Vector{Reactio
         for ei in adj[node]
             e = edges[ei]
             if e.to == free_idx && length(path_edges) >= 2
-                # Found a cycle back to free enzyme
                 push!(path_edges, e)
-                stoich = Dict{Symbol,Int}()
-                for pe in path_edges
-                    pe.metabolite === nothing && continue
-                    if pe.edge_type == :binding
-                        stoich[pe.metabolite] = get(stoich, pe.metabolite, 0) - 1
-                    elseif pe.edge_type == :release
-                        stoich[pe.metabolite] = get(stoich, pe.metabolite, 0) + 1
-                    end
-                end
-                # Check if 1× cycle
-                is_1x = true
-                for (met, exp) in expected_stoich
-                    get(stoich, met, 0) != exp && (is_1x = false; break)
-                end
-                if is_1x
-                    for (met, _) in stoich
-                        haskey(expected_stoich, met) || (is_1x = false; break)
-                    end
-                end
-                is_1x && push!(cycles, copy(path_edges))
+                stoich = _cycle_stoichiometry(path_edges)
+                _is_1x_stoich(stoich, expected_stoich) && push!(cycles, copy(path_edges))
                 pop!(path_edges)
             elseif !visited[e.to] && e.to != free_idx
                 visited[e.to] = true
@@ -459,10 +463,8 @@ function _cycle_stoichiometry(cycle_edges::Vector{ReactionEdge})
     stoich
 end
 
-"""Check if stoichiometry is 1× (matches expected) or 0× (all zero)."""
-function _is_valid_stoich(stoich::Dict{Symbol,Int}, expected::Dict{Symbol,Int})
-    all_zero = all(v == 0 for v in values(stoich)) && all(get(stoich, m, 0) == 0 for m in keys(expected))
-    all_zero && return true
+"""Check if stoichiometry exactly matches expected (1× cycle)."""
+function _is_1x_stoich(stoich::Dict{Symbol,Int}, expected::Dict{Symbol,Int})
     for (met, exp) in expected
         get(stoich, met, 0) != exp && return false
     end
@@ -470,6 +472,13 @@ function _is_valid_stoich(stoich::Dict{Symbol,Int}, expected::Dict{Symbol,Int})
         haskey(expected, met) || return false
     end
     true
+end
+
+"""Check if stoichiometry is 1× (matches expected) or 0× (all zero)."""
+function _is_valid_stoich(stoich::Dict{Symbol,Int}, expected::Dict{Symbol,Int})
+    all_zero = all(v == 0 for v in values(stoich)) && all(get(stoich, m, 0) == 0 for m in keys(expected))
+    all_zero && return true
+    _is_1x_stoich(stoich, expected)
 end
 
 """
@@ -517,20 +526,18 @@ function _combine_cycles(cycles::Vector{Vector{ReactionEdge}},
                          @nospecialize(reaction::EnzymeReaction))
     isempty(cycles) && return Topology[]
 
-    expected_stoich = Dict{Symbol,Int}()
-    for s in substrates(reaction); expected_stoich[s[1]] = get(expected_stoich, s[1], 0) - 1; end
-    for p in products(reaction); expected_stoich[p[1]] = get(expected_stoich, p[1], 0) + 1; end
-    for r in regulators(reaction); expected_stoich[r[1]] = get(expected_stoich, r[1], 0); end
+    expected_stoich = _expected_stoichiometry(reaction)
+    free_idx = _free_enzyme_index(forms)::Int
 
     # Extract (form_set, undirected_edge_set) for each cycle
-    # Undirected edge key: (min(from,to), max(from,to), metabolite)
     UEdge = Tuple{Int,Int,Union{Nothing,Symbol}}
     cycle_data = map(cycles) do cycle
         fset = Set{Int}()
         uset = Set{UEdge}()
         for e in cycle
-            push!(fset, e.from); push!(fset, e.to)
-            push!(uset, (min(e.from, e.to), max(e.from, e.to), e.metabolite))
+            push!(fset, e.from)
+            push!(fset, e.to)
+            push!(uset, _undirected_key(e))
         end
         (fset, uset)
     end
@@ -574,17 +581,14 @@ function _combine_cycles(cycles::Vector{Vector{ReactionEdge}},
             h in seen && continue
             push!(seen, h)
 
-            # Build full directed graph for cycle validation (need both directions)
+            # Build subgraph adjacency for cycle validation (both directions)
             sub_adj = Dict{Int, Vector{ReactionEdge}}()
             for e in all_edges
-                ukey = (min(e.from, e.to), max(e.from, e.to), e.metabolite)
-                ukey ∉ new_uset && continue
+                _undirected_key(e) ∉ new_uset && continue
                 e.from ∉ new_fset && continue
                 e.to ∉ new_fset && continue
-                haskey(sub_adj, e.from) || (sub_adj[e.from] = ReactionEdge[])
-                push!(sub_adj[e.from], e)
+                push!(get!(sub_adj, e.from, ReactionEdge[]), e)
             end
-            free_idx = findfirst(f -> all(s.atoms === nothing for s in f.sites), forms)::Int
             valid = _validate_all_cycles(free_idx, new_fset, sub_adj, expected_stoich)
             valid || continue
 
@@ -602,7 +606,7 @@ function _directed_edges_from_cycle(cycle::Vector{ReactionEdge})
     seen = Set{Tuple{Int,Int,Union{Nothing,Symbol}}}()
     result = ReactionEdge[]
     for e in cycle
-        ukey = (min(e.from, e.to), max(e.from, e.to), e.metabolite)
+        ukey = _undirected_key(e)
         ukey in seen && continue
         push!(seen, ukey)
         push!(result, e)
@@ -613,10 +617,10 @@ end
 """Merge directed edges from a new cycle into existing directed edge list.
 New edges (by undirected key) get the cycle's direction; existing edges keep their direction."""
 function _merge_cycle_edges(existing::Vector{ReactionEdge}, cycle::Vector{ReactionEdge})
-    existing_keys = Set((min(e.from, e.to), max(e.from, e.to), e.metabolite) for e in existing)
+    existing_keys = Set(_undirected_key(e) for e in existing)
     result = copy(existing)
     for e in cycle
-        ukey = (min(e.from, e.to), max(e.from, e.to), e.metabolite)
+        ukey = _undirected_key(e)
         ukey in existing_keys && continue
         push!(existing_keys, ukey)
         push!(result, e)
@@ -783,8 +787,7 @@ function _find_equivalent_groups(step_edges::Vector{ReactionEdge},
         for k in 1:length(f_from.sites)
             if f_from.sites[k].atoms === nothing && f_to.sites[k].atoms !== nothing
                 key = (f_to.sites[k].metabolite, f_to.sites[k].index)
-                haskey(binding_key, key) || (binding_key[key] = Int[])
-                push!(binding_key[key], i)
+                push!(get!(binding_key, key, Int[]), i)
                 break
             end
         end
@@ -816,7 +819,7 @@ function _build_mechanism_spec(topo::Topology, dead_end_forms::Vector{Int},
     step_edges = _get_step_edges(topo, dead_end_forms, all_forms, all_edges, adj)
 
     form_names = [all_forms[fi].name for fi in form_indices]
-    form_atoms_list = [all_forms[fi].sites |> _form_atoms for fi in form_indices]
+    form_atoms_list = [_form_atoms(all_forms[fi].sites) for fi in form_indices]
 
     rxn_tuples = Tuple{Vector{Symbol}, Vector{Symbol}}[]
     for e in step_edges
@@ -959,9 +962,7 @@ end
 
 function Base.iterate(iter::MechanismIterator, state::Union{Nothing, Any}=nothing)
     if state === nothing
-        # Initialize: find first valid combination
-        state = (1, 1, 1, 1,
-                 _precompute_topo_data(iter, 1)...)
+        state = (1, 1, 1, 1, _precompute_topo_data(iter, 1)...)
     end
 
     topo_idx, de_idx, ress_idx, constraint_idx, dead_end_configs, step_edges_cache = state
@@ -971,55 +972,32 @@ function Base.iterate(iter::MechanismIterator, state::Union{Nothing, Any}=nothin
 
         while de_idx <= length(dead_end_configs)
             de_config = dead_end_configs[de_idx]
-
-            # Get step edges (cached per de_config)
-            cache_key = de_idx
-            if !haskey(step_edges_cache, cache_key)
-                step_edges_cache[cache_key] = _get_step_edges(
-                    topo, de_config, iter.all_forms, iter.reaction_graph, iter.adjacency)
+            cached_step_edges = get!(step_edges_cache, de_idx) do
+                _get_step_edges(topo, de_config, iter.all_forms,
+                               iter.reaction_graph, iter.adjacency)
             end
-            cached_step_edges = step_edges_cache[cache_key]
             n_steps = length(cached_step_edges)
             n_ress = (1 << n_steps) - 1
 
             while ress_idx <= n_ress
                 eq_steps_vec = _ress_index_to_vec(ress_idx, n_steps)
-
                 equiv_groups = _find_equivalent_groups(cached_step_edges, iter.all_forms)
-                valid_groups = [g for g in equiv_groups if all(eq_steps_vec[s] == eq_steps_vec[g[1]] for s in g)]
+                valid_groups = [g for g in equiv_groups
+                                if all(eq_steps_vec[s] == eq_steps_vec[g[1]] for s in g)]
                 n_constraints = 1 << length(valid_groups)
 
                 while constraint_idx <= n_constraints
-                    cmask = constraint_idx - 1  # 0-based mask
-
+                    cmask = constraint_idx - 1
                     spec = _build_mechanism_spec(topo, de_config, eq_steps_vec,
                                                  valid_groups, cmask,
                                                  iter.all_forms, iter.reaction_graph,
                                                  iter.adjacency, iter.reaction)
 
-                    next_ci = constraint_idx + 1
-                    if next_ci > n_constraints
-                        next_ri = ress_idx + 1
-                        next_ci = 1
-                        if next_ri > n_ress
-                            next_di = de_idx + 1
-                            next_ri = 1
-                            if next_di > length(dead_end_configs)
-                                next_ti = topo_idx + 1
-                                next_di = 1
-                                new_precomp = next_ti <= length(iter.topologies) ?
-                                    _precompute_topo_data(iter, next_ti) :
-                                    (Vector{Int}[], Dict{Int, Vector{ReactionEdge}}())
-                                return (spec, (next_ti, next_di, next_ri, next_ci, new_precomp...))
-                            end
-                            return (spec, (topo_idx, next_di, next_ri, next_ci,
-                                          dead_end_configs, step_edges_cache))
-                        end
-                        return (spec, (topo_idx, de_idx, next_ri, next_ci,
-                                      dead_end_configs, step_edges_cache))
-                    end
-                    return (spec, (topo_idx, de_idx, ress_idx, next_ci,
-                                  dead_end_configs, step_edges_cache))
+                    # Advance to next state before returning
+                    next_state = _advance_state(iter, topo_idx, de_idx, ress_idx,
+                                                constraint_idx + 1, n_constraints, n_ress,
+                                                dead_end_configs, step_edges_cache)
+                    return (spec, next_state)
                 end
                 constraint_idx = 1
                 ress_idx += 1
@@ -1034,6 +1012,36 @@ function Base.iterate(iter::MechanismIterator, state::Union{Nothing, Any}=nothin
         end
     end
     nothing
+end
+
+"""Compute next iterator state after yielding, cascading overflows upward."""
+function _advance_state(iter, topo_idx, de_idx, ress_idx, constraint_idx,
+                        n_constraints, n_ress, dead_end_configs, step_edges_cache)
+    if constraint_idx <= n_constraints
+        return (topo_idx, de_idx, ress_idx, constraint_idx,
+                dead_end_configs, step_edges_cache)
+    end
+    # Overflow constraint → advance RE/SS
+    ress_idx += 1
+    if ress_idx <= n_ress
+        return (topo_idx, de_idx, ress_idx, 1,
+                dead_end_configs, step_edges_cache)
+    end
+    # Overflow RE/SS → advance dead-end config
+    de_idx += 1
+    if de_idx <= length(dead_end_configs)
+        return (topo_idx, de_idx, 1, 1,
+                dead_end_configs, step_edges_cache)
+    end
+    # Overflow dead-end → advance topology
+    topo_idx += 1
+    if topo_idx <= length(iter.topologies)
+        new_precomp = _precompute_topo_data(iter, topo_idx)
+        return (topo_idx, 1, 1, 1, new_precomp...)
+    end
+    # Past end
+    return (topo_idx, 1, 1, 1,
+            Vector{Int}[], Dict{Int, Vector{ReactionEdge}}())
 end
 
 function _precompute_topo_data(iter::MechanismIterator, topo_idx::Int)

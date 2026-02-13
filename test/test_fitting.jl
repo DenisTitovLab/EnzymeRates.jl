@@ -112,9 +112,9 @@ using Tables
 
         # For any x, loss should be the same (centering removes the uniform scale)
         np = length(fitted_params(uni_uni))
-        for _ in 1:10
+        @test all(1:10) do _
             x = randn(np) .* 2.0
-            @test EnzymeRates.loss!(x, fp1) ≈ EnzymeRates.loss!(x, fp2) rtol=1e-12
+            isapprox(EnzymeRates.loss!(x, fp1), EnzymeRates.loss!(x, fp2); rtol=1e-12)
         end
     end
 
@@ -146,9 +146,9 @@ using Tables
         fp2 = FittingProblem(uni_uni, data2; Keq = Keq_val)
 
         np = length(fitted_params(uni_uni))
-        for _ in 1:10
+        @test all(1:10) do _
             x = randn(np) .* 2.0
-            @test EnzymeRates.loss!(x, fp1) ≈ EnzymeRates.loss!(x, fp2) rtol=1e-12
+            isapprox(EnzymeRates.loss!(x, fp1), EnzymeRates.loss!(x, fp2); rtol=1e-12)
         end
     end
 

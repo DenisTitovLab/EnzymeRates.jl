@@ -413,9 +413,9 @@ function test_reference_qssa(spec::MechanismTestSpec; n_trials=20, seed=42)
     met_names = spec.metabolite_names
     @testset "Reference QSSA" begin
         rng = Random.MersenneTwister(seed)
-        for _ in 1:n_trials
+        @test all(1:n_trials) do _
             new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
-            @test rate_equation(m, new_params, concs) ≈ reference_qssa(m, all_params, concs) rtol=spec.reference_rtol
+            isapprox(rate_equation(m, new_params, concs), reference_qssa(m, all_params, concs); rtol=spec.reference_rtol)
         end
     end
 end
@@ -428,12 +428,12 @@ function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
     met_names = spec.metabolite_names
     @testset "Analytical Rate" begin
         rng = Random.MersenneTwister(seed)
-        for _ in 1:n_trials
+        @test all(1:n_trials) do _
             new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(all_params, (Et=Et,))
             p_pkg = merge(new_params, (E_total=Et,))
-            @test rate_equation(m, p_pkg, concs) ≈ spec.analytical_rate_fn(p, concs) rtol=1e-10
+            isapprox(rate_equation(m, p_pkg, concs), spec.analytical_rate_fn(p, concs); rtol=1e-10)
         end
     end
 end
@@ -478,7 +478,7 @@ function test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
     @testset "ODE Steady-State" begin
         rng = Random.MersenneTwister(seed)
         has_re = _has_re_steps(m)
-        for _ in 1:n_trials
+        @test all(1:n_trials) do _
             new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
             # For RE mechanisms, convert K_i to large k_if/k_ir for ODE simulation
             ode_params = has_re ? raw_to_ode_params(m, all_params) : all_params
@@ -486,7 +486,7 @@ function test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
             v_ka = rate_equation(m, new_params, concs)
             # Use looser tolerance for RE mechanisms (large rate approximation)
             rtol = has_re ? 1e-3 : spec.ode_rtol
-            @test v_ode ≈ v_ka rtol=rtol
+            isapprox(v_ode, v_ka; rtol=rtol)
         end
     end
 end
@@ -507,9 +507,9 @@ function test_rate_equation_string(spec::MechanismTestSpec)
 
         # Numerical equivalence test
         rng = Random.MersenneTwister(9000 + hash(spec.name) % 1000)
-        for _ in 1:10
+        @test all(1:10) do _
             new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
-            @test rate_equation(m, new_params, concs) ≈ _eval_rate_string(s, all_params, concs) rtol=1e-10
+            isapprox(rate_equation(m, new_params, concs), _eval_rate_string(s, all_params, concs); rtol=1e-10)
         end
     end
 end

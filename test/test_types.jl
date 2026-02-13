@@ -313,7 +313,7 @@
         end
 
         rng = Random.MersenneTwister(42)
-        for _ in 1:20
+        @test all(1:20) do _
             params = (k1f = 0.1 + 9.9 * rand(rng),
                       k1r = 0.1 + 9.9 * rand(rng),
                       k2f = 0.1 + 9.9 * rand(rng),
@@ -321,7 +321,7 @@
                       k3f = 0.1 + 9.9 * rand(rng),
                       E_total = 0.1 + 9.9 * rand(rng))
             concs = (A = 0.1 + 9.9 * rand(rng), P = 0.1 + 9.9 * rand(rng))
-            @test rate_equation(m, params, concs, EnzymeRates.Raw) ≈ rate_constrained(params, concs) rtol=1e-10
+            isapprox(rate_equation(m, params, concs, EnzymeRates.Raw), rate_constrained(params, concs); rtol=1e-10)
         end
     end
 
@@ -359,7 +359,7 @@
         @test :K1 ∈ raw_params
 
         rng = Random.MersenneTwister(99)
-        for _ in 1:20
+        @test all(1:20) do _
             params = (K1 = 0.1 + 9.9 * rand(rng),
                       k3f = 0.1 + 9.9 * rand(rng),
                       k3r = 0.1 + 9.9 * rand(rng),
@@ -368,7 +368,7 @@
                       E_total = 0.1 + 9.9 * rand(rng))
             concs = (A = 0.1 + 9.9 * rand(rng), B = 0.1 + 9.9 * rand(rng),
                      P = 0.1 + 9.9 * rand(rng), Q = 0.1 + 9.9 * rand(rng))
-            @test rate_equation(m, params, concs, EnzymeRates.Raw) ≈ rate_constrained_re(params, concs) rtol=1e-10
+            isapprox(rate_equation(m, params, concs, EnzymeRates.Raw), rate_constrained_re(params, concs); rtol=1e-10)
         end
     end
 

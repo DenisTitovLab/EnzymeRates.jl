@@ -184,10 +184,7 @@
         @test length(mechs) == 7
 
         # Verify all convert to EnzymeMechanism
-        for spec in mechs
-            m = EnzymeMechanism(spec)
-            @test m isa EnzymeMechanism
-        end
+        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in mechs)
     end
 
     @testset "Uni-Uni length matches iteration" begin
@@ -211,10 +208,7 @@
         @test length(mechs) > 0
 
         # All mechanisms should convert without error
-        for spec in mechs
-            m = EnzymeMechanism(spec)
-            @test m isa EnzymeMechanism
-        end
+        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in mechs)
     end
 
     @testset "Bi-Bi includes ordered and random-order" begin
@@ -260,10 +254,7 @@
         @test has_ei
 
         # All convert without error
-        for spec in mechs
-            m = EnzymeMechanism(spec)
-            @test m isa EnzymeMechanism
-        end
+        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in mechs)
     end
 
     @testset "Activator mechanism" begin
@@ -323,11 +314,10 @@
             substrates: S[C]
             products:   P[C]
         end
-        for spec in enumerate_mechanisms(r)
+        @test all(enumerate_mechanisms(r)) do spec
             m = EnzymeMechanism(spec)
             s = rate_equation_string(m)
-            @test s isa String
-            @test !isempty(s)
+            s isa String && !isempty(s)
         end
     end
 
@@ -339,9 +329,7 @@
         # All generated mechanisms should pass constructor validation,
         # including random-order Bi-Bi which has futile cycles
         iter = enumerate_mechanisms(r; max_forms=6)
-        for spec in iter
-            @test EnzymeMechanism(spec) isa EnzymeMechanism
-        end
+        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in iter)
     end
 
     @testset "max_forms limit" begin
@@ -355,12 +343,8 @@
         @test length(small) <= length(large)
 
         # All mechanisms should respect the form limit
-        for spec in small
-            @test length(spec.forms) <= 4
-        end
-        for spec in large
-            @test length(spec.forms) <= 8
-        end
+        @test all(length(spec.forms) <= 4 for spec in small)
+        @test all(length(spec.forms) <= 8 for spec in large)
     end
 
     @testset "Equivalent step constraints" begin
