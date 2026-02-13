@@ -644,12 +644,26 @@ end
 
 # ─── Dead-End Computation ────────────────────────────────────────────────────
 
+"""Return true if the binding edge from `from` to `to` adds a catalytic metabolite at its
+catalytic site (index 1). Such edges should not form dead-ends — dead-end inhibition
+requires binding at a non-catalytic (allosteric) site."""
+function _is_catalytic_site_binding(from::EnzymeFormSpec, to::EnzymeFormSpec,
+                                     catalytic_mets::Set{Symbol})
+    for (sf, st) in zip(from.sites, to.sites)
+        sf.atoms === st.atoms && continue  # unchanged site
+        # st is the newly occupied site (binding edge: from→to adds a metabolite)
+        return st.metabolite in catalytic_mets && st.index == 1
+    end
+    return false
+end
+
 """
 Build dead-end trees for each cycle form in a topology.
 Returns Vector{Vector{DeadEndTree}} — one vector of trees per cycle form.
 """
 function _build_dead_end_trees(topo::Topology, all_forms::Vector{EnzymeFormSpec},
-                               adj::Vector{Vector{Int}}, edges::Vector{ReactionEdge})
+                               adj::Vector{Vector{Int}}, edges::Vector{ReactionEdge},
+                               catalytic_mets::Set{Symbol})
     cycle_set = Set(topo.form_indices)
     trees_per_form = Vector{Vector{DeadEndTree}}()
 
@@ -660,7 +674,9 @@ function _build_dead_end_trees(topo::Topology, all_forms::Vector{EnzymeFormSpec}
             e = edges[ei]
             e.edge_type == :binding || continue
             e.to in cycle_set && continue
-            tree = _build_dead_end_subtree(e.to, cycle_set, adj, edges, Set{Int}())
+            _is_catalytic_site_binding(all_forms[e.from], all_forms[e.to], catalytic_mets) && continue
+            tree = _build_dead_end_subtree(e.to, cycle_set, all_forms, adj, edges,
+                                            catalytic_mets, Set{Int}())
             push!(roots, tree)
         end
         push!(trees_per_form, roots)
@@ -670,8 +686,9 @@ end
 
 """Recursively build a dead-end subtree rooted at form_idx."""
 function _build_dead_end_subtree(form_idx::Int, excluded::Set{Int},
+                                  all_forms::Vector{EnzymeFormSpec},
                                   adj::Vector{Vector{Int}}, edges::Vector{ReactionEdge},
-                                  visited::Set{Int})
+                                  catalytic_mets::Set{Symbol}, visited::Set{Int})
     push!(visited, form_idx)
     children = DeadEndTree[]
     for ei in adj[form_idx]
@@ -679,7 +696,9 @@ function _build_dead_end_subtree(form_idx::Int, excluded::Set{Int},
         e.edge_type == :binding || continue
         e.to in excluded && continue
         e.to in visited && continue
-        child = _build_dead_end_subtree(e.to, excluded, adj, edges, visited)
+        _is_catalytic_site_binding(all_forms[e.from], all_forms[e.to], catalytic_mets) && continue
+        child = _build_dead_end_subtree(e.to, excluded, all_forms, adj, edges,
+                                         catalytic_mets, visited)
         push!(children, child)
     end
     delete!(visited, form_idx)
@@ -1089,8 +1108,15 @@ function enumerate_mechanisms(@nospecialize(reaction::EnzymeReaction);
     cycles = _find_valid_cycles(forms, edges, adj, reaction)
     topologies = _combine_cycles(cycles, forms, edges, max_forms, reaction)
 
+    # Build set of catalytic metabolites (substrates + products) — dead-end inhibition
+    # at catalytic sites (index 1) is disallowed; only non-catalytic sites (index 2+) allowed
+    catalytic_mets = Set{Symbol}()
+    for s in substrates(reaction); push!(catalytic_mets, s[1]); end
+    for p in products(reaction); push!(catalytic_mets, p[1]); end
+
     # Precompute dead-end trees per topology
-    dead_end_trees = [_build_dead_end_trees(topo, forms, adj, edges) for topo in topologies]
+    dead_end_trees = [_build_dead_end_trees(topo, forms, adj, edges, catalytic_mets)
+                      for topo in topologies]
 
     MechanismIterator(forms, edges, topologies, reaction, max_forms, dead_end_trees, adj)
 end

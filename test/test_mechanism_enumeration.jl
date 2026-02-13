@@ -216,18 +216,20 @@
             substrates: A[C], B[N]
             products:   P[C], Q[N]
         end
-        iter = enumerate_mechanisms(r; max_forms=6)
-        mechs = collect(iter)
 
         # Check for ordered Bi-Bi: 5 forms (E, EA, EAB, EPQ, EQ)
+        iter = enumerate_mechanisms(r; max_forms=6)
+        mechs = collect(iter)
         has_ordered = any(mechs) do spec
             length(spec.forms) == 5 && !any(spec.equilibrium_steps) # all SS
         end
         @test has_ordered
 
-        # Check for random-order: 6+ forms (branched binding)
-        has_random = any(mechs) do spec
-            length(spec.forms) >= 6 && !any(spec.equilibrium_steps)
+        # Random-order requires 7+ cycle forms — need higher max_forms
+        iter7 = enumerate_mechanisms(r; max_forms=7)
+        mechs7 = collect(iter7)
+        has_random = any(mechs7) do spec
+            length(spec.forms) >= 7 && !any(spec.equilibrium_steps)
         end
         @test has_random
     end
@@ -376,41 +378,15 @@
 
     @testset "Dead-end multi-child correctness" begin
         # Verify that dead-end nodes with multiple children generate all
-        # valid downward-closed subsets (regression test for sibling bug)
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N]
-        end
-        forms = enumerate_enzyme_forms(r)
-        edges = EnzymeRates._build_reaction_graph(forms, r)
-        adj = EnzymeRates._build_adjacency(forms, edges)
-        cycles = EnzymeRates._find_valid_cycles(forms, edges, adj, r)
-        topos = EnzymeRates._combine_cycles(cycles, forms, edges, 18, r)
-
-        # Find a topology where a dead-end node has multiple children
-        found_multi = false
-        for topo in topos
-            trees = EnzymeRates._build_dead_end_trees(topo, forms, adj, edges)
-            for form_trees in trees
-                for tree in form_trees
-                    if length(tree.children) > 1
-                        # This tree root has multiple children
-                        subsets = EnzymeRates._dc_subsets(tree)
-                        # Must include: empty, root only, root+child1, root+child2, root+both
-                        @test length(subsets) >= 4  # at least: {}, {root}, {root,c1}, {root,c2}
-                        # Check that root+both-children is present
-                        root_idx = tree.form_idx
-                        c1_idx = tree.children[1].form_idx
-                        c2_idx = tree.children[2].form_idx
-                        has_both = any(s -> root_idx ∈ s && c1_idx ∈ s && c2_idx ∈ s, subsets)
-                        @test has_both
-                        found_multi = true
-                    end
-                end
-            end
-        end
-        @test found_multi  # confirm we actually tested a multi-child case
+        # valid downward-closed subsets (regression test for sibling bug).
+        # Construct a DeadEndTree directly: root(1) → child(2), child(3)
+        DET = EnzymeRates.DeadEndTree
+        tree = DET(1, [DET(2, DET[]), DET(3, DET[])])
+        subsets = EnzymeRates._dc_subsets(tree)
+        # Must include: {}, {1}, {1,2}, {1,3}, {1,2,3}
+        @test length(subsets) >= 4
+        has_both = any(s -> 1 ∈ s && 2 ∈ s && 3 ∈ s, subsets)
+        @test has_both
     end
 
     @testset "n_sites helper" begin
