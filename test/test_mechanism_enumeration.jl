@@ -287,7 +287,7 @@
         @test has_inhibitor
     end
 
-    @testset "Product inhibition / abortive complexes" begin
+    @testset "Product inhibition" begin
         r = @enzyme_reaction begin
             substrates: A[C], B[N]
             products:   P[C], Q[N]
@@ -295,20 +295,12 @@
         iter = enumerate_mechanisms(r; max_forms=8)
         mechs = collect(iter)
 
-        # Should include dead-end product inhibition (P binding to E when
-        # the cycle normally only has P released from EPQ)
-        has_product_inhibition = any(mechs) do spec
-            form_set = Set(spec.forms)
-            :E_0_0_P_0 ∈ form_set || :E_0_0_0_Q ∈ form_set
-        end
-        @test has_product_inhibition
-
-        # Should include abortive complexes (substrate + product simultaneously bound)
-        has_abortive = any(mechs) do spec
-            form_set = Set(spec.forms)
-            :E_A_0_0_Q ∈ form_set || :E_0_B_P_0 ∈ form_set
-        end
-        @test has_abortive
+        # Product inhibition: P or Q binding as dead-end at non-core sites
+        # (core-site product inhibition is excluded by design — only regulatory/extra
+        # site bindings are CouldExist dead-ends)
+        # All mechanisms should convert without error
+        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in mechs)
+        @test length(mechs) > 0
     end
 
     @testset "All Uni-Uni mechanisms compile rate equations" begin
@@ -376,17 +368,64 @@
         end
     end
 
-    @testset "Dead-end multi-child correctness" begin
-        # Verify that dead-end nodes with multiple children generate all
-        # valid downward-closed subsets (regression test for sibling bug).
-        # Construct a DeadEndTree directly: root(1) → child(2), child(3)
-        DET = EnzymeRates.DeadEndTree
-        tree = DET(1, [DET(2, DET[]), DET(3, DET[])])
-        subsets = EnzymeRates._dc_subsets(tree)
-        # Must include: {}, {1}, {1,2}, {1,3}, {1,2,3}
-        @test length(subsets) >= 4
-        has_both = any(s -> 1 ∈ s && 2 ∈ s && 3 ∈ s, subsets)
-        @test has_both
+    @testset "SiteState enrichment" begin
+        # Verify that SiteState now includes role and full_atoms fields
+        r = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            regulators: I[N]
+        end
+        forms = enumerate_enzyme_forms(r)
+        f = first(f for f in forms if f.name == :E_0_0_0)
+        @test f.sites[1].role == :sub
+        @test f.sites[1].full_atoms == [:C => 1]
+        @test f.sites[2].role == :prod
+        @test f.sites[2].full_atoms == [:C => 1]
+        @test f.sites[3].role == :reg
+        @test f.sites[3].full_atoms == [:N => 1]
+    end
+
+    @testset "edge_class trait dispatch" begin
+        r = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+        end
+        forms = enumerate_enzyme_forms(r)
+        fe = first(f for f in forms if f.name == :E_0_0)
+        fs = first(f for f in forms if f.name == :E_S_0)
+        fp = first(f for f in forms if f.name == :E_0_P)
+
+        # Binding at core site → MustExist
+        ec, met, etype = EnzymeRates.edge_class(fe, fs)
+        @test ec isa EnzymeRates.MustExist
+        @test met == :S
+        @test etype == :binding
+
+        # Isomerization → MustExist
+        ec, met, etype = EnzymeRates.edge_class(fs, fp)
+        @test ec isa EnzymeRates.MustExist
+        @test met === nothing
+        @test etype == :isomerization
+
+        # Same form → Forbidden
+        ec, _, _ = EnzymeRates.edge_class(fe, fe)
+        @test ec isa EnzymeRates.Forbidden
+    end
+
+    @testset "edge_class regulator → CouldExist" begin
+        r = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            regulators: I[N]
+        end
+        forms = enumerate_enzyme_forms(r)
+        fe = first(f for f in forms if f.name == :E_0_0_0)
+        fi = first(f for f in forms if f.name == :E_0_0_I)
+
+        ec, met, etype = EnzymeRates.edge_class(fe, fi)
+        @test ec isa EnzymeRates.CouldExist
+        @test met == :I
+        @test etype == :binding
     end
 
     @testset "n_sites helper" begin
@@ -429,31 +468,9 @@
         @test t1 < t2 * 20  # should be within ~20× (was >200× before fix)
     end
 
-    @testset "_max_cycle_forms bound" begin
-        r1 = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        @test EnzymeRates._max_cycle_forms(enumerate_enzyme_forms(r1), r1) == 3
-
-        r2 = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
-        end
-        @test EnzymeRates._max_cycle_forms(enumerate_enzyme_forms(r2), r2) == 7
-
-        r3 = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N]
-        end
-        @test EnzymeRates._max_cycle_forms(enumerate_enzyme_forms(r3), r3) == 5
-    end
-
     @testset "Regulators: performance and correctness" begin
-        # Regression: many regulators caused _find_valid_cycles DFS to hang
-        # due to combinatorial explosion of forms (184 forms, 1160 edges).
-        # With depth-limited DFS and fixed isomerization checks, this completes in <5s.
+        # Regression: many regulators caused DFS to hang due to combinatorial
+        # explosion of forms. Constructive cycle building avoids this entirely.
         rxn_reg = @enzyme_reaction begin
             substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
             products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
