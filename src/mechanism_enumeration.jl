@@ -214,37 +214,34 @@ end
 
 """Check if two forms represent a valid isomerization (all-subs ↔ all-prods)."""
 function _is_valid_isomerization(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
-    # One form must have all sub core sites occupied + all prod core sites empty,
-    # and the other must have the reverse
-    a_sub_occ, a_prod_empty = true, true
-    b_sub_occ, b_prod_empty = true, true
-    a_sub_empty, a_prod_occ = true, true
-    b_sub_empty, b_prod_occ = true, true
-
-    for k in 1:length(fa.sites)
-        s = fa.sites[k]
-        s.role in (:sub, :prod) && s.index == 1 || continue
-        if s.role == :sub
-            fa.sites[k].atoms === nothing && (a_sub_occ = false)
-            fa.sites[k].atoms !== nothing && (a_sub_empty = false)
-            fb.sites[k].atoms === nothing && (b_sub_occ = false)
-            fb.sites[k].atoms !== nothing && (b_sub_empty = false)
-        else  # :prod
-            fa.sites[k].atoms !== nothing && (a_prod_empty = false)
-            fa.sites[k].atoms === nothing && (a_prod_occ = false)
-            fb.sites[k].atoms !== nothing && (b_prod_empty = false)
-            fb.sites[k].atoms === nothing && (b_prod_occ = false)
+    # Classify core site occupancy pattern for a form
+    function _core_pattern(form)
+        sub_occ = true;  sub_empty = true
+        prod_occ = true; prod_empty = true
+        for s in form.sites
+            s.role in (:sub, :prod) && s.index == 1 || continue
+            if s.role == :sub
+                s.atoms === nothing && (sub_occ = false)
+                s.atoms !== nothing && (sub_empty = false)
+            else
+                s.atoms === nothing && (prod_occ = false)
+                s.atoms !== nothing && (prod_empty = false)
+            end
         end
+        (; sub_occ, sub_empty, prod_occ, prod_empty)
     end
 
-    valid = (a_sub_occ && a_prod_empty && b_sub_empty && b_prod_occ) ||
-            (a_sub_empty && a_prod_occ && b_sub_occ && b_prod_empty)
+    a = _core_pattern(fa)
+    b = _core_pattern(fb)
+    # One form has all-subs-occupied + all-prods-empty,
+    # the other has all-subs-empty + all-prods-occupied
+    valid = (a.sub_occ && a.prod_empty &&
+             b.sub_empty && b.prod_occ) ||
+            (a.sub_empty && a.prod_occ &&
+             b.sub_occ && b.prod_empty)
     !valid && return false
 
-    # Verify atom conservation across core sites
-    atoms_a = _core_atoms(fa)
-    atoms_b = _core_atoms(fb)
-    atoms_a == atoms_b
+    _core_atoms(fa) == _core_atoms(fb)
 end
 
 """Compute total atoms across core catalytic sites (role ∈ (:sub,:prod), index == 1)."""
@@ -328,11 +325,21 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
         end
         push!(opts, site_opts)
     end
-    for s in S;  add!(s[1], 1, fatoms(s), :sub);  end
-    for p in P;  add!(p[1], 1, fatoms(p), :prod); end
-    for s in S, i in 2:nsites(s);  add!(s[1], i, fatoms(s), :sub);  end
-    for p in P, i in 2:nsites(p);  add!(p[1], i, fatoms(p), :prod); end
-    for r in R, i in 1:nsites(r);  add!(r[1], i, fatoms(r), :reg);  end
+    for s in S
+        add!(s[1], 1, fatoms(s), :sub)
+    end
+    for p in P
+        add!(p[1], 1, fatoms(p), :prod)
+    end
+    for s in S, i in 2:nsites(s)
+        add!(s[1], i, fatoms(s), :sub)
+    end
+    for p in P, i in 2:nsites(p)
+        add!(p[1], i, fatoms(p), :prod)
+    end
+    for r in R, i in 1:nsites(r)
+        add!(r[1], i, fatoms(r), :reg)
+    end
 
     # 3. Enumerate Cartesian product with exclusion filter
     n = length(mets)
@@ -408,38 +415,37 @@ function _find_form(
     occupied_prods::Set{Symbol},
     residual_subs::Dict{Symbol,Vector{Pair{Symbol,Int}}},
 )
-    for (i, f) in enumerate(forms)
-        match = true
+    function _matches_pattern(f)
         for s in f.sites
-            s.role in (:sub, :prod) && s.index == 1 || continue
-            if s.role == :sub
-                if haskey(residual_subs, s.metabolite)
-                    s.atoms != residual_subs[s.metabolite] && (match = false; break)
-                elseif s.metabolite in occupied_subs
-                    s.atoms != s.full_atoms && (match = false; break)
-                else
-                    s.atoms !== nothing && (match = false; break)
-                end
-            else  # :prod
-                if s.metabolite in occupied_prods
-                    s.atoms != s.full_atoms && (match = false; break)
-                else
-                    s.atoms !== nothing && (match = false; break)
-                end
+            if s.role in (:sub, :prod) && s.index == 1
+                expected = _expected_atoms(
+                    s, occupied_subs, occupied_prods, residual_subs,
+                )
+                s.atoms != expected && return false
+            elseif (s.role == :reg || s.index > 1)
+                s.atoms !== nothing && return false
             end
         end
-        # Regulatory and extra sites must be empty for catalytic cycle forms
-        if match
-            for s in f.sites
-                if (s.role == :reg || s.index > 1) && s.atoms !== nothing
-                    match = false
-                    break
-                end
-            end
-        end
-        match && return i
+        return true
     end
-    nothing
+
+    findfirst(_matches_pattern, forms)
+end
+
+"""Expected atom content for a core site given occupancy pattern."""
+function _expected_atoms(s::SiteState, occupied_subs, occupied_prods, residual_subs)
+    if s.role == :sub
+        if haskey(residual_subs, s.metabolite)
+            return residual_subs[s.metabolite]
+        elseif s.metabolite in occupied_subs
+            return s.full_atoms
+        end
+    elseif s.role == :prod
+        if s.metabolite in occupied_prods
+            return s.full_atoms
+        end
+    end
+    return nothing
 end
 
 """
@@ -707,10 +713,9 @@ function _add_unique_cycle!(
     cycles::Vector{Vector{Tuple{Int,Int}}},
     cycle::Vector{Tuple{Int,Int}},
 )
-    key = sort([(min(a,b), max(a,b)) for (a,b) in cycle])
+    key = _topo_key(cycle)
     for existing in cycles
-        existing_key = sort([(min(a,b), max(a,b)) for (a,b) in existing])
-        existing_key == key && return
+        _topo_key(existing) == key && return
     end
     push!(cycles, cycle)
 end
@@ -907,41 +912,33 @@ function _generate_activator_configs(topo::Vector{Tuple{Int,Int}},
         end
 
         if length(shadow_pairs) >= 2
-            # Full shadow: all base forms connect to their
-            # shadows, shadow cycle mirrors base
-            full_shadow_edges = Tuple{Int,Int}[]
-            # Connection edges: base ↔ shadow
-            for (bi, si) in shadow_pairs
-                push!(full_shadow_edges, (bi, si))
-            end
-            # Shadow cycle edges: mirror the base cycle edges among shadow forms
             shadow_map = Dict(bi => si for (bi, si) in shadow_pairs)
+
+            # Compute shadow cycle edges (reused by both variants)
+            shadow_cycle = Tuple{Int,Int}[]
             for (a, b) in topo
                 sa = get(shadow_map, a, nothing)
                 sb = get(shadow_map, b, nothing)
-                sa !== nothing && sb !== nothing && push!(full_shadow_edges, (sa, sb))
+                if sa !== nothing && sb !== nothing
+                    push!(shadow_cycle, (sa, sb))
+                end
             end
+
+            # Full shadow: all base forms connect to shadows
+            full_shadow_edges = Tuple{Int,Int}[
+                shadow_pairs; shadow_cycle
+            ]
             push!(options, full_shadow_edges)
 
-            # Free-enzyme-only connection: only connect at free enzyme
+            # Free-enzyme-only: connect only at free enzyme
             free_idx = _free_enzyme_index(forms)
-            if free_idx !== nothing && free_idx in topo_forms
-                free_shadow = nothing
-                for (bi, si) in shadow_pairs
-                    bi == free_idx && (free_shadow = si; break)
-                end
-                if free_shadow !== nothing
-                    free_only_edges = Tuple{Int,Int}[(free_idx, free_shadow)]
-                    # Shadow cycle edges (same as above)
-                    for (a, b) in topo
-                        sa = get(shadow_map, a, nothing)
-                        sb = get(shadow_map, b, nothing)
-                        if sa !== nothing && sb !== nothing
-                            push!(free_only_edges, (sa, sb))
-                        end
-                    end
-                    push!(options, free_only_edges)
-                end
+            free_shadow = free_idx !== nothing ?
+                get(shadow_map, free_idx, nothing) : nothing
+            if free_shadow !== nothing
+                free_only_edges = Tuple{Int,Int}[
+                    (free_idx, free_shadow); shadow_cycle
+                ]
+                push!(options, free_only_edges)
             end
         end
         push!(per_reg_options, options)
@@ -964,18 +961,19 @@ function _find_shadow_form(forms::Vector{EnzymeFormSpec}, base_idx::Int, reg::Sy
     base = forms[base_idx]
     for (i, f) in enumerate(forms)
         i == base_idx && continue
-        match = true
+        # All non-target sites must match; target reg site must gain atoms
         found_reg = false
+        all_ok = true
         for (sa, sb) in zip(base.sites, f.sites)
             if sa.metabolite == reg && sa.role == :reg &&
                     sa.atoms === nothing && sb.atoms !== nothing
                 found_reg = true
             elseif sa.atoms != sb.atoms
-                match = false
+                all_ok = false
                 break
             end
         end
-        match && found_reg && return i
+        all_ok && found_reg && return i
     end
     nothing
 end
@@ -999,77 +997,112 @@ end
 # ─── Dead-End Enumeration ─────────────────────────────────────────
 
 """
+    _reg_site_positions(form::EnzymeFormSpec) → Vector{Int}
+
+Site positions that are regulatory and currently empty (available for binding).
+"""
+function _reg_site_positions(form::EnzymeFormSpec)
+    [k for k in eachindex(form.sites)
+     if form.sites[k].role == :reg && form.sites[k].atoms === nothing]
+end
+
+"""
+    _find_dead_end_form(base_idx, occupied_positions, forms) → Int or nothing
+
+Find the form matching `forms[base_idx]` at all sites except the specified
+regulatory positions, which must be occupied.
+"""
+function _find_dead_end_form(base_idx::Int, occupied_positions,
+                              forms::Vector{EnzymeFormSpec})
+    base = forms[base_idx]
+    findfirst(forms) do fj
+        all(1:length(base.sites)) do k
+            if k in occupied_positions
+                fj.sites[k].atoms !== nothing
+            else
+                base.sites[k].atoms == fj.sites[k].atoms
+            end
+        end
+    end
+end
+
+"""
     _enumerate_dead_end_configs(topo, forms, max_forms) → Vector{Vector{Int}}
 
-For each form in the topology, find CouldExist edges to other forms (dead-ends).
-Enumerate all subsets of dead-end forms, respecting max_forms budget.
+Thermodynamic box rule: for each topology form, choose which regulators
+bind. Choosing multiple regulators forces the multi-regulator form
+(box closure). Cartesian product across topology forms with budget.
 """
 function _enumerate_dead_end_configs(topo::Vector{Tuple{Int,Int}},
                                       forms::Vector{EnzymeFormSpec},
                                       max_forms::Int)
-    topo_forms = Set(Iterators.flatten(topo))
+    topo_forms_set = Set(Iterators.flatten(topo))
+    topo_forms = sort(collect(topo_forms_set))
     n_topo = length(topo_forms)
     budget = max_forms - n_topo
     budget < 0 && return Vector{Int}[]
 
-    # Find all candidate dead-end forms
-    candidates = Set{Int}()
+    # Per topology form: compute all regulator-subset options
+    per_form_options = Vector{Vector{Int}}[]
     for fi in topo_forms
-        for (j, fj) in enumerate(forms)
-            j in topo_forms && continue
-            ec, _, _ = edge_class(forms[fi], fj)
-            ec isa CouldExist && push!(candidates, j)
+        reg_sites = _reg_site_positions(forms[fi])
+        n_reg = length(reg_sites)
+        seen_options = Set{Vector{Int}}()
+        # Empty option (no dead-end binding) is always valid
+        options = [Int[]]
+        push!(seen_options, Int[])
+
+        for subset_mask in 1:((1 << n_reg) - 1)
+            chosen = [reg_sites[k] for k in 1:n_reg
+                      if (subset_mask >> (k - 1)) & 1 == 1]
+            # Powerset closure: all non-empty subsets of chosen
+            # regulators must have corresponding forms
+            de_forms = Int[]
+            valid = true
+            for sub_mask in 1:((1 << length(chosen)) - 1)
+                positions = [chosen[k]
+                             for k in 1:length(chosen)
+                             if (sub_mask >> (k - 1)) & 1 == 1]
+                form_idx = _find_dead_end_form(
+                    fi, positions, forms,
+                )
+                if form_idx === nothing
+                    valid = false
+                    break
+                end
+                form_idx in topo_forms_set && continue
+                push!(de_forms, form_idx)
+            end
+            !valid && continue
+            sort!(de_forms)
+            if de_forms ∉ seen_options
+                push!(seen_options, de_forms)
+                push!(options, de_forms)
+            end
         end
+        push!(per_form_options, options)
     end
 
-    # Also check dead-ends of dead-ends (2 levels deep for regulatory chains)
-    level2 = Set{Int}()
-    for ci in candidates
-        for (j, fj) in enumerate(forms)
-            j in topo_forms && continue
-            j in candidates && continue
-            ec, _, _ = edge_class(forms[ci], fj)
-            ec isa CouldExist && push!(level2, j)
-        end
-    end
-    union!(candidates, level2)
-
-    candidates_vec = sort(collect(candidates))
-
-    # Enumerate subsets up to budget size
+    # Cartesian product across topology forms, filtered by budget
     configs = Vector{Int}[]
-    push!(configs, Int[])  # empty = no dead-ends
-    _enumerate_subsets!(configs, candidates_vec, 1, Int[], budget, topo_forms, forms)
+    _dead_end_cartesian!(configs, per_form_options, 1, Int[], budget)
     configs
 end
 
-"""Enumerate valid dead-end subsets: each dead-end must be reachable from the topology
-or from another included dead-end via a CouldExist edge."""
-function _enumerate_subsets!(configs, candidates, idx, current, budget, topo_forms, forms)
-    budget <= 0 && return
-    for i in idx:length(candidates)
-        c = candidates[i]
-        # Check that c is reachable: connected to topo or to already-included dead-end
-        reachable = false
-        for fi in topo_forms
-            ec, _, _ = edge_class(forms[fi], forms[c])
-            ec isa CouldExist && (reachable = true; break)
-        end
-        if !reachable
-            for fi in current
-                ec, _, _ = edge_class(forms[fi], forms[c])
-                ec isa CouldExist && (reachable = true; break)
-            end
-        end
-        !reachable && continue
-
-        push!(current, c)
+"""Cartesian product of dead-end options respecting max_forms budget."""
+function _dead_end_cartesian!(configs, options, idx, current, budget)
+    if idx > length(options)
         push!(configs, copy(current))
-        _enumerate_subsets!(
-            configs, candidates, i + 1,
-            current, budget - 1, topo_forms, forms,
+        return
+    end
+    for option in options[idx]
+        length(option) > budget && continue
+        append!(current, option)
+        _dead_end_cartesian!(
+            configs, options, idx + 1,
+            current, budget - length(option),
         )
-        pop!(current)
+        resize!(current, length(current) - length(option))
     end
 end
 
@@ -1214,24 +1247,18 @@ function _edges_to_reactions(
     edges::Vector{Tuple{Int,Int}},
     forms::Vector{EnzymeFormSpec},
 )
-    rxn_tuples = Tuple{Vector{Symbol}, Vector{Symbol}}[]
-    for (a, b) in edges
+    map(edges) do (a, b)
         _, met, etype = edge_class(forms[a], forms[b])
         from_name = forms[a].name
         to_name = forms[b].name
         if etype == :binding
-            lhs = [from_name, met]
-            rhs = [to_name]
+            ([from_name, met], [to_name])
         elseif etype == :release
-            lhs = [from_name]
-            rhs = [to_name, met]
+            ([from_name], [to_name, met])
         else  # isomerization
-            lhs = [from_name]
-            rhs = [to_name]
+            ([from_name], [to_name])
         end
-        push!(rxn_tuples, (lhs, rhs))
     end
-    rxn_tuples
 end
 
 """Extract form index edge pairs from a MechanismSpec's reactions."""
@@ -1291,12 +1318,18 @@ end
 """Count enzyme forms referenced in a spec's reactions."""
 _used_form_count(spec::MechanismSpec) = length(_used_forms(spec))
 
-"""Get canonical step edges for a topology + dead-end config."""
+"""Get canonical step edges for a topology + dead-end config.
+
+Wires ALL valid binding edges between all forms in the mechanism
+(topology ∪ dead-end). This creates thermodynamically complete graphs;
+Wegscheider constraints handle dependent parameters at the rate equation
+derivation stage.
+"""
 function _get_step_edges(topo_edges::Vector{Tuple{Int,Int}},
                           de_forms::Vector{Int},
                           forms::Vector{EnzymeFormSpec})
     topo_forms = Set(Iterators.flatten(topo_edges))
-    all_forms_set = union(topo_forms, Set(de_forms))
+    all_forms = sort(collect(union(topo_forms, Set(de_forms))))
 
     seen = Set{Tuple{Int,Int}}()
     step_edges = Tuple{Int,Int}[]
@@ -1309,18 +1342,15 @@ function _get_step_edges(topo_edges::Vector{Tuple{Int,Int}},
         push!(step_edges, (a, b))
     end
 
-    # Dead-end edges: find binding direction from mechanism to dead-end
-    for de_idx in de_forms
-        for fi in sort(collect(all_forms_set))
-            fi == de_idx && continue
-            ec, _, etype = edge_class(forms[fi], forms[de_idx])
-            (ec isa CouldExist || ec isa MustExist) && etype == :binding || continue
-            key = (min(fi, de_idx), max(fi, de_idx))
-            key in seen && continue
-            push!(seen, key)
-            push!(step_edges, (fi, de_idx))
-            break
-        end
+    # All valid binding edges between all forms in the mechanism
+    for i in 1:length(all_forms), j in (i + 1):length(all_forms)
+        fi, fj = all_forms[i], all_forms[j]
+        key = (fi, fj)  # fi < fj since all_forms is sorted
+        key in seen && continue
+        ec, _, etype = edge_class(forms[fi], forms[fj])
+        (ec isa CouldExist || ec isa MustExist) && etype == :binding || continue
+        push!(seen, key)
+        push!(step_edges, (fi, fj))
     end
 
     step_edges

@@ -29,9 +29,10 @@ end
 # ── Independent verification helpers ──────────────────────────────────────
 
 """
-Independently compute the expected dead-end count by enumerating
-CouldExist edges from topology forms to unused forms, respecting
-dependency chains and max_forms budget.
+Independently compute the expected dead-end count using the thermodynamic
+box rule: per topology form, choose which regulator sites bind (2^n_reg
+subsets). Multi-reg subsets force box closure. Cartesian product across
+topology forms with max_forms budget.
 """
 function _compute_expected_dead_end_count(
     base_spec::EnzymeRates.MechanismSpec,
@@ -39,70 +40,63 @@ function _compute_expected_dead_end_count(
     max_forms::Int,
 )
     topo = EnzymeRates._spec_to_edges(base_spec, forms)
-    topo_forms = Set(Iterators.flatten(topo))
+    topo_forms_set = Set(Iterators.flatten(topo))
+    topo_forms = sort(collect(topo_forms_set))
     budget = max_forms - length(topo_forms)
     budget < 0 && return 0
 
-    # Find level-1 dead-end candidates (reachable from topo forms)
-    level1 = Set{Int}()
+    # Per topology form: compute option sizes (number of dead-end forms
+    # added by each regulator-subset choice)
+    per_form_option_sizes = Vector{Int}[]
     for fi in topo_forms
-        for (j, fj) in enumerate(forms)
-            j in topo_forms && continue
-            ec, _, _ = EnzymeRates.edge_class(forms[fi], fj)
-            ec isa EnzymeRates.CouldExist && push!(level1, j)
-        end
-    end
+        reg_sites = EnzymeRates._reg_site_positions(forms[fi])
+        n_reg = length(reg_sites)
+        seen = Set{Vector{Int}}([Int[]])
+        sizes = [0]  # empty option (no dead-end binding) always valid
 
-    # Find level-2 dead-end candidates (reachable from level-1 only)
-    level2 = Set{Int}()
-    for ci in level1
-        for (j, fj) in enumerate(forms)
-            j in topo_forms && continue
-            j in level1 && continue
-            ec, _, _ = EnzymeRates.edge_class(forms[ci], fj)
-            ec isa EnzymeRates.CouldExist && push!(level2, j)
-        end
-    end
-
-    candidates = sort(collect(union(level1, level2)))
-
-    # Enumerate valid subsets: each form must be reachable from topo
-    # or from an already-included dead-end
-    count = Ref(1)  # count empty subset (= base itself)
-    _count_valid_subsets!(
-        count, candidates, 1, Int[], budget, topo_forms, level1, forms,
-    )
-    count[]
-end
-
-function _count_valid_subsets!(
-    count, candidates, idx, current, budget, topo_forms, level1, forms,
-)
-    budget <= 0 && return
-    for i in idx:length(candidates)
-        c = candidates[i]
-        # Check reachability: from topo or from already-included dead-end
-        reachable = false
-        for fi in topo_forms
-            ec, _, _ = EnzymeRates.edge_class(forms[fi], forms[c])
-            ec isa EnzymeRates.CouldExist && (reachable = true; break)
-        end
-        if !reachable
-            for fi in current
-                ec, _, _ = EnzymeRates.edge_class(forms[fi], forms[c])
-                ec isa EnzymeRates.CouldExist &&
-                    (reachable = true; break)
+        for mask in 1:((1 << n_reg) - 1)
+            chosen = [reg_sites[k] for k in 1:n_reg
+                      if (mask >> (k - 1)) & 1 == 1]
+            de_forms = Int[]
+            valid = true
+            for sub_mask in 1:((1 << length(chosen)) - 1)
+                positions = [chosen[k]
+                             for k in 1:length(chosen)
+                             if (sub_mask >> (k - 1)) & 1 == 1]
+                form_idx = EnzymeRates._find_dead_end_form(
+                    fi, positions, forms,
+                )
+                if form_idx === nothing
+                    valid = false
+                    break
+                end
+                form_idx in topo_forms_set && continue
+                push!(de_forms, form_idx)
+            end
+            !valid && continue
+            sort!(de_forms)
+            if de_forms ∉ seen
+                push!(seen, de_forms)
+                push!(sizes, length(de_forms))
             end
         end
-        !reachable && continue
+        push!(per_form_option_sizes, sizes)
+    end
 
-        push!(current, c)
-        count[] += 1
-        _count_valid_subsets!(
-            count, candidates, i + 1,
-            current, budget - 1, topo_forms, level1, forms,
-        )
-        pop!(current)
+    # Count Cartesian product combinations respecting budget
+    total = Ref(0)
+    _count_cartesian!(total, per_form_option_sizes, 1, budget)
+    total[]
+end
+
+function _count_cartesian!(total, option_sizes, idx, budget)
+    if idx > length(option_sizes)
+        total[] += 1
+        return
+    end
+    for sz in option_sizes[idx]
+        sz > budget && continue
+        _count_cartesian!(total, option_sizes, idx + 1, budget - sz)
     end
 end
 
@@ -178,7 +172,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic = 1,
             expected_n_cat_with_act = 3,
             expected_n_cat_act_de = 10,
-            expected_n_total = 1415,
+            expected_n_total = 2720,
             max_enumeration_time = 5.0,
         ))
     end
@@ -197,8 +191,8 @@ function build_enumeration_test_specs()
             expected_n_forms = 12,
             expected_n_catalytic = 1,
             expected_n_cat_with_act = 5,
-            expected_n_cat_act_de = 79,
-            expected_n_total = 7208,
+            expected_n_cat_act_de = 34,
+            expected_n_total = 7607,
             max_enumeration_time = 10.0,
         ))
     end

@@ -1,13 +1,4 @@
-function _rxn_forms(spec::MechanismSpec)
-    form_set = Set(spec.forms)
-    used = Set{Symbol}()
-    for (lhs, rhs) in spec.reactions
-        for sym in Iterators.flatten((lhs, rhs))
-            sym in form_set && push!(used, sym)
-        end
-    end
-    return used
-end
+_used_forms = EnzymeRates._used_forms
 
 @testset "Mechanism Enumeration" begin
 
@@ -330,7 +321,7 @@ end
             @test all(==(false), spec.equilibrium_steps)
             @test isempty(spec.param_constraints)
             @test Set(spec.forms) == Set(f.name for f in forms)
-            @test _rxn_forms(spec) ==
+            @test _used_forms(spec) ==
                 Set([:E_0_0, :E_S_0, :E_0_P])
         end
 
@@ -343,7 +334,7 @@ end
                 EnzymeRates._used_form_count(spec) == 5 &&
                     all(==(false), spec.equilibrium_steps) &&
                     isempty(spec.param_constraints) &&
-                    :E_0_0_0_0 ∈ _rxn_forms(spec)
+                    :E_0_0_0_0 ∈ _used_forms(spec)
             end
         end
 
@@ -368,7 +359,7 @@ end
                 forms, pingpong; max_forms=20,
             )
             @test all(
-                s -> :E_0_0_0_0 ∈ _rxn_forms(s), specs,
+                s -> :E_0_0_0_0 ∈ _used_forms(s), specs,
             )
             @test all(
                 s -> all(==(false), s.equilibrium_steps),
@@ -406,9 +397,9 @@ end
                 length(r.reactions) > length(input.reactions)
                 for r in result[2:end]
             )
-            @test :E_0_0_A ∈ _rxn_forms(result[2])
-            @test :E_S_0_A ∈ _rxn_forms(result[2])
-            @test :E_0_P_A ∈ _rxn_forms(result[2])
+            @test :E_0_0_A ∈ _used_forms(result[2])
+            @test :E_S_0_A ∈ _used_forms(result[2])
+            @test :E_0_P_A ∈ _used_forms(result[2])
             @test all(r.forms == input.forms for r in result)
         end
     end
@@ -440,12 +431,12 @@ end
             @test result[1].reactions == input.reactions
             @test EnzymeRates._used_form_count(result[1]) == 3
             @test any(
-                s -> :E_0_0_I ∈ _rxn_forms(s), result[2:end],
+                s -> :E_0_0_I ∈ _used_forms(s), result[2:end],
             )
             # Dead-end forms are reachable from topology
-            topo_used = _rxn_forms(input)
+            topo_used = _used_forms(input)
             @test all(result[2:end]) do spec
-                used = _rxn_forms(spec)
+                used = _used_forms(spec)
                 de_forms = setdiff(used, topo_used)
                 filter!(f -> f ∈ Set(spec.forms), de_forms)
                 !isempty(de_forms)
@@ -456,7 +447,7 @@ end
             )
         end
 
-        @testset "Uni-Uni + 2 regulators: chains" begin
+        @testset "Uni-Uni + 2 regulators: box rule" begin
             forms = enumerate_enzyme_forms(uni_uni_2reg)
             specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
                 forms, uni_uni_2reg; max_forms=10,
@@ -467,14 +458,13 @@ end
             )
             @test result[1].reactions == input.reactions
             @test any(
-                s -> :E_0_0_I_J ∈ _rxn_forms(s), result,
+                s -> :E_0_0_I_J ∈ _used_forms(s), result,
             )
-            # Chain forms require parent dead-end present
+            # Box rule: dual-reg form requires BOTH single-reg parents
             @test all(result) do spec
-                used = _rxn_forms(spec)
+                used = _used_forms(spec)
                 :E_0_0_I_J ∉ used ||
-                    :E_0_0_I_0 ∈ used ||
-                    :E_0_0_0_J ∈ used
+                    (:E_0_0_I_0 ∈ used && :E_0_0_0_J ∈ used)
             end
         end
     end
@@ -566,7 +556,7 @@ end
                 enumerate_mechanisms(uni_uni_inh; max_forms=6),
             )
             @test any(
-                s -> :E_0_0_I ∈ _rxn_forms(s), mechs,
+                s -> :E_0_0_I ∈ _used_forms(s), mechs,
             )
         end
 
@@ -576,12 +566,12 @@ end
             )
             # Activator cycle: shadow forms in reactions
             @test any(mechs) do spec
-                rf = _rxn_forms(spec)
+                rf = _used_forms(spec)
                 :E_0_0_A ∈ rf && :E_S_0_A ∈ rf
             end
             # Dead-end-only variants
             @test any(mechs) do spec
-                rf = _rxn_forms(spec)
+                rf = _used_forms(spec)
                 :E_0_0_A ∈ rf && :E_S_0_A ∉ rf
             end
         end
