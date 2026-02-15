@@ -886,7 +886,11 @@ end
 """
     _generate_activator_configs(topo, forms, reaction) → Vector{Vector{Tuple{Int,Int}}}
 
-For each regulator, generate activator shadow cycle variants.
+For each regulator, generate activator shadow cycle variants:
+  1. Absent — no activator edges
+  2. Non-essential — shadow cycle added, base cycle retained
+  3. Essential — shadow cycle added, shadowed base edges removed
+
 Returns a list of topology variants including the original.
 """
 function _generate_activator_configs(topo::Vector{Tuple{Int,Int}},
@@ -897,11 +901,13 @@ function _generate_activator_configs(topo::Vector{Tuple{Int,Int}},
 
     topo_forms = Set(Iterators.flatten(topo))
 
-    # For each regulator, compute configs: absent, full_shadow, free_only_shadow
-    per_reg_options = Vector{Vector{Vector{Tuple{Int,Int}}}}()
+    # Each option: (edges_to_add, base_edges_to_remove)
+    OptionT = Tuple{Vector{Tuple{Int,Int}}, Set{Tuple{Int,Int}}}
+    per_reg_options = Vector{Vector{OptionT}}()
     for reg in reg_names
-        options = Vector{Tuple{Int,Int}}[]
-        push!(options, Tuple{Int,Int}[])  # absent: no extra edges
+        options = OptionT[]
+        # Option 1: absent
+        push!(options, (Tuple{Int,Int}[], Set{Tuple{Int,Int}}()))
 
         # Find shadow forms: for each cycle form, find the
         # form with this regulator also bound
@@ -914,32 +920,26 @@ function _generate_activator_configs(topo::Vector{Tuple{Int,Int}},
         if length(shadow_pairs) >= 2
             shadow_map = Dict(bi => si for (bi, si) in shadow_pairs)
 
-            # Compute shadow cycle edges (reused by both variants)
+            # Shadow cycle edges: mirror base edges in shadow forms
             shadow_cycle = Tuple{Int,Int}[]
+            shadowed_base_edges = Set{Tuple{Int,Int}}()
             for (a, b) in topo
                 sa = get(shadow_map, a, nothing)
                 sb = get(shadow_map, b, nothing)
                 if sa !== nothing && sb !== nothing
                     push!(shadow_cycle, (sa, sb))
+                    push!(shadowed_base_edges, (a, b))
                 end
             end
 
-            # Full shadow: all base forms connect to shadows
+            # Option 2: non-essential (full shadow, keep base)
             full_shadow_edges = Tuple{Int,Int}[
                 shadow_pairs; shadow_cycle
             ]
-            push!(options, full_shadow_edges)
+            push!(options, (full_shadow_edges, Set{Tuple{Int,Int}}()))
 
-            # Free-enzyme-only: connect only at free enzyme
-            free_idx = _free_enzyme_index(forms)
-            free_shadow = free_idx !== nothing ?
-                get(shadow_map, free_idx, nothing) : nothing
-            if free_shadow !== nothing
-                free_only_edges = Tuple{Int,Int}[
-                    (free_idx, free_shadow); shadow_cycle
-                ]
-                push!(options, free_only_edges)
-            end
+            # Option 3: essential (full shadow, remove shadowed base)
+            push!(options, (full_shadow_edges, shadowed_base_edges))
         end
         push!(per_reg_options, options)
     end
@@ -947,9 +947,13 @@ function _generate_activator_configs(topo::Vector{Tuple{Int,Int}},
     # Cartesian product of per-regulator options
     results = Vector{Tuple{Int,Int}}[]
     for combo in Iterators.product(per_reg_options...)
-        merged = copy(topo)
-        for option in combo
-            append!(merged, option)
+        all_remove = Set{Tuple{Int,Int}}()
+        for (_, remove) in combo
+            union!(all_remove, remove)
+        end
+        merged = [e for e in topo if e ∉ all_remove]
+        for (add, _) in combo
+            append!(merged, add)
         end
         push!(results, merged)
     end

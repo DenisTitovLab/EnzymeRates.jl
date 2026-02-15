@@ -172,7 +172,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic = 1,
             expected_n_cat_with_act = 3,
             expected_n_cat_act_de = 10,
-            expected_n_total = 2720,
+            expected_n_total = 2240,
             max_enumeration_time = 5.0,
         ))
     end
@@ -192,7 +192,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic = 1,
             expected_n_cat_with_act = 5,
             expected_n_cat_act_de = 34,
-            expected_n_total = 7607,
+            expected_n_total = 6647,
             max_enumeration_time = 10.0,
         ))
     end

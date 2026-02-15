@@ -383,7 +383,7 @@ _used_forms = EnzymeRates._used_forms
             @test result[1].reactions == input.reactions
         end
 
-        @testset "Activator: input + shadow variants" begin
+        @testset "Activator: absent + non-essential + essential" begin
             forms = enumerate_enzyme_forms(uni_uni_act)
             specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
                 forms, uni_uni_act; max_forms=10,
@@ -392,15 +392,47 @@ _used_forms = EnzymeRates._used_forms
             result = EnzymeRates._generate_activator_configs(
                 input, forms, uni_uni_act,
             )
+            @test length(result) == 3
+
+            # Config 1: absent (same as input)
             @test result[1].reactions == input.reactions
+
+            # All shadow variants have more reactions than input
             @test all(
                 length(r.reactions) > length(input.reactions)
                 for r in result[2:end]
             )
+            @test all(r.forms == input.forms for r in result)
+
+            # Config 2: non-essential shadow
             @test :E_0_0_A ∈ _used_forms(result[2])
             @test :E_S_0_A ∈ _used_forms(result[2])
             @test :E_0_P_A ∈ _used_forms(result[2])
-            @test all(r.forms == input.forms for r in result)
+            base_edges = Set(EnzymeRates._spec_to_edges(input, forms))
+            ne_edges = Set(EnzymeRates._spec_to_edges(result[2], forms))
+            @test base_edges ⊆ ne_edges  # base cycle retained
+
+            # Config 3: essential shadow
+            @test :E_0_0_A ∈ _used_forms(result[3])
+            @test :E_S_0_A ∈ _used_forms(result[3])
+            @test :E_0_P_A ∈ _used_forms(result[3])
+            ess_edges = Set(EnzymeRates._spec_to_edges(result[3], forms))
+            @test !issubset(base_edges, ess_edges)  # base cycle removed
+        end
+
+        @testset "Essential activator: valid rate equation" begin
+            forms = enumerate_enzyme_forms(uni_uni_act)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni_act; max_forms=10,
+            )
+            result = EnzymeRates._generate_activator_configs(
+                specs[1], forms, uni_uni_act,
+            )
+            # Convert essential variant (config 3) to EnzymeMechanism
+            ess_spec = result[3]
+            mech = EnzymeMechanism(ess_spec)
+            req = rate_equation_string(mech)
+            @test occursin("A", req)  # activator in rate equation
         end
     end
 
