@@ -1,7 +1,22 @@
 using Graphs
 
 """Sort species tuples alphabetically by name (first element)."""
-_sort_species(t::Tuple) = Tuple(sort(collect(t); by = s -> s[1]))
+_sort_species(t::Tuple) = Tuple(sort(collect(t); by=s -> s[1]))
+
+"""
+Normalize species tuples to 3-element
+`(name, atoms, max_sites)`, defaulting max_sites to 1.
+"""
+function _normalize_species_with_sites(t::Tuple)
+    Tuple(_normalize_one_species(s) for s in t)
+end
+
+function _normalize_one_species(s)
+    n = length(s)
+    n == 2 && return (s[1], s[2], 1)
+    n == 3 && return s
+    error("Species tuple must have 2 or 3 elements, got $n")
+end
 
 """
     AbstractEnzymeReaction
@@ -16,13 +31,21 @@ abstract type AbstractEnzymeReaction end
 Singleton type encoding an enzyme reaction specification in type parameters.
 
 Each of `Substrates`, `Products`, `Regulators` is a tuple of
-`(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+`(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}}, max_sites::Int)`.
+For backward compatibility, 2-element `(name, atoms)` tuples are auto-normalized
+to 3-element with `max_sites=1`.
 """
 struct EnzymeReaction{Substrates, Products, Regulators} <: AbstractEnzymeReaction end
 
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
+    subs = _normalize_species_with_sites(subs)
+    prods = _normalize_species_with_sites(prods)
+    regs = _normalize_species_with_sites(regs)
+    for group in (subs, prods, regs), s in group
+        s[3] >= 1 || error("max_sites must be ≥ 1, got $(s[3]) for $(s[1])")
+    end
     subs_names = [s[1] for s in subs]
     prods_names = [s[1] for s in prods]
     length(subs_names) != length(Set(subs_names)) && error("Duplicate substrate names")
@@ -46,13 +69,17 @@ abstract type AbstractEnzymeMechanism end
 
 Singleton type encoding an enzyme mechanism in type parameters.
 
-- `Species`: `(substrates, products, regulators, enzyme_species)` where each entry is a tuple
-  of `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
-- `Reactions`: tuple of `(lhs, rhs)` where each side is a tuple of species `Symbol`s.
-- `EquilibriumSteps`: tuple of `Bool` indicating which steps are rapid-equilibrium (`true`)
-  vs steady-state (`false`).
+- `Species`: `(substrates, products, regulators, enzyme_species)`
+  where each entry is a tuple of
+  `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+- `Reactions`: tuple of `(lhs, rhs)` where each side is a
+  tuple of species `Symbol`s.
+- `EquilibriumSteps`: tuple of `Bool` indicating which steps
+  are rapid-equilibrium (`true`) vs steady-state (`false`).
 """
-struct EnzymeMechanism{Species, Reactions, EquilibriumSteps, ParamConstraints} <: AbstractEnzymeMechanism end
+struct EnzymeMechanism{
+    Species, Reactions, EquilibriumSteps, ParamConstraints,
+} <: AbstractEnzymeMechanism end
 
 """Count enzymes, metabolites, atoms, and metabolite names on one side of a reaction."""
 function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
@@ -60,10 +87,15 @@ function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
     for s in side
         if s in enzyme_set
             n_enz += 1
-            for (a, c) in enzyme_atoms[s]; atoms[a] = get(atoms, a, 0) + c; end
+            for (a, c) in enzyme_atoms[s]
+                atoms[a] = get(atoms, a, 0) + c
+            end
         elseif haskey(met_atoms, s)
-            n_met += 1; push!(mets, s)
-            for (a, c) in met_atoms[s]; atoms[a] = get(atoms, a, 0) + c; end
+            n_met += 1
+            push!(mets, s)
+            for (a, c) in met_atoms[s]
+                atoms[a] = get(atoms, a, 0) + c
+            end
         else
             error("Reaction $(step_idx) uses unknown species $(s)")
         end
@@ -77,14 +109,21 @@ end
 Construct an `EnzymeMechanism` from explicit species, reaction tuples, equilibrium step
 flags, and optional parameter constraints.
 
-Each constraint is `(target::Symbol, coeff::Int, factors::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+Each constraint is a tuple
+`(target::Symbol, coeff::Int, factors::Tuple{...})`.
 """
 function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Vararg{Bool}},
                          constraints::Tuple=())
-    length(eq_steps) == length(reactions) || error("eq_steps length must match reactions length")
-    all(eq_steps) && !isempty(eq_steps) && error("At least one steady-state step is required (not all steps can be rapid-equilibrium)")
+    length(eq_steps) == length(reactions) ||
+        error("eq_steps length must match reactions length")
+    all(eq_steps) && !isempty(eq_steps) && error(
+        "At least one steady-state step is required " *
+        "(not all steps can be rapid-equilibrium)",
+    )
 
-    length(species) == 4 || error("species must be (substrates, products, regulators, enzymes)")
+    length(species) == 4 ||
+        error("species must be " *
+              "(substrates, products, regulators, enzymes)")
     subs, prods, regs, enzs = species
 
     for (label, group) in (("substrate", subs), ("product", prods), ("regulator", regs))
@@ -109,14 +148,20 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
     end
     isempty(enzyme_atoms) && error("No enzyme species defined")
     for name in keys(enzyme_atoms)
-        haskey(met_atoms, name) && error("Species $name defined as both enzyme and metabolite")
+        haskey(met_atoms, name) && error(
+            "Species $name defined as both " *
+            "enzyme and metabolite",
+        )
     end
     free_enzymes = [name for (name, atoms) in enzs if isempty(atoms)]
     isempty(free_enzymes) && error("No free enzyme form (enzyme with empty atoms) defined")
 
     n_with = count(s -> !isempty(s[2]), Iterators.flatten((subs, prods, regs)))
     n_total = length(subs) + length(prods) + length(regs)
-    0 < n_with < n_total && error("All metabolites must either have atoms or all lack atoms; found a mix")
+    0 < n_with < n_total && error(
+        "All metabolites must either have atoms " *
+        "or all lack atoms; found a mix",
+    )
     skip_atom_checks = n_with == 0
 
     expected = Dict{Symbol,Int}()
@@ -128,8 +173,12 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
     enzyme_set = Set(keys(enzyme_atoms))
     net = Dict{Symbol,Int}()
     for (i, (lhs, rhs)) in enumerate(reactions)
-        lhs_enz, lhs_mets, lhs_atoms, lhs_met_names = _count_side(lhs, enzyme_set, enzyme_atoms, met_atoms, i)
-        rhs_enz, rhs_mets, rhs_atoms, rhs_met_names = _count_side(rhs, enzyme_set, enzyme_atoms, met_atoms, i)
+        lhs_enz, lhs_mets, lhs_atoms, lhs_met_names =
+            _count_side(lhs, enzyme_set, enzyme_atoms,
+                        met_atoms, i)
+        rhs_enz, rhs_mets, rhs_atoms, rhs_met_names =
+            _count_side(rhs, enzyme_set, enzyme_atoms,
+                        met_atoms, i)
         for s in lhs_met_names; net[s] = get(net, s, 0) - 1; end
         for s in rhs_met_names; net[s] = get(net, s, 0) + 1; end
         lhs_enz == 1 || error("Reaction $i lhs must contain exactly one enzyme form")
@@ -143,14 +192,17 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
         end
     end
 
+    # Net stoichiometry validation: cycle steps give k× the reaction, but dead-end
+    # binding steps add extra consumption that may shift or cancel net contributions.
+    # We require: each substrate/product appears in at least one reaction,
+    # and no unexpected metabolites appear.
     for (name, coeff) in expected
-        net_coeff = get(net, name, 0)
-        if coeff == 0
-            net_coeff == 0 || error("Regulator $name has nonzero net stoichiometry")
-        else
-            net_coeff == 0 && error("Net stoichiometry mismatch for $name")
-            sign(net_coeff) == sign(coeff) || error("Net stoichiometry mismatch for $name")
-            abs(net_coeff) % abs(coeff) == 0 || error("Net stoichiometry mismatch for $name")
+        if coeff != 0
+            label = coeff < 0 ? "Substrate" : "Product"
+            haskey(net, name) || error(
+                "$label $name does not appear " *
+                "in any reaction",
+            )
         end
     end
     for (name, _) in net
@@ -175,19 +227,43 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
     if !isempty(constraints)
         valid = Set{Symbol}()
         for (i, re) in enumerate(eq_steps)
-            re ? push!(valid, Symbol("K$i")) : (push!(valid, Symbol("k$(i)f")); push!(valid, Symbol("k$(i)r")))
+            if re
+                push!(valid, Symbol("K$i"))
+            else
+                push!(valid, Symbol("k$(i)f"))
+                push!(valid, Symbol("k$(i)r"))
+            end
         end
         targets = Symbol[]
         for (target, coeff, factors) in constraints
-            target ∈ valid || error("Constraint target $target is not a valid parameter of this mechanism")
-            coeff > 0 || error("Constraint coefficient must be positive, got $coeff for $target")
+            target ∈ valid || error(
+                "Constraint target $target is not a " *
+                "valid parameter of this mechanism",
+            )
+            coeff > 0 || error(
+                "Constraint coefficient must be " *
+                "positive, got $coeff for $target",
+            )
             push!(targets, target)
             for (sym, _) in factors
-                sym ∈ valid || error("Constraint replacement symbol $sym is not a valid parameter of this mechanism")
-                sym == target && error("Self-referencing constraint: $target = ... $target ...")
+                sym ∈ valid || error(
+                    "Constraint replacement symbol " *
+                    "$sym is not a valid parameter " *
+                    "of this mechanism",
+                )
+                sym == target && error(
+                    "Self-referencing constraint: " *
+                    "$target = ... $target ...",
+                )
             end
         end
-        length(targets) == length(Set(targets)) || error("Duplicate constraint target: $(first(t for t in targets if count(==(t), targets) > 1))")
+        dup = findfirst(
+            t -> count(==(t), targets) > 1, targets,
+        )
+        dup !== nothing && error(
+            "Duplicate constraint target: " *
+            "$(targets[dup])",
+        )
     end
 
     EnzymeMechanism{species, reactions, eq_steps, constraints}()
@@ -196,35 +272,35 @@ end
 # --- Rate equation mode types ---
 
 """
-    RateEquationMode
+    AbstractRateEquationMode
 
 Abstract supertype for rate equation parameterization modes.
 Controls which form of the rate equation is used and what parameters are expected.
 """
-abstract type RateEquationMode end
+abstract type AbstractRateEquationMode end
 
 """
-    RawMode <: RateEquationMode
+    RawMode <: AbstractRateEquationMode
 
 Raw rate equation mode using all 2N microscopic rate constants (k1f, k1r, k2f, k2r, ...).
 No thermodynamic constraints applied. Parameters: all k's + E_total.
 """
-struct RawMode <: RateEquationMode end
+struct RawMode <: AbstractRateEquationMode end
 
 """
-    HaldaneWegscheiderMode <: RateEquationMode
+    HaldaneWegscheiderMode <: AbstractRateEquationMode
 
 Rate equation with Haldane-Wegscheider thermodynamic constraints applied.
 Dependent parameters are substituted in terms of independent k's and Keq.
 Parameters: independent k's + Keq + E_total.
 """
-struct HaldaneWegscheiderMode <: RateEquationMode end
+struct HaldaneWegscheiderMode <: AbstractRateEquationMode end
 
 """Singleton instance for raw mode."""
-const Raw = RawMode()
+const RAW = RawMode()
 
 """Singleton instance for Haldane-Wegscheider mode."""
-const HaldaneWegscheider = HaldaneWegscheiderMode()
+const HALDANE_WEGSCHEIDER = HaldaneWegscheiderMode()
 
 # --- Pretty printing ---
 
@@ -238,7 +314,10 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}
     end
 end
 
-function Base.show(io::IO, m::EnzymeMechanism{Species, Reactions, EqSteps, PC}) where {Species, Reactions, EqSteps, PC}
+function Base.show(
+    io::IO,
+    m::EnzymeMechanism{Species, Reactions, EqSteps, PC},
+) where {Species, Reactions, EqSteps, PC}
     subs, prods, regs, enzs = Species
     enz_names = Set(e[1] for e in enzs)
 
@@ -249,7 +328,8 @@ function Base.show(io::IO, m::EnzymeMechanism{Species, Reactions, EqSteps, PC}) 
         for s in lhs; s in enz_names && (lhs_counts[s] = get(lhs_counts, s, 0) + 1); end
         for s in rhs; s in enz_names && (rhs_counts[s] = get(rhs_counts, s, 0) + 1); end
     end
-    is_linear = all(v <= 1 for v in values(lhs_counts)) && all(v <= 1 for v in values(rhs_counts))
+    is_linear = (all(v <= 1 for v in values(lhs_counts)) &&
+                  all(v <= 1 for v in values(rhs_counts)))
 
     _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
 
@@ -283,7 +363,10 @@ function Base.show(io::IO, m::EnzymeMechanism{Species, Reactions, EqSteps, PC}) 
         print(io, " | regulators: ", regs_str)
     end
     if !isempty(PC)
-        cstrs = [_user_constraint_to_string(target, coeff, factors) for (target, coeff, factors) in PC]
+        cstrs = [
+            _user_constraint_to_string(target, coeff, factors)
+            for (target, coeff, factors) in PC
+        ]
         print(io, " | constraints: ", join(cstrs, ", "))
     end
 end
@@ -293,12 +376,18 @@ function _user_constraint_to_string(target::Symbol, coeff::Int, factors)
     parts = String[]
     coeff != 1 && push!(parts, string(coeff))
     for (sym, exp) in factors
-        push!(parts, exp == 1 ? string(sym) : exp == -1 ? "1 / $sym" : "$sym^$exp")
+        if exp == 1
+            push!(parts, string(sym))
+        elseif exp == -1
+            push!(parts, "1 / $sym")
+        else
+            push!(parts, "$sym^$exp")
+        end
     end
     "$target = $(isempty(parts) ? string(coeff) : join(parts, " * "))"
 end
 
-# ─── Accessors ─────────────────────────────────────────────────────────────────
+# ─── Accessors ─────────────────────────────────────────────────
 
 """Return substrates (with stoichiometric multiplicity)."""
 substrates(::EnzymeMechanism{Species}) where {Species} = Species[1]
@@ -346,7 +435,11 @@ end
 n_states(::EnzymeMechanism{Species}) where {Species} = length(Species[4])
 
 """Number of steps in the mechanism."""
-n_steps(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions} = length(Reactions)
+function n_steps(
+    ::EnzymeMechanism{Species, Reactions},
+) where {Species, Reactions}
+    length(Reactions)
+end
 
 """Return the reactions tuple directly."""
 reactions(::EnzymeMechanism{Species, R}) where {Species, R} = R
@@ -380,7 +473,9 @@ end
 Stoichiometry matrix: rows = metabolites, columns = steps.
 Positive = produced, negative = consumed.
 """
-@generated function stoich_matrix(::EnzymeMechanism{Species, Reactions, EqSteps}) where {Species, Reactions, EqSteps}
+@generated function stoich_matrix(
+    ::EnzymeMechanism{Species, Reactions, EqSteps},
+) where {Species, Reactions, EqSteps}
     mets = _unique_metabolites(Species)
     met_idx = Dict(m[1] => i for (i, m) in enumerate(mets))
     enz_names = Set(e[1] for e in Species[4])

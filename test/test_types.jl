@@ -5,8 +5,8 @@
             ((:P, ((:C, 1),)),),
         )
         @test r isa EnzymeReaction
-        @test EnzymeRates.substrates(r) == ((:S, ((:C, 1),)),)
-        @test EnzymeRates.products(r) == ((:P, ((:C, 1),)),)
+        @test EnzymeRates.substrates(r) == ((:S, ((:C, 1),), 1),)
+        @test EnzymeRates.products(r) == ((:P, ((:C, 1),), 1),)
         @test EnzymeRates.regulators(r) == ()
     end
 
@@ -16,7 +16,7 @@
             ((:P, ((:C, 1),)),),
             ((:I, ((:C, 2),)),),
         )
-        @test EnzymeRates.regulators(r) == ((:I, ((:C, 2),)),)
+        @test EnzymeRates.regulators(r) == ((:I, ((:C, 2),), 1),)
     end
 
     @testset "EnzymeReaction canonical ordering" begin
@@ -29,7 +29,7 @@
             ((:P1, ((:C, 1),)), (:P2, ((:C, 2),))),
         )
         @test typeof(r1) === typeof(r2)
-        @test EnzymeRates.substrates(r1) == ((:S1, ((:C, 1),)), (:S2, ((:C, 2),)))
+        @test EnzymeRates.substrates(r1) == ((:S1, ((:C, 1),), 1), (:S2, ((:C, 2),), 1))
     end
 
     @testset "EnzymeReaction regulator same as substrate allowed" begin
@@ -80,7 +80,11 @@
             ((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), (),
             ((:E, ()), (:ES, ((:C, 1),))),
         )
-        m = EnzymeMechanism(species, (((:E, :S), (:ES,)), ((:ES,), (:E, :P))), (false, false))
+        m = EnzymeMechanism(
+            species,
+            (((:E, :S), (:ES,)), ((:ES,), (:E, :P))),
+            (false, false),
+        )
         @test sprint(show, m) == "EnzymeMechanism: E + S <--> ES <--> E + P"
 
         # Branched mechanism: multi-line
@@ -146,7 +150,9 @@
             (),
             ((:E, ()), (:ES, ((:C, 1),))),
         )
-        @test_throws ErrorException EnzymeMechanism(dup_subs_species, base_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            dup_subs_species, base_rxns,
+            (false, false))
 
         # No free enzyme form (all enzymes have atoms)
         no_free_species = (
@@ -155,11 +161,15 @@
             (),
             ((:E, ((:X, 1),)), (:ES, ((:C, 1), (:X, 1)))),
         )
-        @test_throws ErrorException EnzymeMechanism(no_free_species, base_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            no_free_species, base_rxns,
+            (false, false))
 
         # Reaction with zero enzymes on LHS
         no_enz_rxns = (((:S,), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(base_species, no_enz_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            base_species, no_enz_rxns,
+            (false, false))
 
         # Reaction with two metabolites on one side
         two_met_species = (
@@ -169,11 +179,15 @@
             ((:E, ()), (:ES, ((:C, 1), (:H, 1)))),
         )
         two_met_rxns = (((:E, :S1, :S2), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(two_met_species, two_met_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            two_met_species, two_met_rxns,
+            (false, false))
 
         # Unknown species in reaction
         unknown_rxns = (((:E, :X), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(base_species, unknown_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            base_species, unknown_rxns,
+            (false, false))
 
         # Atomic conservation failure
         bad_atom_species = (
@@ -183,7 +197,9 @@
             ((:E, ()), (:ES, ((:C, 1),))),
         )
         bad_atom_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(bad_atom_species, bad_atom_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            bad_atom_species, bad_atom_rxns,
+            (false, false))
 
         # Net stoichiometry mismatch (substrate consumed but not produced)
         net_mismatch_species = (
@@ -193,7 +209,9 @@
             ((:E, ()), (:ES, ((:C, 1),))),
         )
         net_mismatch_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(net_mismatch_species, net_mismatch_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            net_mismatch_species,
+            net_mismatch_rxns, (false, false))
 
         # Species defined as both enzyme and metabolite
         overlap_species = (
@@ -202,11 +220,15 @@
             (),
             ((:E, ()), (:ES, ((:C, 1),))),
         )
-        @test_throws ErrorException EnzymeMechanism(overlap_species, base_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            overlap_species, base_rxns,
+            (false, false))
 
         # Duplicate reactions
         dup_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)), ((:E, :S), (:ES,)))
-        @test_throws ErrorException EnzymeMechanism(base_species, dup_rxns, (false, false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            base_species, dup_rxns,
+            (false, false, false))
 
         # Unreachable enzyme form
         unreachable_species = (
@@ -216,7 +238,9 @@
             ((:E, ()), (:ES, ((:C, 1),)), (:EX, ((:H, 1),))),
         )
         unreachable_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(unreachable_species, unreachable_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(
+            unreachable_species,
+            unreachable_rxns, (false, false))
     end
 
     @testset "EnzymeMechanism valid with reachable enzyme forms" begin
@@ -278,7 +302,7 @@
                 k3r = k1r
             end
         end
-        raw_params = parameters(m, EnzymeRates.Raw)
+        raw_params = parameters(m, EnzymeRates.RAW)
         @test :k3r ∉ raw_params
         @test :k1r ∈ raw_params
         @test :E_total ∈ raw_params
@@ -313,7 +337,7 @@
         end
 
         rng = Random.MersenneTwister(42)
-        for _ in 1:20
+        @test all(1:20) do _
             params = (k1f = 0.1 + 9.9 * rand(rng),
                       k1r = 0.1 + 9.9 * rand(rng),
                       k2f = 0.1 + 9.9 * rand(rng),
@@ -321,7 +345,12 @@
                       k3f = 0.1 + 9.9 * rand(rng),
                       E_total = 0.1 + 9.9 * rand(rng))
             concs = (A = 0.1 + 9.9 * rand(rng), P = 0.1 + 9.9 * rand(rng))
-            @test rate_equation(m, params, concs, EnzymeRates.Raw) ≈ rate_constrained(params, concs) rtol=1e-10
+            isapprox(
+                rate_equation(
+                    m, params, concs,
+                    EnzymeRates.RAW),
+                rate_constrained(params, concs);
+                rtol=1e-10)
         end
     end
 
@@ -354,12 +383,12 @@
             E_total * num / denom
         end
 
-        raw_params = parameters(m, EnzymeRates.Raw)
+        raw_params = parameters(m, EnzymeRates.RAW)
         @test :K2 ∉ raw_params
         @test :K1 ∈ raw_params
 
         rng = Random.MersenneTwister(99)
-        for _ in 1:20
+        @test all(1:20) do _
             params = (K1 = 0.1 + 9.9 * rand(rng),
                       k3f = 0.1 + 9.9 * rand(rng),
                       k3r = 0.1 + 9.9 * rand(rng),
@@ -368,7 +397,12 @@
                       E_total = 0.1 + 9.9 * rand(rng))
             concs = (A = 0.1 + 9.9 * rand(rng), B = 0.1 + 9.9 * rand(rng),
                      P = 0.1 + 9.9 * rand(rng), Q = 0.1 + 9.9 * rand(rng))
-            @test rate_equation(m, params, concs, EnzymeRates.Raw) ≈ rate_constrained_re(params, concs) rtol=1e-10
+            isapprox(
+                rate_equation(
+                    m, params, concs,
+                    EnzymeRates.RAW),
+                rate_constrained_re(params, concs);
+                rtol=1e-10)
         end
     end
 
@@ -448,7 +482,7 @@
             end
         end
 
-        s_raw = rate_equation_string(m, EnzymeRates.Raw)
+        s_raw = rate_equation_string(m, EnzymeRates.RAW)
         @test occursin("k3r = k1r", s_raw)
         @test occursin("v = E_total * (", s_raw)
         @test !occursin("k3r", replace(s_raw, "k3r = k1r" => ""))

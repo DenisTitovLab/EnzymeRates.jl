@@ -9,18 +9,23 @@ minimal set of dependent rate constants in terms of the independent ones and
 the equilibrium constant Keq.
 """
 
-# ─── Shared Helpers ──────────────────────────────────────────────────────────
+# ─── Shared Helpers ──────────────────────────────────────────────
 
 """Collect raw parameter symbols (K_i for RE, k_if/k_ir for SS) for each step."""
 function _raw_param_symbols(eq_steps)
     ps = Symbol[]
     for (i, re) in enumerate(eq_steps)
-        re ? push!(ps, Symbol("K$i")) : (push!(ps, Symbol("k$(i)f")); push!(ps, Symbol("k$(i)r")))
+        if re
+            push!(ps, Symbol("K$i"))
+        else
+            push!(ps, Symbol("k$(i)f"))
+            push!(ps, Symbol("k$(i)r"))
+        end
     end
     ps
 end
 
-# ─── Thermodynamic Constraint Infrastructure ─────────────────────────────────
+# ─── Thermodynamic Constraint Infrastructure ─────────────────────
 
 function _enzyme_incidence_matrix(M::Type{<:EnzymeMechanism})
     m = M()
@@ -96,13 +101,27 @@ function _classify_cycle(nu_cycle, nu_net, i)
     c = nothing
     for j in eachindex(nu_cycle)
         if nu_net[j] == 0
-            nu_cycle[j] != 0 && error("Cycle $i produces metabolite change not proportional to net reaction")
+            nu_cycle[j] != 0 && error(
+                "Cycle $i produces metabolite " *
+                "change not proportional to " *
+                "net reaction"
+            )
         else
             c_j = nu_cycle[j] // nu_net[j]
-            c === nothing ? (c = c_j) : c_j != c && error("Cycle $i produces metabolite change not proportional to net reaction")
+            if c === nothing
+                c = c_j
+            elseif c_j != c
+                error(
+                    "Cycle $i produces metabolite " *
+                    "change not proportional to " *
+                    "net reaction"
+                )
+            end
         end
     end
-    c !== nothing && denominator(c) == 1 ? Int(c) : error("Cycle $i produces metabolite change not proportional to net reaction")
+    err = "Cycle $i produces metabolite change " *
+          "not proportional to net reaction"
+    c !== nothing && denominator(c) == 1 ? Int(c) : error(err)
 end
 
 """
@@ -132,9 +151,17 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     rhs = Rational{BigInt}.(rhs_coeffs)
     for i in 1:nc, j in 1:nsteps
         C[i, j] == 0 && continue
-        pairs = eq_steps[j] ? [(Symbol("K$j"), 1)] : [(Symbol("k$(j)f"), 1), (Symbol("k$(j)r"), -1)]
+        pairs = if eq_steps[j]
+            [(Symbol("K$j"), 1)]
+        else
+            [(Symbol("k$(j)f"), 1), (Symbol("k$(j)r"), -1)]
+        end
         for (sym, sign) in pairs
-            targets = haskey(csub, sym) ? [(s, sign * e) for (s, e) in csub[sym]] : [(sym, sign)]
+            targets = if haskey(csub, sym)
+                [(s, sign * e) for (s, e) in csub[sym]]
+            else
+                [(sym, sign)]
+            end
             for (s, sgn) in targets
                 haskey(sym_col, s) && (A[i, sym_col[s]] += C[i, j] * sgn)
             end
@@ -152,7 +179,13 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
         e_rhs, m_rhs = _split_reaction_side(rhs_rxn, enz_set)
         has_met = !isempty(m_lhs) || !isempty(m_rhs)
         is_free = e_lhs in free_enz_set || e_rhs in free_enz_set
-        base = has_met ? (is_free ? 0 : 10) : 20
+        if !has_met
+            base = 20
+        elseif is_free
+            base = 0
+        else
+            base = 10
+        end
         if eq_steps[j]
             s = Symbol("K$j")
             haskey(sym_col, s) && (priority[sym_col[s]] = (is_free && has_met) ? -1 : base)
@@ -170,20 +203,36 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     for i in 1:nc
         best_col, best_pri = 0, -1
         for c in 1:n_vars
-            c in pivot_cols && continue; wA[i, c] == 0 && continue
-            priority[c] > best_pri && (best_pri = priority[c]; best_col = c)
+            c in pivot_cols && continue
+            wA[i, c] == 0 && continue
+            if priority[c] > best_pri
+                best_pri = priority[c]
+                best_col = c
+            end
         end
-        best_col == 0 && error("Degenerate constraint matrix at row $i")
+        best_col == 0 && error(
+            "Degenerate constraint matrix at row $i"
+        )
         push!(pivot_cols, best_col)
-        pv = wA[i, best_col]; wA[i, :] ./= pv; wrhs[i] /= pv
+        pv = wA[i, best_col]
+        wA[i, :] ./= pv
+        wrhs[i] /= pv
         for r in 1:nc
-            r != i && wA[r, best_col] != 0 && (f = wA[r, best_col]; wA[r, :] .-= f .* wA[i, :]; wrhs[r] -= f * wrhs[i])
+            if r != i && wA[r, best_col] != 0
+                f = wA[r, best_col]
+                wA[r, :] .-= f .* wA[i, :]
+                wrhs[r] -= f * wrhs[i]
+            end
         end
     end
 
     dep_exprs = Dict{Symbol, Expr}()
     for (i, pcol) in enumerate(pivot_cols)
-        factors = [(all_params[c], -wA[i, c]) for c in 1:n_vars if c != pcol && wA[i, c] != 0]
+        factors = [
+            (all_params[c], -wA[i, c])
+            for c in 1:n_vars
+            if c != pcol && wA[i, c] != 0
+        ]
         dep_exprs[all_params[pcol]] = build_power_expr(wrhs[i], factors)
     end
     dep_set = Set(keys(dep_exprs))
@@ -202,24 +251,32 @@ function _constraint_expr_strings(M::Type{<:EnzymeMechanism})
     if !isempty(dep_exprs)
         subs = Dict(K => :(1 / $K) for K in _binding_K_symbols(M))
         for (sym, expr) in sort(collect(dep_exprs); by=p -> string(p[1]))
-            push!(lines, "$sym = $(string(isempty(subs) ? expr : substitute_params_expr(expr, subs)))")
+            disp = isempty(subs) ? expr :
+                substitute_params_expr(expr, subs)
+            push!(lines, "$sym = $(string(disp))")
         end
     end
     lines
 end
 
-# ─── Preamble Building Helpers ───────────────────────────────────────────────
+# ─── Preamble Building Helpers ───────────────────────────────────
 
 """Build destructuring Expr: (; a, b, c) = source"""
 function _destructuring_expr(syms, source::Symbol)
     Expr(:(=), Expr(:tuple, Expr(:parameters, syms...)), source)
 end
 
-"""Collect sorted raw parameter symbols (k1f, k1r, K1, ..., E_total) for a mechanism, excluding constrained params."""
+"""
+Collect sorted raw parameter symbols (k1f, k1r, K1, ...,
+E_total) for a mechanism, excluding constrained params.
+"""
 function _sorted_raw_param_symbols(M::Type{<:EnzymeMechanism})
     m = M()
     constrained = Set(c[1] for c in param_constraints(m))
-    Tuple(p for p in (_raw_param_symbols(equilibrium_steps(m))..., :E_total) if p ∉ constrained)
+    raw = _raw_param_symbols(equilibrium_steps(m))
+    Tuple(
+        p for p in (raw..., :E_total) if p ∉ constrained
+    )
 end
 
 """Collect sorted concentration symbols for a mechanism."""

@@ -1,4 +1,4 @@
-# ─── Parameters API ───────────────────────────────────────────────────────────
+# ─── Parameters API ─────────────────────────────────────────
 
 """
     parameters(m::EnzymeMechanism, [mode])
@@ -6,14 +6,17 @@
 Return the parameter names required for the given mode as a tuple of Symbols.
 
 # Modes
-- `HaldaneWegscheider` (default): independent k's + Keq + E_total
-- `Raw`: all 2N k's + E_total
+- `HALDANE_WEGSCHEIDER` (default): independent k's + Keq + E_total
+- `RAW`: all 2N k's + E_total
 """
 function parameters end
 
-parameters(m::EnzymeMechanism) = parameters(m, HaldaneWegscheider)
+parameters(m::EnzymeMechanism) = parameters(m, HALDANE_WEGSCHEIDER)
 
-@generated function parameters(::EnzymeMechanism{Species, Reactions, EqSteps, PC}, ::RawMode) where {Species, Reactions, EqSteps, PC}
+@generated function parameters(
+    ::EnzymeMechanism{Species, Reactions, EqSteps, PC},
+    ::RawMode,
+) where {Species, Reactions, EqSteps, PC}
     constrained = Set(c[1] for c in PC)
     Tuple(p for p in (_raw_param_symbols(EqSteps)..., :E_total) if p ∉ constrained)
 end
@@ -29,7 +32,7 @@ end
     Tuple(indep)
 end
 
-# ─── RE Group Helpers ─────────────────────────────────────────────────────────
+# ─── RE Group Helpers ───────────────────────────────────────
 
 function _split_reaction_side(side, enz_set)
     enzyme_sym = first(s for s in side if s in enz_set)
@@ -74,15 +77,15 @@ function _compute_re_groups(enz_names, enz_set, rxns, eq_steps)
 end
 
 """
-Compute alpha factors (relative concentrations within RE groups) as Poly values.
-Returns `(alpha, sigma)` where alpha[i] is a (num::Poly, den::Poly) pair
-and sigma[g] is a (num::Poly, den::Poly) pair.
+Compute alpha factors (relative concentrations within RE groups) as POLY values.
+Returns `(alpha, sigma)` where alpha[i] is a (num::POLY, den::POLY) pair
+and sigma[g] is a (num::POLY, den::POLY) pair.
 """
 function _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
     N = length(enz_names)
     mp = mets -> isempty(mets) ? poly_one() : reduce(poly_mul, poly_sym.(mets))
-    alpha_num = Vector{Poly}(fill(poly_one(), N))
-    alpha_den = Vector{Poly}(fill(poly_one(), N))
+    alpha_num = Vector{POLY}(fill(poly_one(), N))
+    alpha_den = Vector{POLY}(fill(poly_one(), N))
 
     for group in groups
         length(group) == 1 && continue
@@ -111,16 +114,27 @@ function _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
     end
 
     # Compute sigma per group: sum of alpha_i with cleared denominators
-    sigma_num = Vector{Poly}(undef, length(groups))
-    sigma_den = Vector{Poly}(undef, length(groups))
+    sigma_num = Vector{POLY}(undef, length(groups))
+    sigma_den = Vector{POLY}(undef, length(groups))
     for (g, group) in enumerate(groups)
         if length(group) == 1
             sigma_num[g] = poly_one(); sigma_den[g] = poly_one()
         else
             sigma_den[g] = reduce(poly_mul, alpha_den[i] for i in group)
-            sigma_num[g] = reduce(poly_add,
-                poly_mul(reduce(poly_mul, (alpha_den[j] for j in group if j != i); init=poly_one()), alpha_num[i])
-                for i in group)
+            sigma_num[g] = reduce(
+                poly_add,
+                (
+                    poly_mul(
+                        reduce(
+                            poly_mul,
+                            (alpha_den[j] for j in group if j != i);
+                            init=poly_one(),
+                        ),
+                        alpha_num[i],
+                    )
+                    for i in group
+                ),
+            )
         end
     end
     alpha_num, alpha_den, sigma_num, sigma_den
@@ -130,13 +144,16 @@ end
 function _ss_contrib(k_poly, mets, i_form, alpha_num, alpha_den, group)
     r = isempty(mets) ? k_poly : poly_mul(k_poly, reduce(poly_mul, poly_sym.(mets)))
     r = poly_mul(r, alpha_num[i_form])
-    for k in group; k == i_form && continue; r = poly_mul(r, alpha_den[k]); end
+    for k in group
+        k == i_form && continue
+        r = poly_mul(r, alpha_den[k])
+    end
     r
 end
 
-# ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ────────────────
+# ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
 
-"""Build raw numerator and denominator Poly for the rate equation."""
+"""Build raw numerator and denominator POLY for the rate equation."""
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     m = M()
     subs_species = substrates(m)
@@ -148,7 +165,9 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     enz_names = Tuple(e[1] for e in enzs)
     enz_set = Set(enz_names)
     groups, form_to_group = _compute_re_groups(enz_names, enz_set, rxns, eq_steps)
-    alpha_num, alpha_den, sigma_num, sigma_den = _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
+    alpha_num, alpha_den, sigma_num, sigma_den = _compute_alpha(
+        enz_names, enz_set, rxns, eq_steps, groups,
+    )
     G = length(groups)
 
     # Build rate matrix R[g1,g2] with alpha denominators cleared
@@ -164,13 +183,31 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         kf_poly = poly_sym(Symbol("k$(idx)f"))
         kr_poly = poly_sym(Symbol("k$(idx)r"))
 
-        R[g1, g2] = poly_add(R[g1, g2], _ss_contrib(kf_poly, m_lhs, i_form, alpha_num, alpha_den, groups[g1]))
-        R[g2, g1] = poly_add(R[g2, g1], _ss_contrib(kr_poly, m_rhs, j_form, alpha_num, alpha_den, groups[g2]))
+        R[g1, g2] = poly_add(
+            R[g1, g2],
+            _ss_contrib(
+                kf_poly, m_lhs, i_form,
+                alpha_num, alpha_den, groups[g1],
+            ),
+        )
+        R[g2, g1] = poly_add(
+            R[g2, g1],
+            _ss_contrib(
+                kr_poly, m_rhs, j_form,
+                alpha_num, alpha_den, groups[g2],
+            ),
+        )
     end
 
     # Build Laplacian and cofactor determinants
     L = [i == j ? poly_zero() : poly_neg(R[i,j]) for i in 1:G, j in 1:G]
-    for i in 1:G; L[i,i] = reduce(poly_add, R[i,j] for j in 1:G if j != i; init=poly_zero()); end
+    for i in 1:G
+        L[i, i] = reduce(
+            poly_add,
+            R[i, j] for j in 1:G if j != i;
+            init=poly_zero(),
+        )
+    end
     D = [begin
         idx = [r for r in 1:G if r != root]
         isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
@@ -180,10 +217,14 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
 
     # Numerator: net flux through any SS step
     ref_name = subs_species[1][1]
-    nu_ref = count(s -> s[1] == ref_name, prods_species) - count(s -> s[1] == ref_name, subs_species)
+    nu_ref = (count(s -> s[1] == ref_name, prods_species) -
+              count(s -> s[1] == ref_name, subs_species))
 
-    num = _compute_numerator(rxns, eq_steps, enz_names, enz_set, alpha_num, alpha_den,
-                             form_to_group, groups, D, ref_name, nu_ref, subs_species, prods_species)
+    num = _compute_numerator(
+        rxns, eq_steps, enz_names, enz_set,
+        alpha_num, alpha_den, form_to_group, groups,
+        D, ref_name, nu_ref, subs_species, prods_species,
+    )
 
     abs_nu = abs(nu_ref)
     if abs_nu != 1
@@ -198,9 +239,15 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     num, denom
 end
 
-"""Compute the numerator polynomial by tracking flux of an appropriate metabolite through SS steps."""
-function _compute_numerator(rxns, eq_steps, enz_names, enz_set, alpha_num, alpha_den,
-                            form_to_group, groups, D, ref_name, nu_ref, subs_species, prods_species)
+"""
+Compute the numerator polynomial by tracking flux of an
+appropriate metabolite through SS steps.
+"""
+function _compute_numerator(
+    rxns, eq_steps, enz_names, enz_set,
+    alpha_num, alpha_den, form_to_group, groups,
+    D, ref_name, nu_ref, subs_species, prods_species,
+)
     # Classify metabolites into SS/RE step sets, and check ref_name
     ref_in_ss, ref_in_re = false, false
     ss_mets, re_mets = Set{Symbol}(), Set{Symbol}()
@@ -217,8 +264,11 @@ function _compute_numerator(rxns, eq_steps, enz_names, enz_set, alpha_num, alpha
         end
     end
 
-    flux = (name) -> _flux_numerator(rxns, eq_steps, enz_names, enz_set, alpha_num, alpha_den,
-                                     form_to_group, groups, D, name)
+    flux = (name) -> _flux_numerator(
+        rxns, eq_steps, enz_names, enz_set,
+        alpha_num, alpha_den,
+        form_to_group, groups, D, name,
+    )
     ref_in_ss && !ref_in_re && return flux(ref_name)
 
     # Fallback: find alternate metabolite in SS steps
@@ -229,24 +279,43 @@ function _compute_numerator(rxns, eq_steps, enz_names, enz_set, alpha_num, alpha
     if !isempty(ss_mets)
         ss_only = setdiff(ss_mets, re_mets)
         search = isempty(ss_only) ? ss_mets : ss_only
-        alt_name = something(iterate(met for met in search if get(all_mets, met, 0) != 0),
-                             (first(ss_mets),))[1]
+        alt_name = something(
+            iterate(
+                met for met in search
+                if get(all_mets, met, 0) != 0
+            ),
+            (first(ss_mets),),
+        )[1]
         nu_alt = get(all_mets, alt_name, 0)
         alt_num = flux(alt_name)
         nu_alt == 0 && return alt_num
         ratio = nu_ref // nu_alt
-        ratio == 1 ? (return alt_num) : ratio == -1 ? (return poly_neg(alt_num)) :
+        if ratio == 1
+            return alt_num
+        elseif ratio == -1
+            return poly_neg(alt_num)
+        else
             error("Non-unit stoichiometric ratio not supported")
+        end
     end
 
-    # All metabolites in RE steps only — use flux through any SS step
-    return _flux_numerator(rxns, eq_steps, enz_names, enz_set, alpha_num, alpha_den,
-                           form_to_group, groups, D)
+    # All metabolites in RE steps only — flux through any SS step
+    return _flux_numerator(
+        rxns, eq_steps, enz_names, enz_set,
+        alpha_num, alpha_den,
+        form_to_group, groups, D,
+    )
 end
 
-"""Compute net flux through SS steps. If `met_name` is nothing, return raw flux of first SS step."""
-function _flux_numerator(rxns, eq_steps, enz_names, enz_set, alpha_num, alpha_den,
-                         form_to_group, groups, D, met_name::Union{Symbol,Nothing}=nothing)
+"""
+Compute net flux through SS steps. If `met_name` is nothing,
+return raw flux of first SS step.
+"""
+function _flux_numerator(
+    rxns, eq_steps, enz_names, enz_set,
+    alpha_num, alpha_den, form_to_group, groups,
+    D, met_name::Union{Symbol,Nothing}=nothing,
+)
     result = poly_zero()
     for (idx, (lhs, rhs)) in enumerate(rxns)
         eq_steps[idx] && continue
@@ -255,8 +324,14 @@ function _flux_numerator(rxns, eq_steps, enz_names, enz_set, alpha_num, alpha_de
         i_form = findfirst(==(e_lhs), enz_names)
         j_form = findfirst(==(e_rhs), enz_names)
         g1, g2 = form_to_group[i_form], form_to_group[j_form]
-        rf = _ss_contrib(poly_sym(Symbol("k$(idx)f")), m_lhs, i_form, alpha_num, alpha_den, groups[g1])
-        rr = _ss_contrib(poly_sym(Symbol("k$(idx)r")), m_rhs, j_form, alpha_num, alpha_den, groups[g2])
+        rf = _ss_contrib(
+            poly_sym(Symbol("k$(idx)f")), m_lhs, i_form,
+            alpha_num, alpha_den, groups[g1],
+        )
+        rr = _ss_contrib(
+            poly_sym(Symbol("k$(idx)r")), m_rhs, j_form,
+            alpha_num, alpha_den, groups[g2],
+        )
         flux = poly_sub(poly_mul(rf, D[g1]), poly_mul(rr, D[g2]))
         met_name === nothing && return flux
         met_f = isempty(m_lhs) ? nothing : first(m_lhs)
@@ -267,7 +342,7 @@ function _flux_numerator(rxns, eq_steps, enz_names, enz_set, alpha_num, alpha_de
     result
 end
 
-# ─── Expr generation from Poly ───────────────────────────────────────────────
+# ─── Expr generation from POLY ──────────────────────────────
 
 """
 Identify K symbols for binding RE steps (where K should be Kd, not Ka).
@@ -290,7 +365,10 @@ function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
     num, den = _raw_symbolic_rate_polys(M)
     m = M()
     constrained = Set(c[1] for c in param_constraints(m))
-    param_syms = Set{Symbol}(p for p in _raw_param_symbols(equilibrium_steps(m)) if p ∉ constrained)
+    raw_ps = _raw_param_symbols(equilibrium_steps(m))
+    param_syms = Set{Symbol}(
+        p for p in raw_ps if p ∉ constrained
+    )
     conc_syms = Set{Symbol}(mt[1] for mt in metabolites(m))
     inv_set = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
     expr = to_rate_expr(num, den, param_syms, conc_syms, inv_set)
@@ -299,7 +377,7 @@ function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
     return expr, all_params, sorted_concs
 end
 
-# ─── Mode-dispatched rate_equation ────────────────────────────────────────────
+# ─── Mode-dispatched rate_equation ────────────────────────────
 
 """
     rate_equation(m::EnzymeMechanism, params, concs, [mode])
@@ -309,17 +387,24 @@ as a single arithmetic expression with no allocations, loops, or matrix ops.
 """
 function rate_equation end
 
-rate_equation(m::EnzymeMechanism, params, concs) = rate_equation(m, params, concs, HaldaneWegscheider)
+function rate_equation(m::EnzymeMechanism, params, concs)
+    rate_equation(m, params, concs, HALDANE_WEGSCHEIDER)
+end
 
-@generated function rate_equation(m::M, params::NamedTuple, concs::NamedTuple, ::RawMode) where {M <: EnzymeMechanism}
+@generated function rate_equation(
+    m::M, params::NamedTuple, concs::NamedTuple, ::RawMode,
+) where {M <: EnzymeMechanism}
     _build_rate_body(M, RawMode)
 end
 
-@generated function rate_equation(m::M, params::NamedTuple, concs::NamedTuple, ::HaldaneWegscheiderMode) where {M <: EnzymeMechanism}
+@generated function rate_equation(
+    m::M, params::NamedTuple, concs::NamedTuple,
+    ::HaldaneWegscheiderMode,
+) where {M <: EnzymeMechanism}
     _build_rate_body(M, HaldaneWegscheiderMode)
 end
 
-# ─── String Representation ────────────────────────────────────────────────────
+# ─── String Representation ────────────────────────────────────
 
 """
     rate_equation_string(m::EnzymeMechanism, [mode])
@@ -328,16 +413,19 @@ Return a string representation of the rate equation.
 """
 function rate_equation_string end
 
-rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, HaldaneWegscheider)
+rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, HALDANE_WEGSCHEIDER)
 
 function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
     num, den = _raw_symbolic_rate_polys(M)
     m = M()
     constrained = Set(c[1] for c in param_constraints(m))
-    ps = Set{Symbol}(p for p in _raw_param_symbols(equilibrium_steps(m)) if p ∉ constrained)
+    raw_ps = _raw_param_symbols(equilibrium_steps(m))
+    ps = Set{Symbol}(p for p in raw_ps if p ∉ constrained)
     cs = Set{Symbol}(mt[1] for mt in metabolites(m))
     inv = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
-    "v = E_total * ($(string(_poly_to_expr(num, ps, cs, inv)))) / ($(string(_poly_to_expr(den, ps, cs, inv))))"
+    num_str = string(_poly_to_expr(num, ps, cs, inv))
+    den_str = string(_poly_to_expr(den, ps, cs, inv))
+    "v = E_total * ($num_str) / ($den_str)"
 end
 
 function rate_equation_string(::M, ::RawMode) where {M<:EnzymeMechanism}
@@ -359,11 +447,14 @@ function rate_equation_string(::M, ::HaldaneWegscheiderMode) where {M<:EnzymeMec
           _format_rate_equation_core(M)], "\n")
 end
 
-# ─── Structural Identifiability ───────────────────────────────────────────────
+# ─── Structural Identifiability ───────────────────────────────
 
 function _count_rate_monomials(M::Type{<:EnzymeMechanism})
     num, den = _raw_symbolic_rate_polys(M)
-    mm(mono) = sort([s => e for (s, e) in mono if !is_k_parameter(s) && s != :E_total && s != :Keq])
+    mm(mono) = sort([
+        s => e for (s, e) in mono
+        if !is_k_parameter(s) && s != :E_total && s != :Keq
+    ])
     length(unique(mm(k) for (k, _) in num)), length(unique(mm(k) for (k, _) in den))
 end
 
@@ -382,6 +473,7 @@ end
 """
     is_identifiable(m::EnzymeMechanism) → Bool
 
-Check if all mechanism parameters can be uniquely determined from steady-state kinetic data.
+Check if all mechanism parameters can be uniquely determined
+from steady-state kinetic data.
 """
 is_identifiable(m::EnzymeMechanism) = structural_identifiability_deficit(m) <= 0

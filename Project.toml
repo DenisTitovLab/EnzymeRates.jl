@@ -10,30 +10,22 @@ Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 
 [compat]
 Aqua = "0.8"
-CSV = "0.10"
-DataFrames = "1"
 Graphs = "1"
 JET = "0.11"
 LinearAlgebra = "1"
-ModelingToolkit = "9"
 Optimization = "4"
 OrdinaryDiffEqFIRK = "1"
 Random = "1"
-StructuralIdentifiability = "0.5"
 Tables = "1"
 Test = "1"
 julia = "1.9"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
-CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
-DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
-ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
 OrdinaryDiffEqFIRK = "5960d6e9-dd7a-4743-88e7-cf307b64f125"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-StructuralIdentifiability = "220ca800-aa68-49bb-acd8-6037fa93a544"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "Random", "OrdinaryDiffEqFIRK", "Aqua", "JET", "StructuralIdentifiability", "ModelingToolkit", "CSV", "DataFrames"]
+test = ["Test", "Random", "OrdinaryDiffEqFIRK", "Aqua", "JET"]

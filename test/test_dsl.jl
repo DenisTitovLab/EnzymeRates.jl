@@ -5,8 +5,8 @@
             products:   P[C]
         end
         @test spec isa EnzymeReaction
-        @test EnzymeRates.substrates(spec) == ((:S, ((:C, 1),)),)
-        @test EnzymeRates.products(spec) == ((:P, ((:C, 1),)),)
+        @test EnzymeRates.substrates(spec) == ((:S, ((:C, 1),), 1),)
+        @test EnzymeRates.products(spec) == ((:P, ((:C, 1),), 1),)
         @test EnzymeRates.regulators(spec) == ()
 
         spec2 = @enzyme_reaction begin
@@ -82,6 +82,7 @@
         end
         @test spec isa EnzymeReaction
 
+        # Dead-end inhibitor: valid mechanism (competitive inhibition)
         species = (
             ( (:S, ((:C, 1),)), ),           # substrates
             ( (:P, ((:C, 1),)), ),           # products
@@ -93,7 +94,7 @@
             ((:ES,), (:E, :P)),
             ((:E, :I), (:EI,)),
         )
-        @test_throws ErrorException EnzymeMechanism(species, rxns, (false, false, false))
+        @test EnzymeMechanism(species, rxns, (false, false, false)) isa EnzymeMechanism
     end
 
     @testset "No-atom species" begin
@@ -209,7 +210,9 @@
         end
         pc4 = EnzymeRates.param_constraints(m4)
         @test pc4[1][1] == :k3r
-        @test Set((sym, exp) for (sym, exp) in pc4[1][3]) == Set([(:k1f, 1), (:k2f, 1), (:k2r, -1)])
+        @test Set(
+            (sym, exp) for (sym, exp) in pc4[1][3]
+        ) == Set([(:k1f, 1), (:k2f, 1), (:k2r, -1)])
     end
 
     @testset "No constraints backward compat" begin

@@ -25,10 +25,13 @@ function _parse_species_tuple_expr(expr)
         atoms = Expr(:tuple)
         return Expr(:tuple, QuoteNode(expr), atoms)
     elseif expr isa Expr && expr.head == :ref
-        # S[C6H12O6] syntax: expr.args[1] is the name, expr.args[2] is the formula symbol
+        # S[C6H12O6] or S[C6H12O6, 2] syntax
         name = expr.args[1]
         formula = string(expr.args[2])
         atoms = _parse_chemical_formula(formula)
+        if length(expr.args) >= 3
+            return Expr(:tuple, QuoteNode(name), atoms, expr.args[3])
+        end
         return Expr(:tuple, QuoteNode(name), atoms)
     else
         error("Cannot parse species definition: $expr")
@@ -78,21 +81,22 @@ when all metabolites omit atoms.
 
 Multi-species lines use comma separation:
     substrates: S[C6H12O6], ATP[C10H16N5O13P3]
+
+Max binding sites use an optional integer in brackets: `S[C, 2]` (default 1).
 """
 macro enzyme_reaction(block)
     parsed = _parse_labeled_block(block, Set([:substrates, :products, :regulators]))
-
     haskey(parsed, :substrates) || error("substrates not specified")
     haskey(parsed, :products) || error("products not specified")
     subs = parsed[:substrates]
     prods = parsed[:products]
     regs = get(parsed, :regulators, Expr(:tuple))
-
     return esc(:(EnzymeReaction($subs, $prods, $regs)))
 end
 
 function _parse_species_block(block)
-    parsed = _parse_labeled_block(block, Set([:substrates, :products, :regulators, :enzymes]))
+    valid = Set([:substrates, :products, :regulators, :enzymes])
+    parsed = _parse_labeled_block(block, valid)
 
     haskey(parsed, :substrates) || error("substrates not specified in species block")
     haskey(parsed, :products) || error("products not specified in species block")
@@ -109,7 +113,10 @@ function _parse_step_side_symbols(expr)
     if expr isa Expr && expr.head == :vect
         syms = Expr(:tuple)
         for a in expr.args
-            a isa Symbol || error("Step sides must be symbols; define atoms in species block")
+            a isa Symbol || error(
+                "Step sides must be symbols; " *
+                "define atoms in species block"
+            )
             push!(syms.args, QuoteNode(a))
         end
         return syms
@@ -157,10 +164,19 @@ function _walk_rhs!(expr, factors::Dict{Symbol,Int}, coeff::Ref{Int}, sign::Int)
         coeff[] *= expr
     elseif expr isa Expr && expr.head == :call
         op = expr.args[1]
-        if op == :*; for i in 2:length(expr.args); _walk_rhs!(expr.args[i], factors, coeff, sign); end
-        elseif op == :/; _walk_rhs!(expr.args[2], factors, coeff, sign); _walk_rhs!(expr.args[3], factors, coeff, -sign)
-        else error("Unsupported operator in constraint: $op"); end
-    else error("Unsupported constraint expression: $expr"); end
+        if op == :*
+            for i in 2:length(expr.args)
+                _walk_rhs!(expr.args[i], factors, coeff, sign)
+            end
+        elseif op == :/
+            _walk_rhs!(expr.args[2], factors, coeff, sign)
+            _walk_rhs!(expr.args[3], factors, coeff, -sign)
+        else
+            error("Unsupported operator in constraint: $op")
+        end
+    else
+        error("Unsupported constraint expression: $expr")
+    end
 end
 
 macro enzyme_mechanism(block)
@@ -183,7 +199,11 @@ macro enzyme_mechanism(block)
                 error("Unknown @mechanism block label: $label")
             end
         else
-            error("Expected species: begin ... end, steps: begin ... end, and optional constraints: begin ... end blocks")
+            error(
+                "Expected species: begin ... end, " *
+                "steps: begin ... end, and optional " *
+                "constraints: begin ... end blocks"
+            )
         end
     end
 
