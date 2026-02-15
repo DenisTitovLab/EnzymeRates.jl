@@ -5,16 +5,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Run full test suite
+# Run full test suite (cold — pays precompilation + JIT cost every time)
 julia --project -e 'using Pkg; Pkg.test()'
-
-# Run a single test file (e.g., test_fitting.jl)
-julia --project -e 'using EnzymeRates, Test, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/test_fitting.jl")'
-
-# Run tests interactively (useful for debugging)
-julia --project
-# then: using EnzymeRates, Test; include("test/runtests.jl")
 ```
+
+## Persistent REPL for Fast Test Runs
+
+Spawning `julia -e '...'` each time incurs package loading and JIT compilation costs.
+Use a persistent REPL with Revise.jl instead — source edits are hot-reloaded automatically.
+
+```bash
+# 1. Set up named pipe and start background REPL
+mkfifo /tmp/julia_repl_in 2>/dev/null; rm -f /tmp/julia_repl_out
+tail -f /tmp/julia_repl_in | julia --project 2>&1 | tee /tmp/julia_repl_out &
+
+# 2. Load Revise + packages (one-time cost)
+echo 'using Revise; using EnzymeRates, Test, Random; println("__READY__")' > /tmp/julia_repl_in
+
+# 3. Run a test file (fast — no recompilation)
+echo 'include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/test_fitting.jl"); println("__DONE__")' > /tmp/julia_repl_in
+
+# 4. After editing src/ files, just re-run step 3 — Revise picks up changes
+```
+
+Prefer this approach over `julia -e` for iterative development.
 
 ## Key Architecture Decisions
 
