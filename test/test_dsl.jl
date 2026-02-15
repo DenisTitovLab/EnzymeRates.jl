@@ -210,7 +210,9 @@
         end
         pc4 = EnzymeRates.param_constraints(m4)
         @test pc4[1][1] == :k3r
-        @test Set((sym, exp) for (sym, exp) in pc4[1][3]) == Set([(:k1f, 1), (:k2f, 1), (:k2r, -1)])
+        @test Set(
+            (sym, exp) for (sym, exp) in pc4[1][3]
+        ) == Set([(:k1f, 1), (:k2f, 1), (:k2r, -1)])
     end
 
     @testset "No constraints backward compat" begin

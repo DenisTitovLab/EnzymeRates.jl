@@ -1,5 +1,6 @@
 # Test specifications for all enzyme mechanisms
-# Each mechanism is defined inline with its expected properties for easy side-by-side comparison
+# Each mechanism is defined inline with its expected properties
+# for easy side-by-side comparison
 
 using LinearAlgebra
 using Random
@@ -212,7 +213,8 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 5. Segel Ordered Bi Bi (replaces Seq Bi-Bi): E + A ⇌ EA + B ⇌ (EAB≡EPQ) ⇌ EQ + P ⇌ E + Q
+    # 5. Segel Ordered Bi Bi (replaces Seq Bi-Bi):
+    #    E + A ⇌ EA + B ⇌ (EAB≡EPQ) ⇌ EQ + P ⇌ E + Q
     #    Reference: Segel, Enzyme Kinetics, Eq. IX-87
     let
         m = @enzyme_mechanism begin
@@ -309,7 +311,9 @@ function build_mechanism_test_specs()
             expected_n_independent_params = 5,
             expected_identifiability_deficit = -4,
             expected_is_identifiable = true,
-            analytical_rate_fn = (p, c) -> rate_theorell_chance_bi_bi(merge(p, (Etotal=p.Et,)), c)
+            analytical_rate_fn = (p, c) ->
+                rate_theorell_chance_bi_bi(
+                    merge(p, (Etotal=p.Et,)), c)
         ))
     end
 
@@ -359,7 +363,9 @@ function build_mechanism_test_specs()
             expected_n_independent_params = 7,
             expected_identifiability_deficit = -1,
             expected_is_identifiable = true,
-            analytical_rate_fn = (p, c) -> rate_ping_pong_bi_bi(merge(p, (Etotal=p.Et,)), c)
+            analytical_rate_fn = (p, c) ->
+                rate_ping_pong_bi_bi(
+                    merge(p, (Etotal=p.Et,)), c)
         ))
     end
 
@@ -504,7 +510,9 @@ function build_mechanism_test_specs()
             expected_n_independent_params = 11,
             expected_identifiability_deficit = -16,
             expected_is_identifiable = true,
-            analytical_rate_fn = (p, c) -> rate_ordered_ter_ter(merge(p, (Etotal=p.Et,)), c)
+            analytical_rate_fn = (p, c) ->
+                rate_ordered_ter_ter(
+                    merge(p, (Etotal=p.Et,)), c)
         ))
     end
 
@@ -565,7 +573,9 @@ function build_mechanism_test_specs()
             expected_n_independent_params = 9,
             expected_identifiability_deficit = -5,
             expected_is_identifiable = true,
-            analytical_rate_fn = (p, c) -> rate_bi_uni_uni_uni_ping_pong_ter_bi(merge(p, (Etotal=p.Et,)), c)
+            analytical_rate_fn = (p, c) ->
+                rate_bi_uni_uni_uni_ping_pong_ter_bi(
+                    merge(p, (Etotal=p.Et,)), c)
         ))
     end
 
@@ -702,7 +712,9 @@ function build_mechanism_test_specs()
             expected_n_independent_params = 11,
             expected_identifiability_deficit = -11,
             expected_is_identifiable = true,
-            analytical_rate_fn = (p, c) -> rate_bi_uni_uni_bi_ping_pong_ter_ter(merge(p, (Etotal=p.Et,)), c)
+            analytical_rate_fn = (p, c) ->
+                rate_bi_uni_uni_bi_ping_pong_ter_ter(
+                    merge(p, (Etotal=p.Et,)), c)
         ))
     end
 
@@ -773,7 +785,9 @@ function build_mechanism_test_specs()
             expected_n_independent_params = 11,
             expected_identifiability_deficit = -11,
             expected_is_identifiable = true,
-            analytical_rate_fn = (p, c) -> rate_bi_bi_uni_uni_ping_pong_ter_ter(merge(p, (Etotal=p.Et,)), c)
+            analytical_rate_fn = (p, c) ->
+                rate_bi_bi_uni_uni_ping_pong_ter_ter(
+                    merge(p, (Etotal=p.Et,)), c)
         ))
     end
 
@@ -837,7 +851,9 @@ function build_mechanism_test_specs()
             expected_n_independent_params = 11,
             expected_identifiability_deficit = -6,
             expected_is_identifiable = true,
-            analytical_rate_fn = (p, c) -> rate_hexa_uni_ping_pong(merge(p, (Etotal=p.Et,)), c)
+            analytical_rate_fn = (p, c) ->
+                rate_hexa_uni_ping_pong(
+                    merge(p, (Etotal=p.Et,)), c)
         ))
     end
 
@@ -1013,7 +1029,8 @@ function build_mechanism_test_specs()
     end
 
     # 20. RE Both Directions: E + A ⇌_RE EA <-->_SS EP ⇌_RE E + P
-    #     Substrate binding RE (K1 = Kd, inverted), product release RE (K3 = Ka, NOT inverted)
+    #     Substrate binding RE (K1 = Kd, inverted),
+    #     product release RE (K3 = Ka, NOT inverted)
     let
         m = @enzyme_mechanism begin
             species: begin

@@ -1,4 +1,4 @@
-# ─── Fitting rate equations to experimental data ─────────────────────────────
+# ─── Fitting rate equations to experimental data ─────────────────────
 
 """
     FittingProblem{M, D}
@@ -104,7 +104,9 @@ function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
 
     # Pass 1: fill log_ratios_buffer
     @inbounds for i in 1:n_data
-        concs = NamedTuple{MetNames}(ntuple(j -> getproperty(fp.data, MetNames[j])[i], Val(K)))
+        concs = NamedTuple{MetNames}(ntuple(
+            j -> getproperty(fp.data, MetNames[j])[i], Val(K),
+        ))
         pred = rate_equation(fp.mechanism, params, concs)
         meas_sign = sign(fp.data.Rate[i])
         if sign(pred) != meas_sign || pred == 0.0
@@ -150,10 +152,10 @@ Returns a NamedTuple `(params, loss, x)` where:
 - `x`: the best parameter vector in log-space
 """
 function fit_rate_equation(fp::FittingProblem, optimizer;
-    n_restarts::Int = 10,
-    maxtime::Real = 60.0,
-    lb = fill(-15.0, length(fitted_params(fp.mechanism))),
-    ub = fill(15.0, length(fitted_params(fp.mechanism))),
+    n_restarts::Int=10,
+    maxtime::Real=60.0,
+    lb=fill(-15.0, length(fitted_params(fp.mechanism))),
+    ub=fill(15.0, length(fitted_params(fp.mechanism))),
     kwargs...
 )
     obj = Optimization.OptimizationFunction((x, p) -> loss!(x, p))

@@ -9,8 +9,15 @@
     m = EnzymeMechanism(species, rxns, (false, false))
 
     # Warmup - use qualified names for internal functions
-    EnzymeRates.substrates(m); EnzymeRates.products(m); EnzymeRates.regulators(m); EnzymeRates.enzyme_forms(m)
-    EnzymeRates.reactions(m); EnzymeRates.n_states(m); EnzymeRates.n_steps(m); parameters(m); metabolites(m)
+    EnzymeRates.substrates(m)
+    EnzymeRates.products(m)
+    EnzymeRates.regulators(m)
+    EnzymeRates.enzyme_forms(m)
+    EnzymeRates.reactions(m)
+    EnzymeRates.n_states(m)
+    EnzymeRates.n_steps(m)
+    parameters(m)
+    metabolites(m)
     EnzymeRates.graph(m); EnzymeRates.stoich_matrix(m); EnzymeRates.equilibrium_steps(m)
 
     # Use minimum of multiple timing runs to avoid GC noise

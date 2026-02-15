@@ -16,10 +16,12 @@ using Tables
     end
 
     # ── Synthetic data generator ──────────────────────────────────────────────
-    function make_synthetic_data(mechanism, true_params, concs_list;
+    function make_synthetic_data(
+            mechanism, true_params, concs_list;
             articles=fill("A1", length(concs_list)),
             figs=fill("F1", length(concs_list)),
-            scale=1.0)
+            scale=1.0,
+    )
         rates = Float64[]
         for (i, concs) in enumerate(concs_list)
             r = rate_equation(mechanism, true_params, concs) * scale
@@ -59,7 +61,7 @@ using Tables
             (S = 2.0, P = 0.5),
         ]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
-        fp = FittingProblem(uni_uni, data; Keq = Keq_val)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         @test length(fp.log_abs_rates) == 5
         @test length(fp.fig_point_indexes) == 1  # all same (Article, Fig)
@@ -79,7 +81,7 @@ using Tables
             (S = 2.0, P = 0.5),
         ]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
-        fp = FittingProblem(uni_uni, data; Keq = Keq_val)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         pn = fitted_params(uni_uni)
         x_true = [log(true_params[p]) for p in pn]
@@ -102,13 +104,13 @@ using Tables
 
         # Data with scale=1
         data1 = make_synthetic_data(uni_uni, true_params, concs_list;
-            articles = fill("A1", 5), figs = fill("F1", 5), scale = 1.0)
-        fp1 = FittingProblem(uni_uni, data1; Keq = Keq_val)
+            articles=fill("A1", 5), figs=fill("F1", 5), scale=1.0)
+        fp1 = FittingProblem(uni_uni, data1; Keq=Keq_val)
 
         # Data with scale=10 (simulates different E_total)
         data2 = make_synthetic_data(uni_uni, true_params, concs_list;
-            articles = fill("A1", 5), figs = fill("F1", 5), scale = 10.0)
-        fp2 = FittingProblem(uni_uni, data2; Keq = Keq_val)
+            articles=fill("A1", 5), figs=fill("F1", 5), scale=10.0)
+        fp2 = FittingProblem(uni_uni, data2; Keq=Keq_val)
 
         # For any x, loss should be the same (centering removes the uniform scale)
         np = length(fitted_params(uni_uni))
@@ -133,17 +135,17 @@ using Tables
 
         # Two figures, each independently scaled
         data1 = make_synthetic_data(uni_uni, true_params, concs_list;
-            articles = ["A1","A1","A1","A2","A2"],
-            figs = ["F1","F1","F1","F1","F1"],
-            scale = 1.0)
-        fp1 = FittingProblem(uni_uni, data1; Keq = Keq_val)
+            articles=["A1","A1","A1","A2","A2"],
+            figs=["F1","F1","F1","F1","F1"],
+            scale=1.0)
+        fp1 = FittingProblem(uni_uni, data1; Keq=Keq_val)
 
         # Scale fig1 by 5x and fig2 by 100x
         rates2 = copy(data1.Rate)
         rates2[1:3] .*= 5.0
         rates2[4:5] .*= 100.0
         data2 = merge(data1, (Rate = rates2,))
-        fp2 = FittingProblem(uni_uni, data2; Keq = Keq_val)
+        fp2 = FittingProblem(uni_uni, data2; Keq=Keq_val)
 
         np = length(fitted_params(uni_uni))
         @test all(1:10) do _
@@ -163,7 +165,7 @@ using Tables
             S = [1.0, 2.0, 3.0],
             P = [0.1, 0.1, 0.1],
         )
-        fp = FittingProblem(uni_uni, data; Keq = Keq_val)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         # Use params that produce negative predictions (very large k2r relative to k2f)
         pn = fitted_params(uni_uni)
@@ -188,7 +190,7 @@ using Tables
 
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
-        fp = FittingProblem(uni_uni, data; Keq = Keq_val)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         x = randn(length(fitted_params(uni_uni)))
         EnzymeRates.loss!(x, fp)  # warmup
@@ -235,7 +237,7 @@ using Tables
             Rate = rates,
             (mn => [c[mn] for c in concs_list] for mn in met_names_bb)...
         )
-        fp = FittingProblem(ordered_bi_bi, data; Keq = Keq_val)
+        fp = FittingProblem(ordered_bi_bi, data; Keq=Keq_val)
 
         x = randn(length(fitted_params(ordered_bi_bi)))
         EnzymeRates.loss!(x, fp)  # warmup
@@ -250,19 +252,19 @@ using Tables
     @testset "Validation errors" begin
         # Missing Rate column
         data_no_rate = (Article = ["A1"], Fig = ["F1"], S = [1.0], P = [0.1])
-        @test_throws ErrorException FittingProblem(uni_uni, data_no_rate; Keq = 1.0)
+        @test_throws ErrorException FittingProblem(uni_uni, data_no_rate; Keq=1.0)
 
         # Missing metabolite column
         data_no_met = (Article = ["A1"], Fig = ["F1"], Rate = [1.0], S = [1.0])
-        @test_throws ErrorException FittingProblem(uni_uni, data_no_met; Keq = 1.0)
+        @test_throws ErrorException FittingProblem(uni_uni, data_no_met; Keq=1.0)
 
         # Zero rate
         data_zero = (Article = ["A1"], Fig = ["F1"], Rate = [0.0], S = [1.0], P = [0.1])
-        @test_throws ErrorException FittingProblem(uni_uni, data_zero; Keq = 1.0)
+        @test_throws ErrorException FittingProblem(uni_uni, data_zero; Keq=1.0)
 
         # Missing Article column
         data_no_art = (Fig = ["F1"], Rate = [1.0], S = [1.0], P = [0.1])
-        @test_throws ErrorException FittingProblem(uni_uni, data_no_art; Keq = 1.0)
+        @test_throws ErrorException FittingProblem(uni_uni, data_no_art; Keq=1.0)
     end
 
 end

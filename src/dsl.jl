@@ -95,7 +95,8 @@ macro enzyme_reaction(block)
 end
 
 function _parse_species_block(block)
-    parsed = _parse_labeled_block(block, Set([:substrates, :products, :regulators, :enzymes]))
+    valid = Set([:substrates, :products, :regulators, :enzymes])
+    parsed = _parse_labeled_block(block, valid)
 
     haskey(parsed, :substrates) || error("substrates not specified in species block")
     haskey(parsed, :products) || error("products not specified in species block")
@@ -112,7 +113,10 @@ function _parse_step_side_symbols(expr)
     if expr isa Expr && expr.head == :vect
         syms = Expr(:tuple)
         for a in expr.args
-            a isa Symbol || error("Step sides must be symbols; define atoms in species block")
+            a isa Symbol || error(
+                "Step sides must be symbols; " *
+                "define atoms in species block"
+            )
             push!(syms.args, QuoteNode(a))
         end
         return syms
@@ -160,10 +164,19 @@ function _walk_rhs!(expr, factors::Dict{Symbol,Int}, coeff::Ref{Int}, sign::Int)
         coeff[] *= expr
     elseif expr isa Expr && expr.head == :call
         op = expr.args[1]
-        if op == :*; for i in 2:length(expr.args); _walk_rhs!(expr.args[i], factors, coeff, sign); end
-        elseif op == :/; _walk_rhs!(expr.args[2], factors, coeff, sign); _walk_rhs!(expr.args[3], factors, coeff, -sign)
-        else error("Unsupported operator in constraint: $op"); end
-    else error("Unsupported constraint expression: $expr"); end
+        if op == :*
+            for i in 2:length(expr.args)
+                _walk_rhs!(expr.args[i], factors, coeff, sign)
+            end
+        elseif op == :/
+            _walk_rhs!(expr.args[2], factors, coeff, sign)
+            _walk_rhs!(expr.args[3], factors, coeff, -sign)
+        else
+            error("Unsupported operator in constraint: $op")
+        end
+    else
+        error("Unsupported constraint expression: $expr")
+    end
 end
 
 macro enzyme_mechanism(block)
@@ -186,7 +199,11 @@ macro enzyme_mechanism(block)
                 error("Unknown @mechanism block label: $label")
             end
         else
-            error("Expected species: begin ... end, steps: begin ... end, and optional constraints: begin ... end blocks")
+            error(
+                "Expected species: begin ... end, " *
+                "steps: begin ... end, and optional " *
+                "constraints: begin ... end blocks"
+            )
         end
     end
 

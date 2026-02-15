@@ -1,5 +1,6 @@
 # Tests for enzyme rate equation derivation
-# Validates structure, constraints, identifiability, and correctness of derived rate equations
+# Validates structure, constraints, identifiability,
+# and correctness of derived rate equations
 
 using OrdinaryDiffEqFIRK
 
@@ -11,7 +12,11 @@ using OrdinaryDiffEqFIRK
 Independent reference: compute QSSA rate using Laplacian cofactor method.
 Works directly with EnzymeMechanism type parameters.
 """
-function reference_qssa(m::EnzymeMechanism{Species, Reactions}, params::NamedTuple, concs::NamedTuple) where {Species, Reactions}
+function reference_qssa(
+    m::EnzymeMechanism{Species, Reactions},
+    params::NamedTuple,
+    concs::NamedTuple,
+) where {Species, Reactions}
     enzs = EnzymeRates.enzyme_forms(m)
     n = length(enzs)
     enz_names = Tuple(e[1] for e in enzs)
@@ -151,7 +156,10 @@ function _get_dependent_params(m)
     binding_Ks = EnzymeRates._binding_K_symbols(typeof(m))
     if !isempty(binding_Ks)
         inv_subs = Dict(K => :(1 / $K) for K in binding_Ks)
-        dep_exprs = Dict(k => EnzymeRates.substitute_params_expr(v, inv_subs) for (k, v) in dep_exprs)
+        dep_exprs = Dict(
+            k => EnzymeRates.substitute_params_expr(v, inv_subs)
+            for (k, v) in dep_exprs
+        )
     end
     pairs = Tuple{Symbol, String}[]
     for (sym, expr) in sort(collect(dep_exprs); by=first)
@@ -167,12 +175,18 @@ given all_params (with all k's + E_total) and a Keq value.
 function make_independent_params(m, all_params, Keq)
     indep = _get_independent_params(m)
     keys_out = (indep..., :Keq, :E_total)
-    vals_out = Tuple(k == :Keq ? Keq : k == :E_total ? all_params.E_total : all_params[k] for k in keys_out)
+    vals_out = Tuple(
+        k == :Keq ? Keq :
+        k == :E_total ? all_params.E_total :
+        all_params[k]
+        for k in keys_out
+    )
     return NamedTuple{keys_out}(vals_out)
 end
 
 """
-Compute all k values from independent params + Keq by evaluating dependent parameter expressions.
+Compute all k values from independent params + Keq by
+evaluating dependent parameter expressions.
 Returns a NamedTuple with all k's + E_total.
 """
 function compute_all_params(m, new_params)
@@ -214,7 +228,9 @@ end
 Generate random independent params + Keq + E_total for testing.
 Also returns all_params (old-style with all k's + E_total) for reference comparison.
 """
-function random_independent_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rng())
+function random_independent_params_concs(
+    m, met_names::Vector{Symbol}; rng=Random.default_rng()
+)
     indep = _get_independent_params(m)
     # Generate random values for independent params + Keq + E_total
     param_keys = (indep..., :Keq, :E_total)
@@ -229,7 +245,8 @@ function random_independent_params_concs(m, met_names::Vector{Symbol}; rng=Rando
 end
 
 """
-Convert raw params (with K_i for RE steps) to ODE params (with large k_if/k_ir for all steps).
+Convert raw params (K_i for RE steps) to ODE params
+(large k_if/k_ir for all steps).
 For binding RE steps: K=Kd=kr/kf, so k_if = 1e6, k_ir = 1e6 * K.
 For non-binding RE steps: K=Ka=kf/kr, so k_if = 1e6 * K, k_ir = 1e6.
 """
@@ -273,7 +290,10 @@ end
 
 # ── ODE steady-state helpers ────────────────────────────────────────────────
 
-function build_ode_rhs(m::EnzymeMechanism{Species, Reactions}, params, concs) where {Species, Reactions}
+function build_ode_rhs(
+    m::EnzymeMechanism{Species, Reactions},
+    params, concs,
+) where {Species, Reactions}
     enzs = EnzymeRates.enzyme_forms(m)
     enz_names = Tuple(e[1] for e in enzs)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
@@ -310,7 +330,10 @@ function build_ode_rhs(m::EnzymeMechanism{Species, Reactions}, params, concs) wh
     return rhs!
 end
 
-function ode_steady_state_flux(m::EnzymeMechanism{Species, Reactions}, params, concs) where {Species, Reactions}
+function ode_steady_state_flux(
+    m::EnzymeMechanism{Species, Reactions},
+    params, concs,
+) where {Species, Reactions}
     E_total = params.E_total
     enzs = EnzymeRates.enzyme_forms(m)
     n = length(enzs)
@@ -401,7 +424,8 @@ end
 function test_identifiability(spec::MechanismTestSpec)
     m = spec.mechanism
     @testset "Identifiability" begin
-        @test structural_identifiability_deficit(m) == spec.expected_identifiability_deficit
+        @test structural_identifiability_deficit(m) ==
+            spec.expected_identifiability_deficit
         @test is_identifiable(m) == spec.expected_is_identifiable
     end
 end
@@ -414,8 +438,13 @@ function test_reference_qssa(spec::MechanismTestSpec; n_trials=20, seed=42)
     @testset "Reference QSSA" begin
         rng = Random.MersenneTwister(seed)
         @test all(1:n_trials) do _
-            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
-            isapprox(rate_equation(m, new_params, concs), reference_qssa(m, all_params, concs); rtol=spec.reference_rtol)
+            new_params, concs, all_params =
+                random_independent_params_concs(
+                    m, met_names; rng=rng)
+            isapprox(
+                rate_equation(m, new_params, concs),
+                reference_qssa(m, all_params, concs);
+                rtol=spec.reference_rtol)
         end
     end
 end
@@ -429,11 +458,16 @@ function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
     @testset "Analytical Rate" begin
         rng = Random.MersenneTwister(seed)
         @test all(1:n_trials) do _
-            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
+            new_params, concs, all_params =
+                random_independent_params_concs(
+                    m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
             p = merge(all_params, (Et=Et,))
             p_pkg = merge(new_params, (E_total=Et,))
-            isapprox(rate_equation(m, p_pkg, concs), spec.analytical_rate_fn(p, concs); rtol=1e-10)
+            isapprox(
+                rate_equation(m, p_pkg, concs),
+                spec.analytical_rate_fn(p, concs);
+                rtol=1e-10)
         end
     end
 end
@@ -479,9 +513,13 @@ function test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
         rng = Random.MersenneTwister(seed)
         has_re = _has_re_steps(m)
         @test all(1:n_trials) do _
-            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
-            # For RE mechanisms, convert K_i to large k_if/k_ir for ODE simulation
-            ode_params = has_re ? raw_to_ode_params(m, all_params) : all_params
+            new_params, concs, all_params =
+                random_independent_params_concs(
+                    m, met_names; rng=rng)
+            # Convert K_i to large k_if/k_ir for ODE
+            ode_params = has_re ?
+                raw_to_ode_params(m, all_params) :
+                all_params
             v_ode = ode_steady_state_flux(m, ode_params, concs)
             v_ka = rate_equation(m, new_params, concs)
             # Use looser tolerance for RE mechanisms (large rate approximation)
@@ -508,8 +546,13 @@ function test_rate_equation_string(spec::MechanismTestSpec)
         # Numerical equivalence test
         rng = Random.MersenneTwister(9000 + hash(spec.name) % 1000)
         @test all(1:10) do _
-            new_params, concs, all_params = random_independent_params_concs(m, met_names; rng=rng)
-            isapprox(rate_equation(m, new_params, concs), _eval_rate_string(s, all_params, concs); rtol=1e-10)
+            new_params, concs, all_params =
+                random_independent_params_concs(
+                    m, met_names; rng=rng)
+            isapprox(
+                rate_equation(m, new_params, concs),
+                _eval_rate_string(s, all_params, concs);
+                rtol=1e-10)
         end
     end
 end

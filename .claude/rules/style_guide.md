@@ -10,7 +10,7 @@ When Julia and SciML style guides conflict, prefer the Julia manual convention.
 |---------|-----------|----------|
 | Modules, Types | `CamelCase` | `SparseArrays`, `UnitRange` |
 | Abstract types | `Abstract` prefix, `CamelCase` | `AbstractSolver`, `AbstractArray` |
-| Functions | lowercase, words concatenated; underscores only when needed for readability | `isequal`, `haskey`, `maximum` |
+| Functions | `snake_case` (SciML convention) | `is_equal`, `has_key`, `find_maximum` |
 | Variables | `snake_case` | `local_cache`, `step_count` |
 | Constants | `UPPER_SNAKE_CASE` | `DEFAULT_TOLERANCE`, `MAX_ITER` |
 | Type variables | Single capital letter | `T`, `N`, `S` |
