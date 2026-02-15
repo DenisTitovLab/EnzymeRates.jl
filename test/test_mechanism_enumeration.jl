@@ -1,495 +1,712 @@
+function _rxn_forms(spec::MechanismSpec)
+    form_set = Set(spec.forms)
+    used = Set{Symbol}()
+    for (lhs, rhs) in spec.reactions
+        for sym in Iterators.flatten((lhs, rhs))
+            sym in form_set && push!(used, sym)
+        end
+    end
+    return used
+end
+
 @testset "Mechanism Enumeration" begin
-    @testset "Uni-Uni default max_sites" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        forms = enumerate_enzyme_forms(r)
-        names = Set(f.name for f in forms)
-        # Sites: S₁, P₁ → 2² = 4 minus 1 excluded (E_S_P) = 3
-        @test length(forms) == 3
-        @test :E_0_0 ∈ names
-        @test :E_S_0 ∈ names
-        @test :E_0_P ∈ names
+
+    # ─── Test Reactions ──────────────────────────────────────
+
+    uni_uni = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
     end
 
-    @testset "Uni-Uni with max_sites(S)=2" begin
-        r = @enzyme_reaction begin
-            substrates: S[C, 2]
-            products:   P[C]
-        end
-        forms = enumerate_enzyme_forms(r)
-        names = Set(f.name for f in forms)
-        # Sites: S₁, P₁, S₂ → 2³ = 8 minus 3 excluded = 5
-        @test length(forms) == 5
-        @test :E_0_0_0 ∈ names   # free enzyme
-        @test :E_S_0_0 ∈ names   # S in core site
-        @test :E_0_0_S ∈ names   # S in extra site
-        @test :E_S_0_S ∈ names   # S in both sites
-        @test :E_0_P_0 ∈ names   # P in core site
+    bi_bi = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products:   P[C], Q[N]
     end
 
-    @testset "Bi-Bi default max_sites" begin
-        r = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
-        end
-        forms = enumerate_enzyme_forms(r)
-        names = Set(f.name for f in forms)
-        # Sites: A₁, B₁, P₁, Q₁ → 2⁴ = 16 minus 5 excluded = 11
-        @test length(forms) == 11
-        @test :E_0_0_0_0 ∈ names  # free enzyme
-        @test :E_A_0_0_0 ∈ names  # only A bound
-        @test :E_0_0_P_Q ∈ names  # both products (but not all substrates)
+    pingpong = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products:   P[C], Q[NX]
     end
 
-    @testset "Ping-Pong Bi-Bi" begin
-        r = @enzyme_reaction begin
-            substrates: A[CX], B[N]
-            products:   P[C], Q[NX]
-        end
-        forms = enumerate_enzyme_forms(r)
-        names = Set(f.name for f in forms)
-        # Sites: A₁, B₁, P₁, Q₁ → 16 standard + 8 ping-pong - 7 excluded = 17
-        @test :E_0_0_0_0 ∈ names     # free enzyme
-        @test :E_A_0_0_0 ∈ names     # A bound
-        @test :E_X_0_0_0 ∈ names     # ping-pong intermediate (residual X in A₁)
-        @test :E_X_B_0_0 ∈ names     # intermediate with B bound
-        @test :E_X_0_P_0 ∈ names     # intermediate with P bound
-        @test :E_X_0_0_Q ∈ names     # intermediate with Q bound
-        @test length(forms) == 17
+    uni_uni_act = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        regulators: A[N]
     end
 
-    @testset "Regulators add sites" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N]
-        end
-        forms = enumerate_enzyme_forms(r)
-        names = Set(f.name for f in forms)
-        # Sites: S₁, P₁, I₁ → 2³ = 8 minus 2 excluded (E_S_P_0, E_S_P_I) = 6
-        @test length(forms) == 6
-        @test :E_0_0_0 ∈ names
-        @test :E_S_0_I ∈ names   # S + inhibitor
-        @test :E_0_P_I ∈ names   # P + inhibitor
+    uni_uni_inh = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        regulators: I[N]
     end
 
-    @testset "No-atom species" begin
-        r = @enzyme_reaction begin
-            substrates: S
-            products:   P
-        end
-        forms = enumerate_enzyme_forms(r)
-        names = Set(f.name for f in forms)
-        # Sites: S₁, P₁ → 4 minus 1 excluded (E_S_P) = 3
-        @test length(forms) == 3
-        @test :E_0_0 ∈ names
-        @test :E_S_0 ∈ names
-        @test :E_0_P ∈ names
+    uni_uni_2reg = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        regulators: I[N], J[P2]
     end
 
-    @testset "Backward compat: 2-element tuples" begin
-        # Direct constructor with 2-element tuples should auto-normalize
-        r = EnzymeReaction(
-            ((:S, ((:C, 1),)),),
-            ((:P, ((:C, 1),)),),
-        )
-        forms = enumerate_enzyme_forms(r)
-        @test length(forms) == 3
-    end
+    # ─── Section 1: enumerate_enzyme_forms ─────────────────
 
-    @testset "DSL produces 3-element tuples" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        subs = EnzymeRates.substrates(r)
-        @test length(subs[1]) == 3
-        @test subs[1][3] == 1  # default max_sites
-
-        r2 = @enzyme_reaction begin
-            substrates: S[C, 3]
-            products:   P[C]
-        end
-        subs2 = EnzymeRates.substrates(r2)
-        @test subs2[1][3] == 3
-    end
-
-    @testset "Site ordering" begin
-        r = @enzyme_reaction begin
-            substrates: A[C, 2], B[N]
-            products:   P[C], Q[N]
-        end
-        forms = enumerate_enzyme_forms(r)
-        # Site order: A₁(core), B₁(core), P₁(core), Q₁(core), A₂(extra)
-        f = first(f for f in forms if f.name == :E_0_0_0_0_0)
-        @test length(f.sites) == 5
-        @test f.sites[1].metabolite == :A && f.sites[1].index == 1
-        @test f.sites[2].metabolite == :B && f.sites[2].index == 1
-        @test f.sites[3].metabolite == :P && f.sites[3].index == 1
-        @test f.sites[4].metabolite == :Q && f.sites[4].index == 1
-        @test f.sites[5].metabolite == :A && f.sites[5].index == 2
-    end
-
-    @testset "Multi-product ping-pong residual" begin
-        # A[C2X] with products P1[C] and P2[C]: removing both gives residual {X}
-        r = @enzyme_reaction begin
-            substrates: A[C2X], B[N2]
-            products:   P1[C], P2[C], Q[N2X]
-        end
-        forms = enumerate_enzyme_forms(r)
-        names = Set(f.name for f in forms)
-        # A[C2X] - P1[C] = {C,X} → valid residual
-        # A[C2X] - P2[C] = {C,X} → same residual (dedup)
-        # A[C2X] - P1[C] - P2[C] = {X} → another valid residual
-        @test :E_CX_0_0_0_0 ∈ names  # residual {C,X} after one P release
-        @test :E_X_0_0_0_0 ∈ names   # residual {X} after both P releases
-    end
-
-    @testset "Compilation time: 7-site reaction" begin
-        # Guards against specialization explosion (e.g., Iterators.product splat
-        # creating 2^n tuple types). Runs in a fresh subprocess to measure cold
-        # compilation, then warm run in the same process.
-        script = """
-        using EnzymeRates
-        rxn = @enzyme_reaction begin
-            substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
-            products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
-            regulators: Phosphate[PO4], G6P[C6H13O9P], G6P[C6H13O9P]
-        end
-        t1 = @elapsed enumerate_enzyme_forms(rxn)
-        t2 = @elapsed enumerate_enzyme_forms(rxn)
-        print(t1, " ", t2)
-        """
-        proj = dirname(@__DIR__)
-        output = read(`$(Base.julia_cmd()) --project=$proj -e $script`, String)
-        t_cold, t_warm = parse.(Float64, split(output))
-        @test t_cold < 1.0
-        @test t_warm < 0.1
-    end
-
-    # ─── enumerate_mechanisms tests ──────────────────────────────────────────
-
-    @testset "Uni-Uni topologies" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        iter = enumerate_mechanisms(r)
-        mechs = collect(iter)
-
-        # Only one topology: E→ES→EP→E (3 steps: bind S, isomerize, release P)
-        # RE/SS: 2³ - 1 = 7 valid assignments (at least one SS)
-        @test length(mechs) == 7
-
-        # Verify all convert to EnzymeMechanism
-        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in mechs)
-    end
-
-    @testset "Uni-Uni length matches iteration" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        iter = enumerate_mechanisms(r)
-        @test length(iter) == length(collect(iter))
-    end
-
-    @testset "Bi-Bi topologies" begin
-        r = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
-        end
-        iter = enumerate_mechanisms(r; max_forms=5)
-        mechs = collect(iter)
-
-        # Should include ordered and random-order Bi-Bi
-        @test length(mechs) > 0
-
-        # All mechanisms should convert without error
-        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in mechs)
-    end
-
-    @testset "Bi-Bi includes ordered and random-order" begin
-        r = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
+    @testset "enumerate_enzyme_forms" begin
+        @testset "Uni-Uni" begin
+            forms = enumerate_enzyme_forms(uni_uni)
+            names = Set(f.name for f in forms)
+            # 2^2 - 1 excluded (E_S_P) = 3
+            @test length(forms) == 3
+            @test names == Set([:E_0_0, :E_S_0, :E_0_P])
+            # No form has all subs full AND any prod occupied
+            @test all(forms) do f
+                all_sub = all(
+                    s -> s.role != :sub || s.index != 1 ||
+                        s.atoms == s.full_atoms,
+                    f.sites,
+                )
+                any_prod = any(
+                    s -> s.role == :prod && s.index == 1 &&
+                        s.atoms !== nothing,
+                    f.sites,
+                )
+                !(all_sub && any_prod)
+            end
+            @test any(
+                f -> all(s -> s.atoms === nothing, f.sites),
+                forms,
+            )
         end
 
-        # Check for ordered Bi-Bi: 5 forms (E, EA, EAB, EPQ, EQ)
-        iter = enumerate_mechanisms(r; max_forms=6)
-        mechs = collect(iter)
-        has_ordered = any(mechs) do spec
-            length(spec.forms) == 5 && !any(spec.equilibrium_steps) # all SS
+        @testset "Uni-Uni max_sites=2" begin
+            r = @enzyme_reaction begin
+                substrates: S[C, 2]
+                products:   P[C]
+            end
+            forms = enumerate_enzyme_forms(r)
+            names = Set(f.name for f in forms)
+            # S1, P1, S2 -> 2^3 - 3 excluded = 5
+            @test length(forms) == 5
+            @test :E_0_0_0 ∈ names
+            @test :E_S_0_0 ∈ names
+            @test :E_0_0_S ∈ names
+            @test :E_S_0_S ∈ names
+            @test :E_0_P_0 ∈ names
         end
-        @test has_ordered
 
-        # Random-order requires 7+ cycle forms — need higher max_forms
-        iter7 = enumerate_mechanisms(r; max_forms=7)
-        mechs7 = collect(iter7)
-        has_random = any(mechs7) do spec
-            length(spec.forms) >= 7 && !any(spec.equilibrium_steps)
+        @testset "Bi-Bi" begin
+            forms = enumerate_enzyme_forms(bi_bi)
+            names = Set(f.name for f in forms)
+            # 2^4 - 5 excluded = 11
+            @test length(forms) == 11
+            @test :E_0_0_0_0 ∈ names
+            @test :E_A_0_0_0 ∈ names
+            @test :E_0_0_P_Q ∈ names
+            # Site ordering: core subs, core prods, extras, regs
+            f = first(f for f in forms if f.name == :E_0_0_0_0)
+            @test f.sites[1].metabolite == :A
+            @test f.sites[1].role == :sub
+            @test f.sites[2].metabolite == :B
+            @test f.sites[2].role == :sub
+            @test f.sites[3].metabolite == :P
+            @test f.sites[3].role == :prod
+            @test f.sites[4].metabolite == :Q
+            @test f.sites[4].role == :prod
         end
-        @test has_random
-    end
 
-    @testset "Regulator dead-end inhibitor" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N]
+        @testset "Ping-Pong" begin
+            forms = enumerate_enzyme_forms(pingpong)
+            names = Set(f.name for f in forms)
+            @test length(forms) == 17
+            @test :E_X_0_0_0 ∈ names
+            @test :E_X_B_0_0 ∈ names
+            # Residual sites: atoms != nothing AND atoms != full
+            rf = first(f for f in forms if f.name == :E_X_0_0_0)
+            rs = first(
+                s for s in rf.sites
+                if s.role == :sub && s.index == 1
+            )
+            @test rs.atoms !== nothing
+            @test rs.atoms != rs.full_atoms
         end
-        iter = enumerate_mechanisms(r; max_forms=6)
-        mechs = collect(iter)
 
-        # Should include mechanisms with dead-end inhibitor complexes
-        has_dead_end = any(mechs) do spec
-            any(f -> occursin("I", string(f)), spec.forms)
+        @testset "Regulators" begin
+            forms = enumerate_enzyme_forms(uni_uni_inh)
+            names = Set(f.name for f in forms)
+            # 2^3 - 2 excluded = 6
+            @test length(forms) == 6
+            @test :E_0_0_0 ∈ names
+            @test :E_S_0_I ∈ names
+            @test :E_0_P_I ∈ names
+            f = first(f for f in forms if f.name == :E_0_0_0)
+            @test f.sites[end].role == :reg
         end
-        @test has_dead_end
 
-        # Should include EI (inhibitor bound to free enzyme)
-        has_ei = any(mechs) do spec
-            any(f -> f == :E_0_0_I, spec.forms)
+        @testset "No-atom species" begin
+            r = @enzyme_reaction begin
+                substrates: S
+                products:   P
+            end
+            forms = enumerate_enzyme_forms(r)
+            @test length(forms) == 3
+            @test Set(f.name for f in forms) ==
+                Set([:E_0_0, :E_S_0, :E_0_P])
         end
-        @test has_ei
 
-        # All convert without error
-        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in mechs)
-    end
-
-    @testset "Activator mechanism" begin
-        # Regulators can participate in the catalytic cycle (essential activator)
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: A[N]
+        @testset "SiteState enrichment" begin
+            forms = enumerate_enzyme_forms(uni_uni_inh)
+            f = first(f for f in forms if f.name == :E_0_0_0)
+            @test f.sites[1].role == :sub
+            @test f.sites[1].full_atoms == [:C => 1]
+            @test f.sites[2].role == :prod
+            @test f.sites[2].full_atoms == [:C => 1]
+            @test f.sites[3].role == :reg
+            @test f.sites[3].full_atoms == [:N => 1]
         end
-        iter = enumerate_mechanisms(r; max_forms=8)
-        mechs = collect(iter)
 
-        # Should include activator cycle: E→EA→EAS→EAP→EA→... or similar
-        # where A is bound during catalysis
-        has_activator_cycle = any(mechs) do spec
-            # Forms include both EA (activator bound) and EAS (activator + substrate)
-            form_set = Set(spec.forms)
-            :E_0_0_A ∈ form_set && :E_S_0_A ∈ form_set
+        @testset "Backward compat: 2-element tuples" begin
+            r = EnzymeReaction(
+                ((:S, ((:C, 1),)),),
+                ((:P, ((:C, 1),)),),
+            )
+            @test length(enumerate_enzyme_forms(r)) == 3
         end
-        @test has_activator_cycle
 
-        # Also includes dead-end inhibitor variants (same regulator as inhibitor)
-        has_inhibitor = any(mechs) do spec
-            # Has inhibitor complex but NOT as part of the activator cycle
-            form_set = Set(spec.forms)
-            :E_0_0_A ∈ form_set && :E_S_0_A ∉ form_set
+        @testset "DSL produces 3-element tuples" begin
+            subs = EnzymeRates.substrates(uni_uni)
+            @test length(subs[1]) == 3
+            @test subs[1][3] == 1
+            r2 = @enzyme_reaction begin
+                substrates: S[C, 3]
+                products:   P[C]
+            end
+            @test EnzymeRates.substrates(r2)[1][3] == 3
         end
-        @test has_inhibitor
-    end
 
-    @testset "Product inhibition" begin
-        r = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
+        @testset "Site ordering (extra sites)" begin
+            r = @enzyme_reaction begin
+                substrates: A[C, 2], B[N]
+                products:   P[C], Q[N]
+            end
+            forms = enumerate_enzyme_forms(r)
+            f = first(
+                f for f in forms if f.name == :E_0_0_0_0_0
+            )
+            @test length(f.sites) == 5
+            @test f.sites[1].metabolite == :A
+            @test f.sites[1].index == 1
+            @test f.sites[2].metabolite == :B
+            @test f.sites[2].index == 1
+            @test f.sites[3].metabolite == :P
+            @test f.sites[3].index == 1
+            @test f.sites[4].metabolite == :Q
+            @test f.sites[4].index == 1
+            @test f.sites[5].metabolite == :A
+            @test f.sites[5].index == 2
         end
-        iter = enumerate_mechanisms(r; max_forms=8)
-        mechs = collect(iter)
 
-        # Product inhibition: P or Q binding as dead-end at non-core sites
-        # (core-site product inhibition is excluded by design — only regulatory/extra
-        # site bindings are CouldExist dead-ends)
-        # All mechanisms should convert without error
-        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in mechs)
-        @test length(mechs) > 0
-    end
-
-    @testset "All Uni-Uni mechanisms compile rate equations" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
+        @testset "Multi-product ping-pong residual" begin
+            r = @enzyme_reaction begin
+                substrates: A[C2X], B[N2]
+                products:   P1[C], P2[C], Q[N2X]
+            end
+            forms = enumerate_enzyme_forms(r)
+            names = Set(f.name for f in forms)
+            @test :E_CX_0_0_0_0 ∈ names
+            @test :E_X_0_0_0_0 ∈ names
         end
-        @test all(enumerate_mechanisms(r)) do spec
-            m = EnzymeMechanism(spec)
-            s = rate_equation_string(m)
-            s isa String && !isempty(s)
+
+        @testset "Compilation time: 7-site reaction" begin
+            script = """
+            using EnzymeRates
+            rxn = @enzyme_reaction begin
+                substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
+                products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
+                regulators: Phosphate[PO4], G6P[C6H13O9P], G6P[C6H13O9P]
+            end
+            t1 = @elapsed enumerate_enzyme_forms(rxn)
+            t2 = @elapsed enumerate_enzyme_forms(rxn)
+            print(t1, " ", t2)
+            """
+            proj = dirname(@__DIR__)
+            out = read(
+                `$(Base.julia_cmd()) --project=$proj -e $script`,
+                String,
+            )
+            t_cold, t_warm = parse.(Float64, split(out))
+            @test t_cold < 1.0
+            @test t_warm < 0.1
         end
     end
 
-    @testset "Stoichiometry: random-order is valid" begin
-        r = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
+    # ─── Section 2: _enumerate_only_catalytic_mechanisms ───────
+
+    @testset "_enumerate_only_catalytic_mechanisms" begin
+        @testset "Uni-Uni: single topology" begin
+            forms = enumerate_enzyme_forms(uni_uni)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni; max_forms=6,
+            )
+            @test length(specs) == 1
+            spec = specs[1]
+            # 3 steps: bind S, isomerize, release P
+            @test length(spec.reactions) == 3
+            @test EnzymeRates._used_form_count(spec) == 3
+            @test all(==(false), spec.equilibrium_steps)
+            @test isempty(spec.param_constraints)
+            @test Set(spec.forms) == Set(f.name for f in forms)
+            @test _rxn_forms(spec) ==
+                Set([:E_0_0, :E_S_0, :E_0_P])
         end
-        # All generated mechanisms should pass constructor validation,
-        # including random-order Bi-Bi which has futile cycles
-        iter = enumerate_mechanisms(r; max_forms=6)
-        @test all(EnzymeMechanism(spec) isa EnzymeMechanism for spec in iter)
+
+        @testset "Bi-Bi (max_forms=5): ordered cycles" begin
+            forms = enumerate_enzyme_forms(bi_bi)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, bi_bi; max_forms=5,
+            )
+            # 2 sub perms x 2 prod perms, dedup by undirected
+            @test length(specs) == 4
+            @test all(specs) do spec
+                EnzymeRates._used_form_count(spec) == 5 &&
+                    all(==(false), spec.equilibrium_steps) &&
+                    isempty(spec.param_constraints) &&
+                    :E_0_0_0_0 ∈ _rxn_forms(spec)
+            end
+        end
+
+        @testset "Bi-Bi (max_forms=7): includes multi-cycle" begin
+            forms = enumerate_enzyme_forms(bi_bi)
+            specs5 = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, bi_bi; max_forms=5,
+            )
+            specs7 = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, bi_bi; max_forms=7,
+            )
+            @test length(specs7) > length(specs5)
+            @test any(
+                s -> EnzymeRates._used_form_count(s) > 5,
+                specs7,
+            )
+        end
+
+        @testset "Ping-Pong: topologies exist" begin
+            forms = enumerate_enzyme_forms(pingpong)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, pingpong; max_forms=20,
+            )
+            @test length(specs) >= 1
+            @test all(
+                s -> :E_0_0_0_0 ∈ _rxn_forms(s), specs,
+            )
+            @test all(
+                s -> all(==(false), s.equilibrium_steps),
+                specs,
+            )
+        end
     end
 
-    @testset "max_forms limit" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N]
-        end
-        small = collect(enumerate_mechanisms(r; max_forms=4))
-        large = collect(enumerate_mechanisms(r; max_forms=8))
-        @test length(small) <= length(large)
+    # ─── Section 3: _generate_activator_configs ────────────
 
-        # All mechanisms should respect the form limit
-        @test all(length(spec.forms) <= 4 for spec in small)
-        @test all(length(spec.forms) <= 8 for spec in large)
+    @testset "_generate_activator_configs" begin
+        @testset "No regulators: returns input only" begin
+            forms = enumerate_enzyme_forms(uni_uni)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni; max_forms=6,
+            )
+            input = specs[1]
+            result = EnzymeRates._generate_activator_configs(
+                input, forms, uni_uni,
+            )
+            @test length(result) == 1
+            @test result[1].reactions == input.reactions
+        end
+
+        @testset "Activator: input + shadow variants" begin
+            forms = enumerate_enzyme_forms(uni_uni_act)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni_act; max_forms=10,
+            )
+            input = specs[1]
+            result = EnzymeRates._generate_activator_configs(
+                input, forms, uni_uni_act,
+            )
+            # absent (input), full shadow, free-only shadow
+            @test length(result) == 3
+            @test result[1].reactions == input.reactions
+            @test all(
+                length(r.reactions) > length(input.reactions)
+                for r in result[2:end]
+            )
+            @test :E_0_0_A ∈ _rxn_forms(result[2])
+            @test :E_S_0_A ∈ _rxn_forms(result[2])
+            @test :E_0_P_A ∈ _rxn_forms(result[2])
+            @test all(r.forms == input.forms for r in result)
+        end
+
+        @testset "Inhibitor: same structure as activator" begin
+            forms = enumerate_enzyme_forms(uni_uni_inh)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni_inh; max_forms=10,
+            )
+            result = EnzymeRates._generate_activator_configs(
+                specs[1], forms, uni_uni_inh,
+            )
+            @test length(result) == 3
+        end
     end
 
-    @testset "Equivalent step constraints" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N]
+    # ─── Section 4: _enumerate_dead_end_configs ────────────
+
+    @testset "_enumerate_dead_end_configs" begin
+        @testset "No regulatory sites: input only" begin
+            forms = enumerate_enzyme_forms(uni_uni)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni; max_forms=6,
+            )
+            input = specs[1]
+            result = EnzymeRates._enumerate_dead_end_configs(
+                input, forms; max_forms=6,
+            )
+            @test length(result) == 1
+            @test result[1].reactions == input.reactions
         end
-        iter = enumerate_mechanisms(r; max_forms=6)
-        mechs = collect(iter)
 
-        # Some mechanisms should have parameter constraints (equivalent step detection)
-        has_constrained = any(spec -> !isempty(spec.param_constraints), mechs)
-        has_unconstrained = any(spec -> isempty(spec.param_constraints), mechs)
+        @testset "Uni-Uni + inhibitor: 2^3 = 8 configs" begin
+            forms = enumerate_enzyme_forms(uni_uni_inh)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni_inh; max_forms=10,
+            )
+            input = specs[1]
+            result = EnzymeRates._enumerate_dead_end_configs(
+                input, forms; max_forms=10,
+            )
+            # 3 dead-end candidates, all subsets valid
+            @test length(result) == 8
+            @test result[1].reactions == input.reactions
+            @test EnzymeRates._used_form_count(result[1]) == 3
+            @test any(
+                s -> :E_0_0_I ∈ _rxn_forms(s), result[2:end],
+            )
+            # Dead-end forms are reachable from topology
+            topo_used = _rxn_forms(input)
+            @test all(result[2:end]) do spec
+                used = _rxn_forms(spec)
+                de_forms = setdiff(used, topo_used)
+                filter!(f -> f ∈ Set(spec.forms), de_forms)
+                !isempty(de_forms)
+            end
+            @test all(
+                EnzymeRates._used_form_count(s) <= 10
+                for s in result
+            )
+        end
 
-        # Should have both constrained and unconstrained variants
-        @test has_constrained
-        @test has_unconstrained
-
-        # Constrained mechanisms should still convert
-        for spec in mechs
-            if !isempty(spec.param_constraints)
-                m = EnzymeMechanism(spec)
-                @test m isa EnzymeMechanism
-                break
+        @testset "Uni-Uni + 2 regulators: chains" begin
+            forms = enumerate_enzyme_forms(uni_uni_2reg)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni_2reg; max_forms=10,
+            )
+            input = specs[1]
+            result = EnzymeRates._enumerate_dead_end_configs(
+                input, forms; max_forms=10,
+            )
+            # At least 2^3 from first regulator alone
+            @test length(result) >= 8
+            @test result[1].reactions == input.reactions
+            @test any(
+                s -> :E_0_0_I_J ∈ _rxn_forms(s), result,
+            )
+            # Chain forms require parent dead-end present
+            @test all(result) do spec
+                used = _rxn_forms(spec)
+                :E_0_0_I_J ∉ used ||
+                    :E_0_0_I_0 ∈ used ||
+                    :E_0_0_0_J ∈ used
             end
         end
     end
 
-    @testset "SiteState enrichment" begin
-        # Verify that SiteState now includes role and full_atoms fields
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N]
+    # ─── Section 5: _enumerate_ress_and_constraints ────────
+
+    @testset "_enumerate_ress_and_constraints" begin
+        @testset "Uni-Uni: 2^3 - 1 = 7, no equiv groups" begin
+            forms = enumerate_enzyme_forms(uni_uni)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni; max_forms=6,
+            )
+            result = EnzymeRates._enumerate_ress_and_constraints(
+                specs[1], forms,
+            )
+            # 3 steps, 2^3 - 1 = 7 (at least one SS)
+            @test length(result) == 7
+            @test all(
+                isempty(r.param_constraints) for r in result
+            )
+            @test all(
+                r -> any(==(false), r.equilibrium_steps),
+                result,
+            )
+            @test any(
+                r -> all(==(false), r.equilibrium_steps),
+                result,
+            )
         end
-        forms = enumerate_enzyme_forms(r)
-        f = first(f for f in forms if f.name == :E_0_0_0)
-        @test f.sites[1].role == :sub
-        @test f.sites[1].full_atoms == [:C => 1]
-        @test f.sites[2].role == :prod
-        @test f.sites[2].full_atoms == [:C => 1]
-        @test f.sites[3].role == :reg
-        @test f.sites[3].full_atoms == [:N => 1]
+
+        @testset "Dead-ends: equiv groups create constraints" begin
+            forms = enumerate_enzyme_forms(uni_uni_inh)
+            specs = EnzymeRates._enumerate_only_catalytic_mechanisms(
+                forms, uni_uni_inh; max_forms=10,
+            )
+            de_specs = EnzymeRates._enumerate_dead_end_configs(
+                specs[1], forms; max_forms=10,
+            )
+            # Find config with >= 2 inhibitor binding steps
+            multi_inh = first(
+                s for s in de_specs
+                if length(s.reactions) >= 6
+            )
+            result = EnzymeRates._enumerate_ress_and_constraints(
+                multi_inh, forms,
+            )
+            @test any(
+                r -> !isempty(r.param_constraints), result,
+            )
+            @test any(
+                r -> isempty(r.param_constraints), result,
+            )
+            @test all(result) do r
+                all(r.param_constraints) do (target, coeff, factors)
+                    target isa Symbol &&
+                        coeff > 0 &&
+                        !isempty(factors)
+                end
+            end
+        end
     end
 
-    @testset "edge_class trait dispatch" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
+    # ─── Section 6: enumerate_mechanisms (end-to-end) ──────────
+
+    @testset "enumerate_mechanisms (end-to-end)" begin
+        @testset "Uni-Uni: 7 mechanisms" begin
+            mechs = collect(enumerate_mechanisms(uni_uni))
+            @test length(mechs) == 7
+            @test all(
+                spec -> EnzymeMechanism(spec) isa EnzymeMechanism,
+                mechs,
+            )
         end
-        forms = enumerate_enzyme_forms(r)
-        fe = first(f for f in forms if f.name == :E_0_0)
-        fs = first(f for f in forms if f.name == :E_S_0)
-        fp = first(f for f in forms if f.name == :E_0_P)
 
-        # Binding at core site → MustExist
-        ec, met, etype = EnzymeRates.edge_class(fe, fs)
-        @test ec isa EnzymeRates.MustExist
-        @test met == :S
-        @test etype == :binding
+        @testset "Uni-Uni: length matches iteration" begin
+            iter = enumerate_mechanisms(uni_uni)
+            @test length(iter) == length(collect(iter))
+        end
 
-        # Isomerization → MustExist
-        ec, met, etype = EnzymeRates.edge_class(fs, fp)
-        @test ec isa EnzymeRates.MustExist
-        @test met === nothing
-        @test etype == :isomerization
+        @testset "Bi-Bi: ordered and random-order" begin
+            mechs6 = collect(
+                enumerate_mechanisms(bi_bi; max_forms=6),
+            )
+            @test any(mechs6) do spec
+                EnzymeRates._used_form_count(spec) == 5 &&
+                    !any(spec.equilibrium_steps)
+            end
 
-        # Same form → Forbidden
-        ec, _, _ = EnzymeRates.edge_class(fe, fe)
-        @test ec isa EnzymeRates.Forbidden
+            mechs7 = collect(
+                enumerate_mechanisms(bi_bi; max_forms=7),
+            )
+            @test any(mechs7) do spec
+                EnzymeRates._used_form_count(spec) >= 7 &&
+                    !any(spec.equilibrium_steps)
+            end
+        end
+
+        @testset "Regulator dead-end inhibitor" begin
+            mechs = collect(
+                enumerate_mechanisms(uni_uni_inh; max_forms=6),
+            )
+            @test any(
+                s -> :E_0_0_I ∈ _rxn_forms(s), mechs,
+            )
+            @test all(
+                spec -> EnzymeMechanism(spec) isa EnzymeMechanism,
+                mechs,
+            )
+        end
+
+        @testset "Activator mechanism" begin
+            mechs = collect(
+                enumerate_mechanisms(uni_uni_act; max_forms=8),
+            )
+            # Activator cycle: shadow forms in reactions
+            @test any(mechs) do spec
+                rf = _rxn_forms(spec)
+                :E_0_0_A ∈ rf && :E_S_0_A ∈ rf
+            end
+            # Dead-end-only variants
+            @test any(mechs) do spec
+                rf = _rxn_forms(spec)
+                :E_0_0_A ∈ rf && :E_S_0_A ∉ rf
+            end
+        end
+
+        @testset "All Uni-Uni compile rate equations" begin
+            @test all(enumerate_mechanisms(uni_uni)) do spec
+                m = EnzymeMechanism(spec)
+                s = rate_equation_string(m)
+                s isa String && !isempty(s)
+            end
+        end
+
+        @testset "Stoichiometry: random-order is valid" begin
+            iter = enumerate_mechanisms(bi_bi; max_forms=6)
+            @test all(
+                spec -> EnzymeMechanism(spec) isa EnzymeMechanism,
+                iter,
+            )
+        end
+
+        @testset "max_forms limit" begin
+            small = collect(
+                enumerate_mechanisms(uni_uni_inh; max_forms=4),
+            )
+            large = collect(
+                enumerate_mechanisms(uni_uni_inh; max_forms=8),
+            )
+            @test length(small) <= length(large)
+            @test all(
+                EnzymeRates._used_form_count(s) <= 4
+                for s in small
+            )
+            @test all(
+                EnzymeRates._used_form_count(s) <= 8
+                for s in large
+            )
+        end
+
+        @testset "Equivalent step constraints" begin
+            mechs = collect(
+                enumerate_mechanisms(uni_uni_inh; max_forms=6),
+            )
+            @test any(
+                s -> !isempty(s.param_constraints), mechs,
+            )
+            @test any(
+                s -> isempty(s.param_constraints), mechs,
+            )
+            constrained = first(
+                s for s in mechs
+                if !isempty(s.param_constraints)
+            )
+            @test EnzymeMechanism(constrained) isa EnzymeMechanism
+        end
+
+        @testset "Product inhibition" begin
+            mechs = collect(
+                enumerate_mechanisms(bi_bi; max_forms=8),
+            )
+            @test !isempty(mechs)
+            @test all(
+                spec -> EnzymeMechanism(spec) isa EnzymeMechanism,
+                mechs,
+            )
+        end
+
+        @testset "Ping-pong: no invalid empty->residual edges" begin
+            rxn1 = @enzyme_reaction begin
+                substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
+                products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
+            end
+            rxn2 = @enzyme_reaction begin
+                substrates: A[C], B[C2]
+                products: P[C2], Q[C]
+            end
+            @test all([rxn1, rxn2]) do rxn
+                iter = enumerate_mechanisms(rxn; max_forms=6)
+                all(
+                    spec -> EnzymeMechanism(spec) isa EnzymeMechanism,
+                    iter,
+                )
+            end
+            t1 = @elapsed enumerate_mechanisms(
+                rxn1; max_forms=6,
+            )
+            t2 = @elapsed enumerate_mechanisms(
+                rxn2; max_forms=6,
+            )
+            @test t1 < t2 * 20
+        end
+
+        @testset "Regulators: performance and correctness" begin
+            rxn_reg = @enzyme_reaction begin
+                substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
+                products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
+                regulators: Phosphate[PO4], G6P[C6H13O9P], G6P[C6H13O9P]
+            end
+            rxn_no_reg = @enzyme_reaction begin
+                substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
+                products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
+            end
+            t = @elapsed begin
+                mechs_reg = collect(
+                    enumerate_mechanisms(rxn_reg; max_forms=5),
+                )
+            end
+            @test t < 30
+            mechs_no_reg = collect(
+                enumerate_mechanisms(rxn_no_reg; max_forms=5),
+            )
+            @test length(mechs_reg) == length(mechs_no_reg)
+        end
     end
 
-    @testset "edge_class regulator → CouldExist" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N]
-        end
-        forms = enumerate_enzyme_forms(r)
-        fe = first(f for f in forms if f.name == :E_0_0_0)
-        fi = first(f for f in forms if f.name == :E_0_0_I)
+    # ─── Section 7: edge_class and helpers ─────────────────
 
-        ec, met, etype = EnzymeRates.edge_class(fe, fi)
-        @test ec isa EnzymeRates.CouldExist
-        @test met == :I
-        @test etype == :binding
-    end
-
-    @testset "n_sites helper" begin
-        r = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-        end
-        @test n_sites(r) == 2
-
-        r2 = @enzyme_reaction begin
-            substrates: A[C, 2], B[N]
-            products:   P[C], Q[N]
-            regulators: I[N2, 3]
-        end
-        @test n_sites(r2) == 2 + 1 + 1 + 1 + 3  # A(2) + B(1) + P(1) + Q(1) + I(3)
-    end
-
-    @testset "Ping-pong: no invalid empty→residual edges" begin
-        # Regression: binding edges from empty to ping-pong residual states caused
-        # atom conservation failures and ~200× slowdown.
-        rxn1 = @enzyme_reaction begin
-            substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
-            products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
-        end
-        rxn2 = @enzyme_reaction begin
-            substrates: A[C], B[C2]
-            products: P[C2], Q[C]
+    @testset "edge_class and helpers" begin
+        @testset "Core binding -> MustExist" begin
+            forms = enumerate_enzyme_forms(uni_uni)
+            fe = first(f for f in forms if f.name == :E_0_0)
+            fs = first(f for f in forms if f.name == :E_S_0)
+            ec, met, etype = EnzymeRates.edge_class(fe, fs)
+            @test ec isa EnzymeRates.MustExist
+            @test met == :S
+            @test etype == :binding
         end
 
-        # Correctness: all enumerated mechanisms must pass constructor validation
-        for (label, rxn) in [("rxn1", rxn1), ("rxn2", rxn2)]
-            iter = enumerate_mechanisms(rxn; max_forms=6)
-            @test all(spec -> EnzymeMechanism(spec) isa EnzymeMechanism, iter)
+        @testset "Isomerization -> MustExist" begin
+            forms = enumerate_enzyme_forms(uni_uni)
+            fs = first(f for f in forms if f.name == :E_S_0)
+            fp = first(f for f in forms if f.name == :E_0_P)
+            ec, met, etype = EnzymeRates.edge_class(fs, fp)
+            @test ec isa EnzymeRates.MustExist
+            @test met === nothing
+            @test etype == :isomerization
         end
 
-        # Performance: complex-atom reaction should not be orders of magnitude
-        # slower than simple-atom reaction with similar structure
-        t1 = @elapsed enumerate_mechanisms(rxn1; max_forms=6)
-        t2 = @elapsed enumerate_mechanisms(rxn2; max_forms=6)
-        @test t1 < t2 * 20  # should be within ~20× (was >200× before fix)
-    end
-
-    @testset "Regulators: performance and correctness" begin
-        # Regression: many regulators caused DFS to hang due to combinatorial
-        # explosion of forms. Constructive cycle building avoids this entirely.
-        rxn_reg = @enzyme_reaction begin
-            substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
-            products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
-            regulators: Phosphate[PO4], G6P[C6H13O9P], G6P[C6H13O9P]
-        end
-        rxn_no_reg = @enzyme_reaction begin
-            substrates: Glu[C6H12O6], ATP[C10H16N5O13P3]
-            products: G6P[C6H13O9P], ADP[C10H15N5O10P2]
+        @testset "Same form -> Forbidden" begin
+            forms = enumerate_enzyme_forms(uni_uni)
+            fe = first(f for f in forms if f.name == :E_0_0)
+            ec, _, _ = EnzymeRates.edge_class(fe, fe)
+            @test ec isa EnzymeRates.Forbidden
         end
 
-        # Must complete quickly (was hanging before fix)
-        t = @elapsed begin
-            mechs_reg = collect(enumerate_mechanisms(rxn_reg; max_forms=5))
+        @testset "Regulator binding -> CouldExist" begin
+            forms = enumerate_enzyme_forms(uni_uni_inh)
+            fe = first(
+                f for f in forms if f.name == :E_0_0_0
+            )
+            fi = first(
+                f for f in forms if f.name == :E_0_0_I
+            )
+            ec, met, etype = EnzymeRates.edge_class(fe, fi)
+            @test ec isa EnzymeRates.CouldExist
+            @test met == :I
+            @test etype == :binding
         end
-        @test t < 30  # generous timeout; typically <2s
 
-        # Same catalytic cycles as without regulators at max_forms=5
-        # (regulators can't fit in cycles at this budget)
-        mechs_no_reg = collect(enumerate_mechanisms(rxn_no_reg; max_forms=5))
-        @test length(mechs_reg) == length(mechs_no_reg)
+        @testset "n_sites helper" begin
+            @test n_sites(uni_uni) == 2
+            r2 = @enzyme_reaction begin
+                substrates: A[C, 2], B[N]
+                products:   P[C], Q[N]
+                regulators: I[N2, 3]
+            end
+            @test n_sites(r2) == 2 + 1 + 1 + 1 + 3
+        end
     end
 end

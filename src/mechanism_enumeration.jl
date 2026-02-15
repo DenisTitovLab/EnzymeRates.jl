@@ -45,6 +45,9 @@ struct EnzymeFormSpec
     sites::Vector{SiteState}
 end
 
+const ParamConstraint =
+    Tuple{Symbol, Int, Vector{Tuple{Symbol, Int}}}
+
 """
     MechanismSpec
 
@@ -57,7 +60,7 @@ struct MechanismSpec
     form_atoms::Vector{Vector{Pair{Symbol,Int}}}
     reactions::Vector{Tuple{Vector{Symbol}, Vector{Symbol}}}
     equilibrium_steps::Vector{Bool}
-    param_constraints::Vector{Tuple{Symbol, Int, Vector{Tuple{Symbol,Int}}}}
+    param_constraints::Vector{ParamConstraint}
 end
 
 """
@@ -768,6 +771,23 @@ function _combine_cycles(cycles::Vector{Vector{Tuple{Int,Int}}},
     topologies
 end
 
+"""
+    _enumerate_only_catalytic_mechanisms(forms, reaction; max_forms)
+
+Enumerate all catalytic topologies (single and multi-cycle) and return as
+`Vector{MechanismSpec}`. Each spec has all forms, all-SS steps, and no
+constraints. Merges `_enumerate_catalytic_cycles` + `_combine_cycles`.
+"""
+function _enumerate_only_catalytic_mechanisms(
+    forms::Vector{EnzymeFormSpec},
+    @nospecialize(reaction::EnzymeReaction);
+    max_forms::Int=3 * n_sites(reaction),
+)
+    cycles = _enumerate_catalytic_cycles(forms, reaction)
+    topologies = _combine_cycles(cycles, forms, max_forms)
+    [_build_spec_from_edges(topo, forms, reaction) for topo in topologies]
+end
+
 """Count unique forms referenced by an edge list."""
 _edge_form_count(edges::Vector{Tuple{Int,Int}}) =
     length(Set(Iterators.flatten(edges)))
@@ -960,6 +980,22 @@ function _find_shadow_form(forms::Vector{EnzymeFormSpec}, base_idx::Int, reg::Sy
     nothing
 end
 
+"""
+    _generate_activator_configs(spec, forms, reaction) → Vector{MechanismSpec}
+
+MechanismSpec interface: returns the input spec plus specs with activator
+shadow edges. If no regulators, returns `[spec]`.
+"""
+function _generate_activator_configs(
+    spec::MechanismSpec,
+    forms::Vector{EnzymeFormSpec},
+    @nospecialize(reaction::EnzymeReaction),
+)
+    topo = _spec_to_edges(spec, forms)
+    edge_variants = _generate_activator_configs(topo, forms, reaction)
+    [_build_spec_from_edges(variant, forms, reaction) for variant in edge_variants]
+end
+
 # ─── Dead-End Enumeration ─────────────────────────────────────────
 
 """
@@ -1037,6 +1073,28 @@ function _enumerate_subsets!(configs, candidates, idx, current, budget, topo_for
     end
 end
 
+"""
+    _enumerate_dead_end_configs(spec, forms; max_forms) → Vector{MechanismSpec}
+
+MechanismSpec interface: returns the input spec (no dead-ends) plus specs
+with dead-end binding steps appended. Always returns ≥ 1 element.
+"""
+function _enumerate_dead_end_configs(
+    spec::MechanismSpec,
+    forms::Vector{EnzymeFormSpec};
+    max_forms::Int=3 * length(forms),
+)
+    topo = _spec_to_edges(spec, forms)
+    de_configs = _enumerate_dead_end_configs(topo, forms, max_forms)
+    [
+        _build_spec_from_edges(
+            _get_step_edges(topo, de, forms),
+            forms, spec.reaction,
+        )
+        for de in de_configs
+    ]
+end
+
 # ─── SS/RE + Constraint Enumeration ───────────────────────────────
 
 """
@@ -1048,7 +1106,7 @@ function _enumerate_ress_and_constraints(n_steps::Int,
                                           step_edges::Vector{Tuple{Int,Int}},
                                           forms::Vector{EnzymeFormSpec})
     equiv_groups = _find_equivalent_groups(step_edges, forms)
-    results = Tuple{Vector{Bool}, Vector{Tuple{Symbol,Int,Vector{Tuple{Symbol,Int}}}}}[]
+    results = Tuple{Vector{Bool}, Vector{ParamConstraint}}[]
 
     # Iterate all non-zero bitmasks (at least one step must be SS, i.e. not all RE)
     for re_mask in 0:((1 << n_steps) - 2)
@@ -1066,7 +1124,7 @@ function _enumerate_ress_and_constraints(n_steps::Int,
         # For each valid group, enumerate constrained/unconstrained
         n_vg = length(valid_groups)
         for cmask in 0:((1 << n_vg) - 1)
-            constraints = Tuple{Symbol,Int,Vector{Tuple{Symbol,Int}}}[]
+            constraints = ParamConstraint[]
             for (gi, group) in enumerate(valid_groups)
                 ((cmask >> (gi - 1)) & 1) == 0 && continue
                 is_re = eq_steps[group[1]]
@@ -1118,6 +1176,25 @@ function _find_equivalent_groups(step_edges::Vector{Tuple{Int,Int}},
     groups
 end
 
+"""
+    _enumerate_ress_and_constraints(spec, forms) → Vector{MechanismSpec}
+
+MechanismSpec interface: returns all valid RE/SS × constraint variants
+(including the input's all-SS variant).
+"""
+function _enumerate_ress_and_constraints(
+    spec::MechanismSpec,
+    forms::Vector{EnzymeFormSpec},
+)
+    edges = _spec_to_edges(spec, forms)
+    n = length(edges)
+    configs = _enumerate_ress_and_constraints(n, edges, forms)
+    [
+        _build_spec_from_edges(edges, forms, spec.reaction, eq_steps, constraints)
+        for (eq_steps, constraints) in configs
+    ]
+end
+
 # ─── MechanismSpec Construction ───────────────────────────────────
 
 """Compute total atom content for an enzyme form from its sites."""
@@ -1132,48 +1209,87 @@ function _form_atoms(sites::Vector{SiteState})
     sort([a => c for (a, c) in atoms]; by=first)
 end
 
-"""
-Build a `MechanismSpec` from topology edges, dead-end forms,
-RE/SS assignment, and constraints.
-"""
-function _build_mechanism_spec(topo_edges::Vector{Tuple{Int,Int}},
-                                dead_end_forms::Vector{Int},
-                                eq_steps::Vector{Bool},
-                                constraints::Vector{
-                                    Tuple{Symbol,Int,Vector{Tuple{Symbol,Int}}}
-                                },
-                                forms::Vector{EnzymeFormSpec},
-                                @nospecialize(reaction))
-    # Collect all form indices
-    topo_form_set = Set(Iterators.flatten(topo_edges))
-    all_form_indices = sort(collect(union(topo_form_set, Set(dead_end_forms))))
-
-    # Get step edges: topo edges + dead-end connection edges
-    step_edges = _get_step_edges(topo_edges, dead_end_forms, forms)
-
-    form_names = [forms[fi].name for fi in all_form_indices]
-    form_atoms_list = [_form_atoms(forms[fi].sites) for fi in all_form_indices]
-
+"""Convert edge list (form index pairs) to reaction tuples."""
+function _edges_to_reactions(
+    edges::Vector{Tuple{Int,Int}},
+    forms::Vector{EnzymeFormSpec},
+)
     rxn_tuples = Tuple{Vector{Symbol}, Vector{Symbol}}[]
-    for (a, b) in step_edges
-        ec, met, etype = edge_class(forms[a], forms[b])
+    for (a, b) in edges
+        _, met, etype = edge_class(forms[a], forms[b])
         from_name = forms[a].name
         to_name = forms[b].name
         if etype == :binding
-            lhs = met === nothing ? [from_name] : [from_name, met]
+            lhs = [from_name, met]
             rhs = [to_name]
         elseif etype == :release
             lhs = [from_name]
-            rhs = met === nothing ? [to_name] : [to_name, met]
+            rhs = [to_name, met]
         else  # isomerization
             lhs = [from_name]
             rhs = [to_name]
         end
         push!(rxn_tuples, (lhs, rhs))
     end
-
-    MechanismSpec(reaction, form_names, form_atoms_list, rxn_tuples, eq_steps, constraints)
+    rxn_tuples
 end
+
+"""Extract form index edge pairs from a MechanismSpec's reactions."""
+function _spec_to_edges(
+    spec::MechanismSpec,
+    forms::Vector{EnzymeFormSpec},
+)
+    name_to_idx = Dict(f.name => i for (i, f) in enumerate(forms))
+    edges = Tuple{Int,Int}[]
+    for (lhs, rhs) in spec.reactions
+        from_idx = nothing
+        to_idx = nothing
+        for sym in lhs
+            idx = get(name_to_idx, sym, nothing)
+            idx !== nothing && (from_idx = idx)
+        end
+        for sym in rhs
+            idx = get(name_to_idx, sym, nothing)
+            idx !== nothing && (to_idx = idx)
+        end
+        if from_idx !== nothing && to_idx !== nothing
+            push!(edges, (from_idx, to_idx))
+        end
+    end
+    edges
+end
+
+"""Build a MechanismSpec from edges, including ALL forms."""
+function _build_spec_from_edges(
+    edges::Vector{Tuple{Int,Int}},
+    forms::Vector{EnzymeFormSpec},
+    @nospecialize(reaction),
+    eq_steps::Vector{Bool}=fill(false, length(edges)),
+    constraints::Vector{ParamConstraint}=ParamConstraint[],
+)
+    all_form_names = [f.name for f in forms]
+    all_form_atoms = [_form_atoms(f.sites) for f in forms]
+    rxn_tuples = _edges_to_reactions(edges, forms)
+    MechanismSpec(
+        reaction, all_form_names, all_form_atoms,
+        rxn_tuples, eq_steps, constraints,
+    )
+end
+
+"""Set of enzyme form names referenced in a spec's reactions."""
+function _used_forms(spec::MechanismSpec)
+    form_set = Set(spec.forms)
+    used = Set{Symbol}()
+    for (lhs, rhs) in spec.reactions
+        for sym in Iterators.flatten((lhs, rhs))
+            sym in form_set && push!(used, sym)
+        end
+    end
+    used
+end
+
+"""Count enzyme forms referenced in a spec's reactions."""
+_used_form_count(spec::MechanismSpec) = length(_used_forms(spec))
 
 """Get canonical step edges for a topology + dead-end config."""
 function _get_step_edges(topo_edges::Vector{Tuple{Int,Int}},
@@ -1232,41 +1348,27 @@ function enumerate_mechanisms(@nospecialize(reaction::EnzymeReaction);
                               max_forms::Int = 3 * n_sites(reaction))
     forms = enumerate_enzyme_forms(reaction)
 
-    # Stage 1: Catalytic cycles
-    cycles = _enumerate_catalytic_cycles(forms, reaction)
+    # Stage 1+2: Catalytic cycles + combination
+    specs = _enumerate_only_catalytic_mechanisms(forms, reaction; max_forms)
 
-    # Stage 2: Multi-cycle topologies
-    topologies = _combine_cycles(cycles, forms, max_forms)
+    # Stage 3: Activator shadow cycles
+    specs = MechanismSpec[
+        s for spec in specs
+        for s in _generate_activator_configs(spec, forms, reaction)
+    ]
+    filter!(s -> _used_form_count(s) <= max_forms, specs)
 
-    # Stages 3-6: For each topology, generate activator
-    # configs, dead-ends, RE/SS, constraints
-    specs = MechanismSpec[]
-    for topo in topologies
-        # Stage 3: Activator shadow cycles
-        activated_topos = _generate_activator_configs(topo, forms, reaction)
+    # Stage 4: Dead-end complexes
+    specs = MechanismSpec[
+        s for spec in specs
+        for s in _enumerate_dead_end_configs(spec, forms; max_forms)
+    ]
 
-        for act_topo in activated_topos
-            _edge_form_count(act_topo) > max_forms && continue
-
-            # Stage 4: Dead-end enumeration
-            de_configs = _enumerate_dead_end_configs(act_topo, forms, max_forms)
-
-            for de_config in de_configs
-                # Get step edges for this configuration
-                step_edges = _get_step_edges(act_topo, de_config, forms)
-                n_steps = length(step_edges)
-
-                # Stage 5-6: RE/SS + constraints
-                ress_configs = _enumerate_ress_and_constraints(n_steps, step_edges, forms)
-
-                for (eq_steps, constraints) in ress_configs
-                    spec = _build_mechanism_spec(act_topo, de_config, eq_steps,
-                                                  constraints, forms, reaction)
-                    push!(specs, spec)
-                end
-            end
-        end
-    end
+    # Stage 5+6: RE/SS assignments + equivalent step constraints
+    specs = MechanismSpec[
+        s for spec in specs
+        for s in _enumerate_ress_and_constraints(spec, forms)
+    ]
 
     MechanismIterator(specs)
 end
@@ -1281,21 +1383,23 @@ Delegates to the standard constructor for full validation.
 """
 function EnzymeMechanism(spec::MechanismSpec)
     rxn = spec.reaction
-    subs_t = Tuple((name, atoms) for (name, atoms, _) in substrates(rxn))
-    prods_t = Tuple((name, atoms) for (name, atoms, _) in products(rxn))
-    regs_t = Tuple((name, atoms) for (name, atoms, _) in regulators(rxn))
+    drop_sites(t) = Tuple((n, a) for (n, a, _) in t)
+    subs_t = drop_sites(substrates(rxn))
+    prods_t = drop_sites(products(rxn))
+    regs_t = drop_sites(regulators(rxn))
+
+    used = _used_forms(spec)
     enzs_t = Tuple(
         (spec.forms[i], Tuple(Tuple.(spec.form_atoms[i])))
         for i in eachindex(spec.forms)
+        if spec.forms[i] in used
     )
     species = (subs_t, prods_t, regs_t, enzs_t)
 
     reactions = Tuple(
         (Tuple(r[1]), Tuple(r[2])) for r in spec.reactions
     )
-
     eq_steps = Tuple(spec.equilibrium_steps)
-
     constraints = Tuple(
         (target, coeff, Tuple(Tuple.(factors)))
         for (target, coeff, factors) in spec.param_constraints
