@@ -687,34 +687,34 @@ _used_forms = EnzymeRates._used_forms
     # ─── Section 7: edge_class and helpers ─────────────────
 
     @testset "edge_class and helpers" begin
-        @testset "Core binding -> MustExist" begin
+        @testset "Core binding: valid edge" begin
             forms = enumerate_enzyme_forms(uni_uni)
             fe = first(f for f in forms if f.name == :E_0_0)
             fs = first(f for f in forms if f.name == :E_S_0)
-            ec, met, etype = EnzymeRates.edge_class(fe, fs)
-            @test ec isa EnzymeRates.MustExist
+            is_valid, met, etype = EnzymeRates.edge_class(fe, fs)
+            @test is_valid === true
             @test met == :S
             @test etype == :binding
         end
 
-        @testset "Isomerization -> MustExist" begin
+        @testset "Isomerization: valid edge" begin
             forms = enumerate_enzyme_forms(uni_uni)
             fs = first(f for f in forms if f.name == :E_S_0)
             fp = first(f for f in forms if f.name == :E_0_P)
-            ec, met, etype = EnzymeRates.edge_class(fs, fp)
-            @test ec isa EnzymeRates.MustExist
+            is_valid, met, etype = EnzymeRates.edge_class(fs, fp)
+            @test is_valid === true
             @test met === nothing
             @test etype == :isomerization
         end
 
-        @testset "Same form -> Forbidden" begin
+        @testset "Same form: no edge" begin
             forms = enumerate_enzyme_forms(uni_uni)
             fe = first(f for f in forms if f.name == :E_0_0)
-            ec, _, _ = EnzymeRates.edge_class(fe, fe)
-            @test ec isa EnzymeRates.Forbidden
+            is_valid, _, _ = EnzymeRates.edge_class(fe, fe)
+            @test is_valid === false
         end
 
-        @testset "Regulator binding -> CouldExist" begin
+        @testset "Regulator binding: valid edge" begin
             forms = enumerate_enzyme_forms(uni_uni_inh)
             fe = first(
                 f for f in forms if f.name == :E_0_0_0
@@ -722,8 +722,8 @@ _used_forms = EnzymeRates._used_forms
             fi = first(
                 f for f in forms if f.name == :E_0_0_I
             )
-            ec, met, etype = EnzymeRates.edge_class(fe, fi)
-            @test ec isa EnzymeRates.CouldExist
+            is_valid, met, etype = EnzymeRates.edge_class(fe, fi)
+            @test is_valid === true
             @test met == :I
             @test etype == :binding
         end

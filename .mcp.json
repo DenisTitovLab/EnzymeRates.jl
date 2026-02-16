@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "julia-repl": {
+      "command": "julia",
+      "args": [
+        "--project=.",
+        ".claude/mcp_julia_server.jl"
+      ]
+    }
+  }
+}
