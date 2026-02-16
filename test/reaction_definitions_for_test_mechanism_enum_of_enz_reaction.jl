@@ -59,88 +59,6 @@ end
 # ── Independent verification helpers ─────────────────────────────────────
 
 """
-Independently compute the expected dead-end count using the thermodynamic
-box rule. Per topology form, choose which regulator sites bind (2^n_reg
-subsets). Multi-reg subsets force box closure. Cartesian product across
-topology forms with max_forms budget.
-
-Uses only public struct fields — no `EnzymeRates._*` calls.
-"""
-function _compute_expected_dead_end_count(
-    base_spec::EnzymeRates.MechanismSpec,
-    forms::Vector{EnzymeRates.EnzymeFormSpec},
-    max_forms::Int,
-)
-    topo = _spec_to_form_edges(base_spec, forms)
-    topo_forms_set = Set(Iterators.flatten(topo))
-    topo_forms = sort(collect(topo_forms_set))
-    budget = max_forms - length(topo_forms)
-    budget < 0 && return 0
-
-    per_form_option_sizes = Vector{Int}[]
-    for fi in topo_forms
-        # Reg site positions (inlined from _reg_site_positions)
-        reg_sites = [k for k in eachindex(forms[fi].sites)
-                     if forms[fi].sites[k].role == :reg &&
-                        forms[fi].sites[k].atoms === nothing]
-        n_reg = length(reg_sites)
-        seen = Set{Vector{Int}}([Int[]])
-        sizes = [0]
-
-        for mask in 1:((1 << n_reg) - 1)
-            chosen = [reg_sites[k] for k in 1:n_reg
-                      if (mask >> (k - 1)) & 1 == 1]
-            de_forms = Int[]
-            valid = true
-            for sub_mask in 1:((1 << length(chosen)) - 1)
-                positions = [chosen[k]
-                             for k in 1:length(chosen)
-                             if (sub_mask >> (k - 1)) & 1 == 1]
-                # Find dead-end form (inlined from _find_dead_end_form)
-                base = forms[fi]
-                form_idx = findfirst(forms) do fj
-                    all(1:length(base.sites)) do k
-                        if k in positions
-                            fj.sites[k].atoms !== nothing
-                        else
-                            base.sites[k].atoms == fj.sites[k].atoms
-                        end
-                    end
-                end
-                if form_idx === nothing
-                    valid = false
-                    break
-                end
-                form_idx in topo_forms_set && continue
-                push!(de_forms, form_idx)
-            end
-            !valid && continue
-            sort!(de_forms)
-            if de_forms ∉ seen
-                push!(seen, de_forms)
-                push!(sizes, length(de_forms))
-            end
-        end
-        push!(per_form_option_sizes, sizes)
-    end
-
-    total = Ref(0)
-    _count_cartesian!(total, per_form_option_sizes, 1, budget)
-    total[]
-end
-
-function _count_cartesian!(total, option_sizes, idx, budget)
-    if idx > length(option_sizes)
-        total[] += 1
-        return
-    end
-    for sz in option_sizes[idx]
-        sz > budget && continue
-        _count_cartesian!(total, option_sizes, idx + 1, budget - sz)
-    end
-end
-
-"""
 Independently compute the expected RE/SS + constraint count by iterating
 all RE/SS masks and equivalent group constraint combinations.
 
@@ -154,7 +72,7 @@ function _compute_independent_ress_count(
     n = length(edges)
 
     # Find equivalent groups (inlined from _find_equivalent_groups)
-    binding_key = Dict{Tuple{Symbol,Int}, Vector{Int}}()
+    binding_key = Dict{Tuple{Symbol,Int},Vector{Int}}()
     for (i, (a, b)) in enumerate(edges)
         # Detect binding/release: exactly 1 site changes occupancy
         diff_count = 0
@@ -179,7 +97,7 @@ function _compute_independent_ress_count(
     sort!(equiv_groups; by=first)
 
     total = 0
-    for re_mask in 0:((1 << n) - 2)
+    for re_mask in 0:((1<<n)-2)
         eq_steps = Bool[
             (re_mask >> (i - 1)) & 1 == 1 for i in 1:n
         ]
@@ -194,6 +112,41 @@ function _compute_independent_ress_count(
     total
 end
 
+"""
+Compute expected dead-end mechanism count assuming independent inhibitor
+binding: each inhibitor independently binds or not at each topology form.
+
+A regulator is classified as an inhibitor if its binding site is never
+occupied in any topology form; otherwise it is an activator.
+
+Formula per activator config: (2^r_inh)^n_topo
+  - r_inh: number of inhibitor regulators (sites never occupied in topo)
+  - n_topo: number of forms in the catalytic topology
+
+Uses only public struct fields — no `EnzymeRates._*` calls.
+"""
+function _compute_expected_dead_end_count(
+    activator_specs,
+    forms::Vector{EnzymeRates.EnzymeFormSpec},
+)
+    reg_positions = [k for k in eachindex(forms[1].sites)
+                     if forms[1].sites[k].role == :reg]
+
+    total = 0
+    for spec in activator_specs
+        edges = _spec_to_form_edges(spec, forms)
+        topo_set = Set(Iterators.flatten(edges))
+        n_topo = length(topo_set)
+
+        r_inh = count(reg_positions) do k
+            !any(fi -> forms[fi].sites[k].atoms !== nothing, topo_set)
+        end
+
+        total += (2^r_inh)^n_topo
+    end
+    total
+end
+
 # ── Build specifications ─────────────────────────────────────────────────
 
 function build_enumeration_test_specs()
@@ -202,176 +155,228 @@ function build_enumeration_test_specs()
     # 1. Uni-Uni: simplest case
     let
         rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
+            substrates:S[C]
+            products:P[C]
         end
         push!(specs, EnumerationTestSpec(
-            name = "Uni-Uni",
-            reaction = rxn,
-            max_forms = 6,
-            expected_n_forms = 3,
-            expected_n_catalytic = 1,
-            expected_n_cat_with_act = 1,
-            expected_n_cat_act_de = 1,
-            expected_n_total = 7,
-            max_enumeration_time = 5.0,
+            name="Uni-Uni",
+            reaction=rxn,
+            max_forms=100,
+            # E, ES, EP
+            expected_n_forms=3,
+            # E+S <-> ES <-> EP <-> E+P
+            expected_n_catalytic=1,
+            expected_n_cat_with_act=1,
+            expected_n_cat_act_de=1,
+            expected_n_total=7,
+            max_enumeration_time=5.0,
         ))
     end
 
-    # 2. Uni-Uni + 1 dead-end inhibitor
+    # 2. Uni-Uni + 1 regulator
     let
         rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N]
+            substrates:S[C]
+            products:P[C]
+            regulators:R[N]
         end
         push!(specs, EnumerationTestSpec(
-            name = "Uni-Uni 1 Regulator",
-            reaction = rxn,
-            max_forms = 6,
-            expected_n_forms = 6,
-            expected_n_catalytic = 1,
-            expected_n_cat_with_act = 3,
-            expected_n_cat_act_de = 10,
-            expected_n_total = 2240,
-            max_enumeration_time = 5.0,
+            name="Uni-Uni 1 Regulator",
+            reaction=rxn,
+            max_forms=100,
+            # n_cat_forms × 2^regulators = 3 × 2^1 = 6
+            expected_n_forms=6,
+            # E+S <-> ES <-> EP <-> E+P
+            expected_n_catalytic=1,
+            # 1 catalytic +
+            # 1 essential activator: E+A <-> EA+S <-> EAS <-> EAP <-> EA+P <-> E+A
+            # 1 non-essential activator:
+            #          E+S <-> ES  <-> EP  <-> E+P
+            #          ↕       ↕        ↕      ↕
+            # E+A <-> EA+S <-> EAS <-> EAP <-> EA+P <-> E+A
+            expected_n_cat_with_act=3,
+            # Regulator is either inhibitor or activator so dead-end only applies to catalytic form:
+            # - catalytic reaction has 3 forms (E, ES, EP)
+            # - 3 dead-end complexes with inhibitor bound to only one form
+            # - 3 dead-end complexes with inhibitor bound to two forms
+            # - 1 dead-end complex with inhibitor bound to all three forms
+            # In sum, 1 catalytic + 2 with activator + 7 with dead-ends = 10
+
+            #= More generally, each catalytic form is a slot. At each slot, you independently answer one yes/no question per regulator: "does this regulator form a dead-end here?"
+            - 1 regulator → 1 yes/no question → 2 choices per slot
+            - 2 regulators → 2 independent yes/no questions → 2²= 4 choices per slot
+            - r regulators → 2^r choices per slot
+            You make this choice independently at each of the n_cat slots, so you multiply:
+            2^r × 2^r × … × 2^r (n_cat times) = (2^r)^n_cat
+            For Uni-Uni with 1 regulator: 3 slots, 2 choices each → 2 × 2 × 2 = 8.
+            The above include the case with no regulator.
+            =#
+            expected_n_cat_act_de=10,
+            #
+            expected_n_total=2240,
+            max_enumeration_time=5.0,
         ))
     end
 
     # 3. Uni-Uni + 2 regulators (chain dead-ends)
     let
         rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I[N], J[P2]
+            substrates:S[C]
+            products:P[C]
+            regulators:R1[N], R2[P]
         end
         push!(specs, EnumerationTestSpec(
-            name = "Uni-Uni 2 Regulators",
-            reaction = rxn,
-            max_forms = 6,
-            expected_n_forms = 12,
-            expected_n_catalytic = 1,
-            expected_n_cat_with_act = 5,
-            expected_n_cat_act_de = 34,
-            expected_n_total = 6647,
-            max_enumeration_time = 10.0,
+            name="Uni-Uni 2 Regulators",
+            reaction=rxn,
+            max_forms=100,
+            # n_cat_forms × 2^regulators = 3 × 2^2 = 12
+            expected_n_forms=12,
+            expected_n_catalytic=1,
+            # With 2 regulators, we get 1 catalytic
+            # + 2x2=4 with each activators binding alone (like in Uni-Uni + 1 regulator case)
+            # + 2 with one activators essential and one non-essential and vice versa
+            # + 2 with both activators essential or non-essential
+            expected_n_cat_with_act=9,
+            # For each mechanism with no deadend the number of deadend mechanism can be
+            # combinatorial calculated as (2^n_regultors)^n_cat_enz_forms.
+            # For catalytic = (2^2)^3 = 64
+            # For 1 essential activator: (2^1)^4 = 16 (2x since either reg can be inh or act)
+            # For 1 non-essential activator: (2^1)^6 = 64 (also 2x)
+            # No deadend complex with 2 activators since regulator can be either act and inh.
+            # In sum, 64 + 16*2 + 64*2 + 2
+            expected_n_cat_act_de=226,
+            expected_n_total=21333983,
+            max_enumeration_time=10.0,
         ))
     end
 
-    # 4. Bi-Bi (multi-cycle topologies)
+    # 4. Uni-Bi + 1 regulator
     let
         rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
+            substrates:A[C2]
+            products:P1[C], P2[C]
+            regulators:R[N]
         end
         push!(specs, EnumerationTestSpec(
-            name = "Bi-Bi",
-            reaction = rxn,
-            max_forms = 11,
-            expected_n_forms = 11,
-            expected_n_catalytic = 9,
-            expected_n_cat_with_act = 9,
-            expected_n_cat_act_de = 9,
-            expected_n_total = 2094,
-            max_enumeration_time = 5.0,
+            name="Uni-Bi",
+            reaction=rxn,
+            max_forms=100,
+            expected_n_forms=16,
+            # 2x sequencial product release and 1 random order → 3 catalytic topologies
+            # For sequencial release: E+S <-> ES <-> EP1P2 <-> EP1 <-> E+P1 and vice versa
+            # For random order:
+            # E+S <-> ES <-> EP1P2 <-> EP1 + P2 <-> E+P1
+            #                  ↕
+            #                EP2 + P1 <-> E+P2
+            expected_n_catalytic=3,
+            # For sequencial release there are 2 activator mechanisms (as in Uni-Uni case)
+            # and for random order there are 4 (2 per catalytic cycle)
+            expected_n_cat_with_act=9,
+            # For sequential release: (2^1)^4 = 16 (2x)
+            # For random order: (2^1)^5 = 32
+            # No deadend for activators mechanisms since regulator can be either act and inh.
+            # In sum, 16*2 + 32 + 6 (activator mechanisms)= 70
+            expected_n_cat_act_de=70,
+            expected_n_total=546680,
+            max_enumeration_time=5.0,
         ))
     end
 
     # 5. Bi-Bi Ping Pong (residual forms)
     let
         rxn = @enzyme_reaction begin
-            substrates: A[CX], B[N]
-            products:   P[C], Q[NX]
+            substrates:A[CX], B[N]
+            products:P[C], Q[NX]
         end
         push!(specs, EnumerationTestSpec(
-            name = "Bi-Bi Ping Pong",
-            reaction = rxn,
-            max_forms = 20,
-            expected_n_forms = 17,
-            expected_n_catalytic = 9,
-            expected_n_cat_with_act = 9,
-            expected_n_cat_act_de = 9,
-            expected_n_total = 2094,
-            max_enumeration_time = 5.0,
+            name="Bi-Bi Ping Pong",
+            reaction=rxn,
+            max_forms=20,
+            expected_n_forms=17,
+            expected_n_catalytic=9,
+            expected_n_cat_with_act=9,
+            expected_n_cat_act_de=9,
+            expected_n_total=2094,
+            max_enumeration_time=5.0,
         ))
     end
 
     # 6. Bi-Bi + 1 regulator
     let
         rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
-            regulators: I[P2]
+            substrates:A[C], B[N]
+            products:P[C], Q[N]
+            regulators:I[P2]
         end
         push!(specs, EnumerationTestSpec(
-            name = "Bi-Bi 1 Regulator",
-            reaction = rxn,
-            max_forms = 15,
-            expected_n_forms = 22,
-            expected_n_catalytic = 9,
-            expected_n_cat_with_act = 27,
-            expected_n_cat_act_de = 530,
-            skip_ress_test = true,
-            expected_n_total = 140203886,
+            name="Bi-Bi 1 Regulator",
+            reaction=rxn,
+            max_forms=15,
+            expected_n_forms=22,
+            expected_n_catalytic=9,
+            expected_n_cat_with_act=27,
+            expected_n_cat_act_de=530,
+            skip_ress_test=true,
+            expected_n_total=140203886,
         ))
     end
 
     # 7. Bi-Bi Ping Pong + 1 regulator
     let
         rxn = @enzyme_reaction begin
-            substrates: A[CX], B[N]
-            products:   P[C], Q[NX]
-            regulators: I[P2]
+            substrates:A[CX], B[N]
+            products:P[C], Q[NX]
+            regulators:I[P2]
         end
         push!(specs, EnumerationTestSpec(
-            name = "Bi-Bi PP 1 Regulator",
-            reaction = rxn,
-            max_forms = 15,
-            expected_n_forms = 34,
-            expected_n_catalytic = 9,
-            expected_n_cat_with_act = 27,
-            expected_n_cat_act_de = 530,
-            skip_ress_test = true,
-            expected_n_total = 140203886,
+            name="Bi-Bi PP 1 Regulator",
+            reaction=rxn,
+            max_forms=15,
+            expected_n_forms=34,
+            expected_n_catalytic=9,
+            expected_n_cat_with_act=27,
+            expected_n_cat_act_de=530,
+            skip_ress_test=true,
+            expected_n_total=140203886,
         ))
     end
 
     # 8. Bi-Bi Ping Pong + 2 regulators
     let
         rxn = @enzyme_reaction begin
-            substrates: A[CX], B[N]
-            products:   P[C], Q[NX]
-            regulators: I[P2], J[Y]
+            substrates:A[CX], B[N]
+            products:P[C], Q[NX]
+            regulators:I[P2], J[Y]
         end
         push!(specs, EnumerationTestSpec(
-            name = "Bi-Bi PP 2 Regulators",
-            reaction = rxn,
-            max_forms = 12,
-            expected_n_forms = 68,
-            expected_n_catalytic = 9,
-            expected_n_cat_with_act = 41,
-            expected_n_cat_act_de = 12106,
-            skip_ress_test = true,
-            expected_n_total = 1303046914,
+            name="Bi-Bi PP 2 Regulators",
+            reaction=rxn,
+            max_forms=12,
+            expected_n_forms=68,
+            expected_n_catalytic=9,
+            expected_n_cat_with_act=41,
+            expected_n_cat_act_de=12106,
+            skip_ress_test=true,
+            expected_n_total=1303046914,
         ))
     end
 
     # 9. Bi-Bi budget filtering (max_forms=5 restricts to single cycles)
     let
         rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C], Q[N]
+            substrates:A[C], B[N]
+            products:P[C], Q[N]
         end
         push!(specs, EnumerationTestSpec(
-            name = "Bi-Bi Budget",
-            reaction = rxn,
-            max_forms = 5,
-            expected_n_forms = 11,
-            expected_n_catalytic = 4,
-            expected_n_cat_with_act = 4,
-            expected_n_cat_act_de = 4,
-            expected_n_total = 124,
-            max_enumeration_time = 5.0,
+            name="Bi-Bi Budget",
+            reaction=rxn,
+            max_forms=5,
+            expected_n_forms=11,
+            expected_n_catalytic=4,
+            expected_n_cat_with_act=4,
+            expected_n_cat_act_de=4,
+            expected_n_total=124,
+            max_enumeration_time=5.0,
         ))
     end
 

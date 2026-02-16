@@ -9,12 +9,10 @@
         @test length(stages.with_activator) == spec.expected_n_cat_with_act
         @test length(stages.with_dead_end) == spec.expected_n_cat_act_de
 
-        # Independent dead-end verification (aggregate):
-        # sum of per-base independent counts == total dead-end count
-        expected_de_total = sum(stages.with_activator) do base
-            _compute_expected_dead_end_count(
-                base, stages.forms, spec.max_forms)
-        end
+        # Independent dead-end verification:
+        # (2^r_inh)^n_topo per activator config, summed
+        expected_de_total = _compute_expected_dead_end_count(
+            stages.with_activator, stages.forms)
         @test expected_de_total == length(stages.with_dead_end)
 
         # Total mechanism count (O(1) for lazy iterator)

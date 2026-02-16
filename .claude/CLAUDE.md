@@ -52,6 +52,21 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - `enumerate_mechanism_stages` exposes all intermediate pipeline results for testing and inspection
 - Stages 1-3 with generous `max_forms` can still be slow for multi-regulator reactions (dead-end enumeration is combinatorial)
 
+## Dead-End Mechanism Combinatorics
+
+For reactions with r regulators, each regulator is either an activator (part of the catalytic topology) or an inhibitor (creates dead-ends). No mixed roles: an activator does not participate in dead-end formation.
+
+- Dead-end configs per activator config = `(2^r_inh)^n_topo`
+  - `r_inh`: number of inhibitor regulators (binding site never occupied in any topology form)
+  - `n_topo`: number of forms in the catalytic topology
+- For Uni-Uni (n_cat=3 base catalytic forms):
+  - No activator: n_topo = 3
+  - Essential activator: n_topo = n_cat + 1 = 4 (E, EA, EAS, EAP)
+  - Non-essential activator: n_topo = 2 × n_cat = 6 (bare + activated cycles)
+- Each activator can be essential or non-essential → 2 configs per activator choice
+- Total = Σ over activator configs of `(2^r_inh)^n_topo`
+- Test helper `_compute_expected_dead_end_count` verifies this formula
+
 ## Testing
 
 - Tests include Aqua (quality) and JET (static analysis)
