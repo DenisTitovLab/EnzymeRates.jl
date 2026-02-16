@@ -37,12 +37,20 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API (`parameters`, `fitted_params`, `param_count_estimate`); identifiability checks
 - `src/rate_eq_rewriting.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
-- `src/mechanism_enumeration.jl` — `SiteState`/`EnzymeFormSpec`/`MechanismSpec` types, `enumerate_enzyme_forms` (all valid enzyme forms from reaction), `enumerate_mechanisms` (catalytic cycle enumeration → dead-end lattice → RE/SS × equivalent step constraints)
+- `src/mechanism_enumeration.jl` — `SiteState`/`EnzymeFormSpec`/`MechanismSpec`/`PreRessEntry`/`MechanismIterator` types, `enumerate_enzyme_forms` (all valid enzyme forms from reaction), `enumerate_mechanisms` (catalytic cycle enumeration → dead-end lattice → lazy RE/SS × equivalent step constraints), `enumerate_mechanism_stages` (returns intermediate results at each pipeline stage)
 
 ## Performance Pattern: @nospecialize
 
 - Enumeration functions use `@nospecialize` on `EnzymeReaction` args to prevent recompilation for each reaction type
 - Raw mechanism data (tuples) is collected and deduplicated BEFORE creating EnzymeMechanism types
+
+## Mechanism Enumeration Architecture
+
+- `MechanismIterator` is lazy — stages 1-3 (catalytic, activator, dead-end) are eager; stage 4 (RE/SS + constraints) generates `MechanismSpec` on demand via `PreRessEntry` state machine
+- `length(iter)` is O(1) — precomputed via `_count_ress_variants`
+- `MechanismSpec` instances from the same iterator share `form_names`/`form_atoms` vectors (no redundant copies)
+- `enumerate_mechanism_stages` exposes all intermediate pipeline results for testing and inspection
+- Stages 1-3 with generous `max_forms` can still be slow for multi-regulator reactions (dead-end enumeration is combinatorial)
 
 ## Testing
 
@@ -50,3 +58,4 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - Don't leave profiling deps (SnoopCompile) in Project.toml — Aqua stale deps check will fail
 - `test/mechanism_definitions_for_test_enzyme_derivation.jl` defines shared mechanisms used by multiple test files — must be included before those tests
 - `test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl` defines shared reactions for mechanism enumeration tests — must be included before those tests
+- Mechanism enumeration tests use data-driven `EnumerationTestSpec` approach via `enumerate_mechanism_stages` — verification helpers (`_compute_expected_dead_end_count`, `_compute_independent_ress_count`) use only public struct fields, no `EnzymeRates._*` calls

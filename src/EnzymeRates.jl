@@ -19,7 +19,7 @@ export fitted_params, metabolite_names
 
 # Mechanism enumeration
 export SiteState, EnzymeFormSpec, enumerate_enzyme_forms
-export enumerate_mechanisms, MechanismSpec, n_sites
+export enumerate_mechanisms, enumerate_mechanism_stages, MechanismSpec, n_sites
 
 using Tables
 using Optimization

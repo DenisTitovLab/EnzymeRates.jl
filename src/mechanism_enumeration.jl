@@ -52,19 +52,125 @@ struct MechanismSpec
 end
 
 """
+    PreRessEntry
+
+Pre-computed data for one dead-end topology, used by the lazy iterator
+to generate RE/SS + constraint variants on demand.
+"""
+struct PreRessEntry
+    rxn_tuples::Vector{Tuple{Vector{Symbol}, Vector{Symbol}}}
+    edges::Vector{Tuple{Int,Int}}
+    equiv_groups::Vector{Vector{Int}}
+    ress_count::Int
+end
+
+"""
     MechanismIterator
 
 Lazy iterator over all valid mechanisms for a reaction.
+Stages 1-3 (catalytic, activator, dead-end) are eagerly materialized.
+Stage 4 (RE/SS + constraints) is generated lazily during iteration.
 """
 struct MechanismIterator
-    specs::Vector{MechanismSpec}
+    reaction::Any
+    form_names::Vector{Symbol}
+    form_atoms::Vector{Vector{Pair{Symbol,Int}}}
+    pre_ress::Vector{PreRessEntry}
+    total::Int
 end
 
 Base.eltype(::Type{MechanismIterator}) = MechanismSpec
 Base.IteratorSize(::Type{MechanismIterator}) = Base.HasLength()
-Base.length(iter::MechanismIterator) = length(iter.specs)
-Base.iterate(iter::MechanismIterator, state=1) =
-    state > length(iter.specs) ? nothing : (iter.specs[state], state + 1)
+Base.length(iter::MechanismIterator) = iter.total
+
+function Base.iterate(iter::MechanismIterator)
+    isempty(iter.pre_ress) && return nothing
+    _produce_ress_spec(iter, 1, 0, 0)
+end
+
+function Base.iterate(iter::MechanismIterator, state)
+    state === nothing && return nothing
+    _produce_ress_spec(iter, state...)
+end
+
+"""Build the MechanismSpec at state (entry_idx, re_mask, cmask) and advance."""
+function _produce_ress_spec(iter::MechanismIterator,
+                             entry_idx::Int, re_mask::Int, cmask::Int)
+    entry = iter.pre_ress[entry_idx]
+    n = length(entry.edges)
+    eq_steps = Bool[(re_mask >> (i - 1)) & 1 == 1 for i in 1:n]
+
+    # Build constraints from valid equiv groups and cmask
+    constraints = ParamConstraint[]
+    n_valid = 0
+    for group in entry.equiv_groups
+        first_re = eq_steps[group[1]]
+        all(eq_steps[s] == first_re for s in group) || continue
+        n_valid += 1
+        ((cmask >> (n_valid - 1)) & 1) == 0 && continue
+        if first_re
+            for j in 2:length(group)
+                push!(constraints, (Symbol("K$(group[j])"), 1,
+                                   [(Symbol("K$(group[1])"), 1)]))
+            end
+        else
+            for j in 2:length(group)
+                push!(constraints, (Symbol("k$(group[j])f"), 1,
+                                   [(Symbol("k$(group[1])f"), 1)]))
+                push!(constraints, (Symbol("k$(group[j])r"), 1,
+                                   [(Symbol("k$(group[1])r"), 1)]))
+            end
+        end
+    end
+
+    spec = MechanismSpec(
+        iter.reaction, iter.form_names, iter.form_atoms,
+        entry.rxn_tuples, eq_steps, constraints,
+    )
+    next = _advance_ress_state(iter, entry_idx, re_mask, cmask, n_valid)
+    return (spec, next)
+end
+
+"""Advance to the next valid (entry_idx, re_mask, cmask) state."""
+function _advance_ress_state(iter::MechanismIterator, entry_idx::Int,
+                              re_mask::Int, cmask::Int, n_valid::Int)
+    entry = iter.pre_ress[entry_idx]
+    n = length(entry.edges)
+
+    # Next cmask within same re_mask
+    if cmask < (1 << n_valid) - 1
+        return (entry_idx, re_mask, cmask + 1)
+    end
+
+    # Next re_mask within same entry
+    next_re = re_mask + 1
+    if next_re <= (1 << n) - 2
+        return (entry_idx, next_re, 0)
+    end
+
+    # Next entry
+    next_entry = entry_idx + 1
+    next_entry > length(iter.pre_ress) && return nothing
+    return (next_entry, 0, 0)
+end
+
+"""Count total RE/SS + constraint variants for given edges and equiv groups."""
+function _count_ress_variants(n_edges::Int,
+                               equiv_groups::Vector{Vector{Int}})
+    n_edges == 0 && return 0
+    count = 0
+    for re_mask in 0:((1 << n_edges) - 2)
+        n_valid = 0
+        for group in equiv_groups
+            first_re = (re_mask >> (group[1] - 1)) & 1
+            consistent = all(
+                ((re_mask >> (s - 1)) & 1) == first_re for s in group)
+            consistent && (n_valid += 1)
+        end
+        count += 1 << n_valid
+    end
+    count
+end
 
 # ─── Core Helpers ──────────────────────────────────────────────
 
@@ -809,10 +915,14 @@ function _enumerate_only_catalytic_mechanisms(
     forms::Vector{EnzymeFormSpec},
     @nospecialize(reaction::EnzymeReaction);
     max_forms::Int=3 * n_sites(reaction),
+    shared_names::Union{Nothing,Vector{Symbol}}=nothing,
+    shared_atoms::Union{Nothing,Vector{Vector{Pair{Symbol,Int}}}}=nothing,
 )
     form_sets = _enumerate_catalytic_form_sets(forms, reaction)
     filter!(fs -> length(fs) <= max_forms, form_sets)
-    [_build_spec_from_edges(_derive_edges(forms, fs), forms, reaction)
+    [_build_spec_from_edges(
+        _derive_edges(forms, fs), forms, reaction;
+        shared_names, shared_atoms)
      for fs in form_sets]
 end
 
@@ -822,15 +932,16 @@ function _build_spec_from_edges(
     forms::Vector{EnzymeFormSpec},
     @nospecialize(reaction),
     eq_steps::Vector{Bool}=fill(false, length(edges)),
-    constraints::Vector{ParamConstraint}=ParamConstraint[],
+    constraints::Vector{ParamConstraint}=ParamConstraint[];
+    shared_names::Union{Nothing,Vector{Symbol}}=nothing,
+    shared_atoms::Union{Nothing,Vector{Vector{Pair{Symbol,Int}}}}=nothing,
 )
-    all_form_names = [f.name for f in forms]
-    all_form_atoms = [_form_atoms(f.sites) for f in forms]
+    fn = shared_names !== nothing ? shared_names :
+        [f.name for f in forms]
+    fa = shared_atoms !== nothing ? shared_atoms :
+        [_form_atoms(f.sites) for f in forms]
     rxn_tuples = _edges_to_reactions(edges, forms)
-    MechanismSpec(
-        reaction, all_form_names, all_form_atoms,
-        rxn_tuples, eq_steps, constraints,
-    )
+    MechanismSpec(reaction, fn, fa, rxn_tuples, eq_steps, constraints)
 end
 
 # ─── Activator Variants ───────────────────────────────────────
@@ -848,7 +959,9 @@ Returns specs including the original.
 function _generate_activator_configs(
     spec::MechanismSpec,
     forms::Vector{EnzymeFormSpec},
-    @nospecialize(reaction::EnzymeReaction),
+    @nospecialize(reaction::EnzymeReaction);
+    shared_names::Union{Nothing,Vector{Symbol}}=nothing,
+    shared_atoms::Union{Nothing,Vector{Vector{Pair{Symbol,Int}}}}=nothing,
 )
     reg_names = [r[1] for r in regulators(reaction)]
     isempty(reg_names) && return [spec]
@@ -910,7 +1023,9 @@ function _generate_activator_configs(
         for (add, _) in combo
             append!(merged, add)
         end
-        push!(results, _build_spec_from_edges(merged, forms, reaction))
+        push!(results, _build_spec_from_edges(
+            merged, forms, reaction;
+            shared_names, shared_atoms))
     end
     results
 end
@@ -978,6 +1093,8 @@ function _enumerate_dead_end_configs(
     spec::MechanismSpec,
     forms::Vector{EnzymeFormSpec};
     max_forms::Int=3 * length(forms),
+    shared_names::Union{Nothing,Vector{Symbol}}=nothing,
+    shared_atoms::Union{Nothing,Vector{Vector{Pair{Symbol,Int}}}}=nothing,
 )
     topo = _spec_to_edges(spec, forms)
     topo_forms_set = Set(Iterators.flatten(topo))
@@ -1029,7 +1146,8 @@ function _enumerate_dead_end_configs(
     [
         _build_spec_from_edges(
             _topo_plus_binding_edges(topo, de, forms),
-            forms, spec.reaction,
+            forms, spec.reaction;
+            shared_names, shared_atoms,
         )
         for de in de_configs
     ]
@@ -1208,31 +1326,57 @@ The enumeration covers:
 """
 function enumerate_mechanisms(@nospecialize(reaction::EnzymeReaction);
                               max_forms::Int = 3 * n_sites(reaction))
+    stages = enumerate_mechanism_stages(reaction; max_forms)
+    stages.final
+end
+
+"""
+    enumerate_mechanism_stages(reaction; max_forms) → NamedTuple
+
+Run the enumeration pipeline and return intermediate results at each stage:
+
+- `forms`: all enzyme forms
+- `catalytic`: catalytic topologies (stage 1)
+- `with_activator`: after activator configs (stage 2)
+- `with_dead_end`: after dead-end configs (stage 3)
+- `final`: lazy `MechanismIterator` for RE/SS + constraints (stage 4)
+"""
+function enumerate_mechanism_stages(@nospecialize(reaction::EnzymeReaction);
+                                     max_forms::Int = 3 * n_sites(reaction))
     forms = enumerate_enzyme_forms(reaction)
+    form_names = [f.name for f in forms]
+    form_atoms = [_form_atoms(f.sites) for f in forms]
 
-    # Stage 1: Catalytic form sets → mechanisms
-    specs = _enumerate_only_catalytic_mechanisms(forms, reaction; max_forms)
+    catalytic = _enumerate_only_catalytic_mechanisms(
+        forms, reaction; max_forms,
+        shared_names=form_names, shared_atoms=form_atoms)
 
-    # Stage 2: Activator shadow variants
-    specs = MechanismSpec[
-        s for spec in specs
-        for s in _generate_activator_configs(spec, forms, reaction)
-    ]
-    filter!(s -> _used_form_count(s) <= max_forms, specs)
+    with_activator = MechanismSpec[
+        s for spec in catalytic
+        for s in _generate_activator_configs(
+            spec, forms, reaction;
+            shared_names=form_names, shared_atoms=form_atoms)]
+    filter!(s -> _used_form_count(s) <= max_forms, with_activator)
 
-    # Stage 3: Dead-end complexes
-    specs = MechanismSpec[
-        s for spec in specs
-        for s in _enumerate_dead_end_configs(spec, forms; max_forms)
-    ]
+    with_dead_end = MechanismSpec[
+        s for spec in with_activator
+        for s in _enumerate_dead_end_configs(
+            spec, forms; max_forms,
+            shared_names=form_names, shared_atoms=form_atoms)]
 
-    # Stage 4: RE/SS assignments + equivalent step constraints
-    specs = MechanismSpec[
-        s for spec in specs
-        for s in _enumerate_ress_and_constraints(spec, forms)
-    ]
+    pre_ress = PreRessEntry[]
+    for spec in with_dead_end
+        edges = _spec_to_edges(spec, forms)
+        equiv_groups = _find_equivalent_groups(edges, forms)
+        rxn_tuples = _edges_to_reactions(edges, forms)
+        rc = _count_ress_variants(length(edges), equiv_groups)
+        push!(pre_ress, PreRessEntry(rxn_tuples, edges, equiv_groups, rc))
+    end
+    total = sum(e.ress_count for e in pre_ress; init=0)
+    final = MechanismIterator(
+        reaction, form_names, form_atoms, pre_ress, total)
 
-    MechanismIterator(specs)
+    (; forms, catalytic, with_activator, with_dead_end, final)
 end
 
 # ─── MechanismSpec → EnzymeMechanism Conversion ──────────────
