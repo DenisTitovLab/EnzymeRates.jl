@@ -90,6 +90,8 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - Activator/inhibitor exclusivity: a regulator is EITHER activator OR inhibitor, never both. `_enumerate_dead_end_configs` excludes reg positions occupied in any topo form
 - Essential activator: only entry binding edge (bare enzyme → shadow), not all base→shadow binding edges. Gives n_cat+1 topo forms (E, EA, EAS, EAP), not 2×n_cat
 - Dead-end formula `(2^r_inh)^n_topo` is only valid when `max_forms` is unconstrained
+- Ping-pong (CX/NX) product release must be TWO elementary steps: isomerization (product forms on enzyme, substrate → residual) then release (product leaves). A single combined step (e.g., `E_A → E_X + P`) violates detailed balance. The intermediate form (e.g., `E_X_P`) must be in the cycle.
+- `_is_valid_isomerization` uses atom balance only (`_core_atoms` equality) for ping-pong (residual) case — the strict all-subs/all-prods occupancy pattern only applies to standard isomerizations
 
 ### Type System and Compatibility
 - Default `eq_steps` = all false preserves backward compatibility with 2-arg constructor
@@ -101,6 +103,7 @@ For reactions with r regulators, each regulator is either an activator (part of 
 
 - After `git stash`/`git stash pop` (or any bulk file operation that cycles through intermediate states), **always restart the MCP REPL** (`pkill -f mcp_julia_server`) rather than relying on `Revise.revise()`. Revise can silently retain stale compiled methods, producing wrong numerical results that look plausible. Always confirm with `Pkg.test()` in a fresh process before trusting REPL results after stash operations.
 - **Never use `exit()` in the REPL** — it kills the MCP connection permanently for the session. Use `pkill -f mcp_julia_server` via Bash instead (auto-restarts on next `exec_julia` call).
+- **Use Bash with timeout for potentially slow computations** (e.g., enumeration with regulators). The REPL has no easy Ctrl+C — if a call blocks, the only recovery is `pkill -f mcp_julia_server`.
 
 ## Testing
 

@@ -212,15 +212,6 @@ function edge_class(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
                 return (true, sa.metabolite, :binding)
             elseif a_full && b_empty
                 return (true, sa.metabolite, :release)
-            # Occupied↔Residual: ping-pong product release
-            elseif a_full && b_residual
-                met = _released_metabolite(sa.atoms, sb.atoms, fa)
-                met === nothing && return (false, nothing, :none)
-                return (true, met, :release)
-            elseif a_residual && b_full
-                met = _released_metabolite(sb.atoms, sa.atoms, fa)
-                met === nothing && return (false, nothing, :none)
-                return (true, met, :binding)
             # Residual↔Empty: release of remaining atoms
             elseif a_residual && b_empty
                 met = _residual_metabolite(sa.atoms, fa)
@@ -253,32 +244,6 @@ function edge_class(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
     return (false, nothing, :none)
 end
 
-"""
-    _released_metabolite(more, fewer, form)
-
-Find the metabolite released when atoms decrease
-from `more` to `fewer` at a site.
-"""
-function _released_metabolite(
-    more::Vector{Pair{Symbol,Int}},
-    fewer::Vector{Pair{Symbol,Int}},
-    form::EnzymeFormSpec,
-)
-    da = Dict{Symbol,Int}(a => c for (a, c) in more)
-    for (a, c) in fewer
-        da[a] = get(da, a, 0) - c
-    end
-    filter!(p -> p.second != 0, da)
-    all(v > 0 for v in values(da)) || return nothing
-    diff_sorted = sort([a => c for (a, c) in da]; by=first)
-    for s in form.sites
-        if s.role == :prod && s.index == 1 && s.full_atoms == diff_sorted
-            return s.metabolite
-        end
-    end
-    nothing
-end
-
 """Find the metabolite whose atoms match a residual content exactly."""
 function _residual_metabolite(atoms::Vector{Pair{Symbol,Int}}, form::EnzymeFormSpec)
     for s in form.sites
@@ -291,10 +256,14 @@ end
 Check if two forms represent a valid isomerization.
 
 Standard case: ALL core sites differ (all-subs ↔ all-prods).
-Ping-pong case: a substrate site has a residual, and non-differing
-product sites (already released) are allowed to be empty in both forms.
-Non-differing substrate sites must always be empty.
-Total atom balance is verified.
+Non-differing substrate sites must be empty in the standard case.
+
+Ping-pong case: a substrate site has a residual atom content (partial
+transformation). Non-differing substrate sites may be occupied (e.g.,
+B stays bound while A undergoes partial transformation). Only atom
+balance is required.
+
+Total atom balance is always verified.
 """
 function _is_valid_isomerization(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
     a_sub_occ = true;  a_sub_empty = true
@@ -303,13 +272,15 @@ function _is_valid_isomerization(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
     b_prod_occ = true; b_prod_empty = true
     has_sub_diff = false; has_prod_diff = false
     has_residual = false
+    non_diff_sub_occupied = false
 
     for k in eachindex(fa.sites)
         s = fa.sites[k]
         s.role in (:sub, :prod) && s.index == 1 || continue
         if fa.sites[k].atoms == fb.sites[k].atoms
-            # Non-differing substrate site must be empty
-            s.role == :sub && fa.sites[k].atoms !== nothing && return false
+            if s.role == :sub && fa.sites[k].atoms !== nothing
+                non_diff_sub_occupied = true
+            end
             continue
         end
         if s.role == :sub
@@ -333,13 +304,20 @@ function _is_valid_isomerization(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
     end
     (!has_sub_diff || !has_prod_diff) && return false
 
-    # Without residual, ALL core sites must differ (standard isomerization)
-    if !has_residual
-        for k in eachindex(fa.sites)
-            s = fa.sites[k]
-            s.role in (:sub, :prod) && s.index == 1 || continue
-            fa.sites[k].atoms == fb.sites[k].atoms && return false
-        end
+    if has_residual
+        # Ping-pong isomerization: atom balance is sufficient.
+        # Non-differing occupied subs are allowed (e.g., B stays bound
+        # while A undergoes partial transformation to product).
+        return _core_atoms(fa) == _core_atoms(fb)
+    end
+
+    # Standard isomerization: ALL core sites must differ, and
+    # non-differing substrate sites must be empty.
+    non_diff_sub_occupied && return false
+    for k in eachindex(fa.sites)
+        s = fa.sites[k]
+        s.role in (:sub, :prod) && s.index == 1 || continue
+        fa.sites[k].atoms == fb.sites[k].atoms && return false
     end
 
     valid = (a_sub_occ && a_prod_empty &&
@@ -821,7 +799,9 @@ function _pingpong_dfs!(cycles, forms, free_idx, all_subs, all_prods,
         end
     end
 
-    # Option 3: Release product from substrate site (ping-pong)
+    # Option 3: Ping-pong isomerization + product release (two steps)
+    # Step 1: isomerize (product appears on enzyme, substrate → residual)
+    # Step 2: release product from enzyme
     if !isempty(bound_subs)
         current_form = forms[sequence[end]]
         for prod in all_prods
@@ -849,29 +829,47 @@ function _pingpong_dfs!(cycles, forms, free_idx, all_subs, all_prods,
 
                 new_residual = copy(residual_state)
                 new_residual[s.metabolite] = res_vec
-                fi = _find_form(forms, bound_subs, Set{Symbol}(), new_residual)
-                if fi !== nothing
-                    is_valid, _, _ = edge_class(forms[sequence[end]], forms[fi])
-                    if is_valid
-                        push!(sequence, fi)
-                        push!(released_prods, prod)
-                        old_residual = copy(residual_state)
-                        merge!(residual_state, new_residual)
-                        _pingpong_dfs!(
-                            cycles, forms, free_idx,
-                            all_subs, all_prods,
-                            sequence, bound_subs,
-                            released_prods, residual_state,
-                            n_subs_bound, n_prods_released + 1,
-                        )
-                        merge!(residual_state, old_residual)
-                        for k in keys(new_residual)
-                            haskey(old_residual, k) || delete!(residual_state, k)
-                        end
-                        delete!(released_prods, prod)
-                        pop!(sequence)
-                    end
+
+                # Step 1: Find intermediate form (product on enzyme +
+                # residual on substrate site)
+                inter_fi = _find_form(
+                    forms, bound_subs, Set{Symbol}([prod]), new_residual,
+                )
+                inter_fi === nothing && continue
+                is_isom, _, _ = edge_class(
+                    forms[sequence[end]], forms[inter_fi],
+                )
+                is_isom || continue
+
+                # Step 2: Find post-release form (product gone)
+                post_fi = _find_form(
+                    forms, bound_subs, Set{Symbol}(), new_residual,
+                )
+                post_fi === nothing && continue
+                is_rel, _, _ = edge_class(
+                    forms[inter_fi], forms[post_fi],
+                )
+                is_rel || continue
+
+                push!(sequence, inter_fi)
+                push!(sequence, post_fi)
+                push!(released_prods, prod)
+                old_residual = copy(residual_state)
+                merge!(residual_state, new_residual)
+                _pingpong_dfs!(
+                    cycles, forms, free_idx,
+                    all_subs, all_prods,
+                    sequence, bound_subs,
+                    released_prods, residual_state,
+                    n_subs_bound, n_prods_released + 1,
+                )
+                merge!(residual_state, old_residual)
+                for k in keys(new_residual)
+                    haskey(old_residual, k) || delete!(residual_state, k)
                 end
+                delete!(released_prods, prod)
+                pop!(sequence)
+                pop!(sequence)
             end
         end
     end
