@@ -18,10 +18,10 @@
         # Total mechanism count (O(1) for lazy iterator)
         @test length(stages.final) == spec.expected_n_total
 
-        # RE/SS + constraints (expensive independent verification)
+        # RE/SS + constraints (closed-form formula verification)
         if !spec.skip_ress_test
             expected_ress_total = sum(stages.with_dead_end) do base
-                _compute_independent_ress_count(base, stages.forms)
+                _compute_expected_n_total(base, stages.forms)
             end
             @test expected_ress_total == length(stages.final)
 

@@ -59,22 +59,41 @@ end
 # ── Independent verification helpers ─────────────────────────────────────
 
 """
-Independently compute the expected RE/SS + constraint count by iterating
-all RE/SS masks and equivalent group constraint combinations.
+Compute the RE/SS + constraint count using a closed-form formula.
 
-Uses only public struct fields — no `EnzymeRates._*` calls.
+For `n` edges and `k` non-overlapping equiv groups of sizes `g₁,...,gₖ`:
+
+    f(n; g₁,...,gₖ) = 2^(n - Σgᵢ) × ∏(2^gᵢ + 2) - 2^k
+
+Derivation:
+- `2^n - 1` valid RE/SS masks (all-RE excluded)
+- Each equiv group of size `g` is "valid" (all edges same RE/SS) in
+  `2` of `2^g` bit patterns (all-0 or all-1)
+- Each valid group independently contributes ×2 (constrained or not)
+- The product factorizes over free edges and groups
+- Subtract `2^k` for the all-RE mask where all groups are valid
 """
-function _compute_independent_ress_count(
+function _compute_expected_n_total(
     spec::EnzymeRates.MechanismSpec,
     forms::Vector{EnzymeRates.EnzymeFormSpec},
 )
     edges = _spec_to_form_edges(spec, forms)
     n = length(edges)
+    equiv_groups = _find_equiv_groups(edges, forms)
+    k = length(equiv_groups)
+    sum_g = sum(length, equiv_groups; init=0)
+    result = 1 << (n - sum_g)
+    for group in equiv_groups
+        result *= (1 << length(group)) + 2
+    end
+    result - (1 << k)
+end
 
-    # Find equivalent groups (inlined from _find_equivalent_groups)
+"""Find equivalent groups from edges: non-product binding edges grouped
+by (metabolite, site_index). Uses only public struct fields."""
+function _find_equiv_groups(edges, forms)
     binding_key = Dict{Tuple{Symbol,Int},Vector{Int}}()
     for (i, (a, b)) in enumerate(edges)
-        # Detect binding/release: exactly 1 site changes occupancy
         diff_count = 0
         diff_k = 0
         for k in 1:length(forms[a].sites)
@@ -83,7 +102,7 @@ function _compute_independent_ress_count(
                 diff_count == 1 && (diff_k = k)
             end
         end
-        diff_count == 1 || continue  # skip isomerization
+        diff_count == 1 || continue
 
         k = diff_k
         a_occ = forms[a].sites[k].atoms !== nothing
@@ -95,21 +114,6 @@ function _compute_independent_ress_count(
     equiv_groups = [sort(indices) for (_, indices) in binding_key
                     if length(indices) >= 2]
     sort!(equiv_groups; by=first)
-
-    total = 0
-    for re_mask in 0:((1<<n)-2)
-        eq_steps = Bool[
-            (re_mask >> (i - 1)) & 1 == 1 for i in 1:n
-        ]
-        n_valid = 0
-        for group in equiv_groups
-            first_re = eq_steps[group[1]]
-            all(eq_steps[s] == first_re for s in group) &&
-                (n_valid += 1)
-        end
-        total += 1 << n_valid
-    end
-    total
 end
 
 """
@@ -216,7 +220,7 @@ function build_enumeration_test_specs()
             The above include the case with no regulator.
             =#
             expected_n_cat_act_de=10,
-            # SE/RE + equivalence forms:
+            # TODO: SE/RE + equivalence forms:
             # catalytic 2^(3)-1 = 7
             # 1 essential activator 2^(4)-1 = 15
             # 1 non-essential activator 2^(9)-1 = 511
