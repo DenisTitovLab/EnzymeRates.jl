@@ -347,11 +347,12 @@ function build_enumeration_test_specs()
             reaction=rxn,
             max_forms=100,
             expected_n_forms=34,
-            expected_n_catalytic=9,
-            expected_n_cat_with_act=27,
-            expected_n_cat_act_de=530,
+            # 9 standard + 16 ping-pong catalytic topologies
+            expected_n_catalytic=25,
+            expected_n_cat_with_act=75,
+            expected_n_cat_act_de=2834,
             skip_ress_test=true,
-            expected_n_total=114684452,
+            expected_n_total=56395770327,
         ))
     end
 

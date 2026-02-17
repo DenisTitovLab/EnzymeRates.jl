@@ -287,30 +287,65 @@ function _residual_metabolite(atoms::Vector{Pair{Symbol,Int}}, form::EnzymeFormS
     nothing
 end
 
-"""Check if two forms represent a valid isomerization (all-subs ↔ all-prods)."""
+"""
+Check if two forms represent a valid isomerization.
+
+Standard case: ALL core sites differ (all-subs ↔ all-prods).
+Ping-pong case: a substrate site has a residual, and non-differing
+product sites (already released) are allowed to be empty in both forms.
+Non-differing substrate sites must always be empty.
+Total atom balance is verified.
+"""
 function _is_valid_isomerization(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
-    function _core_pattern(form)
-        sub_occ = true;  sub_empty = true
-        prod_occ = true; prod_empty = true
-        for s in form.sites
-            s.role in (:sub, :prod) && s.index == 1 || continue
-            if s.role == :sub
-                s.atoms === nothing && (sub_occ = false)
-                s.atoms !== nothing && (sub_empty = false)
-            else
-                s.atoms === nothing && (prod_occ = false)
-                s.atoms !== nothing && (prod_empty = false)
-            end
+    a_sub_occ = true;  a_sub_empty = true
+    a_prod_occ = true; a_prod_empty = true
+    b_sub_occ = true;  b_sub_empty = true
+    b_prod_occ = true; b_prod_empty = true
+    has_sub_diff = false; has_prod_diff = false
+    has_residual = false
+
+    for k in eachindex(fa.sites)
+        s = fa.sites[k]
+        s.role in (:sub, :prod) && s.index == 1 || continue
+        if fa.sites[k].atoms == fb.sites[k].atoms
+            # Non-differing substrate site must be empty
+            s.role == :sub && fa.sites[k].atoms !== nothing && return false
+            continue
         end
-        (; sub_occ, sub_empty, prod_occ, prod_empty)
+        if s.role == :sub
+            has_sub_diff = true
+            a, b = fa.sites[k].atoms, fb.sites[k].atoms
+            if (a !== nothing && a != s.full_atoms) ||
+               (b !== nothing && b != s.full_atoms)
+                has_residual = true
+            end
+            a === nothing && (a_sub_occ = false)
+            a !== nothing && (a_sub_empty = false)
+            b === nothing && (b_sub_occ = false)
+            b !== nothing && (b_sub_empty = false)
+        else
+            has_prod_diff = true
+            fa.sites[k].atoms === nothing && (a_prod_occ = false)
+            fa.sites[k].atoms !== nothing && (a_prod_empty = false)
+            fb.sites[k].atoms === nothing && (b_prod_occ = false)
+            fb.sites[k].atoms !== nothing && (b_prod_empty = false)
+        end
+    end
+    (!has_sub_diff || !has_prod_diff) && return false
+
+    # Without residual, ALL core sites must differ (standard isomerization)
+    if !has_residual
+        for k in eachindex(fa.sites)
+            s = fa.sites[k]
+            s.role in (:sub, :prod) && s.index == 1 || continue
+            fa.sites[k].atoms == fb.sites[k].atoms && return false
+        end
     end
 
-    a = _core_pattern(fa)
-    b = _core_pattern(fb)
-    valid = (a.sub_occ && a.prod_empty &&
-             b.sub_empty && b.prod_occ) ||
-            (a.sub_empty && a.prod_occ &&
-             b.sub_occ && b.prod_empty)
+    valid = (a_sub_occ && a_prod_empty &&
+             b_sub_empty && b_prod_occ) ||
+            (a_sub_empty && a_prod_occ &&
+             b_sub_occ && b_prod_empty)
     !valid && return false
 
     _core_atoms(fa) == _core_atoms(fb)
@@ -759,8 +794,12 @@ function _pingpong_dfs!(cycles, forms, free_idx, all_subs, all_prods,
         delete!(bound_subs, sub)
     end
 
-    # Option 2: Isomerize (if all subs bound and no residual yet)
-    if length(bound_subs) == length(all_subs) && isempty(residual_state)
+    # Option 2: Isomerize (all subs bound → remaining prods)
+    # Require a new substrate binding since the last ping-pong release:
+    # n_subs_bound > n_prods_released ensures this (blocks e.g. Uni-Bi
+    # where A[C2]→P1[C]+P2[C] has only 1 substrate, so after releasing
+    # P1 from the A-site no second substrate can bind before isomerization)
+    if length(bound_subs) == length(all_subs) && n_subs_bound > n_prods_released
         remaining = setdiff(Set{Symbol}(all_prods), released_prods)
         if !isempty(remaining)
             empty_residual = Dict{Symbol,Vector{Pair{Symbol,Int}}}()

@@ -97,6 +97,11 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - `_binding_K_symbols` identifies binding steps: metabolite on LHS, enzyme-only on RHS
 - JET requires `::SubString` type assertions on regex captures to avoid Union{Nothing,SubString} errors
 
+## MCP REPL + Revise Pitfall
+
+- After `git stash`/`git stash pop` (or any bulk file operation that cycles through intermediate states), **always restart the MCP REPL** (`pkill -f mcp_julia_server`) rather than relying on `Revise.revise()`. Revise can silently retain stale compiled methods, producing wrong numerical results that look plausible. Always confirm with `Pkg.test()` in a fresh process before trusting REPL results after stash operations.
+- **Never use `exit()` in the REPL** — it kills the MCP connection permanently for the session. Use `pkill -f mcp_julia_server` via Bash instead (auto-restarts on next `exec_julia` call).
+
 ## Testing
 
 - Tests include Aqua (quality) and JET (static analysis)
