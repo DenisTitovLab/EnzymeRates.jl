@@ -168,6 +168,10 @@ function build_enumeration_test_specs()
             expected_n_catalytic=1,
             expected_n_cat_with_act=1,
             expected_n_cat_act_de=1,
+            # SE/RE combose can be infered from the number of reaction in each mechanism
+            # using the following equation 2^(n_reactions) - 1
+            # "-1" is because all RE is not biochemically possible
+            # 2^(3)-1 = 7 for RE/SE forms
             expected_n_total=7,
             max_enumeration_time=5.0,
         ))
@@ -212,7 +216,13 @@ function build_enumeration_test_specs()
             The above include the case with no regulator.
             =#
             expected_n_cat_act_de=10,
-            #
+            # SE/RE + equivalence forms:
+            # catalytic 2^(3)-1 = 7
+            # 1 essential activator 2^(4)-1 = 15
+            # 1 non-essential activator 2^(9)-1 = 511
+            # 1 inhibitor with 1 dead-end 2^(4)-1 = 15 (3x)
+            # 1 inhibitor with 2 dead-end 2^(6)-1 = 63 (3x)
+            # 1 inhibitor with 3 dead-end 2^(8)-1 = 255
             expected_n_total=2240,
             max_enumeration_time=5.0,
         ))
@@ -281,15 +291,15 @@ function build_enumeration_test_specs()
             max_enumeration_time=5.0,
         ))
     end
-
-    # 5. Bi-Bi Ping Pong (residual forms)
+    # 5. Bi-Bi + 1 regulator
     let
         rxn = @enzyme_reaction begin
-            substrates:A[CX], B[N]
-            products:P[C], Q[NX]
+            substrates:A[C], B[C]
+            products:P[C], Q[C]
+            regulators:R[N]
         end
         push!(specs, EnumerationTestSpec(
-            name="Bi-Bi Ping Pong",
+            name="Bi-Bi + 1 Regulator",
             reaction=rxn,
             max_forms=20,
             expected_n_forms=17,
