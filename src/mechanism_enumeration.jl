@@ -1006,8 +1006,18 @@ function _generate_activator_configs(
             # Option 2: non-essential (full shadow, keep base)
             push!(options, (full_shadow_edges, Set{Tuple{Int,Int}}()))
 
-            # Option 3: essential (full shadow, remove shadowed base)
-            push!(options, (full_shadow_edges, shadowed_base_edges))
+            # Option 3: essential (entry binding + shadow cycle, remove base)
+            # Only the bare enzyme connects to the shadow cycle; other base
+            # forms (ES, EP, …) are not part of the essential topology.
+            entry_idx = findfirst(shadow_pairs) do (bi, _)
+                all(s -> s.role == :reg || s.atoms === nothing,
+                    forms[bi].sites)
+            end
+            if entry_idx !== nothing
+                essential_edges = Tuple{Int,Int}[
+                    shadow_pairs[entry_idx]; shadow_cycle]
+                push!(options, (essential_edges, shadowed_base_edges))
+            end
         end
         push!(per_reg_options, options)
     end
@@ -1103,10 +1113,23 @@ function _enumerate_dead_end_configs(
     budget = max_forms - n_topo
     budget < 0 && return MechanismSpec[]
 
+    # Determine activator regulator positions (occupied in any topo form).
+    # A regulator is either an activator or an inhibitor, never both.
+    activator_positions = Set{Int}()
+    for fi in topo_forms
+        for k in eachindex(forms[fi].sites)
+            if forms[fi].sites[k].role == :reg &&
+               forms[fi].sites[k].atoms !== nothing
+                push!(activator_positions, k)
+            end
+        end
+    end
+
     # Per topology form: compute all regulator-subset options
     per_form_options = Vector{Vector{Int}}[]
     for fi in topo_forms
-        reg_sites = _reg_site_positions(forms[fi])
+        reg_sites = [k for k in _reg_site_positions(forms[fi])
+                     if k ∉ activator_positions]
         n_reg = length(reg_sites)
         seen_options = Set{Vector{Int}}()
         options = [Int[]]

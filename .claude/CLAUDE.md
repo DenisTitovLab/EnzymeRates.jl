@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+When saving new lessons learned or project knowledge, write them to this file (`.claude/CLAUDE.md`) so they are shared across all machines via git. Do not use the local auto memory for project-specific knowledge.
+
 ## Commands
 
 ```bash
@@ -21,6 +23,7 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - **First start**: ~30-60s (package loading + JIT). Subsequent calls are fast.
 - **Startup timeout**: If the server fails to connect, start Claude Code with `MCP_TIMEOUT=120000 claude` to allow enough time for Julia startup.
 - **Server script**: `.claude/mcp_julia_server.jl`
+- **Stuck REPL**: If the REPL is stuck on a long-running computation, kill it with `pkill -f mcp_julia_server` via Bash, wait a few seconds, then call `exec_julia` again — the server auto-restarts
 
 ## Key Architecture Decisions
 
@@ -67,10 +70,37 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - Total = Σ over activator configs of `(2^r_inh)^n_topo`
 - Test helper `_compute_expected_dead_end_count` verifies this formula
 
+## Lessons Learned
+
+### Rate Equation Derivation
+- When all RE forms are in one group (G=1), the SS isomerization step flux IS the overall rate (no sign correction needed)
+- `_compute_alpha` BFS handles forward/reverse RE traversal with K parameters
+- `is_k_parameter` must match both `k1f`/`k1r` patterns AND `K1`/`K2` patterns (but not `Keq`)
+- K convention: binding RE steps use Kd (dissociation), non-binding (product release) use Ka (forward eq const)
+- K→1/K inversion must be applied consistently in: rate expr, dep_exprs substitution, constraint strings, and test helpers
+- When `poly_str` displays inverted params with multiple denominators, need parentheses: `A * B / (K1 * K2)`
+
+### Constraint Handling
+- Constraint substitution operates at raw polynomial level (before K→1/K inversion)
+- When constraining K params, both must be same type (both binding or both non-binding) to avoid inversion mismatch
+- In DSL constraint parsing, use `Ref` for mutable coeff and read back with `coeff_ref[]`
+- HW constraint matrix must merge constrained columns into replacement columns before Gaussian elimination
+
+### Mechanism Enumeration
+- Activator/inhibitor exclusivity: a regulator is EITHER activator OR inhibitor, never both. `_enumerate_dead_end_configs` excludes reg positions occupied in any topo form
+- Essential activator: only entry binding edge (bare enzyme → shadow), not all base→shadow binding edges. Gives n_cat+1 topo forms (E, EA, EAS, EAP), not 2×n_cat
+- Dead-end formula `(2^r_inh)^n_topo` is only valid when `max_forms` is unconstrained
+
+### Type System and Compatibility
+- Default `eq_steps` = all false preserves backward compatibility with 2-arg constructor
+- ParamConstraints default `()` preserves backward compat with 3-arg constructor
+- `_binding_K_symbols` identifies binding steps: metabolite on LHS, enzyme-only on RHS
+- JET requires `::SubString` type assertions on regex captures to avoid Union{Nothing,SubString} errors
+
 ## Testing
 
 - Tests include Aqua (quality) and JET (static analysis)
 - Don't leave profiling deps (SnoopCompile) in Project.toml — Aqua stale deps check will fail
 - `test/mechanism_definitions_for_test_enzyme_derivation.jl` defines shared mechanisms used by multiple test files — must be included before those tests
 - `test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl` defines shared reactions for mechanism enumeration tests — must be included before those tests
-- Mechanism enumeration tests use data-driven `EnumerationTestSpec` approach via `enumerate_mechanism_stages` — verification helpers (`_compute_expected_dead_end_count`, `_compute_independent_ress_count`) use only public struct fields, no `EnzymeRates._*` calls
+- Mechanism enumeration tests use data-driven `EnumerationTestSpec` approach via `enumerate_mechanism_stages` — verification helpers (`_compute_expected_dead_end_count`, `_compute_expected_n_total`) use only public struct fields, no `EnzymeRates._*` calls

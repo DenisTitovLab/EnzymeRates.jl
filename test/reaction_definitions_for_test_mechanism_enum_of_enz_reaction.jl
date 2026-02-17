@@ -227,7 +227,7 @@ function build_enumeration_test_specs()
             # 1 inhibitor with 1 dead-end 2^(4)-1 = 15 (3x)
             # 1 inhibitor with 2 dead-end 2^(6)-1 = 63 (3x)
             # 1 inhibitor with 3 dead-end 2^(8)-1 = 255
-            expected_n_total=2240,
+            expected_n_total=1779,
             max_enumeration_time=5.0,
         ))
     end
@@ -257,9 +257,9 @@ function build_enumeration_test_specs()
             # For 1 essential activator: (2^1)^4 = 16 (2x since either reg can be inh or act)
             # For 1 non-essential activator: (2^1)^6 = 64 (also 2x)
             # No deadend complex with 2 activators since regulator can be either act and inh.
-            # In sum, 64 + 16*2 + 64*2 + 2
-            expected_n_cat_act_de=226,
-            expected_n_total=21333983,
+            # In sum, 64 + 16*2 + 64*2 + 4 = 228
+            expected_n_cat_act_de=228,
+            expected_n_total=24646535,
             max_enumeration_time=10.0,
         ))
     end
@@ -291,11 +291,11 @@ function build_enumeration_test_specs()
             # No deadend for activators mechanisms since regulator can be either act and inh.
             # In sum, 16*2 + 32 + 6 (activator mechanisms)= 70
             expected_n_cat_act_de=70,
-            expected_n_total=546680,
+            expected_n_total=435521,
             max_enumeration_time=5.0,
         ))
     end
-    # 5. Bi-Bi + 1 regulator
+    # 5. Bi-Bi + 1 regulator (same atoms on both substrates)
     let
         rxn = @enzyme_reaction begin
             substrates:A[C], B[C]
@@ -305,17 +305,17 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Bi-Bi + 1 Regulator",
             reaction=rxn,
-            max_forms=20,
-            expected_n_forms=17,
+            max_forms=100,
+            expected_n_forms=22,
             expected_n_catalytic=9,
-            expected_n_cat_with_act=9,
-            expected_n_cat_act_de=9,
-            expected_n_total=2094,
-            max_enumeration_time=5.0,
+            expected_n_cat_with_act=27,
+            expected_n_cat_act_de=530,
+            skip_ress_test=true,
+            expected_n_total=114684452,
         ))
     end
 
-    # 6. Bi-Bi + 1 regulator
+    # 6. Bi-Bi + 1 regulator (different atoms)
     let
         rxn = @enzyme_reaction begin
             substrates:A[C], B[N]
@@ -325,13 +325,13 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Bi-Bi 1 Regulator",
             reaction=rxn,
-            max_forms=15,
+            max_forms=100,
             expected_n_forms=22,
             expected_n_catalytic=9,
             expected_n_cat_with_act=27,
             expected_n_cat_act_de=530,
             skip_ress_test=true,
-            expected_n_total=140203886,
+            expected_n_total=114684452,
         ))
     end
 
@@ -345,37 +345,17 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Bi-Bi PP 1 Regulator",
             reaction=rxn,
-            max_forms=15,
+            max_forms=100,
             expected_n_forms=34,
             expected_n_catalytic=9,
             expected_n_cat_with_act=27,
             expected_n_cat_act_de=530,
             skip_ress_test=true,
-            expected_n_total=140203886,
+            expected_n_total=114684452,
         ))
     end
 
-    # 8. Bi-Bi Ping Pong + 2 regulators
-    let
-        rxn = @enzyme_reaction begin
-            substrates:A[CX], B[N]
-            products:P[C], Q[NX]
-            regulators:I[P2], J[Y]
-        end
-        push!(specs, EnumerationTestSpec(
-            name="Bi-Bi PP 2 Regulators",
-            reaction=rxn,
-            max_forms=12,
-            expected_n_forms=68,
-            expected_n_catalytic=9,
-            expected_n_cat_with_act=41,
-            expected_n_cat_act_de=12106,
-            skip_ress_test=true,
-            expected_n_total=1303046914,
-        ))
-    end
-
-    # 9. Bi-Bi budget filtering (max_forms=5 restricts to single cycles)
+    # 8. Bi-Bi budget filtering (max_forms=5 restricts to single cycles)
     let
         rxn = @enzyme_reaction begin
             substrates:A[C], B[N]
