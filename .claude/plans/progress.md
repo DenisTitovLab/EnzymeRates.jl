@@ -65,14 +65,40 @@ All 636 tests pass. File reduced from 1020 → 892 lines (13% further reduction)
 ### Failed approach: Cycle pre-separation
 Attempted to separate std/PP cycles before `_combine_form_sets` to eliminate `_is_pure_topology`. Failed because PP cycles validly combine with each other through `_combine_form_sets` (Bi-Bi PP: 12 vs expected 10). `_is_pure_topology` is needed to reject invalid combinations.
 
-## Remaining Work (Phase 3)
+## Phase 3 Complete (all tests passing)
 
-The file is 892 lines. The remaining functions are algorithmically necessary:
+All 636 tests pass. File reduced from 892 → 750 lines (16% further reduction).
 
-1. **`_pingpong_dfs!`** (98 lines): Inherently complex 3-option DFS. Option 3 (PP isomerization + release) has ~55 lines of inline atom arithmetic that could be precomputed as a transition table, but the table builder would be equally complex (~35 lines).
-2. **`enumerate_enzyme_forms`** (84 lines): Ping-pong residual computation + Cartesian product with exclusion filter. Already tight.
-3. **`_dead_end_configs`** (75 lines): Two-level bitmask loops + edge construction. Already simplified.
-4. **`_expand_activators`** (73 lines): Shadow pair logic + Cartesian product. Already simplified.
+### Phase 3 Changes
+
+**Key algorithmic insight**: Verified empirically across all 8 test specs that `_pingpong_dfs!` finds ALL standard cycles (standard cycles ⊆ PP DFS cycles). This enabled removing `_permutations` (12 lines), `_build_standard_form_set` (26 lines), and `_add_unique!` (6 lines). `_catalytic_topologies` now calls only `_pingpong_dfs!`.
+
+**Extracted `_atom_residual` helper**: Shared between `enumerate_enzyme_forms` (residual computation) and `_pingpong_dfs!` Option 3, eliminating duplicated atom subtraction logic.
+
+**Precomputed `prod_full` dict**: Built once in `_catalytic_topologies` and passed to `_pingpong_dfs!`, replacing repeated per-form lookups.
+
+**Inlined `_derive_edges`** into `_catalytic_topologies`: Edges are now built directly from the form set + adjacency dict.
+
+**Inlined `_edges_to_reactions`** into `EnzymeMechanism(spec)`: Simplified `enzs_t` generator and release branch in edge classification.
+
+**Simplified `_expand_activators`**: Dict comprehension for shadow map, `filter!` instead of manual loop, more compact mirror/mirrored construction.
+
+**Simplified `_dead_end_configs`**: Removed `seen` dedup set and `valid` flag — enzyme forms are a Cartesian product of per-site options, so if individual reg bindings exist, all subset combinations also exist.
+
+**Simplified `_find_equivalent_groups`**: Uses `adj` metabolite info directly instead of re-scanning form sites.
+
+**Simplified `_build_constraints`**: Unified RE/SS cases with prefix/suffix pattern.
+
+**Simplified `_is_valid_isomerization`**: Removed redundant `a_sub_occ != a_prod_occ` check — guaranteed by `enumerate_enzyme_forms`' exclusion filter.
+
+**Simplified `_is_pure_topology`**: Collected residual forms once, then checked conditions.
+
+### Remaining functions (algorithmically necessary)
+
+1. **`_pingpong_dfs!`** (~85 lines): 3-option DFS. Inherently complex.
+2. **`enumerate_enzyme_forms`** (~75 lines): Residual computation + Cartesian product.
+3. **`_dead_end_configs`** (~65 lines): Two-level bitmask loops + edge construction.
+4. **`_expand_activators`** (~55 lines): Shadow pair logic + Cartesian product.
 
 ## Key Insight: Why Unified DFS Doesn't Work
 

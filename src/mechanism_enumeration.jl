@@ -83,6 +83,19 @@ end
 _core_atoms(form::EnzymeFormSpec) = _sum_atoms(form.sites, (:sub, :prod))
 _form_atoms(sites) = sort([a => c for (a, c) in _sum_atoms(sites)]; by=first)
 
+"""Compute residual atoms after subtracting `to_remove` from `sub_atoms`.
+Returns sorted Vector{Pair} or nothing if subtraction is invalid/trivial."""
+function _atom_residual(sub_atoms, to_remove)
+    sa = Dict{Symbol,Int}(sub_atoms)
+    pa = Dict{Symbol,Int}(to_remove)
+    all(get(sa, a, 0) >= c for (a, c) in pa) || return nothing
+    res = Dict{Symbol,Int}(
+        a => c - get(pa, a, 0) for (a, c) in sa if c > get(pa, a, 0))
+    isempty(res) && return nothing
+    r = sort([a => c for (a, c) in res]; by=first)
+    r == sub_atoms ? nothing : r
+end
+
 """Check if two forms represent a valid isomerization."""
 function _is_valid_isomerization(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
     has_sub = false; has_prod = false; has_residual = false
@@ -104,14 +117,10 @@ function _is_valid_isomerization(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
     end
     (!has_sub || !has_prod) && return false
     has_residual && return _core_atoms(fa) == _core_atoms(fb)
-    # Standard case: ALL sub/prod sites must differ, with all-full↔all-empty
-    # pattern. Since no residual and all sites differ, each is full or empty.
-    n_diff != n_core && return false
-    a_sub_occ = all(fa.sites[k].atoms !== nothing
-        for k in eachindex(fa.sites) if fa.sites[k].role == :sub)
-    a_prod_occ = all(fa.sites[k].atoms !== nothing
-        for k in eachindex(fa.sites) if fa.sites[k].role == :prod)
-    a_sub_occ != a_prod_occ && _core_atoms(fa) == _core_atoms(fb)
+    # Standard: ALL core sites must differ with atom balance. The
+    # all-full↔all-empty pattern is guaranteed by enumerate_enzyme_forms'
+    # exclusion filter (no form has all subs full + any prod occupied).
+    n_diff == n_core && _core_atoms(fa) == _core_atoms(fb)
 end
 
 """Classify edge between two enzyme forms → EdgeInfo or nothing."""
@@ -134,12 +143,9 @@ function _classify_edge(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
             met = if sa.atoms == sa.full_atoms || sa.role == :reg
                 sa.metabolite
             else
-                m = nothing
-                for s in fa.sites
-                    s.role == :prod && s.full_atoms == sa.atoms &&
-                        (m = s.metabolite; break)
-                end
-                m
+                idx = findfirst(s -> s.role == :prod &&
+                    s.full_atoms == sa.atoms, fa.sites)
+                idx !== nothing ? fa.sites[idx].metabolite : nothing
             end
             met !== nothing && return (type=:release, metabolite=met)
         end
@@ -180,23 +186,15 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
     for sub_spec in S
         isempty(sub_spec[2]) && continue
         isempty(prod_atoms_list) && continue
-        sub_atoms = Dict{Symbol,Int}(a => c for (a, c) in sub_spec[2])
+        sub_atoms_vec = fatoms(sub_spec)
         sub_residuals = Vector{Pair{Symbol,Int}}[]
         for mask in 1:(2^length(prod_atoms_list) - 1)
             combined = reduce(mergewith(+),
                 (prod_atoms_list[i]
                  for i in 1:length(prod_atoms_list)
                  if (mask >> (i-1)) & 1 == 1))
-            all(get(sub_atoms, atom, 0) >= count
-                for (atom, count) in combined) || continue
-            residual = Dict{Symbol,Int}(
-                atom => count - get(combined, atom, 0)
-                for (atom, count) in sub_atoms
-                if count > get(combined, atom, 0))
-            if !isempty(residual) && residual != sub_atoms
-                r = sort([k => v for (k, v) in residual]; by=first)
-                r ∉ sub_residuals && push!(sub_residuals, r)
-            end
+            r = _atom_residual(sub_atoms_vec, combined)
+            r !== nothing && r ∉ sub_residuals && push!(sub_residuals, r)
         end
         !isempty(sub_residuals) && (residuals[sub_spec[1]] = sub_residuals)
     end
@@ -256,56 +254,14 @@ end
 
 # ─── Catalytic Cycle Enumeration ──────────────────────────────
 
-"""Generate all permutations of a vector."""
-function _permutations(v::Vector{T}) where T
-    length(v) <= 1 && return [copy(v)]
-    result = Vector{T}[]
-    for i in 1:length(v)
-        rest = [v[j] for j in 1:length(v) if j != i]
-        for perm in _permutations(rest)
-            pushfirst!(perm, v[i])
-            push!(result, perm)
-        end
-    end
-    result
-end
-
-"""Build a standard catalytic cycle as a form set."""
-function _build_standard_form_set(fidx, template, adj, free_idx,
-                                   sub_perm, prod_perm)
-    form_set = Set{Int}(free_idx)
-    occupied_subs = Set{Symbol}()
-    prev = free_idx
-    for sub in sub_perm
-        push!(occupied_subs, sub)
-        fi = _lookup_form(fidx, template, occupied_subs, Set{Symbol}())
-        fi === nothing && return nothing
-        push!(form_set, fi)
-        prev = fi
-    end
-    all_prods = Set{Symbol}(prod_perm)
-    fi = _lookup_form(fidx, template, Set{Symbol}(), all_prods)
-    fi === nothing && return nothing
-    haskey(adj, minmax(prev, fi)) || return nothing
-    push!(form_set, fi)
-    for i in eachindex(prod_perm)
-        remaining = Set{Symbol}(@view prod_perm[i+1:end])
-        fi = isempty(remaining) ? free_idx :
-            _lookup_form(fidx, template, Set{Symbol}(), remaining)
-        fi === nothing && return nothing
-        push!(form_set, fi)
-    end
-    form_set
-end
-
 function _pingpong_dfs!(cycles, forms, fidx, template, adj, free_idx,
-                         all_subs, all_prods, sequence, bound_subs,
-                         released_prods, residual_state,
+                         all_subs, all_prods, prod_full, sequence,
+                         bound_subs, released_prods, residual_state,
                          n_subs_bound, n_prods_released)
     if n_subs_bound == length(all_subs) &&
             n_prods_released == length(all_prods)
         sequence[end] == free_idx &&
-            _add_unique!(cycles, Set{Int}(sequence))
+            (s = Set{Int}(sequence); s ∉ cycles && push!(cycles, s))
         return
     end
 
@@ -318,8 +274,8 @@ function _pingpong_dfs!(cycles, forms, fidx, template, adj, free_idx,
         if fi !== nothing && haskey(adj, minmax(sequence[end], fi))
             push!(sequence, fi)
             _pingpong_dfs!(cycles, forms, fidx, template, adj, free_idx,
-                           all_subs, all_prods, sequence, bound_subs,
-                           released_prods, residual_state,
+                           all_subs, all_prods, prod_full, sequence,
+                           bound_subs, released_prods, residual_state,
                            n_subs_bound + 1, n_prods_released)
             pop!(sequence)
         end
@@ -346,24 +302,12 @@ function _pingpong_dfs!(cycles, forms, fidx, template, adj, free_idx,
         current_form = forms[sequence[end]]
         for prod in all_prods
             prod in released_prods && continue
+            pa = get(prod_full, prod, nothing)
+            pa === nothing && continue
             for s in current_form.sites
                 s.role == :sub && s.atoms !== nothing || continue
-                prod_atoms = nothing
-                for ps in current_form.sites
-                    if ps.role == :prod && ps.metabolite == prod
-                        prod_atoms = ps.full_atoms; break
-                    end
-                end
-                prod_atoms === nothing && continue
-                sa = Dict{Symbol,Int}(a => c for (a, c) in s.atoms)
-                pa = Dict{Symbol,Int}(a => c for (a, c) in prod_atoms)
-                all(get(sa, a, 0) >= c for (a, c) in pa) || continue
-                res = Dict{Symbol,Int}(
-                    a => c - get(pa, a, 0)
-                    for (a, c) in sa if c > get(pa, a, 0))
-                isempty(res) && continue
-                res_vec = sort([a => c for (a, c) in res]; by=first)
-                res_vec == s.atoms && continue
+                res_vec = _atom_residual(s.atoms, pa)
+                res_vec === nothing && continue
 
                 new_residual = copy(residual_state)
                 new_residual[s.metabolite] = res_vec
@@ -383,8 +327,9 @@ function _pingpong_dfs!(cycles, forms, fidx, template, adj, free_idx,
                 old_residual = copy(residual_state)
                 merge!(residual_state, new_residual)
                 _pingpong_dfs!(cycles, forms, fidx, template, adj,
-                               free_idx, all_subs, all_prods, sequence,
-                               bound_subs, released_prods, residual_state,
+                               free_idx, all_subs, all_prods, prod_full,
+                               sequence, bound_subs, released_prods,
+                               residual_state,
                                n_subs_bound, n_prods_released + 1)
                 merge!(residual_state, old_residual)
                 for k in keys(new_residual)
@@ -402,7 +347,7 @@ function _release_prods_dfs!(cycles, fidx, template, adj, free_idx,
                               sequence, remaining)
     if isempty(remaining)
         sequence[end] == free_idx &&
-            _add_unique!(cycles, Set{Int}(sequence))
+            (s = Set{Int}(sequence); s ∉ cycles && push!(cycles, s))
         return
     end
     for prod in collect(remaining)
@@ -419,27 +364,19 @@ function _release_prods_dfs!(cycles, fidx, template, adj, free_idx,
     end
 end
 
-function _add_unique!(sets::Vector{Set{Int}}, new_set::Set{Int})
-    for existing in sets
-        existing == new_set && return
-    end
-    push!(sets, new_set)
-end
-
 """Check whether a form set is pure sequential or pure ping-pong."""
 function _is_pure_topology(form_set::Set{Int}, forms::Vector{EnzymeFormSpec})
-    _is_residual(s) = s.role == :sub && s.atoms !== nothing &&
-        s.atoms != s.full_atoms
-    _is_free(f) = !any(s -> (s.role == :sub && s.atoms == s.full_atoms) ||
-        (s.role == :prod && s.atoms !== nothing), f.sites)
-    _all_subs_full(f) = all(s -> s.role != :sub || s.atoms == s.full_atoms,
-        f.sites)
-    has_residual = any(fi -> any(_is_residual, forms[fi].sites), form_set)
-    !has_residual && return true
-    has_free_inter = any(form_set) do fi
-        any(_is_residual, forms[fi].sites) && _is_free(forms[fi])
+    _has_res(f) = any(s -> s.role == :sub && s.atoms !== nothing &&
+        s.atoms != s.full_atoms, f.sites)
+    res_forms = [fi for fi in form_set if _has_res(forms[fi])]
+    isempty(res_forms) && return true
+    has_free_res = any(res_forms) do fi
+        !any(s -> (s.role == :sub && s.atoms == s.full_atoms) ||
+            (s.role == :prod && s.atoms !== nothing), forms[fi].sites)
     end
-    has_free_inter && !any(fi -> _all_subs_full(forms[fi]), form_set)
+    has_free_res && !any(fi -> all(
+        s -> s.role != :sub || s.atoms == s.full_atoms,
+        forms[fi].sites), form_set)
 end
 
 """Combine individual cycles into multi-cycle unions via BFS."""
@@ -461,17 +398,6 @@ function _combine_form_sets(cycles::Vector{Set{Int}})
     result
 end
 
-"""Derive edges from adjacency for a set of form indices."""
-function _derive_edges(adj::Dict{Tuple{Int,Int}, EdgeInfo}, form_set)
-    sorted = sort(collect(form_set))
-    edges = Tuple{Int,Int}[]
-    for i in 1:length(sorted), j in (i+1):length(sorted)
-        haskey(adj, (sorted[i], sorted[j])) &&
-            push!(edges, (sorted[i], sorted[j]))
-    end
-    edges
-end
-
 """Enumerate catalytic topologies → Vector{MechanismSpec}."""
 function _catalytic_topologies(
     forms::Vector{EnzymeFormSpec},
@@ -486,35 +412,23 @@ function _catalytic_topologies(
         f -> all(s -> s.atoms === nothing, f.sites), forms)
     free_idx === nothing && return MechanismSpec[]
 
+    prod_full = Dict(s.metabolite => s.full_atoms
+                     for s in template if s.role == :prod)
     cycles = Set{Int}[]
-
-    for sub_perm in _permutations(sub_names)
-        for prod_perm in _permutations(prod_names)
-            fs = _build_standard_form_set(
-                fidx, template, adj, free_idx, sub_perm, prod_perm)
-            fs !== nothing && _add_unique!(cycles, fs)
-        end
-    end
-
-    # Ping-pong cycles
-    has_residuals = any(forms) do f
-        any(f.sites) do s
-            s.role == :sub && s.atoms !== nothing && s.atoms != s.full_atoms
-        end
-    end
-    if has_residuals
-        _pingpong_dfs!(cycles, forms, fidx, template, adj, free_idx,
-                       sub_names, prod_names, [free_idx], Set{Symbol}(),
-                       Set{Symbol}(),
-                       Dict{Symbol,Vector{Pair{Symbol,Int}}}(), 0, 0)
-    end
+    _pingpong_dfs!(cycles, forms, fidx, template, adj, free_idx,
+                   sub_names, prod_names, prod_full, [free_idx],
+                   Set{Symbol}(), Set{Symbol}(),
+                   Dict{Symbol,Vector{Pair{Symbol,Int}}}(), 0, 0)
 
     combined = _combine_form_sets(cycles)
     filter!(fs -> _is_pure_topology(fs, forms) && length(fs) <= max_forms,
             combined)
 
     map(combined) do fs
-        edges = _derive_edges(adj, fs)
+        sorted = sort(collect(fs))
+        edges = [(sorted[i], sorted[j])
+                 for i in 1:length(sorted) for j in (i+1):length(sorted)
+                 if haskey(adj, (sorted[i], sorted[j]))]
         MechanismSpec(reaction, edges,
                       fill(false, length(edges)), ParamConstraint[])
     end
@@ -524,13 +438,11 @@ end
 
 """Find shadow form: base with regulator also bound."""
 function _find_shadow(fidx, base::EnzymeFormSpec, reg::Symbol)
-    any(s -> s.metabolite == reg && s.role == :reg && s.atoms === nothing,
-        base.sites) || return nothing
-    key = Tuple(
-        s.metabolite == reg && s.role == :reg ? s.full_atoms : s.atoms
-        for s in base.sites
-    )
-    get(fidx, key, nothing)
+    pos = findfirst(
+        s -> s.metabolite == reg && s.role == :reg && s.atoms === nothing,
+        base.sites)
+    pos === nothing && return nothing
+    _find_dead_end(fidx, base, (pos,))
 end
 
 """Set of form indices in a spec's edges."""
@@ -547,52 +459,38 @@ function _expand_activators(
     reg_names = [r[1] for r in regulators(reaction)]
     isempty(reg_names) && return specs
 
+    OptionT = Tuple{Vector{Tuple{Int,Int}}, Set{Tuple{Int,Int}}}
     result = MechanismSpec[]
     for spec in specs
         topo_forms = _used_form_set(spec)
-        OptionT = Tuple{Vector{Tuple{Int,Int}}, Set{Tuple{Int,Int}}}
         per_reg = Vector{Vector{OptionT}}()
 
         for reg in reg_names
-            options = OptionT[]
-            push!(options, (Tuple{Int,Int}[], Set{Tuple{Int,Int}}()))
-
-            shadow_pairs = Tuple{Int,Int}[]
-            for bi in sort(collect(topo_forms))
-                si = _find_shadow(fidx, forms[bi], reg)
-                si !== nothing && push!(shadow_pairs, (bi, si))
-            end
+            options = OptionT[(Tuple{Int,Int}[], Set{Tuple{Int,Int}}())]
+            shadow_pairs = [(bi, _find_shadow(fidx, forms[bi], reg))
+                            for bi in sort(collect(topo_forms))]
+            filter!(((_, si),) -> si !== nothing, shadow_pairs)
 
             if length(shadow_pairs) >= 2
-                shadow_map = Dict(bi => si for (bi, si) in shadow_pairs)
-                shadow_cycle = Tuple{Int,Int}[]
-                shadowed_base = Set{Tuple{Int,Int}}()
-                for (a, b) in spec.edges
-                    sa = get(shadow_map, a, nothing)
-                    sb = get(shadow_map, b, nothing)
-                    if sa !== nothing && sb !== nothing
-                        push!(shadow_cycle,
-                              (min(sa, sb), max(sa, sb)))
-                        push!(shadowed_base, (a, b))
-                    end
-                end
-                binding = [(min(b, s), max(b, s))
-                           for (b, s) in shadow_pairs]
-                full_shadow = [binding; shadow_cycle]
+                smap = Dict(shadow_pairs)
+                mirror = [minmax(smap[a], smap[b])
+                          for (a, b) in spec.edges
+                          if haskey(smap, a) && haskey(smap, b)]
+                mirrored = Set((a, b) for (a, b) in spec.edges
+                               if haskey(smap, a) && haskey(smap, b))
+                binding = [minmax(b, s) for (b, s) in shadow_pairs]
 
-                # Non-essential
-                push!(options, (full_shadow, Set{Tuple{Int,Int}}()))
+                # Non-essential: all binding + mirror cycle
+                push!(options, ([binding; mirror], Set{Tuple{Int,Int}}()))
 
-                # Essential
-                entry_idx = findfirst(shadow_pairs) do (bi, _)
-                    all(s -> s.role == :reg || s.atoms === nothing,
-                        forms[bi].sites)
-                end
-                if entry_idx !== nothing
-                    bp = shadow_pairs[entry_idx]
-                    essential = [(min(bp...), max(bp...));
-                                 shadow_cycle]
-                    push!(options, (essential, shadowed_base))
+                # Essential: entry binding + mirror, remove mirrored base
+                entry = findfirst(((bi, _),) -> all(
+                    s -> s.role == :reg || s.atoms === nothing,
+                    forms[bi].sites), shadow_pairs)
+                if entry !== nothing
+                    bp = shadow_pairs[entry]
+                    push!(options,
+                          ([minmax(bp...); mirror], mirrored))
                 end
             end
             push!(per_reg, options)
@@ -643,7 +541,9 @@ function _dead_end_configs(
             push!(act_pos, k)
     end
 
-    # Per topo form: compute regulator-subset options
+    # Per topo form: compute regulator-subset options.
+    # Enzyme forms are a Cartesian product of per-site options, so if
+    # individual reg bindings exist, all subset combinations also exist.
     per_form_opts = Vector{Vector{Int}}[]
     for fi in topo_forms
         reg_sites = [k for k in eachindex(forms[fi].sites)
@@ -651,31 +551,18 @@ function _dead_end_configs(
                         forms[fi].sites[k].atoms === nothing &&
                         k ∉ act_pos]
         n_reg = length(reg_sites)
-        seen = Set{Vector{Int}}()
         options = [Int[]]
-        push!(seen, Int[])
-
         for mask in 1:((1 << n_reg) - 1)
             chosen = [reg_sites[k] for k in 1:n_reg
                       if (mask >> (k-1)) & 1 == 1]
             de_forms = Int[]
-            valid = true
             for sub_mask in 1:((1 << length(chosen)) - 1)
                 positions = [chosen[k] for k in 1:length(chosen)
                              if (sub_mask >> (k-1)) & 1 == 1]
                 fi2 = _find_dead_end(fidx, forms[fi], positions)
-                if fi2 === nothing
-                    valid = false; break
-                end
-                fi2 in topo_set && continue
-                push!(de_forms, fi2)
+                fi2 !== nothing && fi2 ∉ topo_set && push!(de_forms, fi2)
             end
-            !valid && continue
-            sort!(de_forms)
-            if de_forms ∉ seen
-                push!(seen, de_forms)
-                push!(options, de_forms)
-            end
+            push!(options, sort!(de_forms))
         end
         push!(per_form_opts, options)
     end
@@ -720,19 +607,15 @@ function _find_equivalent_groups(
     adj::Dict{Tuple{Int,Int}, EdgeInfo},
     forms::Vector{EnzymeFormSpec},
 )
+    template = forms[1].sites
     binding_key = Dict{Symbol, Vector{Int}}()
     for (i, (a, b)) in enumerate(edges)
         info = get(adj, minmax(a, b), nothing)
         info === nothing && continue
         info.type in (:binding, :release) || continue
-        for k in eachindex(forms[a].sites)
-            forms[a].sites[k].atoms == forms[b].sites[k].atoms && continue
-            site = forms[a].sites[k].atoms !== nothing ?
-                forms[a].sites[k] : forms[b].sites[k]
-            site.role == :prod && break
-            push!(get!(binding_key, site.metabolite, Int[]), i)
-            break
-        end
+        any(s -> s.metabolite == info.metabolite && s.role == :prod,
+            template) && continue
+        push!(get!(binding_key, info.metabolite, Int[]), i)
     end
     groups = [sort(v) for v in values(binding_key) if length(v) >= 2]
     sort!(groups; by=first)
@@ -778,18 +661,10 @@ function _build_constraints(cmask, eq_steps, valid_groups)
     constraints = ParamConstraint[]
     for (gi, group) in enumerate(valid_groups)
         ((cmask >> (gi-1)) & 1) == 0 && continue
-        if eq_steps[group[1]]
-            for j in 2:length(group)
-                push!(constraints, (Symbol("K$(group[j])"), 1,
-                                   [(Symbol("K$(group[1])"), 1)]))
-            end
-        else
-            for j in 2:length(group)
-                push!(constraints, (Symbol("k$(group[j])f"), 1,
-                                   [(Symbol("k$(group[1])f"), 1)]))
-                push!(constraints, (Symbol("k$(group[j])r"), 1,
-                                   [(Symbol("k$(group[1])r"), 1)]))
-            end
+        pfx, sfxs = eq_steps[group[1]] ? ("K", ("",)) : ("k", ("f", "r"))
+        for j in 2:length(group), sfx in sfxs
+            push!(constraints, (Symbol("$pfx$(group[j])$sfx"), 1,
+                               [(Symbol("$pfx$(group[1])$sfx"), 1)]))
         end
     end
     constraints
@@ -839,25 +714,6 @@ end
 
 # ─── MechanismSpec → EnzymeMechanism Conversion ──────────────
 
-"""Convert edges to reaction tuples using adjacency."""
-function _edges_to_reactions(
-    edges::Vector{Tuple{Int,Int}},
-    adj::Dict{Tuple{Int,Int}, EdgeInfo},
-    forms::Vector{EnzymeFormSpec},
-)
-    map(edges) do (a, b)
-        info = adj[minmax(a, b)]
-        fa, fb = forms[a].name, forms[b].name
-        if info.type == :binding
-            ([fa, info.metabolite], [fb])
-        elseif info.type == :release
-            ([fa], [fb, info.metabolite])
-        else
-            ([fa], [fb])
-        end
-    end
-end
-
 """
     EnzymeMechanism(spec::MechanismSpec)
 
@@ -867,26 +723,28 @@ function EnzymeMechanism(spec::MechanismSpec)
     rxn = spec.reaction
     forms = enumerate_enzyme_forms(rxn)
     adj = _build_adjacency(forms)
-
     used = _used_form_set(spec)
+
     subs_t = Tuple((n, a) for (n, a, _) in substrates(rxn))
     prods_t = Tuple((n, a) for (n, a, _) in products(rxn))
     regs_t = Tuple((n, a) for (n, a, _) in regulators(rxn))
     enzs_t = Tuple(
-        (forms[i].name, Tuple(Tuple.(fa)))
-        for (i, fa) in (
-            (i, _form_atoms(forms[i].sites))
-            for i in 1:length(forms))
-        if i in used
-    )
+        (forms[i].name, Tuple(Tuple.(_form_atoms(forms[i].sites))))
+        for i in 1:length(forms) if i in used)
     species = (subs_t, prods_t, regs_t, enzs_t)
 
-    rxn_tuples = _edges_to_reactions(spec.edges, adj, forms)
-    reactions = Tuple((Tuple(r[1]), Tuple(r[2])) for r in rxn_tuples)
+    reactions = Tuple(
+        let info = adj[minmax(a, b)]
+            lhs = info.type == :binding ?
+                (forms[a].name, info.metabolite) : (forms[a].name,)
+            rhs = info.type == :release ?
+                (forms[b].name, info.metabolite) : (forms[b].name,)
+            (lhs, rhs)
+        end
+        for (a, b) in spec.edges)
     eq_steps = Tuple(spec.equilibrium_steps)
     constraints = Tuple(
         (target, coeff, Tuple(Tuple.(factors)))
-        for (target, coeff, factors) in spec.param_constraints
-    )
+        for (target, coeff, factors) in spec.param_constraints)
     EnzymeMechanism(species, reactions, eq_steps, constraints)
 end
