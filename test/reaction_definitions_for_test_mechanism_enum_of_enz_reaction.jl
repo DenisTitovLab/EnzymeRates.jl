@@ -335,22 +335,21 @@ function build_enumeration_test_specs()
         ))
     end
 
-    # 7. Bi-Bi Ping Pong + 1 regulator
+    # 7. Bi-Bi Ping Pong (no regulator)
     let
         rxn = @enzyme_reaction begin
             substrates:A[CX], B[N]
             products:P[C], Q[NX]
-            # regulators:I[P2]  # TODO: re-enable after recomputing expected counts
         end
         push!(specs, EnumerationTestSpec(
-            name="Bi-Bi PP 1 Regulator",
+            name="Bi-Bi PP",
             reaction=rxn,
             max_forms=100,
             expected_n_forms=17,
-            expected_n_catalytic=29,
-            expected_n_cat_with_act=29,
-            expected_n_cat_act_de=29,
-            expected_n_total=389885,
+            expected_n_catalytic=10,
+            expected_n_cat_with_act=10,
+            expected_n_cat_act_de=10,
+            expected_n_total=2157,
             max_enumeration_time=10.0,
         ))
     end

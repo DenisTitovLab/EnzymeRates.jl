@@ -4,6 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 When saving new lessons learned or project knowledge, write them to this file (`.claude/CLAUDE.md`) so they are shared across all machines via git. Do not use the local auto memory for project-specific knowledge.
 
+## Package Goal
+
+EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given a reaction definition and experimental rate measurements at varying concentrations, the package enumerates all biochemically valid mechanisms, fits each to data, and selects the one with fewest parameters that adequately describes the data (cross-validation). See `SPEC.md` for the full API specification.
+
+**Primary use case**: `EnzymeReaction` + data → `IdentifyRateEquationProblem` → `identify_rate_equation()` → `IdentifyRateEquationResults`
+
+**Secondary use cases**: manually define mechanisms via `@enzyme_mechanism` and derive/fit rate equations.
+
+## API Design (see SPEC.md)
+
+- **15 exported symbols**: 5 types, 2 macros, 8 functions
+- Enumeration internals (`SiteState`, `EnzymeFormSpec`, `MechanismSpec`, `enumerate_mechanisms`, etc.) are NOT part of the public API — accessible via `IdentifyRateEquationProblem` fields for power users
+- Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
+- Cross-validation: leave-one-group-out
+- Keq is always user-provided, never estimated from data
+
 ## Commands
 
 ```bash

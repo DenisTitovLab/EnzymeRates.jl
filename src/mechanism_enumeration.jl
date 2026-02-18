@@ -664,7 +664,9 @@ function _enumerate_catalytic_form_sets(
     )
 
     # Multi-cycle: enumerate all 2^n unions of individual cycles
-    _combine_form_sets(cycles)
+    combined = _combine_form_sets(cycles)
+    filter!(fs -> _is_pure_topology(fs, forms), combined)
+    combined
 end
 
 """Build a standard catalytic cycle as a form set."""
@@ -938,6 +940,63 @@ function _combine_form_sets(cycles::Vector{Set{Int}})
     end
 
     result
+end
+
+"""
+    _is_pure_topology(form_set, forms) → Bool
+
+Check whether a catalytic topology is pure sequential or pure ping-pong.
+
+A topology is accepted if EITHER:
+- **Pure sequential**: no residual forms at all (standard ternary-complex path)
+- **Pure ping-pong**: has a free enzyme intermediate (only residuals, all other
+  core sites empty) AND does NOT have the all-substrates-fully-bound form
+
+Mixed topologies (combining both types, or having residuals without a free
+intermediate) are rejected as biochemically implausible.
+"""
+function _is_pure_topology(form_set::Set{Int}, forms::Vector{EnzymeFormSpec})
+    has_residual = false
+    has_free_intermediate = false
+    has_all_subs_full = false
+
+    for fi in form_set
+        f = forms[fi]
+        form_has_residual = false
+        form_is_free_intermediate = true
+        form_all_subs_full = true
+
+        for s in f.sites
+            s.index == 1 || continue
+            s.role == :reg && continue
+
+            if s.role == :sub
+                if s.atoms !== nothing && s.atoms != s.full_atoms
+                    form_has_residual = true
+                    form_all_subs_full = false
+                elseif s.atoms === nothing
+                    form_all_subs_full = false
+                else  # s.atoms == s.full_atoms
+                    form_is_free_intermediate = false
+                end
+            elseif s.role == :prod
+                if s.atoms !== nothing
+                    form_is_free_intermediate = false
+                end
+            end
+        end
+
+        if form_has_residual
+            has_residual = true
+            form_is_free_intermediate && (has_free_intermediate = true)
+        end
+
+        form_all_subs_full && (has_all_subs_full = true)
+    end
+
+    !has_residual && return true
+    has_free_intermediate && !has_all_subs_full && return true
+    return false
 end
 
 # ─── Catalytic Mechanism Construction ─────────────────────────
