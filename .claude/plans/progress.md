@@ -100,6 +100,42 @@ All 636 tests pass. File reduced from 892 → 750 lines (16% further reduction).
 3. **`_dead_end_configs`** (~65 lines): Two-level bitmask loops + edge construction.
 4. **`_expand_activators`** (~55 lines): Shadow pair logic + Cartesian product.
 
+## Phase 4 Complete (all tests passing)
+
+All 636 tests pass. File reduced from 750 → 711 lines (5.2% further reduction).
+
+### Phase 4 Changes — Replace custom algorithms with standard patterns and closed-form formulas
+
+**`_count_ress_variants` → closed-form formula** (14→5 lines, -9): Replaced the O(2^n) bitmask loop that counts RE/SS + constraint variants with the analytical formula `2^(n-Σgᵢ) × ∏(2^gᵢ+2) - 2^k`. The formula was already verified in the test helper `_compute_expected_n_total`; now the source uses it directly.
+
+**Eliminated `_dead_end_cartesian!`** (-12 lines): Replaced the custom recursive Cartesian product with budget pruning by `Iterators.product` + a simple `length(de) > budget && continue` filter. For all test specs, the Cartesian product space is small enough (≤1024 combinations) that lazy pruning isn't needed.
+
+**`_is_valid_isomerization` simplified** (25→13 lines, -12): Replaced imperative boolean tracking with declarative diff collection. Single comprehension collects differing core sites, then `has_residual` and `n_core` checks determine validity.
+
+**`_combine_form_sets` simplified** (17→13 lines, -4): Replaced BFS queue-based lattice exploration with direct power-set bitmask enumeration. For ≤10 cycles (max in test specs), 2^10=1024 iterations with dedup is efficient.
+
+**`_pingpong_dfs!` state management simplified** (-5 lines): Option 3 (ping-pong isomerization) previously mutated `residual_state` in-place with backup/restore (copy→merge→recurse→merge-back→delete). Now passes immutable `new_residual` copy directly to recursive call, eliminating 5 lines of state restoration code.
+
+**Inlined `_find_shadow`** (-4 lines): Eliminated 7-line function, inlined its logic (findfirst + `_find_dead_end` call) directly into `_expand_activators`.
+
+### Remaining opportunities for further reduction
+
+1. **`_pingpong_dfs!` + `_release_prods_dfs!`** (~82+20=102 lines): The largest code block. The 3-option DFS is algorithmically necessary, but `_release_prods_dfs!` could potentially be inlined (~-3 lines). The 15-parameter signature could be reduced by bundling read-only context into a struct, saving ~2 lines per recursive call site.
+
+2. **`enumerate_enzyme_forms`** (~76 lines): The residual computation (18 lines) and Cartesian product (34 lines) are fairly minimal. The per-site data building (17 lines) could potentially be tightened by ~5 lines.
+
+3. **`_dead_end_configs`** (~52 lines after this phase): The two-level bitmask for per-form options (12 lines) could be replaced with precomputed form lookup + submask enumeration, but savings would be ~2-3 lines.
+
+4. **`_expand_activators`** (~55 lines): The mirror/mirrored computation iterates spec.edges twice with the same filter condition — could merge into a single loop (~-2 lines).
+
+5. **`_classify_edge`** (~33 lines): The release metabolite determination for residual sites (lines 143-150) is complex but necessary for ping-pong correctness.
+
+6. **Type definitions** (~40 lines): The `EnumerationStage` hierarchy (5 lines) could be replaced with symbols, but tests use typed constructors so this would require test changes.
+
+7. **`EnzymeMechanism(spec)`** (~29 lines): Re-enumerates forms and rebuilds adjacency. Could cache these if MechanismSpec stored them, but would add complexity elsewhere.
+
+The remaining code is approaching its algorithmic minimum — most functions implement necessary logic with little redundancy. Further reductions would likely be in the 2-5 line range per function.
+
 ## Key Insight: Why Unified DFS Doesn't Work
 
 The original plan proposed a single DFS on the adjacency graph to find all catalytic cycles. This was attempted and found to produce incorrect results:

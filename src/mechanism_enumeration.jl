@@ -98,29 +98,18 @@ end
 
 """Check if two forms represent a valid isomerization."""
 function _is_valid_isomerization(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
-    has_sub = false; has_prod = false; has_residual = false
-    n_core = 0; n_diff = 0
-    for k in eachindex(fa.sites)
-        s = fa.sites[k]
-        s.role in (:sub, :prod) || continue
-        n_core += 1
-        fa.sites[k].atoms == fb.sites[k].atoms && continue
-        n_diff += 1
-        s.role == :sub ? (has_sub = true) : (has_prod = true)
-        if s.role == :sub
-            a, b = fa.sites[k].atoms, fb.sites[k].atoms
-            if (a !== nothing && a != s.full_atoms) ||
-               (b !== nothing && b != s.full_atoms)
-                has_residual = true
-            end
-        end
+    diffs = [(k, fa.sites[k].role) for k in eachindex(fa.sites)
+             if fa.sites[k].role in (:sub, :prod) &&
+                fa.sites[k].atoms != fb.sites[k].atoms]
+    any(d -> d[2] == :sub, diffs) &&
+        any(d -> d[2] == :prod, diffs) || return false
+    has_residual = any(diffs) do (k, role)
+        role == :sub && any(x -> x !== nothing && x != fa.sites[k].full_atoms,
+                           (fa.sites[k].atoms, fb.sites[k].atoms))
     end
-    (!has_sub || !has_prod) && return false
-    has_residual && return _core_atoms(fa) == _core_atoms(fb)
-    # Standard: ALL core sites must differ with atom balance. The
-    # all-full↔all-empty pattern is guaranteed by enumerate_enzyme_forms'
-    # exclusion filter (no form has all subs full + any prod occupied).
-    n_diff == n_core && _core_atoms(fa) == _core_atoms(fb)
+    n_core = count(s -> s.role in (:sub, :prod), fa.sites)
+    (has_residual || length(diffs) == n_core) &&
+        _core_atoms(fa) == _core_atoms(fb)
 end
 
 """Classify edge between two enzyme forms → EdgeInfo or nothing."""
@@ -324,17 +313,11 @@ function _pingpong_dfs!(cycles, forms, fidx, template, adj, free_idx,
 
                 push!(sequence, inter, post)
                 push!(released_prods, prod)
-                old_residual = copy(residual_state)
-                merge!(residual_state, new_residual)
                 _pingpong_dfs!(cycles, forms, fidx, template, adj,
                                free_idx, all_subs, all_prods, prod_full,
                                sequence, bound_subs, released_prods,
-                               residual_state,
+                               new_residual,
                                n_subs_bound, n_prods_released + 1)
-                merge!(residual_state, old_residual)
-                for k in keys(new_residual)
-                    haskey(old_residual, k) || delete!(residual_state, k)
-                end
                 delete!(released_prods, prod)
                 pop!(sequence); pop!(sequence)
             end
@@ -379,21 +362,17 @@ function _is_pure_topology(form_set::Set{Int}, forms::Vector{EnzymeFormSpec})
         forms[fi].sites), form_set)
 end
 
-"""Combine individual cycles into multi-cycle unions via BFS."""
+"""Combine individual cycles into all unique multi-cycle unions."""
 function _combine_form_sets(cycles::Vector{Set{Int}})
     isempty(cycles) && return Set{Int}[]
-    result = copy(cycles)
-    seen = Set{Set{Int}}(cycles)
-    queue = [(c, i) for (i, c) in enumerate(cycles)]
-    while !isempty(queue)
-        fs, max_ci = popfirst!(queue)
-        for ci in (max_ci + 1):length(cycles)
-            merged = union(fs, cycles[ci])
-            merged in seen && continue
-            push!(seen, merged)
-            push!(result, merged)
-            push!(queue, (merged, ci))
-        end
+    n = length(cycles)
+    result = Set{Int}[]
+    seen = Set{Set{Int}}()
+    for mask in 1:(1 << n) - 1
+        merged = union((cycles[i] for i in 1:n
+                        if (mask >> (i-1)) & 1 == 1)...)
+        merged in seen && continue
+        push!(seen, merged); push!(result, merged)
     end
     result
 end
@@ -436,15 +415,6 @@ end
 
 # ─── Activator Configs ────────────────────────────────────────
 
-"""Find shadow form: base with regulator also bound."""
-function _find_shadow(fidx, base::EnzymeFormSpec, reg::Symbol)
-    pos = findfirst(
-        s -> s.metabolite == reg && s.role == :reg && s.atoms === nothing,
-        base.sites)
-    pos === nothing && return nothing
-    _find_dead_end(fidx, base, (pos,))
-end
-
 """Set of form indices in a spec's edges."""
 _used_form_set(spec::MechanismSpec) = Set(Iterators.flatten(spec.edges))
 
@@ -467,9 +437,15 @@ function _expand_activators(
 
         for reg in reg_names
             options = OptionT[(Tuple{Int,Int}[], Set{Tuple{Int,Int}}())]
-            shadow_pairs = [(bi, _find_shadow(fidx, forms[bi], reg))
-                            for bi in sort(collect(topo_forms))]
-            filter!(((_, si),) -> si !== nothing, shadow_pairs)
+            shadow_pairs = Tuple{Int,Int}[]
+            for bi in sort(collect(topo_forms))
+                pos = findfirst(s -> s.metabolite == reg &&
+                    s.role == :reg && s.atoms === nothing,
+                    forms[bi].sites)
+                pos === nothing && continue
+                si = _find_dead_end(fidx, forms[bi], (pos,))
+                si !== nothing && push!(shadow_pairs, (bi, si))
+            end
 
             if length(shadow_pairs) >= 2
                 smap = Dict(shadow_pairs)
@@ -567,10 +543,10 @@ function _dead_end_configs(
         push!(per_form_opts, options)
     end
 
-    de_configs = Vector{Int}[]
-    _dead_end_cartesian!(de_configs, per_form_opts, 1, Int[], budget)
-
-    map(de_configs) do de
+    results = MechanismSpec[]
+    for combo in Iterators.product(per_form_opts...)
+        de = vcat(combo...)
+        length(de) > budget && continue
         existing = Set(minmax(e...) for e in spec.edges)
         edges = copy(spec.edges)
         all_sorted = sort(collect(union(topo_set, Set(de))))
@@ -581,22 +557,10 @@ function _dead_end_configs(
             info !== nothing && info.type == :binding || continue
             push!(existing, (fi, fj)); push!(edges, (fi, fj))
         end
-        MechanismSpec(spec.reaction, edges,
-                      fill(false, length(edges)), ParamConstraint[])
+        push!(results, MechanismSpec(spec.reaction, edges,
+                      fill(false, length(edges)), ParamConstraint[]))
     end
-end
-
-function _dead_end_cartesian!(configs, options, idx, current, budget)
-    if idx > length(options)
-        push!(configs, copy(current)); return
-    end
-    for option in options[idx]
-        length(option) > budget && continue
-        append!(current, option)
-        _dead_end_cartesian!(configs, options, idx + 1,
-                             current, budget - length(option))
-        resize!(current, length(current) - length(option))
-    end
+    results
 end
 
 # ─── RE/SS + Constraint Lazy Generator ────────────────────────
@@ -621,20 +585,17 @@ function _find_equivalent_groups(
     sort!(groups; by=first)
 end
 
-"""Count RE/SS + constraint variants."""
+"""Count RE/SS + constraint variants using closed-form formula.
+
+For `n` edges and `k` non-overlapping equiv groups of sizes g₁,...,gₖ:
+  f(n; g₁,...,gₖ) = 2^(n - Σgᵢ) × ∏(2^gᵢ + 2) - 2^k
+"""
 function _count_ress_variants(n_edges::Int, equiv_groups)
     n_edges == 0 && return 0
-    count = 0
-    for re_mask in 0:((1 << n_edges) - 2)
-        n_valid = 0
-        for group in equiv_groups
-            first_re = (re_mask >> (group[1] - 1)) & 1
-            all(((re_mask >> (s - 1)) & 1) == first_re
-                for s in group) && (n_valid += 1)
-        end
-        count += 1 << n_valid
-    end
-    count
+    k = length(equiv_groups)
+    sum_g = sum(length, equiv_groups; init=0)
+    (1 << (n_edges - sum_g)) *
+        prod(1 << length(g) + 2 for g in equiv_groups; init=1) - (1 << k)
 end
 
 """Generate RE/SS + constraint variants lazily."""
