@@ -46,21 +46,6 @@ Base.iterate(iter::MechanismIterator, state) = iterate(iter.inner, state)
 _build_form_index(forms) =
     Dict(Tuple(s.atoms for s in f.sites) => i for (i, f) in enumerate(forms))
 
-"""Look up form index by occupancy pattern."""
-function _lookup_form(fidx, template, occ_subs, occ_prods, residual=nothing)
-    key = ntuple(length(template)) do i
-        s = template[i]
-        s.role == :reg && return nothing
-        if s.role == :sub
-            r = residual !== nothing ?
-                get(residual, s.metabolite, nothing) : nothing
-            return r !== nothing ? r :
-                s.metabolite in occ_subs ? s.full_atoms : nothing end
-        s.metabolite in occ_prods ? s.full_atoms : nothing
-    end
-    get(fidx, key, nothing)
-end
-
 # ─── Edge Classification + Adjacency ─────────────────────────
 
 const EdgeInfo = @NamedTuple{type::Symbol, metabolite::Union{Nothing,Symbol}}
@@ -189,99 +174,91 @@ end
 
 # ─── Catalytic Cycle Enumeration ──────────────────────────────
 
-"""Enumerate catalytic topologies → Vector{MechanismSpec}."""
+"""Build directed adjacency list from undirected edge dict.
+
+Reverses binding↔release for the back direction; isomerization is symmetric."""
+function _build_directed_adj(adj)
+    nbrs = Dict{Int, Vector{Tuple{Int, Symbol, Union{Nothing, Symbol}}}}()
+    for ((a, b), info) in adj
+        push!(get!(nbrs, a, []), (b, info.type, info.metabolite))
+        rtype = info.type == :binding ? :release :
+                info.type == :release ? :binding : :isomerization
+        push!(get!(nbrs, b, []), (a, rtype, info.metabolite))
+    end
+    nbrs
+end
+
+"""Enumerate catalytic topologies → Vector{MechanismSpec}.
+
+Uses a graph-walk DFS over the directed adjacency list. Substrate binding,
+product release, and isomerization (including ping-pong) are all handled
+uniformly as edge traversals—no special-case code per reaction type."""
 function _catalytic_topologies(
     forms::Vector{EnzymeFormSpec},
     adj::Dict{Tuple{Int,Int}, EdgeInfo},
-    fidx, template,
     @nospecialize(reaction::EnzymeReaction);
     max_forms::Int,
 )
-    sub_ns = [s[1] for s in substrates(reaction)]
-    prod_ns = [p[1] for p in products(reaction)]
+    sub_set = Set(s[1] for s in substrates(reaction))
+    prod_set = Set(p[1] for p in products(reaction))
     free = findfirst(f -> all(s -> s.atoms === nothing, f.sites), forms)
     free === nothing && return MechanismSpec[]
-    prod_full = Dict(s.metabolite => s.full_atoms
-                     for s in template if s.role == :prod)
+    # Restrict to forms with all regulator sites empty (catalytic topology)
+    cat_forms = Set(i for (i, f) in enumerate(forms)
+        if all(s -> s.role != :reg || s.atoms === nothing, f.sites))
+    nbrs = _build_directed_adj(adj)
 
-    cycles = Set{Int}[]
-    seq = [free]; bound = Set{Symbol}(); released = Set{Symbol}()
-    residual = Dict{Symbol,Vector{Pair{Symbol,Int}}}()
-    lf(s, p, r=residual) = _lookup_form(fidx, template, s, p, r)
-    record!() = seq[end] == free &&
-        (s = Set(seq); s ∉ cycles && push!(cycles, s))
+    cycles = Set{Set{Int}}()
+    path = [free]; visited = Set{Int}([free])
+    bound = Set{Symbol}(); released = Set{Symbol}()
+    # After PP isomerization (producing a product + residual), force release before
+    # any further binding. This prevents non-ping-pong interleaving of bind/release.
+    must_release = false
 
-    function _try(fi, f)
-        fi !== nothing && haskey(adj, minmax(seq[end], fi)) || return
-        push!(seq, fi); f(); pop!(seq)
+    function step!(next)
+        push!(path, next); push!(visited, next)
+        dfs()
+        delete!(visited, next); pop!(path)
     end
-
-    function _release()
-        rem = setdiff(Set(prod_ns), released)
-        if isempty(rem); record!(); return; end
-        for p in collect(rem)
-            delete!(rem, p); push!(released, p)
-            _try(isempty(rem) ? free :
-                lf(Set{Symbol}(), rem, nothing), _release)
-            delete!(released, p); push!(rem, p)
+    function dfs()
+        cur = path[end]
+        if cur == free && length(path) > 1 &&
+                bound == sub_set && released == prod_set
+            push!(cycles, Set(path))
+            return
         end
-    end
-
-    function _dfs()
-        if length(bound) == length(sub_ns) &&
-                length(released) == length(prod_ns)
-            record!(); return
-        end
-        for sub in sub_ns  # bind substrate
-            sub in bound && continue
-            push!(bound, sub)
-            _try(lf(bound, Set{Symbol}()), _dfs)
-            delete!(bound, sub)
-        end
-        if length(bound) == length(sub_ns) &&
-                length(bound) > length(released)  # isomerize + release
-            _try(lf(Set{Symbol}(),
-                setdiff(Set(prod_ns), released), nothing), _release)
-        end
-        isempty(bound) && return  # PP isomerization + release
-        cf = forms[seq[end]]
-        for prod in prod_ns
-            prod in released && continue
-            pa = get(prod_full, prod, nothing)
-            pa === nothing && continue
-            for s in cf.sites
-                s.role == :sub && s.atoms !== nothing || continue
-                rv = _atom_residual(s.atoms, pa)
-                rv === nothing && continue
-                old = get(residual, s.metabolite, nothing)
-                residual[s.metabolite] = rv
-                inter = lf(bound, Set([prod]))
-                post = inter !== nothing &&
-                    haskey(adj, minmax(seq[end], inter)) ?
-                    lf(bound, Set{Symbol}()) : nothing
-                if post !== nothing &&
-                        haskey(adj, minmax(inter, post))
-                    push!(seq, inter, post); push!(released, prod)
-                    _dfs()
-                    delete!(released, prod); pop!(seq); pop!(seq)
-                end
-                old === nothing ? delete!(residual, s.metabolite) :
-                    (residual[s.metabolite] = old)
+        for (next, etype, met) in get(nbrs, cur, ())
+            next ∈ cat_forms || continue
+            next ∈ visited && next != free && continue
+            if etype == :binding && met ∈ sub_set && met ∉ bound &&
+                    !must_release
+                push!(bound, met); step!(next); delete!(bound, met)
+            elseif etype == :release && met ∈ prod_set && met ∉ released
+                old_mr = must_release; must_release = false
+                push!(released, met); step!(next); delete!(released, met)
+                must_release = old_mr
+            elseif etype == :isomerization && next ∉ visited
+                has_res = any(s -> s.role == :sub && s.atoms !== nothing &&
+                    s.atoms != s.full_atoms, forms[next].sites)
+                old_mr = must_release; must_release = has_res
+                step!(next)
+                must_release = old_mr
             end
         end
     end
-    _dfs()
+    dfs()
 
-    # Combine cycles into unions, filter, convert to MechanismSpec
+    # Combine elementary cycles via power-set union, filter, convert
     n = length(cycles)
     n == 0 && return MechanismSpec[]
-    combined = unique!([union((cycles[i] for i in 1:n
+    cvec = collect(cycles)
+    combined = unique!([union((cvec[i] for i in 1:n
         if (m >> (i - 1)) & 1 == 1)...) for m in 1:(1 << n) - 1])
-    _hr(f) = any(s -> s.role == :sub && s.atoms !== nothing &&
+    _has_residual(f) = any(s -> s.role == :sub && s.atoms !== nothing &&
         s.atoms != s.full_atoms, f.sites)
     filter!(combined) do fs
         length(fs) > max_forms && return false
-        res = [fi for fi in fs if _hr(forms[fi])]
+        res = [fi for fi in fs if _has_residual(forms[fi])]
         isempty(res) && return true
         any(fi -> !any(s -> (s.role == :sub &&
             s.atoms == s.full_atoms) || (s.role == :prod &&
@@ -478,8 +455,7 @@ function enumerate_mechanisms(
     adj = _build_adjacency(forms)
     fidx = _build_form_index(forms)
 
-    catalytic = _catalytic_topologies(
-        forms, adj, fidx, forms[1].sites, reaction; max_forms)
+    catalytic = _catalytic_topologies(forms, adj, reaction; max_forms)
     stage isa Catalytic && return catalytic
 
     with_act = _expand_activators(
