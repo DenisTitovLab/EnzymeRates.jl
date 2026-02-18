@@ -486,60 +486,54 @@ function _dead_end_configs(
     max_forms::Int,
 )
     topo_set = _used_form_set(spec)
-    topo_forms = sort(collect(topo_set))
-    budget = max_forms - length(topo_forms)
+    budget = max_forms - length(topo_set)
     budget < 0 && return MechanismSpec[]
 
     # Activator positions: reg sites occupied in any topo form
     act_pos = Set{Int}()
-    for fi in topo_forms, k in eachindex(forms[fi].sites)
+    for fi in topo_set, k in eachindex(forms[fi].sites)
         forms[fi].sites[k].role == :reg &&
             forms[fi].sites[k].atoms !== nothing &&
             push!(act_pos, k)
     end
 
-    # Per topo form: compute regulator-subset options.
-    # Enzyme forms are a Cartesian product of per-site options, so if
-    # individual reg bindings exist, all subset combinations also exist.
-    per_form_opts = Vector{Vector{Int}}[]
-    for fi in topo_forms
-        reg_sites = [k for k in eachindex(forms[fi].sites)
-                     if forms[fi].sites[k].role == :reg &&
-                        forms[fi].sites[k].atoms === nothing &&
-                        k ∉ act_pos]
-        n_reg = length(reg_sites)
-        options = [Int[]]
-        for mask in 1:((1 << n_reg) - 1)
-            chosen = [reg_sites[k] for k in 1:n_reg
-                      if (mask >> (k-1)) & 1 == 1]
-            de_forms = Int[]
-            for sub_mask in 1:((1 << length(chosen)) - 1)
-                positions = [chosen[k] for k in 1:length(chosen)
-                             if (sub_mask >> (k-1)) & 1 == 1]
-                fi2 = _find_dead_end(fidx, forms[fi], positions)
-                fi2 !== nothing && fi2 ∉ topo_set && push!(de_forms, fi2)
-            end
-            push!(options, sort!(de_forms))
-        end
-        push!(per_form_opts, options)
-    end
+    # Flat list of (topo_form, reg_position) inhibitor pairs.
+    # Each pair independently ON/OFF ≡ Cartesian product of per-form options.
+    pairs = [(fi, k) for fi in sort(collect(topo_set))
+             for k in eachindex(forms[fi].sites)
+             if forms[fi].sites[k].role == :reg &&
+                forms[fi].sites[k].atoms === nothing && k ∉ act_pos]
 
     results = MechanismSpec[]
-    for combo in Iterators.product(per_form_opts...)
-        de = vcat(combo...)
+    for mask in 0:((1 << length(pairs)) - 1)
+        # Group active reg positions by topo form
+        active = Dict{Int, Vector{Int}}()
+        for (idx, (fi, k)) in enumerate(pairs)
+            ((mask >> (idx-1)) & 1) == 1 &&
+                push!(get!(active, fi, Int[]), k)
+        end
+        # DE forms: all non-empty subsets of active positions per form
+        de = Int[]
+        for (fi, positions) in active
+            for sm in 1:((1 << length(positions)) - 1)
+                pos = Tuple(positions[j] for j in 1:length(positions)
+                            if (sm >> (j-1)) & 1 == 1)
+                fi2 = _find_dead_end(fidx, forms[fi], pos)
+                fi2 !== nothing && fi2 ∉ topo_set &&
+                    fi2 ∉ de && push!(de, fi2)
+            end
+        end
         length(de) > budget && continue
         existing = Set(minmax(e...) for e in spec.edges)
-        edges = copy(spec.edges)
-        all_sorted = sort(collect(union(topo_set, Set(de))))
-        for i in 1:length(all_sorted), j in (i+1):length(all_sorted)
-            fi, fj = all_sorted[i], all_sorted[j]
-            (fi, fj) in existing && continue
-            info = get(adj, (fi, fj), nothing)
-            info !== nothing && info.type == :binding || continue
-            push!(existing, (fi, fj)); push!(edges, (fi, fj))
-        end
-        push!(results, MechanismSpec(spec.reaction, edges,
-                      fill(false, length(edges)), ParamConstraint[]))
+        all_fi = sort(collect(union(topo_set, de)))
+        new_edges = [(fi, fj) for fi in all_fi for fj in all_fi
+                     if fi < fj && (fi, fj) ∉ existing &&
+                        haskey(adj, (fi, fj)) &&
+                        adj[(fi, fj)].type == :binding]
+        push!(results, MechanismSpec(spec.reaction,
+            [spec.edges; new_edges],
+            fill(false, length(spec.edges) + length(new_edges)),
+            ParamConstraint[]))
     end
     results
 end

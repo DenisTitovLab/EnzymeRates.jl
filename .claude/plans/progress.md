@@ -171,3 +171,29 @@ All 636 tests pass. File reduced from 711 → 692 lines (2.7% further reduction)
 5. **`EnzymeMechanism(spec)`** (~29 lines): Re-enumerates forms and rebuilds adjacency. Could avoid redundant work if MechanismSpec cached these, but would add complexity elsewhere.
 
 The code is now at ~692 lines. Most remaining functions implement algorithmically necessary logic with minimal redundancy. Further reductions would be 2-3 lines each.
+
+## Phase 6 Complete (all tests passing)
+
+All 636 tests pass. File reduced from 692 → 686 lines (0.9% further reduction).
+
+### Phase 6 Changes — Flatten dead-end enumeration from double-bitmask to single-bitmask
+
+**`_dead_end_configs` restructured** (66→60 lines, -6): Replaced the double-bitmask pattern (outer mask: which reg sites active per form, inner mask: all submask DE forms) + per-form option precomputation + `Iterators.product` with a single **flat bitmask** over all (topo_form, reg_position) inhibitor pairs. The two approaches are mathematically equivalent: each (form, regsite) pair independently being ON/OFF produces the same combinations as the Cartesian product of per-form options. This eliminates the intermediate `per_form_opts` data structure and the `Iterators.product` call.
+
+Also simplified the edge-building section: replaced the imperative loop (`existing`/`push!`) with a comprehension + vcat pattern for collecting new binding edges.
+
+### Remaining opportunities for further reduction
+
+1. **`_pingpong_dfs!` + `_release_prods_dfs!`** (~100 lines): Still the largest code block. The 15-parameter signature could be reduced by bundling 8 read-only context params into a NamedTuple (~-4 lines net). `_release_prods_dfs!` could be inlined (~-3 lines).
+
+2. **`_expand_activators`** (~55 lines): Mirror/mirrored edge computation iterates `spec.edges` twice with same filter — could merge into single loop (~-2 lines).
+
+3. **`_classify_edge` release branch** (~10 lines): Could be slightly compacted.
+
+4. **`EnzymeMechanism(spec)`** (~29 lines): Re-enumerates forms and rebuilds adjacency each time. Could accept precomputed data.
+
+5. **`_catalytic_topologies`** (~34 lines): Could be inlined into `enumerate_mechanisms` (~-5 lines).
+
+6. **Convenience constructor** `MechanismSpec(rxn, edges)` for the common pattern `MechanismSpec(rxn, edges, fill(false, len), ParamConstraint[])` used 3x (~-2 lines).
+
+The code is at 686 lines. Remaining savings are individually small (2-5 lines each).
