@@ -76,7 +76,6 @@ function _sum_atoms(sites, filter_roles=nothing)
     end
     atoms
 end
-_core_atoms(form::EnzymeFormSpec) = _sum_atoms(form.sites, (:sub, :prod))
 _form_atoms(sites) = sort([a => c for (a, c) in _sum_atoms(sites)]; by=first)
 
 """Compute residual atoms after subtracting `to_remove` from `sub_atoms`.
@@ -120,7 +119,8 @@ function _classify_edge(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
         (fa.sites[k].atoms, fb.sites[k].atoms)), diffs)
     (has_res || length(diffs) == count(
         s -> s.role in (:sub, :prod), fa.sites)) &&
-        _core_atoms(fa) == _core_atoms(fb) &&
+        _sum_atoms(fa.sites, (:sub, :prod)) ==
+            _sum_atoms(fb.sites, (:sub, :prod)) &&
         return (type=:isomerization, metabolite=nothing)
     nothing
 end
@@ -217,6 +217,8 @@ function _catalytic_topologies(
     seq = [free]; bound = Set{Symbol}(); released = Set{Symbol}()
     residual = Dict{Symbol,Vector{Pair{Symbol,Int}}}()
     lf(s, p, r=residual) = _lookup_form(fidx, template, s, p, r)
+    record!() = seq[end] == free &&
+        (s = Set(seq); s ∉ cycles && push!(cycles, s))
 
     function _try(fi, f)
         fi !== nothing && haskey(adj, minmax(seq[end], fi)) || return
@@ -225,11 +227,7 @@ function _catalytic_topologies(
 
     function _release()
         rem = setdiff(Set(prod_ns), released)
-        if isempty(rem)
-            seq[end] == free &&
-                (s = Set(seq); s ∉ cycles && push!(cycles, s))
-            return
-        end
+        if isempty(rem); record!(); return; end
         for p in collect(rem)
             delete!(rem, p); push!(released, p)
             _try(isempty(rem) ? free :
@@ -241,9 +239,7 @@ function _catalytic_topologies(
     function _dfs()
         if length(bound) == length(sub_ns) &&
                 length(released) == length(prod_ns)
-            seq[end] == free &&
-                (s = Set(seq); s ∉ cycles && push!(cycles, s))
-            return
+            record!(); return
         end
         for sub in sub_ns  # bind substrate
             sub in bound && continue
@@ -467,31 +463,24 @@ function _ress_variants(spec, adj, forms)
     n = length(edges)
     equiv_groups = _find_equivalent_groups(edges, adj, forms)
 
-    Iterators.flatten(
-        Iterators.map(0:((1 << n) - 2)) do re_mask
-            eq_steps = Bool[(re_mask >> (i-1)) & 1 == 1 for i in 1:n]
-            valid_groups = [g for g in equiv_groups
-                if all(eq_steps[s] == eq_steps[g[1]] for s in g)]
-            n_vg = length(valid_groups)
+    Iterators.flatmap(0:((1 << n) - 2)) do re_mask
+        eq_steps = Bool[(re_mask >> (i-1)) & 1 == 1 for i in 1:n]
+        vg = [g for g in equiv_groups
+            if all(eq_steps[s] == eq_steps[g[1]] for s in g)]
 
-            (MechanismSpec(spec.reaction, edges, eq_steps,
-                _build_constraints(cmask, eq_steps, valid_groups))
-             for cmask in 0:((1 << n_vg) - 1))
-        end
-    )
-end
-
-function _build_constraints(cmask, eq_steps, valid_groups)
-    constraints = ParamConstraint[]
-    for (gi, group) in enumerate(valid_groups)
-        ((cmask >> (gi-1)) & 1) == 0 && continue
-        pfx, sfxs = eq_steps[group[1]] ? ("K", ("",)) : ("k", ("f", "r"))
-        for j in 2:length(group), sfx in sfxs
-            push!(constraints, (Symbol("$pfx$(group[j])$sfx"), 1,
-                               [(Symbol("$pfx$(group[1])$sfx"), 1)]))
+        Iterators.map(0:((1 << length(vg)) - 1)) do cmask
+            pc = ParamConstraint[]
+            for (gi, g) in enumerate(vg)
+                ((cmask >> (gi-1)) & 1) == 0 && continue
+                p, ss = eq_steps[g[1]] ? ("K", ("",)) : ("k", ("f", "r"))
+                for j in 2:length(g), s in ss
+                    push!(pc, (Symbol("$p$(g[j])$s"), 1,
+                               [(Symbol("$p$(g[1])$s"), 1)]))
+                end
+            end
+            MechanismSpec(spec.reaction, edges, eq_steps, pc)
         end
     end
-    constraints
 end
 
 # ─── Pipeline ─────────────────────────────────────────────────
@@ -520,8 +509,8 @@ function enumerate_mechanisms(
         catalytic, forms, fidx, reaction; max_forms)
     stage isa WithActivator && return with_act
 
-    de_iter = Iterators.flatten(Iterators.map(
-        s -> _dead_end_configs(s, adj, forms, fidx; max_forms), with_act))
+    de_iter = Iterators.flatmap(
+        s -> _dead_end_configs(s, adj, forms, fidx; max_forms), with_act)
     stage isa WithDeadEnd && return de_iter
 
     # Full: materialize dead-end, compute count, wrap lazy RE/SS
@@ -530,8 +519,8 @@ function enumerate_mechanisms(
         eg = _find_equivalent_groups(s.edges, adj, forms)
         _count_ress_variants(length(s.edges), eg)
     end
-    inner = Iterators.flatten(Iterators.map(
-        s -> _ress_variants(s, adj, forms), de_specs))
+    inner = Iterators.flatmap(
+        s -> _ress_variants(s, adj, forms), de_specs)
     MechanismIterator(inner, total)
 end
 
@@ -548,19 +537,14 @@ function EnzymeMechanism(spec::MechanismSpec)
     adj = _build_adjacency(forms)
     used = _used_form_set(spec)
 
-    _na(group) = Tuple((n, a) for (n, a, _) in group)
-    enzs_t = Tuple(
-        (forms[i].name, Tuple(Tuple.(_form_atoms(forms[i].sites))))
-        for i in 1:length(forms) if i in used)
-    species = (_na(substrates(rxn)), _na(products(rxn)),
-               _na(regulators(rxn)), enzs_t)
+    _na(g) = Tuple((n, a) for (n, a, _) in g)
+    species = (_na(substrates(rxn)), _na(products(rxn)), _na(regulators(rxn)),
+        Tuple((forms[i].name, Tuple(Tuple.(_form_atoms(forms[i].sites))))
+            for i in 1:length(forms) if i in used))
 
-    reactions = Tuple(let info = adj[minmax(a, b)]
-        lhs = info.type == :binding ?
-            (forms[a].name, info.metabolite) : (forms[a].name,)
-        rhs = info.type == :release ?
-            (forms[b].name, info.metabolite) : (forms[b].name,)
-        (lhs, rhs)
+    reactions = Tuple(let i = adj[minmax(a, b)]
+        ((i.type == :binding ? (forms[a].name, i.metabolite) : (forms[a].name,)),
+         (i.type == :release ? (forms[b].name, i.metabolite) : (forms[b].name,)))
     end for (a, b) in spec.edges)
     eq_steps = Tuple(spec.equilibrium_steps)
     constraints = Tuple(
