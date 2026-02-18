@@ -31,33 +31,6 @@ end
 
 # ── Internal helpers (no EnzymeRates._* calls) ───────────────────────────
 
-"""Extract form-index edge pairs from a MechanismSpec's reactions.
-
-Inlines `_spec_to_edges` logic using only public struct fields.
-"""
-function _spec_to_form_edges(spec, forms)
-    name_to_idx = Dict(f.name => i for (i, f) in enumerate(forms))
-    edges = Tuple{Int,Int}[]
-    for (lhs, rhs) in spec.reactions
-        from_idx = nothing
-        to_idx = nothing
-        for sym in lhs
-            idx = get(name_to_idx, sym, nothing)
-            idx !== nothing && (from_idx = idx)
-        end
-        for sym in rhs
-            idx = get(name_to_idx, sym, nothing)
-            idx !== nothing && (to_idx = idx)
-        end
-        if from_idx !== nothing && to_idx !== nothing
-            push!(edges, (from_idx, to_idx))
-        end
-    end
-    edges
-end
-
-# ── Independent verification helpers ─────────────────────────────────────
-
 """
 Compute the RE/SS + constraint count using a closed-form formula.
 
@@ -77,7 +50,7 @@ function _compute_expected_n_total(
     spec::EnzymeRates.MechanismSpec,
     forms::Vector{EnzymeRates.EnzymeFormSpec},
 )
-    edges = _spec_to_form_edges(spec, forms)
+    edges = spec.edges
     n = length(edges)
     equiv_groups = _find_equiv_groups(edges, forms)
     k = length(equiv_groups)
@@ -90,9 +63,9 @@ function _compute_expected_n_total(
 end
 
 """Find equivalent groups from edges: non-product binding edges grouped
-by (metabolite, site_index). Uses only public struct fields."""
+by metabolite. Uses only public struct fields."""
 function _find_equiv_groups(edges, forms)
-    binding_key = Dict{Tuple{Symbol,Int},Vector{Int}}()
+    binding_key = Dict{Symbol,Vector{Int}}()
     for (i, (a, b)) in enumerate(edges)
         diff_count = 0
         diff_k = 0
@@ -108,8 +81,7 @@ function _find_equiv_groups(edges, forms)
         a_occ = forms[a].sites[k].atoms !== nothing
         site = a_occ ? forms[a].sites[k] : forms[b].sites[k]
         site.role == :prod && continue
-        key = (site.metabolite, site.index)
-        push!(get!(binding_key, key, Int[]), i)
+        push!(get!(binding_key, site.metabolite, Int[]), i)
     end
     equiv_groups = [sort(indices) for (_, indices) in binding_key
                     if length(indices) >= 2]
@@ -120,14 +92,7 @@ end
 Compute expected dead-end mechanism count assuming independent inhibitor
 binding: each inhibitor independently binds or not at each topology form.
 
-A regulator is classified as an inhibitor if its binding site is never
-occupied in any topology form; otherwise it is an activator.
-
 Formula per activator config: (2^r_inh)^n_topo
-  - r_inh: number of inhibitor regulators (sites never occupied in topo)
-  - n_topo: number of forms in the catalytic topology
-
-Uses only public struct fields — no `EnzymeRates._*` calls.
 """
 function _compute_expected_dead_end_count(
     activator_specs,
@@ -138,8 +103,7 @@ function _compute_expected_dead_end_count(
 
     total = 0
     for spec in activator_specs
-        edges = _spec_to_form_edges(spec, forms)
-        topo_set = Set(Iterators.flatten(edges))
+        topo_set = Set(Iterators.flatten(spec.edges))
         n_topo = length(topo_set)
 
         r_inh = count(reg_positions) do k
@@ -295,6 +259,7 @@ function build_enumeration_test_specs()
             max_enumeration_time=5.0,
         ))
     end
+
     # 5. Bi-Bi + 1 regulator (same atoms on both substrates)
     let
         rxn = @enzyme_reaction begin

@@ -1,42 +1,57 @@
 @testset "Mechanism Enumeration" begin
     @testset "Pipeline: $(spec.name)" for spec in ENUMERATION_TEST_SPECS
-        stages = enumerate_mechanism_stages(
-            spec.reaction; max_forms=spec.max_forms)
+        forms = EnzymeRates.enumerate_enzyme_forms(spec.reaction)
+        @test length(forms) == spec.expected_n_forms
 
-        # Stage counts
-        @test length(stages.forms) == spec.expected_n_forms
-        @test length(stages.catalytic) == spec.expected_n_catalytic
-        @test length(stages.with_activator) == spec.expected_n_cat_with_act
-        @test length(stages.with_dead_end) == spec.expected_n_cat_act_de
+        catalytic = EnzymeRates.enumerate_mechanisms(
+            spec.reaction;
+            stage=EnzymeRates.Catalytic(),
+            max_forms=spec.max_forms,
+        )
+        @test length(catalytic) == spec.expected_n_catalytic
+
+        with_act = EnzymeRates.enumerate_mechanisms(
+            spec.reaction;
+            stage=EnzymeRates.WithActivator(),
+            max_forms=spec.max_forms,
+        )
+        @test length(with_act) == spec.expected_n_cat_with_act
+
+        with_de = collect(EnzymeRates.enumerate_mechanisms(
+            spec.reaction;
+            stage=EnzymeRates.WithDeadEnd(),
+            max_forms=spec.max_forms,
+        ))
+        @test length(with_de) == spec.expected_n_cat_act_de
 
         # Independent dead-end verification:
         # (2^r_inh)^n_topo per activator config, summed
         expected_de_total = _compute_expected_dead_end_count(
-            stages.with_activator, stages.forms)
-        @test expected_de_total == length(stages.with_dead_end)
+            with_act, forms)
+        @test expected_de_total == length(with_de)
 
         # Total mechanism count (O(1) for lazy iterator)
-        @test length(stages.final) == spec.expected_n_total
+        final = EnzymeRates.enumerate_mechanisms(
+            spec.reaction; max_forms=spec.max_forms)
+        @test length(final) == spec.expected_n_total
 
         # RE/SS + constraints (closed-form formula verification)
         if !spec.skip_ress_test
-            expected_ress_total = sum(stages.with_dead_end) do base
-                _compute_expected_n_total(base, stages.forms)
+            expected_ress_total = sum(with_de) do base
+                _compute_expected_n_total(base, forms)
             end
-            @test expected_ress_total == length(stages.final)
-
-            t = @elapsed n_total = length(enumerate_mechanisms(
-                spec.reaction; max_forms=spec.max_forms))
-            @test n_total == spec.expected_n_total
+            @test expected_ress_total == length(final)
 
             if isfinite(spec.max_enumeration_time)
+                t = @elapsed EnzymeRates.enumerate_mechanisms(
+                    spec.reaction; max_forms=spec.max_forms)
                 @test t < spec.max_enumeration_time
             end
         end
 
         # Rate equation smoke test
         if spec.test_rate_equation
-            @test any(stages.catalytic) do s
+            @test any(catalytic) do s
                 m = EnzymeMechanism(s)
                 rate_equation_string(m) isa String
             end

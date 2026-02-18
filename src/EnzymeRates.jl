@@ -17,9 +17,9 @@ export is_identifiable, structural_identifiability_deficit
 export FittingProblem, fit_rate_equation
 export fitted_params, metabolite_names
 
-# Mechanism enumeration
-export SiteState, EnzymeFormSpec, enumerate_enzyme_forms
-export enumerate_mechanisms, enumerate_mechanism_stages, MechanismSpec, n_sites
+# Mechanism enumeration (internal types, not public API)
+# SiteState, EnzymeFormSpec, MechanismSpec, EnumerationStage subtypes
+# enumerate_enzyme_forms, enumerate_mechanisms are accessible via EnzymeRates.*
 
 using Tables
 using Optimization
