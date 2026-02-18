@@ -145,3 +145,29 @@ The original plan proposed a single DFS on the adjacency graph to find all catal
 - The `_is_pure_topology` filter catches some but not all spurious cycles
 - Root cause: form set adjacency is undirected and doesn't encode catalytic directionality
 - A stoichiometry-based post-filter was considered but requires tracking cycle paths (not just form sets), adding complexity without saving lines
+
+## Phase 5 Complete (all tests passing)
+
+All 636 tests pass. File reduced from 711 → 692 lines (2.7% further reduction).
+
+### Phase 5 Changes — Replace hand-rolled patterns with stdlib equivalents, inline single-caller helpers
+
+**`enumerate_enzyme_forms` Cartesian product → `Iterators.product`** (34→26 lines, -8): Replaced manual index-decomposition loop (`rem % length(opts[i]) + 1`, `rem ÷= length(opts[i])`) with `Iterators.product(opts...)`. Eliminated preallocated `name_parts`/`sites_buf` buffers and `total` counter. Site construction now uses a comprehension; form name uses generator over combo labels.
+
+**`_combine_form_sets` → comprehension + `unique!`** (13→5 lines, -8): Replaced manual `result`/`seen` set tracking with a single comprehension over bitmasks followed by `unique!`. The power-set iteration and dedup are now one expression.
+
+**Inlined `_is_valid_isomerization` into `_classify_edge`** (14+4→11 lines, -7): `_is_valid_isomerization` was called from exactly one place in `_classify_edge`. Inlining eliminates the separate function and reuses the `diffs` array already computed by `_classify_edge` (the standalone version recomputed diffs as `(k, role)` pairs). The sub/prod presence check and residual detection now operate directly on the integer diff indices.
+
+### Remaining opportunities for further reduction
+
+1. **`_pingpong_dfs!` + `_release_prods_dfs!`** (~100 lines): The largest code block. 15-parameter signature could be reduced by bundling read-only context into a NamedTuple (~-2 lines net). `_release_prods_dfs!` could be inlined (~-3 lines) but reduces readability.
+
+2. **`_dead_end_configs`** (~52 lines): The double-bitmask (outer: which reg sites active, inner: all submask DE forms) could be replaced with on-the-fly computation using `Iterators.product` over per-form mask ranges, but savings are only ~4 lines.
+
+3. **`_expand_activators`** (~55 lines): Mirror/mirrored edge computation iterates `spec.edges` twice with the same filter — could merge into a single loop (~-2 lines).
+
+4. **`_classify_edge` release branch** (~10 lines): The residual metabolite determination (findfirst for product with matching atoms) could be slightly compacted.
+
+5. **`EnzymeMechanism(spec)`** (~29 lines): Re-enumerates forms and rebuilds adjacency. Could avoid redundant work if MechanismSpec cached these, but would add complexity elsewhere.
+
+The code is now at ~692 lines. Most remaining functions implement algorithmically necessary logic with minimal redundancy. Further reductions would be 2-3 lines each.

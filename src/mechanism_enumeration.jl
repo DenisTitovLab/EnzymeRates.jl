@@ -96,22 +96,6 @@ function _atom_residual(sub_atoms, to_remove)
     r == sub_atoms ? nothing : r
 end
 
-"""Check if two forms represent a valid isomerization."""
-function _is_valid_isomerization(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
-    diffs = [(k, fa.sites[k].role) for k in eachindex(fa.sites)
-             if fa.sites[k].role in (:sub, :prod) &&
-                fa.sites[k].atoms != fb.sites[k].atoms]
-    any(d -> d[2] == :sub, diffs) &&
-        any(d -> d[2] == :prod, diffs) || return false
-    has_residual = any(diffs) do (k, role)
-        role == :sub && any(x -> x !== nothing && x != fa.sites[k].full_atoms,
-                           (fa.sites[k].atoms, fb.sites[k].atoms))
-    end
-    n_core = count(s -> s.role in (:sub, :prod), fa.sites)
-    (has_residual || length(diffs) == n_core) &&
-        _core_atoms(fa) == _core_atoms(fb)
-end
-
 """Classify edge between two enzyme forms → EdgeInfo or nothing."""
 function _classify_edge(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
     diffs = Int[]
@@ -141,8 +125,18 @@ function _classify_edge(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
         return nothing
     end
 
+    # Multi-diff: check isomerization (all diffs must be sub/prod)
     all(k -> fa.sites[k].role in (:sub, :prod), diffs) || return nothing
-    _is_valid_isomerization(fa, fb) &&
+    any(k -> fa.sites[k].role == :sub, diffs) &&
+        any(k -> fa.sites[k].role == :prod, diffs) || return nothing
+    has_residual = any(diffs) do k
+        fa.sites[k].role == :sub &&
+            any(x -> x !== nothing && x != fa.sites[k].full_atoms,
+                (fa.sites[k].atoms, fb.sites[k].atoms))
+    end
+    n_core = count(s -> s.role in (:sub, :prod), fa.sites)
+    (has_residual || length(diffs) == n_core) &&
+        _core_atoms(fa) == _core_atoms(fb) &&
         return (type=:isomerization, metabolite=nothing)
     nothing
 end
@@ -209,22 +203,11 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
     # Cartesian product with exclusion filter
     n = length(mets)
     forms = EnzymeFormSpec[]
-    total = prod(length(o) for o in opts)
-    name_parts = Vector{String}(undef, n)
-    sites_buf = Vector{SiteState}(undef, n)
-    for idx in 0:total-1
-        rem = idx
+    for combo in Iterators.product(opts...)
         all_sub_full = true; all_prod_full = true
         any_sub_occ = false; any_prod_occ = false
-        for i in n:-1:1
-            content, label = opts[i][rem % length(opts[i]) + 1]
-            rem ÷= length(opts[i])
-            name_parts[i] = label
-            sites_buf[i] = (
-                metabolite=mets[i],
-                atoms=content === nothing ? nothing : copy(content),
-                role=roles[i], full_atoms=fulls[i],
-            )
+        for i in 1:n
+            content = combo[i][1]
             if roles[i] == :sub
                 content != fulls[i] && (all_sub_full = false)
                 content !== nothing && (any_sub_occ = true)
@@ -235,8 +218,12 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
         end
         (all_sub_full && any_prod_occ) && continue
         (all_prod_full && any_sub_occ) && continue
+        sites = [(metabolite=mets[i],
+            atoms=combo[i][1] === nothing ? nothing : copy(combo[i][1]),
+            role=roles[i], full_atoms=fulls[i])
+            for i in 1:n]
         push!(forms, EnzymeFormSpec(
-            Symbol("E_" * join(name_parts, "_")), copy(sites_buf)))
+            Symbol("E_" * join((c[2] for c in combo), "_")), sites))
     end
     forms
 end
@@ -366,15 +353,9 @@ end
 function _combine_form_sets(cycles::Vector{Set{Int}})
     isempty(cycles) && return Set{Int}[]
     n = length(cycles)
-    result = Set{Int}[]
-    seen = Set{Set{Int}}()
-    for mask in 1:(1 << n) - 1
-        merged = union((cycles[i] for i in 1:n
-                        if (mask >> (i-1)) & 1 == 1)...)
-        merged in seen && continue
-        push!(seen, merged); push!(result, merged)
-    end
-    result
+    unique!([union((cycles[i] for i in 1:n
+                    if (mask >> (i-1)) & 1 == 1)...)
+             for mask in 1:(1 << n) - 1])
 end
 
 """Enumerate catalytic topologies → Vector{MechanismSpec}."""
