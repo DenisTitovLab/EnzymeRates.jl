@@ -40,39 +40,24 @@ Base.length(iter::MechanismIterator) = iter.total
 Base.iterate(iter::MechanismIterator) = iterate(iter.inner)
 Base.iterate(iter::MechanismIterator, state) = iterate(iter.inner, state)
 
-# ─── Form Index ─────────────────────────────────────────────
-
-"""Build Dict mapping site-atoms tuple → form index for O(1) lookup."""
-_build_form_index(forms) =
-    Dict(Tuple(s.atoms for s in f.sites) => i for (i, f) in enumerate(forms))
-
 # ─── Edge Classification + Adjacency ─────────────────────────
 
 const EdgeInfo = @NamedTuple{type::Symbol, metabolite::Union{Nothing,Symbol}}
 
-"""Sum atoms across sites, optionally filtering by role."""
-function _sum_atoms(sites, filter_roles=nothing)
+"""Sum atoms across all sites into a sorted Vector{Pair{Symbol,Int}}."""
+function _form_atoms(sites)
     atoms = Dict{Symbol,Int}()
     for s in sites
-        filter_roles !== nothing && !(s.role in filter_roles) && continue
         s.atoms === nothing && continue
         for (a, c) in s.atoms; atoms[a] = get(atoms, a, 0) + c; end
     end
-    atoms
-end
-_form_atoms(sites) = sort([a => c for (a, c) in _sum_atoms(sites)]; by=first)
-
-"""Compute residual atoms after subtracting `to_remove` from `sub_atoms`.
-Returns sorted Vector{Pair} or nothing if subtraction is invalid/trivial."""
-function _atom_residual(sub_atoms, to_remove)
-    sa, pa = Dict{Symbol,Int}(sub_atoms), Dict{Symbol,Int}(to_remove)
-    all(get(sa, a, 0) >= c for (a, c) in pa) || return nothing
-    r = sort([a => c - get(pa, a, 0) for (a, c) in sa
-              if c > get(pa, a, 0)]; by=first)
-    isempty(r) || r == sub_atoms ? nothing : r
+    sort!([a => c for (a, c) in atoms]; by=first)
 end
 
-"""Classify edge between two enzyme forms → EdgeInfo or nothing."""
+"""Classify edge between two enzyme forms → EdgeInfo or nothing.
+
+Single-site diff → binding (empty→occupied) or release (occupied→empty).
+Multi-site diff → isomerization if sub+prod sites change with atom balance."""
 function _classify_edge(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
     diffs = [k for k in eachindex(fa.sites)
              if fa.sites[k].atoms != fb.sites[k].atoms]
@@ -94,6 +79,7 @@ function _classify_edge(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
         end
         return nothing
     end
+    # Isomerization: multiple sub/prod sites change with conserved atoms
     all(k -> fa.sites[k].role in (:sub, :prod), diffs) || return nothing
     any(k -> fa.sites[k].role == :sub, diffs) &&
         any(k -> fa.sites[k].role == :prod, diffs) || return nothing
@@ -101,11 +87,15 @@ function _classify_edge(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
         x -> x !== nothing && x != fa.sites[k].full_atoms,
         (fa.sites[k].atoms, fb.sites[k].atoms)), diffs)
     (has_res || length(diffs) == count(
-        s -> s.role in (:sub, :prod), fa.sites)) &&
-        _sum_atoms(fa.sites, (:sub, :prod)) ==
-            _sum_atoms(fb.sites, (:sub, :prod)) &&
-        return (type=:isomerization, metabolite=nothing)
-    nothing
+        s -> s.role in (:sub, :prod), fa.sites)) || return nothing
+    # Atom balance: net change across differing sites must be zero
+    delta = Dict{Symbol,Int}()
+    for k in diffs, (v, sign) in ((fa.sites[k].atoms, 1), (fb.sites[k].atoms, -1))
+        v === nothing && continue
+        for (a, c) in v; delta[a] = get(delta, a, 0) + sign * c; end
+    end
+    all(iszero, values(delta)) || return nothing
+    (type=:isomerization, metabolite=nothing)
 end
 
 """Build adjacency dict from enzyme forms."""
@@ -127,29 +117,31 @@ Enumerate all possible enzyme forms for the given reaction.
 function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
     fatoms(spec) = sort([a => c for (a, c) in spec[2]]; by=first)
     astr(v) = join(string(s) * (c > 1 ? string(c) : "") for (s, c) in v)
-    # Ping-pong residuals
+    # Ping-pong residuals: subtract product atom combos from substrate atoms
     pa_list = [Dict{Symbol,Int}(a => c for (a, c) in p[2])
                for p in P if !isempty(p[2])]
     residuals = Dict{Symbol,Vector{Vector{Pair{Symbol,Int}}}}()
     for ss in S
         (isempty(ss[2]) || isempty(pa_list)) && continue
-        sav = fatoms(ss); sr = Vector{Pair{Symbol,Int}}[]
+        sav = fatoms(ss)
+        sa = Dict{Symbol,Int}(sav); sr = Vector{Pair{Symbol,Int}}[]
         for m in 1:(1 << length(pa_list)) - 1
-            comb = reduce(mergewith(+), (pa_list[i]
+            pa = reduce(mergewith(+), (pa_list[i]
                 for i in 1:length(pa_list) if (m >> (i - 1)) & 1 == 1))
-            r = _atom_residual(sav, comb)
-            r !== nothing && r ∉ sr && push!(sr, r)
+            all(get(sa, a, 0) >= c for (a, c) in pa) || continue
+            r = sort([a => c - get(pa, a, 0) for (a, c) in sa
+                      if c > get(pa, a, 0)]; by=first)
+            !isempty(r) && r != sav && r ∉ sr && push!(sr, r)
         end
         !isempty(sr) && (residuals[ss[1]] = sr)
     end
     # Build per-site options
     mets = Symbol[]; fulls = Vector{Pair{Symbol,Int}}[]; roles = Symbol[]
-    OptT = Tuple{Union{Nothing,Vector{Pair{Symbol,Int}}},String}
-    opts = Vector{OptT}[]
+    opts = Vector{Tuple{Union{Nothing,Vector{Pair{Symbol,Int}}},String}}[]
     for (group, role) in ((S, :sub), (P, :prod), (R, :reg)), spec in group
         push!(mets, spec[1]); push!(fulls, fatoms(spec))
         push!(roles, role)
-        so = OptT[(nothing, "0"), (fatoms(spec), string(spec[1]))]
+        so = [(nothing, "0"), (fatoms(spec), string(spec[1]))]
         for r in get(residuals, spec[1], Vector{Pair{Symbol,Int}}[])
             push!(so, (r, astr(r)))
         end
@@ -173,10 +165,6 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
 end
 
 # ─── Catalytic Cycle Enumeration ──────────────────────────────
-
-"""Collect all edges between forms in `fset` from the adjacency dict."""
-_induced_edges(fset, adj) =
-    [(a, b) for ((a, b), _) in adj if a ∈ fset && b ∈ fset]
 
 """Enumerate catalytic topologies → Vector{MechanismSpec}.
 
@@ -262,7 +250,9 @@ function _catalytic_topologies(
         !any(fi -> all(s -> s.role != :sub ||
             s.atoms == s.full_atoms, forms[fi].sites), fs)
     end
-    [MechanismSpec(reaction, _induced_edges(fs, adj)) for fs in combined]
+    [MechanismSpec(reaction,
+        [(a, b) for ((a, b), _) in adj if a ∈ fs && b ∈ fs])
+     for fs in combined]
 end
 
 # ─── Activator Configs ────────────────────────────────────────
@@ -277,12 +267,11 @@ function _expand_activators(
 )
     reg_names = [r[1] for r in regulators(reaction)]
     isempty(reg_names) && return specs
-    OptT = Tuple{Vector{Tuple{Int,Int}}, Set{Tuple{Int,Int}}}
     result = MechanismSpec[]
     for spec in specs
         topo = Set(Iterators.flatten(spec.edges))
         per_reg = [begin
-            opts = OptT[(Tuple{Int,Int}[], Set{Tuple{Int,Int}}())]
+            opts = [(Tuple{Int,Int}[], Set{Tuple{Int,Int}}())]
             pos = findfirst(s -> s.metabolite == reg && s.role == :reg &&
                 s.atoms === nothing, forms[first(topo)].sites)
             spairs = pos === nothing ? typeof((0, 0))[] :
@@ -363,8 +352,9 @@ function _dead_end_configs(
         end
         length(de) > budget && continue
         all_forms = union(topo_set, de)
-        new_edges = [(a, b) for (a, b) in _induced_edges(all_forms, adj)
-            if (a, b) ∉ existing && adj[(a, b)].type == :binding]
+        new_edges = [(a, b) for ((a, b), info) in adj
+            if a ∈ all_forms && b ∈ all_forms &&
+               (a, b) ∉ existing && info.type == :binding]
         push!(results, MechanismSpec(spec.reaction,
             [spec.edges; new_edges]))
     end
@@ -440,7 +430,8 @@ function enumerate_mechanisms(
 )
     forms = enumerate_enzyme_forms(reaction)
     adj = _build_adjacency(forms)
-    fidx = _build_form_index(forms)
+    fidx = Dict(Tuple(s.atoms for s in f.sites) => i
+                for (i, f) in enumerate(forms))
 
     catalytic = _catalytic_topologies(forms, adj, reaction; max_forms)
     stage isa Catalytic && return catalytic
