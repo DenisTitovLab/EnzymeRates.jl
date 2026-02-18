@@ -174,23 +174,13 @@ end
 
 # ─── Catalytic Cycle Enumeration ──────────────────────────────
 
-"""Build directed adjacency list from undirected edge dict.
-
-Reverses binding↔release for the back direction; isomerization is symmetric."""
-function _build_directed_adj(adj)
-    nbrs = Dict{Int, Vector{Tuple{Int, Symbol, Union{Nothing, Symbol}}}}()
-    for ((a, b), info) in adj
-        push!(get!(nbrs, a, []), (b, info.type, info.metabolite))
-        rtype = info.type == :binding ? :release :
-                info.type == :release ? :binding : :isomerization
-        push!(get!(nbrs, b, []), (a, rtype, info.metabolite))
-    end
-    nbrs
-end
+"""Collect all edges between forms in `fset` from the adjacency dict."""
+_induced_edges(fset, adj) =
+    [(a, b) for ((a, b), _) in adj if a ∈ fset && b ∈ fset]
 
 """Enumerate catalytic topologies → Vector{MechanismSpec}.
 
-Uses a graph-walk DFS over the directed adjacency list. Substrate binding,
+Uses a graph-walk DFS over directed adjacency. Substrate binding,
 product release, and isomerization (including ping-pong) are all handled
 uniformly as edge traversals—no special-case code per reaction type."""
 function _catalytic_topologies(
@@ -203,16 +193,23 @@ function _catalytic_topologies(
     prod_set = Set(p[1] for p in products(reaction))
     free = findfirst(f -> all(s -> s.atoms === nothing, f.sites), forms)
     free === nothing && return MechanismSpec[]
-    # Restrict to forms with all regulator sites empty (catalytic topology)
     cat_forms = Set(i for (i, f) in enumerate(forms)
         if all(s -> s.role != :reg || s.atoms === nothing, f.sites))
-    nbrs = _build_directed_adj(adj)
+    # Build directed adjacency restricted to catalytic forms
+    nbrs = Dict{Int, Vector{Tuple{Int, Symbol, Union{Nothing, Symbol}}}}()
+    for ((a, b), info) in adj
+        a ∈ cat_forms && b ∈ cat_forms || continue
+        push!(get!(nbrs, a, []), (b, info.type, info.metabolite))
+        rtype = info.type == :binding ? :release :
+                info.type == :release ? :binding : :isomerization
+        push!(get!(nbrs, b, []), (a, rtype, info.metabolite))
+    end
 
     cycles = Set{Set{Int}}()
     path = [free]; visited = Set{Int}([free])
     bound = Set{Symbol}(); released = Set{Symbol}()
-    # After PP isomerization (producing a product + residual), force release before
-    # any further binding. This prevents non-ping-pong interleaving of bind/release.
+    # After PP isomerization (producing a product + residual), force release
+    # before any further binding. Prevents non-PP interleaving of bind/release.
     must_release = false
 
     function step!(next)
@@ -228,7 +225,6 @@ function _catalytic_topologies(
             return
         end
         for (next, etype, met) in get(nbrs, cur, ())
-            next ∈ cat_forms || continue
             next ∈ visited && next != free && continue
             if etype == :binding && met ∈ sub_set && met ∉ bound &&
                     !must_release
@@ -266,19 +262,10 @@ function _catalytic_topologies(
         !any(fi -> all(s -> s.role != :sub ||
             s.atoms == s.full_atoms, forms[fi].sites), fs)
     end
-    map(combined) do fs
-        sorted = sort(collect(fs))
-        edges = [(sorted[i], sorted[j])
-                 for i in 1:length(sorted) for j in (i+1):length(sorted)
-                 if haskey(adj, (sorted[i], sorted[j]))]
-        MechanismSpec(reaction, edges)
-    end
+    [MechanismSpec(reaction, _induced_edges(fs, adj)) for fs in combined]
 end
 
 # ─── Activator Configs ────────────────────────────────────────
-
-"""Set of form indices in a spec's edges."""
-_used_form_set(spec::MechanismSpec) = Set(Iterators.flatten(spec.edges))
 
 """Generate activator variants for specs."""
 function _expand_activators(
@@ -293,7 +280,7 @@ function _expand_activators(
     OptT = Tuple{Vector{Tuple{Int,Int}}, Set{Tuple{Int,Int}}}
     result = MechanismSpec[]
     for spec in specs
-        topo = _used_form_set(spec)
+        topo = Set(Iterators.flatten(spec.edges))
         per_reg = [begin
             opts = OptT[(Tuple{Int,Int}[], Set{Tuple{Int,Int}}())]
             pos = findfirst(s -> s.metabolite == reg && s.role == :reg &&
@@ -322,7 +309,8 @@ function _expand_activators(
             merged = [e for e in spec.edges if e ∉ removals]
             for (add, _) in combo; append!(merged, add); end
             ns = MechanismSpec(reaction, merged)
-            length(_used_form_set(ns)) <= max_forms && push!(result, ns)
+            length(Set(Iterators.flatten(merged))) <= max_forms &&
+                push!(result, ns)
         end
     end
     result
@@ -348,25 +336,25 @@ function _dead_end_configs(
     fidx;
     max_forms::Int,
 )
-    sorted_topo = sort(collect(_used_form_set(spec)))
-    budget = max_forms - length(sorted_topo)
+    topo = sort(collect(Set(Iterators.flatten(spec.edges))))
+    budget = max_forms - length(topo)
     budget < 0 && return MechanismSpec[]
-    act_pos = Set(k for fi in sorted_topo for (k, s) in enumerate(forms[fi].sites)
+    act_pos = Set(k for fi in topo for (k, s) in enumerate(forms[fi].sites)
                   if s.role == :reg && s.atoms !== nothing)
-    inh = [k for (k, s) in enumerate(forms[sorted_topo[1]].sites)
+    inh = [k for (k, s) in enumerate(forms[topo[1]].sites)
            if s.role == :reg && s.atoms === nothing && k ∉ act_pos]
     r = length(inh)
-    topo_set = Set(sorted_topo)
+    topo_set = Set(topo)
     existing = Set(minmax(e...) for e in spec.edges)
     # Precompute: for each topology form, map inhibitor mask → dead-end form
     de_lookup = [Dict(mask => fi2
         for mask in 1:(1 << r) - 1
         for fi2 in (_find_dead_end(fidx, forms[fi],
             Tuple(inh[j] for j in 1:r if (mask >> (j - 1)) & 1 == 1)),)
-        if fi2 !== nothing && fi2 ∉ topo_set) for fi in sorted_topo]
+        if fi2 !== nothing && fi2 ∉ topo_set) for fi in topo]
     results = MechanismSpec[]
     for combo in Iterators.product(
-            ntuple(_ -> 0:(1 << r) - 1, length(sorted_topo))...)
+            ntuple(_ -> 0:(1 << r) - 1, length(topo))...)
         de = Set{Int}()
         for (ti, fi_mask) in enumerate(combo)
             for (m, fi2) in de_lookup[ti]
@@ -374,10 +362,9 @@ function _dead_end_configs(
             end
         end
         length(de) > budget && continue
-        all_fi = sort([sorted_topo; collect(de)])
-        new_edges = [(fi, fj) for fi in all_fi for fj in all_fi
-            if fi < fj && (fi, fj) ∉ existing &&
-               haskey(adj, (fi, fj)) && adj[(fi, fj)].type == :binding]
+        all_forms = union(topo_set, de)
+        new_edges = [(a, b) for (a, b) in _induced_edges(all_forms, adj)
+            if (a, b) ∉ existing && adj[(a, b)].type == :binding]
         push!(results, MechanismSpec(spec.reaction,
             [spec.edges; new_edges]))
     end
@@ -488,7 +475,7 @@ function EnzymeMechanism(spec::MechanismSpec)
     rxn = spec.reaction
     forms = enumerate_enzyme_forms(rxn)
     adj = _build_adjacency(forms)
-    used = _used_form_set(spec)
+    used = Set(Iterators.flatten(spec.edges))
     _na(g) = Tuple((n, a) for (n, a, _) in g)
     species = (_na(substrates(rxn)), _na(products(rxn)), _na(regulators(rxn)),
         Tuple((forms[i].name, Tuple(Tuple.(_form_atoms(forms[i].sites))))
