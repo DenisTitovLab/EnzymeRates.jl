@@ -36,23 +36,43 @@ All 636 tests pass including all 8 `ENUMERATION_TEST_SPECS`.
 - **`_is_pure_topology` filter** — still needed to reject mixed standard+PP topologies.
 - **`_is_valid_isomerization` and `_core_atoms`** — complex but essential for correct PP isomerization detection.
 
-## Remaining Work (Phase 2 — further line reduction)
+## Phase 2 Complete (all tests passing)
 
-The file is 1020 lines vs the 200-line target. The gap is primarily in:
+All 636 tests pass. File reduced from 1020 → 892 lines (13% further reduction).
 
-1. **Cycle enumeration** (~250 lines): `_find_form`, `_permutations`, `_build_standard_form_set`, `_enumerate_pingpong_form_sets!`, `_pingpong_dfs!`, `_release_prods_dfs!`. These are algorithmically necessary. Minor cleanup possible but not dramatic.
+### Phase 2 Changes
 
-2. **Edge classification** (~130 lines): `_is_valid_isomerization` alone is 50 lines due to the dual standard/PP logic. `_classify_edge` is 35 lines. Hard to reduce without losing correctness.
+**Form index dictionary** (`_build_form_index`, `_lookup_form`): O(1) form lookup by site-atoms tuple, replacing O(n) linear scans. Enabled simplification of 3 lookup functions:
+- `_find_form` (31 lines) → `_lookup_form` (20 lines, shared by all callers)
+- `_find_shadow_form` (18 lines) → `_find_shadow` (9 lines)
+- `_find_dead_end_form` (12 lines) → `_find_dead_end` (7 lines)
 
-3. **Dead-end enumeration** (~80 lines): Already fairly compact. The Cartesian product with budget is inherently complex.
+**`_is_valid_isomerization` simplified** (52 → 29 lines): Single-pass loop collects diffs, then standard case uses `a_sub_occ != a_prod_occ` check (safe because `enumerate_enzyme_forms` guarantees all-subs-full ↔ no-prods-occupied invariant).
 
-4. **Activator configs** (~75 lines): Shadow pair logic is compact but has many moving parts.
+**`_classify_edge` simplified** (39 → 36 lines): Merged binding/release paths for sub/prod and reg sites. Inlined `_residual_metabolite` (removed as separate function).
 
-Potential further simplifications:
-- Inline `_permutations` using `Combinatorics.permutations` (but adds dependency)
-- Merge `_pingpong_dfs!` and `_release_prods_dfs!` (they share some structure)
-- Simplify `_is_valid_isomerization` if PP case handling can be unified
-- Review whether `_find_form` can be replaced by direct adjacency lookups
+**`_is_pure_topology` rewritten** (35 → 14 lines): Replaced imperative boolean tracking with declarative helper lambdas (`_is_residual`, `_is_free`, `_all_subs_full`).
+
+**Atom summing unified**: `_core_atoms` and `_form_atoms` now share `_sum_atoms` helper (21 → 11 lines).
+
+**Other cleanups**:
+- Inlined `_enumerate_pingpong_form_sets!` into `_catalytic_topologies`
+- Removed unused `adj` parameter from `_expand_activators`
+- Merged sub/prod/reg site-data loops in `enumerate_enzyme_forms`
+- Simplified dead-end edge construction
+- Simplified activator Cartesian product edge merging
+
+### Failed approach: Cycle pre-separation
+Attempted to separate std/PP cycles before `_combine_form_sets` to eliminate `_is_pure_topology`. Failed because PP cycles validly combine with each other through `_combine_form_sets` (Bi-Bi PP: 12 vs expected 10). `_is_pure_topology` is needed to reject invalid combinations.
+
+## Remaining Work (Phase 3)
+
+The file is 892 lines. The remaining functions are algorithmically necessary:
+
+1. **`_pingpong_dfs!`** (98 lines): Inherently complex 3-option DFS. Option 3 (PP isomerization + release) has ~55 lines of inline atom arithmetic that could be precomputed as a transition table, but the table builder would be equally complex (~35 lines).
+2. **`enumerate_enzyme_forms`** (84 lines): Ping-pong residual computation + Cartesian product with exclusion filter. Already tight.
+3. **`_dead_end_configs`** (75 lines): Two-level bitmask loops + edge construction. Already simplified.
+4. **`_expand_activators`** (73 lines): Shadow pair logic + Cartesian product. Already simplified.
 
 ## Key Insight: Why Unified DFS Doesn't Work
 
