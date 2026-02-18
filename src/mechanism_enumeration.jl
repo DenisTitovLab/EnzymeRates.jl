@@ -20,6 +20,8 @@ struct MechanismSpec
     equilibrium_steps::Vector{Bool}
     param_constraints::Vector{ParamConstraint}
 end
+MechanismSpec(reaction, edges) =
+    MechanismSpec(reaction, edges, fill(false, length(edges)), ParamConstraint[])
 
 abstract type EnumerationStage end
 struct Catalytic    <: EnumerationStage end
@@ -80,14 +82,11 @@ _form_atoms(sites) = sort([a => c for (a, c) in _sum_atoms(sites)]; by=first)
 """Compute residual atoms after subtracting `to_remove` from `sub_atoms`.
 Returns sorted Vector{Pair} or nothing if subtraction is invalid/trivial."""
 function _atom_residual(sub_atoms, to_remove)
-    sa = Dict{Symbol,Int}(sub_atoms)
-    pa = Dict{Symbol,Int}(to_remove)
+    sa, pa = Dict{Symbol,Int}(sub_atoms), Dict{Symbol,Int}(to_remove)
     all(get(sa, a, 0) >= c for (a, c) in pa) || return nothing
-    res = Dict{Symbol,Int}(
-        a => c - get(pa, a, 0) for (a, c) in sa if c > get(pa, a, 0))
-    isempty(res) && return nothing
-    r = sort([a => c for (a, c) in res]; by=first)
-    r == sub_atoms ? nothing : r
+    r = sort([a => c - get(pa, a, 0) for (a, c) in sa
+              if c > get(pa, a, 0)]; by=first)
+    isempty(r) || r == sub_atoms ? nothing : r
 end
 
 """Classify edge between two enzyme forms → EdgeInfo or nothing."""
@@ -128,12 +127,11 @@ end
 
 """Build adjacency dict from enzyme forms."""
 function _build_adjacency(forms::Vector{EnzymeFormSpec})
-    adj = Dict{Tuple{Int,Int}, EdgeInfo}()
-    for i in 1:length(forms), j in (i+1):length(forms)
-        info = _classify_edge(forms[i], forms[j])
-        info !== nothing && (adj[(i, j)] = info)
-    end
-    adj
+    Dict{Tuple{Int,Int},EdgeInfo}(
+        (i, j) => info
+        for i in eachindex(forms) for j in (i+1):length(forms)
+        for info in (_classify_edge(forms[i], forms[j]),)
+        if info !== nothing)
 end
 
 # ─── Enzyme Form Enumeration ─────────────────────────────────
@@ -312,8 +310,7 @@ function _catalytic_topologies(
         edges = [(sorted[i], sorted[j])
                  for i in 1:length(sorted) for j in (i+1):length(sorted)
                  if haskey(adj, (sorted[i], sorted[j]))]
-        MechanismSpec(reaction, edges,
-                      fill(false, length(edges)), ParamConstraint[])
+        MechanismSpec(reaction, edges)
     end
 end
 
@@ -346,10 +343,10 @@ function _expand_activators(
             filter!(((_, si),) -> si !== nothing, spairs)
             if length(spairs) >= 2
                 sm = Dict(spairs)
-                mirr = [minmax(sm[a], sm[b]) for (a, b) in spec.edges
-                        if haskey(sm, a) && haskey(sm, b)]
-                mirrd = Set((a, b) for (a, b) in spec.edges
-                            if haskey(sm, a) && haskey(sm, b))
+                me = [(a, b) for (a, b) in spec.edges
+                      if haskey(sm, a) && haskey(sm, b)]
+                mirr = [minmax(sm[a], sm[b]) for (a, b) in me]
+                mirrd = Set(me)
                 bind = [minmax(b, s) for (b, s) in spairs]
                 push!(opts, ([bind; mirr], Set{Tuple{Int,Int}}()))
                 entry = findfirst(((bi, _),) -> all(
@@ -364,8 +361,7 @@ function _expand_activators(
             removals = union((r for (_, r) in combo)...)
             merged = [e for e in spec.edges if e ∉ removals]
             for (add, _) in combo; append!(merged, add); end
-            ns = MechanismSpec(reaction, merged,
-                fill(false, length(merged)), ParamConstraint[])
+            ns = MechanismSpec(reaction, merged)
             length(_used_form_set(ns)) <= max_forms && push!(result, ns)
         end
     end
@@ -391,41 +387,42 @@ function _dead_end_configs(
     fidx;
     max_forms::Int,
 )
-    topo = _used_form_set(spec)
-    budget = max_forms - length(topo)
+    sorted_topo = sort(collect(_used_form_set(spec)))
+    budget = max_forms - length(sorted_topo)
     budget < 0 && return MechanismSpec[]
-    act_pos = Set(k for fi in topo for k in eachindex(forms[fi].sites)
+    act_pos = Set(k for fi in sorted_topo
+        for k in eachindex(forms[fi].sites)
         if forms[fi].sites[k].role == :reg &&
            forms[fi].sites[k].atoms !== nothing)
-    pairs = [(fi, k) for fi in sort(collect(topo))
-             for k in eachindex(forms[fi].sites)
-             if forms[fi].sites[k].role == :reg &&
-                forms[fi].sites[k].atoms === nothing && k ∉ act_pos]
+    inh = [k for k in eachindex(forms[sorted_topo[1]].sites)
+        if forms[sorted_topo[1]].sites[k].role == :reg &&
+           forms[sorted_topo[1]].sites[k].atoms === nothing && k ∉ act_pos]
+    r = length(inh)
+    existing = Set(minmax(e...) for e in spec.edges)
+    topo_set = Set(sorted_topo)
     results = MechanismSpec[]
-    for mask in 0:((1 << length(pairs)) - 1)
-        active = Dict{Int,Vector{Int}}()
-        for (idx, (fi, k)) in enumerate(pairs)
-            ((mask >> (idx - 1)) & 1) == 1 &&
-                push!(get!(active, fi, Int[]), k)
-        end
+    for combo in Iterators.product(
+            ntuple(_ -> 0:(1 << r) - 1, length(sorted_topo))...)
         de = Int[]
-        for (fi, positions) in active,
-                sm in 1:((1 << length(positions)) - 1)
-            pos = Tuple(positions[j] for j in 1:length(positions)
-                        if (sm >> (j - 1)) & 1 == 1)
-            fi2 = _find_dead_end(fidx, forms[fi], pos)
-            fi2 !== nothing && fi2 ∉ topo && fi2 ∉ de && push!(de, fi2)
+        for (ti, fi_mask) in enumerate(combo)
+            fi_mask == 0 && continue
+            fi = sorted_topo[ti]; sm = fi_mask
+            while sm > 0
+                pos = Tuple(inh[j] for j in 1:r
+                            if (sm >> (j - 1)) & 1 == 1)
+                fi2 = _find_dead_end(fidx, forms[fi], pos)
+                fi2 !== nothing && fi2 ∉ topo_set && fi2 ∉ de &&
+                    push!(de, fi2)
+                sm = (sm - 1) & fi_mask
+            end
         end
         length(de) > budget && continue
-        existing = Set(minmax(e...) for e in spec.edges)
-        all_fi = sort(collect(union(topo, de)))
+        all_fi = sort([sorted_topo; de])
         new_edges = [(fi, fj) for fi in all_fi for fj in all_fi
             if fi < fj && (fi, fj) ∉ existing &&
                haskey(adj, (fi, fj)) && adj[(fi, fj)].type == :binding]
         push!(results, MechanismSpec(spec.reaction,
-            [spec.edges; new_edges],
-            fill(false, length(spec.edges) + length(new_edges)),
-            ParamConstraint[]))
+            [spec.edges; new_edges]))
     end
     results
 end
@@ -438,14 +435,13 @@ function _find_equivalent_groups(
     adj::Dict{Tuple{Int,Int}, EdgeInfo},
     forms::Vector{EnzymeFormSpec},
 )
-    template = forms[1].sites
     binding_key = Dict{Symbol, Vector{Int}}()
     for (i, (a, b)) in enumerate(edges)
         info = get(adj, minmax(a, b), nothing)
         info === nothing && continue
         info.type in (:binding, :release) || continue
         any(s -> s.metabolite == info.metabolite && s.role == :prod,
-            template) && continue
+            forms[1].sites) && continue
         push!(get!(binding_key, info.metabolite, Int[]), i)
     end
     groups = [sort(v) for v in values(binding_key) if length(v) >= 2]
@@ -515,10 +511,9 @@ function enumerate_mechanisms(
     forms = enumerate_enzyme_forms(reaction)
     adj = _build_adjacency(forms)
     fidx = _build_form_index(forms)
-    template = forms[1].sites
 
     catalytic = _catalytic_topologies(
-        forms, adj, fidx, template, reaction; max_forms)
+        forms, adj, fidx, forms[1].sites, reaction; max_forms)
     stage isa Catalytic && return catalytic
 
     with_act = _expand_activators(
@@ -553,23 +548,20 @@ function EnzymeMechanism(spec::MechanismSpec)
     adj = _build_adjacency(forms)
     used = _used_form_set(spec)
 
-    subs_t = Tuple((n, a) for (n, a, _) in substrates(rxn))
-    prods_t = Tuple((n, a) for (n, a, _) in products(rxn))
-    regs_t = Tuple((n, a) for (n, a, _) in regulators(rxn))
+    _na(group) = Tuple((n, a) for (n, a, _) in group)
     enzs_t = Tuple(
         (forms[i].name, Tuple(Tuple.(_form_atoms(forms[i].sites))))
         for i in 1:length(forms) if i in used)
-    species = (subs_t, prods_t, regs_t, enzs_t)
+    species = (_na(substrates(rxn)), _na(products(rxn)),
+               _na(regulators(rxn)), enzs_t)
 
-    reactions = Tuple(
-        let info = adj[minmax(a, b)]
-            lhs = info.type == :binding ?
-                (forms[a].name, info.metabolite) : (forms[a].name,)
-            rhs = info.type == :release ?
-                (forms[b].name, info.metabolite) : (forms[b].name,)
-            (lhs, rhs)
-        end
-        for (a, b) in spec.edges)
+    reactions = Tuple(let info = adj[minmax(a, b)]
+        lhs = info.type == :binding ?
+            (forms[a].name, info.metabolite) : (forms[a].name,)
+        rhs = info.type == :release ?
+            (forms[b].name, info.metabolite) : (forms[b].name,)
+        (lhs, rhs)
+    end for (a, b) in spec.edges)
     eq_steps = Tuple(spec.equilibrium_steps)
     constraints = Tuple(
         (target, coeff, Tuple(Tuple.(factors)))
