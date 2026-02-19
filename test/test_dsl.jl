@@ -36,13 +36,13 @@
         @test EnzymeRates.n_steps(m) == 2
         @test EnzymeRates.n_states(m) == 2
         @test Set(e[1] for e in EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
-        @test Set(m[1] for m in metabolites(m)) == Set([:S, :P])
+        @test Set(metabolites(m)) == Set([:S, :P])
 
         # Numeric check: same as Uni-Uni spot check
         Keq = 3.2 * 2.5 / (0.8 * 1.1)
         params = (k1f=3.2, k2f=2.5, k2r=1.1, Keq=Keq, E_total=1.0)
         concs = (S=0.7, P=0.3)
-        @test rate_equation(m, params, concs) ≈ 0.9091 atol=0.001
+        @test rate_equation(m, concs, params) ≈ 0.9091 atol=0.001
 
         # Multi-step mechanism
         m2 = @enzyme_mechanism begin

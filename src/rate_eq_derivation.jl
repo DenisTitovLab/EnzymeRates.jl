@@ -6,30 +6,39 @@
 Return the parameter names required for the given mode as a tuple of Symbols.
 
 # Modes
-- `HALDANE_WEGSCHEIDER` (default): independent k's + Keq + E_total
-- `RAW`: all 2N k's + E_total
+- `Reduced` (default): independent k's + Keq + E_total
+- `Full`: all 2N k's + E_total
 """
 function parameters end
 
-parameters(m::EnzymeMechanism) = parameters(m, HALDANE_WEGSCHEIDER)
+parameters(m::EnzymeMechanism) = parameters(m, Reduced)
 
 @generated function parameters(
     ::EnzymeMechanism{Species, Reactions, EqSteps, PC},
-    ::RawMode,
+    ::FullMode,
 ) where {Species, Reactions, EqSteps, PC}
     constrained = Set(c[1] for c in PC)
     Tuple(p for p in (_raw_param_symbols(EqSteps)..., :E_total) if p ∉ constrained)
 end
 
-@generated function parameters(::M, ::HaldaneWegscheiderMode) where {M <: EnzymeMechanism}
+@generated function parameters(
+    ::EnzymeMechanism{Sp, Rx, Eq, PC}, ::ReducedMode,
+) where {Sp, Rx, Eq, PC}
+    M = EnzymeMechanism{Sp, Rx, Eq, PC}
     _, indep = _dependent_param_exprs(M)
-    (indep..., :Keq, :E_total)
+    constrained_targets = Set(c[1] for c in PC)
+    filtered = Tuple(p for p in indep if p ∉ constrained_targets)
+    (filtered..., :Keq, :E_total)
 end
 
 """Independent rate constant names for fitting (excludes Keq, E_total)."""
-@generated function fitted_params(::M) where {M <: EnzymeMechanism}
+@generated function fitted_params(
+    ::EnzymeMechanism{Sp, Rx, Eq, PC},
+) where {Sp, Rx, Eq, PC}
+    M = EnzymeMechanism{Sp, Rx, Eq, PC}
     _, indep = _dependent_param_exprs(M)
-    Tuple(indep)
+    constrained_targets = Set(c[1] for c in PC)
+    Tuple(p for p in indep if p ∉ constrained_targets)
 end
 
 # ─── RE Group Helpers ───────────────────────────────────────
@@ -369,7 +378,7 @@ function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
     param_syms = Set{Symbol}(
         p for p in raw_ps if p ∉ constrained
     )
-    conc_syms = Set{Symbol}(mt[1] for mt in metabolites(m))
+    conc_syms = Set{Symbol}(metabolites(m))
     inv_set = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
     expr = to_rate_expr(num, den, param_syms, conc_syms, inv_set)
     all_params = _sorted_raw_param_symbols(M)
@@ -380,28 +389,28 @@ end
 # ─── Mode-dispatched rate_equation ────────────────────────────
 
 """
-    rate_equation(m::EnzymeMechanism, params, concs, [mode])
+    rate_equation(m::EnzymeMechanism, concs, params, [mode])
 
 Compute the QSSA steady-state rate. The body is generated at compile time
 as a single arithmetic expression with no allocations, loops, or matrix ops.
 """
 function rate_equation end
 
-function rate_equation(m::EnzymeMechanism, params, concs)
-    rate_equation(m, params, concs, HALDANE_WEGSCHEIDER)
+function rate_equation(m::EnzymeMechanism, concs, params)
+    rate_equation(m, concs, params, Reduced)
 end
 
 @generated function rate_equation(
-    m::M, params::NamedTuple, concs::NamedTuple, ::RawMode,
+    m::M, concs::NamedTuple, params::NamedTuple, ::FullMode,
 ) where {M <: EnzymeMechanism}
-    _build_rate_body(M, RawMode)
+    _build_rate_body(M, FullMode)
 end
 
 @generated function rate_equation(
-    m::M, params::NamedTuple, concs::NamedTuple,
-    ::HaldaneWegscheiderMode,
+    m::M, concs::NamedTuple, params::NamedTuple,
+    ::ReducedMode,
 ) where {M <: EnzymeMechanism}
-    _build_rate_body(M, HaldaneWegscheiderMode)
+    _build_rate_body(M, ReducedMode)
 end
 
 # ─── String Representation ────────────────────────────────────
@@ -413,7 +422,7 @@ Return a string representation of the rate equation.
 """
 function rate_equation_string end
 
-rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, HALDANE_WEGSCHEIDER)
+rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, Reduced)
 
 function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
     num, den = _raw_symbolic_rate_polys(M)
@@ -421,14 +430,14 @@ function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
     constrained = Set(c[1] for c in param_constraints(m))
     raw_ps = _raw_param_symbols(equilibrium_steps(m))
     ps = Set{Symbol}(p for p in raw_ps if p ∉ constrained)
-    cs = Set{Symbol}(mt[1] for mt in metabolites(m))
+    cs = Set{Symbol}(metabolites(m))
     inv = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
     num_str = string(_poly_to_expr(num, ps, cs, inv))
     den_str = string(_poly_to_expr(den, ps, cs, inv))
     "v = E_total * ($num_str) / ($den_str)"
 end
 
-function rate_equation_string(::M, ::RawMode) where {M<:EnzymeMechanism}
+function rate_equation_string(::M, ::FullMode) where {M<:EnzymeMechanism}
     lines = ["(; $(join(_sorted_raw_param_symbols(M), ", "))) = params",
              "(; $(join(_sorted_conc_symbols(M), ", "))) = concs"]
     pc = param_constraints(M())
@@ -439,7 +448,7 @@ function rate_equation_string(::M, ::RawMode) where {M<:EnzymeMechanism}
     join(lines, "\n")
 end
 
-function rate_equation_string(::M, ::HaldaneWegscheiderMode) where {M<:EnzymeMechanism}
+function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
     _, indep = _dependent_param_exprs(M)
     join(["(; $(join((indep..., :Keq, :E_total), ", "))) = params",
           "(; $(join(_sorted_conc_symbols(M), ", "))) = concs",
@@ -470,10 +479,3 @@ Number of excess parameters beyond what is structurally identifiable from kineti
     n_k - (n_num - 1) - (n_denom - 1)
 end
 
-"""
-    is_identifiable(m::EnzymeMechanism) → Bool
-
-Check if all mechanism parameters can be uniquely determined
-from steady-state kinetic data.
-"""
-is_identifiable(m::EnzymeMechanism) = structural_identifiability_deficit(m) <= 0

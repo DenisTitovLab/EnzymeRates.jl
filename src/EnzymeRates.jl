@@ -1,21 +1,23 @@
 module EnzymeRates
 
 # Types
-export AbstractEnzymeReaction, EnzymeReaction
-export AbstractEnzymeMechanism, EnzymeMechanism
+export EnzymeReaction, EnzymeMechanism
+export FittingProblem
+# export IdentifyRateEquationProblem, IdentifyRateEquationResults  # when implemented
 
 # DSL
 export @enzyme_reaction, @enzyme_mechanism
 
+# Rate equation modes
+export Full, Reduced
+
 # Core API
 export rate_equation, rate_equation_string, parameters, metabolites
+export structural_identifiability_deficit
 
-# Identifiability
-export is_identifiable, structural_identifiability_deficit
-
-# Fitting
-export FittingProblem, fit_rate_equation
-export fitted_params, metabolite_names
+# Fitting & model selection
+export fit_rate_equation
+# export identify_rate_equation  # when implemented
 
 # Mechanism enumeration (internal types, not public API)
 # SiteState, EnzymeFormSpec, MechanismSpec, EnumerationStage subtypes

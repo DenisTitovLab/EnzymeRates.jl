@@ -24,10 +24,10 @@ using Tables
     )
         rates = Float64[]
         for (i, concs) in enumerate(concs_list)
-            r = rate_equation(mechanism, true_params, concs) * scale
+            r = rate_equation(mechanism, concs, true_params) * scale
             push!(rates, r)
         end
-        met_names = metabolite_names(mechanism)
+        met_names = metabolites(mechanism)
         cols = Dict{Symbol, Vector}()
         cols[:Article] = articles
         cols[:Fig] = figs
@@ -42,10 +42,9 @@ using Tables
     @testset "Mechanism-level accessors" begin
         all_param_syms = parameters(uni_uni)
         expected_fitted = Tuple(p for p in all_param_syms if p !== :E_total && p !== :Keq)
-        expected_met_names = Tuple(m[1] for m in metabolites(uni_uni))
 
-        @test fitted_params(uni_uni) == expected_fitted
-        @test metabolite_names(uni_uni) == expected_met_names
+        @test EnzymeRates.fitted_params(uni_uni) == expected_fitted
+        @test metabolites(uni_uni) == (:S, :P)
     end
 
     # ── Test 2: FittingProblem construction ───────────────────────────────────
@@ -83,7 +82,7 @@ using Tables
         data = make_synthetic_data(uni_uni, true_params, concs_list)
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
-        pn = fitted_params(uni_uni)
+        pn = EnzymeRates.fitted_params(uni_uni)
         x_true = [log(true_params[p]) for p in pn]
         l = EnzymeRates.loss!(x_true, fp)
         @test l ≈ 0.0 atol=1e-20
@@ -113,7 +112,7 @@ using Tables
         fp2 = FittingProblem(uni_uni, data2; Keq=Keq_val)
 
         # For any x, loss should be the same (centering removes the uniform scale)
-        np = length(fitted_params(uni_uni))
+        np = length(EnzymeRates.fitted_params(uni_uni))
         @test all(1:10) do _
             x = randn(np) .* 2.0
             isapprox(EnzymeRates.loss!(x, fp1), EnzymeRates.loss!(x, fp2); rtol=1e-12)
@@ -147,7 +146,7 @@ using Tables
         data2 = merge(data1, (Rate = rates2,))
         fp2 = FittingProblem(uni_uni, data2; Keq=Keq_val)
 
-        np = length(fitted_params(uni_uni))
+        np = length(EnzymeRates.fitted_params(uni_uni))
         @test all(1:10) do _
             x = randn(np) .* 2.0
             isapprox(EnzymeRates.loss!(x, fp1), EnzymeRates.loss!(x, fp2); rtol=1e-12)
@@ -168,7 +167,7 @@ using Tables
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         # Use params that produce negative predictions (very large k2r relative to k2f)
-        pn = fitted_params(uni_uni)
+        pn = EnzymeRates.fitted_params(uni_uni)
         np = length(pn)
         x_bad = zeros(np)
         for (i, p) in enumerate(pn)
@@ -192,7 +191,7 @@ using Tables
         data = make_synthetic_data(uni_uni, true_params, concs_list)
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
-        x = randn(length(fitted_params(uni_uni)))
+        x = randn(length(EnzymeRates.fitted_params(uni_uni)))
         EnzymeRates.loss!(x, fp)  # warmup
         allocs = @allocated EnzymeRates.loss!(x, fp)
         @test allocs == 0
@@ -229,8 +228,8 @@ using Tables
         articles = [string("A", div(i-1, 50)+1) for i in 1:n_points]
         figs = [string("F", mod(i-1, 5)+1) for i in 1:n_points]
 
-        rates = [rate_equation(ordered_bi_bi, bb_true_params, c) for c in concs_list]
-        met_names_bb = metabolite_names(ordered_bi_bi)
+        rates = [rate_equation(ordered_bi_bi, c, bb_true_params) for c in concs_list]
+        met_names_bb = metabolites(ordered_bi_bi)
         data = (
             Article = articles,
             Fig = figs,
@@ -239,7 +238,7 @@ using Tables
         )
         fp = FittingProblem(ordered_bi_bi, data; Keq=Keq_val)
 
-        x = randn(length(fitted_params(ordered_bi_bi)))
+        x = randn(length(EnzymeRates.fitted_params(ordered_bi_bi)))
         EnzymeRates.loss!(x, fp)  # warmup
 
         # Time 1000 calls

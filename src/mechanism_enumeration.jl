@@ -71,13 +71,13 @@ Controls which pipeline stage `enumerate_mechanisms` stops at:
 - `Catalytic()`: catalytic cycle topologies only.
 - `WithActivator()`: add activator (essential/non-essential) variants.
 - `WithDeadEnd()`: add dead-end inhibitor configurations.
-- `Full()`: add RE/SS + parameter constraint variants (lazy iterator).
+- `FullEnumeration()`: add RE/SS + parameter constraint variants (lazy iterator).
 """
 abstract type EnumerationStage end
 struct Catalytic    <: EnumerationStage end
 struct WithActivator <: EnumerationStage end
 struct WithDeadEnd   <: EnumerationStage end
-struct Full          <: EnumerationStage end
+struct FullEnumeration <: EnumerationStage end
 
 """
     MechanismIterator
@@ -553,7 +553,7 @@ end
 # ─── Pipeline ─────────────────────────────────────────────────
 
 """
-    enumerate_mechanisms(reaction; stage=Full(), max_forms=...)
+    enumerate_mechanisms(reaction; stage=FullEnumeration(), max_forms=...)
 
 Enumerate valid mechanism topologies for the given reaction.
 
@@ -561,11 +561,11 @@ Pipeline stages:
 1. `Catalytic()` — catalytic cycles through the free enzyme.
 2. `WithActivator()` — activator variants (essential/non-essential).
 3. `WithDeadEnd()` — dead-end inhibitor configurations.
-4. `Full()` — RE/SS + parameter constraint variants (lazy `MechanismIterator`).
+4. `FullEnumeration()` — RE/SS + parameter constraint variants (lazy `MechanismIterator`).
 """
 function enumerate_mechanisms(
     @nospecialize(reaction::EnzymeReaction);
-    stage::EnumerationStage=Full(),
+    stage::EnumerationStage=FullEnumeration(),
     max_forms::Int=3 * (length(substrates(reaction)) +
                         length(products(reaction)) +
                         length(regulators(reaction))),
@@ -586,7 +586,7 @@ function enumerate_mechanisms(
         with_activators, forms, adj, form_lookup; max_forms)
     stage isa WithDeadEnd && return with_inhibitors
 
-    # Full: compute RE/SS variant count, wrap in lazy iterator.
+    # FullEnumeration: compute RE/SS variant count, wrap in lazy iterator.
     # Count formula: 2^(n - Σgᵢ) × ∏(2^gᵢ + 2) - 2^k
     total = sum(with_inhibitors; init=0) do s
         n = length(s.edges)

@@ -14,7 +14,7 @@ EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given
 
 ## API Design (see SPEC.md)
 
-- **15 exported symbols**: 5 types, 2 macros, 8 functions
+- **16 exported symbols** (planned): 5 types, 2 macros, 2 constants (`Full`, `Reduced`), 7 functions. Currently 13 — `IdentifyRateEquationProblem`, `IdentifyRateEquationResults`, `identify_rate_equation` are pending implementation.
 - Enumeration internals (`SiteState`, `EnzymeFormSpec`, `MechanismSpec`, `enumerate_mechanisms`, etc.) are NOT part of the public API — accessible via `IdentifyRateEquationProblem` fields for power users
 - Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
 - Cross-validation: leave-one-group-out

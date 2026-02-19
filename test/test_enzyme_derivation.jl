@@ -132,9 +132,9 @@ Test that `rate_equation` is non-allocating and fast for the given mechanism.
 Must be a standalone function to avoid @testset closure boxing.
 """
 function test_rate_equation_performance(m, params, concs)
-    rate_equation(m, params, concs) # warmup/compile
-    allocs = @allocated rate_equation(m, params, concs)
-    t = @elapsed for _ in 1:10_000; rate_equation(m, params, concs); end
+    rate_equation(m, concs, params) # warmup/compile
+    allocs = @allocated rate_equation(m, concs, params)
+    t = @elapsed for _ in 1:10_000; rate_equation(m, concs, params); end
     return allocs, t / 10_000
 end
 
@@ -426,7 +426,7 @@ function test_identifiability(spec::MechanismTestSpec)
     @testset "Identifiability" begin
         @test structural_identifiability_deficit(m) ==
             spec.expected_identifiability_deficit
-        @test is_identifiable(m) == spec.expected_is_identifiable
+        @test (structural_identifiability_deficit(m) <= 0) == spec.expected_is_identifiable
     end
 end
 
@@ -442,7 +442,7 @@ function test_reference_qssa(spec::MechanismTestSpec; n_trials=20, seed=42)
                 random_independent_params_concs(
                     m, met_names; rng=rng)
             isapprox(
-                rate_equation(m, new_params, concs),
+                rate_equation(m, concs, new_params),
                 reference_qssa(m, all_params, concs);
                 rtol=spec.reference_rtol)
         end
@@ -465,7 +465,7 @@ function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
             p = merge(all_params, (Et=Et,))
             p_pkg = merge(new_params, (E_total=Et,))
             isapprox(
-                rate_equation(m, p_pkg, concs),
+                rate_equation(m, concs, p_pkg),
                 spec.analytical_rate_fn(p, concs);
                 rtol=1e-10)
         end
@@ -489,7 +489,7 @@ function test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
         p_each = Keq^(1.0 / n_prods)
         for p in prod_names; eq_vals[p] = p_each; end
         eq_concs = NamedTuple{Tuple(met_names)}(Tuple(eq_vals[s] for s in met_names))
-        v_eq = rate_equation(m, new_params, eq_concs)
+        v_eq = rate_equation(m, eq_concs, new_params)
         @test abs(v_eq) < 1e-10
     end
 end
@@ -521,7 +521,7 @@ function test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
                 raw_to_ode_params(m, all_params) :
                 all_params
             v_ode = ode_steady_state_flux(m, ode_params, concs)
-            v_ka = rate_equation(m, new_params, concs)
+            v_ka = rate_equation(m, concs, new_params)
             # Use looser tolerance for RE mechanisms (large rate approximation)
             rtol = has_re ? 1e-3 : spec.ode_rtol
             isapprox(v_ode, v_ka; rtol=rtol)
@@ -550,7 +550,7 @@ function test_rate_equation_string(spec::MechanismTestSpec)
                 random_independent_params_concs(
                     m, met_names; rng=rng)
             isapprox(
-                rate_equation(m, new_params, concs),
+                rate_equation(m, concs, new_params),
                 _eval_rate_string(s, all_params, concs);
                 rtol=1e-10)
         end

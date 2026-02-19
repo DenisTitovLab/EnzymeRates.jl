@@ -19,13 +19,6 @@ function _normalize_one_species(s)
 end
 
 """
-    AbstractEnzymeReaction
-
-Abstract supertype for enzyme reactions with different type parameters.
-"""
-abstract type AbstractEnzymeReaction end
-
-"""
     EnzymeReaction{Substrates, Products, Regulators}
 
 Singleton type encoding an enzyme reaction specification in type parameters.
@@ -35,7 +28,7 @@ Each of `Substrates`, `Products`, `Regulators` is a tuple of
 For backward compatibility, 2-element `(name, atoms)` tuples are auto-normalized
 to 3-element with `max_sites=1`.
 """
-struct EnzymeReaction{Substrates, Products, Regulators} <: AbstractEnzymeReaction end
+struct EnzymeReaction{Substrates, Products, Regulators} end
 
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
     isempty(subs) && error("Substrates must not be empty")
@@ -57,14 +50,6 @@ function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
 end
 
 """
-    AbstractEnzymeMechanism
-
-Abstract supertype for enzyme mechanisms. Used as element type in collections
-of mechanisms with different type parameters.
-"""
-abstract type AbstractEnzymeMechanism end
-
-"""
     EnzymeMechanism{Species,Reactions,EquilibriumSteps}
 
 Singleton type encoding an enzyme mechanism in type parameters.
@@ -79,7 +64,7 @@ Singleton type encoding an enzyme mechanism in type parameters.
 """
 struct EnzymeMechanism{
     Species, Reactions, EquilibriumSteps, ParamConstraints,
-} <: AbstractEnzymeMechanism end
+} end
 
 """Count enzymes, metabolites, atoms, and metabolite names on one side of a reaction."""
 function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
@@ -280,27 +265,27 @@ Controls which form of the rate equation is used and what parameters are expecte
 abstract type AbstractRateEquationMode end
 
 """
-    RawMode <: AbstractRateEquationMode
+    FullMode <: AbstractRateEquationMode
 
-Raw rate equation mode using all 2N microscopic rate constants (k1f, k1r, k2f, k2r, ...).
+Full rate equation mode using all 2N microscopic rate constants (k1f, k1r, k2f, k2r, ...).
 No thermodynamic constraints applied. Parameters: all k's + E_total.
 """
-struct RawMode <: AbstractRateEquationMode end
+struct FullMode <: AbstractRateEquationMode end
 
 """
-    HaldaneWegscheiderMode <: AbstractRateEquationMode
+    ReducedMode <: AbstractRateEquationMode
 
 Rate equation with Haldane-Wegscheider thermodynamic constraints applied.
 Dependent parameters are substituted in terms of independent k's and Keq.
 Parameters: independent k's + Keq + E_total.
 """
-struct HaldaneWegscheiderMode <: AbstractRateEquationMode end
+struct ReducedMode <: AbstractRateEquationMode end
 
-"""Singleton instance for raw mode."""
-const RAW = RawMode()
+"""Singleton instance for full (raw) mode."""
+const Full = FullMode()
 
-"""Singleton instance for Haldane-Wegscheider mode."""
-const HALDANE_WEGSCHEIDER = HaldaneWegscheiderMode()
+"""Singleton instance for reduced (Haldane-Wegscheider) mode."""
+const Reduced = ReducedMode()
 
 # --- Pretty printing ---
 
@@ -420,13 +405,17 @@ function _unique_metabolites(Species)
     return mets
 end
 
-"""Return unique metabolites as a tuple of (name, atoms)."""
-@generated function metabolites(::EnzymeMechanism{Species}) where {Species}
+"""Return unique metabolites as a tuple of (name, atoms) — internal use."""
+@generated function _metabolites_with_sites(::EnzymeMechanism{Species}) where {Species}
     return Tuple(_unique_metabolites(Species))
 end
 
-"""Metabolite names as a tuple of Symbols (projection of `metabolites`)."""
-@generated function metabolite_names(::EnzymeMechanism{Species}) where {Species}
+"""
+    metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}
+
+Return distinct metabolite names as a tuple of Symbols.
+"""
+@generated function metabolites(::EnzymeMechanism{Species}) where {Species}
     mets = _unique_metabolites(Species)
     Tuple(m[1] for m in mets)
 end

@@ -87,7 +87,7 @@ function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
     nc == 0 && return zeros(Int, 0, size(B, 2)), Int[]
     m = M()
     S = stoich_matrix(m)
-    met_names = [mt[1] for mt in metabolites(m)]
+    met_names = collect(metabolites(m))
     nu_net = zeros(Int, length(met_names))
     for (name, _) in substrates(m); nu_net[findfirst(==(name), met_names)] -= 1; end
     for (name, _) in products(m); nu_net[findfirst(==(name), met_names)] += 1; end
@@ -281,11 +281,11 @@ end
 
 """Collect sorted concentration symbols for a mechanism."""
 function _sorted_conc_symbols(M::Type{<:EnzymeMechanism})
-    Tuple(mt[1] for mt in metabolites(M()))
+    metabolites(M())
 end
 
-"""Raw mode: destructure all params + concs, then raw expr."""
-function _build_rate_body(M, ::Type{RawMode})
+"""Full mode: destructure all params + concs, then raw expr."""
+function _build_rate_body(M, ::Type{FullMode})
     expr, all_params, conc_syms = _raw_rate_expr_and_symbols(M)
     Expr(:block,
         _destructuring_expr(all_params, :params),
@@ -293,8 +293,8 @@ function _build_rate_body(M, ::Type{RawMode})
         expr)
 end
 
-"""HW mode: destructure indep params + concs, define dep params, then raw expr."""
-function _build_rate_body(M, ::Type{HaldaneWegscheiderMode})
+"""Reduced mode: destructure indep params + concs, define dep params, then raw expr."""
+function _build_rate_body(M, ::Type{ReducedMode})
     expr, _, conc_syms = _raw_rate_expr_and_symbols(M)
     dep_exprs, indep = _dependent_param_exprs(M)
     # Apply K→1/K to dep_exprs for Kd convention

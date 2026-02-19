@@ -28,14 +28,14 @@ end
 Construct a `FittingProblem` from an enzyme mechanism and tabular data.
 
 The table must have columns: `Article`, `Fig`, `Rate`, and one column per metabolite
-in `metabolites(mechanism)`. Uses `Tables.columntable` for conversion.
+matching `metabolites(mechanism)`. Uses `Tables.columntable` for conversion.
 
 Rate values must be nonzero (zero rates produce `-Inf` in log space).
 """
 function FittingProblem(mechanism::EnzymeMechanism, table; Keq::Real)
     data = Tables.columntable(table)
 
-    mnames = metabolite_names(mechanism)
+    mnames = metabolites(mechanism)
 
     # Validate required columns
     col_names = keys(data)
@@ -93,7 +93,7 @@ Sign mismatches (predicted vs measured rate sign) incur a penalty of 10.0.
 function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
     buf = fp.log_ratios_buffer
     ParamNames = fitted_params(fp.mechanism)
-    MetNames = metabolite_names(fp.mechanism)
+    MetNames = metabolites(fp.mechanism)
     N = length(ParamNames)
     K = length(MetNames)
     n_data = length(fp.log_abs_rates)
@@ -107,7 +107,7 @@ function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
         concs = NamedTuple{MetNames}(ntuple(
             j -> getproperty(fp.data, MetNames[j])[i], Val(K),
         ))
-        pred = rate_equation(fp.mechanism, params, concs)
+        pred = rate_equation(fp.mechanism, concs, params)
         meas_sign = sign(fp.data.Rate[i])
         if sign(pred) != meas_sign || pred == 0.0
             buf[i] = 10.0
