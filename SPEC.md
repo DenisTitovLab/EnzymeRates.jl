@@ -34,28 +34,24 @@ secondary use cases.
 | `@enzyme_reaction` | Create an `EnzymeReaction` from a DSL block (substrates, products, regulators). |
 | `@enzyme_mechanism` | Create an `EnzymeMechanism` from species + steps (+ optional constraints) DSL blocks. |
 
+### Constants
+
+| Constant | Description |
+|----------|-------------|
+| `Full` | Rate equation mode: all 2N raw rate constants + E_total. |
+| `Reduced` | Rate equation mode (default): thermodynamically independent k's + Keq + E_total. |
+
 ### Functions
 
 | Function | Description |
 |----------|-------------|
 | `identify_rate_equation` | Select the best mechanism from all candidates for a reaction. Primary entry point. |
 | `fit_rate_equation` | Fit a single mechanism to data. |
-| `rate_equation` | Compute the steady-state rate for a mechanism given parameters and concentrations. |
+| `rate_equation` | Compute the steady-state rate: `rate_equation(m, concs, params, [mode])`. Default mode is `Reduced`. |
 | `rate_equation_string` | Human-readable string representation of a mechanism's rate equation. |
-| `parameters` | Parameter names required by a mechanism (independent k's + Keq + E_total by default). |
-| `fitted_params` | Independent rate constant names only (excludes Keq, E_total). For fitting. |
-| `metabolites` | Distinct metabolite names for a mechanism. |
-| `metabolite_names` | Same as `metabolites`, returned as a tuple of Symbols. |
+| `parameters` | Parameter names required by a mechanism: `parameters(m, [mode])`. Default mode is `Reduced`. |
+| `metabolites` | Distinct metabolite names as a tuple of Symbols: `metabolites(m) → (:S, :P)`. |
 | `structural_identifiability_deficit` | Structural identifiability deficit (non-positive = identifiable). |
-
-### Removed from Public API
-
-The following are currently exported but will become internal:
-
-- `AbstractEnzymeReaction`, `AbstractEnzymeMechanism` (implementation detail)
-- `is_identifiable` (redundant: `structural_identifiability_deficit(m) <= 0`)
-- `SiteState`, `EnzymeFormSpec`, `MechanismSpec`, `n_sites` (enumeration internals)
-- `enumerate_mechanisms`, `enumerate_mechanism_stages`, `enumerate_enzyme_forms` (enumeration internals; accessible via `IdentifyRateEquationProblem` fields for power users)
 
 ---
 
@@ -86,7 +82,7 @@ best.loss             # training loss
 rate_equation_string(best.mechanism)
 
 # 5. Use the identified equation
-v = rate_equation(best.mechanism, best.params, (A=1.0, B=0.5, P=0.1, Q=0.05))
+v = rate_equation(best.mechanism, (A=1.0, B=0.5, P=0.1, Q=0.05), best.params)
 ```
 
 ---
@@ -377,6 +373,9 @@ export IdentifyRateEquationProblem, IdentifyRateEquationResults
 # Macros
 export @enzyme_reaction, @enzyme_mechanism
 
+# Rate equation modes
+export Full, Reduced
+
 # Core: model selection
 export identify_rate_equation
 
@@ -386,14 +385,11 @@ export fit_rate_equation
 # Core: rate equation evaluation
 export rate_equation, rate_equation_string
 
-# Parameters
-export parameters, fitted_params
-
-# Metabolites
-export metabolites, metabolite_names
+# Parameters & metabolites
+export parameters, metabolites
 
 # Identifiability
 export structural_identifiability_deficit
 ```
 
-Total: 5 types + 2 macros + 8 functions = **15 exported symbols**.
+Total: 5 types + 2 macros + 2 constants + 7 functions = **16 exported symbols**.

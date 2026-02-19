@@ -23,7 +23,7 @@ results = identify_rate_equation(prob)
 
 # Inspect the winner
 rate_equation_string(results.best.mechanism)
-rate_equation(results.best.mechanism, results.best.params, concentrations)
+rate_equation(results.best.mechanism, concentrations, results.best.params)
 ```
 
 In addition to automated model selection, the package can be used to:
@@ -64,7 +64,7 @@ params = (k1f=3.2, k2f=2.5, k2r=1.1, Keq=5.0, E_total=1.0)
 concs = (S=0.7, P=0.3)
 
 # Compute rate: zero allocations, compiled at first call
-v = rate_equation(m, params, concs)
+v = rate_equation(m, concs, params)
 
 # Human-readable equation
 rate_equation_string(m)
@@ -152,19 +152,17 @@ m = EnzymeMechanism(species, reactions)
 
 ## Rate Equations
 
-`rate_equation(m, params, concs)` computes the steady-state rate (net
+`rate_equation(m, concs, params)` computes the steady-state rate (net
 consumption of the first substrate, normalized by its stoichiometric
 coefficient):
 
+- `concs`: `NamedTuple` of metabolite concentrations (`S`, `P`, ...)
 - `params`: `NamedTuple` of independent rate constants (`k1f`, `k1r`, ...),
   `Keq` (equilibrium constant), and `E_total` (total enzyme concentration).
   Dependent rate constants (determined by Haldane/Wegscheider constraints)
   are computed internally and should not be included.
-- `concs`: `NamedTuple` of metabolite concentrations (`S`, `P`, ...)
 
-Use `parameters(m)` to get the list of required parameter names and
-`fitted_params(m)` to get just the independent rate constants (excluding
-`Keq` and `E_total`).
+Use `parameters(m)` to get the list of required parameter names.
 
 ## Mechanism Enumeration
 
@@ -286,16 +284,14 @@ substrates(m)              # substrates with stoichiometric multiplicity
 products(m)                # products with stoichiometric multiplicity
 regulators(m)              # regulators
 enzyme_forms(m)            # distinct enzyme states
-metabolites(m)             # distinct metabolite names
-metabolite_names(m)        # same as metabolites, as a tuple of Symbols
+metabolites(m)             # distinct metabolite names as Symbols
 reactions(m)               # reaction steps as tuples of (lhs, rhs)
 n_states(m)                # number of enzyme states
 n_steps(m)                 # number of mechanism steps
 graph(m)                   # (SimpleDiGraph, enzyme_forms)
 stoich_matrix(m)           # metabolites x steps matrix
-parameters(m)              # independent k's + Keq + E_total
-parameters(m, RAW)         # all 2N k's + E_total
-fitted_params(m)           # independent k's only (for fitting)
+parameters(m)              # independent k's + Keq + E_total (Reduced mode)
+parameters(m, Full)        # all 2N k's + E_total
 rate_equation_string(m)    # human-readable rate equation
 ```
 
@@ -303,7 +299,6 @@ rate_equation_string(m)    # human-readable rate equation
 
 ```julia
 structural_identifiability_deficit(m)  # deficit (<=0 means identifiable)
-is_identifiable(m)                     # true if deficit <= 0
 ```
 
 ## Parameter Fitting
@@ -315,7 +310,7 @@ result = fit_rate_equation(fp, optimizer; n_restarts=10, maxtime=60.0)
 
 The data table must have columns `Article`, `Fig`, `Rate`, and one column per
 metabolite in `metabolites(m)`. Fitting operates in log-space on the
-independent rate constants returned by `fitted_params(m)`.
+independent rate constants from `parameters(m)` (excluding `Keq` and `E_total`).
 
 ## API Reference
 
@@ -341,25 +336,21 @@ independent rate constants returned by `fitted_params(m)`.
 
 | Function | Description |
 |----------|-------------|
-| `rate_equation(m, params, concs)` | Compiled QSSA rate equation. Zero allocations. |
+| `rate_equation(m, concs, params)` | Compiled QSSA rate equation. Zero allocations. |
 | `rate_equation_string(m)` | Human-readable rate equation string. |
-| `parameters(m)` | Parameter names for the default (Haldane/Wegscheider) mode. |
-| `parameters(m, RAW)` | All raw rate constant names + `E_total`. |
-| `fitted_params(m)` | Independent rate constant names (excludes `Keq`, `E_total`). |
-| `enumerate_mechanisms(rxn; max_forms)` | Lazy iterator over all valid mechanisms for a reaction. |
-| `enumerate_mechanism_stages(rxn; max_forms)` | Run enumeration pipeline, returning intermediate results at each stage. |
-| `enumerate_enzyme_forms(rxn)` | Enumerate all possible enzyme forms for a reaction. |
-| `n_sites(rxn)` | Total number of binding sites for a reaction. |
-| `is_identifiable(m)` | Whether the mechanism is structurally identifiable. |
+| `parameters(m)` | Parameter names for the default (`Reduced`) mode. |
+| `parameters(m, Full)` | All raw rate constant names + `E_total`. |
 | `structural_identifiability_deficit(m)` | Identifiability deficit (non-positive = identifiable). |
 | `FittingProblem(m, table; Keq)` | Construct a fitting problem from mechanism + data. |
 | `fit_rate_equation(fp, optimizer; ...)` | Fit rate constants via multi-start optimization. |
+| `enumerate_mechanisms(rxn; max_forms)` | Lazy iterator over all valid mechanisms for a reaction. |
+| `enumerate_mechanism_stages(rxn; max_forms)` | Run enumeration pipeline, returning intermediate results at each stage. |
+| `enumerate_enzyme_forms(rxn)` | Enumerate all possible enzyme forms for a reaction. |
 | `substrates(m)` | Substrates (with stoichiometric multiplicity). |
 | `products(m)` | Products (with stoichiometric multiplicity). |
 | `regulators(m)` | Regulators. |
 | `enzyme_forms(m)` | Distinct enzyme states. |
-| `metabolites(m)` | Distinct metabolites. |
-| `metabolite_names(m)` | Metabolite names as a tuple of Symbols. |
+| `metabolites(m)` | Distinct metabolite names as a tuple of Symbols. |
 | `reactions(m)` | Reaction steps as `(lhs, rhs)` tuples. |
 | `n_states(m)` | Number of enzyme states. |
 | `n_steps(m)` | Number of mechanism steps. |

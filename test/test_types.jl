@@ -302,7 +302,7 @@
                 k3r = k1r
             end
         end
-        raw_params = parameters(m, EnzymeRates.RAW)
+        raw_params = parameters(m, Full)
         @test :k3r ∉ raw_params
         @test :k1r ∈ raw_params
         @test :E_total ∈ raw_params
@@ -346,9 +346,7 @@
                       E_total = 0.1 + 9.9 * rand(rng))
             concs = (A = 0.1 + 9.9 * rand(rng), P = 0.1 + 9.9 * rand(rng))
             isapprox(
-                rate_equation(
-                    m, params, concs,
-                    EnzymeRates.RAW),
+                rate_equation(m, concs, params, Full),
                 rate_constrained(params, concs);
                 rtol=1e-10)
         end
@@ -383,7 +381,7 @@
             E_total * num / denom
         end
 
-        raw_params = parameters(m, EnzymeRates.RAW)
+        raw_params = parameters(m, Full)
         @test :K2 ∉ raw_params
         @test :K1 ∈ raw_params
 
@@ -398,9 +396,7 @@
             concs = (A = 0.1 + 9.9 * rand(rng), B = 0.1 + 9.9 * rand(rng),
                      P = 0.1 + 9.9 * rand(rng), Q = 0.1 + 9.9 * rand(rng))
             isapprox(
-                rate_equation(
-                    m, params, concs,
-                    EnzymeRates.RAW),
+                rate_equation(m, concs, params, Full),
                 rate_constrained_re(params, concs);
                 rtol=1e-10)
         end
@@ -434,7 +430,7 @@
         Keq = p.Keq
 
         eq_concs = (A = 1.0, P = Keq)
-        v = rate_equation(m, p, eq_concs)
+        v = rate_equation(m, eq_concs, p)
         @test abs(v) < 1e-10
     end
 
@@ -460,8 +456,8 @@
         p = NamedTuple{hw}(vals)
         concs = (A = 1.0, P = 2.0)
 
-        rate_equation(m, p, concs)  # warmup
-        allocs = @allocated rate_equation(m, p, concs)
+        rate_equation(m, concs, p)  # warmup
+        allocs = @allocated rate_equation(m, concs, p)
         @test allocs == 0
     end
 
@@ -482,7 +478,7 @@
             end
         end
 
-        s_raw = rate_equation_string(m, EnzymeRates.RAW)
+        s_raw = rate_equation_string(m, Full)
         @test occursin("k3r = k1r", s_raw)
         @test occursin("v = E_total * (", s_raw)
         @test !occursin("k3r", replace(s_raw, "k3r = k1r" => ""))
