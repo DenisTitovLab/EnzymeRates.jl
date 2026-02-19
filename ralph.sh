@@ -28,7 +28,7 @@ set -euo pipefail
 MAX_ITER=${1:-10}                # number of simplification iterations
 FILE="src/mechanism_enumeration.jl"
 LOG_DIR=".ralph-logs"
-PROMPT_FILE="PROMPT.md"          # read fresh each attempt (edits take effect live)
+PROMPT_FILE="CODE_SIMPLIFICATION_PROMPT.md"          # read fresh each attempt (edits take effect live)
 STALE_TIMEOUT=7200               # seconds (2 hr) — kill claude if no new turns
 PROGRESS_THRESHOLD=5             # turns needed to consider an attempt "productive"
 LETTERS="abcdefghijklmnopqrstuvwxyz"  # attempt suffix lookup

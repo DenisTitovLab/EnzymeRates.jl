@@ -4,7 +4,8 @@ Code in this project should be as simple and small as possible while remaining c
 
 ## Minimize Code Volume (Not Line Count)
 
-- Fewer functions, fewer types, fewer intermediate data structures.
+- Minimize the amount of code chars and lines, but not at the expense of readability. A few extra lines are fine if they make the code clearer.
+- DO NOT count docstrings, comments and tests as code bloat
 - Do NOT compress multiple operations onto single lines to reduce line count — that produces hard-to-read code.
 - Each line should do one clear thing. Readability is non-negotiable.
 
