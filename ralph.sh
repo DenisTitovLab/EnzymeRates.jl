@@ -9,9 +9,16 @@
 #   - Transient 500: retry with backoff (1min, 5min, 30min), give up after 3
 #   - Stale session: if no new log output for 15min, kill and retry as transient
 #
-# Logs: each iteration writes stream-json to .ralph-logs/iter_NN.log.jsonl
-# and stderr to .ralph-logs/iter_NN.log.stderr. A one-line-per-iteration
-# summary is appended to .ralph-logs/summary.log.
+# Logs: each attempt writes stream-json to .ralph-logs/iter_NNx.log.jsonl
+# (where x = a, b, c... for retries within an iteration) and stderr to
+# .ralph-logs/iter_NNx.log.stderr. A one-line-per-iteration summary is
+# appended to .ralph-logs/summary.log.
+#
+#
+# Alternatively, just run a command and see interactive claude sessions in real time without the error handling and logging:
+# `while :; do cat PROMPT.md | claude --dangerously-skip-permissions; done`
+# or
+# `for i in $(seq 1 10); do cat PROMPT.md | claude --dangerously-skip-permissions; done`
 
 set -euo pipefail
 
@@ -72,12 +79,15 @@ for i in $(seq 1 "$MAX_ITER"); do
     # On failure, classifies the error and either sleeps+retries or gives up.
     # The pipeline runs in a background subshell so a foreground watchdog can
     # monitor log freshness and kill stale sessions.
+    # Each attempt gets its own log file (iter_02a, iter_02b, ...) so failed
+    # attempts are preserved for debugging. On success, the final attempt's
+    # suffix letter is kept as-is (no renaming needed).
+    attempt=0
     while true; do
-        # Reset log files. The empty jsonl gives the watchdog a fresh mtime
-        # baseline. The .exit file is written only on normal pipeline completion,
-        # so its absence signals a killed/crashed session.
-        : > "$log_file.jsonl"
-        rm -f "$log_file.exit"
+        # Build log filename with attempt suffix: iter_02a.log.jsonl, iter_02b.log.jsonl, ...
+        attempt_letter=$(printf "\\$(printf '%03o' $((97 + attempt)))")
+        cur_log="${log_file}${attempt_letter}"
+        rm -f "$cur_log.exit"
 
         # Run claude in a background subshell.
         # Pipeline: claude streams JSON → tee saves to log → grep filters to
@@ -88,25 +98,30 @@ for i in $(seq 1 "$MAX_ITER"); do
         (
             set +eo pipefail
             cat "$PROMPT_FILE" | claude -p --verbose --output-format stream-json --dangerously-skip-permissions \
-                2>"$log_file.stderr" | tee "$log_file.jsonl" | \
+                2>"$cur_log.stderr" | tee "$cur_log.jsonl" | \
                 (grep --line-buffered '^{' || true) | \
                 (jq --unbuffered -rj "$JQ_FILTER" || true)
-            echo "${PIPESTATUS[1]}" > "$log_file.exit"
+            echo "${PIPESTATUS[1]}" > "$cur_log.exit"
         ) &
         pipeline_pid=$!
 
-        # Stale session watchdog: checks log file mtime every 30s.
-        # If the jsonl file hasn't been modified for STALE_TIMEOUT seconds,
-        # claude is likely stuck (e.g., hung API call, infinite thinking loop).
-        # Kill the subshell and its children so the retry logic can take over.
-        # Uses `stat -f %m` (macOS) for file modification time as epoch seconds.
+        # Stale session watchdog: checks every 30s whether new turns have
+        # completed. Counts "assistant" and "user" events in the log — these
+        # represent actual API round-trips. Thinking deltas and system events
+        # are ignored since they don't indicate real progress (claude can emit
+        # thinking tokens for a long time while effectively stuck).
+        last_turns=0
+        last_turn_change=$(date +%s)
         while kill -0 "$pipeline_pid" 2>/dev/null; do
             sleep 30
-            last_mod=$(stat -f %m "$log_file.jsonl" 2>/dev/null || echo 0)
+            cur_turns=$(grep -c '"type":"assistant"\|"type":"user"' "$cur_log.jsonl" 2>/dev/null || echo 0)
             now=$(date +%s)
-            if [ $((now - last_mod)) -gt "$STALE_TIMEOUT" ]; then
+            if [ "$cur_turns" -ne "$last_turns" ]; then
+                last_turns=$cur_turns
+                last_turn_change=$now
+            elif [ $((now - last_turn_change)) -gt "$STALE_TIMEOUT" ]; then
                 echo ""
-                echo "[$(date '+%H:%M:%S')] No log activity for $((STALE_TIMEOUT / 60))min. Killing stale session..."
+                echo "[$(date '+%H:%M:%S')] No new turns for $((STALE_TIMEOUT / 60))min ($last_turns turns completed). Killing stale session..."
                 pkill -P "$pipeline_pid" 2>/dev/null || true
                 kill "$pipeline_pid" 2>/dev/null || true
                 break
@@ -116,7 +131,7 @@ for i in $(seq 1 "$MAX_ITER"); do
         wait "$pipeline_pid" 2>/dev/null || true
         # If the subshell completed normally, .exit has claude's exit code.
         # If it was killed by the watchdog, .exit doesn't exist → default to 1.
-        claude_exit=$(cat "$log_file.exit" 2>/dev/null || echo 1)
+        claude_exit=$(cat "$cur_log.exit" 2>/dev/null || echo 1)
 
         # Success → move on to the next iteration
         if [ "$claude_exit" -eq 0 ]; then
@@ -131,7 +146,7 @@ for i in $(seq 1 "$MAX_ITER"); do
         # rate limit produces status != "allowed" (e.g., "limited"). We only
         # look at non-"allowed" events to avoid false positives (a 500 error
         # would still have "allowed" events from before the crash).
-        resets_at=$(grep '"rate_limit_event"' "$log_file.jsonl" 2>/dev/null \
+        resets_at=$(grep '"rate_limit_event"' "$cur_log.jsonl" 2>/dev/null \
             | jq -r 'select(.rate_limit_info.status != "allowed") | .rate_limit_info.resetsAt // empty' \
             2>/dev/null | tail -1 || true)
 
@@ -145,6 +160,7 @@ for i in $(seq 1 "$MAX_ITER"); do
             echo "[$(date '+%H:%M:%S')] Rate limited. Sleeping ${sleep_secs}s (~$((sleep_secs / 60))min) until $(date -r "$((resets_at + 60))" '+%H:%M:%S')..."
             sleep "$sleep_secs"
             echo "[$(date '+%H:%M:%S')] Resuming iteration $i"
+            attempt=$((attempt + 1))
             continue
         fi
 
@@ -164,6 +180,7 @@ for i in $(seq 1 "$MAX_ITER"); do
         echo ""
         echo "[$(date '+%H:%M:%S')] claude exited with status $claude_exit. Retrying in $((wait_secs / 60))min (attempt $server_retries/3)..."
         sleep "$wait_secs"
+        attempt=$((attempt + 1))
     done
 
     # --- Iteration summary ---
