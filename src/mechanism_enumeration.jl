@@ -53,12 +53,11 @@ function _classify_edge(fa::EnzymeFormSpec, fb::EnzymeFormSpec)
     isempty(diffs) && return nothing
     if length(diffs) == 1
         k = diffs[1]; sa, sb = fa.sites[k], fb.sites[k]
-        if sa.atoms === nothing && sb.atoms !== nothing
+        if sa.atoms === nothing
             sa.role in (:sub, :prod) && sb.atoms != sa.full_atoms &&
                 return nothing
             return (type=:binding, metabolite=sa.metabolite)
-        end
-        if sb.atoms === nothing && sa.atoms !== nothing
+        elseif sb.atoms === nothing
             met = sa.atoms == sa.full_atoms || sa.role == :reg ?
                 sa.metabolite :
                 let i = findfirst(s -> s.role == :prod &&
@@ -223,13 +222,25 @@ end
 
 # ─── Regulator Expansion (Activators + Dead-Ends) ────────────
 
-"""Generate activator variants: absent, non-essential, or essential per regulator."""
-function _expand_activators(
+"""Find dead-end form: base + specified reg positions occupied."""
+function _find_dead_end(fidx, base::EnzymeFormSpec, occ_positions)
+    key = Tuple(k in occ_positions ? s.full_atoms : s.atoms
+                for (k, s) in enumerate(base.sites))
+    get(fidx, key, nothing)
+end
+
+"""Expand regulators: activator variants and (optionally) dead-end configs.
+
+Per-regulator options (absent, non-essential, essential) × Cartesian product.
+`include_dead_ends=true` adds inhibitor dead-end combos in the same pass."""
+function _expand_regulators(
     specs::Vector{MechanismSpec},
     forms::Vector{EnzymeFormSpec},
+    adj::Dict{Tuple{Int,Int}, EdgeInfo},
     fidx,
     @nospecialize(reaction::EnzymeReaction);
     max_forms::Int,
+    include_dead_ends::Bool=false,
 )
     reg_names = [r[1] for r in regulators(reaction)]
     isempty(reg_names) && return specs
@@ -262,61 +273,44 @@ function _expand_activators(
             removals = union((r for (_, r) in combo)...)
             merged = [e for e in spec.edges if e ∉ removals]
             for (add, _) in combo; append!(merged, add); end
-            length(Set(Iterators.flatten(merged))) <= max_forms &&
+            topo_nodes = Set(Iterators.flatten(merged))
+            length(topo_nodes) > max_forms && continue
+            if !include_dead_ends
                 push!(result, MechanismSpec(reaction, merged))
+                continue
+            end
+            # Dead-end expansion: enumerate inhibitor binding combos
+            topo_sorted = sort!(collect(topo_nodes))
+            budget = max_forms - length(topo_sorted)
+            act_pos = Set(k for fi in topo_sorted
+                for (k, s) in enumerate(forms[fi].sites)
+                if s.role == :reg && s.atoms !== nothing)
+            inh = [k for (k, s) in enumerate(forms[topo_sorted[1]].sites)
+                   if s.role == :reg && s.atoms === nothing && k ∉ act_pos]
+            r = length(inh)
+            existing = Set(minmax(e...) for e in merged)
+            de_lookup = Dict((ti, mask) => fi2
+                for (ti, fi) in enumerate(topo_sorted)
+                for mask in 1:(1 << r) - 1
+                for fi2 in (_find_dead_end(fidx, forms[fi],
+                    Tuple(inh[j] for j in 1:r
+                          if (mask >> (j - 1)) & 1 == 1)),)
+                if fi2 !== nothing && fi2 ∉ topo_nodes)
+            for de_combo in Iterators.product(
+                    ntuple(_ -> 0:(1 << r) - 1, length(topo_sorted))...)
+                de = Set(fi2 for ((ti, m), fi2) in de_lookup
+                         if m & de_combo[ti] == m)
+                length(de) > budget && continue
+                all_forms = union(topo_nodes, de)
+                new_edges = [(a, b) for ((a, b), info) in adj
+                    if a ∈ all_forms && b ∈ all_forms &&
+                       (a, b) ∉ existing && info.type == :binding]
+                push!(result, MechanismSpec(reaction,
+                    [merged; new_edges]))
+            end
         end
     end
     result
-end
-
-"""Find dead-end form: base + specified reg positions occupied."""
-function _find_dead_end(fidx, base::EnzymeFormSpec, occ_positions)
-    key = Tuple(k in occ_positions ? s.full_atoms : s.atoms
-                for (k, s) in enumerate(base.sites))
-    get(fidx, key, nothing)
-end
-
-"""Enumerate dead-end binding configurations.
-
-Precomputes a flat lookup mapping (topo_index, inhibitor_mask) → dead-end form
-index, then uses subset filtering via a one-pass set comprehension."""
-function _dead_end_configs(
-    spec::MechanismSpec,
-    adj::Dict{Tuple{Int,Int}, EdgeInfo},
-    forms::Vector{EnzymeFormSpec},
-    fidx;
-    max_forms::Int,
-)
-    topo = sort(collect(Set(Iterators.flatten(spec.edges))))
-    budget = max_forms - length(topo)
-    budget < 0 && return MechanismSpec[]
-    act_pos = Set(k for fi in topo for (k, s) in enumerate(forms[fi].sites)
-                  if s.role == :reg && s.atoms !== nothing)
-    inh = [k for (k, s) in enumerate(forms[topo[1]].sites)
-           if s.role == :reg && s.atoms === nothing && k ∉ act_pos]
-    r = length(inh)
-    topo_set = Set(topo)
-    existing = Set(minmax(e...) for e in spec.edges)
-    # Flat lookup: (topo_index, inhibitor_mask) → dead-end form index
-    de_forms = Dict((ti, mask) => fi2
-        for (ti, fi) in enumerate(topo) for mask in 1:(1 << r) - 1
-        for fi2 in (_find_dead_end(fidx, forms[fi],
-            Tuple(inh[j] for j in 1:r if (mask >> (j - 1)) & 1 == 1)),)
-        if fi2 !== nothing && fi2 ∉ topo_set)
-    results = MechanismSpec[]
-    for combo in Iterators.product(
-            ntuple(_ -> 0:(1 << r) - 1, length(topo))...)
-        de = Set(fi2 for ((ti, m), fi2) in de_forms
-                 if m & combo[ti] == m)
-        length(de) > budget && continue
-        all_forms = union(topo_set, de)
-        new_edges = [(a, b) for ((a, b), info) in adj
-            if a ∈ all_forms && b ∈ all_forms &&
-               (a, b) ∉ existing && info.type == :binding]
-        push!(results, MechanismSpec(spec.reaction,
-            [spec.edges; new_edges]))
-    end
-    results
 end
 
 # ─── RE/SS + Constraint Lazy Generator ────────────────────────
@@ -343,15 +337,13 @@ function _ress_variants(spec, adj, forms)
         vg = [g for g in equiv_groups
             if all(eq_steps[s] == eq_steps[g[1]] for s in g)]
         Iterators.map(0:((1 << length(vg)) - 1)) do cmask
-            pc = ParamConstraint[]
-            for (gi, g) in enumerate(vg)
-                ((cmask >> (gi-1)) & 1) == 0 && continue
-                p, ss = eq_steps[g[1]] ? ("K", ("",)) : ("k", ("f", "r"))
-                for j in 2:length(g), s in ss
-                    push!(pc, (Symbol("$p$(g[j])$s"), 1,
-                               [(Symbol("$p$(g[1])$s"), 1)]))
-                end
-            end
+            pc = ParamConstraint[
+                (Symbol("$p$(g[j])$s"), 1, [(Symbol("$p$(g[1])$s"), 1)])
+                for (gi, g) in enumerate(vg)
+                if (cmask >> (gi-1)) & 1 == 1
+                for (p, ss) in ((eq_steps[g[1]] ?
+                    ("K", ("",)) : ("k", ("f", "r"))),)
+                for j in 2:length(g) for s in ss]
             MechanismSpec(spec.reaction, edges, eq_steps, pc)
         end
     end
@@ -379,17 +371,16 @@ function enumerate_mechanisms(
     catalytic = _catalytic_topologies(forms, adj, reaction; max_forms)
     stage isa Catalytic && return catalytic
 
-    with_act = _expand_activators(
-        catalytic, forms, fidx, reaction; max_forms)
-    stage isa WithActivator && return with_act
+    stage isa WithActivator && return _expand_regulators(
+        catalytic, forms, adj, fidx, reaction; max_forms)
 
-    de_iter = Iterators.flatmap(
-        s -> _dead_end_configs(s, adj, forms, fidx; max_forms), with_act)
-    stage isa WithDeadEnd && return de_iter
+    de_specs = _expand_regulators(
+        catalytic, forms, adj, fidx, reaction;
+        max_forms, include_dead_ends=true)
+    stage isa WithDeadEnd && return de_specs
 
-    # Full: materialize dead-end, compute RE/SS variant count, wrap lazy
+    # Full: compute RE/SS variant count, wrap lazy iterator
     # Count formula: 2^(n - Σgᵢ) × ∏(2^gᵢ + 2) - 2^k
-    de_specs = collect(de_iter)
     total = sum(de_specs; init=0) do s
         n = length(s.edges); n == 0 && return 0
         eg = _find_equivalent_groups(s.edges, adj, forms)
