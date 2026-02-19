@@ -157,9 +157,9 @@ end
 
 """Enumerate catalytic topologies → Vector{MechanismSpec}.
 
-Uses a graph-walk DFS over directed adjacency. Substrate binding,
-product release, and isomerization (including ping-pong) are all handled
-uniformly as edge traversals—no special-case code per reaction type."""
+DFS finds elementary cycles through the free enzyme form, then power-set
+union generates all valid multi-cycle topologies. Edge direction is computed
+inline from the undirected adjacency—no separate directed adjacency needed."""
 function _catalytic_topologies(
     forms::Vector{EnzymeFormSpec},
     adj::Dict{Tuple{Int,Int}, EdgeInfo},
@@ -172,44 +172,44 @@ function _catalytic_topologies(
     free === nothing && return MechanismSpec[]
     cat_forms = Set(i for (i, f) in enumerate(forms)
         if all(s -> s.role != :reg || s.atoms === nothing, f.sites))
-    # Build directed adjacency restricted to catalytic forms
-    nbrs = Dict{Int, Vector{Tuple{Int, Symbol, Union{Nothing, Symbol}}}}()
-    for ((a, b), info) in adj
-        a ∈ cat_forms && b ∈ cat_forms || continue
-        push!(get!(nbrs, a, []), (b, info.type, info.metabolite))
-        push!(get!(nbrs, b, []), (a, info.type == :binding ? :release :
-            info.type == :release ? :binding : :isomerization, info.metabolite))
-    end
-    # Residual predicates (shared between DFS and filter)
+    cat_adj = Dict((a, b) => info for ((a, b), info) in adj
+                   if a ∈ cat_forms && b ∈ cat_forms)
     _has_res(fi) = any(s -> s.role == :sub && s.atoms !== nothing &&
         s.atoms != s.full_atoms, forms[fi].sites)
     _pure_inter(fi) = all(s -> (s.role != :sub || s.atoms != s.full_atoms) &&
         (s.role != :prod || s.atoms === nothing), forms[fi].sites)
     _subs_full(fi) = all(s -> s.role != :sub ||
         s.atoms == s.full_atoms, forms[fi].sites)
-    # DFS for elementary cycles through free form. `mr` (must_release) is
-    # passed by value so backtracking restores it automatically.
+    # DFS for elementary cycles through free form. Edge direction is derived
+    # inline: (a==cur)==(info.type==:binding) means forward=binding.
     cycles = Set{Set{Int}}()
     function dfs(cur, path, vis, bound, released, mr)
         if cur == free && length(path) > 1 &&
                 bound == sub_set && released == prod_set
             push!(cycles, Set(path)); return
         end
-        for (nxt, et, met) in get(nbrs, cur, ())
+        for ((a, b), info) in cat_adj
+            nxt = a == cur ? b : b == cur ? a : nothing
+            nxt === nothing && continue
             nxt ∈ vis && nxt != free && continue
-            if et == :binding && met ∈ sub_set && met ∉ bound && !mr
-                push!(bound, met); push!(path, nxt); push!(vis, nxt)
-                dfs(nxt, path, vis, bound, released, mr)
-                delete!(vis, nxt); pop!(path); delete!(bound, met)
-            elseif et == :release && met ∈ prod_set && met ∉ released
-                push!(released, met); push!(path, nxt); push!(vis, nxt)
-                dfs(nxt, path, vis, bound, released, false)
-                delete!(vis, nxt); pop!(path); delete!(released, met)
-            elseif et == :isomerization && nxt ∉ vis
-                push!(path, nxt); push!(vis, nxt)
-                dfs(nxt, path, vis, bound, released, _has_res(nxt))
-                delete!(vis, nxt); pop!(path)
+            et = info.type == :isomerization ? :isomerization :
+                ((a == cur) == (info.type == :binding)) ? :binding : :release
+            met = info.metabolite
+            if et == :binding
+                met ∈ sub_set && met ∉ bound && !mr || continue
+                push!(bound, met)
+            elseif et == :release
+                met ∈ prod_set && met ∉ released || continue
+                push!(released, met)
+            else
+                nxt ∉ vis || continue
             end
+            push!(path, nxt); push!(vis, nxt)
+            dfs(nxt, path, vis, bound, released,
+                et == :release ? false : et == :isomerization ? _has_res(nxt) : mr)
+            delete!(vis, nxt); pop!(path)
+            et == :binding && delete!(bound, met)
+            et == :release && delete!(released, met)
         end
     end
     dfs(free, [free], Set([free]), Set{Symbol}(), Set{Symbol}(), false)
