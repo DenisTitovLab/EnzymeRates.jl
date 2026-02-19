@@ -27,7 +27,7 @@ MAX_ITER=${1:-10}
 FILE="src/mechanism_enumeration.jl"
 LOG_DIR=".ralph-logs"
 PROMPT_FILE="PROMPT.md"
-STALE_TIMEOUT=900  # seconds (15 min) — kill claude if no new log output
+STALE_TIMEOUT=1800  # seconds (30 min) — kill claude if no new turns completed
 
 mkdir -p "$LOG_DIR"
 
