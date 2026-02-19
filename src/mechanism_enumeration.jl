@@ -106,33 +106,26 @@ Enumerate all possible enzyme forms for the given reaction.
 function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
     fatoms(spec) = sort([a => c for (a, c) in spec[2]]; by=first)
     astr(v) = join(string(s) * (c > 1 ? string(c) : "") for (s, c) in v)
-    # Ping-pong residuals: subtract product atom combos from substrate atoms
+    # Build per-site options; compute ping-pong residuals inline for substrates
     pa_list = [Dict{Symbol,Int}(a => c for (a, c) in p[2])
                for p in P if !isempty(p[2])]
-    residuals = Dict{Symbol,Vector{Vector{Pair{Symbol,Int}}}}()
-    for ss in S
-        (isempty(ss[2]) || isempty(pa_list)) && continue
-        sav = fatoms(ss)
-        sa = Dict{Symbol,Int}(sav); sr = Vector{Pair{Symbol,Int}}[]
-        for m in 1:(1 << length(pa_list)) - 1
-            pa = reduce(mergewith(+), (pa_list[i]
-                for i in 1:length(pa_list) if (m >> (i - 1)) & 1 == 1))
-            all(get(sa, a, 0) >= c for (a, c) in pa) || continue
-            r = sort([a => c - get(pa, a, 0) for (a, c) in sa
-                      if c > get(pa, a, 0)]; by=first)
-            !isempty(r) && r != sav && r ∉ sr && push!(sr, r)
-        end
-        !isempty(sr) && (residuals[ss[1]] = sr)
-    end
-    # Build per-site options
     mets = Symbol[]; fulls = Vector{Pair{Symbol,Int}}[]; roles = Symbol[]
     opts = Vector{Tuple{Union{Nothing,Vector{Pair{Symbol,Int}}},String}}[]
     for (group, role) in ((S, :sub), (P, :prod), (R, :reg)), spec in group
-        push!(mets, spec[1]); push!(fulls, fatoms(spec))
-        push!(roles, role)
-        so = [(nothing, "0"), (fatoms(spec), string(spec[1]))]
-        for r in get(residuals, spec[1], Vector{Pair{Symbol,Int}}[])
-            push!(so, (r, astr(r)))
+        fa = fatoms(spec)
+        push!(mets, spec[1]); push!(fulls, fa); push!(roles, role)
+        so = [(nothing, "0"), (fa, string(spec[1]))]
+        if role == :sub && !isempty(spec[2]) && !isempty(pa_list)
+            sa = Dict{Symbol,Int}(fa)
+            for m in 1:(1 << length(pa_list)) - 1
+                pa = reduce(mergewith(+), (pa_list[i]
+                    for i in 1:length(pa_list) if (m >> (i-1)) & 1 == 1))
+                all(get(sa, a, 0) >= c for (a, c) in pa) || continue
+                r = sort([a => c - get(pa, a, 0) for (a, c) in sa
+                          if c > get(pa, a, 0)]; by=first)
+                !isempty(r) && r != fa &&
+                    !any(o -> o[1] == r, so) && push!(so, (r, astr(r)))
+            end
         end
         push!(opts, so)
     end
@@ -144,8 +137,7 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
         aso = any(i -> roles[i] == :sub && combo[i][1] !== nothing, 1:n)
         apo = any(i -> roles[i] == :prod && combo[i][1] !== nothing, 1:n)
         ((asf && apo) || (apf && aso)) && continue
-        sites = [(metabolite=mets[i],
-            atoms=combo[i][1] === nothing ? nothing : copy(combo[i][1]),
+        sites = [(metabolite=mets[i], atoms=combo[i][1],
             role=roles[i], full_atoms=fulls[i]) for i in 1:n]
         push!(forms, EnzymeFormSpec(
             Symbol("E_" * join((c[2] for c in combo), "_")), sites))
