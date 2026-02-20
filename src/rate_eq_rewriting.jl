@@ -210,9 +210,14 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
                 best_col = c
             end
         end
-        best_col == 0 && error(
-            "Degenerate constraint matrix at row $i"
-        )
+        if best_col == 0
+            wrhs[i] == 0 && continue  # redundant constraint (0 = 0)
+            error(
+                "Thermodynamically contradictory mechanism: " *
+                "constraint row $i reduces to " *
+                "0 = $(wrhs[i]) * log(Keq)"
+            )
+        end
         push!(pivot_cols, best_col)
         pv = wA[i, best_col]
         wA[i, :] ./= pv
@@ -226,7 +231,7 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
         end
     end
 
-    dep_exprs = Dict{Symbol, Expr}()
+    dep_exprs = Dict{Symbol, Union{Symbol, Expr}}()
     for (i, pcol) in enumerate(pivot_cols)
         factors = [
             (all_params[c], -wA[i, c])

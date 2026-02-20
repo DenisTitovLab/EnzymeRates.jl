@@ -582,3 +582,146 @@ end
         run_all_tests(spec)
     end
 end
+
+# ── Degenerate constraint handling ────────────────────────────────────────────
+
+@testset "Degenerate constraint handling" begin
+    # ── Unit tests: build_power_expr return types ─────────────────
+
+    @testset "build_power_expr return types" begin
+        bpe = EnzymeRates.build_power_expr
+        R = Rational{BigInt}
+        # Single symbol factor (exp=1): returns bare Symbol
+        @test bpe(R(0), [(:k1f, R(1))]) === :k1f
+
+        # Single inverse factor: returns Expr
+        @test bpe(R(0), [(:k1f, R(-1))]) isa Expr
+
+        # Keq-only: returns Symbol
+        @test bpe(R(1), Tuple{Symbol, R}[]) === :Keq
+
+        # Multiple factors: returns Expr
+        @test bpe(R(0), [(:k1f, R(1)), (:k2f, R(1))]) isa Expr
+
+        # No factors and zero Keq: returns Int literal 1
+        @test bpe(R(0), Tuple{Symbol, R}[]) === 1
+
+        # All return types are valid AST nodes
+        for r in [
+            bpe(R(0), [(:k1f, R(1))]),
+            bpe(R(0), [(:k1f, R(-1))]),
+            bpe(R(1), Tuple{Symbol, R}[]),
+            bpe(R(0), [(:k1f, R(1)), (:k2f, R(1))]),
+            bpe(R(1), [(:k1f, R(1))]),
+        ]
+            @test r isa Union{Int, Symbol, Expr}
+        end
+    end
+
+    # ── Bug 1: Symbol→Expr insertion into dep_exprs ──────────────
+    # BiUni with RE steps and K5=K1 constraint.
+    # The Wegscheider cycle simplifies to K4=K2 after constraint
+    # substitution. build_power_expr returns bare :K2 (Symbol),
+    # which must be accepted by Dict{Symbol, Union{Symbol, Expr}}.
+
+    @testset "Bug 1: Symbol dep_expr (K5=K1 constraint)" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[X]
+                products:   P[CX]
+                enzymes:    E, EA[C], EB[X], EAB[CX], EP[CX]
+            end
+            steps: begin
+                [E, A] ⇌ [EA]       # K1
+                [E, B] ⇌ [EB]       # K2
+                [EA, B] <--> [EAB]   # k3f, k3r
+                [EB, A] ⇌ [EAB]     # K4
+                [EAB] ⇌ [EP]        # K5
+                [EP] <--> [E, P]     # k6f, k6r
+            end
+            constraints: begin
+                K5 = K1
+            end
+        end
+
+        # parameters exercises _dependent_param_exprs
+        ps = parameters(m)
+        @test ps isa Tuple
+        @test :K5 ∉ ps  # constrained out
+        # K4 should be dependent (K4 = K2), not in parameters
+        @test :K4 ∉ ps
+
+        # rate_equation_string in Reduced mode should also work
+        s = rate_equation_string(m, Reduced)
+        @test s isa String
+        @test length(s) > 0
+    end
+
+    # ── Bug 2: Redundant constraint row (0 = 0) ─────────────────
+    # BiUni all-SS with k5=k1, k4=k2 constraints.
+    # The Wegscheider cycle becomes 0=0 (all columns cancel).
+    # This redundant row should be silently skipped.
+
+    @testset "Bug 2: Redundant constraint row (0=0)" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[X]
+                products:   P[CX]
+                enzymes:    E, EA[C], EB[X], EAB[CX], EP[CX]
+            end
+            steps: begin
+                [E, A] <--> [EA]     # k1f, k1r
+                [E, B] <--> [EB]     # k2f, k2r
+                [EA, B] <--> [EAB]   # k3f, k3r
+                [EB, A] <--> [EAB]   # k4f, k4r
+                [EAB] <--> [EP]      # k5f, k5r
+                [EP] <--> [E, P]     # k6f, k6r
+            end
+            constraints: begin
+                k5f = k1f
+                k5r = k1r
+                k4f = k2f
+                k4r = k2r
+            end
+        end
+
+        # parameters should succeed — redundant row skipped
+        ps = parameters(m)
+        @test ps isa Tuple
+        # All constrained params should be absent
+        for p in (:k5f, :k5r, :k4f, :k4r)
+            @test p ∉ ps
+        end
+    end
+
+    # ── Bug 3: Contradictory constraint row (0 ≠ 0) ─────────────
+    # Uni-Uni 4-step with all-equal constraints. Over-constrained:
+    # the Wegscheider row reduces to 0 = c*log(Keq), impossible.
+
+    @testset "Bug 3: Contradictory constraint (0 ≠ 0)" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                enzymes:    E, ES[C], EP[C]
+            end
+            steps: begin
+                [E, S] <--> [ES]     # k1f, k1r
+                [ES] <--> [EP]       # k2f, k2r
+                [EP] <--> [E, P]     # k3f, k3r
+                [E, S] <--> [EP]     # k4f, k4r (creates extra cycle)
+            end
+            constraints: begin
+                k2f = k1f
+                k2r = k1r
+                k3f = k1f
+                k3r = k1r
+                k4f = k1f
+                k4r = k1r
+            end
+        end
+
+        # Should throw a descriptive error about contradictory mechanism
+        @test_throws "contradictory" parameters(m)
+    end
+end
