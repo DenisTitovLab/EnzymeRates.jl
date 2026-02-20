@@ -760,3 +760,38 @@ end
     @test s isa String
     @test t_compile < 20.0
 end
+
+@testset "Rate equation too large error" begin
+    # Build a mechanism large enough to exceed MAX_RATE_EQUATION_TERMS.
+    # Use a manually defined large mechanism (11 forms, 16 steps)
+    # that produces >5000 polynomial terms.
+    m = @enzyme_mechanism begin
+        species: begin
+            substrates: A[CX], B[N]
+            products: P[C], Q[NX]
+            regulators: R1[S]
+            enzymes: E, EA[CX], EAFP[CX], F[X], FB[NX],
+                     FBEQ[NX], E_R1[S], EA_R1[CXS],
+                     EAFP_R1[CXS], F_R1[XS], FB_R1[NXS]
+        end
+        steps: begin
+            [E, A] <--> [EA]
+            [EA] <--> [EAFP]
+            [EAFP] <--> [F, P]
+            [F, B] <--> [FB]
+            [FB] <--> [FBEQ]
+            [FBEQ] <--> [E, Q]
+            [E, R1] <--> [E_R1]
+            [EA, R1] <--> [EA_R1]
+            [EAFP, R1] <--> [EAFP_R1]
+            [F, R1] <--> [F_R1]
+            [FB, R1] <--> [FB_R1]
+            [E_R1, A] <--> [EA_R1]
+            [EA_R1] <--> [EAFP_R1]
+            [EAFP_R1] <--> [F_R1, P]
+            [F_R1, B] <--> [FB_R1]
+            [FB_R1] <--> [E_R1, Q]
+        end
+    end
+    @test_throws "polynomial terms" rate_equation_string(m)
+end

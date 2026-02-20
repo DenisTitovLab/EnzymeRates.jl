@@ -1,3 +1,8 @@
+# Maximum raw polynomial terms (numerator + denominator) allowed in a
+# rate equation. Equations exceeding this limit would take too long to
+# compile via @generated functions and are unlikely to be useful.
+const MAX_RATE_EQUATION_TERMS = 5000
+
 # ─── Parameters API ─────────────────────────────────────────
 
 """
@@ -244,6 +249,16 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     constraints = param_constraints(M())
     num = _apply_param_constraints(num, constraints)
     denom = _apply_param_constraints(denom, constraints)
+
+    n_terms = length(num) + length(denom)
+    if n_terms > MAX_RATE_EQUATION_TERMS
+        error(
+            "Rate equation for this mechanism has $n_terms polynomial " *
+            "terms (limit: $MAX_RATE_EQUATION_TERMS). Equations this " *
+            "large take a very long time to compile and are unlikely " *
+            "to be practically useful for parameter fitting.",
+        )
+    end
 
     num, denom
 end
