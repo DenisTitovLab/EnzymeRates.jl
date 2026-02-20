@@ -228,3 +228,199 @@ function _apply_param_constraints(p::POLY, constraints)
     end
     p
 end
+
+# ─── Factored denominator types ──────────────────────────────
+
+"""Product of POLY factors with integer exponents: prod(factors[i]^exponents[i])."""
+struct FactoredPoly
+    factors::Vector{POLY}
+    exponents::Vector{Int}
+end
+
+"""Sum of coefficient * FactoredPoly terms: sum(coefficients[i] * products[i])."""
+struct FactoredSigma
+    coefficients::Vector{POLY}
+    products::Vector{FactoredPoly}
+end
+
+"""One term of the factored denominator: sigma[g] * D[g]."""
+struct DenomTerm
+    sigma::FactoredSigma
+    cofactor::POLY
+end
+
+"""Wrap a plain POLY as a degenerate DenomTerm (1 sub-group, 1 factor, exp 1)."""
+function unfactored_denom_term(sigma_num::POLY, cofactor::POLY)
+    DenomTerm(
+        FactoredSigma([poly_one()], [FactoredPoly([sigma_num], [1])]),
+        cofactor,
+    )
+end
+
+# ─── Factored Expr generation ──────────────────────────────────
+
+"""Convert a FactoredPoly to Expr: (f1)^e1 * (f2)^e2 * ..."""
+function _factored_poly_to_expr(
+    fp::FactoredPoly,
+    param_syms::Set{Symbol},
+    conc_syms::Set{Symbol},
+    inverted_params::Set{Symbol},
+)
+    terms = Any[]
+    for (f, e) in zip(fp.factors, fp.exponents)
+        f_expr = _poly_to_expr(f, param_syms, conc_syms, inverted_params)
+        if e == 1
+            push!(terms, f_expr)
+        else
+            push!(terms, :(($f_expr) ^ $e))
+        end
+    end
+    isempty(terms) ? 1 : _nest_binary(:*, terms)
+end
+
+"""Convert a FactoredSigma to Expr: sum of coeff * factored_poly."""
+function _factored_sigma_to_expr(
+    fs::FactoredSigma,
+    param_syms::Set{Symbol},
+    conc_syms::Set{Symbol},
+    inverted_params::Set{Symbol},
+)
+    terms = Any[]
+    for (coeff, fp) in zip(fs.coefficients, fs.products)
+        fp_expr = _factored_poly_to_expr(
+            fp, param_syms, conc_syms, inverted_params,
+        )
+        if coeff == poly_one()
+            push!(terms, fp_expr)
+        else
+            c_expr = _poly_to_expr(
+                coeff, param_syms, conc_syms, inverted_params,
+            )
+            push!(terms, :($c_expr * $fp_expr))
+        end
+    end
+    _nest_binary(:+, terms)
+end
+
+"""Convert Vector{DenomTerm} to a single denominator Expr."""
+function _denom_terms_to_expr(
+    terms::Vector{DenomTerm},
+    param_syms::Set{Symbol},
+    conc_syms::Set{Symbol},
+    inverted_params::Set{Symbol},
+)
+    exprs = Any[]
+    for dt in terms
+        s_expr = _factored_sigma_to_expr(
+            dt.sigma, param_syms, conc_syms, inverted_params,
+        )
+        if dt.cofactor == poly_one()
+            push!(exprs, s_expr)
+        else
+            c_expr = _poly_to_expr(
+                dt.cofactor, param_syms, conc_syms, inverted_params,
+            )
+            push!(exprs, :($s_expr * $c_expr))
+        end
+    end
+    _nest_binary(:+, exprs)
+end
+
+"""Build rate Expr from numerator POLY and factored denominator terms."""
+function to_rate_expr(
+    num::POLY, denom_terms::Vector{DenomTerm},
+    param_syms::Set{Symbol}, conc_syms::Set{Symbol},
+    inverted_params::Set{Symbol}=Set{Symbol}(),
+)
+    num_expr = _poly_to_expr(num, param_syms, conc_syms, inverted_params)
+    den_expr = _denom_terms_to_expr(
+        denom_terms, param_syms, conc_syms, inverted_params,
+    )
+    :(E_total * ($num_expr) / ($den_expr))
+end
+
+# ─── Constraint application for factored types ────────────────
+
+function _apply_param_constraints(fp::FactoredPoly, constraints)
+    FactoredPoly(
+        [_apply_param_constraints(f, constraints) for f in fp.factors],
+        copy(fp.exponents),
+    )
+end
+
+function _apply_param_constraints(fs::FactoredSigma, constraints)
+    FactoredSigma(
+        [_apply_param_constraints(c, constraints) for c in fs.coefficients],
+        [_apply_param_constraints(fp, constraints) for fp in fs.products],
+    )
+end
+
+function _apply_param_constraints(dt::DenomTerm, constraints)
+    DenomTerm(
+        _apply_param_constraints(dt.sigma, constraints),
+        _apply_param_constraints(dt.cofactor, constraints),
+    )
+end
+
+# ─── Expansion and estimation helpers ─────────────────────────
+
+"""Expand a FactoredPoly to a flat POLY by multiplying out factors^exponents."""
+function _expand_factored_poly(fp::FactoredPoly)::POLY
+    result = poly_one()
+    for (f, e) in zip(fp.factors, fp.exponents)
+        p = f
+        for _ in 2:e
+            p = poly_mul(p, f)
+        end
+        result = poly_mul(result, p)
+        if length(result) > MAX_RATE_EQUATION_TERMS
+            error(
+                "Rate equation for this mechanism has more than " *
+                "$MAX_RATE_EQUATION_TERMS polynomial terms " *
+                "(limit: $MAX_RATE_EQUATION_TERMS). Equations " *
+                "this large take a very long time to compile " *
+                "and are unlikely to be practically useful " *
+                "for parameter fitting.",
+            )
+        end
+    end
+    result
+end
+
+"""Expand a FactoredSigma to a flat POLY."""
+function _expand_factored_sigma(fs::FactoredSigma)::POLY
+    result = poly_zero()
+    for (coeff, fp) in zip(fs.coefficients, fs.products)
+        result = poly_add(result, poly_mul(coeff, _expand_factored_poly(fp)))
+    end
+    result
+end
+
+"""Expand Vector{DenomTerm} to a single flat POLY denominator."""
+function _expand_to_poly(terms::Vector{DenomTerm})::POLY
+    result = poly_zero()
+    for dt in terms
+        sigma_poly = _expand_factored_sigma(dt.sigma)
+        result = poly_add(result, poly_mul(sigma_poly, dt.cofactor))
+    end
+    result
+end
+
+"""
+Estimate the expanded term count for factored denominator terms.
+Upper bound: accounts for factor lengths and exponents but not cancellation.
+"""
+function _estimate_expanded_term_count(terms::Vector{DenomTerm})::Int
+    total = 0
+    for dt in terms
+        sigma_count = 0
+        for (coeff, fp) in zip(dt.sigma.coefficients, dt.sigma.products)
+            fp_count = prod(
+                length(f)^e for (f, e) in zip(fp.factors, fp.exponents)
+            )
+            sigma_count += length(coeff) * fp_count
+        end
+        total += sigma_count * max(length(dt.cofactor), 1)
+    end
+    total
+end
