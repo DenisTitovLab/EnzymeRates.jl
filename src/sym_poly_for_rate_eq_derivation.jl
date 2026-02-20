@@ -1,6 +1,11 @@
 # Lightweight symbolic polynomial type for compile-time rate equation derivation.
 # All computation happens on POLY values. Conversion to Expr happens once at the end.
 
+# Maximum raw polynomial terms allowed in a rate equation.
+# Equations exceeding this limit would take too long to compile
+# via @generated functions and are unlikely to be useful.
+const MAX_RATE_EQUATION_TERMS = 5000
+
 const MONO = Vector{Pair{Symbol,Int}}
 const POLY = Dict{MONO, Int}
 
@@ -37,7 +42,9 @@ function _mono_mul(a::MONO, b::MONO)
     sort!(MONO(collect(d)); by=first)
 end
 
-# Cofactor determinant expansion for symbolic matrices
+# Cofactor determinant expansion for symbolic matrices.
+# Checks intermediate term count against MAX_RATE_EQUATION_TERMS to
+# abort early for mechanisms whose rate equations would be too large.
 function sym_det(M::Matrix{POLY}, n::Int)
     n == 0 && return poly_one()
     n == 1 && return M[1,1]
@@ -52,6 +59,15 @@ function sym_det(M::Matrix{POLY}, n::Int)
         cofactor = sym_det(minor, n-1)
         term = poly_mul(M[1,j], cofactor)
         result = iseven(j-1) ? poly_add(result, term) : poly_sub(result, term)
+        if length(result) > MAX_RATE_EQUATION_TERMS
+            error(
+                "Rate equation derivation exceeded " *
+                "$MAX_RATE_EQUATION_TERMS polynomial terms " *
+                "during symbolic determinant computation. " *
+                "This mechanism is too large for compiled " *
+                "rate equations.",
+            )
+        end
     end
     result
 end

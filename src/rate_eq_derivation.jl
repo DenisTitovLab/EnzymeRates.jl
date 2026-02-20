@@ -1,8 +1,3 @@
-# Maximum raw polynomial terms (numerator + denominator) allowed in a
-# rate equation. Equations exceeding this limit would take too long to
-# compile via @generated functions and are unlikely to be useful.
-const MAX_RATE_EQUATION_TERMS = 5000
-
 # ─── Parameters API ─────────────────────────────────────────
 
 """
