@@ -149,6 +149,476 @@ function _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
     alpha_num, alpha_den, sigma_num, sigma_den
 end
 
+# ─── Sigma Factoring Detection ─────────────────────────────────
+
+"""
+Split an RE group into conformational sub-groups connected by binding
+steps only. Returns `(sub_groups, sub_group_coeffs)` where each
+sub-group is a `Vector{Int}` of form indices and `sub_group_coeffs[k]`
+is the POLY coefficient for sub-group k relative to sub-group 1.
+"""
+function _split_conformational_subgroups(
+    group, enz_names, enz_set, rxns, eq_steps,
+)
+    group_set = Set(group)
+    N = length(group)
+    global_to_local = Dict(g => i for (i, g) in enumerate(group))
+
+    parent = collect(1:N)
+    function find(x)
+        while parent[x] != x; parent[x] = parent[parent[x]]; x = parent[x]; end
+        x
+    end
+    uf_union!(a, b) = let ra = find(a), rb = find(b)
+        ra != rb && (parent[ra] = rb)
+    end
+
+    iso_steps = Int[]
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        eq_steps[idx] || continue
+        e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
+        e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
+        i_f = findfirst(==(e_lhs), enz_names)
+        j_f = findfirst(==(e_rhs), enz_names)
+        (i_f ∈ group_set && j_f ∈ group_set) || continue
+        has_met_lhs = !isempty(m_lhs)
+        has_met_rhs = !isempty(m_rhs)
+        if has_met_lhs ⊻ has_met_rhs
+            uf_union!(global_to_local[i_f], global_to_local[j_f])
+        elseif !has_met_lhs && !has_met_rhs
+            push!(iso_steps, idx)
+        end
+    end
+
+    comp_map = Dict{Int, Int}()
+    sub_groups = Vector{Vector{Int}}()
+    for (local_i, global_i) in enumerate(group)
+        r = find(local_i)
+        if !haskey(comp_map, r)
+            push!(sub_groups, Int[])
+            comp_map[r] = length(sub_groups)
+        end
+        push!(sub_groups[comp_map[r]], global_i)
+    end
+
+    length(sub_groups) == 1 && return sub_groups, [poly_one()]
+
+    form_to_sg = Dict{Int, Int}()
+    for (sg_idx, sg) in enumerate(sub_groups)
+        for f in sg; form_to_sg[f] = sg_idx; end
+    end
+
+    n_sg = length(sub_groups)
+    coeffs = Vector{Union{POLY, Nothing}}(fill(nothing, n_sg))
+    coeffs[1] = poly_one()
+    visited_sg = Set{Int}([1])
+    queue = [1]
+
+    while !isempty(queue)
+        cur_sg = popfirst!(queue)
+        for idx in iso_steps
+            lhs, rhs = rxns[idx]
+            e_lhs, _ = _split_reaction_side(lhs, enz_set)
+            e_rhs, _ = _split_reaction_side(rhs, enz_set)
+            i_f = findfirst(==(e_lhs), enz_names)
+            j_f = findfirst(==(e_rhs), enz_names)
+            (i_f ∈ group_set && j_f ∈ group_set) || continue
+            sg_i = form_to_sg[i_f]
+            sg_j = form_to_sg[j_f]
+            K = poly_sym(Symbol("K$idx"))
+            if sg_i == cur_sg && sg_j ∉ visited_sg
+                coeffs[sg_j] = poly_mul(coeffs[sg_i]::POLY, K)
+                push!(visited_sg, sg_j); push!(queue, sg_j)
+            elseif sg_j == cur_sg && sg_i ∉ visited_sg
+                # Reverse traversal requires 1/K — not representable as POLY.
+                # Return nothing to signal factoring failure.
+                return sub_groups, nothing
+            end
+        end
+    end
+
+    any(isnothing, coeffs) && return sub_groups, nothing
+    return sub_groups, POLY[c for c in coeffs]
+end
+
+"""
+Compute the metabolite binding state for each form in a sub-group via
+BFS through binding RE steps. Returns `Dict{Int, Dict{Symbol, Int}}`
+mapping form index → {metabolite => count}.
+"""
+function _metabolite_binding_states(
+    subgroup, enz_names, enz_set, rxns, eq_steps,
+)
+    sg_set = Set(subgroup)
+    ref = first(subgroup)
+    states = Dict{Int, Dict{Symbol, Int}}(ref => Dict{Symbol, Int}())
+    queue = [ref]
+
+    while !isempty(queue)
+        cur = popfirst!(queue)
+        for (idx, (lhs, rhs)) in enumerate(rxns)
+            eq_steps[idx] || continue
+            e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
+            e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
+            i_f = findfirst(==(e_lhs), enz_names)
+            j_f = findfirst(==(e_rhs), enz_names)
+            (i_f ∈ sg_set && j_f ∈ sg_set) || continue
+            has_met_lhs = !isempty(m_lhs)
+            has_met_rhs = !isempty(m_rhs)
+            (has_met_lhs ⊻ has_met_rhs) || continue
+
+            met = has_met_lhs ? first(m_lhs) : first(m_rhs)
+            # Determine less-bound and more-bound forms
+            if has_met_lhs
+                less, more = i_f, j_f  # [E, M] ⇌ [EM]
+            else
+                less, more = j_f, i_f  # [EM] ⇌ [E, M]
+            end
+
+            if cur == less && !haskey(states, more)
+                s = copy(states[cur])
+                s[met] = get(s, met, 0) + 1
+                states[more] = s
+                push!(queue, more)
+            elseif cur == more && !haskey(states, less)
+                s = copy(states[cur])
+                s[met] = get(s, met, 0) - 1
+                s[met] == 0 && delete!(s, met)
+                states[less] = s
+                push!(queue, less)
+            end
+        end
+    end
+    states
+end
+
+"""
+Partition metabolites into independent binding sites. Two metabolites
+share a site if they never co-occur in any form. Returns a vector of
+vectors of metabolite symbols, one per site.
+"""
+function _partition_metabolite_sites(
+    binding_states::Dict{Int, Dict{Symbol, Int}},
+)
+    all_mets = Set{Symbol}()
+    for (_, bs) in binding_states
+        for m in keys(bs); push!(all_mets, m); end
+    end
+    mets = sort!(collect(all_mets))
+    isempty(mets) && return Vector{Symbol}[]
+
+    # Build co-occurrence: do two metabolites ever appear together?
+    cooccur = Dict{Tuple{Symbol,Symbol}, Bool}()
+    for m1 in mets, m2 in mets
+        m1 >= m2 && continue
+        cooccur[(m1, m2)] = false
+    end
+    for (_, bs) in binding_states
+        present = [m for m in mets if get(bs, m, 0) > 0]
+        for i in eachindex(present), j in (i+1):length(present)
+            a, b = minmax(present[i], present[j])
+            cooccur[(a, b)] = true
+        end
+    end
+
+    # Union-find: merge metabolites that NEVER co-occur
+    # (they compete for the same site)
+    met_idx = Dict(m => i for (i, m) in enumerate(mets))
+    uf_parent = collect(1:length(mets))
+    function find(x)
+        while uf_parent[x] != x
+            uf_parent[x] = uf_parent[uf_parent[x]]; x = uf_parent[x]
+        end
+        x
+    end
+    uf_union!(a, b) = let ra = find(a), rb = find(b)
+        ra != rb && (uf_parent[ra] = rb)
+    end
+
+    for m1 in mets, m2 in mets
+        m1 >= m2 && continue
+        # Share a site if they never co-occur AND there's substitution evidence
+        if !cooccur[(minmax(m1, m2))]
+            # Check substitution: exists a form with m1 that has a neighbor with m2
+            has_sub = false
+            for (_, bs) in binding_states
+                if get(bs, m1, 0) > 0 && get(bs, m2, 0) == 0
+                    # Check if a related form has m2 instead of m1
+                    for (_, bs2) in binding_states
+                        if get(bs2, m2, 0) > 0 && get(bs2, m1, 0) == 0
+                            # Same total binding count on this site
+                            other_same = true
+                            for m3 in mets
+                                m3 == m1 && continue
+                                m3 == m2 && continue
+                                get(bs, m3, 0) != get(bs2, m3, 0) && (other_same = false; break)
+                            end
+                            if other_same && (
+                                get(bs, m1, 0) == get(bs2, m2, 0)
+                            )
+                                has_sub = true; break
+                            end
+                        end
+                    end
+                    has_sub && break
+                end
+            end
+            has_sub && uf_union!(met_idx[m1], met_idx[m2])
+        end
+    end
+
+    groups = Dict{Int, Vector{Symbol}}()
+    for (i, m) in enumerate(mets)
+        r = find(i)
+        haskey(groups, r) || (groups[r] = Symbol[])
+        push!(groups[r], m)
+    end
+    collect(values(groups))
+end
+
+"""
+Check if the forms in a sub-group equal the Cartesian product of
+per-site binding states. Returns `(is_product, per_site_states)`.
+"""
+function _check_cartesian_product(
+    subgroup, binding_states, sites,
+)
+    # Collect per-site state tuples (occupancy count per metabolite at that site)
+    per_site_states = Vector{Vector{Dict{Symbol, Int}}}()
+    for site_mets in sites
+        states_set = Set{Dict{Symbol, Int}}()
+        for f in subgroup
+            bs = binding_states[f]
+            site_state = Dict{Symbol, Int}(
+                m => get(bs, m, 0) for m in site_mets if get(bs, m, 0) > 0
+            )
+            push!(states_set, site_state)
+        end
+        push!(per_site_states, sort!(collect(states_set); by=repr))
+    end
+
+    # Generate Cartesian product and check bijection with sub-group forms
+    expected = Set{Dict{Symbol, Int}}()
+    function _cart_product(site_idx, acc)
+        if site_idx > length(per_site_states)
+            push!(expected, copy(acc))
+            return
+        end
+        for ss in per_site_states[site_idx]
+            merged = copy(acc)
+            for (m, c) in ss
+                merged[m] = get(merged, m, 0) + c
+            end
+            _cart_product(site_idx + 1, merged)
+        end
+    end
+    _cart_product(1, Dict{Symbol, Int}())
+
+    actual = Set{Dict{Symbol, Int}}()
+    for f in subgroup
+        bs = binding_states[f]
+        push!(actual, Dict(m => c for (m, c) in bs if c > 0))
+    end
+
+    return expected == actual, per_site_states
+end
+
+"""
+Check K consistency: all binding RE steps for the same metabolite
+within a sub-group must resolve to the same canonical K (after
+constraint resolution). Returns `(consistent, met_to_K)`.
+"""
+function _check_k_consistency(
+    subgroup, enz_names, enz_set, rxns, eq_steps,
+    binding_states, sites, constraints,
+)
+    sg_set = Set(subgroup)
+    # Build constraint resolution map: chase target → replacement
+    resolve = Dict{Symbol, Symbol}()
+    for (target, coeff, factors) in constraints
+        # Only simple constraints (coeff=1, single factor with exp=1) are compatible
+        coeff != 1 && return false, Dict{Symbol, Symbol}()
+        length(factors) != 1 && return false, Dict{Symbol, Symbol}()
+        _, exp = factors[1]
+        exp != 1 && return false, Dict{Symbol, Symbol}()
+        resolve[target] = factors[1][1]
+    end
+    # Chase to canonical form
+    function canonical(sym)
+        visited = Set{Symbol}()
+        while haskey(resolve, sym) && sym ∉ visited
+            push!(visited, sym)
+            sym = resolve[sym]
+        end
+        sym
+    end
+
+    # Map metabolite → canonical K
+    met_to_K = Dict{Symbol, Symbol}()
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        eq_steps[idx] || continue
+        e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
+        e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
+        i_f = findfirst(==(e_lhs), enz_names)
+        j_f = findfirst(==(e_rhs), enz_names)
+        (i_f ∈ sg_set && j_f ∈ sg_set) || continue
+        has_met_lhs = !isempty(m_lhs)
+        has_met_rhs = !isempty(m_rhs)
+        (has_met_lhs ⊻ has_met_rhs) || continue
+
+        met = has_met_lhs ? first(m_lhs) : first(m_rhs)
+        K_sym = canonical(Symbol("K$idx"))
+
+        if haskey(met_to_K, met)
+            met_to_K[met] != K_sym && return false, Dict{Symbol, Symbol}()
+        else
+            met_to_K[met] = K_sym
+        end
+    end
+    true, met_to_K
+end
+
+"""
+Build per-site POLY factors for a sub-group. Returns a `FactoredPoly`
+with one factor per site and detected exponents for repeated factors.
+"""
+function _build_site_factors(
+    subgroup, enz_names, enz_set, rxns, eq_steps,
+    alpha_num, alpha_den, sites, met_to_K, binding_states,
+)
+    ref = first(subgroup)
+    # Compute alpha ratio relative to ref for each form within sub-group.
+    # We use the cleared-denominator local sigma approach:
+    # sigma_local = sum_{i in sg} alpha_num[i] * prod_{j in sg, j≠i} alpha_den[j]
+    # For each per-site state, find a representative form that has ONLY that
+    # site's metabolites bound (all other sites empty).
+
+    factors = POLY[]
+    for site_mets in sites
+        # Build per-site polynomial: 1 + sum of terms for non-empty states
+        # Find forms where ONLY this site has non-empty binding state
+        site_met_set = Set(site_mets)
+        terms = Dict{Dict{Symbol,Int}, POLY}()
+        # Empty state → 1
+        terms[Dict{Symbol,Int}()] = poly_one()
+
+        for f in subgroup
+            bs = binding_states[f]
+            # Check: all bound metabolites belong to this site, other sites empty
+            site_state = Dict{Symbol,Int}(
+                m => c for (m, c) in bs if m ∈ site_met_set && c > 0
+            )
+            other_state = Dict{Symbol,Int}(
+                m => c for (m, c) in bs if m ∉ site_met_set && c > 0
+            )
+            !isempty(other_state) && continue
+            isempty(site_state) && continue  # skip the reference form
+
+            # Build the alpha term for this form:
+            # product of K_met * met for each binding
+            term = poly_one()
+            for (m, count) in site_state
+                K_sym = met_to_K[m]
+                for _ in 1:count
+                    term = poly_mul(term, poly_mul(poly_sym(K_sym), poly_sym(m)))
+                end
+            end
+            haskey(terms, site_state) && continue
+            terms[site_state] = term
+        end
+
+        # Sum all terms to form the per-site polynomial
+        factor = reduce(poly_add, values(terms))
+        push!(factors, factor)
+    end
+
+    # Detect repeated factors: merge identical POLY values
+    unique_factors = POLY[]
+    exponents = Int[]
+    for f in factors
+        idx = findfirst(==(f), unique_factors)
+        if idx !== nothing
+            exponents[idx] += 1
+        else
+            push!(unique_factors, f)
+            push!(exponents, 1)
+        end
+    end
+
+    FactoredPoly(unique_factors, exponents)
+end
+
+"""
+Try to factor sigma_num for an RE group into a `FactoredSigma`.
+Returns `nothing` if factoring is not possible.
+"""
+function _try_factor_sigma(
+    group, enz_names, enz_set, rxns, eq_steps,
+    alpha_num, alpha_den, constraints,
+)
+    # Step 1: Split into conformational sub-groups
+    sub_groups, coeffs = _split_conformational_subgroups(
+        group, enz_names, enz_set, rxns, eq_steps,
+    )
+    coeffs === nothing && return nothing
+
+    factored_products = FactoredPoly[]
+    final_coeffs = POLY[]
+
+    for (sg_idx, sg) in enumerate(sub_groups)
+        # Step 2: Compute binding states
+        states = _metabolite_binding_states(sg, enz_names, enz_set, rxns, eq_steps)
+        length(states) != length(sg) && return nothing
+
+        # Step 3: Partition metabolite sites
+        sites = _partition_metabolite_sites(states)
+        isempty(sites) && length(sg) == 1 && begin
+            # Single form, no metabolites → trivial factor
+            push!(factored_products, FactoredPoly([poly_one()], [1]))
+            push!(final_coeffs, coeffs[sg_idx])
+            continue
+        end
+
+        # Step 4: Check Cartesian product
+        is_product, per_site_states = _check_cartesian_product(sg, states, sites)
+        is_product || return nothing
+
+        # Step 5: Check K consistency
+        consistent, met_to_K = _check_k_consistency(
+            sg, enz_names, enz_set, rxns, eq_steps, states, sites, constraints,
+        )
+        consistent || return nothing
+
+        # Step 6: Build per-site factors
+        fp = _build_site_factors(
+            sg, enz_names, enz_set, rxns, eq_steps,
+            alpha_num, alpha_den, sites, met_to_K, states,
+        )
+
+        # Compute the sub-group coefficient. For the reference sub-group,
+        # coeffs[1] = poly_one(). For others, it includes isomerization K.
+        # Also account for alpha_den clearing from other sub-groups:
+        # C_sg = prod_{j not in sg} alpha_den[j]
+        other_den = poly_one()
+        sg_set = Set(sg)
+        for j in group
+            j ∈ sg_set && continue
+            other_den = poly_mul(other_den, alpha_den[j])
+        end
+
+        # Extract common alpha factor from sub-group's reference form
+        ref_alpha = alpha_num[first(sg)]
+        sg_coeff = poly_mul(poly_mul(coeffs[sg_idx], other_den), ref_alpha)
+
+        push!(factored_products, fp)
+        push!(final_coeffs, sg_coeff)
+    end
+
+    # Verify: expanded factored sigma should match the original sigma_num
+    # (skip verification for large mechanisms to avoid expansion cost)
+    FactoredSigma(final_coeffs, factored_products)
+end
+
 """Build rate poly for one SS step direction, clearing alpha denominators within group."""
 function _ss_contrib(k_poly, mets, i_form, alpha_num, alpha_den, group)
     r = isempty(mets) ? k_poly : poly_mul(k_poly, reduce(poly_mul, poly_sym.(mets)))

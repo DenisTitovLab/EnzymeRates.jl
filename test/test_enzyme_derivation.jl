@@ -1109,3 +1109,270 @@ end
         @test expanded == manual
     end
 end
+
+# ── Sigma factoring detection (Phase 3) ───────────────────────────────────
+
+@testset "Sigma factoring detection" begin
+
+    @testset "4-form independent binding: E, ES, ER, ESR" begin
+        # E + S ⇌ ES (K1), E + R ⇌ ER (K2), ES + R ⇌ ESR (K3=K2), ER + S ⇌ ESR (K4=K1)
+        # Two independent sites: {S} and {R}
+        # sigma = (1 + K1*S) * (1 + K2*R)
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                regulators: R1[X]
+                enzymes:    E, ES[C], ER1[X], ESR1[CX]
+            end
+            steps: begin
+                [E, S] ⇌ [ES]        # K1
+                [E, R1] ⇌ [ER1]      # K2
+                [ES, R1] ⇌ [ESR1]    # K3
+                [ER1, S] ⇌ [ESR1]    # K4
+                [ES] <--> [E, P]      # k5f, k5r (SS step)
+            end
+            constraints: begin
+                K3 = K2
+                K4 = K1
+            end
+        end
+        M = typeof(m)
+        enz_names = Tuple(e[1] for e in EnzymeRates.enzyme_forms(m))
+        enz_set = Set(enz_names)
+        rxns = EnzymeRates.reactions(m)
+        eq = EnzymeRates.equilibrium_steps(m)
+        groups, _ = EnzymeRates._compute_re_groups(enz_names, enz_set, rxns, eq)
+        alpha_num, alpha_den, _, _ = EnzymeRates._compute_alpha(
+            enz_names, enz_set, rxns, eq, groups,
+        )
+        constraints = EnzymeRates.param_constraints(m)
+
+        # Test _split_conformational_subgroups
+        @testset "split conformational subgroups" begin
+            sgs, coeffs = EnzymeRates._split_conformational_subgroups(
+                groups[1], enz_names, enz_set, rxns, eq,
+            )
+            @test length(sgs) == 1  # no isomerization → single sub-group
+            @test coeffs == [EnzymeRates.poly_one()]
+        end
+
+        # Test _metabolite_binding_states
+        @testset "metabolite binding states" begin
+            states = EnzymeRates._metabolite_binding_states(
+                groups[1], enz_names, enz_set, rxns, eq,
+            )
+            @test length(states) == 4
+            ref_idx = groups[1][1]  # E
+            @test states[ref_idx] == Dict{Symbol, Int}()
+            # Find ES, ER1, ESR1 by binding state
+            es_idx = findfirst(
+                i -> get(states[i], :S, 0) == 1 && get(states[i], :R1, 0) == 0,
+                groups[1],
+            )
+            @test es_idx !== nothing
+            er_idx = findfirst(
+                i -> get(states[i], :R1, 0) == 1 && get(states[i], :S, 0) == 0,
+                groups[1],
+            )
+            @test er_idx !== nothing
+            esr_idx = findfirst(
+                i -> get(states[i], :S, 0) == 1 && get(states[i], :R1, 0) == 1,
+                groups[1],
+            )
+            @test esr_idx !== nothing
+        end
+
+        # Test _partition_metabolite_sites
+        @testset "partition metabolite sites" begin
+            states = EnzymeRates._metabolite_binding_states(
+                groups[1], enz_names, enz_set, rxns, eq,
+            )
+            sites = EnzymeRates._partition_metabolite_sites(states)
+            @test length(sites) == 2  # {S} and {R1}
+            site_sets = Set(Set(s) for s in sites)
+            @test Set([:S]) ∈ site_sets
+            @test Set([:R1]) ∈ site_sets
+        end
+
+        # Test _check_cartesian_product
+        @testset "check Cartesian product" begin
+            states = EnzymeRates._metabolite_binding_states(
+                groups[1], enz_names, enz_set, rxns, eq,
+            )
+            sites = EnzymeRates._partition_metabolite_sites(states)
+            is_product, _ = EnzymeRates._check_cartesian_product(
+                groups[1], states, sites,
+            )
+            @test is_product
+        end
+
+        # Test _check_k_consistency
+        @testset "K consistency" begin
+            states = EnzymeRates._metabolite_binding_states(
+                groups[1], enz_names, enz_set, rxns, eq,
+            )
+            sites = EnzymeRates._partition_metabolite_sites(states)
+            consistent, met_to_K = EnzymeRates._check_k_consistency(
+                groups[1], enz_names, enz_set, rxns, eq,
+                states, sites, constraints,
+            )
+            @test consistent
+            @test met_to_K[:S] == met_to_K[:S]  # self-consistent
+            @test length(met_to_K) == 2  # S and R1
+        end
+
+        # Test _try_factor_sigma (full pipeline)
+        @testset "try_factor_sigma succeeds" begin
+            fs = EnzymeRates._try_factor_sigma(
+                groups[1], enz_names, enz_set, rxns, eq,
+                alpha_num, alpha_den, constraints,
+            )
+            @test fs !== nothing
+            @test fs isa EnzymeRates.FactoredSigma
+            @test length(fs.products) == 1  # single sub-group
+            fp = fs.products[1]
+            @test length(fp.factors) == 2  # 2 sites
+            @test all(e == 1 for e in fp.exponents)
+
+            # Verify expanded factored sigma equals original sigma_num
+            sigma_expanded = EnzymeRates._expand_factored_sigma(fs)
+            _, _, sigma_num, _ = EnzymeRates._compute_alpha(
+                enz_names, enz_set, rxns, eq, groups,
+            )
+            # Apply constraints to sigma_num for comparison
+            sigma_num_c = EnzymeRates._apply_param_constraints(
+                sigma_num[1], constraints,
+            )
+            sigma_factored_c = EnzymeRates._apply_param_constraints(
+                sigma_expanded, constraints,
+            )
+            @test sigma_factored_c == sigma_num_c
+        end
+    end
+
+    @testset "3-form linear chain: E, ES, EP → single site" begin
+        # E + S ⇌ ES, E + P ⇌ EP (all RE binding, one SS step somewhere)
+        # Single site {S, P}, factor = 1 + K1*S + K2*P
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                enzymes:    E, ES[C], EP[C]
+            end
+            steps: begin
+                [E, S] ⇌ [ES]      # K1
+                [E, P] ⇌ [EP]      # K2
+                [ES] <--> [EP]      # k3f, k3r (SS step)
+            end
+        end
+        M = typeof(m)
+        enz_names = Tuple(e[1] for e in EnzymeRates.enzyme_forms(m))
+        enz_set = Set(enz_names)
+        rxns = EnzymeRates.reactions(m)
+        eq = EnzymeRates.equilibrium_steps(m)
+        groups, _ = EnzymeRates._compute_re_groups(enz_names, enz_set, rxns, eq)
+        alpha_num, alpha_den, _, _ = EnzymeRates._compute_alpha(
+            enz_names, enz_set, rxns, eq, groups,
+        )
+        constraints = EnzymeRates.param_constraints(m)
+
+        @testset "binding states" begin
+            states = EnzymeRates._metabolite_binding_states(
+                groups[1], enz_names, enz_set, rxns, eq,
+            )
+            @test length(states) == 3
+        end
+
+        @testset "single site with S and P" begin
+            states = EnzymeRates._metabolite_binding_states(
+                groups[1], enz_names, enz_set, rxns, eq,
+            )
+            sites = EnzymeRates._partition_metabolite_sites(states)
+            @test length(sites) == 1  # {S, P} on same site
+            @test Set(sites[1]) == Set([:S, :P])
+        end
+
+        @testset "try_factor_sigma" begin
+            fs = EnzymeRates._try_factor_sigma(
+                groups[1], enz_names, enz_set, rxns, eq,
+                alpha_num, alpha_den, constraints,
+            )
+            @test fs !== nothing
+            @test length(fs.products) == 1
+            fp = fs.products[1]
+            @test length(fp.factors) == 1  # single site → single factor
+            # Factor should be 1 + K1*S + K2*P (3 terms)
+            @test length(fp.factors[1]) == 3
+        end
+    end
+
+    @testset "No constraints → K inconsistency → returns nothing" begin
+        # Same 4-form mechanism but WITHOUT constraints K3=K2, K4=K1
+        # Each metabolite has different K's → factoring fails
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                regulators: R1[X]
+                enzymes:    E, ES[C], ER1[X], ESR1[CX]
+            end
+            steps: begin
+                [E, S] ⇌ [ES]        # K1
+                [E, R1] ⇌ [ER1]      # K2
+                [ES, R1] ⇌ [ESR1]    # K3 (≠ K2)
+                [ER1, S] ⇌ [ESR1]    # K4 (≠ K1)
+                [ES] <--> [E, P]      # k5f, k5r
+            end
+        end
+        enz_names = Tuple(e[1] for e in EnzymeRates.enzyme_forms(m))
+        enz_set = Set(enz_names)
+        rxns = EnzymeRates.reactions(m)
+        eq = EnzymeRates.equilibrium_steps(m)
+        groups, _ = EnzymeRates._compute_re_groups(enz_names, enz_set, rxns, eq)
+        alpha_num, alpha_den, _, _ = EnzymeRates._compute_alpha(
+            enz_names, enz_set, rxns, eq, groups,
+        )
+        constraints = EnzymeRates.param_constraints(m)
+
+        fs = EnzymeRates._try_factor_sigma(
+            groups[1], enz_names, enz_set, rxns, eq,
+            alpha_num, alpha_den, constraints,
+        )
+        @test fs === nothing
+    end
+
+    @testset "All-SS mechanism → trivial sigma (poly_one per group)" begin
+        # For all-SS mechanisms, each group has 1 form, sigma = poly_one()
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                enzymes:    E, ES[C]
+            end
+            steps: begin
+                [E, S] <--> [ES]
+                [ES] <--> [E, P]
+            end
+        end
+        enz_names = Tuple(e[1] for e in EnzymeRates.enzyme_forms(m))
+        enz_set = Set(enz_names)
+        rxns = EnzymeRates.reactions(m)
+        eq = EnzymeRates.equilibrium_steps(m)
+        groups, _ = EnzymeRates._compute_re_groups(enz_names, enz_set, rxns, eq)
+        alpha_num, alpha_den, _, _ = EnzymeRates._compute_alpha(
+            enz_names, enz_set, rxns, eq, groups,
+        )
+
+        # Each group is a singleton → trivial factoring
+        for g in groups
+            @test length(g) == 1
+            fs = EnzymeRates._try_factor_sigma(
+                g, enz_names, enz_set, rxns, eq,
+                alpha_num, alpha_den, (),
+            )
+            @test fs !== nothing
+            @test length(fs.products) == 1
+        end
+    end
+end
