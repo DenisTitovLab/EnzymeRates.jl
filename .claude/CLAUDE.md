@@ -115,6 +115,15 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - `_binding_K_symbols` identifies binding steps: metabolite on LHS, enzyme-only on RHS
 - JET requires `::SubString` type assertions on regex captures to avoid Union{Nothing,SubString} errors
 
+## Known Issues
+
+### `rate_equation` compilation limits for large mechanisms
+- `rate_equation(m, conc, params)` uses `@generated` functions that derive the rate equation at compile time via King-Altman/Cha method
+- For mechanisms with many enzyme forms/steps, compilation can be extremely slow, exhaust memory, or StackOverflow
+- This is inherent to the type-parameter-based architecture: each unique `EnzymeMechanism` type triggers full symbolic derivation at compile time
+- Workaround in tests: only the simplest mechanisms (first 10 by form count) are tested with `rate_equation`; larger mechanisms are tested only for enumeration correctness
+- Future fix: `identify_rate_equation` should order candidates by `param_count_estimate` (ascending) and skip mechanisms that exceed a time/memory budget
+
 ## MCP REPL + Revise Pitfall
 
 - After `git stash`/`git stash pop` (or any bulk file operation that cycles through intermediate states), **always restart the MCP REPL** (`pkill -f mcp_julia_server`) rather than relying on `Revise.revise()`. Revise can silently retain stale compiled methods, producing wrong numerical results that look plausible. Always confirm with `Pkg.test()` in a fresh process before trusting REPL results after stash operations.

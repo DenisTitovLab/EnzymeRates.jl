@@ -393,3 +393,28 @@ export structural_identifiability_deficit
 ```
 
 Total: 5 types + 2 macros + 2 constants + 7 functions = **16 exported symbols**.
+
+---
+
+## Known Limitations
+
+### `rate_equation` compilation for large mechanisms
+
+`rate_equation(m, concs, params)` uses `@generated` functions that perform
+symbolic King-Altman/Cha rate equation derivation at compile time. Because
+each unique `EnzymeMechanism` is a distinct type (species, reactions, RE/SS
+flags, and constraints are all encoded in type parameters), every new
+mechanism triggers a full symbolic derivation during compilation.
+
+For mechanisms with many enzyme forms and elementary steps (e.g., Bi-Bi
+reactions with regulators and dead-end complexes), this compilation can:
+
+- Take a very long time (minutes)
+- Exhaust available memory
+- Cause a StackOverflow in the compiler
+
+This is an inherent consequence of the type-parameter architecture that
+enables zero-allocation rate evaluation at runtime. The
+`identify_rate_equation` pipeline should mitigate this by processing
+candidates in ascending order of `param_count_estimate` and enforcing
+time/memory budgets per mechanism.

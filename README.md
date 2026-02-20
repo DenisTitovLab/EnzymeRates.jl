@@ -357,6 +357,17 @@ independent rate constants from `parameters(m)` (excluding `Keq` and `E_total`).
 | `graph(m)` | Enzyme-form connectivity graph. |
 | `stoich_matrix(m)` | Stoichiometry matrix (metabolites x steps). |
 
+## Known Limitations
+
+**`rate_equation` compilation for large mechanisms**: Because each
+`EnzymeMechanism` encodes its full structure in type parameters, calling
+`rate_equation` on a new mechanism triggers compile-time symbolic derivation
+via `@generated` functions. For mechanisms with many enzyme forms and steps
+(e.g., Bi-Bi reactions with multiple regulators), this compilation can be
+very slow, exhaust memory, or StackOverflow. Simple mechanisms (Uni-Uni,
+ordered Bi-Bi without regulators) compile in seconds; complex mechanisms with
+10+ enzyme forms may hit compiler limits.
+
 ## Running Tests
 
 ```julia

@@ -22,9 +22,6 @@ Base.@kwdef struct EnumerationTestSpec
     skip_ress_test::Bool = false         # skip for slow reactions
     expected_n_total::Int = 0            # enumerate_mechanisms total
 
-    # Rate equation smoke test
-    test_rate_equation::Bool = true
-
     # Performance
     max_enumeration_time::Float64 = Inf  # max seconds; Inf = skip check
 end
