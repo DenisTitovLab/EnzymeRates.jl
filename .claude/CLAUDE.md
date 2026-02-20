@@ -88,6 +88,13 @@ For reactions with r regulators, each regulator is either an activator (part of 
 
 ## Lessons Learned
 
+### Rate Equation Size Limits
+- `MAX_RATE_EQUATION_TERMS = 5000` in `src/sym_poly_for_rate_eq_derivation.jl` — hard limit on raw polynomial terms (num + den)
+- `sym_det` (cofactor expansion, O(n!)) is the bottleneck — has early abort check when intermediate terms exceed limit
+- `_raw_symbolic_rate_polys` has a post-hoc check as safety net (effectively redundant with sym_det check)
+- Compilation time scaling: ~0.3s at 27 terms, ~3s at 1700, ~6s at 3500, ~15s at 7500, ~50s at 23k, OOM at ~50k
+- `parameters()` in Reduced mode does NOT call `_raw_symbolic_rate_polys` — safe for huge mechanisms
+
 ### Rate Equation Derivation
 - When all RE forms are in one group (G=1), the SS isomerization step flux IS the overall rate (no sign correction needed)
 - `_compute_alpha` BFS handles forward/reverse RE traversal with K parameters
