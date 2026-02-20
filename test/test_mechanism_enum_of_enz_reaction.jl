@@ -65,8 +65,8 @@
         end
 
         # EnzymeMechanism construction from MechanismSpec.
-        # Use first 10 (simplest) to avoid StackOverflow in
-        # @generated rate_equation for large mechanisms.
+        # Use first 10 (simplest) — large mechanisms compile slowly
+        # in @generated rate_equation due to LLVM register allocation.
         mech_test_specs = first(with_de, 10)
         mechanisms = EnzymeMechanism[]
         @testset "EnzymeMechanism construction" begin

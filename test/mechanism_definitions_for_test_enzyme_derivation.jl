@@ -857,6 +857,47 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # 21. Full Random Bi-Bi: random-order binding + isomerization +
+    #     random-order release. 8 forms, 11 steps, 4 Wegscheider cycles.
+    #     Generates ~1100 denominator terms — the largest all-SS mechanism tested,
+    #     exercises the polynomial Expr pipeline at scale.
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products:   P[C], Q[N]
+                enzymes:    E, EA[C], EB[N], EAB[CN], EPQ[CN], EP[C], EQ[N], F
+            end
+            steps: begin
+                [E, A] <--> [EA]
+                [E, B] <--> [EB]
+                [EA, B] <--> [EAB]
+                [EB, A] <--> [EAB]
+                [EAB] <--> [EPQ]
+                [EPQ] <--> [EP, Q]
+                [EPQ] <--> [EQ, P]
+                [EP] <--> [F, P]
+                [EQ] <--> [F, Q]
+                [F] <--> [E]
+                [EA, B] <--> [EPQ]
+            end
+        end
+        push!(specs, MechanismTestSpec(
+            name = "Full Random Bi-Bi",
+            mechanism = m,
+            metabolite_names = [:A, :B, :P, :Q],
+            expected_n_states = 8,
+            expected_n_steps = 11,
+            expected_n_metabolites = 4,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 3,
+            expected_n_independent_params = 18,
+            expected_identifiability_deficit = -58,
+            expected_is_identifiable = true,
+            analytical_rate_fn = nothing,
+        ))
+    end
+
     # ── Rapid-Equilibrium (RE) Mechanisms ──────────────────────────────────────
 
     # 16. RE Uni-Uni: E + A ⇌_RE EA <-->_SS E + P

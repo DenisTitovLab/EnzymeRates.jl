@@ -64,21 +64,7 @@ function to_rate_expr(
 )
     num_expr = _poly_to_expr(num, param_syms, conc_syms, inverted_params)
     den_expr = _poly_to_expr(den, param_syms, conc_syms, inverted_params)
-    _binarize(:(E_total * ($num_expr) / ($den_expr)))
-end
-
-"""
-Convert n-ary +/* calls to left-folded binary for
-efficient codegen (avoids vararg dispatch).
-"""
-_binarize(x) = x
-function _binarize(ex::Expr)
-    args = Any[_binarize(a) for a in ex.args]
-    if ex.head == :call && length(args) > 3 && args[1] in (:+, :*)
-        foldl((a, b) -> Expr(:call, args[1], a, b), args[2:end])
-    else
-        Expr(ex.head, args...)
-    end
+    :(E_total * ($num_expr) / ($den_expr))
 end
 
 function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
@@ -128,12 +114,18 @@ function _combine_terms(pos::Vector{Any}, neg::Vector{Any})
     end
 end
 
-"""Build n-ary operator call: +(a, b, c, d) — prints as `a + b + c + d`."""
+"""Build balanced binary tree: +(+(a,b), +(c,d)) — O(log N) depth, zero-alloc runtime."""
 function _nest_binary(op::Symbol, terms::Vector{Any})
-    if length(terms) == 1
+    n = length(terms)
+    if n == 1
         terms[1]
+    elseif n == 2
+        Expr(:call, op, terms[1], terms[2])
     else
-        Expr(:call, op, terms...)
+        mid = n >> 1
+        Expr(:call, op,
+            _nest_binary(op, terms[1:mid]),
+            _nest_binary(op, terms[mid+1:end]))
     end
 end
 
