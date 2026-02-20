@@ -762,10 +762,9 @@ end
 end
 
 @testset "Rate equation too large error" begin
-    # Build a mechanism large enough to exceed MAX_RATE_EQUATION_TERMS.
-    # Use a manually defined large mechanism (11 forms, 16 steps)
-    # that produces >5000 polynomial terms.
-    m = @enzyme_mechanism begin
+    # Manually defined mechanism (11 forms, 16 steps, ~29k terms)
+    # triggers the post-hoc check in _raw_symbolic_rate_polys.
+    m_manual = @enzyme_mechanism begin
         species: begin
             substrates: A[CX], B[N]
             products: P[C], Q[NX]
@@ -793,5 +792,20 @@ end
             [FB_R1] <--> [E_R1, Q]
         end
     end
-    @test_throws "polynomial terms" rate_equation_string(m)
+    @test_throws "polynomial terms" rate_equation_string(m_manual)
+
+    # Enumerated mechanism (18 forms, 32 steps) from Ping-Pong Bi-Bi
+    # with 2 regulators. Triggers the early abort inside sym_det.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        regulators: R1[S], R2[P]
+    end
+    with_dead_end = EnzymeRates.enumerate_mechanisms(
+        rxn;
+        stage=EnzymeRates.WithDeadEnd(),
+        max_forms=100,
+    )
+    m_enum = EnzymeMechanism(with_dead_end[end - 1])
+    @test_throws "polynomial terms" rate_equation_string(m_enum)
 end

@@ -61,11 +61,12 @@ function sym_det(M::Matrix{POLY}, n::Int)
         result = iseven(j-1) ? poly_add(result, term) : poly_sub(result, term)
         if length(result) > MAX_RATE_EQUATION_TERMS
             error(
-                "Rate equation derivation exceeded " *
+                "Rate equation for this mechanism has more than " *
                 "$MAX_RATE_EQUATION_TERMS polynomial terms " *
-                "during symbolic determinant computation. " *
-                "This mechanism is too large for compiled " *
-                "rate equations.",
+                "(limit: $MAX_RATE_EQUATION_TERMS). Equations " *
+                "this large take a very long time to compile " *
+                "and are unlikely to be practically useful " *
+                "for parameter fitting.",
             )
         end
     end
