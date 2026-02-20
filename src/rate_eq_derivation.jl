@@ -162,7 +162,7 @@ end
 
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
 
-"""Build raw numerator and denominator POLY for the rate equation."""
+"""Build raw numerator POLY and factored denominator terms for the rate equation."""
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     m = M()
     subs_species = substrates(m)
@@ -222,7 +222,7 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
-    denom = reduce(poly_add, poly_mul(sigma_num[g], D[g]) for g in 1:G)
+    denom_terms = [unfactored_denom_term(sigma_num[g], D[g]) for g in 1:G]
 
     # Numerator: net flux through any SS step
     ref_name = subs_species[1][1]
@@ -237,15 +237,20 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
 
     abs_nu = abs(nu_ref)
     if abs_nu != 1
-        denom = poly_mul(denom, poly_const(abs_nu))
+        for (i, dt) in enumerate(denom_terms)
+            denom_terms[i] = DenomTerm(
+                dt.sigma,
+                poly_mul(dt.cofactor, poly_const(abs_nu)),
+            )
+        end
     end
 
     # Apply user-defined parameter constraints
     constraints = param_constraints(M())
     num = _apply_param_constraints(num, constraints)
-    denom = _apply_param_constraints(denom, constraints)
+    denom_terms = [_apply_param_constraints(dt, constraints) for dt in denom_terms]
 
-    n_terms = length(num) + length(denom)
+    n_terms = length(num) + _estimate_expanded_term_count(denom_terms)
     if n_terms > MAX_RATE_EQUATION_TERMS
         error(
             "Rate equation for this mechanism has $n_terms polynomial " *
@@ -255,7 +260,7 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         )
     end
 
-    num, denom
+    num, denom_terms
 end
 
 """
@@ -381,7 +386,7 @@ Compute the raw rate expression (bare symbols) and sorted parameter/concentratio
 Returns `(expr, all_params, sorted_concs)`.
 """
 function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
-    num, den = _raw_symbolic_rate_polys(M)
+    num, denom_terms = _raw_symbolic_rate_polys(M)
     m = M()
     constrained = Set(c[1] for c in param_constraints(m))
     raw_ps = _raw_param_symbols(equilibrium_steps(m))
@@ -390,7 +395,7 @@ function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
     )
     conc_syms = Set{Symbol}(metabolites(m))
     inv_set = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
-    expr = to_rate_expr(num, den, param_syms, conc_syms, inv_set)
+    expr = to_rate_expr(num, denom_terms, param_syms, conc_syms, inv_set)
     all_params = _sorted_raw_param_symbols(M)
     sorted_concs = _sorted_conc_symbols(M)
     return expr, all_params, sorted_concs
@@ -435,7 +440,7 @@ function rate_equation_string end
 rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, Reduced)
 
 function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
-    num, den = _raw_symbolic_rate_polys(M)
+    num, denom_terms = _raw_symbolic_rate_polys(M)
     m = M()
     constrained = Set(c[1] for c in param_constraints(m))
     raw_ps = _raw_param_symbols(equilibrium_steps(m))
@@ -443,7 +448,7 @@ function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
     cs = Set{Symbol}(metabolites(m))
     inv = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
     num_str = string(_poly_to_expr(num, ps, cs, inv))
-    den_str = string(_poly_to_expr(den, ps, cs, inv))
+    den_str = string(_denom_terms_to_expr(denom_terms, ps, cs, inv))
     "v = E_total * ($num_str) / ($den_str)"
 end
 
@@ -469,7 +474,8 @@ end
 # ─── Structural Identifiability ───────────────────────────────
 
 function _count_rate_monomials(M::Type{<:EnzymeMechanism})
-    num, den = _raw_symbolic_rate_polys(M)
+    num, denom_terms = _raw_symbolic_rate_polys(M)
+    den = _expand_to_poly(denom_terms)
     mm(mono) = sort([
         s => e for (s, e) in mono
         if !is_k_parameter(s) && s != :E_total && s != :Keq
