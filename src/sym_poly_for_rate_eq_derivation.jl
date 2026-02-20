@@ -1,6 +1,11 @@
 # Lightweight symbolic polynomial type for compile-time rate equation derivation.
 # All computation happens on POLY values. Conversion to Expr happens once at the end.
 
+# Maximum raw polynomial terms allowed in a rate equation.
+# Equations exceeding this limit would take too long to compile
+# via @generated functions and are unlikely to be useful.
+const MAX_RATE_EQUATION_TERMS = 5000
+
 const MONO = Vector{Pair{Symbol,Int}}
 const POLY = Dict{MONO, Int}
 
@@ -37,7 +42,9 @@ function _mono_mul(a::MONO, b::MONO)
     sort!(MONO(collect(d)); by=first)
 end
 
-# Cofactor determinant expansion for symbolic matrices
+# Cofactor determinant expansion for symbolic matrices.
+# Checks intermediate term count against MAX_RATE_EQUATION_TERMS to
+# abort early for mechanisms whose rate equations would be too large.
 function sym_det(M::Matrix{POLY}, n::Int)
     n == 0 && return poly_one()
     n == 1 && return M[1,1]
@@ -52,6 +59,16 @@ function sym_det(M::Matrix{POLY}, n::Int)
         cofactor = sym_det(minor, n-1)
         term = poly_mul(M[1,j], cofactor)
         result = iseven(j-1) ? poly_add(result, term) : poly_sub(result, term)
+        if length(result) > MAX_RATE_EQUATION_TERMS
+            error(
+                "Rate equation for this mechanism has more than " *
+                "$MAX_RATE_EQUATION_TERMS polynomial terms " *
+                "(limit: $MAX_RATE_EQUATION_TERMS). Equations " *
+                "this large take a very long time to compile " *
+                "and are unlikely to be practically useful " *
+                "for parameter fitting.",
+            )
+        end
     end
     result
 end
@@ -64,21 +81,7 @@ function to_rate_expr(
 )
     num_expr = _poly_to_expr(num, param_syms, conc_syms, inverted_params)
     den_expr = _poly_to_expr(den, param_syms, conc_syms, inverted_params)
-    _binarize(:(E_total * ($num_expr) / ($den_expr)))
-end
-
-"""
-Convert n-ary +/* calls to left-folded binary for
-efficient codegen (avoids vararg dispatch).
-"""
-_binarize(x) = x
-function _binarize(ex::Expr)
-    args = Any[_binarize(a) for a in ex.args]
-    if ex.head == :call && length(args) > 3 && args[1] in (:+, :*)
-        foldl((a, b) -> Expr(:call, args[1], a, b), args[2:end])
-    else
-        Expr(ex.head, args...)
-    end
+    :(E_total * ($num_expr) / ($den_expr))
 end
 
 function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
@@ -128,12 +131,18 @@ function _combine_terms(pos::Vector{Any}, neg::Vector{Any})
     end
 end
 
-"""Build n-ary operator call: +(a, b, c, d) — prints as `a + b + c + d`."""
+"""Build balanced binary tree: +(+(a,b), +(c,d)) — O(log N) depth, zero-alloc runtime."""
 function _nest_binary(op::Symbol, terms::Vector{Any})
-    if length(terms) == 1
+    n = length(terms)
+    if n == 1
         terms[1]
+    elseif n == 2
+        Expr(:call, op, terms[1], terms[2])
     else
-        Expr(:call, op, terms...)
+        mid = n >> 1
+        Expr(:call, op,
+            _nest_binary(op, terms[1:mid]),
+            _nest_binary(op, terms[mid+1:end]))
     end
 end
 

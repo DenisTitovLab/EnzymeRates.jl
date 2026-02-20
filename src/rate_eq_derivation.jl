@@ -245,6 +245,16 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     num = _apply_param_constraints(num, constraints)
     denom = _apply_param_constraints(denom, constraints)
 
+    n_terms = length(num) + length(denom)
+    if n_terms > MAX_RATE_EQUATION_TERMS
+        error(
+            "Rate equation for this mechanism has $n_terms polynomial " *
+            "terms (limit: $MAX_RATE_EQUATION_TERMS). Equations this " *
+            "large take a very long time to compile and are unlikely " *
+            "to be practically useful for parameter fitting.",
+        )
+    end
+
     num, denom
 end
 

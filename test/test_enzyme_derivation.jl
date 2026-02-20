@@ -725,3 +725,87 @@ end
         @test_throws "contradictory" parameters(m)
     end
 end
+
+# ── Large equation compilation regression test ────────────────────────────
+
+@testset "Large equation compilation (<20s)" begin
+    # Enumerate a large mechanism from a Ping-Pong Bi-Bi reaction with
+    # 2 regulators. The last dead-end variant produces a mechanism with
+    # many forms and steps, generating a very large rate equation.
+    # This test catches regressions in compilation time of rate_equation
+    # and rate_equation_string @generated functions.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        regulators: R1[S], R2[P]
+    end
+    max_forms = 100
+    with_dead_end = EnzymeRates.enumerate_mechanisms(
+        rxn;
+        stage=EnzymeRates.WithDeadEnd(),
+        max_forms=max_forms,
+    )
+    m = EnzymeMechanism(with_dead_end[end])
+
+    metabs = metabolites(m)
+    params_tup = parameters(m)
+    concs = NamedTuple{metabs}(ones(length(metabs)))
+    pvals = NamedTuple{params_tup}(ones(length(params_tup)))
+
+    t_compile = @elapsed begin
+        v = rate_equation(m, concs, pvals)
+        s = rate_equation_string(m)
+    end
+    @test v isa Float64
+    @test s isa String
+    @test t_compile < 20.0
+end
+
+@testset "Rate equation too large error" begin
+    # Manually defined mechanism (11 forms, 16 steps, ~29k terms)
+    # triggers the post-hoc check in _raw_symbolic_rate_polys.
+    m_manual = @enzyme_mechanism begin
+        species: begin
+            substrates: A[CX], B[N]
+            products: P[C], Q[NX]
+            regulators: R1[S]
+            enzymes: E, EA[CX], EAFP[CX], F[X], FB[NX],
+                     FBEQ[NX], E_R1[S], EA_R1[CXS],
+                     EAFP_R1[CXS], F_R1[XS], FB_R1[NXS]
+        end
+        steps: begin
+            [E, A] <--> [EA]
+            [EA] <--> [EAFP]
+            [EAFP] <--> [F, P]
+            [F, B] <--> [FB]
+            [FB] <--> [FBEQ]
+            [FBEQ] <--> [E, Q]
+            [E, R1] <--> [E_R1]
+            [EA, R1] <--> [EA_R1]
+            [EAFP, R1] <--> [EAFP_R1]
+            [F, R1] <--> [F_R1]
+            [FB, R1] <--> [FB_R1]
+            [E_R1, A] <--> [EA_R1]
+            [EA_R1] <--> [EAFP_R1]
+            [EAFP_R1] <--> [F_R1, P]
+            [F_R1, B] <--> [FB_R1]
+            [FB_R1] <--> [E_R1, Q]
+        end
+    end
+    @test_throws "polynomial terms" rate_equation_string(m_manual)
+
+    # Enumerated mechanism (18 forms, 32 steps) from Ping-Pong Bi-Bi
+    # with 2 regulators. Triggers the early abort inside sym_det.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        regulators: R1[S], R2[P]
+    end
+    with_dead_end = EnzymeRates.enumerate_mechanisms(
+        rxn;
+        stage=EnzymeRates.WithDeadEnd(),
+        max_forms=100,
+    )
+    m_enum = EnzymeMechanism(with_dead_end[end - 1])
+    @test_throws "polynomial terms" rate_equation_string(m_enum)
+end
