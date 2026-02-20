@@ -481,54 +481,40 @@ end
 """
 Build per-site POLY factors for a sub-group. Returns a `FactoredPoly`
 with one factor per site and detected exponents for repeated factors.
+
+Each per-site factor is a mini-sigma: the cleared-denominator sum over
+forms relevant to that site (reference + single-site-bound forms).
+This correctly handles both forward and reverse BFS traversal directions
+in the alpha computation.
 """
 function _build_site_factors(
     subgroup, enz_names, enz_set, rxns, eq_steps,
     alpha_num, alpha_den, sites, met_to_K, binding_states,
 )
-    ref = first(subgroup)
-    # Compute alpha ratio relative to ref for each form within sub-group.
-    # We use the cleared-denominator local sigma approach:
-    # sigma_local = sum_{i in sg} alpha_num[i] * prod_{j in sg, j≠i} alpha_den[j]
-    # For each per-site state, find a representative form that has ONLY that
-    # site's metabolites bound (all other sites empty).
-
     factors = POLY[]
     for site_mets in sites
-        # Build per-site polynomial: 1 + sum of terms for non-empty states
-        # Find forms where ONLY this site has non-empty binding state
         site_met_set = Set(site_mets)
-        terms = Dict{Dict{Symbol,Int}, POLY}()
-        # Empty state → 1
-        terms[Dict{Symbol,Int}()] = poly_one()
-
+        # Collect forms relevant to this site:
+        # reference (all sites empty) + forms with ONLY this site occupied
+        site_forms = Int[]
         for f in subgroup
             bs = binding_states[f]
-            # Check: all bound metabolites belong to this site, other sites empty
-            site_state = Dict{Symbol,Int}(
-                m => c for (m, c) in bs if m ∈ site_met_set && c > 0
-            )
-            other_state = Dict{Symbol,Int}(
-                m => c for (m, c) in bs if m ∉ site_met_set && c > 0
-            )
-            !isempty(other_state) && continue
-            isempty(site_state) && continue  # skip the reference form
-
-            # Build the alpha term for this form:
-            # product of K_met * met for each binding
-            term = poly_one()
-            for (m, count) in site_state
-                K_sym = met_to_K[m]
-                for _ in 1:count
-                    term = poly_mul(term, poly_mul(poly_sym(K_sym), poly_sym(m)))
-                end
-            end
-            haskey(terms, site_state) && continue
-            terms[site_state] = term
+            other = any(c > 0 for (m, c) in bs if m ∉ site_met_set)
+            other && continue
+            push!(site_forms, f)
         end
 
-        # Sum all terms to form the per-site polynomial
-        factor = reduce(poly_add, values(terms))
+        # Mini-sigma with cleared denominators:
+        # factor = sum_i alpha_num[i] * prod_{j≠i} alpha_den[j]
+        factor = poly_zero()
+        for fi in site_forms
+            term = alpha_num[fi]
+            for fj in site_forms
+                fi == fj && continue
+                term = poly_mul(term, alpha_den[fj])
+            end
+            factor = poly_add(factor, term)
+        end
         push!(factors, factor)
     end
 
@@ -614,9 +600,26 @@ function _try_factor_sigma(
         push!(final_coeffs, sg_coeff)
     end
 
-    # Verify: expanded factored sigma should match the original sigma_num
-    # (skip verification for large mechanisms to avoid expansion cost)
-    FactoredSigma(final_coeffs, factored_products)
+    # Verify: expanded factored sigma must match constraint-substituted sigma_num
+    fs = FactoredSigma(final_coeffs, factored_products)
+    est = _estimate_expanded_term_count([DenomTerm(fs, poly_one())])
+    if est <= MAX_RATE_EQUATION_TERMS
+        sigma_expected = reduce(
+            poly_add,
+            (poly_mul(
+                alpha_num[i],
+                reduce(
+                    poly_mul,
+                    (alpha_den[j] for j in group if j != i);
+                    init=poly_one(),
+                ),
+            ) for i in group),
+        )
+        sigma_expected = _apply_param_constraints(sigma_expected, constraints)
+        sigma_actual = _expand_factored_sigma(fs)
+        sigma_expected != sigma_actual && return nothing
+    end
+    fs
 end
 
 """Build rate poly for one SS step direction, clearing alpha denominators within group."""
@@ -692,7 +695,20 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
-    denom_terms = [unfactored_denom_term(sigma_num[g], D[g]) for g in 1:G]
+    # Try to factor sigma for each RE group; fall back to unfactored
+    pc = param_constraints(m)
+    denom_terms = DenomTerm[]
+    for g in 1:G
+        fs = _try_factor_sigma(
+            groups[g], enz_names, enz_set, rxns, eq_steps,
+            alpha_num, alpha_den, pc,
+        )
+        if fs !== nothing
+            push!(denom_terms, DenomTerm(fs, D[g]))
+        else
+            push!(denom_terms, unfactored_denom_term(sigma_num[g], D[g]))
+        end
+    end
 
     # Numerator: net flux through any SS step
     ref_name = subs_species[1][1]
@@ -716,9 +732,8 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     end
 
     # Apply user-defined parameter constraints
-    constraints = param_constraints(M())
-    num = _apply_param_constraints(num, constraints)
-    denom_terms = [_apply_param_constraints(dt, constraints) for dt in denom_terms]
+    num = _apply_param_constraints(num, pc)
+    denom_terms = [_apply_param_constraints(dt, pc) for dt in denom_terms]
 
     n_terms = length(num) + _estimate_expanded_term_count(denom_terms)
     if n_terms > MAX_RATE_EQUATION_TERMS

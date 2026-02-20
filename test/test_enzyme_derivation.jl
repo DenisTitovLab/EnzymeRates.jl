@@ -210,6 +210,17 @@ function compute_all_params(m, new_params)
         val = _eval_dep_expr(expr_str, new_params)
         dep_dict[sym] = val
     end
+    # Resolve user param constraints (e.g., K3 = K2)
+    for (target, coeff, factors) in EnzymeRates.param_constraints(m)
+        val = Float64(coeff)
+        for (sym, exp) in factors
+            src = haskey(dep_dict, sym) ? dep_dict[sym] :
+                  haskey(new_params, sym) ? Float64(new_params[sym]) :
+                  error("Missing parameter $sym for constraint $target")
+            val *= src^exp
+        end
+        dep_dict[target] = val
+    end
     all_vals = Float64[haskey(dep_dict, k) ? dep_dict[k] :
                        haskey(new_params, k) ? Float64(new_params[k]) :
                        error("Missing parameter $k")
@@ -1374,5 +1385,155 @@ end
             @test fs !== nothing
             @test length(fs.products) == 1
         end
+    end
+end
+
+# ── Factored sigma pipeline integration (Phase 4) ─────────────────────────
+
+@testset "Factored sigma pipeline integration" begin
+
+    # Mechanism: competitive inhibitor R1 with independent binding sites
+    # E + S ⇌ ES, E + R1 ⇌ ER1, ES + R1 ⇌ ESR1 (K3=K2), ER1 + S ⇌ ESR1 (K4=K1)
+    # ES <--> E + P (SS step)
+    # sigma factors as (1 + K1*S) * (1 + K2*R1)
+    m_factored = @enzyme_mechanism begin
+        species: begin
+            substrates: S[C]
+            products:   P[C]
+            regulators: R1[X]
+            enzymes:    E, ES[C], ER1[X], ESR1[CX]
+        end
+        steps: begin
+            [E, S] ⇌ [ES]
+            [E, R1] ⇌ [ER1]
+            [ES, R1] ⇌ [ESR1]
+            [ER1, S] ⇌ [ESR1]
+            [ES] <--> [E, P]
+        end
+        constraints: begin
+            K3 = K2
+            K4 = K1
+        end
+    end
+
+    @testset "Pipeline produces factored denom_terms" begin
+        num, denom_terms = EnzymeRates._raw_symbolic_rate_polys(typeof(m_factored))
+        @test length(denom_terms) == 1  # Single RE group (G=1)
+        dt = denom_terms[1]
+        fs = dt.sigma
+        @test length(fs.products) == 1  # Single sub-group
+        fp = fs.products[1]
+        @test length(fp.factors) == 2   # 2 sites: {S} and {R1}
+        @test all(e == 1 for e in fp.exponents)
+        # Cofactor is poly_one (single-group mechanism)
+        @test dt.cofactor == EnzymeRates.poly_one()
+    end
+
+    @testset "Expanded factored denom matches expected" begin
+        num, denom_terms = EnzymeRates._raw_symbolic_rate_polys(typeof(m_factored))
+        expanded = EnzymeRates._expand_to_poly(denom_terms)
+        # (1 + K1*S) * (1 + K2*R1) = 1 + K1*S + K2*R1 + K1*K2*S*R1
+        @test length(expanded) == 4
+    end
+
+    @testset "Non-factoring fallback (no constraints)" begin
+        m_no_constr = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                regulators: R1[X]
+                enzymes:    E, ES[C], ER1[X], ESR1[CX]
+            end
+            steps: begin
+                [E, S] ⇌ [ES]
+                [E, R1] ⇌ [ER1]
+                [ES, R1] ⇌ [ESR1]
+                [ER1, S] ⇌ [ESR1]
+                [ES] <--> [E, P]
+            end
+        end
+        num, denom_terms = EnzymeRates._raw_symbolic_rate_polys(typeof(m_no_constr))
+        @test length(denom_terms) == 1
+        dt = denom_terms[1]
+        fs = dt.sigma
+        # Without constraints, K consistency fails → unfactored fallback
+        @test length(fs.products) == 1
+        fp = fs.products[1]
+        @test length(fp.factors) == 1   # Single factor (the whole sigma)
+        @test fp.exponents == [1]
+        # Unfactored sigma has 4 terms: 1, K1*S, K2*R1, K1*K3*S*R1
+        @test length(fp.factors[1]) == 4
+    end
+
+    @testset "Numerical correctness: analytical rate" begin
+        # Analytical rate for this RE mechanism with competitive inhibitor:
+        # Haldane: Keq = k5f / (K1 * k5r), so k5r = k5f / (K1 * Keq)
+        # v = E_total * (k5f*S/K1 - k5r*P) / ((1 + S/K1)(1 + R1/K2))
+        rng = Random.MersenneTwister(42)
+        met_names = collect(metabolites(m_factored))
+        @test all(1:20) do _
+            new_params, concs, all_params = random_independent_params_concs(
+                m_factored, met_names; rng=rng,
+            )
+            v_pkg = rate_equation(m_factored, concs, new_params)
+            # Compute analytical: extract params
+            K1 = all_params[Symbol("K1")]
+            K2 = all_params[Symbol("K2")]
+            k5f = all_params[Symbol("k5f")]
+            k5r = all_params[Symbol("k5r")]
+            E_total = all_params[:E_total]
+            S = concs[:S]; P = concs[:P]; R1 = concs[:R1]
+            num = k5f * S / K1 - k5r * P
+            denom = (1 + S / K1) * (1 + R1 / K2)
+            v_analytical = E_total * num / denom
+            isapprox(v_pkg, v_analytical; rtol=1e-10)
+        end
+    end
+
+    @testset "Haldane equilibrium" begin
+        met_names = collect(metabolites(m_factored))
+        rng = Random.MersenneTwister(42)
+        new_params, _, _ = random_independent_params_concs(
+            m_factored, met_names; rng=rng,
+        )
+        Keq = new_params.Keq
+        # At equilibrium: [P]/[S] = Keq, R1 can be anything
+        eq_concs = (S=1.0, P=Keq, R1=2.5)
+        v_eq = rate_equation(m_factored, eq_concs, new_params)
+        @test abs(v_eq) < 1e-10
+    end
+
+    @testset "ODE steady-state agreement" begin
+        met_names = collect(metabolites(m_factored))
+        rng = Random.MersenneTwister(42)
+        @test all(1:10) do _
+            new_params, concs, all_params = random_independent_params_concs(
+                m_factored, met_names; rng=rng,
+            )
+            ode_params = raw_to_ode_params(m_factored, all_params)
+            v_ode = ode_steady_state_flux(m_factored, ode_params, concs)
+            v_ka = rate_equation(m_factored, concs, new_params)
+            isapprox(v_ode, v_ka; rtol=1e-3)
+        end
+    end
+
+    @testset "Rate equation string" begin
+        s = rate_equation_string(m_factored)
+        @test s isa String
+        @test occursin("E_total", s)
+        @test occursin("v = ", s)
+        @test !occursin("+ -", s)
+        @test !occursin("- -", s)
+    end
+
+    @testset "Performance: zero allocations" begin
+        met_names = collect(metabolites(m_factored))
+        rng = Random.MersenneTwister(42)
+        new_params, concs, _ = random_independent_params_concs(
+            m_factored, met_names; rng=rng,
+        )
+        allocs, t = test_rate_equation_performance(m_factored, new_params, concs)
+        @test allocs == 0
+        @test t < 100e-9
     end
 end

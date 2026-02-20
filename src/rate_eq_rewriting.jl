@@ -198,12 +198,13 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     end
 
     # Gaussian elimination with priority pivoting
-    pivot_cols = Int[]
+    pivot_entries = Tuple{Int, Int}[]  # (row, col) pairs
+    pivot_col_set = Set{Int}()
     wA, wrhs = copy(A), copy(rhs)
     for i in 1:nc
         best_col, best_pri = 0, -1
         for c in 1:n_vars
-            c in pivot_cols && continue
+            c in pivot_col_set && continue
             wA[i, c] == 0 && continue
             if priority[c] > best_pri
                 best_pri = priority[c]
@@ -218,7 +219,8 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
                 "0 = $(wrhs[i]) * log(Keq)"
             )
         end
-        push!(pivot_cols, best_col)
+        push!(pivot_entries, (i, best_col))
+        push!(pivot_col_set, best_col)
         pv = wA[i, best_col]
         wA[i, :] ./= pv
         wrhs[i] /= pv
@@ -232,13 +234,13 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     end
 
     dep_exprs = Dict{Symbol, Union{Symbol, Expr}}()
-    for (i, pcol) in enumerate(pivot_cols)
+    for (prow, pcol) in pivot_entries
         factors = [
-            (all_params[c], -wA[i, c])
+            (all_params[c], -wA[prow, c])
             for c in 1:n_vars
-            if c != pcol && wA[i, c] != 0
+            if c != pcol && wA[prow, c] != 0
         ]
-        dep_exprs[all_params[pcol]] = build_power_expr(wrhs[i], factors)
+        dep_exprs[all_params[pcol]] = build_power_expr(wrhs[prow], factors)
     end
     dep_set = Set(keys(dep_exprs))
     return dep_exprs, Tuple(p for p in all_params if p ∉ dep_set)
