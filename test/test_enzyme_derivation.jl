@@ -725,3 +725,38 @@ end
         @test_throws "contradictory" parameters(m)
     end
 end
+
+# ── Large equation compilation regression test ────────────────────────────
+
+@testset "Large equation compilation (<20s)" begin
+    # Enumerate a large mechanism from a Ping-Pong Bi-Bi reaction with
+    # 2 regulators. The last dead-end variant produces a mechanism with
+    # many forms and steps, generating a very large rate equation.
+    # This test catches regressions in compilation time of rate_equation
+    # and rate_equation_string @generated functions.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        regulators: R1[S], R2[P]
+    end
+    max_forms = 100
+    with_dead_end = EnzymeRates.enumerate_mechanisms(
+        rxn;
+        stage=EnzymeRates.WithDeadEnd(),
+        max_forms=max_forms,
+    )
+    m = EnzymeMechanism(with_dead_end[end])
+
+    metabs = metabolites(m)
+    params_tup = parameters(m)
+    concs = NamedTuple{metabs}(ones(length(metabs)))
+    pvals = NamedTuple{params_tup}(ones(length(params_tup)))
+
+    t_compile = @elapsed begin
+        v = rate_equation(m, concs, pvals)
+        s = rate_equation_string(m)
+    end
+    @test v isa Float64
+    @test s isa String
+    @test t_compile < 20.0
+end
