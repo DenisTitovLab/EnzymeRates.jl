@@ -552,6 +552,16 @@ function _try_factor_sigma(
     final_coeffs = POLY[]
 
     for (sg_idx, sg) in enumerate(sub_groups)
+        # Sub-group coefficient: iso-step weight × other-sub-group denominator.
+        # Computed first so both single-form and multi-form paths use it.
+        other_den = poly_one()
+        sg_set = Set(sg)
+        for j in group
+            j ∈ sg_set && continue
+            other_den = poly_mul(other_den, alpha_den[j])
+        end
+        sg_coeff = poly_mul(coeffs[sg_idx], other_den)
+
         # Step 2: Compute binding states
         states = _metabolite_binding_states(sg, enz_names, enz_set, rxns, eq_steps)
         length(states) != length(sg) && return nothing
@@ -561,7 +571,7 @@ function _try_factor_sigma(
         isempty(sites) && length(sg) == 1 && begin
             # Single form, no metabolites → trivial factor
             push!(factored_products, FactoredPoly([poly_one()], [1]))
-            push!(final_coeffs, coeffs[sg_idx])
+            push!(final_coeffs, sg_coeff)
             continue
         end
 
@@ -581,20 +591,16 @@ function _try_factor_sigma(
             alpha_num, alpha_den, sites, met_to_K, states,
         )
 
-        # Compute the sub-group coefficient. For the reference sub-group,
-        # coeffs[1] = poly_one(). For others, it includes isomerization K.
-        # Also account for alpha_den clearing from other sub-groups:
-        # C_sg = prod_{j not in sg} alpha_den[j]
-        other_den = poly_one()
-        sg_set = Set(sg)
-        for j in group
-            j ∈ sg_set && continue
-            other_den = poly_mul(other_den, alpha_den[j])
-        end
-
-        # Extract common alpha factor from sub-group's reference form
+        # The mini-sigma factors in fp contain alpha_num[ref_form] as a common
+        # factor. Divide it out so the coefficient (sg_coeff = coeffs[sg_idx] *
+        # other_den) carries it once, avoiding double-counting.
         ref_alpha = alpha_num[first(sg)]
-        sg_coeff = poly_mul(poly_mul(coeffs[sg_idx], other_den), ref_alpha)
+        if ref_alpha != poly_one()
+            fp = FactoredPoly(
+                [_poly_div_mono(f, ref_alpha) for f in fp.factors],
+                copy(fp.exponents),
+            )
+        end
 
         push!(factored_products, fp)
         push!(final_coeffs, sg_coeff)

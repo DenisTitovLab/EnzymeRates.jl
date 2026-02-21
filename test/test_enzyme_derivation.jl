@@ -1912,3 +1912,108 @@ end
         @test t < 100e-9
     end
 end
+
+@testset "Multi-form R-state sub-group factoring" begin
+
+    # Mechanism: E (T-state) ⇌ F (R-state), with F able to bind S → FS
+    # sigma = alpha_num[E] + alpha_num[F] + alpha_num[FS]
+    #       = 1 + K1 + K1*K2*S
+    #       = 1 + K1*(1 + K2*S)
+    # = FactoredSigma with 2 sub-groups:
+    #   T-state {E}: coeff=1, factor=poly_one()
+    #   R-state {F,FS}: coeff=K1, factor=(1+K2*S)
+    m_rstate = @enzyme_mechanism begin
+        species: begin
+            substrates: S[C]
+            products:   P[C]
+            enzymes:    E, F, FS[C]
+        end
+        steps: begin
+            [E] ⇌ [F]        # K1 (conformational iso)
+            [F, S] ⇌ [FS]   # K2 (R-state binding)
+            [FS] <--> [F, P]  # k3f, k3r (SS)
+        end
+    end
+
+    @testset "Detection: _try_factor_sigma" begin
+        enz_names = Tuple(e[1] for e in EnzymeRates.enzyme_forms(m_rstate))
+        enz_set = Set(enz_names)
+        rxns = EnzymeRates.reactions(m_rstate)
+        eq = EnzymeRates.equilibrium_steps(m_rstate)
+        groups, _ = EnzymeRates._compute_re_groups(enz_names, enz_set, rxns, eq)
+        alpha_num, alpha_den, sigma_num, _ = EnzymeRates._compute_alpha(
+            enz_names, enz_set, rxns, eq, groups,
+        )
+        constraints = EnzymeRates.param_constraints(m_rstate)
+
+        fs = EnzymeRates._try_factor_sigma(
+            groups[1], enz_names, enz_set, rxns, eq,
+            alpha_num, alpha_den, constraints,
+        )
+        @test fs !== nothing
+        @test fs isa EnzymeRates.FactoredSigma
+        @test length(fs.products) == 2  # T-state + R-state sub-groups
+
+        # T-state {E}: trivial factor (poly_one), coeff=1
+        @test fs.products[1].factors[1] == EnzymeRates.poly_one()
+        @test fs.coefficients[1] == EnzymeRates.poly_one()
+
+        # R-state {F, FS}: single-factor (1+K2*S), coeff=K1
+        @test length(fs.products[2].factors) == 1
+        expected_r_factor = EnzymeRates.poly_add(
+            EnzymeRates.poly_one(),
+            EnzymeRates.poly_mul(EnzymeRates.poly_sym(:K2), EnzymeRates.poly_sym(:S)),
+        )
+        @test fs.products[2].factors[1] == expected_r_factor
+        @test fs.coefficients[2] == EnzymeRates.poly_sym(:K1)
+
+        # Expanded factored sigma matches sigma_num
+        expanded = EnzymeRates._expand_factored_sigma(fs)
+        @test expanded == sigma_num[1]
+    end
+
+    @testset "Pipeline produces factored denom_terms" begin
+        num, denom_terms = EnzymeRates._raw_symbolic_rate_polys(typeof(m_rstate))
+        @test length(denom_terms) == 1
+        fs = denom_terms[1].sigma
+        @test length(fs.products) == 2
+
+        # sigma = 1 + K1 + K1*K2*S → 3 terms
+        expanded = EnzymeRates._expand_factored_sigma(fs)
+        @test length(expanded) == 3
+    end
+
+    @testset "Numerical correctness: analytical rate" begin
+        # K2 is binding step → Kd convention (1/K2 in generated expr)
+        # sigma = 1 + K1 + K1*S/K2
+        # Haldane: k3r = k3f / (Keq * K2)
+        # Rate: v = E_total * K1 * (k3f*S/K2 - k3r*P) / sigma
+        rng = Random.MersenneTwister(99)
+        Keq = 1e3
+        @test all(1:20) do _
+            S = exp(randn(rng) * 2)
+            P = S / Keq * exp(randn(rng))
+            K1 = exp(randn(rng))
+            K2 = exp(randn(rng))
+            k3f = exp(randn(rng))
+            k3r = k3f / (Keq * K2)
+            E_total = exp(randn(rng))
+            params = (K1=K1, K2=K2, k3f=k3f, k3r=k3r, Keq=Keq, E_total=E_total)
+            concs = (S=S, P=P)
+            v = rate_equation(m_rstate, concs, params)
+            sigma = 1.0 + K1 + K1 * S / K2
+            num_val = K1 * (k3f * S / K2 - k3r * P)
+            isapprox(v, E_total * num_val / sigma; rtol=1e-10)
+        end
+    end
+
+    @testset "Haldane equilibrium" begin
+        Keq = 500.0
+        K1 = 2.0; K2 = 3.0; k3f = 1.5
+        k3r = k3f / (Keq * K2)
+        S_eq = 2.0; P_eq = Keq * S_eq
+        params = (K1=K1, K2=K2, k3f=k3f, k3r=k3r, Keq=Keq, E_total=1.0)
+        concs = (S=S_eq, P=P_eq)
+        @test rate_equation(m_rstate, concs, params) ≈ 0.0 atol=1e-12
+    end
+end

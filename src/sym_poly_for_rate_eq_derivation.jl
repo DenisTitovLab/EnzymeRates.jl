@@ -42,6 +42,20 @@ function _mono_mul(a::MONO, b::MONO)
     sort!(MONO(collect(d)); by=first)
 end
 
+function _mono_div(a::MONO, b::MONO)
+    d = Dict{Symbol,Int}()
+    for (s, e) in a; d[s] = get(d, s, 0) + e; end
+    for (s, e) in b; d[s] = get(d, s, 0) - e; end
+    filter!(p -> p.second != 0, d)
+    sort!(MONO(collect(d)); by=first)
+end
+
+"""Divide POLY by a single-term POLY (exact division, assumes divisibility)."""
+function _poly_div_mono(p::POLY, divisor::POLY)::POLY
+    m = first(keys(divisor))
+    POLY(_mono_div(k, m) => v for (k, v) in p)
+end
+
 # Cofactor determinant expansion for symbolic matrices.
 # Checks intermediate term count against MAX_RATE_EQUATION_TERMS to
 # abort early for mechanisms whose rate equations would be too large.
