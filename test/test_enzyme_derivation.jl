@@ -1537,3 +1537,378 @@ end
         @test t < 100e-9
     end
 end
+
+# ── Comprehensive factoring tests (Phase 5) ──────────────────────────────
+
+@testset "Sum-of-products: allosteric mechanism" begin
+
+    # Allosteric mechanism: T-state + R-state (single form)
+    # T-state: E + S ⇌ ES, E + R1 ⇌ ER1, ES + R1 ⇌ ESR1, ER1 + S ⇌ ESR1
+    # R-state: F (single form), connected by [E] ⇌ [F] isomerization
+    # SS step: [ES] <--> [E, P]
+    # sigma = (1 + K1*S + K2*R1 + K1*K2*S*R1) + K5
+    #       = (1+K1*S)*(1+K2*R1) + K5
+    # = FactoredSigma with 2 terms: T-state product + R-state constant
+    m_allo = @enzyme_mechanism begin
+        species: begin
+            substrates: S[C]
+            products:   P[C]
+            regulators: R1[X]
+            enzymes:    E, ES[C], ER1[X], ESR1[CX], F
+        end
+        steps: begin
+            [E, S] ⇌ [ES]        # K1
+            [E, R1] ⇌ [ER1]      # K2
+            [ES, R1] ⇌ [ESR1]    # K3
+            [ER1, S] ⇌ [ESR1]    # K4
+            [E] ⇌ [F]            # K5 (conformational isomerization)
+            [ES] <--> [E, P]      # k6f, k6r (SS step)
+        end
+        constraints: begin
+            K3 = K2
+            K4 = K1
+        end
+    end
+
+    @testset "Detection: conformational sub-groups" begin
+        enz_names = Tuple(e[1] for e in EnzymeRates.enzyme_forms(m_allo))
+        enz_set = Set(enz_names)
+        rxns = EnzymeRates.reactions(m_allo)
+        eq = EnzymeRates.equilibrium_steps(m_allo)
+        groups, _ = EnzymeRates._compute_re_groups(
+            enz_names, enz_set, rxns, eq,
+        )
+        @test length(groups) == 1  # single RE group
+        group = groups[1]
+        @test length(group) == 5  # E, ES, ER1, ESR1, F
+
+        sgs, coeffs = EnzymeRates._split_conformational_subgroups(
+            group, enz_names, enz_set, rxns, eq,
+        )
+        @test length(sgs) == 2  # T-state + R-state
+        @test coeffs !== nothing
+        @test coeffs[1] == EnzymeRates.poly_one()
+        # R-state coefficient is K5
+        @test coeffs[2] == EnzymeRates.poly_sym(:K5)
+    end
+
+    @testset "Detection: _try_factor_sigma" begin
+        enz_names = Tuple(e[1] for e in EnzymeRates.enzyme_forms(m_allo))
+        enz_set = Set(enz_names)
+        rxns = EnzymeRates.reactions(m_allo)
+        eq = EnzymeRates.equilibrium_steps(m_allo)
+        groups, _ = EnzymeRates._compute_re_groups(
+            enz_names, enz_set, rxns, eq,
+        )
+        alpha_num, alpha_den, _, _ = EnzymeRates._compute_alpha(
+            enz_names, enz_set, rxns, eq, groups,
+        )
+        constraints = EnzymeRates.param_constraints(m_allo)
+
+        fs = EnzymeRates._try_factor_sigma(
+            groups[1], enz_names, enz_set, rxns, eq,
+            alpha_num, alpha_den, constraints,
+        )
+        @test fs !== nothing
+        @test fs isa EnzymeRates.FactoredSigma
+        @test length(fs.products) == 2  # 2 sub-groups
+
+        # T-state: 2-factor product (S site, R1 site)
+        fp_t = fs.products[1]
+        @test length(fp_t.factors) == 2
+        @test all(e == 1 for e in fp_t.exponents)
+
+        # R-state: single form → trivial product (poly_one)
+        fp_r = fs.products[2]
+        @test length(fp_r.factors) == 1
+        @test fp_r.factors[1] == EnzymeRates.poly_one()
+    end
+
+    @testset "Pipeline produces factored denom_terms" begin
+        num, denom_terms = EnzymeRates._raw_symbolic_rate_polys(
+            typeof(m_allo),
+        )
+        @test length(denom_terms) == 1  # Single RE group
+        dt = denom_terms[1]
+        fs = dt.sigma
+        @test length(fs.products) == 2  # sum of 2 products
+
+        # Verify expanded sigma matches expected
+        expanded = EnzymeRates._expand_factored_sigma(fs)
+        # After K3=K2, K4=K1: 5 terms
+        # 1 + K1*S + K2*R1 + K1*K2*S*R1 + K5
+        @test length(expanded) == 5
+    end
+
+    @testset "Numerical correctness: analytical rate" begin
+        # Analytical rate for allosteric competitive inhibitor:
+        # Haldane: Keq = k6f / (K1 * k6r), so k6r = k6f / (K1 * Keq)
+        # v = E_total * (k6f*S/K1 - k6r*P) / ((1 + S/K1)(1 + R1/K2) + K5)
+        rng = Random.MersenneTwister(55)
+        met_names = collect(metabolites(m_allo))
+        @test all(1:20) do _
+            new_params, concs, all_params = random_independent_params_concs(
+                m_allo, met_names; rng=rng,
+            )
+            v_pkg = rate_equation(m_allo, concs, new_params)
+            K1 = all_params[:K1]
+            K2 = all_params[:K2]
+            K5 = all_params[:K5]
+            k6f = all_params[:k6f]
+            k6r = all_params[:k6r]
+            E_total = all_params[:E_total]
+            S = concs[:S]; P = concs[:P]; R1 = concs[:R1]
+            num = k6f * S / K1 - k6r * P
+            denom = (1 + S / K1) * (1 + R1 / K2) + K5
+            v_analytical = E_total * num / denom
+            isapprox(v_pkg, v_analytical; rtol=1e-10)
+        end
+    end
+
+    @testset "Haldane equilibrium" begin
+        met_names = collect(metabolites(m_allo))
+        rng = Random.MersenneTwister(55)
+        new_params, _, _ = random_independent_params_concs(
+            m_allo, met_names; rng=rng,
+        )
+        Keq = new_params.Keq
+        eq_concs = (S=1.0, P=Keq, R1=2.5)
+        v_eq = rate_equation(m_allo, eq_concs, new_params)
+        @test abs(v_eq) < 1e-10
+    end
+
+    @testset "ODE steady-state agreement" begin
+        met_names = collect(metabolites(m_allo))
+        rng = Random.MersenneTwister(55)
+        @test all(1:10) do _
+            new_params, concs, all_params = random_independent_params_concs(
+                m_allo, met_names; rng=rng,
+            )
+            ode_params = raw_to_ode_params(m_allo, all_params)
+            v_ode = ode_steady_state_flux(m_allo, ode_params, concs)
+            v_ka = rate_equation(m_allo, concs, new_params)
+            isapprox(v_ode, v_ka; rtol=1e-3)
+        end
+    end
+
+    @testset "Rate equation string" begin
+        s = rate_equation_string(m_allo)
+        @test s isa String
+        @test occursin("E_total", s)
+        @test occursin("v = ", s)
+        @test !occursin("+ -", s)
+        @test !occursin("- -", s)
+    end
+
+    @testset "Performance: zero allocations" begin
+        met_names = collect(metabolites(m_allo))
+        rng = Random.MersenneTwister(55)
+        new_params, concs, _ = random_independent_params_concs(
+            m_allo, met_names; rng=rng,
+        )
+        allocs, t = test_rate_equation_performance(
+            m_allo, new_params, concs,
+        )
+        @test allocs == 0
+        @test t < 100e-9
+    end
+end
+
+@testset "3-site factoring: Uni-Uni + 2 regulators" begin
+
+    # 8 enzyme forms: Cartesian product of 3 binary binding sites
+    # {S,P} × {R1} × {R2} = 2 × 2 × 2 = 8
+    # E, ES, ER1, ER2, ESR1, ESR2, ER1R2, ESR1R2
+    # All cross-binding K's constrained to match same-site K's:
+    #   K3=K2, K4=K1 (S-R1 cross), K5=K7, K6=K1 (S-R2 cross),
+    #   K8=K2, K9=K7 (R1-R2 cross), K10=K1, K11=K7, K12=K2 (triple cross)
+    # sigma = (1 + K1*S + K_P*P) * (1 + K2*R1) * (1 + K7*R2)
+    m_3site = @enzyme_mechanism begin
+        species: begin
+            substrates: S[C]
+            products:   P[C]
+            regulators: R1[X], R2[Y]
+            enzymes: E, ES[C], EP[C], ER1[X], ER2[Y], ESR1[CX], EPR1[CX], ESR2[CY], EPR2[CY], ER1R2[XY], ESR1R2[CXY], EPR1R2[CXY]
+        end
+        steps: begin
+            [E, S] ⇌ [ES]            # K1
+            [E, P] ⇌ [EP]            # K2_ep (but we'll call it K2 below)
+            [E, R1] ⇌ [ER1]          # K3
+            [ES, R1] ⇌ [ESR1]        # K4
+            [EP, R1] ⇌ [EPR1]        # K5
+            [E, R2] ⇌ [ER2]          # K6
+            [ES, R2] ⇌ [ESR2]        # K7
+            [EP, R2] ⇌ [EPR2]        # K8
+            [ER1, S] ⇌ [ESR1]        # K9
+            [ER1, P] ⇌ [EPR1]        # K10
+            [ER2, S] ⇌ [ESR2]        # K11
+            [ER2, P] ⇌ [EPR2]        # K12
+            [ER1, R2] ⇌ [ER1R2]      # K13
+            [ER2, R1] ⇌ [ER1R2]      # K14
+            [ESR1, R2] ⇌ [ESR1R2]    # K15
+            [EPR1, R2] ⇌ [EPR1R2]    # K16
+            [ESR2, R1] ⇌ [ESR1R2]    # K17
+            [EPR2, R1] ⇌ [EPR1R2]    # K18
+            [ER1R2, S] ⇌ [ESR1R2]    # K19
+            [ER1R2, P] ⇌ [EPR1R2]    # K20
+            [ES] <--> [E, P]          # k21f, k21r (SS step)
+        end
+        constraints: begin
+            K4 = K3      # R1 binding same regardless of S/P
+            K5 = K3
+            K7 = K6      # R2 binding same regardless of S/P
+            K8 = K6
+            K9 = K1      # S binding same regardless of R1
+            K10 = K2     # P binding same regardless of R1
+            K11 = K1     # S binding same regardless of R2
+            K12 = K2     # P binding same regardless of R2
+            K13 = K6     # R2 binding same regardless of R1
+            K14 = K3     # R1 binding same regardless of R2
+            K15 = K6     # R2 binding same regardless of S+R1
+            K16 = K6
+            K17 = K3     # R1 binding same regardless of S+R2
+            K18 = K3
+            K19 = K1     # S binding same regardless of R1+R2
+            K20 = K2     # P binding same regardless of R1+R2
+        end
+    end
+
+    @testset "Detection: 3 independent sites" begin
+        enz_names = Tuple(e[1] for e in EnzymeRates.enzyme_forms(m_3site))
+        enz_set = Set(enz_names)
+        rxns = EnzymeRates.reactions(m_3site)
+        eq = EnzymeRates.equilibrium_steps(m_3site)
+        groups, _ = EnzymeRates._compute_re_groups(
+            enz_names, enz_set, rxns, eq,
+        )
+        @test length(groups) == 1
+        group = groups[1]
+        @test length(group) == 12  # 12 RE forms
+
+        alpha_num, alpha_den, _, _ = EnzymeRates._compute_alpha(
+            enz_names, enz_set, rxns, eq, groups,
+        )
+        constraints = EnzymeRates.param_constraints(m_3site)
+
+        # Metabolite binding states
+        states = EnzymeRates._metabolite_binding_states(
+            group, enz_names, enz_set, rxns, eq,
+        )
+        @test length(states) == 12
+
+        # Site partition: {S,P}, {R1}, {R2}
+        sites = EnzymeRates._partition_metabolite_sites(states)
+        @test length(sites) == 3
+        site_sets = Set(Set(s) for s in sites)
+        @test Set([:S, :P]) ∈ site_sets
+        @test Set([:R1]) ∈ site_sets
+        @test Set([:R2]) ∈ site_sets
+
+        # Cartesian product: 3 × 2 × 2 = 12
+        is_product, _ = EnzymeRates._check_cartesian_product(
+            group, states, sites,
+        )
+        @test is_product
+
+        # Full factoring succeeds
+        fs = EnzymeRates._try_factor_sigma(
+            group, enz_names, enz_set, rxns, eq,
+            alpha_num, alpha_den, constraints,
+        )
+        @test fs !== nothing
+        @test length(fs.products) == 1  # single sub-group
+        fp = fs.products[1]
+        @test length(fp.factors) == 3   # 3 sites
+        @test all(e == 1 for e in fp.exponents)
+    end
+
+    @testset "Pipeline produces 3-factor denom" begin
+        num, denom_terms = EnzymeRates._raw_symbolic_rate_polys(
+            typeof(m_3site),
+        )
+        @test length(denom_terms) == 1
+        dt = denom_terms[1]
+        fs = dt.sigma
+        @test length(fs.products) == 1
+        fp = fs.products[1]
+        @test length(fp.factors) == 3   # 3 independent site factors
+        @test all(e == 1 for e in fp.exponents)
+        # Expanded: 3 × 2 × 2 = 12 terms
+        expanded = EnzymeRates._expand_factored_sigma(fs)
+        @test length(expanded) == 12
+    end
+
+    @testset "Numerical correctness: analytical rate" begin
+        # sigma = (1 + S/K1 + P/K2) * (1 + R1/K3) * (1 + R2/K6)
+        # Haldane: Keq = k21f / (K1 * k21r)
+        # v = E_total * (k21f*S/K1 - k21r*P) / sigma
+        rng = Random.MersenneTwister(77)
+        met_names = collect(metabolites(m_3site))
+        @test all(1:20) do _
+            new_params, concs, all_params = random_independent_params_concs(
+                m_3site, met_names; rng=rng,
+            )
+            v_pkg = rate_equation(m_3site, concs, new_params)
+            K1 = all_params[:K1]
+            K2 = all_params[:K2]
+            K3 = all_params[:K3]
+            K6 = all_params[:K6]
+            k21f = all_params[:k21f]
+            k21r = all_params[:k21r]
+            E_total = all_params[:E_total]
+            S = concs[:S]; P = concs[:P]; R1 = concs[:R1]; R2 = concs[:R2]
+            num = k21f * S / K1 - k21r * P
+            denom = (1 + S / K1 + P / K2) * (1 + R1 / K3) * (1 + R2 / K6)
+            v_analytical = E_total * num / denom
+            isapprox(v_pkg, v_analytical; rtol=1e-10)
+        end
+    end
+
+    @testset "Haldane equilibrium" begin
+        met_names = collect(metabolites(m_3site))
+        rng = Random.MersenneTwister(77)
+        new_params, _, _ = random_independent_params_concs(
+            m_3site, met_names; rng=rng,
+        )
+        Keq = new_params.Keq
+        eq_concs = (S=1.0, P=Keq, R1=2.5, R2=3.0)
+        v_eq = rate_equation(m_3site, eq_concs, new_params)
+        @test abs(v_eq) < 1e-10
+    end
+
+    @testset "ODE steady-state agreement" begin
+        met_names = collect(metabolites(m_3site))
+        rng = Random.MersenneTwister(77)
+        @test all(1:10) do _
+            new_params, concs, all_params = random_independent_params_concs(
+                m_3site, met_names; rng=rng,
+            )
+            ode_params = raw_to_ode_params(m_3site, all_params)
+            v_ode = ode_steady_state_flux(m_3site, ode_params, concs)
+            v_ka = rate_equation(m_3site, concs, new_params)
+            isapprox(v_ode, v_ka; rtol=1e-3)
+        end
+    end
+
+    @testset "Rate equation string" begin
+        s = rate_equation_string(m_3site)
+        @test s isa String
+        @test occursin("E_total", s)
+        @test occursin("v = ", s)
+        @test !occursin("+ -", s)
+        @test !occursin("- -", s)
+    end
+
+    @testset "Performance: zero allocations" begin
+        met_names = collect(metabolites(m_3site))
+        rng = Random.MersenneTwister(77)
+        new_params, concs, _ = random_independent_params_concs(
+            m_3site, met_names; rng=rng,
+        )
+        allocs, t = test_rate_equation_performance(
+            m_3site, new_params, concs,
+        )
+        @test allocs == 0
+        @test t < 100e-9
+    end
+end
