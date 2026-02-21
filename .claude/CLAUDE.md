@@ -39,6 +39,7 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - **First start**: ~30-60s (package loading + JIT). Subsequent calls are fast.
 - **Startup timeout**: If the server fails to connect, start Claude Code with `MCP_TIMEOUT=120000 claude` to allow enough time for Julia startup.
 - **Server script**: `.claude/mcp_julia_server.jl`
+- **MCP environment**: `.claude/mcp_env/` — separate Julia project with `ModelContextProtocol`, `Revise`, and `EnzymeRates` as a dev dep. Do NOT add `ModelContextProtocol` to the main `Project.toml` (Aqua stale deps check would flag it).
 - **Stuck REPL**: If the REPL is stuck on a long-running computation, kill it with `pkill -f mcp_julia_server` via Bash, wait a few seconds, then call `exec_julia` again — the server auto-restarts
 
 ## Key Architecture Decisions
