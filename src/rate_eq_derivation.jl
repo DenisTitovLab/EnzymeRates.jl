@@ -26,9 +26,7 @@ end
 ) where {Sp, Rx, Eq, PC}
     M = EnzymeMechanism{Sp, Rx, Eq, PC}
     _, indep = _dependent_param_exprs(M)
-    constrained_targets = Set(c[1] for c in PC)
-    filtered = Tuple(p for p in indep if p ∉ constrained_targets)
-    (filtered..., :Keq, :E_total)
+    (indep..., :Keq, :E_total)
 end
 
 """Independent rate constant names for fitting (excludes Keq, E_total)."""
@@ -37,8 +35,7 @@ end
 ) where {Sp, Rx, Eq, PC}
     M = EnzymeMechanism{Sp, Rx, Eq, PC}
     _, indep = _dependent_param_exprs(M)
-    constrained_targets = Set(c[1] for c in PC)
-    Tuple(p for p in indep if p ∉ constrained_targets)
+    indep
 end
 
 # ─── RE Group Helpers ───────────────────────────────────────
@@ -540,7 +537,8 @@ Returns `nothing` if factoring is not possible.
 """
 function _try_factor_sigma(
     group, enz_names, enz_set, rxns, eq_steps,
-    alpha_num, alpha_den, constraints,
+    alpha_num, alpha_den, constraints;
+    binding_Ks::Set{Symbol}=Set{Symbol}(),
 )
     # Step 1: Split into conformational sub-groups
     sub_groups, coeffs = _split_conformational_subgroups(
@@ -621,7 +619,9 @@ function _try_factor_sigma(
                 ),
             ) for i in group),
         )
-        sigma_expected = _apply_param_constraints(sigma_expected, constraints)
+        sigma_expected = _apply_param_constraints(
+            sigma_expected, constraints; binding_Ks,
+        )
         sigma_actual = _expand_factored_sigma(fs)
         sigma_expected != sigma_actual && return nothing
     end
@@ -703,11 +703,16 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
 
     # Try to factor sigma for each RE group; fall back to unfactored
     pc = param_constraints(m)
+    binding_Ks = Set{Symbol}(
+        Symbol("K$i") for (i, (lhs, rhs)) in enumerate(rxns)
+        if eq_steps[i] && any(s ∉ enz_set for s in lhs) &&
+           all(s ∈ enz_set for s in rhs)
+    )
     denom_terms = DenomTerm[]
     for g in 1:G
         fs = _try_factor_sigma(
             groups[g], enz_names, enz_set, rxns, eq_steps,
-            alpha_num, alpha_den, pc,
+            alpha_num, alpha_den, pc; binding_Ks,
         )
         if fs !== nothing
             push!(denom_terms, DenomTerm(fs, D[g]))
@@ -738,8 +743,9 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     end
 
     # Apply user-defined parameter constraints
-    num = _apply_param_constraints(num, pc)
-    denom_terms = [_apply_param_constraints(dt, pc) for dt in denom_terms]
+    num = _apply_param_constraints(num, pc; binding_Ks)
+    denom_terms = [_apply_param_constraints(dt, pc; binding_Ks)
+                   for dt in denom_terms]
 
     n_terms = length(num) + _estimate_expanded_term_count(denom_terms)
     if n_terms > MAX_RATE_EQUATION_TERMS
@@ -824,7 +830,7 @@ end
 
 """
 Compute net flux through SS steps. If `met_name` is nothing,
-return raw flux of first SS step.
+sum raw flux of all SS steps (G=1 case).
 """
 function _flux_numerator(
     rxns, eq_steps, enz_names, enz_set,
@@ -848,7 +854,10 @@ function _flux_numerator(
             alpha_num, alpha_den, groups[g2],
         )
         flux = poly_sub(poly_mul(rf, D[g1]), poly_mul(rr, D[g2]))
-        met_name === nothing && return flux
+        if met_name === nothing
+            result = poly_add(result, flux)
+            continue
+        end
         met_f = isempty(m_lhs) ? nothing : first(m_lhs)
         met_r = isempty(m_rhs) ? nothing : first(m_rhs)
         (met_f !== met_name && met_r !== met_name) && continue

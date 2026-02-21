@@ -7,7 +7,7 @@
 const MAX_RATE_EQUATION_TERMS = 5000
 
 const MONO = Vector{Pair{Symbol,Int}}
-const POLY = Dict{MONO, Int}
+const POLY = Dict{MONO, Rational{Int}}
 
 _mono(pairs...) = sort!(MONO(collect(pairs)); by=first)
 
@@ -111,7 +111,11 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
     )
     for (mono, coeff) in sorted
         nf, df = Any[], Any[]
-        abs(coeff) != 1 && push!(nf, abs(coeff))
+        abs_c = abs(coeff)
+        cn = Int(numerator(abs_c))
+        cd = Int(denominator(abs_c))
+        cn != 1 && push!(nf, cn)
+        cd != 1 && push!(df, cd)
         sorted_mono = sort(
             mono;
             by=sp -> (sp.first in param_syms ? 0 : 1, string(sp.first)),
@@ -124,7 +128,7 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
             end
             ex != 0 && push!(tgt, ex == 1 ? s : :($s ^ $ex))
         end
-        num_part = isempty(nf) ? abs(coeff) : _nest_binary(:*, nf)
+        num_part = isempty(nf) ? 1 : _nest_binary(:*, nf)
         term = isempty(df) ? num_part : :($num_part / $(_nest_binary(:*, df)))
         coeff > 0 ? push!(pos, term) : push!(neg, term)
     end
@@ -199,7 +203,7 @@ function build_power_expr(keq_exp::Rational, factors)
 end
 
 # Substitute symbols in an Expr tree (bare symbol matching)
-function substitute_params_expr(expr, subs::Dict{Symbol, Expr})
+function substitute_params_expr(expr, subs::AbstractDict)
     if expr isa Symbol
         get(subs, expr, expr)
     elseif expr isa Expr
@@ -218,7 +222,7 @@ end
 Substitute `target` symbol in polynomial `p` with
 `coeff * prod(sym^exp for (sym,exp) in replacement)`.
 """
-function _substitute_sym_in_poly(p::POLY, target::Symbol, coeff::Int, replacement)
+function _substitute_sym_in_poly(p::POLY, target::Symbol, coeff, replacement)
     result = POLY()
     for (mono, val) in p
         idx = findfirst(pair -> pair.first == target, mono)
@@ -235,10 +239,20 @@ function _substitute_sym_in_poly(p::POLY, target::Symbol, coeff::Int, replacemen
     filter!(p -> p.second != 0, result)
 end
 
-"""Apply all parameter constraints sequentially to a polynomial."""
-function _apply_param_constraints(p::POLY, constraints)
+"""Apply all parameter constraints sequentially to a polynomial.
+When `binding_Ks` is provided, constraints between two binding K parameters
+use the reciprocal coefficient (1/c instead of c) to correct for the K→1/K
+inversion that happens later in the expression builder."""
+function _apply_param_constraints(
+    p::POLY, constraints;
+    binding_Ks::Set{Symbol}=Set{Symbol}(),
+)
     for (target, coeff, factors) in constraints
-        p = _substitute_sym_in_poly(p, target, coeff, factors)
+        is_binding_to_binding = !isempty(binding_Ks) &&
+            target ∈ binding_Ks &&
+            all(f -> f[1] ∈ binding_Ks, factors)
+        c = is_binding_to_binding ? 1 // coeff : coeff
+        p = _substitute_sym_in_poly(p, target, c, factors)
     end
     p
 end
@@ -355,24 +369,35 @@ end
 
 # ─── Constraint application for factored types ────────────────
 
-function _apply_param_constraints(fp::FactoredPoly, constraints)
+function _apply_param_constraints(
+    fp::FactoredPoly, constraints;
+    binding_Ks::Set{Symbol}=Set{Symbol}(),
+)
     FactoredPoly(
-        [_apply_param_constraints(f, constraints) for f in fp.factors],
+        [_apply_param_constraints(f, constraints; binding_Ks) for f in fp.factors],
         copy(fp.exponents),
     )
 end
 
-function _apply_param_constraints(fs::FactoredSigma, constraints)
+function _apply_param_constraints(
+    fs::FactoredSigma, constraints;
+    binding_Ks::Set{Symbol}=Set{Symbol}(),
+)
     FactoredSigma(
-        [_apply_param_constraints(c, constraints) for c in fs.coefficients],
-        [_apply_param_constraints(fp, constraints) for fp in fs.products],
+        [_apply_param_constraints(c, constraints; binding_Ks)
+         for c in fs.coefficients],
+        [_apply_param_constraints(fp, constraints; binding_Ks)
+         for fp in fs.products],
     )
 end
 
-function _apply_param_constraints(dt::DenomTerm, constraints)
+function _apply_param_constraints(
+    dt::DenomTerm, constraints;
+    binding_Ks::Set{Symbol}=Set{Symbol}(),
+)
     DenomTerm(
-        _apply_param_constraints(dt.sigma, constraints),
-        _apply_param_constraints(dt.cofactor, constraints),
+        _apply_param_constraints(dt.sigma, constraints; binding_Ks),
+        _apply_param_constraints(dt.cofactor, constraints; binding_Ks),
     )
 end
 

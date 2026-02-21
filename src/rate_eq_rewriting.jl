@@ -124,11 +124,72 @@ function _classify_cycle(nu_cycle, nu_net, i)
     c !== nothing && denominator(c) == 1 ? Int(c) : error(err)
 end
 
+"""Add log-space contribution for a param, merging constrained params into replacements.
+When `param` is user-constrained (target = coeff * prod(src^exp)), its column is merged
+into the replacement columns and `log(coeff)` is tracked as a constant on the RHS.
+The constraint coefficient is stored as a Rational (Ka domain) to handle binding-to-binding
+inversion: Kd constraint K3=4K1 becomes Ka constraint K3=K1/4, stored as coeff=1//4."""
+function _add_log_contrib!(A, rhs_const, row, param, coeff, sym_col, csub)
+    if haskey(csub, param)
+        c, factors = csub[param]
+        # c is Rational{BigInt} (Ka-domain coefficient).
+        # log(c) = log(numerator) - log(denominator).
+        # LHS constant: coeff * log(c). Moving to RHS: subtract coeff * log(c).
+        p, q = Int(numerator(c)), Int(denominator(c))
+        if p != 1
+            rhs_const[row][p] = get(rhs_const[row], p, Rational{BigInt}(0)) - coeff
+        end
+        if q != 1
+            rhs_const[row][q] = get(rhs_const[row], q, Rational{BigInt}(0)) + coeff
+        end
+        for (src, exp) in factors
+            _add_log_contrib!(A, rhs_const, row, src, coeff * exp, sym_col, csub)
+        end
+    else
+        A[row, sym_col[param]] += coeff
+    end
+end
+
+"""Multiply an expression by the constant factor `prod(base^exp)` from `const_dict`."""
+function _apply_const_factor(expr, const_dict)
+    rational_part = Rational{BigInt}(1)
+    symbolic_parts = Tuple{Int, Rational{BigInt}}[]
+    for (base, exp) in const_dict
+        exp == 0 && continue
+        if denominator(exp) == 1
+            rational_part *= Rational{BigInt}(base) ^ Int(exp)
+        else
+            push!(symbolic_parts, (base, exp))
+        end
+    end
+    terms = Any[]
+    if rational_part != 1
+        if denominator(rational_part) == 1
+            push!(terms, Int(rational_part))
+        else
+            n, d = Int(numerator(rational_part)), Int(denominator(rational_part))
+            push!(terms, :($n // $d))
+        end
+    end
+    for (base, exp) in symbolic_parts
+        push!(terms, denominator(exp) == 1 ?
+            :($base ^ $(Int(exp))) : :($base ^ $(Float64(exp))))
+    end
+    isempty(terms) && return expr
+    const_expr = length(terms) == 1 ? terms[1] : Expr(:call, :*, terms...)
+    expr == 1 && return const_expr
+    Expr(:call, :*, const_expr, expr)
+end
+
 """
     _dependent_param_exprs(M::Type{<:EnzymeMechanism})
 
 Select dependent parameters and build substitution expressions.
-Returns `(dep_exprs, indep_params)`.
+Returns `(dep_exprs, indep_params)` where constrained params are excluded from both.
+
+User constraints are merged into the Haldane/Wegscheider matrix via column merging,
+with `log(coeff)` tracked as constant contributions through Gaussian elimination.
+This preserves coupling between user constraints and thermodynamic constraints.
 """
 function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     C, rhs_coeffs = _thermodynamic_constraints(M)
@@ -136,35 +197,45 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     nsteps = size(C, 2)
     m = M()
     eq_steps = equilibrium_steps(m)
-    constrained = Set(c[1] for c in param_constraints(m))
-    all_params = [p for p in _raw_param_symbols(eq_steps) if p ∉ constrained]
-    nc == 0 && return Dict{Symbol, Expr}(), Tuple(all_params)
+    all_raw = _raw_param_symbols(eq_steps)
+    constraints = param_constraints(m)
+    constrained_set = Set(c[1] for c in constraints)
+    unconstrained = Symbol[p for p in all_raw if p ∉ constrained_set]
+    nc == 0 && return Dict{Symbol, Union{Symbol, Expr}}(), Tuple(unconstrained)
 
-    # Constraint substitution map: target → factors (for log-space column merging)
-    csub = Dict(target => factors for (target, _, factors) in param_constraints(m))
+    # Build log-space substitution from user constraints in Ka domain.
+    # User constraints are in Kd domain; for binding-to-binding constraints,
+    # the coefficient inverts: Kd K3=4K1 → Ka K3=(1/4)K1.
+    # This matches _apply_param_constraints in sym_poly_for_rate_eq_derivation.jl.
+    binding_Ks = Set(_binding_K_symbols(M))
+    csub = Dict{Symbol, Tuple{Rational{BigInt}, Vector{Tuple{Symbol, Rational{BigInt}}}}}()
+    for (target, coeff, factors) in constraints
+        is_b2b = target ∈ binding_Ks && all(f -> f[1] ∈ binding_Ks, factors)
+        ka_coeff = is_b2b ? Rational{BigInt}(1, coeff) : Rational{BigInt}(coeff)
+        csub[target] = (ka_coeff, [(sym, Rational{BigInt}(exp)) for (sym, exp) in factors])
+    end
 
-    # Build log-space constraint matrix directly for non-constrained params only.
-    # Constrained params are substituted inline: if K3=K1, K3's column merges into K1's.
+    # Variable list excludes constrained params (merged into replacements)
+    all_params = unconstrained
     sym_col = Dict(p => i for (i, p) in enumerate(all_params))
     n_vars = length(all_params)
+
     A = zeros(Rational{BigInt}, nc, n_vars)
     rhs = Rational{BigInt}.(rhs_coeffs)
+    # Track constant contributions: rhs_const[i][coeff_val] = exponent
+    # Effective RHS: rhs[i]*log(Keq) + sum(exp*log(val) for (val,exp) in rhs_const[i])
+    rhs_const = [Dict{Int, Rational{BigInt}}() for _ in 1:nc]
+
     for i in 1:nc, j in 1:nsteps
         C[i, j] == 0 && continue
-        pairs = if eq_steps[j]
-            [(Symbol("K$j"), 1)]
+        if eq_steps[j]
+            _add_log_contrib!(A, rhs_const, i, Symbol("K$j"),
+                              Rational{BigInt}(C[i, j]), sym_col, csub)
         else
-            [(Symbol("k$(j)f"), 1), (Symbol("k$(j)r"), -1)]
-        end
-        for (sym, sign) in pairs
-            targets = if haskey(csub, sym)
-                [(s, sign * e) for (s, e) in csub[sym]]
-            else
-                [(sym, sign)]
-            end
-            for (s, sgn) in targets
-                haskey(sym_col, s) && (A[i, sym_col[s]] += C[i, j] * sgn)
-            end
+            _add_log_contrib!(A, rhs_const, i, Symbol("k$(j)f"),
+                              Rational{BigInt}(C[i, j]), sym_col, csub)
+            _add_log_contrib!(A, rhs_const, i, Symbol("k$(j)r"),
+                              Rational{BigInt}(-C[i, j]), sym_col, csub)
         end
     end
 
@@ -198,7 +269,7 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     end
 
     # Gaussian elimination with priority pivoting
-    pivot_entries = Tuple{Int, Int}[]  # (row, col) pairs
+    pivot_entries = Tuple{Int, Int}[]
     pivot_col_set = Set{Int}()
     wA, wrhs = copy(A), copy(rhs)
     for i in 1:nc
@@ -212,7 +283,8 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
             end
         end
         if best_col == 0
-            wrhs[i] == 0 && continue  # redundant constraint (0 = 0)
+            is_zero = wrhs[i] == 0 && all(e == 0 for (_, e) in rhs_const[i])
+            is_zero && continue  # redundant constraint (0 = 0)
             error(
                 "Thermodynamically contradictory mechanism: " *
                 "constraint row $i reduces to " *
@@ -224,11 +296,17 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
         pv = wA[i, best_col]
         wA[i, :] ./= pv
         wrhs[i] /= pv
+        for (c, e) in rhs_const[i]
+            rhs_const[i][c] = e / pv
+        end
         for r in 1:nc
             if r != i && wA[r, best_col] != 0
                 f = wA[r, best_col]
                 wA[r, :] .-= f .* wA[i, :]
                 wrhs[r] -= f * wrhs[i]
+                for (c, e) in rhs_const[i]
+                    rhs_const[r][c] = get(rhs_const[r], c, Rational{BigInt}(0)) - f * e
+                end
             end
         end
     end
@@ -240,27 +318,40 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
             for c in 1:n_vars
             if c != pcol && wA[prow, c] != 0
         ]
-        dep_exprs[all_params[pcol]] = build_power_expr(wrhs[prow], factors)
+        base_expr = build_power_expr(wrhs[prow], factors)
+        dep_exprs[all_params[pcol]] = _apply_const_factor(base_expr, rhs_const[prow])
     end
     dep_set = Set(keys(dep_exprs))
     return dep_exprs, Tuple(p for p in all_params if p ∉ dep_set)
 end
 
+"""Apply K→1/K inversion to Haldane dep_exprs.
+When a dependent param is itself a binding K, its RHS is wrapped in `inv_fn`
+to compensate for the implicit LHS inversion (Ka→Kd)."""
+function _apply_kd_inversion(dep_exprs, M::Type{<:EnzymeMechanism}, inv_fn)
+    binding_Ks = Set(_binding_K_symbols(M))
+    isempty(binding_Ks) && return dep_exprs
+    inv_subs = Dict(K => inv_fn(K) for K in binding_Ks)
+    Dict(
+        k => begin
+            rhs = substitute_params_expr(v, inv_subs)
+            k in binding_Ks ? inv_fn(rhs) : rhs
+        end
+        for (k, v) in dep_exprs
+    )
+end
+
 function _constraint_expr_strings(M::Type{<:EnzymeMechanism})
     m = M()
     lines = String[]
-    # User constraints first
     for (target, coeff, factors) in param_constraints(m)
         push!(lines, _user_constraint_to_string(target, coeff, factors))
     end
-    # Then HW constraints
     dep_exprs, _ = _dependent_param_exprs(M)
     if !isempty(dep_exprs)
-        subs = Dict(K => :(1 / $K) for K in _binding_K_symbols(M))
+        dep_exprs = _apply_kd_inversion(dep_exprs, M, K -> :(1 / $K))
         for (sym, expr) in sort(collect(dep_exprs); by=p -> string(p[1]))
-            disp = isempty(subs) ? expr :
-                substitute_params_expr(expr, subs)
-            push!(lines, "$sym = $(string(disp))")
+            push!(lines, "$sym = $(string(expr))")
         end
     end
     lines
@@ -304,12 +395,7 @@ end
 function _build_rate_body(M, ::Type{ReducedMode})
     expr, _, conc_syms = _raw_rate_expr_and_symbols(M)
     dep_exprs, indep = _dependent_param_exprs(M)
-    # Apply K→1/K to dep_exprs for Kd convention
-    binding_Ks = Set(_binding_K_symbols(M))
-    if !isempty(binding_Ks)
-        inv_subs = Dict(K => :(inv($K)) for K in binding_Ks)
-        dep_exprs = Dict(k => substitute_params_expr(v, inv_subs) for (k,v) in dep_exprs)
-    end
+    dep_exprs = _apply_kd_inversion(dep_exprs, M, K -> :(inv($K)))
     hw_params = (indep..., :Keq, :E_total)
     assignments = [Expr(:(=), sym, dep_exprs[sym])
                    for (sym, _) in sort(collect(dep_exprs); by=first)]

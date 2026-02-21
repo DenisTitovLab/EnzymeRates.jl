@@ -109,6 +109,9 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - When constraining K params, both must be same type (both binding or both non-binding) to avoid inversion mismatch
 - In DSL constraint parsing, use `Ref` for mutable coeff and read back with `coeff_ref[]`
 - HW constraint matrix must merge constrained columns into replacement columns before Gaussian elimination
+- Column merging operates in Ka domain; binding-to-binding constraint coefficients must be inverted (Kd coeff c → Ka coeff 1/c), matching `_apply_param_constraints` behavior
+- Constant contributions `log(coeff)` from column merging must be tracked through Gaussian elimination as `Dict{Int, Rational{BigInt}}` per row (base → accumulated exponent)
+- When a dependent param is itself a binding K, its dep_expr RHS must be wrapped in `inv_fn()` to compensate for the implicit LHS Ka→Kd inversion
 
 ### Mechanism Enumeration
 - Activator/inhibitor exclusivity: a regulator is EITHER activator OR inhibitor, never both. `_enumerate_dead_end_configs` excludes reg positions occupied in any topo form
