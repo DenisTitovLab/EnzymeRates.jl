@@ -39,6 +39,14 @@ Base.@kwdef struct MechanismTestSpec
     # Optional analytical rate function for extra validation (unicyclic mechanisms)
     # Signature: (all_params::NamedTuple, concs::NamedTuple) -> Float64
     analytical_rate_fn::Union{Function, Nothing} = nothing
+
+    # Factored form validation (optional — for mechanisms with known factored forms)
+    # Expected numerator/denominator from rate_equation_string output
+    # When broken=true, uses @test_broken (known bugs, will alert when fixed)
+    expected_factored_num::Union{String, Nothing} = nothing
+    expected_factored_denom::Union{String, Nothing} = nothing
+    factored_num_broken::Bool = false
+    factored_denom_broken::Bool = false
 end
 
 # ── Mechanism test specifications ───────────────────────────────────────────
@@ -1071,6 +1079,382 @@ function build_mechanism_test_specs()
             expected_identifiability_deficit = 0,
             expected_is_identifiable = true,
             analytical_rate_fn = (p, c) -> rate_re_both_directions(merge(p, (Et=p.Et,)), c)
+        ))
+    end
+
+    # ── Classical Inhibitor/Activator Mechanisms (factored form tests) ────────
+
+    # 21. Competitive inhibitor: E + S ⇌ ES, ES ⇌ EP (SS), EP ⇌ E + P, E + R ⇌ ER
+    #     Dead-end inhibitor R binds free enzyme only.
+    #     No Cartesian product structure → flat sum denominator.
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                regulators: R[X]
+                enzymes:    E, ES[C], EP[C], ER[X]
+            end
+            steps: begin
+                [E, S] ⇌ [ES]        # K1
+                [ES] <--> [EP]        # k2f, k2r (SS)
+                [EP] ⇌ [E, P]        # K3
+                [E, R] ⇌ [ER]        # K4
+            end
+        end
+
+        # v = Et * (k2f*S/K1 - k2r*P/K3) / (1 + S/K1 + P/K3 + R/K4)
+        function rate_competitive_inh(params, concs)
+            (; K1, k2f, k2r, K3, K4, Et) = params
+            (; S, P, R) = concs
+            num = k2f * S / K1 - k2r * P / K3
+            denom = 1.0 + S / K1 + P / K3 + R / K4
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "Competitive Inhibitor",
+            mechanism = m,
+            metabolite_names = [:S, :P, :R],
+            expected_n_states = 4,
+            expected_n_steps = 4,
+            expected_n_metabolites = 3,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 4,
+            expected_identifiability_deficit = 0,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) -> rate_competitive_inh(
+                merge(p, (Et=p.Et,)), c),
+            # Textbook: flat sum denominator (no Cartesian product structure)
+            expected_factored_num =
+                "k2f * S / K1 - k2r * P / K3",
+            expected_factored_denom =
+                "1 + S / K1 + P / K3 + R / K4",
+            factored_num_broken = true,     # K3 not normalized out
+            factored_denom_broken = true,   # K3 not normalized + subgrouping
+        ))
+    end
+
+    # 22. Non-competitive inhibitor: R binds both free E and ES with same K
+    #     Forms: E, ES, EP, ER, ESR; SS: ES↔EP; K5=K4
+    #     Denom factors as (1+R/K4)*(1+S/K1) + P/K3
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                regulators: R[X]
+                enzymes:    E, ES[C], EP[C], ER[X], ESR[CX]
+            end
+            steps: begin
+                [E, S] ⇌ [ES]        # K1
+                [ES] <--> [EP]        # k2f, k2r (SS)
+                [EP] ⇌ [E, P]        # K3
+                [E, R] ⇌ [ER]        # K4
+                [ES, R] ⇌ [ESR]      # K5
+            end
+            constraints: begin
+                K5 = K4
+            end
+        end
+
+        # v = Et * (k2f*S/K1 - k2r*P/K3) / ((1+R/K4)*(1+S/K1) + P/K3)
+        function rate_noncompetitive_inh(params, concs)
+            (; K1, k2f, k2r, K3, K4, Et) = params
+            (; S, P, R) = concs
+            num = k2f * S / K1 - k2r * P / K3
+            denom = (1.0 + R / K4) * (1.0 + S / K1) + P / K3
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "Non-competitive Inhibitor",
+            mechanism = m,
+            metabolite_names = [:S, :P, :R],
+            expected_n_states = 5,
+            expected_n_steps = 5,
+            expected_n_metabolites = 3,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 4,
+            expected_identifiability_deficit = -1,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) -> rate_noncompetitive_inh(
+                merge(p, (Et=p.Et,)), c),
+            # Textbook: (1+R/K4)*(1+S/K1) + P/K3
+            expected_factored_num =
+                "k2f * S / K1 - k2r * P / K3",
+            expected_factored_denom =
+                "P / K3 + (1 + S / K1) * (1 + R / K4)",
+            factored_num_broken = true,     # K3 not normalized out
+            factored_denom_broken = true,   # K3 not normalized out
+        ))
+    end
+
+    # 23. Uncompetitive inhibitor: R binds ES only (not free E)
+    #     Forms: E, ES, EP, ESR; SS: ES↔EP; No extra constraints
+    #     Denom: 1 + P/K3 + S/K1*(1+R/K4)
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                regulators: R[X]
+                enzymes:    E, ES[C], EP[C], ESR[CX]
+            end
+            steps: begin
+                [E, S] ⇌ [ES]        # K1
+                [ES] <--> [EP]        # k2f, k2r (SS)
+                [EP] ⇌ [E, P]        # K3
+                [ES, R] ⇌ [ESR]      # K4
+            end
+        end
+
+        # v = Et * (k2f*S/K1 - k2r*P/K3) / (1 + P/K3 + S/K1*(1+R/K4))
+        function rate_uncompetitive_inh(params, concs)
+            (; K1, k2f, k2r, K3, K4, Et) = params
+            (; S, P, R) = concs
+            num = k2f * S / K1 - k2r * P / K3
+            denom = 1.0 + P / K3 + (S / K1) * (1.0 + R / K4)
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "Uncompetitive Inhibitor",
+            mechanism = m,
+            metabolite_names = [:S, :P, :R],
+            expected_n_states = 4,
+            expected_n_steps = 4,
+            expected_n_metabolites = 3,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 4,
+            expected_identifiability_deficit = 0,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) -> rate_uncompetitive_inh(
+                merge(p, (Et=p.Et,)), c),
+            # Textbook: 1 + P/K3 + (S/K1)*(1+R/K4)
+            expected_factored_num =
+                "k2f * S / K1 - k2r * P / K3",
+            expected_factored_denom =
+                "1 + P / K3 + (S / K1) * (1 + R / K4)",
+            factored_num_broken = true,     # K3 not normalized out
+            factored_denom_broken = true,   # K3 not normalized out
+        ))
+    end
+
+    # 24. Essential activator: R must bind before S can bind
+    #     Forms: E, ER, ESR, EPR; SS: ESR↔EPR
+    #     Num: R/K1 * (k3f*S/K2 - k3r*P/K4)
+    #     Denom: 1 + R/K1*(1+S/K2+P/K4)
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                regulators: R[X]
+                enzymes:    E, ER[X], ESR[CX], EPR[CX]
+            end
+            steps: begin
+                [E, R] ⇌ [ER]          # K1
+                [ER, S] ⇌ [ESR]        # K2
+                [ESR] <--> [EPR]        # k3f, k3r (SS)
+                [EPR] ⇌ [ER, P]        # K4
+            end
+        end
+
+        # v = Et * R/K1 * (k3f*S/K2 - k3r*P/K4) / (1 + R/K1*(1+S/K2+P/K4))
+        function rate_essential_activator(params, concs)
+            (; K1, K2, k3f, k3r, K4, Et) = params
+            (; S, P, R) = concs
+            num = (R / K1) * (k3f * S / K2 - k3r * P / K4)
+            denom = 1.0 + (R / K1) * (1.0 + S / K2 + P / K4)
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "Essential Activator",
+            mechanism = m,
+            metabolite_names = [:S, :P, :R],
+            expected_n_states = 4,
+            expected_n_steps = 4,
+            expected_n_metabolites = 3,
+            expected_n_haldane = 1,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 4,
+            expected_identifiability_deficit = 0,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) -> rate_essential_activator(
+                merge(p, (Et=p.Et,)), c),
+            # Textbook: R/K1 * (k3f*S/K2 - k3r*P/K4) / (1 + R/K1*(1+S/K2+P/K4))
+            expected_factored_num =
+                "(R / K1) * (k3f * S / K2 - k3r * P / K4)",
+            factored_num_broken = true,     # R/K1 not factored + K4 not normalized
+            expected_factored_denom =
+                "1 + (R / K1) * (1 + S / K2 + P / K4)",
+            factored_denom_broken = true,   # K4 not normalized + subgrouping
+        ))
+    end
+
+    # 25. Non-essential activator (general modifier):
+    #     R modifies catalysis but isn't required. Two parallel SS cycles.
+    #     Forms: E, ES, EP, ER, ESR, EPR; SS: ES↔EP, ESR↔EPR
+    #     K8=K7, K9=K7 (R binding independent of S/P), K4=K1, K6=K3
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                regulators: R[X]
+                enzymes:    E, ES[C], EP[C], ER[X], ESR[CX], EPR[CX]
+            end
+            steps: begin
+                [E, S] ⇌ [ES]          # K1
+                [ES] <--> [EP]          # k2f, k2r (SS)
+                [EP] ⇌ [E, P]          # K3
+                [ER, S] ⇌ [ESR]        # K4
+                [ESR] <--> [EPR]        # k5f, k5r (SS)
+                [EPR] ⇌ [ER, P]        # K6
+                [E, R] ⇌ [ER]          # K7
+                [ES, R] ⇌ [ESR]        # K8
+                [EP, R] ⇌ [EPR]        # K9
+            end
+            constraints: begin
+                K8 = K7
+                K9 = K7
+                K4 = K1
+                K6 = K3
+            end
+        end
+
+        # v = Et * ((k2f*S/K1-k2r*P/K3) + R/K7*(k5f*S/K1-k5r*P/K3))
+        #         / ((1+S/K1+P/K3)*(1+R/K7))
+        function rate_nonessential_activator(params, concs)
+            (; K1, k2f, k2r, K3, k5f, k5r, K7, Et) = params
+            (; S, P, R) = concs
+            num = (k2f * S / K1 - k2r * P / K3) +
+                  (R / K7) * (k5f * S / K1 - k5r * P / K3)
+            denom = (1.0 + S / K1 + P / K3) * (1.0 + R / K7)
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "Non-essential Activator",
+            mechanism = m,
+            metabolite_names = [:S, :P, :R],
+            expected_n_states = 6,
+            expected_n_steps = 9,
+            expected_n_metabolites = 3,
+            expected_n_haldane = 2,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 5,
+            expected_identifiability_deficit = -3,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) -> rate_nonessential_activator(
+                merge(p, (Et=p.Et,)), c),
+            # Textbook: (k2f*S/K1-k2r*P/K3) + R/K7*(k5f*S/K1-k5r*P/K3)
+            expected_factored_num =
+                "k2f * S / K1 - k2r * P / K3 + (R / K7) * (k5f * S / K1 - k5r * P / K3)",
+            factored_num_broken = true,     # K3 not normalized + R/K7 not grouped
+            # Textbook: (1+S/K1+P/K3)*(1+R/K7)
+            expected_factored_denom =
+                "(1 + S / K1 + P / K3) * (1 + R / K7)",
+            factored_denom_broken = true,   # K3 not normalized out
+        ))
+    end
+
+    # 26. Symmetric homodimer (9 ordered-subunit forms, 6 SS catalytic steps)
+    #     Each subunit tracked separately: E_XY where X=site1 state, Y=site2 state.
+    #     All binding K equal (K1 for S, K13 for P), all catalytic k equal (k7f).
+    #     Textbook: v = 2*Et*(k7f*S/K1 - k7r*P/K13) / (1+S/K1+P/K13)
+    #     Before cancellation: num = 2*(k7f*S/K1-k7r*P/K13)*(1+S/K1+P/K13)
+    #                          denom = (1+S/K1+P/K13)^2
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                enzymes:    E_00,
+                    E_0S[C], E_S0[C],
+                    E_0P[C], E_P0[C],
+                    E_SS[C2], E_SP[C2], E_PS[C2], E_PP[C2]
+            end
+            steps: begin
+                # S binding (RE)
+                [E_00, S] ⇌ [E_0S]         # K1
+                [E_00, S] ⇌ [E_S0]         # K2
+                [E_0S, S] ⇌ [E_SS]         # K3
+                [E_S0, S] ⇌ [E_SS]         # K4
+                [E_0P, S] ⇌ [E_SP]         # K5
+                [E_P0, S] ⇌ [E_PS]         # K6
+                # Catalysis (SS)
+                [E_S0] <--> [E_P0]          # k7f, k7r
+                [E_0S] <--> [E_0P]          # k8f, k8r
+                [E_SS] <--> [E_SP]          # k9f, k9r
+                [E_SS] <--> [E_PS]          # k10f, k10r
+                [E_SP] <--> [E_PP]          # k11f, k11r
+                [E_PS] <--> [E_PP]          # k12f, k12r
+                # P binding (RE)
+                [E_00, P] ⇌ [E_0P]         # K13
+                [E_00, P] ⇌ [E_P0]         # K14
+                [E_0P, P] ⇌ [E_PP]         # K15
+                [E_P0, P] ⇌ [E_PP]         # K16
+                [E_0S, P] ⇌ [E_SP]         # K17
+                [E_S0, P] ⇌ [E_PS]         # K18
+            end
+            constraints: begin
+                # S binding: all equal
+                K2 = K1
+                K3 = K1
+                K4 = K1
+                K5 = K1
+                K6 = K1
+                # Catalysis: all equal
+                k8f = k7f
+                k9f = k7f
+                k10f = k7f
+                k11f = k7f
+                k12f = k7f
+                # P binding: all equal
+                K14 = K13
+                K15 = K13
+                K16 = K13
+                K17 = K13
+                K18 = K13
+            end
+        end
+
+        # v = 2*Et*(k7f*S/K1 - k7r*P/K13) / (1+S/K1+P/K13)
+        function rate_dimer(params, concs)
+            (; K1, k7f, k7r, K13, Et) = params
+            (; S, P) = concs
+            num = k7f * S / K1 - k7r * P / K13
+            denom = 1.0 + S / K1 + P / K13
+            return 2.0 * Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "Symmetric Homodimer",
+            mechanism = m,
+            metabolite_names = [:S, :P],
+            expected_n_states = 9,
+            expected_n_steps = 18,
+            expected_n_metabolites = 2,
+            expected_n_haldane = 6,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 3,
+            expected_identifiability_deficit = -6,
+            expected_is_identifiable = true,
+            analytical_rate_fn = rate_dimer,
+            # Before cancellation: 2*(k7f*S/K1-k7r*P/K13)*(1+S/K1+P/K13)
+            expected_factored_num =
+                "2 * (k7f * S / K1 - k7r * P / K13) * (1 + S / K1 + P / K13)",
+            factored_num_broken = true,
+            # Textbook: (1+S/K1+P/K13)^2
+            expected_factored_denom =
+                "(1 + S / K1 + P / K13) ^ 2",
+            factored_denom_broken = true,
         ))
     end
 
