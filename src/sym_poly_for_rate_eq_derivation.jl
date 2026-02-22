@@ -320,6 +320,11 @@ function _factored_sigma_to_expr(
         )
         if coeff == poly_one()
             push!(terms, fp_expr)
+        elseif fp_expr isa Integer && fp_expr == 1
+            c_expr = _poly_to_expr(
+                coeff, param_syms, conc_syms, inverted_params,
+            )
+            push!(terms, c_expr)
         else
             c_expr = _poly_to_expr(
                 coeff, param_syms, conc_syms, inverted_params,

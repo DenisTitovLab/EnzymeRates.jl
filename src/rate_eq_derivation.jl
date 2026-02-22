@@ -424,10 +424,14 @@ end
 Check K consistency: all binding RE steps for the same metabolite
 within a sub-group must resolve to the same canonical K (after
 constraint resolution). Returns `(consistent, met_to_K)`.
+
+When `sigma_K_syms` is provided, steps whose canonical K is not in
+the sigma are skipped — they correspond to BFS paths not taken.
 """
 function _check_k_consistency(
     subgroup, enz_names, enz_set, rxns, eq_steps,
-    binding_states, sites, constraints,
+    binding_states, sites, constraints;
+    sigma_K_syms::Union{Nothing, Set{Symbol}}=nothing,
 )
     sg_set = Set(subgroup)
     # Build constraint resolution map: chase target → replacement
@@ -465,6 +469,12 @@ function _check_k_consistency(
 
         met = has_met_lhs ? first(m_lhs) : first(m_rhs)
         K_sym = canonical(Symbol("K$idx"))
+
+        # Skip steps whose canonical K doesn't appear in the sigma
+        # (BFS used a different path for this metabolite)
+        if sigma_K_syms !== nothing && K_sym ∉ sigma_K_syms
+            continue
+        end
 
         if haskey(met_to_K, met)
             met_to_K[met] != K_sym && return false, Dict{Symbol, Symbol}()
@@ -578,8 +588,27 @@ function _try_factor_sigma(
         is_product || return nothing
 
         # Step 5: Check K consistency
+        # Compute constrained sub-group sigma to extract which K symbols appear
+        sg_sigma = reduce(
+            poly_add,
+            (poly_mul(
+                alpha_num[i],
+                reduce(
+                    poly_mul,
+                    (alpha_den[j] for j in sg if j != i);
+                    init=poly_one(),
+                ),
+            ) for i in sg),
+        )
+        sg_sigma = _apply_param_constraints(sg_sigma, constraints; binding_Ks)
+        sigma_K_syms = Set{Symbol}(
+            s for (mono, _) in sg_sigma for (s, _) in mono
+            if startswith(string(s), "K") && length(string(s)) > 1 &&
+               isdigit(string(s)[2])
+        )
         consistent, met_to_K = _check_k_consistency(
-            sg, enz_names, enz_set, rxns, eq_steps, states, sites, constraints,
+            sg, enz_names, enz_set, rxns, eq_steps, states, sites,
+            constraints; sigma_K_syms,
         )
         consistent || return nothing
 
@@ -626,6 +655,124 @@ function _try_factor_sigma(
         sigma_expected != sigma_actual && return nothing
     end
     fs
+end
+
+# ─── Algebraic Regulator Factoring (Fallback) ─────────────────
+
+"""Find the canonical K symbol for a metabolite's binding step."""
+function _find_met_binding_K(met, rxns, eq_steps, enz_set, constraints)
+    # Build constraint resolution chain
+    resolve = Dict{Symbol, Symbol}()
+    for (target, coeff, factors) in constraints
+        coeff == 1 && length(factors) == 1 && factors[1][2] == 1 || continue
+        resolve[target] = factors[1][1]
+    end
+    function canonical(sym)
+        visited = Set{Symbol}()
+        while haskey(resolve, sym) && sym ∉ visited
+            push!(visited, sym)
+            sym = resolve[sym]
+        end
+        sym
+    end
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        eq_steps[idx] || continue
+        _, m_lhs = _split_reaction_side(lhs, enz_set)
+        _, m_rhs = _split_reaction_side(rhs, enz_set)
+        has_met_lhs = met ∈ m_lhs
+        has_met_rhs = met ∈ m_rhs
+        (has_met_lhs ⊻ has_met_rhs) || continue
+        return canonical(Symbol("K$idx"))
+    end
+    nothing
+end
+
+"""
+Try to factor `sigma` by metabolite `met` with binding K symbol `K_R`.
+Returns `(base_R, without_R, is_subset, remainder)` or `nothing`.
+"""
+function _try_factor_by_met(sigma::POLY, met::Symbol, K_R::Symbol)
+    with_R = POLY()
+    without_R = POLY()
+    for (mono, coeff) in sigma
+        if any(s == met for (s, _) in mono)
+            with_R[mono] = coeff
+        else
+            without_R[mono] = coeff
+        end
+    end
+    isempty(with_R) && return nothing
+
+    # Divide each term in with_R by K_R * met
+    K_R_met = _mono(K_R => 1, met => 1)
+    base_R = POLY()
+    for (mono, coeff) in with_R
+        r_exp = 0; k_exp = 0
+        for (s, e) in mono
+            s == met && (r_exp = e)
+            s == K_R && (k_exp = e)
+        end
+        (r_exp >= 1 && k_exp >= 1) || return nothing
+        base_R[_mono_div(mono, K_R_met)] = coeff
+    end
+
+    is_subset = all(
+        haskey(without_R, m) && without_R[m] == c for (m, c) in base_R
+    )
+    remainder = is_subset ? poly_sub(without_R, base_R) : nothing
+    (base_R, without_R, is_subset, remainder)
+end
+
+"""
+Try algebraic polynomial factoring on a constrained sigma.
+Returns a `FactoredSigma` or `nothing`.
+"""
+function _try_algebraic_factor_sigma(
+    sigma::POLY, rxns, eq_steps, enz_set, constraints;
+    binding_Ks::Set{Symbol}=Set{Symbol}(),
+)
+    # Collect metabolites present in sigma
+    K_syms = Set{Symbol}(
+        s for (mono, _) in sigma for (s, _) in mono
+        if startswith(string(s), "K") && length(string(s)) > 1 &&
+           isdigit(string(s)[2])
+    )
+    k_syms = Set{Symbol}(
+        s for (mono, _) in sigma for (s, _) in mono
+        if startswith(string(s), "k")
+    )
+    met_syms = Symbol[
+        s for s in Set(
+            s for (mono, _) in sigma for (s, _) in mono
+        ) if s ∉ K_syms && s ∉ k_syms && s != :Keq && s != :E_total
+    ]
+    sort!(met_syms; by=string)
+
+    # Try each metabolite; only accept product factoring (base_R ⊆ without_R)
+    for met in met_syms
+        K_R = _find_met_binding_K(met, rxns, eq_steps, enz_set, constraints)
+        K_R === nothing && continue
+        K_R ∈ K_syms || continue
+        result = _try_factor_by_met(sigma, met, K_R)
+        result === nothing && continue
+        base_R, without_R, is_subset, remainder = result
+        is_subset || continue
+
+        # sigma = remainder + base_R * (1 + K_R*met)
+        one_plus_KR = poly_add(
+            poly_one(), POLY(_mono(K_R => 1, met => 1) => 1),
+        )
+        coeffs = POLY[]
+        products = FactoredPoly[]
+        if !isempty(remainder)
+            push!(coeffs, remainder)
+            push!(products, FactoredPoly([poly_one()], [1]))
+        end
+        push!(coeffs, poly_one())
+        push!(products, FactoredPoly([base_R, one_plus_KR], [1, 1]))
+        return FactoredSigma(coeffs, products)
+    end
+    nothing
 end
 
 """Build rate poly for one SS step direction, clearing alpha denominators within group."""
@@ -717,7 +864,16 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         if fs !== nothing
             push!(denom_terms, DenomTerm(fs, D[g]))
         else
-            push!(denom_terms, unfactored_denom_term(sigma_num[g], D[g]))
+            # Algebraic fallback: factor constrained sigma by metabolite
+            csigma = _apply_param_constraints(sigma_num[g], pc; binding_Ks)
+            afs = _try_algebraic_factor_sigma(
+                csigma, rxns, eq_steps, enz_set, pc; binding_Ks,
+            )
+            if afs !== nothing
+                push!(denom_terms, DenomTerm(afs, D[g]))
+            else
+                push!(denom_terms, unfactored_denom_term(sigma_num[g], D[g]))
+            end
         end
     end
 
