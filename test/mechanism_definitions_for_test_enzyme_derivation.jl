@@ -1137,7 +1137,7 @@ function build_mechanism_test_specs()
     end
 
     # 22. Non-competitive inhibitor: R binds both free E and ES with same K
-    #     Forms: E, ES, EP, ER, ESR; SS: ES↔EP; K5=K4
+    #     Forms: E, E_S, E_P, E_R, E_S_R; SS: E_S↔E_P; K5=K4
     #     Denom factors as (1+R/K4)*(1+S/K1) + P/K3
     let
         m = @enzyme_mechanism begin
@@ -1145,14 +1145,15 @@ function build_mechanism_test_specs()
                 substrates: S[C]
                 products:   P[C]
                 regulators: R[X]
-                enzymes:    E, ES[C], EP[C], ER[X], ESR[CX]
+                enzymes:    E, E_S[C], E_P[C], E_R[X], E_S_R[CX]
             end
             steps: begin
-                [E, S] ⇌ [ES]        # K1
-                [ES] <--> [EP]        # k2f, k2r (SS)
-                [EP] ⇌ [E, P]        # K3
-                [E, R] ⇌ [ER]        # K4
-                [ES, R] ⇌ [ESR]      # K5
+                [E, S] ⇌ [E_S]        # K1
+                [E_S] <--> [E_P]       # k2f, k2r (SS)
+                [E, P] ⇌ [E_P]        # K3
+                [E, R] ⇌ [E_R]        # K4
+                [E_S, R] ⇌ [E_S_R]    # K5
+                [E_R, S] ⇌ [E_S_R]    # K6
             end
             constraints: begin
                 K5 = K4
@@ -1173,16 +1174,15 @@ function build_mechanism_test_specs()
             mechanism = m,
             metabolite_names = [:S, :P, :R],
             expected_n_states = 5,
-            expected_n_steps = 5,
+            expected_n_steps = 6,
             expected_n_metabolites = 3,
             expected_n_haldane = 1,
-            expected_n_wegscheider = 0,
+            expected_n_wegscheider = 1,
             expected_n_independent_params = 4,
             expected_identifiability_deficit = -1,
             expected_is_identifiable = true,
             analytical_rate_fn = (p, c) -> rate_noncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
-            # Textbook: (1+R/K4)*(1+S/K1) + P/K3
             expected_factored_num =
                 "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom =
@@ -1193,7 +1193,7 @@ function build_mechanism_test_specs()
     end
 
     # 23. Uncompetitive inhibitor: R binds ES only (not free E)
-    #     Forms: E, ES, EP, ESR; SS: ES↔EP; No extra constraints
+    #     Forms: E, E_S, E_P, E_S_R; SS: E_S↔E_P; No extra constraints
     #     Denom: 1 + P/K3 + S/K1*(1+R/K4)
     let
         m = @enzyme_mechanism begin
@@ -1201,13 +1201,13 @@ function build_mechanism_test_specs()
                 substrates: S[C]
                 products:   P[C]
                 regulators: R[X]
-                enzymes:    E, ES[C], EP[C], ESR[CX]
+                enzymes:    E, E_S[C], E_P[C], E_S_R[CX]
             end
             steps: begin
-                [E, S] ⇌ [ES]        # K1
-                [ES] <--> [EP]        # k2f, k2r (SS)
-                [EP] ⇌ [E, P]        # K3
-                [ES, R] ⇌ [ESR]      # K4
+                [E, S] ⇌ [E_S]        # K1
+                [E_S] <--> [E_P]       # k2f, k2r (SS)
+                [E, P] ⇌ [E_P]        # K3
+                [E_S, R] ⇌ [E_S_R]    # K4
             end
         end
 
@@ -1234,7 +1234,6 @@ function build_mechanism_test_specs()
             expected_is_identifiable = true,
             analytical_rate_fn = (p, c) -> rate_uncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
-            # Textbook: 1 + P/K3 + (S/K1)*(1+R/K4)
             expected_factored_num =
                 "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom =
@@ -1245,31 +1244,31 @@ function build_mechanism_test_specs()
     end
 
     # 24. Essential activator: R must bind before S can bind
-    #     Forms: E, ER, ESR, EPR; SS: ESR↔EPR
-    #     Num: R/K1 * (k3f*S/K2 - k3r*P/K4)
-    #     Denom: 1 + R/K1*(1+S/K2+P/K4)
+    #     Forms: E, E_R, E_S_R, E_P_R; SS: E_S_R↔E_P_R
+    #     Num: R/K4 * (k2f*S/K1 - k2r*P/K3)
+    #     Denom: 1 + R/K4*(1+S/K1+P/K3)
     let
         m = @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
                 products:   P[C]
                 regulators: R[X]
-                enzymes:    E, ER[X], ESR[CX], EPR[CX]
+                enzymes:    E, E_R[X], E_S_R[CX], E_P_R[CX]
             end
             steps: begin
-                [E, R] ⇌ [ER]          # K1
-                [ER, S] ⇌ [ESR]        # K2
-                [ESR] <--> [EPR]        # k3f, k3r (SS)
-                [EPR] ⇌ [ER, P]        # K4
+                [E_R, S] ⇌ [E_S_R]    # K1
+                [E_S_R] <--> [E_P_R]   # k2f, k2r (SS)
+                [E_R, P] ⇌ [E_P_R]    # K3
+                [E, R] ⇌ [E_R]        # K4
             end
         end
 
-        # v = Et * R/K1 * (k3f*S/K2 - k3r*P/K4) / (1 + R/K1*(1+S/K2+P/K4))
+        # v = Et * R/K4 * (k2f*S/K1 - k2r*P/K3) / (1 + R/K4*(1+S/K1+P/K3))
         function rate_essential_activator(params, concs)
-            (; K1, K2, k3f, k3r, K4, Et) = params
+            (; K1, k2f, k2r, K3, K4, Et) = params
             (; S, P, R) = concs
-            num = (R / K1) * (k3f * S / K2 - k3r * P / K4)
-            denom = 1.0 + (R / K1) * (1.0 + S / K2 + P / K4)
+            num = (R / K4) * (k2f * S / K1 - k2r * P / K3)
+            denom = 1.0 + (R / K4) * (1.0 + S / K1 + P / K3)
             return Et * num / denom
         end
 
@@ -1287,44 +1286,42 @@ function build_mechanism_test_specs()
             expected_is_identifiable = true,
             analytical_rate_fn = (p, c) -> rate_essential_activator(
                 merge(p, (Et=p.Et,)), c),
-            # Textbook: R/K1 * (k3f*S/K2 - k3r*P/K4) / (1 + R/K1*(1+S/K2+P/K4))
             expected_factored_num =
-                "(R / K1) * (k3f * S / K2 - k3r * P / K4)",
+                "(R / K4) * (k2f * S / K1 - k2r * P / K3)",
             factored_num_broken = false,
             expected_factored_denom =
-                "1 + (R / K1) * (1 + S / K2 + P / K4)",
+                "1 + (R / K4) * (1 + S / K1 + P / K3)",
             factored_denom_broken = false,
         ))
     end
 
     # 25. Non-essential activator (general modifier):
     #     R modifies catalysis but isn't required. Two parallel SS cycles.
-    #     Forms: E, ES, EP, ER, ESR, EPR; SS: ES↔EP, ESR↔EPR
-    #     K8=K7, K9=K7 (R binding independent of S/P), K4=K1, K6=K3
+    #     Forms: E, E_S, E_P, E_R, E_S_R, E_P_R; SS: E_S↔E_P, E_S_R↔E_P_R
+    #     K8=K7, K9=K7 (R binding independent of S/P)
+    #     K4=K1 and K6=K3 are implied by Wegscheider relations
     let
         m = @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
                 products:   P[C]
                 regulators: R[X]
-                enzymes:    E, ES[C], EP[C], ER[X], ESR[CX], EPR[CX]
+                enzymes:    E, E_S[C], E_P[C], E_R[X], E_S_R[CX], E_P_R[CX]
             end
             steps: begin
-                [E, S] ⇌ [ES]          # K1
-                [ES] <--> [EP]          # k2f, k2r (SS)
-                [EP] ⇌ [E, P]          # K3
-                [ER, S] ⇌ [ESR]        # K4
-                [ESR] <--> [EPR]        # k5f, k5r (SS)
-                [EPR] ⇌ [ER, P]        # K6
-                [E, R] ⇌ [ER]          # K7
-                [ES, R] ⇌ [ESR]        # K8
-                [EP, R] ⇌ [EPR]        # K9
+                [E, S] ⇌ [E_S]          # K1
+                [E_S] <--> [E_P]         # k2f, k2r (SS)
+                [E, P] ⇌ [E_P]          # K3
+                [E_R, S] ⇌ [E_S_R]      # K4
+                [E_S_R] <--> [E_P_R]     # k5f, k5r (SS)
+                [E_R, P] ⇌ [E_P_R]      # K6
+                [E, R] ⇌ [E_R]          # K7
+                [E_S, R] ⇌ [E_S_R]      # K8
+                [E_P, R] ⇌ [E_P_R]      # K9
             end
             constraints: begin
                 K8 = K7
                 K9 = K7
-                K4 = K1
-                K6 = K3
             end
         end
 
@@ -1347,17 +1344,15 @@ function build_mechanism_test_specs()
             expected_n_steps = 9,
             expected_n_metabolites = 3,
             expected_n_haldane = 2,
-            expected_n_wegscheider = 0,
+            expected_n_wegscheider = 2,
             expected_n_independent_params = 5,
             expected_identifiability_deficit = -3,
             expected_is_identifiable = true,
             analytical_rate_fn = (p, c) -> rate_nonessential_activator(
                 merge(p, (Et=p.Et,)), c),
-            # Textbook: (k2f*S/K1-k2r*P/K3) + R/K7*(k5f*S/K1-k5r*P/K3)
             expected_factored_num =
                 "k2f * S / K1 - k2r * P / K3 + (R / K7) * (k5f * S / K1 - k5r * P / K3)",
             factored_num_broken = false,
-            # Textbook: (1+S/K1+P/K3)*(1+R/K7)
             expected_factored_denom =
                 "(1 + S / K1 + P / K3) * (1 + R / K7)",
             factored_denom_broken = false,
@@ -1366,7 +1361,7 @@ function build_mechanism_test_specs()
 
     # 26. Symmetric homodimer (9 ordered-subunit forms, 6 SS catalytic steps)
     #     Each subunit tracked separately: E_XY where X=site1 state, Y=site2 state.
-    #     All binding K equal (K1 for S, K13 for P), all catalytic k equal (k7f).
+    #     All binding K equal (K1 for S, K13 for P), all catalytic k equal (k7f/k7r).
     #     Textbook: v = 2*Et*(k7f*S/K1 - k7r*P/K13) / (1+S/K1+P/K13)
     #     Before cancellation: num = 2*(k7f*S/K1-k7r*P/K13)*(1+S/K1+P/K13)
     #                          denom = (1+S/K1+P/K13)^2
@@ -1410,7 +1405,7 @@ function build_mechanism_test_specs()
                 K4 = K1
                 K5 = K1
                 K6 = K1
-                # Catalysis: all equal
+                # Catalysis: all forward equal, reverse equal due to Haldane relationships
                 k8f = k7f
                 k9f = k7f
                 k10f = k7f

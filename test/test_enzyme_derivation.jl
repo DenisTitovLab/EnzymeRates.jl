@@ -155,9 +155,15 @@ function _get_dependent_params(m)
     dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
     binding_Ks = EnzymeRates._binding_K_symbols(typeof(m))
     if !isempty(binding_Ks)
+        binding_set = Set(binding_Ks)
         inv_subs = Dict(K => :(1 / $K) for K in binding_Ks)
         dep_exprs = Dict(
-            k => EnzymeRates.substitute_params_expr(v, inv_subs)
+            k => begin
+                rhs = EnzymeRates.substitute_params_expr(v, inv_subs)
+                # When dependent param is itself a binding K, wrap in 1/()
+                # to compensate for implicit LHS Ka→Kd inversion
+                k in binding_set ? :(1 / $rhs) : rhs
+            end
             for (k, v) in dep_exprs
         )
     end
