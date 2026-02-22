@@ -709,6 +709,19 @@ function _find_met_binding_K(met, rxns, eq_steps, enz_set, constraints)
 end
 
 """
+Count monomial "shapes" shared between `p1` and `p2`, where shapes are
+monomials with rate-constant symbols (k-prefixed) removed. High overlap
+means the two polynomials have parallel structure differing only in rate
+constants — a sign of clean factoring.
+"""
+function _mono_shape_overlap(p1::POLY, p2::POLY)
+    _shape(mono) = sort!([s => e for (s, e) in mono if !startswith(string(s), "k")])
+    shapes1 = Set(_shape(mono) for (mono, _) in p1)
+    shapes2 = Set(_shape(mono) for (mono, _) in p2)
+    length(shapes1 ∩ shapes2)
+end
+
+"""
 Try to factor `sigma` by metabolite `met` with binding K symbol `K_R`.
 Returns `(base_R, without_R, is_subset, remainder)` or `nothing`.
 """
@@ -769,7 +782,14 @@ function _try_algebraic_factor_sigma(
     ]
     sort!(met_syms; by=string)
 
-    # Try each metabolite: prefer product factoring, fall back to extraction
+    # Try each metabolite and pick the best factoring.
+    # Score tuple (lower is better):
+    #   1. unfactored terms — fewer remainder/without_R terms is better
+    #   2. -product_terms — more terms in product factor is better
+    #   3. -shape_overlap — prefer extractions where without_R and base_R
+    #      share the same monomial shapes (ignoring rate constants)
+    best = nothing
+    best_score = (length(sigma), 0, 0)
     for met in met_syms
         K_R = _find_met_binding_K(met, rxns, eq_steps, enz_set, constraints)
         K_R === nothing && continue
@@ -777,6 +797,8 @@ function _try_algebraic_factor_sigma(
         result = _try_factor_by_met(sigma, met, K_R)
         result === nothing && continue
         base_R, without_R, is_subset, remainder = result
+        unfactored = is_subset ? remainder::POLY : without_R
+        overlap = _mono_shape_overlap(unfactored, base_R)
 
         coeffs = POLY[]
         products = FactoredPoly[]
@@ -792,7 +814,7 @@ function _try_algebraic_factor_sigma(
             push!(coeffs, poly_one())
             push!(products, FactoredPoly([base_R, one_plus_KR], [1, 1]))
         else
-            # sigma = without_R + K_R*met * base_R (common factor extraction)
+            # sigma = without_R + K_R*met * base_R
             K_R_met = POLY(_mono(K_R => 1, met => 1) => Rational{Int}(1))
             if !isempty(without_R)
                 push!(coeffs, without_R)
@@ -801,9 +823,13 @@ function _try_algebraic_factor_sigma(
             push!(coeffs, K_R_met)
             push!(products, FactoredPoly([base_R], [1]))
         end
-        return FactoredSigma(coeffs, products)
+        score = (length(unfactored), -length(base_R), -overlap)
+        if score < best_score
+            best = FactoredSigma(coeffs, products)
+            best_score = score
+        end
     end
-    nothing
+    best
 end
 
 """
