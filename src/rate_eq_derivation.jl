@@ -489,14 +489,14 @@ end
 Build per-site POLY factors for a sub-group. Returns a `FactoredPoly`
 with one factor per site and detected exponents for repeated factors.
 
-Each per-site factor is a mini-sigma: the cleared-denominator sum over
-forms relevant to that site (reference + single-site-bound forms).
-This correctly handles both forward and reverse BFS traversal directions
-in the alpha computation.
+When `alpha_ratio` is provided, each factor is the direct sum of
+alpha_ratio values (normalized, may have negative K exponents).
+Otherwise falls back to cleared-denominator computation.
 """
 function _build_site_factors(
     subgroup, enz_names, enz_set, rxns, eq_steps,
-    alpha_num, alpha_den, sites, met_to_K, binding_states,
+    alpha_num, alpha_den, sites, met_to_K, binding_states;
+    alpha_ratio=nothing,
 )
     factors = POLY[]
     for site_mets in sites
@@ -511,16 +511,18 @@ function _build_site_factors(
             push!(site_forms, f)
         end
 
-        # Mini-sigma with cleared denominators:
-        # factor = sum_i alpha_num[i] * prod_{j≠i} alpha_den[j]
-        factor = poly_zero()
-        for fi in site_forms
-            term = alpha_num[fi]
-            for fj in site_forms
-                fi == fj && continue
-                term = poly_mul(term, alpha_den[fj])
+        if alpha_ratio !== nothing
+            factor = reduce(poly_add, (alpha_ratio[fi] for fi in site_forms))
+        else
+            factor = poly_zero()
+            for fi in site_forms
+                term = alpha_num[fi]
+                for fj in site_forms
+                    fi == fj && continue
+                    term = poly_mul(term, alpha_den[fj])
+                end
+                factor = poly_add(factor, term)
             end
-            factor = poly_add(factor, term)
         end
         push!(factors, factor)
     end
@@ -542,14 +544,20 @@ function _build_site_factors(
 end
 
 """
-Try to factor sigma_num for an RE group into a `FactoredSigma`.
+Try to factor sigma for an RE group into a `FactoredSigma`.
 Returns `nothing` if factoring is not possible.
+
+When `alpha_ratio` is provided (normalized alpha = alpha_num / alpha_den),
+produces normalized factors without denominator-clearing artifacts.
 """
 function _try_factor_sigma(
     group, enz_names, enz_set, rxns, eq_steps,
     alpha_num, alpha_den, constraints;
     binding_Ks::Set{Symbol}=Set{Symbol}(),
+    alpha_ratio::Union{Nothing, Vector{POLY}}=nothing,
 )
+    use_ratio = alpha_ratio !== nothing
+
     # Step 1: Split into conformational sub-groups
     sub_groups, coeffs = _split_conformational_subgroups(
         group, enz_names, enz_set, rxns, eq_steps,
@@ -560,15 +568,19 @@ function _try_factor_sigma(
     final_coeffs = POLY[]
 
     for (sg_idx, sg) in enumerate(sub_groups)
-        # Sub-group coefficient: iso-step weight × other-sub-group denominator.
-        # Computed first so both single-form and multi-form paths use it.
-        other_den = poly_one()
-        sg_set = Set(sg)
-        for j in group
-            j ∈ sg_set && continue
-            other_den = poly_mul(other_den, alpha_den[j])
+        # Sub-group coefficient: iso-step weight.
+        # Without alpha_ratio, also multiply by other-sub-group denominators.
+        if use_ratio
+            sg_coeff = coeffs[sg_idx]
+        else
+            other_den = poly_one()
+            sg_set = Set(sg)
+            for j in group
+                j ∈ sg_set && continue
+                other_den = poly_mul(other_den, alpha_den[j])
+            end
+            sg_coeff = poly_mul(coeffs[sg_idx], other_den)
         end
-        sg_coeff = poly_mul(coeffs[sg_idx], other_den)
 
         # Step 2: Compute binding states
         states = _metabolite_binding_states(sg, enz_names, enz_set, rxns, eq_steps)
@@ -589,17 +601,21 @@ function _try_factor_sigma(
 
         # Step 5: Check K consistency
         # Compute constrained sub-group sigma to extract which K symbols appear
-        sg_sigma = reduce(
-            poly_add,
-            (poly_mul(
-                alpha_num[i],
-                reduce(
-                    poly_mul,
-                    (alpha_den[j] for j in sg if j != i);
-                    init=poly_one(),
-                ),
-            ) for i in sg),
-        )
+        if use_ratio
+            sg_sigma = reduce(poly_add, (alpha_ratio[i] for i in sg))
+        else
+            sg_sigma = reduce(
+                poly_add,
+                (poly_mul(
+                    alpha_num[i],
+                    reduce(
+                        poly_mul,
+                        (alpha_den[j] for j in sg if j != i);
+                        init=poly_one(),
+                    ),
+                ) for i in sg),
+            )
+        end
         sg_sigma = _apply_param_constraints(sg_sigma, constraints; binding_Ks)
         sigma_K_syms = Set{Symbol}(
             s for (mono, _) in sg_sigma for (s, _) in mono
@@ -615,13 +631,12 @@ function _try_factor_sigma(
         # Step 6: Build per-site factors
         fp = _build_site_factors(
             sg, enz_names, enz_set, rxns, eq_steps,
-            alpha_num, alpha_den, sites, met_to_K, states,
+            alpha_num, alpha_den, sites, met_to_K, states;
+            alpha_ratio,
         )
 
-        # The mini-sigma factors in fp contain alpha_num[ref_form] as a common
-        # factor. Divide it out so the coefficient (sg_coeff = coeffs[sg_idx] *
-        # other_den) carries it once, avoiding double-counting.
-        ref_alpha = alpha_num[first(sg)]
+        # Divide out ref_form alpha from factors to avoid double-counting.
+        ref_alpha = use_ratio ? alpha_ratio[first(sg)] : alpha_num[first(sg)]
         if ref_alpha != poly_one()
             fp = FactoredPoly(
                 [_poly_div_mono(f, ref_alpha) for f in fp.factors],
@@ -633,21 +648,27 @@ function _try_factor_sigma(
         push!(final_coeffs, sg_coeff)
     end
 
-    # Verify: expanded factored sigma must match constraint-substituted sigma_num
+    # Verify: expanded factored sigma must match the expected sigma
     fs = FactoredSigma(final_coeffs, factored_products)
     est = _estimate_expanded_term_count([DenomTerm(fs, poly_one())])
     if est <= MAX_RATE_EQUATION_TERMS
-        sigma_expected = reduce(
-            poly_add,
-            (poly_mul(
-                alpha_num[i],
-                reduce(
-                    poly_mul,
-                    (alpha_den[j] for j in group if j != i);
-                    init=poly_one(),
-                ),
-            ) for i in group),
-        )
+        if use_ratio
+            sigma_expected = reduce(
+                poly_add, (alpha_ratio[i] for i in group),
+            )
+        else
+            sigma_expected = reduce(
+                poly_add,
+                (poly_mul(
+                    alpha_num[i],
+                    reduce(
+                        poly_mul,
+                        (alpha_den[j] for j in group if j != i);
+                        init=poly_one(),
+                    ),
+                ) for i in group),
+            )
+        end
         sigma_expected = _apply_param_constraints(
             sigma_expected, constraints; binding_Ks,
         )
@@ -748,7 +769,7 @@ function _try_algebraic_factor_sigma(
     ]
     sort!(met_syms; by=string)
 
-    # Try each metabolite; only accept product factoring (base_R ⊆ without_R)
+    # Try each metabolite: prefer product factoring, fall back to extraction
     for met in met_syms
         K_R = _find_met_binding_K(met, rxns, eq_steps, enz_set, constraints)
         K_R === nothing && continue
@@ -756,21 +777,76 @@ function _try_algebraic_factor_sigma(
         result = _try_factor_by_met(sigma, met, K_R)
         result === nothing && continue
         base_R, without_R, is_subset, remainder = result
-        is_subset || continue
 
-        # sigma = remainder + base_R * (1 + K_R*met)
-        one_plus_KR = poly_add(
-            poly_one(), POLY(_mono(K_R => 1, met => 1) => 1),
-        )
         coeffs = POLY[]
         products = FactoredPoly[]
-        if !isempty(remainder)
-            push!(coeffs, remainder)
-            push!(products, FactoredPoly([poly_one()], [1]))
+        if is_subset
+            # sigma = remainder + base_R * (1 + K_R*met)
+            one_plus_KR = poly_add(
+                poly_one(), POLY(_mono(K_R => 1, met => 1) => 1),
+            )
+            if !isempty(remainder)
+                push!(coeffs, remainder)
+                push!(products, FactoredPoly([poly_one()], [1]))
+            end
+            push!(coeffs, poly_one())
+            push!(products, FactoredPoly([base_R, one_plus_KR], [1, 1]))
+        else
+            # sigma = without_R + K_R*met * base_R (common factor extraction)
+            K_R_met = POLY(_mono(K_R => 1, met => 1) => Rational{Int}(1))
+            if !isempty(without_R)
+                push!(coeffs, without_R)
+                push!(products, FactoredPoly([poly_one()], [1]))
+            end
+            push!(coeffs, K_R_met)
+            push!(products, FactoredPoly([base_R], [1]))
         end
-        push!(coeffs, poly_one())
-        push!(products, FactoredPoly([base_R, one_plus_KR], [1, 1]))
         return FactoredSigma(coeffs, products)
+    end
+    nothing
+end
+
+"""
+Try to express polynomial `p` as `Q^n` for some polynomial Q and integer n >= 2.
+Returns `FactoredSigma` with a single term `FactoredPoly([Q], [n])`, or `nothing`.
+"""
+function _try_poly_power(p::POLY)
+    length(p) < 3 && return nothing
+    # Check constant term is 1
+    const_mono = MONO()
+    haskey(p, const_mono) && p[const_mono] == 1 || return nothing
+
+    # Find candidate squared terms: coefficient 1, all even exponents
+    sq_terms = MONO[]
+    for (mono, coeff) in p
+        isempty(mono) && continue
+        coeff == 1 || continue
+        all(iseven(e) for (_, e) in mono) || continue
+        push!(sq_terms, mono)
+    end
+    isempty(sq_terms) && return nothing
+
+    # Form candidate Q = 1 + sum(sqrt_terms)
+    Q = POLY(MONO() => Rational{Int}(1))
+    for mono in sq_terms
+        sqrt_mono = MONO([s => div(e, 2) for (s, e) in mono])
+        Q[sqrt_mono] = 1
+    end
+
+    # Try Q^2 first
+    Q2 = poly_mul(Q, Q)
+    if Q2 == p
+        return FactoredSigma(
+            [poly_one()], [FactoredPoly([Q], [2])],
+        )
+    end
+
+    # Try Q^3
+    Q3 = poly_mul(Q2, Q)
+    if Q3 == p
+        return FactoredSigma(
+            [poly_one()], [FactoredPoly([Q], [3])],
+        )
     end
     nothing
 end
@@ -784,6 +860,11 @@ function _ss_contrib(k_poly, mets, i_form, alpha_num, alpha_den, group)
         r = poly_mul(r, alpha_den[k])
     end
     r
+end
+
+"""Sum polynomial entries from `polys` at indices `group`."""
+function _sum_group_polys(polys::Vector{POLY}, group)
+    reduce(poly_add, (polys[i] for i in group))
 end
 
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
@@ -848,31 +929,55 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
-    # Try to factor sigma for each RE group; fall back to unfactored
+    # Compute normalized alpha_ratio for G=1 when sigma_den is non-trivial
     pc = param_constraints(m)
     binding_Ks = Set{Symbol}(
         Symbol("K$i") for (i, (lhs, rhs)) in enumerate(rxns)
         if eq_steps[i] && any(s ∉ enz_set for s in lhs) &&
            all(s ∈ enz_set for s in rhs)
     )
+    normalize = G == 1 && sigma_den[1] != poly_one()
+    ar = if normalize
+        N = length(enz_names)
+        ratio = Vector{POLY}(undef, N)
+        for i in 1:N
+            ratio[i] = _poly_div_mono(alpha_num[i], alpha_den[i])
+        end
+        ratio
+    else
+        nothing
+    end
+
+    # Try to factor sigma for each RE group; fall back to unfactored
     denom_terms = DenomTerm[]
     for g in 1:G
         fs = _try_factor_sigma(
             groups[g], enz_names, enz_set, rxns, eq_steps,
-            alpha_num, alpha_den, pc; binding_Ks,
+            alpha_num, alpha_den, pc; binding_Ks, alpha_ratio=ar,
         )
         if fs !== nothing
             push!(denom_terms, DenomTerm(fs, D[g]))
         else
             # Algebraic fallback: factor constrained sigma by metabolite
-            csigma = _apply_param_constraints(sigma_num[g], pc; binding_Ks)
-            afs = _try_algebraic_factor_sigma(
-                csigma, rxns, eq_steps, enz_set, pc; binding_Ks,
-            )
-            if afs !== nothing
-                push!(denom_terms, DenomTerm(afs, D[g]))
+            raw_sigma = if normalize
+                _sum_group_polys(ar::Vector{POLY}, groups[g])
             else
-                push!(denom_terms, unfactored_denom_term(sigma_num[g], D[g]))
+                sigma_num[g]
+            end
+            csigma = _apply_param_constraints(raw_sigma, pc; binding_Ks)
+            # Try polynomial power detection first (e.g., (1+S/K)^2)
+            pfs = _try_poly_power(csigma)
+            if pfs !== nothing
+                push!(denom_terms, DenomTerm(pfs, D[g]))
+            else
+                afs = _try_algebraic_factor_sigma(
+                    csigma, rxns, eq_steps, enz_set, pc; binding_Ks,
+                )
+                if afs !== nothing
+                    push!(denom_terms, DenomTerm(afs, D[g]))
+                else
+                    push!(denom_terms, unfactored_denom_term(raw_sigma, D[g]))
+                end
             end
         end
     end
@@ -887,6 +992,11 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         alpha_num, alpha_den, form_to_group, groups,
         D, ref_name, nu_ref, subs_species, prods_species,
     )
+
+    # Normalize numerator by sigma_den when G=1
+    if normalize
+        num = _poly_div_mono(num, sigma_den[1])
+    end
 
     abs_nu = abs(nu_ref)
     if abs_nu != 1
@@ -1103,8 +1213,33 @@ function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
     ps = Set{Symbol}(p for p in raw_ps if p ∉ constrained)
     cs = Set{Symbol}(metabolites(m))
     inv = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
-    num_str = string(_poly_to_expr(num, ps, cs, inv))
-    den_str = string(_denom_terms_to_expr(denom_terms, ps, cs, inv))
+    # Try algebraic factoring on the numerator (only if it reduces terms)
+    rxns = reactions(m)
+    eq_steps = equilibrium_steps(m)
+    enz_set = Set(e[1] for e in enzyme_forms(m))
+    pc = param_constraints(m)
+    binding_Ks = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
+    num_fs = _try_algebraic_factor_sigma(
+        num, rxns, eq_steps, enz_set, pc; binding_Ks,
+    )
+    use_factored_num = if num_fs !== nothing
+        # Count display terms: trivial products expand, non-trivial count as 1
+        n = 0
+        for (c, p) in zip(num_fs.coefficients, num_fs.products)
+            trivial = length(p.factors) == 1 && p.factors[1] == poly_one()
+            n += trivial ? length(c) : 1
+        end
+        n < length(num)
+    else
+        false
+    end
+    num_expr = if use_factored_num
+        _factored_sigma_to_expr(num_fs::FactoredSigma, ps, cs, inv)
+    else
+        _poly_to_expr(num, ps, cs, inv)
+    end
+    num_str = _expr_to_string(num_expr)
+    den_str = _expr_to_string(_denom_terms_to_expr(denom_terms, ps, cs, inv))
     "v = E_total * ($num_str) / ($den_str)"
 end
 

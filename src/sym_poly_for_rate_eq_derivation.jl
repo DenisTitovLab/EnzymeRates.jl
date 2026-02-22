@@ -107,6 +107,7 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
         by=x -> (
             sum(e for (s,e) in x[1] if s ∉ param_syms; init=0),
             x[2] < 0,
+            Tuple(string(s) for (s, _) in x[1]),
         ),
     )
     for (mono, coeff) in sorted
@@ -124,7 +125,7 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
             if s in inverted_params
                 tgt, ex = e > 0 ? (df, e) : (nf, -e)
             else
-                tgt, ex = nf, e
+                tgt, ex = e > 0 ? (nf, e) : (df, -e)
             end
             ex != 0 && push!(tgt, ex == 1 ? s : :($s ^ $ex))
         end
@@ -149,19 +150,93 @@ function _combine_terms(pos::Vector{Any}, neg::Vector{Any})
     end
 end
 
-"""Build balanced binary tree: +(+(a,b), +(c,d)) — O(log N) depth, zero-alloc runtime."""
+"""Build flat n-ary expression: +(a, b, c, d). Single term returns unwrapped."""
 function _nest_binary(op::Symbol, terms::Vector{Any})
-    n = length(terms)
-    if n == 1
-        terms[1]
-    elseif n == 2
-        Expr(:call, op, terms[1], terms[2])
-    else
-        mid = n >> 1
-        Expr(:call, op,
-            _nest_binary(op, terms[1:mid]),
-            _nest_binary(op, terms[mid+1:end]))
+    length(terms) == 1 ? terms[1] : Expr(:call, op, terms...)
+end
+
+"""
+Precedence-aware Expr→String conversion for rate equations.
+Avoids unnecessary parentheses that Julia's `string()` adds.
+"""
+function _expr_to_string(x)
+    x isa Number && return string(x)
+    x isa Symbol && return string(x)
+    x isa Expr || return string(x)
+    x.head == :call || return string(x)
+    op = x.args[1]
+    # Unary minus
+    if op == :- && length(x.args) == 2
+        inner = _expr_to_string(x.args[2])
+        return "-$(_paren_if(x.args[2], 1))"
     end
+    prec = _op_precedence(op)
+    if op in (:+, :-)
+        return _format_additive(x.args[2:end], op)
+    elseif op == :*
+        parts = String[]
+        for a in x.args[2:end]
+            s = _expr_to_string(a)
+            needs = a isa Expr && a.head == :call &&
+                    (let ip = _op_precedence(a.args[1])
+                         ip < prec || a.args[1] == :/
+                     end)
+            push!(parts, needs ? "($s)" : s)
+        end
+        return join(parts, " * ")
+    elseif op == :/
+        lhs = _paren_if(x.args[2], prec, :left)
+        rhs = _paren_if(x.args[3], prec, :right)
+        return "$lhs / $rhs"
+    elseif op == :^
+        base = _paren_if(x.args[2], prec, :right)
+        return "$base ^ $(_expr_to_string(x.args[3]))"
+    else
+        # fallback: function call
+        return string(x)
+    end
+end
+
+function _op_precedence(op::Symbol)
+    op in (:+, :-) && return 1
+    op in (:*, :/) && return 2
+    op == :^ && return 3
+    return 0
+end
+
+"""Wrap in parens if inner expression has lower precedence than threshold."""
+function _paren_if(expr, threshold::Int, side::Symbol=:left)
+    s = _expr_to_string(expr)
+    expr isa Expr && expr.head == :call || return s
+    inner_op = expr.args[1]
+    inner_prec = _op_precedence(inner_op)
+    # Right operand of / or - needs parens at same precedence
+    needs = if side == :right
+        inner_prec <= threshold && inner_prec > 0
+    else
+        inner_prec < threshold && inner_prec > 0
+    end
+    needs ? "($s)" : s
+end
+
+"""Format additive expression: handles n-ary + and binary -."""
+function _format_additive(args, op::Symbol)
+    if op == :- && length(args) == 2
+        lhs = _expr_to_string(args[1])
+        rhs = _paren_if(args[2], 1, :right)
+        return "$lhs - $rhs"
+    end
+    # n-ary +
+    parts = String[]
+    for (i, a) in enumerate(args)
+        s = _expr_to_string(a)
+        if i == 1
+            push!(parts, s)
+        else
+            push!(parts, s)
+        end
+    end
+    join(parts, " + ")
 end
 
 """Check if a symbol is a rate/equilibrium parameter (k or K), not Keq or E_total."""
@@ -294,8 +369,18 @@ function _factored_poly_to_expr(
     conc_syms::Set{Symbol},
     inverted_params::Set{Symbol},
 )
+    # Sort factors: monomials (1 term) first, then by term count descending
+    order = sortperm(
+        collect(zip(fp.factors, fp.exponents));
+        by=((f, _),) -> (
+            length(f) == 1 ? 0 : 1,
+            -length(f),
+            Tuple(sort!([string(s) for (mono, _) in f for (s, _) in mono])),
+        ),
+    )
     terms = Any[]
-    for (f, e) in zip(fp.factors, fp.exponents)
+    for i in order
+        f, e = fp.factors[i], fp.exponents[i]
         f_expr = _poly_to_expr(f, param_syms, conc_syms, inverted_params)
         if e == 1
             push!(terms, f_expr)

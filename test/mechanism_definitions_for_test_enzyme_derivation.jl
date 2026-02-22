@@ -1131,8 +1131,8 @@ function build_mechanism_test_specs()
                 "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom =
                 "1 + S / K1 + P / K3 + R / K4",
-            factored_num_broken = true,     # K3 not normalized out
-            factored_denom_broken = true,   # K3 not normalized + subgrouping
+            factored_num_broken = false,
+            factored_denom_broken = false,
         ))
     end
 
@@ -1187,8 +1187,8 @@ function build_mechanism_test_specs()
                 "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom =
                 "P / K3 + (1 + S / K1) * (1 + R / K4)",
-            factored_num_broken = true,     # K3 not normalized out
-            factored_denom_broken = true,   # K3 not normalized out
+            factored_num_broken = false,
+            factored_denom_broken = false,
         ))
     end
 
@@ -1239,8 +1239,8 @@ function build_mechanism_test_specs()
                 "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom =
                 "1 + P / K3 + (S / K1) * (1 + R / K4)",
-            factored_num_broken = true,     # K3 not normalized out
-            factored_denom_broken = true,   # K3 not normalized out
+            factored_num_broken = false,
+            factored_denom_broken = false,
         ))
     end
 
@@ -1290,10 +1290,10 @@ function build_mechanism_test_specs()
             # Textbook: R/K1 * (k3f*S/K2 - k3r*P/K4) / (1 + R/K1*(1+S/K2+P/K4))
             expected_factored_num =
                 "(R / K1) * (k3f * S / K2 - k3r * P / K4)",
-            factored_num_broken = true,     # R/K1 not factored + K4 not normalized
+            factored_num_broken = false,
             expected_factored_denom =
                 "1 + (R / K1) * (1 + S / K2 + P / K4)",
-            factored_denom_broken = true,   # K4 not normalized + subgrouping
+            factored_denom_broken = false,
         ))
     end
 
@@ -1356,11 +1356,11 @@ function build_mechanism_test_specs()
             # Textbook: (k2f*S/K1-k2r*P/K3) + R/K7*(k5f*S/K1-k5r*P/K3)
             expected_factored_num =
                 "k2f * S / K1 - k2r * P / K3 + (R / K7) * (k5f * S / K1 - k5r * P / K3)",
-            factored_num_broken = true,     # K3 not normalized + R/K7 not grouped
+            factored_num_broken = false,
             # Textbook: (1+S/K1+P/K3)*(1+R/K7)
             expected_factored_denom =
                 "(1 + S / K1 + P / K3) * (1 + R / K7)",
-            factored_denom_broken = true,   # K3 not normalized out
+            factored_denom_broken = false,
         ))
     end
 
@@ -1450,11 +1450,11 @@ function build_mechanism_test_specs()
             # Before cancellation: 2*(k7f*S/K1-k7r*P/K13)*(1+S/K1+P/K13)
             expected_factored_num =
                 "2 * (k7f * S / K1 - k7r * P / K13) * (1 + S / K1 + P / K13)",
-            factored_num_broken = true,
+            factored_num_broken = true,     # needs Haldane-derived reverse rate unification
             # Textbook: (1+S/K1+P/K13)^2
             expected_factored_denom =
                 "(1 + S / K1 + P / K13) ^ 2",
-            factored_denom_broken = true,
+            factored_denom_broken = false,
         ))
     end
 
