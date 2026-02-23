@@ -49,6 +49,17 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - Each unique mechanism = unique type → affects compilation time
 - `@generated` functions used for compile-time computation (metabolites, graph, stoich_matrix, rate_equation)
 
+### Canonical Step Form
+- The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `[E, S] ⇌ [ES]`, never `[ES] ⇌ [E, S]`
+- SS steps are NOT canonicalized (swapping kf↔kr would break analytical test formulas)
+- After canonicalization, all RE metabolite K params are binding Kd (displayed as `1/K`). Non-binding RE steps (pure isomerization) retain Ka convention.
+- `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed
+
+### Unified Factoring Pipeline
+- `_raw_symbolic_rate_polys` returns `(FactoredSigma, Vector{DenomTerm})` — numerator is always factored
+- Both `rate_equation` (numerical `@generated`) and `rate_equation_string` use the same factored numerator
+- Factoring tries `_try_poly_power` first, then `_try_algebraic_factor_sigma`, falls back to trivial wrapper
+
 ## Source Layout
 
 - `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism` structs, accessors, `RateEquationMode` hierarchy
@@ -100,7 +111,7 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - When all RE forms are in one group (G=1), the SS isomerization step flux IS the overall rate (no sign correction needed)
 - `_compute_alpha` BFS handles forward/reverse RE traversal with K parameters
 - `is_k_parameter` must match both `k1f`/`k1r` patterns AND `K1`/`K2` patterns (but not `Keq`)
-- K convention: binding RE steps use Kd (dissociation), non-binding (product release) use Ka (forward eq const)
+- K convention: after canonical step form, all RE metabolite steps are binding → Kd (dissociation). Only RE isomerization steps (no metabolite) use Ka (forward eq const).
 - K→1/K inversion must be applied consistently in: rate expr, dep_exprs substitution, constraint strings, and test helpers
 - When `poly_str` displays inverted params with multiple denominators, need parentheses: `A * B / (K1 * K2)`
 
@@ -123,7 +134,7 @@ For reactions with r regulators, each regulator is either an activator (part of 
 ### Type System and Compatibility
 - Default `eq_steps` = all false preserves backward compatibility with 2-arg constructor
 - ParamConstraints default `()` preserves backward compat with 3-arg constructor
-- `_binding_K_symbols` identifies binding steps: metabolite on LHS, enzyme-only on RHS
+- `_binding_K_symbols` identifies binding steps: metabolite on LHS (guaranteed by canonical form, no RHS check needed)
 - JET requires `::SubString` type assertions on regex captures to avoid Union{Nothing,SubString} errors
 
 ## Known Issues
