@@ -578,25 +578,7 @@ function _try_factor_sigma(
             sg_coeff = poly_mul(coeffs[sg_idx], other_den)
         end
 
-        # Step 2: Compute binding states
-        states = _metabolite_binding_states(sg, enz_names, enz_set, rxns, eq_steps)
-        length(states) != length(sg) && return nothing
-
-        # Step 3: Partition metabolite sites
-        sites = _partition_metabolite_sites(states)
-        isempty(sites) && length(sg) == 1 && begin
-            # Single form, no metabolites → trivial factor
-            push!(factored_products, FactoredPoly([poly_one()], [1]))
-            push!(final_coeffs, sg_coeff)
-            continue
-        end
-
-        # Step 4: Check Cartesian product
-        is_product, per_site_states = _check_cartesian_product(sg, states, sites)
-        is_product || return nothing
-
-        # Step 5: Check K consistency
-        # Compute constrained sub-group sigma to extract which K symbols appear
+        # Compute constrained sub-group sigma (used by step 5 + fallback)
         if use_ratio
             sg_sigma = reduce(poly_add, (alpha_ratio[i] for i in sg))
         else
@@ -613,33 +595,68 @@ function _try_factor_sigma(
             )
         end
         sg_sigma = _apply_param_constraints(sg_sigma, constraints; binding_Ks)
-        sigma_K_syms = Set{Symbol}(
-            s for (mono, _) in sg_sigma for (s, _) in mono
-            if startswith(string(s), "K") && length(string(s)) > 1 &&
-               isdigit(string(s)[2])
-        )
-        consistent, met_to_K = _check_k_consistency(
-            sg, enz_names, enz_set, rxns, eq_steps, states, sites,
-            constraints; sigma_K_syms,
-        )
-        consistent || return nothing
 
-        # Step 6: Build per-site factors
-        fp = _build_site_factors(
+        # Try structural factoring (steps 2-6)
+        fp = nothing
+        states = _metabolite_binding_states(
             sg, enz_names, enz_set, rxns, eq_steps,
-            alpha_num, alpha_den, sites, met_to_K, states;
-            alpha_ratio,
         )
-
-        # Divide out ref_form alpha from factors to avoid double-counting.
-        ref_alpha = use_ratio ? alpha_ratio[first(sg)] : alpha_num[first(sg)]
-        if ref_alpha != poly_one()
-            fp = FactoredPoly(
-                [_poly_div_mono(f, ref_alpha) for f in fp.factors],
-                copy(fp.exponents),
-            )
+        if length(states) == length(sg)
+            sites = _partition_metabolite_sites(states)
+            if isempty(sites) && length(sg) == 1
+                # Single form, no metabolites → trivial factor
+                push!(factored_products, FactoredPoly([poly_one()], [1]))
+                push!(final_coeffs, sg_coeff)
+                continue
+            end
+            is_product, _ = _check_cartesian_product(sg, states, sites)
+            if is_product
+                sigma_K_syms = Set{Symbol}(
+                    s for (mono, _) in sg_sigma for (s, _) in mono
+                    if startswith(string(s), "K") &&
+                       length(string(s)) > 1 &&
+                       isdigit(string(s)[2])
+                )
+                consistent, met_to_K = _check_k_consistency(
+                    sg, enz_names, enz_set, rxns, eq_steps,
+                    states, sites, constraints; sigma_K_syms,
+                )
+                if consistent
+                    fp = _build_site_factors(
+                        sg, enz_names, enz_set, rxns, eq_steps,
+                        alpha_num, alpha_den, sites, met_to_K,
+                        states; alpha_ratio,
+                    )
+                    ref_alpha = use_ratio ?
+                        alpha_ratio[first(sg)] :
+                        alpha_num[first(sg)]
+                    if ref_alpha != poly_one()
+                        fp = FactoredPoly(
+                            [_poly_div_mono(f, ref_alpha)
+                             for f in fp.factors],
+                            copy(fp.exponents),
+                        )
+                    end
+                end
+            end
         end
 
+        # Fallback: try poly_power on constrained subgroup sigma
+        if fp === nothing
+            sg_sigma_div = sg_sigma
+            coeff_poly = _apply_param_constraints(
+                coeffs[sg_idx], constraints; binding_Ks,
+            )
+            if coeff_poly != poly_one()
+                sg_sigma_div = _poly_div_mono(sg_sigma_div, coeff_poly)
+            end
+            pfs = _try_poly_power(sg_sigma_div)
+            if pfs !== nothing
+                fp = pfs.products[1]
+            end
+        end
+
+        fp === nothing && return nothing
         push!(factored_products, fp)
         push!(final_coeffs, sg_coeff)
     end
