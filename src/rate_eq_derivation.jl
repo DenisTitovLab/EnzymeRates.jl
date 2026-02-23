@@ -540,6 +540,162 @@ function _build_site_factors(
 end
 
 """
+Try to detect Q^n structure directly from per-subunit alpha values.
+For a homodimer with competitive metabolites on each of n identical
+subunits, forms are multisets and `_partition_metabolite_sites` fails.
+This function constructs Q from the per-subunit forms (total binding
+≤ max_bind_per_subunit) and verifies Q^n == full sigma.
+
+`sg_sigma` is the pre-computed constrained sub-group sigma polynomial.
+`alpha_vals` maps form index → POLY alpha value (ratio or numerator).
+
+When some forms are "dead-end" (only bind metabolites not present in
+any multi-copy form), they are separated as additive remainder terms.
+Returns `(FactoredPoly, remainder::POLY)` or `nothing`.
+"""
+function _try_subunit_power(
+    sg, binding_states, alpha_vals, sg_sigma, constraints;
+    binding_Ks::Set{Symbol}=Set{Symbol}(),
+)
+    # Find metabolites that appear with count > 1 (multi-subunit metabolites)
+    max_count = Dict{Symbol, Int}()
+    for f in sg
+        for (met, cnt) in binding_states[f]
+            max_count[met] = max(get(max_count, met, 0), cnt)
+        end
+    end
+    isempty(max_count) && return nothing
+
+    # Identify "core" metabolites (count ≥ 2) vs "dead-end only" metabolites
+    core_mets = Set{Symbol}(m for (m, c) in max_count if c >= 2)
+    isempty(core_mets) && return nothing
+    n = maximum(max_count[m] for m in core_mets)
+    n < 2 && return nothing
+
+    # Partition forms: core (only core metabolites) vs dead-end (has non-core)
+    core_forms = Int[]
+    deadend_forms = Int[]
+    for f in sg
+        bs = binding_states[f]
+        has_noncore = any(c > 0 for (m, c) in bs if m ∉ core_mets)
+        if has_noncore
+            push!(deadend_forms, f)
+        else
+            push!(core_forms, f)
+        end
+    end
+    length(core_forms) < 3 && return nothing
+
+    # Try each candidate max_bind_per_subunit on core forms
+    for max_bind in 1:(n - 1)
+        n % max_bind != 0 && continue
+        sub_n = n ÷ max_bind
+
+        # Collect per-subunit forms, deduplicated by binding state.
+        # Symmetric positions (e.g., E_0S and E_S0) have identical
+        # binding states and constrained alpha — keep one representative.
+        seen_states = Dict{Dict{Symbol,Int}, Int}()
+        subunit_forms = Int[]
+        for f in core_forms
+            total = sum(values(binding_states[f]); init=0)
+            total > max_bind && continue
+            bs = Dict(m => c for (m, c) in binding_states[f] if c > 0)
+            haskey(seen_states, bs) && continue
+            seen_states[bs] = f
+            push!(subunit_forms, f)
+        end
+        length(subunit_forms) < 2 && continue
+
+        # Normalize alpha values by dividing out the reference form's alpha
+        # (conformational coefficient like K37 for T-state sub-groups)
+        ref_alpha = alpha_vals[first(subunit_forms)]
+        if ref_alpha != poly_one()
+            normed = f -> _poly_div_mono(alpha_vals[f], ref_alpha)
+        else
+            normed = f -> alpha_vals[f]
+        end
+
+        Q = reduce(poly_add, (normed(f) for f in subunit_forms))
+        Q = _apply_param_constraints(Q, constraints; binding_Ks)
+
+        Qn = Q
+        for _ in 2:sub_n
+            Qn = poly_mul(Qn, Q)
+        end
+
+        # Compute core sigma (normalized) and verify Q^n matches
+        core_sigma = reduce(
+            poly_add, (normed(f) for f in core_forms),
+        )
+        core_sigma = _apply_param_constraints(
+            core_sigma, constraints; binding_Ks,
+        )
+        Qn != core_sigma && continue
+
+        # Compute dead-end remainder (normalized)
+        if isempty(deadend_forms)
+            return FactoredPoly([Q], [sub_n]), poly_zero()
+        end
+        remainder = reduce(
+            poly_add, (normed(f) for f in deadend_forms),
+        )
+        remainder = _apply_param_constraints(
+            remainder, constraints; binding_Ks,
+        )
+
+        # Check if remainder = Qn * factor (multiplicative dead-end)
+        factor = _try_poly_exact_div(remainder, Qn)
+        if factor !== nothing
+            cofactor = poly_add(poly_one(), factor)
+            return FactoredPoly([Q, cofactor], [sub_n, 1]), poly_zero()
+        end
+
+        # Additive remainder: sigma = Qn + remainder
+        return FactoredPoly([Q], [sub_n]), remainder
+    end
+    nothing
+end
+
+"""
+Try to decompose polynomial Q into multiplicative per-site factors
+using `_try_algebraic_factor_sigma` iteratively.
+Returns a `FactoredPoly` with per-site factors, or the original
+single-factor `FactoredPoly` if decomposition fails.
+"""
+function _decompose_product(
+    fp::FactoredPoly, rxns, eq_steps, enz_set, constraints;
+    binding_Ks::Set{Symbol}=Set{Symbol}(),
+)
+    length(fp.factors) != 1 && return fp
+    Q = fp.factors[1]
+    n = fp.exponents[1]
+    length(Q) < 3 && return fp
+
+    factors = POLY[]
+    remaining = Q
+    while true
+        afs = _try_algebraic_factor_sigma(
+            remaining, rxns, eq_steps, enz_set, constraints;
+            binding_Ks,
+        )
+        afs === nothing && break
+        # Check if it's a pure multiplicative factoring (one term, coeff=1)
+        length(afs.coefficients) != 1 && break
+        afs.coefficients[1] != poly_one() && break
+        prod = afs.products[1]
+        length(prod.factors) < 2 && break
+        # Extract the smaller factors, keep the largest as remaining
+        for f in prod.factors[1:end-1]
+            push!(factors, f)
+        end
+        remaining = prod.factors[end]
+    end
+    push!(factors, remaining)
+    length(factors) == 1 && return fp
+    FactoredPoly(factors, fill(n, length(factors)))
+end
+
+"""
 Try to factor sigma for an RE group into a `FactoredSigma`.
 Returns `nothing` if factoring is not possible.
 
@@ -641,6 +797,49 @@ function _try_factor_sigma(
             end
         end
 
+        # Reject trivial structural factoring (single factor, exponent 1)
+        # when multi-subunit power might apply (max binding ≥ 2)
+        if fp !== nothing && length(fp.factors) == 1 && fp.exponents[1] == 1
+            max_bind = 0
+            for f in sg
+                total = sum(values(states[f]); init=0)
+                max_bind = max(max_bind, total)
+            end
+            max_bind >= 2 && (fp = nothing)
+        end
+
+        # Try direct subunit power construction (Q^n from per-subunit alphas)
+        if fp === nothing
+            alpha_vals = use_ratio ? alpha_ratio : alpha_num
+            sp_result = _try_subunit_power(
+                sg, states, alpha_vals, sg_sigma, constraints;
+                binding_Ks,
+            )
+            if sp_result !== nothing
+                sp_fp, sp_remainder = sp_result
+                sp_fp = _decompose_product(
+                    sp_fp, rxns, eq_steps, enz_set, constraints;
+                    binding_Ks,
+                )
+                if sp_remainder == poly_zero()
+                    fp = sp_fp
+                else
+                    # Dead-end remainder: wrap as additive FactoredSigma
+                    # and handle at this level by constructing the full
+                    # factored sigma directly
+                    push!(factored_products, sp_fp)
+                    push!(final_coeffs, sg_coeff)
+                    # Add remainder as a separate unfactored term
+                    push!(
+                        factored_products,
+                        FactoredPoly([poly_one()], [1]),
+                    )
+                    push!(final_coeffs, poly_mul(sg_coeff, sp_remainder))
+                    continue
+                end
+            end
+        end
+
         # Fallback: try poly_power on constrained subgroup sigma
         if fp === nothing
             sg_sigma_div = sg_sigma
@@ -653,6 +852,9 @@ function _try_factor_sigma(
             pfs = _try_poly_power(sg_sigma_div)
             if pfs !== nothing
                 fp = pfs.products[1]
+                fp = _decompose_product(
+                    fp, rxns, eq_steps, enz_set, constraints; binding_Ks,
+                )
             end
         end
 
@@ -851,41 +1053,46 @@ Returns `FactoredSigma` with a single term `FactoredPoly([Q], [n])`, or `nothing
 """
 function _try_poly_power(p::POLY)
     length(p) < 3 && return nothing
-    # Check constant term is 1
     const_mono = MONO()
     haskey(p, const_mono) && p[const_mono] == 1 || return nothing
 
-    # Find candidate squared terms: coefficient 1, all even exponents
-    sq_terms = MONO[]
-    for (mono, coeff) in p
-        isempty(mono) && continue
-        coeff == 1 || continue
-        all(iseven(e) for (_, e) in mono) || continue
-        push!(sq_terms, mono)
+    # max exponent of any symbol determines max possible power
+    max_e = 0
+    for (mono, _) in p
+        for (_, e) in mono
+            max_e = max(max_e, e)
+        end
     end
-    isempty(sq_terms) && return nothing
+    max_e < 2 && return nothing
 
-    # Form candidate Q = 1 + sum(sqrt_terms)
-    Q = POLY(MONO() => Rational{Int}(1))
-    for mono in sq_terms
-        sqrt_mono = MONO([s => div(e, 2) for (s, e) in mono])
-        Q[sqrt_mono] = 1
-    end
+    # Try each candidate power n from max_e down to 2
+    for n in max_e:-1:2
+        # Find terms whose exponents are all divisible by n with coeff 1
+        root_terms = MONO[]
+        for (mono, coeff) in p
+            isempty(mono) && continue
+            coeff == 1 || continue
+            all(e % n == 0 for (_, e) in mono) || continue
+            push!(root_terms, mono)
+        end
+        isempty(root_terms) && continue
 
-    # Try Q^2 first
-    Q2 = poly_mul(Q, Q)
-    if Q2 == p
-        return FactoredSigma(
-            [poly_one()], [FactoredPoly([Q], [2])],
-        )
-    end
+        # Form candidate Q = 1 + sum(nth-root terms)
+        Q = POLY(MONO() => Rational{Int}(1))
+        for mono in root_terms
+            Q[MONO([s => div(e, n) for (s, e) in mono])] = 1
+        end
 
-    # Try Q^3
-    Q3 = poly_mul(Q2, Q)
-    if Q3 == p
-        return FactoredSigma(
-            [poly_one()], [FactoredPoly([Q], [3])],
-        )
+        # Compute Q^n and verify
+        Qn = Q
+        for _ in 2:n
+            Qn = poly_mul(Qn, Q)
+        end
+        if Qn == p
+            return FactoredSigma(
+                [poly_one()], [FactoredPoly([Q], [n])],
+            )
+        end
     end
     nothing
 end
@@ -1110,6 +1317,11 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
             # Try polynomial power detection first (e.g., (1+S/K)^2)
             pfs = _try_poly_power(csigma)
             if pfs !== nothing
+                fp = _decompose_product(
+                    pfs.products[1], rxns, eq_steps, enz_set, pc;
+                    binding_Ks,
+                )
+                pfs = FactoredSigma([poly_one()], [fp])
                 push!(denom_terms, DenomTerm(pfs, D[g]))
             else
                 afs = _try_algebraic_factor_sigma(
@@ -1177,6 +1389,13 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
 
     # Wrap numerator in FactoredSigma (try factoring, fall back to trivial)
     num_fs = _try_poly_power(num)
+    if num_fs !== nothing
+        fp = _decompose_product(
+            num_fs.products[1], rxns, eq_steps, enz_set, pc;
+            binding_Ks,
+        )
+        num_fs = FactoredSigma([poly_one()], [fp])
+    end
     if num_fs === nothing
         afs = _try_algebraic_factor_sigma(
             num, rxns, eq_steps, enz_set, pc; binding_Ks,
