@@ -457,6 +457,21 @@ function to_rate_expr(
     :(E_total * ($num_expr) / ($den_expr))
 end
 
+"""Build rate Expr from factored numerator and factored denominator terms."""
+function to_rate_expr(
+    num::FactoredSigma, denom_terms::Vector{DenomTerm},
+    param_syms::Set{Symbol}, conc_syms::Set{Symbol},
+    inverted_params::Set{Symbol}=Set{Symbol}(),
+)
+    num_expr = _factored_sigma_to_expr(
+        num, param_syms, conc_syms, inverted_params,
+    )
+    den_expr = _denom_terms_to_expr(
+        denom_terms, param_syms, conc_syms, inverted_params,
+    )
+    :(E_total * ($num_expr) / ($den_expr))
+end
+
 # ─── Constraint application for factored types ────────────────
 
 function _apply_param_constraints(

@@ -1045,7 +1045,32 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         )
     end
 
-    num, denom_terms
+    # Wrap numerator in FactoredSigma (try factoring, fall back to trivial)
+    num_fs = _try_poly_power(num)
+    if num_fs === nothing
+        afs = _try_algebraic_factor_sigma(
+            num, rxns, eq_steps, enz_set, pc; binding_Ks,
+        )
+        if afs !== nothing
+            # Only use if factoring reduces display terms
+            n = 0
+            for (c, p) in zip(afs.coefficients, afs.products)
+                trivial = length(p.factors) == 1 &&
+                    p.factors[1] == poly_one()
+                n += trivial ? length(c) : 1
+            end
+            if n < length(num)
+                num_fs = afs
+            end
+        end
+    end
+    if num_fs === nothing
+        num_fs = FactoredSigma(
+            [poly_one()], [FactoredPoly([num], [1])],
+        )
+    end
+
+    num_fs, denom_terms
 end
 
 """
@@ -1229,40 +1254,20 @@ function rate_equation_string end
 rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, Reduced)
 
 function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
-    num, denom_terms = _raw_symbolic_rate_polys(M)
+    num_fs, denom_terms = _raw_symbolic_rate_polys(M)
     m = M()
     constrained = Set(c[1] for c in param_constraints(m))
     raw_ps = _raw_param_symbols(equilibrium_steps(m))
     ps = Set{Symbol}(p for p in raw_ps if p ∉ constrained)
     cs = Set{Symbol}(metabolites(m))
     inv = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
-    # Try algebraic factoring on the numerator (only if it reduces terms)
-    rxns = reactions(m)
-    eq_steps = equilibrium_steps(m)
-    enz_set = Set(e[1] for e in enzyme_forms(m))
-    pc = param_constraints(m)
-    binding_Ks = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
-    num_fs = _try_algebraic_factor_sigma(
-        num, rxns, eq_steps, enz_set, pc; binding_Ks,
+    # Numerator is already factored by _raw_symbolic_rate_polys
+    num_str = _expr_to_string(
+        _factored_sigma_to_expr(num_fs, ps, cs, inv),
     )
-    use_factored_num = if num_fs !== nothing
-        # Count display terms: trivial products expand, non-trivial count as 1
-        n = 0
-        for (c, p) in zip(num_fs.coefficients, num_fs.products)
-            trivial = length(p.factors) == 1 && p.factors[1] == poly_one()
-            n += trivial ? length(c) : 1
-        end
-        n < length(num)
-    else
-        false
-    end
-    num_expr = if use_factored_num
-        _factored_sigma_to_expr(num_fs::FactoredSigma, ps, cs, inv)
-    else
-        _poly_to_expr(num, ps, cs, inv)
-    end
-    num_str = _expr_to_string(num_expr)
-    den_str = _expr_to_string(_denom_terms_to_expr(denom_terms, ps, cs, inv))
+    den_str = _expr_to_string(
+        _denom_terms_to_expr(denom_terms, ps, cs, inv),
+    )
     "v = E_total * ($num_str) / ($den_str)"
 end
 
@@ -1288,7 +1293,8 @@ end
 # ─── Structural Identifiability ───────────────────────────────
 
 function _count_rate_monomials(M::Type{<:EnzymeMechanism})
-    num, denom_terms = _raw_symbolic_rate_polys(M)
+    num_fs, denom_terms = _raw_symbolic_rate_polys(M)
+    num = _expand_factored_sigma(num_fs)
     den = _expand_to_poly(denom_terms)
     mm(mono) = sort([
         s => e for (s, e) in mono
