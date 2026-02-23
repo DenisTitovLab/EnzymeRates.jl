@@ -1453,6 +1453,80 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # 27. Non-essential activator + competitive inhibitor:
+    #     Combines spec 25 (non-essential activator) with competitive inhibition.
+    #     A modifies catalysis but isn't required (binds E, E_S, E_P with same K).
+    #     I binds only free E (competitive dead-end).
+    #     Forms: E, E_S, E_P, E_A, E_S_A, E_P_A, E_I
+    #     SS: E_S↔E_P, E_S_A↔E_P_A
+    #     Constraints: K8=K7, K9=K7 (A binding K independent of S/P)
+    #     Wegscheider gives K4=K1, K6=K3
+    #     Denom: (1+S/K1+P/K3)*(1+A/K7) + I/K10
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                regulators: A[X], I[Y]
+                enzymes:    E, E_S[C], E_P[C], E_A[X],
+                    E_S_A[CX], E_P_A[CX], E_I[Y]
+            end
+            steps: begin
+                [E, S] ⇌ [E_S]          # K1
+                [E_S] <--> [E_P]         # k2f, k2r (SS)
+                [E, P] ⇌ [E_P]          # K3
+                [E_A, S] ⇌ [E_S_A]      # K4
+                [E_S_A] <--> [E_P_A]     # k5f, k5r (SS)
+                [E_A, P] ⇌ [E_P_A]      # K6
+                [E, A] ⇌ [E_A]          # K7
+                [E_S, A] ⇌ [E_S_A]      # K8
+                [E_P, A] ⇌ [E_P_A]      # K9
+                [E, I] ⇌ [E_I]          # K10
+            end
+            constraints: begin
+                K8 = K7
+                K9 = K7
+            end
+        end
+
+        # v = Et * [(k2f*S/K1 - k2r*P/K3) + (A/K7)*(k5f*S/K1 - k5r*P/K3)]
+        #         / [(1+S/K1+P/K3)*(1+A/K7) + I/K10]
+        function rate_activator_inhibitor(params, concs)
+            (; K1, k2f, k2r, K3, k5f, k5r, K7, K10, Et) = params
+            (; S, P, A, I) = concs
+            num = (k2f * S / K1 - k2r * P / K3) +
+                  (A / K7) * (k5f * S / K1 - k5r * P / K3)
+            denom = (1.0 + S / K1 + P / K3) * (1.0 + A / K7) +
+                    I / K10
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "Activator + Competitive Inhibitor",
+            mechanism = m,
+            metabolite_names = [:S, :P, :A, :I],
+            expected_n_states = 7,
+            expected_n_steps = 10,
+            expected_n_metabolites = 4,
+            expected_n_haldane = 2,
+            expected_n_wegscheider = 2,
+            expected_n_independent_params = 6,
+            expected_identifiability_deficit = -3,
+            expected_is_identifiable = true,
+            analytical_rate_fn = (p, c) ->
+                rate_activator_inhibitor(
+                    merge(p, (Et=p.Et,)), c),
+            # Denom has both multiplicative (activator) and additive
+            # (inhibitor) structure
+            expected_factored_num =
+                "k2f * S / K1 - k2r * P / K3 + (A / K7) * (k5f * S / K1 - k5r * P / K3)",
+            factored_num_broken = false,
+            expected_factored_denom =
+                "I / K10 + (1 + S / K1 + P / K3) * (1 + A / K7)",
+            factored_denom_broken = false,
+        ))
+    end
+
     return specs
 end
 
