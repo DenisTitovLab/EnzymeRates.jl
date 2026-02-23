@@ -56,6 +56,114 @@ function _poly_div_mono(p::POLY, divisor::POLY)::POLY
     POLY(_mono_div(k, m) => v for (k, v) in p)
 end
 
+"""
+Extract common factor from a multi-term POLY.
+Returns `(common_mono_poly, reduced_poly)` where `common_mono_poly` is a
+single-term POLY and `poly_mul(common_mono_poly, reduced_poly) == p`.
+"""
+function _extract_poly_common_factor(p::POLY)
+    length(p) < 2 && return poly_one(), p
+    # GCD of rational coefficients: gcd(a/b, c/d) = gcd(a,c)/lcm(b,d)
+    abs_coeffs = [abs(c) for (_, c) in p]
+    g_num = reduce(gcd, (numerator(c) for c in abs_coeffs))
+    g_den = reduce(lcm, (denominator(c) for c in abs_coeffs))
+    g_coeff = g_num // g_den
+    # GCD of monomials: min positive exponent per symbol across all terms
+    common = Dict{Symbol,Int}()
+    first_term = true
+    for (mono, _) in p
+        md = Dict{Symbol,Int}(mono)
+        if first_term
+            merge!(common, md)
+            first_term = false
+        else
+            for s in collect(keys(common))
+                if haskey(md, s)
+                    common[s] = min(common[s], md[s])
+                else
+                    delete!(common, s)
+                end
+            end
+        end
+    end
+    filter!(kv -> kv.second > 0, common)
+    g_mono = sort!(MONO(collect(common)); by=first)
+    g_coeff == 1 && isempty(g_mono) && return poly_one(), p
+    g_poly = POLY(g_mono => g_coeff)
+    reduced = POLY(
+        _mono_div(k, g_mono) => v // g_coeff for (k, v) in p
+    )
+    g_poly, reduced
+end
+
+"""Check if monomial `b` divides monomial `a` (all exponents non-negative)."""
+function _mono_divides(b::MONO, a::MONO)
+    bd = Dict{Symbol,Int}(b)
+    for (s, e) in bd
+        ae = 0
+        for (sa, ea) in a
+            sa == s && (ae = ea; break)
+        end
+        ae < e && return false
+    end
+    true
+end
+
+"""
+Try exact polynomial division `dividend ÷ divisor`.
+Returns the quotient POLY, or `nothing` if division has a remainder.
+Requires the divisor to have a constant term of 1 (binding polynomials).
+Uses metabolite-degree layering to guarantee termination with negative exponents.
+"""
+function _try_poly_exact_div(dividend::POLY, divisor::POLY)
+    isempty(divisor) && return nothing
+    const_mono = MONO()
+    haskey(divisor, const_mono) && divisor[const_mono] == 1 ||
+        return nothing
+
+    # Identify metabolite symbols (positive-exponent symbols in divisor)
+    met_syms = Set{Symbol}()
+    for (dm, _) in divisor
+        for (s, e) in dm
+            e > 0 && push!(met_syms, s)
+        end
+    end
+    isempty(met_syms) && return copy(dividend)
+
+    met_degree(mono) = sum(e for (s, e) in mono if s ∈ met_syms; init=0)
+
+    # Non-constant part of divisor (BigInt for overflow safety)
+    T = Rational{BigInt}
+    σ_prime = [(k, T(v)) for (k, v) in divisor if k != const_mono]
+
+    # Group dividend by metabolite degree
+    by_deg = Dict{Int,Dict{MONO,T}}()
+    for (m, c) in dividend
+        d = met_degree(m)
+        dd = get!(by_deg, d, Dict{MONO,T}())
+        dd[m] = T(c)
+    end
+
+    # Process degrees low→high: degree-d Q terms are the remainder after
+    # subtracting contributions from lower-degree Q terms via σ'
+    quot = Dict{MONO,T}()
+    for d in sort!(collect(keys(by_deg)))
+        remaining = copy(by_deg[d])
+        for (qm, qc) in quot
+            for (dm, dc) in σ_prime
+                pm = _mono_mul(qm, dm)
+                met_degree(pm) == d || continue
+                remaining[pm] = get(remaining, pm, T(0)) - qc * dc
+            end
+        end
+        filter!(p -> p.second != 0, remaining)
+        merge!(quot, remaining)
+    end
+
+    result = POLY(k => Rational{Int}(v) for (k, v) in quot if v != 0)
+    poly_mul(result, divisor) == dividend ? result : nothing
+end
+
 # Cofactor determinant expansion for symbolic matrices.
 # Checks intermediate term count against MAX_RATE_EQUATION_TERMS to
 # abort early for mechanisms whose rate equations would be too large.

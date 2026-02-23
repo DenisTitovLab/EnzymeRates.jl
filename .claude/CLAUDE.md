@@ -60,6 +60,9 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - Both `rate_equation` (numerical `@generated`) and `rate_equation_string` use the same factored numerator
 - Factoring tries `_try_poly_power` first, then `_try_algebraic_factor_sigma`, falls back to trivial wrapper
 - `_try_factor_sigma` has a poly_power fallback: when structural factoring (steps 2-6) fails for a conformational subgroup (e.g. multi-copy identical binding sites where `_partition_metabolite_sites` can't distinguish positional isomers), it computes the constrained subgroup sigma, divides out the conformational coefficient, and tries `_try_poly_power`. This handles MWC-type mechanisms where each subgroup's sigma is a perfect power (e.g. `(1+S/K+P/K')^2`).
+- Haldane-derived equality substitutions (`_haldane_equality_substitutions`): after user constraints, Haldane-derived reverse rate constants that resolve to identical expressions (e.g. k8r=k7r for symmetric homodimers) are merged before factoring. Canonical symbol is chosen by step number (lowest first).
+- Denom-guided numerator factoring (`_try_factor_num_by_denom_sigmas`): when standard factoring fails, tries dividing numerator by sigma factors from the already-factored denominator. Uses K-symbol partitioning for multi-conformational-group case (MWC). Extracts common integer/monomial factors via `_extract_poly_common_factor`.
+- `_try_poly_exact_div`: multivariate polynomial exact division with negative exponents, using metabolite-degree layering (processes terms lowest-to-highest degree). Uses `Rational{BigInt}` internally to avoid overflow.
 
 ## Source Layout
 

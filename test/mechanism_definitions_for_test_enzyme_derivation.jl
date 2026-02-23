@@ -1442,10 +1442,9 @@ function build_mechanism_test_specs()
             expected_identifiability_deficit=-6,
             expected_is_identifiable=true,
             analytical_rate_fn=rate_dimer,
-            # Before cancellation: 2*(k7f*S/K1-k7r*P/K13)*(1+S/K1+P/K13)
             expected_factored_num=
-            "2 * (k7f * S / K1 - k7r * P / K13) * (1 + S / K1 + P / K13)",
-            factored_num_broken=true,     # needs Haldane-derived reverse rate unification
+            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13)",
+            factored_num_broken=false,
             # Textbook: (1+S/K1+P/K13)^2
             expected_factored_denom=
             "(1 + S / K1 + P / K13) ^ 2",
@@ -1665,11 +1664,9 @@ function build_mechanism_test_specs()
             expected_identifiability_deficit=-2,
             expected_is_identifiable=true,
             analytical_rate_fn=rate_mwc_dimer,
-            # Ideal: 2 * (k7f * S / K1 - k7r * P / K13) * (1 + S / K1 + P / K13) + 2 * K37 * (k25f * S / K19 - k25r * P / K31) * (1 + S / K19 + P / K31)
-            # Broken: needs Haldane-derived reverse rate unification (same as homodimer)
             expected_factored_num=
-            "2 * (k7f * S / K1 - k7r * P / K13) * (1 + S / K1 + P / K13) + 2 * K37 * (k25f * S / K19 - k25r * P / K31) * (1 + S / K19 + P / K31)",
-            factored_num_broken=true,
+            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13) + 2 * K37 * (1 + S / K19 + P / K31) * (k25f * S / K19 - k25r * P / K31)",
+            factored_num_broken=false,
             expected_factored_denom=
             "(1 + S / K1 + P / K13) ^ 2 + K37 * (1 + S / K19 + P / K31) ^ 2",
             factored_denom_broken=false,

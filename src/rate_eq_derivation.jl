@@ -906,6 +906,109 @@ function _sum_group_polys(polys::Vector{POLY}, group)
     reduce(poly_add, (polys[i] for i in group))
 end
 
+"""
+Build substitution pairs merging Haldane-derived parameters that have
+identical expressions after user constraints. E.g., if k8r and k7r both
+resolve to `k7f / (K1 * Keq)`, returns `[:k8r => :k7r]`.
+"""
+function _haldane_equality_substitutions(M::Type{<:EnzymeMechanism})
+    dep_exprs, _ = _dependent_param_exprs(M)
+    length(dep_exprs) < 2 && return Pair{Symbol,Symbol}[]
+    # Group by expression identity
+    groups = Dict{Any,Vector{Symbol}}()
+    for (sym, expr) in dep_exprs
+        pushed = false
+        for (key, vec) in groups
+            if key == expr
+                push!(vec, sym)
+                pushed = true
+                break
+            end
+        end
+        pushed || (groups[expr] = [sym])
+    end
+    # Build substitution pairs: later symbols → first in group
+    # Sort by step number (e.g., k7r=7, k10r=10) for stable canonical choice
+    _step_num(s) = something(tryparse(Int, match(r"\d+", string(s)).match), 0)
+    subs = Pair{Symbol,Symbol}[]
+    for (_, syms) in groups
+        length(syms) < 2 && continue
+        sort!(syms; by=_step_num)
+        canonical = first(syms)
+        for s in @view syms[2:end]
+            push!(subs, s => canonical)
+        end
+    end
+    subs
+end
+
+function _is_K_sym(s::Symbol)
+    str = string(s)
+    length(str) > 1 && str[1] == 'K' && isdigit(str[2])
+end
+
+"""
+Try factoring numerator by dividing it with sigma factors from the
+factored denominator. For each DenomTerm sigma factor σ_i, attempts to
+find quotient Q_i such that `num = Σ Q_i * σ_i`. Works by partitioning
+numerator terms by their binding-K symbols (each conformational subgroup
+has distinct K params).
+"""
+function _try_factor_num_by_denom_sigmas(num::POLY, denom_terms)
+    # Collect unique sigma base factors from denominator
+    sigma_factors = POLY[]
+    for dt in denom_terms
+        for fp in dt.sigma.products
+            for f in fp.factors
+                f != poly_one() && f ∉ sigma_factors &&
+                    push!(sigma_factors, f)
+            end
+        end
+    end
+    isempty(sigma_factors) && return nothing
+
+    # Partition numerator into sub-polynomials by K symbols
+    # (single-factor case: all terms go to one group)
+    K_sets = [
+        Set{Symbol}(s for (mono, _) in σ for (s, _) in mono if _is_K_sym(s))
+        for σ in sigma_factors
+    ]
+    sub_polys = [POLY() for _ in sigma_factors]
+    for (mono, coeff) in num
+        mono_Ks = Set{Symbol}(s for (s, _) in mono if _is_K_sym(s))
+        assigned = false
+        for (i, Ks) in enumerate(K_sets)
+            if !isempty(intersect(mono_Ks, Ks))
+                sub_polys[i][mono] = coeff
+                assigned = true
+                break
+            end
+        end
+        assigned || return nothing
+    end
+
+    coefficients = POLY[]
+    products = FactoredPoly[]
+    for (i, σ) in enumerate(sigma_factors)
+        isempty(sub_polys[i]) && continue
+        Q = _try_poly_exact_div(sub_polys[i], σ)
+        Q === nothing && return nothing
+        # Extract common factor from Q: 2*k7f*S/K1 → 2 * (k7f*S/K1)
+        g, Q_reduced = _extract_poly_common_factor(Q)
+        push!(coefficients, g)
+        push!(products, FactoredPoly([Q_reduced, σ], [1, 1]))
+    end
+
+    # Verify round-trip
+    expanded = reduce(
+        poly_add,
+        (poly_mul(c, _expand_factored_poly(p))
+         for (c, p) in zip(coefficients, products)),
+    )
+    expanded != num && return nothing
+    FactoredSigma(coefficients, products)
+end
+
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
 
 """Build raw numerator POLY and factored denominator terms for the rate equation."""
@@ -1052,6 +1155,16 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     denom_terms = [_apply_param_constraints(dt, pc; binding_Ks)
                    for dt in denom_terms]
 
+    # Merge Haldane-derived equal parameters (e.g., k8r→k7r when both
+    # resolve to the same thermodynamic expression after user constraints)
+    haldane_subs = _haldane_equality_substitutions(M)
+    if !isempty(haldane_subs)
+        hc = [(t, 1, [(c, 1)]) for (t, c) in haldane_subs]
+        num = _apply_param_constraints(num, hc)
+        denom_terms = [_apply_param_constraints(dt, hc)
+                       for dt in denom_terms]
+    end
+
     n_terms = length(num) + _estimate_expanded_term_count(denom_terms)
     if n_terms > MAX_RATE_EQUATION_TERMS
         error(
@@ -1079,6 +1192,23 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
             if n < length(num)
                 num_fs = afs
             end
+        end
+    end
+    # Try denom-guided factoring: divide numerator by denominator sigma factors
+    dfs = _try_factor_num_by_denom_sigmas(num, denom_terms)
+    if dfs !== nothing
+        n_dfs = sum(
+            (length(fp.factors) == 1 && fp.factors[1] == poly_one()) ?
+                length(c) : 1
+            for (c, fp) in zip(dfs.coefficients, dfs.products)
+        )
+        n_cur = num_fs === nothing ? length(num) : sum(
+            (length(fp.factors) == 1 && fp.factors[1] == poly_one()) ?
+                length(c) : 1
+            for (c, fp) in zip(num_fs.coefficients, num_fs.products)
+        )
+        if n_dfs < n_cur
+            num_fs = dfs
         end
     end
     if num_fs === nothing
