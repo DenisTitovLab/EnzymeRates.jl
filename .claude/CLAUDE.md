@@ -59,6 +59,7 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - `_raw_symbolic_rate_polys` returns `(FactoredSigma, Vector{DenomTerm})` — numerator is always factored
 - Both `rate_equation` (numerical `@generated`) and `rate_equation_string` use the same factored numerator
 - Factoring tries `_try_poly_power` first, then `_try_algebraic_factor_sigma`, falls back to trivial wrapper
+- `_try_factor_sigma` has a poly_power fallback: when structural factoring (steps 2-6) fails for a conformational subgroup (e.g. multi-copy identical binding sites where `_partition_metabolite_sites` can't distinguish positional isomers), it computes the constrained subgroup sigma, divides out the conformational coefficient, and tries `_try_poly_power`. This handles MWC-type mechanisms where each subgroup's sigma is a perfect power (e.g. `(1+S/K+P/K')^2`).
 
 ## Source Layout
 
