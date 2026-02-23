@@ -1673,6 +1673,760 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # ── Edge-case factoring tests ─────────────────────────────────────────────
+    # These mechanisms test factoring patterns not covered by the classical
+    # inhibitor/activator mechanisms above.
+
+    # 29. Homodimer + Competitive Inhibitor
+    #     Tests: power^2 denominator + additive dead-end term.
+    #     I binds only bare enzyme E_00 (competitive with both substrate sites).
+    #     Denom: (1+S/K1+P/K13)^2 + I/K19
+    #     Num: 2*(1+S/K1+P/K13)*(k7f*S/K1 - k7r*P/K13)
+    let
+        m = @enzyme_mechanism begin
+            species:begin
+                substrates:S[C]
+                products:P[C]
+                regulators:I[X]
+                enzymes:E_00,
+                E_0S[C], E_S0[C],
+                E_0P[C], E_P0[C],
+                E_SS[C2], E_SP[C2], E_PS[C2], E_PP[C2],
+                E_I[X]
+            end
+            steps:begin
+                [E_00, S] ⇌ [E_0S]
+                [E_00, S] ⇌ [E_S0]
+                [E_0S, S] ⇌ [E_SS]
+                [E_S0, S] ⇌ [E_SS]
+                [E_0P, S] ⇌ [E_SP]
+                [E_P0, S] ⇌ [E_PS]
+                [E_S0] <--> [E_P0]
+                [E_0S] <--> [E_0P]
+                [E_SS] <--> [E_SP]
+                [E_SS] <--> [E_PS]
+                [E_SP] <--> [E_PP]
+                [E_PS] <--> [E_PP]
+                [E_00, P] ⇌ [E_P0]
+                [E_00, P] ⇌ [E_0P]
+                [E_P0, P] ⇌ [E_PP]
+                [E_0P, P] ⇌ [E_PP]
+                [E_S0, P] ⇌ [E_SP]
+                [E_0S, P] ⇌ [E_PS]
+                [E_00, I] ⇌ [E_I]
+            end
+            constraints:begin
+                K2 = K1
+                K3 = K1
+                K4 = K1
+                K5 = K1
+                K6 = K1
+                k8f = k7f
+                k9f = k7f
+                k10f = k7f
+                k11f = k7f
+                k12f = k7f
+                K14 = K13
+                K15 = K13
+                K16 = K13
+                K17 = K13
+                K18 = K13
+            end
+        end
+
+        function rate_homodimer_comp_inh(p, c)
+            (; K1, k7f, k7r, K13, K19, Et) = p
+            (; S, P, I) = c
+            flux = k7f * S / K1 - k7r * P / K13
+            factor = 1.0 + S / K1 + P / K13
+            return Et * 2.0 * flux * factor / (factor^2 + I / K19)
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Homodimer + Competitive Inhibitor",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I],
+            expected_n_states=10,
+            expected_n_steps=19,
+            expected_n_metabolites=3,
+            expected_n_haldane=6,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=4,
+            expected_identifiability_deficit=-6,
+            expected_is_identifiable=true,
+            analytical_rate_fn=(p, c) ->
+                rate_homodimer_comp_inh(merge(p, (Et=p.Et,)), c),
+            expected_factored_num=
+            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13)",
+            expected_factored_denom=
+            "(1 + S / K1 + P / K13) ^ 2 + I / K19",
+        ))
+    end
+
+    # 30. Homodimer + Non-competitive Inhibitor
+    #     Tests: power^2 × multiplicative linear factor.
+    #     I binds all 9 homodimer forms independently (same Ki).
+    #     Denom: (1+S/K1+P/K13)^2 * (1+I/K19)
+    #     Num: 2*(1+S/K1+P/K13)*(k7f*S/K1 - k7r*P/K13)
+    let
+        m = @enzyme_mechanism begin
+            species:begin
+                substrates:S[C]
+                products:P[C]
+                regulators:I[X]
+                enzymes:E_00,
+                E_0S[C], E_S0[C], E_0P[C], E_P0[C],
+                E_SS[C2], E_SP[C2], E_PS[C2], E_PP[C2],
+                E_00I[X],
+                E_0SI[CX], E_S0I[CX], E_0PI[CX], E_P0I[CX],
+                E_SSI[C2X], E_SPI[C2X], E_PSI[C2X], E_PPI[C2X]
+            end
+            steps:begin
+                [E_00, S] ⇌ [E_0S]
+                [E_00, S] ⇌ [E_S0]
+                [E_0S, S] ⇌ [E_SS]
+                [E_S0, S] ⇌ [E_SS]
+                [E_0P, S] ⇌ [E_SP]
+                [E_P0, S] ⇌ [E_PS]
+                [E_S0] <--> [E_P0]
+                [E_0S] <--> [E_0P]
+                [E_SS] <--> [E_SP]
+                [E_SS] <--> [E_PS]
+                [E_SP] <--> [E_PP]
+                [E_PS] <--> [E_PP]
+                [E_00, P] ⇌ [E_P0]
+                [E_00, P] ⇌ [E_0P]
+                [E_P0, P] ⇌ [E_PP]
+                [E_0P, P] ⇌ [E_PP]
+                [E_S0, P] ⇌ [E_SP]
+                [E_0S, P] ⇌ [E_PS]
+                [E_00, I] ⇌ [E_00I]
+                [E_S0, I] ⇌ [E_S0I]
+                [E_0S, I] ⇌ [E_0SI]
+                [E_SS, I] ⇌ [E_SSI]
+                [E_P0, I] ⇌ [E_P0I]
+                [E_0P, I] ⇌ [E_0PI]
+                [E_SP, I] ⇌ [E_SPI]
+                [E_PS, I] ⇌ [E_PSI]
+                [E_PP, I] ⇌ [E_PPI]
+                [E_00I, S] ⇌ [E_0SI]
+                [E_00I, S] ⇌ [E_S0I]
+                [E_0SI, S] ⇌ [E_SSI]
+                [E_S0I, S] ⇌ [E_SSI]
+                [E_0PI, S] ⇌ [E_SPI]
+                [E_P0I, S] ⇌ [E_PSI]
+                [E_00I, P] ⇌ [E_P0I]
+                [E_00I, P] ⇌ [E_0PI]
+                [E_P0I, P] ⇌ [E_PPI]
+                [E_0PI, P] ⇌ [E_PPI]
+                [E_S0I, P] ⇌ [E_SPI]
+                [E_0SI, P] ⇌ [E_PSI]
+            end
+            constraints:begin
+                K2 = K1
+                K3 = K1
+                K4 = K1
+                K5 = K1
+                K6 = K1
+                k8f = k7f
+                k9f = k7f
+                k10f = k7f
+                k11f = k7f
+                k12f = k7f
+                K14 = K13
+                K15 = K13
+                K16 = K13
+                K17 = K13
+                K18 = K13
+                K20 = K19
+                K21 = K19
+                K22 = K19
+                K23 = K19
+                K24 = K19
+                K25 = K19
+                K26 = K19
+                K27 = K19
+                K28 = K1
+                K29 = K1
+                K30 = K1
+                K31 = K1
+                K32 = K1
+                K33 = K1
+                K34 = K13
+                K35 = K13
+                K36 = K13
+                K37 = K13
+                K38 = K13
+                K39 = K13
+            end
+        end
+
+        function rate_homodimer_noncomp_inh(p, c)
+            (; K1, k7f, k7r, K13, K19, Et) = p
+            (; S, P, I) = c
+            flux = k7f * S / K1 - k7r * P / K13
+            factor = 1.0 + S / K1 + P / K13
+            return Et * 2.0 * flux * factor /
+                   (factor^2 * (1.0 + I / K19))
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Homodimer + Non-competitive Inhibitor",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I],
+            expected_n_states=18,
+            expected_n_steps=39,
+            expected_n_metabolites=3,
+            expected_n_haldane=6,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=4,
+            expected_identifiability_deficit=-11,
+            expected_is_identifiable=true,
+            analytical_rate_fn=(p, c) ->
+                rate_homodimer_noncomp_inh(merge(p, (Et=p.Et,)), c),
+            expected_factored_num=
+            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13)",
+            expected_factored_denom=
+            "(1 + S / K1 + P / K13) ^ 2 * (1 + I / K19)",
+        ))
+    end
+
+    # 31. MWC Dimer + Independent Inhibitor
+    #     Tests: multi-group power^2 × per-group linear factor.
+    #     I binds independently to all R and T forms (different Ki per conformation).
+    #     Denom: (1+S/K1+P/K13)^2*(1+I/K38) + K37*(1+S/K19+P/K31)^2*(1+I/K47)
+    #     Num: 2*[(1+S/K1+P/K13)*(k7f*S/K1-k7r*P/K13)
+    #            + K37*(1+S/K19+P/K31)*(k25f*S/K19-k25r*P/K31)]
+    #     K37 is Wegscheider-derived: K37 = K47*K80/K38
+    let
+        m = @enzyme_mechanism begin
+            species:begin
+                substrates:S[C]
+                products:P[C]
+                regulators:I[Y]
+                enzymes:R_00, R_S0[C], R_0S[C], R_SS[C2], R_P0[C], R_0P[C], R_SP[C2], R_PS[C2], R_PP[C2], T_00, T_S0[C], T_0S[C], T_SS[C2], T_P0[C], T_0P[C], T_SP[C2], T_PS[C2], T_PP[C2], R_00I[Y], R_S0I[CY], R_0SI[CY], R_SSI[C2Y], R_P0I[CY], R_0PI[CY], R_SPI[C2Y], R_PSI[C2Y], R_PPI[C2Y], T_00I[Y], T_S0I[CY], T_0SI[CY], T_SSI[C2Y], T_P0I[CY], T_0PI[CY], T_SPI[C2Y], T_PSI[C2Y], T_PPI[C2Y]
+            end
+            steps:begin
+                [R_00, S] ⇌ [R_S0]
+                [R_00, S] ⇌ [R_0S]
+                [R_0S, S] ⇌ [R_SS]
+                [R_S0, S] ⇌ [R_SS]
+                [R_0P, S] ⇌ [R_SP]
+                [R_P0, S] ⇌ [R_PS]
+                [R_S0] <--> [R_P0]
+                [R_0S] <--> [R_0P]
+                [R_SS] <--> [R_SP]
+                [R_SS] <--> [R_PS]
+                [R_SP] <--> [R_PP]
+                [R_PS] <--> [R_PP]
+                [R_00, P] ⇌ [R_P0]
+                [R_00, P] ⇌ [R_0P]
+                [R_P0, P] ⇌ [R_PP]
+                [R_0P, P] ⇌ [R_PP]
+                [R_S0, P] ⇌ [R_SP]
+                [R_0S, P] ⇌ [R_PS]
+                [T_00, S] ⇌ [T_S0]
+                [T_00, S] ⇌ [T_0S]
+                [T_S0, S] ⇌ [T_SS]
+                [T_0S, S] ⇌ [T_SS]
+                [T_0P, S] ⇌ [T_SP]
+                [T_P0, S] ⇌ [T_PS]
+                [T_S0] <--> [T_P0]
+                [T_0S] <--> [T_0P]
+                [T_SS] <--> [T_SP]
+                [T_SS] <--> [T_PS]
+                [T_SP] <--> [T_PP]
+                [T_PS] <--> [T_PP]
+                [T_00, P] ⇌ [T_P0]
+                [T_00, P] ⇌ [T_0P]
+                [T_P0, P] ⇌ [T_PP]
+                [T_0P, P] ⇌ [T_PP]
+                [T_S0, P] ⇌ [T_SP]
+                [T_0S, P] ⇌ [T_PS]
+                [R_00] ⇌ [T_00]
+                [R_00, I] ⇌ [R_00I]
+                [R_S0, I] ⇌ [R_S0I]
+                [R_0S, I] ⇌ [R_0SI]
+                [R_SS, I] ⇌ [R_SSI]
+                [R_P0, I] ⇌ [R_P0I]
+                [R_0P, I] ⇌ [R_0PI]
+                [R_SP, I] ⇌ [R_SPI]
+                [R_PS, I] ⇌ [R_PSI]
+                [R_PP, I] ⇌ [R_PPI]
+                [T_00, I] ⇌ [T_00I]
+                [T_S0, I] ⇌ [T_S0I]
+                [T_0S, I] ⇌ [T_0SI]
+                [T_SS, I] ⇌ [T_SSI]
+                [T_P0, I] ⇌ [T_P0I]
+                [T_0P, I] ⇌ [T_0PI]
+                [T_SP, I] ⇌ [T_SPI]
+                [T_PS, I] ⇌ [T_PSI]
+                [T_PP, I] ⇌ [T_PPI]
+                [R_00I, S] ⇌ [R_S0I]
+                [R_00I, S] ⇌ [R_0SI]
+                [R_0SI, S] ⇌ [R_SSI]
+                [R_S0I, S] ⇌ [R_SSI]
+                [R_0PI, S] ⇌ [R_SPI]
+                [R_P0I, S] ⇌ [R_PSI]
+                [R_00I, P] ⇌ [R_P0I]
+                [R_00I, P] ⇌ [R_0PI]
+                [R_P0I, P] ⇌ [R_PPI]
+                [R_0PI, P] ⇌ [R_PPI]
+                [R_S0I, P] ⇌ [R_SPI]
+                [R_0SI, P] ⇌ [R_PSI]
+                [T_00I, S] ⇌ [T_S0I]
+                [T_00I, S] ⇌ [T_0SI]
+                [T_0SI, S] ⇌ [T_SSI]
+                [T_S0I, S] ⇌ [T_SSI]
+                [T_0PI, S] ⇌ [T_SPI]
+                [T_P0I, S] ⇌ [T_PSI]
+                [T_00I, P] ⇌ [T_P0I]
+                [T_00I, P] ⇌ [T_0PI]
+                [T_P0I, P] ⇌ [T_PPI]
+                [T_0PI, P] ⇌ [T_PPI]
+                [T_S0I, P] ⇌ [T_SPI]
+                [T_0SI, P] ⇌ [T_PSI]
+                [R_00I] ⇌ [T_00I]
+            end
+            constraints:begin
+                K2 = K1
+                K3 = K1
+                K4 = K1
+                K5 = K1
+                K6 = K1
+                k8f = k7f
+                k9f = k7f
+                k10f = k7f
+                k11f = k7f
+                k12f = k7f
+                K14 = K13
+                K15 = K13
+                K16 = K13
+                K17 = K13
+                K18 = K13
+                K20 = K19
+                K21 = K19
+                K22 = K19
+                K23 = K19
+                K24 = K19
+                k26f = k25f
+                k27f = k25f
+                k28f = k25f
+                k29f = k25f
+                k30f = k25f
+                K32 = K31
+                K33 = K31
+                K34 = K31
+                K35 = K31
+                K36 = K31
+                K39 = K38
+                K40 = K38
+                K41 = K38
+                K42 = K38
+                K43 = K38
+                K44 = K38
+                K45 = K38
+                K46 = K38
+                K48 = K47
+                K49 = K47
+                K50 = K47
+                K51 = K47
+                K52 = K47
+                K53 = K47
+                K54 = K47
+                K55 = K47
+                K56 = K1
+                K57 = K1
+                K58 = K1
+                K59 = K1
+                K60 = K1
+                K61 = K1
+                K62 = K13
+                K63 = K13
+                K64 = K13
+                K65 = K13
+                K66 = K13
+                K67 = K13
+                K68 = K19
+                K69 = K19
+                K70 = K19
+                K71 = K19
+                K72 = K19
+                K73 = K19
+                K74 = K31
+                K75 = K31
+                K76 = K31
+                K77 = K31
+                K78 = K31
+                K79 = K31
+            end
+        end
+
+        # K37 is Wegscheider-dependent: K37 = K47*K80/K38
+        # k7r, k25r are Haldane-dependent
+        function rate_mwc_dimer_inh(p, c)
+            (; K1, k7f, k7r, K13, K19, k25f, k25r, K31, K37,
+               K38, K47, Et) = p
+            (; S, P, I) = c
+            r_flux = k7f * S / K1 - k7r * P / K13
+            t_flux = k25f * S / K19 - k25r * P / K31
+            r_factor = 1.0 + S / K1 + P / K13
+            t_factor = 1.0 + S / K19 + P / K31
+            num = 2.0 * (r_flux * r_factor +
+                         K37 * t_flux * t_factor)
+            denom = r_factor^2 * (1.0 + I / K38) +
+                    K37 * t_factor^2 * (1.0 + I / K47)
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="MWC Dimer + Independent Inhibitor",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I],
+            expected_n_states=36,
+            expected_n_steps=80,
+            expected_n_metabolites=3,
+            expected_n_haldane=12,
+            expected_n_wegscheider=1,
+            expected_n_independent_params=9,
+            expected_identifiability_deficit=-6,
+            expected_is_identifiable=true,
+            analytical_rate_fn=(p, c) ->
+                rate_mwc_dimer_inh(merge(p, (Et=p.Et,)), c),
+            expected_factored_num=
+            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13) + 2 * K37 * (1 + S / K19 + P / K31) * (k25f * S / K19 - k25r * P / K31)",
+            expected_factored_denom=
+            "(1 + S / K1 + P / K13) ^ 2 * (1 + I / K38) + K37 * (1 + S / K19 + P / K31) ^ 2 * (1 + I / K47)",
+        ))
+    end
+
+    # 32. Two Competitive Inhibitors (monomer)
+    #     Tests: multiple additive dead-end terms (flat sum denominator).
+    #     I1 and I2 both bind only free E (competitive with S/P and each other).
+    #     Denom: 1 + S/K1 + P/K3 + I1/K4 + I2/K5
+    let
+        m = @enzyme_mechanism begin
+            species:begin
+                substrates:S[C]
+                products:P[C]
+                regulators:I1[X], I2[Y]
+                enzymes:E, E_S[C], E_P[C], E_I1[X], E_I2[Y]
+            end
+            steps:begin
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+                [E, P] ⇌ [E_P]
+                [E, I1] ⇌ [E_I1]
+                [E, I2] ⇌ [E_I2]
+            end
+        end
+
+        function rate_two_comp_inh(p, c)
+            (; K1, k2f, k2r, K3, K4, K5, Et) = p
+            (; S, P, I1, I2) = c
+            num = k2f * S / K1 - k2r * P / K3
+            denom = 1.0 + S / K1 + P / K3 + I1 / K4 + I2 / K5
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Two Competitive Inhibitors",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I1, :I2],
+            expected_n_states=5,
+            expected_n_steps=5,
+            expected_n_metabolites=4,
+            expected_n_haldane=1,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=5,
+            expected_identifiability_deficit=0,
+            expected_is_identifiable=true,
+            analytical_rate_fn=(p, c) ->
+                rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
+            expected_factored_num=
+            "k2f * S / K1 - k2r * P / K3",
+            expected_factored_denom=
+            "1 + I1 / K4 + I2 / K5 + S / K1 + P / K3",
+        ))
+    end
+
+    # 33. Two Non-competitive Inhibitors (monomer)
+    #     Tests: triple multiplicative product factoring.
+    #     I1 and I2 bind independently to all forms (E, ES, EP) at separate sites.
+    #     Denom: (1+S/K1+P/K3) * (1+I1/K4) * (1+I2/K7)
+    let
+        m = @enzyme_mechanism begin
+            species:begin
+                substrates:S[C]
+                products:P[C]
+                regulators:I1[X], I2[Y]
+                enzymes:E, E_S[C], E_P[C],
+                E_I1[X], E_S_I1[CX], E_P_I1[CX],
+                E_I2[Y], E_S_I2[CY], E_P_I2[CY],
+                E_I1_I2[XY], E_S_I1_I2[CXY], E_P_I1_I2[CXY]
+            end
+            steps:begin
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+                [E, P] ⇌ [E_P]
+                [E, I1] ⇌ [E_I1]
+                [E_S, I1] ⇌ [E_S_I1]
+                [E_P, I1] ⇌ [E_P_I1]
+                [E, I2] ⇌ [E_I2]
+                [E_S, I2] ⇌ [E_S_I2]
+                [E_P, I2] ⇌ [E_P_I2]
+                [E_I1, I2] ⇌ [E_I1_I2]
+                [E_S_I1, I2] ⇌ [E_S_I1_I2]
+                [E_P_I1, I2] ⇌ [E_P_I1_I2]
+                [E_I1, S] ⇌ [E_S_I1]
+                [E_I1, P] ⇌ [E_P_I1]
+                [E_I2, S] ⇌ [E_S_I2]
+                [E_I2, P] ⇌ [E_P_I2]
+                [E_I1_I2, S] ⇌ [E_S_I1_I2]
+                [E_I1_I2, P] ⇌ [E_P_I1_I2]
+                [E_I2, I1] ⇌ [E_I1_I2]
+                [E_S_I2, I1] ⇌ [E_S_I1_I2]
+                [E_P_I2, I1] ⇌ [E_P_I1_I2]
+            end
+            constraints:begin
+                K5 = K4
+                K6 = K4
+                K19 = K4
+                K20 = K4
+                K21 = K4
+                K8 = K7
+                K9 = K7
+                K10 = K7
+                K11 = K7
+                K12 = K7
+                K13 = K1
+                K15 = K1
+                K17 = K1
+                K14 = K3
+                K16 = K3
+                K18 = K3
+            end
+        end
+
+        function rate_two_noncomp_inh(p, c)
+            (; K1, k2f, k2r, K3, K4, K7, Et) = p
+            (; S, P, I1, I2) = c
+            num = k2f * S / K1 - k2r * P / K3
+            denom = (1.0 + S / K1 + P / K3) *
+                    (1.0 + I1 / K4) * (1.0 + I2 / K7)
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Two Non-competitive Inhibitors",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I1, :I2],
+            expected_n_states=12,
+            expected_n_steps=21,
+            expected_n_metabolites=4,
+            expected_n_haldane=1,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=5,
+            expected_identifiability_deficit=-7,
+            expected_is_identifiable=true,
+            analytical_rate_fn=(p, c) ->
+                rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
+            expected_factored_num=
+            "k2f * S / K1 - k2r * P / K3",
+            expected_factored_denom=
+            "(1 + S / K1 + P / K3) * (1 + I1 / K4) * (1 + I2 / K7)",
+        ))
+    end
+
+    # 34. Non-competitive + Competitive Inhibitor (monomer)
+    #     Tests: multiplicative product + additive dead-end term.
+    #     I1 binds all forms independently (non-competitive).
+    #     I2 binds only free E (competitive).
+    #     Denom: (1+S/K1+P/K3)*(1+I1/K4) + I2/K9
+    let
+        m = @enzyme_mechanism begin
+            species:begin
+                substrates:S[C]
+                products:P[C]
+                regulators:I1[X], I2[Y]
+                enzymes:E, E_S[C], E_P[C],
+                E_I1[X], E_S_I1[CX], E_P_I1[CX],
+                E_I2[Y]
+            end
+            steps:begin
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+                [E, P] ⇌ [E_P]
+                [E, I1] ⇌ [E_I1]
+                [E_S, I1] ⇌ [E_S_I1]
+                [E_P, I1] ⇌ [E_P_I1]
+                [E_I1, S] ⇌ [E_S_I1]
+                [E_I1, P] ⇌ [E_P_I1]
+                [E, I2] ⇌ [E_I2]
+            end
+            constraints:begin
+                K5 = K4
+                K6 = K4
+                K7 = K1
+                K8 = K3
+            end
+        end
+
+        function rate_noncomp_comp_inh(p, c)
+            (; K1, k2f, k2r, K3, K4, K9, Et) = p
+            (; S, P, I1, I2) = c
+            num = k2f * S / K1 - k2r * P / K3
+            denom = (1.0 + S / K1 + P / K3) *
+                    (1.0 + I1 / K4) + I2 / K9
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Non-competitive + Competitive Inhibitor",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I1, :I2],
+            expected_n_states=7,
+            expected_n_steps=9,
+            expected_n_metabolites=4,
+            expected_n_haldane=1,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=5,
+            expected_identifiability_deficit=-2,
+            expected_is_identifiable=true,
+            analytical_rate_fn=(p, c) ->
+                rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
+            expected_factored_num=
+            "k2f * S / K1 - k2r * P / K3",
+            expected_factored_denom=
+            "I2 / K9 + (1 + S / K1 + P / K3) * (1 + I1 / K4)",
+        ))
+    end
+
+    # 35. Uncompetitive + Competitive Inhibitor (monomer)
+    #     Tests: mixed additive structure with nested multiplicative term.
+    #     I1 binds only ES (uncompetitive). I2 binds only free E (competitive).
+    #     Denom: 1 + I2/K5 + P/K3 + (S/K1)*(1+I1/K4)
+    let
+        m = @enzyme_mechanism begin
+            species:begin
+                substrates:S[C]
+                products:P[C]
+                regulators:I1[X], I2[Y]
+                enzymes:E, E_S[C], E_P[C],
+                E_S_I1[CX],
+                E_I2[Y]
+            end
+            steps:begin
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+                [E, P] ⇌ [E_P]
+                [E_S, I1] ⇌ [E_S_I1]
+                [E, I2] ⇌ [E_I2]
+            end
+        end
+
+        function rate_uncomp_comp_inh(p, c)
+            (; K1, k2f, k2r, K3, K4, K5, Et) = p
+            (; S, P, I1, I2) = c
+            num = k2f * S / K1 - k2r * P / K3
+            denom = 1.0 + I2 / K5 + P / K3 +
+                    (S / K1) * (1.0 + I1 / K4)
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Uncompetitive + Competitive Inhibitor",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I1, :I2],
+            expected_n_states=5,
+            expected_n_steps=5,
+            expected_n_metabolites=4,
+            expected_n_haldane=1,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=5,
+            expected_identifiability_deficit=0,
+            expected_is_identifiable=true,
+            analytical_rate_fn=(p, c) ->
+                rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
+            expected_factored_num=
+            "k2f * S / K1 - k2r * P / K3",
+            expected_factored_denom=
+            "1 + I2 / K5 + P / K3 + (S / K1) * (1 + I1 / K4)",
+        ))
+    end
+
+    # 36. Two Same-site (Competing) Non-competitive Inhibitors (monomer)
+    #     Tests: multiplicative product with flat-sum allosteric factor.
+    #     I1 and I2 compete for the same allosteric site X (mutually exclusive).
+    #     Both bind independently of S/P (non-competitive).
+    #     Denom: (1+S/K1+P/K3) * (1+I1/K4+I2/K9)
+    let
+        m = @enzyme_mechanism begin
+            species:begin
+                substrates:S[C]
+                products:P[C]
+                regulators:I1[X], I2[X]
+                enzymes:E, E_S[C], E_P[C],
+                E_I1[X], E_S_I1[CX], E_P_I1[CX],
+                E_I2[X], E_S_I2[CX], E_P_I2[CX]
+            end
+            steps:begin
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+                [E, P] ⇌ [E_P]
+                [E, I1] ⇌ [E_I1]
+                [E_S, I1] ⇌ [E_S_I1]
+                [E_P, I1] ⇌ [E_P_I1]
+                [E_I1, S] ⇌ [E_S_I1]
+                [E_I1, P] ⇌ [E_P_I1]
+                [E, I2] ⇌ [E_I2]
+                [E_S, I2] ⇌ [E_S_I2]
+                [E_P, I2] ⇌ [E_P_I2]
+                [E_I2, S] ⇌ [E_S_I2]
+                [E_I2, P] ⇌ [E_P_I2]
+            end
+            constraints:begin
+                K5 = K4
+                K6 = K4
+                K7 = K1
+                K8 = K3
+                K10 = K9
+                K11 = K9
+                K12 = K1
+                K13 = K3
+            end
+        end
+
+        function rate_two_samesite_inh(p, c)
+            (; K1, k2f, k2r, K3, K4, K9, Et) = p
+            (; S, P, I1, I2) = c
+            num = k2f * S / K1 - k2r * P / K3
+            denom = (1.0 + S / K1 + P / K3) *
+                    (1.0 + I1 / K4 + I2 / K9)
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Two Same-site Inhibitors",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I1, :I2],
+            expected_n_states=9,
+            expected_n_steps=13,
+            expected_n_metabolites=4,
+            expected_n_haldane=1,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=5,
+            expected_identifiability_deficit=-4,
+            expected_is_identifiable=true,
+            analytical_rate_fn=(p, c) ->
+                rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
+            expected_factored_num=
+            "k2f * S / K1 - k2r * P / K3",
+            expected_factored_denom=
+            "(1 + I1 / K4 + I2 / K9) * (1 + S / K1 + P / K3)",
+        ))
+    end
+
     return specs
 end
 
