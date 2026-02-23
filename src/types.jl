@@ -156,6 +156,24 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
 
     isempty(reactions) && error("Reactions tuple must not be empty")
     enzyme_set = Set(keys(enzyme_atoms))
+
+    # Canonical step form for RE steps: normalize direction so metabolite
+    # binding steps have metabolite on LHS (→ binding Kd convention).
+    # SS steps are left unchanged (kf/kr have no automatic inversion).
+    reactions = ntuple(length(reactions)) do i
+        lhs, rhs = reactions[i]
+        if !eq_steps[i]
+            return (lhs, rhs)
+        end
+        rhs_has_met = any(haskey(met_atoms, s) for s in rhs)
+        lhs_has_met = any(haskey(met_atoms, s) for s in lhs)
+        if rhs_has_met && !lhs_has_met
+            (rhs, lhs)
+        else
+            (lhs, rhs)
+        end
+    end
+
     net = Dict{Symbol,Int}()
     for (i, (lhs, rhs)) in enumerate(reactions)
         lhs_enz, lhs_mets, lhs_atoms, lhs_met_names =
