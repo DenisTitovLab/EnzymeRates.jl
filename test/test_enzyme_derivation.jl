@@ -264,8 +264,10 @@ end
 """
 Convert raw params (K_i for RE steps) to ODE params
 (large k_if/k_ir for all steps).
-For binding RE steps: K=Kd=kr/kf, so k_if = 1e6, k_ir = 1e6 * K.
-For non-binding RE steps: K=Ka=kf/kr, so k_if = 1e6 * K, k_ir = 1e6.
+For binding RE steps (metabolite on LHS, canonical form):
+    K = Kd = kr/kf, so k_if = 1e6, k_ir = 1e6 * K.
+For RE isomerization steps (no metabolite, enzyme-only):
+    K = Ka = kf/kr, so k_if = 1e6 * K, k_ir = 1e6.
 """
 function raw_to_ode_params(m, raw_params)
     eq = EnzymeRates.equilibrium_steps(m)
@@ -279,11 +281,11 @@ function raw_to_ode_params(m, raw_params)
         if eq[i]
             K = Float64(raw_params[Symbol("K$i")])
             if Symbol("K$i") in binding_Ks
-                # Binding step: K = Kd = kr/kf
+                # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
                 push!(param_vals, 1e6 * K)
             else
-                # Non-binding RE step: K = Ka = kf/kr
+                # RE isomerization (no metabolite): K = Ka = kf/kr
                 push!(param_vals, 1e6 * K)
                 push!(param_vals, 1e6)
             end

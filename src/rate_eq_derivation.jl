@@ -256,21 +256,17 @@ function _metabolite_binding_states(
         for (idx, (lhs, rhs)) in enumerate(rxns)
             eq_steps[idx] || continue
             e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
-            e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
+            e_rhs, _ = _split_reaction_side(rhs, enz_set)
             i_f = findfirst(==(e_lhs), enz_names)
             j_f = findfirst(==(e_rhs), enz_names)
             (i_f ∈ sg_set && j_f ∈ sg_set) || continue
-            has_met_lhs = !isempty(m_lhs)
-            has_met_rhs = !isempty(m_rhs)
-            (has_met_lhs ⊻ has_met_rhs) || continue
+            # Canonical form: RE binding steps have metabolite on LHS.
+            # Skip RE isomerizations (no metabolite on either side).
+            isempty(m_lhs) && continue
 
-            met = has_met_lhs ? first(m_lhs) : first(m_rhs)
-            # Determine less-bound and more-bound forms
-            if has_met_lhs
-                less, more = i_f, j_f  # [E, M] ⇌ [EM]
-            else
-                less, more = j_f, i_f  # [EM] ⇌ [E, M]
-            end
+            met = first(m_lhs)
+            # LHS = [E, M], RHS = [EM]: less-bound on LHS, more-bound on RHS
+            less, more = i_f, j_f
 
             if cur == less && !haskey(states, more)
                 s = copy(states[cur])
@@ -459,15 +455,15 @@ function _check_k_consistency(
     for (idx, (lhs, rhs)) in enumerate(rxns)
         eq_steps[idx] || continue
         e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
-        e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
+        # Canonical form: RE binding steps have metabolite on LHS.
+        # Skip RE isomerizations (no metabolite).
+        isempty(m_lhs) && continue
+        e_rhs, _ = _split_reaction_side(rhs, enz_set)
         i_f = findfirst(==(e_lhs), enz_names)
         j_f = findfirst(==(e_rhs), enz_names)
         (i_f ∈ sg_set && j_f ∈ sg_set) || continue
-        has_met_lhs = !isempty(m_lhs)
-        has_met_rhs = !isempty(m_rhs)
-        (has_met_lhs ⊻ has_met_rhs) || continue
 
-        met = has_met_lhs ? first(m_lhs) : first(m_rhs)
+        met = first(m_lhs)
         K_sym = canonical(Symbol("K$idx"))
 
         # Skip steps whose canonical K doesn't appear in the sigma
@@ -1162,15 +1158,16 @@ end
 
 """
 Identify K symbols for binding RE steps (where K should be Kd, not Ka).
-A binding step has: metabolite(s) on LHS, only enzyme forms on RHS.
+Canonical form invariant: all RE metabolite steps have metabolite on LHS,
+so a binding step is simply any RE step with a non-enzyme species on LHS.
 """
 function _binding_K_symbols(M::Type{<:EnzymeMechanism})
     m = M()
     rxns = reactions(m)
     eq = equilibrium_steps(m)
     enz_set = Set(e[1] for e in enzyme_forms(m))
-    [Symbol("K$i") for (i, (lhs, rhs)) in enumerate(rxns)
-     if eq[i] && any(s ∉ enz_set for s in lhs) && all(s ∈ enz_set for s in rhs)]
+    [Symbol("K$i") for (i, (lhs, _)) in enumerate(rxns)
+     if eq[i] && any(s ∉ enz_set for s in lhs)]
 end
 
 """
