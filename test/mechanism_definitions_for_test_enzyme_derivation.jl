@@ -1527,6 +1527,126 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # 28. MWC (Monod-Wyman-Changeux) dimer with R/T conformational states
+    #     Two conformational states: R (relaxed, active) and T (tense, inactive).
+    #     Two identical substrate binding sites per state. Only R state is
+    #     catalytically active (SS isomerization S→P at each site).
+    #     R ⇌ T isomerization at base form only (classical MWC).
+    #     R forms: R_00, R_S0, R_0S, R_SS, R_P0, R_0P, R_SP, R_PS, R_PP (9)
+    #     T forms: T_00, T_S0, T_0S, T_SS (4, S binding only, no catalysis)
+    #     Total: 13 forms, 23 steps
+    #     Denominator: (1 + S/K_R + P/K_P)^2 + L*(1 + S/K_T)^2
+    #     Numerator: 2*(k_cat*S/K_R - k_rev*P/K_P)*(1 + S/K_R + P/K_P)
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products:   P[C]
+                enzymes:    R_00,
+                    R_S0[C], R_0S[C],
+                    R_SS[C2], R_SP[C2], R_PS[C2],
+                    R_P0[C], R_0P[C],
+                    R_PP[C2],
+                    T_00, T_S0[C], T_0S[C], T_SS[C2]
+            end
+            steps: begin
+                # S binding to R (RE)
+                [R_00, S] ⇌ [R_S0]         # K1 (K_R)
+                [R_00, S] ⇌ [R_0S]         # K2
+                [R_S0, S] ⇌ [R_SS]         # K3
+                [R_0S, S] ⇌ [R_SS]         # K4
+                [R_0P, S] ⇌ [R_SP]         # K5
+                [R_P0, S] ⇌ [R_PS]         # K6
+                # Catalysis on R (SS)
+                [R_S0] <--> [R_P0]          # k7f, k7r
+                [R_0S] <--> [R_0P]          # k8f, k8r
+                [R_SS] <--> [R_SP]          # k9f, k9r
+                [R_SS] <--> [R_PS]          # k10f, k10r
+                [R_SP] <--> [R_PP]          # k11f, k11r
+                [R_PS] <--> [R_PP]          # k12f, k12r
+                # P binding to R (RE)
+                [R_00, P] ⇌ [R_P0]         # K13 (K_P)
+                [R_00, P] ⇌ [R_0P]         # K14
+                [R_P0, P] ⇌ [R_PP]         # K15
+                [R_0P, P] ⇌ [R_PP]         # K16
+                [R_S0, P] ⇌ [R_SP]         # K17
+                [R_0S, P] ⇌ [R_PS]         # K18
+                # S binding to T (RE)
+                [T_00, S] ⇌ [T_S0]         # K19 (K_T)
+                [T_00, S] ⇌ [T_0S]         # K20
+                [T_S0, S] ⇌ [T_SS]         # K21
+                [T_0S, S] ⇌ [T_SS]         # K22
+                # R ↔ T isomerization (RE, K23 = L = [T]/[R])
+                [R_00] ⇌ [T_00]            # K23
+            end
+            constraints: begin
+                # S binding to R: all equal
+                K2 = K1
+                K3 = K1
+                K4 = K1
+                K5 = K1
+                K6 = K1
+                # Catalysis forward: all equal
+                k8f = k7f
+                k9f = k7f
+                k10f = k7f
+                k11f = k7f
+                k12f = k7f
+                # P binding to R: all equal
+                K14 = K13
+                K15 = K13
+                K16 = K13
+                K17 = K13
+                K18 = K13
+                # S binding to T: all equal
+                K20 = K19
+                K21 = K19
+                K22 = K19
+            end
+        end
+
+        # MWC dimer rate equation:
+        # sigma = (1 + S/K_R + P/K_P)^2 + L*(1 + S/K_T)^2
+        # flux = 2*(kcat*S/K_R - krev*P/K_P)*(1 + S/K_R + P/K_P)
+        # v = Et * flux / sigma
+        # K23 = L (Ka convention, non-binding isomerization)
+        function rate_mwc_dimer(params, concs)
+            (; K1, k7f, k7r, K13, K19, K23, Et) = params
+            (; S, P) = concs
+            flux = k7f * S / K1 - k7r * P / K13
+            r_factor = 1.0 + S / K1 + P / K13
+            t_factor = 1.0 + S / K19
+            num = 2.0 * flux * r_factor
+            denom = r_factor^2 + K23 * t_factor^2
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name = "MWC Dimer",
+            mechanism = m,
+            metabolite_names = [:S, :P],
+            expected_n_states = 13,
+            expected_n_steps = 23,
+            expected_n_metabolites = 2,
+            expected_n_haldane = 6,
+            expected_n_wegscheider = 0,
+            expected_n_independent_params = 5,
+            expected_identifiability_deficit = -4,
+            expected_is_identifiable = true,
+            analytical_rate_fn = rate_mwc_dimer,
+            # Ideal: 2 * (k7f * S / K1 - k7r * P / K13) * (1 + S / K1 + P / K13)
+            # Broken: needs Haldane-derived reverse rate unification (same as homodimer)
+            expected_factored_num =
+                "2 * (k7f * S / K1 - k7r * P / K13) * (1 + S / K1 + P / K13)",
+            factored_num_broken = true,
+            # Ideal: (1 + S / K1 + P / K13) ^ 2 + K23 * (1 + S / K19) ^ 2
+            # Broken: factoring doesn't detect multi-group sigma structure
+            expected_factored_denom =
+                "(1 + S / K1 + P / K13) ^ 2 + K23 * (1 + S / K19) ^ 2",
+            factored_denom_broken = true,
+        ))
+    end
+
     return specs
 end
 
