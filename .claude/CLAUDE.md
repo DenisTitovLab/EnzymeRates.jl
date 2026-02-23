@@ -39,6 +39,7 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - **First start**: ~30-60s (package loading + JIT). Subsequent calls are fast.
 - **Startup timeout**: If the server fails to connect, start Claude Code with `MCP_TIMEOUT=120000 claude` to allow enough time for Julia startup.
 - **Server script**: `.claude/mcp_julia_server.jl`
+- **MCP environment**: `.claude/mcp_env/` — separate Julia project with `ModelContextProtocol`, `Revise`, and `EnzymeRates` as a dev dep. Do NOT add `ModelContextProtocol` to the main `Project.toml` (Aqua stale deps check would flag it).
 - **Stuck REPL**: If the REPL is stuck on a long-running computation, kill it with `pkill -f mcp_julia_server` via Bash, wait a few seconds, then call `exec_julia` again — the server auto-restarts
 
 ## Key Architecture Decisions
@@ -47,6 +48,21 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - `EnzymeReaction{S,P,R}` similarly encodes reactions in types
 - Each unique mechanism = unique type → affects compilation time
 - `@generated` functions used for compile-time computation (metabolites, graph, stoich_matrix, rate_equation)
+
+### Canonical Step Form
+- The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `[E, S] ⇌ [ES]`, never `[ES] ⇌ [E, S]`
+- SS steps are NOT canonicalized (swapping kf↔kr would break analytical test formulas)
+- After canonicalization, all RE metabolite K params are binding Kd (displayed as `1/K`). Non-binding RE steps (pure isomerization) retain Ka convention.
+- `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed
+
+### Unified Factoring Pipeline
+- `_raw_symbolic_rate_polys` returns `(FactoredSigma, Vector{DenomTerm})` — numerator is always factored
+- Both `rate_equation` (numerical `@generated`) and `rate_equation_string` use the same factored numerator
+- Factoring tries `_try_poly_power` first, then `_try_algebraic_factor_sigma`, falls back to trivial wrapper
+- `_try_factor_sigma` has a poly_power fallback: when structural factoring (steps 2-6) fails for a conformational subgroup (e.g. multi-copy identical binding sites where `_partition_metabolite_sites` can't distinguish positional isomers), it computes the constrained subgroup sigma, divides out the conformational coefficient, and tries `_try_poly_power`. This handles MWC-type mechanisms where each subgroup's sigma is a perfect power (e.g. `(1+S/K+P/K')^2`).
+- Haldane-derived equality substitutions (`_haldane_equality_substitutions`): after user constraints, Haldane-derived reverse rate constants that resolve to identical expressions (e.g. k8r=k7r for symmetric homodimers) are merged before factoring. Canonical symbol is chosen by step number (lowest first).
+- Denom-guided numerator factoring (`_try_factor_num_by_denom_sigmas`): when standard factoring fails, tries dividing numerator by sigma factors from the already-factored denominator. Uses K-symbol partitioning for multi-conformational-group case (MWC). Extracts common integer/monomial factors via `_extract_poly_common_factor`.
+- `_try_poly_exact_div`: multivariate polynomial exact division with negative exponents, using metabolite-degree layering (processes terms lowest-to-highest degree). Uses `Rational{BigInt}` internally to avoid overflow.
 
 ## Source Layout
 
@@ -99,7 +115,7 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - When all RE forms are in one group (G=1), the SS isomerization step flux IS the overall rate (no sign correction needed)
 - `_compute_alpha` BFS handles forward/reverse RE traversal with K parameters
 - `is_k_parameter` must match both `k1f`/`k1r` patterns AND `K1`/`K2` patterns (but not `Keq`)
-- K convention: binding RE steps use Kd (dissociation), non-binding (product release) use Ka (forward eq const)
+- K convention: after canonical step form, all RE metabolite steps are binding → Kd (dissociation). Only RE isomerization steps (no metabolite) use Ka (forward eq const).
 - K→1/K inversion must be applied consistently in: rate expr, dep_exprs substitution, constraint strings, and test helpers
 - When `poly_str` displays inverted params with multiple denominators, need parentheses: `A * B / (K1 * K2)`
 
@@ -108,6 +124,9 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - When constraining K params, both must be same type (both binding or both non-binding) to avoid inversion mismatch
 - In DSL constraint parsing, use `Ref` for mutable coeff and read back with `coeff_ref[]`
 - HW constraint matrix must merge constrained columns into replacement columns before Gaussian elimination
+- Column merging operates in Ka domain; binding-to-binding constraint coefficients must be inverted (Kd coeff c → Ka coeff 1/c), matching `_apply_param_constraints` behavior
+- Constant contributions `log(coeff)` from column merging must be tracked through Gaussian elimination as `Dict{Int, Rational{BigInt}}` per row (base → accumulated exponent)
+- When a dependent param is itself a binding K, its dep_expr RHS must be wrapped in `inv_fn()` to compensate for the implicit LHS Ka→Kd inversion
 
 ### Mechanism Enumeration
 - Activator/inhibitor exclusivity: a regulator is EITHER activator OR inhibitor, never both. `_enumerate_dead_end_configs` excludes reg positions occupied in any topo form
@@ -119,7 +138,7 @@ For reactions with r regulators, each regulator is either an activator (part of 
 ### Type System and Compatibility
 - Default `eq_steps` = all false preserves backward compatibility with 2-arg constructor
 - ParamConstraints default `()` preserves backward compat with 3-arg constructor
-- `_binding_K_symbols` identifies binding steps: metabolite on LHS, enzyme-only on RHS
+- `_binding_K_symbols` identifies binding steps: metabolite on LHS (guaranteed by canonical form, no RHS check needed)
 - JET requires `::SubString` type assertions on regex captures to avoid Union{Nothing,SubString} errors
 
 ## Known Issues

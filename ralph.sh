@@ -28,12 +28,13 @@ set -euo pipefail
 MAX_ITER=${1:-10}                # number of simplification iterations
 FILE="src/mechanism_enumeration.jl"
 LOG_DIR=".ralph-logs"
-PROMPT_FILE="CODE_SIMPLIFICATION_PROMPT.md"          # read fresh each attempt (edits take effect live)
+PROMPT_FILE="PLAN_IMPLEMENTATION_PROMPT.md"          # read fresh each attempt (edits take effect live)
 STALE_TIMEOUT=7200               # seconds (2 hr) — kill claude if no new turns
 PROGRESS_THRESHOLD=5             # turns needed to consider an attempt "productive"
 LETTERS="abcdefghijklmnopqrstuvwxyz"  # attempt suffix lookup
 
 mkdir -p "$LOG_DIR"
+rm -f .ralph-done                    # clean sentinel from previous runs
 
 # --- Live output formatting ---
 # Parses claude's stream-json output and prints a compact live summary:
@@ -212,6 +213,15 @@ for i in $(seq 1 "$MAX_ITER"); do
     echo "[$timestamp_done] Iteration $i done: $before → $after lines (Δ$delta)"
     echo "---"
     echo "[$timestamp_done] Iter $i: $before → $after (Δ$delta)" >> "$LOG_DIR/summary.log"
+
+    # --- Plan completion check ---
+    # The agent creates .ralph-done when all plan steps are finished
+    if [ -f ".ralph-done" ]; then
+        echo ""
+        echo "=== Plan fully implemented ==="
+        cat .ralph-done
+        break
+    fi
 done
 
 final=$(wc -l < "$FILE" | tr -d ' ')

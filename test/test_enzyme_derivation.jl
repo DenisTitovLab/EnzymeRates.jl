@@ -155,9 +155,15 @@ function _get_dependent_params(m)
     dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
     binding_Ks = EnzymeRates._binding_K_symbols(typeof(m))
     if !isempty(binding_Ks)
+        binding_set = Set(binding_Ks)
         inv_subs = Dict(K => :(1 / $K) for K in binding_Ks)
         dep_exprs = Dict(
-            k => EnzymeRates.substitute_params_expr(v, inv_subs)
+            k => begin
+                rhs = EnzymeRates.substitute_params_expr(v, inv_subs)
+                # When dependent param is itself a binding K, wrap in 1/()
+                # to compensate for implicit LHS Ka→Kd inversion
+                k in binding_set ? :(1 / $rhs) : rhs
+            end
             for (k, v) in dep_exprs
         )
     end
@@ -210,6 +216,17 @@ function compute_all_params(m, new_params)
         val = _eval_dep_expr(expr_str, new_params)
         dep_dict[sym] = val
     end
+    # Resolve user param constraints (e.g., K3 = K2)
+    for (target, coeff, factors) in EnzymeRates.param_constraints(m)
+        val = Float64(coeff)
+        for (sym, exp) in factors
+            src = haskey(dep_dict, sym) ? dep_dict[sym] :
+                  haskey(new_params, sym) ? Float64(new_params[sym]) :
+                  error("Missing parameter $sym for constraint $target")
+            val *= src^exp
+        end
+        dep_dict[target] = val
+    end
     all_vals = Float64[haskey(dep_dict, k) ? dep_dict[k] :
                        haskey(new_params, k) ? Float64(new_params[k]) :
                        error("Missing parameter $k")
@@ -247,8 +264,10 @@ end
 """
 Convert raw params (K_i for RE steps) to ODE params
 (large k_if/k_ir for all steps).
-For binding RE steps: K=Kd=kr/kf, so k_if = 1e6, k_ir = 1e6 * K.
-For non-binding RE steps: K=Ka=kf/kr, so k_if = 1e6 * K, k_ir = 1e6.
+For binding RE steps (metabolite on LHS, canonical form):
+    K = Kd = kr/kf, so k_if = 1e6, k_ir = 1e6 * K.
+For RE isomerization steps (no metabolite, enzyme-only):
+    K = Ka = kf/kr, so k_if = 1e6 * K, k_ir = 1e6.
 """
 function raw_to_ode_params(m, raw_params)
     eq = EnzymeRates.equilibrium_steps(m)
@@ -262,11 +281,11 @@ function raw_to_ode_params(m, raw_params)
         if eq[i]
             K = Float64(raw_params[Symbol("K$i")])
             if Symbol("K$i") in binding_Ks
-                # Binding step: K = Kd = kr/kf
+                # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
                 push!(param_vals, 1e6 * K)
             else
-                # Non-binding RE step: K = Ka = kf/kr
+                # RE isomerization (no metabolite): K = Ka = kf/kr
                 push!(param_vals, 1e6 * K)
                 push!(param_vals, 1e6)
             end
@@ -488,6 +507,10 @@ function test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
         for s in sub_names; eq_vals[s] = 1.0; end
         p_each = Keq^(1.0 / n_prods)
         for p in prod_names; eq_vals[p] = p_each; end
+        # Regulators don't affect equilibrium — set to arbitrary value
+        for s in met_names
+            haskey(eq_vals, s) || (eq_vals[s] = 2.5)
+        end
         eq_concs = NamedTuple{Tuple(met_names)}(Tuple(eq_vals[s] for s in met_names))
         v_eq = rate_equation(m, eq_concs, new_params)
         @test abs(v_eq) < 1e-10
@@ -558,6 +581,60 @@ function test_rate_equation_string(spec::MechanismTestSpec)
 end
 
 """
+Extract numerator and denominator strings from rate equation v-line.
+Handles nested parentheses via depth counting.
+"""
+function _extract_num_denom(v_line::AbstractString)
+    marker = "E_total * ("
+    start = findfirst(marker, v_line)
+    start === nothing && return nothing, nothing
+    pos = last(start) + 1
+    depth = 1
+    while depth > 0 && pos <= length(v_line)
+        c = v_line[pos]
+        depth += (c == '(') - (c == ')')
+        pos += 1
+    end
+    num_str = v_line[last(start)+1:pos-2]
+    rest = v_line[pos:end]
+    div_start = findfirst(" / (", rest)
+    div_start === nothing && return String(num_str), nothing
+    denom_begin = pos + last(div_start)
+    denom_str = v_line[denom_begin:end-1]
+    return String(num_str), String(denom_str)
+end
+
+function test_factored_form(spec::MechanismTestSpec)
+    has_num = spec.expected_factored_num !== nothing
+    has_denom = spec.expected_factored_denom !== nothing
+    (has_num || has_denom) || return
+    m = spec.mechanism
+    @testset "Factored Form" begin
+        s = rate_equation_string(m)
+        v_line = last(split(s, "\n"))
+        num_str, denom_str = _extract_num_denom(v_line)
+        @test num_str !== nothing
+        @test denom_str !== nothing
+        if num_str !== nothing && denom_str !== nothing
+            if has_num
+                if spec.factored_num_broken
+                    @test_broken num_str == spec.expected_factored_num
+                else
+                    @test num_str == spec.expected_factored_num
+                end
+            end
+            if has_denom
+                if spec.factored_denom_broken
+                    @test_broken denom_str == spec.expected_factored_denom
+                else
+                    @test denom_str == spec.expected_factored_denom
+                end
+            end
+        end
+    end
+end
+
+"""
 Run all tests for a mechanism specification.
 Organizes tests by mechanism: all tests for one mechanism together.
 """
@@ -571,6 +648,7 @@ function run_all_tests(spec::MechanismTestSpec)
         test_haldane_equilibrium(spec)
         test_performance(spec)
         test_rate_equation_string(spec)
+        test_factored_form(spec)        # Only runs if expected strings provided
         spec.run_ode_test && test_ode_steadystate(spec)
     end
 end
@@ -809,3 +887,4 @@ end
     m_enum = EnzymeMechanism(with_dead_end[end - 1])
     @test_throws "polynomial terms" rate_equation_string(m_enum)
 end
+

@@ -3,7 +3,7 @@
     "julia-repl": {
       "command": "julia",
       "args": [
-        "--project=.",
+        "--project=.claude/mcp_env",
         ".claude/mcp_julia_server.jl"
       ]
     }
