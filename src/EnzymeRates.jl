@@ -1,7 +1,7 @@
 module EnzymeRates
 
 # Types
-export EnzymeReaction, EnzymeMechanism
+export EnzymeReaction, EnzymeMechanism, OligomericEnzymeMechanism
 export FittingProblem
 # export IdentifyRateEquationProblem, IdentifyRateEquationResults  # when implemented
 
@@ -30,7 +30,7 @@ include("types.jl")
 include("dsl.jl")
 include("sym_poly_for_rate_eq_derivation.jl")
 include("rate_eq_derivation.jl")
-include("rate_eq_rewriting.jl")
+include("thermodynamic_constr_for_rate_eq_derivation.jl")
 include("fitting.jl")
 include("mechanism_enumeration.jl")
 

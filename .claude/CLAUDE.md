@@ -55,6 +55,49 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - After canonicalization, all RE metabolite K params are binding Kd (displayed as `1/K`). Non-binding RE steps (pure isomerization) retain Ka convention.
 - `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed
 
+### OligomericEnzymeMechanism (MWC allosteric enzymes)
+
+`OligomericEnzymeMechanism{Mets,CatalyticMech,CatN,RegSites,NConf}` represents multi-subunit allosteric enzymes under the MWC model. The DSL uses `@enzyme_mechanism` with a different top-level structure:
+
+```julia
+m = @enzyme_mechanism begin
+    metabolites: S[C], P[C], I[X]       # ALL metabolites (catalytic + regulatory)
+    conformations: 2                     # NConf=1 (default) or 2 (R/T states)
+    site(:catalytic, 2): begin           # 2 identical catalytic subunits
+        species: begin
+            substrates: S[C]
+            products: P[C]
+            enzymes: E_c, E_S[C], E_P[C]
+        end
+        steps: begin
+            [E_c, S] ⇌ [E_S]
+            [E_S] <--> [E_P]
+        end
+        constraints: begin               # optional; Wegscheider constraints for symmetric sites
+            K3 = K1
+        end
+    end
+    site(:regulatory, 1): begin          # 1 enzyme-level regulatory site (den only)
+        ligands: I                       # metabolites binding this site
+    end
+end
+```
+
+Key DSL rules:
+- `metabolites:` block is **required** (unlike `@enzyme_mechanism` for `EnzymeMechanism`)
+- `conformations:` is optional (default 1); 2 = R/T MWC model; adds `L` (T/R ratio) to params
+- `site(:regulatory, n)`: if `n == CatN` → per-subunit site (appears in num and den); if `n < CatN` → enzyme-level (den only)
+- Regulatory site K params named `K_{ligand}_reg{i}` (R-state) / `K_{ligand}_T_reg{i}` (T-state)
+- T-state params auto-generated with `_T` suffix; T-state Haldane constraints auto-derived from R-state
+
+MWC rate formula:
+```
+v = E_total * CatN * (N_R * Q_R^(CatN-1) * prod(Q_reg^n_reg) + L * N_T * ...)
+            / (Q_R^CatN * prod(Q_reg^n_reg) + L * Q_T^CatN * ...)
+```
+
+`_binding_K_symbols(OligomericEnzymeMechanism)` must live in `rate_eq_derivation.jl` (not `types.jl`) because it calls `_rename_params_T` → `is_k_parameter`, both defined in that file.
+
 ### Unified Factoring Pipeline
 - `_raw_symbolic_rate_polys` returns `(FactoredSigma, Vector{DenomTerm})` — numerator is always factored
 - Both `rate_equation` (numerical `@generated`) and `rate_equation_string` use the same factored numerator
@@ -70,11 +113,11 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 
 ## Source Layout
 
-- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism` structs, accessors, `RateEquationMode` hierarchy
-- `src/dsl.jl` — `@enzyme_reaction` and `@enzyme_mechanism` macros
-- `src/sym_poly_for_rate_eq_derivation.jl` — Symbolic polynomial algebra (`Poly` type) used by rate equation derivation
-- `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API (`parameters`, `fitted_params`, `param_count_estimate`); identifiability checks
-- `src/rate_eq_rewriting.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
+- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `OligomericEnzymeMechanism` structs; `EnzymeMechanism` and `OligomericEnzymeMechanism` accessors; `RateEquationMode` hierarchy
+- `src/dsl.jl` — `@enzyme_reaction` and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `OligomericEnzymeMechanism` DSL)
+- `src/sym_poly_for_rate_eq_derivation.jl` — Symbolic polynomial algebra (`Poly` type); `_rename_poly_T`, `_count_oligomeric_rate_monomials` for MWC identifiability
+- `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; OligomericEnzymeMechanism MWC rate equation assembly (`_build_oligomeric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
+- `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
 - `src/mechanism_enumeration.jl` — `SiteState`/`EnzymeFormSpec`/`MechanismSpec`/`PreRessEntry`/`MechanismIterator` types, `enumerate_enzyme_forms` (all valid enzyme forms from reaction), `enumerate_mechanisms` (catalytic cycle enumeration → dead-end lattice → lazy RE/SS × equivalent step constraints), `enumerate_mechanism_stages` (returns intermediate results at each pipeline stage)
 
@@ -152,6 +195,7 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - ParamConstraints default `()` preserves backward compat with 3-arg constructor
 - `_binding_K_symbols` identifies binding steps: metabolite on LHS (guaranteed by canonical form, no RHS check needed)
 - JET requires `::SubString` type assertions on regex captures to avoid Union{Nothing,SubString} errors
+- JET type narrowing in `@generated` helpers: calling `CM()` does NOT narrow `CM::Any` to `Type{<:EnzymeMechanism}` for JET. To narrow `CM` before calling a method that requires `Type{<:EnzymeMechanism}` (e.g., `_apply_kd_inversion`), first call such a function (e.g., `_raw_symbolic_rate_polys(CM)`) in the same body.
 
 ## Known Issues
 

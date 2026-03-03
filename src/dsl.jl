@@ -180,6 +180,34 @@ function _walk_rhs!(expr, factors::Dict{Symbol,Int}, coeff::Ref{Int}, sign::Int)
 end
 
 macro enzyme_mechanism(block)
+    # Detect new OligomericEnzymeMechanism syntax (metabolites: or site(...):)
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        if _is_oligomeric_label(arg)
+            return esc(_parse_oligomeric_mechanism(block))
+        end
+    end
+    return esc(_parse_enzyme_mechanism(block))
+end
+
+"""Return true if an @enzyme_mechanism block arg is part of new oligomeric syntax."""
+function _is_oligomeric_label(arg)
+    # metabolites: ... (single or tuple form)
+    if arg isa Expr && arg.head == :tuple
+        inner = arg.args[1]
+        return inner isa Expr && inner.head == :call && inner.args[1] == :(:) &&
+               inner.args[2] == :metabolites
+    end
+    if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
+        label = arg.args[2]
+        return label == :metabolites || label == :conformations ||
+               (label isa Expr && label.head == :call && label.args[1] == :site)
+    end
+    false
+end
+
+"""Parse the original EnzymeMechanism DSL (species:/steps:/constraints: blocks)."""
+function _parse_enzyme_mechanism(block)
     species_block = nothing
     steps_block = nothing
     constraints_block = nothing
@@ -211,6 +239,17 @@ macro enzyme_mechanism(block)
     steps_block === nothing && error("steps block not specified")
 
     species_tuple = _parse_species_block(species_block)
+    reactions, eq_steps = _parse_steps_block(steps_block)
+
+    if constraints_block !== nothing
+        constraints = _parse_constraints_block(constraints_block)
+        return :(EnzymeMechanism($species_tuple, $reactions, $eq_steps, $constraints))
+    end
+    return :(EnzymeMechanism($species_tuple, $reactions, $eq_steps))
+end
+
+"""Parse steps: begin ... end into (reactions_expr, eq_steps_expr)."""
+function _parse_steps_block(steps_block)
     reactions = Expr(:tuple)
     eq_steps = Expr(:tuple)
     for arg in steps_block.args
@@ -228,22 +267,189 @@ macro enzyme_mechanism(block)
         push!(reactions.args, Expr(:tuple, lhs, rhs))
         push!(eq_steps.args, is_re)
     end
+    reactions, eq_steps
+end
 
-    # Parse constraints block if present
-    if constraints_block !== nothing
-        constraints = Expr(:tuple)
-        for arg in constraints_block.args
-            arg isa LineNumberNode && continue
-            if !(arg isa Expr && arg.head == :(=))
-                error("Each constraint must be an assignment: target = rhs_expr, got $arg")
+"""Parse constraints: begin ... end into a constraints_expr tuple."""
+function _parse_constraints_block(constraints_block)
+    constraints = Expr(:tuple)
+    for arg in constraints_block.args
+        arg isa LineNumberNode && continue
+        # Handle semicolon-separated constraints: K5=K3; K6=K1 (parsed as tuple)
+        if arg isa Expr && arg.head == :tuple
+            for a in arg.args
+                a isa Expr && a.head == :(=) || continue
+                _push_constraint!(constraints, a)
             end
-            target = arg.args[1]
-            target isa Symbol || error("Constraint target must be a symbol, got $target")
-            coeff, factors = _parse_constraint_rhs(arg.args[2])
-            push!(constraints.args, Expr(:tuple, QuoteNode(target), coeff, factors))
+        elseif arg isa Expr && arg.head == :(=)
+            _push_constraint!(constraints, arg)
+        else
+            error("Each constraint must be an assignment: target = rhs_expr, got $arg")
         end
-        return esc(:(EnzymeMechanism($species_tuple, $reactions, $eq_steps, $constraints)))
+    end
+    constraints
+end
+
+function _push_constraint!(constraints, arg)
+    target = arg.args[1]
+    target isa Symbol || error("Constraint target must be a symbol, got $target")
+    coeff, factors = _parse_constraint_rhs(arg.args[2])
+    push!(constraints.args, Expr(:tuple, QuoteNode(target), coeff, factors))
+end
+
+"""
+Parse the OligomericEnzymeMechanism DSL syntax.
+Handles: metabolites:, conformations:, site(:catalytic, N):, site(:regulatory, N):
+"""
+function _parse_oligomeric_mechanism(block)
+    met_names = nothing   # vector of Symbol (metabolite names only, no atoms)
+    nconf = 1
+    catalytic_n = nothing
+    catalytic_block = nothing
+    reg_sites = Any[]     # vector of (ligand_syms, n_reg)
+
+    for arg in block.args
+        arg isa LineNumberNode && continue
+
+        if arg isa Expr && arg.head == :tuple
+            # metabolites: S[C], P[C] → Expr(:tuple, :(metabolites: S[C]), :(P[C]))
+            inner = arg.args[1]
+            if inner isa Expr && inner.head == :call && inner.args[1] == :(:) &&
+               inner.args[2] == :metabolites
+                met_names = [_met_sym(inner.args[3])]
+                for i in 2:length(arg.args)
+                    push!(met_names, _met_sym(arg.args[i]))
+                end
+            else
+                error("Unexpected tuple in @enzyme_mechanism: $arg")
+            end
+        elseif arg isa Expr && arg.head == :call && arg.args[1] == :(:)
+            label = arg.args[2]
+            value = arg.args[3]
+
+            if label == :metabolites
+                met_names = [_met_sym(value)]
+            elseif label == :conformations
+                nconf = value  # integer literal
+            elseif label isa Expr && label.head == :call && label.args[1] == :site
+                site_kind = label.args[2]   # QuoteNode(:catalytic) or QuoteNode(:regulatory)
+                site_n = label.args[3]      # integer literal
+                if site_kind == QuoteNode(:catalytic)
+                    catalytic_n = site_n
+                    catalytic_block = value
+                elseif site_kind == QuoteNode(:regulatory)
+                    ligs = _parse_reg_ligands_block(value)
+                    push!(reg_sites, (ligs, site_n))
+                else
+                    error("Unknown site kind: $site_kind")
+                end
+            else
+                error("Unknown @enzyme_mechanism block label: $label")
+            end
+        else
+            error("Unexpected expression in @enzyme_mechanism: $arg")
+        end
     end
 
-    return esc(:(EnzymeMechanism($species_tuple, $reactions, $eq_steps)))
+    met_names === nothing && error("metabolites: block not specified")
+    catalytic_block === nothing && error("site(:catalytic, N): block not specified")
+
+    # Build metabolites type parameter tuple (just Symbol names, no atoms)
+    mets_tuple = Expr(:tuple, QuoteNode.(met_names)...)
+
+    # Parse catalytic site block: species:, steps:, constraints:
+    species_tuple, cat_steps_block, cat_constraints_block =
+        _parse_catalytic_block(catalytic_block)
+
+    # Parse reactions and eq_steps
+    reactions, eq_steps = _parse_steps_block(cat_steps_block)
+
+    # Build inner EnzymeMechanism expression
+    if cat_constraints_block !== nothing
+        constraints = _parse_constraints_block(cat_constraints_block)
+        cm_expr = :(EnzymeMechanism($species_tuple, $reactions, $eq_steps, $constraints))
+    else
+        cm_expr = :(EnzymeMechanism($species_tuple, $reactions, $eq_steps))
+    end
+
+    # Build RegSites type parameter tuple: ((ligand_syms...,), n_reg) pairs
+    reg_sites_elems = Any[]
+    for (ligs, n_reg) in reg_sites
+        ligs_tuple = Expr(:tuple, (QuoteNode(l) for l in ligs)...)
+        push!(reg_sites_elems, Expr(:tuple, ligs_tuple, n_reg))
+    end
+    reg_sites_expr = Expr(:tuple, reg_sites_elems...)
+
+    # Emit: let _cm = EnzymeMechanism(...)
+    #           OligomericEnzymeMechanism{mets, typeof(_cm), CatN, RegSites, NConf}()
+    #       end
+    :(let _cm = $cm_expr
+        OligomericEnzymeMechanism{$mets_tuple, typeof(_cm), $catalytic_n, $reg_sites_expr, $nconf}()
+    end)
+end
+
+"""Parse regulatory site block: begin ligands: L1, L2 end → vector of ligand symbols."""
+function _parse_reg_ligands_block(block)
+    ligs = Symbol[]
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        if arg isa Expr && arg.head == :call && arg.args[1] == :(:) && arg.args[2] == :ligands
+            push!(ligs, arg.args[3])
+        elseif arg isa Expr && arg.head == :tuple
+            inner = arg.args[1]
+            if inner isa Expr && inner.head == :call && inner.args[1] == :(:) &&
+               inner.args[2] == :ligands
+                push!(ligs, inner.args[3])
+                for i in 2:length(arg.args)
+                    push!(ligs, arg.args[i])
+                end
+            else
+                error("Expected ligands: L1, L2, ... in regulatory site block, got $arg")
+            end
+        else
+            error("Expected ligands: in regulatory site block, got $arg")
+        end
+    end
+    ligs
+end
+
+"""Extract the metabolite Symbol from a raw DSL expression (Symbol or S[C] ref)."""
+function _met_sym(expr)
+    expr isa Symbol && return expr
+    expr isa Expr && expr.head == :ref && return expr.args[1]
+    error("Cannot extract metabolite name from: $expr")
+end
+
+"""
+Parse catalytic site block.
+Returns (species_tuple_expr, steps_block, constraints_block_or_nothing).
+The species_tuple_expr is produced by `_parse_species_block` and contains
+(subs, prods, regs, enzymes) sub-expressions for the inner EnzymeMechanism.
+"""
+function _parse_catalytic_block(block)
+    species_expr = nothing
+    steps_block = nothing
+    constraints_block = nothing
+
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        arg isa Expr && arg.head == :call && arg.args[1] == :(:) ||
+            error("Unexpected expression in catalytic site block: $arg")
+        label = arg.args[2]
+        value = arg.args[3]
+        if label == :species
+            species_expr = _parse_species_block(value)
+        elseif label == :steps
+            steps_block = value
+        elseif label == :constraints
+            constraints_block = value
+        else
+            error("Unknown label in catalytic site block: $label")
+        end
+    end
+
+    species_expr === nothing && error("species: not specified in catalytic site block")
+    steps_block === nothing && error("steps: not specified in catalytic site block")
+
+    species_expr, steps_block, constraints_block
 end
