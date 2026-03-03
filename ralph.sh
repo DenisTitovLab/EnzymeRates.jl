@@ -1,8 +1,7 @@
 #!/bin/bash
-# Ralph Loop: repeatedly runs `claude -p` on a prompt file to iteratively
-# simplify a source file. Each iteration is a fresh claude session that reads
-# the prompt, makes edits, and exits. The script tracks line-count progress
-# across iterations.
+# Ralph Loop: repeatedly runs `claude -p` on a prompt file to sequentially
+# implement a plan. Each iteration is a fresh claude session that reads
+# the prompt, picks the next unfinished step, implements it, and exits.
 #
 # Error handling:
 #   - Rate limit:    sleep until the API reset time + 1min buffer, then retry
@@ -12,8 +11,7 @@
 #
 # Logs: each attempt writes stream-json to .ralph-logs/iter_NNx.log.jsonl
 # (where x = a, b, c... for retries within an iteration) and stderr to
-# .ralph-logs/iter_NNx.log.stderr. A one-line-per-iteration summary is
-# appended to .ralph-logs/summary.log.
+# .ralph-logs/iter_NNx.log.stderr.
 #
 # Alternatively, just run a command and see interactive claude sessions in
 # real time without the error handling and logging:
@@ -25,8 +23,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-MAX_ITER=${1:-10}                # number of simplification iterations
-FILE="src/mechanism_enumeration.jl"
+MAX_ITER=${1:-10}                # number of implementation iterations
 LOG_DIR=".ralph-logs"
 PROMPT_FILE="PLAN_IMPLEMENTATION_PROMPT.md"          # read fresh each attempt (edits take effect live)
 STALE_TIMEOUT=7200               # seconds (2 hr) — kill claude if no new turns
@@ -64,19 +61,16 @@ else empty end
 JQEOF
 
 # --- Main loop ---
-initial_lines=$(wc -l < "$FILE" | tr -d ' ')
 echo "=== Ralph Loop ==="
-echo "File: $FILE ($initial_lines lines)"
 echo "Max iterations: $MAX_ITER"
 echo "Logs: $LOG_DIR/"
 echo ""
 
 # Clean exit message on Ctrl+C
-trap 'echo ""; echo "Interrupted at iteration $i. Check $LOG_DIR/summary.log for progress."; exit 1' INT TERM
+trap 'echo ""; echo "Interrupted at iteration $i. Check $LOG_DIR/ for logs."; exit 1' INT TERM
 
 for i in $(seq 1 "$MAX_ITER"); do
-    before=$(wc -l < "$FILE" | tr -d ' ')
-    echo "[$(date '+%H:%M:%S')] Iteration $i/$MAX_ITER — $FILE is $before lines"
+    echo "[$(date '+%H:%M:%S')] Iteration $i/$MAX_ITER"
 
     # Log file base: .ralph-logs/iter_02.log (suffixes added per attempt)
     log_file="$LOG_DIR/iter_$(printf '%02d' "$i").log"
@@ -98,7 +92,6 @@ for i in $(seq 1 "$MAX_ITER"); do
 
         # Run claude in a background subshell so the watchdog can monitor it.
         # Pipeline stages:
-        #   cat: feeds the prompt to claude's stdin
         #   claude -p: runs in non-interactive piped mode, streams JSON to stdout
         #   tee: saves raw stream to log file AND passes it downstream
         #   grep '^{': filters to valid JSON lines (discards partial/non-JSON output)
@@ -106,14 +99,15 @@ for i in $(seq 1 "$MAX_ITER"); do
         # `set +eo pipefail` inside subshell: lets pipeline finish so we can
         # read PIPESTATUS (otherwise first non-zero exit aborts the subshell).
         # `|| true` on grep/jq: prevents their exit codes from affecting PIPESTATUS.
-        # PIPESTATUS[1] = claude's exit code (0=cat, 1=claude, 2=tee, 3=grep, 4=jq).
+        # PIPESTATUS[0] = claude's exit code (0=claude, 1=tee, 2=grep, 3=jq).
         (
             set +eo pipefail
-            cat "$PROMPT_FILE" | claude -p --verbose --output-format stream-json --dangerously-skip-permissions \
+            claude -p --verbose --output-format stream-json --dangerously-skip-permissions \
+                < "$PROMPT_FILE" \
                 2>"$cur_log.stderr" | tee "$cur_log.jsonl" | \
                 (grep --line-buffered '^{' || true) | \
                 (jq --unbuffered -rj "$JQ_FILTER" || true)
-            echo "${PIPESTATUS[1]}" > "$cur_log.exit"
+            echo "${PIPESTATUS[0]}" > "$cur_log.exit"
         ) &
         pipeline_pid=$!
 
@@ -171,7 +165,7 @@ for i in $(seq 1 "$MAX_ITER"); do
             [ "$sleep_secs" -lt 60 ] && sleep_secs=60
 
             echo ""
-            echo "[$(date '+%H:%M:%S')] Rate limited. Sleeping ${sleep_secs}s (~$((sleep_secs / 60))min) until $(date -r "$((resets_at + 60))" '+%H:%M:%S')..."
+            echo "[$(date '+%H:%M:%S')] Rate limited. Sleeping ${sleep_secs}s (~$((sleep_secs / 60))min) until $(date -d "@$((resets_at + 60))" '+%H:%M:%S')..."
             sleep "$sleep_secs"
             echo "[$(date '+%H:%M:%S')] Resuming iteration $i"
             attempt=$((attempt + 1))
@@ -205,14 +199,9 @@ for i in $(seq 1 "$MAX_ITER"); do
     done
 
     # --- Iteration summary ---
-    after=$(wc -l < "$FILE" | tr -d ' ')
-    delta=$((before - after))
-    timestamp_done=$(date '+%H:%M:%S')
-
     echo ""
-    echo "[$timestamp_done] Iteration $i done: $before → $after lines (Δ$delta)"
+    echo "[$(date '+%H:%M:%S')] Iteration $i done"
     echo "---"
-    echo "[$timestamp_done] Iter $i: $before → $after (Δ$delta)" >> "$LOG_DIR/summary.log"
 
     # --- Plan completion check ---
     # The agent creates .ralph-done when all plan steps are finished
@@ -224,7 +213,5 @@ for i in $(seq 1 "$MAX_ITER"); do
     fi
 done
 
-final=$(wc -l < "$FILE" | tr -d ' ')
 echo ""
-echo "=== Complete ==="
-echo "Result: $initial_lines → $final lines ($(($initial_lines - $final)) total removed)"
+echo "=== Complete ($i iterations) ==="
