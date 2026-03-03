@@ -1701,6 +1701,9 @@ function _rename_params_T(sym::Symbol)
     is_k_parameter(sym) ? Symbol(string(sym) * "_T") : sym
 end
 
+"""Build T-state parameter substitution dictionary from a collection of parameter symbols."""
+_build_T_subs(params) = Dict(p => _rename_params_T(p) for p in params if is_k_parameter(p))
+
 """Name for a regulatory site parameter: K_{ligand}_reg{i} or K_{ligand}_T_reg{i}."""
 function _reg_param_name(ligand::Symbol, site_idx::Int, T_state::Bool)
     T_state ? Symbol("K_$(ligand)_T_reg$(site_idx)") :
@@ -1755,11 +1758,7 @@ function _dependent_param_exprs(
     end
 
     # NConf == 2: rename all k/K params (not Keq) with _T suffix
-    T_subs = Dict(
-        p => _rename_params_T(p)
-        for p in Iterators.flatten([keys(dep_R), indep_R])
-        if is_k_parameter(p) && p != :Keq
-    )
+    T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
     dep_T = Dict{Symbol, Union{Symbol, Expr}}(
         _rename_params_T(k) => substitute_params_expr(v, T_subs)
         for (k, v) in dep_R
@@ -1816,6 +1815,36 @@ function _power_expr(expr, n::Int)
 end
 
 """
+Build R-state and T-state dep param assignment Exprs.
+Returns `(r_assignments::Vector{Expr}, t_assignments::Vector{Expr})`.
+Shared by `_build_oligomeric_rate_body` and `rate_equation_string`.
+"""
+function _oligomeric_dep_assignments(
+    CM::Type{<:EnzymeMechanism}, NConf, inv_fn,
+)
+    dep_R, indep_R = _dependent_param_exprs(CM)
+    dep_R_kd = _apply_kd_inversion(dep_R, CM, inv_fn)
+    sorted_deps = sort(collect(dep_R_kd); by=first)
+
+    r_assignments = Expr[
+        Expr(:(=), sym, dep_R_kd[sym]) for (sym, _) in sorted_deps
+    ]
+
+    t_assignments = if NConf == 2
+        T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
+        Expr[
+            Expr(:(=), _rename_params_T(sym),
+                substitute_params_expr(dep_R_kd[sym], T_subs))
+            for (sym, _) in sorted_deps
+        ]
+    else
+        Expr[]
+    end
+
+    return r_assignments, t_assignments
+end
+
+"""
 Assemble the MWC numerator and denominator Exprs.
 Returns `(full_num, full_den)` where the numerator already includes the `CatN` factor.
 Shared by `_build_oligomeric_rate_body` and `rate_equation_string`.
@@ -1860,7 +1889,7 @@ function _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
     NConf == 1 && return :($(CatN) * $(num_R)), den_R
 
     # NConf == 2: T-state
-    T_subs = Dict(K => _rename_params_T(K) for K in cat_params if is_k_parameter(K))
+    T_subs = _build_T_subs(cat_params)
     N_T = substitute_params_expr(N_R, T_subs)
     Q_T = substitute_params_expr(Q_R, T_subs)
     reg_Q_T = Any[_reg_site_expr(ligs, i, true) for (i, (ligs, _)) in enumerate(RS)]
@@ -1877,32 +1906,9 @@ function _build_oligomeric_rate_body(Mets, CM, CatN, RS, NConf)
     full_num, full_den = _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
     rate_expr = :(E_total * ($full_num) / ($full_den))
 
-    # This call only accepts Type{<:EnzymeMechanism}, which narrows CM's type for JET
-    # so the subsequent _apply_kd_inversion call type-checks. Results go to cat_params.
-    num_fs_body, _ = _raw_symbolic_rate_polys(CM)
-    m_cat = CM()
-    cat_constr = Set(c[1] for c in param_constraints(m_cat))
-    cat_params = Set{Symbol}(
-        p for p in _raw_param_symbols(equilibrium_steps(m_cat)) if p ∉ cat_constr
+    r_assignments, t_assignments = _oligomeric_dep_assignments(
+        CM, NConf, K -> :(inv($K)),
     )
-
-    # Dep param assignments (R-state): k3r = inv(K2)*K1*k3f*inv(Keq), etc.
-    dep_R, _ = _dependent_param_exprs(CM)
-    dep_R_kd = _apply_kd_inversion(dep_R, CM, K -> :(inv($K)))
-    r_assignments = Expr[
-        Expr(:(=), sym, dep_R_kd[sym])
-        for (sym, _) in sort(collect(dep_R_kd); by=first)
-    ]
-
-    # T-state dep param assignments (NConf=2 only)
-    t_assignments = Expr[]
-    if NConf == 2
-        T_subs = Dict(K => _rename_params_T(K) for K in cat_params if is_k_parameter(K))
-        t_assignments = Expr[
-            Expr(:(=), _rename_params_T(sym), substitute_params_expr(dep_R_kd[sym], T_subs))
-            for (sym, _) in sort(collect(dep_R_kd); by=first)
-        ]
-    end
 
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq, :E_total)
@@ -1939,30 +1945,12 @@ function rate_equation_string(
     _, indep = _dependent_param_exprs(M)
     hw_params = (indep..., :Keq, :E_total)
 
-    # Dep param assignment strings (R-state)
-    dep_R, indep_R = _dependent_param_exprs(CM)
-    dep_R_kd = _apply_kd_inversion(dep_R, CM, K -> :(1 / $K))
-    dep_lines = [
-        "$sym = $(_expr_to_string(dep_R_kd[sym]))"
-        for (sym, _) in sort(collect(dep_R_kd); by=first)
-    ]
+    r_assignments, t_assignments = _oligomeric_dep_assignments(
+        CM, NConf, K -> :(1 / $K),
+    )
+    dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in r_assignments]
+    t_dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in t_assignments]
 
-    # T-state dep param assignments (NConf=2)
-    t_dep_lines = if NConf == 2
-        T_subs = Dict(
-            p => _rename_params_T(p)
-            for p in Iterators.flatten([keys(dep_R), indep_R])
-            if is_k_parameter(p) && p != :Keq
-        )
-        [
-            "$(_rename_params_T(sym)) = $(_expr_to_string(substitute_params_expr(dep_R_kd[sym], T_subs)))"
-            for (sym, _) in sort(collect(dep_R_kd); by=first)
-        ]
-    else
-        String[]
-    end
-
-    # Build the v = line using _oligomeric_num_den_exprs directly.
     full_num, full_den = _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
     v_line = "v = E_total * ($(_expr_to_string(full_num))) / ($(_expr_to_string(full_den)))"
 
