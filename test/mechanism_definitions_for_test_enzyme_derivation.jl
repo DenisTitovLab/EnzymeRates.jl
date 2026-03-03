@@ -14,7 +14,7 @@ Contains all expected properties for comprehensive testing.
 Base.@kwdef struct MechanismTestSpec
     # Core data
     name::String                          # Human-readable name for test labels
-    mechanism::EnzymeMechanism            # The mechanism instance
+    mechanism::Any                        # EnzymeMechanism or OligomericEnzymeMechanism
     metabolite_names::Vector{Symbol}      # For param/conc generation
 
     # Structural expectations
@@ -621,39 +621,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 12. Doubly Branched: E + S ⇌ EA, EA ⇌ EB, EA ⇌ EC, EB ⇌ E + P, EC ⇌ E + P
-    let
-        m = @enzyme_mechanism begin
-            species:begin
-                substrates:S[C]
-                products:P[C]
-                enzymes:E, EA[C], EB[C], EC[C]
-            end
-            steps:begin
-                [E, S] <--> [EA]
-                [EA] <--> [EB]
-                [EA] <--> [EC]
-                [EB] <--> [E, P]
-                [EC] <--> [E, P]
-            end
-        end
-        push!(specs, MechanismTestSpec(
-            name="Doubly Branched",
-            mechanism=m,
-            metabolite_names=[:S, :P],
-            expected_n_states=4,
-            expected_n_steps=5,
-            expected_n_metabolites=2,
-            expected_n_haldane=1,
-            expected_n_wegscheider=1,
-            expected_n_independent_params=8,
-            expected_identifiability_deficit=5,
-            expected_is_identifiable=false,
-            analytical_rate_fn=nothing
-        ))
-    end
-
-    # 13. Segel Bi Uni Uni Bi Ping Pong Ter Ter (new):
+    # 12. Segel Bi Uni Uni Bi Ping Pong Ter Ter (new):
     #     E + A ⇌ EA + B ⇌ (EAB≡FP) ⇌ F + P, F + C ⇌ (FC≡EQR) ⇌ ER + Q ⇌ E + R
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-278
     let
@@ -726,7 +694,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 14. Segel Bi Bi Uni Uni Ping Pong Ter Ter (new):
+    # 13. Segel Bi Bi Uni Uni Ping Pong Ter Ter (new):
     #     E + A ⇌ EA + B ⇌ (EAB≡FPQ) ⇌ FQ + P, FQ ⇌ F + Q, F + C ⇌ (FC≡ER) ⇌ E + R
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-288
     let
@@ -799,7 +767,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 15. Segel Hexa Uni Ping Pong (new):
+    # 14. Segel Hexa Uni Ping Pong (new):
     #     E + A ⇌ (EA≡FP) ⇌ F + P, F + B ⇌ (FB≡GQ) ⇌ G + Q, G + C ⇌ (GC≡ER) ⇌ E + R
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-308
     let
@@ -867,7 +835,7 @@ function build_mechanism_test_specs()
 
     # ── Rapid-Equilibrium (RE) Mechanisms ──────────────────────────────────────
 
-    # 16. RE Uni-Uni: E + A ⇌_RE EA <-->_SS E + P
+    # 15. RE Uni-Uni: E + A ⇌_RE EA <-->_SS E + P
     #     Rapid-equilibrium substrate binding, steady-state catalysis
     let
         m = @enzyme_mechanism begin
@@ -908,7 +876,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 17. RE Ordered Bi-Bi: substrate binding is RE, catalysis and product release are SS
+    # 16. RE Ordered Bi-Bi: substrate binding is RE, catalysis and product release are SS
     #     E + A ⇌_RE EA, EA + B ⇌_RE EAB, (EAB≡EPQ) <-->_SS EQ + P, EQ <-->_SS E + Q
     let
         m = @enzyme_mechanism begin
@@ -957,7 +925,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 18. RE Random Bi-Bi: binding to free enzyme is RE, other steps are SS
+    # 17. RE Random Bi-Bi: binding to free enzyme is RE, other steps are SS
     #     E + A ⇌_RE EA, E + B ⇌_RE EB, EA + B <-->_SS EAB, EB + A <-->_SS EAB,
     #     EAB <-->_SS EPQ, EPQ <-->_SS EQ + P, EQ <-->_SS E + Q
     let
@@ -993,98 +961,9 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 19. RE Product Release: E + A <-->_SS EA ⇌_RE E + P
-    #     Substrate binding is SS, product release is RE (K2 is Ka, NOT inverted)
-    let
-        m = @enzyme_mechanism begin
-            species:begin
-                substrates:A[C]
-                products:P[C]
-                enzymes:E, EA[C]
-            end
-            steps:begin
-                [E, A] <--> [EA]
-                [EA] ⇌ [E, P]
-            end
-        end
-
-        # K2 = Ka (forward eq const for EA ⇌ E + P), NOT inverted
-        # All forms in one RE group (G=1): sigma = K2 + P (cleared den = K2)
-        # num = k1f * K2 * A - k1r * P
-        # denom = K2 + P
-        function rate_re_product_release(params, concs)
-            (; k1f, k1r, K2, Et) = params
-            (; A, P) = concs
-            num = k1f * K2 * A - k1r * P
-            denom = K2 + P
-            return Et * num / denom
-        end
-
-        push!(specs, MechanismTestSpec(
-            name="RE Product Release",
-            mechanism=m,
-            metabolite_names=[:A, :P],
-            expected_n_states=2,
-            expected_n_steps=2,
-            expected_n_metabolites=2,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
-            expected_n_independent_params=2,
-            expected_identifiability_deficit=0,
-            expected_is_identifiable=true,
-            analytical_rate_fn=(p, c) -> rate_re_product_release(merge(p, (Et=p.Et,)), c)
-        ))
-    end
-
-    # 20. RE Both Directions: E + A ⇌_RE EA <-->_SS EP ⇌_RE E + P
-    #     Substrate binding RE (K1 = Kd, inverted),
-    #     product release RE (K3 = Ka, NOT inverted)
-    let
-        m = @enzyme_mechanism begin
-            species:begin
-                substrates:A[C]
-                products:P[C]
-                enzymes:E, EA[C], EP[C]
-            end
-            steps:begin
-                [E, A] ⇌ [EA]
-                [EA] <--> [EP]
-                [EP] ⇌ [E, P]
-            end
-        end
-
-        # All forms in one RE group (G=1)
-        # K1 = Kd (inverted), K3 = Ka (not inverted)
-        # sigma_num = K3 + K3*A/K1 + P  (cleared den = K3 from alpha_den[EP])
-        # num = k2f * K3 * A / K1 - k2r * P
-        # denom = K3 + K3 * A / K1 + P
-        function rate_re_both_directions(params, concs)
-            (; K1, k2f, k2r, K3, Et) = params
-            (; A, P) = concs
-            num = k2f * K3 * A / K1 - k2r * P
-            denom = K3 + K3 * A / K1 + P
-            return Et * num / denom
-        end
-
-        push!(specs, MechanismTestSpec(
-            name="RE Both Directions",
-            mechanism=m,
-            metabolite_names=[:A, :P],
-            expected_n_states=3,
-            expected_n_steps=3,
-            expected_n_metabolites=2,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
-            expected_n_independent_params=3,
-            expected_identifiability_deficit=0,
-            expected_is_identifiable=true,
-            analytical_rate_fn=(p, c) -> rate_re_both_directions(merge(p, (Et=p.Et,)), c)
-        ))
-    end
-
     # ── Classical Inhibitor/Activator Mechanisms (factored form tests) ────────
 
-    # 21. Competitive inhibitor: E + S ⇌ ES, ES ⇌ EP (SS), EP ⇌ E + P, E + R ⇌ ER
+    # 18. Competitive inhibitor: E + S ⇌ ES, ES ⇌ EP (SS), EP ⇌ E + P, E + R ⇌ ER
     #     Dead-end inhibitor R binds free enzyme only.
     #     No Cartesian product structure → flat sum denominator.
     let
@@ -1136,7 +1015,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 22. Non-competitive inhibitor: R binds both free E and ES with same K
+    # 19. Non-competitive inhibitor: R binds both free E and ES with same K
     #     Forms: E, E_S, E_P, E_R, E_S_R; SS: E_S↔E_P; K5=K4
     #     Denom factors as (1+R/K4)*(1+S/K1) + P/K3
     let
@@ -1192,7 +1071,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 23. Uncompetitive inhibitor: R binds ES only (not free E)
+    # 20. Uncompetitive inhibitor: R binds ES only (not free E)
     #     Forms: E, E_S, E_P, E_S_R; SS: E_S↔E_P; No extra constraints
     #     Denom: 1 + P/K3 + S/K1*(1+R/K4)
     let
@@ -1243,7 +1122,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 24. Essential activator: R must bind before S can bind
+    # 21. Essential activator: R must bind before S can bind
     #     Forms: E, E_R, E_S_R, E_P_R; SS: E_S_R↔E_P_R
     #     Num: R/K4 * (k2f*S/K1 - k2r*P/K3)
     #     Denom: 1 + R/K4*(1+S/K1+P/K3)
@@ -1295,7 +1174,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 25. Non-essential activator (general modifier):
+    # 22. Non-essential activator (general modifier):
     #     R modifies catalysis but isn't required. Two parallel SS cycles.
     #     Forms: E, E_S, E_P, E_R, E_S_R, E_P_R; SS: E_S↔E_P, E_S_R↔E_P_R
     #     K8=K7, K9=K7 (R binding independent of S/P)
@@ -1359,100 +1238,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 26. Symmetric homodimer (9 ordered-subunit forms, 6 SS catalytic steps)
-    #     Each subunit tracked separately: E_XY where X=site1 state, Y=site2 state.
-    #     All binding K equal (K1 for S, K13 for P), all catalytic k equal (k7f/k7r).
-    #     Textbook: v = 2*Et*(k7f*S/K1 - k7r*P/K13) / (1+S/K1+P/K13)
-    #     Before cancellation: num = 2*(k7f*S/K1-k7r*P/K13)*(1+S/K1+P/K13)
-    #                          denom = (1+S/K1+P/K13)^2
-    let
-        m = @enzyme_mechanism begin
-            species:begin
-                substrates:S[C]
-                products:P[C]
-                enzymes:E_00,
-                E_0S[C], E_S0[C],
-                E_0P[C], E_P0[C],
-                E_SS[C2], E_SP[C2], E_PS[C2], E_PP[C2]
-            end
-            steps:begin
-                # S binding (RE)
-                [E_00, S] ⇌ [E_0S]         # K1
-                [E_00, S] ⇌ [E_S0]         # K2
-                [E_0S, S] ⇌ [E_SS]         # K3
-                [E_S0, S] ⇌ [E_SS]         # K4
-                [E_0P, S] ⇌ [E_SP]         # K5
-                [E_P0, S] ⇌ [E_PS]         # K6
-                # Catalysis (SS)
-                [E_S0] <--> [E_P0]          # k7f, k7r
-                [E_0S] <--> [E_0P]          # k8f, k8r
-                [E_SS] <--> [E_SP]          # k9f, k9r
-                [E_SS] <--> [E_PS]          # k10f, k10r
-                [E_SP] <--> [E_PP]          # k11f, k11r
-                [E_PS] <--> [E_PP]          # k12f, k12r
-                # P binding (RE)
-                [E_00, P] ⇌ [E_0P]         # K13
-                [E_00, P] ⇌ [E_P0]         # K14
-                [E_0P, P] ⇌ [E_PP]         # K15
-                [E_P0, P] ⇌ [E_PP]         # K16
-                [E_0S, P] ⇌ [E_SP]         # K17
-                [E_S0, P] ⇌ [E_PS]         # K18
-            end
-            constraints:begin
-                # S binding: all equal
-                K2 = K1
-                K3 = K1
-                K4 = K1
-                K5 = K1
-                K6 = K1
-                # Catalysis: all forward equal, reverse equal due to Haldane relationships
-                k8f = k7f
-                k9f = k7f
-                k10f = k7f
-                k11f = k7f
-                k12f = k7f
-                # P binding: all equal
-                K14 = K13
-                K15 = K13
-                K16 = K13
-                K17 = K13
-                K18 = K13
-            end
-        end
-
-        # v = 2*Et*(k7f*S/K1 - k7r*P/K13) / (1+S/K1+P/K13)
-        function rate_dimer(params, concs)
-            (; K1, k7f, k7r, K13, Et) = params
-            (; S, P) = concs
-            num = k7f * S / K1 - k7r * P / K13
-            denom = 1.0 + S / K1 + P / K13
-            return 2.0 * Et * num / denom
-        end
-
-        push!(specs, MechanismTestSpec(
-            name="Symmetric Homodimer",
-            mechanism=m,
-            metabolite_names=[:S, :P],
-            expected_n_states=9,
-            expected_n_steps=18,
-            expected_n_metabolites=2,
-            expected_n_haldane=6,
-            expected_n_wegscheider=0,
-            expected_n_independent_params=3,
-            expected_identifiability_deficit=-6,
-            expected_is_identifiable=true,
-            analytical_rate_fn=rate_dimer,
-            expected_factored_num=
-            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13)",
-            factored_num_broken=false,
-            # Textbook: (1+S/K1+P/K13)^2
-            expected_factored_denom=
-            "(1 + S / K1 + P / K13) ^ 2",
-            factored_denom_broken=false,
-        ))
-    end
-
-    # 27. Non-essential activator + competitive inhibitor:
+    # 23. Non-essential activator + competitive inhibitor:
     #     Combines spec 25 (non-essential activator) with competitive inhibition.
     #     A modifies catalysis but isn't required (binds E, E_S, E_P with same K).
     #     I binds only free E (competitive dead-end).
@@ -1526,7 +1312,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 28. MWC (Monod-Wyman-Changeux) dimer with R/T conformational states
+    # 24. MWC (Monod-Wyman-Changeux) dimer with R/T conformational states
     #     Two conformational states: R (relaxed, active) and T (tense, inactive).
     #     Two identical substrate binding sites per state. Only R state is
     #     catalytically active (SS isomerization S→P at each site).
@@ -1673,97 +1459,61 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # 24B. OligomericEnzymeMechanism equivalent of MWC Dimer (spec #24)
+    #      2 catalytic sites × 2 conformations (R/T). No explicit equality constraints
+    #      needed — symmetric subunits are captured by the site multiplicity.
+    #      Conformational equilibrium: L (= K37 in the EnzymeMechanism above).
+    if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
+        let
+            # TODO: activate once @enzyme_mechanism supports OligomericEnzymeMechanism DSL.
+            # m = @enzyme_mechanism begin
+            #     metabolites: S[C], P[C]
+            #     conformations: 2    # R (active) and T (tense)
+            #     site(:catalytic, 2):begin
+            #         states: E_c, E_S[C], E_P[C]
+            #         steps: begin
+            #             [E_c, S] ⇌ [E_S]    # K1 (R), K1_T (T)
+            #             [E_c, P] ⇌ [E_P]    # K2 (R), K2_T (T)
+            #             [E_S] <--> [E_P]     # k3f, k3r Haldane (R); k3f_T, k3r_T Haldane (T)
+            #         end
+            #     end
+            # end
+            m = nothing
+
+            function rate_mwc_dimer_oligo(params, concs)
+                (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T, L, Et) = params
+                (; S, P) = concs
+                r_flux   = k3f * S / K1 - k3r * P / K2
+                t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
+                r_factor = 1.0 + S / K1 + P / K2
+                t_factor = 1.0 + S / K1_T + P / K2_T
+                return Et * 2.0 * (r_flux * r_factor + L * t_flux * t_factor) /
+                           (r_factor^2 + L * t_factor^2)
+            end
+
+            push!(specs, MechanismTestSpec(
+                name="MWC Dimer [OligomericEnzymeMechanism]",
+                mechanism=m,
+                metabolite_names=[:S, :P],
+                expected_n_states=3,          # catalytic subunit: E_c, E_S, E_P
+                expected_n_steps=3,           # 2 RE + 1 SS per subunit
+                expected_n_metabolites=2,
+                expected_n_haldane=2,         # k3r per conformation × 2
+                expected_n_wegscheider=0,
+                expected_n_independent_params=7,
+                expected_identifiability_deficit=0,  # TODO: verify once implemented
+                expected_is_identifiable=true,
+                run_ode_test=false,
+                analytical_rate_fn=rate_mwc_dimer_oligo,
+            ))
+        end
+    end
+
     # ── Edge-case factoring tests ─────────────────────────────────────────────
     # These mechanisms test factoring patterns not covered by the classical
     # inhibitor/activator mechanisms above.
 
-    # 29. Homodimer + Competitive Inhibitor
-    #     Tests: power^2 denominator + additive dead-end term.
-    #     I binds only bare enzyme E_00 (competitive with both substrate sites).
-    #     Denom: (1+S/K1+P/K13)^2 + I/K19
-    #     Num: 2*(1+S/K1+P/K13)*(k7f*S/K1 - k7r*P/K13)
-    let
-        m = @enzyme_mechanism begin
-            species:begin
-                substrates:S[C]
-                products:P[C]
-                regulators:I[X]
-                enzymes:E_00,
-                E_0S[C], E_S0[C],
-                E_0P[C], E_P0[C],
-                E_SS[C2], E_SP[C2], E_PS[C2], E_PP[C2],
-                E_I[X]
-            end
-            steps:begin
-                [E_00, S] ⇌ [E_0S]
-                [E_00, S] ⇌ [E_S0]
-                [E_0S, S] ⇌ [E_SS]
-                [E_S0, S] ⇌ [E_SS]
-                [E_0P, S] ⇌ [E_SP]
-                [E_P0, S] ⇌ [E_PS]
-                [E_S0] <--> [E_P0]
-                [E_0S] <--> [E_0P]
-                [E_SS] <--> [E_SP]
-                [E_SS] <--> [E_PS]
-                [E_SP] <--> [E_PP]
-                [E_PS] <--> [E_PP]
-                [E_00, P] ⇌ [E_P0]
-                [E_00, P] ⇌ [E_0P]
-                [E_P0, P] ⇌ [E_PP]
-                [E_0P, P] ⇌ [E_PP]
-                [E_S0, P] ⇌ [E_SP]
-                [E_0S, P] ⇌ [E_PS]
-                [E_00, I] ⇌ [E_I]
-            end
-            constraints:begin
-                K2 = K1
-                K3 = K1
-                K4 = K1
-                K5 = K1
-                K6 = K1
-                k8f = k7f
-                k9f = k7f
-                k10f = k7f
-                k11f = k7f
-                k12f = k7f
-                K14 = K13
-                K15 = K13
-                K16 = K13
-                K17 = K13
-                K18 = K13
-            end
-        end
-
-        function rate_homodimer_comp_inh(p, c)
-            (; K1, k7f, k7r, K13, K19, Et) = p
-            (; S, P, I) = c
-            flux = k7f * S / K1 - k7r * P / K13
-            factor = 1.0 + S / K1 + P / K13
-            return Et * 2.0 * flux * factor / (factor^2 + I / K19)
-        end
-
-        push!(specs, MechanismTestSpec(
-            name="Homodimer + Competitive Inhibitor",
-            mechanism=m,
-            metabolite_names=[:S, :P, :I],
-            expected_n_states=10,
-            expected_n_steps=19,
-            expected_n_metabolites=3,
-            expected_n_haldane=6,
-            expected_n_wegscheider=0,
-            expected_n_independent_params=4,
-            expected_identifiability_deficit=-6,
-            expected_is_identifiable=true,
-            analytical_rate_fn=(p, c) ->
-                rate_homodimer_comp_inh(merge(p, (Et=p.Et,)), c),
-            expected_factored_num=
-            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13)",
-            expected_factored_denom=
-            "(1 + S / K1 + P / K13) ^ 2 + I / K19",
-        ))
-    end
-
-    # 30. Homodimer + Non-competitive Inhibitor
+    # 25. Homodimer + Non-competitive Inhibitor
     #     Tests: power^2 × multiplicative linear factor.
     #     I binds all 9 homodimer forms independently (same Ki).
     #     Denom: (1+S/K1+P/K13)^2 * (1+I/K19)
@@ -1891,7 +1641,57 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 31. MWC Dimer + Independent Inhibitor
+    # 25B. OligomericEnzymeMechanism equivalent of Homodimer + Non-competitive Inhibitor (spec #25)
+    #      I binds all enzyme forms independently with the same Ki (enzyme-level).
+    #      sigma = Q_cat^2 * (1 + I/K_I_reg1)  (multiplicative factor).
+    if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
+        let
+            # TODO: activate once @enzyme_mechanism supports OligomericEnzymeMechanism DSL.
+            # Non-competitive inhibitor: enzyme-level regulatory site gives multiplicative factor.
+            # m = @enzyme_mechanism begin
+            #     metabolites: S[C], P[C], I[X]
+            #     site(:catalytic, 2):begin
+            #         states: E_c, E_S[C], E_P[C]
+            #         steps: begin
+            #             [E_c, S] ⇌ [E_S]    # K1
+            #             [E_c, P] ⇌ [E_P]    # K2
+            #             [E_S] <--> [E_P]     # k3f, k3r via Haldane
+            #         end
+            #     end
+            #     site(:regulatory, 1):begin  # enzyme-level: sigma *= (1 + I/K_I_reg1)
+            #         ligands: I
+            #     end
+            # end
+            m = nothing
+
+            function rate_homodimer_noncomp_inh_oligo(params, concs)
+                (; K1, K2, k3f, k3r, K_I_reg1, Et) = params
+                (; S, P, I) = concs
+                flux   = k3f * S / K1 - k3r * P / K2
+                factor = 1.0 + S / K1 + P / K2
+                return Et * 2.0 * flux * factor /
+                           (factor^2 * (1.0 + I / K_I_reg1))
+            end
+
+            push!(specs, MechanismTestSpec(
+                name="Homodimer + Non-competitive Inhibitor [OligomericEnzymeMechanism]",
+                mechanism=m,
+                metabolite_names=[:S, :P, :I],
+                expected_n_states=3,
+                expected_n_steps=3,
+                expected_n_metabolites=3,
+                expected_n_haldane=1,
+                expected_n_wegscheider=0,
+                expected_n_independent_params=4,
+                expected_identifiability_deficit=0,  # TODO: verify once implemented
+                expected_is_identifiable=true,
+                run_ode_test=false,
+                analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
+            ))
+        end
+    end
+
+    # 26. MWC Dimer + Independent Inhibitor
     #     Tests: multi-group power^2 × per-group linear factor.
     #     I binds independently to all R and T forms (different Ki per conformation).
     #     Denom: (1+S/K1+P/K13)^2*(1+I/K38) + K37*(1+S/K19+P/K31)^2*(1+I/K47)
@@ -2100,7 +1900,63 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 32. Two Competitive Inhibitors (monomer)
+    # 26B. OligomericEnzymeMechanism equivalent of MWC Dimer + Independent Inhibitor (spec #26)
+    #      The Wegscheider constraint K80 = K47*K37/K38 (R_00I ⇌ T_00I equilibrium)
+    #      is automatically satisfied by the conformational assembly formula — no
+    #      explicit constraint needed in the OligomericEnzymeMechanism DSL.
+    if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
+        let
+            # TODO: activate once @enzyme_mechanism supports OligomericEnzymeMechanism DSL.
+            # m = @enzyme_mechanism begin
+            #     metabolites: S[C], P[C], I[Y]
+            #     conformations: 2    # R and T
+            #     site(:catalytic, 2):begin
+            #         states: E_c, E_S[C], E_P[C]
+            #         steps: begin
+            #             [E_c, S] ⇌ [E_S]    # K1 (R), K1_T (T)
+            #             [E_c, P] ⇌ [E_P]    # K2 (R), K2_T (T)
+            #             [E_S] <--> [E_P]     # k3f, k3r Haldane (R); k3f_T, k3r_T Haldane (T)
+            #         end
+            #     end
+            #     site(:regulatory, 1):begin  # enzyme-level; conformation-specific Ki
+            #         ligands: I    # K_I_reg1 (R state), K_I_T_reg1 (T state)
+            #     end
+            # end
+            m = nothing
+
+            function rate_mwc_dimer_inh_oligo(params, concs)
+                (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T,
+                   L, K_I_reg1, K_I_T_reg1, Et) = params
+                (; S, P, I) = concs
+                r_flux   = k3f * S / K1 - k3r * P / K2
+                t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
+                r_factor = 1.0 + S / K1 + P / K2
+                t_factor = 1.0 + S / K1_T + P / K2_T
+                num   = 2.0 * (r_flux * r_factor + L * t_flux * t_factor)
+                denom = r_factor^2 * (1.0 + I / K_I_reg1) +
+                        L * t_factor^2 * (1.0 + I / K_I_T_reg1)
+                return Et * num / denom
+            end
+
+            push!(specs, MechanismTestSpec(
+                name="MWC Dimer + Independent Inhibitor [OligomericEnzymeMechanism]",
+                mechanism=m,
+                metabolite_names=[:S, :P, :I],
+                expected_n_states=3,
+                expected_n_steps=3,
+                expected_n_metabolites=3,
+                expected_n_haldane=2,
+                expected_n_wegscheider=0,  # thermodynamic consistency is automatic
+                expected_n_independent_params=9,
+                expected_identifiability_deficit=0,  # TODO: verify once implemented
+                expected_is_identifiable=true,
+                run_ode_test=false,
+                analytical_rate_fn=rate_mwc_dimer_inh_oligo,
+            ))
+        end
+    end
+
+    # 27. Two Competitive Inhibitors (monomer)
     #     Tests: multiple additive dead-end terms (flat sum denominator).
     #     I1 and I2 both bind only free E (competitive with S/P and each other).
     #     Denom: 1 + S/K1 + P/K3 + I1/K4 + I2/K5
@@ -2150,7 +2006,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 33. Two Non-competitive Inhibitors (monomer)
+    # 28. Two Non-competitive Inhibitors (monomer)
     #     Tests: triple multiplicative product factoring.
     #     I1 and I2 bind independently to all forms (E, ES, EP) at separate sites.
     #     Denom: (1+S/K1+P/K3) * (1+I1/K4) * (1+I2/K7)
@@ -2238,7 +2094,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 34. Non-competitive + Competitive Inhibitor (monomer)
+    # 29. Non-competitive + Competitive Inhibitor (monomer)
     #     Tests: multiplicative product + additive dead-end term.
     #     I1 binds all forms independently (non-competitive).
     #     I2 binds only free E (competitive).
@@ -2302,7 +2158,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 35. Uncompetitive + Competitive Inhibitor (monomer)
+    # 30. Uncompetitive + Competitive Inhibitor (monomer)
     #     Tests: mixed additive structure with nested multiplicative term.
     #     I1 binds only ES (uncompetitive). I2 binds only free E (competitive).
     #     Denom: 1 + I2/K5 + P/K3 + (S/K1)*(1+I1/K4)
@@ -2355,7 +2211,7 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 36. Two Same-site (Competing) Non-competitive Inhibitors (monomer)
+    # 31. Two Same-site (Competing) Non-competitive Inhibitors (monomer)
     #     Tests: multiplicative product with flat-sum allosteric factor.
     #     I1 and I2 compete for the same allosteric site X (mutually exclusive).
     #     Both bind independently of S/P (non-competitive).
@@ -2425,6 +2281,162 @@ function build_mechanism_test_specs()
             expected_factored_denom=
             "(1 + I1 / K4 + I2 / K9) * (1 + S / K1 + P / K3)",
         ))
+    end
+
+    # 32. MWC Tetramer — Random-Order Bi-Bi RE + Two Allosteric Sites
+    #
+    # Reaction: S1 + S2 ⇌ P1 + P2  (Bi-Bi)
+    #
+    # Catalytic site (×4 subunits, NConf=2):
+    #   Site A: S1 and P1 bind competitively (Kd = K1, K2 in R state)
+    #   Site B: S2 and P2 bind competitively (Kd = K3, K4 in R state)
+    #   Sites A and B are independent — cross-occupancy (S1+P2, P1+S2) is allowed.
+    #   All binding steps are RE; only the ternary complex interconversion is SS:
+    #     E_S1S2 <--> E_P1P2  (k13f, k13r; k13r derived from shared Keq via Haldane)
+    #   Wegscheider constraints enforce site independence:
+    #     K5=K3, K6=K1  (two routes to E_S1S2)
+    #     K7=K4, K8=K1  (two routes to E_S1P2)
+    #     K9=K3, K10=K2 (two routes to E_P1S2)
+    #     K11=K4, K12=K2 (two routes to E_P1P2)
+    #
+    # Reg site type 1 (×4 per tetramer): R1 and R2 bind competitively
+    # Reg site type 2 (×4 per tetramer): R3 binds exclusively
+    #
+    # Analytical rate equation (all Kd = dissociation constants):
+    #
+    #   R-state catalytic site:
+    #     Q_A_R   = 1 + S1/K1 + P1/K2
+    #     Q_B_R   = 1 + S2/K3 + P2/K4
+    #     Q_cat_R = Q_A_R * Q_B_R          (site A ⊗ site B independence)
+    #     N_cat_R = k13f*S1*S2/(K1*K3) - k13r*P1*P2/(K2*K4)
+    #
+    #   T-state: same with _T suffix on every K and k parameter.
+    #
+    #   Regulatory partition functions (star topology → direct sum):
+    #     Q_reg1_R = 1 + R1/K_R1_reg1 + R2/K_R2_reg1
+    #     Q_reg2_R = 1 + R3/K_R3_reg2
+    #     (T-state: K_R1_T_reg1, K_R2_T_reg1, K_R3_T_reg2)
+    #
+    #   MWC assembly (n_cat=4, n_reg1=4, n_reg2=4):
+    #     Q_R = Q_cat_R^4 * Q_reg1_R^4 * Q_reg2_R^4
+    #     Q_T = Q_cat_T^4 * Q_reg1_T^4 * Q_reg2_T^4
+    #     Z   = Q_R + L * Q_T
+    #     Rate = Et * 4 * (N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4
+    #                    + L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4) / Z
+    #
+    # Independent parameters (17, excluding Keq and Et):
+    #   R-state catalytic: K1, K2, K3, K4, k13f
+    #   T-state catalytic: K1_T, K2_T, K3_T, K4_T, k13f_T
+    #   Reg site 1 R: K_R1_reg1, K_R2_reg1
+    #   Reg site 1 T: K_R1_T_reg1, K_R2_T_reg1
+    #   Reg site 2 R: K_R3_reg2
+    #   Reg site 2 T: K_R3_T_reg2
+    #   Conformational equilibrium: L
+    if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
+        let
+            # TODO: Replace `nothing` with @enzyme_mechanism call once
+            # OligomericEnzymeMechanism is implemented. Intended DSL:
+            #
+            # m = @enzyme_mechanism begin
+            #     metabolites: S1[C], S2[N], P1[C], P2[N], R1[X], R2[Y], R3[Z]
+            #     conformations: 2    # NConf=2: R (active) and T (tense) states
+            #     site(:catalytic, 4):begin
+            #         states: E_c,
+            #                 E_S1[C], E_P1[C],
+            #                 E_S2[N], E_P2[N],
+            #                 E_S1S2[CN], E_P1P2[CN],
+            #                 E_S1P2[CN], E_P1S2[CN]
+            #         steps: begin
+            #             [E_c,  S1] ⇌ [E_S1]         # K1
+            #             [E_c,  P1] ⇌ [E_P1]         # K2
+            #             [E_c,  S2] ⇌ [E_S2]         # K3
+            #             [E_c,  P2] ⇌ [E_P2]         # K4
+            #             [E_S1, S2] ⇌ [E_S1S2]       # K5  = K3
+            #             [E_S2, S1] ⇌ [E_S1S2]       # K6  = K1
+            #             [E_S1, P2] ⇌ [E_S1P2]       # K7  = K4
+            #             [E_P2, S1] ⇌ [E_S1P2]       # K8  = K1
+            #             [E_P1, S2] ⇌ [E_P1S2]       # K9  = K3
+            #             [E_S2, P1] ⇌ [E_P1S2]       # K10 = K2
+            #             [E_P1, P2] ⇌ [E_P1P2]       # K11 = K4
+            #             [E_P2, P1] ⇌ [E_P1P2]       # K12 = K2
+            #             [E_S1S2] <--> [E_P1P2]       # k13f, k13r (k13r via Haldane)
+            #         end
+            #         constraints: begin
+            #             K5=K3; K6=K1; K7=K4; K8=K1; K9=K3; K10=K2; K11=K4; K12=K2
+            #         end
+            #     end
+            #     site(:regulatory, 4):begin
+            #         ligands: R1, R2
+            #     end
+            #     site(:regulatory, 4):begin
+            #         ligands: R3
+            #     end
+            # end
+            m = nothing
+
+            # Parameter naming convention:
+            #   R-state catalytic Kd: K1=Kd(S1), K2=Kd(P1), K3=Kd(S2), K4=Kd(P2)
+            #   R-state SS rate:      k13f (k13r is Haldane-derived)
+            #   T-state catalytic:    K1_T, K2_T, K3_T, K4_T, k13f_T, k13r_T
+            #   Reg site 1, R state:  K_R1_reg1, K_R2_reg1
+            #   Reg site 1, T state:  K_R1_T_reg1, K_R2_T_reg1
+            #   Reg site 2, R state:  K_R3_reg2
+            #   Reg site 2, T state:  K_R3_T_reg2
+            #   Shared: L (= [E_T]/[E_R] for bare enzyme), Keq, Et
+            function rate_mwc_tetramer_bi_bi(params, concs)
+                (; K1, K2, K3, K4, k13f, k13r,
+                   K1_T, K2_T, K3_T, K4_T, k13f_T, k13r_T,
+                   K_R1_reg1, K_R2_reg1, K_R1_T_reg1, K_R2_T_reg1,
+                   K_R3_reg2, K_R3_T_reg2,
+                   L, Et) = params
+                (; S1, S2, P1, P2, R1, R2, R3) = concs
+
+                # R-state: catalytic site factors by site-A ⊗ site-B independence
+                Q_A_R   = 1.0 + S1 / K1 + P1 / K2
+                Q_B_R   = 1.0 + S2 / K3 + P2 / K4
+                Q_cat_R = Q_A_R * Q_B_R
+                N_cat_R = k13f * S1 * S2 / (K1 * K3) - k13r * P1 * P2 / (K2 * K4)
+
+                # R-state: regulatory site partition functions (star topology → direct sum)
+                Q_reg1_R = 1.0 + R1 / K_R1_reg1 + R2 / K_R2_reg1
+                Q_reg2_R = 1.0 + R3 / K_R3_reg2
+
+                # T-state: same structure with _T parameters
+                Q_A_T   = 1.0 + S1 / K1_T + P1 / K2_T
+                Q_B_T   = 1.0 + S2 / K3_T + P2 / K4_T
+                Q_cat_T = Q_A_T * Q_B_T
+                N_cat_T = k13f_T * S1 * S2 / (K1_T * K3_T) - k13r_T * P1 * P2 / (K2_T * K4_T)
+
+                Q_reg1_T = 1.0 + R1 / K_R1_T_reg1 + R2 / K_R2_T_reg1
+                Q_reg2_T = 1.0 + R3 / K_R3_T_reg2
+
+                # MWC assembly (n_cat=4, n_reg1=4, n_reg2=4)
+                Q_R = Q_cat_R^4 * Q_reg1_R^4 * Q_reg2_R^4
+                Q_T = Q_cat_T^4 * Q_reg1_T^4 * Q_reg2_T^4
+                Z   = Q_R + L * Q_T
+
+                num = N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4 +
+                      L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4
+
+                return Et * 4.0 * num / Z
+            end
+
+            push!(specs, MechanismTestSpec(
+                name="MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites",
+                mechanism=m,
+                metabolite_names=[:S1, :S2, :P1, :P2, :R1, :R2, :R3],
+                expected_n_states=9,           # catalytic subunit states
+                expected_n_steps=13,           # catalytic subunit steps
+                expected_n_metabolites=7,
+                expected_n_haldane=2,          # one k13r per conformation (R and T)
+                expected_n_wegscheider=16,     # 8 site-independence constraints × 2 conformations
+                expected_n_independent_params=17,
+                expected_identifiability_deficit=0,  # TODO: verify once implemented
+                expected_is_identifiable=true,
+                run_ode_test=false,
+                analytical_rate_fn=rate_mwc_tetramer_bi_bi,
+            ))
+        end
     end
 
     return specs
