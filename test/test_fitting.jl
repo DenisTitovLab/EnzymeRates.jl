@@ -182,6 +182,33 @@ using Tables
         @test l > 0.0
     end
 
+    # ── Test 6b: All-mismatch figure has positive loss ────────────────────────
+    # Regression test: previously, when all predictions in a figure were sign-
+    # mismatches, the centering step zeroed every deviation (10-mean(10)=0).
+    # The loss must be nonzero to distinguish a bad mechanism from a perfect one.
+    @testset "All-mismatch figure not cancelled by centering" begin
+        Keq_val = 2.0
+        # S=0 and P=0 force pred=0 regardless of parameter values, because both
+        # numerator terms contain S or P.  With positive measured rates every
+        # point gets buf[i]=10.0 (sign mismatch / zero prediction).
+        data = (
+            Article = fill("A1", 5),
+            Fig     = fill("F1", 5),
+            Rate    = [1.0, 2.0, 3.0, 4.0, 5.0],
+            S       = zeros(5),
+            P       = zeros(5),
+        )
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
+
+        pn = EnzymeRates.fitted_params(uni_uni)
+        x = randn(length(pn))
+        l = EnzymeRates.loss!(x, fp)
+
+        @test l > 0.0
+        # 5 mismatches, flat penalty = 100.0 each, normalised by n_data=5 → 100.0
+        @test l ≈ 100.0
+    end
+
     # ── Test 7: Zero allocations ──────────────────────────────────────────────
     @testset "Zero allocations" begin
         Keq_val = 2.0
