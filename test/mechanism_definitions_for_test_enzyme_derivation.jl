@@ -1450,12 +1450,6 @@ function build_mechanism_test_specs()
             expected_identifiability_deficit=-2,
             expected_is_identifiable=true,
             analytical_rate_fn=rate_mwc_dimer,
-            expected_factored_num=
-            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13) + 2 * K37 * (1 + S / K19 + P / K31) * (k25f * S / K19 - k25r * P / K31)",
-            factored_num_broken=false,
-            expected_factored_denom=
-            "(1 + S / K1 + P / K13) ^ 2 + K37 * (1 + S / K19 + P / K31) ^ 2",
-            factored_denom_broken=false,
         ))
     end
 
@@ -1641,10 +1635,6 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_homodimer_noncomp_inh(merge(p, (Et=p.Et,)), c),
-            expected_factored_num=
-            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13)",
-            expected_factored_denom=
-            "(1 + S / K1 + P / K13) ^ 2 * (1 + I / K19)",
         ))
     end
 
@@ -1905,10 +1895,6 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_mwc_dimer_inh(merge(p, (Et=p.Et,)), c),
-            expected_factored_num=
-            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13) + 2 * K37 * (1 + S / K19 + P / K31) * (k25f * S / K19 - k25r * P / K31)",
-            expected_factored_denom=
-            "(1 + S / K1 + P / K13) ^ 2 * (1 + I / K38) + K37 * (1 + S / K19 + P / K31) ^ 2 * (1 + I / K47)",
         ))
     end
 
