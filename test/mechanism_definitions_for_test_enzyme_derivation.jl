@@ -1465,20 +1465,18 @@ function build_mechanism_test_specs()
     #      Conformational equilibrium: L (= K37 in the EnzymeMechanism above).
     if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
         let
-            # TODO: activate once @enzyme_mechanism supports OligomericEnzymeMechanism DSL.
-            # m = @enzyme_mechanism begin
-            #     metabolites: S[C], P[C]
-            #     conformations: 2    # R (active) and T (tense)
-            #     site(:catalytic, 2):begin
-            #         states: E_c, E_S[C], E_P[C]
-            #         steps: begin
-            #             [E_c, S] ⇌ [E_S]    # K1 (R), K1_T (T)
-            #             [E_c, P] ⇌ [E_P]    # K2 (R), K2_T (T)
-            #             [E_S] <--> [E_P]     # k3f, k3r Haldane (R); k3f_T, k3r_T Haldane (T)
-            #         end
-            #     end
-            # end
-            m = nothing
+            m = @enzyme_mechanism begin
+                metabolites: S[C], P[C]
+                conformations: 2    # R (active) and T (tense)
+                site(:catalytic, 2):begin
+                    states: E_c, E_S[C], E_P[C]
+                    steps: begin
+                        [E_c, S] ⇌ [E_S]    # K1 (R), K1_T (T)
+                        [E_c, P] ⇌ [E_P]    # K2 (R), K2_T (T)
+                        [E_S] <--> [E_P]     # k3f, k3r Haldane (R); k3f_T, k3r_T Haldane (T)
+                    end
+                end
+            end
 
             function rate_mwc_dimer_oligo(params, concs)
                 (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T, L, Et) = params
@@ -1501,10 +1499,15 @@ function build_mechanism_test_specs()
                 expected_n_haldane=2,         # k3r per conformation × 2
                 expected_n_wegscheider=0,
                 expected_n_independent_params=7,
-                expected_identifiability_deficit=0,  # TODO: verify once implemented
+                expected_identifiability_deficit=-2,
                 expected_is_identifiable=true,
                 run_ode_test=false,
                 analytical_rate_fn=rate_mwc_dimer_oligo,
+                expected_factored_num=
+                "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
+                " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
+                expected_factored_denom=
+                "(1 + S / K1 + P / K2) ^ 2 + L * (1 + S / K1_T + P / K2_T) ^ 2",
             ))
         end
     end
@@ -1646,23 +1649,20 @@ function build_mechanism_test_specs()
     #      sigma = Q_cat^2 * (1 + I/K_I_reg1)  (multiplicative factor).
     if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
         let
-            # TODO: activate once @enzyme_mechanism supports OligomericEnzymeMechanism DSL.
-            # Non-competitive inhibitor: enzyme-level regulatory site gives multiplicative factor.
-            # m = @enzyme_mechanism begin
-            #     metabolites: S[C], P[C], I[X]
-            #     site(:catalytic, 2):begin
-            #         states: E_c, E_S[C], E_P[C]
-            #         steps: begin
-            #             [E_c, S] ⇌ [E_S]    # K1
-            #             [E_c, P] ⇌ [E_P]    # K2
-            #             [E_S] <--> [E_P]     # k3f, k3r via Haldane
-            #         end
-            #     end
-            #     site(:regulatory, 1):begin  # enzyme-level: sigma *= (1 + I/K_I_reg1)
-            #         ligands: I
-            #     end
-            # end
-            m = nothing
+            m = @enzyme_mechanism begin
+                metabolites: S[C], P[C], I[X]
+                site(:catalytic, 2):begin
+                    states: E_c, E_S[C], E_P[C]
+                    steps: begin
+                        [E_c, S] ⇌ [E_S]    # K1
+                        [E_c, P] ⇌ [E_P]    # K2
+                        [E_S] <--> [E_P]     # k3f, k3r via Haldane
+                    end
+                end
+                site(:regulatory, 1):begin  # enzyme-level: sigma *= (1 + I/K_I_reg1)
+                    ligands: I
+                end
+            end
 
             function rate_homodimer_noncomp_inh_oligo(params, concs)
                 (; K1, K2, k3f, k3r, K_I_reg1, Et) = params
@@ -1683,10 +1683,14 @@ function build_mechanism_test_specs()
                 expected_n_haldane=1,
                 expected_n_wegscheider=0,
                 expected_n_independent_params=4,
-                expected_identifiability_deficit=0,  # TODO: verify once implemented
+                expected_identifiability_deficit=-11,
                 expected_is_identifiable=true,
                 run_ode_test=false,
                 analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
+                expected_factored_num=
+                "2 * (k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)",
+                expected_factored_denom=
+                "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)",
             ))
         end
     end
@@ -1906,23 +1910,21 @@ function build_mechanism_test_specs()
     #      explicit constraint needed in the OligomericEnzymeMechanism DSL.
     if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
         let
-            # TODO: activate once @enzyme_mechanism supports OligomericEnzymeMechanism DSL.
-            # m = @enzyme_mechanism begin
-            #     metabolites: S[C], P[C], I[Y]
-            #     conformations: 2    # R and T
-            #     site(:catalytic, 2):begin
-            #         states: E_c, E_S[C], E_P[C]
-            #         steps: begin
-            #             [E_c, S] ⇌ [E_S]    # K1 (R), K1_T (T)
-            #             [E_c, P] ⇌ [E_P]    # K2 (R), K2_T (T)
-            #             [E_S] <--> [E_P]     # k3f, k3r Haldane (R); k3f_T, k3r_T Haldane (T)
-            #         end
-            #     end
-            #     site(:regulatory, 1):begin  # enzyme-level; conformation-specific Ki
-            #         ligands: I    # K_I_reg1 (R state), K_I_T_reg1 (T state)
-            #     end
-            # end
-            m = nothing
+            m = @enzyme_mechanism begin
+                metabolites: S[C], P[C], I[Y]
+                conformations: 2    # R and T
+                site(:catalytic, 2):begin
+                    states: E_c, E_S[C], E_P[C]
+                    steps: begin
+                        [E_c, S] ⇌ [E_S]    # K1 (R), K1_T (T)
+                        [E_c, P] ⇌ [E_P]    # K2 (R), K2_T (T)
+                        [E_S] <--> [E_P]     # k3f, k3r Haldane (R); k3f_T, k3r_T Haldane (T)
+                    end
+                end
+                site(:regulatory, 1):begin  # enzyme-level; conformation-specific Ki
+                    ligands: I    # K_I_reg1 (R state), K_I_T_reg1 (T state)
+                end
+            end
 
             function rate_mwc_dimer_inh_oligo(params, concs)
                 (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T,
@@ -1948,10 +1950,16 @@ function build_mechanism_test_specs()
                 expected_n_haldane=2,
                 expected_n_wegscheider=0,  # thermodynamic consistency is automatic
                 expected_n_independent_params=9,
-                expected_identifiability_deficit=0,  # TODO: verify once implemented
+                expected_identifiability_deficit=-6,
                 expected_is_identifiable=true,
                 run_ode_test=false,
                 analytical_rate_fn=rate_mwc_dimer_inh_oligo,
+                expected_factored_num=
+                "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
+                " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
+                expected_factored_denom=
+                "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
+                " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
             ))
         end
     end
@@ -2334,45 +2342,41 @@ function build_mechanism_test_specs()
     #   Conformational equilibrium: L
     if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
         let
-            # TODO: Replace `nothing` with @enzyme_mechanism call once
-            # OligomericEnzymeMechanism is implemented. Intended DSL:
-            #
-            # m = @enzyme_mechanism begin
-            #     metabolites: S1[C], S2[N], P1[C], P2[N], R1[X], R2[Y], R3[Z]
-            #     conformations: 2    # NConf=2: R (active) and T (tense) states
-            #     site(:catalytic, 4):begin
-            #         states: E_c,
-            #                 E_S1[C], E_P1[C],
-            #                 E_S2[N], E_P2[N],
-            #                 E_S1S2[CN], E_P1P2[CN],
-            #                 E_S1P2[CN], E_P1S2[CN]
-            #         steps: begin
-            #             [E_c,  S1] ⇌ [E_S1]         # K1
-            #             [E_c,  P1] ⇌ [E_P1]         # K2
-            #             [E_c,  S2] ⇌ [E_S2]         # K3
-            #             [E_c,  P2] ⇌ [E_P2]         # K4
-            #             [E_S1, S2] ⇌ [E_S1S2]       # K5  = K3
-            #             [E_S2, S1] ⇌ [E_S1S2]       # K6  = K1
-            #             [E_S1, P2] ⇌ [E_S1P2]       # K7  = K4
-            #             [E_P2, S1] ⇌ [E_S1P2]       # K8  = K1
-            #             [E_P1, S2] ⇌ [E_P1S2]       # K9  = K3
-            #             [E_S2, P1] ⇌ [E_P1S2]       # K10 = K2
-            #             [E_P1, P2] ⇌ [E_P1P2]       # K11 = K4
-            #             [E_P2, P1] ⇌ [E_P1P2]       # K12 = K2
-            #             [E_S1S2] <--> [E_P1P2]       # k13f, k13r (k13r via Haldane)
-            #         end
-            #         constraints: begin
-            #             K5=K3; K6=K1; K7=K4; K8=K1; K9=K3; K10=K2; K11=K4; K12=K2
-            #         end
-            #     end
-            #     site(:regulatory, 4):begin
-            #         ligands: R1, R2
-            #     end
-            #     site(:regulatory, 4):begin
-            #         ligands: R3
-            #     end
-            # end
-            m = nothing
+            m = @enzyme_mechanism begin
+                metabolites: S1[C], S2[N], P1[C], P2[N], R1[X], R2[Y], R3[Z]
+                conformations: 2    # NConf=2: R (active) and T (tense) states
+                site(:catalytic, 4):begin
+                    states: E_c,
+                            E_S1[C], E_P1[C],
+                            E_S2[N], E_P2[N],
+                            E_S1S2[CN], E_P1P2[CN],
+                            E_S1P2[CN], E_P1S2[CN]
+                    steps: begin
+                        [E_c,  S1] ⇌ [E_S1]         # K1
+                        [E_c,  P1] ⇌ [E_P1]         # K2
+                        [E_c,  S2] ⇌ [E_S2]         # K3
+                        [E_c,  P2] ⇌ [E_P2]         # K4
+                        [E_S1, S2] ⇌ [E_S1S2]       # K5  = K3
+                        [E_S2, S1] ⇌ [E_S1S2]       # K6  = K1
+                        [E_S1, P2] ⇌ [E_S1P2]       # K7  = K4
+                        [E_P2, S1] ⇌ [E_S1P2]       # K8  = K1
+                        [E_P1, S2] ⇌ [E_P1S2]       # K9  = K3
+                        [E_S2, P1] ⇌ [E_P1S2]       # K10 = K2
+                        [E_P1, P2] ⇌ [E_P1P2]       # K11 = K4
+                        [E_P2, P1] ⇌ [E_P1P2]       # K12 = K2
+                        [E_S1S2] <--> [E_P1P2]       # k13f, k13r (k13r via Haldane)
+                    end
+                    constraints: begin
+                        K5=K3; K6=K1; K7=K4; K8=K1; K9=K3; K10=K2; K11=K4; K12=K2
+                    end
+                end
+                site(:regulatory, 4):begin
+                    ligands: R1, R2
+                end
+                site(:regulatory, 4):begin
+                    ligands: R3
+                end
+            end
 
             # Parameter naming convention:
             #   R-state catalytic Kd: K1=Kd(S1), K2=Kd(P1), K3=Kd(S2), K4=Kd(P2)
@@ -2429,12 +2433,28 @@ function build_mechanism_test_specs()
                 expected_n_steps=13,           # catalytic subunit steps
                 expected_n_metabolites=7,
                 expected_n_haldane=2,          # one k13r per conformation (R and T)
-                expected_n_wegscheider=16,     # 8 site-independence constraints × 2 conformations
+                expected_n_wegscheider=0,      # site-independence constraints are in param_constraints of CM
                 expected_n_independent_params=17,
-                expected_identifiability_deficit=0,  # TODO: verify once implemented
+                expected_identifiability_deficit=-29156,
                 expected_is_identifiable=true,
                 run_ode_test=false,
                 analytical_rate_fn=rate_mwc_tetramer_bi_bi,
+                expected_factored_num=
+                "4 * ((k13f * S1 * S2 / (K1 * K3) - k13r * P1 * P2 / (K2 * K4))" *
+                " * ((1 + S1 / K1 + P1 / K2) * (1 + S2 / K3 + P2 / K4)) ^ 3" *
+                " * (1 + R1 / K_R1_reg1 + R2 / K_R2_reg1) ^ 4" *
+                " * (1 + R3 / K_R3_reg2) ^ 4" *
+                " + L * (k13f_T * S1 * S2 / (K1_T * K3_T) - k13r_T * P1 * P2 / (K2_T * K4_T))" *
+                " * ((1 + S1 / K1_T + P1 / K2_T) * (1 + S2 / K3_T + P2 / K4_T)) ^ 3" *
+                " * (1 + R1 / K_R1_T_reg1 + R2 / K_R2_T_reg1) ^ 4" *
+                " * (1 + R3 / K_R3_T_reg2) ^ 4)",
+                expected_factored_denom=
+                "((1 + S1 / K1 + P1 / K2) * (1 + S2 / K3 + P2 / K4)) ^ 4" *
+                " * (1 + R1 / K_R1_reg1 + R2 / K_R2_reg1) ^ 4" *
+                " * (1 + R3 / K_R3_reg2) ^ 4" *
+                " + L * ((1 + S1 / K1_T + P1 / K2_T) * (1 + S2 / K3_T + P2 / K4_T)) ^ 4" *
+                " * (1 + R1 / K_R1_T_reg1 + R2 / K_R2_T_reg1) ^ 4" *
+                " * (1 + R3 / K_R3_T_reg2) ^ 4",
             ))
         end
     end

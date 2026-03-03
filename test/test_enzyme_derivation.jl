@@ -234,6 +234,28 @@ function compute_all_params(m, new_params)
     return NamedTuple{Tuple(all_keys)}(Tuple(all_vals))
 end
 
+"""
+OligomericEnzymeMechanism version of compute_all_params.
+Returns all independent + dependent (Haldane-derived) params + Keq + E_total.
+"""
+function compute_all_params(m::EnzymeRates.OligomericEnzymeMechanism, new_params)
+    indep = _get_independent_params(m)
+    dep = _get_dependent_params(m)
+    dep_dict = Dict{Symbol, Float64}()
+    for (sym, expr_str) in dep
+        dep_dict[sym] = _eval_dep_expr(expr_str, new_params)
+    end
+    all_keys = (indep..., Tuple(keys(dep_dict))..., :Keq, :E_total)
+    all_vals = Tuple(Float64[
+        haskey(dep_dict, k) ? dep_dict[k] :
+        k == :Keq ? Float64(new_params[:Keq]) :
+        k == :E_total ? Float64(new_params[:E_total]) :
+        Float64(new_params[k])
+        for k in all_keys
+    ])
+    NamedTuple{all_keys}(all_vals)
+end
+
 function _eval_dep_expr(expr_str::String, params::NamedTuple)
     # Build let bindings from params - bind each key directly so bare names work
     bindings = ["$(k) = $(params[k])" for k in keys(params)]
