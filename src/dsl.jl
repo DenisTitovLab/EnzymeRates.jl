@@ -302,7 +302,7 @@ Parse the OligomericEnzymeMechanism DSL syntax.
 Handles: metabolites:, conformations:, site(:catalytic, N):, site(:regulatory, N):
 """
 function _parse_oligomeric_mechanism(block)
-    met_specs = nothing   # vector of _parse_species_tuple_expr results
+    met_names = nothing   # vector of Symbol (metabolite names only, no atoms)
     nconf = 1
     catalytic_n = nothing
     catalytic_block = nothing
@@ -316,9 +316,9 @@ function _parse_oligomeric_mechanism(block)
             inner = arg.args[1]
             if inner isa Expr && inner.head == :call && inner.args[1] == :(:) &&
                inner.args[2] == :metabolites
-                met_specs = [_parse_species_tuple_expr(inner.args[3])]
+                met_names = [_met_sym(inner.args[3])]
                 for i in 2:length(arg.args)
-                    push!(met_specs, _parse_species_tuple_expr(arg.args[i]))
+                    push!(met_names, _met_sym(arg.args[i]))
                 end
             else
                 error("Unexpected tuple in @enzyme_mechanism: $arg")
@@ -328,8 +328,7 @@ function _parse_oligomeric_mechanism(block)
             value = arg.args[3]
 
             if label == :metabolites
-                # Single metabolite: metabolites: S[C]
-                met_specs = [_parse_species_tuple_expr(value)]
+                met_names = [_met_sym(value)]
             elseif label == :conformations
                 nconf = value  # integer literal
             elseif label isa Expr && label.head == :call && label.args[1] == :site
@@ -352,37 +351,18 @@ function _parse_oligomeric_mechanism(block)
         end
     end
 
-    met_specs === nothing && error("metabolites: block not specified")
+    met_names === nothing && error("metabolites: block not specified")
     catalytic_block === nothing && error("site(:catalytic, N): block not specified")
 
-    # Build metabolites type parameter tuple expression
-    mets_tuple = Expr(:tuple, met_specs...)
+    # Build metabolites type parameter tuple (just Symbol names, no atoms)
+    mets_tuple = Expr(:tuple, QuoteNode.(met_names)...)
 
-    # Parse catalytic site block: states:, steps:, constraints:
-    cat_states, cat_steps_block, cat_constraints_block =
+    # Parse catalytic site block: species:, steps:, constraints:
+    species_tuple, cat_steps_block, cat_constraints_block =
         _parse_catalytic_block(catalytic_block)
 
     # Parse reactions and eq_steps
     reactions, eq_steps = _parse_steps_block(cat_steps_block)
-
-    # Determine substrate/product/regulator classification from steps
-    # (regulatory site ligands are NOT part of the catalytic mechanism)
-    reg_lig_set = Set{Symbol}(lig for (ligs, _) in reg_sites for lig in ligs)
-    met_syms = Set{Symbol}(
-        _species_name(s) for s in met_specs if _species_name(s) ∉ reg_lig_set
-    )
-    enz_form_syms = Set{Symbol}(_species_name(s) for s in cat_states)
-
-    sub_mets, prod_mets, cat_reg_mets =
-        _classify_catalytic_mets(enz_form_syms, met_syms, cat_steps_block)
-
-    # Build species tuple for the inner EnzymeMechanism
-    met_map = Dict(_species_name(s) => s for s in met_specs)
-    subs_tuple = Expr(:tuple, (met_map[m] for m in sub_mets)...)
-    prods_tuple = Expr(:tuple, (met_map[m] for m in prod_mets)...)
-    regs_tuple = Expr(:tuple, (met_map[m] for m in cat_reg_mets)...)
-    enzs_tuple = Expr(:tuple, cat_states...)
-    species_tuple = Expr(:tuple, subs_tuple, prods_tuple, regs_tuple, enzs_tuple)
 
     # Build inner EnzymeMechanism expression
     if cat_constraints_block !== nothing
@@ -433,113 +413,43 @@ function _parse_reg_ligands_block(block)
     ligs
 end
 
+"""Extract the metabolite Symbol from a raw DSL expression (Symbol or S[C] ref)."""
+function _met_sym(expr)
+    expr isa Symbol && return expr
+    expr isa Expr && expr.head == :ref && return expr.args[1]
+    error("Cannot extract metabolite name from: $expr")
+end
+
 """
 Parse catalytic site block.
-Returns (states_list, steps_block, constraints_block_or_nothing).
+Returns (species_tuple_expr, steps_block, constraints_block_or_nothing).
+The species_tuple_expr is produced by `_parse_species_block` and contains
+(subs, prods, regs, enzymes) sub-expressions for the inner EnzymeMechanism.
 """
 function _parse_catalytic_block(block)
-    states_list = nothing
+    species_expr = nothing
     steps_block = nothing
     constraints_block = nothing
 
     for arg in block.args
         arg isa LineNumberNode && continue
-
-        if arg isa Expr && arg.head == :tuple
-            # states: E_c, E_S[C], E_P[C] → tuple form
-            inner = arg.args[1]
-            if inner isa Expr && inner.head == :call && inner.args[1] == :(:) &&
-               inner.args[2] == :states
-                states_list = [_parse_species_tuple_expr(inner.args[3])]
-                for i in 2:length(arg.args)
-                    push!(states_list, _parse_species_tuple_expr(arg.args[i]))
-                end
-            else
-                error("Unexpected tuple in catalytic site block: $arg")
-            end
-        elseif arg isa Expr && arg.head == :call && arg.args[1] == :(:)
-            label = arg.args[2]
-            value = arg.args[3]
-            if label == :states
-                # Single state: states: E_c
-                states_list = [_parse_species_tuple_expr(value)]
-            elseif label == :steps
-                steps_block = value
-            elseif label == :constraints
-                constraints_block = value
-            else
-                error("Unknown label in catalytic site block: $label")
-            end
-        else
+        arg isa Expr && arg.head == :call && arg.args[1] == :(:) ||
             error("Unexpected expression in catalytic site block: $arg")
+        label = arg.args[2]
+        value = arg.args[3]
+        if label == :species
+            species_expr = _parse_species_block(value)
+        elseif label == :steps
+            steps_block = value
+        elseif label == :constraints
+            constraints_block = value
+        else
+            error("Unknown label in catalytic site block: $label")
         end
     end
 
-    states_list === nothing && error("states: not specified in catalytic site block")
+    species_expr === nothing && error("species: not specified in catalytic site block")
     steps_block === nothing && error("steps: not specified in catalytic site block")
 
-    states_list, steps_block, constraints_block
-end
-
-"""Extract the species name Symbol from a _parse_species_tuple_expr result."""
-function _species_name(spec_expr)
-    # spec_expr = Expr(:tuple, QuoteNode(:name), atoms...)
-    spec_expr.args[1].value
-end
-
-"""
-Determine substrate/product/other classification by tracing binding steps.
-enzyme_form_syms: set of enzyme form names (E_c, E_S, ...)
-met_syms: set of catalytic metabolite names (S, P, ...)
-steps_block: the steps: begin ... end block
-"""
-function _classify_catalytic_mets(enzyme_form_syms, met_syms, steps_block)
-    # Build bound[form] = set of metabolites bound in that form
-    bound = Dict{Symbol, Set{Symbol}}(f => Set{Symbol}() for f in enzyme_form_syms)
-
-    # Iterate RE binding steps to build bound map (BFS-like with fixpoint)
-    changed = true
-    while changed
-        changed = false
-        for arg in steps_block.args
-            arg isa LineNumberNode && continue
-            arg isa Expr && arg.head == :call && arg.args[1] == :⇌ || continue
-            lhs_syms = arg.args[2].args
-            rhs_syms = arg.args[3].args
-            lhs_enzs = filter(s -> s in enzyme_form_syms, lhs_syms)
-            lhs_mets = filter(s -> s in met_syms, lhs_syms)
-            rhs_enzs = filter(s -> s in enzyme_form_syms, rhs_syms)
-
-            # Binding step: [E1, met...] ⇌ [E2]
-            if !isempty(lhs_mets) && length(lhs_enzs) == 1 && length(rhs_enzs) == 1
-                e1, e2 = lhs_enzs[1], rhs_enzs[1]
-                new_bound = union(bound[e1], Set(lhs_mets))
-                if !issubset(new_bound, bound[e2])
-                    bound[e2] = union(bound[e2], new_bound)
-                    changed = true
-                end
-            end
-        end
-    end
-
-    # From SS steps, classify substrates vs products
-    sub_mets = Set{Symbol}()
-    prod_mets = Set{Symbol}()
-    for arg in steps_block.args
-        arg isa LineNumberNode && continue
-        arg isa Expr && arg.head == :call && arg.args[1] == :(<-->) || continue
-        lhs_syms = arg.args[2].args
-        rhs_syms = arg.args[3].args
-        lhs_enzs = filter(s -> s in enzyme_form_syms, lhs_syms)
-        rhs_enzs = filter(s -> s in enzyme_form_syms, rhs_syms)
-        length(lhs_enzs) == 1 && length(rhs_enzs) == 1 || continue
-        union!(sub_mets, bound[lhs_enzs[1]])
-        union!(prod_mets, bound[rhs_enzs[1]])
-    end
-
-    # Catalytic site regulators: bound in some form but neither sub nor prod
-    all_bound = Set(m for f in enzyme_form_syms for m in bound[f])
-    cat_reg_mets = setdiff(all_bound, sub_mets, prod_mets)
-
-    Tuple(sub_mets), Tuple(prod_mets), Tuple(cat_reg_mets)
+    species_expr, steps_block, constraints_block
 end

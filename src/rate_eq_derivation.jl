@@ -1681,3 +1681,309 @@ Number of excess parameters beyond what is structurally identifiable from kineti
     n_k - (n_num - 1) - (n_denom - 1)
 end
 
+# ═══════════════════════════════════════════════════════════════════
+# OligomericEnzymeMechanism rate equations (MWC)
+#
+# MWC rate formula (per conformation c, summed over conformations):
+#   num = CatN * sum_c( L_c * N_cat_c * Q_cat_c^(CatN-1)
+#             * prod(Q_reg_i_c^n_reg_i for i with n_reg_i == CatN) )
+#   den = sum_c( L_c * Q_cat_c^CatN * prod(Q_reg_i_c^n_reg_i) )
+#   v = E_total * num / den
+#
+# Regulatory sites with n_reg_i < CatN appear only in the denominator.
+# Sites with n_reg_i == CatN appear in both numerator and denominator.
+# ═══════════════════════════════════════════════════════════════════
+
+# ─── Parameter naming ────────────────────────────────────────────
+
+"""Append `_T` suffix to any K or k parameter symbol (not Keq, E_total)."""
+function _rename_params_T(sym::Symbol)
+    is_k_parameter(sym) ? Symbol(string(sym) * "_T") : sym
+end
+
+"""Name for a regulatory site parameter: K_{ligand}_reg{i} or K_{ligand}_T_reg{i}."""
+function _reg_param_name(ligand::Symbol, site_idx::Int, T_state::Bool)
+    T_state ? Symbol("K_$(ligand)_T_reg$(site_idx)") :
+              Symbol("K_$(ligand)_reg$(site_idx)")
+end
+
+# ─── Binding K symbols ───────────────────────────────────────────
+
+"""
+Return all binding (Kd-convention) K symbols: R-state, T-state, and reg site params.
+Regulatory site K params are always Kd (dissociation constants).
+"""
+function _binding_K_symbols(
+    ::Type{OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}},
+) where {Mets,CM,CatN,RS,NConf}
+    r_ks = Tuple(_binding_K_symbols(CM))
+    t_ks = NConf == 2 ? Tuple(_rename_params_T(K) for K in r_ks) : ()
+    reg_ks_r = Tuple(
+        _reg_param_name(lig, i, false)
+        for (i, (ligs, _)) in enumerate(RS) for lig in ligs
+    )
+    reg_ks_t = NConf == 2 ? Tuple(
+        _reg_param_name(lig, i, true)
+        for (i, (ligs, _)) in enumerate(RS) for lig in ligs
+    ) : ()
+    (r_ks..., t_ks..., reg_ks_r..., reg_ks_t...)
+end
+
+# ─── Dependent parameter expressions ─────────────────────────────
+
+"""
+    _dependent_param_exprs(M::Type{<:OligomericEnzymeMechanism})
+
+Return `(dep_exprs, indep_params)` for an OligomericEnzymeMechanism.
+
+For NConf=1: delegates to CatalyticMech; adds reg site params to indep.
+For NConf=2: duplicates R-state analysis with _T suffix for T-state;
+             adds reg site params (R and T) and L to indep.
+"""
+function _dependent_param_exprs(
+    ::Type{OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}},
+) where {Mets,CM,CatN,RS,NConf}
+    dep_R, indep_R = _dependent_param_exprs(CM)
+
+    reg_params_r = [
+        _reg_param_name(lig, i, false)
+        for (i, (ligs, _)) in enumerate(RS) for lig in ligs
+    ]
+
+    if NConf == 1
+        return dep_R, (indep_R..., reg_params_r...)
+    end
+
+    # NConf == 2: rename all k/K params (not Keq) with _T suffix
+    T_subs = Dict(
+        p => _rename_params_T(p)
+        for p in Iterators.flatten([keys(dep_R), indep_R])
+        if is_k_parameter(p) && p != :Keq
+    )
+    dep_T = Dict{Symbol, Union{Symbol, Expr}}(
+        _rename_params_T(k) => substitute_params_expr(v, T_subs)
+        for (k, v) in dep_R
+    )
+    indep_T = Tuple(_rename_params_T(p) for p in indep_R)
+
+    reg_params_t = [
+        _reg_param_name(lig, i, true)
+        for (i, (ligs, _)) in enumerate(RS) for lig in ligs
+    ]
+
+    merged_dep = merge(dep_R, dep_T)
+    merged_indep = (indep_R..., indep_T..., reg_params_r..., reg_params_t..., :L)
+    return merged_dep, merged_indep
+end
+
+# ─── Parameters API ──────────────────────────────────────────────
+
+parameters(m::OligomericEnzymeMechanism) = parameters(m, Reduced)
+
+function parameters(
+    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}, ::ReducedMode,
+) where {Mets,CM,CatN,RS,NConf}
+    M = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
+    _, indep = _dependent_param_exprs(M)
+    (indep..., :Keq, :E_total)
+end
+
+function fitted_params(
+    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf},
+) where {Mets,CM,CatN,RS,NConf}
+    M = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
+    _, indep = _dependent_param_exprs(M)
+    indep
+end
+
+# ─── Rate body building helpers ───────────────────────────────────
+
+"""Build the regulatory site partition function expression: 1 + lig/K_lig_reg_i + ..."""
+function _reg_site_expr(ligs, site_idx::Int, T_state::Bool)
+    terms = Any[1]
+    for lig in ligs
+        K_sym = _reg_param_name(lig, site_idx, T_state)
+        push!(terms, :($(lig) / $K_sym))
+    end
+    _nest_binary(:+, terms)
+end
+
+"""Raise an expression to an integer power (returns 1 for n=0, expr for n=1)."""
+function _power_expr(expr, n::Int)
+    n == 0 && return 1
+    n == 1 && return expr
+    :(($expr)^$n)
+end
+
+"""
+Assemble the MWC numerator and denominator Exprs.
+Returns `(full_num, full_den)` where the numerator already includes the `CatN` factor.
+Shared by `_build_oligomeric_rate_body` and `rate_equation_string`.
+"""
+function _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
+    num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
+    m_cat = CM()
+    cat_constr = Set(c[1] for c in param_constraints(m_cat))
+    cat_params = Set{Symbol}(
+        p for p in _raw_param_symbols(equilibrium_steps(m_cat)) if p ∉ cat_constr
+    )
+    cat_mets = Set{Symbol}(metabolites(m_cat))
+    binding_Ks_r = Set(_binding_K_symbols(CM))
+
+    N_R = _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r)
+    Q_R = _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r)
+    reg_Q_R = Any[_reg_site_expr(ligs, i, false) for (i, (ligs, _)) in enumerate(RS)]
+
+    # Per-subunit reg sites (n_reg == CatN) go in both num and den.
+    # Enzyme-level reg sites (n_reg < CatN) go in denominator only.
+    function make_num_term(N, Q, reg_Qs)
+        factors = Any[N]
+        CatN > 1 && push!(factors, _power_expr(Q, CatN - 1))
+        for (idx, (_, n_reg)) in enumerate(RS)
+            n_reg == CatN || continue
+            push!(factors, _power_expr(reg_Qs[idx], n_reg))
+        end
+        _nest_binary(:*, factors)
+    end
+
+    function make_den_term(Q, reg_Qs)
+        factors = Any[_power_expr(Q, CatN)]
+        for (idx, (_, n_reg)) in enumerate(RS)
+            push!(factors, _power_expr(reg_Qs[idx], n_reg))
+        end
+        _nest_binary(:*, factors)
+    end
+
+    num_R = make_num_term(N_R, Q_R, reg_Q_R)
+    den_R = make_den_term(Q_R, reg_Q_R)
+
+    NConf == 1 && return :($(CatN) * $(num_R)), den_R
+
+    # NConf == 2: T-state
+    T_subs = Dict(K => _rename_params_T(K) for K in cat_params if is_k_parameter(K))
+    N_T = substitute_params_expr(N_R, T_subs)
+    Q_T = substitute_params_expr(Q_R, T_subs)
+    reg_Q_T = Any[_reg_site_expr(ligs, i, true) for (i, (ligs, _)) in enumerate(RS)]
+
+    num_T = make_num_term(N_T, Q_T, reg_Q_T)
+    den_T = make_den_term(Q_T, reg_Q_T)
+
+    :($(CatN) * ($(num_R) + L * $(num_T))), :($(den_R) + L * $(den_T))
+end
+
+"""Build the MWC rate equation body as an Expr block."""
+function _build_oligomeric_rate_body(Mets, CM, CatN, RS, NConf)
+    M_type = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
+    full_num, full_den = _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
+    rate_expr = :(E_total * ($full_num) / ($full_den))
+
+    # This call only accepts Type{<:EnzymeMechanism}, which narrows CM's type for JET
+    # so the subsequent _apply_kd_inversion call type-checks. Results go to cat_params.
+    num_fs_body, _ = _raw_symbolic_rate_polys(CM)
+    m_cat = CM()
+    cat_constr = Set(c[1] for c in param_constraints(m_cat))
+    cat_params = Set{Symbol}(
+        p for p in _raw_param_symbols(equilibrium_steps(m_cat)) if p ∉ cat_constr
+    )
+
+    # Dep param assignments (R-state): k3r = inv(K2)*K1*k3f*inv(Keq), etc.
+    dep_R, _ = _dependent_param_exprs(CM)
+    dep_R_kd = _apply_kd_inversion(dep_R, CM, K -> :(inv($K)))
+    r_assignments = Expr[
+        Expr(:(=), sym, dep_R_kd[sym])
+        for (sym, _) in sort(collect(dep_R_kd); by=first)
+    ]
+
+    # T-state dep param assignments (NConf=2 only)
+    t_assignments = Expr[]
+    if NConf == 2
+        T_subs = Dict(K => _rename_params_T(K) for K in cat_params if is_k_parameter(K))
+        t_assignments = Expr[
+            Expr(:(=), _rename_params_T(sym), substitute_params_expr(dep_R_kd[sym], T_subs))
+            for (sym, _) in sort(collect(dep_R_kd); by=first)
+        ]
+    end
+
+    _, indep = _dependent_param_exprs(M_type)
+    hw_params = (indep..., :Keq, :E_total)
+
+    Expr(:block,
+        _destructuring_expr(hw_params, :params),
+        _destructuring_expr(Mets, :concs),
+        r_assignments...,
+        t_assignments...,
+        :(return $rate_expr))
+end
+
+# ─── Rate equation dispatch ───────────────────────────────────────
+
+function rate_equation(m::OligomericEnzymeMechanism, concs, params)
+    rate_equation(m, concs, params, Reduced)
+end
+
+@generated function rate_equation(
+    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf},
+    concs::NamedTuple, params::NamedTuple, ::ReducedMode,
+) where {Mets,CM,CatN,RS,NConf}
+    _build_oligomeric_rate_body(Mets, CM, CatN, RS, NConf)
+end
+
+# ─── String representation ────────────────────────────────────────
+
+rate_equation_string(m::OligomericEnzymeMechanism) = rate_equation_string(m, Reduced)
+
+function rate_equation_string(
+    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}, ::ReducedMode,
+) where {Mets,CM,CatN,RS,NConf}
+    M = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
+    _, indep = _dependent_param_exprs(M)
+    hw_params = (indep..., :Keq, :E_total)
+
+    # Dep param assignment strings (R-state)
+    dep_R, indep_R = _dependent_param_exprs(CM)
+    dep_R_kd = _apply_kd_inversion(dep_R, CM, K -> :(1 / $K))
+    dep_lines = [
+        "$sym = $(_expr_to_string(dep_R_kd[sym]))"
+        for (sym, _) in sort(collect(dep_R_kd); by=first)
+    ]
+
+    # T-state dep param assignments (NConf=2)
+    t_dep_lines = if NConf == 2
+        T_subs = Dict(
+            p => _rename_params_T(p)
+            for p in Iterators.flatten([keys(dep_R), indep_R])
+            if is_k_parameter(p) && p != :Keq
+        )
+        [
+            "$(_rename_params_T(sym)) = $(_expr_to_string(substitute_params_expr(dep_R_kd[sym], T_subs)))"
+            for (sym, _) in sort(collect(dep_R_kd); by=first)
+        ]
+    else
+        String[]
+    end
+
+    # Build the v = line using _oligomeric_num_den_exprs directly.
+    full_num, full_den = _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
+    v_line = "v = E_total * ($(_expr_to_string(full_num))) / ($(_expr_to_string(full_den)))"
+
+    join([
+        "(; $(join(hw_params, ", "))) = params",
+        "(; $(join(Mets, ", "))) = concs",
+        dep_lines...,
+        t_dep_lines...,
+        v_line,
+    ], "\n")
+end
+
+# ─── Structural Identifiability ───────────────────────────────────
+
+@generated function structural_identifiability_deficit(
+    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf},
+) where {Mets,CM,CatN,RS,NConf}
+    M = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
+    _, indep = _dependent_param_exprs(M)
+    n_k = length(indep)
+    n_num, n_denom = _count_oligomeric_rate_monomials(CM, CatN, RS, NConf)
+    n_k - (n_num - 1) - (n_denom - 1)
+end
+

@@ -50,6 +50,16 @@ function _mono_div(a::MONO, b::MONO)
     sort!(MONO(collect(d)); by=first)
 end
 
+"""Raise a POLY to a non-negative integer power via repeated multiplication."""
+function _poly_power(p::POLY, n::Int)
+    n == 0 && return poly_one()
+    result = poly_one()
+    for _ in 1:n
+        result = poly_mul(result, p)
+    end
+    result
+end
+
 """Divide POLY by a single-term POLY (exact division, assumes divisibility)."""
 function _poly_div_mono(p::POLY, divisor::POLY)::POLY
     m = first(keys(divisor))
@@ -675,4 +685,73 @@ function _estimate_expanded_term_count(terms::Vector{DenomTerm})::Int
         total += sigma_count * max(length(dt.cofactor), 1)
     end
     total
+end
+
+# ─── OligomericEnzymeMechanism POLY helpers ──────────────────────
+
+"""Rename all K/k symbols (not Keq) in a POLY with _T suffix."""
+function _rename_poly_T(p::POLY)
+    POLY(
+        sort!(MONO([
+            (is_k_parameter(s) && s != :Keq ? _rename_params_T(s) : s) => e
+            for (s, e) in mono
+        ]); by=first) => coeff
+        for (mono, coeff) in p
+    )
+end
+
+"""
+Count distinct concentration monomials in the full oligomeric rate numerator and
+denominator. Treats all K/k/L symbols as parameters (strips them from monomials).
+Returns `(n_num, n_denom)`.
+"""
+function _count_oligomeric_rate_monomials(CM, CatN, RS, NConf)
+    num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
+    N_cat_R = _expand_factored_sigma(num_fs)
+    Q_cat_R = _expand_to_poly(denom_terms)
+
+    # Build reg site partition polynomials (1 + ligand_sym for each ligand)
+    reg_Q_R = POLY[
+        reduce(poly_add, (poly_add(poly_one(), poly_sym(lig)) for lig in ligs))
+        for (ligs, _) in RS
+    ]
+
+    function num_poly_for_conf(N_cat, Q_cat, reg_Qs, L_factor)
+        n_term = poly_mul(N_cat, _poly_power(Q_cat, CatN - 1))
+        for (idx, (_, n_reg)) in enumerate(RS)
+            n_reg == CatN || continue
+            n_term = poly_mul(n_term, _poly_power(reg_Qs[idx], n_reg))
+        end
+        L_factor === nothing ? n_term : poly_mul(poly_sym(L_factor), n_term)
+    end
+
+    function den_poly_for_conf(Q_cat, reg_Qs, L_factor)
+        d_term = _poly_power(Q_cat, CatN)
+        for (idx, (_, n_reg)) in enumerate(RS)
+            d_term = poly_mul(d_term, _poly_power(reg_Qs[idx], n_reg))
+        end
+        L_factor === nothing ? d_term : poly_mul(poly_sym(L_factor), d_term)
+    end
+
+    full_num = num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing)
+    full_den = den_poly_for_conf(Q_cat_R, reg_Q_R, nothing)
+
+    if NConf == 2
+        N_cat_T = _rename_poly_T(N_cat_R)
+        Q_cat_T = _rename_poly_T(Q_cat_R)
+        reg_Q_T = POLY[_rename_poly_T(q) for q in reg_Q_R]
+
+        full_num = poly_add(full_num, num_poly_for_conf(N_cat_T, Q_cat_T, reg_Q_T, :L))
+        full_den = poly_add(full_den, den_poly_for_conf(Q_cat_T, reg_Q_T, :L))
+    end
+
+    # Count distinct concentration monomials (strip all k/K/L params)
+    conc_mono(mono) = sort!(MONO([
+        s => e for (s, e) in mono
+        if !is_k_parameter(s) && s != :E_total && s != :Keq && s != :L
+    ]); by=first)
+
+    n_num = length(unique(conc_mono(k) for (k, _) in full_num))
+    n_denom = length(unique(conc_mono(k) for (k, _) in full_den))
+    n_num, n_denom
 end

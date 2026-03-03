@@ -277,7 +277,7 @@ end
 
 Singleton type for multi-site, multi-conformation allosteric enzymes.
 
-- `Metabolites`: tuple of `(name, atoms)` pairs from `metabolites:` block
+- `Metabolites`: tuple of `Symbol` names from `metabolites:` block
 - `CatalyticMech`: `EnzymeMechanism` type for one catalytic subunit
 - `CatalyticN`: number of catalytic sites per enzyme molecule
 - `RegSites`: tuple of `((ligand_syms...,), multiplicity)` pairs
@@ -514,3 +514,21 @@ Positive = produced, negative = consumed.
     end
     return S
 end
+
+# ─── OligomericEnzymeMechanism Accessors ────────────────────────
+
+"""Delegate structural accessors to the CatalyticMech singleton."""
+n_states(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+    n_states(CM())
+n_steps(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+    n_steps(CM())
+equilibrium_steps(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+    equilibrium_steps(CM())
+substrates(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+    substrates(CM())
+products(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+    products(CM())
+param_constraints(::OligomericEnzymeMechanism) = ()
+
+"""Return all metabolite names (catalytic + regulatory) from the Metabolites type param."""
+metabolites(::OligomericEnzymeMechanism{Mets,CM,N,RS,NC}) where {Mets,CM,N,RS,NC} = Mets

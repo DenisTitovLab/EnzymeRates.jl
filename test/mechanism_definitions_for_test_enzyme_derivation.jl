@@ -1469,7 +1469,11 @@ function build_mechanism_test_specs()
                 metabolites: S[C], P[C]
                 conformations: 2    # R (active) and T (tense)
                 site(:catalytic, 2):begin
-                    states: E_c, E_S[C], E_P[C]
+                    species: begin
+                        substrates: S[C]
+                        products: P[C]
+                        enzymes: E_c, E_S[C], E_P[C]
+                    end
                     steps: begin
                         [E_c, S] ⇌ [E_S]    # K1 (R), K1_T (T)
                         [E_c, P] ⇌ [E_P]    # K2 (R), K2_T (T)
@@ -1652,7 +1656,11 @@ function build_mechanism_test_specs()
             m = @enzyme_mechanism begin
                 metabolites: S[C], P[C], I[X]
                 site(:catalytic, 2):begin
-                    states: E_c, E_S[C], E_P[C]
+                    species: begin
+                        substrates: S[C]
+                        products: P[C]
+                        enzymes: E_c, E_S[C], E_P[C]
+                    end
                     steps: begin
                         [E_c, S] ⇌ [E_S]    # K1
                         [E_c, P] ⇌ [E_P]    # K2
@@ -1914,7 +1922,11 @@ function build_mechanism_test_specs()
                 metabolites: S[C], P[C], I[Y]
                 conformations: 2    # R and T
                 site(:catalytic, 2):begin
-                    states: E_c, E_S[C], E_P[C]
+                    species: begin
+                        substrates: S[C]
+                        products: P[C]
+                        enzymes: E_c, E_S[C], E_P[C]
+                    end
                     steps: begin
                         [E_c, S] ⇌ [E_S]    # K1 (R), K1_T (T)
                         [E_c, P] ⇌ [E_P]    # K2 (R), K2_T (T)
@@ -2346,11 +2358,15 @@ function build_mechanism_test_specs()
                 metabolites: S1[C], S2[N], P1[C], P2[N], R1[X], R2[Y], R3[Z]
                 conformations: 2    # NConf=2: R (active) and T (tense) states
                 site(:catalytic, 4):begin
-                    states: E_c,
-                            E_S1[C], E_P1[C],
-                            E_S2[N], E_P2[N],
-                            E_S1S2[CN], E_P1P2[CN],
-                            E_S1P2[CN], E_P1S2[CN]
+                    species: begin
+                        substrates: S1[C], S2[N]
+                        products: P1[C], P2[N]
+                        enzymes: E_c,
+                                 E_S1[C], E_P1[C],
+                                 E_S2[N], E_P2[N],
+                                 E_S1S2[CN], E_P1P2[CN],
+                                 E_S1P2[CN], E_P1S2[CN]
+                    end
                     steps: begin
                         [E_c,  S1] ⇌ [E_S1]         # K1
                         [E_c,  P1] ⇌ [E_P1]         # K2
