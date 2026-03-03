@@ -120,6 +120,66 @@ m = @enzyme_mechanism begin
 end
 ```
 
+### Oligomeric (multi-subunit) enzymes — `OligomericEnzymeMechanism`
+
+Multi-subunit allosteric enzymes following the Monod-Wyman-Changeux (MWC)
+model are defined with the same `@enzyme_mechanism` macro but with a
+different top-level structure. Instead of flat `species:` and `steps:` blocks,
+you provide a `metabolites:` list, an optional `conformations:` count, and
+`site(...)` blocks.
+
+```julia
+# MWC homodimer: 2 identical catalytic subunits, 2 conformations (R/T),
+# 1 enzyme-level regulatory site
+m = @enzyme_mechanism begin
+    metabolites: S[C], P[C], I[X]  # all metabolites (catalytic + regulatory)
+    conformations: 2                # NConf=2: R (active) and T (tense) states
+    site(:catalytic, 2): begin      # 2 identical catalytic subunits
+        species: begin
+            substrates: S[C]
+            products:   P[C]
+            enzymes:    E_c, E_S[C], E_P[C]
+        end
+        steps: begin
+            [E_c, S] ⇌ [E_S]       # K1 (R-state), K1_T (T-state auto-generated)
+            [E_c, P] ⇌ [E_P]       # K2 (R-state), K2_T (T-state auto-generated)
+            [E_S] <--> [E_P]        # k3f, k3r via Haldane
+        end
+    end
+    site(:regulatory, 1): begin     # 1 enzyme-level regulatory site
+        ligands: I                  # metabolites binding this site
+    end
+end
+
+# Rate equation: v = E_total * 2 * (N_R*(1+S/K1+P/K2) + L*N_T*(1+S/K1_T+P/K2_T))
+#                              / ((1+S/K1+P/K2)^2 + L*(1+S/K1_T+P/K2_T)^2 * (1+I/K_I_reg1))
+params = parameters(m)  # (K1, K2, k3f, K1_T, K2_T, k3f_T, L, K_I_reg1, Keq, E_total)
+```
+
+Key DSL rules:
+
+- `metabolites:` is **required** (declares all metabolites; atoms used for atom-balance checks)
+- `conformations: N` is optional (default 1). `conformations: 2` adds a conformational
+  equilibrium constant `L` ([T]/[R] for bare enzyme) and auto-generates T-state parameters
+  with `_T` suffix (`K1_T`, `k3f_T`, etc.) and their Haldane constraints.
+- `site(:catalytic, N)` specifies N identical catalytic subunits. The inner block uses the
+  same `species:`/`steps:`/`constraints:` syntax as `@enzyme_mechanism` for `EnzymeMechanism`.
+- `site(:regulatory, n)` specifies a regulatory binding site present on n copies of the enzyme.
+  If `n == CatN` (per-subunit), it appears in both numerator and denominator. If `n < CatN`
+  (enzyme-level), it appears in the denominator only. Regulatory site binding constants are
+  named `K_{ligand}_reg{i}` (R-state) and `K_{ligand}_T_reg{i}` (T-state).
+
+The same API applies as for `EnzymeMechanism`:
+
+```julia
+parameters(m)                 # independent params + Keq + E_total
+rate_equation(m, concs, params)
+rate_equation_string(m)
+structural_identifiability_deficit(m)
+n_states(m)                   # catalytic subunit states
+metabolites(m)                # all metabolite names
+```
+
 ### `@enzyme_reaction` macro
 
 Define an overall reaction (substrates, products, optional regulators) without
@@ -308,9 +368,11 @@ fp = FittingProblem(m, data_table; Keq=5.0)
 result = fit_rate_equation(fp, optimizer; n_restarts=10, maxtime=60.0)
 ```
 
-The data table must have columns `Article`, `Fig`, `Rate`, and one column per
-metabolite in `metabolites(m)`. Fitting operates in log-space on the
-independent rate constants from `parameters(m)` (excluding `Keq` and `E_total`).
+The data table must have columns `group` (identifies measurement groups sharing
+the same `E_total`), `Rate`, and one column per metabolite in `metabolites(m)`.
+Fitting operates in log-space on the independent rate constants from
+`parameters(m)` (excluding `Keq` and `E_total`). Cross-validation is
+leave-one-group-out.
 
 ## API Reference
 
@@ -320,6 +382,7 @@ independent rate constants from `parameters(m)` (excluding `Keq` and `E_total`).
 |------|-------------|
 | `EnzymeReaction{S,P,R}` | Overall reaction specification (substrates, products, regulators encoded in type parameters). |
 | `EnzymeMechanism{Species,Reactions,EquilibriumSteps,ParamConstraints}` | Full mechanism with species, elementary steps, RE/SS flags, and parameter constraints encoded in type parameters. |
+| `OligomericEnzymeMechanism{Mets,CatalyticMech,CatN,RegSites,NConf}` | Multi-subunit allosteric enzyme under the MWC model. `CatalyticMech` is the `EnzymeMechanism` of one subunit; `CatN` is the subunit count; `RegSites` describes regulatory binding sites; `NConf` is 1 or 2 (R/T conformations). |
 | `MechanismSpec` | Lightweight runtime description of a mechanism. Convert to `EnzymeMechanism` via `EnzymeMechanism(spec)`. |
 | `FittingProblem` | Wraps a mechanism + data table for parameter fitting. |
 | `SiteState` | State of a single binding site (metabolite, atoms, role). |
