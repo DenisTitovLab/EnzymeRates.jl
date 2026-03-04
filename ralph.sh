@@ -25,13 +25,41 @@ set -euo pipefail
 # --- Configuration ---
 MAX_ITER=${1:-10}                # number of implementation iterations
 LOG_DIR=".ralph-logs"
-PROMPT_FILE="PLAN_IMPLEMENTATION_PROMPT.md"          # read fresh each attempt (edits take effect live)
+PROMPT_FILE="CODE_SIMPLIFICATION_PROMPT.md"          # read fresh each attempt (edits take effect live)
+FILES=(
+    src/rate_eq_derivation.jl
+    src/sym_poly_for_rate_eq_derivation.jl
+    src/thermodynamic_constr_for_rate_eq_derivation.jl
+)
 STALE_TIMEOUT=7200               # seconds (2 hr) — kill claude if no new turns
 PROGRESS_THRESHOLD=5             # turns needed to consider an attempt "productive"
 LETTERS="abcdefghijklmnopqrstuvwxyz"  # attempt suffix lookup
 
 mkdir -p "$LOG_DIR"
 rm -f .ralph-done                    # clean sentinel from previous runs
+
+# Count non-comment, non-docstring, non-blank lines in Julia files.
+# Strips #-comments, tracks """...""" docstrings, skips blank lines.
+count_code_lines() {
+    awk '
+    BEGIN { in_doc = 0 }
+    {
+        line = $0
+        # Toggle docstring state on lines containing """
+        while (match(line, /\x22\x22\x22/)) {
+            in_doc = !in_doc
+            line = substr(line, RSTART + 3)
+        }
+        if (in_doc) next
+        # Strip inline comments (naive — ignores # inside strings)
+        sub(/#.*/, "", $0)
+        # Skip blank lines
+        if ($0 ~ /^[[:space:]]*$/) next
+        count++
+    }
+    END { print count+0 }
+    ' "$@"
+}
 
 # --- Live output formatting ---
 # Parses claude's stream-json output and prints a compact live summary:
@@ -61,7 +89,10 @@ else empty end
 JQEOF
 
 # --- Main loop ---
+initial_code=$(count_code_lines "${FILES[@]}")
 echo "=== Ralph Loop ==="
+echo "Files: ${FILES[*]}"
+echo "Code lines (non-comment/doc/blank): $initial_code"
 echo "Max iterations: $MAX_ITER"
 echo "Logs: $LOG_DIR/"
 echo ""
@@ -70,7 +101,8 @@ echo ""
 trap 'echo ""; echo "Interrupted at iteration $i. Check $LOG_DIR/ for logs."; exit 1' INT TERM
 
 for i in $(seq 1 "$MAX_ITER"); do
-    echo "[$(date '+%H:%M:%S')] Iteration $i/$MAX_ITER"
+    before=$(count_code_lines "${FILES[@]}")
+    echo "[$(date '+%H:%M:%S')] Iteration $i/$MAX_ITER ($before code lines)"
 
     # Log file base: .ralph-logs/iter_02.log (suffixes added per attempt)
     log_file="$LOG_DIR/iter_$(printf '%02d' "$i").log"
@@ -199,8 +231,10 @@ for i in $(seq 1 "$MAX_ITER"); do
     done
 
     # --- Iteration summary ---
+    after=$(count_code_lines "${FILES[@]}")
+    delta=$((before - after))
     echo ""
-    echo "[$(date '+%H:%M:%S')] Iteration $i done"
+    echo "[$(date '+%H:%M:%S')] Iteration $i done: $before → $after code lines (Δ$delta)"
     echo "---"
 
     # --- Plan completion check ---
@@ -213,5 +247,6 @@ for i in $(seq 1 "$MAX_ITER"); do
     fi
 done
 
+final_code=$(count_code_lines "${FILES[@]}")
 echo ""
-echo "=== Complete ($i iterations) ==="
+echo "=== Complete ($i iterations): $initial_code → $final_code code lines (Δ$((initial_code - final_code))) ==="
