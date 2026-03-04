@@ -25,13 +25,9 @@ function _parse_species_tuple_expr(expr)
         atoms = Expr(:tuple)
         return Expr(:tuple, QuoteNode(expr), atoms)
     elseif expr isa Expr && expr.head == :ref
-        # S[C6H12O6] or S[C6H12O6, 2] syntax
         name = expr.args[1]
         formula = string(expr.args[2])
         atoms = _parse_chemical_formula(formula)
-        if length(expr.args) >= 3
-            return Expr(:tuple, QuoteNode(name), atoms, expr.args[3])
-        end
         return Expr(:tuple, QuoteNode(name), atoms)
     else
         error("Cannot parse species definition: $expr")
@@ -72,17 +68,16 @@ end
     @enzyme_reaction begin
         substrates: S[C]
         products:   P[C]
-        regulators: I[C5]
+        regulators: I
     end
 
 Create an `EnzymeReaction` from a DSL block. Species atoms use chemical
 formula bracket syntax: `S[C6H12O6]`. Bare symbols (no brackets) are allowed
-when all metabolites omit atoms.
+when all metabolites omit atoms. Regulators are plain symbol names.
 
 Multi-species lines use comma separation:
     substrates: S[C6H12O6], ATP[C10H16N5O13P3]
-
-Max binding sites use an optional integer in brackets: `S[C, 2]` (default 1).
+    regulators: I, A
 """
 macro enzyme_reaction(block)
     parsed = _parse_labeled_block(block, Set([:substrates, :products, :regulators]))
@@ -90,8 +85,28 @@ macro enzyme_reaction(block)
     haskey(parsed, :products) || error("products not specified")
     subs = parsed[:substrates]
     prods = parsed[:products]
-    regs = get(parsed, :regulators, Expr(:tuple))
+    regs = get(parsed, :regulators, nothing)
+    if regs === nothing
+        regs = Expr(:tuple)
+    else
+        regs = _regulator_tuple_to_symbols(regs)
+    end
     return esc(:(EnzymeReaction($subs, $prods, $regs)))
+end
+
+"""Convert a parsed species tuple for regulators into a plain Symbol tuple.
+Accepts both bare Symbols (:I) and bracket syntax (I[C5]) — extracts just the name."""
+function _regulator_tuple_to_symbols(species_tuple::Expr)
+    result = Expr(:tuple)
+    for arg in species_tuple.args
+        if arg isa Expr && arg.head == :tuple
+            # (QuoteNode(:I), atoms...) → QuoteNode(:I)
+            push!(result.args, arg.args[1])
+        else
+            push!(result.args, arg)
+        end
+    end
+    result
 end
 
 function _parse_species_block(block)
@@ -103,7 +118,12 @@ function _parse_species_block(block)
     haskey(parsed, :enzymes) || error("enzymes not specified in species block")
     subs = parsed[:substrates]
     prods = parsed[:products]
-    regs = get(parsed, :regulators, Expr(:tuple))
+    regs = get(parsed, :regulators, nothing)
+    if regs === nothing
+        regs = Expr(:tuple)
+    else
+        regs = _regulator_tuple_to_symbols(regs)
+    end
     enzs = parsed[:enzymes]
 
     return Expr(:tuple, subs, prods, regs, enzs)
@@ -129,7 +149,7 @@ end
         species: begin
             substrates: S[C]
             products:   P[C]
-            regulators: I[C]
+            regulators: I
             enzymes:    E, ES[C]
         end
         steps: begin
@@ -140,7 +160,8 @@ end
 
 Create an `EnzymeMechanism` from explicit species and step definitions.
 Species atoms use chemical formula bracket syntax: `S[C6H12O6]`. Bare symbols
-(no brackets) are allowed when all metabolites omit atoms.
+(no brackets) are allowed when all metabolites omit atoms. Regulators are
+plain symbol names (no atoms).
 Steps use the `<-->` arrow.
 """
 # Decompose a constraint RHS expression into (coeff::Int, factors_tuple_expr).

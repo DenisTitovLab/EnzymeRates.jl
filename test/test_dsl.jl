@@ -5,19 +5,19 @@
             products:   P[C]
         end
         @test spec isa EnzymeReaction
-        @test EnzymeRates.substrates(spec) == ((:S, ((:C, 1),), 1),)
-        @test EnzymeRates.products(spec) == ((:P, ((:C, 1),), 1),)
+        @test EnzymeRates.substrates(spec) == ((:S, ((:C, 1),)),)
+        @test EnzymeRates.products(spec) == ((:P, ((:C, 1),)),)
         @test EnzymeRates.regulators(spec) == ()
 
         spec2 = @enzyme_reaction begin
             substrates: S[C6H12O6], ATP[C10H16N5O13P3]
             products:   G6P[C6H13O9P], ADP[C10H15N5O10P2]
-            regulators: I[C5H8N2]
+            regulators: I
         end
         @test length(EnzymeRates.substrates(spec2)) == 2
         @test length(EnzymeRates.products(spec2)) == 2
         @test length(EnzymeRates.regulators(spec2)) == 1
-        @test EnzymeRates.regulators(spec2)[1][1] == :I
+        @test EnzymeRates.regulators(spec2)[1] == :I
     end
 
     @testset "@enzyme_mechanism" begin
@@ -78,7 +78,7 @@
         spec = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
-            regulators: I[C]
+            regulators: I
         end
         @test spec isa EnzymeReaction
 
@@ -86,7 +86,7 @@
         species = (
             ( (:S, ((:C, 1),)), ),           # substrates
             ( (:P, ((:C, 1),)), ),           # products
-            ( (:I, ((:C, 1),)), ),           # regulators
+            (:I,),                           # regulators
             ( (:E, ()), (:ES, ((:C, 1),)), (:EI, ((:C, 1),)) ),  # enzymes
         )
         rxns = (

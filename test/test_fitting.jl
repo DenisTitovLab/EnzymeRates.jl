@@ -182,6 +182,68 @@ using Tables
         @test l > 0.0
     end
 
+    # ── Test 6b: All-mismatch figure has positive loss ────────────────────────
+    # Regression test: previously, when all predictions in a figure were sign-
+    # mismatches, the centering step zeroed every deviation (10-mean(10)=0).
+    # The loss must be nonzero to distinguish a bad mechanism from a perfect one.
+    # Three sub-cases exercise each path that sets buf[i] = 10.0:
+    #   (i)  pred == 0.0            (S=0, P=0)
+    #   (ii) pred < 0, Rate > 0     (S=0, P>0: only reverse term survives → pred always negative)
+    #   (iii) pred > 0, Rate < 0    (S>0, P=0: only forward term survives → pred always positive)
+    # In all cases every point in the figure is a mismatch so the expected
+    # loss is: (0 from centering + 100.0 × n_mismatch) / n_data = 100.0
+    @testset "All-mismatch figure not cancelled by centering" begin
+        Keq_val = 2.0
+        pn = EnzymeRates.fitted_params(uni_uni)
+        x = randn(length(pn))
+
+        @testset "zero prediction (S=0, P=0)" begin
+            data = (
+                Article = fill("A1", 5),
+                Fig     = fill("F1", 5),
+                Rate    = [1.0, 2.0, 3.0, 4.0, 5.0],
+                S       = zeros(5),
+                P       = zeros(5),
+            )
+            fp = FittingProblem(uni_uni, data; Keq=Keq_val)
+            l = EnzymeRates.loss!(x, fp)
+            @test l > 0.0
+            @test l ≈ 100.0
+        end
+
+        @testset "sign mismatch: pred<0, Rate>0 (S=0, P>0)" begin
+            # With S=0 the forward numerator term vanishes; only the reverse
+            # term (∝ -P) remains, so pred < 0 for any positive parameters.
+            data = (
+                Article = fill("A1", 5),
+                Fig     = fill("F1", 5),
+                Rate    = [1.0, 2.0, 3.0, 4.0, 5.0],
+                S       = zeros(5),
+                P       = [0.1, 0.2, 0.3, 0.4, 0.5],
+            )
+            fp = FittingProblem(uni_uni, data; Keq=Keq_val)
+            l = EnzymeRates.loss!(x, fp)
+            @test l > 0.0
+            @test l ≈ 100.0
+        end
+
+        @testset "sign mismatch: pred>0, Rate<0 (S>0, P=0)" begin
+            # With P=0 the reverse numerator term vanishes; only the forward
+            # term (∝ S) remains, so pred > 0 for any positive parameters.
+            data = (
+                Article = fill("A1", 5),
+                Fig     = fill("F1", 5),
+                Rate    = [-1.0, -2.0, -3.0, -4.0, -5.0],
+                S       = [0.1, 0.2, 0.3, 0.4, 0.5],
+                P       = zeros(5),
+            )
+            fp = FittingProblem(uni_uni, data; Keq=Keq_val)
+            l = EnzymeRates.loss!(x, fp)
+            @test l > 0.0
+            @test l ≈ 100.0
+        end
+    end
+
     # ── Test 7: Zero allocations ──────────────────────────────────────────────
     @testset "Zero allocations" begin
         Keq_val = 2.0

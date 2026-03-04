@@ -199,7 +199,8 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
     roles = Symbol[]
     per_site_options =
         Vector{Tuple{Union{Nothing,Vector{Pair{Symbol,Int}}},String}}[]
-    for (group, role) in ((S, :sub), (P, :prod), (R, :reg)), spec in group
+    # Substrates and products: (name, atoms) tuples
+    for (group, role) in ((S, :sub), (P, :prod)), spec in group
         fa = sorted_atoms(spec)
         push!(metabolites, spec[1])
         push!(full_atom_lists, fa)
@@ -225,6 +226,14 @@ function enumerate_enzyme_forms(reaction::EnzymeReaction{S,P,R}) where {S,P,R}
             end
         end
         push!(per_site_options, site_options)
+    end
+    # Regulators: plain Symbols (no atoms)
+    for name in R
+        push!(metabolites, name)
+        push!(full_atom_lists, Pair{Symbol,Int}[])
+        push!(roles, :reg)
+        push!(per_site_options,
+            [(nothing, "0"), (Pair{Symbol,Int}[], string(name))])
     end
     # Cartesian product with exclusion filter:
     # Skip unreachable forms where all substrates are fully loaded
@@ -414,7 +423,7 @@ function _expand_activators(
     @nospecialize(reaction::EnzymeReaction);
     max_forms::Int,
 )
-    reg_names = [r[1] for r in regulators(reaction)]
+    reg_names = [r for r in regulators(reaction)]
     isempty(reg_names) && return specs
     result = MechanismSpec[]
     for spec in specs
@@ -616,14 +625,13 @@ function EnzymeMechanism(spec::MechanismSpec)
     forms = enumerate_enzyme_forms(rxn)
     adj = _build_adjacency(forms)
     used = Set(Iterators.flatten(spec.edges))
-    _name_atoms(g) = Tuple((n, a) for (n, a, _) in g)
     _form_atoms(sites) = sort!([a => c for (a, c) in reduce(mergewith(+),
         (Dict(s.atoms) for s in sites if s.atoms !== nothing);
         init=Dict{Symbol,Int}())]; by=first)
     species = (
-        _name_atoms(substrates(rxn)),
-        _name_atoms(products(rxn)),
-        _name_atoms(regulators(rxn)),
+        substrates(rxn),
+        products(rxn),
+        regulators(rxn),
         Tuple((forms[i].name, Tuple(Tuple.(_form_atoms(forms[i].sites))))
             for i in eachindex(forms) if i ∈ used))
     reactions = Tuple(let info = adj[minmax(a, b)]

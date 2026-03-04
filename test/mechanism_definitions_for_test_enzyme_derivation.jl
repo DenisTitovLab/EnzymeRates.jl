@@ -971,7 +971,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:R[X]
+                regulators:R
                 enzymes:E, ES[C], EP[C], ER[X]
             end
             steps:begin
@@ -1023,7 +1023,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:R[X]
+                regulators:R
                 enzymes:E, E_S[C], E_P[C], E_R[X], E_S_R[CX]
             end
             steps:begin
@@ -1079,7 +1079,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:R[X]
+                regulators:R
                 enzymes:E, E_S[C], E_P[C], E_S_R[CX]
             end
             steps:begin
@@ -1131,7 +1131,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:R[X]
+                regulators:R
                 enzymes:E, E_R[X], E_S_R[CX], E_P_R[CX]
             end
             steps:begin
@@ -1184,7 +1184,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:R[X]
+                regulators:R
                 enzymes:E, E_S[C], E_P[C], E_R[X], E_S_R[CX], E_P_R[CX]
             end
             steps:begin
@@ -1252,7 +1252,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:A[X], I[Y]
+                regulators:A, I
                 enzymes:E, E_S[C], E_P[C], E_A[X],
                 E_S_A[CX], E_P_A[CX], E_I[Y]
             end
@@ -1524,7 +1524,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:I[X]
+                regulators:I
                 enzymes:E_00,
                 E_0S[C], E_S0[C], E_0P[C], E_P0[C],
                 E_SS[C2], E_SP[C2], E_PS[C2], E_PP[C2],
@@ -1705,7 +1705,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:I[Y]
+                regulators:I
                 enzymes:R_00, R_S0[C], R_0S[C], R_SS[C2], R_P0[C], R_0P[C], R_SP[C2], R_PS[C2], R_PP[C2], T_00, T_S0[C], T_0S[C], T_SS[C2], T_P0[C], T_0P[C], T_SP[C2], T_PS[C2], T_PP[C2], R_00I[Y], R_S0I[CY], R_0SI[CY], R_SSI[C2Y], R_P0I[CY], R_0PI[CY], R_SPI[C2Y], R_PSI[C2Y], R_PPI[C2Y], T_00I[Y], T_S0I[CY], T_0SI[CY], T_SSI[C2Y], T_P0I[CY], T_0PI[CY], T_SPI[C2Y], T_PSI[C2Y], T_PPI[C2Y]
             end
             steps:begin
@@ -1971,7 +1971,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:I1[X], I2[Y]
+                regulators:I1, I2
                 enzymes:E, E_S[C], E_P[C], E_I1[X], E_I2[Y]
             end
             steps:begin
@@ -2021,7 +2021,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:I1[X], I2[Y]
+                regulators:I1, I2
                 enzymes:E, E_S[C], E_P[C],
                 E_I1[X], E_S_I1[CX], E_P_I1[CX],
                 E_I2[Y], E_S_I2[CY], E_P_I2[CY],
@@ -2110,7 +2110,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:I1[X], I2[Y]
+                regulators:I1, I2
                 enzymes:E, E_S[C], E_P[C],
                 E_I1[X], E_S_I1[CX], E_P_I1[CX],
                 E_I2[Y]
@@ -2173,7 +2173,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:I1[X], I2[Y]
+                regulators:I1, I2
                 enzymes:E, E_S[C], E_P[C],
                 E_S_I1[CX],
                 E_I2[Y]
@@ -2227,7 +2227,7 @@ function build_mechanism_test_specs()
             species:begin
                 substrates:S[C]
                 products:P[C]
-                regulators:I1[X], I2[X]
+                regulators:I1, I2
                 enzymes:E, E_S[C], E_P[C],
                 E_I1[X], E_S_I1[CX], E_P_I1[CX],
                 E_I2[X], E_S_I2[CX], E_P_I2[CX]

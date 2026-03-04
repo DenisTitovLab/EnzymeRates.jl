@@ -837,7 +837,7 @@ end
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
-        regulators: R1[S], R2[P]
+        regulators: R1, R2
     end
     max_forms = 100
     with_dead_end = EnzymeRates.enumerate_mechanisms(
@@ -868,7 +868,7 @@ end
         species: begin
             substrates: A[CX], B[N]
             products: P[C], Q[NX]
-            regulators: R1[S]
+            regulators: R1
             enzymes: E, EA[CX], EAFP[CX], F[X], FB[NX],
                      FBEQ[NX], E_R1[S], EA_R1[CXS],
                      EAFP_R1[CXS], F_R1[XS], FB_R1[NXS]
@@ -899,7 +899,7 @@ end
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
-        regulators: R1[S], R2[P]
+        regulators: R1, R2
     end
     with_dead_end = EnzymeRates.enumerate_mechanisms(
         rxn;
