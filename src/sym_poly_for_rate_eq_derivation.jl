@@ -34,21 +34,15 @@ function poly_mul(a::POLY, b::POLY)
     filter!(p -> p.second != 0, r)
 end
 
-function _mono_mul(a::MONO, b::MONO)
+function _mono_op(a::MONO, b::MONO, sign::Int)
     d = Dict{Symbol,Int}()
     for (s, e) in a; d[s] = get(d, s, 0) + e; end
-    for (s, e) in b; d[s] = get(d, s, 0) + e; end
+    for (s, e) in b; d[s] = get(d, s, 0) + sign * e; end
     filter!(p -> p.second != 0, d)
     sort!(MONO(collect(d)); by=first)
 end
-
-function _mono_div(a::MONO, b::MONO)
-    d = Dict{Symbol,Int}()
-    for (s, e) in a; d[s] = get(d, s, 0) + e; end
-    for (s, e) in b; d[s] = get(d, s, 0) - e; end
-    filter!(p -> p.second != 0, d)
-    sort!(MONO(collect(d)); by=first)
-end
+_mono_mul(a::MONO, b::MONO) = _mono_op(a, b, 1)
+_mono_div(a::MONO, b::MONO) = _mono_op(a, b, -1)
 
 """Raise a POLY to a non-negative integer power via repeated multiplication."""
 function _poly_power(p::POLY, n::Int)
@@ -64,59 +58,6 @@ end
 function _poly_div_mono(p::POLY, divisor::POLY)::POLY
     m = first(keys(divisor))
     POLY(_mono_div(k, m) => v for (k, v) in p)
-end
-
-"""
-Extract common factor from a multi-term POLY.
-Returns `(common_mono_poly, reduced_poly)` where `common_mono_poly` is a
-single-term POLY and `poly_mul(common_mono_poly, reduced_poly) == p`.
-"""
-function _extract_poly_common_factor(p::POLY)
-    length(p) < 2 && return poly_one(), p
-    # GCD of rational coefficients: gcd(a/b, c/d) = gcd(a,c)/lcm(b,d)
-    abs_coeffs = [abs(c) for (_, c) in p]
-    g_num = reduce(gcd, (numerator(c) for c in abs_coeffs))
-    g_den = reduce(lcm, (denominator(c) for c in abs_coeffs))
-    g_coeff = g_num // g_den
-    # GCD of monomials: min positive exponent per symbol across all terms
-    common = Dict{Symbol,Int}()
-    first_term = true
-    for (mono, _) in p
-        md = Dict{Symbol,Int}(mono)
-        if first_term
-            merge!(common, md)
-            first_term = false
-        else
-            for s in collect(keys(common))
-                if haskey(md, s)
-                    common[s] = min(common[s], md[s])
-                else
-                    delete!(common, s)
-                end
-            end
-        end
-    end
-    filter!(kv -> kv.second > 0, common)
-    g_mono = sort!(MONO(collect(common)); by=first)
-    g_coeff == 1 && isempty(g_mono) && return poly_one(), p
-    g_poly = POLY(g_mono => g_coeff)
-    reduced = POLY(
-        _mono_div(k, g_mono) => v // g_coeff for (k, v) in p
-    )
-    g_poly, reduced
-end
-
-"""Check if monomial `b` divides monomial `a` (all exponents non-negative)."""
-function _mono_divides(b::MONO, a::MONO)
-    bd = Dict{Symbol,Int}(b)
-    for (s, e) in bd
-        ae = 0
-        for (sa, ea) in a
-            sa == s && (ae = ea; break)
-        end
-        ae < e && return false
-    end
-    true
 end
 
 """
@@ -205,17 +146,7 @@ function sym_det(M::Matrix{POLY}, n::Int)
     result
 end
 
-# Convert POLY num/den to a Julia Expr for @generated function bodies (bare symbols)
-function to_rate_expr(
-    num::POLY, den::POLY,
-    param_syms::Set{Symbol}, conc_syms::Set{Symbol},
-    inverted_params::Set{Symbol}=Set{Symbol}(),
-)
-    num_expr = _poly_to_expr(num, param_syms, conc_syms, inverted_params)
-    den_expr = _poly_to_expr(den, param_syms, conc_syms, inverted_params)
-    :(E_total * ($num_expr) / ($den_expr))
-end
-
+# Convert POLY to a Julia Expr for @generated function bodies (bare symbols)
 function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
                        inverted_params::Set{Symbol}=Set{Symbol}())
     isempty(p) && return 0
@@ -251,21 +182,12 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
         term = isempty(df) ? num_part : :($num_part / $(_nest_binary(:*, df)))
         coeff > 0 ? push!(pos, term) : push!(neg, term)
     end
-    _combine_terms(pos, neg)
-end
-
-function _combine_terms(pos::Vector{Any}, neg::Vector{Any})
     pe = isempty(pos) ? nothing : _nest_binary(:+, pos)
     ne = isempty(neg) ? nothing : _nest_binary(:+, neg)
-    if pe !== nothing && ne !== nothing
-        :($pe - $ne)
-    elseif pe !== nothing
-        pe
-    elseif ne !== nothing
-        :(- $ne)
-    else
-        0
-    end
+    pe !== nothing && ne !== nothing && return :($pe - $ne)
+    pe !== nothing && return pe
+    ne !== nothing && return :(- $ne)
+    return 0
 end
 
 """Build flat n-ary expression: +(a, b, c, d). Single term returns unwrapped."""
@@ -273,88 +195,52 @@ function _nest_binary(op::Symbol, terms::Vector{Any})
     length(terms) == 1 ? terms[1] : Expr(:call, op, terms...)
 end
 
+"""Operator precedence for Expr→String conversion."""
+_op_prec(op::Symbol) =
+    op in (:+, :-) ? 1 : op in (:*, :/) ? 2 : op == :^ ? 3 : 0
+
+"""Wrap in parens if inner expression has lower precedence."""
+function _str_paren(expr, threshold; right=false)
+    s = _expr_to_string(expr)
+    expr isa Expr && expr.head == :call || return s
+    ip = _op_prec(expr.args[1])
+    (right ? ip <= threshold : ip < threshold) && ip > 0 ?
+        "($s)" : s
+end
+
 """
 Precedence-aware Expr→String conversion for rate equations.
 Avoids unnecessary parentheses that Julia's `string()` adds.
 """
 function _expr_to_string(x)
-    x isa Number && return string(x)
-    x isa Symbol && return string(x)
-    x isa Expr || return string(x)
-    x.head == :call || return string(x)
-    op = x.args[1]
+    x isa Union{Number, Symbol} && return string(x)
+    x isa Expr && x.head == :call || return string(x)
+    op, args = x.args[1], @view(x.args[2:end])
     # Unary minus
-    if op == :- && length(x.args) == 2
-        inner = _expr_to_string(x.args[2])
-        return "-$(_paren_if(x.args[2], 1))"
-    end
-    prec = _op_precedence(op)
-    if op in (:+, :-)
-        return _format_additive(x.args[2:end], op)
+    op == :- && length(args) == 1 &&
+        return "-$(_str_paren(args[1], 1))"
+    if op == :+
+        return join((_expr_to_string(a) for a in args), " + ")
+    elseif op == :-
+        return "$(_expr_to_string(args[1])) - " *
+               _str_paren(args[2], 1; right=true)
     elseif op == :*
-        parts = String[]
-        for a in x.args[2:end]
+        parts = [begin
             s = _expr_to_string(a)
-            needs = a isa Expr && a.head == :call &&
-                    (let ip = _op_precedence(a.args[1])
-                         ip < prec || a.args[1] == :/
-                     end)
-            push!(parts, needs ? "($s)" : s)
-        end
+            need_parens = a isa Expr && a.head == :call &&
+                (_op_prec(a.args[1]) < 2 || a.args[1] == :/)
+            need_parens ? "($s)" : s
+        end for a in args]
         return join(parts, " * ")
     elseif op == :/
-        lhs = _paren_if(x.args[2], prec, :left)
-        rhs = _paren_if(x.args[3], prec, :right)
-        return "$lhs / $rhs"
+        return "$(_str_paren(args[1], 2)) / " *
+               _str_paren(args[2], 2; right=true)
     elseif op == :^
-        base = _paren_if(x.args[2], prec, :right)
-        return "$base ^ $(_expr_to_string(x.args[3]))"
+        return "$(_str_paren(args[1], 3; right=true)) ^ " *
+               _expr_to_string(args[2])
     else
-        # fallback: function call
         return string(x)
     end
-end
-
-function _op_precedence(op::Symbol)
-    op in (:+, :-) && return 1
-    op in (:*, :/) && return 2
-    op == :^ && return 3
-    return 0
-end
-
-"""Wrap in parens if inner expression has lower precedence than threshold."""
-function _paren_if(expr, threshold::Int, side::Symbol=:left)
-    s = _expr_to_string(expr)
-    expr isa Expr && expr.head == :call || return s
-    inner_op = expr.args[1]
-    inner_prec = _op_precedence(inner_op)
-    # Right operand of / or - needs parens at same precedence
-    needs = if side == :right
-        inner_prec <= threshold && inner_prec > 0
-    else
-        inner_prec < threshold && inner_prec > 0
-    end
-    needs ? "($s)" : s
-end
-
-"""Format additive expression: handles n-ary + and binary -."""
-function _format_additive(args, op::Symbol)
-    if op == :- && length(args) == 2
-        lhs = _expr_to_string(args[1])
-        rhs = _paren_if(args[2], 1, :right)
-        return "$lhs - $rhs"
-    end
-    # n-ary +
-    parts = String[]
-    for (i, a) in enumerate(args)
-        s = _expr_to_string(a)
-        if i == 1
-            push!(parts, s)
-        else
-            push!(parts, s)
-        end
-    end
-    join(parts, " + ")
 end
 
 """Check if a symbol is a rate/equilibrium parameter (k or K), not Keq or E_total."""
@@ -496,17 +382,13 @@ function _factored_poly_to_expr(
             Tuple(sort!([string(s) for (mono, _) in f for (s, _) in mono])),
         ),
     )
-    terms = Any[]
-    for i in order
-        f, e = fp.factors[i], fp.exponents[i]
-        f_expr = _poly_to_expr(f, param_syms, conc_syms, inverted_params)
-        if e == 1
-            push!(terms, f_expr)
-        else
-            push!(terms, :(($f_expr) ^ $e))
-        end
+    terms = map(order) do i
+        f_expr = _poly_to_expr(
+            fp.factors[i], param_syms, conc_syms, inverted_params,
+        )
+        fp.exponents[i] == 1 ? f_expr : :(($f_expr) ^ $(fp.exponents[i]))
     end
-    isempty(terms) ? 1 : _nest_binary(:*, terms)
+    isempty(terms) ? 1 : _nest_binary(:*, Any[terms...])
 end
 
 """Convert a FactoredSigma to Expr: sum of coeff * factored_poly."""
@@ -516,74 +398,58 @@ function _factored_sigma_to_expr(
     conc_syms::Set{Symbol},
     inverted_params::Set{Symbol},
 )
-    terms = Any[]
-    for (coeff, fp) in zip(fs.coefficients, fs.products)
+    terms = map(fs.coefficients, fs.products) do coeff, fp
         fp_expr = _factored_poly_to_expr(
             fp, param_syms, conc_syms, inverted_params,
         )
         if coeff == poly_one()
-            push!(terms, fp_expr)
-        elseif fp_expr isa Integer && fp_expr == 1
-            c_expr = _poly_to_expr(
-                coeff, param_syms, conc_syms, inverted_params,
-            )
-            push!(terms, c_expr)
+            fp_expr
         else
             c_expr = _poly_to_expr(
                 coeff, param_syms, conc_syms, inverted_params,
             )
-            push!(terms, :($c_expr * $fp_expr))
+            fp_expr isa Integer && fp_expr == 1 ? c_expr :
+                :($c_expr * $fp_expr)
         end
     end
-    _nest_binary(:+, terms)
+    _nest_binary(:+, Any[terms...])
 end
 
 """Convert Vector{DenomTerm} to a single denominator Expr."""
 function _denom_terms_to_expr(
-    terms::Vector{DenomTerm},
+    dts::Vector{DenomTerm},
     param_syms::Set{Symbol},
     conc_syms::Set{Symbol},
     inverted_params::Set{Symbol},
 )
-    exprs = Any[]
-    for dt in terms
-        s_expr = _factored_sigma_to_expr(
+    exprs = map(dts) do dt
+        s = _factored_sigma_to_expr(
             dt.sigma, param_syms, conc_syms, inverted_params,
         )
         if dt.cofactor == poly_one()
-            push!(exprs, s_expr)
+            s
         else
-            c_expr = _poly_to_expr(
+            c = _poly_to_expr(
                 dt.cofactor, param_syms, conc_syms, inverted_params,
             )
-            push!(exprs, :($s_expr * $c_expr))
+            :($s * $c)
         end
     end
-    _nest_binary(:+, exprs)
+    _nest_binary(:+, Any[exprs...])
 end
 
-"""Build rate Expr from numerator POLY and factored denominator terms."""
+"""Build rate Expr from numerator (POLY or FactoredSigma) and factored denominator."""
 function to_rate_expr(
-    num::POLY, denom_terms::Vector{DenomTerm},
+    num::Union{POLY, FactoredSigma},
+    denom_terms::Vector{DenomTerm},
     param_syms::Set{Symbol}, conc_syms::Set{Symbol},
     inverted_params::Set{Symbol}=Set{Symbol}(),
 )
-    num_expr = _poly_to_expr(num, param_syms, conc_syms, inverted_params)
-    den_expr = _denom_terms_to_expr(
-        denom_terms, param_syms, conc_syms, inverted_params,
-    )
-    :(E_total * ($num_expr) / ($den_expr))
-end
-
-"""Build rate Expr from factored numerator and factored denominator terms."""
-function to_rate_expr(
-    num::FactoredSigma, denom_terms::Vector{DenomTerm},
-    param_syms::Set{Symbol}, conc_syms::Set{Symbol},
-    inverted_params::Set{Symbol}=Set{Symbol}(),
-)
-    num_expr = _factored_sigma_to_expr(
-        num, param_syms, conc_syms, inverted_params,
-    )
+    num_expr = num isa POLY ?
+        _poly_to_expr(num, param_syms, conc_syms, inverted_params) :
+        _factored_sigma_to_expr(
+            num, param_syms, conc_syms, inverted_params,
+        )
     den_expr = _denom_terms_to_expr(
         denom_terms, param_syms, conc_syms, inverted_params,
     )
@@ -630,11 +496,7 @@ end
 function _expand_factored_poly(fp::FactoredPoly)::POLY
     result = poly_one()
     for (f, e) in zip(fp.factors, fp.exponents)
-        p = f
-        for _ in 2:e
-            p = poly_mul(p, f)
-        end
-        result = poly_mul(result, p)
+        result = poly_mul(result, _poly_power(f, e))
         if length(result) > MAX_RATE_EQUATION_TERMS
             error(
                 "Rate equation for this mechanism has more than " *

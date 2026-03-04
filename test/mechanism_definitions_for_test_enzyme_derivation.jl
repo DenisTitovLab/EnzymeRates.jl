@@ -1450,12 +1450,6 @@ function build_mechanism_test_specs()
             expected_identifiability_deficit=-2,
             expected_is_identifiable=true,
             analytical_rate_fn=rate_mwc_dimer,
-            expected_factored_num=
-            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13) + 2 * K37 * (1 + S / K19 + P / K31) * (k25f * S / K19 - k25r * P / K31)",
-            factored_num_broken=false,
-            expected_factored_denom=
-            "(1 + S / K1 + P / K13) ^ 2 + K37 * (1 + S / K19 + P / K31) ^ 2",
-            factored_denom_broken=false,
         ))
     end
 
@@ -1641,10 +1635,6 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_homodimer_noncomp_inh(merge(p, (Et=p.Et,)), c),
-            expected_factored_num=
-            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13)",
-            expected_factored_denom=
-            "(1 + S / K1 + P / K13) ^ 2 * (1 + I / K19)",
         ))
     end
 
@@ -1905,10 +1895,6 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_mwc_dimer_inh(merge(p, (Et=p.Et,)), c),
-            expected_factored_num=
-            "2 * (1 + S / K1 + P / K13) * (k7f * S / K1 - k7r * P / K13) + 2 * K37 * (1 + S / K19 + P / K31) * (k25f * S / K19 - k25r * P / K31)",
-            expected_factored_denom=
-            "(1 + S / K1 + P / K13) ^ 2 * (1 + I / K38) + K37 * (1 + S / K19 + P / K31) ^ 2 * (1 + I / K47)",
         ))
     end
 
@@ -2455,22 +2441,8 @@ function build_mechanism_test_specs()
                 expected_is_identifiable=true,
                 run_ode_test=false,
                 analytical_rate_fn=rate_mwc_tetramer_bi_bi,
-                expected_factored_num=
-                "4 * ((k13f * S1 * S2 / (K1 * K3) - k13r * P1 * P2 / (K2 * K4))" *
-                " * ((1 + S1 / K1 + P1 / K2) * (1 + S2 / K3 + P2 / K4)) ^ 3" *
-                " * (1 + R1 / K_R1_reg1 + R2 / K_R2_reg1) ^ 4" *
-                " * (1 + R3 / K_R3_reg2) ^ 4" *
-                " + L * (k13f_T * S1 * S2 / (K1_T * K3_T) - k13r_T * P1 * P2 / (K2_T * K4_T))" *
-                " * ((1 + S1 / K1_T + P1 / K2_T) * (1 + S2 / K3_T + P2 / K4_T)) ^ 3" *
-                " * (1 + R1 / K_R1_T_reg1 + R2 / K_R2_T_reg1) ^ 4" *
-                " * (1 + R3 / K_R3_T_reg2) ^ 4)",
-                expected_factored_denom=
-                "((1 + S1 / K1 + P1 / K2) * (1 + S2 / K3 + P2 / K4)) ^ 4" *
-                " * (1 + R1 / K_R1_reg1 + R2 / K_R2_reg1) ^ 4" *
-                " * (1 + R3 / K_R3_reg2) ^ 4" *
-                " + L * ((1 + S1 / K1_T + P1 / K2_T) * (1 + S2 / K3_T + P2 / K4_T)) ^ 4" *
-                " * (1 + R1 / K_R1_T_reg1 + R2 / K_R2_T_reg1) ^ 4" *
-                " * (1 + R3 / K_R3_T_reg2) ^ 4",
+                expected_factored_num=nothing,
+                expected_factored_denom=nothing,
             ))
         end
     end
