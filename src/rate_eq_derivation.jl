@@ -207,10 +207,9 @@ function _try_algebraic_factor_sigma(
 
         coeffs = POLY[]
         products = FactoredPoly[]
-        unfactored_count = is_subset ? length(without_R) - length(base_R) :
-                                       length(without_R)
+        remainder = is_subset ? poly_sub(without_R, base_R) : poly_zero()
+        unfactored_count = is_subset ? length(remainder) : length(without_R)
         if is_subset
-            remainder = poly_sub(without_R, base_R)
             one_plus_KR = poly_add(
                 poly_one(), POLY(_mono(K_R => 1, met => 1) => 1),
             )
@@ -242,6 +241,7 @@ function _try_algebraic_factor_sigma(
                 push!(coeffs, poly_one())
                 push!(products, FactoredPoly(factors, exps))
                 unfactored_count = 0
+                remainder = poly_zero()
             else
                 push!(coeffs, remainder)
                 push!(products, FactoredPoly([poly_one()], [1]))
@@ -317,9 +317,9 @@ function _haldane_equality_substitutions(M::Type{<:EnzymeMechanism})
     dep_exprs, _ = _dependent_param_exprs(M)
     length(dep_exprs) < 2 && return Pair{Symbol,Symbol}[]
     # Sort by step number for stable canonical choice (lowest first)
-    _step_num(s) = something(
-        tryparse(Int, match(r"\d+", string(s)).match), 0,
-    )
+    _step_num(s) = let m = match(r"\d+", string(s))
+        m === nothing ? 0 : something(tryparse(Int, m.match::SubString), 0)
+    end
     sorted = sort(collect(dep_exprs); by=p -> _step_num(p[1]))
     subs = Pair{Symbol,Symbol}[]
     expr_to_canonical = Dict{Any,Symbol}()
@@ -347,7 +347,7 @@ function _factor_poly(
     afs = _try_algebraic_factor_sigma(
         p, rxns, eq_steps, enz_set, constraints; binding_Ks,
     )
-    if afs !== nothing
+    if afs !== nothing && _expand_factored_sigma(afs) == p
         if !check_benefit
             return afs
         end
