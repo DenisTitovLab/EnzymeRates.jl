@@ -88,7 +88,10 @@ Parameters in `x` are in log-space (i.e., actual rate constants = `exp.(x)`).
 Each figure's log-ratios are centered (mean-subtracted) before squaring,
 making the loss invariant to per-figure E_total scaling.
 
-Sign mismatches (predicted vs measured rate sign) incur a penalty of 10.0.
+Sign mismatches (predicted vs measured rate sign) incur a flat penalty of 100.0
+per point, accumulated after the centering loop. This prevents all-mismatch
+figures from contributing zero loss (a uniform sentinel would cancel under
+mean-subtraction).
 """
 function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
     buf = fp.log_ratios_buffer
@@ -131,7 +134,16 @@ function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
         end
     end
 
-    return total_loss / n_data
+    # Flat penalty for sign mismatches, applied after centering so it cannot be
+    # cancelled. When all points in a figure share the sentinel value (10.0),
+    # mean-subtraction zeros every deviation; the post-hoc penalty ensures such
+    # figures still contribute positively to the loss.
+    n_mismatch = 0
+    @inbounds for i in 1:n_data
+        buf[i] == 10.0 && (n_mismatch += 1)
+    end
+
+    return (total_loss + 100.0 * n_mismatch) / n_data
 end
 
 """
