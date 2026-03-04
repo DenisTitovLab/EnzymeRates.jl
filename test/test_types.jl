@@ -5,8 +5,8 @@
             ((:P, ((:C, 1),)),),
         )
         @test r isa EnzymeReaction
-        @test EnzymeRates.substrates(r) == ((:S, ((:C, 1),), 1),)
-        @test EnzymeRates.products(r) == ((:P, ((:C, 1),), 1),)
+        @test EnzymeRates.substrates(r) == ((:S, ((:C, 1),)),)
+        @test EnzymeRates.products(r) == ((:P, ((:C, 1),)),)
         @test EnzymeRates.regulators(r) == ()
     end
 
@@ -14,9 +14,9 @@
         r = EnzymeReaction(
             ((:S, ((:C, 1),)),),
             ((:P, ((:C, 1),)),),
-            ((:I, ((:C, 2),)),),
+            (:I,),
         )
-        @test EnzymeRates.regulators(r) == ((:I, ((:C, 2),), 1),)
+        @test EnzymeRates.regulators(r) == (:I,)
     end
 
     @testset "EnzymeReaction canonical ordering" begin
@@ -29,14 +29,14 @@
             ((:P1, ((:C, 1),)), (:P2, ((:C, 2),))),
         )
         @test typeof(r1) === typeof(r2)
-        @test EnzymeRates.substrates(r1) == ((:S1, ((:C, 1),), 1), (:S2, ((:C, 2),), 1))
+        @test EnzymeRates.substrates(r1) == ((:S1, ((:C, 1),)), (:S2, ((:C, 2),)))
     end
 
     @testset "EnzymeReaction regulator same as substrate allowed" begin
         r = EnzymeReaction(
             ((:S, ((:C, 1),)),),
             ((:P, ((:C, 1),)),),
-            ((:S, ((:C, 1),)),),  # regulator same as substrate - allowed
+            (:S,),  # regulator same as substrate - allowed
         )
         @test r isa EnzymeReaction
     end
@@ -45,7 +45,7 @@
         r = EnzymeReaction(
             ((:S, ((:C, 1),)),),
             ((:P, ((:C, 1),)),),
-            ((:P, ((:C, 1),)),),  # regulator same as product - allowed
+            (:P,),  # regulator same as product - allowed
         )
         @test r isa EnzymeReaction
     end
@@ -71,7 +71,7 @@
         r2 = EnzymeReaction(
             ((:S, ((:C, 1),)), (:ATP, ((:C, 10),))),
             ((:P, ((:C, 1),)), (:ADP, ((:C, 10),))),
-            ((:I, ((:C, 5),)),),
+            (:I,),
         )
         @test sprint(show, r2) == "EnzymeReaction: ATP + S ⇌ ADP + P | regulators: I"
 

@@ -189,7 +189,7 @@ specifying the mechanism steps. Used as input for mechanism enumeration:
 rxn = @enzyme_reaction begin
     substrates: A[C], B[N]
     products:   P[C], Q[N]
-    regulators: I[P2]
+    regulators: I
 end
 ```
 

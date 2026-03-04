@@ -147,7 +147,7 @@ function build_enumeration_test_specs()
         rxn = @enzyme_reaction begin
             substrates:S[C]
             products:P[C]
-            regulators:R[N]
+            regulators: R
         end
         push!(specs, EnumerationTestSpec(
             name="Uni-Uni 1 Regulator",
@@ -198,7 +198,7 @@ function build_enumeration_test_specs()
         rxn = @enzyme_reaction begin
             substrates:S[C]
             products:P[C]
-            regulators:R1[N], R2[P]
+            regulators: R1, R2
         end
         push!(specs, EnumerationTestSpec(
             name="Uni-Uni 2 Regulators",
@@ -230,7 +230,7 @@ function build_enumeration_test_specs()
         rxn = @enzyme_reaction begin
             substrates:A[C2]
             products:P1[C], P2[C]
-            regulators:R[N]
+            regulators: R
         end
         push!(specs, EnumerationTestSpec(
             name="Uni-Bi",
@@ -262,7 +262,7 @@ function build_enumeration_test_specs()
         rxn = @enzyme_reaction begin
             substrates:A[C], B[C]
             products:P[C], Q[C]
-            regulators:R[N]
+            regulators: R
         end
         push!(specs, EnumerationTestSpec(
             name="Bi-Bi + 1 Regulator",
@@ -282,7 +282,7 @@ function build_enumeration_test_specs()
         rxn = @enzyme_reaction begin
             substrates:A[C], B[N]
             products:P[C], Q[N]
-            regulators:I[P2]
+            regulators: I
         end
         push!(specs, EnumerationTestSpec(
             name="Bi-Bi 1 Regulator",

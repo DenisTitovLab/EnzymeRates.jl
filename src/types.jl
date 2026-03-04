@@ -4,48 +4,29 @@ using Graphs
 _sort_species(t::Tuple) = Tuple(sort(collect(t); by=s -> s[1]))
 
 """
-Normalize species tuples to 3-element
-`(name, atoms, max_sites)`, defaulting max_sites to 1.
-"""
-function _normalize_species_with_sites(t::Tuple)
-    Tuple(_normalize_one_species(s) for s in t)
-end
-
-function _normalize_one_species(s)
-    n = length(s)
-    n == 2 && return (s[1], s[2], 1)
-    n == 3 && return s
-    error("Species tuple must have 2 or 3 elements, got $n")
-end
-
-"""
     EnzymeReaction{Substrates, Products, Regulators}
 
 Singleton type encoding an enzyme reaction specification in type parameters.
 
-Each of `Substrates`, `Products`, `Regulators` is a tuple of
-`(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}}, max_sites::Int)`.
-For backward compatibility, 2-element `(name, atoms)` tuples are auto-normalized
-to 3-element with `max_sites=1`.
+- `Substrates`, `Products`: tuple of `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+- `Regulators`: tuple of `Symbol` (plain names, no atoms).
 """
 struct EnzymeReaction{Substrates, Products, Regulators} end
 
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
-    subs = _normalize_species_with_sites(subs)
-    prods = _normalize_species_with_sites(prods)
-    regs = _normalize_species_with_sites(regs)
-    for group in (subs, prods, regs), s in group
-        s[3] >= 1 || error("max_sites must be ≥ 1, got $(s[3]) for $(s[1])")
-    end
     subs_names = [s[1] for s in subs]
     prods_names = [s[1] for s in prods]
     length(subs_names) != length(Set(subs_names)) && error("Duplicate substrate names")
     length(prods_names) != length(Set(prods_names)) && error("Duplicate product names")
+    for r in regs
+        r isa Symbol || error("Regulators must be Symbols, got $r")
+    end
+    length(regs) != length(Set(regs)) && error("Duplicate regulator names")
     subs = _sort_species(subs)
     prods = _sort_species(prods)
-    regs = _sort_species(regs)
+    regs = Tuple(sort(collect(regs)))
     EnzymeReaction{subs, prods, regs}()
 end
 
@@ -111,19 +92,24 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
               "(substrates, products, regulators, enzymes)")
     subs, prods, regs, enzs = species
 
-    for (label, group) in (("substrate", subs), ("product", prods), ("regulator", regs))
+    for (label, group) in (("substrate", subs), ("product", prods))
         names = [name for (name, _) in group]
         length(names) != length(Set(names)) && error("Duplicate $label names")
     end
+    reg_names = collect(regs)
+    length(reg_names) != length(Set(reg_names)) && error("Duplicate regulator names")
 
     met_atoms = Dict{Symbol,Dict{Symbol,Int}}()
-    for (name, atoms) in Iterators.flatten((subs, prods, regs))
+    for (name, atoms) in Iterators.flatten((subs, prods))
         d = Dict{Symbol,Int}(a => c for (a, c) in atoms)
         if haskey(met_atoms, name)
             met_atoms[name] == d || error("Inconsistent atoms for metabolite $name")
         else
             met_atoms[name] = d
         end
+    end
+    for name in regs
+        met_atoms[name] = Dict{Symbol,Int}()
     end
 
     enzyme_atoms = Dict{Symbol,Dict{Symbol,Int}}()
@@ -141,8 +127,8 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
     free_enzymes = [name for (name, atoms) in enzs if isempty(atoms)]
     isempty(free_enzymes) && error("No free enzyme form (enzyme with empty atoms) defined")
 
-    n_with = count(s -> !isempty(s[2]), Iterators.flatten((subs, prods, regs)))
-    n_total = length(subs) + length(prods) + length(regs)
+    n_with = count(s -> !isempty(s[2]), Iterators.flatten((subs, prods)))
+    n_total = length(subs) + length(prods)
     0 < n_with < n_total && error(
         "All metabolites must either have atoms " *
         "or all lack atoms; found a mix",
@@ -152,10 +138,11 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
     expected = Dict{Symbol,Int}()
     for (name, _) in subs; expected[name] = get(expected, name, 0) - 1; end
     for (name, _) in prods; expected[name] = get(expected, name, 0) + 1; end
-    for (name, _) in regs; expected[name] = get(expected, name, 0); end
+    for name in regs; expected[name] = get(expected, name, 0); end
 
     isempty(reactions) && error("Reactions tuple must not be empty")
     enzyme_set = Set(keys(enzyme_atoms))
+    reg_set = Set(regs)
 
     # Canonical step form for RE steps: normalize direction so metabolite
     # binding steps have metabolite on LHS (→ binding Kd convention).
@@ -188,7 +175,9 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
         rhs_enz == 1 || error("Reaction $i rhs must contain exactly one enzyme form")
         lhs_mets <= 1 || error("Reaction $i lhs has more than one metabolite")
         rhs_mets <= 1 || error("Reaction $i rhs has more than one metabolite")
-        if !skip_atom_checks
+        step_has_reg = any(s ∈ reg_set for s in lhs) ||
+                      any(s ∈ reg_set for s in rhs)
+        if !skip_atom_checks && !step_has_reg
             filter!(p -> p.second != 0, lhs_atoms)
             filter!(p -> p.second != 0, rhs_atoms)
             lhs_atoms == rhs_atoms || error("Atomic conservation failed at step $i")
@@ -327,7 +316,7 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}
     prods_str = join([string(name) for (name, _) in P], " + ")
     print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
     if !isempty(R)
-        regs_str = join([string(name) for (name, _) in R], ", ")
+        regs_str = join([string(r) for r in R], ", ")
         print(io, " | regulators: ", regs_str)
     end
 end
@@ -377,7 +366,7 @@ function Base.show(
         end
     end
     if !isempty(regs)
-        regs_str = join([string(name) for (name, _) in regs], ", ")
+        regs_str = join([string(r) for r in regs], ", ")
         print(io, " | regulators: ", regs_str)
     end
     if !isempty(PC)
@@ -427,7 +416,7 @@ function _unique_metabolites(Species)
     subs, prods, regs = Species[1:3]
     seen = Set{Symbol}()
     mets = Tuple{Symbol,Any}[]
-    for group in (subs, prods, regs)
+    for group in (subs, prods)
         for (name, atoms) in group
             if name ∉ seen
                 push!(seen, name)
@@ -435,12 +424,13 @@ function _unique_metabolites(Species)
             end
         end
     end
+    for name in regs
+        if name ∉ seen
+            push!(seen, name)
+            push!(mets, (name, ()))
+        end
+    end
     return mets
-end
-
-"""Return unique metabolites as a tuple of (name, atoms) — internal use."""
-@generated function _metabolites_with_sites(::EnzymeMechanism{Species}) where {Species}
-    return Tuple(_unique_metabolites(Species))
 end
 
 """
