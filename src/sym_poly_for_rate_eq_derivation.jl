@@ -34,21 +34,15 @@ function poly_mul(a::POLY, b::POLY)
     filter!(p -> p.second != 0, r)
 end
 
-function _mono_mul(a::MONO, b::MONO)
+function _mono_op(a::MONO, b::MONO, sign::Int)
     d = Dict{Symbol,Int}()
     for (s, e) in a; d[s] = get(d, s, 0) + e; end
-    for (s, e) in b; d[s] = get(d, s, 0) + e; end
+    for (s, e) in b; d[s] = get(d, s, 0) + sign * e; end
     filter!(p -> p.second != 0, d)
     sort!(MONO(collect(d)); by=first)
 end
-
-function _mono_div(a::MONO, b::MONO)
-    d = Dict{Symbol,Int}()
-    for (s, e) in a; d[s] = get(d, s, 0) + e; end
-    for (s, e) in b; d[s] = get(d, s, 0) - e; end
-    filter!(p -> p.second != 0, d)
-    sort!(MONO(collect(d)); by=first)
-end
+_mono_mul(a::MONO, b::MONO) = _mono_op(a, b, 1)
+_mono_div(a::MONO, b::MONO) = _mono_op(a, b, -1)
 
 """Raise a POLY to a non-negative integer power via repeated multiplication."""
 function _poly_power(p::POLY, n::Int)
@@ -388,17 +382,13 @@ function _factored_poly_to_expr(
             Tuple(sort!([string(s) for (mono, _) in f for (s, _) in mono])),
         ),
     )
-    terms = Any[]
-    for i in order
-        f, e = fp.factors[i], fp.exponents[i]
-        f_expr = _poly_to_expr(f, param_syms, conc_syms, inverted_params)
-        if e == 1
-            push!(terms, f_expr)
-        else
-            push!(terms, :(($f_expr) ^ $e))
-        end
+    terms = map(order) do i
+        f_expr = _poly_to_expr(
+            fp.factors[i], param_syms, conc_syms, inverted_params,
+        )
+        fp.exponents[i] == 1 ? f_expr : :(($f_expr) ^ $(fp.exponents[i]))
     end
-    isempty(terms) ? 1 : _nest_binary(:*, terms)
+    isempty(terms) ? 1 : _nest_binary(:*, Any[terms...])
 end
 
 """Convert a FactoredSigma to Expr: sum of coeff * factored_poly."""
@@ -408,74 +398,58 @@ function _factored_sigma_to_expr(
     conc_syms::Set{Symbol},
     inverted_params::Set{Symbol},
 )
-    terms = Any[]
-    for (coeff, fp) in zip(fs.coefficients, fs.products)
+    terms = map(fs.coefficients, fs.products) do coeff, fp
         fp_expr = _factored_poly_to_expr(
             fp, param_syms, conc_syms, inverted_params,
         )
         if coeff == poly_one()
-            push!(terms, fp_expr)
-        elseif fp_expr isa Integer && fp_expr == 1
-            c_expr = _poly_to_expr(
-                coeff, param_syms, conc_syms, inverted_params,
-            )
-            push!(terms, c_expr)
+            fp_expr
         else
             c_expr = _poly_to_expr(
                 coeff, param_syms, conc_syms, inverted_params,
             )
-            push!(terms, :($c_expr * $fp_expr))
+            fp_expr isa Integer && fp_expr == 1 ? c_expr :
+                :($c_expr * $fp_expr)
         end
     end
-    _nest_binary(:+, terms)
+    _nest_binary(:+, Any[terms...])
 end
 
 """Convert Vector{DenomTerm} to a single denominator Expr."""
 function _denom_terms_to_expr(
-    terms::Vector{DenomTerm},
+    dts::Vector{DenomTerm},
     param_syms::Set{Symbol},
     conc_syms::Set{Symbol},
     inverted_params::Set{Symbol},
 )
-    exprs = Any[]
-    for dt in terms
-        s_expr = _factored_sigma_to_expr(
+    exprs = map(dts) do dt
+        s = _factored_sigma_to_expr(
             dt.sigma, param_syms, conc_syms, inverted_params,
         )
         if dt.cofactor == poly_one()
-            push!(exprs, s_expr)
+            s
         else
-            c_expr = _poly_to_expr(
+            c = _poly_to_expr(
                 dt.cofactor, param_syms, conc_syms, inverted_params,
             )
-            push!(exprs, :($s_expr * $c_expr))
+            :($s * $c)
         end
     end
-    _nest_binary(:+, exprs)
+    _nest_binary(:+, Any[exprs...])
 end
 
-"""Build rate Expr from numerator POLY and factored denominator terms."""
+"""Build rate Expr from numerator (POLY or FactoredSigma) and factored denominator."""
 function to_rate_expr(
-    num::POLY, denom_terms::Vector{DenomTerm},
+    num::Union{POLY, FactoredSigma},
+    denom_terms::Vector{DenomTerm},
     param_syms::Set{Symbol}, conc_syms::Set{Symbol},
     inverted_params::Set{Symbol}=Set{Symbol}(),
 )
-    num_expr = _poly_to_expr(num, param_syms, conc_syms, inverted_params)
-    den_expr = _denom_terms_to_expr(
-        denom_terms, param_syms, conc_syms, inverted_params,
-    )
-    :(E_total * ($num_expr) / ($den_expr))
-end
-
-"""Build rate Expr from factored numerator and factored denominator terms."""
-function to_rate_expr(
-    num::FactoredSigma, denom_terms::Vector{DenomTerm},
-    param_syms::Set{Symbol}, conc_syms::Set{Symbol},
-    inverted_params::Set{Symbol}=Set{Symbol}(),
-)
-    num_expr = _factored_sigma_to_expr(
-        num, param_syms, conc_syms, inverted_params,
-    )
+    num_expr = num isa POLY ?
+        _poly_to_expr(num, param_syms, conc_syms, inverted_params) :
+        _factored_sigma_to_expr(
+            num, param_syms, conc_syms, inverted_params,
+        )
     den_expr = _denom_terms_to_expr(
         denom_terms, param_syms, conc_syms, inverted_params,
     )
@@ -522,11 +496,7 @@ end
 function _expand_factored_poly(fp::FactoredPoly)::POLY
     result = poly_one()
     for (f, e) in zip(fp.factors, fp.exponents)
-        p = f
-        for _ in 2:e
-            p = poly_mul(p, f)
-        end
-        result = poly_mul(result, p)
+        result = poly_mul(result, _poly_power(f, e))
         if length(result) > MAX_RATE_EQUATION_TERMS
             error(
                 "Rate equation for this mechanism has more than " *
