@@ -106,19 +106,6 @@ function _extract_poly_common_factor(p::POLY)
     g_poly, reduced
 end
 
-"""Check if monomial `b` divides monomial `a` (all exponents non-negative)."""
-function _mono_divides(b::MONO, a::MONO)
-    bd = Dict{Symbol,Int}(b)
-    for (s, e) in bd
-        ae = 0
-        for (sa, ea) in a
-            sa == s && (ae = ea; break)
-        end
-        ae < e && return false
-    end
-    true
-end
-
 """
 Try exact polynomial division `dividend ÷ divisor`.
 Returns the quotient POLY, or `nothing` if division has a remainder.
