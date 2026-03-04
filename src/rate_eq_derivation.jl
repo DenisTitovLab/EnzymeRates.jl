@@ -150,28 +150,24 @@ end
 
 """Find the canonical K symbol for a metabolite's binding step."""
 function _find_met_binding_K(met, rxns, eq_steps, enz_set, constraints)
-    # Build constraint resolution chain
-    resolve = Dict{Symbol, Symbol}()
-    for (target, coeff, factors) in constraints
-        coeff == 1 && length(factors) == 1 && factors[1][2] == 1 || continue
-        resolve[target] = factors[1][1]
-    end
-    function canonical(sym)
-        visited = Set{Symbol}()
-        while haskey(resolve, sym) && sym ∉ visited
-            push!(visited, sym)
-            sym = resolve[sym]
-        end
-        sym
-    end
+    # Build 1:1 constraint resolution map
+    resolve = Dict{Symbol, Symbol}(
+        target => factors[1][1]
+        for (target, coeff, factors) in constraints
+        if coeff == 1 && length(factors) == 1 && factors[1][2] == 1
+    )
     for (idx, (lhs, rhs)) in enumerate(rxns)
         eq_steps[idx] || continue
         _, m_lhs = _split_reaction_side(lhs, enz_set)
         _, m_rhs = _split_reaction_side(rhs, enz_set)
-        has_met_lhs = met ∈ m_lhs
-        has_met_rhs = met ∈ m_rhs
-        (has_met_lhs ⊻ has_met_rhs) || continue
-        return canonical(Symbol("K$idx"))
+        ((met ∈ m_lhs) ⊻ (met ∈ m_rhs)) || continue
+        # Resolve through constraint chain
+        K = Symbol("K$idx")
+        seen = Set{Symbol}()
+        while haskey(resolve, K) && K ∉ seen
+            push!(seen, K); K = resolve[K]
+        end
+        return K
     end
     nothing
 end
@@ -399,11 +395,6 @@ function _ss_contrib(k_poly, mets, i_form, alpha_num, alpha_den, group)
     r
 end
 
-"""Sum polynomial entries from `polys` at indices `group`."""
-function _sum_group_polys(polys::Vector{POLY}, group)
-    reduce(poly_add, (polys[i] for i in group))
-end
-
 """
 Build substitution pairs merging Haldane-derived parameters that have
 identical expressions after user constraints. E.g., if k8r and k7r both
@@ -412,35 +403,53 @@ resolve to `k7f / (K1 * Keq)`, returns `[:k8r => :k7r]`.
 function _haldane_equality_substitutions(M::Type{<:EnzymeMechanism})
     dep_exprs, _ = _dependent_param_exprs(M)
     length(dep_exprs) < 2 && return Pair{Symbol,Symbol}[]
-    # Group by expression identity
-    groups = Dict{Any,Vector{Symbol}}()
-    for (sym, expr) in dep_exprs
-        pushed = false
-        for (key, vec) in groups
-            if key == expr
-                push!(vec, sym)
-                pushed = true
+    # Sort by step number for stable canonical choice (lowest first)
+    _step_num(s) = something(
+        tryparse(Int, match(r"\d+", string(s)).match), 0,
+    )
+    sorted = sort(collect(dep_exprs); by=p -> _step_num(p[1]))
+    subs = Pair{Symbol,Symbol}[]
+    for i in 2:length(sorted)
+        for j in 1:i-1
+            if sorted[i][2] == sorted[j][2]
+                push!(subs, sorted[i][1] => sorted[j][1])
                 break
             end
-        end
-        pushed || (groups[expr] = [sym])
-    end
-    # Build substitution pairs: later symbols → first in group
-    # Sort by step number (e.g., k7r=7, k10r=10) for stable canonical choice
-    _step_num(s) = something(tryparse(Int, match(r"\d+", string(s)).match), 0)
-    subs = Pair{Symbol,Symbol}[]
-    for (_, syms) in groups
-        length(syms) < 2 && continue
-        sort!(syms; by=_step_num)
-        canonical = first(syms)
-        for s in @view syms[2:end]
-            push!(subs, s => canonical)
         end
     end
     subs
 end
 
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
+
+"""
+Try to factor a polynomial: power detection → algebraic factoring → trivial wrap.
+When `check_benefit` is true, algebraic factoring is only used if it reduces
+the display term count compared to the unfactored polynomial.
+"""
+function _factor_poly(
+    p::POLY, rxns, eq_steps, enz_set, constraints;
+    binding_Ks::Set{Symbol}=Set{Symbol}(),
+    check_benefit::Bool=false,
+)
+    result = _try_poly_power(p)
+    result !== nothing && return result
+    afs = _try_algebraic_factor_sigma(
+        p, rxns, eq_steps, enz_set, constraints; binding_Ks,
+    )
+    if afs !== nothing
+        if !check_benefit
+            return afs
+        end
+        n = sum(
+            (length(fp.factors) == 1 && fp.factors[1] == poly_one()) ?
+                length(c) : 1
+            for (c, fp) in zip(afs.coefficients, afs.products)
+        )
+        n < length(p) && return afs
+    end
+    FactoredSigma([poly_one()], [FactoredPoly([p], [1])])
+end
 
 """Build raw numerator POLY and factored denominator terms for the rate equation."""
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
@@ -513,45 +522,28 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     denom_terms = DenomTerm[]
     for g in 1:G
         raw_sigma = if normalize
-            _sum_group_polys(
-                [_poly_div_mono(alpha_num[i], alpha_den[i])
-                 for i in eachindex(enz_names)],
-                groups[g],
+            reduce(
+                poly_add,
+                (_poly_div_mono(alpha_num[i], alpha_den[i])
+                 for i in groups[g]),
             )
         else
             sigma_num[g]
         end
         csigma = _apply_param_constraints(raw_sigma, pc; binding_Ks)
-        pfs = _try_poly_power(csigma)
-        if pfs !== nothing
-            push!(denom_terms, DenomTerm(pfs, D[g]))
-        else
-            afs = _try_algebraic_factor_sigma(
-                csigma, rxns, eq_steps, enz_set, pc; binding_Ks,
-            )
-            if afs !== nothing
-                push!(denom_terms, DenomTerm(afs, D[g]))
-            else
-                push!(denom_terms, unfactored_denom_term(raw_sigma, D[g]))
-            end
-        end
+        push!(denom_terms, DenomTerm(
+            _factor_poly(csigma, rxns, eq_steps, enz_set, pc; binding_Ks),
+            D[g],
+        ))
     end
 
-    # Numerator: net flux through any SS step
-    ref_name = subs_species[1][1]
-    nu_ref = (count(s -> s[1] == ref_name, prods_species) -
-              count(s -> s[1] == ref_name, subs_species))
-
-    num = _compute_numerator(
+    # Numerator: net flux through SS steps
+    num, nu_ref = _compute_numerator(
         rxns, eq_steps, enz_names, enz_set,
         alpha_num, alpha_den, form_to_group, groups,
-        D, ref_name, nu_ref, subs_species, prods_species,
+        D, subs_species, prods_species,
     )
-
-    # Normalize numerator by sigma_den when G=1
-    if normalize
-        num = _poly_div_mono(num, sigma_den[1])
-    end
+    normalize && (num = _poly_div_mono(num, sigma_den[1]))
 
     abs_nu = abs(nu_ref)
     if abs_nu != 1
@@ -588,45 +580,29 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         )
     end
 
-    # Wrap numerator in FactoredSigma (try factoring, fall back to trivial)
-    num_fs = _try_poly_power(num)
-    if num_fs === nothing
-        afs = _try_algebraic_factor_sigma(
-            num, rxns, eq_steps, enz_set, pc; binding_Ks,
-        )
-        if afs !== nothing
-            # Only use if factoring reduces display terms
-            n = 0
-            for (c, p) in zip(afs.coefficients, afs.products)
-                trivial = length(p.factors) == 1 &&
-                    p.factors[1] == poly_one()
-                n += trivial ? length(c) : 1
-            end
-            if n < length(num)
-                num_fs = afs
-            end
-        end
-    end
-    if num_fs === nothing
-        num_fs = FactoredSigma(
-            [poly_one()], [FactoredPoly([num], [1])],
-        )
-    end
+    # Factor numerator (only if it reduces display terms)
+    num_fs = _factor_poly(
+        num, rxns, eq_steps, enz_set, pc;
+        binding_Ks, check_benefit=true,
+    )
 
     num_fs, denom_terms
 end
 
 """
-Compute the numerator polynomial by tracking flux of an
-appropriate metabolite through SS steps.
+Compute the numerator polynomial by selecting an appropriate metabolite
+to track through SS steps. Returns `(num::POLY, nu_ref::Int)`.
 """
 function _compute_numerator(
     rxns, eq_steps, enz_names, enz_set,
     alpha_num, alpha_den, form_to_group, groups,
-    D, ref_name, nu_ref, subs_species, prods_species,
+    D, subs_species, prods_species,
 )
-    # Classify metabolites into SS/RE step sets, and check ref_name
-    ref_in_ss, ref_in_re = false, false
+    ref_name = subs_species[1][1]
+    nu_ref = (count(s -> s[1] == ref_name, prods_species) -
+              count(s -> s[1] == ref_name, subs_species))
+
+    # Classify metabolites into SS vs RE step sets
     ss_mets, re_mets = Set{Symbol}(), Set{Symbol}()
     for (idx, (lhs, rhs)) in enumerate(rxns)
         _, m_lhs = _split_reaction_side(lhs, enz_set)
@@ -634,65 +610,27 @@ function _compute_numerator(
         target = eq_steps[idx] ? re_mets : ss_mets
         for met in m_lhs; push!(target, met); end
         for met in m_rhs; push!(target, met); end
-        met_f = isempty(m_lhs) ? nothing : first(m_lhs)
-        met_r = isempty(m_rhs) ? nothing : first(m_rhs)
-        if met_f === ref_name || met_r === ref_name
-            eq_steps[idx] ? (ref_in_re = true) : (ref_in_ss = true)
-        end
     end
 
-    flux = (name) -> _flux_numerator(
-        rxns, eq_steps, enz_names, enz_set,
-        alpha_num, alpha_den,
-        form_to_group, groups, D, name,
-    )
-    ref_in_ss && !ref_in_re && return flux(ref_name)
-
-    # Fallback: find alternate metabolite in SS steps
-    all_mets = Dict{Symbol, Int}()
-    for (name, _) in subs_species; all_mets[name] = get(all_mets, name, 0) - 1; end
-    for (name, _) in prods_species; all_mets[name] = get(all_mets, name, 0) + 1; end
-
-    if !isempty(ss_mets)
+    # Choose tracking metabolite: prefer ref in SS-only, then alternate SS met
+    met_name = nothing  # nothing = sum all SS fluxes (G=1 fallback)
+    nu_met = nu_ref
+    if ref_name ∈ ss_mets && ref_name ∉ re_mets
+        met_name = ref_name
+    elseif !isempty(ss_mets)
+        all_mets = Dict{Symbol, Int}()
+        for (n, _) in subs_species; all_mets[n] = get(all_mets, n, 0) - 1; end
+        for (n, _) in prods_species; all_mets[n] = get(all_mets, n, 0) + 1; end
         ss_only = setdiff(ss_mets, re_mets)
         search = isempty(ss_only) ? ss_mets : ss_only
-        alt_name = something(
-            iterate(
-                met for met in search
-                if get(all_mets, met, 0) != 0
-            ),
+        met_name = something(
+            iterate(m for m in search if get(all_mets, m, 0) != 0),
             (first(ss_mets),),
         )[1]
-        nu_alt = get(all_mets, alt_name, 0)
-        alt_num = flux(alt_name)
-        nu_alt == 0 && return alt_num
-        ratio = nu_ref // nu_alt
-        if ratio == 1
-            return alt_num
-        elseif ratio == -1
-            return poly_neg(alt_num)
-        else
-            error("Non-unit stoichiometric ratio not supported")
-        end
+        nu_met = get(all_mets, met_name, 0)
     end
 
-    # All metabolites in RE steps only — flux through any SS step
-    return _flux_numerator(
-        rxns, eq_steps, enz_names, enz_set,
-        alpha_num, alpha_den,
-        form_to_group, groups, D,
-    )
-end
-
-"""
-Compute net flux through SS steps. If `met_name` is nothing,
-sum raw flux of all SS steps (G=1 case).
-"""
-function _flux_numerator(
-    rxns, eq_steps, enz_names, enz_set,
-    alpha_num, alpha_den, form_to_group, groups,
-    D, met_name::Union{Symbol,Nothing}=nothing,
-)
+    # Compute flux through SS steps
     result = poly_zero()
     for (idx, (lhs, rhs)) in enumerate(rxns)
         eq_steps[idx] && continue
@@ -712,14 +650,26 @@ function _flux_numerator(
         flux = poly_sub(poly_mul(rf, D[g1]), poly_mul(rr, D[g2]))
         if met_name === nothing
             result = poly_add(result, flux)
-            continue
+        else
+            met_f = isempty(m_lhs) ? nothing : first(m_lhs)
+            met_r = isempty(m_rhs) ? nothing : first(m_rhs)
+            (met_f !== met_name && met_r !== met_name) && continue
+            result = met_f === met_name ?
+                poly_add(result, flux) : poly_sub(result, flux)
         end
-        met_f = isempty(m_lhs) ? nothing : first(m_lhs)
-        met_r = isempty(m_rhs) ? nothing : first(m_rhs)
-        (met_f !== met_name && met_r !== met_name) && continue
-        result = met_f === met_name ? poly_add(result, flux) : poly_sub(result, flux)
     end
-    result
+
+    # Adjust for stoichiometric ratio between tracked and reference metabolite
+    if nu_met != 0 && nu_met != nu_ref
+        ratio = nu_ref // nu_met
+        if ratio == -1
+            result = poly_neg(result)
+        elseif ratio != 1
+            error("Non-unit stoichiometric ratio not supported")
+        end
+    end
+
+    result, nu_ref
 end
 
 # ─── Expr generation from POLY ──────────────────────────────
