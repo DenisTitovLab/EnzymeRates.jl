@@ -277,12 +277,48 @@ function _try_algebraic_factor_sigma(
             one_plus_KR = poly_add(
                 poly_one(), POLY(_mono(K_R => 1, met => 1) => 1),
             )
-            if !isempty(remainder)
-                push!(coeffs, remainder)
-                push!(products, FactoredPoly([poly_one()], [1]))
+            # Try to absorb remainder into the factor:
+            # if remainder = q * base_R, then sigma = base_R * (q + 1 + K*met)
+            combined = one_plus_KR
+            absorbed = isempty(remainder)
+            if !absorbed
+                q = _try_poly_exact_div(remainder::POLY, base_R)
+                if q !== nothing
+                    combined = poly_add(one_plus_KR, q)
+                    absorbed = true
+                end
             end
-            push!(coeffs, poly_one())
-            push!(products, FactoredPoly([base_R, one_plus_KR], [1, 1]))
+            if absorbed
+                # sigma = base_R * combined — try recursion on base_R
+                inner = _try_algebraic_factor_sigma(
+                    base_R, rxns, eq_steps, enz_set, constraints;
+                    binding_Ks,
+                )
+                if inner !== nothing &&
+                   length(inner.coefficients) == 1 &&
+                   inner.coefficients[1] == poly_one()
+                    # Merge: inner_product_factors * combined
+                    fp = inner.products[1]
+                    push!(coeffs, poly_one())
+                    push!(products, FactoredPoly(
+                        [fp.factors; combined],
+                        [fp.exponents; 1],
+                    ))
+                else
+                    push!(coeffs, poly_one())
+                    push!(products, FactoredPoly(
+                        [base_R, combined], [1, 1],
+                    ))
+                end
+                unfactored = POLY()
+            else
+                push!(coeffs, remainder::POLY)
+                push!(products, FactoredPoly([poly_one()], [1]))
+                push!(coeffs, poly_one())
+                push!(products, FactoredPoly(
+                    [base_R, one_plus_KR], [1, 1],
+                ))
+            end
         else
             # sigma = without_R + K_R*met * base_R
             K_R_met = POLY(_mono(K_R => 1, met => 1) => Rational{Int}(1))

@@ -2095,7 +2095,8 @@ function build_mechanism_test_specs()
                 rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3",
-            expected_factored_denom=nothing,
+            expected_factored_denom=
+            "(1 + S / K1 + P / K3) * (1 + I1 / K4) * (1 + I2 / K7)",
         ))
     end
 
@@ -2283,7 +2284,8 @@ function build_mechanism_test_specs()
                 rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3",
-            expected_factored_denom=nothing,
+            expected_factored_denom=
+            "(1 + I1 / K4 + I2 / K9) * (1 + S / K1 + P / K3)",
         ))
     end
 
