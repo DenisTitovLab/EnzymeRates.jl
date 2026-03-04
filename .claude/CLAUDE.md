@@ -27,24 +27,21 @@ EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given
 julia --project -e 'using Pkg; Pkg.test()'
 ```
 
-## MCP Julia REPL Server
+## Workflow
 
-A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-starts it on session launch — no manual setup needed.
+- Always run tests before committing
 
-- **Tool**: `exec_julia` — execute Julia code in a persistent session (the only tool; no static resources)
-- **Pre-loaded**: Revise, EnzymeRates, Test, Random, LinearAlgebra
-- **Revise**: Source edits in `src/` are picked up automatically
-- **Introspection**: Use `exec_julia` to query exported names (`names(EnzymeRates)`), method tables (`methods(f)`), docstrings (`@doc f`), type hierarchies (`subtypes`/`supertypes`), and source locations
-- **include()**: Relative paths resolve from project root (e.g., `include("test/test_fitting.jl")`)
-- **First start**: ~30-60s (package loading + JIT). Subsequent calls are fast.
-- **Startup timeout**: If the server fails to connect, start Claude Code with `MCP_TIMEOUT=120000 claude` to allow enough time for Julia startup.
-- **Server script**: `.claude/mcp_julia_server.jl`
-- **MCP environment**: `.claude/mcp_env/` — separate Julia project with `ModelContextProtocol`, `Revise`, and `EnzymeRates` as a dev dep. Do NOT add `ModelContextProtocol` to the main `Project.toml` (Aqua stale deps check would flag it).
-- **Stuck REPL**: If the REPL is stuck on a long-running computation, kill it with `pkill -f mcp_julia_server` via Bash, wait a few seconds, then call `exec_julia` again — the server auto-restarts
+## Code Style
+
+- 92-character line length limit, 4-space indentation
+- Prefer minimal code: inline single-use helpers, avoid unnecessary abstractions
+- Remove unused features entirely — don't add parameters to disable them
+- After any refactor, re-read changed files for dead code and further simplification
 
 ## Key Architecture Decisions
 
 - `EnzymeMechanism{Species,Reactions,EquilibriumSteps,ParamConstraints}` is a singleton type encoding mechanism info in type parameters
+- `OligomericEnzymeMechanism{Mets,CatalyticMech,CatN,RegSites,NConf}` represents multi-subunit MWC allosteric enzymes — see `src/types.jl` and `src/dsl.jl` for DSL syntax
 - `EnzymeReaction{S,P,R}` similarly encodes reactions in types
 - Each unique mechanism = unique type → affects compilation time
 - `@generated` functions used for compile-time computation (metabolites, graph, stoich_matrix, rate_equation)
@@ -54,62 +51,6 @@ A persistent Julia session is available via MCP (`.mcp.json`). Claude Code auto-
 - SS steps are NOT canonicalized (swapping kf↔kr would break analytical test formulas)
 - After canonicalization, all RE metabolite K params are binding Kd (displayed as `1/K`). Non-binding RE steps (pure isomerization) retain Ka convention.
 - `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed
-
-### OligomericEnzymeMechanism (MWC allosteric enzymes)
-
-`OligomericEnzymeMechanism{Mets,CatalyticMech,CatN,RegSites,NConf}` represents multi-subunit allosteric enzymes under the MWC model. The DSL uses `@enzyme_mechanism` with a different top-level structure:
-
-```julia
-m = @enzyme_mechanism begin
-    metabolites: S[C], P[C], I[X]       # ALL metabolites (catalytic + regulatory)
-    conformations: 2                     # NConf=1 (default) or 2 (R/T states)
-    site(:catalytic, 2): begin           # 2 identical catalytic subunits
-        species: begin
-            substrates: S[C]
-            products: P[C]
-            enzymes: E_c, E_S[C], E_P[C]
-        end
-        steps: begin
-            [E_c, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
-        end
-        constraints: begin               # optional; Wegscheider constraints for symmetric sites
-            K3 = K1
-        end
-    end
-    site(:regulatory, 1): begin          # 1 enzyme-level regulatory site (den only)
-        ligands: I                       # metabolites binding this site
-    end
-end
-```
-
-Key DSL rules:
-- `metabolites:` block is **required** (unlike `@enzyme_mechanism` for `EnzymeMechanism`)
-- `conformations:` is optional (default 1); 2 = R/T MWC model; adds `L` (T/R ratio) to params
-- `site(:regulatory, n)`: if `n == CatN` → per-subunit site (appears in num and den); if `n < CatN` → enzyme-level (den only)
-- Regulatory site K params named `K_{ligand}_reg{i}` (R-state) / `K_{ligand}_T_reg{i}` (T-state)
-- T-state params auto-generated with `_T` suffix; T-state Haldane constraints auto-derived from R-state
-
-MWC rate formula:
-```
-v = E_total * CatN * (N_R * Q_R^(CatN-1) * prod(Q_reg^n_reg) + L * N_T * ...)
-            / (Q_R^CatN * prod(Q_reg^n_reg) + L * Q_T^CatN * ...)
-```
-
-`_binding_K_symbols(OligomericEnzymeMechanism)` must live in `rate_eq_derivation.jl` (not `types.jl`) because it calls `_rename_params_T` → `is_k_parameter`, both defined in that file.
-
-### Unified Factoring Pipeline
-- `_raw_symbolic_rate_polys` returns `(FactoredSigma, Vector{DenomTerm})` — numerator is always factored
-- Both `rate_equation` (numerical `@generated`) and `rate_equation_string` use the same factored numerator
-- Factoring tries `_try_poly_power` first, then `_try_algebraic_factor_sigma`, falls back to trivial wrapper
-- `_try_factor_sigma` pipeline per conformational subgroup:
-  1. **Structural factoring** (steps 2-6): `_partition_metabolite_sites` → `_check_cartesian_product` → `_build_site_factors`. Handles single-subunit enzymes with independent sites. Trivial single-factor results (exponent 1) are rejected when max binding ≥ 2 (multi-subunit case).
-  2. **Direct subunit power** (`_try_subunit_power`): detects Q^n from per-subunit alpha ratios. Handles homodimers/trimers/tetramers where multiset forms cause `_partition_metabolite_sites` to fail. Deduplicates symmetric positions by binding state, normalizes by reference alpha (conformational coefficients), detects additive vs multiplicative dead-end patterns.
-  3. **Post-power decomposition** (`_decompose_product`): after detecting Q^n, tries to decompose Q into per-site factors using `_try_algebraic_factor_sigma` iteratively.
-  4. **Poly_power fallback**: expand sg_sigma → `_try_poly_power` (generalized to Q^n for any n ≥ 2).
-- Haldane-derived equality substitutions (`_haldane_equality_substitutions`): after user constraints, Haldane-derived reverse rate constants that resolve to identical expressions (e.g. k8r=k7r for symmetric homodimers) are merged before factoring. Canonical symbol is chosen by step number (lowest first).
-- Denom-guided numerator factoring (`_try_factor_num_by_denom_sigmas`): when standard factoring fails, tries dividing numerator by sigma factors from the already-factored denominator. Uses K-symbol partitioning for multi-conformational-group case (MWC). Extracts common integer/monomial factors via `_extract_poly_common_factor`.
-- `_try_poly_exact_div`: multivariate polynomial exact division with negative exponents, using metabolite-degree layering (processes terms lowest-to-highest degree). Uses `Rational{BigInt}` internally to avoid overflow.
 
 ## Source Layout
 
@@ -121,82 +62,6 @@ v = E_total * CatN * (N_R * Q_R^(CatN-1) * prod(Q_reg^n_reg) + L * N_T * ...)
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
 - `src/mechanism_enumeration.jl` — `SiteState`/`EnzymeFormSpec`/`MechanismSpec`/`PreRessEntry`/`MechanismIterator` types, `enumerate_enzyme_forms` (all valid enzyme forms from reaction), `enumerate_mechanisms` (catalytic cycle enumeration → dead-end lattice → lazy RE/SS × equivalent step constraints), `enumerate_mechanism_stages` (returns intermediate results at each pipeline stage)
 
-## Performance Pattern: @nospecialize
-
-- Enumeration functions use `@nospecialize` on `EnzymeReaction` args to prevent recompilation for each reaction type
-- Raw mechanism data (tuples) is collected and deduplicated BEFORE creating EnzymeMechanism types
-
-## Mechanism Enumeration Architecture
-
-- `MechanismIterator` is lazy — stages 1-3 (catalytic, activator, dead-end) are eager; stage 4 (RE/SS + constraints) generates `MechanismSpec` on demand via `PreRessEntry` state machine
-- `length(iter)` is O(1) — precomputed via `_count_ress_variants`
-- `MechanismSpec` instances from the same iterator share `form_names`/`form_atoms` vectors (no redundant copies)
-- `enumerate_mechanism_stages` exposes all intermediate pipeline results for testing and inspection
-- Stages 1-3 with generous `max_forms` can still be slow for multi-regulator reactions (dead-end enumeration is combinatorial)
-
-## Dead-End Mechanism Combinatorics
-
-For reactions with r regulators, each regulator is either an activator (part of the catalytic topology) or an inhibitor (creates dead-ends). No mixed roles: an activator does not participate in dead-end formation.
-
-- Dead-end configs per activator config = `(2^r_inh)^n_topo`
-  - `r_inh`: number of inhibitor regulators (binding site never occupied in any topology form)
-  - `n_topo`: number of forms in the catalytic topology
-- For Uni-Uni (n_cat=3 base catalytic forms):
-  - No activator: n_topo = 3
-  - Essential activator: n_topo = n_cat + 1 = 4 (E, EA, EAS, EAP)
-  - Non-essential activator: n_topo = 2 × n_cat = 6 (bare + activated cycles)
-- Each activator can be essential or non-essential → 2 configs per activator choice
-- Total = Σ over activator configs of `(2^r_inh)^n_topo`
-- Test helper `_compute_expected_dead_end_count` verifies this formula
-
-## Lessons Learned
-
-### Rate Equation Size Limits
-- `MAX_RATE_EQUATION_TERMS = 5000` in `src/sym_poly_for_rate_eq_derivation.jl` — hard limit on raw polynomial terms (num + den)
-- `sym_det` (cofactor expansion, O(n!)) is the bottleneck — has early abort check when intermediate terms exceed limit
-- `_raw_symbolic_rate_polys` has a post-hoc check as safety net (effectively redundant with sym_det check)
-- Compilation time scaling: ~0.3s at 27 terms, ~3s at 1700, ~6s at 3500, ~15s at 7500, ~50s at 23k, OOM at ~50k
-- `parameters()` in Reduced mode does NOT call `_raw_symbolic_rate_polys` — safe for huge mechanisms
-
-### Rate Equation Derivation
-- When all RE forms are in one group (G=1), the SS isomerization step flux IS the overall rate (no sign correction needed)
-- `_compute_alpha` BFS handles forward/reverse RE traversal with K parameters
-- `is_k_parameter` must match both `k1f`/`k1r` patterns AND `K1`/`K2` patterns (but not `Keq`)
-- K convention: after canonical step form, all RE metabolite steps are binding → Kd (dissociation). Only RE isomerization steps (no metabolite) use Ka (forward eq const).
-- K→1/K inversion must be applied consistently in: rate expr, dep_exprs substitution, constraint strings, and test helpers
-- When `poly_str` displays inverted params with multiple denominators, need parentheses: `A * B / (K1 * K2)`
-
-### Constraint Handling
-- Constraint substitution operates at raw polynomial level (before K→1/K inversion)
-- When constraining K params, both must be same type (both binding or both non-binding) to avoid inversion mismatch
-- In DSL constraint parsing, use `Ref` for mutable coeff and read back with `coeff_ref[]`
-- HW constraint matrix must merge constrained columns into replacement columns before Gaussian elimination
-- Column merging operates in Ka domain; binding-to-binding constraint coefficients must be inverted (Kd coeff c → Ka coeff 1/c), matching `_apply_param_constraints` behavior
-- Constant contributions `log(coeff)` from column merging must be tracked through Gaussian elimination as `Dict{Int, Rational{BigInt}}` per row (base → accumulated exponent)
-- When a dependent param is itself a binding K, its dep_expr RHS must be wrapped in `inv_fn()` to compensate for the implicit LHS Ka→Kd inversion
-
-### Mechanism Enumeration
-- Activator/inhibitor exclusivity: a regulator is EITHER activator OR inhibitor, never both. `_enumerate_dead_end_configs` excludes reg positions occupied in any topo form
-- Essential activator: only entry binding edge (bare enzyme → shadow), not all base→shadow binding edges. Gives n_cat+1 topo forms (E, EA, EAS, EAP), not 2×n_cat
-- Dead-end formula `(2^r_inh)^n_topo` is only valid when `max_forms` is unconstrained
-- Ping-pong (CX/NX) product release must be TWO elementary steps: isomerization (product forms on enzyme, substrate → residual) then release (product leaves). A single combined step (e.g., `E_A → E_X + P`) violates detailed balance. The intermediate form (e.g., `E_X_P`) must be in the cycle.
-- `_is_valid_isomerization` uses atom balance only (`_core_atoms` equality) for ping-pong (residual) case — the strict all-subs/all-prods occupancy pattern only applies to standard isomerizations
-
-### Multi-Subunit Factoring
-- `_partition_metabolite_sites` uses "never co-occur → same site" heuristic. This fails for multi-subunit enzymes: competitive inhibitor I never co-occurs with S or P (only binds bare enzyme), but transitive closure through I merges all metabolites onto one "site" (I↔P never co-occur, I↔S never co-occur → all merged even though P↔S do co-occur)
-- For homodimers, mechanism forms are **multisets** (E_SS, E_SP, E_PS, E_PP) not Cartesian products. `_check_cartesian_product` expects 16 forms for 4×4 but finds 10 (multisets of size 2 from 4 elements = C(4+1,2) = 10)
-- Symmetric positions (E_0S vs E_S0) have identical binding states `{S:1}` and identical constrained alpha values. Must deduplicate by binding state when constructing per-subunit Q to avoid coefficient doubling
-- Conformational sub-group alpha values include the isomerization coefficient (e.g., K37 for T-state). Must normalize by reference form alpha before summing to construct Q, otherwise Q^n has K37^n instead of K37^1
-- Dead-end inhibitor forms can be **additive** (competitive: sigma = Q^n + I/K) or **multiplicative** (non-competitive: sigma = Q^n * (1+I/K)). Detect multiplicative pattern by checking if remainder / Q^n is a valid polynomial via `_try_poly_exact_div`
-- The multiset count formula `C(k+n-1, n)` doesn't work as a filter for core forms because the mechanism uses positional notation — 9 positional forms map to 6 unique multisets for a homodimer with 3 per-site states
-
-### Type System and Compatibility
-- Default `eq_steps` = all false preserves backward compatibility with 2-arg constructor
-- ParamConstraints default `()` preserves backward compat with 3-arg constructor
-- `_binding_K_symbols` identifies binding steps: metabolite on LHS (guaranteed by canonical form, no RHS check needed)
-- JET requires `::SubString` type assertions on regex captures to avoid Union{Nothing,SubString} errors
-- JET type narrowing in `@generated` helpers: calling `CM()` does NOT narrow `CM::Any` to `Type{<:EnzymeMechanism}` for JET. To narrow `CM` before calling a method that requires `Type{<:EnzymeMechanism}` (e.g., `_apply_kd_inversion`), first call such a function (e.g., `_raw_symbolic_rate_polys(CM)`) in the same body.
-
 ## Known Issues
 
 ### `rate_equation` compilation limits for large mechanisms
@@ -205,12 +70,6 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - This is inherent to the type-parameter-based architecture: each unique `EnzymeMechanism` type triggers full symbolic derivation at compile time
 - Workaround in tests: only the simplest mechanisms (first 10 by form count) are tested with `rate_equation`; larger mechanisms are tested only for enumeration correctness
 - Future fix: `identify_rate_equation` should order candidates by `param_count_estimate` (ascending) and skip mechanisms that exceed a time/memory budget
-
-## MCP REPL + Revise Pitfall
-
-- After `git stash`/`git stash pop` (or any bulk file operation that cycles through intermediate states), **always restart the MCP REPL** (`pkill -f mcp_julia_server`) rather than relying on `Revise.revise()`. Revise can silently retain stale compiled methods, producing wrong numerical results that look plausible. Always confirm with `Pkg.test()` in a fresh process before trusting REPL results after stash operations.
-- **Never use `exit()` in the REPL** — it kills the MCP connection permanently for the session. Use `pkill -f mcp_julia_server` via Bash instead (auto-restarts on next `exec_julia` call).
-- **Use Bash with timeout for potentially slow computations** (e.g., enumeration with regulators). The REPL has no easy Ctrl+C — if a call blocks, the only recovery is `pkill -f mcp_julia_server`.
 
 ## Testing
 
