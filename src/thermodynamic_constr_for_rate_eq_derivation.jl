@@ -377,11 +377,6 @@ function _sorted_raw_param_symbols(M::Type{<:EnzymeMechanism})
     )
 end
 
-"""Collect sorted concentration symbols for a mechanism."""
-function _sorted_conc_symbols(M::Type{<:EnzymeMechanism})
-    metabolites(M())
-end
-
 """Full mode: destructure all params + concs, then raw expr."""
 function _build_rate_body(M, ::Type{FullMode})
     expr, all_params, conc_syms = _raw_rate_expr_and_symbols(M)

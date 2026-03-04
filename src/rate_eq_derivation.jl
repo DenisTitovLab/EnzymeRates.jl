@@ -1,17 +1,20 @@
 # ─── Parameters API ─────────────────────────────────────────
 
+const _AnyMechanism = Union{EnzymeMechanism, OligomericEnzymeMechanism}
+
 """
     parameters(m::EnzymeMechanism, [mode])
+    parameters(m::OligomericEnzymeMechanism, [mode])
 
 Return the parameter names required for the given mode as a tuple of Symbols.
 
 # Modes
 - `Reduced` (default): independent k's + Keq + E_total
-- `Full`: all 2N k's + E_total
+- `Full`: all 2N k's + E_total (EnzymeMechanism only)
 """
 function parameters end
 
-parameters(m::EnzymeMechanism) = parameters(m, Reduced)
+parameters(m::_AnyMechanism) = parameters(m, Reduced)
 
 @generated function parameters(
     ::EnzymeMechanism{Species, Reactions, EqSteps, PC},
@@ -21,19 +24,13 @@ parameters(m::EnzymeMechanism) = parameters(m, Reduced)
     Tuple(p for p in (_raw_param_symbols(EqSteps)..., :E_total) if p ∉ constrained)
 end
 
-@generated function parameters(
-    ::EnzymeMechanism{Sp, Rx, Eq, PC}, ::ReducedMode,
-) where {Sp, Rx, Eq, PC}
-    M = EnzymeMechanism{Sp, Rx, Eq, PC}
+@generated function parameters(::M, ::ReducedMode) where {M <: _AnyMechanism}
     _, indep = _dependent_param_exprs(M)
     (indep..., :Keq, :E_total)
 end
 
 """Independent rate constant names for fitting (excludes Keq, E_total)."""
-@generated function fitted_params(
-    ::EnzymeMechanism{Sp, Rx, Eq, PC},
-) where {Sp, Rx, Eq, PC}
-    M = EnzymeMechanism{Sp, Rx, Eq, PC}
+@generated function fitted_params(::M) where {M <: _AnyMechanism}
     _, indep = _dependent_param_exprs(M)
     indep
 end
@@ -620,8 +617,7 @@ function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
     inv_set = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
     expr = to_rate_expr(num, denom_terms, param_syms, conc_syms, inv_set)
     all_params = _sorted_raw_param_symbols(M)
-    sorted_concs = _sorted_conc_symbols(M)
-    return expr, all_params, sorted_concs
+    return expr, all_params, metabolites(m)
 end
 
 # ─── Mode-dispatched rate_equation ────────────────────────────
@@ -634,9 +630,7 @@ as a single arithmetic expression with no allocations, loops, or matrix ops.
 """
 function rate_equation end
 
-function rate_equation(m::EnzymeMechanism, concs, params)
-    rate_equation(m, concs, params, Reduced)
-end
+rate_equation(m::_AnyMechanism, concs, params) = rate_equation(m, concs, params, Reduced)
 
 @generated function rate_equation(
     m::M, concs::NamedTuple, params::NamedTuple, ::FullMode,
@@ -654,15 +648,16 @@ end
 # ─── String Representation ────────────────────────────────────
 
 """
-    rate_equation_string(m::EnzymeMechanism, [mode])
+    rate_equation_string(m, [mode])
 
 Return a string representation of the rate equation.
 """
 function rate_equation_string end
 
-rate_equation_string(m::EnzymeMechanism) = rate_equation_string(m, Reduced)
+rate_equation_string(m::_AnyMechanism) = rate_equation_string(m, Reduced)
 
-function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
+"""Build the `v = E_total * (num) / (den)` line from the raw symbolic rate polys."""
+function _rate_v_line(M::Type{<:EnzymeMechanism})
     num_fs, denom_terms = _raw_symbolic_rate_polys(M)
     m = M()
     constrained = Set(c[1] for c in param_constraints(m))
@@ -670,7 +665,6 @@ function _format_rate_equation_core(M::Type{<:EnzymeMechanism})
     ps = Set{Symbol}(p for p in raw_ps if p ∉ constrained)
     cs = Set{Symbol}(metabolites(m))
     inv = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
-    # Numerator is already factored by _raw_symbolic_rate_polys
     num_str = _expr_to_string(
         _factored_sigma_to_expr(num_fs, ps, cs, inv),
     )
@@ -682,35 +676,23 @@ end
 
 function rate_equation_string(::M, ::FullMode) where {M<:EnzymeMechanism}
     lines = ["(; $(join(_sorted_raw_param_symbols(M), ", "))) = params",
-             "(; $(join(_sorted_conc_symbols(M), ", "))) = concs"]
-    pc = param_constraints(M())
-    for (target, coeff, factors) in pc
+             "(; $(join(metabolites(M()), ", "))) = concs"]
+    for (target, coeff, factors) in param_constraints(M())
         push!(lines, _user_constraint_to_string(target, coeff, factors))
     end
-    push!(lines, _format_rate_equation_core(M))
+    push!(lines, _rate_v_line(M))
     join(lines, "\n")
 end
 
 function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
     _, indep = _dependent_param_exprs(M)
     join(["(; $(join((indep..., :Keq, :E_total), ", "))) = params",
-          "(; $(join(_sorted_conc_symbols(M), ", "))) = concs",
+          "(; $(join(metabolites(M()), ", "))) = concs",
           _constraint_expr_strings(M)...,
-          _format_rate_equation_core(M)], "\n")
+          _rate_v_line(M)], "\n")
 end
 
 # ─── Structural Identifiability ───────────────────────────────
-
-function _count_rate_monomials(M::Type{<:EnzymeMechanism})
-    num_fs, denom_terms = _raw_symbolic_rate_polys(M)
-    num = _expand_factored_sigma(num_fs)
-    den = _expand_to_poly(denom_terms)
-    mm(mono) = sort([
-        s => e for (s, e) in mono
-        if !is_k_parameter(s) && s != :E_total && s != :Keq
-    ])
-    length(unique(mm(k) for (k, _) in num)), length(unique(mm(k) for (k, _) in den))
-end
 
 """
     structural_identifiability_deficit(m::EnzymeMechanism) → Int
@@ -720,7 +702,15 @@ Number of excess parameters beyond what is structurally identifiable from kineti
 @generated function structural_identifiability_deficit(::M) where {M <: EnzymeMechanism}
     _, indep = _dependent_param_exprs(M)
     n_k = length(indep)
-    n_num, n_denom = _count_rate_monomials(M)
+    num_fs, denom_terms = _raw_symbolic_rate_polys(M)
+    num = _expand_factored_sigma(num_fs)
+    den = _expand_to_poly(denom_terms)
+    mm(mono) = sort([
+        s => e for (s, e) in mono
+        if !is_k_parameter(s) && s != :E_total && s != :Keq
+    ])
+    n_num = length(unique(mm(k) for (k, _) in num))
+    n_denom = length(unique(mm(k) for (k, _) in den))
     n_k - (n_num - 1) - (n_denom - 1)
 end
 
@@ -818,25 +808,8 @@ function _dependent_param_exprs(
     return merged_dep, merged_indep
 end
 
-# ─── Parameters API ──────────────────────────────────────────────
-
-parameters(m::OligomericEnzymeMechanism) = parameters(m, Reduced)
-
-function parameters(
-    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}, ::ReducedMode,
-) where {Mets,CM,CatN,RS,NConf}
-    M = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
-    _, indep = _dependent_param_exprs(M)
-    (indep..., :Keq, :E_total)
-end
-
-function fitted_params(
-    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf},
-) where {Mets,CM,CatN,RS,NConf}
-    M = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
-    _, indep = _dependent_param_exprs(M)
-    indep
-end
+# parameters and fitted_params for OligomericEnzymeMechanism are handled
+# by the unified _AnyMechanism methods at the top of this file.
 
 # ─── Rate body building helpers ───────────────────────────────────
 
@@ -966,10 +939,6 @@ end
 
 # ─── Rate equation dispatch ───────────────────────────────────────
 
-function rate_equation(m::OligomericEnzymeMechanism, concs, params)
-    rate_equation(m, concs, params, Reduced)
-end
-
 @generated function rate_equation(
     ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf},
     concs::NamedTuple, params::NamedTuple, ::ReducedMode,
@@ -978,8 +947,6 @@ end
 end
 
 # ─── String representation ────────────────────────────────────────
-
-rate_equation_string(m::OligomericEnzymeMechanism) = rate_equation_string(m, Reduced)
 
 function rate_equation_string(
     ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}, ::ReducedMode,
