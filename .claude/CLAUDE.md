@@ -98,18 +98,16 @@ v = E_total * CatN * (N_R * Q_R^(CatN-1) * prod(Q_reg^n_reg) + L * N_T * ...)
 
 `_binding_K_symbols(OligomericEnzymeMechanism)` must live in `rate_eq_derivation.jl` (not `types.jl`) because it calls `_rename_params_T` → `is_k_parameter`, both defined in that file.
 
-### Unified Factoring Pipeline
+### Factoring Pipeline
 - `_raw_symbolic_rate_polys` returns `(FactoredSigma, Vector{DenomTerm})` — numerator is always factored
 - Both `rate_equation` (numerical `@generated`) and `rate_equation_string` use the same factored numerator
-- Factoring tries `_try_poly_power` first, then `_try_algebraic_factor_sigma`, falls back to trivial wrapper
-- `_try_factor_sigma` pipeline per conformational subgroup:
-  1. **Structural factoring** (steps 2-6): `_partition_metabolite_sites` → `_check_cartesian_product` → `_build_site_factors`. Handles single-subunit enzymes with independent sites. Trivial single-factor results (exponent 1) are rejected when max binding ≥ 2 (multi-subunit case).
-  2. **Direct subunit power** (`_try_subunit_power`): detects Q^n from per-subunit alpha ratios. Handles homodimers/trimers/tetramers where multiset forms cause `_partition_metabolite_sites` to fail. Deduplicates symmetric positions by binding state, normalizes by reference alpha (conformational coefficients), detects additive vs multiplicative dead-end patterns.
-  3. **Post-power decomposition** (`_decompose_product`): after detecting Q^n, tries to decompose Q into per-site factors using `_try_algebraic_factor_sigma` iteratively.
-  4. **Poly_power fallback**: expand sg_sigma → `_try_poly_power` (generalized to Q^n for any n ≥ 2).
+- For each denominator group and the numerator, factoring tries:
+  1. `_try_poly_power` — detects Q^n for any n ≥ 2
+  2. `_try_algebraic_factor_sigma` (recursive) — metabolite-by-metabolite division, handles multi-site cases like `(1+S/K1+P/K3)*(1+I1/K4)*(1+I2/K7)` via recursive clean division + remainder absorption
+  3. Unfactored fallback — trivial wrapper
 - Haldane-derived equality substitutions (`_haldane_equality_substitutions`): after user constraints, Haldane-derived reverse rate constants that resolve to identical expressions (e.g. k8r=k7r for symmetric homodimers) are merged before factoring. Canonical symbol is chosen by step number (lowest first).
-- Denom-guided numerator factoring (`_try_factor_num_by_denom_sigmas`): when standard factoring fails, tries dividing numerator by sigma factors from the already-factored denominator. Uses K-symbol partitioning for multi-conformational-group case (MWC). Extracts common integer/monomial factors via `_extract_poly_common_factor`.
 - `_try_poly_exact_div`: multivariate polynomial exact division with negative exponents, using metabolite-degree layering (processes terms lowest-to-highest degree). Uses `Rational{BigInt}` internally to avoid overflow.
+- Multi-subunit homodimer/MWC `EnzymeMechanism` specs no longer have factored form expectations — these mechanisms use `OligomericEnzymeMechanism` which has its own rate formula structure.
 
 ## Source Layout
 
@@ -182,13 +180,11 @@ For reactions with r regulators, each regulator is either an activator (part of 
 - Ping-pong (CX/NX) product release must be TWO elementary steps: isomerization (product forms on enzyme, substrate → residual) then release (product leaves). A single combined step (e.g., `E_A → E_X + P`) violates detailed balance. The intermediate form (e.g., `E_X_P`) must be in the cycle.
 - `_is_valid_isomerization` uses atom balance only (`_core_atoms` equality) for ping-pong (residual) case — the strict all-subs/all-prods occupancy pattern only applies to standard isomerizations
 
-### Multi-Subunit Factoring
-- `_partition_metabolite_sites` uses "never co-occur → same site" heuristic. This fails for multi-subunit enzymes: competitive inhibitor I never co-occurs with S or P (only binds bare enzyme), but transitive closure through I merges all metabolites onto one "site" (I↔P never co-occur, I↔S never co-occur → all merged even though P↔S do co-occur)
-- For homodimers, mechanism forms are **multisets** (E_SS, E_SP, E_PS, E_PP) not Cartesian products. `_check_cartesian_product` expects 16 forms for 4×4 but finds 10 (multisets of size 2 from 4 elements = C(4+1,2) = 10)
-- Symmetric positions (E_0S vs E_S0) have identical binding states `{S:1}` and identical constrained alpha values. Must deduplicate by binding state when constructing per-subunit Q to avoid coefficient doubling
-- Conformational sub-group alpha values include the isomerization coefficient (e.g., K37 for T-state). Must normalize by reference form alpha before summing to construct Q, otherwise Q^n has K37^n instead of K37^1
-- Dead-end inhibitor forms can be **additive** (competitive: sigma = Q^n + I/K) or **multiplicative** (non-competitive: sigma = Q^n * (1+I/K)). Detect multiplicative pattern by checking if remainder / Q^n is a valid polynomial via `_try_poly_exact_div`
-- The multiset count formula `C(k+n-1, n)` doesn't work as a filter for core forms because the mechanism uses positional notation — 9 positional forms map to 6 unique multisets for a homodimer with 3 per-site states
+### Recursive Algebraic Factoring
+- `_try_algebraic_factor_sigma` handles multi-site denominators by recursively extracting metabolite factors
+- **Clean recursion**: when `sigma = base * (1+K*met)` exactly, recursively factor `base`
+- **Remainder absorption**: when `sigma = remainder + base * (1+K*met)` and `remainder / base` yields a valid polynomial quotient `q`, then `sigma = base * (q + 1 + K*met)` — quotient absorbed into the combined factor, `base` recursively factored
+- Trivial factorings (where a metabolite has no cross-terms) are rejected via `base_R == poly_one()` check
 
 ### Type System and Compatibility
 - Default `eq_steps` = all false preserves backward compatibility with 2-arg constructor
