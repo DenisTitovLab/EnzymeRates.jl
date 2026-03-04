@@ -259,7 +259,7 @@ function _try_algebraic_factor_sigma(
         end
         # Monomial shape overlap tiebreaker (ignoring rate constants)
         _shape(m) = sort!([s => e for (s, e) in m if !startswith(string(s), "k")])
-        uf_poly = is_subset ? poly_sub(without_R, base_R) : without_R
+        uf_poly = is_subset ? remainder : without_R
         shapes_u = Set(_shape(m) for (m, _) in uf_poly)
         shapes_b = Set(_shape(m) for (m, _) in base_R)
         overlap = length(shapes_u ∩ shapes_b)
@@ -322,13 +322,10 @@ function _haldane_equality_substitutions(M::Type{<:EnzymeMechanism})
     )
     sorted = sort(collect(dep_exprs); by=p -> _step_num(p[1]))
     subs = Pair{Symbol,Symbol}[]
-    for i in 2:length(sorted)
-        for j in 1:i-1
-            if sorted[i][2] == sorted[j][2]
-                push!(subs, sorted[i][1] => sorted[j][1])
-                break
-            end
-        end
+    expr_to_canonical = Dict{Any,Symbol}()
+    for (sym, expr) in sorted
+        canon = get!(expr_to_canonical, expr, sym)
+        canon !== sym && push!(subs, sym => canon)
     end
     subs
 end
