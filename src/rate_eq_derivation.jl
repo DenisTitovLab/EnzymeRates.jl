@@ -51,33 +51,23 @@ function _compute_re_groups(enz_names, enz_set, rxns, eq_steps)
     N = length(enz_names)
     parent = collect(1:N)
     function find(x)
-        while parent[x] != x
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        end
+        while parent[x] != x; parent[x] = parent[parent[x]]; x = parent[x]; end
         x
     end
-    function union!(a, b)
-        ra, rb = find(a), find(b)
-        ra != rb && (parent[ra] = rb)
-    end
-
     for (idx, (lhs, rhs)) in enumerate(rxns)
         eq_steps[idx] || continue
         e_lhs, _ = _split_reaction_side(lhs, enz_set)
         e_rhs, _ = _split_reaction_side(rhs, enz_set)
-        union!(findfirst(==(e_lhs), enz_names), findfirst(==(e_rhs), enz_names))
+        ra, rb = find(findfirst(==(e_lhs), enz_names)), find(findfirst(==(e_rhs), enz_names))
+        ra != rb && (parent[ra] = rb)
     end
-
     root_to_group = Dict{Int, Int}()
     groups = Vector{Vector{Int}}()
     form_to_group = zeros(Int, N)
     for i in 1:N
         r = find(i)
-        if !haskey(root_to_group, r)
-            push!(groups, Int[]); root_to_group[r] = length(groups)
-        end
-        g = root_to_group[r]; push!(groups[g], i); form_to_group[i] = g
+        g = get!(root_to_group, r) do; push!(groups, Int[]); length(groups) end
+        push!(groups[g], i); form_to_group[i] = g
     end
     groups, form_to_group
 end
@@ -124,23 +114,14 @@ function _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
     sigma_den = Vector{POLY}(undef, length(groups))
     for (g, group) in enumerate(groups)
         if length(group) == 1
-            sigma_num[g] = poly_one(); sigma_den[g] = poly_one()
+            sigma_num[g] = sigma_den[g] = poly_one()
         else
             sigma_den[g] = reduce(poly_mul, alpha_den[i] for i in group)
-            sigma_num[g] = reduce(
-                poly_add,
-                (
-                    poly_mul(
-                        reduce(
-                            poly_mul,
-                            (alpha_den[j] for j in group if j != i);
-                            init=poly_one(),
-                        ),
-                        alpha_num[i],
-                    )
-                    for i in group
-                ),
-            )
+            sigma_num[g] = reduce(poly_add,
+                poly_mul(alpha_num[i],
+                    reduce(poly_mul, (alpha_den[j] for j in group if j != i);
+                        init=poly_one()))
+                for i in group)
         end
     end
     alpha_num, alpha_den, sigma_num, sigma_den
@@ -148,184 +129,144 @@ end
 
 # ─── Algebraic Regulator Factoring ─────────────────────────────
 
-"""Find the canonical K symbol for a metabolite's binding step."""
-function _find_met_binding_K(met, rxns, eq_steps, enz_set, constraints)
-    # Build 1:1 constraint resolution map
-    resolve = Dict{Symbol, Symbol}(
-        target => factors[1][1]
-        for (target, coeff, factors) in constraints
-        if coeff == 1 && length(factors) == 1 && factors[1][2] == 1
-    )
-    for (idx, (lhs, rhs)) in enumerate(rxns)
-        eq_steps[idx] || continue
-        _, m_lhs = _split_reaction_side(lhs, enz_set)
-        _, m_rhs = _split_reaction_side(rhs, enz_set)
-        ((met ∈ m_lhs) ⊻ (met ∈ m_rhs)) || continue
-        # Resolve through constraint chain
-        K = Symbol("K$idx")
-        seen = Set{Symbol}()
-        while haskey(resolve, K) && K ∉ seen
-            push!(seen, K); K = resolve[K]
-        end
-        return K
-    end
-    nothing
-end
-
-"""
-Count monomial "shapes" shared between `p1` and `p2`, where shapes are
-monomials with rate-constant symbols (k-prefixed) removed. High overlap
-means the two polynomials have parallel structure differing only in rate
-constants — a sign of clean factoring.
-"""
-function _mono_shape_overlap(p1::POLY, p2::POLY)
-    _shape(mono) = sort!([s => e for (s, e) in mono if !startswith(string(s), "k")])
-    shapes1 = Set(_shape(mono) for (mono, _) in p1)
-    shapes2 = Set(_shape(mono) for (mono, _) in p2)
-    length(shapes1 ∩ shapes2)
-end
-
-"""
-Try to factor `sigma` by metabolite `met` with binding K symbol `K_R`.
-Returns `(base_R, without_R, is_subset, remainder)` or `nothing`.
-"""
-function _try_factor_by_met(sigma::POLY, met::Symbol, K_R::Symbol)
-    with_R = POLY()
-    without_R = POLY()
-    for (mono, coeff) in sigma
-        if any(s == met for (s, _) in mono)
-            with_R[mono] = coeff
-        else
-            without_R[mono] = coeff
-        end
-    end
-    isempty(with_R) && return nothing
-
-    # Divide each term in with_R by K_R * met
-    K_R_met = _mono(K_R => 1, met => 1)
-    base_R = POLY()
-    for (mono, coeff) in with_R
-        r_exp = 0; k_exp = 0
-        for (s, e) in mono
-            s == met && (r_exp = e)
-            s == K_R && (k_exp = e)
-        end
-        (r_exp >= 1 && k_exp >= 1) || return nothing
-        base_R[_mono_div(mono, K_R_met)] = coeff
-    end
-
-    is_subset = all(
-        haskey(without_R, m) && without_R[m] == c for (m, c) in base_R
-    )
-    remainder = is_subset ? poly_sub(without_R, base_R) : nothing
-    (base_R, without_R, is_subset, remainder)
-end
-
 """
 Try algebraic polynomial factoring on a constrained sigma.
+Tries each metabolite present in sigma: splits terms by metabolite presence,
+divides the metabolite-containing terms by K*met, and checks whether
+the result cleanly divides sigma into `base * (... + K*met)`.
 Returns a `FactoredSigma` or `nothing`.
 """
 function _try_algebraic_factor_sigma(
     sigma::POLY, rxns, eq_steps, enz_set, constraints;
     binding_Ks::Set{Symbol}=Set{Symbol}(),
 )
-    # Collect metabolites present in sigma
+    # Classify symbols present in sigma
+    all_syms = Set(s for (mono, _) in sigma for (s, _) in mono)
     K_syms = Set{Symbol}(
-        s for (mono, _) in sigma for (s, _) in mono
+        s for s in all_syms
         if startswith(string(s), "K") && length(string(s)) > 1 &&
            isdigit(string(s)[2])
     )
-    k_syms = Set{Symbol}(
-        s for (mono, _) in sigma for (s, _) in mono
-        if startswith(string(s), "k")
-    )
-    met_syms = Symbol[
-        s for s in Set(
-            s for (mono, _) in sigma for (s, _) in mono
-        ) if s ∉ K_syms && s ∉ k_syms && s != :Keq && s != :E_total
-    ]
-    sort!(met_syms; by=string)
+    met_syms = sort!(Symbol[
+        s for s in all_syms
+        if s ∉ K_syms && !startswith(string(s), "k") &&
+           s != :Keq && s != :E_total
+    ]; by=string)
 
-    # Try each metabolite and pick the best factoring.
-    # Score tuple (lower is better):
-    #   1. unfactored terms — fewer remainder/without_R terms is better
-    #   2. -product_terms — more terms in product factor is better
-    #   3. -shape_overlap — prefer extractions where without_R and base_R
-    #      share the same monomial shapes (ignoring rate constants)
+    # 1:1 constraint resolution map for finding canonical K symbols
+    resolve = Dict{Symbol, Symbol}(
+        target => factors[1][1]
+        for (target, coeff, factors) in constraints
+        if coeff == 1 && length(factors) == 1 && factors[1][2] == 1
+    )
+
+    # Try each metabolite, pick best factoring by score
     best = nothing
     best_score = (length(sigma), 0, 0)
     for met in met_syms
-        K_R = _find_met_binding_K(met, rxns, eq_steps, enz_set, constraints)
+        # Find canonical binding K for this metabolite
+        K_R = nothing
+        for (idx, (lhs, rhs_rxn)) in enumerate(rxns)
+            eq_steps[idx] || continue
+            _, m_lhs = _split_reaction_side(lhs, enz_set)
+            _, m_rhs = _split_reaction_side(rhs_rxn, enz_set)
+            ((met ∈ m_lhs) ⊻ (met ∈ m_rhs)) || continue
+            K_R = Symbol("K$idx")
+            seen = Set{Symbol}()
+            while haskey(resolve, K_R) && K_R ∉ seen
+                push!(seen, K_R); K_R = resolve[K_R]
+            end
+            break
+        end
         K_R === nothing && continue
         K_R ∈ K_syms || continue
-        result = _try_factor_by_met(sigma, met, K_R)
-        result === nothing && continue
-        base_R, without_R, is_subset, remainder = result
-        # Skip trivial factorings where base is just 1 (no cross-terms)
-        base_R == poly_one() && continue
-        unfactored = is_subset ? remainder::POLY : without_R
-        overlap = _mono_shape_overlap(unfactored, base_R)
+
+        # Split sigma into terms with/without this metabolite
+        without_R, with_R = POLY(), POLY()
+        for (mono, coeff) in sigma
+            (any(s == met for (s, _) in mono) ? with_R : without_R)[mono] = coeff
+        end
+        isempty(with_R) && continue
+
+        # Divide each with_R term by K_R * met
+        K_R_met = _mono(K_R => 1, met => 1)
+        base_R = POLY()
+        valid = true
+        for (mono, coeff) in with_R
+            r_exp = 0; k_exp = 0
+            for (s, e) in mono
+                s == met && (r_exp = e)
+                s == K_R && (k_exp = e)
+            end
+            if r_exp < 1 || k_exp < 1; valid = false; break; end
+            base_R[_mono_div(mono, K_R_met)] = coeff
+        end
+        (!valid || base_R == poly_one()) && continue
+
+        # Check if base_R ⊆ without_R (subset means remainder factoring possible)
+        is_subset = all(
+            haskey(without_R, m) && without_R[m] == c for (m, c) in base_R
+        )
 
         coeffs = POLY[]
         products = FactoredPoly[]
+        unfactored_count = is_subset ? length(without_R) - length(base_R) :
+                                       length(without_R)
         if is_subset
-            # sigma = remainder + base_R * (1 + K_R*met)
+            remainder = poly_sub(without_R, base_R)
             one_plus_KR = poly_add(
                 poly_one(), POLY(_mono(K_R => 1, met => 1) => 1),
             )
-            # Try to absorb remainder into the factor:
-            # if remainder = q * base_R, then sigma = base_R * (q + 1 + K*met)
+            # Try to absorb remainder: if remainder = q * base_R,
+            # then sigma = base_R * (q + 1 + K*met)
             combined = one_plus_KR
             absorbed = isempty(remainder)
             if !absorbed
-                q = _try_poly_exact_div(remainder::POLY, base_R)
+                q = _try_poly_exact_div(remainder, base_R)
                 if q !== nothing
                     combined = poly_add(one_plus_KR, q)
                     absorbed = true
                 end
             end
             if absorbed
-                # sigma = base_R * combined — try recursion on base_R
+                # Recurse on base_R for multi-site factoring
                 inner = _try_algebraic_factor_sigma(
                     base_R, rxns, eq_steps, enz_set, constraints;
                     binding_Ks,
                 )
-                if inner !== nothing &&
-                   length(inner.coefficients) == 1 &&
-                   inner.coefficients[1] == poly_one()
-                    # Merge: inner_product_factors * combined
+                factors, exps = if inner !== nothing &&
+                       length(inner.coefficients) == 1 &&
+                       inner.coefficients[1] == poly_one()
                     fp = inner.products[1]
-                    push!(coeffs, poly_one())
-                    push!(products, FactoredPoly(
-                        [fp.factors; combined],
-                        [fp.exponents; 1],
-                    ))
+                    [fp.factors; combined], [fp.exponents; 1]
                 else
-                    push!(coeffs, poly_one())
-                    push!(products, FactoredPoly(
-                        [base_R, combined], [1, 1],
-                    ))
+                    [base_R, combined], [1, 1]
                 end
-                unfactored = POLY()
+                push!(coeffs, poly_one())
+                push!(products, FactoredPoly(factors, exps))
+                unfactored_count = 0
             else
-                push!(coeffs, remainder::POLY)
+                push!(coeffs, remainder)
                 push!(products, FactoredPoly([poly_one()], [1]))
                 push!(coeffs, poly_one())
-                push!(products, FactoredPoly(
-                    [base_R, one_plus_KR], [1, 1],
-                ))
+                push!(products, FactoredPoly([base_R, one_plus_KR], [1, 1]))
             end
         else
-            # sigma = without_R + K_R*met * base_R
-            K_R_met = POLY(_mono(K_R => 1, met => 1) => Rational{Int}(1))
+            K_R_met_poly = POLY(_mono(K_R => 1, met => 1) => Rational{Int}(1))
             if !isempty(without_R)
                 push!(coeffs, without_R)
                 push!(products, FactoredPoly([poly_one()], [1]))
             end
-            push!(coeffs, K_R_met)
+            push!(coeffs, K_R_met_poly)
             push!(products, FactoredPoly([base_R], [1]))
         end
-        score = (length(unfactored), -length(base_R), -overlap)
+        # Monomial shape overlap tiebreaker (ignoring rate constants)
+        _shape(m) = sort!([s => e for (s, e) in m if !startswith(string(s), "k")])
+        uf_poly = is_subset ? poly_sub(without_R, base_R) : without_R
+        shapes_u = Set(_shape(m) for (m, _) in uf_poly)
+        shapes_b = Set(_shape(m) for (m, _) in base_R)
+        overlap = length(shapes_u ∩ shapes_b)
+        score = (unfactored_count, -length(base_R), -overlap)
         if score < best_score
             best = FactoredSigma(coeffs, products)
             best_score = score
@@ -340,45 +281,20 @@ Returns `FactoredSigma` with a single term `FactoredPoly([Q], [n])`, or `nothing
 """
 function _try_poly_power(p::POLY)
     length(p) < 3 && return nothing
-    const_mono = MONO()
-    haskey(p, const_mono) && p[const_mono] == 1 || return nothing
-
-    # max exponent of any symbol determines max possible power
-    max_e = 0
-    for (mono, _) in p
-        for (_, e) in mono
-            max_e = max(max_e, e)
-        end
-    end
+    get(p, MONO(), 0) == 1 || return nothing
+    max_e = maximum((e for (mono, _) in p for (_, e) in mono), init=0)
     max_e < 2 && return nothing
-
-    # Try each candidate power n from max_e down to 2
     for n in max_e:-1:2
-        # Find terms whose exponents are all divisible by n with coeff 1
-        root_terms = MONO[]
-        for (mono, coeff) in p
-            isempty(mono) && continue
-            coeff == 1 || continue
-            all(e % n == 0 for (_, e) in mono) || continue
-            push!(root_terms, mono)
-        end
+        root_terms = [mono for (mono, c) in p
+                      if !isempty(mono) && c == 1 &&
+                         all(e % n == 0 for (_, e) in mono)]
         isempty(root_terms) && continue
-
-        # Form candidate Q = 1 + sum(nth-root terms)
         Q = POLY(MONO() => Rational{Int}(1))
         for mono in root_terms
             Q[MONO([s => div(e, n) for (s, e) in mono])] = 1
         end
-
-        # Compute Q^n and verify
-        Qn = Q
-        for _ in 2:n
-            Qn = poly_mul(Qn, Q)
-        end
-        if Qn == p
-            return FactoredSigma(
-                [poly_one()], [FactoredPoly([Q], [n])],
-            )
+        if _poly_power(Q, n) == p
+            return FactoredSigma([poly_one()], [FactoredPoly([Q], [n])])
         end
     end
     nothing
