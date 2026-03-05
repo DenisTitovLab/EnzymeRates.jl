@@ -16,10 +16,10 @@ rxn = @enzyme_reaction begin
 end
 
 # Construct the selection problem (enumerates all mechanisms)
-prob = IdentifyRateEquationProblem(rxn, data; Keq=5.0)
+prob = IdentifyRateEquationProblem(rxn, data; Keq=5.0)  # not yet implemented
 
 # Identify the best rate equation
-results = identify_rate_equation(prob)
+results = identify_rate_equation(prob)  # not yet implemented
 
 # Inspect the winner
 rate_equation_string(results.best.mechanism)
@@ -374,29 +374,24 @@ Fitting operates in log-space on the independent rate constants from
 `parameters(m)` (excluding `Keq` and `E_total`). Cross-validation is
 leave-one-group-out.
 
-## Vmax Normalization
+## Parameter Rescaling
 
-When fitting kinetic data from multiple sources, the specific activity
-(Vmax = kcat * E_total) is often unknown or differs across datasets. The
-fitting procedure uses per-group centering in log-space to identify binding
-constants and rate constant ratios (shape parameters) independently of the
-unknown per-dataset Vmax.
-
-After fitting, rate constants are normalized so that kcat = 1. This separates
-scale (Vmax) from shape (binding constants, rate constant ratios):
+`rescale_parameter_values` normalizes steady-state rate constants so that
+kcat equals a target value (default 1.0), while leaving binding constants
+(K's), Keq, E_total, and other non-rate-constant parameters unchanged:
 
 ```julia
-# After fitting: params have kcat = 1
-result = fit_rate_equation(fp, optimizer)
+params = (k1f=3.2, k2f=2.5, k2r=1.1, Keq=5.0, E_total=1.0)
+normalized = rescale_parameter_values(m, params)
+# Now kcat(normalized) ≈ 1.0, all K's unchanged
 
-# For prediction with known Vmax (= specific activity = kcat * E_total):
-# - Binding constants (K's) are directly usable
-# - Rate constant ratios are correct
-# - To get absolute rates, provide Vmax separately
-v = rate_equation(m, concs, merge(result.params, (Vmax = measured_vmax,)))
+# Custom target:
+normalized_42 = rescale_parameter_values(m, params; kcat=42.0)
 ```
 
-To recover true physical rate constants from an independently measured kcat:
+This separates scale (Vmax = kcat × E_total) from shape (binding constants,
+rate constant ratios). To recover true physical rate constants from an
+independently measured kcat:
 
 ```julia
 # k_true = kcat_measured * k_normalized
@@ -404,9 +399,8 @@ To recover true physical rate constants from an independently measured kcat:
 ```
 
 This works for all mechanism types — ordered, random-binding, and ping-pong
-(which lack a constant term in the denominator). The mathematical basis is
-that King-Altman denominators have uniform k-degree, making the fractional
-saturation curve v/(E_total * kcat) automatically scale-invariant.
+— because King-Altman denominators have uniform k-degree, making
+v/(E_total × kcat) automatically scale-invariant.
 
 ## API Reference
 
@@ -440,6 +434,7 @@ saturation curve v/(E_total * kcat) automatically scale-invariant.
 | `structural_identifiability_deficit(m)` | Identifiability deficit (non-positive = identifiable). |
 | `FittingProblem(m, table; Keq)` | Construct a fitting problem from mechanism + data. |
 | `fit_rate_equation(fp, optimizer; ...)` | Fit rate constants via multi-start optimization. |
+| `rescale_parameter_values(m, params; kcat=1.0)` | Rescale SS rate constants so kcat equals target. K's, Keq, E_total unchanged. |
 | `enumerate_mechanisms(rxn; max_forms)` | Lazy iterator over all valid mechanisms for a reaction. |
 | `enumerate_mechanism_stages(rxn; max_forms)` | Run enumeration pipeline, returning intermediate results at each stage. |
 | `enumerate_enzyme_forms(rxn)` | Enumerate all possible enzyme forms for a reaction. |

@@ -23,6 +23,7 @@ secondary use cases.
 |------|-------------|
 | `EnzymeReaction` | Overall reaction specification (substrates, products, regulators). Created via `@enzyme_reaction`. |
 | `EnzymeMechanism` | Full mechanism with species, steps, RE/SS flags, and constraints. Created via `@enzyme_mechanism` or from selection results. |
+| `OligomericEnzymeMechanism` | Multi-subunit MWC allosteric enzyme. Created via `@enzyme_mechanism` with `site()`/`conformations:` DSL. |
 | `FittingProblem` | Single-mechanism fitting problem (mechanism + data + Keq). |
 | `IdentifyRateEquationProblem` | Multi-mechanism selection problem (reaction + data + Keq + search config). |
 | `IdentifyRateEquationResults` | Results from `identify_rate_equation`: all fitted candidates with CV scores. |
@@ -32,7 +33,7 @@ secondary use cases.
 | Macro | Description |
 |-------|-------------|
 | `@enzyme_reaction` | Create an `EnzymeReaction` from a DSL block (substrates, products, regulators). |
-| `@enzyme_mechanism` | Create an `EnzymeMechanism` from species + steps (+ optional constraints) DSL blocks. |
+| `@enzyme_mechanism` | Create an `EnzymeMechanism` or `OligomericEnzymeMechanism` from DSL blocks. |
 
 ### Constants
 
@@ -52,6 +53,7 @@ secondary use cases.
 | `parameters` | Parameter names required by a mechanism: `parameters(m, [mode])`. Default mode is `Reduced`. |
 | `metabolites` | Distinct metabolite names as a tuple of Symbols: `metabolites(m) → (:S, :P)`. |
 | `structural_identifiability_deficit` | Structural identifiability deficit (non-positive = identifiable). |
+| `rescale_parameter_values` | Rescale SS rate constants so kcat equals target (default 1.0). K's, Keq, E_total unchanged. |
 
 ---
 
@@ -111,12 +113,12 @@ data = (
 )
 ```
 
-### Migration from Current Format
+### Migration from Current Format (NOT YET DONE)
 
-The current `FittingProblem` requires `Article` and `Fig` columns. This
-changes to a single `group` column. The `group` column replaces the
-combination of `Article` and `Fig` — users who had both should combine
-them (e.g., `group = "ArticleName_Fig1"`).
+The current `FittingProblem` implementation still requires `Article` and
+`Fig` columns. This spec calls for migrating to a single `group` column.
+The `group` column will replace the combination of `Article` and `Fig` —
+users who had both should combine them (e.g., `group = "ArticleName_Fig1"`).
 
 ---
 
@@ -366,7 +368,7 @@ result = fit_rate_equation(fp, LBFGSB())
 
 ```julia
 # Types
-export EnzymeReaction, EnzymeMechanism
+export EnzymeReaction, EnzymeMechanism, OligomericEnzymeMechanism
 export FittingProblem
 export IdentifyRateEquationProblem, IdentifyRateEquationResults
 
@@ -390,9 +392,12 @@ export parameters, metabolites
 
 # Identifiability
 export structural_identifiability_deficit
+
+# Parameter rescaling
+export rescale_parameter_values
 ```
 
-Total: 5 types + 2 macros + 2 constants + 7 functions = **16 exported symbols**.
+Total: 6 types + 2 macros + 2 constants + 8 functions = **18 exported symbols**.
 
 ---
 
