@@ -711,6 +711,78 @@ Number of excess parameters beyond what is structurally identifiable from kineti
     n_k - (n_num - 1) - (n_denom - 1)
 end
 
+# ─── kcat Computation Helpers ──────────────────────────────────
+
+"""Check if a symbol is a steady-state rate constant (lowercase k followed by digit)."""
+function _is_ss_rate_constant(sym::Symbol)
+    s = string(sym)
+    length(s) > 1 && s[1] == 'k' && isdigit(s[2])
+end
+
+"""
+Compute kcat candidate components from the rate equation polynomial structure.
+Returns `Vector{Tuple{Any, Any}}` of (num_k_expr, den_k_expr) pairs.
+kcat = max(nk/dk) over all candidates (evaluated at runtime).
+
+Groups the expanded numerator (forward terms only, positive coefficients) and
+denominator by metabolite pattern. For each matching pair, builds k-only
+expressions. K's (equilibrium constants) cancel between num and den at
+matching metabolite levels.
+
+Multiple candidates arise for mechanisms with alternative catalytic pathways
+(e.g., non-essential activator with/without activator bound).
+"""
+function _kcat_components(M::Type{<:EnzymeMechanism})
+    num_fs, denom_terms = _raw_symbolic_rate_polys(M)
+    num = _expand_factored_sigma(num_fs)
+    den = _expand_to_poly(denom_terms)
+
+    # Split monomial into (k_part, met_part)
+    function split_mono(mono::MONO)
+        k_mono = MONO()
+        met_mono = MONO()
+        for (s, e) in mono
+            if is_k_parameter(s) || s == :Keq
+                push!(k_mono, s => e)
+            elseif s != :E_total
+                push!(met_mono, s => e)
+            end
+        end
+        sort!(k_mono; by=first), sort!(met_mono; by=first)
+    end
+
+    # Group forward numerator (positive coefficients) by metabolite pattern
+    num_groups = Dict{MONO, POLY}()
+    for (mono, coeff) in num
+        coeff > 0 || continue
+        k_part, met_part = split_mono(mono)
+        p = get!(num_groups, met_part, POLY())
+        p[k_part] = get(p, k_part, Rational{Int}(0)) + coeff
+    end
+
+    # Group denominator by metabolite pattern
+    den_groups = Dict{MONO, POLY}()
+    for (mono, coeff) in den
+        k_part, met_part = split_mono(mono)
+        p = get!(den_groups, met_part, POLY())
+        p[k_part] = get(p, k_part, Rational{Int}(0)) + coeff
+    end
+
+    # Build kcat candidates: for each forward numerator metabolite group
+    # with a matching denominator group, create (num_k_expr, den_k_expr)
+    empty_set = Set{Symbol}()
+    components = Tuple{Any, Any}[]
+    for (met_key, num_k) in sort!(collect(num_groups); by=first)
+        den_k = get(den_groups, met_key, nothing)
+        den_k === nothing && continue
+        num_expr = _poly_to_expr(num_k, empty_set, empty_set)
+        den_expr = _poly_to_expr(den_k, empty_set, empty_set)
+        push!(components, (num_expr, den_expr))
+    end
+
+    components
+end
+
 # ═══════════════════════════════════════════════════════════════════
 # OligomericEnzymeMechanism rate equations (MWC)
 #
