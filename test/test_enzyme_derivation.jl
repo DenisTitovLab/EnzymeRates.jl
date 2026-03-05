@@ -662,6 +662,15 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
         kcat_orig = EnzymeRates._kcat_forward(m, params)
         @test kcat_orig > 0
 
+        # Scale invariance: scaling SS k's by α scales kcat by α
+        α = 0.1 + 9.9 * rand(rng)
+        scaled_params = NamedTuple{keys(params)}(Tuple(
+            EnzymeRates._is_ss_rate_constant(k) ? v * α : v
+            for (k, v) in zip(keys(params), values(params))
+        ))
+        @test EnzymeRates._kcat_forward(m, scaled_params) ≈
+            α * kcat_orig rtol=1e-10
+
         # Rescale so kcat = 1
         norm = rescale_parameter_values(m, params)
         kcat_norm = EnzymeRates._kcat_forward(m, norm)
@@ -674,8 +683,21 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
             end
         end
 
-        # V ≈ 1 at saturating substrates, products=0
+        # Custom kcat target
+        kcat_target = 0.1 + 9.9 * rand(rng)
+        norm_custom = rescale_parameter_values(m, params; kcat=kcat_target)
+        @test EnzymeRates._kcat_forward(m, norm_custom) ≈
+            kcat_target rtol=1e-10
+
+        # Rate proportionality: v_norm / v_orig = 1 / kcat_orig
         met_names = metabolites(m)
+        conc_vals = Tuple(0.5 + rand(rng) for _ in met_names)
+        concs = NamedTuple{Tuple(met_names)}(conc_vals)
+        v_orig = rate_equation(m, concs, params)
+        v_norm = rate_equation(m, concs, norm)
+        @test v_norm / v_orig ≈ 1.0 / kcat_orig rtol=1e-8
+
+        # V ≈ 1 at saturating substrates, products=0
         sub_names = Symbol[s[1] for s in EnzymeRates.substrates(m)]
         prod_names = Symbol[p[1] for p in EnzymeRates.products(m)]
         reg_names = collect(EnzymeRates.regulators(m))
@@ -739,48 +761,6 @@ end
     for sym in (:K1, :K2, :K_I_reg1, :Keq, :L, :E_total)
         @test !EnzymeRates._is_ss_rate_constant(sym)
     end
-end
-
-@testset "kcat scale invariance" begin
-    m = MECHANISM_TEST_SPECS[1].mechanism  # Uni-Uni
-    rng = Random.MersenneTwister(200)
-    params = random_reduced_params(m; rng)
-
-    α = 3.7
-    scaled_params = NamedTuple{keys(params)}(Tuple(
-        EnzymeRates._is_ss_rate_constant(k) ? v * α : v
-        for (k, v) in zip(keys(params), values(params))
-    ))
-    kcat_orig = EnzymeRates._kcat_forward(m, params)
-    kcat_scaled = EnzymeRates._kcat_forward(m, scaled_params)
-    @test kcat_scaled ≈ α * kcat_orig rtol=1e-10
-end
-
-@testset "kcat rate proportionality" begin
-    for spec in MECHANISM_TEST_SPECS[1:min(3, end)]
-        m = spec.mechanism
-        rng = Random.MersenneTwister(300)
-        params = random_reduced_params(m; rng)
-        norm = rescale_parameter_values(m, params)
-        kcat_orig = EnzymeRates._kcat_forward(m, params)
-
-        met_names = metabolites(m)
-        conc_vals = Tuple(0.5 + rand(rng) for _ in met_names)
-        concs = NamedTuple{Tuple(met_names)}(conc_vals)
-
-        v_orig = rate_equation(m, concs, params)
-        v_norm = rate_equation(m, concs, norm)
-        @test v_norm / v_orig ≈ 1.0 / kcat_orig rtol=1e-8
-    end
-end
-
-@testset "kcat custom target" begin
-    m = MECHANISM_TEST_SPECS[1].mechanism  # Uni-Uni
-    rng = Random.MersenneTwister(400)
-    params = random_reduced_params(m; rng)
-
-    norm42 = rescale_parameter_values(m, params; kcat=42.0)
-    @test EnzymeRates._kcat_forward(m, norm42) ≈ 42.0 rtol=1e-10
 end
 
 # ── Degenerate constraint handling ────────────────────────────────────────────
