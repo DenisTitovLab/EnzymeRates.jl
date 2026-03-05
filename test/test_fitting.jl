@@ -309,7 +309,39 @@ using Tables
         @test avg_us < 50  # < 50 μs per call for 500 datapoints (~5 μs typical)
     end
 
-    # ── Test 9: Validation errors ─────────────────────────────────────────────
+    # ── Test 9: kcat normalization in fit_rate_equation ───────────────
+    @testset "kcat normalization" begin
+        using OptimizationBBO
+        Keq_val = 2.0
+        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+
+        concs_list = [
+            (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
+            (S = 5.0, P = 0.1), (S = 10.0, P = 0.1),
+            (S = 0.5, P = 0.5), (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
+        ]
+        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
+
+        # Default kcat=1.0: returned params should have kcat ≈ 1
+        result = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
+            n_restarts=3, maxtime=5.0)
+        full = merge(result.params, (Keq = Keq_val, E_total = 1.0))
+        @test EnzymeRates._kcat_forward(uni_uni, full) ≈ 1.0 rtol=0.01
+
+        # Custom kcat target
+        result2 = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
+            n_restarts=3, maxtime=5.0, kcat=42.0)
+        full2 = merge(result2.params, (Keq = Keq_val, E_total = 1.0))
+        @test EnzymeRates._kcat_forward(uni_uni, full2) ≈ 42.0 rtol=0.01
+
+        # kcat=nothing: raw params (no normalization guarantee)
+        result3 = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
+            n_restarts=3, maxtime=5.0, kcat=nothing)
+        @test haskey(result3, :params)
+    end
+
+    # ── Test 10: Validation errors ─────────────────────────────────────────────
     @testset "Validation errors" begin
         # Missing Rate column
         data_no_rate = (Article = ["A1"], Fig = ["F1"], S = [1.0], P = [0.1])

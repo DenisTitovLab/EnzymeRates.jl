@@ -149,6 +149,7 @@ end
 """
     fit_rate_equation(fp::FittingProblem, optimizer;
         n_restarts=10, maxtime=60.0,
+        kcat=1.0,
         lb=fill(-15.0, length(fitted_params(fp.mechanism))),
         ub=fill(15.0, length(fitted_params(fp.mechanism))),
         kwargs...)
@@ -158,6 +159,10 @@ Fit rate constants by minimizing `loss!` using Optimization.jl.
 Runs `n_restarts` independent optimizations from random initial points and returns
 the best result.
 
+When `kcat` is not `nothing`, the returned parameters are rescaled so that
+`_kcat_forward(mechanism, params) ≈ kcat`. Pass `kcat=nothing` to get raw
+(unrescaled) parameters.
+
 Returns a NamedTuple `(params, loss, x)` where:
 - `params`: fitted rate constants as a NamedTuple (in real space, i.e., `exp.(x)`)
 - `loss`: the best loss value achieved
@@ -166,6 +171,7 @@ Returns a NamedTuple `(params, loss, x)` where:
 function fit_rate_equation(fp::FittingProblem, optimizer;
     n_restarts::Int=10,
     maxtime::Real=60.0,
+    kcat::Union{Real,Nothing}=1.0,
     lb=fill(-15.0, length(fitted_params(fp.mechanism))),
     ub=fill(15.0, length(fitted_params(fp.mechanism))),
     kwargs...
@@ -188,5 +194,12 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
 
     pnames = fitted_params(fp.mechanism)
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(length(pnames))))
+    if kcat !== nothing
+        full_params = merge(result_params, (Keq = fp.Keq, E_total = 1.0))
+        full_params = rescale_parameter_values(fp.mechanism, full_params; kcat=Float64(kcat))
+        result_params = NamedTuple{pnames}(ntuple(
+            i -> full_params[pnames[i]], Val(length(pnames)),
+        ))
+    end
     return (params = result_params, loss = best_loss, x = copy(best_x))
 end
