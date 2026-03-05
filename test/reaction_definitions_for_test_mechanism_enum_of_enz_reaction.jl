@@ -15,8 +15,7 @@ Base.@kwdef struct EnumerationTestSpec
     # Stage counts (verified by tests)
     expected_n_forms::Int                # enumerate_enzyme_forms
     expected_n_catalytic::Int            # catalytic topologies
-    expected_n_cat_with_act::Int         # after activator configs
-    expected_n_cat_act_de::Int           # after dead-end configs
+    expected_n_cat_de::Int               # after dead-end configs
 
     # RE/SS stage
     skip_ress_test::Bool = false         # skip for slow reactions
@@ -89,17 +88,17 @@ end
 Compute expected dead-end mechanism count assuming independent inhibitor
 binding: each inhibitor independently binds or not at each topology form.
 
-Formula per activator config: (2^r_inh)^n_topo
+Formula per catalytic topology: (2^r_inh)^n_topo
 """
 function _compute_expected_dead_end_count(
-    activator_specs,
+    catalytic_specs,
     forms::Vector{EnzymeRates.EnzymeFormSpec},
 )
     reg_positions = [k for k in eachindex(forms[1].sites)
                      if forms[1].sites[k].role == :reg]
 
     total = 0
-    for spec in activator_specs
+    for spec in catalytic_specs
         topo_set = Set(Iterators.flatten(spec.edges))
         n_topo = length(topo_set)
 
@@ -127,16 +126,11 @@ function build_enumeration_test_specs()
             name="Uni-Uni",
             reaction=rxn,
             max_forms=100,
-            # E, ES, EP
             expected_n_forms=3,
-            # E+S <-> ES <-> EP <-> E+P
             expected_n_catalytic=1,
-            expected_n_cat_with_act=1,
-            expected_n_cat_act_de=1,
-            # SE/RE combose can be infered from the number of reaction in each mechanism
-            # using the following equation 2^(n_reactions) - 1
-            # "-1" is because all RE is not biochemically possible
-            # 2^(3)-1 = 7 for RE/SE forms
+            # No regulators → dead-end = catalytic
+            expected_n_cat_de=1,
+            # 2^3 - 1 = 7
             expected_n_total=7,
             max_enumeration_time=5.0,
         ))
@@ -153,42 +147,12 @@ function build_enumeration_test_specs()
             name="Uni-Uni 1 Regulator",
             reaction=rxn,
             max_forms=100,
-            # n_cat_forms × 2^regulators = 3 × 2^1 = 6
             expected_n_forms=6,
-            # E+S <-> ES <-> EP <-> E+P
             expected_n_catalytic=1,
-            # 1 catalytic +
-            # 1 essential activator: E+A <-> EA+S <-> EAS <-> EAP <-> EA+P <-> E+A
-            # 1 non-essential activator:
-            #          E+S <-> ES  <-> EP  <-> E+P
-            #          ↕       ↕        ↕      ↕
-            # E+A <-> EA+S <-> EAS <-> EAP <-> EA+P <-> E+A
-            expected_n_cat_with_act=3,
-            # Regulator is either inhibitor or activator so dead-end only applies to catalytic form:
-            # - catalytic reaction has 3 forms (E, ES, EP)
-            # - 3 dead-end complexes with inhibitor bound to only one form
-            # - 3 dead-end complexes with inhibitor bound to two forms
-            # - 1 dead-end complex with inhibitor bound to all three forms
-            # In sum, 1 catalytic + 2 with activator + 7 with dead-ends = 10
-
-            #= More generally, each catalytic form is a slot. At each slot, you independently answer one yes/no question per regulator: "does this regulator form a dead-end here?"
-            - 1 regulator → 1 yes/no question → 2 choices per slot
-            - 2 regulators → 2 independent yes/no questions → 2²= 4 choices per slot
-            - r regulators → 2^r choices per slot
-            You make this choice independently at each of the n_cat slots, so you multiply:
-            2^r × 2^r × … × 2^r (n_cat times) = (2^r)^n_cat
-            For Uni-Uni with 1 regulator: 3 slots, 2 choices each → 2 × 2 × 2 = 8.
-            The above include the case with no regulator.
-            =#
-            expected_n_cat_act_de=10,
-            # TODO: SE/RE + equivalence forms:
-            # catalytic 2^(3)-1 = 7
-            # 1 essential activator 2^(4)-1 = 15
-            # 1 non-essential activator 2^(9)-1 = 511
-            # 1 inhibitor with 1 dead-end 2^(4)-1 = 15 (3x)
-            # 1 inhibitor with 2 dead-end 2^(6)-1 = 63 (3x)
-            # 1 inhibitor with 3 dead-end 2^(8)-1 = 255
-            expected_n_total=1779,
+            # 1 catalytic with 3 forms, 1 regulator:
+            # (2^1)^3 = 8 dead-end configurations
+            expected_n_cat_de=8,
+            expected_n_total=808,
             max_enumeration_time=5.0,
         ))
     end
@@ -204,23 +168,11 @@ function build_enumeration_test_specs()
             name="Uni-Uni 2 Regulators",
             reaction=rxn,
             max_forms=100,
-            # n_cat_forms × 2^regulators = 3 × 2^2 = 12
             expected_n_forms=12,
             expected_n_catalytic=1,
-            # With 2 regulators, we get 1 catalytic
-            # + 2x2=4 with each activators binding alone (like in Uni-Uni + 1 regulator case)
-            # + 2 with one activators essential and one non-essential and vice versa
-            # + 2 with both activators essential or non-essential
-            expected_n_cat_with_act=9,
-            # For each mechanism with no deadend the number of deadend mechanism can be
-            # combinatorial calculated as (2^n_regultors)^n_cat_enz_forms.
-            # For catalytic = (2^2)^3 = 64
-            # For 1 essential activator: (2^1)^4 = 16 (2x since either reg can be inh or act)
-            # For 1 non-essential activator: (2^1)^6 = 64 (also 2x)
-            # No deadend complex with 2 activators since regulator can be either act and inh.
-            # In sum, 64 + 16*2 + 64*2 + 4 = 228
-            expected_n_cat_act_de=228,
-            expected_n_total=24646535,
+            # (2^2)^3 = 64
+            expected_n_cat_de=64,
+            expected_n_total=3089511,
             max_enumeration_time=10.0,
         ))
     end
@@ -237,22 +189,12 @@ function build_enumeration_test_specs()
             reaction=rxn,
             max_forms=100,
             expected_n_forms=16,
-            # 2x sequencial product release and 1 random order → 3 catalytic topologies
-            # For sequencial release: E+S <-> ES <-> EP1P2 <-> EP1 <-> E+P1 and vice versa
-            # For random order:
-            # E+S <-> ES <-> EP1P2 <-> EP1 + P2 <-> E+P1
-            #                  ↕
-            #                EP2 + P1 <-> E+P2
             expected_n_catalytic=3,
-            # For sequencial release there are 2 activator mechanisms (as in Uni-Uni case)
-            # and for random order there are 4 (2 per catalytic cycle)
-            expected_n_cat_with_act=9,
-            # For sequential release: (2^1)^4 = 16 (2x)
-            # For random order: (2^1)^5 = 32
-            # No deadend for activators mechanisms since regulator can be either act and inh.
-            # In sum, 16*2 + 32 + 6 (activator mechanisms)= 70
-            expected_n_cat_act_de=70,
-            expected_n_total=435521,
+            # 2 sequential (4 forms): 2 × (2^1)^4 = 32
+            # 1 random (5 forms): (2^1)^5 = 32
+            # Total: 64
+            expected_n_cat_de=64,
+            expected_n_total=212624,
             max_enumeration_time=5.0,
         ))
     end
@@ -270,10 +212,9 @@ function build_enumeration_test_specs()
             max_forms=100,
             expected_n_forms=22,
             expected_n_catalytic=9,
-            expected_n_cat_with_act=27,
-            expected_n_cat_act_de=530,
+            expected_n_cat_de=512,
             skip_ress_test=true,
-            expected_n_total=114684452,
+            expected_n_total=63632894,
         ))
     end
 
@@ -290,10 +231,9 @@ function build_enumeration_test_specs()
             max_forms=100,
             expected_n_forms=22,
             expected_n_catalytic=9,
-            expected_n_cat_with_act=27,
-            expected_n_cat_act_de=530,
+            expected_n_cat_de=512,
             skip_ress_test=true,
-            expected_n_total=114684452,
+            expected_n_total=63632894,
         ))
     end
 
@@ -309,8 +249,8 @@ function build_enumeration_test_specs()
             max_forms=100,
             expected_n_forms=17,
             expected_n_catalytic=10,
-            expected_n_cat_with_act=10,
-            expected_n_cat_act_de=10,
+            # No regulators → dead-end = catalytic
+            expected_n_cat_de=10,
             expected_n_total=2157,
             max_enumeration_time=10.0,
         ))
@@ -328,8 +268,8 @@ function build_enumeration_test_specs()
             max_forms=5,
             expected_n_forms=11,
             expected_n_catalytic=4,
-            expected_n_cat_with_act=4,
-            expected_n_cat_act_de=4,
+            # No regulators → dead-end = catalytic
+            expected_n_cat_de=4,
             expected_n_total=124,
             max_enumeration_time=5.0,
         ))

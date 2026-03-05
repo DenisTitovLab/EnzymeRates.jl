@@ -69,13 +69,11 @@ MechanismSpec(reaction, edges) =
 
 Controls which pipeline stage `enumerate_mechanisms` stops at:
 - `Catalytic()`: catalytic cycle topologies only.
-- `WithActivator()`: add activator (essential/non-essential) variants.
 - `WithDeadEnd()`: add dead-end inhibitor configurations.
 - `FullEnumeration()`: add RE/SS + parameter constraint variants (lazy iterator).
 """
 abstract type EnumerationStage end
 struct Catalytic    <: EnumerationStage end
-struct WithActivator <: EnumerationStage end
 struct WithDeadEnd   <: EnumerationStage end
 struct FullEnumeration <: EnumerationStage end
 
@@ -367,93 +365,13 @@ function _find_dead_end(form_lookup, base::EnzymeFormSpec, occupied_positions)
     get(form_lookup, key, nothing)
 end
 
-"""Build per-regulator activator options for a given catalytic topology.
-
-Returns a vector of `(added_edges, removed_edges)` tuples representing:
-1. Regulator absent (no edges added or removed).
-2. Non-essential activator (all topology forms mirrored with reg bound).
-3. Essential activator (only entry edge from free enzyme to reg-bound).
-"""
-function _build_activator_options(reg, topo, forms, form_lookup, edges)
-    opts = [(Tuple{Int,Int}[], Set{Tuple{Int,Int}}())]
-    pos = findfirst(s -> s.metabolite == reg && s.role == :reg &&
-        s.atoms === nothing, forms[first(topo)].sites)
-    pos === nothing && return opts
-    # Shadow pairs: (base_form, reg-bound_form) for each topology form
-    shadow_pairs = [
-        (base_idx, _find_dead_end(form_lookup, forms[base_idx], (pos,)))
-        for base_idx in sort(collect(topo))]
-    filter!(((_, shadow),) -> shadow !== nothing, shadow_pairs)
-    length(shadow_pairs) < 2 && return opts
-    shadow_map = Dict(shadow_pairs)
-    # Mirror the topology edges into the activated layer
-    mirrored_edges = [(a, b) for (a, b) in edges
-                      if haskey(shadow_map, a) && haskey(shadow_map, b)]
-    mirror_edges = [minmax(shadow_map[a], shadow_map[b])
-                    for (a, b) in mirrored_edges]
-    bind_edges = [minmax(b, s) for (b, s) in shadow_pairs]
-    # Non-essential: all base↔shadow binding + mirrored topology
-    push!(opts, ([bind_edges; mirror_edges], Set{Tuple{Int,Int}}()))
-    # Essential: only the entry edge (free enzyme → activated), removing
-    # original topology edges that are replaced by the shadow cycle
-    entry = findfirst(((base_idx, _),) -> all(
-        s -> s.role == :reg || s.atoms === nothing,
-        forms[base_idx].sites), shadow_pairs)
-    if entry !== nothing
-        push!(opts,
-            ([minmax(shadow_pairs[entry]...); mirror_edges],
-             Set(mirrored_edges)))
-    end
-    opts
-end
-
-"""
-    _expand_activators(specs, forms, adj, form_lookup, reaction; max_forms)
-
-Expand catalytic topologies with activator regulator variants.
-
-For each regulator, three options are considered via `_build_activator_options`:
-absent, non-essential activator, or essential activator.
-Returns all valid Cartesian-product combinations across regulators.
-"""
-function _expand_activators(
-    specs::Vector{MechanismSpec},
-    forms::Vector{EnzymeFormSpec},
-    form_lookup,
-    @nospecialize(reaction::EnzymeReaction);
-    max_forms::Int,
-)
-    reg_names = [r for r in regulators(reaction)]
-    isempty(reg_names) && return specs
-    result = MechanismSpec[]
-    for spec in specs
-        topo = Set(Iterators.flatten(spec.edges))
-        per_reg = map(reg_names) do reg
-            _build_activator_options(
-                reg, topo, forms, form_lookup, spec.edges)
-        end
-        for combo in Iterators.product(per_reg...)
-            removals = union((r for (_, r) in combo)...)
-            merged = [e for e in spec.edges if e ∉ removals]
-            for (add, _) in combo
-                append!(merged, add)
-            end
-            topo_nodes = Set(Iterators.flatten(merged))
-            length(topo_nodes) > max_forms && continue
-            push!(result, MechanismSpec(reaction, merged))
-        end
-    end
-    result
-end
-
 """
     _expand_inhibitors(specs, forms, adj, form_lookup; max_forms)
 
 Expand mechanism topologies with dead-end inhibitor configurations.
 
-For each topology, regulators not already acting as activators are treated
-as inhibitors. Each topology form independently gets a bitmask of which
-inhibitors bind there, generating `(2^n_inhibitors)^n_topo_forms` configs.
+Each topology form independently gets a bitmask of which regulators
+bind there, generating `(2^n_regulators)^n_topo_forms` configs.
 """
 function _expand_inhibitors(
     specs::Vector{MechanismSpec},
@@ -467,17 +385,12 @@ function _expand_inhibitors(
         topo_nodes = Set(Iterators.flatten(spec.edges))
         topo_sorted = sort!(collect(topo_nodes))
         budget = max_forms - length(topo_sorted)
-        # Activator positions: reg sites occupied in any topology form
-        activator_positions = Set(
-            k for fi in topo_sorted
-            for (k, s) in enumerate(forms[fi].sites)
-            if s.role == :reg && s.atoms !== nothing)
-        # Inhibitor positions: unoccupied reg sites not used as activators
-        inhibitor_positions = [
+        # Regulator positions: all reg sites (catalytic forms have
+        # no regulator bound, so all reg sites are available)
+        reg_positions = [
             k for (k, s) in enumerate(forms[topo_sorted[1]].sites)
-            if s.role == :reg && s.atoms === nothing &&
-               k ∉ activator_positions]
-        n_inh = length(inhibitor_positions)
+            if s.role == :reg && s.atoms === nothing]
+        n_inh = length(reg_positions)
         existing = Set(minmax(e...) for e in spec.edges)
         # Precompute dead-end forms for each (topo_form_index, inh_mask)
         dead_end_lookup = Dict(
@@ -485,7 +398,7 @@ function _expand_inhibitors(
             for (ti, fi) in enumerate(topo_sorted)
             for mask in 1:(1 << n_inh) - 1
             for fi2 in (_find_dead_end(form_lookup, forms[fi],
-                Tuple(inhibitor_positions[j] for j in 1:n_inh
+                Tuple(reg_positions[j] for j in 1:n_inh
                       if (mask >> (j - 1)) & 1 == 1)),)
             if fi2 !== nothing && fi2 ∉ topo_nodes)
         # Each topology form gets an independent inhibitor binding mask
@@ -568,9 +481,8 @@ Enumerate valid mechanism topologies for the given reaction.
 
 Pipeline stages:
 1. `Catalytic()` — catalytic cycles through the free enzyme.
-2. `WithActivator()` — activator variants (essential/non-essential).
-3. `WithDeadEnd()` — dead-end inhibitor configurations.
-4. `FullEnumeration()` — RE/SS + parameter constraint variants (lazy `MechanismIterator`).
+2. `WithDeadEnd()` — dead-end inhibitor configurations.
+3. `FullEnumeration()` — RE/SS + parameter constraint variants (lazy `MechanismIterator`).
 """
 function enumerate_mechanisms(
     @nospecialize(reaction::EnzymeReaction);
@@ -587,12 +499,8 @@ function enumerate_mechanisms(
     catalytic = _catalytic_topologies(forms, adj, reaction; max_forms)
     stage isa Catalytic && return catalytic
 
-    with_activators = _expand_activators(
-        catalytic, forms, form_lookup, reaction; max_forms)
-    stage isa WithActivator && return with_activators
-
     with_inhibitors = _expand_inhibitors(
-        with_activators, forms, adj, form_lookup; max_forms)
+        catalytic, forms, adj, form_lookup; max_forms)
     stage isa WithDeadEnd && return with_inhibitors
 
     # FullEnumeration: compute RE/SS variant count, wrap in lazy iterator.

@@ -10,24 +10,17 @@
         )
         @test length(catalytic) == spec.expected_n_catalytic
 
-        with_act = EnzymeRates.enumerate_mechanisms(
-            spec.reaction;
-            stage=EnzymeRates.WithActivator(),
-            max_forms=spec.max_forms,
-        )
-        @test length(with_act) == spec.expected_n_cat_with_act
-
         with_de = collect(EnzymeRates.enumerate_mechanisms(
             spec.reaction;
             stage=EnzymeRates.WithDeadEnd(),
             max_forms=spec.max_forms,
         ))
-        @test length(with_de) == spec.expected_n_cat_act_de
+        @test length(with_de) == spec.expected_n_cat_de
 
         # Independent dead-end verification:
-        # (2^r_inh)^n_topo per activator config, summed
+        # (2^r_inh)^n_topo per catalytic topology, summed
         expected_de_total = _compute_expected_dead_end_count(
-            with_act, forms)
+            catalytic, forms)
         @test expected_de_total == length(with_de)
 
         # Total mechanism count (O(1) for lazy iterator)
@@ -49,7 +42,7 @@
             end
         end
 
-        # Verify earlier stages are subsets of with_dead_end.
+        # Verify catalytic topologies are subsets of dead-end specs.
         # Dead-end expansion may add binding edges between topology
         # forms, so we check subset (⊆) not exact match.
         @testset "Stage subset" begin
@@ -57,10 +50,6 @@
             for s in catalytic
                 cat_set = Set(s.edges)
                 @test any(de -> cat_set ⊆ de, de_edge_sets)
-            end
-            for s in with_act
-                act_set = Set(s.edges)
-                @test any(de -> act_set ⊆ de, de_edge_sets)
             end
         end
 
