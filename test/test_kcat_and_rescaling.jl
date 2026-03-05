@@ -17,7 +17,7 @@ end
 
 # ── Helper: generate random reduced params for a mechanism ───
 function random_reduced_params(m; rng=Random.default_rng())
-    fp = fitted_params(m)
+    fp = EnzymeRates.fitted_params(m)
     vals = Tuple(0.1 + 9.9 * rand(rng) for _ in fp)
     Keq_val = 0.1 + 9.9 * rand(rng)
     E_total_val = 0.1 + 9.9 * rand(rng)

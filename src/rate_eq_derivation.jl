@@ -783,6 +783,35 @@ function _kcat_components(M::Type{<:EnzymeMechanism})
     components
 end
 
+"""
+    _kcat_forward(m::EnzymeMechanism, params) → Float64
+
+Compute kcat (forward) analytically from the polynomial structure.
+kcat is the maximum rate at saturating substrates, zero products,
+and E_total=1. For mechanisms with multiple catalytic paths
+(e.g., non-essential activator), returns the max over all paths.
+
+Uses `_kcat_components` to get (num_k_expr, den_k_expr) candidates,
+then evaluates max(nk/dk) at runtime parameter values.
+"""
+@generated function _kcat_forward(
+    ::M, params::NamedTuple,
+) where {M <: EnzymeMechanism}
+    components = _kcat_components(M)
+    dep_exprs, indep = _dependent_param_exprs(M)
+    dep_exprs = _apply_kd_inversion(dep_exprs, M, K -> :(inv($K)))
+    hw_params = (indep..., :Keq)
+    assignments = [Expr(:(=), sym, dep_exprs[sym])
+                   for (sym, _) in sort(collect(dep_exprs); by=first)]
+    candidates = [:($(nk) / $(dk)) for (nk, dk) in components]
+    result = length(candidates) == 1 ?
+        candidates[1] : Expr(:call, :max, candidates...)
+    Expr(:block,
+        _destructuring_expr(hw_params, :params),
+        assignments...,
+        :(return $result))
+end
+
 # ═══════════════════════════════════════════════════════════════════
 # OligomericEnzymeMechanism rate equations (MWC)
 #
