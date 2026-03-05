@@ -112,32 +112,6 @@ end
 """Check if mechanism has any rapid-equilibrium steps."""
 _has_re_steps(m) = any(EnzymeRates.equilibrium_steps(m))
 
-function random_params_concs(m, met_names::Vector{Symbol}; rng=Random.default_rng())
-    eq = EnzymeRates.equilibrium_steps(m)
-    ns = EnzymeRates.n_steps(m)
-    param_keys = Symbol[]
-    param_vals = Float64[]
-    for i in 1:ns
-        if eq[i]
-            push!(param_keys, Symbol("K$i"))
-            push!(param_vals, 0.1 + 9.9 * rand(rng))
-        else
-            push!(param_keys, Symbol("k$(i)f"))
-            push!(param_vals, 0.1 + 9.9 * rand(rng))
-            push!(param_keys, Symbol("k$(i)r"))
-            push!(param_vals, 0.1 + 9.9 * rand(rng))
-        end
-    end
-    push!(param_keys, :E_total)
-    push!(param_vals, 0.1 + 9.9 * rand(rng))
-    params = NamedTuple{Tuple(param_keys)}(Tuple(param_vals))
-
-    conc_vals = [0.1 + 9.9 * rand(rng) for _ in met_names]
-    concs = NamedTuple{Tuple(met_names)}(Tuple(conc_vals))
-
-    return params, concs
-end
-
 """
 Test that `rate_equation` is non-allocating and fast for the given mechanism.
 Must be a standalone function to avoid @testset closure boxing.
@@ -704,10 +678,7 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
         met_names = metabolites(m)
         sub_names = Symbol[s[1] for s in EnzymeRates.substrates(m)]
         prod_names = Symbol[p[1] for p in EnzymeRates.products(m)]
-        reg_names = Symbol[]
-        for r in EnzymeRates.regulators(m)
-            push!(reg_names, r isa Tuple ? r[1] : r)
-        end
+        reg_names = collect(EnzymeRates.regulators(m))
         n_reg = length(reg_names)
 
         norm_e1 = merge(norm, (E_total=1.0,))
