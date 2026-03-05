@@ -374,6 +374,40 @@ Fitting operates in log-space on the independent rate constants from
 `parameters(m)` (excluding `Keq` and `E_total`). Cross-validation is
 leave-one-group-out.
 
+## Vmax Normalization
+
+When fitting kinetic data from multiple sources, the specific activity
+(Vmax = kcat * E_total) is often unknown or differs across datasets. The
+fitting procedure uses per-group centering in log-space to identify binding
+constants and rate constant ratios (shape parameters) independently of the
+unknown per-dataset Vmax.
+
+After fitting, rate constants are normalized so that kcat = 1. This separates
+scale (Vmax) from shape (binding constants, rate constant ratios):
+
+```julia
+# After fitting: params have kcat = 1
+result = fit_rate_equation(fp, optimizer)
+
+# For prediction with known Vmax (= specific activity = kcat * E_total):
+# - Binding constants (K's) are directly usable
+# - Rate constant ratios are correct
+# - To get absolute rates, provide Vmax separately
+v = rate_equation(m, concs, merge(result.params, (Vmax = measured_vmax,)))
+```
+
+To recover true physical rate constants from an independently measured kcat:
+
+```julia
+# k_true = kcat_measured * k_normalized
+# (uniform scaling preserves all K's and k-ratios)
+```
+
+This works for all mechanism types — ordered, random-binding, and ping-pong
+(which lack a constant term in the denominator). The mathematical basis is
+that King-Altman denominators have uniform k-degree, making the fractional
+saturation curve v/(E_total * kcat) automatically scale-invariant.
+
 ## API Reference
 
 ### Types

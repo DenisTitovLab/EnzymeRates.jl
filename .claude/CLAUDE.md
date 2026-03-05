@@ -62,6 +62,50 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
 - `src/mechanism_enumeration.jl` — `SiteState`/`EnzymeFormSpec`/`MechanismSpec`/`PreRessEntry`/`MechanismIterator` types, `enumerate_enzyme_forms` (all valid enzyme forms from reaction), `enumerate_mechanisms` (catalytic cycle enumeration → dead-end lattice → lazy RE/SS × equivalent step constraints), `enumerate_mechanism_stages` (returns intermediate results at each pipeline stage)
 
+## Vmax Normalization (kcat factoring)
+
+### Problem
+Different datasets often have unknown Vmax (= kcat * E_total, i.e., specific
+activity). The fitting must identify binding constants and rate constant ratios
+(shape parameters) independently of the unknown per-dataset scale.
+
+### Mathematical basis
+King-Altman rate equations have the structure:
+```
+v = E_total * N(k's, K's, concs) / D(K's, k's, concs)
+```
+Two key structural properties make Vmax factoring always possible:
+1. **Numerator factoring**: After Haldane substitution, the numerator always
+   factors as `f_fwd(k's) * (substrate_product - product_product / Keq)`.
+   This holds for ALL mechanism types (ordered, random, ping-pong) because
+   the Haldane relation is a thermodynamic identity.
+2. **Uniform k-degree in denominator**: All denominator terms have the same
+   total k-degree (G-1 for G groups), because each King-Altman spanning tree
+   has exactly (G-1) edges. This guarantees that v/(E_total * kcat) is
+   scale-invariant (k-degree 0).
+
+### Design: Option B (post-fit kcat normalization)
+- Fit with per-figure centering in log-space (unchanged `loss!`)
+- After fitting, compute `kcat_fitted` analytically from the polynomial
+  structure (ratio of numerator/denominator leading k-coefficients at
+  saturating substrates)
+- Normalize all SS rate constants: `k_norm = k_fitted / kcat_fitted`
+  - This gives `kcat(k_norm) = 1` (kcat is homogeneous degree-1 in SS k's)
+  - K's (binding constants) are unchanged (they're ratios k_f/k_r)
+  - All k-ratios are unchanged (uniform scaling)
+- For prediction: user provides Vmax (= kcat * E_total) as a separate
+  quantity; the normalized params + Vmax fully determine the rate
+- To recover true physical k values: `k_true = kcat_measured * k_norm`
+  (where kcat_measured is independently measured)
+
+### kcat properties
+- kcat = f_fwd / leading_denom_k_coeff (always well-defined, even for
+  ping-pong where denominator has no constant term)
+- kcat is homogeneous degree-1 in SS k's, independent of RE K's
+- For ordered Bi-Bi: kcat = k3f*k4f / (k3f+k4f)
+- For ping-pong Bi-Bi: kcat = k2f*k4f / (k2f+k4f)
+- For simple uni-uni with 1 RE + 1 SS: kcat = k2f
+
 ## Known Issues
 
 ### `rate_equation` compilation limits for large mechanisms

@@ -25,7 +25,7 @@ set -euo pipefail
 # --- Configuration ---
 MAX_ITER=${1:-10}                # number of implementation iterations
 LOG_DIR=".ralph-logs"
-PROMPT_FILE="CODE_SIMPLIFICATION_PROMPT.md"          # read fresh each attempt (edits take effect live)
+PROMPT_FILE="PLAN_IMPLEMENTATION_PROMPT.md"          # read fresh each attempt (edits take effect live)
 FILES=(
     src/rate_eq_derivation.jl
     src/sym_poly_for_rate_eq_derivation.jl
