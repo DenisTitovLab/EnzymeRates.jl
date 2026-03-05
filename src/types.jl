@@ -518,6 +518,17 @@ substrates(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
     substrates(CM())
 products(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
     products(CM())
+@generated function regulators(
+    ::OligomericEnzymeMechanism{M,CM,N,RS,NC},
+) where {M,CM,N,RS,NC}
+    ligs = Symbol[]
+    for (ligands, _) in RS
+        for lig in ligands
+            lig in ligs || push!(ligs, lig)
+        end
+    end
+    Tuple(ligs)
+end
 param_constraints(::OligomericEnzymeMechanism) = ()
 
 """Return all metabolite names (catalytic + regulatory) from the Metabolites type param."""

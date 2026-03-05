@@ -14,7 +14,7 @@ EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given
 
 ## API Design (see SPEC.md)
 
-- **16 exported symbols** (planned): 5 types, 2 macros, 2 constants (`Full`, `Reduced`), 7 functions. Currently 13 — `IdentifyRateEquationProblem`, `IdentifyRateEquationResults`, `identify_rate_equation` are pending implementation.
+- **18 exported symbols** (planned): 6 types, 2 macros, 2 constants (`Full`, `Reduced`), 8 functions. Currently 15 — `IdentifyRateEquationProblem`, `IdentifyRateEquationResults`, `identify_rate_equation` are pending implementation.
 - Enumeration internals (`SiteState`, `EnzymeFormSpec`, `MechanismSpec`, `enumerate_mechanisms`, etc.) are NOT part of the public API — accessible via `IdentifyRateEquationProblem` fields for power users
 - Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
 - Cross-validation: leave-one-group-out
@@ -44,7 +44,8 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `OligomericEnzymeMechanism{Mets,CatalyticMech,CatN,RegSites,NConf}` represents multi-subunit MWC allosteric enzymes — see `src/types.jl` and `src/dsl.jl` for DSL syntax
 - `EnzymeReaction{S,P,R}` similarly encodes reactions in types
 - Each unique mechanism = unique type → affects compilation time
-- `@generated` functions used for compile-time computation (metabolites, graph, stoich_matrix, rate_equation)
+- `@generated` functions used for compile-time computation (metabolites, graph, stoich_matrix, rate_equation, _kcat_forward)
+- `_AnyMechanism = Union{EnzymeMechanism, OligomericEnzymeMechanism}` used for shared dispatch (e.g., `rescale_parameter_values`)
 
 ### Canonical Step Form
 - The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `[E, S] ⇌ [ES]`, never `[ES] ⇌ [E, S]`
@@ -52,15 +53,34 @@ julia --project -e 'using Pkg; Pkg.test()'
 - After canonicalization, all RE metabolite K params are binding Kd (displayed as `1/K`). Non-binding RE steps (pure isomerization) retain Ka convention.
 - `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed
 
+### Regulator representation
+- Regulators are plain `Symbol`s (no atom compositions) — they don't participate in chemical transformation
+- `regulators(m)` returns a tuple of bare `Symbol`s for both `EnzymeMechanism` and `OligomericEnzymeMechanism`
+- Substrates/products are `(name, atoms)` tuples — access name via `s[1]`
+
 ## Source Layout
 
 - `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `OligomericEnzymeMechanism` structs; `EnzymeMechanism` and `OligomericEnzymeMechanism` accessors; `RateEquationMode` hierarchy
 - `src/dsl.jl` — `@enzyme_reaction` and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `OligomericEnzymeMechanism` DSL)
 - `src/sym_poly_for_rate_eq_derivation.jl` — Symbolic polynomial algebra (`Poly` type); `_rename_poly_T`, `_count_oligomeric_rate_monomials` for MWC identifiability
-- `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; OligomericEnzymeMechanism MWC rate equation assembly (`_build_oligomeric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
+- `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; kcat computation (`_is_ss_rate_constant`, `_kcat_components`, `_kcat_forward`) and `rescale_parameter_values`; OligomericEnzymeMechanism MWC rate equation assembly (`_build_oligomeric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
 - `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
 - `src/mechanism_enumeration.jl` — `SiteState`/`EnzymeFormSpec`/`MechanismSpec`/`PreRessEntry`/`MechanismIterator` types, `enumerate_enzyme_forms` (all valid enzyme forms from reaction), `enumerate_mechanisms` (catalytic cycle enumeration → dead-end lattice → lazy RE/SS × equivalent step constraints), `enumerate_mechanism_stages` (returns intermediate results at each pipeline stage)
+
+## Vmax Normalization (kcat factoring) — IMPLEMENTED
+
+### Implementation
+- `_kcat_forward(m, params)`: `@generated` function computing kcat analytically from polynomial structure
+- `_kcat_components(M)`: extracts (num_k, den_k) candidate pairs by grouping polynomials by metabolite pattern
+- `_is_ss_rate_constant(sym)`: classifies symbols as SS rate constants (lowercase `k` followed by digit)
+- `rescale_parameter_values(m, params; kcat=1.0)`: public API, scales SS k's uniformly so kcat = target
+
+### Key properties
+- kcat is homogeneous degree-1 in SS k's, independent of RE K's
+- Uniform k-degree in denominator guarantees v/(E_total * kcat) is scale-invariant
+- For mechanisms with multiple catalytic paths (e.g., non-essential activator), kcat = max over all paths
+- For OligomericEnzymeMechanism with NConf=2, kcat depends on regulator corner; returns max over 2^n_lig corners
 
 ## Known Issues
 
@@ -78,3 +98,5 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `test/mechanism_definitions_for_test_enzyme_derivation.jl` defines shared mechanisms used by multiple test files — must be included before those tests
 - `test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl` defines shared reactions for mechanism enumeration tests — must be included before those tests
 - Mechanism enumeration tests use data-driven `EnumerationTestSpec` approach via `enumerate_mechanism_stages` — verification helpers (`_compute_expected_dead_end_count`, `_compute_expected_n_total`) use only public struct fields, no `EnzymeRates._*` calls
+- `MechanismTestSpec` has optional `analytical_kcat_fn` field for per-mechanism kcat formula validation
+- kcat/rescaling tests (scale invariance, rate proportionality, V≈1, custom target) run for ALL mechanism specs in the main `run_all_tests` loop — not in a separate file

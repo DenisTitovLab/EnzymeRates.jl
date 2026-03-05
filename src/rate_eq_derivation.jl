@@ -711,6 +711,282 @@ Number of excess parameters beyond what is structurally identifiable from kineti
     n_k - (n_num - 1) - (n_denom - 1)
 end
 
+# ─── kcat Computation Helpers ──────────────────────────────────
+
+"""Check if a symbol is a steady-state rate constant (lowercase k followed by digit)."""
+function _is_ss_rate_constant(sym::Symbol)
+    s = string(sym)
+    length(s) > 1 && s[1] == 'k' && isdigit(s[2])
+end
+
+"""
+Compute kcat candidate components from the rate equation polynomial structure.
+Returns `Vector{Tuple{Any, Any}}` of (num_k_expr, den_k_expr) pairs.
+kcat = max(nk/dk) over all candidates (evaluated at runtime).
+
+Groups the expanded numerator (forward terms only, positive coefficients) and
+denominator by metabolite pattern. For each matching pair, builds k-only
+expressions. K's (equilibrium constants) cancel between num and den at
+matching metabolite levels.
+
+Multiple candidates arise for mechanisms with alternative catalytic pathways
+(e.g., non-essential activator with/without activator bound).
+"""
+function _kcat_components(M::Type{<:EnzymeMechanism})
+    num_fs, denom_terms = _raw_symbolic_rate_polys(M)
+    num = _expand_factored_sigma(num_fs)
+    den = _expand_to_poly(denom_terms)
+
+    # Split monomial into (k_part, met_part)
+    function split_mono(mono::MONO)
+        k_mono = MONO()
+        met_mono = MONO()
+        for (s, e) in mono
+            if is_k_parameter(s) || s == :Keq
+                push!(k_mono, s => e)
+            elseif s != :E_total
+                push!(met_mono, s => e)
+            end
+        end
+        sort!(k_mono; by=first), sort!(met_mono; by=first)
+    end
+
+    # Group forward numerator (positive coefficients) by metabolite pattern
+    num_groups = Dict{MONO, POLY}()
+    for (mono, coeff) in num
+        coeff > 0 || continue
+        k_part, met_part = split_mono(mono)
+        p = get!(num_groups, met_part, POLY())
+        p[k_part] = get(p, k_part, Rational{Int}(0)) + coeff
+    end
+
+    # Group denominator by metabolite pattern
+    den_groups = Dict{MONO, POLY}()
+    for (mono, coeff) in den
+        k_part, met_part = split_mono(mono)
+        p = get!(den_groups, met_part, POLY())
+        p[k_part] = get(p, k_part, Rational{Int}(0)) + coeff
+    end
+
+    # Build kcat candidates: for each forward numerator metabolite group
+    # with a matching denominator group, create (num_k_expr, den_k_expr)
+    empty_set = Set{Symbol}()
+    components = Tuple{Any, Any}[]
+    for (met_key, num_k) in sort!(collect(num_groups); by=first)
+        den_k = get(den_groups, met_key, nothing)
+        den_k === nothing && continue
+        num_expr = _poly_to_expr(num_k, empty_set, empty_set)
+        den_expr = _poly_to_expr(den_k, empty_set, empty_set)
+        push!(components, (num_expr, den_expr))
+    end
+
+    components
+end
+
+"""
+    _kcat_forward(m::EnzymeMechanism, params) → Float64
+
+Compute kcat (forward) analytically from the polynomial structure.
+kcat is the maximum rate at saturating substrates, zero products,
+and E_total=1. For mechanisms with multiple catalytic paths
+(e.g., non-essential activator), returns the max over all paths.
+
+Uses `_kcat_components` to get (num_k_expr, den_k_expr) candidates,
+then evaluates max(nk/dk) at runtime parameter values.
+"""
+@generated function _kcat_forward(
+    ::M, params::NamedTuple,
+) where {M <: EnzymeMechanism}
+    components = _kcat_components(M)
+    dep_exprs, indep = _dependent_param_exprs(M)
+    dep_exprs = _apply_kd_inversion(dep_exprs, M, K -> :(inv($K)))
+    hw_params = (indep..., :Keq)
+    assignments = [Expr(:(=), sym, dep_exprs[sym])
+                   for (sym, _) in sort(collect(dep_exprs); by=first)]
+    # Apply Kd inversion to component expressions: raw polys use Ka,
+    # but params store Kd for binding K's
+    binding_Ks = Set(_binding_K_symbols(M))
+    kd_subs = Dict(K => :(inv($K)) for K in binding_Ks)
+    candidates = [
+        :($(substitute_params_expr(nk, kd_subs)) /
+          $(substitute_params_expr(dk, kd_subs)))
+        for (nk, dk) in components
+    ]
+    result = length(candidates) == 1 ?
+        candidates[1] : Expr(:call, :max, candidates...)
+    Expr(:block,
+        _destructuring_expr(hw_params, :params),
+        assignments...,
+        :(return $result))
+end
+
+"""
+    _kcat_forward(m::OligomericEnzymeMechanism, params) → Float64
+
+Compute kcat (forward) for an MWC oligomeric enzyme.
+
+kcat is the maximum rate at saturating substrates, zero products,
+E_total=1, over all regulator concentration corners (each regulator
+either 0 or saturating).
+
+For NConf=1: regulatory sites cancel between num and den,
+  kcat = CatN * num_k_R / den_k_R.
+
+For NConf=2 with regulatory sites: regulators shift R/T balance,
+so kcat depends on the regulator corner. We enumerate all 2^n_lig
+corners and return the max.
+"""
+@generated function _kcat_forward(
+    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf},
+    params::NamedTuple,
+) where {Mets,CM,CatN,RS,NConf}
+    # Get kcat components from catalytic mechanism (single component)
+    components = _kcat_components(CM)
+    @assert length(components) == 1 "Catalytic mechanism should have exactly 1 kcat component"
+    raw_num_k, raw_den_k = components[1]
+
+    # Apply Kd inversion: raw polys use Ka convention, params use Kd
+    binding_Ks = Set(_binding_K_symbols(CM))
+    kd_subs = Dict(K => :(inv($K)) for K in binding_Ks)
+    num_k_R_expr = substitute_params_expr(raw_num_k, kd_subs)
+    den_k_R_expr = substitute_params_expr(raw_den_k, kd_subs)
+
+    # Build dependent param assignments for R-state
+    r_assignments, t_assignments = _oligomeric_dep_assignments(
+        CM, NConf, K -> :(inv($K)),
+    )
+
+    # Collect independent params needed
+    M_type = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
+    _, indep = _dependent_param_exprs(M_type)
+    hw_params = (indep..., :Keq)
+
+    if NConf == 1
+        # Reg sites cancel for single conformation
+        result = :($(CatN) * $(num_k_R_expr) / $(den_k_R_expr))
+        return Expr(:block,
+            _destructuring_expr(hw_params, :params),
+            r_assignments...,
+            :(return $result))
+    end
+
+    # NConf == 2: build T-state expressions for catalytic subunit
+    dep_R, indep_R = _dependent_param_exprs(CM)
+    T_subs = _build_T_subs(
+        Iterators.flatten([keys(dep_R), indep_R]),
+    )
+    num_k_T_expr = substitute_params_expr(num_k_R_expr, T_subs)
+    den_k_T_expr = substitute_params_expr(den_k_R_expr, T_subs)
+
+    # A_c = num_k_c * den_k_c^(CatN-1), B_c = den_k_c^CatN
+    A_R = CatN == 1 ? num_k_R_expr :
+        :($(num_k_R_expr) * $(den_k_R_expr)^$(CatN - 1))
+    A_T = CatN == 1 ? num_k_T_expr :
+        :($(num_k_T_expr) * $(den_k_T_expr)^$(CatN - 1))
+    B_R = :($(den_k_R_expr)^$(CatN))
+    B_T = :($(den_k_T_expr)^$(CatN))
+
+    if isempty(RS)
+        # No regulatory sites: single kcat value
+        result = :($(CatN) * ($(A_R) + L * $(A_T)) /
+                   ($(B_R) + L * $(B_T)))
+        return Expr(:block,
+            _destructuring_expr(hw_params, :params),
+            r_assignments...,
+            t_assignments...,
+            :(return $result))
+    end
+
+    # Enumerate all unique ligands across reg sites
+    all_ligs = Symbol[]
+    for (ligs, _) in RS
+        for lig in ligs
+            lig in all_ligs || push!(all_ligs, lig)
+        end
+    end
+    n_ligs = length(all_ligs)
+    lig_idx = Dict(lig => i - 1 for (i, lig) in enumerate(all_ligs))
+
+    # For each corner (2^n_ligs), compute kcat expression
+    # At corner: each lig is either 0 or ∞.
+    # At ∞: Q_reg_c_i → sum(inv(K_j_c_i) for saturating j)
+    # At 0: Q_reg_c_i = 1
+    corner_exprs = Any[]
+    for mask in 0:(2^n_ligs - 1)
+        W_R_factors = Any[]
+        W_T_factors = Any[]
+        for (site_idx, (ligs, n_reg)) in enumerate(RS)
+            # Build effective Q_reg for this site at this corner
+            sat_terms_R = Any[]
+            sat_terms_T = Any[]
+            for lig in ligs
+                if (mask >> lig_idx[lig]) & 1 == 1
+                    K_R = _reg_param_name(lig, site_idx, false)
+                    K_T = _reg_param_name(lig, site_idx, true)
+                    push!(sat_terms_R, :(inv($K_R)))
+                    push!(sat_terms_T, :(inv($K_T)))
+                end
+            end
+            if isempty(sat_terms_R)
+                # All ligands at 0: Q_reg = 1, W contribution = 1
+            else
+                q_R = length(sat_terms_R) == 1 ?
+                    sat_terms_R[1] :
+                    _nest_binary(:+, sat_terms_R)
+                q_T = length(sat_terms_T) == 1 ?
+                    sat_terms_T[1] :
+                    _nest_binary(:+, sat_terms_T)
+                push!(W_R_factors, _power_expr(q_R, n_reg))
+                push!(W_T_factors, _power_expr(q_T, n_reg))
+            end
+        end
+        # Build kcat at this corner
+        if isempty(W_R_factors)
+            # Zero regulators corner
+            kcat_expr = :($(CatN) * ($(A_R) + L * $(A_T)) /
+                          ($(B_R) + L * $(B_T)))
+        else
+            W_R = length(W_R_factors) == 1 ?
+                W_R_factors[1] :
+                _nest_binary(:*, W_R_factors)
+            W_T = length(W_T_factors) == 1 ?
+                W_T_factors[1] :
+                _nest_binary(:*, W_T_factors)
+            kcat_expr = :($(CatN) *
+                ($(A_R) * $(W_R) + L * $(A_T) * $(W_T)) /
+                ($(B_R) * $(W_R) + L * $(B_T) * $(W_T)))
+        end
+        push!(corner_exprs, kcat_expr)
+    end
+
+    result = length(corner_exprs) == 1 ?
+        corner_exprs[1] : Expr(:call, :max, corner_exprs...)
+    Expr(:block,
+        _destructuring_expr(hw_params, :params),
+        r_assignments...,
+        t_assignments...,
+        :(return $result))
+end
+
+# ─── Public API: rescale_parameter_values ──────────────────────────
+
+"""
+    rescale_parameter_values(m, params::NamedTuple; kcat=1.0)
+
+Rescale SS rate constants so that `_kcat_forward(m, result) ≈ kcat`.
+Non-SS parameters (K's, Keq, E_total, L, regulatory K's) are unchanged.
+"""
+function rescale_parameter_values(
+    m::_AnyMechanism, params::NamedTuple; kcat=1.0,
+)
+    kcat_current = _kcat_forward(m, params)
+    scale = kcat / kcat_current
+    NamedTuple{keys(params)}(Tuple(
+        _is_ss_rate_constant(k) ? v * scale : v
+        for (k, v) in zip(keys(params), values(params))
+    ))
+end
+
 # ═══════════════════════════════════════════════════════════════════
 # OligomericEnzymeMechanism rate equations (MWC)
 #

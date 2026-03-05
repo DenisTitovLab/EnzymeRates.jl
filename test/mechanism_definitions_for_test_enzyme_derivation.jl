@@ -40,6 +40,11 @@ Base.@kwdef struct MechanismTestSpec
     # Signature: (all_params::NamedTuple, concs::NamedTuple) -> Float64
     analytical_rate_fn::Union{Function,Nothing} = nothing
 
+    # Optional analytical kcat function for kcat/rescaling validation
+    # Signature: (params::NamedTuple) -> Float64
+    # params contains fitted_params + Keq + E_total
+    analytical_kcat_fn::Union{Function,Nothing} = nothing
+
     # Factored form validation (optional — for mechanisms with known factored forms)
     # Expected numerator/denominator from rate_equation_string output
     # When broken=true, uses @test_broken (known bugs, will alert when fixed)
@@ -270,7 +275,8 @@ function build_mechanism_test_specs()
             expected_n_independent_params=7,
             expected_identifiability_deficit=-4,
             expected_is_identifiable=true,
-            analytical_rate_fn=(p, c) -> rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c)
+            analytical_rate_fn=(p, c) -> rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c),
+            analytical_kcat_fn=p -> p.k3f * p.k4f / (p.k3f + p.k4f),
         ))
     end
 
@@ -321,7 +327,8 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_theorell_chance_bi_bi(
-                    merge(p, (Etotal=p.Et,)), c)
+                    merge(p, (Etotal=p.Et,)), c),
+            analytical_kcat_fn=p -> p.k3f,
         ))
     end
 
@@ -373,7 +380,8 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_ping_pong_bi_bi(
-                    merge(p, (Etotal=p.Et,)), c)
+                    merge(p, (Etotal=p.Et,)), c),
+            analytical_kcat_fn=p -> p.k2f * p.k4f / (p.k2f + p.k4f),
         ))
     end
 
@@ -872,7 +880,8 @@ function build_mechanism_test_specs()
             expected_n_independent_params=2,
             expected_identifiability_deficit=0,
             expected_is_identifiable=true,
-            analytical_rate_fn=(p, c) -> rate_re_uni_uni(merge(p, (Et=p.Et,)), c)
+            analytical_rate_fn=(p, c) -> rate_re_uni_uni(merge(p, (Et=p.Et,)), c),
+            analytical_kcat_fn=p -> p.k2f,
         ))
     end
 
@@ -1005,6 +1014,7 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_competitive_inh(
                 merge(p, (Et=p.Et,)), c),
+            analytical_kcat_fn=p -> p.k2f,
             # Textbook: flat sum denominator (no Cartesian product structure)
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3",
@@ -1165,6 +1175,7 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_essential_activator(
                 merge(p, (Et=p.Et,)), c),
+            analytical_kcat_fn=p -> p.k2f,
             expected_factored_num=
             "(R / K4) * (k2f * S / K1 - k2r * P / K3)",
             factored_num_broken=false,
@@ -1229,6 +1240,7 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_nonessential_activator(
                 merge(p, (Et=p.Et,)), c),
+            analytical_kcat_fn=p -> max(p.k2f, p.k5f),
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3 + (R / K7) * (k5f * S / K1 - k5r * P / K3)",
             factored_num_broken=false,
