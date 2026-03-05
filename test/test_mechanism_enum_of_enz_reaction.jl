@@ -114,5 +114,83 @@
                 @test length(s) > 0
             end
         end
+
+        # compile_mechanism dispatches correctly
+        @testset "compile_mechanism" begin
+            for s in mech_test_specs
+                em = EnzymeRates.compile_mechanism(s)
+                @test em isa EnzymeMechanism
+            end
+        end
+
+        # Oligomeric expansion (catalytic_n=2)
+        @testset "Oligomeric expansion" begin
+            cat_n = 2
+            final_oligo = EnzymeRates.enumerate_mechanisms(
+                spec.reaction;
+                max_forms=spec.max_forms, catalytic_n=cat_n)
+
+            # Verify count formula
+            if !spec.skip_ress_test
+                expected_oligo = _compute_expected_oligomeric_total(
+                    with_de, forms, cat_n)
+                @test length(final_oligo) == expected_oligo
+            end
+
+            # Verify EM + OEM mix: iterate a few specs
+            sample = Iterators.take(final_oligo, 20)
+            em_count = 0
+            oem_count = 0
+            for s in sample
+                if s.catalytic_n == 0
+                    em_count += 1
+                else
+                    oem_count += 1
+                    @test s.catalytic_n == cat_n
+                    @test s.n_conf == 2
+                    k = length(s.allosteric_regulators)
+                    @test length(s.allosteric_multiplicities) == k
+                    if k > 0
+                        @test all(
+                            1 .<= s.allosteric_multiplicities .<= cat_n)
+                    end
+                end
+            end
+            @test em_count > 0
+            @test oem_count > 0
+
+            # compile_mechanism produces OligomericEnzymeMechanism
+            # for the first OEM spec found
+            oem_spec = nothing
+            for s in Iterators.take(final_oligo, 50)
+                if s.catalytic_n > 0
+                    oem_spec = s
+                    break
+                end
+            end
+            if oem_spec !== nothing
+                oem = EnzymeRates.compile_mechanism(oem_spec)
+                @test oem isa OligomericEnzymeMechanism
+
+                # Verify type parameters
+                metabs = metabolites(oem)
+                @test metabs isa Tuple{Vararg{Symbol}}
+                @test length(metabs) > 0
+
+                params_tup = parameters(oem)
+                @test :E_total ∈ params_tup
+                @test :Keq ∈ params_tup
+                @test :L ∈ params_tup  # NConf=2 → L param
+
+                # Rate equation evaluates
+                concs = NamedTuple{metabs}(
+                    ones(length(metabs)))
+                pvals = NamedTuple{params_tup}(
+                    ones(length(params_tup)))
+                v = rate_equation(oem, concs, pvals)
+                @test v isa Real
+                @test isfinite(v)
+            end
+        end
     end
 end

@@ -154,6 +154,31 @@ function _compute_expected_dead_end_count(
     total
 end
 
+"""
+Compute expected total with oligomeric expansion (catalytic_n=N).
+
+For each dead-end spec with k allosteric regulators:
+  EM contribution: ress_count (same as without oligomeric)
+  OEM contribution: k==0 ? ress_count : ress_count * N^k
+Total = sum of (EM + OEM) over all dead-end specs.
+"""
+function _compute_expected_oligomeric_total(
+    de_specs,
+    forms::Vector{EnzymeRates.EnzymeFormSpec},
+    catalytic_n::Int;
+    max_re_groups::Int=7,
+)
+    total = 0
+    for spec in de_specs
+        ress = _compute_expected_n_total(spec, forms;
+            max_re_groups)
+        k = length(spec.allosteric_regulators)
+        oem = k == 0 ? ress : ress * catalytic_n^k
+        total += ress + oem  # EM + OEM
+    end
+    total
+end
+
 # ── Build specifications ─────────────────────────────────────────────────
 
 function build_enumeration_test_specs()

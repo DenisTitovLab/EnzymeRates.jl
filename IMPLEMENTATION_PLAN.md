@@ -594,3 +594,46 @@ With OligomericEnzymeMechanism expansion (catalytic_n > 1), total counts increas
 - The `dead_end_regs` filter in `_expand_inhibitors` uses `s.metabolite in dead_end_regs` on regulator site positions — only sites matching dead-end regulators participate in dead-end form generation.
 
 **Tests:** All 3297 tests pass. 1912 mechanism enumeration tests pass. Pre-existing "Rate equation too large error" failure (1 test) and segfault in large mechanism compilation unchanged.
+
+### Agent 4: OligomericEnzymeMechanism Enumeration — COMPLETED
+
+**Changes made:**
+- `src/mechanism_enumeration.jl`:
+  - Extended `MechanismSpec` with 3 new fields: `catalytic_n::Int` (0 = EnzymeMechanism, >0 = OligomericEnzymeMechanism), `n_conf::Int` (1 or 2), `allosteric_multiplicities::Vector{Int}` (multiplicity per allosteric regulator)
+  - Added backward-compatible constructor: 6-arg form defaults new fields to `0, 1, Int[]`
+  - Added `compile_mechanism(spec::MechanismSpec)`: dispatches to `EnzymeMechanism(spec)` when `catalytic_n==0`, builds `OligomericEnzymeMechanism{Mets, typeof(cm), CatN, RegSites, NConf}()` otherwise
+  - Added `_oligomeric_count(spec, ress_count, catalytic_n)`: counts OEM variants per dead-end spec (N^k for k allosteric regs)
+  - Added `_expand_oligomeric_variants(em_spec, catalytic_n)`: generates OEM MechanismSpec variants by enumerating allosteric regulator multiplicity combos (each ∈ 1:catalytic_n)
+  - Extended `enumerate_mechanisms`: added `catalytic_n::Int=0` keyword; when >0, yields both EM and OEM specs interleaved via `Iterators.flatten`; total count includes both EM and OEM contributions
+
+- `test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl`:
+  - Added `_compute_expected_oligomeric_total(de_specs, forms, catalytic_n)`: test-local count verification for oligomeric expansion
+
+- `test/test_mechanism_enum_of_enz_reaction.jl`:
+  - Added "compile_mechanism" testset: verifies `compile_mechanism` returns `EnzymeMechanism` for EM specs
+  - Added "Oligomeric expansion" testset:
+    - Verifies total count matches `_compute_expected_oligomeric_total` formula
+    - Verifies EM/OEM interleaving: both types present in first 20 specs
+    - Verifies OEM specs have correct `catalytic_n`, `n_conf=2`, valid multiplicities
+    - Compiles first OEM spec and verifies: correct type (`OligomericEnzymeMechanism`), metabolites, parameters (including `:L` for NConf=2), rate equation evaluates to finite Real
+
+**Expected counts with catalytic_n=2:**
+
+| Spec | EM only | + OEM (no al) | + OEM (with al) | Total |
+|------|---------|---------------|-----------------|-------|
+| Uni-Uni (0 regs) | 3 | 3 | 0 | 6 |
+| Uni-Uni 1 Reg | 341 | 338 | 6 | 685 |
+| Uni-Uni 2 Regs | 1246220 | ... | ... | computed |
+| Uni-Bi 1 Reg | 92177 | ... | ... | computed |
+| Bi-Bi PP (0 regs) | 989 | 989 | 0 | 1978 |
+| Bi-Bi Budget (0 regs) | 60 | 60 | 0 | 120 |
+
+**Key design details:**
+- `catalytic_n=0` (default) produces identical output to pre-Agent-4 behavior — no OEM specs, same counts
+- OEM specs have `catalytic_n>0, n_conf=2` — these are the only specs where `compile_mechanism` returns `OligomericEnzymeMechanism`
+- For partitions with 0 allosteric regulators: 1 OEM per EM variant (cooperative subunit behavior, no RegSites)
+- For partitions with k allosteric regulators: N^k OEM variants per EM variant (multiplicities 1:N per regulator)
+- The CatalyticMech inside OEM includes phantom regulators (allosteric regs in species but not in any step). This is harmless — they appear in `metabolites()` but not in the rate equation polynomial.
+- `compile_mechanism` builds Metabolites tuple from reaction: substrates + products + regulators (alphabetical order, matching DSL convention)
+
+**Tests:** All 3666 tests pass (2281 mechanism enumeration tests). Pre-existing "Rate equation too large error" failure (1 test) and segfault in large mechanism compilation unchanged.

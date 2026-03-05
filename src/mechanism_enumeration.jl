@@ -47,8 +47,8 @@ const ParamConstraint = Tuple{Symbol, Int, Vector{Tuple{Symbol, Int}}}
 
 A concrete mechanism topology: a reaction, a graph of enzyme forms
 (as edge pairs into the `forms` vector), equilibrium step flags,
-parameter constraints between equivalent steps, and regulator
-partition info.
+parameter constraints between equivalent steps, regulator partition
+info, and oligomeric expansion parameters.
 
 # Fields
 - `reaction`: the `EnzymeReaction` this mechanism belongs to.
@@ -59,6 +59,11 @@ partition info.
   inhibitors in this partition.
 - `allosteric_regulators::Vector{Symbol}`: regulators treated as
   allosteric (for OligomericEnzymeMechanism) in this partition.
+- `catalytic_n::Int`: 0 = EnzymeMechanism, >0 = OligomericEnzymeMechanism
+  with this many catalytic sites.
+- `n_conf::Int`: number of conformational states (1 or 2).
+- `allosteric_multiplicities::Vector{Int}`: multiplicity for each
+  allosteric regulator (one entry per `allosteric_regulators` element).
 """
 struct MechanismSpec
     reaction::Any
@@ -67,13 +72,20 @@ struct MechanismSpec
     param_constraints::Vector{ParamConstraint}
     dead_end_regulators::Vector{Symbol}
     allosteric_regulators::Vector{Symbol}
+    catalytic_n::Int
+    n_conf::Int
+    allosteric_multiplicities::Vector{Int}
 end
 MechanismSpec(reaction, edges) =
     MechanismSpec(reaction, edges, fill(false, length(edges)),
-        ParamConstraint[], Symbol[], Symbol[])
+        ParamConstraint[], Symbol[], Symbol[], 0, 1, Int[])
 MechanismSpec(reaction, edges, eq_steps, constraints) =
     MechanismSpec(reaction, edges, eq_steps, constraints,
-        Symbol[], Symbol[])
+        Symbol[], Symbol[], 0, 1, Int[])
+MechanismSpec(reaction, edges, eq_steps, constraints,
+              dead_end_regs, allosteric_regs) =
+    MechanismSpec(reaction, edges, eq_steps, constraints,
+        dead_end_regs, allosteric_regs, 0, 1, Int[])
 
 """
     EnumerationStage
@@ -588,7 +600,7 @@ end
 # ─── Pipeline ─────────────────────────────────────────────────
 
 """
-    enumerate_mechanisms(reaction; stage=FullEnumeration(), max_forms=...)
+    enumerate_mechanisms(reaction; stage, max_forms, catalytic_n)
 
 Enumerate valid mechanism topologies for the given reaction.
 
@@ -603,6 +615,11 @@ Regulator partitioning: for reactions with n regulators, all 2^n
 partitions of regulators into {dead-end, allosteric} are enumerated.
 Catalytic topologies (stage 1) are computed once and reused across
 all partitions.
+
+When `catalytic_n > 0`, also produces `OligomericEnzymeMechanism`
+candidates (NConf=2) for each RE/SS variant. Each allosteric
+regulator gets multiplicity ∈ 1:catalytic_n; all multiplicities are
+enumerated via Cartesian product.
 """
 function enumerate_mechanisms(
     @nospecialize(reaction::EnzymeReaction);
@@ -610,6 +627,7 @@ function enumerate_mechanisms(
     max_forms::Int=3 * (length(substrates(reaction)) +
                         length(products(reaction)) +
                         length(regulators(reaction))),
+    catalytic_n::Int=0,
 )
     forms = enumerate_enzyme_forms(reaction)
     adj = _build_adjacency(forms)
@@ -640,11 +658,33 @@ function enumerate_mechanisms(
 
     # FullEnumeration: count RE/SS variants (brute-force with G cap),
     # wrap in lazy iterator.
-    total = sum(all_inhibitor_specs; init=0) do s
+    em_total = sum(all_inhibitor_specs; init=0) do s
         _count_ress_variants(s, adj, forms)
     end
-    inner = Iterators.flatmap(
-        s -> _ress_variants(s, adj, forms), all_inhibitor_specs)
+
+    if catalytic_n > 0
+        oem_total = sum(all_inhibitor_specs; init=0) do s
+            _oligomeric_count(
+                s, _count_ress_variants(s, adj, forms),
+                catalytic_n)
+        end
+        total = em_total + oem_total
+        inner = Iterators.flatmap(all_inhibitor_specs) do s
+            ress = _ress_variants(s, adj, forms)
+            Iterators.flatmap(ress) do em_spec
+                Iterators.flatten((
+                    (em_spec,),
+                    _expand_oligomeric_variants(
+                        em_spec, catalytic_n),
+                ))
+            end
+        end
+    else
+        total = em_total
+        inner = Iterators.flatmap(
+            s -> _ress_variants(s, adj, forms),
+            all_inhibitor_specs)
+    end
     MechanismIterator(inner, total)
 end
 
@@ -675,4 +715,79 @@ function EnzymeMechanism(spec::MechanismSpec)
     end for (a, b) in spec.edges)
     EnzymeMechanism(species, reactions, Tuple(spec.equilibrium_steps),
         Tuple((t, c, Tuple(Tuple.(f))) for (t, c, f) in spec.param_constraints))
+end
+
+"""
+    compile_mechanism(spec::MechanismSpec)
+
+Convert a `MechanismSpec` to its mechanism type:
+- `catalytic_n == 0` → `EnzymeMechanism`
+- `catalytic_n > 0` → `OligomericEnzymeMechanism` with `NConf=n_conf`
+"""
+function compile_mechanism(spec::MechanismSpec)
+    cm = EnzymeMechanism(spec)
+    spec.catalytic_n == 0 && return cm
+    rxn = spec.reaction
+    mets = Tuple(vcat(
+        [s[1] for s in substrates(rxn)],
+        [p[1] for p in products(rxn)],
+        collect(regulators(rxn)),
+    ))
+    reg_sites = Tuple(
+        ((reg,), mult) for (reg, mult) in zip(
+            spec.allosteric_regulators,
+            spec.allosteric_multiplicities)
+    )
+    OligomericEnzymeMechanism{
+        mets, typeof(cm), spec.catalytic_n,
+        reg_sites, spec.n_conf,
+    }()
+end
+
+# ─── Oligomeric Expansion ─────────────────────────────────────
+
+"""
+    _oligomeric_count(spec, ress_count, catalytic_n) → Int
+
+Count OligomericEnzymeMechanism variants for one dead-end spec.
+For k allosteric regulators with `catalytic_n=N`:
+  k == 0 → `ress_count` (one OEM per RE/SS variant, no RegSites)
+  k > 0  → `ress_count * N^k` (Cartesian product of multiplicities)
+"""
+function _oligomeric_count(spec, ress_count, catalytic_n)
+    k = length(spec.allosteric_regulators)
+    k == 0 ? ress_count : ress_count * catalytic_n^k
+end
+
+"""
+    _expand_oligomeric_variants(em_spec, catalytic_n)
+
+For a single EnzymeMechanism RE/SS spec, generate the corresponding
+OligomericEnzymeMechanism specs by enumerating allosteric regulator
+multiplicity combinations (each ∈ 1:catalytic_n).
+"""
+function _expand_oligomeric_variants(em_spec, catalytic_n)
+    k = length(em_spec.allosteric_regulators)
+    if k == 0
+        oem = MechanismSpec(
+            em_spec.reaction, em_spec.edges,
+            em_spec.equilibrium_steps,
+            em_spec.param_constraints,
+            em_spec.dead_end_regulators,
+            em_spec.allosteric_regulators,
+            catalytic_n, 2, Int[])
+        return (oem,)
+    end
+    Iterators.map(
+        Iterators.product(
+            ntuple(_ -> 1:catalytic_n, k)...)
+    ) do combo
+        MechanismSpec(
+            em_spec.reaction, em_spec.edges,
+            em_spec.equilibrium_steps,
+            em_spec.param_constraints,
+            em_spec.dead_end_regulators,
+            em_spec.allosteric_regulators,
+            catalytic_n, 2, collect(combo))
+    end
 end
