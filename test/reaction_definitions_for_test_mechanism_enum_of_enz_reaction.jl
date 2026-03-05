@@ -127,10 +127,11 @@ function _find_equiv_groups(edges, forms)
 end
 
 """
-Compute expected dead-end mechanism count assuming independent inhibitor
-binding: each inhibitor independently binds or not at each topology form.
+Compute expected dead-end mechanism count with regulator partitioning.
 
-Formula per catalytic topology: (2^r_inh)^n_topo
+Sums over all 2^n_reg partitions of regulators into {dead-end, allosteric}.
+For each partition, dead-end expansion uses formula: (2^r_de)^n_topo
+per catalytic topology, where r_de = number of dead-end regulators.
 """
 function _compute_expected_dead_end_count(
     catalytic_specs,
@@ -138,17 +139,17 @@ function _compute_expected_dead_end_count(
 )
     reg_positions = [k for k in eachindex(forms[1].sites)
                      if forms[1].sites[k].role == :reg]
+    n_reg = length(reg_positions)
 
     total = 0
-    for spec in catalytic_specs
-        topo_set = Set(Iterators.flatten(spec.edges))
-        n_topo = length(topo_set)
-
-        r_inh = count(reg_positions) do k
-            !any(fi -> forms[fi].sites[k].atoms !== nothing, topo_set)
+    for reg_mask in 0:(1 << n_reg) - 1
+        n_de = count(i -> (reg_mask >> (i - 1)) & 1 == 0,
+            1:n_reg)
+        for spec in catalytic_specs
+            topo_set = Set(Iterators.flatten(spec.edges))
+            n_topo = length(topo_set)
+            total += (2^n_de)^n_topo
         end
-
-        total += (2^r_inh)^n_topo
     end
     total
 end
@@ -191,10 +192,10 @@ function build_enumeration_test_specs()
             max_forms=100,
             expected_n_forms=6,
             expected_n_catalytic=1,
-            # 1 catalytic with 3 forms, 1 regulator:
-            # (2^1)^3 = 8 dead-end configurations
-            expected_n_cat_de=8,
-            expected_n_total=338,
+            # 2 partitions: {R dead-end} + {R allosteric}
+            # {R de}: (2^1)^3 = 8, {R al}: 1. Total = 9
+            expected_n_cat_de=9,
+            expected_n_total=341,
             max_enumeration_time=5.0,
         ))
     end
@@ -212,9 +213,9 @@ function build_enumeration_test_specs()
             max_forms=100,
             expected_n_forms=12,
             expected_n_catalytic=1,
-            # (2^2)^3 = 64
-            expected_n_cat_de=64,
-            expected_n_total=1245541,
+            # 4 partitions: (2^2)^3 + 2*(2^1)^3 + 1 = 81
+            expected_n_cat_de=81,
+            expected_n_total=1246220,
             max_enumeration_time=10.0,
         ))
     end
@@ -232,11 +233,10 @@ function build_enumeration_test_specs()
             max_forms=100,
             expected_n_forms=16,
             expected_n_catalytic=3,
-            # 2 sequential (4 forms): 2 × (2^1)^4 = 32
-            # 1 random (5 forms): (2^1)^5 = 32
-            # Total: 64
-            expected_n_cat_de=64,
-            expected_n_total=92136,
+            # 2 partitions: {R de} + {R al}
+            # {R de}: 2*16 + 32 = 64, {R al}: 3. Total: 67
+            expected_n_cat_de=67,
+            expected_n_total=92177,
             max_enumeration_time=5.0,
         ))
     end
@@ -254,9 +254,9 @@ function build_enumeration_test_specs()
             max_forms=100,
             expected_n_forms=22,
             expected_n_catalytic=9,
-            expected_n_cat_de=512,
+            expected_n_cat_de=521,
             skip_ress_test=true,
-            expected_n_total=28004728,
+            expected_n_total=28005686,
         ))
     end
 
@@ -273,9 +273,9 @@ function build_enumeration_test_specs()
             max_forms=100,
             expected_n_forms=22,
             expected_n_catalytic=9,
-            expected_n_cat_de=512,
+            expected_n_cat_de=521,
             skip_ress_test=true,
-            expected_n_total=28004728,
+            expected_n_total=28005686,
         ))
     end
 

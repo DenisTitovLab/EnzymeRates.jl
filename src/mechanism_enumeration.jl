@@ -46,23 +46,34 @@ const ParamConstraint = Tuple{Symbol, Int, Vector{Tuple{Symbol, Int}}}
     MechanismSpec
 
 A concrete mechanism topology: a reaction, a graph of enzyme forms
-(as edge pairs into the `forms` vector), equilibrium step flags, and
-parameter constraints between equivalent steps.
+(as edge pairs into the `forms` vector), equilibrium step flags,
+parameter constraints between equivalent steps, and regulator
+partition info.
 
 # Fields
 - `reaction`: the `EnzymeReaction` this mechanism belongs to.
 - `edges::Vector{Tuple{Int,Int}}`: edges between form indices.
 - `equilibrium_steps::Vector{Bool}`: `true` for rapid-equilibrium steps.
 - `param_constraints::Vector{ParamConstraint}`: equivalence constraints.
+- `dead_end_regulators::Vector{Symbol}`: regulators treated as dead-end
+  inhibitors in this partition.
+- `allosteric_regulators::Vector{Symbol}`: regulators treated as
+  allosteric (for OligomericEnzymeMechanism) in this partition.
 """
 struct MechanismSpec
     reaction::Any
     edges::Vector{Tuple{Int,Int}}
     equilibrium_steps::Vector{Bool}
     param_constraints::Vector{ParamConstraint}
+    dead_end_regulators::Vector{Symbol}
+    allosteric_regulators::Vector{Symbol}
 end
 MechanismSpec(reaction, edges) =
-    MechanismSpec(reaction, edges, fill(false, length(edges)), ParamConstraint[])
+    MechanismSpec(reaction, edges, fill(false, length(edges)),
+        ParamConstraint[], Symbol[], Symbol[])
+MechanismSpec(reaction, edges, eq_steps, constraints) =
+    MechanismSpec(reaction, edges, eq_steps, constraints,
+        Symbol[], Symbol[])
 
 """
     EnumerationStage
@@ -366,12 +377,15 @@ function _find_dead_end(form_lookup, base::EnzymeFormSpec, occupied_positions)
 end
 
 """
-    _expand_inhibitors(specs, forms, adj, form_lookup; max_forms)
+    _expand_inhibitors(specs, forms, adj, form_lookup;
+                       max_forms, dead_end_regs, allosteric_regs)
 
 Expand mechanism topologies with dead-end inhibitor configurations.
 
-Each topology form independently gets a bitmask of which regulators
-bind there, generating `(2^n_regulators)^n_topo_forms` configs.
+Only regulators in `dead_end_regs` are used for dead-end expansion.
+Each topology form independently gets a bitmask of which dead-end
+regulators bind there, generating `(2^n_dead_end)^n_topo_forms`
+configs. The resulting MechanismSpecs carry partition info.
 """
 function _expand_inhibitors(
     specs::Vector{MechanismSpec},
@@ -379,17 +393,19 @@ function _expand_inhibitors(
     adj::Dict{Tuple{Int,Int}, EdgeInfo},
     form_lookup;
     max_forms::Int,
+    dead_end_regs::AbstractVector{Symbol}=Symbol[],
+    allosteric_regs::AbstractVector{Symbol}=Symbol[],
 )
     result = MechanismSpec[]
     for spec in specs
         topo_nodes = Set(Iterators.flatten(spec.edges))
         topo_sorted = sort!(collect(topo_nodes))
         budget = max_forms - length(topo_sorted)
-        # Regulator positions: all reg sites (catalytic forms have
-        # no regulator bound, so all reg sites are available)
+        # Only use regulator positions matching dead-end regulators
         reg_positions = [
             k for (k, s) in enumerate(forms[topo_sorted[1]].sites)
-            if s.role == :reg && s.atoms === nothing]
+            if s.role == :reg && s.atoms === nothing &&
+               s.metabolite in dead_end_regs]
         n_inh = length(reg_positions)
         existing = Set(minmax(e...) for e in spec.edges)
         # Precompute dead-end forms for each (topo_form_index, inh_mask)
@@ -403,7 +419,8 @@ function _expand_inhibitors(
             if fi2 !== nothing && fi2 ∉ topo_nodes)
         # Each topology form gets an independent inhibitor binding mask
         for dead_end_masks in Iterators.product(
-                ntuple(_ -> 0:(1 << n_inh) - 1, length(topo_sorted))...)
+                ntuple(_ -> 0:(1 << n_inh) - 1,
+                    length(topo_sorted))...)
             dead_end_forms = Set(
                 fi2 for ((ti, m), fi2) in dead_end_lookup
                 if m & dead_end_masks[ti] == m)
@@ -414,7 +431,10 @@ function _expand_inhibitors(
                 if a ∈ all_forms && b ∈ all_forms &&
                    (a, b) ∉ existing && info.type == :binding]
             push!(result, MechanismSpec(
-                spec.reaction, [spec.edges; new_edges]))
+                spec.reaction, [spec.edges; new_edges],
+                fill(false, length(spec.edges) + length(new_edges)),
+                ParamConstraint[],
+                dead_end_regs, allosteric_regs))
         end
     end
     result
@@ -524,7 +544,9 @@ function _ress_variants(spec, adj, forms; max_re_groups::Int=7)
                     ("K", ("",)) : ("k", ("f", "r"))),)
                 for j in 2:length(g) for s in ss]
             MechanismSpec(
-                spec.reaction, edges, eq_steps, constraints)
+                spec.reaction, edges, eq_steps, constraints,
+                spec.dead_end_regulators,
+                spec.allosteric_regulators)
         end
     end
 end
@@ -572,8 +594,15 @@ Enumerate valid mechanism topologies for the given reaction.
 
 Pipeline stages:
 1. `Catalytic()` — catalytic cycles through the free enzyme.
-2. `WithDeadEnd()` — dead-end inhibitor configurations.
-3. `FullEnumeration()` — RE/SS + parameter constraint variants (lazy `MechanismIterator`).
+2. `WithDeadEnd()` — dead-end inhibitor configurations for all
+   regulator partitions (each regulator → dead-end or allosteric).
+3. `FullEnumeration()` — RE/SS + parameter constraint variants
+   (lazy `MechanismIterator`).
+
+Regulator partitioning: for reactions with n regulators, all 2^n
+partitions of regulators into {dead-end, allosteric} are enumerated.
+Catalytic topologies (stage 1) are computed once and reused across
+all partitions.
 """
 function enumerate_mechanisms(
     @nospecialize(reaction::EnzymeReaction);
@@ -590,17 +619,32 @@ function enumerate_mechanisms(
     catalytic = _catalytic_topologies(forms, adj, reaction; max_forms)
     stage isa Catalytic && return catalytic
 
-    with_inhibitors = _expand_inhibitors(
-        catalytic, forms, adj, form_lookup; max_forms)
-    stage isa WithDeadEnd && return with_inhibitors
+    # Regulator partitioning: enumerate all 2^n_reg partitions
+    regs = collect(Symbol, regulators(reaction))
+    n_reg = length(regs)
+
+    all_inhibitor_specs = MechanismSpec[]
+    for reg_mask in 0:(1 << n_reg) - 1
+        dead_end_regs = Symbol[
+            regs[i] for i in 1:n_reg
+            if (reg_mask >> (i - 1)) & 1 == 0]
+        allosteric_regs = Symbol[
+            regs[i] for i in 1:n_reg
+            if (reg_mask >> (i - 1)) & 1 == 1]
+        partition_specs = _expand_inhibitors(
+            catalytic, forms, adj, form_lookup;
+            max_forms, dead_end_regs, allosteric_regs)
+        append!(all_inhibitor_specs, partition_specs)
+    end
+    stage isa WithDeadEnd && return all_inhibitor_specs
 
     # FullEnumeration: count RE/SS variants (brute-force with G cap),
     # wrap in lazy iterator.
-    total = sum(with_inhibitors; init=0) do s
+    total = sum(all_inhibitor_specs; init=0) do s
         _count_ress_variants(s, adj, forms)
     end
     inner = Iterators.flatmap(
-        s -> _ress_variants(s, adj, forms), with_inhibitors)
+        s -> _ress_variants(s, adj, forms), all_inhibitor_specs)
     MechanismIterator(inner, total)
 end
 

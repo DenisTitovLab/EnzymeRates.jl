@@ -556,3 +556,41 @@ With OligomericEnzymeMechanism expansion (catalytic_n > 1), total counts increas
 - Test helpers use independent implementations (no `EnzymeRates._*` calls for G computation or isomerization detection).
 
 **Tests:** All 2064 tests pass. 681 mechanism enumeration tests pass. Pre-existing StackOverflow error in large mechanism compilation unchanged.
+
+### Agent 3: Regulator Partitioning + Dead-End Subset — COMPLETED
+
+**Changes made:**
+- `src/mechanism_enumeration.jl`:
+  - Extended `MechanismSpec` with `dead_end_regulators::Vector{Symbol}` and `allosteric_regulators::Vector{Symbol}` fields
+  - Added backward-compatible constructors: 2-arg `(reaction, edges)` and 4-arg `(reaction, edges, eq_steps, constraints)` both default to empty regulator vectors
+  - Modified `_expand_inhibitors`: added `dead_end_regs` and `allosteric_regs` keyword arguments; only uses regulator positions matching `dead_end_regs` for dead-end expansion; tags resulting `MechanismSpec`s with partition info
+  - Modified `enumerate_mechanisms`: loops over all 2^n_reg partitions of regulators into {dead-end, allosteric}; catalytic topologies computed once and reused; dead-end and RE/SS results concatenated across all partitions
+  - `_ress_variants` propagates `dead_end_regulators` and `allosteric_regulators` from input spec to output specs
+
+- `test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl`:
+  - Updated `_compute_expected_dead_end_count` to sum over all 2^n_reg partitions
+  - Updated all `expected_n_cat_de` and `expected_n_total` values
+
+- `test/test_mechanism_enum_of_enz_reaction.jl`:
+  - Added "Regulator partitioning" testset: verifies each dead-end spec carries valid partition info (dead_end + allosteric = all regulators), and that 2^n_reg distinct partitions are present
+
+**New expected counts (with regulator partitioning):**
+
+| Spec | cat | de (old → new) | total (old → new) |
+|------|-----|----------------|-------------------|
+| Uni-Uni | 1 | 1 → 1 | 3 → 3 |
+| Uni-Uni 1 Reg | 1 | 8 → 9 | 338 → 341 |
+| Uni-Uni 2 Regs | 1 | 64 → 81 | 1,245,541 → 1,246,220 |
+| Uni-Bi 1 Reg | 3 | 64 → 67 | 92,136 → 92,177 |
+| Bi-Bi + 1 Reg | 9 | 512 → 521 | 28,004,728 → 28,005,686 |
+| Bi-Bi 1 Reg | 9 | 512 → 521 | 28,004,728 → 28,005,686 |
+| Bi-Bi PP | 10 | 10 → 10 | 989 → 989 |
+| Bi-Bi Budget | 4 | 4 → 4 | 60 → 60 |
+
+**Key design details:**
+- Reactions without regulators have exactly 1 partition (the empty partition); counts unchanged.
+- For 1 regulator: 2 partitions. The "allosteric" partition has no dead-end expansion (just the bare catalytic topology), contributing a small additional count.
+- For 2 regulators: 4 partitions. Symmetry: both single-regulator-dead-end partitions contribute equally.
+- The `dead_end_regs` filter in `_expand_inhibitors` uses `s.metabolite in dead_end_regs` on regulator site positions — only sites matching dead-end regulators participate in dead-end form generation.
+
+**Tests:** All 3297 tests pass. 1912 mechanism enumeration tests pass. Pre-existing "Rate equation too large error" failure (1 test) and segfault in large mechanism compilation unchanged.

@@ -53,6 +53,24 @@
             end
         end
 
+        # Regulator partition verification
+        @testset "Regulator partitioning" begin
+            regs = collect(Symbol,
+                EnzymeRates.regulators(spec.reaction))
+            n_reg = length(regs)
+            # Every dead-end spec must have valid partition info
+            for s in with_de
+                @test sort(vcat(s.dead_end_regulators,
+                    s.allosteric_regulators)) == sort(regs)
+            end
+            # Number of distinct partitions = 2^n_reg
+            partitions = Set(
+                (Tuple(sort(s.dead_end_regulators)),
+                 Tuple(sort(s.allosteric_regulators)))
+                for s in with_de)
+            @test length(partitions) == 1 << n_reg
+        end
+
         # EnzymeMechanism construction from MechanismSpec.
         # Use first 10 (simplest) — large mechanisms compile slowly
         # in @generated rate_equation due to LLVM register allocation.
