@@ -519,3 +519,40 @@ With OligomericEnzymeMechanism expansion (catalytic_n > 1), total counts increas
 | Bi-Bi Budget | 4 | 4 (unchanged) | 124 (unchanged) |
 
 **Tests:** All 2064 tests pass. 1 pre-existing error in "Large equation compilation (<20s)" (StackOverflow in large mechanism — not related to this change).
+
+### Agent 2: New RE/SS Expansion with G ≤ 7 Cap — COMPLETED
+
+**Changes made:**
+- `src/mechanism_enumeration.jl`:
+  - Added `_compute_re_group_count(edges, eq_steps)`: union-find to compute G (number of RE groups / connected components when only RE edges merge forms)
+  - Added `_find_first_isomerization(edges, adj)`: finds first isomerization edge in canonical edge order (fallback to index 1)
+  - Rewrote `_ress_variants(spec, adj, forms; max_re_groups=7)`: baseline = all RE except first isomerization (always SS), then enumerate subsets of remaining edges to make SS, keeping only masks with 2 ≤ G ≤ max_re_groups
+  - Added `_count_ress_variants(spec, adj, forms; max_re_groups=7)`: same logic as `_ress_variants` but returns count only (no materialization)
+  - Updated `enumerate_mechanisms` FullEnumeration block: replaced closed-form O(1) count formula with brute-force `_count_ress_variants` summed over dead-end specs
+
+- `test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl`:
+  - Added `_compute_re_group_count_test(edges, eq_steps)`: test-local union-find reimplementation
+  - Added `_find_first_isomerization_test(edges, forms)`: test-local isomerization detection using multi-site diff heuristic (no adjacency dict needed)
+  - Rewrote `_compute_expected_n_total(spec, forms; max_re_groups=7)`: brute-force enumeration matching new `_ress_variants` logic for independent verification
+  - Updated all `expected_n_total` values
+
+**New expected counts (G ≤ 7 cap applied):**
+
+| Spec | cat | de | total (old → new) |
+|------|-----|----|--------------------|
+| Uni-Uni | 1 | 1 | 7 → 3 |
+| Uni-Uni 1 Reg | 1 | 8 | 808 → 338 |
+| Uni-Uni 2 Regs | 1 | 64 | 3,089,511 → 1,245,541 |
+| Uni-Bi 1 Reg | 3 | 64 | 212,624 → 92,136 |
+| Bi-Bi + 1 Reg | 9 | 512 | 63,632,894 → 28,004,728 |
+| Bi-Bi 1 Reg | 9 | 512 | 63,632,894 → 28,004,728 |
+| Bi-Bi PP | 10 | 10 | 2,157 → 989 |
+| Bi-Bi Budget | 4 | 4 | 124 → 60 |
+
+**Key design details:**
+- Brute-force counting for `MechanismIterator.total` iterates 2^(n-1) masks per dead-end spec, where n = edge count. For the largest case (Bi-Bi 1 Reg, 512 specs), this completes in ~10s — acceptable.
+- The `max_re_groups` parameter defaults to 7 but is configurable via keyword argument. Agent 5 will expose it in the public `enumerate_mechanisms` API.
+- For Uni-Uni (3 edges, 3 forms), the G cap eliminates 4 of the old 7 masks: the all-RE-except-iso baseline has G=1 (all forms in one RE group), so additional SS edges are needed. Only 3 masks give valid G ∈ [2,7].
+- Test helpers use independent implementations (no `EnzymeRates._*` calls for G computation or isomerization detection).
+
+**Tests:** All 2064 tests pass. 681 mechanism enumeration tests pass. Pre-existing StackOverflow error in large mechanism compilation unchanged.

@@ -420,6 +420,47 @@ function _expand_inhibitors(
     result
 end
 
+# ─── RE Group Count + Isomerization Detection ─────────────────
+
+"""
+    _compute_re_group_count(edges, eq_steps) → Int
+
+Compute G, the number of RE groups (connected components when only
+RE edges are considered). Each form starts as its own group; RE
+edges merge the groups of their endpoints.
+"""
+function _compute_re_group_count(edges, eq_steps)
+    form_indices = collect(Set(Iterators.flatten(edges)))
+    parent = Dict(i => i for i in form_indices)
+    function find(x)
+        while parent[x] != x
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        end
+        x
+    end
+    for (idx, (a, b)) in enumerate(edges)
+        eq_steps[idx] || continue  # only RE steps merge
+        ra, rb = find(a), find(b)
+        ra != rb && (parent[ra] = rb)
+    end
+    length(Set(find(i) for i in form_indices))
+end
+
+"""
+    _find_first_isomerization(edges, adj) → Int
+
+Find index of the first isomerization edge in canonical edge order.
+Falls back to index 1 if none found.
+"""
+function _find_first_isomerization(edges, adj)
+    for (i, (a, b)) in enumerate(edges)
+        info = adj[minmax(a, b)]
+        info.type == :isomerization && return i
+    end
+    return 1
+end
+
 # ─── RE/SS + Constraint Lazy Generator ────────────────────────
 
 """
@@ -442,34 +483,84 @@ function _find_equivalent_groups(edges, adj, forms)
 end
 
 """
-    _ress_variants(spec, adj, forms)
+    _ress_variants(spec, adj, forms; max_re_groups=7)
 
 Generate RE/SS (rapid-equilibrium / steady-state) + parameter constraint
 variants for a mechanism.
 
-Iterates over `2^n - 1` RE/SS masks (excluding all-RE), and for each
-valid mask, over constraint combinations on equivalent step groups.
+Baseline: all edges RE except the first isomerization edge (always SS).
+Iterates over subsets of remaining edges to additionally make SS,
+keeping only masks where 2 ≤ G ≤ max_re_groups (G = number of RE
+groups). For each valid mask, enumerates constraint combinations on
+equivalent step groups.
 """
-function _ress_variants(spec, adj, forms)
+function _ress_variants(spec, adj, forms; max_re_groups::Int=7)
     edges = spec.edges
     n = length(edges)
+    iso_idx = _find_first_isomerization(edges, adj)
     equiv_groups = _find_equivalent_groups(edges, adj, forms)
-    Iterators.flatmap(0:((1 << n) - 2)) do re_mask
-        eq_steps = Bool[(re_mask >> (i-1)) & 1 == 1 for i in 1:n]
-        # Valid groups: all edges in group share the same RE/SS assignment
+    other_indices = [i for i in 1:n if i != iso_idx]
+    n_other = length(other_indices)
+    Iterators.flatmap(0:(1 << n_other) - 1) do ss_mask
+        eq_steps = fill(true, n)
+        eq_steps[iso_idx] = false
+        for (bit, idx) in enumerate(other_indices)
+            (ss_mask >> (bit - 1)) & 1 == 1 &&
+                (eq_steps[idx] = false)
+        end
+        G = _compute_re_group_count(edges, eq_steps)
+        (G < 2 || G > max_re_groups) && return ()
         valid_groups = [g for g in equiv_groups
             if all(eq_steps[s] == eq_steps[g[1]] for s in g)]
-        Iterators.map(0:((1 << length(valid_groups)) - 1)) do constraint_mask
+        Iterators.map(
+            0:((1 << length(valid_groups)) - 1)
+        ) do constraint_mask
             constraints = ParamConstraint[
-                (Symbol("$p$(g[j])$s"), 1, [(Symbol("$p$(g[1])$s"), 1)])
+                (Symbol("$p$(g[j])$s"), 1,
+                    [(Symbol("$p$(g[1])$s"), 1)])
                 for (gi, g) in enumerate(valid_groups)
                 if (constraint_mask >> (gi-1)) & 1 == 1
                 for (p, ss) in ((eq_steps[g[1]] ?
                     ("K", ("",)) : ("k", ("f", "r"))),)
                 for j in 2:length(g) for s in ss]
-            MechanismSpec(spec.reaction, edges, eq_steps, constraints)
+            MechanismSpec(
+                spec.reaction, edges, eq_steps, constraints)
         end
     end
+end
+
+"""
+    _count_ress_variants(spec, adj, forms; max_re_groups=7) → Int
+
+Count RE/SS + constraint variants without materializing them.
+Same logic as `_ress_variants` but returns only the count.
+"""
+function _count_ress_variants(
+    spec, adj, forms; max_re_groups::Int=7,
+)
+    edges = spec.edges
+    n = length(edges)
+    n == 0 && return 0
+    iso_idx = _find_first_isomerization(edges, adj)
+    equiv_groups = _find_equivalent_groups(edges, adj, forms)
+    other_indices = [i for i in 1:n if i != iso_idx]
+    n_other = length(other_indices)
+    total = 0
+    for ss_mask in 0:(1 << n_other) - 1
+        eq_steps = fill(true, n)
+        eq_steps[iso_idx] = false
+        for (bit, idx) in enumerate(other_indices)
+            (ss_mask >> (bit - 1)) & 1 == 1 &&
+                (eq_steps[idx] = false)
+        end
+        G = _compute_re_group_count(edges, eq_steps)
+        (G < 2 || G > max_re_groups) && continue
+        valid_groups = [g for g in equiv_groups
+            if all(eq_steps[s] == eq_steps[g[1]]
+                   for s in g)]
+        total += 1 << length(valid_groups)
+    end
+    total
 end
 
 # ─── Pipeline ─────────────────────────────────────────────────
@@ -503,18 +594,10 @@ function enumerate_mechanisms(
         catalytic, forms, adj, form_lookup; max_forms)
     stage isa WithDeadEnd && return with_inhibitors
 
-    # FullEnumeration: compute RE/SS variant count, wrap in lazy iterator.
-    # Count formula: 2^(n - Σgᵢ) × ∏(2^gᵢ + 2) - 2^k
+    # FullEnumeration: count RE/SS variants (brute-force with G cap),
+    # wrap in lazy iterator.
     total = sum(with_inhibitors; init=0) do s
-        n = length(s.edges)
-        n == 0 && return 0
-        equiv_groups = _find_equivalent_groups(s.edges, adj, forms)
-        n_groups = length(equiv_groups)
-        total_group_size = sum(length, equiv_groups; init=0)
-        (1 << (n - total_group_size)) *
-            prod(1 << length(g) + 2
-                 for g in equiv_groups; init=1) -
-            (1 << n_groups)
+        _count_ress_variants(s, adj, forms)
     end
     inner = Iterators.flatmap(
         s -> _ress_variants(s, adj, forms), with_inhibitors)

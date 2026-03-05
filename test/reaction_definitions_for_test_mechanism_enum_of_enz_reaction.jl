@@ -28,34 +28,76 @@ end
 # ── Internal helpers (no EnzymeRates._* calls) ───────────────────────────
 
 """
-Compute the RE/SS + constraint count using a closed-form formula.
+Compute G (number of RE groups) for given edges and eq_steps via
+union-find. Test-local reimplementation for independent verification.
+"""
+function _compute_re_group_count_test(edges, eq_steps)
+    form_indices = collect(Set(Iterators.flatten(edges)))
+    parent = Dict(i => i for i in form_indices)
+    function find(x)
+        while parent[x] != x
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        end
+        x
+    end
+    for (idx, (a, b)) in enumerate(edges)
+        eq_steps[idx] || continue
+        ra, rb = find(a), find(b)
+        ra != rb && (parent[ra] = rb)
+    end
+    length(Set(find(i) for i in form_indices))
+end
 
-For `n` edges and `k` non-overlapping equiv groups of sizes `g₁,...,gₖ`:
+"""
+Find the first isomerization edge (multi-site diff) in edge order.
+Test-local reimplementation — uses site diffs, not adjacency dict.
+"""
+function _find_first_isomerization_test(edges, forms)
+    for (i, (a, b)) in enumerate(edges)
+        ndiff = count(
+            k -> forms[a].sites[k].atoms != forms[b].sites[k].atoms,
+            eachindex(forms[a].sites))
+        ndiff > 1 && return i
+    end
+    return 1
+end
 
-    f(n; g₁,...,gₖ) = 2^(n - Σgᵢ) × ∏(2^gᵢ + 2) - 2^k
+"""
+Compute the RE/SS + constraint count using brute-force enumeration
+with G ≤ max_re_groups cap.
 
-Derivation:
-- `2^n - 1` valid RE/SS masks (all-RE excluded)
-- Each equiv group of size `g` is "valid" (all edges same RE/SS) in
-  `2` of `2^g` bit patterns (all-0 or all-1)
-- Each valid group independently contributes ×2 (constrained or not)
-- The product factorizes over free edges and groups
-- Subtract `2^k` for the all-RE mask where all groups are valid
+Baseline: first isomerization edge is always SS. Iterates over
+subsets of remaining edges to make SS, keeps masks with 2 ≤ G ≤ 7,
+and counts constraint combos for each valid mask.
 """
 function _compute_expected_n_total(
     spec::EnzymeRates.MechanismSpec,
-    forms::Vector{EnzymeRates.EnzymeFormSpec},
+    forms::Vector{EnzymeRates.EnzymeFormSpec};
+    max_re_groups::Int=7,
 )
     edges = spec.edges
     n = length(edges)
+    n == 0 && return 0
+    iso_idx = _find_first_isomerization_test(edges, forms)
     equiv_groups = _find_equiv_groups(edges, forms)
-    k = length(equiv_groups)
-    sum_g = sum(length, equiv_groups; init=0)
-    result = 1 << (n - sum_g)
-    for group in equiv_groups
-        result *= (1 << length(group)) + 2
+    other_indices = [i for i in 1:n if i != iso_idx]
+    n_other = length(other_indices)
+    total = 0
+    for ss_mask in 0:(1 << n_other) - 1
+        eq_steps = fill(true, n)
+        eq_steps[iso_idx] = false
+        for (bit, idx) in enumerate(other_indices)
+            (ss_mask >> (bit - 1)) & 1 == 1 &&
+                (eq_steps[idx] = false)
+        end
+        G = _compute_re_group_count_test(edges, eq_steps)
+        (G < 2 || G > max_re_groups) && continue
+        valid_groups = [g for g in equiv_groups
+            if all(eq_steps[s] == eq_steps[g[1]] for s in g)]
+        total += 1 << length(valid_groups)
     end
-    result - (1 << k)
+    total
 end
 
 """Find equivalent groups from edges: non-product binding edges grouped
@@ -130,8 +172,8 @@ function build_enumeration_test_specs()
             expected_n_catalytic=1,
             # No regulators → dead-end = catalytic
             expected_n_cat_de=1,
-            # 2^3 - 1 = 7
-            expected_n_total=7,
+            # 3 valid RE/SS masks with G cap
+            expected_n_total=3,
             max_enumeration_time=5.0,
         ))
     end
@@ -152,7 +194,7 @@ function build_enumeration_test_specs()
             # 1 catalytic with 3 forms, 1 regulator:
             # (2^1)^3 = 8 dead-end configurations
             expected_n_cat_de=8,
-            expected_n_total=808,
+            expected_n_total=338,
             max_enumeration_time=5.0,
         ))
     end
@@ -172,7 +214,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic=1,
             # (2^2)^3 = 64
             expected_n_cat_de=64,
-            expected_n_total=3089511,
+            expected_n_total=1245541,
             max_enumeration_time=10.0,
         ))
     end
@@ -194,7 +236,7 @@ function build_enumeration_test_specs()
             # 1 random (5 forms): (2^1)^5 = 32
             # Total: 64
             expected_n_cat_de=64,
-            expected_n_total=212624,
+            expected_n_total=92136,
             max_enumeration_time=5.0,
         ))
     end
@@ -214,7 +256,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic=9,
             expected_n_cat_de=512,
             skip_ress_test=true,
-            expected_n_total=63632894,
+            expected_n_total=28004728,
         ))
     end
 
@@ -233,7 +275,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic=9,
             expected_n_cat_de=512,
             skip_ress_test=true,
-            expected_n_total=63632894,
+            expected_n_total=28004728,
         ))
     end
 
@@ -251,7 +293,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic=10,
             # No regulators → dead-end = catalytic
             expected_n_cat_de=10,
-            expected_n_total=2157,
+            expected_n_total=989,
             max_enumeration_time=10.0,
         ))
     end
@@ -270,7 +312,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic=4,
             # No regulators → dead-end = catalytic
             expected_n_cat_de=4,
-            expected_n_total=124,
+            expected_n_total=60,
             max_enumeration_time=5.0,
         ))
     end
