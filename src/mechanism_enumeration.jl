@@ -57,10 +57,9 @@ info, and oligomeric expansion parameters.
   followed by dead-end binding edges.
 - `n_catalytic_edges::Int`: number of catalytic edges at the start
   of `edges`. Dead-end edges (`edges[n_catalytic_edges+1:end]`)
-  are always treated as rapid-equilibrium during RE/SS expansion,
-  because their SS rate constants are not identifiable from
-  steady-state rate data (only the equilibrium ratio K = kf/kr
-  appears in the rate equation).
+  inherit their RE/SS status from the catalytic edge connecting the
+  same forms with regulator sites stripped. Regulator-binding
+  dead-end edges (no catalytic counterpart) remain always RE.
 - `equilibrium_steps::Vector{Bool}`: `true` for rapid-equilibrium steps.
 - `param_constraints::Vector{ParamConstraint}`: equivalence constraints.
 - `dead_end_regulators::Vector{Symbol}`: regulators treated as dead-end
@@ -83,19 +82,23 @@ struct MechanismSpec
     allosteric_regulators::Vector{Symbol}
     catalytic_n::Int
     n_conf::Int
+    allosteric_reg_sites::Vector{Vector{Symbol}}
     allosteric_multiplicities::Vector{Int}
 end
 MechanismSpec(reaction, edges) =
     MechanismSpec(reaction, edges, length(edges),
         fill(false, length(edges)),
-        ParamConstraint[], Symbol[], Symbol[], 0, 1, Int[])
+        ParamConstraint[], Symbol[], Symbol[], 0, 1,
+        Vector{Symbol}[], Int[])
 MechanismSpec(reaction, edges, eq_steps, constraints) =
     MechanismSpec(reaction, edges, length(edges), eq_steps,
-        constraints, Symbol[], Symbol[], 0, 1, Int[])
+        constraints, Symbol[], Symbol[], 0, 1,
+        Vector{Symbol}[], Int[])
 MechanismSpec(reaction, edges, n_cat, eq_steps, constraints,
               dead_end_regs, allosteric_regs) =
     MechanismSpec(reaction, edges, n_cat, eq_steps,
-        constraints, dead_end_regs, allosteric_regs, 0, 1, Int[])
+        constraints, dead_end_regs, allosteric_regs, 0, 1,
+        Vector{Symbol}[], Int[])
 
 """
     EnumerationStage
@@ -458,7 +461,8 @@ function _expand_inhibitors(
                 length(spec.edges),
                 fill(false, length(all_edges)),
                 ParamConstraint[],
-                dead_end_regs, allosteric_regs))
+                dead_end_regs, allosteric_regs,
+                0, 1, Vector{Symbol}[], Int[]))
         end
     end
     result
@@ -492,6 +496,191 @@ function _compute_re_group_count(edges, eq_steps)
 end
 
 """
+    _compute_re_partition(edges, eq_steps) -> Vector{Vector{Int}}
+
+Compute RE group partition: connected components when only RE edges
+are considered. Returns sorted vector of sorted form-index vectors.
+"""
+function _compute_re_partition(edges, eq_steps)
+    form_indices = collect(Set(Iterators.flatten(edges)))
+    parent = Dict(i => i for i in form_indices)
+    function find(x)
+        while parent[x] != x
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        end
+        x
+    end
+    for (idx, (a, b)) in enumerate(edges)
+        eq_steps[idx] || continue
+        ra, rb = find(a), find(b)
+        ra != rb && (parent[ra] = rb)
+    end
+    groups = Dict{Int, Vector{Int}}()
+    for i in form_indices
+        r = find(i)
+        push!(get!(groups, r, Int[]), i)
+    end
+    sort!([sort!(v) for v in values(groups)])
+end
+
+# ─── Concentration Fingerprint ─────────────────────────────────
+
+"""Increment the exponent of `met` in a sorted monomial."""
+function _add_met(mono::MONO, met::Symbol)::MONO
+    result = copy(mono)
+    idx = findfirst(p -> p.first == met, result)
+    if idx !== nothing
+        result[idx] = met => result[idx].second + 1
+    else
+        push!(result, met => 1)
+        sort!(result; by=first)
+    end
+    result
+end
+
+"""
+Enumerate all spanning arborescences of a G-node directed graph
+rooted at `root`, returning the set of concentration monomials.
+Each arborescence selects one incoming edge per non-root node.
+"""
+function _spanning_arborescence_monomials(
+    G::Int, R_conc::Dict{Tuple{Int,Int}, Set{MONO}}, root::Int,
+)
+    result = Set{MONO}()
+    non_root = [g for g in 1:G if g != root]
+    isempty(non_root) && return Set{MONO}([MONO()])
+    # Recursive enumeration: for each non-root node, pick an
+    # incoming edge and accumulate the product of edge monomials
+    function enumerate_trees!(idx, current_mono)
+        if idx > length(non_root)
+            push!(result, current_mono)
+            return
+        end
+        node = non_root[idx]
+        # King-Altman: cofactor for root = sum of in-arborescences.
+        # Each non-root node has an edge FROM itself TO a destination
+        # (its parent, closer to root).
+        for dst in 1:G
+            dst == node && continue
+            edge_monos = get(R_conc, (node, dst), nothing)
+            edge_monos === nothing && continue
+            for emono in edge_monos
+                enumerate_trees!(idx + 1, _mono_mul(current_mono, emono))
+            end
+        end
+    end
+    enumerate_trees!(1, MONO())
+    result
+end
+
+"""
+    _concentration_fingerprint(edges, eq_steps, forms, adj)
+    → Set{MONO}
+
+Compute the set of concentration monomials that appear in the
+rate equation denominator, using only topology (no King-Altman).
+"""
+function _concentration_fingerprint(edges, eq_steps, forms, adj)
+    partition = _compute_re_partition(edges, eq_steps)
+    G = length(partition)
+    group_set = [Set(g) for g in partition]
+    form_to_group = Dict(
+        i => g for (g, grp) in enumerate(partition) for i in grp)
+
+    # BFS alpha concentration monomials per form
+    alpha_conc = Dict{Int, MONO}()
+    for (g, group) in enumerate(partition)
+        ref = group[1]
+        alpha_conc[ref] = MONO()
+        queue = [ref]
+        while !isempty(queue)
+            cur = popfirst!(queue)
+            for (idx, (a, b)) in enumerate(edges)
+                eq_steps[idx] || continue
+                neighbor = if a == cur && b in group_set[g]
+                    b
+                elseif b == cur && a in group_set[g]
+                    a
+                else
+                    nothing
+                end
+                (neighbor === nothing || haskey(alpha_conc, neighbor)) &&
+                    continue
+                info = adj[minmax(a, b)]
+                parent_mono = alpha_conc[cur]
+                child_mono = if info.metabolite !== nothing
+                    is_binding = (info.type == :binding && a == cur) ||
+                                 (info.type == :release && b == cur)
+                    is_binding ? _add_met(parent_mono, info.metabolite) :
+                                 copy(parent_mono)
+                else
+                    copy(parent_mono)
+                end
+                alpha_conc[neighbor] = child_mono
+                push!(queue, neighbor)
+            end
+        end
+    end
+
+    # Sigma: set of alpha monomials per group
+    sigma_conc = [Set{MONO}(alpha_conc[i] for i in group)
+                  for group in partition]
+
+    # R_conc: rate matrix concentration monomials between groups
+    R_conc = Dict{Tuple{Int,Int}, Set{MONO}}()
+    for (idx, (a, b)) in enumerate(edges)
+        eq_steps[idx] && continue  # only SS steps
+        info = adj[minmax(a, b)]
+        g1, g2 = form_to_group[a], form_to_group[b]
+        g1 == g2 && continue  # intra-group
+
+        # Forward: a→b
+        fwd_met = (info.type == :binding) ? info.metabolite : nothing
+        fwd_mono = fwd_met !== nothing ?
+            _add_met(alpha_conc[a], fwd_met) : copy(alpha_conc[a])
+        push!(get!(R_conc, (g1, g2), Set{MONO}()), fwd_mono)
+
+        # Reverse: b→a
+        rev_met = (info.type == :release) ? info.metabolite : nothing
+        rev_mono = rev_met !== nothing ?
+            _add_met(alpha_conc[b], rev_met) : copy(alpha_conc[b])
+        push!(get!(R_conc, (g2, g1), Set{MONO}()), rev_mono)
+    end
+
+    # Combine: fingerprint = union over all groups g of
+    #   sigma_conc[g] * D_conc[g]
+    fingerprint = Set{MONO}()
+    for g in 1:G
+        D_g = _spanning_arborescence_monomials(G, R_conc, g)
+        for s in sigma_conc[g], d in D_g
+            push!(fingerprint, _mono_mul(s, d))
+        end
+    end
+    fingerprint
+end
+
+"""
+    _constraint_descriptor(edges, adj, eq_steps, valid_groups,
+                           constraint_mask)
+    → Set{Tuple{Symbol, Symbol}}
+
+Compute the constraint descriptor: the set of (metabolite, mode)
+pairs for each constrained equivalence group.
+"""
+function _constraint_descriptor(edges, adj, eq_steps, valid_groups,
+                                constraint_mask)
+    descriptor = Set{Tuple{Symbol, Symbol}}()
+    for (gi, g) in enumerate(valid_groups)
+        (constraint_mask >> (gi - 1)) & 1 == 1 || continue
+        met = adj[minmax(edges[g[1]]...)].metabolite
+        mode = eq_steps[g[1]] ? :RE : :SS
+        push!(descriptor, (met, mode))
+    end
+    descriptor
+end
+
+"""
     _find_first_isomerization(edges, adj) → Int
 
 Find index of the first isomerization edge in canonical edge order.
@@ -505,6 +694,43 @@ function _find_first_isomerization(edges, adj)
     return 1
 end
 
+# ─── Dead-End SS/RE Propagation ───────────────────────────────
+
+"""
+    _dead_end_catalytic_map(edges, n_cat, forms)
+    → Vector{Union{Nothing, Int}}
+
+For each dead-end edge (index > n_cat), return the index of the
+catalytic edge connecting the same forms with regulator sites
+stripped, or `nothing` for regulator-binding edges (always RE).
+"""
+function _dead_end_catalytic_map(edges, n_cat, forms)
+    _strip_regs(fi) = Tuple(
+        s.role == :reg ? nothing : s.atoms for s in forms[fi].sites)
+    _key(a, b) = let sa = _strip_regs(a), sb = _strip_regs(b)
+        hash(sa) <= hash(sb) ? (sa, sb) : (sb, sa)
+    end
+    cat_stripped = Dict(
+        _key(a, b) => i
+        for (i, (a, b)) in enumerate(edges) if i <= n_cat)
+    [get(cat_stripped, _key(a, b), nothing)
+     for (a, b) in @view edges[n_cat+1:end]]
+end
+
+"""
+    _propagate_de_eq_steps!(eq_steps, n_cat, de_cat_map)
+
+Set dead-end edge eq_steps by copying from their catalytic
+counterpart. R-binding dead-end edges (`nothing` in map) keep
+their initialized value (RE).
+"""
+function _propagate_de_eq_steps!(eq_steps, n_cat, de_cat_map)
+    for (di, cat_idx) in enumerate(de_cat_map)
+        cat_idx === nothing && continue
+        eq_steps[n_cat + di] = eq_steps[cat_idx]
+    end
+end
+
 # ─── RE/SS + Constraint Lazy Generator ────────────────────────
 
 """
@@ -512,11 +738,11 @@ end
 
 Find groups of catalytic binding edges that involve the same
 non-product metabolite. Only catalytic edges (first `n_catalytic_edges`)
-are considered — dead-end edges are always RE and don't participate
-in parameter constraint enumeration.
+are considered — dead-end edges don't participate in parameter
+constraint enumeration.
 """
 function _find_equivalent_groups(edges, adj, forms,
-    n_catalytic_edges)
+    n_catalytic_edges, de_cat_map=nothing)
     groups = Dict{Symbol, Vector{Int}}()
     product_metabolites = Set(
         s.metabolite for s in forms[1].sites if s.role == :prod)
@@ -527,71 +753,97 @@ function _find_equivalent_groups(edges, adj, forms,
             info.metabolite ∉ product_metabolites &&
             push!(get!(groups, info.metabolite, Int[]), i)
     end
+    if de_cat_map !== nothing
+        for (di, cat_idx) in enumerate(de_cat_map)
+            cat_idx === nothing && continue
+            edge_idx = n_catalytic_edges + di
+            info = adj[minmax(edges[edge_idx]...)]
+            info.metabolite === nothing && continue
+            info.metabolite in product_metabolites && continue
+            push!(get!(groups, info.metabolite, Int[]), edge_idx)
+        end
+    end
     sort!([sort(v) for v in values(groups) if length(v) >= 2];
         by=first)
 end
 
 """
+Build parameter constraints from valid_groups and constraint_mask.
+Extracted helper for `_ress_variants`.
+"""
+function _build_constraints(valid_groups, eq_steps, constraint_mask,
+                            edges)
+    ParamConstraint[
+        (Symbol("$p$(g[j])$s"), 1,
+            [(Symbol("$p$(g[1])$s"), 1)])
+        for (gi, g) in enumerate(valid_groups)
+        if (constraint_mask >> (gi-1)) & 1 == 1
+        for (p, ss) in ((eq_steps[g[1]] ?
+            ("K", ("",)) : ("k", ("f", "r"))),)
+        for j in 2:length(g) for s in ss]
+end
+
+const _DedupKey = Tuple{Set{MONO}, Set{Tuple{Symbol,Symbol}}}
+
+"""
     _ress_variants(spec, adj, forms; max_re_groups=7)
 
-Generate RE/SS (rapid-equilibrium / steady-state) + parameter constraint
-variants for a mechanism.
+Generate RE/SS + parameter constraint variants for a mechanism,
+deduplicated by (concentration fingerprint, constraint descriptor).
 
-Only catalytic edges (`edges[1:n_catalytic_edges]`) are candidates for
-SS assignment. Dead-end edges are always RE because their SS rate
-constants are not identifiable from rate data (only K = kf/kr appears
-in the rate equation — same argument as MWC star topology).
-
-Baseline: all edges RE except the first isomerization edge (always SS).
-Iterates over subsets of remaining catalytic edges to additionally make
-SS, keeping only masks where 2 ≤ G ≤ max_re_groups. For each valid
-mask, enumerates constraint combinations on equivalent step groups.
+Two-pass: first collects all variants and keeps the one with fewest
+SS steps per dedup key, then emits the kept variants.
 """
 function _ress_variants(spec, adj, forms; max_re_groups::Int=7)
     edges = spec.edges
     n = length(edges)
     n_cat = spec.n_catalytic_edges
     iso_idx = _find_first_isomerization(edges, adj)
+    de_cat_map = _dead_end_catalytic_map(edges, n_cat, forms)
     equiv_groups = _find_equivalent_groups(edges, adj, forms,
-        n_cat)
-    # Only catalytic edges (excluding isomerization) can be SS
+        n_cat, de_cat_map)
     other_indices = [i for i in 1:n_cat if i != iso_idx]
     n_other = length(other_indices)
-    Iterators.flatmap(0:(1 << n_other) - 1) do ss_mask
+
+    # Sort masks by popcount so first seen has fewest SS steps
+    masks = sort!(collect(0:(1 << n_other) - 1); by=count_ones)
+
+    best = Dict{_DedupKey, MechanismSpec}()
+    for ss_mask in masks
         eq_steps = fill(true, n)
         eq_steps[iso_idx] = false
         for (bit, idx) in enumerate(other_indices)
             (ss_mask >> (bit - 1)) & 1 == 1 &&
                 (eq_steps[idx] = false)
         end
+        _propagate_de_eq_steps!(eq_steps, n_cat, de_cat_map)
         G = _compute_re_group_count(edges, eq_steps)
-        (G < 2 || G > max_re_groups) && return ()
+        (G < 2 || G > max_re_groups) && continue
+        fp = _concentration_fingerprint(edges, eq_steps, forms, adj)
         valid_groups = [g for g in equiv_groups
             if all(eq_steps[s] == eq_steps[g[1]] for s in g)]
-        Iterators.map(
-            0:((1 << length(valid_groups)) - 1)
-        ) do constraint_mask
-            constraints = ParamConstraint[
-                (Symbol("$p$(g[j])$s"), 1,
-                    [(Symbol("$p$(g[1])$s"), 1)])
-                for (gi, g) in enumerate(valid_groups)
-                if (constraint_mask >> (gi-1)) & 1 == 1
-                for (p, ss) in ((eq_steps[g[1]] ?
-                    ("K", ("",)) : ("k", ("f", "r"))),)
-                for j in 2:length(g) for s in ss]
-            MechanismSpec(
+        for constraint_mask in 0:(1 << length(valid_groups)) - 1
+            desc = _constraint_descriptor(
+                edges, adj, eq_steps, valid_groups, constraint_mask)
+            key = (fp, desc)
+            haskey(best, key) && continue
+            constraints = _build_constraints(
+                valid_groups, eq_steps, constraint_mask, edges)
+            best[key] = MechanismSpec(
                 spec.reaction, edges, n_cat, eq_steps,
                 constraints, spec.dead_end_regulators,
-                spec.allosteric_regulators)
+                spec.allosteric_regulators, 0, 1,
+                Vector{Symbol}[], Int[])
         end
     end
+    values(best)
 end
 
 """
     _count_ress_variants(spec, adj, forms; max_re_groups=7) → Int
 
-Count RE/SS + constraint variants without materializing them.
-Same logic as `_ress_variants` but returns only the count.
+Count deduplicated RE/SS + constraint variants.
+Same dedup logic as `_ress_variants` but returns only the count.
 """
 function _count_ress_variants(
     spec, adj, forms; max_re_groups::Int=7,
@@ -601,11 +853,13 @@ function _count_ress_variants(
     n == 0 && return 0
     n_cat = spec.n_catalytic_edges
     iso_idx = _find_first_isomerization(edges, adj)
+    de_cat_map = _dead_end_catalytic_map(edges, n_cat, forms)
     equiv_groups = _find_equivalent_groups(edges, adj, forms,
-        n_cat)
+        n_cat, de_cat_map)
     other_indices = [i for i in 1:n_cat if i != iso_idx]
     n_other = length(other_indices)
-    total = 0
+
+    seen = Set{_DedupKey}()
     for ss_mask in 0:(1 << n_other) - 1
         eq_steps = fill(true, n)
         eq_steps[iso_idx] = false
@@ -613,14 +867,21 @@ function _count_ress_variants(
             (ss_mask >> (bit - 1)) & 1 == 1 &&
                 (eq_steps[idx] = false)
         end
+        _propagate_de_eq_steps!(eq_steps, n_cat, de_cat_map)
         G = _compute_re_group_count(edges, eq_steps)
         (G < 2 || G > max_re_groups) && continue
+        fp = _concentration_fingerprint(edges, eq_steps, forms, adj)
         valid_groups = [g for g in equiv_groups
             if all(eq_steps[s] == eq_steps[g[1]]
                    for s in g)]
-        total += 1 << length(valid_groups)
+        for constraint_mask in 0:(1 << length(valid_groups)) - 1
+            desc = _constraint_descriptor(
+                edges, adj, eq_steps, valid_groups,
+                constraint_mask)
+            push!(seen, (fp, desc))
+        end
     end
-    total
+    length(seen)
 end
 
 # ─── Pipeline ─────────────────────────────────────────────────
@@ -770,41 +1031,92 @@ function compile_mechanism(spec::MechanismSpec)
         [p[1] for p in products(rxn)],
         collect(regulators(rxn)),
     ))
-    reg_sites = Tuple(
-        ((reg,), mult) for (reg, mult) in zip(
-            spec.allosteric_regulators,
-            spec.allosteric_multiplicities)
-    )
+    reg_sites = if isempty(spec.allosteric_reg_sites)
+        Tuple(
+            ((reg,), mult) for (reg, mult) in zip(
+                spec.allosteric_regulators,
+                spec.allosteric_multiplicities))
+    else
+        Tuple(
+            (Tuple(group), mult) for (group, mult) in zip(
+                spec.allosteric_reg_sites,
+                spec.allosteric_multiplicities))
+    end
     OligomericEnzymeMechanism{
         mets, typeof(cm), spec.catalytic_n,
         reg_sites, spec.n_conf,
     }()
 end
 
-# ─── Oligomeric Expansion ─────────────────────────────────────
+# ─── Set Partitions + Oligomeric Expansion ─────────────────────
+
+"""
+    _set_partitions(elements::Vector{Symbol})
+
+Enumerate all set partitions of `elements` (Bell number partitions).
+Returns `Vector{Vector{Vector{Symbol}}}` — each partition is a list
+of groups, each group is a list of symbols.
+"""
+function _set_partitions(elements::Vector{Symbol})
+    n = length(elements)
+    n == 0 && return [Vector{Symbol}[]]
+    n == 1 && return [Vector{Symbol}[elements]]
+    result = Vector{Vector{Vector{Symbol}}}()
+    for partition in _set_partitions(elements[1:end-1])
+        last_elem = elements[end]
+        for i in eachindex(partition)
+            new_part = [copy(g) for g in partition]
+            push!(new_part[i], last_elem)
+            push!(result, new_part)
+        end
+        push!(result, [partition; [Symbol[last_elem]]])
+    end
+    result
+end
+
+"""
+    _partition_mult_count(k, N) → Int
+
+Count OEM multiplicity variants across all set partitions of k
+regulators: sum_{g=1}^{k} S(k,g) * N^g where S(k,g) is the
+Stirling number of the second kind.
+"""
+function _partition_mult_count(k::Int, N::Int)
+    k == 0 && return 1
+    S = zeros(Int, k, k)
+    S[1, 1] = 1
+    for n in 2:k
+        for g in 1:n
+            S[n, g] = (g > 1 ? S[n-1, g-1] : 0) + g * S[n-1, g]
+        end
+    end
+    sum(S[k, g] * N^g for g in 1:k)
+end
 
 """
     _oligomeric_count(spec, ress_count, catalytic_n) → Int
 
 Count OligomericEnzymeMechanism variants for one dead-end spec.
-For k allosteric regulators with `catalytic_n=N`:
-  k == 0 → `ress_count` (one OEM per RE/SS variant, no RegSites)
-  k > 0  → `ress_count * N^k` (Cartesian product of multiplicities)
+For k allosteric regulators with `catalytic_n=N`, enumerates all
+set partitions of regulators into site groups, then multiplicity
+combos per partition: `ress_count * _partition_mult_count(k, N)`.
 """
 function _oligomeric_count(spec, ress_count, catalytic_n)
     k = length(spec.allosteric_regulators)
-    k == 0 ? ress_count : ress_count * catalytic_n^k
+    ress_count * _partition_mult_count(k, catalytic_n)
 end
 
 """
     _expand_oligomeric_variants(em_spec, catalytic_n)
 
 For a single EnzymeMechanism RE/SS spec, generate the corresponding
-OligomericEnzymeMechanism specs by enumerating allosteric regulator
-multiplicity combinations (each ∈ 1:catalytic_n).
+OligomericEnzymeMechanism specs by enumerating set partitions of
+allosteric regulators into site groups, then multiplicity combos
+(each ∈ 1:catalytic_n) per site group.
 """
 function _expand_oligomeric_variants(em_spec, catalytic_n)
-    k = length(em_spec.allosteric_regulators)
+    regs = em_spec.allosteric_regulators
+    k = length(regs)
     if k == 0
         oem = MechanismSpec(
             em_spec.reaction, em_spec.edges,
@@ -813,20 +1125,24 @@ function _expand_oligomeric_variants(em_spec, catalytic_n)
             em_spec.param_constraints,
             em_spec.dead_end_regulators,
             em_spec.allosteric_regulators,
-            catalytic_n, 2, Int[])
+            catalytic_n, 2, Vector{Symbol}[], Int[])
         return (oem,)
     end
-    Iterators.map(
-        Iterators.product(
-            ntuple(_ -> 1:catalytic_n, k)...)
-    ) do combo
-        MechanismSpec(
-            em_spec.reaction, em_spec.edges,
-            em_spec.n_catalytic_edges,
-            em_spec.equilibrium_steps,
-            em_spec.param_constraints,
-            em_spec.dead_end_regulators,
-            em_spec.allosteric_regulators,
-            catalytic_n, 2, collect(combo))
+    partitions = _set_partitions(regs)
+    Iterators.flatmap(partitions) do partition
+        n_groups = length(partition)
+        Iterators.map(
+            Iterators.product(
+                ntuple(_ -> 1:catalytic_n, n_groups)...)
+        ) do combo
+            MechanismSpec(
+                em_spec.reaction, em_spec.edges,
+                em_spec.n_catalytic_edges,
+                em_spec.equilibrium_steps,
+                em_spec.param_constraints,
+                em_spec.dead_end_regulators,
+                em_spec.allosteric_regulators,
+                catalytic_n, 2, partition, collect(combo))
+        end
     end
 end

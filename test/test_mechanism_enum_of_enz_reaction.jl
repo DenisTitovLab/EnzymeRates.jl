@@ -145,11 +145,18 @@
                     oem_count += 1
                     @test s.catalytic_n == cat_n
                     @test s.n_conf == 2
-                    k = length(s.allosteric_regulators)
-                    @test length(s.allosteric_multiplicities) == k
-                    if k > 0
+                    n_sites = length(s.allosteric_reg_sites)
+                    @test length(s.allosteric_multiplicities) == n_sites
+                    if n_sites > 0
                         @test all(
                             1 .<= s.allosteric_multiplicities .<= cat_n)
+                        # All regulators accounted for in site groups
+                        all_regs = Symbol[]
+                        for g in s.allosteric_reg_sites
+                            append!(all_regs, g)
+                        end
+                        @test sort(all_regs) ==
+                            sort(s.allosteric_regulators)
                     end
                 end
             end
@@ -268,5 +275,85 @@
                 s.edges, s.equilibrium_steps)
             @test 2 <= G <= 5
         end
+    end
+
+    # ── Concentration fingerprint unit tests ──────────────────────
+    @testset "Concentration fingerprint" begin
+        # Uni-uni: all valid RE/SS masks produce same fingerprint
+        # {[], [S], [P]} — they collapse to 1 mechanism.
+        rxn = @enzyme_reaction begin
+            substrates:S[C]
+            products:P[C]
+        end
+        forms = EnzymeRates.enumerate_enzyme_forms(rxn)
+        adj = EnzymeRates._build_adjacency(forms)
+        with_de = collect(EnzymeRates.enumerate_mechanisms(
+            rxn; stage=EnzymeRates.WithDeadEnd()))
+        @test length(with_de) == 1
+        spec = with_de[1]
+        edges = spec.edges
+        n = length(edges)
+        n_cat = spec.n_catalytic_edges
+        iso_idx = _find_first_isomerization_test(edges, forms)
+        other_indices = [i for i in 1:n_cat if i != iso_idx]
+
+        fps = Set{Vector{Pair{Symbol,Int}}}[]
+        for ss_mask in 0:(1 << length(other_indices)) - 1
+            eq_steps = fill(true, n)
+            eq_steps[iso_idx] = false
+            for (bit, idx) in enumerate(other_indices)
+                (ss_mask >> (bit - 1)) & 1 == 1 &&
+                    (eq_steps[idx] = false)
+            end
+            G = _compute_re_group_count_test(edges, eq_steps)
+            G >= 2 || continue
+            fp = EnzymeRates._concentration_fingerprint(
+                edges, eq_steps, forms, adj)
+            push!(fps, fp)
+        end
+        # 3 valid masks (2 G=2 + 1 G=3), all same fingerprint
+        @test length(fps) == 3
+        @test all(fp -> fp == fps[1], fps)
+        @test Pair{Symbol,Int}[] ∈ fps[1]
+        @test [(:S => 1)] ∈ fps[1]
+        @test [(:P => 1)] ∈ fps[1]
+        @test length(fps[1]) == 3
+    end
+
+    # ── Dedup effectiveness ───────────────────────────────────────
+    @testset "Dedup reduces mechanism count" begin
+        # Uni-uni: 3 valid RE/SS masks → 1 after dedup
+        rxn = @enzyme_reaction begin
+            substrates:S[C]
+            products:P[C]
+        end
+        @test length(EnzymeRates.enumerate_mechanisms(rxn)) == 1
+
+        # Uni-Bi: significant reduction
+        rxn2 = @enzyme_reaction begin
+            substrates:A[C2]
+            products:P1[C], P2[C]
+            regulators: R
+        end
+        @test length(EnzymeRates.enumerate_mechanisms(rxn2)) == 743
+    end
+
+    # ── Dedup preserves different constraint descriptors ──────────
+    @testset "Different constraint descriptors preserved" begin
+        # Bi-bi: equiv groups for A and B should produce
+        # separate constrained mechanisms (not merged by dedup).
+        rxn = @enzyme_reaction begin
+            substrates:A[C], B[N]
+            products:P[C], Q[N]
+        end
+        iter = EnzymeRates.enumerate_mechanisms(rxn)
+        specs = collect(iter)
+        constrained = filter(
+            s -> !isempty(s.param_constraints), specs)
+        # Multiple distinct constraint sets exist
+        constraint_sets = Set(
+            Set(c[1] for c in s.param_constraints)
+            for s in constrained)
+        @test length(constraint_sets) > 1
     end
 end
