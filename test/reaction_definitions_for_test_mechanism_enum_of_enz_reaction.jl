@@ -78,9 +78,11 @@ function _compute_expected_n_total(
     edges = spec.edges
     n = length(edges)
     n == 0 && return 0
+    n_cat = spec.n_catalytic_edges
     iso_idx = _find_first_isomerization_test(edges, forms)
-    equiv_groups = _find_equiv_groups(edges, forms)
-    other_indices = [i for i in 1:n if i != iso_idx]
+    equiv_groups = _find_equiv_groups(edges, forms, n_cat)
+    # Only catalytic edges (excluding isomerization) can be SS
+    other_indices = [i for i in 1:n_cat if i != iso_idx]
     n_other = length(other_indices)
     total = 0
     for ss_mask in 0:(1 << n_other) - 1
@@ -99,11 +101,12 @@ function _compute_expected_n_total(
     total
 end
 
-"""Find equivalent groups from edges: non-product binding edges grouped
-by metabolite. Uses only public struct fields."""
-function _find_equiv_groups(edges, forms)
+"""Find equivalent groups from catalytic edges: non-product binding
+edges grouped by metabolite. Uses only public struct fields."""
+function _find_equiv_groups(edges, forms, n_catalytic_edges)
     binding_key = Dict{Symbol,Vector{Int}}()
-    for (i, (a, b)) in enumerate(edges)
+    for i in 1:n_catalytic_edges
+        (a, b) = edges[i]
         diff_count = 0
         diff_k = 0
         for k in 1:length(forms[a].sites)
@@ -204,6 +207,37 @@ function build_enumeration_test_specs()
     end
 
     # 2. Uni-Uni + 1 regulator
+    #
+    # Forms (6): E, ES, EP  +  ER, ESR, EPR
+    #   (2×2×2=8 minus 2 excluded SP combos)
+    # Adjacency (9 edges):
+    #   Catalytic:  (E,ES) bind S, (E,EP) bind P, (ES,EP) iso
+    #   R-binding:  (E,ER), (ES,ESR), (EP,EPR)
+    #   Inter-de:   (ER,ESR) bind S, (ER,EPR) bind P, (ESR,EPR) iso
+    # Catalytic cycle: 1 (E→ES→EP→E), 3 catalytic edges.
+    #
+    # Dead-end stage (9 specs from 2 regulator partitions):
+    #   Partition {R dead-end}: each of 3 catalytic forms independently
+    #     can have R bound → 2^3 = 8 dead-end configs
+    #   Partition {R allosteric}: 1 (bare catalytic topology)
+    #
+    # RE/SS stage: only the 3 catalytic edges are candidates for SS.
+    # Dead-end edges are always RE (their SS rate constants are not
+    # identifiable — only K = kf/kr appears in the rate equation).
+    # With dead-end edges fixed as RE, they create RE shortcuts
+    # between catalytic forms (e.g., E—ER—ESR—ES), which can merge
+    # catalytic forms into one RE group, reducing G.
+    #
+    #   Config         | cat edges | de edges | RE/SS
+    #   no dead-ends   |     3     |    0     |   3
+    #   R@E            |     3     |    1     |   3
+    #   R@ES           |     3     |    1     |   3
+    #   R@E+ES         |     3     |    3     |   2  (RE shortcut merges groups)
+    #   R@EP           |     3     |    1     |   3
+    #   R@E+EP         |     3     |    3     |   2
+    #   R@ES+EP        |     3     |    2     |   3  (no S-bind shortcut)
+    #   R@E+ES+EP      |     3     |    5     |   0  (all merged → G=1)
+    #   allosteric     |     3     |    0     |   3
     let
         rxn = @enzyme_reaction begin
             substrates:S[C]
@@ -219,7 +253,8 @@ function build_enumeration_test_specs()
             # 2 partitions: {R dead-end} + {R allosteric}
             # {R de}: (2^1)^3 = 8, {R al}: 1. Total = 9
             expected_n_cat_de=9,
-            expected_n_total=341,
+            # Sum of RE/SS column above: 3+3+3+2+3+2+3+0+3 = 22
+            expected_n_total=22,
             max_enumeration_time=5.0,
         ))
     end
@@ -239,7 +274,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic=1,
             # 4 partitions: (2^2)^3 + 2*(2^1)^3 + 1 = 81
             expected_n_cat_de=81,
-            expected_n_total=1246220,
+            expected_n_total=160,
             max_enumeration_time=10.0,
         ))
     end
@@ -260,7 +295,7 @@ function build_enumeration_test_specs()
             # 2 partitions: {R de} + {R al}
             # {R de}: 2*16 + 32 = 64, {R al}: 3. Total: 67
             expected_n_cat_de=67,
-            expected_n_total=92177,
+            expected_n_total=913,
             max_enumeration_time=5.0,
         ))
     end
@@ -280,7 +315,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic=9,
             expected_n_cat_de=521,
             skip_ress_test=true,
-            expected_n_total=28005686,
+            expected_n_total=76837,
         ))
     end
 
@@ -299,7 +334,7 @@ function build_enumeration_test_specs()
             expected_n_catalytic=9,
             expected_n_cat_de=521,
             skip_ress_test=true,
-            expected_n_total=28005686,
+            expected_n_total=76837,
         ))
     end
 

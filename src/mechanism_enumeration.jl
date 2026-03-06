@@ -53,6 +53,14 @@ info, and oligomeric expansion parameters.
 # Fields
 - `reaction`: the `EnzymeReaction` this mechanism belongs to.
 - `edges::Vector{Tuple{Int,Int}}`: edges between form indices.
+  Catalytic edges come first (`edges[1:n_catalytic_edges]`),
+  followed by dead-end binding edges.
+- `n_catalytic_edges::Int`: number of catalytic edges at the start
+  of `edges`. Dead-end edges (`edges[n_catalytic_edges+1:end]`)
+  are always treated as rapid-equilibrium during RE/SS expansion,
+  because their SS rate constants are not identifiable from
+  steady-state rate data (only the equilibrium ratio K = kf/kr
+  appears in the rate equation).
 - `equilibrium_steps::Vector{Bool}`: `true` for rapid-equilibrium steps.
 - `param_constraints::Vector{ParamConstraint}`: equivalence constraints.
 - `dead_end_regulators::Vector{Symbol}`: regulators treated as dead-end
@@ -68,6 +76,7 @@ info, and oligomeric expansion parameters.
 struct MechanismSpec
     reaction::Any
     edges::Vector{Tuple{Int,Int}}
+    n_catalytic_edges::Int
     equilibrium_steps::Vector{Bool}
     param_constraints::Vector{ParamConstraint}
     dead_end_regulators::Vector{Symbol}
@@ -77,15 +86,16 @@ struct MechanismSpec
     allosteric_multiplicities::Vector{Int}
 end
 MechanismSpec(reaction, edges) =
-    MechanismSpec(reaction, edges, fill(false, length(edges)),
+    MechanismSpec(reaction, edges, length(edges),
+        fill(false, length(edges)),
         ParamConstraint[], Symbol[], Symbol[], 0, 1, Int[])
 MechanismSpec(reaction, edges, eq_steps, constraints) =
-    MechanismSpec(reaction, edges, eq_steps, constraints,
-        Symbol[], Symbol[], 0, 1, Int[])
-MechanismSpec(reaction, edges, eq_steps, constraints,
+    MechanismSpec(reaction, edges, length(edges), eq_steps,
+        constraints, Symbol[], Symbol[], 0, 1, Int[])
+MechanismSpec(reaction, edges, n_cat, eq_steps, constraints,
               dead_end_regs, allosteric_regs) =
-    MechanismSpec(reaction, edges, eq_steps, constraints,
-        dead_end_regs, allosteric_regs, 0, 1, Int[])
+    MechanismSpec(reaction, edges, n_cat, eq_steps,
+        constraints, dead_end_regs, allosteric_regs, 0, 1, Int[])
 
 """
     EnumerationStage
@@ -442,9 +452,11 @@ function _expand_inhibitors(
                 (a, b) for ((a, b), info) in adj
                 if a ∈ all_forms && b ∈ all_forms &&
                    (a, b) ∉ existing && info.type == :binding]
+            all_edges = [spec.edges; new_edges]
             push!(result, MechanismSpec(
-                spec.reaction, [spec.edges; new_edges],
-                fill(false, length(spec.edges) + length(new_edges)),
+                spec.reaction, all_edges,
+                length(spec.edges),
+                fill(false, length(all_edges)),
                 ParamConstraint[],
                 dead_end_regs, allosteric_regs))
         end
@@ -496,22 +508,27 @@ end
 # ─── RE/SS + Constraint Lazy Generator ────────────────────────
 
 """
-    _find_equivalent_groups(edges, adj, forms) → Vector{Vector{Int}}
+    _find_equivalent_groups(edges, adj, forms, n_catalytic_edges)
 
-Find groups of binding edges that involve the same non-product metabolite.
-Edges within a group can be constrained to share kinetic parameters.
+Find groups of catalytic binding edges that involve the same
+non-product metabolite. Only catalytic edges (first `n_catalytic_edges`)
+are considered — dead-end edges are always RE and don't participate
+in parameter constraint enumeration.
 """
-function _find_equivalent_groups(edges, adj, forms)
+function _find_equivalent_groups(edges, adj, forms,
+    n_catalytic_edges)
     groups = Dict{Symbol, Vector{Int}}()
     product_metabolites = Set(
         s.metabolite for s in forms[1].sites if s.role == :prod)
-    for (i, (a, b)) in enumerate(edges)
+    for i in 1:n_catalytic_edges
+        (a, b) = edges[i]
         info = get(adj, minmax(a, b), nothing)
         info !== nothing && info.type in (:binding, :release) &&
             info.metabolite ∉ product_metabolites &&
             push!(get!(groups, info.metabolite, Int[]), i)
     end
-    sort!([sort(v) for v in values(groups) if length(v) >= 2]; by=first)
+    sort!([sort(v) for v in values(groups) if length(v) >= 2];
+        by=first)
 end
 
 """
@@ -520,18 +537,25 @@ end
 Generate RE/SS (rapid-equilibrium / steady-state) + parameter constraint
 variants for a mechanism.
 
+Only catalytic edges (`edges[1:n_catalytic_edges]`) are candidates for
+SS assignment. Dead-end edges are always RE because their SS rate
+constants are not identifiable from rate data (only K = kf/kr appears
+in the rate equation — same argument as MWC star topology).
+
 Baseline: all edges RE except the first isomerization edge (always SS).
-Iterates over subsets of remaining edges to additionally make SS,
-keeping only masks where 2 ≤ G ≤ max_re_groups (G = number of RE
-groups). For each valid mask, enumerates constraint combinations on
-equivalent step groups.
+Iterates over subsets of remaining catalytic edges to additionally make
+SS, keeping only masks where 2 ≤ G ≤ max_re_groups. For each valid
+mask, enumerates constraint combinations on equivalent step groups.
 """
 function _ress_variants(spec, adj, forms; max_re_groups::Int=7)
     edges = spec.edges
     n = length(edges)
+    n_cat = spec.n_catalytic_edges
     iso_idx = _find_first_isomerization(edges, adj)
-    equiv_groups = _find_equivalent_groups(edges, adj, forms)
-    other_indices = [i for i in 1:n if i != iso_idx]
+    equiv_groups = _find_equivalent_groups(edges, adj, forms,
+        n_cat)
+    # Only catalytic edges (excluding isomerization) can be SS
+    other_indices = [i for i in 1:n_cat if i != iso_idx]
     n_other = length(other_indices)
     Iterators.flatmap(0:(1 << n_other) - 1) do ss_mask
         eq_steps = fill(true, n)
@@ -556,8 +580,8 @@ function _ress_variants(spec, adj, forms; max_re_groups::Int=7)
                     ("K", ("",)) : ("k", ("f", "r"))),)
                 for j in 2:length(g) for s in ss]
             MechanismSpec(
-                spec.reaction, edges, eq_steps, constraints,
-                spec.dead_end_regulators,
+                spec.reaction, edges, n_cat, eq_steps,
+                constraints, spec.dead_end_regulators,
                 spec.allosteric_regulators)
         end
     end
@@ -575,9 +599,11 @@ function _count_ress_variants(
     edges = spec.edges
     n = length(edges)
     n == 0 && return 0
+    n_cat = spec.n_catalytic_edges
     iso_idx = _find_first_isomerization(edges, adj)
-    equiv_groups = _find_equivalent_groups(edges, adj, forms)
-    other_indices = [i for i in 1:n if i != iso_idx]
+    equiv_groups = _find_equivalent_groups(edges, adj, forms,
+        n_cat)
+    other_indices = [i for i in 1:n_cat if i != iso_idx]
     n_other = length(other_indices)
     total = 0
     for ss_mask in 0:(1 << n_other) - 1
@@ -782,6 +808,7 @@ function _expand_oligomeric_variants(em_spec, catalytic_n)
     if k == 0
         oem = MechanismSpec(
             em_spec.reaction, em_spec.edges,
+            em_spec.n_catalytic_edges,
             em_spec.equilibrium_steps,
             em_spec.param_constraints,
             em_spec.dead_end_regulators,
@@ -795,6 +822,7 @@ function _expand_oligomeric_variants(em_spec, catalytic_n)
     ) do combo
         MechanismSpec(
             em_spec.reaction, em_spec.edges,
+            em_spec.n_catalytic_edges,
             em_spec.equilibrium_steps,
             em_spec.param_constraints,
             em_spec.dead_end_regulators,
