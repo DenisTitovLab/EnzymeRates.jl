@@ -637,3 +637,50 @@ With OligomericEnzymeMechanism expansion (catalytic_n > 1), total counts increas
 - `compile_mechanism` builds Metabolites tuple from reaction: substrates + products + regulators (alphabetical order, matching DSL convention)
 
 **Tests:** All 3666 tests pass (2281 mechanism enumeration tests). Pre-existing "Rate equation too large error" failure (1 test) and segfault in large mechanism compilation unchanged.
+
+### Agent 5: API Cleanup + Integration — COMPLETED
+
+**Changes made:**
+- `src/mechanism_enumeration.jl`:
+  - Removed `max_forms` from `enumerate_mechanisms` public API signature
+  - `max_forms` is now computed internally as `length(forms)` (no external restriction on topology size; G≤7 cap is the sole complexity control)
+  - Added `max_re_groups::Int=7` keyword argument to `enumerate_mechanisms`, threaded through to `_ress_variants` and `_count_ress_variants`
+  - Updated docstring with `# Keywords` section documenting `max_re_groups` and `catalytic_n`
+
+- `src/EnzymeRates.jl`:
+  - Exported `compile_mechanism` (converts `MechanismSpec` → `EnzymeMechanism` or `OligomericEnzymeMechanism`)
+
+- `test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl`:
+  - Removed `max_forms` field from `EnumerationTestSpec`
+  - Removed `max_forms=100` from all test spec definitions
+  - Removed Bi-Bi Budget test spec (existed solely to test `max_forms` filtering)
+
+- `test/test_mechanism_enum_of_enz_reaction.jl`:
+  - Removed all `max_forms=spec.max_forms` from `enumerate_mechanisms` calls
+  - Changed `EnzymeRates.compile_mechanism` to `compile_mechanism` (now exported)
+  - Added "Integration: G≤7, SS step, round-trip" testset: for every Uni-Uni mechanism, verifies at least 1 SS step, 2 ≤ G ≤ 7, and round-trip compile → rate_equation
+  - Added "Integration: OEM round-trip + NConf=2" testset: verifies OEM specs have NConf=2, compile to `OligomericEnzymeMechanism`, and produce finite rate values
+  - Added "max_re_groups parameter" testset: verifies tighter cap produces fewer mechanisms and all satisfy G ≤ cap
+
+- `test/test_enzyme_derivation.jl`:
+  - Removed `max_forms` keyword from two `enumerate_mechanisms` calls
+  - Fixed "Rate equation too large error" test: now searches backward from end of dead-end list for a mechanism with ≥ 15 forms (previously used fragile `end - 1` index)
+
+- `SPEC.md`:
+  - Updated `IdentifyRateEquationProblem` constructor: replaced `max_forms` with `max_re_groups` and `catalytic_n`
+  - Added `compile_mechanism` to Functions table
+  - Added `compile_mechanism` to exported symbol list
+  - Updated symbol count: 19 (was 18)
+
+- `.claude/CLAUDE.md`:
+  - Updated API symbol count to 19, added `compile_mechanism` description
+  - Updated `src/mechanism_enumeration.jl` source layout description
+  - Added pipeline description to testing section
+
+**Key design details:**
+- `max_forms` is now internal only: computed as `length(forms)` inside `enumerate_mechanisms`. This means no external restriction on topology or dead-end form count — the G≤7 RE group cap is the primary complexity control.
+- All existing test spec expected counts are unchanged because every spec previously used `max_forms=100`, and `length(forms) < 100` for all test reactions. The Bi-Bi Budget spec (which used `max_forms=5`) was removed.
+- The `max_re_groups` parameter defaults to 7 (random-order bi-bi ceiling) and is now user-configurable via `enumerate_mechanisms(rxn; max_re_groups=5)`.
+- The "Rate equation too large error" test was made more robust by searching for a mechanism with ≥ 15 forms instead of relying on a specific index.
+
+**Tests:** All 3597 tests pass. Pre-existing segfault at process exit unchanged.

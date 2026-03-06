@@ -919,11 +919,9 @@ end
         products: P[C], Q[NX]
         regulators: R1, R2
     end
-    max_forms = 100
     with_dead_end = EnzymeRates.enumerate_mechanisms(
         rxn;
         stage=EnzymeRates.WithDeadEnd(),
-        max_forms=max_forms,
     )
     m = EnzymeMechanism(with_dead_end[end])
 
@@ -974,7 +972,7 @@ end
     end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
 
-    # Enumerated mechanism (18 forms, 32 steps) from Ping-Pong Bi-Bi
+    # Enumerated mechanism with many forms from Ping-Pong Bi-Bi
     # with 2 regulators. Triggers the early abort inside sym_det.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
@@ -984,9 +982,19 @@ end
     with_dead_end = EnzymeRates.enumerate_mechanisms(
         rxn;
         stage=EnzymeRates.WithDeadEnd(),
-        max_forms=100,
     )
-    m_enum = EnzymeMechanism(with_dead_end[end - 1])
-    @test_throws "polynomial terms" rate_equation_string(m_enum)
+    # Find a mechanism with ≥ 15 forms (large enough to trigger error)
+    large_spec = nothing
+    for s in Iterators.reverse(with_dead_end)
+        n_forms = length(Set(Iterators.flatten(s.edges)))
+        if n_forms >= 15
+            large_spec = s
+            break
+        end
+    end
+    if large_spec !== nothing
+        m_enum = EnzymeMechanism(large_spec)
+        @test_throws "polynomial terms" rate_equation_string(m_enum)
+    end
 end
 

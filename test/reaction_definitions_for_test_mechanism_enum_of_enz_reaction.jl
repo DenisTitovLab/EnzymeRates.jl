@@ -10,7 +10,6 @@ Contains expected counts at each pipeline stage.
 Base.@kwdef struct EnumerationTestSpec
     name::String
     reaction::Any           # EnzymeReaction instance
-    max_forms::Int          # max_forms passed to enumerate_mechanisms
 
     # Stage counts (verified by tests)
     expected_n_forms::Int                # enumerate_enzyme_forms
@@ -193,7 +192,7 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Uni-Uni",
             reaction=rxn,
-            max_forms=100,
+
             expected_n_forms=3,
             expected_n_catalytic=1,
             # No regulators → dead-end = catalytic
@@ -214,7 +213,7 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Uni-Uni 1 Regulator",
             reaction=rxn,
-            max_forms=100,
+
             expected_n_forms=6,
             expected_n_catalytic=1,
             # 2 partitions: {R dead-end} + {R allosteric}
@@ -235,7 +234,7 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Uni-Uni 2 Regulators",
             reaction=rxn,
-            max_forms=100,
+
             expected_n_forms=12,
             expected_n_catalytic=1,
             # 4 partitions: (2^2)^3 + 2*(2^1)^3 + 1 = 81
@@ -255,7 +254,7 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Uni-Bi",
             reaction=rxn,
-            max_forms=100,
+
             expected_n_forms=16,
             expected_n_catalytic=3,
             # 2 partitions: {R de} + {R al}
@@ -276,7 +275,7 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Bi-Bi + 1 Regulator",
             reaction=rxn,
-            max_forms=100,
+
             expected_n_forms=22,
             expected_n_catalytic=9,
             expected_n_cat_de=521,
@@ -295,7 +294,7 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Bi-Bi 1 Regulator",
             reaction=rxn,
-            max_forms=100,
+
             expected_n_forms=22,
             expected_n_catalytic=9,
             expected_n_cat_de=521,
@@ -313,32 +312,13 @@ function build_enumeration_test_specs()
         push!(specs, EnumerationTestSpec(
             name="Bi-Bi PP",
             reaction=rxn,
-            max_forms=100,
+
             expected_n_forms=17,
             expected_n_catalytic=10,
             # No regulators → dead-end = catalytic
             expected_n_cat_de=10,
             expected_n_total=989,
             max_enumeration_time=10.0,
-        ))
-    end
-
-    # 8. Bi-Bi budget filtering (max_forms=5 restricts to single cycles)
-    let
-        rxn = @enzyme_reaction begin
-            substrates:A[C], B[N]
-            products:P[C], Q[N]
-        end
-        push!(specs, EnumerationTestSpec(
-            name="Bi-Bi Budget",
-            reaction=rxn,
-            max_forms=5,
-            expected_n_forms=11,
-            expected_n_catalytic=4,
-            # No regulators → dead-end = catalytic
-            expected_n_cat_de=4,
-            expected_n_total=60,
-            max_enumeration_time=5.0,
         ))
     end
 

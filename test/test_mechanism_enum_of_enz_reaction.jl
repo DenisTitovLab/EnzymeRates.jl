@@ -6,14 +6,12 @@
         catalytic = EnzymeRates.enumerate_mechanisms(
             spec.reaction;
             stage=EnzymeRates.Catalytic(),
-            max_forms=spec.max_forms,
         )
         @test length(catalytic) == spec.expected_n_catalytic
 
         with_de = collect(EnzymeRates.enumerate_mechanisms(
             spec.reaction;
             stage=EnzymeRates.WithDeadEnd(),
-            max_forms=spec.max_forms,
         ))
         @test length(with_de) == spec.expected_n_cat_de
 
@@ -25,7 +23,7 @@
 
         # Total mechanism count (O(1) for lazy iterator)
         final = EnzymeRates.enumerate_mechanisms(
-            spec.reaction; max_forms=spec.max_forms)
+            spec.reaction)
         @test length(final) == spec.expected_n_total
 
         # RE/SS + constraints (closed-form formula verification)
@@ -37,7 +35,7 @@
 
             if isfinite(spec.max_enumeration_time)
                 t = @elapsed EnzymeRates.enumerate_mechanisms(
-                    spec.reaction; max_forms=spec.max_forms)
+                    spec.reaction)
                 @test t < spec.max_enumeration_time
             end
         end
@@ -115,10 +113,10 @@
             end
         end
 
-        # compile_mechanism dispatches correctly
+        # compile_mechanism dispatches correctly (exported)
         @testset "compile_mechanism" begin
             for s in mech_test_specs
-                em = EnzymeRates.compile_mechanism(s)
+                em = compile_mechanism(s)
                 @test em isa EnzymeMechanism
             end
         end
@@ -127,8 +125,7 @@
         @testset "Oligomeric expansion" begin
             cat_n = 2
             final_oligo = EnzymeRates.enumerate_mechanisms(
-                spec.reaction;
-                max_forms=spec.max_forms, catalytic_n=cat_n)
+                spec.reaction; catalytic_n=cat_n)
 
             # Verify count formula
             if !spec.skip_ress_test
@@ -191,6 +188,85 @@
                 @test v isa Real
                 @test isfinite(v)
             end
+        end
+    end
+
+    # ── Integration tests ──────────────────────────────────────────
+    # Use Uni-Uni (simplest, fast compilation) for detailed checks.
+    @testset "Integration: G≤7, SS step, round-trip" begin
+        rxn = @enzyme_reaction begin
+            substrates:S[C]
+            products:P[C]
+        end
+        iter = EnzymeRates.enumerate_mechanisms(rxn)
+        specs = collect(iter)
+        @test length(specs) > 0
+
+        for s in specs
+            # Every mechanism must have at least 1 SS step
+            @test any(.!s.equilibrium_steps)
+            # G must be in [2, 7]
+            G = _compute_re_group_count_test(
+                s.edges, s.equilibrium_steps)
+            @test 2 <= G <= 7
+
+            # Round-trip: compile → rate_equation
+            m = compile_mechanism(s)
+            @test m isa EnzymeMechanism
+            metabs = metabolites(m)
+            params_tup = parameters(m)
+            concs = NamedTuple{metabs}(ones(length(metabs)))
+            pvals = NamedTuple{params_tup}(
+                ones(length(params_tup)))
+            v = rate_equation(m, concs, pvals)
+            @test isfinite(v)
+        end
+    end
+
+    @testset "Integration: OEM round-trip + NConf=2" begin
+        rxn = @enzyme_reaction begin
+            substrates:S[C]
+            products:P[C]
+            regulators: R
+        end
+        iter = EnzymeRates.enumerate_mechanisms(
+            rxn; catalytic_n=2)
+        # Check first few OEM specs
+        oem_checked = 0
+        for s in Iterators.take(iter, 100)
+            s.catalytic_n == 0 && continue
+            @test s.n_conf == 2
+            m = compile_mechanism(s)
+            @test m isa OligomericEnzymeMechanism
+            metabs = metabolites(m)
+            params_tup = parameters(m)
+            @test :L ∈ params_tup
+            concs = NamedTuple{metabs}(ones(length(metabs)))
+            pvals = NamedTuple{params_tup}(
+                ones(length(params_tup)))
+            v = rate_equation(m, concs, pvals)
+            @test isfinite(v)
+            oem_checked += 1
+            oem_checked >= 3 && break
+        end
+        @test oem_checked >= 1
+    end
+
+    @testset "max_re_groups parameter" begin
+        rxn = @enzyme_reaction begin
+            substrates:S[C]
+            products:P[C]
+        end
+        iter_5 = EnzymeRates.enumerate_mechanisms(
+            rxn; max_re_groups=5)
+        iter_7 = EnzymeRates.enumerate_mechanisms(rxn)
+        # Tighter cap → fewer or equal mechanisms
+        @test length(iter_5) <= length(iter_7)
+        # All specs from iter_5 satisfy G ≤ 5
+        for s in iter_5
+            G = _compute_re_group_count_test(
+                s.edges, s.equilibrium_steps)
+            @test 2 <= G <= 5
         end
     end
 end

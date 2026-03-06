@@ -54,6 +54,7 @@ secondary use cases.
 | `metabolites` | Distinct metabolite names as a tuple of Symbols: `metabolites(m) → (:S, :P)`. |
 | `structural_identifiability_deficit` | Structural identifiability deficit (non-positive = identifiable). |
 | `rescale_parameter_values` | Rescale SS rate constants so kcat equals target (default 1.0). K's, Keq, E_total unchanged. |
+| `compile_mechanism` | Convert a `MechanismSpec` to `EnzymeMechanism` or `OligomericEnzymeMechanism`. |
 
 ---
 
@@ -131,7 +132,8 @@ IdentifyRateEquationProblem(
     reaction::EnzymeReaction,
     data;
     Keq::Real,
-    max_forms::Int = 3 * n_sites(reaction),
+    max_re_groups::Int = 7,
+    catalytic_n::Int = 0,
 )
 ```
 
@@ -395,9 +397,12 @@ export structural_identifiability_deficit
 
 # Parameter rescaling
 export rescale_parameter_values
+
+# Mechanism compilation
+export compile_mechanism
 ```
 
-Total: 6 types + 2 macros + 2 constants + 8 functions = **18 exported symbols**.
+Total: 6 types + 2 macros + 2 constants + 9 functions = **19 exported symbols**.
 
 ---
 

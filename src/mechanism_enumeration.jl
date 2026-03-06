@@ -600,7 +600,7 @@ end
 # ─── Pipeline ─────────────────────────────────────────────────
 
 """
-    enumerate_mechanisms(reaction; stage, max_forms, catalytic_n)
+    enumerate_mechanisms(reaction; stage, max_re_groups, catalytic_n)
 
 Enumerate valid mechanism topologies for the given reaction.
 
@@ -620,19 +620,26 @@ When `catalytic_n > 0`, also produces `OligomericEnzymeMechanism`
 candidates (NConf=2) for each RE/SS variant. Each allosteric
 regulator gets multiplicity ∈ 1:catalytic_n; all multiplicities are
 enumerated via Cartesian product.
+
+# Keywords
+- `max_re_groups::Int=7`: maximum number of RE groups (King-Altman
+  rate matrix dimension). Mechanisms with G > max_re_groups are
+  filtered out during RE/SS expansion.
+- `catalytic_n::Int=0`: when > 0, also enumerate
+  `OligomericEnzymeMechanism` candidates with this many catalytic
+  subunits and NConf=2.
 """
 function enumerate_mechanisms(
     @nospecialize(reaction::EnzymeReaction);
     stage::EnumerationStage=FullEnumeration(),
-    max_forms::Int=3 * (length(substrates(reaction)) +
-                        length(products(reaction)) +
-                        length(regulators(reaction))),
+    max_re_groups::Int=7,
     catalytic_n::Int=0,
 )
     forms = enumerate_enzyme_forms(reaction)
     adj = _build_adjacency(forms)
     form_lookup = Dict(Tuple(s.atoms for s in f.sites) => i
                        for (i, f) in enumerate(forms))
+    max_forms = length(forms)
 
     catalytic = _catalytic_topologies(forms, adj, reaction; max_forms)
     stage isa Catalytic && return catalytic
@@ -659,18 +666,21 @@ function enumerate_mechanisms(
     # FullEnumeration: count RE/SS variants (brute-force with G cap),
     # wrap in lazy iterator.
     em_total = sum(all_inhibitor_specs; init=0) do s
-        _count_ress_variants(s, adj, forms)
+        _count_ress_variants(s, adj, forms; max_re_groups)
     end
 
     if catalytic_n > 0
         oem_total = sum(all_inhibitor_specs; init=0) do s
             _oligomeric_count(
-                s, _count_ress_variants(s, adj, forms),
+                s,
+                _count_ress_variants(s, adj, forms;
+                    max_re_groups),
                 catalytic_n)
         end
         total = em_total + oem_total
         inner = Iterators.flatmap(all_inhibitor_specs) do s
-            ress = _ress_variants(s, adj, forms)
+            ress = _ress_variants(s, adj, forms;
+                max_re_groups)
             Iterators.flatmap(ress) do em_spec
                 Iterators.flatten((
                     (em_spec,),
@@ -682,7 +692,8 @@ function enumerate_mechanisms(
     else
         total = em_total
         inner = Iterators.flatmap(
-            s -> _ress_variants(s, adj, forms),
+            s -> _ress_variants(s, adj, forms;
+                max_re_groups),
             all_inhibitor_specs)
     end
     MechanismIterator(inner, total)
