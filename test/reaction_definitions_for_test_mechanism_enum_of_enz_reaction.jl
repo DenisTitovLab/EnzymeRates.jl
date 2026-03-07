@@ -55,8 +55,8 @@ Test-local reimplementation — uses site diffs, not adjacency dict.
 function _find_first_isomerization_test(edges, forms)
     for (i, (a, b)) in enumerate(edges)
         ndiff = count(
-            k -> forms[a].sites[k].atoms != forms[b].sites[k].atoms,
-            eachindex(forms[a].sites))
+            k -> forms[a].occupancy[k] != forms[b].occupancy[k],
+            eachindex(forms[a].occupancy))
         ndiff > 1 && return i
     end
     return 1
@@ -87,6 +87,15 @@ function _compute_re_partition_test(edges, eq_steps)
         push!(get!(groups, r, Int[]), i)
     end
     sort!([sort!(v) for v in values(groups)])
+end
+
+"""Return true if traversing from→to binds a metabolite (test-local)."""
+function _is_binding_direction_test(forms, from, to)
+    for k in eachindex(forms[from].occupancy)
+        forms[from].occupancy[k] == forms[to].occupancy[k] && continue
+        return forms[from].occupancy[k] === nothing
+    end
+    error("unreachable: no differing site")
 end
 
 const _TestMONO = Vector{Pair{Symbol,Int}}
@@ -143,7 +152,7 @@ end
 
 """
 Compute concentration fingerprint (test-local reimplementation).
-Uses forms and adj_info to classify edges independently.
+Uses forms occupancy to determine binding direction.
 """
 function _concentration_fingerprint_test(edges, eq_steps, forms,
                                          adj_info)
@@ -171,15 +180,13 @@ function _concentration_fingerprint_test(edges, eq_steps, forms,
                 end
                 (neighbor === nothing ||
                     haskey(alpha_conc, neighbor)) && continue
-                info = adj_info[minmax(a, b)]
+                met = adj_info[minmax(a, b)]
                 parent_mono = alpha_conc[cur]
-                child_mono = if info.metabolite !== nothing
-                    is_binding =
-                        (info.type == :binding && a == cur) ||
-                        (info.type == :release && b == cur)
-                    is_binding ?
-                        _add_met_test(parent_mono,
-                            info.metabolite) :
+                child_mono = if met !== nothing
+                    binding = _is_binding_direction_test(
+                        forms, cur, neighbor)
+                    binding ?
+                        _add_met_test(parent_mono, met) :
                         copy(parent_mono)
                 else
                     copy(parent_mono)
@@ -196,17 +203,19 @@ function _concentration_fingerprint_test(edges, eq_steps, forms,
     R_conc = Dict{Tuple{Int,Int}, Set{_TestMONO}}()
     for (idx, (a, b)) in enumerate(edges)
         eq_steps[idx] && continue
-        info = adj_info[minmax(a, b)]
+        met = adj_info[minmax(a, b)]
         g1, g2 = form_to_group[a], form_to_group[b]
         g1 == g2 && continue
-        fwd_met = (info.type == :binding) ? info.metabolite :
-            nothing
+        fwd_met = (met !== nothing &&
+            _is_binding_direction_test(forms, a, b)) ?
+            met : nothing
         fwd_mono = fwd_met !== nothing ?
             _add_met_test(alpha_conc[a], fwd_met) :
             copy(alpha_conc[a])
         push!(get!(R_conc, (g1, g2), Set{_TestMONO}()), fwd_mono)
-        rev_met = (info.type == :release) ? info.metabolite :
-            nothing
+        rev_met = (met !== nothing &&
+            _is_binding_direction_test(forms, b, a)) ?
+            met : nothing
         rev_mono = rev_met !== nothing ?
             _add_met_test(alpha_conc[b], rev_met) :
             copy(alpha_conc[b])
@@ -231,7 +240,7 @@ function _constraint_descriptor_test(edges, adj_info, eq_steps,
     descriptor = Set{Tuple{Symbol, Symbol}}()
     for (gi, g) in enumerate(valid_groups)
         (constraint_mask >> (gi - 1)) & 1 == 1 || continue
-        met = adj_info[minmax(edges[g[1]]...)].metabolite
+        met = adj_info[minmax(edges[g[1]]...)]
         mode = eq_steps[g[1]] ? :RE : :SS
         push!(descriptor, (met, mode))
     end
@@ -240,10 +249,10 @@ end
 
 """Map each dead-end edge to its catalytic counterpart index.
 Test-local version using only public struct fields."""
-function _dead_end_catalytic_map_test(edges, n_cat, forms)
+function _dead_end_catalytic_map_test(edges, n_cat, site_defs, forms)
     _strip_regs(fi) = Tuple(
-        s.role == :reg ? nothing : s.atoms
-        for s in forms[fi].sites)
+        site_defs[k].role == :reg ? nothing : forms[fi].occupancy[k]
+        for k in eachindex(site_defs))
     _key(a, b) = let sa = _strip_regs(a), sb = _strip_regs(b)
         hash(sa) <= hash(sb) ? (sa, sb) : (sb, sa)
     end
@@ -259,14 +268,10 @@ end
 """
 Compute the RE/SS + constraint count using brute-force enumeration
 with G ≤ max_re_groups cap, with fingerprint-based deduplication.
-
-Baseline: first isomerization edge is always SS. Iterates over
-subsets of remaining edges to make SS, keeps masks with 2 ≤ G ≤ 7,
-and counts unique (fingerprint, constraint_descriptor) keys.
-Dead-end edges inherit RE/SS from their catalytic counterpart.
 """
 function _compute_expected_n_total(
     spec::EnzymeRates.MechanismSpec,
+    site_defs::Vector{EnzymeRates.SiteDefinition},
     forms::Vector{EnzymeRates.EnzymeFormSpec};
     max_re_groups::Int=7,
 )
@@ -275,15 +280,13 @@ function _compute_expected_n_total(
     n == 0 && return 0
     n_cat = spec.n_catalytic_edges
     iso_idx = _find_first_isomerization_test(edges, forms)
-    de_cat_map = _dead_end_catalytic_map_test(edges, n_cat, forms)
-    equiv_groups = _find_equiv_groups(edges, forms, n_cat,
-        de_cat_map)
+    de_cat_map = _dead_end_catalytic_map_test(
+        edges, n_cat, site_defs, forms)
+    equiv_groups = _find_equiv_groups(
+        edges, site_defs, forms, n_cat, de_cat_map)
 
     # Build adjacency for fingerprint computation
-    adj_info = EnzymeRates._build_adjacency(forms)
-
-    # Map dead-end edges to catalytic counterparts
-    de_cat_map = _dead_end_catalytic_map_test(edges, n_cat, forms)
+    adj_info = EnzymeRates._build_adjacency(site_defs, forms)
 
     other_indices = [i for i in 1:n_cat if i != iso_idx]
     n_other = length(other_indices)
@@ -319,33 +322,32 @@ function _compute_expected_n_total(
 end
 
 """Classify a single edge by site diffs (test-local).
-Returns (metabolite, is_single_site_binding) or nothing."""
-function _classify_edge_test(edges, forms, i)
+Returns metabolite Symbol or nothing (for isomerization/product)."""
+function _classify_edge_test(edges, site_defs, forms, i)
     (a, b) = edges[i]
     diff_count = 0
     diff_k = 0
-    for k in 1:length(forms[a].sites)
-        if forms[a].sites[k].atoms != forms[b].sites[k].atoms
+    for k in eachindex(forms[a].occupancy)
+        if forms[a].occupancy[k] != forms[b].occupancy[k]
             diff_count += 1
             diff_count == 1 && (diff_k = k)
         end
     end
     diff_count == 1 || return nothing
     k = diff_k
-    a_occ = forms[a].sites[k].atoms !== nothing
-    site = a_occ ? forms[a].sites[k] : forms[b].sites[k]
-    site.role == :prod && return nothing
-    return site.metabolite
+    sd = site_defs[k]
+    sd.role == :prod && return nothing
+    return sd.metabolite
 end
 
 """Find equivalent groups from catalytic + dead-end edges:
 non-product binding edges grouped by metabolite.
 Uses only public struct fields."""
-function _find_equiv_groups(edges, forms, n_catalytic_edges,
-                            de_cat_map=nothing)
+function _find_equiv_groups(edges, site_defs, forms,
+                            n_catalytic_edges, de_cat_map=nothing)
     binding_key = Dict{Symbol,Vector{Int}}()
     for i in 1:n_catalytic_edges
-        met = _classify_edge_test(edges, forms, i)
+        met = _classify_edge_test(edges, site_defs, forms, i)
         met === nothing && continue
         push!(get!(binding_key, met, Int[]), i)
     end
@@ -353,7 +355,8 @@ function _find_equiv_groups(edges, forms, n_catalytic_edges,
         for (di, cat_idx) in enumerate(de_cat_map)
             cat_idx === nothing && continue
             edge_idx = n_catalytic_edges + di
-            met = _classify_edge_test(edges, forms, edge_idx)
+            met = _classify_edge_test(
+                edges, site_defs, forms, edge_idx)
             met === nothing && continue
             push!(get!(binding_key, met, Int[]), edge_idx)
         end
@@ -365,17 +368,14 @@ end
 
 """
 Compute expected dead-end mechanism count with regulator partitioning.
-
-Sums over all 2^n_reg partitions of regulators into {dead-end, allosteric}.
-For each partition, dead-end expansion uses formula: (2^r_de)^n_topo
-per catalytic topology, where r_de = number of dead-end regulators.
 """
 function _compute_expected_dead_end_count(
     catalytic_specs,
+    site_defs::Vector{EnzymeRates.SiteDefinition},
     forms::Vector{EnzymeRates.EnzymeFormSpec},
 )
-    reg_positions = [k for k in eachindex(forms[1].sites)
-                     if forms[1].sites[k].role == :reg]
+    reg_positions = [k for k in eachindex(site_defs)
+                     if site_defs[k].role == :reg]
     n_reg = length(reg_positions)
 
     total = 0
@@ -406,21 +406,17 @@ end
 
 """
 Compute expected total with oligomeric expansion (catalytic_n=N).
-
-For each dead-end spec with k allosteric regulators:
-  EM contribution: ress_count
-  OEM contribution: ress_count * _partition_mult_count(k, N)
-Total = sum of (EM + OEM) over all dead-end specs.
 """
 function _compute_expected_oligomeric_total(
     de_specs,
+    site_defs::Vector{EnzymeRates.SiteDefinition},
     forms::Vector{EnzymeRates.EnzymeFormSpec},
     catalytic_n::Int;
     max_re_groups::Int=7,
 )
     total = 0
     for spec in de_specs
-        ress = _compute_expected_n_total(spec, forms;
+        ress = _compute_expected_n_total(spec, site_defs, forms;
             max_re_groups)
         k = length(spec.allosteric_regulators)
         oem = ress * _partition_mult_count_test(k, catalytic_n)
@@ -456,26 +452,6 @@ function build_enumeration_test_specs()
     end
 
     # 2. Uni-Uni + 1 regulator
-    #
-    # Forms (6): E, ES, EP  +  ER, ESR, EPR
-    #   (2×2×2=8 minus 2 excluded SP combos)
-    # Adjacency (9 edges):
-    #   Catalytic:  (E,ES) bind S, (E,EP) bind P, (ES,EP) iso
-    #   R-binding:  (E,ER), (ES,ESR), (EP,EPR)
-    #   Inter-de:   (ER,ESR) bind S, (ER,EPR) bind P, (ESR,EPR) iso
-    # Catalytic cycle: 1 (E→ES→EP→E), 3 catalytic edges.
-    #
-    # Dead-end stage (9 specs from 2 regulator partitions):
-    #   Partition {R dead-end}: each of 3 catalytic forms independently
-    #     can have R bound → 2^3 = 8 dead-end configs
-    #   Partition {R allosteric}: 1 (bare catalytic topology)
-    #
-    # RE/SS stage: only the 3 catalytic edges are candidates for SS.
-    # Dead-end substrate/product-binding edges (ER↔ESR, ER↔EPR)
-    # inherit RE/SS from their catalytic counterpart (E↔ES, E↔EP).
-    # Dead-end regulator-binding edges (E↔ER etc.) remain always RE.
-    # Dead-end S-binding edges join equiv groups with their catalytic
-    # counterpart, adding constrained variants (K_S_de = K_S).
     let
         rxn = @enzyme_reaction begin
             substrates:S[C]

@@ -1,6 +1,7 @@
 @testset "Mechanism Enumeration" begin
     @testset "Pipeline: $(spec.name)" for spec in ENUMERATION_TEST_SPECS
-        forms = EnzymeRates.enumerate_enzyme_forms(spec.reaction)
+        site_defs, forms = EnzymeRates.enumerate_enzyme_forms(
+            spec.reaction)
         @test length(forms) == spec.expected_n_forms
 
         catalytic = EnzymeRates.enumerate_mechanisms(
@@ -18,7 +19,7 @@
         # Independent dead-end verification:
         # (2^r_inh)^n_topo per catalytic topology, summed
         expected_de_total = _compute_expected_dead_end_count(
-            catalytic, forms)
+            catalytic, site_defs, forms)
         @test expected_de_total == length(with_de)
 
         # Total mechanism count (O(1) for lazy iterator)
@@ -29,7 +30,7 @@
         # RE/SS + constraints (closed-form formula verification)
         if !spec.skip_ress_test
             expected_ress_total = sum(with_de) do base
-                _compute_expected_n_total(base, forms)
+                _compute_expected_n_total(base, site_defs, forms)
             end
             @test expected_ress_total == length(final)
 
@@ -130,7 +131,7 @@
             # Verify count formula
             if !spec.skip_ress_test
                 expected_oligo = _compute_expected_oligomeric_total(
-                    with_de, forms, cat_n)
+                    with_de, site_defs, forms, cat_n)
                 @test length(final_oligo) == expected_oligo
             end
 
@@ -285,8 +286,8 @@
             substrates:S[C]
             products:P[C]
         end
-        forms = EnzymeRates.enumerate_enzyme_forms(rxn)
-        adj = EnzymeRates._build_adjacency(forms)
+        site_defs, forms = EnzymeRates.enumerate_enzyme_forms(rxn)
+        adj = EnzymeRates._build_adjacency(site_defs, forms)
         with_de = collect(EnzymeRates.enumerate_mechanisms(
             rxn; stage=EnzymeRates.WithDeadEnd()))
         @test length(with_de) == 1
@@ -305,10 +306,11 @@
                 (ss_mask >> (bit - 1)) & 1 == 1 &&
                     (eq_steps[idx] = false)
             end
-            G = _compute_re_group_count_test(edges, eq_steps)
+            partition = _compute_re_partition_test(edges, eq_steps)
+            G = length(partition)
             G >= 2 || continue
             fp = EnzymeRates._concentration_fingerprint(
-                edges, eq_steps, forms, adj)
+                edges, eq_steps, site_defs, forms, adj, partition)
             push!(fps, fp)
         end
         # 3 valid masks (2 G=2 + 1 G=3), all same fingerprint
