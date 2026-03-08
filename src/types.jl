@@ -13,21 +13,47 @@ Singleton type encoding an enzyme reaction specification in type parameters.
 """
 struct EnzymeReaction{Substrates, Products, Regulators} end
 
+"""Regulator role in mechanism enumeration."""
+abstract type RegulatorRole end
+
+"""Allosteric regulator: OEM expansion + essential activator +
+general modifier special cases."""
+struct Allosteric <: RegulatorRole end
+
+"""Dead-end inhibitor: creates dead-end complexes only."""
+struct DeadEnd <: RegulatorRole end
+
+"""Unconstrained: try all roles (allosteric + dead-end)."""
+struct UnconstrainedRegulator <: RegulatorRole end
+
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
     subs_names = [s[1] for s in subs]
     prods_names = [s[1] for s in prods]
-    length(subs_names) != length(Set(subs_names)) && error("Duplicate substrate names")
-    length(prods_names) != length(Set(prods_names)) && error("Duplicate product names")
-    for r in regs
-        r isa Symbol || error("Regulators must be Symbols, got $r")
+    length(subs_names) != length(Set(subs_names)) &&
+        error("Duplicate substrate names")
+    length(prods_names) != length(Set(prods_names)) &&
+        error("Duplicate product names")
+    # Normalize regulators to (name, role) pairs
+    normalized_regs = if isempty(regs)
+        regs
+    elseif regs[1] isa Symbol
+        Tuple((r, :unknown) for r in regs)
+    else
+        regs
     end
-    length(regs) != length(Set(regs)) && error("Duplicate regulator names")
+    for r in normalized_regs
+        r isa Tuple{Symbol,Symbol} ||
+            error("Regulators must be (Symbol, Symbol) pairs, got $r")
+    end
+    reg_names = [r[1] for r in normalized_regs]
+    length(reg_names) != length(Set(reg_names)) &&
+        error("Duplicate regulator names")
     subs = _sort_species(subs)
     prods = _sort_species(prods)
-    regs = Tuple(sort(collect(regs)))
-    EnzymeReaction{subs, prods, regs}()
+    sorted_regs = Tuple(sort(collect(normalized_regs); by=first))
+    EnzymeReaction{subs, prods, sorted_regs}()
 end
 
 """
@@ -316,7 +342,7 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}
     prods_str = join([string(name) for (name, _) in P], " + ")
     print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
     if !isempty(R)
-        regs_str = join([string(r) for r in R], ", ")
+        regs_str = join([string(r[1]) for r in R], ", ")
         print(io, " | regulators: ", regs_str)
     end
 end
@@ -406,7 +432,11 @@ products(::EnzymeReaction{S,P,R}) where {S,P,R} = P
 
 """Return regulators."""
 regulators(::EnzymeMechanism{Species}) where {Species} = Species[3]
-regulators(::EnzymeReaction{S,P,R}) where {S,P,R} = R
+regulators(::EnzymeReaction{S,P,R}) where {S,P,R} =
+    Tuple(r[1] for r in R)
+
+"""Return regulator (name, role) pairs."""
+regulator_roles(::EnzymeReaction{S,P,R}) where {S,P,R} = R
 
 """Return all enzyme forms as a tuple of (name, atoms)."""
 enzyme_forms(::EnzymeMechanism{Species}) where {Species} = Species[4]

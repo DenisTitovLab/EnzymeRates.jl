@@ -12,17 +12,16 @@
 
 ---
 
-## Task 0: Rename old files
+## Task 0: Rename old files (keep as reference, not loaded)
 
-Preserve the old implementation while developing the new one.
+Preserve the old implementation as reference files while starting a clean reimplementation. Old files are renamed with `old_` prefix and **removed from all includes** — they are NOT loaded by `EnzymeRates.jl` or `runtests.jl`.
 
 **Files:**
 - Rename: `src/mechanism_enumeration.jl` -> `src/old_mechanism_enumeration.jl`
 - Rename: `test/test_mechanism_enum_of_enz_reaction.jl` -> `test/old_test_mechanism_enum_of_enz_reaction.jl`
 - Rename: `test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl` -> `test/old_reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl`
-- Modify: `src/EnzymeRates.jl:35` — change `include("mechanism_enumeration.jl")` to `include("old_mechanism_enumeration.jl")`
-- Modify: `test/runtests.jl:7` — change `include("reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl")` to `include("old_reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl")`
-- Modify: `test/runtests.jl:17` — change `include("test_mechanism_enum_of_enz_reaction.jl")` to `include("old_test_mechanism_enum_of_enz_reaction.jl")`
+- Modify: `src/EnzymeRates.jl` — **remove** `include("mechanism_enumeration.jl")` line entirely
+- Modify: `test/runtests.jl` — **remove** `include("reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl")` and `include("test_mechanism_enum_of_enz_reaction.jl")` lines entirely
 
 **Step 1: Rename files**
 
@@ -33,49 +32,35 @@ git mv test/test_mechanism_enum_of_enz_reaction.jl test/old_test_mechanism_enum_
 git mv test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl test/old_reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl
 ```
 
-**Step 2: Update includes in `src/EnzymeRates.jl`**
+**Step 2: Remove old include from `src/EnzymeRates.jl`**
 
-Change line 35 from:
+Delete the line:
 ```julia
 include("mechanism_enumeration.jl")
 ```
-to:
-```julia
-include("old_mechanism_enumeration.jl")
-```
 
-**Step 3: Update includes in `test/runtests.jl`**
+**Step 3: Remove old includes from `test/runtests.jl`**
 
-Change line 7 from:
+Delete these lines:
 ```julia
 include("reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl")
 ```
-to:
-```julia
-include("old_reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl")
-```
-
-Change line 17 from:
 ```julia
 include("test_mechanism_enum_of_enz_reaction.jl")
 ```
-to:
-```julia
-include("old_test_mechanism_enum_of_enz_reaction.jl")
-```
 
-**Step 4: Verify old tests still pass**
+**Step 4: Verify tests still pass**
 
 ```bash
 julia --project -e 'using Pkg; Pkg.test()'
 ```
 
-Expected: all tests pass (only file renames, no code changes).
+Expected: all tests pass. The old mechanism enumeration code is no longer loaded — only the remaining tests (types, DSL, enzyme derivation, etc.) run.
 
 **Step 5: Commit**
 
 ```bash
-git add -A && git commit -m "Rename old mechanism enumeration files with old_ prefix"
+git add -A && git commit -m "Rename old mechanism enumeration files with old_ prefix, remove from includes"
 ```
 
 ---
@@ -291,29 +276,15 @@ end
 
 **Step 2: Add include to `src/EnzymeRates.jl`**
 
-After the `include("old_mechanism_enumeration.jl")` line, add:
+Add where the old `include("mechanism_enumeration.jl")` used to be (removed in Task 0):
 
 ```julia
 include("mechanism_enumeration.jl")
 ```
 
-**Step 3: Run tests to verify no conflicts**
+Since the old file was renamed to `old_mechanism_enumeration.jl` and is no longer included, there are no name conflicts.
 
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
-
-Expected: FAIL — `MechanismSpec` is now redefined (conflicts with old file). We need to handle this.
-
-The old file defines `MechanismSpec` too. Since both files are included, we'll get a redefinition error. Two options:
-- a) Wrap old types in a module: `module OldEnumeration ... end`
-- b) Name the new type differently temporarily
-
-**Better approach:** Don't include the new file yet. Only include it when we're ready to replace the old one. For now, put the new types in the test file for testing, and move them into `src/mechanism_enumeration.jl` when we swap old for new.
-
-**Revised Step 2:** Don't modify `src/EnzymeRates.jl` yet. Create the file but don't include it. We'll develop and test using direct `include` from the test file, then swap at the end.
-
-**Step 3: Verify tests still pass (no changes to includes)**
+**Step 3: Verify tests still pass**
 
 ```bash
 julia --project -e 'using Pkg; Pkg.test()'
@@ -327,7 +298,191 @@ git commit -m "Add new MechanismSpec and OligomericMechanismSpec type definition
 
 ---
 
-## Task 3: Shared infrastructure — form enumeration, adjacency, helpers
+## Task 3: Test specs and test scaffolding (test-first)
+
+Write test definitions and test file **before** implementing the stages. Tests will initially fail (functions don't exist yet) — that's the point. Each subsequent task implements a stage and makes more tests pass.
+
+**Files:**
+- Create: `test/test_mechanism_enumeration.jl` — test specs, stage-by-stage tests, end-to-end tests
+- Modify: `test/runtests.jl` — add `include("test_mechanism_enumeration.jl")`
+
+**Step 1: Create `test/test_mechanism_enumeration.jl`**
+
+```julia
+using EnzymeRates, Test
+
+# ─── Test spec type ──────────────────────────────────────────────
+struct EnumerationTestSpec
+    name::String
+    reaction::Any
+    # Expected counts at each pipeline stage
+    expected_n_catalytic::Int
+    expected_n_ress::Int
+    expected_n_dead_end::Int
+    expected_n_equivalence::Int
+    expected_n_dedup::Int
+    expected_n_total::Int  # final count from enumerate_mechanisms
+    # Optional: analytical kcat formula for param_count verification
+    analytical_kcat_fn::Union{Function, Nothing}
+end
+EnumerationTestSpec(name, rxn, n_cat, n_ress, n_de, n_eq, n_dd,
+    n_total; analytical_kcat_fn=nothing) =
+    EnumerationTestSpec(name, rxn, n_cat, n_ress, n_de, n_eq,
+        n_dd, n_total, analytical_kcat_fn)
+
+# ─── Test spec definitions ───────────────────────────────────────
+# Expected counts derived by hand / orthogonal computation.
+# Placeholder values (0) are filled in as stages are implemented.
+
+const MECHANISM_ENUM_TEST_SPECS = EnumerationTestSpec[
+    # 1. Uni-Uni, no regulators
+    EnumerationTestSpec(
+        "Uni-Uni (no reg)",
+        (@enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+        end),
+        1,   # n_catalytic (single topology)
+        0,   # n_ress (TBD)
+        0,   # n_dead_end (no regs → same as n_ress)
+        0,   # n_equivalence (TBD)
+        0,   # n_dedup (TBD)
+        0,   # n_total (TBD)
+    ),
+
+    # 2. Uni-Uni + 1 dead-end inhibitor
+    EnumerationTestSpec(
+        "Uni-Uni + 1 DE inhibitor",
+        (@enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+        end),
+        1, 0, 0, 0, 0, 0,
+    ),
+
+    # 3. Uni-Bi, no regulators
+    EnumerationTestSpec(
+        "Uni-Bi (no reg)",
+        (@enzyme_reaction begin
+            substrates: S[C, N]
+            products: P1[C], P2[N]
+        end),
+        1, 0, 0, 0, 0, 0,
+    ),
+
+    # 4. Bi-Bi ordered, no regulators
+    EnumerationTestSpec(
+        "Bi-Bi ordered (no reg)",
+        (@enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+        end),
+        0, 0, 0, 0, 0, 0,  # multiple topologies
+    ),
+
+    # Add more specs as stages are developed...
+]
+
+# ─── Stage-by-stage tests ────────────────────────────────────────
+@testset "Mechanism Enumeration Pipeline" begin
+
+    @testset "Stage 1 — Catalytic Topologies: $(spec.name)" for
+            spec in MECHANISM_ENUM_TEST_SPECS
+        spec.expected_n_catalytic == 0 && continue  # skip TBD
+        topos = EnzymeRates._catalytic_topologies(spec.reaction)
+        @test length(topos) == spec.expected_n_catalytic
+    end
+
+    @testset "Stage 2 — RE/SS Variants: $(spec.name)" for
+            spec in MECHANISM_ENUM_TEST_SPECS
+        spec.expected_n_ress == 0 && continue
+        topos = EnzymeRates._catalytic_topologies(spec.reaction)
+        ress = EnzymeRates._expand_ress_variants(
+            topos, spec.reaction)
+        @test length(ress) == spec.expected_n_ress
+    end
+
+    @testset "Stage 3 — Dead-End Inhibitors: $(spec.name)" for
+            spec in MECHANISM_ENUM_TEST_SPECS
+        spec.expected_n_dead_end == 0 && continue
+        topos = EnzymeRates._catalytic_topologies(spec.reaction)
+        ress = EnzymeRates._expand_ress_variants(
+            topos, spec.reaction)
+        de = EnzymeRates._expand_dead_end_inhibitors(
+            ress, spec.reaction)
+        @test length(de) == spec.expected_n_dead_end
+    end
+
+    @testset "Stage 4 — Equivalence Constraints: $(spec.name)" for
+            spec in MECHANISM_ENUM_TEST_SPECS
+        spec.expected_n_equivalence == 0 && continue
+        topos = EnzymeRates._catalytic_topologies(spec.reaction)
+        ress = EnzymeRates._expand_ress_variants(
+            topos, spec.reaction)
+        de = EnzymeRates._expand_dead_end_inhibitors(
+            ress, spec.reaction)
+        eq = EnzymeRates._expand_equivalence_constraints(
+            de, spec.reaction)
+        @test length(eq) == spec.expected_n_equivalence
+    end
+
+    @testset "Stage 5 — Deduplication: $(spec.name)" for
+            spec in MECHANISM_ENUM_TEST_SPECS
+        spec.expected_n_dedup == 0 && continue
+        topos = EnzymeRates._catalytic_topologies(spec.reaction)
+        ress = EnzymeRates._expand_ress_variants(
+            topos, spec.reaction)
+        de = EnzymeRates._expand_dead_end_inhibitors(
+            ress, spec.reaction)
+        eq = EnzymeRates._expand_equivalence_constraints(
+            de, spec.reaction)
+        dd = EnzymeRates._deduplicate(eq, spec.reaction)
+        @test length(dd) == spec.expected_n_dedup
+    end
+
+    @testset "End-to-End: $(spec.name)" for
+            spec in MECHANISM_ENUM_TEST_SPECS
+        spec.expected_n_total == 0 && continue
+        result = EnzymeRates.enumerate_mechanisms(spec.reaction)
+        @test length(result) == spec.expected_n_total
+    end
+
+    @testset "param_count matches compiled mechanism" for
+            spec in MECHANISM_ENUM_TEST_SPECS
+        spec.expected_n_total == 0 && continue
+        result = EnzymeRates.enumerate_mechanisms(spec.reaction)
+        # Sample up to 10 for compilation time
+        sample = result[1:min(10, length(result))]
+        for s in sample
+            m = EnzymeRates.compile_mechanism(s)
+            @test s.param_count == length(
+                EnzymeRates.parameters(m))
+        end
+    end
+end
+```
+
+**Step 2: Add include to `test/runtests.jl`**
+
+Add after the existing test includes:
+```julia
+include("test_mechanism_enumeration.jl")
+```
+
+**Step 3: Verify tests are correctly skipped or fail as expected**
+
+At this point, `EnzymeRates._catalytic_topologies` etc. don't exist yet. Tests with `expected == 0` are skipped. Once the new `src/mechanism_enumeration.jl` is included (Task 4+), tests will start running.
+
+**Step 4: Commit**
+
+```bash
+git commit -m "Add test-first specs and scaffolding for mechanism enumeration pipeline"
+```
+
+---
+
+## Task 4: Shared infrastructure — form enumeration, adjacency, helpers (was Task 3)
 
 Port the reusable functions from old implementation to new file. These functions are shared between old and new: `enumerate_enzyme_forms`, `_build_adjacency`, `_classify_edge`, `_is_binding_direction`, `_compute_re_partition`, concentration fingerprint functions.
 
@@ -351,20 +506,7 @@ These are copied from `src/old_mechanism_enumeration.jl` with minimal changes. T
 - `_set_partitions` (lines 998-1013) — unchanged
 - `_partition_mult_count` (lines 1022-1032) — unchanged
 
-Note: `enumerate_enzyme_forms` (lines 241-307), `SiteDefinition`, `EnzymeFormSpec` are already in the old file and shared. Since both old and new files are included, these don't need duplicating. But since we're building the new file to eventually replace the old one, we should include all needed functions.
-
-**Important:** Since both old and new files will eventually coexist temporarily, and many helper functions are identical, we should either:
-- (a) Keep helpers in old file and reference them (fragile)
-- (b) Move shared helpers to a separate file
-- (c) Duplicate in new file (will replace old later)
-
-Go with (c) — duplicate in new file. When we swap, old file gets deleted and new file is self-contained.
-
-Add all the above functions to `src/mechanism_enumeration.jl`. Also add `SiteDefinition`, `EnzymeFormSpec`, `enumerate_enzyme_forms` since the new file needs to be self-contained when it replaces the old.
-
-**BUT:** Since we can't have two definitions of `SiteDefinition` etc. while both files are included, we need a different approach.
-
-**Revised approach:** Develop the new `mechanism_enumeration.jl` as a complete replacement. Don't include it until ready. Test it via a separate test script that loads it directly. When ready, swap the include.
+Note: `enumerate_enzyme_forms` (lines 241-307), `SiteDefinition`, `EnzymeFormSpec` are already in the old file. Since the old file is no longer included (Task 0 removed it), the new file is free to define these without conflicts.
 
 **Step 1: Copy shared types and functions into new file**
 
@@ -436,7 +578,7 @@ git commit -m "Add shared infrastructure to new mechanism_enumeration.jl"
 
 ---
 
-## Task 4: Stage 1 — Catalytic Topologies
+## Task 5: Stage 1 — Catalytic Topologies (was Task 4)
 
 Port catalytic topology enumeration with the new `MechanismSpec` format and `param_count` initialization.
 
@@ -505,7 +647,7 @@ git commit -m "Add Stage 1: catalytic topology enumeration"
 
 ---
 
-## Task 5: Stage 2 — RE/SS Assignment
+## Task 6: Stage 2 — RE/SS Assignment (was Task 5)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `_expand_ress_variants`
@@ -565,7 +707,7 @@ git commit -m "Add Stage 2: RE/SS assignment expansion"
 
 ---
 
-## Task 6: Stage 3 — General Modifier Expansion
+## Task 7: Stage 3 — General Modifier Expansion (was Task 6)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `_expand_general_modifiers`
@@ -619,7 +761,7 @@ git commit -m "Add Stage 3: general modifier expansion"
 
 ---
 
-## Task 7: Stage 4 — Essential Activator Expansion
+## Task 8: Stage 4 — Essential Activator Expansion (was Task 7)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `_expand_essential_activators`
@@ -671,7 +813,7 @@ git commit -m "Add Stage 4: essential activator expansion"
 
 ---
 
-## Task 8: Stage 5 — Dead-End Inhibitor Expansion
+## Task 9: Stage 5 — Dead-End Inhibitor Expansion (was Task 8)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `_expand_dead_end_inhibitors`
@@ -725,7 +867,7 @@ git commit -m "Add Stage 5: dead-end inhibitor expansion"
 
 ---
 
-## Task 9: Stage 6 — Equivalence Constraints
+## Task 10: Stage 6 — Equivalence Constraints (was Task 9)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `_expand_equivalence_constraints`
@@ -795,7 +937,7 @@ git commit -m "Add Stage 6: equivalence constraint expansion"
 
 ---
 
-## Task 10: Stage 7 — Deduplication
+## Task 11: Stage 7 — Deduplication (was Task 10)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `_deduplicate`
@@ -855,7 +997,7 @@ git commit -m "Add Stage 7: deduplication by concentration fingerprint"
 
 ---
 
-## Task 11: Stage 8 — Allosteric (OEM) Expansion
+## Task 12: Stage 8 — Allosteric (OEM) Expansion (was Task 11)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `_expand_allosteric`
@@ -904,7 +1046,7 @@ git commit -m "Add Stage 8: allosteric OEM expansion"
 
 ---
 
-## Task 12: Stage 9 — T/R Equivalence
+## Task 13: Stage 9 — T/R Equivalence (was Task 12)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `_expand_tr_equivalence`
@@ -949,7 +1091,7 @@ git commit -m "Add Stage 9: T/R equivalence expansion"
 
 ---
 
-## Task 13: Stage 10 — Post-OEM Deduplication
+## Task 14: Stage 10 — Post-OEM Deduplication (was Task 13)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `_deduplicate_oem`
@@ -985,7 +1127,7 @@ git commit -m "Add Stage 10: post-OEM deduplication"
 
 ---
 
-## Task 14: Pipeline orchestration — `enumerate_mechanisms`
+## Task 15: Pipeline orchestration — `enumerate_mechanisms` (was Task 14)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `enumerate_mechanisms` function
@@ -1050,7 +1192,7 @@ git commit -m "Add enumerate_mechanisms pipeline orchestration"
 
 ---
 
-## Task 15: Update `compile_mechanism` for new types
+## Task 16: Update `compile_mechanism` for new types (was Task 15)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl` — add `compile_mechanism` methods for new types
@@ -1091,132 +1233,24 @@ git commit -m "Add compile_mechanism for new MechanismSpec types"
 
 ---
 
-## Task 16: Test specs and stage tests
+## Task 17: Final integration tests and cleanup
+
+Finalize any remaining test gaps. Optionally delete old reference files.
 
 **Files:**
-- Create: `test/mechanism_enumeration_test_specs.jl` — test spec definitions
-- Create: `test/test_mechanism_enumeration.jl` — stage-by-stage and end-to-end tests
+- Modify: `test/test_mechanism_enumeration.jl` — fill in all TBD expected counts, add edge-case tests
+- Optionally delete: `src/old_mechanism_enumeration.jl`, `test/old_test_mechanism_enum_of_enz_reaction.jl`, `test/old_reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl`
 
-**Step 1: Create `test/mechanism_enumeration_test_specs.jl`**
+**Step 1: Fill in all expected counts in test specs**
 
-```julia
-# Test specifications for new mechanism enumeration pipeline
+Replace all placeholder `0` values with actual verified counts.
 
-struct StageExpansionTestSpec
-    name::String
-    reaction::Any
-    base_mechanism::Any  # MechanismSpec (from new types)
+**Step 2: Add edge-case tests**
 
-    expected_n_ress::Int
-    expected_n_general_modifier::Int
-    expected_n_essential_activator::Int
-    expected_n_dead_end::Int
-    expected_n_equivalence::Int
-    expected_n_dedup::Int
-    expected_n_allosteric::Int
-    expected_n_tr_equiv::Int
-    expected_n_oem_dedup::Int
-end
-
-struct EnumerationTestSpec2  # "2" to avoid conflict with old
-    name::String
-    reaction::Any
-
-    expected_n_catalytic::Int
-    expected_n_ress::Int
-    expected_n_general_modifier::Int
-    expected_n_essential_activator::Int
-    expected_n_dead_end::Int
-    expected_n_equivalence::Int
-    expected_n_dedup::Int
-    expected_n_allosteric::Int
-    expected_n_tr_equiv::Int
-    expected_n_oem_dedup::Int
-end
-
-function build_stage_expansion_test_specs()
-    specs = StageExpansionTestSpec[]
-
-    # Build specs for each reaction using hand-built base mechanisms
-    # Expected counts will be filled in after running the pipeline
-    # once and verifying by hand / orthogonal computation
-
-    # 1. Uni-Uni (no regulators)
-    # 2. Uni-Uni + 1 unconstrained regulator
-    # 3. Uni-Bi + 1 regulator
-    # 4. Bi-Bi + 2 regulators
-    # 5. Bi-Bi Ping-Pong (no regulators)
-    # 6. Bi-Bi Ping-Pong + 1 regulator
-
-    # ... (detailed specs with hard-coded expected counts) ...
-
-    return specs
-end
-
-function build_enumeration_test_specs2()
-    specs = EnumerationTestSpec2[]
-    # ... same reactions as above ...
-    return specs
-end
-```
-
-**Step 2: Create `test/test_mechanism_enumeration.jl`**
-
-```julia
-@testset "New Mechanism Enumeration" begin
-    @testset "Stage Expansion: $(spec.name)" for spec in STAGE_TEST_SPECS
-        # Stage 2: RE/SS
-        ress = EnzymeRates._expand_ress_variants(
-            [spec.base_mechanism], spec.reaction)
-        @test length(ress) == spec.expected_n_ress
-
-        # Stage 3: General modifier
-        gm = EnzymeRates._expand_general_modifiers(ress, spec.reaction)
-        @test length(gm) == spec.expected_n_general_modifier
-
-        # ... etc for each stage ...
-
-        # Parameter count verification (sample 10)
-        rng = Random.MersenneTwister(42)
-        sample = rand(rng, ress, min(10, length(ress)))
-        for s in sample
-            m = compile_mechanism(s)
-            expected_params = length(parameters(m))
-            @test s.param_count == expected_params
-        end
-    end
-
-    @testset "End-to-End: $(spec.name)" for spec in ENUM_TEST_SPECS2
-        result = enumerate_mechanisms(spec.reaction)
-        # ... verify counts at each stage ...
-    end
-end
-```
-
-**Step 3: Commit**
-
-```bash
-git commit -m "Add test specs and tests for new mechanism enumeration"
-```
-
----
-
-## Task 17: Swap old for new
-
-Replace old implementation with new one.
-
-**Files:**
-- Modify: `src/EnzymeRates.jl` — remove old include, keep new include
-- Delete: `src/old_mechanism_enumeration.jl` (or keep for reference)
-- Modify: `test/runtests.jl` — include new test files
-
-**Step 1: Update `src/EnzymeRates.jl`**
-
-Remove the `include("old_mechanism_enumeration.jl")` line. The `include("mechanism_enumeration.jl")` line should already be present.
-
-**Step 2: Update `test/runtests.jl`**
-
-Add includes for new test spec and test files. Remove or comment out old test includes.
+- Empty regulator lists
+- Single-form mechanisms
+- Mechanisms hitting the G≤7 RE group cap
+- Parameter count boundary cases
 
 **Step 3: Run full test suite**
 
@@ -1224,12 +1258,12 @@ Add includes for new test spec and test files. Remove or comment out old test in
 julia --project -e 'using Pkg; Pkg.test()'
 ```
 
-Expected: all new tests pass. Old tests are no longer included.
+Expected: all tests pass.
 
 **Step 4: Commit**
 
 ```bash
-git commit -m "Swap old mechanism enumeration for new staged pipeline"
+git commit -m "Finalize mechanism enumeration tests and cleanup old reference files"
 ```
 
 ---
@@ -1258,28 +1292,26 @@ git commit -m "Update CLAUDE.md for new mechanism enumeration architecture"
 
 Tasks that can be executed in parallel (no dependencies between them):
 
-- **Tasks 4, 5, 6, 7, 8** (stages 1-5) can be developed in parallel after Task 3 (shared infrastructure) is complete, since each stage function is independent. However, they must be composed sequentially for testing.
+- **Tasks 5-9** (stages 1-5) can be developed in parallel after Task 4 (shared infrastructure) is complete, since each stage function is independent. However, they must be composed sequentially for testing.
 
-- **Tasks 9, 10** (equivalence constraints + dedup) depend on stages 1-5 being complete.
+- **Tasks 10, 11** (equivalence constraints + dedup) depend on stages 1-5 being complete.
 
-- **Tasks 11, 12, 13** (OEM stages 8-10) can be developed in parallel with tasks 9-10 since they operate on different types.
+- **Tasks 12, 13, 14** (OEM stages 8-10) can be developed in parallel with tasks 10-11 since they operate on different types.
 
-- **Task 14** (pipeline orchestration) depends on all stages being complete.
+- **Task 15** (pipeline orchestration) depends on all stages being complete.
 
-- **Task 15** (compile_mechanism) is independent of pipeline stages and can be done in parallel with tasks 4-13.
-
-- **Task 16** (tests) should be developed incrementally alongside each stage task, but the spec values can only be finalized after the implementation is working.
+- **Task 16** (compile_mechanism) is independent of pipeline stages and can be done in parallel with tasks 5-14.
 
 Recommended execution order:
-1. Task 0 (rename) — first
+1. Task 0 (rename + remove old includes) — first
 2. Task 1 (RegulatorRole + EnzymeReaction) — after Task 0
 3. Task 2 (new types) — parallel with Task 1
-4. Task 3 (shared infrastructure) — after Tasks 1 + 2
-5. Tasks 4-8 (stages 1-5) — sequentially after Task 3
-6. Tasks 9-10 (stages 6-7) — after Task 8
-7. Tasks 11-13 (stages 8-10) — after Task 10
-8. Task 14 (pipeline) — after all stages
-9. Task 15 (compile_mechanism) — parallel with tasks 4-13
-10. Task 16 (tests) — after Task 14
-11. Task 17 (swap) — after Task 16
+4. **Task 3 (test scaffolding — test-first)** — after Tasks 1 + 2
+5. Task 4 (shared infrastructure) — after Task 3
+6. Tasks 5-9 (stages 1-5) — sequentially after Task 4, updating test expected counts as each stage is verified
+7. Tasks 10-11 (stages 6-7) — after Task 9
+8. Tasks 12-14 (stages 8-10) — after Task 11
+9. Task 15 (pipeline) — after all stages
+10. Task 16 (compile_mechanism) — parallel with tasks 5-14
+11. Task 17 (final tests + cleanup) — after Task 15
 12. Task 18 (docs) — after Task 17

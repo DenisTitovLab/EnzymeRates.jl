@@ -80,16 +80,26 @@ Multi-species lines use comma separation:
     regulators: I, A
 """
 macro enzyme_reaction(block)
-    parsed = _parse_labeled_block(block, Set([:substrates, :products, :regulators]))
+    parsed = _parse_labeled_block(block,
+        Set([:substrates, :products, :regulators,
+             :dead_end_inhibitors, :allosteric_regulators]))
     haskey(parsed, :substrates) || error("substrates not specified")
     haskey(parsed, :products) || error("products not specified")
     subs = parsed[:substrates]
     prods = parsed[:products]
-    regs = get(parsed, :regulators, nothing)
-    if regs === nothing
-        regs = Expr(:tuple)
-    else
-        regs = _regulator_tuple_to_symbols(regs)
+    regs = Expr(:tuple)
+    for (label, role_sym) in [
+        (:regulators, :unknown),
+        (:dead_end_inhibitors, :dead_end),
+        (:allosteric_regulators, :allosteric),
+    ]
+        if haskey(parsed, label)
+            syms = _regulator_tuple_to_symbols(parsed[label])
+            for s in syms.args
+                push!(regs.args,
+                    Expr(:tuple, s, QuoteNode(role_sym)))
+            end
+        end
     end
     return esc(:(EnzymeReaction($subs, $prods, $regs)))
 end

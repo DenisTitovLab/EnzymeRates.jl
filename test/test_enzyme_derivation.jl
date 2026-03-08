@@ -983,12 +983,19 @@ end
         rxn;
         stage=EnzymeRates.WithDeadEnd(),
     )
-    # Find a mechanism with ≥ 15 forms (large enough to trigger error)
+    # Find a mechanism with ≥ 15 forms and force all edges to SS
+    # to trigger the polynomial term limit in King-Altman derivation.
     large_spec = nothing
     for s in Iterators.reverse(with_dead_end)
         n_forms = length(Set(Iterators.flatten(s.edges)))
         if n_forms >= 15
-            large_spec = s
+            # Override equilibrium_steps to all-SS so King-Altman
+            # produces enough polynomial terms to exceed the limit.
+            large_spec = EnzymeRates.MechanismSpec(
+                s.reaction, s.edges, s.n_catalytic_edges,
+                fill(false, length(s.edges)),
+                s.param_constraints,
+                s.param_count)
             break
         end
     end

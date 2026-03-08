@@ -55,8 +55,12 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed
 
 ### Regulator representation
-- Regulators are plain `Symbol`s (no atom compositions) — they don't participate in chemical transformation
-- `regulators(m)` returns a tuple of bare `Symbol`s for both `EnzymeMechanism` and `OligomericEnzymeMechanism`
+- Regulators are `(name::Symbol, role::Symbol)` pairs in `EnzymeReaction` type parameter `R`
+- `RegulatorRole` hierarchy: `Allosteric`, `DeadEnd`, `UnconstrainedRegulator` (abstract: `RegulatorRole`)
+- `regulators(m)` returns a tuple of bare `Symbol` names for backward compatibility
+- `regulator_roles(rxn)` returns raw `(name, role)` pairs from `EnzymeReaction`
+- `@enzyme_reaction` DSL accepts `regulators:` (role=`:unknown`), `dead_end_inhibitors:` (`:dead_end`), `allosteric_regulators:` (`:allosteric`)
+- Plain `Symbol` regulators auto-normalize to `(name, :unknown)` in the `EnzymeReaction` constructor
 - Substrates/products are `(name, atoms)` tuples — access name via `s[1]`
 
 ### Dead-end SS/RE propagation
@@ -69,23 +73,29 @@ julia --project -e 'using Pkg; Pkg.test()'
 - This adds constrained variants where K_S_dead_end = K_S_catalytic (fewer params: R doesn't affect S-binding)
 - Dead-end edges always have lower index than catalytic, so `g[1]` is always the catalytic edge
 
-### Allosteric regulator site grouping
-- `MechanismSpec.allosteric_reg_sites::Vector{Vector{Symbol}}` groups regulators into site types
-- `_set_partitions` enumerates all Bell-number set partitions of regulators
-- `_expand_oligomeric_variants` enumerates partitions × multiplicity combos per site group
-- `_partition_mult_count(k, N)` = sum of S(k,g)*N^g (Stirling 2nd kind) for counting
-- `compile_mechanism` uses `allosteric_reg_sites` to build multi-ligand `RegSites` type params
+### Mechanism enumeration staged pipeline
+- `MechanismSpec` has 6 fields: `reaction, edges, n_catalytic_edges, equilibrium_steps, param_constraints, param_count`
+- `OligomericMechanismSpec` has 5 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, tr_equivalence`
+- Pipeline order: `_catalytic_topologies` (stage 1) → `_expand_ress_variants` (stage 2) → `_expand_general_modifiers` (stage 3) → `_expand_essential_activators` (stage 4) → `_expand_dead_end_inhibitors` (stage 5) → `_expand_equivalence_constraints` (stage 6) → `_deduplicate` (stage 7) → `_expand_allosteric` (stage 8) → `_expand_tr_equivalence` (stage 9, currently passthrough) → `_deduplicate_oem` (stage 10)
+- Stages 1-7 produce `Vector{MechanismSpec}`, stages 8-10 produce `Vector{OligomericMechanismSpec}`
+- Regulator partitioning (2^n_unknown masks for unknown-role regs) happens in `enumerate_mechanisms` orchestration; stage functions take explicit `dead_end_regs`/`allosteric_regs` kwargs
+- `_set_partitions` enumerates all Bell-number set partitions of allosteric regulators
+- `compile_mechanism` converts `MechanismSpec` → `EnzymeMechanism` or `OligomericMechanismSpec` → `OligomericEnzymeMechanism`
 - Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor
+
+### General modifier and essential activator
+- `_expand_general_modifiers`: duplicates catalytic cycle with regulator bound (parallel paths), R-binding edges always RE
+- `_expand_essential_activators`: replaces catalytic cycle with R-bound version (only ER+S→ESR path), adds E→ER binding edge
 
 ## Source Layout
 
-- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `OligomericEnzymeMechanism` structs; `EnzymeMechanism` and `OligomericEnzymeMechanism` accessors; `RateEquationMode` hierarchy
-- `src/dsl.jl` — `@enzyme_reaction` and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `OligomericEnzymeMechanism` DSL)
+- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `OligomericEnzymeMechanism` structs; `RegulatorRole` hierarchy (`Allosteric`, `DeadEnd`, `UnconstrainedRegulator`); `EnzymeMechanism` and `OligomericEnzymeMechanism` accessors; `regulator_roles()`; `RateEquationMode` hierarchy
+- `src/dsl.jl` — `@enzyme_reaction` (supports `substrates:`, `products:`, `regulators:`, `dead_end_inhibitors:`, `allosteric_regulators:` labels) and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `OligomericEnzymeMechanism` DSL)
 - `src/sym_poly_for_rate_eq_derivation.jl` — Symbolic polynomial algebra (`Poly` type); `_rename_poly_T`, `_count_oligomeric_rate_monomials` for MWC identifiability
 - `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; kcat computation (`_is_ss_rate_constant`, `_kcat_components`, `_kcat_forward`) and `rescale_parameter_values`; OligomericEnzymeMechanism MWC rate equation assembly (`_build_oligomeric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
 - `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
-- `src/mechanism_enumeration.jl` — `SiteDefinition`/`EnzymeFormSpec`/`MechanismSpec`/`MechanismIterator` types, `enumerate_enzyme_forms` returns `(site_defs, forms)` where site metadata is factored out from per-form occupancy, adjacency stores just `Union{Nothing, Symbol}` (metabolite or nothing for isomerization — no `:binding`/`:release` labels), `enumerate_mechanisms` (catalytic cycle → regulator partitioning → dead-end → RE/SS with G≤7 cap → oligomeric expansion with site partitioning), `compile_mechanism` (MechanismSpec → EnzymeMechanism or OligomericEnzymeMechanism), `_dead_end_catalytic_map`/`_propagate_de_eq_steps!` (dead-end SS/RE propagation), `_set_partitions`/`_partition_mult_count` (Bell-number site grouping)
+- `src/mechanism_enumeration.jl` — Staged pipeline for mechanism enumeration. Types: `SiteDefinition`, `EnzymeFormSpec`, `MechanismSpec` (6 fields), `OligomericMechanismSpec`, `MechanismIterator`. 10 stages: `_catalytic_topologies` → `_expand_ress_variants` → `_expand_general_modifiers` → `_expand_essential_activators` → `_expand_dead_end_inhibitors` → `_expand_equivalence_constraints` → `_deduplicate` → `_expand_allosteric` → `_expand_tr_equivalence` → `_deduplicate_oem`. `compile_mechanism` converts specs to `EnzymeMechanism`/`OligomericEnzymeMechanism`. Helpers: `_dead_end_catalytic_map`/`_propagate_de_eq_steps!`, `_set_partitions`/`_partition_mult_count`, `_concentration_fingerprint`/`_constraint_descriptor` for dedup
 
 ## Vmax Normalization (kcat factoring) — IMPLEMENTED
 
@@ -115,8 +125,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 - Tests include Aqua (quality) and JET (static analysis)
 - Don't leave profiling deps (SnoopCompile) in Project.toml — Aqua stale deps check will fail
 - `test/mechanism_definitions_for_test_enzyme_derivation.jl` defines shared mechanisms used by multiple test files — must be included before those tests
-- `test/reaction_definitions_for_test_mechanism_enum_of_enz_reaction.jl` defines shared reactions for mechanism enumeration tests — must be included before those tests
-- Mechanism enumeration tests use data-driven `EnumerationTestSpec` approach — verification helpers (`_compute_expected_dead_end_count`, `_compute_expected_n_total`) use only public struct fields, no `EnzymeRates._*` calls
-- `enumerate_mechanisms` pipeline: Catalytic → regulator partitioning (2^n_reg) → dead-end → RE/SS with G≤7 cap (dead-end equiv groups included) → oligomeric expansion with site partitioning (when `catalytic_n > 0`)
+- Mechanism enumeration tests use two data-driven spec types: `StageExpansionTestSpec` (hand-built `MechanismSpec` through individual stages) and `EnumerationTestSpec` (end-to-end from `EnzymeReaction` through full pipeline). Both verify expected counts at each stage.
+- Parameter count verification: per-stage sampling compiles mechanisms and checks `param_count == length(parameters(m))`
 - `MechanismTestSpec` has optional `analytical_kcat_fn` field for per-mechanism kcat formula validation
 - kcat/rescaling tests (scale invariance, rate proportionality, V≈1, custom target) run for ALL mechanism specs in the main `run_all_tests` loop — not in a separate file
