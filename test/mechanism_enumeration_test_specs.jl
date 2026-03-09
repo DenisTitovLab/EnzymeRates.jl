@@ -89,3 +89,145 @@ function mechanism_spec_from_mechanism(
         rxn, edges, n_cat, eq_steps,
         constraints, length(parameters(m)))
 end
+
+# ── Test spec types ──────────────────────────────────────────
+
+"""
+Tests a single base MechanismSpec through each pipeline stage
+independently (not chained). Each stage runs on [base_mechanism]
+and the count is compared to the expected value.
+"""
+Base.@kwdef struct StageExpansionTestSpec
+    name::String
+    reaction::Any
+    base_mechanism::EnzymeRates.MechanismSpec
+    catalytic_n::Int = 0
+
+    expected_n_ress::Int
+    expected_n_general_modifier::Int
+    expected_n_essential_activator::Int
+    expected_n_dead_end::Int
+    expected_n_equivalence::Int
+    expected_n_dedup::Int
+    expected_n_allosteric::Int = 0
+    expected_n_tr_equiv::Int = 0
+    expected_n_oem_dedup::Int = 0
+end
+
+"""
+Tests end-to-end from EnzymeReaction through full pipeline,
+comparing output count at each stage across all regulator
+partitions.
+"""
+Base.@kwdef struct EnumerationTestSpec
+    name::String
+    reaction::Any
+    catalytic_n::Int = 0
+
+    expected_n_forms::Int
+    expected_n_catalytic::Int
+    expected_n_ress::Int
+    expected_n_general_modifier::Int
+    expected_n_essential_activator::Int
+    expected_n_dead_end::Int
+    expected_n_equivalence::Int
+    expected_n_dedup::Int
+    expected_n_allosteric::Int = 0
+    expected_n_tr_equiv::Int = 0
+    expected_n_oem_dedup::Int = 0
+    expected_n_total::Int
+end
+
+# ── Reaction definitions ─────────────────────────────────────
+# 8 logical reactions. Regulated reactions have :unknown version
+# (for EnumerationTestSpec) and explicit-role versions (for
+# StageExpansionTestSpec).
+
+# 1. Uni-Uni, no regulators
+const uni_uni = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+end
+
+# 2. Uni-Uni + 1 regulator
+const uni_uni_reg_unknown = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    regulators: I
+end
+const uni_uni_dead_end_I = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    dead_end_inhibitors: I
+end
+const uni_uni_allosteric_I = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    allosteric_regulators: I
+end
+
+# 3. Uni-Bi + 1 regulator
+const uni_bi_reg_unknown = @enzyme_reaction begin
+    substrates: S[AB]
+    products: P[A], Q[B]
+    regulators: I
+end
+const uni_bi_dead_end_I = @enzyme_reaction begin
+    substrates: S[AB]
+    products: P[A], Q[B]
+    dead_end_inhibitors: I
+end
+const uni_bi_allosteric_I = @enzyme_reaction begin
+    substrates: S[AB]
+    products: P[A], Q[B]
+    allosteric_regulators: I
+end
+
+# 4. Uni-Bi + allosteric regulator (OEM, catalytic_n=2)
+const uni_bi_allosteric_I_oem = @enzyme_reaction begin
+    substrates: S[AB]
+    products: P[A], Q[B]
+    allosteric_regulators: I
+end
+
+# 5. Bi-Bi, no regulators
+const bi_bi = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products: P[C], Q[N]
+end
+
+# 6. Bi-Bi Ping-Pong, no regulators
+const bi_bi_ping_pong = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+end
+
+# 7. Bi-Bi Ping-Pong + 1 regulator
+const bi_bi_ping_pong_reg_unknown = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    regulators: I
+end
+const bi_bi_ping_pong_dead_end_I = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    dead_end_inhibitors: I
+end
+const bi_bi_ping_pong_allosteric_I = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    allosteric_regulators: I
+end
+
+# 8. Bi-Bi + 2 regulators
+const bi_bi_two_regs_unknown = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products: P[C], Q[N]
+    regulators: I, J
+end
+const bi_bi_dead_end_I_allosteric_J = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products: P[C], Q[N]
+    dead_end_inhibitors: I
+    allosteric_regulators: J
+end
