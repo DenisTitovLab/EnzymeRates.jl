@@ -375,4 +375,71 @@ end
             @test length(parameters(m)) > 0
         end
     end
+
+    # ── Combinatorial cross-checks ───────────────────────────
+    @testset "Combinatorial cross-checks" begin
+        # Verify hardcoded expected values against independent
+        # combinatorial formulas.
+
+        specs = STAGE_EXPANSION_SPECS
+        by_name = Dict(s.name => s for s in specs)
+
+        # RE/SS: n RE binding edges → 2^n - 1 valid combos
+        # (must keep ≥1 RE edge)
+        @test by_name["Uni-Uni (no reg)"].expected_n_ress ==
+            2^2 - 1  # 2 RE binding edges
+        @test by_name["Bi-Bi (no reg)"].expected_n_ress ==
+            2^4 - 1  # 4 RE binding edges
+        @test by_name["Bi-Bi Ping-Pong (no reg)"].expected_n_ress ==
+            2^4 - 1  # 4 RE binding edges
+
+        # No-reg passthroughs: gm/ea/de/eq/dd all = 1
+        for name in ["Uni-Uni (no reg)", "Bi-Bi (no reg)",
+                      "Bi-Bi Ping-Pong (no reg)"]
+            s = by_name[name]
+            @test s.expected_n_general_modifier == 1
+            @test s.expected_n_essential_activator == 1
+            @test s.expected_n_dead_end == 1
+            @test s.expected_n_equivalence == 1
+            @test s.expected_n_dedup == 1
+        end
+
+        # Dead-end: n catalytic forms → 2^n subsets of I binding
+        @test by_name["Uni-Uni (dead-end I)"].expected_n_dead_end ==
+            2^3  # 3 catalytic forms
+        @test by_name["Uni-Bi (dead-end I)"].expected_n_dead_end ==
+            2^4  # 4 catalytic forms
+        @test by_name["Bi-Bi Ping-Pong (dead-end I)"].expected_n_dead_end ==
+            2^5  # 5 catalytic forms
+        @test by_name["Bi-Bi (dead-end I, allosteric J)"].expected_n_dead_end ==
+            2^5  # 5 catalytic forms
+
+        # Allosteric: 1 reg → gm = 2 (original + modifier),
+        #             ea = 2 (original + activator)
+        for name in ["Uni-Uni (allosteric I)",
+                      "Uni-Bi (allosteric I)",
+                      "Bi-Bi Ping-Pong (allosteric I)",
+                      "Uni-Bi (allosteric I, OEM n=2)",
+                      "Bi-Bi (dead-end I, allosteric J)"]
+            s = by_name[name]
+            @test s.expected_n_general_modifier == 2
+            @test s.expected_n_essential_activator == 2
+        end
+
+        # Dead-end passthrough for allosteric-only specs
+        for name in ["Uni-Uni (allosteric I)",
+                      "Uni-Bi (allosteric I)",
+                      "Bi-Bi Ping-Pong (allosteric I)"]
+            @test by_name[name].expected_n_dead_end == 1
+        end
+
+        # OEM: 1 reg, 1 partition → 2 multiplicities (m=1,2)
+        for name in ["Uni-Uni (allosteric I)",
+                      "Uni-Bi (allosteric I)",
+                      "Bi-Bi Ping-Pong (allosteric I)",
+                      "Uni-Bi (allosteric I, OEM n=2)"]
+            s = by_name[name]
+            @test s.expected_n_allosteric == 2
+        end
+    end
 end
