@@ -19,13 +19,12 @@ function mechanism_spec_from_mechanism(
     mech_forms = EnzymeRates.enzyme_forms(m)
     mf_names = Set(n for (n, _) in mech_forms)
 
-    # Free enzyme (no atoms) → form index 1
+    # Free enzyme (first listed, no atoms) → form index 1
     name_to_idx = Dict{Symbol,Int}()
-    for (mf_name, mf_atoms) in mech_forms
-        if isempty(mf_atoms)
-            name_to_idx[mf_name] = 1
-        end
-    end
+    first_name, first_atoms = mech_forms[1]
+    isempty(first_atoms) || error(
+        "First enzyme form $first_name has atoms $first_atoms")
+    name_to_idx[first_name] = 1
 
     # Iteratively resolve unknown forms via known ones + reactions
     rxns = EnzymeRates.reactions(m)
@@ -330,8 +329,190 @@ function build_no_reg_stage_expansion_specs()
     return specs
 end
 
+"""
+Build StageExpansionTestSpecs for single-regulator reactions.
+Uses the first catalytic topology as the base mechanism for each.
+Two variants per reaction: dead-end and allosteric.
+"""
+function build_single_reg_stage_expansion_specs()
+    specs = StageExpansionTestSpec[]
+
+    # --- Uni-Uni + dead-end I ---
+    # Base: 3 forms (E, ES, EP), 3 edges (2 RE binding + 1 SS)
+    let
+        base = EnzymeRates._catalytic_topologies(uni_uni_dead_end_I)[1]
+        push!(specs, StageExpansionTestSpec(;
+            name="Uni-Uni (dead-end I)",
+            reaction=uni_uni_dead_end_I,
+            base_mechanism=base,
+            # 2 RE binding edges toggled; 2^2 - 1 = 3 (at least 1 SS)
+            expected_n_ress=3,
+            # no allosteric regs → passthrough
+            expected_n_general_modifier=1,
+            # no allosteric regs → passthrough
+            expected_n_essential_activator=1,
+            # 3 catalytic forms × I can bind each → 2^3 = 8 subsets
+            expected_n_dead_end=8,
+            # S and P bind different atoms → no equiv groups
+            expected_n_equivalence=1,
+            # single mechanism → no duplicates
+            expected_n_dedup=1,
+            # no allosteric regs → passthrough
+            expected_n_allosteric=1,
+            expected_n_tr_equiv=1,
+            expected_n_oem_dedup=1,
+        ))
+    end
+
+    # --- Uni-Uni + allosteric I ---
+    # Base: 3 forms (E, ES, EP), 3 edges (2 RE binding + 1 SS)
+    let
+        base = EnzymeRates._catalytic_topologies(uni_uni_allosteric_I)[1]
+        push!(specs, StageExpansionTestSpec(;
+            name="Uni-Uni (allosteric I)",
+            reaction=uni_uni_allosteric_I,
+            base_mechanism=base,
+            # 2 RE binding edges toggled; 2^2 - 1 = 3 (at least 1 SS)
+            expected_n_ress=3,
+            # 1 allosteric reg → original + 1 general modifier = 2
+            expected_n_general_modifier=2,
+            # 1 allosteric reg → original + 1 essential activator = 2
+            expected_n_essential_activator=2,
+            # no dead-end regs → passthrough
+            expected_n_dead_end=1,
+            # no equiv groups (S, P bind different atoms)
+            expected_n_equivalence=1,
+            # single mechanism → no duplicates
+            expected_n_dedup=1,
+            # 1 reg → 1 partition {I} × 2 multiplicities (m=1,2) = 2
+            expected_n_allosteric=2,
+            # passthrough (no TR equivalence yet)
+            expected_n_tr_equiv=2,
+            # no duplicates among 2 distinct OEM specs
+            expected_n_oem_dedup=2,
+        ))
+    end
+
+    # --- Uni-Bi + dead-end I ---
+    # Base: 4 forms, 4 edges (3 RE binding + 1 SS isomerization)
+    let
+        base = EnzymeRates._catalytic_topologies(uni_bi_dead_end_I)[1]
+        push!(specs, StageExpansionTestSpec(;
+            name="Uni-Bi (dead-end I)",
+            reaction=uni_bi_dead_end_I,
+            base_mechanism=base,
+            # 3 RE binding edges toggled; 2^3 - 1 = 7 (at least 1 SS)
+            expected_n_ress=7,
+            # no allosteric regs → passthrough
+            expected_n_general_modifier=1,
+            # no allosteric regs → passthrough
+            expected_n_essential_activator=1,
+            # 4 catalytic forms × I can bind each → 2^4 = 16 subsets
+            expected_n_dead_end=16,
+            # S, P, Q bind different sites → no equiv groups
+            expected_n_equivalence=1,
+            # single mechanism → no duplicates
+            expected_n_dedup=1,
+            # no allosteric regs → passthrough
+            expected_n_allosteric=1,
+            expected_n_tr_equiv=1,
+            expected_n_oem_dedup=1,
+        ))
+    end
+
+    # --- Uni-Bi + allosteric I ---
+    # Base: 4 forms, 4 edges (3 RE binding + 1 SS isomerization)
+    let
+        base = EnzymeRates._catalytic_topologies(uni_bi_allosteric_I)[1]
+        push!(specs, StageExpansionTestSpec(;
+            name="Uni-Bi (allosteric I)",
+            reaction=uni_bi_allosteric_I,
+            base_mechanism=base,
+            # 3 RE binding edges toggled; 2^3 - 1 = 7 (at least 1 SS)
+            expected_n_ress=7,
+            # 1 allosteric reg → original + 1 general modifier = 2
+            expected_n_general_modifier=2,
+            # 1 allosteric reg → original + 1 essential activator = 2
+            expected_n_essential_activator=2,
+            # no dead-end regs → passthrough
+            expected_n_dead_end=1,
+            # no equiv groups (S, P, Q bind different sites)
+            expected_n_equivalence=1,
+            # single mechanism → no duplicates
+            expected_n_dedup=1,
+            # 1 reg → 1 partition {I} × 2 multiplicities (m=1,2) = 2
+            expected_n_allosteric=2,
+            # passthrough
+            expected_n_tr_equiv=2,
+            # no duplicates among 2 distinct OEM specs
+            expected_n_oem_dedup=2,
+        ))
+    end
+
+    # --- Bi-Bi Ping-Pong + dead-end I ---
+    # Base: 5 forms, 5 edges (4 RE binding + 1 SS isomerization)
+    let
+        base = EnzymeRates._catalytic_topologies(
+            bi_bi_ping_pong_dead_end_I)[1]
+        push!(specs, StageExpansionTestSpec(;
+            name="Bi-Bi Ping-Pong (dead-end I)",
+            reaction=bi_bi_ping_pong_dead_end_I,
+            base_mechanism=base,
+            # 4 RE binding edges toggled; 2^4 - 1 = 15 (at least 1 SS)
+            expected_n_ress=15,
+            # no allosteric regs → passthrough
+            expected_n_general_modifier=1,
+            # no allosteric regs → passthrough
+            expected_n_essential_activator=1,
+            # 5 catalytic forms × I can bind each → 2^5 = 32 subsets
+            expected_n_dead_end=32,
+            # A, B, P, Q each bind once → no equiv groups
+            expected_n_equivalence=1,
+            # single mechanism → no duplicates
+            expected_n_dedup=1,
+            # no allosteric regs → passthrough
+            expected_n_allosteric=1,
+            expected_n_tr_equiv=1,
+            expected_n_oem_dedup=1,
+        ))
+    end
+
+    # --- Bi-Bi Ping-Pong + allosteric I ---
+    # Base: 5 forms, 5 edges (4 RE binding + 1 SS isomerization)
+    let
+        base = EnzymeRates._catalytic_topologies(
+            bi_bi_ping_pong_allosteric_I)[1]
+        push!(specs, StageExpansionTestSpec(;
+            name="Bi-Bi Ping-Pong (allosteric I)",
+            reaction=bi_bi_ping_pong_allosteric_I,
+            base_mechanism=base,
+            # 4 RE binding edges toggled; 2^4 - 1 = 15 (at least 1 SS)
+            expected_n_ress=15,
+            # 1 allosteric reg → original + 1 general modifier = 2
+            expected_n_general_modifier=2,
+            # 1 allosteric reg → original + 1 essential activator = 2
+            expected_n_essential_activator=2,
+            # no dead-end regs → passthrough
+            expected_n_dead_end=1,
+            # A, B, P, Q each bind once → no equiv groups
+            expected_n_equivalence=1,
+            # single mechanism → no duplicates
+            expected_n_dedup=1,
+            # 1 reg → 1 partition {I} × 2 multiplicities (m=1,2) = 2
+            expected_n_allosteric=2,
+            # passthrough
+            expected_n_tr_equiv=2,
+            # no duplicates among 2 distinct OEM specs
+            expected_n_oem_dedup=2,
+        ))
+    end
+
+    return specs
+end
+
 function build_stage_expansion_specs()
     return vcat(
         build_no_reg_stage_expansion_specs(),
+        build_single_reg_stage_expansion_specs(),
     )
 end
