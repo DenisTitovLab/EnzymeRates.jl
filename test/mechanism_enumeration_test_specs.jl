@@ -231,3 +231,107 @@ const bi_bi_dead_end_I_allosteric_J = @enzyme_reaction begin
     dead_end_inhibitors: I
     allosteric_regulators: J
 end
+
+# ── StageExpansionTestSpec builders ──────────────────────────
+
+"""
+Build StageExpansionTestSpecs for reactions without regulators.
+Uses the first catalytic topology as the base mechanism for each.
+"""
+function build_no_reg_stage_expansion_specs()
+    specs = StageExpansionTestSpec[]
+
+    # --- Uni-Uni (3 forms, 3 edges: 2 RE binding + 1 SS isomerization) ---
+    let
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, ES[C], EP[C]
+            end
+            steps: begin
+                [E, S] ⇌ [ES]
+                [E, P] ⇌ [EP]
+                [ES] <--> [EP]
+            end
+        end
+        base = mechanism_spec_from_mechanism(m, uni_uni)
+        push!(specs, StageExpansionTestSpec(;
+            name="Uni-Uni (no reg)",
+            reaction=uni_uni,
+            base_mechanism=base,
+            # 2 RE binding edges, each can be toggled RE→SS;
+            # at least 1 binding edge must be SS → 2^2 - 1 = 3
+            expected_n_ress=3,
+            # no regulators → passthrough
+            expected_n_general_modifier=1,
+            # no regulators → passthrough
+            expected_n_essential_activator=1,
+            # no regulators → passthrough
+            expected_n_dead_end=1,
+            # S and P bind different atoms → no equiv groups → passthrough
+            expected_n_equivalence=1,
+            # single mechanism → no duplicates to remove
+            expected_n_dedup=1,
+        ))
+    end
+
+    # --- Bi-Bi (5 forms, 5 edges: 4 RE binding + 1 SS isomerization) ---
+    # First topology: E+B→EB, EB+A→EAB, EAB→EPQ(SS),
+    #                 E+P→EP, EP+Q→EPQ
+    let
+        base = EnzymeRates._catalytic_topologies(bi_bi)[1]
+        push!(specs, StageExpansionTestSpec(;
+            name="Bi-Bi (no reg)",
+            reaction=bi_bi,
+            base_mechanism=base,
+            # 4 RE binding edges, each can be toggled RE→SS;
+            # at least 1 binding edge must be SS → 2^4 - 1 = 15
+            expected_n_ress=15,
+            # no regulators → passthrough
+            expected_n_general_modifier=1,
+            # no regulators → passthrough
+            expected_n_essential_activator=1,
+            # no regulators → passthrough
+            expected_n_dead_end=1,
+            # each metabolite (A,B,P,Q) binds once → no equiv groups
+            expected_n_equivalence=1,
+            # single mechanism → no duplicates to remove
+            expected_n_dedup=1,
+        ))
+    end
+
+    # --- Bi-Bi Ping-Pong (5 forms, 5 edges: 4 RE binding + 1 SS) ---
+    # First topology: E+B→EB, EB+A→EAB, EAB→EPQ(SS),
+    #                 E+Q→EQ, EQ+P→EPQ
+    # Transferred atom group X creates intermediate enzyme forms
+    let
+        base = EnzymeRates._catalytic_topologies(bi_bi_ping_pong)[1]
+        push!(specs, StageExpansionTestSpec(;
+            name="Bi-Bi Ping-Pong (no reg)",
+            reaction=bi_bi_ping_pong,
+            base_mechanism=base,
+            # 4 RE binding edges, each can be toggled RE→SS;
+            # at least 1 binding edge must be SS → 2^4 - 1 = 15
+            expected_n_ress=15,
+            # no regulators → passthrough
+            expected_n_general_modifier=1,
+            # no regulators → passthrough
+            expected_n_essential_activator=1,
+            # no regulators → passthrough
+            expected_n_dead_end=1,
+            # each metabolite (A,B,P,Q) binds once → no equiv groups
+            expected_n_equivalence=1,
+            # single mechanism → no duplicates to remove
+            expected_n_dedup=1,
+        ))
+    end
+
+    return specs
+end
+
+function build_stage_expansion_specs()
+    return vcat(
+        build_no_reg_stage_expansion_specs(),
+    )
+end
