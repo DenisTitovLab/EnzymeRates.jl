@@ -167,7 +167,13 @@ const uni_uni_allosteric_I = @enzyme_reaction begin
     allosteric_regulators: I
 end
 
-# 3. Uni-Bi + 1 regulator
+# 3a. Uni-Bi, no regulators
+const uni_bi = @enzyme_reaction begin
+    substrates: S[AB]
+    products: P[A], Q[B]
+end
+
+# 3b. Uni-Bi + 1 regulator
 const uni_bi_reg_unknown = @enzyme_reaction begin
     substrates: S[AB]
     products: P[A], Q[B]
@@ -595,4 +601,209 @@ function build_stage_expansion_specs()
         build_single_reg_stage_expansion_specs(),
         build_multi_reg_stage_expansion_specs(),
     )
+end
+
+# ── Helper: run pipeline stage by stage (all partitions) ─────
+
+"""
+Run the full enumeration pipeline stage by stage, summing
+counts across all regulator partitions. Returns a NamedTuple
+with per-stage totals.
+"""
+function _run_full_pipeline_stages(rxn; catalytic_n::Int=0,
+                                   max_re_groups::Int=7)
+    catalytic = EnzymeRates._catalytic_topologies(rxn)
+
+    roles = EnzymeRates.regulator_roles(rxn)
+    fixed_de = Symbol[r[1] for r in roles if r[2] == :dead_end]
+    fixed_allo = Symbol[r[1] for r in roles
+                        if r[2] == :allosteric]
+    unknown = Symbol[r[1] for r in roles if r[2] == :unknown]
+    n_unknown = length(unknown)
+
+    n_ress = 0; n_gm = 0; n_ea = 0
+    n_de = 0; n_eq = 0; n_dd = 0
+    n_allo = 0; n_tr = 0; n_oem_dd = 0
+
+    for reg_mask in 0:(1 << n_unknown) - 1
+        de = Symbol[fixed_de;
+            [unknown[i] for i in 1:n_unknown
+             if (reg_mask >> (i - 1)) & 1 == 0]]
+        al = Symbol[fixed_allo;
+            [unknown[i] for i in 1:n_unknown
+             if (reg_mask >> (i - 1)) & 1 == 1]]
+
+        ress = EnzymeRates._expand_ress_variants(
+            catalytic, rxn; max_re_groups)
+        n_ress += length(ress)
+
+        gm = EnzymeRates._expand_general_modifiers(
+            ress, rxn; allosteric_regs=al)
+        n_gm += length(gm)
+
+        ea = EnzymeRates._expand_essential_activators(
+            gm, rxn; allosteric_regs=al)
+        n_ea += length(ea)
+
+        with_de = EnzymeRates._expand_dead_end_inhibitors(
+            ea, rxn; dead_end_regs=de)
+        n_de += length(with_de)
+
+        with_eq = EnzymeRates._expand_equivalence_constraints(
+            with_de, rxn)
+        n_eq += length(with_eq)
+
+        dd = EnzymeRates._deduplicate(with_eq, rxn)
+        n_dd += length(dd)
+
+        if catalytic_n > 0
+            oem = EnzymeRates._expand_allosteric(
+                dd, rxn; catalytic_n, allosteric_regs=al)
+            n_allo += length(oem)
+            oem = EnzymeRates._expand_tr_equivalence(oem, rxn)
+            n_tr += length(oem)
+            oem = EnzymeRates._deduplicate_oem(oem, rxn)
+            n_oem_dd += length(oem)
+        end
+    end
+
+    (catalytic=length(catalytic), ress=n_ress,
+     general_modifier=n_gm, essential_activator=n_ea,
+     dead_end=n_de, equivalence=n_eq, dedup=n_dd,
+     allosteric=n_allo, tr_equiv=n_tr, oem_dedup=n_oem_dd)
+end
+
+# ── EnumerationTestSpec builder ──────────────────────────────
+
+"""
+Build EnumerationTestSpecs for end-to-end pipeline testing.
+Each spec tests a reaction through the full enumeration pipeline
+including regulator partitioning for :unknown regulators.
+"""
+function build_enumeration_specs()
+    specs = EnumerationTestSpec[]
+
+    push!(specs, EnumerationTestSpec(;
+        name="Uni-Uni, no regs",
+        reaction=uni_uni,
+        expected_n_forms=3,
+        expected_n_catalytic=1,
+        expected_n_ress=3,
+        expected_n_general_modifier=3,
+        expected_n_essential_activator=3,
+        expected_n_dead_end=3,
+        expected_n_equivalence=3,
+        expected_n_dedup=1,
+        expected_n_total=1,
+    ))
+
+    push!(specs, EnumerationTestSpec(;
+        name="Uni-Uni + 1 unknown reg",
+        reaction=uni_uni_reg_unknown,
+        expected_n_forms=6,
+        expected_n_catalytic=1,
+        # 2 partitions (de/allo), each 3 RE/SS = 6
+        expected_n_ress=6,
+        expected_n_general_modifier=9,
+        expected_n_essential_activator=12,
+        expected_n_dead_end=33,
+        expected_n_equivalence=48,
+        expected_n_dedup=28,
+        expected_n_total=28,
+    ))
+
+    push!(specs, EnumerationTestSpec(;
+        name="Uni-Bi, no regs",
+        reaction=uni_bi,
+        expected_n_forms=11,
+        expected_n_catalytic=3,
+        expected_n_ress=41,
+        expected_n_general_modifier=41,
+        expected_n_essential_activator=41,
+        expected_n_dead_end=41,
+        expected_n_equivalence=41,
+        expected_n_dedup=9,
+        expected_n_total=9,
+    ))
+
+    push!(specs, EnumerationTestSpec(;
+        name="Uni-Bi + 1 unknown reg",
+        reaction=uni_bi_reg_unknown,
+        expected_n_forms=22,
+        expected_n_catalytic=3,
+        expected_n_ress=82,
+        expected_n_general_modifier=123,
+        expected_n_essential_activator=164,
+        expected_n_dead_end=1211,
+        expected_n_equivalence=1606,
+        expected_n_dedup=697,
+        expected_n_total=697,
+    ))
+
+    push!(specs, EnumerationTestSpec(;
+        name="Uni-Bi + allosteric, OEM n=2",
+        reaction=uni_bi_allosteric_I_oem,
+        catalytic_n=2,
+        expected_n_forms=22,
+        expected_n_catalytic=3,
+        expected_n_ress=41,
+        expected_n_general_modifier=82,
+        expected_n_essential_activator=123,
+        expected_n_dead_end=123,
+        expected_n_equivalence=246,
+        expected_n_dedup=126,
+        expected_n_allosteric=252,
+        expected_n_tr_equiv=252,
+        expected_n_oem_dedup=252,
+        expected_n_total=378,
+    ))
+
+    push!(specs, EnumerationTestSpec(;
+        name="Bi-Bi, no regs",
+        reaction=bi_bi,
+        expected_n_forms=11,
+        expected_n_catalytic=9,
+        expected_n_ress=527,
+        expected_n_general_modifier=527,
+        expected_n_essential_activator=527,
+        expected_n_dead_end=527,
+        expected_n_equivalence=958,
+        expected_n_dedup=207,
+        expected_n_total=207,
+    ))
+
+    push!(specs, EnumerationTestSpec(;
+        name="Bi-Bi Ping-Pong, no regs",
+        reaction=bi_bi_ping_pong,
+        expected_n_forms=17,
+        expected_n_catalytic=10,
+        expected_n_ress=558,
+        expected_n_general_modifier=558,
+        expected_n_essential_activator=558,
+        expected_n_dead_end=558,
+        expected_n_equivalence=989,
+        expected_n_dedup=210,
+        expected_n_total=210,
+    ))
+
+    push!(specs, EnumerationTestSpec(;
+        name="Bi-Bi Ping-Pong + 1 unknown reg",
+        reaction=bi_bi_ping_pong_reg_unknown,
+        expected_n_forms=34,
+        expected_n_catalytic=10,
+        expected_n_ress=1116,
+        expected_n_general_modifier=1674,
+        expected_n_essential_activator=2232,
+        expected_n_dead_end=50250,
+        expected_n_equivalence=106646,
+        expected_n_dedup=35113,
+        expected_n_total=35113,
+    ))
+
+    # Bi-Bi + 2 unknown regs: too large to enumerate in
+    # reasonable time/memory (4 partitions × 9 topologies ×
+    # combinatorial dead-end expansion on 11+ forms).
+    # Skipped from end-to-end testing.
+
+    specs
 end
