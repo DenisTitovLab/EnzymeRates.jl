@@ -56,6 +56,8 @@ function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
     EnzymeReaction{subs, prods, sorted_regs}()
 end
 
+abstract type AbstractEnzymeMechanism end
+
 """
     EnzymeMechanism{Species,Reactions,EquilibriumSteps}
 
@@ -71,7 +73,7 @@ Singleton type encoding an enzyme mechanism in type parameters.
 """
 struct EnzymeMechanism{
     Species, Reactions, EquilibriumSteps, ParamConstraints,
-} end
+} <: AbstractEnzymeMechanism end
 
 """Count enzymes, metabolites, atoms, and metabolite names on one side of a reaction."""
 function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
@@ -288,19 +290,18 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
 end
 
 """
-    OligomericEnzymeMechanism{Metabolites, CatalyticMech, CatalyticN, RegSites, NConf}
+    AllostericEnzymeMechanism{Metabolites, CatalyticMech, CatalyticN, RegSites}
 
-Singleton type for multi-site, multi-conformation allosteric enzymes.
+Singleton type for allosteric enzymes (MWC model, always 2 conformations).
 
 - `Metabolites`: tuple of `Symbol` names from `metabolites:` block
 - `CatalyticMech`: `EnzymeMechanism` type for one catalytic subunit
 - `CatalyticN`: number of catalytic sites per enzyme molecule
 - `RegSites`: tuple of `((ligand_syms...,), multiplicity)` pairs
-- `NConf`: number of conformational states (1 = non-cooperative, 2 = two-state MWC)
 """
-struct OligomericEnzymeMechanism{
-    Metabolites, CatalyticMech, CatalyticN, RegSites, NConf,
-} end
+struct AllostericEnzymeMechanism{
+    Metabolites, CatalyticMech, CatalyticN, RegSites,
+} <: AbstractEnzymeMechanism end
 
 # --- Rate equation mode types ---
 
@@ -535,22 +536,22 @@ Positive = produced, negative = consumed.
     return S
 end
 
-# ─── OligomericEnzymeMechanism Accessors ────────────────────────
+# ─── AllostericEnzymeMechanism Accessors ────────────────────────
 
 """Delegate structural accessors to the CatalyticMech singleton."""
-n_states(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+n_states(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
     n_states(CM())
-n_steps(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+n_steps(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
     n_steps(CM())
-equilibrium_steps(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+equilibrium_steps(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
     equilibrium_steps(CM())
-substrates(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+substrates(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
     substrates(CM())
-products(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+products(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
     products(CM())
 @generated function regulators(
-    ::OligomericEnzymeMechanism{M,CM,N,RS,NC},
-) where {M,CM,N,RS,NC}
+    ::AllostericEnzymeMechanism{M,CM,N,RS},
+) where {M,CM,N,RS}
     ligs = Symbol[]
     for (ligands, _) in RS
         for lig in ligands
@@ -559,7 +560,7 @@ products(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
     end
     Tuple(ligs)
 end
-param_constraints(::OligomericEnzymeMechanism) = ()
+param_constraints(::AllostericEnzymeMechanism) = ()
 
 """Return all metabolite names (catalytic + regulatory) from the Metabolites type param."""
-metabolites(::OligomericEnzymeMechanism{Mets,CM,N,RS,NC}) where {Mets,CM,N,RS,NC} = Mets
+metabolites(::AllostericEnzymeMechanism{Mets,CM,N,RS}) where {Mets,CM,N,RS} = Mets
