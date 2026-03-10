@@ -211,11 +211,11 @@ function _walk_rhs!(expr, factors::Dict{Symbol,Int}, coeff::Ref{Int}, sign::Int)
 end
 
 macro enzyme_mechanism(block)
-    # Detect new OligomericEnzymeMechanism syntax (metabolites: or site(...):)
+    # Detect AllostericEnzymeMechanism syntax (metabolites: or site(...):)
     for arg in block.args
         arg isa LineNumberNode && continue
         if _is_oligomeric_label(arg)
-            return esc(_parse_oligomeric_mechanism(block))
+            return esc(_parse_allosteric_mechanism(block))
         end
     end
     return esc(_parse_enzyme_mechanism(block))
@@ -231,7 +231,7 @@ function _is_oligomeric_label(arg)
     end
     if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
         label = arg.args[2]
-        return label == :metabolites || label == :conformations ||
+        return label == :metabolites ||
                (label isa Expr && label.head == :call && label.args[1] == :site)
     end
     false
@@ -329,12 +329,11 @@ function _push_constraint!(constraints, arg)
 end
 
 """
-Parse the OligomericEnzymeMechanism DSL syntax.
-Handles: metabolites:, conformations:, site(:catalytic, N):, site(:regulatory, N):
+Parse the AllostericEnzymeMechanism DSL syntax.
+Handles: metabolites:, site(:catalytic, N):, site(:regulatory, N):
 """
-function _parse_oligomeric_mechanism(block)
+function _parse_allosteric_mechanism(block)
     met_names = nothing   # vector of Symbol (metabolite names only, no atoms)
-    nconf = 1
     catalytic_n = nothing
     catalytic_block = nothing
     reg_sites = Any[]     # vector of (ligand_syms, n_reg)
@@ -360,8 +359,6 @@ function _parse_oligomeric_mechanism(block)
 
             if label == :metabolites
                 met_names = [_met_sym(value)]
-            elseif label == :conformations
-                nconf = value  # integer literal
             elseif label isa Expr && label.head == :call && label.args[1] == :site
                 site_kind = label.args[2]   # QuoteNode(:catalytic) or QuoteNode(:regulatory)
                 site_n = label.args[3]      # integer literal
@@ -412,10 +409,10 @@ function _parse_oligomeric_mechanism(block)
     reg_sites_expr = Expr(:tuple, reg_sites_elems...)
 
     # Emit: let _cm = EnzymeMechanism(...)
-    #           OligomericEnzymeMechanism{mets, typeof(_cm), CatN, RegSites, NConf}()
+    #           AllostericEnzymeMechanism{mets, typeof(_cm), CatN, RegSites}()
     #       end
     :(let _cm = $cm_expr
-        OligomericEnzymeMechanism{$mets_tuple, typeof(_cm), $catalytic_n, $reg_sites_expr, $nconf}()
+        AllostericEnzymeMechanism{$mets_tuple, typeof(_cm), $catalytic_n, $reg_sites_expr}()
     end)
 end
 
