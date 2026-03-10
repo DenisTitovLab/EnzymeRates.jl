@@ -214,15 +214,15 @@ macro enzyme_mechanism(block)
     # Detect AllostericEnzymeMechanism syntax (metabolites: or site(...):)
     for arg in block.args
         arg isa LineNumberNode && continue
-        if _is_oligomeric_label(arg)
+        if _is_allosteric_label(arg)
             return esc(_parse_allosteric_mechanism(block))
         end
     end
     return esc(_parse_enzyme_mechanism(block))
 end
 
-"""Return true if an @enzyme_mechanism block arg is part of new oligomeric syntax."""
-function _is_oligomeric_label(arg)
+"""Return true if an @enzyme_mechanism block arg is part of allosteric syntax."""
+function _is_allosteric_label(arg)
     # metabolites: ... (single or tuple form)
     if arg isa Expr && arg.head == :tuple
         inner = arg.args[1]
