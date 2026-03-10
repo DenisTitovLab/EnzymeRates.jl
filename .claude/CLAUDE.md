@@ -219,7 +219,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 ## Key Architecture Decisions
 
 - `EnzymeMechanism{Species,Reactions,EquilibriumSteps,ParamConstraints}` is a singleton type encoding mechanism info in type parameters
-- `AllostericEnzymeMechanism{Mets,CatalyticMech,CatN,RegSites}` represents multi-subunit MWC allosteric enzymes — see `src/types.jl` and `src/dsl.jl` for DSL syntax
+- `AllostericEnzymeMechanism{Mets,CatalyticMech,CatSites,RegSites}` represents multi-subunit MWC allosteric enzymes (always 2 conformations). `CatSites = (cat_mets_tuple, multiplicity, tr_equiv_mets_tuple)`. `RegSites` entries are `(ligands, mult, tr_equiv_ligands_tuple)`. See `src/types.jl` and `src/dsl.jl` for DSL syntax.
 - `EnzymeReaction{S,P,R}` similarly encodes reactions in types
 - Each unique mechanism = unique type → affects compilation time
 - `@generated` functions used for compile-time computation (metabolites, graph, stoich_matrix, rate_equation, _kcat_forward)
@@ -252,14 +252,14 @@ julia --project -e 'using Pkg; Pkg.test()'
 
 ### Mechanism enumeration staged pipeline
 - `MechanismSpec` has 6 fields: `reaction, edges, n_catalytic_edges, equilibrium_steps, param_constraints, param_count`
-- `AllostericMechanismSpec` has 5 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, tr_equivalence`
+- `AllostericMechanismSpec` has 5 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, tr_equiv_metabolites`
 - Pipeline order (8 stages): `_catalytic_topologies` (stage 1) → `_expand_ress_variants` (stage 2) → `_expand_dead_end_inhibitors` (stage 3) → `_expand_equivalence_constraints` (stage 4) → `_deduplicate` (stage 5) → `_expand_allosteric` (stage 6) → `_expand_tr_equivalence` (stage 7) → `_deduplicate_allosteric` (stage 8)
 - Stages 1-5 produce `Vector{MechanismSpec}`, stages 6-8 produce `Vector{AllostericMechanismSpec}`
 - Regulator partitioning (2^n_unknown masks for unknown-role regs) happens in `enumerate_mechanisms` orchestration; stage functions take explicit `dead_end_regs`/`allosteric_regs` kwargs
 - `_set_partitions` enumerates all Bell-number set partitions of allosteric regulators
 - `compile_mechanism` converts `MechanismSpec` → `EnzymeMechanism` or `AllostericMechanismSpec` → `AllostericEnzymeMechanism`
 - Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor
-- T/R equivalence (`_expand_tr_equivalence`): currently a passthrough returning input unchanged; placeholder for future constraint where T-state and R-state share parameter values
+- T/R equivalence (`_expand_tr_equivalence`): enumerates 2^n variants where n = number of metabolites with T-state params (catalytic RE-binding metabolites + regulator ligands). Each variant specifies which metabolites have K_T = K_R (TR equivalence), reducing parameter count.
 
 ## Source Layout
 

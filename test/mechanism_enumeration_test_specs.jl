@@ -368,8 +368,9 @@ function build_single_reg_stage_expansion_specs()
             expected_n_dedup=1,
             # catalytic_n defaults to 1 → only multiplicity m=1
             expected_n_allosteric=1,
-            expected_n_tr_equiv=1,
-            expected_n_allosteric_dedup=1,
+            # TR equiv: 2^3 = 8 (S, P, I each have T-state params)
+            expected_n_tr_equiv=8,
+            expected_n_allosteric_dedup=8,
         ))
     end
 
@@ -412,8 +413,9 @@ function build_single_reg_stage_expansion_specs()
             expected_n_dedup=1,
             # catalytic_n defaults to 1 → only multiplicity m=1
             expected_n_allosteric=1,
-            expected_n_tr_equiv=1,
-            expected_n_allosteric_dedup=1,
+            # TR equiv: 2^4 = 16 (S, P, Q, I each have T-state params)
+            expected_n_tr_equiv=16,
+            expected_n_allosteric_dedup=16,
         ))
     end
 
@@ -458,8 +460,9 @@ function build_single_reg_stage_expansion_specs()
             expected_n_dedup=1,
             # catalytic_n defaults to 1 → only multiplicity m=1
             expected_n_allosteric=1,
-            expected_n_tr_equiv=1,
-            expected_n_allosteric_dedup=1,
+            # TR equiv: 2^5 = 32 (A, B, P, Q, I each have T-state params)
+            expected_n_tr_equiv=32,
+            expected_n_allosteric_dedup=32,
         ))
     end
 
@@ -496,8 +499,9 @@ function build_multi_reg_stage_expansion_specs()
             expected_n_dedup=1,
             # catalytic_n=2 → multiplicities m=1,2
             expected_n_allosteric=2,
-            expected_n_tr_equiv=2,
-            expected_n_allosteric_dedup=2,
+            # TR equiv: 2 × 2^4 = 32 (S, P, Q, I each have T-state params)
+            expected_n_tr_equiv=32,
+            expected_n_allosteric_dedup=32,
         ))
     end
 
@@ -523,8 +527,9 @@ function build_multi_reg_stage_expansion_specs()
             expected_n_dedup=1,
             # catalytic_n defaults to 1 → only multiplicity m=1
             expected_n_allosteric=1,
-            expected_n_tr_equiv=1,
-            expected_n_allosteric_dedup=1,
+            # TR equiv: 2^5 = 32 (A, B, P, Q, J each have T-state params)
+            expected_n_tr_equiv=32,
+            expected_n_allosteric_dedup=32,
         ))
     end
 
@@ -634,9 +639,9 @@ function build_enumeration_specs()
         expected_n_equivalence=33,
         expected_n_dedup=17,
         expected_n_allosteric=1,
-        expected_n_tr_equiv=1,
-        expected_n_allosteric_dedup=1,
-        expected_n_total=18,
+        expected_n_tr_equiv=4,
+        expected_n_allosteric_dedup=4,
+        expected_n_total=21,
     ))
 
     push!(specs, EnumerationTestSpec(;
@@ -661,9 +666,9 @@ function build_enumeration_specs()
         expected_n_equivalence=1401,
         expected_n_dedup=580,
         expected_n_allosteric=9,
-        expected_n_tr_equiv=9,
-        expected_n_allosteric_dedup=9,
-        expected_n_total=589,
+        expected_n_tr_equiv=88,
+        expected_n_allosteric_dedup=88,
+        expected_n_total=668,
     ))
 
     push!(specs, EnumerationTestSpec(;
@@ -677,9 +682,9 @@ function build_enumeration_specs()
         expected_n_equivalence=41,
         expected_n_dedup=9,
         expected_n_allosteric=18,
-        expected_n_tr_equiv=18,
-        expected_n_allosteric_dedup=18,
-        expected_n_total=27,
+        expected_n_tr_equiv=176,
+        expected_n_allosteric_dedup=176,
+        expected_n_total=185,
     ))
 
     push!(specs, EnumerationTestSpec(;
@@ -716,9 +721,9 @@ function build_enumeration_specs()
         expected_n_equivalence=102425,
         expected_n_dedup=33179,
         expected_n_allosteric=210,
-        expected_n_tr_equiv=210,
-        expected_n_allosteric_dedup=210,
-        expected_n_total=33389,
+        expected_n_tr_equiv=3400,
+        expected_n_allosteric_dedup=3400,
+        expected_n_total=36579,
     ))
 
     # Bi-Bi + 2 unknown regs: too large to enumerate in

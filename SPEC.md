@@ -23,7 +23,7 @@ secondary use cases.
 |------|-------------|
 | `EnzymeReaction` | Overall reaction specification (substrates, products, regulators). Created via `@enzyme_reaction`. |
 | `EnzymeMechanism` | Full mechanism with species, steps, RE/SS flags, and constraints. Created via `@enzyme_mechanism` or from selection results. |
-| `OligomericEnzymeMechanism` | Multi-subunit MWC allosteric enzyme. Created via `@enzyme_mechanism` with `site()`/`conformations:` DSL. |
+| `AllostericEnzymeMechanism` | Multi-subunit MWC allosteric enzyme. Created via `@enzyme_mechanism` with `site()` DSL. |
 | `FittingProblem` | Single-mechanism fitting problem (mechanism + data + Keq). |
 | `IdentifyRateEquationProblem` | Multi-mechanism selection problem (reaction + data + Keq + search config). |
 | `IdentifyRateEquationResults` | Results from `identify_rate_equation`: all fitted candidates with CV scores. |
@@ -33,7 +33,7 @@ secondary use cases.
 | Macro | Description |
 |-------|-------------|
 | `@enzyme_reaction` | Create an `EnzymeReaction` from a DSL block (substrates, products, regulators). |
-| `@enzyme_mechanism` | Create an `EnzymeMechanism` or `OligomericEnzymeMechanism` from DSL blocks. |
+| `@enzyme_mechanism` | Create an `EnzymeMechanism` or `AllostericEnzymeMechanism` from DSL blocks. |
 
 ### Constants
 
@@ -54,7 +54,7 @@ secondary use cases.
 | `metabolites` | Distinct metabolite names as a tuple of Symbols: `metabolites(m) → (:S, :P)`. |
 | `structural_identifiability_deficit` | Structural identifiability deficit (non-positive = identifiable). |
 | `rescale_parameter_values` | Rescale SS rate constants so kcat equals target (default 1.0). K's, Keq, E_total unchanged. |
-| `compile_mechanism` | Convert a `MechanismSpec` to `EnzymeMechanism` or `OligomericEnzymeMechanism`. |
+| `compile_mechanism` | Convert a `MechanismSpec` to `EnzymeMechanism` or `AllostericEnzymeMechanism`. |
 
 ---
 
@@ -370,7 +370,7 @@ result = fit_rate_equation(fp, LBFGSB())
 
 ```julia
 # Types
-export EnzymeReaction, EnzymeMechanism, OligomericEnzymeMechanism
+export EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism
 export FittingProblem
 export IdentifyRateEquationProblem, IdentifyRateEquationResults
 

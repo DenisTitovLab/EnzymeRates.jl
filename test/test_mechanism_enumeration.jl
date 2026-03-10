@@ -229,9 +229,11 @@ end
             EnzymeRates.enumerate_mechanisms(
                 uni_bi_reg_unknown))
         rng = Random.MersenneTwister(42)
-        n = min(20, length(all_specs))
-        sample = all_specs[randperm(rng, length(all_specs))[
-            1:n]]
+        base_specs = filter(
+            s -> s isa EnzymeRates.MechanismSpec, all_specs)
+        n = min(20, length(base_specs))
+        sample = base_specs[randperm(rng,
+            length(base_specs))[1:n]]
         for s in sample
             m = compile_mechanism(s)
             @test s.param_count == length(parameters(m))
@@ -295,9 +297,12 @@ end
         for rxn in [uni_uni, uni_bi_reg_unknown, uni_bi]
             all_specs = collect(
                 EnzymeRates.enumerate_mechanisms(rxn))
-            n = min(20, length(all_specs))
-            sample = all_specs[randperm(rng,
-                length(all_specs))[1:n]]
+            base_specs = filter(
+                s -> s isa EnzymeRates.MechanismSpec,
+                all_specs)
+            n = min(20, length(base_specs))
+            sample = base_specs[randperm(rng,
+                length(base_specs))[1:n]]
             for s in sample
                 m = compile_mechanism(s)
                 @test s.param_count == length(parameters(m))
