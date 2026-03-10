@@ -14,7 +14,7 @@ Contains all expected properties for comprehensive testing.
 Base.@kwdef struct MechanismTestSpec
     # Core data
     name::String                          # Human-readable name for test labels
-    mechanism::Any                        # EnzymeMechanism or OligomericEnzymeMechanism
+    mechanism::Any                        # EnzymeMechanism or AllostericEnzymeMechanism
     metabolite_names::Vector{Symbol}      # For param/conc generation
 
     # Structural expectations
@@ -1465,15 +1465,14 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 24B. OligomericEnzymeMechanism equivalent of MWC Dimer (spec #24)
+    # 24B. AllostericEnzymeMechanism equivalent of MWC Dimer (spec #24)
     #      2 catalytic sites × 2 conformations (R/T). No explicit equality constraints
     #      needed — symmetric subunits are captured by the site multiplicity.
     #      Conformational equilibrium: L (= K37 in the EnzymeMechanism above).
-    if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
+    if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
         let
             m = @enzyme_mechanism begin
                 metabolites: S[C], P[C]
-                conformations: 2    # R (active) and T (tense)
                 site(:catalytic, 2):begin
                     species: begin
                         substrates: S[C]
@@ -1500,7 +1499,7 @@ function build_mechanism_test_specs()
             end
 
             push!(specs, MechanismTestSpec(
-                name="MWC Dimer [OligomericEnzymeMechanism]",
+                name="MWC Dimer [AllostericEnzymeMechanism]",
                 mechanism=m,
                 metabolite_names=[:S, :P],
                 expected_n_states=3,          # catalytic subunit: E_c, E_S, E_P
@@ -1650,10 +1649,10 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 25B. OligomericEnzymeMechanism equivalent of Homodimer + Non-competitive Inhibitor (spec #25)
+    # 25B. AllostericEnzymeMechanism equivalent of Homodimer + Non-competitive Inhibitor (spec #25)
     #      I binds all enzyme forms independently with the same Ki (enzyme-level).
     #      sigma = Q_cat^2 * (1 + I/K_I_reg1)  (multiplicative factor).
-    if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
+    if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
         let
             m = @enzyme_mechanism begin
                 metabolites: S[C], P[C], I[X]
@@ -1675,32 +1674,39 @@ function build_mechanism_test_specs()
             end
 
             function rate_homodimer_noncomp_inh_oligo(params, concs)
-                (; K1, K2, k3f, k3r, K_I_reg1, Et) = params
+                (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T,
+                   L, K_I_reg1, K_I_T_reg1, Et) = params
                 (; S, P, I) = concs
-                flux   = k3f * S / K1 - k3r * P / K2
-                factor = 1.0 + S / K1 + P / K2
-                return Et * 2.0 * flux * factor /
-                           (factor^2 * (1.0 + I / K_I_reg1))
+                r_flux   = k3f * S / K1 - k3r * P / K2
+                t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
+                r_factor = 1.0 + S / K1 + P / K2
+                t_factor = 1.0 + S / K1_T + P / K2_T
+                num   = 2.0 * (r_flux * r_factor + L * t_flux * t_factor)
+                denom = r_factor^2 * (1.0 + I / K_I_reg1) +
+                        L * t_factor^2 * (1.0 + I / K_I_T_reg1)
+                return Et * num / denom
             end
 
             push!(specs, MechanismTestSpec(
-                name="Homodimer + Non-competitive Inhibitor [OligomericEnzymeMechanism]",
+                name="Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]",
                 mechanism=m,
                 metabolite_names=[:S, :P, :I],
                 expected_n_states=3,
                 expected_n_steps=3,
                 expected_n_metabolites=3,
-                expected_n_haldane=1,
+                expected_n_haldane=2,
                 expected_n_wegscheider=0,
-                expected_n_independent_params=4,
-                expected_identifiability_deficit=-11,
+                expected_n_independent_params=9,
+                expected_identifiability_deficit=-6,
                 expected_is_identifiable=true,
                 run_ode_test=false,
                 analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
                 expected_factored_num=
-                "2 * (k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)",
+                "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
+                " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
                 expected_factored_denom=
-                "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)",
+                "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
+                " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
             ))
         end
     end
@@ -1910,15 +1916,14 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 26B. OligomericEnzymeMechanism equivalent of MWC Dimer + Independent Inhibitor (spec #26)
+    # 26B. AllostericEnzymeMechanism equivalent of MWC Dimer + Independent Inhibitor (spec #26)
     #      The Wegscheider constraint K80 = K47*K37/K38 (R_00I ⇌ T_00I equilibrium)
     #      is automatically satisfied by the conformational assembly formula — no
-    #      explicit constraint needed in the OligomericEnzymeMechanism DSL.
-    if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
+    #      explicit constraint needed in the AllostericEnzymeMechanism DSL.
+    if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
         let
             m = @enzyme_mechanism begin
                 metabolites: S[C], P[C], I[Y]
-                conformations: 2    # R and T
                 site(:catalytic, 2):begin
                     species: begin
                         substrates: S[C]
@@ -1951,7 +1956,7 @@ function build_mechanism_test_specs()
             end
 
             push!(specs, MechanismTestSpec(
-                name="MWC Dimer + Independent Inhibitor [OligomericEnzymeMechanism]",
+                name="MWC Dimer + Independent Inhibitor [AllostericEnzymeMechanism]",
                 mechanism=m,
                 metabolite_names=[:S, :P, :I],
                 expected_n_states=3,
@@ -2305,7 +2310,7 @@ function build_mechanism_test_specs()
     #
     # Reaction: S1 + S2 ⇌ P1 + P2  (Bi-Bi)
     #
-    # Catalytic site (×4 subunits, NConf=2):
+    # Catalytic site (×4 subunits, 2 conformations):
     #   Site A: S1 and P1 bind competitively (Kd = K1, K2 in R state)
     #   Site B: S2 and P2 bind competitively (Kd = K3, K4 in R state)
     #   Sites A and B are independent — cross-occupancy (S1+P2, P1+S2) is allowed.
@@ -2350,11 +2355,10 @@ function build_mechanism_test_specs()
     #   Reg site 2 R: K_R3_reg2
     #   Reg site 2 T: K_R3_T_reg2
     #   Conformational equilibrium: L
-    if isdefined(EnzymeRates, :OligomericEnzymeMechanism)
+    if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
         let
             m = @enzyme_mechanism begin
                 metabolites: S1[C], S2[N], P1[C], P2[N], R1[X], R2[Y], R3[Z]
-                conformations: 2    # NConf=2: R (active) and T (tense) states
                 site(:catalytic, 4):begin
                     species: begin
                         substrates: S1[C], S2[N]

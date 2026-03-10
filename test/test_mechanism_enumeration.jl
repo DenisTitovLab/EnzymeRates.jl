@@ -39,12 +39,6 @@ end
 
         @test length(EnzymeRates._expand_ress_variants(
             base, rxn)) == s.expected_n_ress
-        @test length(EnzymeRates._expand_general_modifiers(
-            base, rxn; allosteric_regs=al_regs)) ==
-            s.expected_n_general_modifier
-        @test length(EnzymeRates._expand_essential_activators(
-            base, rxn; allosteric_regs=al_regs)) ==
-            s.expected_n_essential_activator
         @test length(EnzymeRates._expand_dead_end_inhibitors(
             base, rxn; dead_end_regs=de_regs)) ==
             s.expected_n_dead_end
@@ -53,18 +47,19 @@ end
         @test length(EnzymeRates._deduplicate(
             base, rxn)) == s.expected_n_dedup
 
-        if s.catalytic_n > 0
+        if !isempty(s.allosteric_regs)
+            cn = s.catalytic_n > 0 ? s.catalytic_n : 1
             dd = EnzymeRates._deduplicate(base, rxn)
             oem = EnzymeRates._expand_allosteric(
-                dd, rxn; catalytic_n=s.catalytic_n,
+                dd, rxn; catalytic_n=cn,
                 allosteric_regs=al_regs)
             @test length(oem) == s.expected_n_allosteric
 
             oem = EnzymeRates._expand_tr_equivalence(oem, rxn)
             @test length(oem) == s.expected_n_tr_equiv
 
-            oem = EnzymeRates._deduplicate_oem(oem, rxn)
-            @test length(oem) == s.expected_n_oem_dedup
+            oem = EnzymeRates._deduplicate_allosteric(oem, rxn)
+            @test length(oem) == s.expected_n_allosteric_dedup
         end
     end
 
@@ -79,18 +74,15 @@ end
             rxn; catalytic_n=s.catalytic_n)
         @test counts.catalytic == s.expected_n_catalytic
         @test counts.ress == s.expected_n_ress
-        @test counts.general_modifier ==
-            s.expected_n_general_modifier
-        @test counts.essential_activator ==
-            s.expected_n_essential_activator
         @test counts.dead_end == s.expected_n_dead_end
         @test counts.equivalence == s.expected_n_equivalence
         @test counts.dedup == s.expected_n_dedup
 
-        if s.catalytic_n > 0
+        if s.expected_n_allosteric > 0
             @test counts.allosteric == s.expected_n_allosteric
             @test counts.tr_equiv == s.expected_n_tr_equiv
-            @test counts.oem_dedup == s.expected_n_oem_dedup
+            @test counts.allosteric_dedup ==
+                s.expected_n_allosteric_dedup
         end
 
         result = _with_timeout(120) do
@@ -206,10 +198,7 @@ end
         for rxn in [uni_bi_reg_unknown,
                     bi_bi_ping_pong_reg_unknown]
             counts = _run_full_pipeline_stages(rxn)
-            @test counts.general_modifier >= counts.ress
-            @test counts.essential_activator >=
-                counts.general_modifier
-            @test counts.dead_end >= counts.essential_activator
+            @test counts.dead_end >= counts.ress
             @test counts.equivalence >= counts.dead_end
             @test counts.dedup <= counts.equivalence
         end
@@ -317,32 +306,32 @@ end
     end
 
     # ── OEM properties ───────────────────────────────────────
-    @testset "OEM expansion properties" begin
+    @testset "Allosteric expansion properties" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(
-                uni_bi; catalytic_n=2))
+                uni_bi_allosteric_I_oem; catalytic_n=2))
         em = filter(
             s -> s isa EnzymeRates.MechanismSpec,
             all_specs)
-        oem = filter(
-            s -> s isa EnzymeRates.OligomericMechanismSpec,
+        allo = filter(
+            s -> s isa EnzymeRates.AllostericMechanismSpec,
             all_specs)
         @test length(em) > 0
-        @test length(oem) > 0
-        for s in oem
+        @test length(allo) > 0
+        for s in allo
             @test s.catalytic_n == 2
         end
     end
 
-    @testset "OEM with allosteric regulators" begin
+    @testset "Allosteric with allosteric regulators" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(
                 uni_bi_allosteric_I_oem; catalytic_n=2))
-        oem = filter(
-            s -> s isa EnzymeRates.OligomericMechanismSpec,
+        allo = filter(
+            s -> s isa EnzymeRates.AllostericMechanismSpec,
             all_specs)
-        @test length(oem) > 0
-        for s in oem
+        @test length(allo) > 0
+        for s in allo
             @test !isempty(s.allosteric_reg_sites)
             @test !isempty(s.allosteric_multiplicities)
         end
@@ -362,16 +351,16 @@ end
         end
     end
 
-    @testset "compile_mechanism OEM" begin
+    @testset "compile_mechanism allosteric" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(
-                uni_bi; catalytic_n=2))
-        oem = filter(
-            s -> s isa EnzymeRates.OligomericMechanismSpec,
+                uni_bi_allosteric_I_oem; catalytic_n=2))
+        allo = filter(
+            s -> s isa EnzymeRates.AllostericMechanismSpec,
             all_specs)
-        for s in oem[1:min(3, length(oem))]
+        for s in allo[1:min(3, length(allo))]
             m = compile_mechanism(s)
-            @test m isa OligomericEnzymeMechanism
+            @test m isa AllostericEnzymeMechanism
             @test length(parameters(m)) > 0
         end
     end
@@ -393,12 +382,10 @@ end
         @test by_name["Bi-Bi Ping-Pong (no reg)"].expected_n_ress ==
             2^4 - 1  # 4 RE binding edges
 
-        # No-reg passthroughs: gm/ea/de/eq/dd all = 1
+        # No-reg passthroughs: de/eq/dd all = 1
         for name in ["Uni-Uni (no reg)", "Bi-Bi (no reg)",
                       "Bi-Bi Ping-Pong (no reg)"]
             s = by_name[name]
-            @test s.expected_n_general_modifier == 1
-            @test s.expected_n_essential_activator == 1
             @test s.expected_n_dead_end == 1
             @test s.expected_n_equivalence == 1
             @test s.expected_n_dedup == 1
@@ -414,18 +401,6 @@ end
         @test by_name["Bi-Bi (dead-end I, allosteric J)"].expected_n_dead_end ==
             2^5  # 5 catalytic forms
 
-        # Allosteric: 1 reg → gm = 2 (original + modifier),
-        #             ea = 2 (original + activator)
-        for name in ["Uni-Uni (allosteric I)",
-                      "Uni-Bi (allosteric I)",
-                      "Bi-Bi Ping-Pong (allosteric I)",
-                      "Uni-Bi (allosteric I, OEM n=2)",
-                      "Bi-Bi (dead-end I, allosteric J)"]
-            s = by_name[name]
-            @test s.expected_n_general_modifier == 2
-            @test s.expected_n_essential_activator == 2
-        end
-
         # Dead-end passthrough for allosteric-only specs
         for name in ["Uni-Uni (allosteric I)",
                       "Uni-Bi (allosteric I)",
@@ -433,13 +408,15 @@ end
             @test by_name[name].expected_n_dead_end == 1
         end
 
-        # OEM: 1 reg, 1 partition → 2 multiplicities (m=1,2)
+        # Allosteric: catalytic_n=1 → 1 multiplicity (m=1 only)
         for name in ["Uni-Uni (allosteric I)",
                       "Uni-Bi (allosteric I)",
-                      "Bi-Bi Ping-Pong (allosteric I)",
-                      "Uni-Bi (allosteric I, OEM n=2)"]
+                      "Bi-Bi Ping-Pong (allosteric I)"]
             s = by_name[name]
-            @test s.expected_n_allosteric == 2
+            @test s.expected_n_allosteric == 1
         end
+
+        # Allosteric: catalytic_n=2 → 2 multiplicities (m=1,2)
+        @test by_name["Uni-Bi (allosteric I, OEM n=2)"].expected_n_allosteric == 2
     end
 end

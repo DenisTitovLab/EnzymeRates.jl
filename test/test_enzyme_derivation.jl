@@ -220,10 +220,10 @@ function compute_all_params(m, new_params)
 end
 
 """
-OligomericEnzymeMechanism version of compute_all_params.
+AllostericEnzymeMechanism version of compute_all_params.
 Returns all independent + dependent (Haldane-derived) params + Keq + E_total.
 """
-function compute_all_params(m::EnzymeRates.OligomericEnzymeMechanism, new_params)
+function compute_all_params(m::EnzymeRates.AllostericEnzymeMechanism, new_params)
     indep = _get_independent_params(m)
     dep = _get_dependent_params(m)
     dep_dict = Dict{Symbol, Float64}()
