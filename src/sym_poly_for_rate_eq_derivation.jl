@@ -567,7 +567,8 @@ Count distinct concentration monomials in the full allosteric rate numerator and
 denominator. Treats all K/k/L symbols as parameters (strips them from monomials).
 Returns `(n_num, n_denom)`.
 """
-function _count_allosteric_rate_monomials(CM, CatN, RS)
+function _count_allosteric_rate_monomials(CM, CS, RS)
+    CatN = CS[2]
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
     N_cat_R = _expand_factored_sigma(num_fs)
     Q_cat_R = _expand_to_poly(denom_terms)
@@ -575,12 +576,12 @@ function _count_allosteric_rate_monomials(CM, CatN, RS)
     # Build reg site partition polynomials (1 + ligand_sym for each ligand)
     reg_Q_R = POLY[
         reduce(poly_add, (poly_add(poly_one(), poly_sym(lig)) for lig in ligs))
-        for (ligs, _) in RS
+        for (ligs, _, _) in RS
     ]
 
     function num_poly_for_conf(N_cat, Q_cat, reg_Qs, L_factor)
         n_term = poly_mul(N_cat, _poly_power(Q_cat, CatN - 1))
-        for (idx, (_, n_reg)) in enumerate(RS)
+        for (idx, (_, n_reg, _)) in enumerate(RS)
             n_reg == CatN || continue
             n_term = poly_mul(n_term, _poly_power(reg_Qs[idx], n_reg))
         end
@@ -589,7 +590,7 @@ function _count_allosteric_rate_monomials(CM, CatN, RS)
 
     function den_poly_for_conf(Q_cat, reg_Qs, L_factor)
         d_term = _poly_power(Q_cat, CatN)
-        for (idx, (_, n_reg)) in enumerate(RS)
+        for (idx, (_, n_reg, _)) in enumerate(RS)
             d_term = poly_mul(d_term, _poly_power(reg_Qs[idx], n_reg))
         end
         L_factor === nothing ? d_term : poly_mul(poly_sym(L_factor), d_term)

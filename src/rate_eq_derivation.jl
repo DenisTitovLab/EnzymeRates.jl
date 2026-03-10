@@ -834,9 +834,10 @@ so kcat depends on the regulator corner. We enumerate all 2^n_lig
 corners and return the max.
 """
 @generated function _kcat_forward(
-    ::AllostericEnzymeMechanism{Mets,CM,CatN,RS},
+    ::AllostericEnzymeMechanism{Mets,CM,CS,RS},
     params::NamedTuple,
-) where {Mets,CM,CatN,RS}
+) where {Mets,CM,CS,RS}
+    CatN = CS[2]
     # Get kcat components from catalytic mechanism (single component)
     components = _kcat_components(CM)
     @assert length(components) == 1 "Catalytic mechanism should have exactly 1 kcat component"
@@ -849,12 +850,12 @@ corners and return the max.
     den_k_R_expr = substitute_params_expr(raw_den_k, kd_subs)
 
     # Build dependent param assignments for R-state
+    M_type = AllostericEnzymeMechanism{Mets,CM,CS,RS}
     r_assignments, t_assignments = _allosteric_dep_assignments(
-        CM, K -> :(inv($K)),
+        CM, M_type, K -> :(inv($K)),
     )
 
     # Collect independent params needed
-    M_type = AllostericEnzymeMechanism{Mets,CM,CatN,RS}
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq)
 
@@ -887,7 +888,7 @@ corners and return the max.
 
     # Enumerate all unique ligands across reg sites
     all_ligs = Symbol[]
-    for (ligs, _) in RS
+    for (ligs, _, _) in RS
         for lig in ligs
             lig in all_ligs || push!(all_ligs, lig)
         end
@@ -903,7 +904,7 @@ corners and return the max.
     for mask in 0:(2^n_ligs - 1)
         W_R_factors = Any[]
         W_T_factors = Any[]
-        for (site_idx, (ligs, n_reg)) in enumerate(RS)
+        for (site_idx, (ligs, n_reg, _)) in enumerate(RS)
             # Build effective Q_reg for this site at this corner
             sat_terms_R = Any[]
             sat_terms_T = Any[]
@@ -979,13 +980,13 @@ end
 # AllostericEnzymeMechanism rate equations (MWC)
 #
 # MWC rate formula (per conformation c, summed over conformations):
-#   num = CatN * sum_c( L_c * N_cat_c * Q_cat_c^(CatN-1)
-#             * prod(Q_reg_i_c^n_reg_i for i with n_reg_i == CatN) )
-#   den = sum_c( L_c * Q_cat_c^CatN * prod(Q_reg_i_c^n_reg_i) )
+#   num = CS[2] * sum_c( L_c * N_cat_c * Q_cat_c^(CS[2]-1)
+#             * prod(Q_reg_i_c^n_reg_i for i with n_reg_i == CS[2]) )
+#   den = sum_c( L_c * Q_cat_c^CS[2] * prod(Q_reg_i_c^n_reg_i) )
 #   v = E_total * num / den
 #
-# Regulatory sites with n_reg_i < CatN appear only in the denominator.
-# Sites with n_reg_i == CatN appear in both numerator and denominator.
+# Regulatory sites with n_reg_i < CS[2] appear only in the denominator.
+# Sites with n_reg_i == CS[2] appear in both numerator and denominator.
 # ═══════════════════════════════════════════════════════════════════
 
 # ─── Parameter naming ────────────────────────────────────────────
@@ -1009,21 +1010,48 @@ end
 """
 Return all binding (Kd-convention) K symbols: R-state, T-state, and reg site params.
 Regulatory site K params are always Kd (dissociation constants).
+TR-equivalent parameters (K_T = K_R) are excluded from the T-state set.
 """
 function _binding_K_symbols(
-    ::Type{AllostericEnzymeMechanism{Mets,CM,CatN,RS}},
-) where {Mets,CM,CatN,RS}
+    ::Type{AllostericEnzymeMechanism{Mets,CM,CS,RS}},
+) where {Mets,CM,CS,RS}
+    cat_tr_equiv = CS[3]
     r_ks = Tuple(_binding_K_symbols(CM))
-    t_ks = Tuple(_rename_params_T(K) for K in r_ks)
+    # For catalytic T-state K's, skip those whose metabolite is TR-equivalent
+    t_ks = Tuple(
+        _rename_params_T(K) for K in r_ks
+        if !_is_tr_equiv_catalytic_K(K, CM, cat_tr_equiv)
+    )
     reg_ks_r = Tuple(
         _reg_param_name(lig, i, false)
-        for (i, (ligs, _)) in enumerate(RS) for lig in ligs
+        for (i, (ligs, _, _)) in enumerate(RS) for lig in ligs
     )
     reg_ks_t = Tuple(
         _reg_param_name(lig, i, true)
-        for (i, (ligs, _)) in enumerate(RS) for lig in ligs
+        for (i, (ligs, _, tr_eq)) in enumerate(RS)
+        for lig in ligs if lig ∉ tr_eq
     )
     (r_ks..., t_ks..., reg_ks_r..., reg_ks_t...)
+end
+
+"""Check if a catalytic K symbol corresponds to a TR-equivalent metabolite."""
+function _is_tr_equiv_catalytic_K(
+    K::Symbol, CM::Type{<:EnzymeMechanism}, cat_tr_equiv,
+)
+    isempty(cat_tr_equiv) && return false
+    m = CM()
+    rxns = reactions(m)
+    eq_steps = equilibrium_steps(m)
+    enz_set = Set(e[1] for e in enzyme_forms(m))
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        eq_steps[idx] || continue
+        Symbol("K$idx") != K && continue
+        _, m_lhs = _split_reaction_side(lhs, enz_set)
+        for met in m_lhs
+            met ∈ cat_tr_equiv && return true
+        end
+    end
+    false
 end
 
 # ─── Dependent parameter expressions ─────────────────────────────
@@ -1036,29 +1064,56 @@ Duplicates R-state analysis with _T suffix for T-state;
 adds reg site params (R and T) and L to indep.
 """
 function _dependent_param_exprs(
-    ::Type{AllostericEnzymeMechanism{Mets,CM,CatN,RS}},
-) where {Mets,CM,CatN,RS}
+    ::Type{AllostericEnzymeMechanism{Mets,CM,CS,RS}},
+) where {Mets,CM,CS,RS}
+    cat_tr_equiv = CS[3]
     dep_R, indep_R = _dependent_param_exprs(CM)
 
     reg_params_r = [
         _reg_param_name(lig, i, false)
-        for (i, (ligs, _)) in enumerate(RS) for lig in ligs
+        for (i, (ligs, _, _)) in enumerate(RS) for lig in ligs
     ]
 
     T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
-    dep_T = Dict{Symbol, Union{Symbol, Expr}}(
-        _rename_params_T(k) => substitute_params_expr(v, T_subs)
-        for (k, v) in dep_R
-    )
-    indep_T = Tuple(_rename_params_T(p) for p in indep_R)
+
+    # For TR-equivalent catalytic params, T-state dep = R-state dep
+    # (the T_subs rename is applied, but the _T param is then
+    # added as dependent = R-state value, not independent)
+    dep_T = Dict{Symbol, Union{Symbol, Expr}}()
+    indep_T_list = Symbol[]
+    for (k, v) in dep_R
+        dep_T[_rename_params_T(k)] = substitute_params_expr(v, T_subs)
+    end
+    for p in indep_R
+        t_p = _rename_params_T(p)
+        if _is_tr_equiv_catalytic_K(p, CM, cat_tr_equiv)
+            # TR equivalent: K_T = K_R (dependent, not independent)
+            dep_T[t_p] = p
+        else
+            push!(indep_T_list, t_p)
+        end
+    end
 
     reg_params_t = [
         _reg_param_name(lig, i, true)
-        for (i, (ligs, _)) in enumerate(RS) for lig in ligs
+        for (i, (ligs, _, tr_eq)) in enumerate(RS)
+        for lig in ligs if lig ∉ tr_eq
     ]
 
+    # TR-equivalent reg params: K_T = K_R (dependent)
+    for (i, (ligs, _, tr_eq)) in enumerate(RS)
+        for lig in ligs
+            if lig ∈ tr_eq
+                K_R = _reg_param_name(lig, i, false)
+                K_T = _reg_param_name(lig, i, true)
+                dep_T[K_T] = K_R
+            end
+        end
+    end
+
     merged_dep = merge(dep_R, dep_T)
-    merged_indep = (indep_R..., indep_T..., reg_params_r..., reg_params_t..., :L)
+    merged_indep = (indep_R..., indep_T_list...,
+                    reg_params_r..., reg_params_t..., :L)
     return merged_dep, merged_indep
 end
 
@@ -1088,10 +1143,18 @@ end
 Build R-state and T-state dep param assignment Exprs.
 Returns `(r_assignments::Vector{Expr}, t_assignments::Vector{Expr})`.
 Shared by `_build_allosteric_rate_body` and `rate_equation_string`.
+The `M_type` parameter is the full `AllostericEnzymeMechanism` type, used
+to look up TR equivalence info from `CS` and `RS`.
 """
 function _allosteric_dep_assignments(
-    CM::Type{<:EnzymeMechanism}, inv_fn,
+    CM::Type{<:EnzymeMechanism},
+    M_type::Type{<:AllostericEnzymeMechanism},
+    inv_fn,
 )
+    CS = M_type.parameters[3]
+    RS = M_type.parameters[4]
+    cat_tr_equiv = CS[3]
+
     dep_R, indep_R = _dependent_param_exprs(CM)
     dep_R_kd = _apply_kd_inversion(dep_R, CM, inv_fn)
     sorted_deps = sort(collect(dep_R_kd); by=first)
@@ -1101,21 +1164,42 @@ function _allosteric_dep_assignments(
     ]
 
     T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
-    t_assignments = Expr[
-        Expr(:(=), _rename_params_T(sym),
-            substitute_params_expr(dep_R_kd[sym], T_subs))
-        for (sym, _) in sorted_deps
-    ]
+    t_assignments = Expr[]
+
+    # T-state assignments for catalytic dependent params
+    for (sym, _) in sorted_deps
+        push!(t_assignments, Expr(:(=), _rename_params_T(sym),
+            substitute_params_expr(dep_R_kd[sym], T_subs)))
+    end
+
+    # TR-equivalent catalytic independent params: K_T = K_R
+    for p in indep_R
+        if _is_tr_equiv_catalytic_K(p, CM, cat_tr_equiv)
+            push!(t_assignments, Expr(:(=), _rename_params_T(p), p))
+        end
+    end
+
+    # TR-equivalent reg params: K_T_reg = K_R_reg
+    for (i, (ligs, _, tr_eq)) in enumerate(RS)
+        for lig in ligs
+            if lig ∈ tr_eq
+                K_R = _reg_param_name(lig, i, false)
+                K_T = _reg_param_name(lig, i, true)
+                push!(t_assignments, Expr(:(=), K_T, K_R))
+            end
+        end
+    end
 
     return r_assignments, t_assignments
 end
 
 """
 Assemble the MWC numerator and denominator Exprs.
-Returns `(full_num, full_den)` where the numerator already includes the `CatN` factor.
+Returns `(full_num, full_den)` where the numerator already includes the `CS[2]` factor.
 Shared by `_build_allosteric_rate_body` and `rate_equation_string`.
 """
-function _allosteric_num_den_exprs(CM, CatN, RS)
+function _allosteric_num_den_exprs(CM, CS, RS)
+    CatN = CS[2]
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
     m_cat = CM()
     cat_constr = Set(c[1] for c in param_constraints(m_cat))
@@ -1127,14 +1211,15 @@ function _allosteric_num_den_exprs(CM, CatN, RS)
 
     N_R = _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r)
     Q_R = _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r)
-    reg_Q_R = Any[_reg_site_expr(ligs, i, false) for (i, (ligs, _)) in enumerate(RS)]
+    reg_Q_R = Any[_reg_site_expr(ligs, i, false)
+                  for (i, (ligs, _, _)) in enumerate(RS)]
 
     # Per-subunit reg sites (n_reg == CatN) go in both num and den.
     # Enzyme-level reg sites (n_reg < CatN) go in denominator only.
     function make_num_term(N, Q, reg_Qs)
         factors = Any[N]
         CatN > 1 && push!(factors, _power_expr(Q, CatN - 1))
-        for (idx, (_, n_reg)) in enumerate(RS)
+        for (idx, (_, n_reg, _)) in enumerate(RS)
             n_reg == CatN || continue
             push!(factors, _power_expr(reg_Qs[idx], n_reg))
         end
@@ -1143,7 +1228,7 @@ function _allosteric_num_den_exprs(CM, CatN, RS)
 
     function make_den_term(Q, reg_Qs)
         factors = Any[_power_expr(Q, CatN)]
-        for (idx, (_, n_reg)) in enumerate(RS)
+        for (idx, (_, n_reg, _)) in enumerate(RS)
             push!(factors, _power_expr(reg_Qs[idx], n_reg))
         end
         _nest_binary(:*, factors)
@@ -1155,7 +1240,8 @@ function _allosteric_num_den_exprs(CM, CatN, RS)
     T_subs = _build_T_subs(cat_params)
     N_T = substitute_params_expr(N_R, T_subs)
     Q_T = substitute_params_expr(Q_R, T_subs)
-    reg_Q_T = Any[_reg_site_expr(ligs, i, true) for (i, (ligs, _)) in enumerate(RS)]
+    reg_Q_T = Any[_reg_site_expr(ligs, i, true)
+                  for (i, (ligs, _, _)) in enumerate(RS)]
 
     num_T = make_num_term(N_T, Q_T, reg_Q_T)
     den_T = make_den_term(Q_T, reg_Q_T)
@@ -1164,13 +1250,13 @@ function _allosteric_num_den_exprs(CM, CatN, RS)
 end
 
 """Build the MWC rate equation body as an Expr block."""
-function _build_allosteric_rate_body(Mets, CM, CatN, RS)
-    M_type = AllostericEnzymeMechanism{Mets,CM,CatN,RS}
-    full_num, full_den = _allosteric_num_den_exprs(CM, CatN, RS)
+function _build_allosteric_rate_body(Mets, CM, CS, RS)
+    M_type = AllostericEnzymeMechanism{Mets,CM,CS,RS}
+    full_num, full_den = _allosteric_num_den_exprs(CM, CS, RS)
     rate_expr = :(E_total * ($full_num) / ($full_den))
 
     r_assignments, t_assignments = _allosteric_dep_assignments(
-        CM, K -> :(inv($K)),
+        CM, M_type, K -> :(inv($K)),
     )
 
     _, indep = _dependent_param_exprs(M_type)
@@ -1187,28 +1273,28 @@ end
 # ─── Rate equation dispatch ───────────────────────────────────────
 
 @generated function rate_equation(
-    ::AllostericEnzymeMechanism{Mets,CM,CatN,RS},
+    ::AllostericEnzymeMechanism{Mets,CM,CS,RS},
     concs::NamedTuple, params::NamedTuple, ::ReducedMode,
-) where {Mets,CM,CatN,RS}
-    _build_allosteric_rate_body(Mets, CM, CatN, RS)
+) where {Mets,CM,CS,RS}
+    _build_allosteric_rate_body(Mets, CM, CS, RS)
 end
 
 # ─── String representation ────────────────────────────────────────
 
 function rate_equation_string(
-    ::AllostericEnzymeMechanism{Mets,CM,CatN,RS}, ::ReducedMode,
-) where {Mets,CM,CatN,RS}
-    M = AllostericEnzymeMechanism{Mets,CM,CatN,RS}
+    ::AllostericEnzymeMechanism{Mets,CM,CS,RS}, ::ReducedMode,
+) where {Mets,CM,CS,RS}
+    M = AllostericEnzymeMechanism{Mets,CM,CS,RS}
     _, indep = _dependent_param_exprs(M)
     hw_params = (indep..., :Keq, :E_total)
 
     r_assignments, t_assignments = _allosteric_dep_assignments(
-        CM, K -> :(1 / $K),
+        CM, M, K -> :(1 / $K),
     )
     dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in r_assignments]
     t_dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in t_assignments]
 
-    full_num, full_den = _allosteric_num_den_exprs(CM, CatN, RS)
+    full_num, full_den = _allosteric_num_den_exprs(CM, CS, RS)
     v_line = "v = E_total * ($(_expr_to_string(full_num))) / ($(_expr_to_string(full_den)))"
 
     join([
@@ -1223,12 +1309,12 @@ end
 # ─── Structural Identifiability ───────────────────────────────────
 
 @generated function structural_identifiability_deficit(
-    ::AllostericEnzymeMechanism{Mets,CM,CatN,RS},
-) where {Mets,CM,CatN,RS}
-    M = AllostericEnzymeMechanism{Mets,CM,CatN,RS}
+    ::AllostericEnzymeMechanism{Mets,CM,CS,RS},
+) where {Mets,CM,CS,RS}
+    M = AllostericEnzymeMechanism{Mets,CM,CS,RS}
     _, indep = _dependent_param_exprs(M)
     n_k = length(indep)
-    n_num, n_denom = _count_allosteric_rate_monomials(CM, CatN, RS)
+    n_num, n_denom = _count_allosteric_rate_monomials(CM, CS, RS)
     n_k - (n_num - 1) - (n_denom - 1)
 end
 

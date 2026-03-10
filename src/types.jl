@@ -16,8 +16,7 @@ struct EnzymeReaction{Substrates, Products, Regulators} end
 """Regulator role in mechanism enumeration."""
 abstract type RegulatorRole end
 
-"""Allosteric regulator: OEM expansion + essential activator +
-general modifier special cases."""
+"""Allosteric regulator: participates in MWC allosteric regulation."""
 struct Allosteric <: RegulatorRole end
 
 """Dead-end inhibitor: creates dead-end complexes only."""
@@ -290,17 +289,19 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
 end
 
 """
-    AllostericEnzymeMechanism{Metabolites, CatalyticMech, CatalyticN, RegSites}
+    AllostericEnzymeMechanism{Metabolites, CatalyticMech, CatSites, RegSites}
 
 Singleton type for allosteric enzymes (MWC model, always 2 conformations).
 
 - `Metabolites`: tuple of `Symbol` names from `metabolites:` block
 - `CatalyticMech`: `EnzymeMechanism` type for one catalytic subunit
-- `CatalyticN`: number of catalytic sites per enzyme molecule
-- `RegSites`: tuple of `((ligand_syms...,), multiplicity)` pairs
+- `CatSites`: `(catalytic_metabolites, multiplicity, tr_equiv_mets)` — the
+  third element lists metabolites with K_T = K_R (TR equivalence)
+- `RegSites`: tuple of `((ligand_syms...,), multiplicity, tr_equiv_ligands)`
+  triples — the third element lists ligands with K_T = K_R
 """
 struct AllostericEnzymeMechanism{
-    Metabolites, CatalyticMech, CatalyticN, RegSites,
+    Metabolites, CatalyticMech, CatSites, RegSites,
 } <: AbstractEnzymeMechanism end
 
 # --- Rate equation mode types ---
@@ -539,21 +540,21 @@ end
 # ─── AllostericEnzymeMechanism Accessors ────────────────────────
 
 """Delegate structural accessors to the CatalyticMech singleton."""
-n_states(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
+n_states(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     n_states(CM())
-n_steps(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
+n_steps(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     n_steps(CM())
-equilibrium_steps(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
+equilibrium_steps(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     equilibrium_steps(CM())
-substrates(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
+substrates(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     substrates(CM())
-products(::AllostericEnzymeMechanism{M,CM,N,RS}) where {M,CM,N,RS} =
+products(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     products(CM())
 @generated function regulators(
-    ::AllostericEnzymeMechanism{M,CM,N,RS},
-) where {M,CM,N,RS}
+    ::AllostericEnzymeMechanism{M,CM,CS,RS},
+) where {M,CM,CS,RS}
     ligs = Symbol[]
-    for (ligands, _) in RS
+    for (ligands, _, _) in RS
         for lig in ligands
             lig in ligs || push!(ligs, lig)
         end
@@ -563,4 +564,4 @@ end
 param_constraints(::AllostericEnzymeMechanism) = ()
 
 """Return all metabolite names (catalytic + regulatory) from the Metabolites type param."""
-metabolites(::AllostericEnzymeMechanism{Mets,CM,N,RS}) where {Mets,CM,N,RS} = Mets
+metabolites(::AllostericEnzymeMechanism{Mets,CM,CS,RS}) where {Mets,CM,CS,RS} = Mets

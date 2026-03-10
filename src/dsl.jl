@@ -400,19 +400,21 @@ function _parse_allosteric_mechanism(block)
         cm_expr = :(EnzymeMechanism($species_tuple, $reactions, $eq_steps))
     end
 
-    # Build RegSites type parameter tuple: ((ligand_syms...,), n_reg) pairs
+    # Build RegSites type parameter tuple: ((ligand_syms...,), n_reg, ()) triples
     reg_sites_elems = Any[]
     for (ligs, n_reg) in reg_sites
         ligs_tuple = Expr(:tuple, (QuoteNode(l) for l in ligs)...)
-        push!(reg_sites_elems, Expr(:tuple, ligs_tuple, n_reg))
+        tr_equiv = Expr(:tuple)  # empty TR equiv tuple by default
+        push!(reg_sites_elems, Expr(:tuple, ligs_tuple, n_reg, tr_equiv))
     end
     reg_sites_expr = Expr(:tuple, reg_sites_elems...)
 
-    # Emit: let _cm = EnzymeMechanism(...)
-    #           AllostericEnzymeMechanism{mets, typeof(_cm), CatN, RegSites}()
-    #       end
+    # Build CatSites: (catalytic_metabolites, multiplicity, tr_equiv_mets)
+    # catalytic_metabolites come from the inner EnzymeMechanism at runtime
+    cat_tr_equiv = Expr(:tuple)  # empty TR equiv tuple by default
     :(let _cm = $cm_expr
-        AllostericEnzymeMechanism{$mets_tuple, typeof(_cm), $catalytic_n, $reg_sites_expr}()
+        _cat_sites = (metabolites(_cm), $catalytic_n, $cat_tr_equiv)
+        AllostericEnzymeMechanism{$mets_tuple, typeof(_cm), _cat_sites, $reg_sites_expr}()
     end)
 end
 
