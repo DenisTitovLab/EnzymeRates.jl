@@ -774,199 +774,7 @@ function _expand_ress_variants(
     result
 end
 
-# ─── Stage 3: General Modifier Expansion ─────────────────────
-
-"""
-    _expand_general_modifiers(specs, reaction;
-        allosteric_regs) -> Vector{MechanismSpec}
-
-For allosteric regulators: add parallel catalytic paths with
-regulator bound. Both E and ER catalyze. R-binding edges are
-always RE. Propagates RE/SS from catalytic counterparts.
-Preserves originals in output.
-"""
-function _expand_general_modifiers(
-    specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction);
-    allosteric_regs::Vector{Symbol}=Symbol[],
-)
-    isempty(allosteric_regs) && return specs
-    site_defs, forms = enumerate_enzyme_forms(reaction)
-    adj = _build_adjacency(site_defs, forms)
-    form_lookup = Dict(
-        ntuple(k -> f.occupancy[k], length(site_defs)) => i
-        for (i, f) in enumerate(forms))
-
-    reg_positions = [
-        k for (k, sd) in enumerate(site_defs)
-        if sd.role == :reg && sd.metabolite in allosteric_regs]
-    isempty(reg_positions) && return specs
-
-    result = copy(specs)  # preserve originals
-
-    for spec in specs
-        topo_nodes = Set(Iterators.flatten(spec.edges))
-        # Find R-bound counterparts for all catalytic forms
-        reg_bound_map = Dict{Int, Int}()
-        for fi in topo_nodes
-            # Only consider catalytic forms (no reg bound)
-            any(k -> forms[fi].occupancy[k] !== nothing,
-                reg_positions) && continue
-            key = ntuple(length(site_defs)) do k
-                k in reg_positions ?
-                    site_defs[k].full_atoms : forms[fi].occupancy[k]
-            end
-            ri = get(form_lookup, key, nothing)
-            ri !== nothing && (reg_bound_map[fi] = ri)
-        end
-        isempty(reg_bound_map) && continue
-        # Need all catalytic forms to have R-bound counterparts
-        all(fi in keys(reg_bound_map) for fi in topo_nodes) ||
-            continue
-
-        # Build new edges: R-bound catalytic cycle + R-binding edges
-        new_edges = Tuple{Int,Int}[]
-        new_eq_steps = Bool[]
-        # 1. Duplicate catalytic edges with R-bound forms
-        for (i, (a, b)) in enumerate(spec.edges)
-            ra = get(reg_bound_map, a, nothing)
-            rb = get(reg_bound_map, b, nothing)
-            (ra === nothing || rb === nothing) && continue
-            edge = minmax(ra, rb)
-            if haskey(adj, edge)
-                push!(new_edges, edge)
-                push!(new_eq_steps, spec.equilibrium_steps[i])
-            end
-        end
-        # 2. Add R-binding edges (E <-> ER) — always RE
-        for (fi, ri) in reg_bound_map
-            edge = minmax(fi, ri)
-            if haskey(adj, edge)
-                push!(new_edges, edge)
-                push!(new_eq_steps, true)  # always RE
-            end
-        end
-        isempty(new_edges) && continue
-
-        # Filter to edges not already in the spec
-        existing = Set(minmax(e...) for e in spec.edges)
-        filtered_edges = Tuple{Int,Int}[]
-        filtered_eq = Bool[]
-        for (e, eq) in zip(new_edges, new_eq_steps)
-            if e ∉ existing
-                push!(filtered_edges, e)
-                push!(filtered_eq, eq)
-            end
-        end
-        isempty(filtered_edges) && continue
-
-        all_edges = [spec.edges; filtered_edges]
-        all_eq = [spec.equilibrium_steps; filtered_eq]
-        n_cat = length(all_edges)  # all edges are catalytic
-
-        n_re = count(all_eq)
-        n_ss = length(all_eq) - n_re
-        n_forms = length(Set(Iterators.flatten(all_edges)))
-        n_independent_cycles = length(all_edges) - n_forms + 1
-        n_thermo = n_independent_cycles
-        param_count = n_re + 2 * n_ss - n_thermo + 2
-
-        push!(result, MechanismSpec(reaction, all_edges, n_cat,
-            all_eq, ParamConstraint[], param_count))
-    end
-    result
-end
-
-# ─── Stage 4: Essential Activator Expansion ──────────────────
-
-"""
-    _expand_essential_activators(specs, reaction;
-        allosteric_regs) -> Vector{MechanismSpec}
-
-Replace catalytic cycle with R-bound version. Only ER+S→ESR→ER+P
-path exists. E→ER binding edge added. Preserves originals.
-"""
-function _expand_essential_activators(
-    specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction);
-    allosteric_regs::Vector{Symbol}=Symbol[],
-)
-    isempty(allosteric_regs) && return specs
-    site_defs, forms = enumerate_enzyme_forms(reaction)
-    adj = _build_adjacency(site_defs, forms)
-    form_lookup = Dict(
-        ntuple(k -> f.occupancy[k], length(site_defs)) => i
-        for (i, f) in enumerate(forms))
-
-    reg_positions = [
-        k for (k, sd) in enumerate(site_defs)
-        if sd.role == :reg && sd.metabolite in allosteric_regs]
-    isempty(reg_positions) && return specs
-
-    result = copy(specs)  # preserve originals
-
-    for spec in specs
-        topo_nodes = Set(Iterators.flatten(spec.edges))
-        # Find R-bound counterparts for all catalytic forms
-        reg_bound_map = Dict{Int, Int}()
-        free_enzyme = nothing
-        for fi in topo_nodes
-            any(k -> forms[fi].occupancy[k] !== nothing,
-                reg_positions) && continue
-            if all(o === nothing for o in forms[fi].occupancy)
-                free_enzyme = fi
-            end
-            key = ntuple(length(site_defs)) do k
-                k in reg_positions ?
-                    site_defs[k].full_atoms : forms[fi].occupancy[k]
-            end
-            ri = get(form_lookup, key, nothing)
-            ri !== nothing && (reg_bound_map[fi] = ri)
-        end
-        free_enzyme === nothing && continue
-        isempty(reg_bound_map) && continue
-        all(fi in keys(reg_bound_map) for fi in topo_nodes) ||
-            continue
-
-        # Build R-bound catalytic cycle (replace all original edges)
-        new_edges = Tuple{Int,Int}[]
-        new_eq_steps = Bool[]
-        for (i, (a, b)) in enumerate(spec.edges)
-            ra = get(reg_bound_map, a, nothing)
-            rb = get(reg_bound_map, b, nothing)
-            (ra === nothing || rb === nothing) && continue
-            edge = minmax(ra, rb)
-            if haskey(adj, edge)
-                push!(new_edges, edge)
-                push!(new_eq_steps, spec.equilibrium_steps[i])
-            end
-        end
-
-        # Add E -> ER binding edge (free enzyme to R-bound free enzyme)
-        re_free = get(reg_bound_map, free_enzyme, nothing)
-        re_free === nothing && continue
-        e_er_edge = minmax(free_enzyme, re_free)
-        if haskey(adj, e_er_edge)
-            push!(new_edges, e_er_edge)
-            push!(new_eq_steps, true)  # always RE
-        end
-        isempty(new_edges) && continue
-
-        n_cat = length(new_edges)  # all are catalytic
-        n_re = count(new_eq_steps)
-        n_ss = length(new_eq_steps) - n_re
-        n_forms = length(Set(Iterators.flatten(new_edges)))
-        n_independent_cycles = length(new_edges) - n_forms + 1
-        n_thermo = n_independent_cycles
-        param_count = n_re + 2 * n_ss - n_thermo + 2
-
-        push!(result, MechanismSpec(reaction, new_edges, n_cat,
-            new_eq_steps, ParamConstraint[], param_count))
-    end
-    result
-end
-
-# ─── Stage 5: Dead-End Inhibitor Expansion ────────────────────
+# ─── Stage 3: Dead-End Inhibitor Expansion ────────────────────
 
 """
     _expand_dead_end_inhibitors(specs, reaction;
@@ -1048,7 +856,7 @@ function _expand_dead_end_inhibitors(
     result
 end
 
-# ─── Stage 6: Equivalence Constraint Expansion ────────────────
+# ─── Stage 4: Equivalence Constraint Expansion ────────────────
 
 """
     _expand_equivalence_constraints(specs, reaction)
@@ -1098,7 +906,7 @@ function _expand_equivalence_constraints(
     result
 end
 
-# ─── Stage 7: Deduplication ────────────────────────────────────
+# ─── Stage 5: Deduplication ────────────────────────────────────
 
 """
     _deduplicate(specs, reaction) -> Vector{MechanismSpec}
@@ -1358,8 +1166,8 @@ function enumerate_mechanisms(
         return all_de
     end
 
-    all_deduped = Vector{MechanismSpec}[]
-    all_allo_regs = Vector{Symbol}[]
+    all_base = MechanismSpec[]
+    all_allosteric = AllostericMechanismSpec[]
 
     for reg_mask in 0:(1 << n_unknown) - 1
         de_regs = Symbol[fixed_dead_end;
@@ -1369,52 +1177,27 @@ function enumerate_mechanisms(
             [unknown[i] for i in 1:n_unknown
              if (reg_mask >> (i - 1)) & 1 == 1]]
 
-        # Stage 2: RE/SS assignment (on catalytic topologies)
-        with_ress = _expand_ress_variants(
+        # Phase 1: base mechanism pipeline (chained)
+        base = _expand_ress_variants(
             catalytic, reaction; max_re_groups)
+        base = _expand_dead_end_inhibitors(
+            base, reaction; dead_end_regs=de_regs)
+        base = _expand_equivalence_constraints(base, reaction)
+        base = _deduplicate(base, reaction)
+        append!(all_base, base)
 
-        # Stage 3: General modifier expansion
-        with_gm = _expand_general_modifiers(
-            with_ress, reaction; allosteric_regs=allo_regs)
-
-        # Stage 4: Essential activator expansion
-        with_ea = _expand_essential_activators(
-            with_gm, reaction; allosteric_regs=allo_regs)
-
-        # Stage 5: Dead-end inhibitor expansion
-        with_de = _expand_dead_end_inhibitors(
-            with_ea, reaction; dead_end_regs=de_regs)
-
-        # Stage 6: Equivalence constraints
-        with_eq = _expand_equivalence_constraints(with_de, reaction)
-
-        # Stage 7: Deduplication
-        deduped = _deduplicate(with_eq, reaction)
-
-        push!(all_deduped, deduped)
-        push!(all_allo_regs, allo_regs)
-    end
-
-    em_specs = reduce(vcat, all_deduped)
-
-    if catalytic_n > 0
-        # Stage 8: Allosteric (OEM) expansion
-        all_allosteric = AllostericMechanismSpec[]
-        for (allo_regs, deduped) in zip(all_allo_regs, all_deduped)
-            append!(all_allosteric, _expand_allosteric(
-                deduped, reaction;
-                catalytic_n, allosteric_regs=allo_regs))
+        # Phase 2: allosteric expansion (independent)
+        if !isempty(allo_regs)
+            cn = catalytic_n > 0 ? catalytic_n : 1
+            allo = _expand_allosteric(base, reaction;
+                catalytic_n=cn, allosteric_regs=allo_regs)
+            allo = _expand_tr_equivalence(allo, reaction)
+            allo = _deduplicate_allosteric(allo, reaction)
+            append!(all_allosteric, allo)
         end
-        # Stage 9: T/R equivalence
-        all_allosteric = _expand_tr_equivalence(all_allosteric, reaction)
-        # Stage 10: Post-OEM deduplication
-        all_allosteric = _deduplicate_allosteric(all_allosteric, reaction)
-
-        total = length(em_specs) + length(all_allosteric)
-        inner = Iterators.flatten((em_specs, all_allosteric))
-    else
-        total = length(em_specs)
-        inner = Iterators.flatten((em_specs,))
     end
+
+    total = length(all_base) + length(all_allosteric)
+    inner = Iterators.flatten((all_base, all_allosteric))
     MechanismIterator(inner, total)
 end
