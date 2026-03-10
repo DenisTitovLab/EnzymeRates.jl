@@ -1017,16 +1017,26 @@ end
     _expand_tr_equivalence(specs, reaction)
         -> Vector{AllostericMechanismSpec}
 
-Enumerate T/R equivalence masks for each OEM spec.
+Enumerate T/R parameter equivalence masks. For each RE binding
+parameter, K_S_T can equal K_S_R (equivalent, fewer params) or be
+independent (more params). Produces 2^n variants per input spec.
 """
 function _expand_tr_equivalence(
     specs::Vector{AllostericMechanismSpec},
     @nospecialize(reaction::EnzymeReaction),
 )
-    # T/R equivalence is deferred: 2^n_edges variants per spec
-    # can be astronomical for large mechanisms. For now, passthrough.
-    # TODO: implement with lazy evaluation or budget cap
-    specs
+    result = AllostericMechanismSpec[]
+    for spec in specs
+        n = length(spec.tr_equivalence)
+        for mask in 0:(1 << n) - 1
+            tr_eq = [((mask >> (i - 1)) & 1) == 1 for i in 1:n]
+            push!(result, AllostericMechanismSpec(
+                spec.base, spec.catalytic_n,
+                spec.allosteric_reg_sites,
+                spec.allosteric_multiplicities, tr_eq))
+        end
+    end
+    result
 end
 
 # ─── Post-OEM Deduplication ──────────────────────────────────
