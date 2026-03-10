@@ -1,7 +1,7 @@
 module EnzymeRates
 
 # Types
-export EnzymeReaction, EnzymeMechanism, OligomericEnzymeMechanism
+export EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism
 export FittingProblem
 # export IdentifyRateEquationProblem, IdentifyRateEquationResults  # when implemented
 
