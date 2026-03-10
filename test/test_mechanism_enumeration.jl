@@ -370,6 +370,48 @@ end
         end
     end
 
+    # ── TR equivalence parameter reduction ───────────────────
+    @testset "TR equivalence reduces parameter count" begin
+        rxn = uni_uni_allosteric_I
+        base = EnzymeRates._catalytic_topologies(rxn)
+        dd = EnzymeRates._deduplicate(base, rxn)
+        allo = EnzymeRates._expand_allosteric(
+            dd, rxn; catalytic_n=1, allosteric_regs=[:I])
+        tr = EnzymeRates._expand_tr_equivalence(allo, rxn)
+
+        no_tr = filter(
+            s -> isempty(s.tr_equiv_metabolites), tr)
+        with_tr = filter(
+            s -> !isempty(s.tr_equiv_metabolites), tr)
+        @test !isempty(no_tr)
+        @test !isempty(with_tr)
+
+        m_no_tr = compile_mechanism(no_tr[1])
+        m_with_tr = compile_mechanism(with_tr[1])
+        @test length(parameters(m_with_tr)) <
+            length(parameters(m_no_tr))
+    end
+
+    # ── Allosteric mechanism param count ──────────────────────
+    @testset "Allosteric mechanism param count" begin
+        all_specs = collect(
+            EnzymeRates.enumerate_mechanisms(
+                uni_bi_allosteric_I_cn2; catalytic_n=2))
+        allo_specs = filter(
+            s -> s isa EnzymeRates.AllostericMechanismSpec,
+            all_specs)
+        @test !isempty(allo_specs)
+
+        for s in allo_specs[1:min(5, length(allo_specs))]
+            m = compile_mechanism(s)
+            n_params = length(parameters(m))
+            base_m = compile_mechanism(s.base)
+            # Allosteric adds at least L beyond base params
+            @test n_params > length(parameters(base_m))
+            @test n_params >= length(parameters(base_m)) + 1
+        end
+    end
+
     # ── Combinatorial cross-checks ───────────────────────────
     @testset "Combinatorial cross-checks" begin
         # Verify hardcoded expected values against independent

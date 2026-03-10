@@ -1035,9 +1035,8 @@ function _expand_tr_equivalence(
         # Collect metabolites with T-state params
         t_mets = Symbol[]
 
-        # 1. Catalytic metabolites in RE binding edges
+        # 1. All metabolites in RE binding edges (catalytic + dead-end)
         for (i, (ei, ej)) in enumerate(spec.base.edges)
-            i > spec.base.n_catalytic_edges && break
             spec.base.equilibrium_steps[i] || continue
             key = minmax(ei, ej)
             met = get(adj, key, nothing)
@@ -1090,8 +1089,14 @@ end
 function _allosteric_canonical_key(spec::AllostericMechanismSpec)
     base_key = (spec.base.edges, spec.base.equilibrium_steps,
                 spec.base.param_constraints)
-    (base_key, spec.catalytic_n, sort(spec.allosteric_reg_sites),
-     spec.allosteric_multiplicities, sort(spec.tr_equiv_metabolites))
+    # Sort reg sites and multiplicities together
+    pairs = collect(zip(spec.allosteric_reg_sites,
+                        spec.allosteric_multiplicities))
+    sort!(pairs)
+    sorted_sites = [p[1] for p in pairs]
+    sorted_mults = [p[2] for p in pairs]
+    (base_key, spec.catalytic_n, sorted_sites, sorted_mults,
+     sort(spec.tr_equiv_metabolites))
 end
 
 # ─── MechanismSpec → EnzymeMechanism Conversion ──────────────
