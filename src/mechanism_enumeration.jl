@@ -61,12 +61,12 @@ struct MechanismSpec <: AbstractMechanismSpec
 end
 
 """
-    OligomericMechanismSpec <: AbstractMechanismSpec
+    AllostericMechanismSpec <: AbstractMechanismSpec
 
-Represents an oligomeric (MWC) enzyme mechanism built from a
+Represents an allosteric enzyme mechanism built from a
 base `MechanismSpec` plus allosteric site and multiplicity info.
 """
-struct OligomericMechanismSpec <: AbstractMechanismSpec
+struct AllostericMechanismSpec <: AbstractMechanismSpec
     base::MechanismSpec
     catalytic_n::Int
     allosteric_reg_sites::Vector{Vector{Symbol}}
@@ -556,7 +556,7 @@ end
 
 const _DedupKey = Tuple{Set{MONO}, Set{Tuple{Symbol,Symbol}}}
 
-# ─── Set Partitions + Oligomeric Helpers ─────────────────────
+# ─── Set Partitions + Allosteric Helpers ─────────────────────
 
 """
     _set_partitions(elements::Vector{Symbol})
@@ -1168,7 +1168,7 @@ end
 """
     _expand_allosteric(specs, reaction;
         catalytic_n, allosteric_regs)
-        -> Vector{OligomericMechanismSpec}
+        -> Vector{AllostericMechanismSpec}
 
 Expand monomeric specs into oligomeric (MWC) variants.
 """
@@ -1178,11 +1178,11 @@ function _expand_allosteric(
     catalytic_n::Int=2,
     allosteric_regs::Vector{Symbol}=Symbol[],
 )
-    result = OligomericMechanismSpec[]
+    result = AllostericMechanismSpec[]
     if isempty(allosteric_regs)
         # No allosteric regulators: basic OEM (catalytic subunits only)
         for spec in specs
-            push!(result, OligomericMechanismSpec(
+            push!(result, AllostericMechanismSpec(
                 spec, catalytic_n,
                 Vector{Symbol}[], Int[], Bool[]))
         end
@@ -1194,7 +1194,7 @@ function _expand_allosteric(
             n_groups = length(partition)
             for combo in Iterators.product(
                     ntuple(_ -> 1:catalytic_n, n_groups)...)
-                push!(result, OligomericMechanismSpec(
+                push!(result, AllostericMechanismSpec(
                     spec, catalytic_n, partition,
                     collect(combo), Bool[]))
             end
@@ -1207,12 +1207,12 @@ end
 
 """
     _expand_tr_equivalence(specs, reaction)
-        -> Vector{OligomericMechanismSpec}
+        -> Vector{AllostericMechanismSpec}
 
 Enumerate T/R equivalence masks for each OEM spec.
 """
 function _expand_tr_equivalence(
-    specs::Vector{OligomericMechanismSpec},
+    specs::Vector{AllostericMechanismSpec},
     @nospecialize(reaction::EnzymeReaction),
 )
     # T/R equivalence is deferred: 2^n_edges variants per spec
@@ -1224,17 +1224,17 @@ end
 # ─── Post-OEM Deduplication ──────────────────────────────────
 
 """
-    _deduplicate_oem(specs, reaction) -> Vector{OligomericMechanismSpec}
+    _deduplicate_allosteric(specs, reaction) -> Vector{AllostericMechanismSpec}
 
 Remove T<->R mirror duplicates.
 """
-function _deduplicate_oem(
-    specs::Vector{OligomericMechanismSpec},
+function _deduplicate_allosteric(
+    specs::Vector{AllostericMechanismSpec},
     @nospecialize(reaction::EnzymeReaction),
 )
-    seen = Dict{Any, OligomericMechanismSpec}()
+    seen = Dict{Any, AllostericMechanismSpec}()
     for spec in specs
-        key = _oem_canonical_key(spec)
+        key = _allosteric_canonical_key(spec)
         if !haskey(seen, key)
             seen[key] = spec
         end
@@ -1243,7 +1243,7 @@ function _deduplicate_oem(
 end
 
 """Canonical key for OEM dedup: sort T/R labels to detect mirrors."""
-function _oem_canonical_key(spec::OligomericMechanismSpec)
+function _allosteric_canonical_key(spec::AllostericMechanismSpec)
     base_key = (spec.base.edges, spec.base.equilibrium_steps,
                 spec.base.param_constraints)
     tr = spec.tr_equivalence
@@ -1298,7 +1298,7 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
               for (t, c, f) in spec.param_constraints))
 end
 
-function compile_mechanism(spec::OligomericMechanismSpec)
+function compile_mechanism(spec::AllostericMechanismSpec)
     cm = compile_mechanism(spec.base)
     rxn = spec.base.reaction
     mets = Tuple(vcat(
@@ -1310,9 +1310,9 @@ function compile_mechanism(spec::OligomericMechanismSpec)
         (Tuple(group), mult) for (group, mult) in zip(
             spec.allosteric_reg_sites,
             spec.allosteric_multiplicities))
-    OligomericEnzymeMechanism{
+    AllostericEnzymeMechanism{
         mets, typeof(cm), spec.catalytic_n,
-        reg_sites, 2,
+        reg_sites,
     }()
 end
 
@@ -1399,19 +1399,19 @@ function enumerate_mechanisms(
 
     if catalytic_n > 0
         # Stage 8: Allosteric (OEM) expansion
-        all_oem = OligomericMechanismSpec[]
+        all_allosteric = AllostericMechanismSpec[]
         for (allo_regs, deduped) in zip(all_allo_regs, all_deduped)
-            append!(all_oem, _expand_allosteric(
+            append!(all_allosteric, _expand_allosteric(
                 deduped, reaction;
                 catalytic_n, allosteric_regs=allo_regs))
         end
         # Stage 9: T/R equivalence
-        all_oem = _expand_tr_equivalence(all_oem, reaction)
+        all_allosteric = _expand_tr_equivalence(all_allosteric, reaction)
         # Stage 10: Post-OEM deduplication
-        all_oem = _deduplicate_oem(all_oem, reaction)
+        all_allosteric = _deduplicate_allosteric(all_allosteric, reaction)
 
-        total = length(em_specs) + length(all_oem)
-        inner = Iterators.flatten((em_specs, all_oem))
+        total = length(em_specs) + length(all_allosteric)
+        inner = Iterators.flatten((em_specs, all_allosteric))
     else
         total = length(em_specs)
         inner = Iterators.flatten((em_specs,))

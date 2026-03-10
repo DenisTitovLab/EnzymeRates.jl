@@ -192,7 +192,7 @@ EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given
 ## API Design (see SPEC.md)
 
 - **19 exported symbols** (planned): 6 types, 2 macros, 2 constants (`Full`, `Reduced`), 9 functions. Currently 16 — `IdentifyRateEquationProblem`, `IdentifyRateEquationResults`, `identify_rate_equation` are pending implementation.
-- `compile_mechanism` is exported: converts `MechanismSpec` → `EnzymeMechanism` or `OligomericEnzymeMechanism`
+- `compile_mechanism` is exported: converts `MechanismSpec` → `EnzymeMechanism` or `AllostericEnzymeMechanism`
 - Enumeration internals (`SiteState`, `EnzymeFormSpec`, `MechanismSpec`, `enumerate_mechanisms`, etc.) are NOT part of the public API — accessible via `IdentifyRateEquationProblem` fields for power users
 - Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
 - Cross-validation: leave-one-group-out
@@ -219,11 +219,11 @@ julia --project -e 'using Pkg; Pkg.test()'
 ## Key Architecture Decisions
 
 - `EnzymeMechanism{Species,Reactions,EquilibriumSteps,ParamConstraints}` is a singleton type encoding mechanism info in type parameters
-- `OligomericEnzymeMechanism{Mets,CatalyticMech,CatN,RegSites,NConf}` represents multi-subunit MWC allosteric enzymes — see `src/types.jl` and `src/dsl.jl` for DSL syntax
+- `AllostericEnzymeMechanism{Mets,CatalyticMech,CatN,RegSites}` represents multi-subunit MWC allosteric enzymes — see `src/types.jl` and `src/dsl.jl` for DSL syntax
 - `EnzymeReaction{S,P,R}` similarly encodes reactions in types
 - Each unique mechanism = unique type → affects compilation time
 - `@generated` functions used for compile-time computation (metabolites, graph, stoich_matrix, rate_equation, _kcat_forward)
-- `_AnyMechanism = Union{EnzymeMechanism, OligomericEnzymeMechanism}` used for shared dispatch (e.g., `rescale_parameter_values`)
+- `_AnyMechanism = AbstractEnzymeMechanism` used for shared dispatch (e.g., `rescale_parameter_values`)
 
 ### Canonical Step Form
 - The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `[E, S] ⇌ [ES]`, never `[ES] ⇌ [E, S]`
@@ -252,12 +252,12 @@ julia --project -e 'using Pkg; Pkg.test()'
 
 ### Mechanism enumeration staged pipeline
 - `MechanismSpec` has 6 fields: `reaction, edges, n_catalytic_edges, equilibrium_steps, param_constraints, param_count`
-- `OligomericMechanismSpec` has 5 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, tr_equivalence`
-- Pipeline order: `_catalytic_topologies` (stage 1) → `_expand_ress_variants` (stage 2) → `_expand_general_modifiers` (stage 3) → `_expand_essential_activators` (stage 4) → `_expand_dead_end_inhibitors` (stage 5) → `_expand_equivalence_constraints` (stage 6) → `_deduplicate` (stage 7) → `_expand_allosteric` (stage 8) → `_expand_tr_equivalence` (stage 9, currently passthrough) → `_deduplicate_oem` (stage 10)
-- Stages 1-7 produce `Vector{MechanismSpec}`, stages 8-10 produce `Vector{OligomericMechanismSpec}`
+- `AllostericMechanismSpec` has 5 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, tr_equivalence`
+- Pipeline order: `_catalytic_topologies` (stage 1) → `_expand_ress_variants` (stage 2) → `_expand_general_modifiers` (stage 3) → `_expand_essential_activators` (stage 4) → `_expand_dead_end_inhibitors` (stage 5) → `_expand_equivalence_constraints` (stage 6) → `_deduplicate` (stage 7) → `_expand_allosteric` (stage 8) → `_expand_tr_equivalence` (stage 9, currently passthrough) → `_deduplicate_allosteric` (stage 10)
+- Stages 1-7 produce `Vector{MechanismSpec}`, stages 8-10 produce `Vector{AllostericMechanismSpec}`
 - Regulator partitioning (2^n_unknown masks for unknown-role regs) happens in `enumerate_mechanisms` orchestration; stage functions take explicit `dead_end_regs`/`allosteric_regs` kwargs
 - `_set_partitions` enumerates all Bell-number set partitions of allosteric regulators
-- `compile_mechanism` converts `MechanismSpec` → `EnzymeMechanism` or `OligomericMechanismSpec` → `OligomericEnzymeMechanism`
+- `compile_mechanism` converts `MechanismSpec` → `EnzymeMechanism` or `AllostericMechanismSpec` → `AllostericEnzymeMechanism`
 - Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor
 
 ### General modifier and essential activator
@@ -266,13 +266,13 @@ julia --project -e 'using Pkg; Pkg.test()'
 
 ## Source Layout
 
-- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `OligomericEnzymeMechanism` structs; `RegulatorRole` hierarchy (`Allosteric`, `DeadEnd`, `UnconstrainedRegulator`); `EnzymeMechanism` and `OligomericEnzymeMechanism` accessors; `regulator_roles()`; `RateEquationMode` hierarchy
-- `src/dsl.jl` — `@enzyme_reaction` (supports `substrates:`, `products:`, `regulators:`, `dead_end_inhibitors:`, `allosteric_regulators:` labels) and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `OligomericEnzymeMechanism` DSL)
+- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `AllostericEnzymeMechanism` structs; `RegulatorRole` hierarchy (`Allosteric`, `DeadEnd`, `UnconstrainedRegulator`); `EnzymeMechanism` and `AllostericEnzymeMechanism` accessors; `regulator_roles()`; `RateEquationMode` hierarchy
+- `src/dsl.jl` — `@enzyme_reaction` (supports `substrates:`, `products:`, `regulators:`, `dead_end_inhibitors:`, `allosteric_regulators:` labels) and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `AllostericEnzymeMechanism` DSL)
 - `src/sym_poly_for_rate_eq_derivation.jl` — Symbolic polynomial algebra (`Poly` type); `_rename_poly_T`, `_count_oligomeric_rate_monomials` for MWC identifiability
-- `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; kcat computation (`_is_ss_rate_constant`, `_kcat_components`, `_kcat_forward`) and `rescale_parameter_values`; OligomericEnzymeMechanism MWC rate equation assembly (`_build_oligomeric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
+- `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; kcat computation (`_is_ss_rate_constant`, `_kcat_components`, `_kcat_forward`) and `rescale_parameter_values`; AllostericEnzymeMechanism MWC rate equation assembly (`_build_oligomeric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
 - `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
-- `src/mechanism_enumeration.jl` — Staged pipeline for mechanism enumeration. Types: `SiteDefinition`, `EnzymeFormSpec`, `MechanismSpec` (6 fields), `OligomericMechanismSpec`, `MechanismIterator`. 10 stages: `_catalytic_topologies` → `_expand_ress_variants` → `_expand_general_modifiers` → `_expand_essential_activators` → `_expand_dead_end_inhibitors` → `_expand_equivalence_constraints` → `_deduplicate` → `_expand_allosteric` → `_expand_tr_equivalence` → `_deduplicate_oem`. `compile_mechanism` converts specs to `EnzymeMechanism`/`OligomericEnzymeMechanism`. Helpers: `_dead_end_catalytic_map`/`_propagate_de_eq_steps!`, `_set_partitions`/`_partition_mult_count`, `_concentration_fingerprint`/`_constraint_descriptor` for dedup
+- `src/mechanism_enumeration.jl` — Staged pipeline for mechanism enumeration. Types: `SiteDefinition`, `EnzymeFormSpec`, `MechanismSpec` (6 fields), `OligomericMechanismSpec`, `MechanismIterator`. 10 stages: `_catalytic_topologies` → `_expand_ress_variants` → `_expand_general_modifiers` → `_expand_essential_activators` → `_expand_dead_end_inhibitors` → `_expand_equivalence_constraints` → `_deduplicate` → `_expand_allosteric` → `_expand_tr_equivalence` → `_deduplicate_oem`. `compile_mechanism` converts specs to `EnzymeMechanism`/`AllostericEnzymeMechanism`. Helpers: `_dead_end_catalytic_map`/`_propagate_de_eq_steps!`, `_set_partitions`/`_partition_mult_count`, `_concentration_fingerprint`/`_constraint_descriptor` for dedup
 
 ## Vmax Normalization (kcat factoring) — IMPLEMENTED
 
@@ -286,7 +286,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 - kcat is homogeneous degree-1 in SS k's, independent of RE K's
 - Uniform k-degree in denominator guarantees v/(E_total * kcat) is scale-invariant
 - For mechanisms with multiple catalytic paths (e.g., non-essential activator), kcat = max over all paths
-- For OligomericEnzymeMechanism with NConf=2, kcat depends on regulator corner; returns max over 2^n_lig corners
+- For AllostericEnzymeMechanism, kcat depends on regulator corner; returns max over 2^n_lig corners
 
 ## Known Issues
 
