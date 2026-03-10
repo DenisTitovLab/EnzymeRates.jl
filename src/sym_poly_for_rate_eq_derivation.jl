@@ -549,7 +549,7 @@ function _estimate_expanded_term_count(terms::Vector{DenomTerm})::Int
     total
 end
 
-# ─── OligomericEnzymeMechanism POLY helpers ──────────────────────
+# ─── AllostericEnzymeMechanism POLY helpers ──────────────────────
 
 """Rename all K/k symbols (not Keq) in a POLY with _T suffix."""
 function _rename_poly_T(p::POLY)
@@ -563,11 +563,11 @@ function _rename_poly_T(p::POLY)
 end
 
 """
-Count distinct concentration monomials in the full oligomeric rate numerator and
+Count distinct concentration monomials in the full allosteric rate numerator and
 denominator. Treats all K/k/L symbols as parameters (strips them from monomials).
 Returns `(n_num, n_denom)`.
 """
-function _count_oligomeric_rate_monomials(CM, CatN, RS, NConf)
+function _count_allosteric_rate_monomials(CM, CatN, RS)
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
     N_cat_R = _expand_factored_sigma(num_fs)
     Q_cat_R = _expand_to_poly(denom_terms)
@@ -598,14 +598,12 @@ function _count_oligomeric_rate_monomials(CM, CatN, RS, NConf)
     full_num = num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing)
     full_den = den_poly_for_conf(Q_cat_R, reg_Q_R, nothing)
 
-    if NConf == 2
-        N_cat_T = _rename_poly_T(N_cat_R)
-        Q_cat_T = _rename_poly_T(Q_cat_R)
-        reg_Q_T = POLY[_rename_poly_T(q) for q in reg_Q_R]
+    N_cat_T = _rename_poly_T(N_cat_R)
+    Q_cat_T = _rename_poly_T(Q_cat_R)
+    reg_Q_T = POLY[_rename_poly_T(q) for q in reg_Q_R]
 
-        full_num = poly_add(full_num, num_poly_for_conf(N_cat_T, Q_cat_T, reg_Q_T, :L))
-        full_den = poly_add(full_den, den_poly_for_conf(Q_cat_T, reg_Q_T, :L))
-    end
+    full_num = poly_add(full_num, num_poly_for_conf(N_cat_T, Q_cat_T, reg_Q_T, :L))
+    full_den = poly_add(full_den, den_poly_for_conf(Q_cat_T, reg_Q_T, :L))
 
     # Count distinct concentration monomials (strip all k/K/L params)
     conc_mono(mono) = sort!(MONO([

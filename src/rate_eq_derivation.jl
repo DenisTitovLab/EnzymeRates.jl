@@ -1,10 +1,10 @@
 # ─── Parameters API ─────────────────────────────────────────
 
-const _AnyMechanism = Union{EnzymeMechanism, OligomericEnzymeMechanism}
+const _AnyMechanism = AbstractEnzymeMechanism
 
 """
     parameters(m::EnzymeMechanism, [mode])
-    parameters(m::OligomericEnzymeMechanism, [mode])
+    parameters(m::AllostericEnzymeMechanism, [mode])
 
 Return the parameter names required for the given mode as a tuple of Symbols.
 
@@ -821,25 +821,22 @@ then evaluates max(nk/dk) at runtime parameter values.
 end
 
 """
-    _kcat_forward(m::OligomericEnzymeMechanism, params) → Float64
+    _kcat_forward(m::AllostericEnzymeMechanism, params) → Float64
 
-Compute kcat (forward) for an MWC oligomeric enzyme.
+Compute kcat (forward) for an MWC allosteric enzyme.
 
 kcat is the maximum rate at saturating substrates, zero products,
 E_total=1, over all regulator concentration corners (each regulator
 either 0 or saturating).
 
-For NConf=1: regulatory sites cancel between num and den,
-  kcat = CatN * num_k_R / den_k_R.
-
-For NConf=2 with regulatory sites: regulators shift R/T balance,
+With regulatory sites: regulators shift R/T balance,
 so kcat depends on the regulator corner. We enumerate all 2^n_lig
 corners and return the max.
 """
 @generated function _kcat_forward(
-    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf},
+    ::AllostericEnzymeMechanism{Mets,CM,CatN,RS},
     params::NamedTuple,
-) where {Mets,CM,CatN,RS,NConf}
+) where {Mets,CM,CatN,RS}
     # Get kcat components from catalytic mechanism (single component)
     components = _kcat_components(CM)
     @assert length(components) == 1 "Catalytic mechanism should have exactly 1 kcat component"
@@ -852,25 +849,16 @@ corners and return the max.
     den_k_R_expr = substitute_params_expr(raw_den_k, kd_subs)
 
     # Build dependent param assignments for R-state
-    r_assignments, t_assignments = _oligomeric_dep_assignments(
-        CM, NConf, K -> :(inv($K)),
+    r_assignments, t_assignments = _allosteric_dep_assignments(
+        CM, K -> :(inv($K)),
     )
 
     # Collect independent params needed
-    M_type = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
+    M_type = AllostericEnzymeMechanism{Mets,CM,CatN,RS}
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq)
 
-    if NConf == 1
-        # Reg sites cancel for single conformation
-        result = :($(CatN) * $(num_k_R_expr) / $(den_k_R_expr))
-        return Expr(:block,
-            _destructuring_expr(hw_params, :params),
-            r_assignments...,
-            :(return $result))
-    end
-
-    # NConf == 2: build T-state expressions for catalytic subunit
+    # Build T-state expressions for catalytic subunit
     dep_R, indep_R = _dependent_param_exprs(CM)
     T_subs = _build_T_subs(
         Iterators.flatten([keys(dep_R), indep_R]),
@@ -988,7 +976,7 @@ function rescale_parameter_values(
 end
 
 # ═══════════════════════════════════════════════════════════════════
-# OligomericEnzymeMechanism rate equations (MWC)
+# AllostericEnzymeMechanism rate equations (MWC)
 #
 # MWC rate formula (per conformation c, summed over conformations):
 #   num = CatN * sum_c( L_c * N_cat_c * Q_cat_c^(CatN-1)
@@ -1023,35 +1011,33 @@ Return all binding (Kd-convention) K symbols: R-state, T-state, and reg site par
 Regulatory site K params are always Kd (dissociation constants).
 """
 function _binding_K_symbols(
-    ::Type{OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}},
-) where {Mets,CM,CatN,RS,NConf}
+    ::Type{AllostericEnzymeMechanism{Mets,CM,CatN,RS}},
+) where {Mets,CM,CatN,RS}
     r_ks = Tuple(_binding_K_symbols(CM))
-    t_ks = NConf == 2 ? Tuple(_rename_params_T(K) for K in r_ks) : ()
+    t_ks = Tuple(_rename_params_T(K) for K in r_ks)
     reg_ks_r = Tuple(
         _reg_param_name(lig, i, false)
         for (i, (ligs, _)) in enumerate(RS) for lig in ligs
     )
-    reg_ks_t = NConf == 2 ? Tuple(
+    reg_ks_t = Tuple(
         _reg_param_name(lig, i, true)
         for (i, (ligs, _)) in enumerate(RS) for lig in ligs
-    ) : ()
+    )
     (r_ks..., t_ks..., reg_ks_r..., reg_ks_t...)
 end
 
 # ─── Dependent parameter expressions ─────────────────────────────
 
 """
-    _dependent_param_exprs(M::Type{<:OligomericEnzymeMechanism})
+    _dependent_param_exprs(M::Type{<:AllostericEnzymeMechanism})
 
-Return `(dep_exprs, indep_params)` for an OligomericEnzymeMechanism.
-
-For NConf=1: delegates to CatalyticMech; adds reg site params to indep.
-For NConf=2: duplicates R-state analysis with _T suffix for T-state;
-             adds reg site params (R and T) and L to indep.
+Return `(dep_exprs, indep_params)` for an AllostericEnzymeMechanism.
+Duplicates R-state analysis with _T suffix for T-state;
+adds reg site params (R and T) and L to indep.
 """
 function _dependent_param_exprs(
-    ::Type{OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}},
-) where {Mets,CM,CatN,RS,NConf}
+    ::Type{AllostericEnzymeMechanism{Mets,CM,CatN,RS}},
+) where {Mets,CM,CatN,RS}
     dep_R, indep_R = _dependent_param_exprs(CM)
 
     reg_params_r = [
@@ -1059,11 +1045,6 @@ function _dependent_param_exprs(
         for (i, (ligs, _)) in enumerate(RS) for lig in ligs
     ]
 
-    if NConf == 1
-        return dep_R, (indep_R..., reg_params_r...)
-    end
-
-    # NConf == 2: rename all k/K params (not Keq) with _T suffix
     T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
     dep_T = Dict{Symbol, Union{Symbol, Expr}}(
         _rename_params_T(k) => substitute_params_expr(v, T_subs)
@@ -1081,7 +1062,7 @@ function _dependent_param_exprs(
     return merged_dep, merged_indep
 end
 
-# parameters and fitted_params for OligomericEnzymeMechanism are handled
+# parameters and fitted_params for AllostericEnzymeMechanism are handled
 # by the unified _AnyMechanism methods at the top of this file.
 
 # ─── Rate body building helpers ───────────────────────────────────
@@ -1106,10 +1087,10 @@ end
 """
 Build R-state and T-state dep param assignment Exprs.
 Returns `(r_assignments::Vector{Expr}, t_assignments::Vector{Expr})`.
-Shared by `_build_oligomeric_rate_body` and `rate_equation_string`.
+Shared by `_build_allosteric_rate_body` and `rate_equation_string`.
 """
-function _oligomeric_dep_assignments(
-    CM::Type{<:EnzymeMechanism}, NConf, inv_fn,
+function _allosteric_dep_assignments(
+    CM::Type{<:EnzymeMechanism}, inv_fn,
 )
     dep_R, indep_R = _dependent_param_exprs(CM)
     dep_R_kd = _apply_kd_inversion(dep_R, CM, inv_fn)
@@ -1119,16 +1100,12 @@ function _oligomeric_dep_assignments(
         Expr(:(=), sym, dep_R_kd[sym]) for (sym, _) in sorted_deps
     ]
 
-    t_assignments = if NConf == 2
-        T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
-        Expr[
-            Expr(:(=), _rename_params_T(sym),
-                substitute_params_expr(dep_R_kd[sym], T_subs))
-            for (sym, _) in sorted_deps
-        ]
-    else
-        Expr[]
-    end
+    T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
+    t_assignments = Expr[
+        Expr(:(=), _rename_params_T(sym),
+            substitute_params_expr(dep_R_kd[sym], T_subs))
+        for (sym, _) in sorted_deps
+    ]
 
     return r_assignments, t_assignments
 end
@@ -1136,9 +1113,9 @@ end
 """
 Assemble the MWC numerator and denominator Exprs.
 Returns `(full_num, full_den)` where the numerator already includes the `CatN` factor.
-Shared by `_build_oligomeric_rate_body` and `rate_equation_string`.
+Shared by `_build_allosteric_rate_body` and `rate_equation_string`.
 """
-function _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
+function _allosteric_num_den_exprs(CM, CatN, RS)
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
     m_cat = CM()
     cat_constr = Set(c[1] for c in param_constraints(m_cat))
@@ -1175,9 +1152,6 @@ function _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
     num_R = make_num_term(N_R, Q_R, reg_Q_R)
     den_R = make_den_term(Q_R, reg_Q_R)
 
-    NConf == 1 && return :($(CatN) * $(num_R)), den_R
-
-    # NConf == 2: T-state
     T_subs = _build_T_subs(cat_params)
     N_T = substitute_params_expr(N_R, T_subs)
     Q_T = substitute_params_expr(Q_R, T_subs)
@@ -1190,13 +1164,13 @@ function _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
 end
 
 """Build the MWC rate equation body as an Expr block."""
-function _build_oligomeric_rate_body(Mets, CM, CatN, RS, NConf)
-    M_type = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
-    full_num, full_den = _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
+function _build_allosteric_rate_body(Mets, CM, CatN, RS)
+    M_type = AllostericEnzymeMechanism{Mets,CM,CatN,RS}
+    full_num, full_den = _allosteric_num_den_exprs(CM, CatN, RS)
     rate_expr = :(E_total * ($full_num) / ($full_den))
 
-    r_assignments, t_assignments = _oligomeric_dep_assignments(
-        CM, NConf, K -> :(inv($K)),
+    r_assignments, t_assignments = _allosteric_dep_assignments(
+        CM, K -> :(inv($K)),
     )
 
     _, indep = _dependent_param_exprs(M_type)
@@ -1213,28 +1187,28 @@ end
 # ─── Rate equation dispatch ───────────────────────────────────────
 
 @generated function rate_equation(
-    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf},
+    ::AllostericEnzymeMechanism{Mets,CM,CatN,RS},
     concs::NamedTuple, params::NamedTuple, ::ReducedMode,
-) where {Mets,CM,CatN,RS,NConf}
-    _build_oligomeric_rate_body(Mets, CM, CatN, RS, NConf)
+) where {Mets,CM,CatN,RS}
+    _build_allosteric_rate_body(Mets, CM, CatN, RS)
 end
 
 # ─── String representation ────────────────────────────────────────
 
 function rate_equation_string(
-    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}, ::ReducedMode,
-) where {Mets,CM,CatN,RS,NConf}
-    M = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
+    ::AllostericEnzymeMechanism{Mets,CM,CatN,RS}, ::ReducedMode,
+) where {Mets,CM,CatN,RS}
+    M = AllostericEnzymeMechanism{Mets,CM,CatN,RS}
     _, indep = _dependent_param_exprs(M)
     hw_params = (indep..., :Keq, :E_total)
 
-    r_assignments, t_assignments = _oligomeric_dep_assignments(
-        CM, NConf, K -> :(1 / $K),
+    r_assignments, t_assignments = _allosteric_dep_assignments(
+        CM, K -> :(1 / $K),
     )
     dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in r_assignments]
     t_dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in t_assignments]
 
-    full_num, full_den = _oligomeric_num_den_exprs(CM, CatN, RS, NConf)
+    full_num, full_den = _allosteric_num_den_exprs(CM, CatN, RS)
     v_line = "v = E_total * ($(_expr_to_string(full_num))) / ($(_expr_to_string(full_den)))"
 
     join([
@@ -1249,12 +1223,12 @@ end
 # ─── Structural Identifiability ───────────────────────────────────
 
 @generated function structural_identifiability_deficit(
-    ::OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf},
-) where {Mets,CM,CatN,RS,NConf}
-    M = OligomericEnzymeMechanism{Mets,CM,CatN,RS,NConf}
+    ::AllostericEnzymeMechanism{Mets,CM,CatN,RS},
+) where {Mets,CM,CatN,RS}
+    M = AllostericEnzymeMechanism{Mets,CM,CatN,RS}
     _, indep = _dependent_param_exprs(M)
     n_k = length(indep)
-    n_num, n_denom = _count_oligomeric_rate_monomials(CM, CatN, RS, NConf)
+    n_num, n_denom = _count_allosteric_rate_monomials(CM, CatN, RS)
     n_k - (n_num - 1) - (n_denom - 1)
 end
 
