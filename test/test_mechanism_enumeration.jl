@@ -50,16 +50,16 @@ end
         if !isempty(s.allosteric_regs)
             cn = s.catalytic_n > 0 ? s.catalytic_n : 1
             dd = EnzymeRates._deduplicate(base, rxn)
-            oem = EnzymeRates._expand_allosteric(
+            allo =EnzymeRates._expand_allosteric(
                 dd, rxn; catalytic_n=cn,
                 allosteric_regs=al_regs)
-            @test length(oem) == s.expected_n_allosteric
+            @test length(allo) == s.expected_n_allosteric
 
-            oem = EnzymeRates._expand_tr_equivalence(oem, rxn)
-            @test length(oem) == s.expected_n_tr_equiv
+            allo = EnzymeRates._expand_tr_equivalence(allo, rxn)
+            @test length(allo) == s.expected_n_tr_equiv
 
-            oem = EnzymeRates._deduplicate_allosteric(oem, rxn)
-            @test length(oem) == s.expected_n_allosteric_dedup
+            allo = EnzymeRates._deduplicate_allosteric(allo, rxn)
+            @test length(allo) == s.expected_n_allosteric_dedup
         end
     end
 
@@ -310,11 +310,11 @@ end
         end
     end
 
-    # ── OEM properties ───────────────────────────────────────
+    # ── Allosteric expansion properties ─────────────────────
     @testset "Allosteric expansion properties" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(
-                uni_bi_allosteric_I_oem; catalytic_n=2))
+                uni_bi_allosteric_I_cn2; catalytic_n=2))
         em = filter(
             s -> s isa EnzymeRates.MechanismSpec,
             all_specs)
@@ -331,7 +331,7 @@ end
     @testset "Allosteric with allosteric regulators" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(
-                uni_bi_allosteric_I_oem; catalytic_n=2))
+                uni_bi_allosteric_I_cn2; catalytic_n=2))
         allo = filter(
             s -> s isa EnzymeRates.AllostericMechanismSpec,
             all_specs)
@@ -359,7 +359,7 @@ end
     @testset "compile_mechanism allosteric" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(
-                uni_bi_allosteric_I_oem; catalytic_n=2))
+                uni_bi_allosteric_I_cn2; catalytic_n=2))
         allo = filter(
             s -> s isa EnzymeRates.AllostericMechanismSpec,
             all_specs)
@@ -422,6 +422,6 @@ end
         end
 
         # Allosteric: catalytic_n=2 → 2 multiplicities (m=1,2)
-        @test by_name["Uni-Bi (allosteric I, OEM n=2)"].expected_n_allosteric == 2
+        @test by_name["Uni-Bi (allosteric I, cn=2)"].expected_n_allosteric == 2
     end
 end

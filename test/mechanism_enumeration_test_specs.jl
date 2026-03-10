@@ -186,8 +186,8 @@ const uni_bi_allosteric_I = @enzyme_reaction begin
     allosteric_regulators: I
 end
 
-# 4. Uni-Bi + allosteric regulator (OEM, catalytic_n=2)
-const uni_bi_allosteric_I_oem = @enzyme_reaction begin
+# 4. Uni-Bi + allosteric regulator (catalytic_n=2)
+const uni_bi_allosteric_I_cn2 = @enzyme_reaction begin
     substrates: S[AB]
     products: P[A], Q[B]
     allosteric_regulators: I
@@ -477,15 +477,15 @@ Uses the first catalytic topology as the base mechanism for each.
 function build_multi_reg_stage_expansion_specs()
     specs = StageExpansionTestSpec[]
 
-    # --- Uni-Bi + allosteric I (OEM, catalytic_n=2) ---
+    # --- Uni-Bi + allosteric I (allosteric, catalytic_n=2) ---
     # Base: 4 forms, 4 edges (3 RE binding + 1 SS isomerization)
     # Same catalytic base as Uni-Bi allosteric, but with catalytic_n=2
     let
         base = EnzymeRates._catalytic_topologies(
-            uni_bi_allosteric_I_oem)[1]
+            uni_bi_allosteric_I_cn2)[1]
         push!(specs, StageExpansionTestSpec(;
-            name="Uni-Bi (allosteric I, OEM n=2)",
-            reaction=uni_bi_allosteric_I_oem,
+            name="Uni-Bi (allosteric I, cn=2)",
+            reaction=uni_bi_allosteric_I_cn2,
             base_mechanism=base,
             allosteric_regs=[:I],
             catalytic_n=2,
@@ -590,13 +590,13 @@ function _run_full_pipeline_stages(rxn; catalytic_n::Int=0,
 
         if !isempty(al)
             cn = catalytic_n > 0 ? catalytic_n : 1
-            oem = EnzymeRates._expand_allosteric(
+            allo =EnzymeRates._expand_allosteric(
                 dd, rxn; catalytic_n=cn, allosteric_regs=al)
-            n_allo += length(oem)
-            oem = EnzymeRates._expand_tr_equivalence(oem, rxn)
-            n_tr += length(oem)
-            oem = EnzymeRates._deduplicate_allosteric(oem, rxn)
-            n_allo_dd += length(oem)
+            n_allo += length(allo)
+            allo = EnzymeRates._expand_tr_equivalence(allo, rxn)
+            n_tr += length(allo)
+            allo = EnzymeRates._deduplicate_allosteric(allo, rxn)
+            n_allo_dd += length(allo)
         end
     end
 
@@ -672,8 +672,8 @@ function build_enumeration_specs()
     ))
 
     push!(specs, EnumerationTestSpec(;
-        name="Uni-Bi + allosteric, OEM n=2",
-        reaction=uni_bi_allosteric_I_oem,
+        name="Uni-Bi + allosteric, cn=2",
+        reaction=uni_bi_allosteric_I_cn2,
         catalytic_n=2,
         expected_n_forms=22,
         expected_n_catalytic=3,
