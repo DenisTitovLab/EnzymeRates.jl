@@ -397,33 +397,33 @@ end
         result = EnzymeRates._expand_dead_end_inhibitors(
             [topo], uni_bi_dead_end_I;
             dead_end_regs=[:I])
-        # Correct: E, EP, EQ eligible (3 forms)
-        # ES has all substrates, EPQ has all products
-        # → (2^1)^3 = 8
+        # Topo[1] is sequential Q-first: E, ES, EPQ, EP
+        # (4 forms). ES has all subs, EPQ has all prods
+        # → eligible = {E, EP} = 2 forms
+        # → correct = (2^1)^2 = 4
         # BUG: current code allows I to bind all forms
+        # → buggy = 2^4 = 16
         n_forms = length(EnzymeRates.enzyme_forms(
             compile_mechanism(topo)))
-        @test_broken length(result) == 8
+        @test_broken length(result) == 4
         @test length(result) == 2^n_forms
     end
 
-    @testset "Bi-Bi + I: 5 eligible forms" begin
+    @testset "Bi-Bi + I" begin
         topo = EnzymeRates._catalytic_topologies(
             bi_bi_dead_end_I)[1]
         result = EnzymeRates._expand_dead_end_inhibitors(
             [topo], bi_bi_dead_end_I;
             dead_end_regs=[:I])
-        # Topo 1 is sequential (5 forms: E, EB, EAB,
-        # EP, EPQ). Correct: 5 eligible (EAB has all
-        # substrates, EPQ has all products → both should
-        # be excluded, but this topo has only 5 forms
-        # total so 2^5 = 32 = 2^n_forms).
-        # BUG: current code allows I to bind all forms,
-        # but here it gives correct count by coincidence
-        # (all 5 forms × 1 inhibitor → 2^5 = 32).
+        # Topo[1] is sequential (5 forms: E, EB, EAB,
+        # EP, EPQ). EAB has all subs, EPQ has all prods
+        # → eligible = {E, EB, EP} = 3 forms
+        # → correct = (2^1)^3 = 8
+        # BUG: current code allows I to bind all forms
+        # → buggy = 2^5 = 32
         n_forms = length(EnzymeRates.enzyme_forms(
             compile_mechanism(topo)))
-        @test length(result) == 32
+        @test_broken length(result) == 8
         @test length(result) == 2^n_forms
     end
 
@@ -483,6 +483,7 @@ end
         spec_with_de = findfirst(
             s -> length(s.edges) > s.n_catalytic_edges,
             de)
+        @test spec_with_de !== nothing
         if spec_with_de !== nothing
             s = de[spec_with_de]
             eq =
@@ -739,6 +740,29 @@ end
 
 @testset "Stage 8: Allosteric deduplication" begin
     @testset "T/R mirrors dedup" begin
+        # Use Bi-Bi + R1, R2 (6 metabolites) — with even
+        # count, complementary subsets of equal size exist
+        # (true T↔R mirrors with same param count).
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi_allosteric_R1_R2)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], bi_bi_allosteric_R1_R2)
+        allo = EnzymeRates._expand_allosteric(
+            dd, bi_bi_allosteric_R1_R2;
+            catalytic_n=1, allosteric_regs=[:R1, :R2])
+        # Use first allosteric spec
+        tr = EnzymeRates._expand_tr_equivalence(
+            [allo[1]], bi_bi_allosteric_R1_R2)
+        @test length(tr) == 64  # 2^6
+        deduped = EnzymeRates._deduplicate_allosteric(
+            tr, bi_bi_allosteric_R1_R2)
+        @test length(deduped) <= length(tr)
+    end
+
+    @testset "Uni-Uni + R: no mirrors (odd metabolites)" begin
+        # 3 metabolites (S, P, R): complementary subsets
+        # always differ in size → different param counts
+        # → no true mirrors → no dedup reduction
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_allosteric_R)[1]
         dd = EnzymeRates._deduplicate(
@@ -750,8 +774,7 @@ end
             allo, uni_uni_allosteric_R)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, uni_uni_allosteric_R)
-        # Should be < length(tr) if mirrors exist
-        @test length(deduped) <= length(tr)
+        @test length(deduped) == length(tr)
     end
 
     @testset "Different base mechanisms survive" begin
@@ -760,6 +783,7 @@ end
         @test length(topos) >= 2
         dd = EnzymeRates._deduplicate(
             topos[1:2], uni_bi_allosteric_R)
+        @test length(dd) >= 2
         if length(dd) >= 2
             allo = EnzymeRates._expand_allosteric(
                 dd, uni_bi_allosteric_R;
