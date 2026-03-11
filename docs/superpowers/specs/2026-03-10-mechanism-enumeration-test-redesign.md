@@ -176,27 +176,45 @@ Properties:
 **Formula**: `(2^n_regulators)^n_eligible_forms` per input spec — each eligible enzyme
 form independently decides which subset of regulators bind to it.
 
-**Inhibitor binding rule**: Inhibitor I can bind to an enzyme form if and only if the
-number of occupied catalytic sites < total catalytic sites. This means:
-- For Bi-Bi (2 sites): substrate/product dead-end forms occupy both sites → I cannot
-  bind to any dead-end form. Only catalytic cycle forms are eligible.
-- For Ter-Ter (3 sites): dead-end forms with 1 substrate + 1 product (2 of 3 sites
-  occupied) → I can bind. Dead-end forms with all 3 sites occupied → I cannot bind.
-- Catalytic cycle forms with fewer than all sites occupied are always eligible.
+**Inhibitor binding rule**: An enzyme form is **fully occupied** when it has ALL
+substrates bound OR ALL products bound. Dead-end inhibitor I cannot bind to fully
+occupied forms. All other forms (including substrate/product dead-end forms from
+stage 2.5 that don't have all substrates or all products) are eligible.
+
+Each substrate, product, and inhibitor can only bind to an enzyme once (unless the
+inhibitor is listed multiple times, indicating multiple binding sites).
+
+**Eligible forms by reaction type (catalytic cycle forms only, before stage 2.5):**
+
+| Reaction | Fully occupied (ineligible) | Eligible | n_eligible |
+|----------|---------------------------|----------|------------|
+| Uni-Uni | ES (all subs), EP (all prods) | E | 1 |
+| Uni-Bi | E_S (all subs), E_P_Q (all prods) | E, E_P, E_Q | 3 |
+| Bi-Bi | E_A_B (all subs), E_P_Q (all prods) | E, E_A, E_B, E_P, E_Q | 5 |
+| Ter-Ter | E_A_B_D, E_P_Q_R | E, all partial forms | many |
+
+**After stage 2.5** (substrate/product dead-end forms):
+- Bi-Bi E_A_Q: not all subs, not all prods → eligible
+- Ter-Ter E_A_Q: eligible (partial occupancy)
+- Ter-Ter E_A_B_Q: all subs bound → NOT eligible
 
 | Input | Reaction | Regulators | n_eligible | Expected |
 |-------|----------|-----------|------------|----------|
-| uni_uni topology | uni_uni (no regs) | 0 | 3 | 1 (passthrough) |
-| uni_uni topology | uni_uni_dead_end_I | 1 | 3 | (2^1)^3 = 8 |
-| uni_bi topology | uni_bi_dead_end_I | 1 | 4 | (2^1)^4 = 16 |
-| uni_uni topology | uni_uni_dead_end_I_J | 2 | 3 | (2^2)^3 = 64 |
-| uni_uni topology | uni_uni_allosteric_R | allosteric only | 3 | 1 (passthrough) |
+| uni_uni topology | uni_uni (no regs) | 0 | 1 | 1 (passthrough) |
+| uni_uni topology | uni_uni_dead_end_I | 1 | 1 | (2^1)^1 = 2 |
+| uni_bi topology | uni_bi_dead_end_I | 1 | 3 | (2^1)^3 = 8 |
+| bi_bi topology | bi_bi_dead_end_I | 1 | 5 | (2^1)^5 = 32 |
+| uni_uni topology | uni_uni_dead_end_I_J | 2 | 1 | (2^2)^1 = 4 |
+| uni_uni topology | uni_uni_allosteric_R | allosteric only | — | 1 (passthrough) |
+
+**`@test_broken`**: Current code allows inhibitors to bind to ALL catalytic forms
+regardless of site occupancy. Tests with correct eligible form counts will fail.
 
 Properties:
 - Allosteric regulators are skipped (passthrough)
 - New edges are all RE (regulator-binding)
 - `n_catalytic_edges` unchanged
-- Inhibitors only bind to forms with at least one free catalytic site
+- Inhibitors only bind to forms that are not fully occupied
 
 ### Stage 4: Equivalence constraints
 
@@ -318,6 +336,11 @@ replaced with correct values and marked `@test_broken`.
 2. **Missing stage 2.5**: Substrate/product dead-end complexes not enumerated.
    Fix: add new pipeline stage between stages 2 and 3.
 
-3. **Expected counts in existing tests**: Many appear reverse-engineered from code
+3. **Regulator dead-end expansion**: Current code allows inhibitors to bind to ALL
+   catalytic forms. Should only allow binding to forms that are not fully occupied
+   (don't have all substrates or all products bound). Uncompetitive and noncompetitive
+   inhibition patterns are special cases of allosteric control, not dead-end inhibition.
+
+4. **Expected counts in existing tests**: Many appear reverse-engineered from code
    output rather than independently calculated. All will be replaced with
    hand-calculated values.
