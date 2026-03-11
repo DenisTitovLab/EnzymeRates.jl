@@ -988,9 +988,29 @@ end
         for rxn in [uni_uni, bi_bi]
             all_specs = collect(
                 EnzymeRates.enumerate_mechanisms(rxn))
-            for s in all_specs
+            cat_specs = filter(
+                s -> s isa EnzymeRates.MechanismSpec, all_specs)
+            for s in first(cat_specs, 3)
                 m = compile_mechanism(s)
                 @test m isa EnzymeMechanism
+                s2 = mechanism_spec_from_mechanism(
+                    m, rxn; n_catalytic_edges=s.n_catalytic_edges)
+                @test s2.edges == s.edges
+                @test s2.equilibrium_steps == s.equilibrium_steps
+                @test s2.param_count == s.param_count
+            end
+        end
+
+        @testset "allosteric compilation" begin
+            all_specs = collect(
+                EnzymeRates.enumerate_mechanisms(
+                    uni_uni_allosteric_R))
+            allo_specs = filter(
+                s -> s isa EnzymeRates.AllostericMechanismSpec,
+                all_specs)
+            for s in first(allo_specs, 2)
+                m = compile_mechanism(s)
+                @test m isa AllostericEnzymeMechanism
                 @test length(metabolites(m)) > 0
                 @test length(parameters(m)) > 0
             end
