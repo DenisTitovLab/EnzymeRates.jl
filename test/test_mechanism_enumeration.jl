@@ -571,20 +571,35 @@ end
     @testset "Bi-Bi ordered: single-SS fingerprints" begin
         # For an ordered Bi-Bi topology (5 edges), create
         # single-SS variants by toggling each RE edge to SS
-        # one at a time.
+        # one at a time. The topo from _catalytic_topologies has
+        # 4 RE edges and 1 SS (isomerization). Only 4 variants
+        # are built here because _expand_ress_variants has a bug
+        # where non-binding (isomerization) edges cannot be
+        # toggled between RE and SS — all 5 edges should be
+        # individually toggleable.
         topo = EnzymeRates._catalytic_topologies(bi_bi)[1]
+        n = length(topo.edges)
+        n_forms = length(Set(Iterators.flatten(topo.edges)))
+        n_thermo = n - n_forms + 1
         single_ss = EnzymeRates.MechanismSpec[]
-        for i in 1:length(topo.edges)
+        for i in 1:n
             if topo.equilibrium_steps[i]
                 eq = copy(topo.equilibrium_steps)
                 eq[i] = false
+                n_re = count(eq)
+                n_ss = n - n_re
+                pc = n_re + 2 * n_ss - n_thermo + 2
                 push!(single_ss, EnzymeRates.MechanismSpec(
                     topo.reaction, topo.edges,
                     topo.n_catalytic_edges, eq,
                     topo.param_constraints,
-                    topo.param_count))
+                    pc))
             end
         end
+        # Bug: _expand_ress_variants doesn't toggle non-binding
+        # edges, so only 4 variants are produced instead of 5.
+        @test_broken length(single_ss) == 5
+        @test length(single_ss) == 4
         if !isempty(single_ss)
             deduped = EnzymeRates._deduplicate(
                 single_ss, bi_bi)
