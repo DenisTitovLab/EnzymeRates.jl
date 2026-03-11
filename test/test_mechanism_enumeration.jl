@@ -773,4 +773,77 @@ end
     end
 end
 
+@testset "End-to-end pipeline" begin
+    @testset "Uni-Uni, no regs" begin
+        result = collect(
+            EnzymeRates.enumerate_mechanisms(uni_uni))
+        @test length(result) == 1
+    end
+
+    @testset "Uni-Bi, no regs" begin
+        result = collect(
+            EnzymeRates.enumerate_mechanisms(uni_bi))
+        @test length(result) == 9
+    end
+
+    @testset "Bi-Bi, no regs" begin
+        result = collect(
+            EnzymeRates.enumerate_mechanisms(bi_bi))
+        @test length(result) == 207
+    end
+end
+
+@testset "param_count accuracy" begin
+    @testset "All Uni-Bi specs" begin
+        all_specs = collect(
+            EnzymeRates.enumerate_mechanisms(uni_bi))
+        @test length(all_specs) > 0
+        for s in all_specs
+            m = compile_mechanism(s)
+            @test s.param_count ==
+                length(parameters(m))
+        end
+    end
+
+    @testset "Sampled Bi-Bi specs (unconstrained)" begin
+        all_specs = collect(
+            EnzymeRates.enumerate_mechanisms(bi_bi))
+        base = filter(
+            s -> s isa EnzymeRates.MechanismSpec &&
+                isempty(s.param_constraints),
+            all_specs)
+        rng = Random.MersenneTwister(42)
+        n = min(20, length(base))
+        sample =
+            base[randperm(rng, length(base))[1:n]]
+        for s in sample
+            m = compile_mechanism(s)
+            @test s.param_count ==
+                length(parameters(m))
+        end
+    end
+
+    # BUG: param_count formula doesn't account for
+    # parameter equivalence constraints making
+    # Wegscheider constraints redundant.
+    # 36 of 126 constrained Bi-Bi MechanismSpecs
+    # have param_count off by 1.
+    @testset "Bi-Bi constrained param_count" begin
+        all_specs = collect(
+            EnzymeRates.enumerate_mechanisms(bi_bi))
+        constrained = filter(
+            s -> s isa EnzymeRates.MechanismSpec &&
+                !isempty(s.param_constraints),
+            all_specs)
+        @test length(constrained) == 126
+        n_match = count(constrained) do s
+            m = compile_mechanism(s)
+            s.param_count == length(parameters(m))
+        end
+        # 90 of 126 match; 36 are off by 1
+        @test n_match == 90
+        @test_broken n_match == 126
+    end
+end
+
 end # outer testset
