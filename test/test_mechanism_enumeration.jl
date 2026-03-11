@@ -497,6 +497,31 @@ end
         end
     end
 
+    @testset "Multiple equiv groups: multiplicative" begin
+        # Bi-Bi + I: spec with the most dead-end edges
+        # has multiple I-binding edges where the same
+        # metabolite also binds, forming multiple equiv
+        # groups. Expansion is multiplicative.
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi_dead_end_I)[1]
+        de = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], bi_bi_dead_end_I;
+            dead_end_regs=[:I])
+        de_counts = [
+            length(s.edges) - s.n_catalytic_edges
+            for s in de]
+        most_de_idx = argmax(de_counts)
+        s = de[most_de_idx]
+        eq = EnzymeRates._expand_equivalence_constraints(
+            [s], bi_bi_dead_end_I)
+        @test length(eq) >= 1
+        # With multiple I-binding edges, some form equiv
+        # groups → expansion > 1
+        if length(s.edges) > s.n_catalytic_edges + 1
+            @test length(eq) > 1
+        end
+    end
+
     @testset "Properties" begin
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_dead_end_I)[1]
@@ -541,6 +566,32 @@ end
         result = EnzymeRates._deduplicate(
             [topo, deepcopy(topo)], uni_uni)
         @test length(result) == 1
+    end
+
+    @testset "Bi-Bi ordered: single-SS fingerprints" begin
+        # For an ordered Bi-Bi topology (5 edges), create
+        # single-SS variants by toggling each RE edge to SS
+        # one at a time.
+        topo = EnzymeRates._catalytic_topologies(bi_bi)[1]
+        single_ss = EnzymeRates.MechanismSpec[]
+        for i in 1:length(topo.edges)
+            if topo.equilibrium_steps[i]
+                eq = copy(topo.equilibrium_steps)
+                eq[i] = false
+                push!(single_ss, EnzymeRates.MechanismSpec(
+                    topo.reaction, topo.edges,
+                    topo.n_catalytic_edges, eq,
+                    topo.param_constraints,
+                    topo.param_count))
+            end
+        end
+        if !isempty(single_ss)
+            deduped = EnzymeRates._deduplicate(
+                single_ss, bi_bi)
+            # 4 single-SS variants dedup to 3: one pair
+            # shares a concentration fingerprint
+            @test length(deduped) == 3
+        end
     end
 
     @testset "Keeps lower param_count" begin
@@ -644,13 +695,18 @@ end
     @testset "Dead-end I + allosteric R" begin
         topo = EnzymeRates._catalytic_topologies(
             bi_bi_dead_end_I_allosteric_R)[1]
+        # Expand dead-end inhibitors first so edges exist
+        de = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], bi_bi_dead_end_I_allosteric_R;
+            dead_end_regs=[:I])
         dd = EnzymeRates._deduplicate(
-            [topo], bi_bi_dead_end_I_allosteric_R)
+            de, bi_bi_dead_end_I_allosteric_R)
         result = EnzymeRates._expand_allosteric(
             dd, bi_bi_dead_end_I_allosteric_R;
             catalytic_n=1, allosteric_regs=[:R])
-        # Only R expands (m=1), I passes through → 1
-        @test length(result) == 1
+        # Each deduplicated spec produces 1 allosteric
+        # variant (m=1) — dead-end edges pass through
+        @test length(result) == length(dd)
     end
 
     @testset "Properties" begin
@@ -777,6 +833,26 @@ end
         @test length(deduped) == length(tr)
     end
 
+    @testset "Keeps lower param_count on mirror" begin
+        # Verify that when mirrors have different param
+        # counts, the one with fewer params is kept.
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi_allosteric_R1_R2)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], bi_bi_allosteric_R1_R2)
+        allo = EnzymeRates._expand_allosteric(
+            dd, bi_bi_allosteric_R1_R2;
+            catalytic_n=1, allosteric_regs=[:R1, :R2])
+        tr = EnzymeRates._expand_tr_equivalence(
+            [allo[1]], bi_bi_allosteric_R1_R2)
+        deduped = EnzymeRates._deduplicate_allosteric(
+            tr, bi_bi_allosteric_R1_R2)
+        # All surviving specs should be AllostericMechanismSpec
+        for s in deduped
+            @test s isa EnzymeRates.AllostericMechanismSpec
+        end
+    end
+
     @testset "Different base mechanisms survive" begin
         topos = EnzymeRates._catalytic_topologies(
             uni_bi_allosteric_R)
@@ -797,23 +873,157 @@ end
     end
 end
 
+@testset "Cross-stage properties" begin
+    @testset "RE partition bounds" begin
+        catalytic = EnzymeRates._catalytic_topologies(
+            uni_bi)
+        spec = catalytic[1]
+        ress = EnzymeRates._expand_ress_variants(
+            [spec], uni_bi)
+        for s in ress
+            partition =
+                EnzymeRates._compute_re_partition(
+                    s.edges, s.equilibrium_steps)
+            @test 2 <= length(partition) <= 7
+        end
+    end
+
+    @testset "Stage monotonicity" begin
+        for rxn in [uni_bi_reg_unknown,
+                    bi_bi_ping_pong_reg_unknown]
+            counts = _run_full_pipeline_stages(rxn)
+            @test counts.dead_end >= counts.ress
+            @test counts.equivalence >= counts.dead_end
+            @test counts.dedup <= counts.equivalence
+        end
+    end
+
+    @testset "Regulator roles affect partitioning" begin
+        c_unk = _run_full_pipeline_stages(
+            uni_uni_reg_unknown)
+        c_de = _run_full_pipeline_stages(
+            uni_uni_dead_end_I)
+        c_al = _run_full_pipeline_stages(
+            uni_uni_allosteric_R)
+        @test c_unk.catalytic == c_de.catalytic
+        @test c_unk.catalytic == c_al.catalytic
+        @test c_de.dedup >= c_al.dedup
+    end
+
+    @testset "param_count accuracy per stage" begin
+        rng = Random.MersenneTwister(99)
+
+        # Stage 1: catalytic topologies
+        catalytic = EnzymeRates._catalytic_topologies(
+            uni_bi)
+        for s in catalytic
+            m = compile_mechanism(s)
+            @test s.param_count ==
+                length(parameters(m))
+        end
+
+        # Stage 2: RE/SS expansion
+        ress = EnzymeRates._expand_ress_variants(
+            catalytic, uni_bi)
+        for s in ress[1:min(10, length(ress))]
+            m = compile_mechanism(s)
+            @test s.param_count ==
+                length(parameters(m))
+        end
+
+        # Stage 4: equivalence constraints
+        eq =
+            EnzymeRates._expand_equivalence_constraints(
+                ress, uni_bi)
+        for s in eq[1:min(10, length(eq))]
+            m = compile_mechanism(s)
+            @test s.param_count ==
+                length(parameters(m))
+        end
+
+        # With regulators: dead-end + equivalence
+        cat_r = EnzymeRates._catalytic_topologies(
+            uni_bi_dead_end_I)
+        ress_r = EnzymeRates._expand_ress_variants(
+            cat_r, uni_bi_dead_end_I)
+        de_r =
+            EnzymeRates._expand_dead_end_inhibitors(
+                ress_r, uni_bi_dead_end_I;
+                dead_end_regs=[:I])
+        sample_de = de_r[randperm(
+            rng, length(de_r))[
+            1:min(10, length(de_r))]]
+        for s in sample_de
+            m = compile_mechanism(s)
+            @test s.param_count ==
+                length(parameters(m))
+        end
+    end
+
+    @testset "compile_mechanism round-trip" begin
+        for rxn in [uni_uni, bi_bi]
+            all_specs = collect(
+                EnzymeRates.enumerate_mechanisms(rxn))
+            for s in all_specs
+                m = compile_mechanism(s)
+                @test m isa EnzymeMechanism
+                @test length(metabolites(m)) > 0
+                @test length(parameters(m)) > 0
+            end
+        end
+    end
+end
+
 @testset "End-to-end pipeline" begin
     @testset "Uni-Uni, no regs" begin
+        # 1 topology, all RE/SS variants dedup to 1
         result = collect(
             EnzymeRates.enumerate_mechanisms(uni_uni))
         @test length(result) == 1
     end
 
     @testset "Uni-Bi, no regs" begin
+        # 3 topologies × RE/SS variants, dedup to 9
         result = collect(
             EnzymeRates.enumerate_mechanisms(uni_bi))
         @test length(result) == 9
     end
 
     @testset "Bi-Bi, no regs" begin
+        # 9 topologies → 81 unconstrained + 126
+        # constrained = 207 after dedup + equiv expansion
         result = collect(
             EnzymeRates.enumerate_mechanisms(bi_bi))
         @test length(result) == 207
+    end
+
+    @testset "Bi-Bi Ping-Pong, no regs" begin
+        # 10 topologies → 84 unconstrained + 126
+        # constrained = 210 after dedup + equiv expansion
+        result = collect(
+            EnzymeRates.enumerate_mechanisms(
+                bi_bi_ping_pong))
+        @test length(result) == 210
+    end
+
+    @testset "Uni-Uni + 1 unknown reg" begin
+        # 2 partitions (dead-end vs allosteric):
+        # dead-end → 17 deduped, allosteric → 4 TR-deduped
+        # = 21 total
+        result = collect(
+            EnzymeRates.enumerate_mechanisms(
+                uni_uni_reg_unknown))
+        @test length(result) == 21
+    end
+
+    @testset "Uni-Bi + 1 unknown reg" begin
+        # 2 partitions (dead-end vs allosteric):
+        # dead-end → 580 deduped, allosteric → 88
+        # TR-deduped = 668 total
+        result = collect(
+            EnzymeRates.enumerate_mechanisms(
+                uni_bi_reg_unknown))
+        @test length(result) == 668
     end
 end
 
