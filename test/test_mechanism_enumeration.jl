@@ -352,6 +352,7 @@ end
 
     @testset "Bi-Bi: 4 off-cycle forms" begin
         # Bi-Bi: 11 forms, 7 on-cycle, 4 off-cycle
+        # (fully-random topology, topo 6 of 9)
         # Off-cycle: E_A_0_P_0, E_0_B_P_0,
         #            E_A_0_0_Q, E_0_B_0_Q
         # Expected: 2^4 = 16 variants per input spec
@@ -359,7 +360,8 @@ end
     end
 
     @testset "Bi-Bi Ping-Pong: 7 off-cycle forms" begin
-        # Bi-Bi-PP: 17 forms, 10 on-cycle, 7 off-cycle
+        # Bi-Bi-PP: 13 forms, 6 on-cycle, 7 off-cycle
+        # (ping-pong topology, topo 4 of 10)
         # Off-cycle: E_A_0_P_0, E_0_B_P_0, E_X_B_P_0,
         #   E_A_0_0_Q, E_X_0_0_Q, E_0_B_0_Q, E_X_B_0_Q
         # Expected: 2^7 = 128 variants per input spec
