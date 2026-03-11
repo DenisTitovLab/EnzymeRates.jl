@@ -262,6 +262,13 @@
         end
     end
 
+    @testset "Ter-Ter" begin
+        # Expected: 49 topologies (1 random + 6+6 mixed + 36 seq)
+        # Currently OOMs in _catalytic_topologies — skip until
+        # the enumeration code is optimized for 3+3 reactions.
+        @test_broken false  # placeholder: ter_ter OOMs
+    end
+
 end
 
 end # outer testset
