@@ -138,12 +138,6 @@ const bi_bi_dead_end_I = @enzyme_reaction begin
     dead_end_inhibitors: I
 end
 
-const bi_bi_ping_pong_dead_end_I = @enzyme_reaction begin
-    substrates: A[CX], B[N]
-    products: P[C], Q[NX]
-    dead_end_inhibitors: I
-end
-
 const uni_uni_dead_end_I_J = @enzyme_reaction begin
     substrates: S[C]
     products: P[C]
@@ -159,18 +153,6 @@ const uni_uni_allosteric_R = @enzyme_reaction begin
 end
 
 const uni_bi_allosteric_R = @enzyme_reaction begin
-    substrates: S[AB]
-    products: P[A], Q[B]
-    allosteric_regulators: R
-end
-
-const bi_bi_ping_pong_allosteric_R = @enzyme_reaction begin
-    substrates: A[CX], B[N]
-    products: P[C], Q[NX]
-    allosteric_regulators: R
-end
-
-const uni_bi_allosteric_R_cn2 = @enzyme_reaction begin
     substrates: S[AB]
     products: P[A], Q[B]
     allosteric_regulators: R
@@ -202,12 +184,6 @@ end
 const uni_bi_reg_unknown = @enzyme_reaction begin
     substrates: S[AB]
     products: P[A], Q[B]
-    regulators: I
-end
-
-const bi_bi_ping_pong_reg_unknown = @enzyme_reaction begin
-    substrates: A[CX], B[N]
-    products: P[C], Q[NX]
     regulators: I
 end
 

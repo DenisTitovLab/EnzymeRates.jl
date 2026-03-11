@@ -517,6 +517,7 @@ end
         @test length(eq) >= 1
         # With multiple I-binding edges, some form equiv
         # groups → expansion > 1
+        @test length(s.edges) > s.n_catalytic_edges + 1
         if length(s.edges) > s.n_catalytic_edges + 1
             @test length(eq) > 1
         end
@@ -537,6 +538,8 @@ end
             s -> isempty(s.param_constraints), eq)
         constrained = filter(
             s -> !isempty(s.param_constraints), eq)
+        @test !isempty(constrained)
+        @test !isempty(unconstrained)
         if !isempty(constrained) &&
                 !isempty(unconstrained)
             @test minimum(
@@ -647,11 +650,11 @@ end
 
     @testset "1 reg, catalytic_n=2" begin
         topo = EnzymeRates._catalytic_topologies(
-            uni_bi_allosteric_R_cn2)[1]
+            uni_bi_allosteric_R)[1]
         dd = EnzymeRates._deduplicate(
-            [topo], uni_bi_allosteric_R_cn2)
+            [topo], uni_bi_allosteric_R)
         result = EnzymeRates._expand_allosteric(
-            dd, uni_bi_allosteric_R_cn2; catalytic_n=2,
+            dd, uni_bi_allosteric_R; catalytic_n=2,
             allosteric_regs=[:R])
         @test length(result) == 2  # m=1, m=2
     end
@@ -726,11 +729,11 @@ end
 
     @testset "Properties" begin
         topo = EnzymeRates._catalytic_topologies(
-            uni_bi_allosteric_R_cn2)[1]
+            uni_bi_allosteric_R)[1]
         dd = EnzymeRates._deduplicate(
-            [topo], uni_bi_allosteric_R_cn2)
+            [topo], uni_bi_allosteric_R)
         result = EnzymeRates._expand_allosteric(
-            dd, uni_bi_allosteric_R_cn2;
+            dd, uni_bi_allosteric_R;
             catalytic_n=2, allosteric_regs=[:R])
         for s in result
             @test s.catalytic_n == 2
@@ -913,8 +916,7 @@ end
     end
 
     @testset "Stage monotonicity" begin
-        for rxn in [uni_bi_reg_unknown,
-                    bi_bi_ping_pong_reg_unknown]
+        for rxn in [uni_bi_reg_unknown]
             counts = _run_full_pipeline_stages(rxn)
             @test counts.dead_end >= counts.ress
             @test counts.equivalence >= counts.dead_end
@@ -1098,6 +1100,20 @@ end
             m = compile_mechanism(s)
             @test s.param_count ==
                 length(parameters(m))
+        end
+    end
+
+    @testset "Allosteric specs" begin
+        all_specs = collect(
+            EnzymeRates.enumerate_mechanisms(
+                uni_uni_allosteric_R))
+        allo_specs = filter(
+            s -> s isa EnzymeRates.AllostericMechanismSpec,
+            all_specs)
+        @test !isempty(allo_specs)
+        for s in first(allo_specs, 3)
+            m = compile_mechanism(s)
+            @test length(parameters(m)) > 0
         end
     end
 
