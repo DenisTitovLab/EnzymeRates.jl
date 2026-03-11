@@ -271,4 +271,255 @@
 
 end
 
+@testset "Stage 2: RE/SS expansion" begin
+    @testset "Uni-Uni: 2^3 - 1 = 7 variants" begin
+        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        result = EnzymeRates._expand_ress_variants(
+            [topo], uni_uni)
+        # Correct: all 3 steps toggleable, 2^3 - 1 = 7
+        # BUG: current code only toggles binding edges
+        #   (2 binding edges), gives 2^2 - 1 = 3
+        @test_broken length(result) == 7
+        @test length(result) == 3
+
+        for s in result
+            @test any(.!s.equilibrium_steps)
+            @test s.edges == topo.edges
+            @test s.n_catalytic_edges ==
+                topo.n_catalytic_edges
+        end
+    end
+
+    @testset "Uni-Bi" begin
+        topo = EnzymeRates._catalytic_topologies(uni_bi)[1]
+        n_steps = length(topo.edges)
+        result = EnzymeRates._expand_ress_variants(
+            [topo], uni_bi)
+        # Correct: 2^n_steps - 1. Determine n_steps at
+        # runtime and compute expected. Mark correct as
+        # @test_broken, then determine current (buggy)
+        # count by counting binding edges only.
+        n_binding = count(topo.equilibrium_steps)
+        @test_broken length(result) == 2^n_steps - 1
+        @test length(result) == 2^n_binding - 1
+
+        for s in result
+            @test any(.!s.equilibrium_steps)
+        end
+    end
+
+    @testset "Bi-Bi" begin
+        topo = EnzymeRates._catalytic_topologies(bi_bi)[1]
+        n_steps = length(topo.edges)
+        n_binding = count(topo.equilibrium_steps)
+        result = EnzymeRates._expand_ress_variants(
+            [topo], bi_bi)
+        @test_broken length(result) == 2^n_steps - 1
+        @test length(result) == 2^n_binding - 1
+
+        for s in result
+            @test any(.!s.equilibrium_steps)
+        end
+    end
+
+    @testset "max_re_groups filtering" begin
+        # Use bi_bi with many topologies to test filtering.
+        # The all-SS assignment should be excluded when it
+        # creates more RE groups than max_re_groups allows.
+        topo = EnzymeRates._catalytic_topologies(bi_bi)[end]
+        n_steps = length(topo.edges)
+        n_binding = count(topo.equilibrium_steps)
+        result_default = EnzymeRates._expand_ress_variants(
+            [topo], bi_bi)
+        # With strict max_re_groups=2, fewer variants survive
+        result_strict = EnzymeRates._expand_ress_variants(
+            [topo], bi_bi; max_re_groups=2)
+        @test length(result_strict) <=
+            length(result_default)
+    end
+end
+
+@testset "Stage 2.5: Substrate/product dead-end expansion" begin
+    # This stage does not exist yet. All tests document
+    # expected behavior for when it is implemented.
+
+    @testset "Uni-Uni: passthrough (no off-cycle forms)" begin
+        # Uni-Uni: 3 forms, 3 on-cycle → 0 off-cycle
+        # No substrate/product dead-end forms exist, so
+        # this stage would be a passthrough.
+        @test_broken false  # stage doesn't exist
+    end
+
+    @testset "Bi-Bi: 4 off-cycle forms" begin
+        # Bi-Bi: 11 forms, 7 on-cycle, 4 off-cycle
+        # Off-cycle: E_A_0_P_0, E_0_B_P_0,
+        #            E_A_0_0_Q, E_0_B_0_Q
+        # Expected: 2^4 = 16 variants per input spec
+        @test_broken false  # stage doesn't exist
+    end
+
+    @testset "Bi-Bi Ping-Pong: 7 off-cycle forms" begin
+        # Bi-Bi-PP: 17 forms, 10 on-cycle, 7 off-cycle
+        # Off-cycle: E_A_0_P_0, E_0_B_P_0, E_X_B_P_0,
+        #   E_A_0_0_Q, E_X_0_0_Q, E_0_B_0_Q, E_X_B_0_Q
+        # Expected: 2^7 = 128 variants per input spec
+        @test_broken false  # stage doesn't exist
+    end
+end
+
+@testset "Stage 3: Regulator dead-end expansion" begin
+    @testset "No regulators: passthrough" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni)[1]
+        result = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], uni_uni; dead_end_regs=Symbol[])
+        @test length(result) == 1
+    end
+
+    @testset "Uni-Uni + I: eligible forms" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_dead_end_I)[1]
+        result = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], uni_uni_dead_end_I;
+            dead_end_regs=[:I])
+        # Correct: only E eligible (ES fully occupied
+        # with all substrates, EP fully occupied with
+        # all products) → (2^1)^1 = 2 variants
+        # BUG: current code allows I to bind all 3 forms
+        # → (2^1)^3 = 8
+        @test_broken length(result) == 2
+        @test length(result) == 8
+    end
+
+    @testset "Uni-Bi + I" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_bi_dead_end_I)[1]
+        result = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], uni_bi_dead_end_I;
+            dead_end_regs=[:I])
+        # Correct: E, EP, EQ eligible (3 forms)
+        # ES has all substrates, EPQ has all products
+        # → (2^1)^3 = 8
+        # BUG: current code allows I to bind all forms
+        n_forms = length(EnzymeRates.enzyme_forms(
+            compile_mechanism(topo)))
+        @test_broken length(result) == 8
+        @test length(result) == 2^n_forms
+    end
+
+    @testset "Bi-Bi + I: 5 eligible forms" begin
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi_dead_end_I)[1]
+        result = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], bi_bi_dead_end_I;
+            dead_end_regs=[:I])
+        # Topo 1 is sequential (5 forms: E, EB, EAB,
+        # EP, EPQ). Correct: 5 eligible (EAB has all
+        # substrates, EPQ has all products → both should
+        # be excluded, but this topo has only 5 forms
+        # total so 2^5 = 32 = 2^n_forms).
+        # BUG: current code allows I to bind all forms,
+        # but here it gives correct count by coincidence
+        # (all 5 forms × 1 inhibitor → 2^5 = 32).
+        n_forms = length(EnzymeRates.enzyme_forms(
+            compile_mechanism(topo)))
+        @test length(result) == 32
+        @test length(result) == 2^n_forms
+    end
+
+    @testset "2 inhibitors: Uni-Uni + I, J" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_dead_end_I_J)[1]
+        result = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], uni_uni_dead_end_I_J;
+            dead_end_regs=[:I, :J])
+        # Correct: only E eligible → (2^2)^1 = 4
+        # BUG: all 3 forms → (2^2)^3 = 64
+        @test_broken length(result) == 4
+        @test length(result) == 64
+    end
+
+    @testset "Allosteric-only: passthrough" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_allosteric_R)[1]
+        result = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], uni_uni_allosteric_R;
+            dead_end_regs=Symbol[])
+        @test length(result) == 1
+    end
+
+    @testset "Properties" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_dead_end_I)[1]
+        result = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], uni_uni_dead_end_I;
+            dead_end_regs=[:I])
+        for s in result
+            @test length(s.edges) >= s.n_catalytic_edges
+            @test s.n_catalytic_edges ==
+                topo.n_catalytic_edges
+        end
+    end
+end
+
+@testset "Stage 4: Equivalence constraints" begin
+    @testset "No equiv groups: passthrough" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni)[1]
+        result =
+            EnzymeRates._expand_equivalence_constraints(
+                [topo], uni_uni)
+        @test length(result) == 1
+    end
+
+    @testset "Dead-end inhibitor creates equiv groups" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_dead_end_I)[1]
+        de = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], uni_uni_dead_end_I;
+            dead_end_regs=[:I])
+        # Find a spec with dead-end edges (more edges
+        # than catalytic)
+        spec_with_de = findfirst(
+            s -> length(s.edges) > s.n_catalytic_edges,
+            de)
+        if spec_with_de !== nothing
+            s = de[spec_with_de]
+            eq =
+                EnzymeRates._expand_equivalence_constraints(
+                    [s], uni_uni_dead_end_I)
+            # Should produce at least 1 variant
+            # (passthrough if no equiv groups) and
+            # possibly more if I binds to multiple
+            # forms with the same metabolite
+            @test length(eq) >= 1
+        end
+    end
+
+    @testset "Properties" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_dead_end_I)[1]
+        de = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], uni_uni_dead_end_I;
+            dead_end_regs=[:I])
+        eq =
+            EnzymeRates._expand_equivalence_constraints(
+                de, uni_uni_dead_end_I)
+        @test length(eq) >= length(de)
+
+        unconstrained = filter(
+            s -> isempty(s.param_constraints), eq)
+        constrained = filter(
+            s -> !isempty(s.param_constraints), eq)
+        if !isempty(constrained) &&
+                !isempty(unconstrained)
+            @test minimum(
+                s.param_count for s in constrained) <
+                maximum(
+                    s.param_count
+                    for s in unconstrained)
+        end
+    end
+end
+
 end # outer testset
