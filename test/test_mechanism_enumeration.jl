@@ -812,13 +812,17 @@ end
         @test length(tr) == 64  # 2^6
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, bi_bi_allosteric_R1_R2)
-        @test length(deduped) <= length(tr)
+        # Bug: _allosteric_canonical_key uses sort(tr_equiv_metabolites)
+        # directly, so complementary TR-equiv sets (T↔R mirrors) get
+        # different keys and both survive dedup. Mirrors should be removed.
+        @test_broken length(deduped) < length(tr)
+        @test length(deduped) == length(tr)
     end
 
     @testset "Uni-Uni + R: no mirrors (odd metabolites)" begin
-        # 3 metabolites (S, P, R): complementary subsets
-        # always differ in size → different param counts
-        # → no true mirrors → no dedup reduction
+        # 3 metabolites (S, P, R): _allosteric_canonical_key uses
+        # sort(tr_equiv_metabolites) directly, so complementary TR-equiv
+        # sets always produce different keys — no dedup reduction occurs.
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_allosteric_R)[1]
         dd = EnzymeRates._deduplicate(
@@ -834,8 +838,6 @@ end
     end
 
     @testset "Keeps lower param_count on mirror" begin
-        # Verify that when mirrors have different param
-        # counts, the one with fewer params is kept.
         topo = EnzymeRates._catalytic_topologies(
             bi_bi_allosteric_R1_R2)[1]
         dd = EnzymeRates._deduplicate(
@@ -847,7 +849,14 @@ end
             [allo[1]], bi_bi_allosteric_R1_R2)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, bi_bi_allosteric_R1_R2)
-        # All surviving specs should be AllostericMechanismSpec
+        # Bug: mirror dedup is broken (no mirrors are ever removed), so
+        # we can only verify type stability here. When T/R mirrors with
+        # different param_counts exist, the lower param_count one should
+        # be kept — but _allosteric_canonical_key never maps complementary
+        # TR-equiv sets to the same key.
+        @test_broken any(s1.base.param_count < s2.base.param_count
+            for s1 in deduped, s2 in tr
+            if s1 ∉ tr || s2 ∉ deduped)
         for s in deduped
             @test s isa EnzymeRates.AllostericMechanismSpec
         end
