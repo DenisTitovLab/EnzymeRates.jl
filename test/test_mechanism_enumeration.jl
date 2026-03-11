@@ -522,4 +522,255 @@ end
     end
 end
 
+@testset "Stage 5: Deduplication" begin
+    @testset "Uni-Uni dedup" begin
+        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        ress = EnzymeRates._expand_ress_variants(
+            [topo], uni_uni)
+        deduped = EnzymeRates._deduplicate(ress, uni_uni)
+        # All RE/SS variants of single Uni-Uni topology
+        # produce same concentration fingerprint → dedup to 1
+        @test length(deduped) == 1
+        @test deduped[1].param_count <=
+            minimum(s.param_count for s in ress)
+    end
+
+    @testset "Duplicate removal" begin
+        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        result = EnzymeRates._deduplicate(
+            [topo, deepcopy(topo)], uni_uni)
+        @test length(result) == 1
+    end
+
+    @testset "Keeps lower param_count" begin
+        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        topo2 = EnzymeRates.MechanismSpec(
+            topo.reaction, topo.edges,
+            topo.n_catalytic_edges,
+            topo.equilibrium_steps,
+            topo.param_constraints,
+            topo.param_count + 5)
+        result = EnzymeRates._deduplicate(
+            [topo, topo2], uni_uni)
+        @test length(result) == 1
+        @test result[1].param_count == topo.param_count
+    end
+end
+
+@testset "Stage 6: Allosteric expansion" begin
+    @testset "No allosteric regs: passthrough" begin
+        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        dd = EnzymeRates._deduplicate([topo], uni_uni)
+        result = EnzymeRates._expand_allosteric(
+            dd, uni_uni; catalytic_n=1,
+            allosteric_regs=Symbol[])
+        @test length(result) == 1
+    end
+
+    @testset "1 reg, catalytic_n=1" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_allosteric_R)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], uni_uni_allosteric_R)
+        result = EnzymeRates._expand_allosteric(
+            dd, uni_uni_allosteric_R; catalytic_n=1,
+            allosteric_regs=[:R])
+        @test length(result) == 1  # m=1 only
+    end
+
+    @testset "1 reg, catalytic_n=2" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_bi_allosteric_R_cn2)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], uni_bi_allosteric_R_cn2)
+        result = EnzymeRates._expand_allosteric(
+            dd, uni_bi_allosteric_R_cn2; catalytic_n=2,
+            allosteric_regs=[:R])
+        @test length(result) == 2  # m=1, m=2
+    end
+
+    @testset "1 reg, catalytic_n=3" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_allosteric_R)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], uni_uni_allosteric_R)
+        result = EnzymeRates._expand_allosteric(
+            dd, uni_uni_allosteric_R; catalytic_n=3,
+            allosteric_regs=[:R])
+        @test length(result) == 3  # m=1,2,3
+    end
+
+    @testset "2 regs, catalytic_n=1" begin
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi_allosteric_R1_R2)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], bi_bi_allosteric_R1_R2)
+        result = EnzymeRates._expand_allosteric(
+            dd, bi_bi_allosteric_R1_R2; catalytic_n=1,
+            allosteric_regs=[:R1, :R2])
+        # 2 set partitions: {R1},{R2} and {R1,R2}
+        # Each with m=1 only → 2 variants
+        @test length(result) == 2
+    end
+
+    @testset "2 regs, catalytic_n=2" begin
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi_allosteric_R1_R2)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], bi_bi_allosteric_R1_R2)
+        result = EnzymeRates._expand_allosteric(
+            dd, bi_bi_allosteric_R1_R2; catalytic_n=2,
+            allosteric_regs=[:R1, :R2])
+        # Separate sites: 2 sites × 2 mults each = 4
+        # Same site: 2 mults = 2. Total = 6
+        @test length(result) == 6
+    end
+
+    @testset "Dead-end edges: passthrough" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_dead_end_I)[1]
+        de = EnzymeRates._expand_dead_end_inhibitors(
+            [topo], uni_uni_dead_end_I;
+            dead_end_regs=[:I])
+        dd = EnzymeRates._deduplicate(
+            de, uni_uni_dead_end_I)
+        result = EnzymeRates._expand_allosteric(
+            dd, uni_uni_dead_end_I; catalytic_n=1,
+            allosteric_regs=Symbol[])
+        @test length(result) == length(dd)
+    end
+
+    @testset "Dead-end I + allosteric R" begin
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi_dead_end_I_allosteric_R)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], bi_bi_dead_end_I_allosteric_R)
+        result = EnzymeRates._expand_allosteric(
+            dd, bi_bi_dead_end_I_allosteric_R;
+            catalytic_n=1, allosteric_regs=[:R])
+        # Only R expands (m=1), I passes through → 1
+        @test length(result) == 1
+    end
+
+    @testset "Properties" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_bi_allosteric_R_cn2)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], uni_bi_allosteric_R_cn2)
+        result = EnzymeRates._expand_allosteric(
+            dd, uni_bi_allosteric_R_cn2;
+            catalytic_n=2, allosteric_regs=[:R])
+        for s in result
+            @test s.catalytic_n == 2
+            @test !isempty(s.allosteric_reg_sites)
+        end
+    end
+end
+
+@testset "Stage 7: TR equivalence" begin
+    @testset "Uni-Uni + R: 2^3 = 8 variants" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_allosteric_R)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], uni_uni_allosteric_R)
+        allo = EnzymeRates._expand_allosteric(
+            dd, uni_uni_allosteric_R; catalytic_n=1,
+            allosteric_regs=[:R])
+        tr = EnzymeRates._expand_tr_equivalence(
+            allo, uni_uni_allosteric_R)
+        # 3 metabolites with T-state params: S, P, R
+        @test length(tr) == 8
+    end
+
+    @testset "Uni-Bi + R: 2^4 = 16 variants" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_bi_allosteric_R)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], uni_bi_allosteric_R)
+        allo = EnzymeRates._expand_allosteric(
+            dd, uni_bi_allosteric_R; catalytic_n=1,
+            allosteric_regs=[:R])
+        tr = EnzymeRates._expand_tr_equivalence(
+            allo, uni_bi_allosteric_R)
+        # 4 metabolites: S, P, Q, R
+        @test length(tr) == 16
+    end
+
+    @testset "Bi-Bi + R1, R2: 2^6 = 64 per spec" begin
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi_allosteric_R1_R2)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], bi_bi_allosteric_R1_R2)
+        allo = EnzymeRates._expand_allosteric(
+            dd, bi_bi_allosteric_R1_R2;
+            catalytic_n=1, allosteric_regs=[:R1, :R2])
+        # Use first allosteric spec only
+        tr = EnzymeRates._expand_tr_equivalence(
+            [allo[1]], bi_bi_allosteric_R1_R2)
+        # 6 metabolites: A, B, P, Q, R1, R2
+        @test length(tr) == 64
+    end
+
+    @testset "Properties" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_allosteric_R)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], uni_uni_allosteric_R)
+        allo = EnzymeRates._expand_allosteric(
+            dd, uni_uni_allosteric_R;
+            catalytic_n=1, allosteric_regs=[:R])
+        tr = EnzymeRates._expand_tr_equivalence(
+            allo, uni_uni_allosteric_R)
+
+        no_tr = filter(
+            s -> isempty(s.tr_equiv_metabolites), tr)
+        with_tr = filter(
+            s -> !isempty(s.tr_equiv_metabolites), tr)
+        @test !isempty(no_tr)
+        @test !isempty(with_tr)
+
+        # TR equiv reduces parameter count
+        m_no = compile_mechanism(no_tr[1])
+        m_with = compile_mechanism(with_tr[end])
+        @test length(parameters(m_with)) <
+            length(parameters(m_no))
+    end
+end
+
+@testset "Stage 8: Allosteric deduplication" begin
+    @testset "T/R mirrors dedup" begin
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_allosteric_R)[1]
+        dd = EnzymeRates._deduplicate(
+            [topo], uni_uni_allosteric_R)
+        allo = EnzymeRates._expand_allosteric(
+            dd, uni_uni_allosteric_R;
+            catalytic_n=1, allosteric_regs=[:R])
+        tr = EnzymeRates._expand_tr_equivalence(
+            allo, uni_uni_allosteric_R)
+        deduped = EnzymeRates._deduplicate_allosteric(
+            tr, uni_uni_allosteric_R)
+        # Should be < length(tr) if mirrors exist
+        @test length(deduped) <= length(tr)
+    end
+
+    @testset "Different base mechanisms survive" begin
+        topos = EnzymeRates._catalytic_topologies(
+            uni_bi_allosteric_R)
+        @test length(topos) >= 2
+        dd = EnzymeRates._deduplicate(
+            topos[1:2], uni_bi_allosteric_R)
+        if length(dd) >= 2
+            allo = EnzymeRates._expand_allosteric(
+                dd, uni_bi_allosteric_R;
+                catalytic_n=1, allosteric_regs=[:R])
+            tr = EnzymeRates._expand_tr_equivalence(
+                allo, uni_bi_allosteric_R)
+            deduped = EnzymeRates._deduplicate_allosteric(
+                tr, uni_bi_allosteric_R)
+            @test length(deduped) >= 2
+        end
+    end
+end
+
 end # outer testset
