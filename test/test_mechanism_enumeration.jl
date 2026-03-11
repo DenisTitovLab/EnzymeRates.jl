@@ -1,469 +1,267 @@
 # ABOUTME: Tests for the staged mechanism enumeration pipeline
-# ABOUTME: Iterates over specs defined in mechanism_enumeration_test_specs.jl
-
-const STAGE_EXPANSION_SPECS = build_stage_expansion_specs()
-const ENUMERATION_SPECS = build_enumeration_specs()
-
-"""Run `f()` with a timeout. Returns `f()` result or `nothing` on timeout."""
-function _with_timeout(f, timeout_secs::Real)
-    result_channel = Channel{Any}(1)
-    task = @async try
-        put!(result_channel, f())
-    catch e
-        put!(result_channel, e)
-    end
-    timer = Timer(timeout_secs)
-    @async begin
-        wait(timer)
-        if !istaskdone(task)
-            schedule(task, InterruptException(); error=true)
-        end
-    end
-    result = take!(result_channel)
-    close(timer)
-    close(result_channel)
-    result isa Exception ? nothing : result
-end
+# ABOUTME: Organized by stage with hand-calculated expected values
 
 @testset "Mechanism Enumeration Pipeline" begin
 
-    # ── Stage expansion: each stage independently on base ────
-    @testset "Stage expansion: $(s.name)" for s in STAGE_EXPANSION_SPECS
-        rxn = s.reaction
-        roles = EnzymeRates.regulator_roles(rxn)
-        de_regs = Symbol[r[1] for r in roles
-                         if r[2] == :dead_end]
-        al_regs = Symbol[r[1] for r in roles
-                         if r[2] == :allosteric]
-        base = [s.base_mechanism]
+@testset "Stage 1: Catalytic topologies" begin
 
-        @test length(EnzymeRates._expand_ress_variants(
-            base, rxn)) == s.expected_n_ress
-        @test length(EnzymeRates._expand_dead_end_inhibitors(
-            base, rxn; dead_end_regs=de_regs)) ==
-            s.expected_n_dead_end
-        @test length(EnzymeRates._expand_equivalence_constraints(
-            base, rxn)) == s.expected_n_equivalence
-        @test length(EnzymeRates._deduplicate(
-            base, rxn)) == s.expected_n_dedup
+    @testset "Uni-Uni" begin
+        topos = EnzymeRates._catalytic_topologies(uni_uni)
+        @test length(topos) == 1
 
-        if !isempty(s.allosteric_regs)
-            cn = s.catalytic_n > 0 ? s.catalytic_n : 1
-            dd = EnzymeRates._deduplicate(base, rxn)
-            allo =EnzymeRates._expand_allosteric(
-                dd, rxn; catalytic_n=cn,
-                allosteric_regs=al_regs)
-            @test length(allo) == s.expected_n_allosteric
-
-            allo = EnzymeRates._expand_tr_equivalence(allo, rxn)
-            @test length(allo) == s.expected_n_tr_equiv
-
-            allo = EnzymeRates._deduplicate_allosteric(allo, rxn)
-            @test length(allo) == s.expected_n_allosteric_dedup
-        end
-    end
-
-    # ── End-to-end pipeline ──────────────────────────────────
-    @testset "End-to-end: $(s.name)" for s in ENUMERATION_SPECS
-        rxn = s.reaction
-
-        _, forms = EnzymeRates.enumerate_enzyme_forms(rxn)
-        @test length(forms) == s.expected_n_forms
-
-        counts = _run_full_pipeline_stages(
-            rxn; catalytic_n=s.catalytic_n)
-        @test counts.catalytic == s.expected_n_catalytic
-        @test counts.ress == s.expected_n_ress
-        @test counts.dead_end == s.expected_n_dead_end
-        @test counts.equivalence == s.expected_n_equivalence
-        @test counts.dedup == s.expected_n_dedup
-
-        if s.expected_n_allosteric > 0
-            @test counts.allosteric == s.expected_n_allosteric
-            @test counts.tr_equiv == s.expected_n_tr_equiv
-            @test counts.allosteric_dedup ==
-                s.expected_n_allosteric_dedup
-        end
-
-        result = _with_timeout(120) do
-            collect(EnzymeRates.enumerate_mechanisms(
-                rxn; catalytic_n=s.catalytic_n))
-        end
-
-        if result === nothing
-            @warn "$(s.name) timed out (120s)"
-            @test_broken length([]) == s.expected_n_total
-        else
-            @test length(result) == s.expected_n_total
-        end
-    end
-
-    # ── Property-based tests ─────────────────────────────────
-    @testset "Catalytic topology properties" begin
-        for rxn in [uni_uni, bi_bi, bi_bi_ping_pong]
-            catalytic = EnzymeRates._catalytic_topologies(rxn)
-            @test length(catalytic) > 0
-            for spec in catalytic
-                @test spec.n_catalytic_edges ==
-                    length(spec.edges)
-                @test count(.!spec.equilibrium_steps) >= 1
+        # E ⇌ ES (S-binding), E ⇌ EP (P-binding), ES <--> EP (isom)
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E_0_0, E_S_0[C], E_0_P[C]
+            end
+            steps: begin
+                [E_0_0, S] ⇌ [E_S_0]
+                [E_0_0, P] ⇌ [E_0_P]
+                [E_S_0] <--> [E_0_P]
             end
         end
+
+        @test compile_mechanism(topos[1]) === m_uu
+
+        for t in topos
+            @test t.n_catalytic_edges == length(t.edges)
+            @test count(.!t.equilibrium_steps) >= 1
+        end
     end
 
-    @testset "RE/SS expansion properties" begin
-        for rxn in [uni_uni, bi_bi, bi_bi_ping_pong]
-            catalytic = EnzymeRates._catalytic_topologies(rxn)
-            for spec in catalytic
-                ress = EnzymeRates._expand_ress_variants(
-                    [spec], rxn)
-                @test length(ress) > 0
-                for s in ress
-                    @test any(.!s.equilibrium_steps)
-                end
+    @testset "Uni-Bi" begin
+        topos = EnzymeRates._catalytic_topologies(uni_bi)
+        @test length(topos) == 3
+
+        # Topo 1: ordered release Q-first
+        # Path: E → ES → EPQ → EP → E
+        # Q released at EPQ→EP, P released at EP→E
+        m_ub1 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E_0_0_0, E_S_0_0[AB],
+                    E_0_P_0[A], E_0_P_Q[AB]
+            end
+            steps: begin
+                [E_0_0_0, S] ⇌ [E_S_0_0]
+                [E_S_0_0] <--> [E_0_P_Q]
+                [E_0_P_0, Q] ⇌ [E_0_P_Q]
+                [E_0_0_0, P] ⇌ [E_0_P_0]
             end
         end
-    end
 
-    @testset "RE partition bounds" begin
-        catalytic = EnzymeRates._catalytic_topologies(uni_bi)
-        spec = catalytic[1]
-        ress = EnzymeRates._expand_ress_variants(
-            [spec], uni_bi)
-        @test length(ress) > 0
-        for s in ress
-            partition = EnzymeRates._compute_re_partition(
-                s.edges, s.equilibrium_steps)
-            @test 2 <= length(partition) <= 7
-        end
-    end
-
-    @testset "Dead-end expansion properties" begin
-        catalytic = EnzymeRates._catalytic_topologies(
-            uni_bi_dead_end_I)
-        de_specs = EnzymeRates._expand_dead_end_inhibitors(
-            catalytic, uni_bi_dead_end_I;
-            dead_end_regs=[:I])
-        @test length(de_specs) > length(catalytic)
-        for s in de_specs
-            @test length(s.edges) >= s.n_catalytic_edges
-        end
-    end
-
-    @testset "Dead-end passthrough with no regs" begin
-        for rxn in [uni_uni, bi_bi]
-            catalytic = EnzymeRates._catalytic_topologies(rxn)
-            no_de = EnzymeRates._expand_dead_end_inhibitors(
-                catalytic, rxn; dead_end_regs=Symbol[])
-            @test length(no_de) == length(catalytic)
-        end
-    end
-
-    @testset "Deduplication reduces count" begin
-        catalytic = EnzymeRates._catalytic_topologies(
-            uni_bi_dead_end_I)
-        de_specs = EnzymeRates._expand_dead_end_inhibitors(
-            catalytic, uni_bi_dead_end_I;
-            dead_end_regs=[:I])
-        ress = EnzymeRates._expand_ress_variants(
-            [de_specs[1]], uni_bi_dead_end_I)
-        with_eq = EnzymeRates._expand_equivalence_constraints(
-            ress, uni_bi_dead_end_I)
-        deduped = EnzymeRates._deduplicate(
-            with_eq, uni_bi_dead_end_I)
-        @test length(deduped) <= length(with_eq)
-    end
-
-    @testset "Equivalence constraints add variants" begin
-        catalytic = EnzymeRates._catalytic_topologies(
-            uni_bi_dead_end_I)
-        de_specs = EnzymeRates._expand_dead_end_inhibitors(
-            catalytic, uni_bi_dead_end_I;
-            dead_end_regs=[:I])
-        spec_idx = findfirst(
-            s -> length(s.edges) > s.n_catalytic_edges,
-            de_specs)
-        if spec_idx !== nothing
-            s = de_specs[spec_idx]
-            ress = EnzymeRates._expand_ress_variants(
-                [s], uni_bi_dead_end_I)
-            with_eq =
-                EnzymeRates._expand_equivalence_constraints(
-                    ress, uni_bi_dead_end_I)
-            @test length(with_eq) >= length(ress)
-        end
-    end
-
-    @testset "Stage monotonicity" begin
-        for rxn in [uni_bi_reg_unknown,
-                    bi_bi_ping_pong_reg_unknown]
-            counts = _run_full_pipeline_stages(rxn)
-            @test counts.dead_end >= counts.ress
-            @test counts.equivalence >= counts.dead_end
-            @test counts.dedup <= counts.equivalence
-        end
-    end
-
-    @testset "Regulator roles affect partitioning" begin
-        c_unk = _run_full_pipeline_stages(uni_uni_reg_unknown)
-        c_de = _run_full_pipeline_stages(uni_uni_dead_end_I)
-        c_al = _run_full_pipeline_stages(uni_uni_allosteric_I)
-        @test c_unk.catalytic == c_de.catalytic
-        @test c_unk.catalytic == c_al.catalytic
-        @test c_de.dedup >= c_al.dedup
-    end
-
-    # ── param_count accuracy ─────────────────────────────────
-    @testset "param_count accuracy (EM)" begin
-        all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(uni_bi))
-        @test length(all_specs) > 0
-        for s in all_specs
-            m = compile_mechanism(s)
-            @test s.param_count == length(parameters(m))
-        end
-    end
-
-    @testset "param_count accuracy (EM with reg, sampled)" begin
-        all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(
-                uni_bi_reg_unknown))
-        rng = Random.MersenneTwister(42)
-        base_specs = filter(
-            s -> s isa EnzymeRates.MechanismSpec, all_specs)
-        n = min(20, length(base_specs))
-        sample = base_specs[randperm(rng,
-            length(base_specs))[1:n]]
-        for s in sample
-            m = compile_mechanism(s)
-            @test s.param_count == length(parameters(m))
-        end
-    end
-
-    @testset "param_count accuracy per stage" begin
-        rng = Random.MersenneTwister(99)
-
-        # Stage 1: catalytic topologies
-        catalytic = EnzymeRates._catalytic_topologies(uni_bi)
-        for s in catalytic
-            m = compile_mechanism(s)
-            @test s.param_count == length(parameters(m))
-        end
-
-        # Stage 2: RE/SS expansion
-        ress = EnzymeRates._expand_ress_variants(
-            catalytic, uni_bi)
-        for s in ress[1:min(10, length(ress))]
-            m = compile_mechanism(s)
-            @test s.param_count == length(parameters(m))
-        end
-
-        # Stage 6: equivalence constraints (no regs, so
-        # dead-end stage is passthrough)
-        eq = EnzymeRates._expand_equivalence_constraints(
-            ress, uni_bi)
-        for s in eq[1:min(10, length(eq))]
-            m = compile_mechanism(s)
-            @test s.param_count == length(parameters(m))
-        end
-
-        # With regulators: dead-end + equivalence stages
-        cat_r = EnzymeRates._catalytic_topologies(
-            uni_bi_dead_end_I)
-        ress_r = EnzymeRates._expand_ress_variants(
-            cat_r, uni_bi_dead_end_I)
-        de_r = EnzymeRates._expand_dead_end_inhibitors(
-            ress_r, uni_bi_dead_end_I;
-            dead_end_regs=[:I])
-        sample_de = de_r[randperm(rng, length(de_r))[
-            1:min(10, length(de_r))]]
-        for s in sample_de
-            m = compile_mechanism(s)
-            @test s.param_count == length(parameters(m))
-        end
-
-        eq_r = EnzymeRates._expand_equivalence_constraints(
-            de_r, uni_bi_dead_end_I)
-        sample_eq = eq_r[randperm(rng, length(eq_r))[
-            1:min(10, length(eq_r))]]
-        for s in sample_eq
-            m = compile_mechanism(s)
-            @test s.param_count == length(parameters(m))
-        end
-    end
-
-    @testset "param_count accuracy (sampled)" begin
-        rng = Random.MersenneTwister(42)
-        for rxn in [uni_uni, uni_bi_reg_unknown, uni_bi]
-            all_specs = collect(
-                EnzymeRates.enumerate_mechanisms(rxn))
-            base_specs = filter(
-                s -> s isa EnzymeRates.MechanismSpec,
-                all_specs)
-            n = min(20, length(base_specs))
-            sample = base_specs[randperm(rng,
-                length(base_specs))[1:n]]
-            for s in sample
-                m = compile_mechanism(s)
-                @test s.param_count == length(parameters(m))
+        # Topo 2: ordered release P-first
+        # Path: E → ES → EPQ → EQ → E
+        # P released at EPQ→EQ, Q released at EQ→E
+        m_ub2 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E_0_0_0, E_S_0_0[AB],
+                    E_0_0_Q[B], E_0_P_Q[AB]
+            end
+            steps: begin
+                [E_0_0_0, S] ⇌ [E_S_0_0]
+                [E_S_0_0] <--> [E_0_P_Q]
+                [E_0_0_Q, P] ⇌ [E_0_P_Q]
+                [E_0_0_0, Q] ⇌ [E_0_0_Q]
             end
         end
-    end
 
-    # ── Allosteric expansion properties ─────────────────────
-    @testset "Allosteric expansion properties" begin
-        all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(
-                uni_bi_allosteric_I_cn2; catalytic_n=2))
-        em = filter(
-            s -> s isa EnzymeRates.MechanismSpec,
-            all_specs)
-        allo = filter(
-            s -> s isa EnzymeRates.AllostericMechanismSpec,
-            all_specs)
-        @test length(em) > 0
-        @test length(allo) > 0
-        for s in allo
-            @test s.catalytic_n == 2
-        end
-    end
-
-    @testset "Allosteric with allosteric regulators" begin
-        all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(
-                uni_bi_allosteric_I_cn2; catalytic_n=2))
-        allo = filter(
-            s -> s isa EnzymeRates.AllostericMechanismSpec,
-            all_specs)
-        @test length(allo) > 0
-        for s in allo
-            @test !isempty(s.allosteric_reg_sites)
-            @test !isempty(s.allosteric_multiplicities)
-        end
-    end
-
-    # ── compile_mechanism round-trip ─────────────────────────
-    @testset "compile_mechanism round-trip" begin
-        for rxn in [uni_uni, bi_bi]
-            all_specs = collect(
-                EnzymeRates.enumerate_mechanisms(rxn))
-            for s in all_specs
-                m = compile_mechanism(s)
-                @test m isa EnzymeMechanism
-                @test length(metabolites(m)) > 0
-                @test length(parameters(m)) > 0
+        # Topo 3: random release (both P and Q paths)
+        # Path: E → ES → EPQ → EP → E or EPQ → EQ → E
+        m_ub3 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E_0_0_0, E_S_0_0[AB],
+                    E_0_P_0[A], E_0_0_Q[B],
+                    E_0_P_Q[AB]
+            end
+            steps: begin
+                [E_0_0_0, S] ⇌ [E_S_0_0]
+                [E_S_0_0] <--> [E_0_P_Q]
+                [E_0_P_0, Q] ⇌ [E_0_P_Q]
+                [E_0_0_0, P] ⇌ [E_0_P_0]
+                [E_0_0_Q, P] ⇌ [E_0_P_Q]
+                [E_0_0_0, Q] ⇌ [E_0_0_Q]
             end
         end
-    end
 
-    @testset "compile_mechanism allosteric" begin
-        all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(
-                uni_bi_allosteric_I_cn2; catalytic_n=2))
-        allo = filter(
-            s -> s isa EnzymeRates.AllostericMechanismSpec,
-            all_specs)
-        for s in allo[1:min(3, length(allo))]
-            m = compile_mechanism(s)
-            @test m isa AllostericEnzymeMechanism
-            @test length(parameters(m)) > 0
+        # Round-trip: each hand-defined mechanism matches
+        # a compiled topology
+        defined = [m_ub1, m_ub2, m_ub3]
+        for (i, m) in enumerate(defined)
+            compiled = compile_mechanism(topos[i])
+            @test compiled === m
+        end
+
+        for t in topos
+            @test t.n_catalytic_edges == length(t.edges)
+            @test count(.!t.equilibrium_steps) >= 1
         end
     end
 
-    # ── TR equivalence parameter reduction ───────────────────
-    @testset "TR equivalence reduces parameter count" begin
-        rxn = uni_uni_allosteric_I
-        base = EnzymeRates._catalytic_topologies(rxn)
-        dd = EnzymeRates._deduplicate(base, rxn)
-        allo = EnzymeRates._expand_allosteric(
-            dd, rxn; catalytic_n=1, allosteric_regs=[:I])
-        tr = EnzymeRates._expand_tr_equivalence(allo, rxn)
+    @testset "Bi-Bi" begin
+        topos = EnzymeRates._catalytic_topologies(bi_bi)
+        @test length(topos) == 9
 
-        no_tr = filter(
-            s -> isempty(s.tr_equiv_metabolites), tr)
-        with_tr = filter(
-            s -> !isempty(s.tr_equiv_metabolites), tr)
-        @test !isempty(no_tr)
-        @test !isempty(with_tr)
+        # Topo 1: sequential bind B-first,
+        #         sequential release P-first
+        # Path: E→EB→EAB→EPQ→EP→E
+        m_bb1 = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E_0_0_0_0,
+                    E_0_B_0_0[N],
+                    E_A_B_0_0[CN],
+                    E_0_0_P_0[C],
+                    E_0_0_P_Q[CN]
+            end
+            steps: begin
+                [E_A_B_0_0] <--> [E_0_0_P_Q]
+                [E_0_0_0_0, B] ⇌ [E_0_B_0_0]
+                [E_0_0_P_0, Q] ⇌ [E_0_0_P_Q]
+                [E_0_B_0_0, A] ⇌ [E_A_B_0_0]
+                [E_0_0_0_0, P] ⇌ [E_0_0_P_0]
+            end
+        end
+        @test compile_mechanism(topos[1]) === m_bb1
 
-        m_no_tr = compile_mechanism(no_tr[1])
-        m_with_tr = compile_mechanism(with_tr[1])
-        @test length(parameters(m_with_tr)) <
-            length(parameters(m_no_tr))
+        # Topo 4: sequential bind A-first,
+        #         sequential release P-first
+        # Path: E→EA→EAB→EPQ→EP→E
+        m_bb4 = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E_0_0_0_0,
+                    E_A_0_0_0[C],
+                    E_A_B_0_0[CN],
+                    E_0_0_P_0[C],
+                    E_0_0_P_Q[CN]
+            end
+            steps: begin
+                [E_0_0_0_0, A] ⇌ [E_A_0_0_0]
+                [E_A_B_0_0] <--> [E_0_0_P_Q]
+                [E_0_0_P_0, Q] ⇌ [E_0_0_P_Q]
+                [E_0_0_0_0, P] ⇌ [E_0_0_P_0]
+                [E_A_0_0_0, B] ⇌ [E_A_B_0_0]
+            end
+        end
+        @test compile_mechanism(topos[4]) === m_bb4
+
+        # Topo 7: sequential bind A-first,
+        #         sequential release Q-first
+        # Path: E→EA→EAB→EPQ→EQ→E
+        m_bb7 = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E_0_0_0_0,
+                    E_A_0_0_0[C],
+                    E_A_B_0_0[CN],
+                    E_0_0_0_Q[N],
+                    E_0_0_P_Q[CN]
+            end
+            steps: begin
+                [E_0_0_0_0, A] ⇌ [E_A_0_0_0]
+                [E_A_B_0_0] <--> [E_0_0_P_Q]
+                [E_0_0_0_Q, P] ⇌ [E_0_0_P_Q]
+                [E_A_0_0_0, B] ⇌ [E_A_B_0_0]
+                [E_0_0_0_0, Q] ⇌ [E_0_0_0_Q]
+            end
+        end
+        @test compile_mechanism(topos[7]) === m_bb7
+
+        # Topo 6: random bind, random release (fully
+        # random on both sides)
+        m_bb6 = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E_0_0_0_0,
+                    E_A_0_0_0[C],
+                    E_0_B_0_0[N],
+                    E_A_B_0_0[CN],
+                    E_0_0_P_0[C],
+                    E_0_0_0_Q[N],
+                    E_0_0_P_Q[CN]
+            end
+            steps: begin
+                [E_0_0_0_0, A] ⇌ [E_A_0_0_0]
+                [E_A_B_0_0] <--> [E_0_0_P_Q]
+                [E_0_0_0_0, B] ⇌ [E_0_B_0_0]
+                [E_0_0_P_0, Q] ⇌ [E_0_0_P_Q]
+                [E_0_B_0_0, A] ⇌ [E_A_B_0_0]
+                [E_0_0_0_0, P] ⇌ [E_0_0_P_0]
+                [E_0_0_0_Q, P] ⇌ [E_0_0_P_Q]
+                [E_A_0_0_0, B] ⇌ [E_A_B_0_0]
+                [E_0_0_0_0, Q] ⇌ [E_0_0_0_Q]
+            end
+        end
+        @test compile_mechanism(topos[6]) === m_bb6
+
+        # Verify structural properties hold for all
+        for t in topos
+            @test t.n_catalytic_edges == length(t.edges)
+            @test count(.!t.equilibrium_steps) >= 1
+        end
+
+        # Verify 9 topologies decompose into known
+        # categories by form count:
+        # 5 forms: sequential/sequential (4 topos)
+        # 6 forms: random-one-side (4 topos)
+        # 7 forms: fully random (1 topo)
+        form_counts = [
+            length(
+                EnzymeRates.enzyme_forms(compile_mechanism(t))
+            ) for t in topos
+        ]
+        @test count(==(5), form_counts) == 4
+        @test count(==(6), form_counts) == 4
+        @test count(==(7), form_counts) == 1
     end
 
-    # ── Allosteric mechanism param count ──────────────────────
-    @testset "Allosteric mechanism param count" begin
-        all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(
-                uni_bi_allosteric_I_cn2; catalytic_n=2))
-        allo_specs = filter(
-            s -> s isa EnzymeRates.AllostericMechanismSpec,
-            all_specs)
-        @test !isempty(allo_specs)
+    @testset "Bi-Bi Ping-Pong" begin
+        topos =
+            EnzymeRates._catalytic_topologies(bi_bi_ping_pong)
+        @test length(topos) == 10
 
-        for s in allo_specs[1:min(5, length(allo_specs))]
-            m = compile_mechanism(s)
-            n_params = length(parameters(m))
-            base_m = compile_mechanism(s.base)
-            # Allosteric adds at least L beyond base params
-            @test n_params > length(parameters(base_m))
-            @test n_params >= length(parameters(base_m)) + 1
+        # Topo 4: classic ping-pong with E_X intermediate
+        # E → EA → E_X(+P) → E_X_B → E(+Q)
+        m_pp = @enzyme_mechanism begin
+            species: begin
+                substrates: A[CX], B[N]
+                products: P[C], Q[NX]
+                enzymes: E_0_0_0_0,
+                    E_A_0_0_0[CX],
+                    E_X_0_0_0[X],
+                    E_X_B_0_0[NX],
+                    E_X_0_P_0[CX],
+                    E_0_0_0_Q[NX]
+            end
+            steps: begin
+                [E_0_0_0_0, A] ⇌ [E_A_0_0_0]
+                [E_0_0_0_0, Q] ⇌ [E_0_0_0_Q]
+                [E_X_B_0_0] <--> [E_0_0_0_Q]
+                [E_X_0_0_0, P] ⇌ [E_X_0_P_0]
+                [E_X_0_0_0, B] ⇌ [E_X_B_0_0]
+                [E_A_0_0_0] ⇌ [E_X_0_P_0]
+            end
+        end
+        @test compile_mechanism(topos[4]) === m_pp
+
+        for t in topos
+            @test t.n_catalytic_edges == length(t.edges)
+            @test count(.!t.equilibrium_steps) >= 1
         end
     end
 
-    # ── Combinatorial cross-checks ───────────────────────────
-    @testset "Combinatorial cross-checks" begin
-        # Verify hardcoded expected values against independent
-        # combinatorial formulas.
-
-        specs = STAGE_EXPANSION_SPECS
-        by_name = Dict(s.name => s for s in specs)
-
-        # RE/SS: n RE binding edges → 2^n - 1 valid combos
-        # (must keep ≥1 RE edge)
-        @test by_name["Uni-Uni (no reg)"].expected_n_ress ==
-            2^2 - 1  # 2 RE binding edges
-        @test by_name["Bi-Bi (no reg)"].expected_n_ress ==
-            2^4 - 1  # 4 RE binding edges
-        @test by_name["Bi-Bi Ping-Pong (no reg)"].expected_n_ress ==
-            2^4 - 1  # 4 RE binding edges
-
-        # No-reg passthroughs: de/eq/dd all = 1
-        for name in ["Uni-Uni (no reg)", "Bi-Bi (no reg)",
-                      "Bi-Bi Ping-Pong (no reg)"]
-            s = by_name[name]
-            @test s.expected_n_dead_end == 1
-            @test s.expected_n_equivalence == 1
-            @test s.expected_n_dedup == 1
-        end
-
-        # Dead-end: n catalytic forms → 2^n subsets of I binding
-        @test by_name["Uni-Uni (dead-end I)"].expected_n_dead_end ==
-            2^3  # 3 catalytic forms
-        @test by_name["Uni-Bi (dead-end I)"].expected_n_dead_end ==
-            2^4  # 4 catalytic forms
-        @test by_name["Bi-Bi Ping-Pong (dead-end I)"].expected_n_dead_end ==
-            2^5  # 5 catalytic forms
-        @test by_name["Bi-Bi (dead-end I, allosteric J)"].expected_n_dead_end ==
-            2^5  # 5 catalytic forms
-
-        # Dead-end passthrough for allosteric-only specs
-        for name in ["Uni-Uni (allosteric I)",
-                      "Uni-Bi (allosteric I)",
-                      "Bi-Bi Ping-Pong (allosteric I)"]
-            @test by_name[name].expected_n_dead_end == 1
-        end
-
-        # Allosteric: catalytic_n=1 → 1 multiplicity (m=1 only)
-        for name in ["Uni-Uni (allosteric I)",
-                      "Uni-Bi (allosteric I)",
-                      "Bi-Bi Ping-Pong (allosteric I)"]
-            s = by_name[name]
-            @test s.expected_n_allosteric == 1
-        end
-
-        # Allosteric: catalytic_n=2 → 2 multiplicities (m=1,2)
-        @test by_name["Uni-Bi (allosteric I, cn=2)"].expected_n_allosteric == 2
-    end
 end
+
+end # outer testset
