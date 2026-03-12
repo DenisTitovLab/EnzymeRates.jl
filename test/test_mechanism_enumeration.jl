@@ -9,25 +9,26 @@
         topos = EnzymeRates._catalytic_topologies(uni_uni)
         @test length(topos) == 1
 
-        # E ⇌ ES (S-binding), E ⇌ EP (P-binding), ES <--> EP (isom)
+        # E ⇌ ES, E ⇌ EP, ES <--> EP
         m_uu = @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
                 products: P[C]
-                enzymes: E_0_0, E_S_0[C], E_0_P[C]
+                enzymes: E, E_P[C], E_S[C]
             end
             steps: begin
-                [E_0_0, S] ⇌ [E_S_0]
-                [E_0_0, P] ⇌ [E_0_P]
-                [E_S_0] <--> [E_0_P]
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
             end
         end
 
         @test compile_mechanism(topos[1]) === m_uu
 
         for t in topos
-            @test t.n_catalytic_edges == length(t.edges)
-            @test count(.!t.equilibrium_steps) >= 1
+            @test count(
+                !s.is_equilibrium for s in t.steps
+            ) >= 1
         end
     end
 
@@ -35,59 +36,55 @@
         topos = EnzymeRates._catalytic_topologies(uni_bi)
         @test length(topos) == 3
 
-        # Topo 1: ordered release Q-first
-        # Path: E → ES → EPQ → EP → E
-        # Q released at EPQ→EP, P released at EP→E
+        # Topo 1: ordered release P-first
+        # Path: E→ES→EPQ→EQ→E
         m_ub1 = @enzyme_mechanism begin
             species: begin
                 substrates: S[AB]
                 products: P[A], Q[B]
-                enzymes: E_0_0_0, E_S_0_0[AB],
-                    E_0_P_0[A], E_0_P_Q[AB]
+                enzymes: E, E_P_Q[AB],
+                    E_Q[B], E_S[AB]
             end
             steps: begin
-                [E_0_0_0, S] ⇌ [E_S_0_0]
-                [E_S_0_0] <--> [E_0_P_Q]
-                [E_0_P_0, Q] ⇌ [E_0_P_Q]
-                [E_0_0_0, P] ⇌ [E_0_P_0]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
             end
         end
 
-        # Topo 2: ordered release P-first
-        # Path: E → ES → EPQ → EQ → E
-        # P released at EPQ→EQ, Q released at EQ→E
+        # Topo 2: random release (both P and Q paths)
         m_ub2 = @enzyme_mechanism begin
             species: begin
                 substrates: S[AB]
                 products: P[A], Q[B]
-                enzymes: E_0_0_0, E_S_0_0[AB],
-                    E_0_0_Q[B], E_0_P_Q[AB]
+                enzymes: E, E_P[A], E_P_Q[AB],
+                    E_Q[B], E_S[AB]
             end
             steps: begin
-                [E_0_0_0, S] ⇌ [E_S_0_0]
-                [E_S_0_0] <--> [E_0_P_Q]
-                [E_0_0_Q, P] ⇌ [E_0_P_Q]
-                [E_0_0_0, Q] ⇌ [E_0_0_Q]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
             end
         end
 
-        # Topo 3: random release (both P and Q paths)
-        # Path: E → ES → EPQ → EP → E or EPQ → EQ → E
+        # Topo 3: ordered release Q-first
+        # Path: E→ES→EPQ→EP→E
         m_ub3 = @enzyme_mechanism begin
             species: begin
                 substrates: S[AB]
                 products: P[A], Q[B]
-                enzymes: E_0_0_0, E_S_0_0[AB],
-                    E_0_P_0[A], E_0_0_Q[B],
-                    E_0_P_Q[AB]
+                enzymes: E, E_P[A],
+                    E_P_Q[AB], E_S[AB]
             end
             steps: begin
-                [E_0_0_0, S] ⇌ [E_S_0_0]
-                [E_S_0_0] <--> [E_0_P_Q]
-                [E_0_P_0, Q] ⇌ [E_0_P_Q]
-                [E_0_0_0, P] ⇌ [E_0_P_0]
-                [E_0_0_Q, P] ⇌ [E_0_P_Q]
-                [E_0_0_0, Q] ⇌ [E_0_0_Q]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
             end
         end
 
@@ -100,8 +97,9 @@
         end
 
         for t in topos
-            @test t.n_catalytic_edges == length(t.edges)
-            @test count(.!t.equilibrium_steps) >= 1
+            @test count(
+                !s.is_equilibrium for s in t.steps
+            ) >= 1
         end
     end
 
@@ -109,107 +107,98 @@
         topos = EnzymeRates._catalytic_topologies(bi_bi)
         @test length(topos) == 9
 
-        # Topo 1: sequential bind B-first,
-        #         sequential release P-first
-        # Path: E→EB→EAB→EPQ→EP→E
+        # Topo 1: sequential bind A-first,
+        #         sequential release Q-first
+        # Path: E→EA→EAB→EPQ→EQ→E
         m_bb1 = @enzyme_mechanism begin
             species: begin
                 substrates: A[C], B[N]
                 products: P[C], Q[N]
-                enzymes: E_0_0_0_0,
-                    E_0_B_0_0[N],
-                    E_A_B_0_0[CN],
-                    E_0_0_P_0[C],
-                    E_0_0_P_Q[CN]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
             end
             steps: begin
-                [E_A_B_0_0] <--> [E_0_0_P_Q]
-                [E_0_0_0_0, B] ⇌ [E_0_B_0_0]
-                [E_0_0_P_0, Q] ⇌ [E_0_0_P_Q]
-                [E_0_B_0_0, A] ⇌ [E_A_B_0_0]
-                [E_0_0_0_0, P] ⇌ [E_0_0_P_0]
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
             end
         end
         @test compile_mechanism(topos[1]) === m_bb1
 
-        # Topo 4: sequential bind A-first,
+        # Topo 2: sequential bind B-first,
+        #         sequential release P-first
+        # Path: E→EB→EAB→EPQ→EP→E
+        m_bb2 = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A_B[CN],
+                    E_B[N], E_P[C],
+                    E_P_Q[CN]
+            end
+            steps: begin
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        @test compile_mechanism(topos[2]) === m_bb2
+
+        # Topo 6: sequential bind A-first,
         #         sequential release P-first
         # Path: E→EA→EAB→EPQ→EP→E
-        m_bb4 = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E_0_0_0_0,
-                    E_A_0_0_0[C],
-                    E_A_B_0_0[CN],
-                    E_0_0_P_0[C],
-                    E_0_0_P_Q[CN]
-            end
-            steps: begin
-                [E_0_0_0_0, A] ⇌ [E_A_0_0_0]
-                [E_A_B_0_0] <--> [E_0_0_P_Q]
-                [E_0_0_P_0, Q] ⇌ [E_0_0_P_Q]
-                [E_0_0_0_0, P] ⇌ [E_0_0_P_0]
-                [E_A_0_0_0, B] ⇌ [E_A_B_0_0]
-            end
-        end
-        @test compile_mechanism(topos[4]) === m_bb4
-
-        # Topo 7: sequential bind A-first,
-        #         sequential release Q-first
-        # Path: E→EA→EAB→EPQ→EQ→E
-        m_bb7 = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E_0_0_0_0,
-                    E_A_0_0_0[C],
-                    E_A_B_0_0[CN],
-                    E_0_0_0_Q[N],
-                    E_0_0_P_Q[CN]
-            end
-            steps: begin
-                [E_0_0_0_0, A] ⇌ [E_A_0_0_0]
-                [E_A_B_0_0] <--> [E_0_0_P_Q]
-                [E_0_0_0_Q, P] ⇌ [E_0_0_P_Q]
-                [E_A_0_0_0, B] ⇌ [E_A_B_0_0]
-                [E_0_0_0_0, Q] ⇌ [E_0_0_0_Q]
-            end
-        end
-        @test compile_mechanism(topos[7]) === m_bb7
-
-        # Topo 6: random bind, random release (fully
-        # random on both sides)
         m_bb6 = @enzyme_mechanism begin
             species: begin
                 substrates: A[C], B[N]
                 products: P[C], Q[N]
-                enzymes: E_0_0_0_0,
-                    E_A_0_0_0[C],
-                    E_0_B_0_0[N],
-                    E_A_B_0_0[CN],
-                    E_0_0_P_0[C],
-                    E_0_0_0_Q[N],
-                    E_0_0_P_Q[CN]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P[C],
+                    E_P_Q[CN]
             end
             steps: begin
-                [E_0_0_0_0, A] ⇌ [E_A_0_0_0]
-                [E_A_B_0_0] <--> [E_0_0_P_Q]
-                [E_0_0_0_0, B] ⇌ [E_0_B_0_0]
-                [E_0_0_P_0, Q] ⇌ [E_0_0_P_Q]
-                [E_0_B_0_0, A] ⇌ [E_A_B_0_0]
-                [E_0_0_0_0, P] ⇌ [E_0_0_P_0]
-                [E_0_0_0_Q, P] ⇌ [E_0_0_P_Q]
-                [E_A_0_0_0, B] ⇌ [E_A_B_0_0]
-                [E_0_0_0_0, Q] ⇌ [E_0_0_0_Q]
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
             end
         end
         @test compile_mechanism(topos[6]) === m_bb6
 
+        # Topo 9: random bind, random release (fully
+        # random on both sides)
+        m_bb9 = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        @test compile_mechanism(topos[9]) === m_bb9
+
         # Verify structural properties hold for all
         for t in topos
-            @test t.n_catalytic_edges == length(t.edges)
-            @test count(.!t.equilibrium_steps) >= 1
+            @test count(
+                !s.is_equilibrium for s in t.steps
+            ) >= 1
         end
 
         # Verify 9 topologies decompose into known
@@ -219,7 +208,8 @@
         # 7 forms: fully random (1 topo)
         form_counts = [
             length(
-                EnzymeRates.enzyme_forms(compile_mechanism(t))
+                EnzymeRates.enzyme_forms(
+                    compile_mechanism(t))
             ) for t in topos
         ]
         @test count(==(5), form_counts) == 4
@@ -229,43 +219,48 @@
 
     @testset "Bi-Bi Ping-Pong" begin
         topos =
-            EnzymeRates._catalytic_topologies(bi_bi_ping_pong)
-        @test length(topos) == 10
+            EnzymeRates._catalytic_topologies(
+                bi_bi_ping_pong)
+        @test length(topos) == 19
 
-        # Topo 4: classic ping-pong with E_X intermediate
-        # E → EA → E_X(+P) → E_X_B → E(+Q)
+        # Topo 16: classic ping-pong with Estar
+        # E→EA→Estar(+P)→Estar_B→E(+Q)
         m_pp = @enzyme_mechanism begin
             species: begin
                 substrates: A[CX], B[N]
                 products: P[C], Q[NX]
-                enzymes: E_0_0_0_0,
-                    E_A_0_0_0[CX],
-                    E_X_0_0_0[X],
-                    E_X_B_0_0[NX],
-                    E_X_0_P_0[CX],
-                    E_0_0_0_Q[NX]
+                enzymes: E,
+                    E_A[CX], E_Q[NX],
+                    Estar[X], Estar_A_P[CX],
+                    Estar_B[NX]
             end
             steps: begin
-                [E_0_0_0_0, A] ⇌ [E_A_0_0_0]
-                [E_0_0_0_0, Q] ⇌ [E_0_0_0_Q]
-                [E_X_B_0_0] <--> [E_0_0_0_Q]
-                [E_X_0_0_0, P] ⇌ [E_X_0_P_0]
-                [E_X_0_0_0, B] ⇌ [E_X_B_0_0]
-                [E_A_0_0_0] ⇌ [E_X_0_P_0]
+                [E, A] ⇌ [E_A]
+                [Estar, B] ⇌ [Estar_B]
+                [E, Q] ⇌ [E_Q]
+                [Estar, P] ⇌ [Estar_A_P]
+                [E_A] <--> [Estar_A_P]
+                [Estar_B] ⇌ [E_Q]
             end
         end
-        @test compile_mechanism(topos[4]) === m_pp
+        @test compile_mechanism(topos[16]) === m_pp
 
         for t in topos
-            @test t.n_catalytic_edges == length(t.edges)
-            @test count(.!t.equilibrium_steps) >= 1
+            @test count(
+                !s.is_equilibrium for s in t.steps
+            ) >= 1
         end
     end
 
     @testset "Ter-Ter" begin
-        # Expected: 49 topologies (1 random + 6+6 mixed + 36 seq)
-        # _catalytic_topologies OOMs on 3+3 reactions.
-        @test_broken false  # ter_ter OOMs
+        topos = EnzymeRates._catalytic_topologies(
+            ter_ter)
+        @test length(topos) >= 1
+        for t in topos
+            @test count(
+                !s.is_equilibrium for s in t.steps
+            ) >= 1
+        end
     end
 
 end

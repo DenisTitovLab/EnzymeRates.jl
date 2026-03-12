@@ -1513,38 +1513,144 @@ function compile_mechanism(spec::MechanismSpec)
     _compile_enzyme_mechanism(spec)
 end
 
-"""Construct EnzymeMechanism from MechanismSpec (backward compat)."""
-EnzymeMechanism(spec::MechanismSpec) = _compile_enzyme_mechanism(spec)
+"""Construct EnzymeMechanism from MechanismSpec."""
+EnzymeMechanism(spec::MechanismSpec) =
+    _compile_enzyme_mechanism(spec)
 
 function _compile_enzyme_mechanism(spec::MechanismSpec)
     rxn = spec.reaction
-    site_defs, forms = enumerate_enzyme_forms(rxn)
-    adj = _build_adjacency(site_defs, forms)
-    used = Set(Iterators.flatten(spec.edges))
-    _form_atoms(occ) = sort!([a => c for (a, c) in reduce(
-        mergewith(+),
-        (Dict(a) for a in occ if a !== nothing);
-        init=Dict{Symbol,Int}())]; by=first)
-    species = (
-        substrates(rxn),
-        products(rxn),
-        regulators(rxn),
-        Tuple((forms[i].name,
-               Tuple(Tuple.(_form_atoms(forms[i].occupancy))))
-            for i in eachindex(forms) if i ∈ used))
-    reactions = Tuple(let met = adj[minmax(a, b)]
-        if met === nothing
-            ((forms[a].name,), (forms[b].name,))
-        elseif _is_binding_direction(forms, a, b)
-            ((forms[a].name, met), (forms[b].name,))
-        else
-            ((forms[a].name,), (forms[b].name, met))
+
+    # Collect metabolite names and atom dicts
+    met_atoms = Dict{Symbol,Dict{Symbol,Int}}()
+    for (name, atoms) in substrates(rxn)
+        met_atoms[name] = Dict{Symbol,Int}(
+            a => c for (a, c) in atoms
+        )
+    end
+    for (name, atoms) in products(rxn)
+        met_atoms[name] = Dict{Symbol,Int}(
+            a => c for (a, c) in atoms
+        )
+    end
+    met_set = Set(keys(met_atoms))
+    for r in regulators(rxn)
+        push!(met_set, r)
+        met_atoms[r] = Dict{Symbol,Int}()
+    end
+
+    # Collect form names (all symbols in steps
+    # that are not metabolites)
+    form_set = Set{Symbol}()
+    for s in spec.steps
+        for sym in s.reactants
+            sym ∉ met_set && push!(form_set, sym)
         end
-    end for (a, b) in spec.edges)
-    EnzymeMechanism(species, reactions,
-        Tuple(spec.equilibrium_steps),
-        Tuple((t, c, Tuple(Tuple.(f)))
-              for (t, c, f) in spec.param_constraints))
+        for sym in s.products
+            sym ∉ met_set && push!(form_set, sym)
+        end
+    end
+
+    # BFS from :E to compute atoms for each form
+    form_atoms = Dict{Symbol,Dict{Symbol,Int}}(
+        :E => Dict{Symbol,Int}()
+    )
+    # Build adjacency: form -> [(neighbor, met_or_nothing,
+    #   direction)] where direction = :add if metabolite
+    #   binds going from form to neighbor
+    adj = Dict{Symbol,
+        Vector{Tuple{Symbol,Union{Nothing,Symbol},
+                      Symbol}}}()
+    for s in spec.steps
+        from = s.reactants[1]
+        to = s.products[1]
+        met = length(s.reactants) == 2 ?
+            s.reactants[2] : nothing
+        # Canonical: met on LHS means binding
+        # from→to. Reverse direction = release.
+        if !haskey(adj, from)
+            adj[from] = Tuple{
+                Symbol,Union{Nothing,Symbol},Symbol
+            }[]
+        end
+        if !haskey(adj, to)
+            adj[to] = Tuple{
+                Symbol,Union{Nothing,Symbol},Symbol
+            }[]
+        end
+        push!(adj[from], (to, met, :add))
+        push!(adj[to], (from, met, :subtract))
+    end
+
+    queue = Symbol[:E]
+    while !isempty(queue)
+        cur = popfirst!(queue)
+        cur_atoms = form_atoms[cur]
+        haskey(adj, cur) || continue
+        for (nbr, met, dir) in adj[cur]
+            haskey(form_atoms, nbr) && continue
+            nbr_atoms = copy(cur_atoms)
+            if met !== nothing
+                ma = met_atoms[met]
+                if dir == :add
+                    for (a, c) in ma
+                        nbr_atoms[a] =
+                            get(nbr_atoms, a, 0) + c
+                    end
+                else  # :subtract
+                    for (a, c) in ma
+                        nbr_atoms[a] =
+                            get(nbr_atoms, a, 0) - c
+                        nbr_atoms[a] == 0 &&
+                            delete!(nbr_atoms, a)
+                    end
+                end
+            end
+            # Isomerization: no atom change
+            form_atoms[nbr] = nbr_atoms
+            push!(queue, nbr)
+        end
+    end
+
+    # Build enzyme forms tuple sorted by name
+    form_names = sort!(collect(form_set))
+    enzymes = Tuple(
+        (name, Tuple(sort!(
+            [Tuple(p) for p in form_atoms[name]];
+            by=first
+        )))
+        for name in form_names
+    )
+
+    species = (
+        substrates(rxn), products(rxn),
+        regulators(rxn), enzymes
+    )
+
+    # Strip __regN suffixes from metabolite names
+    function _clean_met(sym::Symbol)
+        s = string(sym)
+        m = match(r"^(.+)__reg\d+$", s)
+        m !== nothing ? Symbol(m.captures[1]) : sym
+    end
+
+    reactions = Tuple(
+        let r = s.reactants, p = s.products
+            lhs = Tuple(_clean_met(x) for x in r)
+            rhs = Tuple(_clean_met(x) for x in p)
+            (lhs, rhs)
+        end
+        for s in spec.steps
+    )
+
+    eq_steps = Tuple(s.is_equilibrium for s in spec.steps)
+
+    constraints = Tuple(
+        (t, c, Tuple(Tuple.(f)))
+        for (t, c, f) in spec.param_constraints
+    )
+
+    EnzymeMechanism(species, reactions, eq_steps,
+        constraints)
 end
 
 function compile_mechanism(spec::AllostericMechanismSpec)
