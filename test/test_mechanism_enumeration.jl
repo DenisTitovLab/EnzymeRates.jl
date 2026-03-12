@@ -320,32 +320,64 @@ end
 end
 
 @testset "Stage 2.5: Substrate/product dead-end expansion" begin
-    # This stage does not exist yet. All tests document
-    # expected behavior for when it is implemented.
 
     @testset "Uni-Uni: passthrough (no off-cycle forms)" begin
-        # Uni-Uni: 3 forms, 3 on-cycle → 0 off-cycle
-        # No substrate/product dead-end forms exist, so
-        # this stage would be a passthrough.
-        @test_broken false  # stage doesn't exist
+        # Uni-Uni: 3 forms (E, E_S, E_P), all on-cycle.
+        # E_S has all subs, E_P has all prods, and E
+        # can only bind S→E_S or P→E_P (both catalytic).
+        # → 0 dead-end forms, passthrough.
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni)[1]
+        ress = EnzymeRates._expand_ress_variants(
+            [topo], uni_uni)
+        result =
+            EnzymeRates._expand_substrate_product_dead_ends(
+                ress, uni_uni)
+        @test length(result) == length(ress)
     end
 
-    @testset "Bi-Bi: 4 off-cycle forms" begin
-        # Bi-Bi: 11 forms, 7 on-cycle, 4 off-cycle
-        # (fully-random topology, topo 6 of 9)
-        # Off-cycle: E_A_0_P_0, E_0_B_P_0,
-        #            E_A_0_0_Q, E_0_B_0_Q
-        # Expected: 2^4 = 16 variants per input spec
-        @test_broken false  # stage doesn't exist
+    @testset "Bi-Bi random: 4 dead-end forms" begin
+        # Fully-random Bi-Bi (topo 9, 7 forms):
+        # E, E_A, E_B, E_A_B, E_P, E_Q, E_P_Q
+        # Eligible forms (not all-subs or all-prods):
+        #   E: all 4 mets → catalytic forms (no dead-ends)
+        #   E_A: +P→E_A_P, +Q→E_A_Q (valid)
+        #   E_B: +P→E_B_P, +Q→E_B_Q (valid)
+        #   E_P: +A→E_A_P, +B→E_B_P (valid, not
+        #         all subs since 2 subs needed)
+        #   E_Q: +A→E_A_Q, +B→E_B_Q (valid)
+        # 4 unique dead-end forms → 2^4 = 16 variants
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi)[end]
+        result =
+            EnzymeRates._expand_substrate_product_dead_ends(
+                [topo], bi_bi)
+        @test length(result) == 16
     end
 
-    @testset "Bi-Bi Ping-Pong: 7 off-cycle forms" begin
-        # Bi-Bi-PP: 17 total forms, 6 on-cycle, 7 off-cycle
-        # (mixed sub/prod dead-end; topo 4 of 10)
-        # Off-cycle: E_A_0_P_0, E_0_B_P_0, E_X_B_P_0,
-        #   E_A_0_0_Q, E_X_0_0_Q, E_0_B_0_Q, E_X_B_0_Q
-        # Expected: 2^7 = 128 variants per input spec
-        @test_broken false  # stage doesn't exist
+    @testset "Uni-Bi ordered: 1 dead-end form" begin
+        # Uni-Bi topo 1 (ordered Q-first release):
+        # E, E_S, E_P_Q, E_Q (4 forms)
+        # Eligible: E (not all subs/prods)
+        #   E+S→E_S (catalytic), E+Q→E_Q (catalytic)
+        #   E+P→E_P: not catalytic, 1 prod bound,
+        #   not all prods → valid dead-end
+        # E_Q: +S→all subs+prod → invalid
+        #       +P→E_P_Q catalytic
+        # 2^1 = 2 variants per input spec
+        topo = EnzymeRates._catalytic_topologies(
+            uni_bi)[1]
+        result =
+            EnzymeRates._expand_substrate_product_dead_ends(
+                [topo], uni_bi)
+        @test length(result) == 2
+        # The original (no dead-ends) must be included
+        original_forms = EnzymeRates.all_form_names(topo)
+        has_original = any(result) do spec
+            EnzymeRates.all_form_names(spec) ==
+                original_forms
+        end
+        @test has_original
     end
 end
 
