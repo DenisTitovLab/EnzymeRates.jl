@@ -44,18 +44,23 @@ const ParamConstraint = Tuple{Symbol, Int, Vector{Tuple{Symbol, Int}}}
 
 abstract type AbstractMechanismSpec end
 
+"""Elementary step in canonical binding direction (metabolite on LHS)."""
+struct StepSpec
+    reactants::Vector{Symbol}   # [:E, :S] or [:EAB]
+    products::Vector{Symbol}    # [:ES] or [:EPQ]
+    is_equilibrium::Bool
+end
+
 """
     MechanismSpec <: AbstractMechanismSpec
 
 Represents a monomeric enzyme mechanism specification in the
-staged enumeration pipeline. Edges are (form_index, form_index)
-pairs; `n_catalytic_edges` separates catalytic from dead-end edges.
+staged enumeration pipeline. Steps are `StepSpec` values with
+inline form names and equilibrium status.
 """
 struct MechanismSpec <: AbstractMechanismSpec
     reaction::Any
-    edges::Vector{Tuple{Int,Int}}
-    n_catalytic_edges::Int
-    equilibrium_steps::Vector{Bool}
+    steps::Vector{StepSpec}
     param_constraints::Vector{ParamConstraint}
     param_count::Int
 end
@@ -75,11 +80,39 @@ struct AllostericMechanismSpec <: AbstractMechanismSpec
     tr_equiv_metabolites::Vector{Symbol}
 end
 
-# ─── Enumeration Stage Types ───────────────────────────────────
+# ─── StepSpec Helpers ──────────────────────────────────────────
+
+"""Return the metabolite for a step, or nothing for isomerization."""
+step_metabolite(s::StepSpec) =
+    length(s.reactants) == 2 ? s.reactants[2] : nothing
+
+"""Return (from_form, to_form) for a step."""
+step_forms(s::StepSpec) = (s.reactants[1], s.products[1])
+
+"""Collect all unique form names from steps."""
+function all_form_names(spec::MechanismSpec)
+    forms = Set{Symbol}()
+    for s in spec.steps
+        push!(forms, s.reactants[1])
+        push!(forms, s.products[1])
+    end
+    forms
+end
+
+function all_form_names(steps::Vector{StepSpec})
+    forms = Set{Symbol}()
+    for s in steps
+        push!(forms, s.reactants[1])
+        push!(forms, s.products[1])
+    end
+    forms
+end
+
+# ─── Enumeration Stage Types (used by enumerate_mechanisms) ────
 
 abstract type EnumerationStage end
-struct Catalytic    <: EnumerationStage end
-struct WithDeadEnd   <: EnumerationStage end
+struct Catalytic       <: EnumerationStage end
+struct WithDeadEnd     <: EnumerationStage end
 struct FullEnumeration <: EnumerationStage end
 
 struct MechanismIterator
