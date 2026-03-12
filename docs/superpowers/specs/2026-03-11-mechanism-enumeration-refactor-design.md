@@ -134,6 +134,11 @@ forms where neither all substrates nor all products are bound.**
 
 All dead-end binding edges are **always RE**.
 
+**Note on RE/SS:** Stage 2 creates mirror edges structurally (topology only).
+All edges created here start as RE. Stage 3 later assigns RE/SS to catalytic
+edges via bitmask, and mirrored edges inherit from their catalytic counterpart
+at that time.
+
 ### 2a. Substrate/Product Dead-Ends (`_expand_substrate_product_dead_ends`)
 
 - For each eligible catalytic form F, each substrate S (or product P) not
@@ -142,24 +147,25 @@ All dead-end binding edges are **always RE**.
   - Validity check: resulting form must not have (all substrates + any product)
     or (all products + any substrate)
   - Create dead-end form, add binding edge (always RE)
-- Mirror catalytic edges where both endpoints can have the dead-end metabolite
-  added and remain valid (inherits RE/SS)
+- Create mirror edges for catalytic edges where both endpoints can have the
+  dead-end metabolite added and remain valid
 
 ### 2b. Regulator Dead-Ends (`_expand_regulator_dead_ends`)
 
 - For each eligible catalytic form F, each dead-end regulator R → create form
   FR, add binding edge F ↔ FR (always RE)
 - Use dummy metabolite name (`:R__reg1`) for the binding step
-- Mirror catalytic edges: if F₁ ↔ F₂ exists catalytically, and both F₁R and
-  F₂R are valid, add F₁R ↔ F₂R (inherits RE/SS from catalytic edge)
+- Create mirror edges: if F₁ ↔ F₂ exists catalytically, and both F₁R and
+  F₂R are valid, add F₁R ↔ F₂R
 
 ### 2c. Combinations
 
-Dead-end forms can have multiple dead-end metabolites simultaneously (e.g.,
-EAPR = substrate A + product P + regulator R on free enzyme). Each combination
-must satisfy the validity constraint.
-
-Combinatorial over available dead-end metabolites per eligible form.
+`_expand_dead_end` applies 2a and 2b in a single combinatorial expansion:
+for each eligible catalytic form, enumerate the power set over all available
+dead-end metabolites (substrate dead-ends from 2a + regulator dead-ends from
+2b). Dead-end forms can have multiple dead-end metabolites simultaneously
+(e.g., EAPR = substrate A + product P + regulator R on free enzyme). Each
+combination must satisfy the validity constraint.
 
 ## Stage 3: RE/SS Assignment
 
@@ -209,9 +215,10 @@ Unchanged. Operate on the new `MechanismSpec` via the `base` field of
 Reads directly from `MechanismSpec`:
 - **Form names**: collected from steps (first element of each side)
 - **Form atoms**: computed by BFS from free enzyme E through the step graph.
-  At each step, if a substrate metabolite is bound, add its atoms to the
-  target form; if a product metabolite is bound (canonical direction), remove
-  its atoms. For branching topologies (random-order), BFS naturally handles
+  Uses `spec.reaction` to determine substrate/product atom definitions.
+  At each binding step, if the metabolite is a substrate, add its atoms;
+  if a product, subtract its atoms. Isomerization steps (no metabolite)
+  don't change atoms. For branching topologies (random-order), BFS handles
   multiple paths — each form's atoms are the same regardless of path taken
   (atom conservation guarantees this).
 - **Reactions**: steps are already in the canonical binding-direction format,
@@ -220,6 +227,16 @@ Reads directly from `MechanismSpec`:
 
 Strips dummy regulatory suffixes (`__regN`) from metabolite names when
 producing the final `EnzymeMechanism` / `AllostericEnzymeMechanism`.
+
+## Removed Types
+
+- `EnumerationStage` (abstract type + subtypes `Catalytic`, `WithDeadEnd`,
+  `FullEnumeration`): used only for the `stage` kwarg in
+  `enumerate_mechanisms` to return early. Replace with simple keyword
+  argument (e.g., `stop_after::Int=8`), or remove if not needed by tests.
+- `MechanismIterator`: lazy wrapper around `Iterators.flatten`. Keep or
+  replace with direct return of `Vector{AbstractMechanismSpec}` —
+  implementation decision, not spec-critical.
 
 ## Pipeline Order
 
