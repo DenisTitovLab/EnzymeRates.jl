@@ -24,15 +24,25 @@ union-find) is unchanged.
 ### MechanismSpec
 
 ```julia
+struct StepSpec
+    reactants::Vector{Symbol}   # e.g. [:E, :S] or [:EAB]
+    products::Vector{Symbol}    # e.g. [:ES] or [:EPQ]
+    is_equilibrium::Bool
+end
+
 struct MechanismSpec <: AbstractMechanismSpec
     reaction::Any
-    steps::Vector{Tuple{Vector{Symbol}, Vector{Symbol}}}
-    n_catalytic_steps::Int
-    equilibrium_steps::Vector{Bool}
+    steps::Vector{StepSpec}
     param_constraints::Vector{ParamConstraint}
     param_count::Int
 end
 ```
+
+Using an array-of-structs (StepSpec) instead of parallel vectors prevents
+accidental inconsistency between steps and their RE/SS status. The
+`n_catalytic_steps` field is removed — step origin (catalytic vs dead-end)
+is an implementation detail tracked during pipeline execution, not stored
+in the spec.
 
 Each step is in **canonical binding direction** — metabolite always on LHS:
 - Substrate binding: `([:E, :S], [:ES])`
@@ -41,8 +51,9 @@ Each step is in **canonical binding direction** — metabolite always on LHS:
 
 Everything needed by later stages is derivable from steps:
 - **Form names**: unique first elements from each side of all steps
-- **Edge metabolite**: `length(step[1]) == 2 ? step[1][2] : nothing`
+- **Edge metabolite**: `length(step.reactants) == 2 ? step.reactants[2] : nothing`
 - **Binding direction**: metabolite is always on LHS (canonical form)
+- **RE/SS status**: `step.is_equilibrium`
 - **Form atoms**: trace from E, add substrate atoms on binding, subtract
   product atoms on release
 
@@ -89,7 +100,7 @@ atoms on the enzyme, bound substrates, and released products.
 | Free enzyme (no residual, no substrates) | Bind any substrate |
 | Substrates bound (no residual) | Bind another substrate, OR ping-pong isomerize (if product atoms ⊆ accumulated), OR final isomerize (if all substrates bound) |
 | Residual only (E*) | Bind any remaining substrate |
-| Residual + substrate(s) bound | **Must** isomerize (→ product + new residual, or → product + free enzyme) |
+| Residual + substrate(s) bound | Bind another remaining substrate, OR isomerize (if product atoms ⊆ accumulated) |
 | Products bound (post-final-isomerize) | Release any bound product |
 
 ### Ping-Pong Rules
@@ -99,7 +110,9 @@ atoms on the enzyme, bound substrates, and released products.
 - Two-step process: (1) isomerization (rearranges atoms, product becomes bound,
   residual stays on enzyme), (2) release product
 - Multiple ping-pong steps allowed per path (reactions beyond Bi-Bi)
-- After binding a substrate to a residual intermediate, must isomerize next
+- No restriction on binding additional substrates to a residual intermediate
+  before isomerizing — the backtracking search explores all possibilities,
+  and dedup removes any resulting duplicate rate equations
 
 ### Dead-End Paths
 
