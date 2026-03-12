@@ -1703,43 +1703,70 @@ end
         -> Vector{MechanismSpec}
 
 For each spec, enumerate equivalence constraint masks.
+Groups steps by (metabolite_name, is_equilibrium). Steps
+binding the same metabolite with the same RE/SS status can
+share parameters. Dummy regulatory names (:X__reg1)
+naturally separate catalytic from regulatory binding.
 """
 function _expand_equivalence_constraints(
     specs::Vector{MechanismSpec},
     @nospecialize(reaction::EnzymeReaction),
 )
-    site_defs, forms = enumerate_enzyme_forms(reaction)
-    adj = _build_adjacency(site_defs, forms)
-
     result = MechanismSpec[]
     for spec in specs
-        edges = spec.edges
-        n_cat = spec.n_catalytic_edges
-        de_cat_map = _dead_end_catalytic_map(
-            edges, n_cat, site_defs, forms)
-        equiv_groups = _find_equivalent_groups(
-            edges, adj, site_defs, forms, n_cat, de_cat_map)
-        valid_groups = [g for g in equiv_groups
-            if all(spec.equilibrium_steps[s] ==
-                   spec.equilibrium_steps[g[1]] for s in g)]
+        # Group step indices by (metabolite, RE/SS)
+        groups = Dict{
+            Tuple{Symbol,Bool}, Vector{Int}}()
+        for (i, s) in enumerate(spec.steps)
+            met = step_metabolite(s)
+            met === nothing && continue
+            key = (met, s.is_equilibrium)
+            push!(get!(groups, key, Int[]), i)
+        end
 
-        for constraint_mask in 0:(1 << length(valid_groups)) - 1
-            constraints = _build_constraints(
-                valid_groups, spec.equilibrium_steps,
-                constraint_mask, edges)
-            # Compute param_count delta from constraints
+        # Keep only groups with ≥ 2 steps
+        valid_groups = sort!(
+            [sort!(g) for (_, g) in groups
+             if length(g) >= 2];
+            by=first)
+
+        n_groups = length(valid_groups)
+        for mask in 0:(1 << n_groups) - 1
+            constraints = ParamConstraint[]
             delta = 0
             for (gi, g) in enumerate(valid_groups)
-                (constraint_mask >> (gi-1)) & 1 == 1 || continue
+                (mask >> (gi - 1)) & 1 == 1 ||
+                    continue
+                is_re = spec.steps[g[1]].is_equilibrium
                 n_constrained = length(g) - 1
-                if spec.equilibrium_steps[g[1]]  # RE
+                if is_re
                     delta -= n_constrained
-                else  # SS
+                    for j in 2:length(g)
+                        push!(constraints, (
+                            Symbol("K$(g[j])"),
+                            1,
+                            [(Symbol("K$(g[1])"), 1)]
+                        ))
+                    end
+                else
                     delta -= 2 * n_constrained
+                    for j in 2:length(g)
+                        for sfx in ("f", "r")
+                            push!(constraints, (
+                                Symbol(
+                                    "k$(g[j])$sfx"),
+                                1,
+                                [(Symbol(
+                                    "k$(g[1])$sfx"),
+                                  1)]
+                            ))
+                        end
+                    end
                 end
             end
-            push!(result, MechanismSpec(spec.reaction, edges,
-                n_cat, spec.equilibrium_steps, constraints,
+            push!(result, MechanismSpec(
+                spec.reaction, spec.steps,
+                constraints,
                 spec.param_count + delta))
         end
     end

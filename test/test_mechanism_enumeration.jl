@@ -477,81 +477,130 @@ end
     end
 
     @testset "1 equiv group: 2 variants" begin
-        # Uni-Uni + I: the spec with all I-binding edges
-        # has dead-end S-binding edges (ER→ESR) that
-        # share metabolite S with catalytic E→ES, forming
-        # 1 equiv group → 2 variants (unconstrained +
-        # K_dead_end = K_catalytic).
+        # Bi-Bi sequential: dead-end P-binding at EA
+        # creates EA+P→EAP step. Combined with
+        # catalytic EQ+P→EPQ, P appears in 2 RE steps
+        # → 1 equiv group → 2 variants.
         topo = EnzymeRates._catalytic_topologies(
-            uni_uni_dead_end_I)[1]
-        de = EnzymeRates._expand_dead_end_inhibitors(
-            [topo], uni_uni_dead_end_I;
-            dead_end_regs=[:I])
-        # Find the spec with the most dead-end edges
-        de_counts = [
-            length(s.edges) - s.n_catalytic_edges
-            for s in de]
-        s = de[argmax(de_counts)]
-        @test length(s.edges) > s.n_catalytic_edges
+            bi_bi)[1]
+        de = EnzymeRates._expand_dead_end(
+            [topo], bi_bi; dead_end_regs=Symbol[])
+        # Find a spec with exactly 1 equiv group
+        function _n_equiv_groups(spec)
+            gs = Dict{Tuple{Symbol,Bool},
+                Vector{Int}}()
+            for (j, st) in enumerate(spec.steps)
+                met = EnzymeRates.step_metabolite(st)
+                met === nothing && continue
+                key = (met, st.is_equilibrium)
+                push!(get!(gs, key, Int[]), j)
+            end
+            count(v -> length(v) >= 2,
+                values(gs))
+        end
+        s = first(
+            x for x in de
+            if _n_equiv_groups(x) == 1)
         eq =
             EnzymeRates._expand_equivalence_constraints(
-                [s], uni_uni_dead_end_I)
+                [s], bi_bi)
         @test length(eq) == 2
     end
 
     @testset "Multiple equiv groups: multiplicative" begin
-        # Bi-Bi + I: spec with the most dead-end edges
-        # has multiple I-binding edges where the same
-        # metabolite also binds, forming multiple equiv
-        # groups. Expansion is multiplicative.
+        # Bi-Bi sequential: dead-end form E_A_Q binds
+        # both A (at E_Q) and Q (at E_A), creating
+        # mirror steps. A appears in 2 RE steps and Q
+        # in 2 RE steps → 2 equiv groups → 4 variants.
         topo = EnzymeRates._catalytic_topologies(
-            bi_bi_dead_end_I)[1]
-        de = EnzymeRates._expand_dead_end_inhibitors(
-            [topo], bi_bi_dead_end_I;
-            dead_end_regs=[:I])
-        de_counts = [
-            length(s.edges) - s.n_catalytic_edges
-            for s in de]
-        most_de_idx = argmax(de_counts)
-        s = de[most_de_idx]
-        eq = EnzymeRates._expand_equivalence_constraints(
-            [s], bi_bi_dead_end_I)
-        @test length(eq) >= 1
-        # With multiple I-binding edges, some form equiv
-        # groups → expansion > 1
-        @test length(s.edges) > s.n_catalytic_edges + 1
-        if length(s.edges) > s.n_catalytic_edges + 1
-            @test length(eq) > 1
+            bi_bi)[1]
+        de = EnzymeRates._expand_dead_end(
+            [topo], bi_bi; dead_end_regs=Symbol[])
+        # Find spec with ≥ 2 equiv groups
+        function _count_equiv_groups(spec)
+            gs = Dict{Tuple{Symbol,Bool},
+                Vector{Int}}()
+            for (j, st) in enumerate(spec.steps)
+                met = EnzymeRates.step_metabolite(st)
+                met === nothing && continue
+                key = (met, st.is_equilibrium)
+                push!(get!(gs, key, Int[]), j)
+            end
+            count(v -> length(v) >= 2,
+                values(gs))
         end
+        multi = filter(
+            x -> _count_equiv_groups(x) >= 2, de)
+        @test !isempty(multi)
+        s = first(multi)
+        n_groups = _count_equiv_groups(s)
+        eq = EnzymeRates._expand_equivalence_constraints(
+            [s], bi_bi)
+        @test length(eq) == 2^n_groups
     end
 
     @testset "Substrate/regulator same metabolite" begin
-        # When a metabolite appears in both catalytic
-        # binding edges and dead-end regulator binding
-        # edges, the two roles MUST NOT be grouped in
-        # the same equivalence group. The DSL currently
-        # cannot define a metabolite as both substrate
-        # and dead-end regulator, so this is a
-        # placeholder for when that becomes possible.
-        @test_broken false  # not representable yet
+        # Dummy names (:I__reg1) prevent grouping
+        # regulator binding steps with catalytic steps
+        # that bind a different real metabolite. With
+        # Uni-Uni + I, the dead-end spec has :S and
+        # :I__reg1 as distinct metabolites → no equiv
+        # group → only 1 variant (passthrough).
+        topo = EnzymeRates._catalytic_topologies(
+            uni_uni_dead_end_I)[1]
+        de = EnzymeRates._expand_dead_end(
+            [topo], uni_uni_dead_end_I;
+            dead_end_regs=[:I])
+        s = de[argmax(
+            length(x.steps) for x in de)]
+        eq =
+            EnzymeRates._expand_equivalence_constraints(
+                [s], uni_uni_dead_end_I)
+        # Only 1 variant: no equiv groups because
+        # each metabolite (S, P, I__reg1) appears in
+        # exactly 1 binding step
+        @test length(eq) == 1
+        @test isempty(eq[1].param_constraints)
     end
 
     @testset "Substrate/product dead-end equiv" begin
-        # Equivalence constraints should also apply to
-        # substrate/product dead-end complexes (Stage
-        # 2.5 forms). Stage 2.5 does not exist yet.
-        @test_broken false  # stage 2.5 not implemented
+        # Equivalence constraints apply to dead-end
+        # complexes from substrate/product binding.
+        # Bi-Bi sequential: EA+B→EAB (catalytic).
+        # If E also has dead-end B-binding (E+B→E_B),
+        # both steps bind B → equiv group.
+        topo = EnzymeRates._catalytic_topologies(
+            bi_bi)[1]
+        de = EnzymeRates._expand_dead_end(
+            [topo], bi_bi; dead_end_regs=Symbol[])
+        # Find specs with substrate/product dead-ends
+        has_de = filter(
+            x -> length(x.steps) > length(topo.steps),
+            de)
+        if !isempty(has_de)
+            s = has_de[argmax(
+                length(x.steps) for x in has_de)]
+            eq =
+                EnzymeRates._expand_equivalence_constraints(
+                    [s], bi_bi)
+            # Should have equivalence variants
+            @test length(eq) >= 2
+            constrained = filter(
+                x -> !isempty(x.param_constraints),
+                eq)
+            @test !isempty(constrained)
+        end
     end
 
     @testset "Properties" begin
         topo = EnzymeRates._catalytic_topologies(
-            uni_uni_dead_end_I)[1]
-        de = EnzymeRates._expand_dead_end_inhibitors(
-            [topo], uni_uni_dead_end_I;
+            bi_bi_dead_end_I)[1]
+        de = EnzymeRates._expand_dead_end(
+            [topo], bi_bi_dead_end_I;
             dead_end_regs=[:I])
         eq =
             EnzymeRates._expand_equivalence_constraints(
-                de, uni_uni_dead_end_I)
+                de, bi_bi_dead_end_I)
         @test length(eq) >= length(de)
 
         unconstrained = filter(
