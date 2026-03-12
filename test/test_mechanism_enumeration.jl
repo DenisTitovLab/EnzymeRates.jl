@@ -623,11 +623,13 @@ end
         ress = EnzymeRates._expand_ress_variants(
             [topo], uni_uni)
         deduped = EnzymeRates._deduplicate(ress, uni_uni)
-        # All RE/SS variants of single Uni-Uni topology
-        # produce same concentration fingerprint → dedup to 1
-        @test length(deduped) == 1
-        @test deduped[1].param_count <=
-            minimum(s.param_count for s in ress)
+        # 3 distinct concentration fingerprints:
+        # {1,[S]}, {1,[P]}, {1,[S],[P]}
+        @test length(deduped) == 3
+        for d in deduped
+            @test d.param_count <=
+                minimum(s.param_count for s in ress)
+        end
     end
 
     @testset "Duplicate removal" begin
@@ -638,53 +640,29 @@ end
     end
 
     @testset "Bi-Bi ordered: single-SS fingerprints" begin
-        # For an ordered Bi-Bi topology (5 edges), create
-        # single-SS variants by toggling each RE edge to SS
-        # one at a time. The topo from _catalytic_topologies has
-        # 4 RE edges and 1 SS (isomerization). Only 4 variants
-        # are built here because _expand_ress_variants has a bug
-        # where non-binding (isomerization) edges cannot be
-        # toggled between RE and SS — all 5 edges should be
-        # individually toggleable.
+        # For an ordered Bi-Bi topology, create single-SS
+        # variants by toggling each RE step to SS one at a
+        # time. The step-based pipeline correctly toggles
+        # all steps including isomerization.
         topo = EnzymeRates._catalytic_topologies(bi_bi)[1]
-        n = length(topo.edges)
-        n_forms = length(Set(Iterators.flatten(topo.edges)))
-        n_thermo = n - n_forms + 1
-        single_ss = EnzymeRates.MechanismSpec[]
-        for i in 1:n
-            if topo.equilibrium_steps[i]
-                eq = copy(topo.equilibrium_steps)
-                eq[i] = false
-                n_re = count(eq)
-                n_ss = n - n_re
-                pc = n_re + 2 * n_ss - n_thermo + 2
-                push!(single_ss, EnzymeRates.MechanismSpec(
-                    topo.reaction, topo.edges,
-                    topo.n_catalytic_edges, eq,
-                    topo.param_constraints,
-                    pc))
-            end
+        ress = EnzymeRates._expand_ress_variants(
+            [topo], bi_bi)
+        # Filter to single-SS variants: exactly one SS step
+        single_ss = filter(ress) do spec
+            count(!s.is_equilibrium for s in spec.steps) == 1
         end
-        # Bug: _expand_ress_variants doesn't toggle non-binding
-        # edges (documented in Stage 2 tests), so only 4 RE
-        # edges are toggleable instead of all 5 edges.
-        @test length(single_ss) == 4
+        # All 5 steps toggleable (including isomerization)
+        @test length(single_ss) == 5
         deduped = EnzymeRates._deduplicate(
             single_ss, bi_bi)
-        # 4 single-SS variants dedup to 3: one pair
-        # shares a concentration fingerprint.
-        # Correct: all 5 single-SS variants (including
-        # isom) have distinct fingerprints → dedup to 5.
-        @test_broken length(deduped) == 5
-        @test length(deduped) == 3
+        # All 5 single-SS variants have distinct fingerprints
+        @test length(deduped) == 5
     end
 
     @testset "Keeps lower param_count" begin
         topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
         topo2 = EnzymeRates.MechanismSpec(
-            topo.reaction, topo.edges,
-            topo.n_catalytic_edges,
-            topo.equilibrium_steps,
+            topo.reaction, topo.steps,
             topo.param_constraints,
             topo.param_count + 5)
         result = EnzymeRates._deduplicate(

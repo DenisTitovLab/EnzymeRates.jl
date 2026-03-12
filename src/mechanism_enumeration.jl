@@ -450,6 +450,7 @@ end
                                adj, partition) → Set{MONO}
 
 Concentration monomials in the rate equation denominator.
+Uses integer-indexed forms and edge tuples.
 """
 function _concentration_fingerprint(
     edges, eq_steps, site_defs, forms, adj, partition,
@@ -526,6 +527,104 @@ function _concentration_fingerprint(
     fingerprint
 end
 
+"""
+    _concentration_fingerprint(steps, partition) → Set{MONO}
+
+Concentration monomials in the rate equation denominator.
+Uses step-based representation with Symbol-named forms.
+Binding direction is always forward (reactant→product) since
+steps are in canonical form.
+"""
+function _concentration_fingerprint(
+    steps::Vector{StepSpec},
+    partition::Vector{Vector{Symbol}},
+)
+    G = length(partition)
+    group_set = [Set(g) for g in partition]
+    form_to_group = Dict(
+        f => g
+        for (g, grp) in enumerate(partition)
+        for f in grp)
+
+    # BFS within each RE component to compute
+    # relative concentration monomials
+    alpha_conc = Dict{Symbol, MONO}()
+    for (g, group) in enumerate(partition)
+        ref = group[1]
+        alpha_conc[ref] = MONO()
+        queue = [ref]
+        while !isempty(queue)
+            cur = popfirst!(queue)
+            for s in steps
+                s.is_equilibrium || continue
+                from, to = step_forms(s)
+                met = step_metabolite(s)
+                # Check both directions of the edge
+                neighbor = if from == cur &&
+                        to in group_set[g]
+                    to
+                elseif to == cur &&
+                        from in group_set[g]
+                    from
+                else
+                    nothing
+                end
+                (neighbor === nothing ||
+                    haskey(alpha_conc, neighbor)) &&
+                    continue
+                parent_mono = alpha_conc[cur]
+                child_mono = if met !== nothing
+                    # Forward = binding direction
+                    if cur == from
+                        _add_met(parent_mono, met)
+                    else
+                        copy(parent_mono)
+                    end
+                else
+                    copy(parent_mono)
+                end
+                alpha_conc[neighbor] = child_mono
+                push!(queue, neighbor)
+            end
+        end
+    end
+
+    sigma_conc = [Set{MONO}(alpha_conc[f] for f in group)
+                  for group in partition]
+
+    # Build SS inter-group transitions
+    R_conc = Dict{Tuple{Int,Int}, Set{MONO}}()
+    for s in steps
+        s.is_equilibrium && continue
+        from, to = step_forms(s)
+        met = step_metabolite(s)
+        g1, g2 = form_to_group[from], form_to_group[to]
+        g1 == g2 && continue
+
+        # Forward direction: from→to binds metabolite
+        fwd_mono = met !== nothing ?
+            _add_met(alpha_conc[from], met) :
+            copy(alpha_conc[from])
+        push!(get!(R_conc, (g1, g2), Set{MONO}()),
+            fwd_mono)
+
+        # Reverse direction: to→from unbinds metabolite
+        rev_mono = copy(alpha_conc[to])
+        push!(get!(R_conc, (g2, g1), Set{MONO}()),
+            rev_mono)
+    end
+
+    fingerprint = Set{MONO}()
+    for g in 1:G
+        D_g = _spanning_arborescence_monomials(
+            G, R_conc, g)
+        for s in sigma_conc[g], d in D_g
+            push!(fingerprint, _mono_mul(s, d))
+        end
+    end
+    fingerprint
+end
+
 # ─── Equivalence Groups + Constraints ──────────────────────────
 
 """
@@ -533,7 +632,7 @@ end
                            constraint_mask)
 
 Constraint descriptor: set of (metabolite, mode) pairs for
-each constrained equivalence group.
+each constrained equivalence group. Integer-indexed form version.
 """
 function _constraint_descriptor(edges, adj, eq_steps, valid_groups,
                                 constraint_mask)
@@ -542,6 +641,26 @@ function _constraint_descriptor(edges, adj, eq_steps, valid_groups,
         (constraint_mask >> (gi - 1)) & 1 == 1 || continue
         met = adj[minmax(edges[g[1]]...)]
         mode = eq_steps[g[1]] ? :RE : :SS
+        push!(descriptor, (met, mode))
+    end
+    descriptor
+end
+
+"""
+    _constraint_descriptor(steps, valid_groups, constraint_mask)
+
+Constraint descriptor for step-based representation.
+"""
+function _constraint_descriptor(
+    steps::Vector{StepSpec},
+    valid_groups::Vector{Vector{Int}},
+    constraint_mask::Int,
+)
+    descriptor = Set{Tuple{Symbol, Symbol}}()
+    for (gi, g) in enumerate(valid_groups)
+        (constraint_mask >> (gi - 1)) & 1 == 1 || continue
+        met = step_metabolite(steps[g[1]])
+        mode = steps[g[1]].is_equilibrium ? :RE : :SS
         push!(descriptor, (met, mode))
     end
     descriptor
@@ -1786,52 +1905,76 @@ function _deduplicate(
     @nospecialize(reaction::EnzymeReaction),
 )
     isempty(specs) && return specs
-    site_defs, forms = enumerate_enzyme_forms(reaction)
-    adj = _build_adjacency(site_defs, forms)
 
     best = Dict{_DedupKey, MechanismSpec}()
     for spec in specs
-        edges = spec.edges
-        eq_steps = spec.equilibrium_steps
-        partition = _compute_re_partition(edges, eq_steps)
-        fp = _concentration_fingerprint(
-            edges, eq_steps, site_defs, forms, adj, partition)
+        steps = spec.steps
+        partition = _compute_re_partition_from_steps(steps)
+        fp = _concentration_fingerprint(steps, partition)
 
-        n_cat = spec.n_catalytic_edges
-        de_cat_map = _dead_end_catalytic_map(
-            edges, n_cat, site_defs, forms)
-        equiv_groups = _find_equivalent_groups(
-            edges, adj, site_defs, forms, n_cat, de_cat_map)
-        valid_groups = [g for g in equiv_groups
-            if all(eq_steps[s] == eq_steps[g[1]] for s in g)]
+        # Build valid equivalence groups (same as Stage 4)
+        groups = Dict{
+            Tuple{Symbol,Bool}, Vector{Int}}()
+        for (i, s) in enumerate(steps)
+            met = step_metabolite(s)
+            met === nothing && continue
+            key = (met, s.is_equilibrium)
+            push!(get!(groups, key, Int[]), i)
+        end
+        valid_groups = sort!(
+            [sort!(g) for (_, g) in groups
+             if length(g) >= 2];
+            by=first)
 
         constraint_mask = _constraints_to_mask(
-            spec.param_constraints, valid_groups, eq_steps, edges)
+            spec.param_constraints, valid_groups, steps)
         desc = _constraint_descriptor(
-            edges, adj, eq_steps, valid_groups, constraint_mask)
+            steps, valid_groups, constraint_mask)
 
-        key = (fp, desc)
-        if !haskey(best, key) ||
-                spec.param_count < best[key].param_count
-            best[key] = spec
+        dedup_key = (fp, desc)
+        if !haskey(best, dedup_key) ||
+                spec.param_count <
+                    best[dedup_key].param_count
+            best[dedup_key] = spec
         end
     end
     collect(values(best))
 end
 
 """Reverse-map param_constraints to a bitmask over valid_groups."""
-function _constraints_to_mask(constraints, valid_groups, eq_steps,
-                              edges)
+function _constraints_to_mask(constraints, valid_groups,
+                              steps::Vector{StepSpec})
+    mask = 0
+    constrained_step_indices = Set{Int}()
+    for (target, _, srcs) in constraints
+        m = match(r"[kK](\d+)", string(target))
+        m !== nothing && m[1] !== nothing &&
+            push!(constrained_step_indices,
+                parse(Int, m[1]::SubString))
+    end
+    for (gi, g) in enumerate(valid_groups)
+        if any(idx in constrained_step_indices
+               for idx in g[2:end])
+            mask |= (1 << (gi - 1))
+        end
+    end
+    mask
+end
+
+"""Reverse-map param_constraints to a bitmask (old-style)."""
+function _constraints_to_mask(constraints, valid_groups,
+                              eq_steps, edges)
     mask = 0
     constrained_edge_indices = Set{Int}()
     for (target, _, srcs) in constraints
-        # Parse edge index from target symbol name
         m = match(r"[kK](\d+)", string(target))
         m !== nothing && m[1] !== nothing &&
-            push!(constrained_edge_indices, parse(Int, m[1]::SubString))
+            push!(constrained_edge_indices,
+                parse(Int, m[1]::SubString))
     end
     for (gi, g) in enumerate(valid_groups)
-        if any(idx in constrained_edge_indices for idx in g[2:end])
+        if any(idx in constrained_edge_indices
+               for idx in g[2:end])
             mask |= (1 << (gi - 1))
         end
     end
@@ -1953,7 +2096,7 @@ end
 
 """Canonical key for allosteric dedup: includes sorted TR equiv metabolites."""
 function _allosteric_canonical_key(spec::AllostericMechanismSpec)
-    base_key = (spec.base.edges, spec.base.equilibrium_steps,
+    base_key = (spec.base.steps,
                 spec.base.param_constraints)
     # Sort reg sites and multiplicities together
     pairs = collect(zip(spec.allosteric_reg_sites,
