@@ -264,9 +264,8 @@
 
     @testset "Ter-Ter" begin
         # Expected: 49 topologies (1 random + 6+6 mixed + 36 seq)
-        # Currently OOMs in _catalytic_topologies — skip until
-        # the enumeration code is optimized for 3+3 reactions.
-        @test_broken false  # placeholder: ter_ter OOMs
+        # _catalytic_topologies OOMs on 3+3 reactions.
+        @test_broken false  # ter_ter OOMs
     end
 
 end
@@ -474,29 +473,27 @@ end
         @test length(result) == 1
     end
 
-    @testset "Dead-end inhibitor creates equiv groups" begin
+    @testset "1 equiv group: 2 variants" begin
+        # Uni-Uni + I: the spec with all I-binding edges
+        # has dead-end S-binding edges (ER→ESR) that
+        # share metabolite S with catalytic E→ES, forming
+        # 1 equiv group → 2 variants (unconstrained +
+        # K_dead_end = K_catalytic).
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_dead_end_I)[1]
         de = EnzymeRates._expand_dead_end_inhibitors(
             [topo], uni_uni_dead_end_I;
             dead_end_regs=[:I])
-        # Find a spec with dead-end edges (more edges
-        # than catalytic)
-        spec_with_de = findfirst(
-            s -> length(s.edges) > s.n_catalytic_edges,
-            de)
-        @test spec_with_de !== nothing
-        if spec_with_de !== nothing
-            s = de[spec_with_de]
-            eq =
-                EnzymeRates._expand_equivalence_constraints(
-                    [s], uni_uni_dead_end_I)
-            # Should produce at least 1 variant
-            # (passthrough if no equiv groups) and
-            # possibly more if I binds to multiple
-            # forms with the same metabolite
-            @test length(eq) >= 1
-        end
+        # Find the spec with the most dead-end edges
+        de_counts = [
+            length(s.edges) - s.n_catalytic_edges
+            for s in de]
+        s = de[argmax(de_counts)]
+        @test length(s.edges) > s.n_catalytic_edges
+        eq =
+            EnzymeRates._expand_equivalence_constraints(
+                [s], uni_uni_dead_end_I)
+        @test length(eq) == 2
     end
 
     @testset "Multiple equiv groups: multiplicative" begin
@@ -523,6 +520,24 @@ end
         if length(s.edges) > s.n_catalytic_edges + 1
             @test length(eq) > 1
         end
+    end
+
+    @testset "Substrate/regulator same metabolite" begin
+        # When a metabolite appears in both catalytic
+        # binding edges and dead-end regulator binding
+        # edges, the two roles MUST NOT be grouped in
+        # the same equivalence group. The DSL currently
+        # cannot define a metabolite as both substrate
+        # and dead-end regulator, so this is a
+        # placeholder for when that becomes possible.
+        @test_broken false  # not representable yet
+    end
+
+    @testset "Substrate/product dead-end equiv" begin
+        # Equivalence constraints should also apply to
+        # substrate/product dead-end complexes (Stage
+        # 2.5 forms). Stage 2.5 does not exist yet.
+        @test_broken false  # stage 2.5 not implemented
     end
 
     @testset "Properties" begin
@@ -602,13 +617,14 @@ end
         # edges (documented in Stage 2 tests), so only 4 RE
         # edges are toggleable instead of all 5 edges.
         @test length(single_ss) == 4
-        if !isempty(single_ss)
-            deduped = EnzymeRates._deduplicate(
-                single_ss, bi_bi)
-            # 4 single-SS variants dedup to 3: one pair
-            # shares a concentration fingerprint
-            @test length(deduped) == 3
-        end
+        deduped = EnzymeRates._deduplicate(
+            single_ss, bi_bi)
+        # 4 single-SS variants dedup to 3: one pair
+        # shares a concentration fingerprint.
+        # Correct: all 5 single-SS variants (including
+        # isom) have distinct fingerprints → dedup to 5.
+        @test_broken length(deduped) == 5
+        @test length(deduped) == 3
     end
 
     @testset "Keeps lower param_count" begin
