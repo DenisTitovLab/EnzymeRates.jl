@@ -360,8 +360,8 @@ end
     end
 
     @testset "Bi-Bi Ping-Pong: 7 off-cycle forms" begin
-        # Bi-Bi-PP: 13 forms, 6 on-cycle, 7 off-cycle
-        # (ping-pong topology, topo 4 of 10)
+        # Bi-Bi-PP: 17 total forms, 6 on-cycle, 7 off-cycle
+        # (mixed sub/prod dead-end; topo 4 of 10)
         # Off-cycle: E_A_0_P_0, E_0_B_P_0, E_X_B_P_0,
         #   E_A_0_0_Q, E_X_0_0_Q, E_0_B_0_Q, E_X_B_0_Q
         # Expected: 2^7 = 128 variants per input spec
@@ -542,14 +542,11 @@ end
             s -> !isempty(s.param_constraints), eq)
         @test !isempty(constrained)
         @test !isempty(unconstrained)
-        if !isempty(constrained) &&
-                !isempty(unconstrained)
-            @test minimum(
-                s.param_count for s in constrained) <
-                maximum(
-                    s.param_count
-                    for s in unconstrained)
-        end
+        @test minimum(
+            s.param_count for s in constrained) <
+            maximum(
+                s.param_count
+                for s in unconstrained)
     end
 end
 
@@ -602,8 +599,8 @@ end
             end
         end
         # Bug: _expand_ress_variants doesn't toggle non-binding
-        # edges, so only 4 variants are produced instead of 5.
-        @test_broken length(single_ss) == 5
+        # edges (documented in Stage 2 tests), so only 4 RE
+        # edges are toggleable instead of all 5 edges.
         @test length(single_ss) == 4
         if !isempty(single_ss)
             deduped = EnzymeRates._deduplicate(
@@ -840,9 +837,11 @@ end
     end
 
     @testset "Uni-Uni + R: no mirrors (odd metabolites)" begin
-        # 3 metabolites (S, P, R): _allosteric_canonical_key uses
-        # sort(tr_equiv_metabolites) directly, so complementary TR-equiv
-        # sets always produce different keys — no dedup reduction occurs.
+        # 3 metabolites (S, P, R): complementary subsets always
+        # differ in size → different param counts → no true mirrors.
+        # (Additionally, _allosteric_canonical_key never maps
+        # complements to the same key, but even with correct dedup,
+        # odd metabolite counts produce no equal-size mirrors.)
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_allosteric_R)[1]
         dd = EnzymeRates._deduplicate(
@@ -869,14 +868,11 @@ end
             [allo[1]], bi_bi_allosteric_R1_R2)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, bi_bi_allosteric_R1_R2)
-        # Bug: mirror dedup is broken (no mirrors are ever removed), so
-        # we can only verify type stability here. When T/R mirrors with
-        # different param_counts exist, the lower param_count one should
-        # be kept — but _allosteric_canonical_key never maps complementary
-        # TR-equiv sets to the same key.
-        @test_broken any(s1.base.param_count < s2.base.param_count
-            for s1 in deduped, s2 in tr
-            if s1 ∉ tr || s2 ∉ deduped)
+        # Bug: mirror dedup is broken — _allosteric_canonical_key
+        # never maps complementary TR-equiv sets to the same key,
+        # so no mirrors are removed and param_count selection
+        # is untestable. Already covered by @test_broken in
+        # "T/R mirrors dedup" above.
         for s in deduped
             @test s isa EnzymeRates.AllostericMechanismSpec
         end
@@ -1105,7 +1101,11 @@ end
         end
     end
 
-    @testset "Allosteric specs" begin
+    # AllostericMechanismSpec.base.param_count only covers
+    # catalytic parameters, not total allosteric params.
+    # Accuracy check is limited to verifying compilation
+    # succeeds and produces parameters.
+    @testset "Allosteric specs (compilation)" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(
                 uni_uni_allosteric_R))
