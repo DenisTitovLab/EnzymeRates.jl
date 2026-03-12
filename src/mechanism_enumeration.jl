@@ -369,6 +369,37 @@ function _compute_re_partition(edges, eq_steps)
     sort!([sort!(v) for v in values(groups)])
 end
 
+"""
+    _compute_re_partition_from_steps(steps) -> Vector{Vector{Symbol}}
+
+Connected components of enzyme forms linked by RE steps.
+"""
+function _compute_re_partition_from_steps(
+    steps::Vector{StepSpec},
+)
+    form_names = collect(all_form_names(steps))
+    parent = Dict(f => f for f in form_names)
+    function find(x)
+        while parent[x] != x
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        end
+        x
+    end
+    for s in steps
+        s.is_equilibrium || continue
+        a, b = s.reactants[1], s.products[1]
+        ra, rb = find(a), find(b)
+        ra != rb && (parent[ra] = rb)
+    end
+    groups = Dict{Symbol, Vector{Symbol}}()
+    for f in form_names
+        r = find(f)
+        push!(get!(groups, r, Symbol[]), f)
+    end
+    sort!([sort!(v) for v in values(groups)])
+end
+
 # ─── Concentration Fingerprint ─────────────────────────────────
 
 """Increment the exponent of `met` in a sorted monomial."""
@@ -1124,55 +1155,47 @@ end
     _expand_ress_variants(specs, reaction; max_re_groups=7)
         -> Vector{MechanismSpec}
 
-Enumerate RE/SS assignment combinations for catalytic edges.
-The first isomerization edge is always SS. Dead-end edges
-inherit RE/SS from catalytic counterparts.
+Enumerate all RE/SS assignment combinations for mechanism
+steps. Every step can independently be RE or SS. The all-RE
+assignment (mask=0) is excluded because at least one step
+must be SS for the King-Altman method.
 """
 function _expand_ress_variants(
     specs::Vector{MechanismSpec},
     @nospecialize(reaction::EnzymeReaction);
     max_re_groups::Int=7,
 )
-    site_defs, forms = enumerate_enzyme_forms(reaction)
-    adj = _build_adjacency(site_defs, forms)
-
     result = MechanismSpec[]
     for spec in specs
-        edges = spec.edges
-        n = length(edges)
+        n = length(spec.steps)
         n == 0 && continue
-        n_cat = spec.n_catalytic_edges
-        iso_idx = _find_first_isomerization(edges, adj)
-        de_cat_map = _dead_end_catalytic_map(
-            edges, n_cat, site_defs, forms)
-        other_indices = [i for i in 1:n_cat if i != iso_idx]
-        n_other = length(other_indices)
 
-        # Sort masks by popcount so fewer SS steps come first
-        masks = sort!(collect(0:(1 << n_other) - 1); by=count_ones)
+        for mask in 1:(1 << n) - 1
+            steps = [
+                StepSpec(
+                    s.reactants, s.products,
+                    (mask >> (i - 1)) & 1 == 0,
+                )
+                for (i, s) in enumerate(spec.steps)
+            ]
+            # At least one step must be SS
+            any(!s.is_equilibrium for s in steps) ||
+                continue
+            # Check RE-connected groups ≤ max_re_groups
+            partition =
+                _compute_re_partition_from_steps(steps)
+            length(partition) > max_re_groups && continue
 
-        for ss_mask in masks
-            eq_steps = fill(true, n)
-            eq_steps[iso_idx] = false
-            for (bit, idx) in enumerate(other_indices)
-                (ss_mask >> (bit - 1)) & 1 == 1 &&
-                    (eq_steps[idx] = false)
-            end
-            _propagate_de_eq_steps!(eq_steps, n_cat, de_cat_map)
-            partition = _compute_re_partition(edges, eq_steps)
-            G = length(partition)
-            (G < 2 || G > max_re_groups) && continue
-
-            # Compute param_count
-            n_re = count(eq_steps)
+            n_re = count(s.is_equilibrium for s in steps)
             n_ss = n - n_re
-            n_forms = length(Set(Iterators.flatten(edges)))
-            n_independent_cycles = n - n_forms + 1
-            n_thermo = n_independent_cycles
-            param_count = n_re + 2 * n_ss - n_thermo + 2
+            n_forms = length(all_form_names(steps))
+            n_thermo = n - n_forms + 1
+            pc = n_re + 2 * n_ss - n_thermo + 2
 
-            push!(result, MechanismSpec(reaction, edges, n_cat,
-                eq_steps, ParamConstraint[], param_count))
+            push!(result, MechanismSpec(
+                spec.reaction, steps,
+                spec.param_constraints, pc,
+            ))
         end
     end
     result

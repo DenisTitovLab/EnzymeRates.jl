@@ -270,59 +270,45 @@ end
         topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
         result = EnzymeRates._expand_ress_variants(
             [topo], uni_uni)
-        # Correct: all 3 steps toggleable, 2^3 - 1 = 7
-        # BUG: current code only toggles binding edges
-        #   (2 binding edges), gives 2^2 - 1 = 3
-        @test_broken length(result) == 7
-        @test length(result) == 3
+        @test length(result) == 7
 
         for s in result
-            @test any(.!s.equilibrium_steps)
-            @test s.edges == topo.edges
-            @test s.n_catalytic_edges ==
-                topo.n_catalytic_edges
+            @test any(
+                !s2.is_equilibrium for s2 in s.steps
+            )
         end
     end
 
     @testset "Uni-Bi" begin
         topo = EnzymeRates._catalytic_topologies(uni_bi)[1]
-        n_steps = length(topo.edges)
+        n_steps = length(topo.steps)
         result = EnzymeRates._expand_ress_variants(
             [topo], uni_bi)
-        # Correct: 2^n_steps - 1. Determine n_steps at
-        # runtime and compute expected. Mark correct as
-        # @test_broken, then determine current (buggy)
-        # count by counting binding edges only.
-        n_binding = count(topo.equilibrium_steps)
-        @test_broken length(result) == 2^n_steps - 1
-        @test length(result) == 2^n_binding - 1
+        @test length(result) == 2^n_steps - 1
 
         for s in result
-            @test any(.!s.equilibrium_steps)
+            @test any(
+                !s2.is_equilibrium for s2 in s.steps
+            )
         end
     end
 
     @testset "Bi-Bi" begin
         topo = EnzymeRates._catalytic_topologies(bi_bi)[1]
-        n_steps = length(topo.edges)
-        n_binding = count(topo.equilibrium_steps)
+        n_steps = length(topo.steps)
         result = EnzymeRates._expand_ress_variants(
             [topo], bi_bi)
-        @test_broken length(result) == 2^n_steps - 1
-        @test length(result) == 2^n_binding - 1
+        @test length(result) == 2^n_steps - 1
 
         for s in result
-            @test any(.!s.equilibrium_steps)
+            @test any(
+                !s2.is_equilibrium for s2 in s.steps
+            )
         end
     end
 
     @testset "max_re_groups filtering" begin
-        # Use bi_bi with many topologies to test filtering.
-        # The all-SS assignment should be excluded when it
-        # creates more RE groups than max_re_groups allows.
         topo = EnzymeRates._catalytic_topologies(bi_bi)[end]
-        n_steps = length(topo.edges)
-        n_binding = count(topo.equilibrium_steps)
         result_default = EnzymeRates._expand_ress_variants(
             [topo], bi_bi)
         # With strict max_re_groups=2, fewer variants survive
