@@ -119,7 +119,16 @@ Non-essential activator is handled by allosteric mechanisms (stage 6), not
 multi-cycle catalytic topologies. Multi-cycle unions serve random-order
 binding variants (different substrate/product orderings sharing forms).
 
-## Stage 2: Dead-End Expansion
+## Stage 2: RE/SS Assignment
+
+- The RE/SS bitmask enumerates over **catalytic edges only**
+- At least 1 step must be SS (all-RE = pure equilibrium, no rate equation)
+- Any step type can be SS (not restricted to isomerization)
+- Filter: RE-connected groups ≤ `max_re_groups` (1 group is valid)
+- Compute `param_count = n_re + 2*n_ss - n_thermo_constraints + 2`
+  (the +2 accounts for kcat_forward and Keq)
+
+## Stage 3: Dead-End Expansion
 
 One pipeline stage, two internal functions for independent testability:
 - `_expand_substrate_product_dead_ends(specs, reaction)` — substrate/product
@@ -132,14 +141,11 @@ Both called from `_expand_dead_end(specs, reaction; dead_end_regs)`.
 All dead-end binding follows the same constraint: **only bind to catalytic
 forms where neither all substrates nor all products are bound.**
 
-All dead-end binding edges are **always RE**.
+All dead-end binding edges are **always RE**. Mirrored catalytic edges
+between dead-end forms **inherit RE/SS** directly from their catalytic
+counterpart (which already has RE/SS assigned from Stage 2).
 
-**Note on RE/SS:** Stage 2 creates mirror edges structurally (topology only).
-All edges created here start as RE. Stage 3 later assigns RE/SS to catalytic
-edges via bitmask, and mirrored edges inherit from their catalytic counterpart
-at that time.
-
-### 2a. Substrate/Product Dead-Ends (`_expand_substrate_product_dead_ends`)
+### 3a. Substrate/Product Dead-Ends (`_expand_substrate_product_dead_ends`)
 
 - For each eligible catalytic form F, each substrate S (or product P) not
   bound to F:
@@ -148,37 +154,24 @@ at that time.
     or (all products + any substrate)
   - Create dead-end form, add binding edge (always RE)
 - Create mirror edges for catalytic edges where both endpoints can have the
-  dead-end metabolite added and remain valid
+  dead-end metabolite added and remain valid (inherits RE/SS from catalytic)
 
-### 2b. Regulator Dead-Ends (`_expand_regulator_dead_ends`)
+### 3b. Regulator Dead-Ends (`_expand_regulator_dead_ends`)
 
 - For each eligible catalytic form F, each dead-end regulator R → create form
   FR, add binding edge F ↔ FR (always RE)
 - Use dummy metabolite name (`:R__reg1`) for the binding step
 - Create mirror edges: if F₁ ↔ F₂ exists catalytically, and both F₁R and
-  F₂R are valid, add F₁R ↔ F₂R
+  F₂R are valid, add F₁R ↔ F₂R (inherits RE/SS from catalytic)
 
-### 2c. Combinations
+### 3c. Combinations
 
-`_expand_dead_end` applies 2a and 2b in a single combinatorial expansion:
+`_expand_dead_end` applies 3a and 3b in a single combinatorial expansion:
 for each eligible catalytic form, enumerate the power set over all available
-dead-end metabolites (substrate dead-ends from 2a + regulator dead-ends from
-2b). Dead-end forms can have multiple dead-end metabolites simultaneously
+dead-end metabolites (substrate dead-ends from 3a + regulator dead-ends from
+3b). Dead-end forms can have multiple dead-end metabolites simultaneously
 (e.g., EAPR = substrate A + product P + regulator R on free enzyme). Each
 combination must satisfy the validity constraint.
-
-## Stage 3: RE/SS Assignment
-
-- The RE/SS bitmask enumerates over **catalytic edges only**
-- Dead-end mirrored edges **inherit** RE/SS from their catalytic counterpart
-  (not in the bitmask — derived after each catalytic assignment)
-- Dead-end binding edges (regulator and substrate/product) are always RE
-  (not in the bitmask — fixed)
-- At least 1 step must be SS (all-RE = pure equilibrium, no rate equation)
-- Any step type can be SS (not restricted to isomerization)
-- Filter: RE-connected groups ≤ `max_re_groups` (1 group is valid)
-- Compute `param_count = n_re + 2*n_ss - n_thermo_constraints + 2`
-  (the +2 accounts for kcat_forward and Keq)
 
 ## Stage 4: Equivalence Constraints
 
@@ -240,15 +233,16 @@ producing the final `EnzymeMechanism` / `AllostericEnzymeMechanism`.
 
 ## Pipeline Order
 
-Renumbered to reflect the new execution order (dead-end expansion now
-precedes RE/SS assignment so mirrored edges exist before RE/SS is assigned):
+RE/SS assignment (Stage 2) runs before dead-end expansion (Stage 3) so
+that mirrored edges can inherit RE/SS directly from already-assigned
+catalytic counterparts during construction.
 
 ```
 Stage 1: _catalytic_topologies (constructive builder)
-Stage 2: _expand_dead_end
-  ├─ 2a: _expand_substrate_product_dead_ends
-  └─ 2b: _expand_regulator_dead_ends
-Stage 3: _expand_ress_variants (RE/SS bitmask over catalytic edges, inherit to mirrors)
+Stage 2: _expand_ress_variants (RE/SS bitmask over catalytic edges)
+Stage 3: _expand_dead_end (mirrors inherit RE/SS from catalytic)
+  ├─ 3a: _expand_substrate_product_dead_ends
+  └─ 3b: _expand_regulator_dead_ends
 Stage 4: _expand_equivalence_constraints (group by metabolite name)
 Stage 5: _deduplicate (concentration fingerprint)
 Stage 6: _expand_allosteric (MWC variants)
@@ -271,9 +265,9 @@ architecture. The constructive builder eliminates the root causes.
 | Bug | Test line(s) | Root cause | Fixed by |
 |-----|-------------|------------|----------|
 | Ter-Ter OOMs in `_catalytic_topologies` | 268 | O(n²) form enumeration + adjacency for 3+3 reactions | Stage 1: constructive builder only builds valid paths |
-| RE/SS only toggles binding edges, not isomerization | 281, 302, 316 | `_find_first_isomerization` pins isom to SS, only iterates "other" edges | Stage 3: bitmask over ALL catalytic edges, any can be SS |
-| Regulators bind to fully-occupied forms | 391, 409, 427, 439 | `_expand_dead_end_inhibitors` doesn't check occupancy eligibility | Stage 2b: explicit "neither all subs nor all prods" check |
-| Bi-Bi dedup undercounts (3 instead of 5) | 626 | Cascading from isom toggle bug — fewer single-SS variants exist | Cascade fix from Stage 3 isom toggle fix |
+| RE/SS only toggles binding edges, not isomerization | 281, 302, 316 | `_find_first_isomerization` pins isom to SS, only iterates "other" edges | Stage 2: bitmask over ALL catalytic edges, any can be SS |
+| Regulators bind to fully-occupied forms | 391, 409, 427, 439 | `_expand_dead_end_inhibitors` doesn't check occupancy eligibility | Stage 3b: explicit "neither all subs nor all prods" check |
+| Bi-Bi dedup undercounts (3 instead of 5) | 626 | Cascading from isom toggle bug — fewer single-SS variants exist | Cascade fix from Stage 2 isom toggle fix |
 
 ### Bugs requiring explicit fixes
 
@@ -291,7 +285,7 @@ don't exist yet. The refactor implements them.
 
 | Feature | Test line(s) | Implemented by |
 |---------|-------------|----------------|
-| Substrate/product dead-end expansion | 349, 358, 367 | Stage 2a: `_expand_substrate_product_dead_ends` |
+| Substrate/product dead-end expansion | 349, 358, 367 | Stage 3a: `_expand_substrate_product_dead_ends` |
 | Same metabolite as substrate and regulator | 533 | Dummy name approach (`:X__reg1`) |
 | Substrate/product dead-end equivalence | 540 | Stage 4: equivalence grouping over all edges including dead-end |
 
@@ -309,18 +303,18 @@ Step 1: Stage 1 — Constructive catalytic topology builder
   Verify: existing Stage 1 tests still pass with new representation
   Verify: compile_mechanism round-trips still work
 
-Step 2: Stage 2a — Substrate/product dead-end expansion
+Step 2: Stage 2 — RE/SS assignment
+  Flip: lines 281, 302, 316
+  Cascade fix: line 626 (dedup undercount)
+  Verify: all-edge bitmask (any step can be SS)
+
+Step 3: Stage 3a — Substrate/product dead-end expansion
   Flip: lines 349, 358, 367
   New tests for _expand_substrate_product_dead_ends
 
-Step 3: Stage 2b — Regulator dead-end expansion
+Step 4: Stage 3b — Regulator dead-end expansion
   Flip: lines 391, 409, 427, 439
-  Verify: existing Stage 3 tests pass with eligibility fix
-
-Step 4: Stage 3 — RE/SS assignment
-  Flip: lines 281, 302, 316
-  Cascade fix: line 626 (dedup undercount)
-  Verify: existing Stage 2 tests pass with all-edge bitmask
+  Verify: eligibility fix (neither all subs nor all prods bound)
 
 Step 5: Stage 4 — Equivalence constraints
   Flip: lines 533, 540
