@@ -385,7 +385,7 @@ end
     @testset "No regulators: passthrough" begin
         topo = EnzymeRates._catalytic_topologies(
             uni_uni)[1]
-        result = EnzymeRates._expand_dead_end_inhibitors(
+        result = EnzymeRates._expand_dead_end(
             [topo], uni_uni; dead_end_regs=Symbol[])
         @test length(result) == 1
     end
@@ -393,70 +393,61 @@ end
     @testset "Uni-Uni + I: eligible forms" begin
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_dead_end_I)[1]
-        result = EnzymeRates._expand_dead_end_inhibitors(
+        result = EnzymeRates._expand_dead_end(
             [topo], uni_uni_dead_end_I;
             dead_end_regs=[:I])
-        # Correct: only E eligible (ES fully occupied
-        # with all substrates, EP fully occupied with
-        # all products) → (2^1)^1 = 2 variants
-        # BUG: current code allows I to bind all 3 forms
-        # → (2^1)^3 = 8
-        @test_broken length(result) == 2
-        @test length(result) == 8
+        # Only E eligible (ES fully occupied with all
+        # substrates, EP fully occupied with all
+        # products) → (2^1)^1 = 2 variants
+        @test length(result) == 2
     end
 
     @testset "Uni-Bi + I" begin
         topo = EnzymeRates._catalytic_topologies(
             uni_bi_dead_end_I)[1]
-        result = EnzymeRates._expand_dead_end_inhibitors(
+        result = EnzymeRates._expand_dead_end(
             [topo], uni_bi_dead_end_I;
             dead_end_regs=[:I])
-        # Topo[1] is sequential Q-first: E, ES, EPQ, EP
-        # (4 forms). ES has all subs, EPQ has all prods
-        # → eligible = {E, EP} = 2 forms
-        # → correct = (2^1)^2 = 4
-        # BUG: current code allows I to bind all forms
-        # → buggy = 2^4 = 16
-        n_forms = length(EnzymeRates.enzyme_forms(
-            compile_mechanism(topo)))
-        @test_broken length(result) == 4
-        @test length(result) == 2^n_forms
+        # Topo[1] Q-first: E, ES, EQ, EPQ (4 forms).
+        # ES has all subs, EPQ has all prods
+        # → eligible = {E, EQ} = 2 forms
+        # Sub/prod dead-ends: E_P (from E)
+        # Regulator dead-ends: E_I__reg1, E_I__reg1_Q
+        # Combined: 3 dead-end forms → 2^3 = 8
+        @test length(result) == 8
     end
 
     @testset "Bi-Bi + I" begin
         topo = EnzymeRates._catalytic_topologies(
             bi_bi_dead_end_I)[1]
-        result = EnzymeRates._expand_dead_end_inhibitors(
+        result = EnzymeRates._expand_dead_end(
             [topo], bi_bi_dead_end_I;
             dead_end_regs=[:I])
-        # Topo[1] is sequential (5 forms: E, EB, EAB,
-        # EP, EPQ). EAB has all subs, EPQ has all prods
-        # → eligible = {E, EB, EP} = 3 forms
-        # → correct = (2^1)^3 = 8
-        # BUG: current code allows I to bind all forms
-        # → buggy = 2^5 = 32
-        n_forms = length(EnzymeRates.enzyme_forms(
-            compile_mechanism(topo)))
-        @test_broken length(result) == 8
-        @test length(result) == 2^n_forms
+        # Topo[1] sequential (5 forms: E, EA, EAB,
+        # EQ, EPQ). EAB has all subs, EPQ all prods
+        # → eligible = {E, EA, EQ} = 3 forms
+        # Sub/prod dead-ends: E_B, E_P, E_A_P,
+        #   E_A_Q, E_B_Q (5 forms)
+        # Regulator dead-ends: E_I__reg1,
+        #   E_A_I__reg1, E_I__reg1_Q (3 forms)
+        # Combined: 8 dead-end forms → 2^8 = 256
+        @test length(result) == 256
     end
 
     @testset "2 inhibitors: Uni-Uni + I, J" begin
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_dead_end_I_J)[1]
-        result = EnzymeRates._expand_dead_end_inhibitors(
+        result = EnzymeRates._expand_dead_end(
             [topo], uni_uni_dead_end_I_J;
             dead_end_regs=[:I, :J])
-        # Correct: only E eligible → (2^2)^1 = 4
-        # BUG: all 3 forms → (2^2)^3 = 64
-        @test_broken length(result) == 4
-        @test length(result) == 64
+        # Only E eligible → (2^2)^1 = 4
+        @test length(result) == 4
     end
 
     @testset "Allosteric-only: passthrough" begin
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_allosteric_R)[1]
-        result = EnzymeRates._expand_dead_end_inhibitors(
+        result = EnzymeRates._expand_dead_end(
             [topo], uni_uni_allosteric_R;
             dead_end_regs=Symbol[])
         @test length(result) == 1
@@ -465,13 +456,12 @@ end
     @testset "Properties" begin
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_dead_end_I)[1]
-        result = EnzymeRates._expand_dead_end_inhibitors(
+        result = EnzymeRates._expand_dead_end(
             [topo], uni_uni_dead_end_I;
             dead_end_regs=[:I])
         for s in result
-            @test length(s.edges) >= s.n_catalytic_edges
-            @test s.n_catalytic_edges ==
-                topo.n_catalytic_edges
+            @test length(s.steps) >= length(topo.steps)
+            @test s.param_count >= topo.param_count
         end
     end
 end

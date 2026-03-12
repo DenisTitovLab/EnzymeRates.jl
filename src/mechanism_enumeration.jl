@@ -1417,7 +1417,204 @@ function _expand_substrate_product_dead_ends(
     result
 end
 
-# ─── Stage 3: Dead-End Inhibitor Expansion ────────────────────
+# ─── Stage 3: Combined Dead-End Expansion ─────────────────────
+
+"""
+    _regulator_dead_end_opportunities(
+        bound, cat_forms, sub_names, prod_names,
+        dead_end_regs)
+
+Find (form, dummy_met) dead-end opportunities for
+regulators. Eligible forms are those where neither all
+substrates nor all products are bound. Returns pairs of
+(catalytic_form, dummy_metabolite_name).
+"""
+function _regulator_dead_end_opportunities(
+    bound::Dict{Symbol, Set{Symbol}},
+    cat_forms::Set{Symbol},
+    sub_names::Set{Symbol},
+    prod_names::Set{Symbol},
+    dead_end_regs::Vector{Symbol},
+)
+    opportunities = Tuple{Symbol, Symbol}[]
+    for f in sort(collect(cat_forms))
+        haskey(bound, f) || continue
+        fb = bound[f]
+        fb_subs = intersect(fb, sub_names)
+        fb_prods = intersect(fb, prod_names)
+        # Eligible: neither all subs nor all prods
+        (fb_subs == sub_names ||
+            fb_prods == prod_names) && continue
+        for (i, reg) in enumerate(
+                sort(dead_end_regs))
+            dummy = Symbol(
+                string(reg) * "__reg" * string(i))
+            push!(opportunities, (f, dummy))
+        end
+    end
+    opportunities
+end
+
+"""
+    _expand_dead_end(specs, reaction;
+        dead_end_regs) -> Vector{MechanismSpec}
+
+Combined dead-end expansion: finds substrate/product
+AND regulator dead-end opportunities, then enumerates
+the power set over all unique dead-end forms in a
+single pass. Dead-end binding steps are always RE.
+Mirror steps inherit RE/SS from their catalytic
+counterparts.
+"""
+function _expand_dead_end(
+    specs::Vector{MechanismSpec},
+    @nospecialize(reaction::EnzymeReaction);
+    dead_end_regs::Vector{Symbol}=Symbol[],
+)
+    sub_names = Set(
+        s[1] for s in substrates(reaction))
+    prod_names = Set(
+        p[1] for p in products(reaction))
+    all_mets = union(sub_names, prod_names)
+
+    result = MechanismSpec[]
+    for spec in specs
+        bound = _bound_metabolites_at_forms(
+            spec, reaction)
+        cat_forms = all_form_names(spec)
+
+        # Collect substrate/product dead-end
+        # opportunities (same logic as 3a)
+        sp_opps = Tuple{Symbol, Symbol}[]
+        for f in sort(collect(cat_forms))
+            haskey(bound, f) || continue
+            fb = bound[f]
+            fb_subs = intersect(fb, sub_names)
+            fb_prods = intersect(fb, prod_names)
+            (fb_subs == sub_names ||
+                fb_prods == prod_names) && continue
+            for m in sort(collect(all_mets))
+                m in fb && continue
+                de_name = _dead_end_form_name(fb, m)
+                de_name in cat_forms && continue
+                new_bound = union(fb, Set([m]))
+                new_subs = intersect(
+                    new_bound, sub_names)
+                new_prods = intersect(
+                    new_bound, prod_names)
+                if (new_subs == sub_names &&
+                        length(new_prods) > 0) ||
+                   (new_prods == prod_names &&
+                        length(new_subs) > 0)
+                    continue
+                end
+                push!(sp_opps, (f, m))
+            end
+        end
+
+        # Collect regulator dead-end opportunities
+        reg_opps = _regulator_dead_end_opportunities(
+            bound, cat_forms, sub_names, prod_names,
+            dead_end_regs)
+
+        # Merge all opportunities
+        all_opps = vcat(sp_opps, reg_opps)
+
+        # Group by dead-end form name. For
+        # substrate/product mets, the dead-end form
+        # name uses the bound set. For regulators, we
+        # extend the bound set with the dummy name.
+        de_forms = Dict{Symbol,
+            Vector{Tuple{Symbol, Symbol}}}()
+        for (f, m) in all_opps
+            de_name = _dead_end_form_name(
+                bound[f], m)
+            push!(get!(de_forms, de_name,
+                Tuple{Symbol, Symbol}[]), (f, m))
+        end
+        de_form_names = sort(collect(
+            keys(de_forms)))
+        n_de = length(de_form_names)
+
+        # Enumerate 2^n subsets of dead-end forms
+        for mask in 0:(1 << n_de) - 1
+            active_de = Set{Symbol}()
+            for (j, name) in enumerate(
+                    de_form_names)
+                if (mask >> (j - 1)) & 1 == 1
+                    push!(active_de, name)
+                end
+            end
+
+            new_steps = copy(spec.steps)
+
+            # Add binding steps for active dead-ends
+            for de_name in sort(collect(active_de))
+                entries = de_forms[de_name]
+                for (cat_form, met) in entries
+                    push!(new_steps, StepSpec(
+                        [cat_form, met],
+                        [de_name], true))
+                end
+            end
+
+            # Add mirror steps: for each catalytic
+            # step, check if both endpoints can be
+            # extended with the same dead-end met
+            # All de mets = union of sub/prod mets
+            # and regulator dummy names
+            all_de_mets = Set{Symbol}()
+            for (_, m) in all_opps
+                push!(all_de_mets, m)
+            end
+            for s in spec.steps
+                from = s.reactants[1]
+                to = s.products[1]
+                met = step_metabolite(s)
+                for de_met in sort(
+                        collect(all_de_mets))
+                    haskey(bound, from) || continue
+                    haskey(bound, to) || continue
+                    de_met in bound[from] && continue
+                    de_met in bound[to] && continue
+                    from_de = _dead_end_form_name(
+                        bound[from], de_met)
+                    to_de = _dead_end_form_name(
+                        bound[to], de_met)
+                    from_de in active_de || continue
+                    to_de in active_de || continue
+                    if met !== nothing
+                        push!(new_steps, StepSpec(
+                            [from_de, met],
+                            [to_de],
+                            s.is_equilibrium))
+                    else
+                        push!(new_steps, StepSpec(
+                            [from_de], [to_de],
+                            s.is_equilibrium))
+                    end
+                end
+            end
+
+            # Compute param_count
+            n_steps = length(new_steps)
+            n_re = count(
+                s -> s.is_equilibrium, new_steps)
+            n_ss = n_steps - n_re
+            n_forms = length(
+                all_form_names(new_steps))
+            n_thermo = n_steps - n_forms + 1
+            pc = n_re + 2 * n_ss - n_thermo + 2
+
+            push!(result, MechanismSpec(
+                spec.reaction, new_steps,
+                spec.param_constraints, pc))
+        end
+    end
+    result
+end
+
+# ─── Stage 3 (old): Dead-End Inhibitor Expansion ─────────────
 
 """
     _expand_dead_end_inhibitors(specs, reaction;
