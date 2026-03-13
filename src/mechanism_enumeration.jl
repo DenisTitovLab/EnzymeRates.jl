@@ -743,40 +743,63 @@ function _catalytic_topologies(
         push!(unique_paths, path)
     end
 
-    # Build step-set unions incrementally to avoid 2^n
-    # explosion. For each path, union its steps with all
-    # existing step-sets and add any new results.
-    path_step_keys = [
-        Set(_step_key(s) for s in p) for p in unique_paths
-    ]
-    path_step_dicts = [
-        Dict(_step_key(s) => s for s in p)
-        for p in unique_paths
-    ]
+    # Partition paths into ping-pong (has Estar forms)
+    # and sequential groups. Only combine paths within
+    # the same group to avoid biochemically unrealistic
+    # mixed topologies.
+    function _is_pingpong_path(path)
+        for s in path
+            for sym in Iterators.flatten(
+                (s.reactants, s.products)
+            )
+                startswith(string(sym), "Estar") &&
+                    return true
+            end
+        end
+        false
+    end
+    pp_paths = [p for p in unique_paths
+                if _is_pingpong_path(p)]
+    seq_paths = [p for p in unique_paths
+                 if !_is_pingpong_path(p)]
 
-    # known_combos maps step-key-set to step dict
+    # Build step-set unions incrementally within each
+    # group. For each path, union its steps with all
+    # existing step-sets and add any new results.
     known_combos = Dict{Set{StepKey},
                         Dict{StepKey, StepSpec}}()
-    for (i, pkeys) in enumerate(path_step_keys)
-        # Add this path alone if not seen
-        if !haskey(known_combos, pkeys)
-            known_combos[pkeys] = copy(
-                path_step_dicts[i]
-            )
+    for group in (pp_paths, seq_paths)
+        isempty(group) && continue
+        grp_keys = [
+            Set(_step_key(s) for s in p)
+            for p in group
+        ]
+        grp_dicts = [
+            Dict(_step_key(s) => s for s in p)
+            for p in group
+        ]
+        grp_combos = Dict{Set{StepKey},
+                          Dict{StepKey, StepSpec}}()
+        for (i, pkeys) in enumerate(grp_keys)
+            if !haskey(grp_combos, pkeys)
+                grp_combos[pkeys] = copy(grp_dicts[i])
+            end
+            new_entries = Dict{Set{StepKey},
+                               Dict{StepKey, StepSpec}}()
+            for (ks, sd) in grp_combos
+                merged_keys = union(ks, pkeys)
+                merged_keys == ks && continue
+                haskey(grp_combos, merged_keys) &&
+                    continue
+                haskey(new_entries, merged_keys) &&
+                    continue
+                merged = copy(sd)
+                merge!(merged, grp_dicts[i])
+                new_entries[merged_keys] = merged
+            end
+            merge!(grp_combos, new_entries)
         end
-        # Union with all existing combos
-        new_entries = Dict{Set{StepKey},
-                           Dict{StepKey, StepSpec}}()
-        for (ks, sd) in known_combos
-            merged_keys = union(ks, pkeys)
-            merged_keys == ks && continue
-            haskey(known_combos, merged_keys) && continue
-            haskey(new_entries, merged_keys) && continue
-            merged = copy(sd)
-            merge!(merged, path_step_dicts[i])
-            new_entries[merged_keys] = merged
-        end
-        merge!(known_combos, new_entries)
+        merge!(known_combos, grp_combos)
     end
 
     # Build MechanismSpec for each topology

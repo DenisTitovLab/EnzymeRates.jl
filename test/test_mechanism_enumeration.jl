@@ -221,9 +221,9 @@
         topos =
             EnzymeRates._catalytic_topologies(
                 bi_bi_ping_pong)
-        @test length(topos) == 19
+        @test length(topos) == 10
 
-        # Topo 16: classic ping-pong with Estar
+        # Topo 6: classic ping-pong with Estar
         # E→EA→Estar(+P)→Estar_B→E(+Q)
         m_pp = @enzyme_mechanism begin
             species: begin
@@ -243,7 +243,7 @@
                 [Estar_B] ⇌ [E_Q]
             end
         end
-        @test compile_mechanism(topos[16]) === m_pp
+        @test compile_mechanism(topos[6]) === m_pp
 
         for t in topos
             @test count(
@@ -1068,8 +1068,24 @@ end
     end
 
     # Bi-Bi and Bi-Bi Ping-Pong end-to-end tests
-    # skipped: substrate/product dead-ends create too
-    # many mechanisms to enumerate in bounded memory.
+    # commented out: OOM on VM with 7.7 GiB RAM.
+    # Reactivate once pipeline performance is improved.
+    # @testset "Bi-Bi, no regs" begin
+    #     result = collect(
+    #         EnzymeRates.enumerate_mechanisms(bi_bi))
+    #     @test length(result) == 94173
+    # end
+    # @testset "Bi-Bi Ping-Pong, no regs" begin
+    #     stats = @timed collect(
+    #         EnzymeRates.enumerate_mechanisms(
+    #             bi_bi_ping_pong))
+    #     @test length(stats.value) == 114703
+    #     # Performance regression guards
+    #     # Allocation budget: 250 GiB (baseline ~221 GiB)
+    #     @test stats.bytes < 250 * 1024^3
+    #     # Time budget: 300s (baseline ~150s)
+    #     @test stats.time < 300
+    # end
 
     @testset "Uni-Uni + 1 unknown reg" begin
         result = collect(
@@ -1116,9 +1132,22 @@ end
         end
     end
 
-    # Bi-Bi param_count tests skipped: substrate/product
-    # dead-ends create too many mechanisms to enumerate
-    # in bounded memory.
+    # Bi-Bi param_count test commented out: OOM on VM
+    # with 7.7 GiB RAM. Reactivate once pipeline
+    # performance is improved.
+    # @testset "Sampled Bi-Bi specs" begin
+    #     all_specs = collect(
+    #         EnzymeRates.enumerate_mechanisms(bi_bi))
+    #     @test length(all_specs) == 94173
+    #     sample = all_specs[randperm(
+    #         rng, length(all_specs))[1:min(50, end)]]
+    #     n_match = count(sample) do s
+    #         s isa EnzymeRates.MechanismSpec || return true
+    #         m = compile_mechanism(s)
+    #         s.param_count == length(parameters(m))
+    #     end
+    #     @test n_match == length(sample)
+    # end
 end
 
 end # outer testset
