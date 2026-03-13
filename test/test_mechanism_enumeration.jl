@@ -1068,8 +1068,11 @@ end
     end
 
     # Bi-Bi and Bi-Bi Ping-Pong end-to-end tests
-    # commented out: OOM on VM with 7.7 GiB RAM.
-    # Reactivate once pipeline performance is improved.
+    # commented out: OOM on VM with 7.7 GiB RAM. Each
+    # runs in ~2 min standalone, but the combination of
+    # test suite memory + enumeration memory exceeds
+    # available RAM. Reactivate once pipeline performance
+    # is improved.
     # @testset "Bi-Bi, no regs" begin
     #     result = collect(
     #         EnzymeRates.enumerate_mechanisms(bi_bi))
@@ -1133,7 +1136,9 @@ end
     end
 
     # Bi-Bi param_count test commented out: OOM on VM
-    # with 7.7 GiB RAM. Reactivate once pipeline
+    # with 7.7 GiB RAM. Bi-Bi enumeration runs in ~2 min
+    # standalone, but combined with test suite memory it
+    # exceeds available RAM. Reactivate once pipeline
     # performance is improved.
     # @testset "Sampled Bi-Bi specs" begin
     #     all_specs = collect(
