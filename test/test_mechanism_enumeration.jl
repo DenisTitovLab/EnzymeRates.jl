@@ -603,11 +603,13 @@ end
             m_bb_random, bi_bi)
         result_default = EnzymeRates._expand_ress_variants(
             [topo], bi_bi)
-        # With strict max_re_groups=2, fewer variants survive
-        result_strict = EnzymeRates._expand_ress_variants(
+        @test length(result_default) == 511
+        result_mrg2 = EnzymeRates._expand_ress_variants(
             [topo], bi_bi; max_re_groups=2)
-        @test length(result_strict) <=
-            length(result_default)
+        @test length(result_mrg2) == 241
+        result_mrg3 = EnzymeRates._expand_ress_variants(
+            [topo], bi_bi; max_re_groups=3)
+        @test length(result_mrg3) == 379
     end
 end
 
@@ -706,6 +708,40 @@ end
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo], uni_bi)
         @test length(result) == 1
+    end
+
+    @testset "Bi-Bi Ping-Pong: dead-ends with Estar" begin
+        # Classic ping-pong: E→EA→Estar(+P)→EstarB→E(+Q)
+        # Forms: E, E_A, Estar, Estar_A_P, Estar_B, E_Q
+        # Mixed dead-end opportunities from E_A:
+        #   +P→E_A_P(mixed), +Q→E_A_Q(mixed)
+        # From E_Q (has product Q):
+        #   +B→E_B_Q(mixed)
+        # 3 dead-end forms → 2^3 = 8 variants
+        m_pp = @enzyme_mechanism begin
+            species: begin
+                substrates: A[CX], B[N]
+                products: P[C], Q[NX]
+                enzymes: E,
+                    E_A[CX], E_Q[NX],
+                    Estar[X], Estar_A_P[CX],
+                    Estar_B[NX]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [Estar, B] ⇌ [Estar_B]
+                [E, Q] ⇌ [E_Q]
+                [Estar, P] ⇌ [Estar_A_P]
+                [E_A] <--> [Estar_A_P]
+                [Estar_B] ⇌ [E_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_pp, bi_bi_ping_pong)
+        result =
+            EnzymeRates._expand_substrate_product_dead_ends(
+                [topo], bi_bi_ping_pong)
+        @test length(result) == 8
     end
 end
 
@@ -883,8 +919,11 @@ end
             [topo], uni_uni_dead_end_I;
             dead_end_regs=[:I])
         for s in result
-            @test length(s.steps) >= length(topo.steps)
-            @test s.param_count >= topo.param_count
+            if length(s.steps) > length(topo.steps)
+                @test s.param_count > topo.param_count
+            else
+                @test s.param_count == topo.param_count
+            end
         end
     end
 end
@@ -1121,11 +1160,17 @@ end
             s -> !isempty(s.param_constraints), eq)
         @test !isempty(constrained)
         @test !isempty(unconstrained)
-        @test minimum(
-            s.param_count for s in constrained) <
-            maximum(
-                s.param_count
-                for s in unconstrained)
+        # Every constrained spec has fewer params than
+        # at least one unconstrained spec with same steps
+        for c in constrained
+            matching = filter(
+                u -> length(u.steps) == length(c.steps),
+                unconstrained)
+            @test !isempty(matching)
+            @test c.param_count <
+                maximum(
+                    u.param_count for u in matching)
+        end
     end
 end
 
@@ -1148,8 +1193,14 @@ end
         ress = EnzymeRates._expand_ress_variants(
             [topo], uni_uni)
         deduped = EnzymeRates._deduplicate(ress, uni_uni)
-        # 3 distinct concentration fingerprints:
-        # {1,[S]}, {1,[P]}, {1,[S],[P]}
+        # 3 distinct concentration fingerprints survive:
+        #   {1,[S],[P]}: both binding steps RE — classic
+        #     reversible Michaelis-Menten denominator
+        #   {1,[S]}: only S-binding RE — denominator lacks
+        #     product term
+        #   {1,[P]}: only P-binding RE — denominator lacks
+        #     substrate term
+        # These are genuinely different rate equation forms.
         @test length(deduped) == 3
         for d in deduped
             @test d.param_count <=
@@ -1237,6 +1288,76 @@ end
             [topo, topo2], uni_uni)
         @test length(result) == 1
         @test result[1].param_count == topo.param_count
+    end
+
+    @testset "Bi-Bi random: single-SS dedup" begin
+        # Random BiBi has symmetric binding paths.
+        # Some single-SS variants produce identical
+        # concentration fingerprints → dedup removes them.
+        m_bb_random = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_random, bi_bi)
+        ress = EnzymeRates._expand_ress_variants(
+            [topo], bi_bi)
+        single_ss = filter(ress) do spec
+            count(!s.is_equilibrium
+                for s in spec.steps) == 1
+        end
+        @test length(single_ss) == 9
+        deduped = EnzymeRates._deduplicate(
+            single_ss, bi_bi)
+        # Symmetric paths collapse: 9 → 5
+        @test length(deduped) == 5
+    end
+
+    @testset "Bi-Bi random: full dedup" begin
+        m_bb_random = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_random, bi_bi)
+        ress = EnzymeRates._expand_ress_variants(
+            [topo], bi_bi)
+        @test length(ress) == 511
+        deduped = EnzymeRates._deduplicate(
+            ress, bi_bi)
+        @test length(deduped) == 146
     end
 end
 
