@@ -1911,7 +1911,7 @@ function enumerate_mechanisms(
             catalytic, reaction; max_re_groups)
         base = _expand_dead_end(
             base, reaction; dead_end_regs=de_regs,
-            include_substrate_product=false)
+            include_substrate_product=true)
         base = _expand_equivalence_constraints(
             base, reaction)
         base = _deduplicate(base, reaction)

@@ -922,7 +922,7 @@ end
     with_dead_end = EnzymeRates._expand_dead_end(
         EnzymeRates._catalytic_topologies(rxn),
         rxn; dead_end_regs=[:R1, :R2],
-        include_substrate_product=false)
+        include_substrate_product=true)
     # Find largest compilable spec (some large specs
     # trigger thermodynamic cycle errors)
     m = nothing
@@ -994,7 +994,7 @@ end
     with_dead_end = EnzymeRates._expand_dead_end(
         EnzymeRates._catalytic_topologies(rxn),
         rxn; dead_end_regs=[:R1, :R2],
-        include_substrate_product=false)
+        include_substrate_product=true)
     # Find a mechanism with >= 15 forms and force all
     # steps to SS to trigger the polynomial term limit.
     # Skip specs that cause thermodynamic cycle errors.

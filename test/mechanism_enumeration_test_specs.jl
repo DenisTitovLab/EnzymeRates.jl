@@ -187,7 +187,7 @@ function _run_full_pipeline_stages(rxn; catalytic_n::Int=0,
 
         with_de = EnzymeRates._expand_dead_end(
             ress, rxn; dead_end_regs=de,
-            include_substrate_product=false)
+            include_substrate_product=true)
         n_de += length(with_de)
 
         with_eq =
