@@ -1033,13 +1033,7 @@ end
                 s2 = mechanism_spec_from_mechanism(
                     m, rxn)
                 @test s2.steps == s.steps
-                # param_count may differ for constrained
-                # specs due to known formula bug (Task 11)
-                if isempty(s.param_constraints)
-                    @test s2.param_count == s.param_count
-                else
-                    @test s2.param_count >= s.param_count
-                end
+                @test s2.param_count >= s.param_count
             end
         end
 
@@ -1102,11 +1096,6 @@ end
 end
 
 @testset "param_count accuracy" begin
-    # BUG: param_count formula doesn't account for
-    # parameter equivalence constraints making
-    # Wegscheider constraints redundant.
-    # 8 of 56 Uni-Bi MechanismSpecs have
-    # param_count off by 1.
     @testset "All Uni-Bi specs" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(uni_bi))
@@ -1115,8 +1104,7 @@ end
             m = compile_mechanism(s)
             s.param_count == length(parameters(m))
         end
-        @test n_match == 48
-        @test_broken n_match == 56
+        @test n_match == 56
     end
 
     @testset "Sampled Bi-Bi specs (unconstrained)" begin
@@ -1155,11 +1143,6 @@ end
         end
     end
 
-    # BUG: param_count formula doesn't account for
-    # parameter equivalence constraints making
-    # Wegscheider constraints redundant.
-    # 316 of 959 constrained Bi-Bi MechanismSpecs
-    # have param_count off by 1.
     @testset "Bi-Bi constrained param_count" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(bi_bi))
@@ -1172,9 +1155,7 @@ end
             m = compile_mechanism(s)
             s.param_count == length(parameters(m))
         end
-        # 643 of 959 match; 316 are off by 1
-        @test n_match == 643
-        @test_broken n_match == 959
+        @test n_match == 959
     end
 end
 

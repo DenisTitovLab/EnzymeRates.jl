@@ -1833,6 +1833,88 @@ function _expand_dead_end_inhibitors(
     result
 end
 
+"""
+Count equivalence constraints that make Wegscheider
+constraints redundant. Works in equilibrium-constant
+space (one dimension per step): cycle rows from the
+graph null space, equiv rows as p_a - p_b = 0.
+Returns the number of redundant thermo constraints.
+"""
+function _redundant_thermo_count(
+    steps::Vector{StepSpec},
+    active_groups::Vector{Vector{Int}},
+)
+    # Build incidence matrix (forms × steps)
+    form_list = Symbol[]
+    form_idx = Dict{Symbol, Int}()
+    for s in steps
+        for f in (s.reactants[1], s.products[1])
+            if !haskey(form_idx, f)
+                push!(form_list, f)
+                form_idx[f] = length(form_list)
+            end
+        end
+    end
+    n_forms = length(form_list)
+    n_steps = length(steps)
+    B = zeros(Int, n_forms, n_steps)
+    for (j, s) in enumerate(steps)
+        B[form_idx[s.reactants[1]], j] -= 1
+        B[form_idx[s.products[1]], j] += 1
+    end
+
+    NS = _integer_nullspace(B)
+    n_cycles = size(NS, 2)
+    n_cycles == 0 && return 0
+
+    # Build equiv rows in step space
+    equiv_rows = Int[]
+    for g in active_groups
+        for j in 2:length(g)
+            push!(equiv_rows, g[1], g[j])
+        end
+    end
+    n_equiv = length(equiv_rows) ÷ 2
+    n_equiv == 0 && return 0
+
+    # Combined matrix: cycles (transposed) + equiv
+    n_total = n_cycles + n_equiv
+    M = zeros(Rational{BigInt}, n_total, n_steps)
+    for i in 1:n_cycles
+        for j in 1:n_steps
+            M[i, j] = NS[j, i]
+        end
+    end
+    for k in 1:n_equiv
+        a = equiv_rows[2k - 1]
+        b = equiv_rows[2k]
+        M[n_cycles + k, a] = 1
+        M[n_cycles + k, b] = -1
+    end
+
+    # Rank via row echelon
+    rank_combined = 0
+    row = 1
+    Mc = copy(M)
+    for col in 1:n_steps
+        piv = findfirst(
+            r -> Mc[r, col] != 0, row:n_total)
+        piv === nothing && continue
+        piv += row - 1
+        Mc[row, :], Mc[piv, :] =
+            Mc[piv, :], Mc[row, :]
+        Mc[row, :] ./= Mc[row, col]
+        for r in 1:n_total
+            r != row && Mc[r, col] != 0 &&
+                (Mc[r, :] .-= Mc[r, col] .* Mc[row, :])
+        end
+        rank_combined += 1
+        row += 1
+    end
+
+    n_cycles + n_equiv - rank_combined
+end
+
 # ─── Stage 4: Equivalence Constraint Expansion ────────────────
 
 """
@@ -1901,10 +1983,20 @@ function _expand_equivalence_constraints(
                     end
                 end
             end
+            # Equivalence constraints can make
+            # Wegscheider constraints redundant
+            active = Vector{Int}[]
+            for (gi, g) in enumerate(valid_groups)
+                (mask >> (gi - 1)) & 1 == 1 &&
+                    push!(active, g)
+            end
+            redundancy = _redundant_thermo_count(
+                spec.steps, active)
             push!(result, MechanismSpec(
                 spec.reaction, spec.steps,
                 constraints,
-                spec.param_count + delta))
+                spec.param_count + delta +
+                    redundancy))
         end
     end
     result
