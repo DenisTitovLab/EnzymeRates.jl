@@ -977,37 +977,10 @@ function _expand_substrate_product_dead_ends(
             spec, reaction)
         cat_forms = all_form_names(spec)
 
-        # Find all (form, met) dead-end opportunities
-        de_opportunities = Tuple{Symbol, Symbol}[]
-        for f in sort(collect(cat_forms))
-            haskey(bound, f) || continue
-            fb = bound[f]
-            fb_subs = intersect(fb, sub_names)
-            fb_prods = intersect(fb, prod_names)
-            # Eligible: neither all subs nor all prods
-            (fb_subs == sub_names ||
-                fb_prods == prod_names) && continue
-            for m in sort(collect(all_mets))
-                m in fb && continue
-                # Check resulting form is not catalytic
-                new_bound = union(fb, Set([m]))
-                de_name = _dead_end_form_name(fb, m)
-                de_name in cat_forms && continue
-                # Validity: no (all subs+any prod) or
-                # (all prods+any sub)
-                new_subs = intersect(
-                    new_bound, sub_names)
-                new_prods = intersect(
-                    new_bound, prod_names)
-                if (new_subs == sub_names &&
-                        length(new_prods) > 0) ||
-                   (new_prods == prod_names &&
-                        length(new_subs) > 0)
-                    continue
-                end
-                push!(de_opportunities, (f, m))
-            end
-        end
+        de_opportunities =
+            _substrate_product_dead_end_opportunities(
+                bound, cat_forms, sub_names,
+                prod_names)
 
         # Deduplicate: multiple catalytic forms may
         # produce the same dead-end form. Group by
@@ -1098,6 +1071,56 @@ end
 # ─── Stage 3: Combined Dead-End Expansion ─────────────────────
 
 """
+    _substrate_product_dead_end_opportunities(
+        bound, cat_forms, sub_names, prod_names)
+
+Find (form, metabolite) dead-end opportunities for
+substrates and products. A dead-end is valid when:
+- The form doesn't already bind all substrates or all
+  products
+- The metabolite isn't already bound at the form
+- The resulting form isn't a catalytic form
+- The result doesn't have all substrates + any product
+  or all products + any substrate
+"""
+function _substrate_product_dead_end_opportunities(
+    bound::Dict{Symbol, Set{Symbol}},
+    cat_forms::Set{Symbol},
+    sub_names::Set{Symbol},
+    prod_names::Set{Symbol},
+)
+    all_mets = union(sub_names, prod_names)
+    opportunities = Tuple{Symbol, Symbol}[]
+    for f in sort(collect(cat_forms))
+        haskey(bound, f) || continue
+        fb = bound[f]
+        fb_subs = intersect(fb, sub_names)
+        fb_prods = intersect(fb, prod_names)
+        # Eligible: neither all subs nor all prods
+        (fb_subs == sub_names ||
+            fb_prods == prod_names) && continue
+        for m in sort(collect(all_mets))
+            m in fb && continue
+            de_name = _dead_end_form_name(fb, m)
+            de_name in cat_forms && continue
+            new_bound = union(fb, Set([m]))
+            new_subs = intersect(
+                new_bound, sub_names)
+            new_prods = intersect(
+                new_bound, prod_names)
+            if (new_subs == sub_names &&
+                    length(new_prods) > 0) ||
+               (new_prods == prod_names &&
+                    length(new_subs) > 0)
+                continue
+            end
+            push!(opportunities, (f, m))
+        end
+    end
+    opportunities
+end
+
+"""
     _regulator_dead_end_opportunities(
         bound, cat_forms, sub_names, prod_names,
         dead_end_regs)
@@ -1162,41 +1185,12 @@ function _expand_dead_end(
             spec, reaction)
         cat_forms = all_form_names(spec)
 
-        # Collect substrate/product dead-end
-        # opportunities (same logic as 3a)
-        sp_opps = Tuple{Symbol, Symbol}[]
-        if include_substrate_product
-            for f in sort(collect(cat_forms))
-                haskey(bound, f) || continue
-                fb = bound[f]
-                fb_subs = intersect(fb, sub_names)
-                fb_prods = intersect(
-                    fb, prod_names)
-                (fb_subs == sub_names ||
-                    fb_prods == prod_names) &&
-                    continue
-                for m in sort(collect(all_mets))
-                    m in fb && continue
-                    de_name = _dead_end_form_name(
-                        fb, m)
-                    de_name in cat_forms && continue
-                    new_bound = union(
-                        fb, Set([m]))
-                    new_subs = intersect(
-                        new_bound, sub_names)
-                    new_prods = intersect(
-                        new_bound, prod_names)
-                    if (new_subs == sub_names &&
-                            length(new_prods) > 0
-                        ) || (
-                            new_prods == prod_names
-                            && length(new_subs) > 0
-                        )
-                        continue
-                    end
-                    push!(sp_opps, (f, m))
-                end
-            end
+        sp_opps = if include_substrate_product
+            _substrate_product_dead_end_opportunities(
+                bound, cat_forms, sub_names,
+                prod_names)
+        else
+            Tuple{Symbol, Symbol}[]
         end
 
         # Collect regulator dead-end opportunities
