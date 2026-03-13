@@ -51,6 +51,15 @@ struct StepSpec
     is_equilibrium::Bool
 end
 
+Base.:(==)(a::StepSpec, b::StepSpec) =
+    a.reactants == b.reactants &&
+    a.products == b.products &&
+    a.is_equilibrium == b.is_equilibrium
+
+Base.hash(s::StepSpec, h::UInt) =
+    hash(s.is_equilibrium,
+        hash(s.products, hash(s.reactants, h)))
+
 """
     MechanismSpec <: AbstractMechanismSpec
 
@@ -1589,6 +1598,7 @@ function _expand_dead_end(
     specs::Vector{MechanismSpec},
     @nospecialize(reaction::EnzymeReaction);
     dead_end_regs::Vector{Symbol}=Symbol[],
+    include_substrate_product::Bool=true,
 )
     sub_names = Set(
         s[1] for s in substrates(reaction))
@@ -1605,29 +1615,37 @@ function _expand_dead_end(
         # Collect substrate/product dead-end
         # opportunities (same logic as 3a)
         sp_opps = Tuple{Symbol, Symbol}[]
-        for f in sort(collect(cat_forms))
-            haskey(bound, f) || continue
-            fb = bound[f]
-            fb_subs = intersect(fb, sub_names)
-            fb_prods = intersect(fb, prod_names)
-            (fb_subs == sub_names ||
-                fb_prods == prod_names) && continue
-            for m in sort(collect(all_mets))
-                m in fb && continue
-                de_name = _dead_end_form_name(fb, m)
-                de_name in cat_forms && continue
-                new_bound = union(fb, Set([m]))
-                new_subs = intersect(
-                    new_bound, sub_names)
-                new_prods = intersect(
-                    new_bound, prod_names)
-                if (new_subs == sub_names &&
-                        length(new_prods) > 0) ||
-                   (new_prods == prod_names &&
-                        length(new_subs) > 0)
+        if include_substrate_product
+            for f in sort(collect(cat_forms))
+                haskey(bound, f) || continue
+                fb = bound[f]
+                fb_subs = intersect(fb, sub_names)
+                fb_prods = intersect(
+                    fb, prod_names)
+                (fb_subs == sub_names ||
+                    fb_prods == prod_names) &&
                     continue
+                for m in sort(collect(all_mets))
+                    m in fb && continue
+                    de_name = _dead_end_form_name(
+                        fb, m)
+                    de_name in cat_forms && continue
+                    new_bound = union(
+                        fb, Set([m]))
+                    new_subs = intersect(
+                        new_bound, sub_names)
+                    new_prods = intersect(
+                        new_bound, prod_names)
+                    if (new_subs == sub_names &&
+                            length(new_prods) > 0
+                        ) || (
+                            new_prods == prod_names
+                            && length(new_subs) > 0
+                        )
+                        continue
+                    end
+                    push!(sp_opps, (f, m))
                 end
-                push!(sp_opps, (f, m))
             end
         end
 
@@ -2037,19 +2055,16 @@ function _expand_tr_equivalence(
     @nospecialize(reaction::EnzymeReaction),
 )
     result = AllostericMechanismSpec[]
-    site_defs, forms = EnzymeRates.enumerate_enzyme_forms(reaction)
-    adj = EnzymeRates._build_adjacency(site_defs, forms)
-
     for spec in specs
         # Collect metabolites with T-state params
         t_mets = Symbol[]
 
-        # 1. All metabolites in RE binding edges (catalytic + dead-end)
-        for (i, (ei, ej)) in enumerate(spec.base.edges)
-            spec.base.equilibrium_steps[i] || continue
-            key = minmax(ei, ej)
-            met = get(adj, key, nothing)
-            met !== nothing && met ∉ t_mets && push!(t_mets, met)
+        # 1. All metabolites in RE binding steps
+        for s in spec.base.steps
+            s.is_equilibrium || continue
+            met = step_metabolite(s)
+            met !== nothing && met ∉ t_mets &&
+                push!(t_mets, met)
         end
 
         # 2. Regulator ligands
@@ -2144,6 +2159,26 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
         met_atoms[r] = Dict{Symbol,Int}()
     end
 
+    # Strip __regN suffixes from metabolite names
+    function _clean_met(sym::Symbol)
+        s = string(sym)
+        m = match(r"^(.+)__reg\d+$", s)
+        m !== nothing ? Symbol(m.captures[1]) : sym
+    end
+
+    # Add suffixed regulator names to met_set/met_atoms
+    # so BFS recognizes them as metabolites
+    for s in spec.steps
+        for sym in Iterators.flatten(
+                (s.reactants, s.products))
+            clean = _clean_met(sym)
+            if clean != sym && clean ∈ met_set
+                push!(met_set, sym)
+                met_atoms[sym] = met_atoms[clean]
+            end
+        end
+    end
+
     # Collect form names (all symbols in steps
     # that are not metabolites)
     form_set = Set{Symbol}()
@@ -2217,10 +2252,10 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
         end
     end
 
-    # Build enzyme forms tuple sorted by name
+    # Build enzyme forms tuple sorted by cleaned name
     form_names = sort!(collect(form_set))
     enzymes = Tuple(
-        (name, Tuple(sort!(
+        (_clean_met(name), Tuple(sort!(
             [Tuple(p) for p in form_atoms[name]];
             by=first
         )))
@@ -2231,13 +2266,6 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
         substrates(rxn), products(rxn),
         regulators(rxn), enzymes
     )
-
-    # Strip __regN suffixes from metabolite names
-    function _clean_met(sym::Symbol)
-        s = string(sym)
-        m = match(r"^(.+)__reg\d+$", s)
-        m !== nothing ? Symbol(m.captures[1]) : sym
-    end
 
     reactions = Tuple(
         let r = s.reactants, p = s.products
@@ -2299,37 +2327,19 @@ using a staged pipeline.
 """
 function enumerate_mechanisms(
     @nospecialize(reaction::EnzymeReaction);
-    stage::EnumerationStage=FullEnumeration(),
     max_re_groups::Int=7,
     catalytic_n::Int=0,
 )
-    # Stage 1: Catalytic topologies
     catalytic = _catalytic_topologies(reaction)
-    stage isa Catalytic && return catalytic
 
-    # Regulator partitioning: fixed-role regs + 2^n partitions
-    # of unknown-role regs
     roles = regulator_roles(reaction)
-    fixed_dead_end = Symbol[r[1] for r in roles if r[2] == :dead_end]
-    fixed_allosteric = Symbol[r[1] for r in roles
-                              if r[2] == :allosteric]
-    unknown = Symbol[r[1] for r in roles if r[2] == :unknown]
+    fixed_dead_end = Symbol[
+        r[1] for r in roles if r[2] == :dead_end]
+    fixed_allosteric = Symbol[
+        r[1] for r in roles if r[2] == :allosteric]
+    unknown = Symbol[
+        r[1] for r in roles if r[2] == :unknown]
     n_unknown = length(unknown)
-
-    # WithDeadEnd stage: run dead-end on catalytic topologies
-    # directly (for backward compat with tests that need large
-    # mechanisms without running the full pipeline)
-    if stage isa WithDeadEnd
-        all_de = MechanismSpec[]
-        for reg_mask in 0:(1 << n_unknown) - 1
-            de_regs = Symbol[fixed_dead_end;
-                [unknown[i] for i in 1:n_unknown
-                 if (reg_mask >> (i - 1)) & 1 == 0]]
-            append!(all_de, _expand_dead_end_inhibitors(
-                catalytic, reaction; dead_end_regs=de_regs))
-        end
-        return all_de
-    end
 
     all_base = MechanismSpec[]
     all_allosteric = AllostericMechanismSpec[]
@@ -2342,27 +2352,34 @@ function enumerate_mechanisms(
             [unknown[i] for i in 1:n_unknown
              if (reg_mask >> (i - 1)) & 1 == 1]]
 
-        # Phase 1: base mechanism pipeline (chained)
+        # Stages 2-5: base mechanism pipeline
         base = _expand_ress_variants(
             catalytic, reaction; max_re_groups)
-        base = _expand_dead_end_inhibitors(
-            base, reaction; dead_end_regs=de_regs)
-        base = _expand_equivalence_constraints(base, reaction)
+        base = _expand_dead_end(
+            base, reaction; dead_end_regs=de_regs,
+            include_substrate_product=false)
+        base = _expand_equivalence_constraints(
+            base, reaction)
         base = _deduplicate(base, reaction)
         append!(all_base, base)
 
-        # Phase 2: allosteric expansion (independent)
+        # Stages 6-8: allosteric expansion
         if !isempty(allo_regs)
             cn = catalytic_n > 0 ? catalytic_n : 1
-            allo = _expand_allosteric(base, reaction;
-                catalytic_n=cn, allosteric_regs=allo_regs)
-            allo = _expand_tr_equivalence(allo, reaction)
-            allo = _deduplicate_allosteric(allo, reaction)
+            allo = _expand_allosteric(
+                base, reaction;
+                catalytic_n=cn,
+                allosteric_regs=allo_regs)
+            allo = _expand_tr_equivalence(
+                allo, reaction)
+            allo = _deduplicate_allosteric(
+                allo, reaction)
             append!(all_allosteric, allo)
         end
     end
 
     total = length(all_base) + length(all_allosteric)
-    inner = Iterators.flatten((all_base, all_allosteric))
+    inner = Iterators.flatten(
+        (all_base, all_allosteric))
     MechanismIterator(inner, total)
 end

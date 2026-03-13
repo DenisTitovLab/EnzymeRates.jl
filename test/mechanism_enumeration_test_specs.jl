@@ -82,6 +82,12 @@ const bi_bi_dead_end_I = @enzyme_reaction begin
     dead_end_inhibitors: I
 end
 
+const bi_bi_ping_pong_dead_end_I = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    dead_end_inhibitors: I
+end
+
 const uni_uni_dead_end_I_J = @enzyme_reaction begin
     substrates: S[C]
     products: P[C]
@@ -97,6 +103,18 @@ const uni_uni_allosteric_R = @enzyme_reaction begin
 end
 
 const uni_bi_allosteric_R = @enzyme_reaction begin
+    substrates: S[AB]
+    products: P[A], Q[B]
+    allosteric_regulators: R
+end
+
+const bi_bi_ping_pong_allosteric_R = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    allosteric_regulators: R
+end
+
+const uni_bi_allosteric_R_cn2 = @enzyme_reaction begin
     substrates: S[AB]
     products: P[A], Q[B]
     allosteric_regulators: R
@@ -131,6 +149,12 @@ const uni_bi_reg_unknown = @enzyme_reaction begin
     regulators: I
 end
 
+const bi_bi_ping_pong_reg_unknown = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+    regulators: I
+end
+
 # ── Helper: run pipeline stage by stage (all partitions) ─────
 
 function _run_full_pipeline_stages(rxn; catalytic_n::Int=0,
@@ -161,8 +185,9 @@ function _run_full_pipeline_stages(rxn; catalytic_n::Int=0,
             catalytic, rxn; max_re_groups)
         n_ress += length(ress)
 
-        with_de = EnzymeRates._expand_dead_end_inhibitors(
-            ress, rxn; dead_end_regs=de)
+        with_de = EnzymeRates._expand_dead_end(
+            ress, rxn; dead_end_regs=de,
+            include_substrate_product=false)
         n_de += length(with_de)
 
         with_eq =
