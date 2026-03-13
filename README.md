@@ -246,15 +246,18 @@ end
 
 ### Pipeline stages
 
-The enumeration runs in five stages, exposed via `enumerate_mechanism_stages`:
+The enumeration runs in 8 stages:
 
-| Stage | Description |
-|-------|-------------|
-| **1. Enzyme forms** | Enumerate all distinguishable enzyme states: free enzyme, substrate-bound, product-bound, and ping-pong residual intermediates. |
-| **2. Catalytic topologies** | Build minimal catalytic cycles (sequential and ping-pong), then combine into multi-cycle unions. A purity filter removes hybrid topologies (see below). |
-| **3. Activator configurations** | For each regulator, decide if it is an activator (essential or non-essential) or an inhibitor. Activators add new catalytic forms; inhibitors are handled in the next stage. |
-| **4. Dead-end complexes** | Each inhibitor can independently form a dead-end complex at each topology form, giving `(2^r_inh)^n_topo` configurations per activator setup. |
-| **5. RE/SS + constraints** | For each dead-end topology, enumerate all rapid-equilibrium (RE) vs. steady-state (SS) assignments for each elementary step, plus optional parameter constraints for equivalent binding steps. This stage is lazy — variants are generated on iteration. |
+| Stage | Function | Description |
+|-------|----------|-------------|
+| **1** | `_catalytic_topologies` | Build catalytic topologies from enzyme forms and valid elementary steps. |
+| **2** | `_expand_ress_variants` | Enumerate RE/SS assignments for each step. |
+| **3** | `_expand_dead_end` | Add dead-end complexes for regulators and substrate/product inhibition. |
+| **4** | `_expand_equivalence_constraints` | Add parameter equivalence constraints for steps binding the same metabolite. |
+| **5** | `_deduplicate` | Remove duplicate `MechanismSpec`s. |
+| **6** | `_expand_allosteric` | Expand allosteric regulators into MWC `AllostericMechanismSpec`s. |
+| **7** | `_expand_tr_equivalence` | Enumerate T/R parameter equivalence variants. |
+| **8** | `_deduplicate_allosteric` | Remove duplicate `AllostericMechanismSpec`s. |
 
 ### Enzyme forms
 
@@ -411,8 +414,6 @@ v/(E_total × kcat) automatically scale-invariant.
 | `AllostericEnzymeMechanism{Mets,CatalyticMech,CatSites,RegSites}` | Multi-subunit allosteric enzyme under the MWC model (always 2 conformations). `CatalyticMech` is the `EnzymeMechanism` of one subunit; `CatSites` is `(catalytic_mets, multiplicity, tr_equiv_mets)`; `RegSites` describes regulatory binding sites with TR equivalence info. |
 | `MechanismSpec` | Lightweight runtime description of a mechanism. Convert to `EnzymeMechanism` via `EnzymeMechanism(spec)`. |
 | `FittingProblem` | Wraps a mechanism + data table for parameter fitting. |
-| `SiteState` | State of a single binding site (metabolite, atoms, role). |
-| `EnzymeFormSpec` | Specification of an enzyme form with named binding sites. |
 
 ### Macros
 
@@ -434,8 +435,6 @@ v/(E_total × kcat) automatically scale-invariant.
 | `fit_rate_equation(fp, optimizer; ...)` | Fit rate constants via multi-start optimization. |
 | `rescale_parameter_values(m, params; kcat=1.0)` | Rescale SS rate constants so kcat equals target. K's, Keq, E_total unchanged. |
 | `enumerate_mechanisms(rxn; max_forms)` | Lazy iterator over all valid mechanisms for a reaction. |
-| `enumerate_mechanism_stages(rxn; max_forms)` | Run enumeration pipeline, returning intermediate results at each stage. |
-| `enumerate_enzyme_forms(rxn)` | Enumerate all possible enzyme forms for a reaction. |
 | `substrates(m)` | Substrates (with stoichiometric multiplicity). |
 | `products(m)` | Products (with stoichiometric multiplicity). |
 | `regulators(m)` | Regulators. |

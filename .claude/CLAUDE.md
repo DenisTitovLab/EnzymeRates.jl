@@ -241,19 +241,17 @@ julia --project -e 'using Pkg; Pkg.test()'
 - Substrates/products are `(name, atoms)` tuples — access name via `s[1]`
 
 ### Dead-end SS/RE propagation
-- Dead-end substrate/product-binding edges (e.g., ER↔ESR for S-binding) inherit RE/SS status from their catalytic counterpart (E↔ES), found by stripping regulator sites from endpoints
+- Dead-end substrate/product-binding edges (e.g., ER↔ESR for S-binding) inherit RE/SS status from their catalytic counterpart during construction in `_expand_dead_end`
 - Dead-end regulator-binding edges (E↔ER, ES↔ESR) remain always RE
-- `_dead_end_catalytic_map` maps each dead-end edge to its unique catalytic counterpart; `_propagate_de_eq_steps!` copies the RE/SS status
 
 ### Dead-end parameter equivalence constraints
-- `_find_equivalent_groups` includes dead-end edges with catalytic counterparts: when ER↔ESR binds the same non-product metabolite S as catalytic E↔ES, they join the same equiv group
+- `_expand_equivalence_constraints` groups steps by `step_metabolite()` and RE/SS status; groups with 2+ steps binding the same metabolite can be constrained to share parameters
 - This adds constrained variants where K_S_dead_end = K_S_catalytic (fewer params: R doesn't affect S-binding)
-- Dead-end edges always have lower index than catalytic, so `g[1]` is always the catalytic edge
 
 ### Mechanism enumeration staged pipeline
 - `MechanismSpec` has 6 fields: `reaction, edges, n_catalytic_edges, equilibrium_steps, param_constraints, param_count`
 - `AllostericMechanismSpec` has 5 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, tr_equiv_metabolites`
-- Pipeline order (8 stages): `_catalytic_topologies` (stage 1) → `_expand_ress_variants` (stage 2) → `_expand_dead_end_inhibitors` (stage 3) → `_expand_equivalence_constraints` (stage 4) → `_deduplicate` (stage 5) → `_expand_allosteric` (stage 6) → `_expand_tr_equivalence` (stage 7) → `_deduplicate_allosteric` (stage 8)
+- Pipeline order (8 stages): `_catalytic_topologies` (stage 1) → `_expand_ress_variants` (stage 2) → `_expand_dead_end` (stage 3) → `_expand_equivalence_constraints` (stage 4) → `_deduplicate` (stage 5) → `_expand_allosteric` (stage 6) → `_expand_tr_equivalence` (stage 7) → `_deduplicate_allosteric` (stage 8)
 - Stages 1-5 produce `Vector{MechanismSpec}`, stages 6-8 produce `Vector{AllostericMechanismSpec}`
 - Regulator partitioning (2^n_unknown masks for unknown-role regs) happens in `enumerate_mechanisms` orchestration; stage functions take explicit `dead_end_regs`/`allosteric_regs` kwargs
 - `_set_partitions` enumerates all Bell-number set partitions of allosteric regulators
@@ -269,7 +267,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; kcat computation (`_is_ss_rate_constant`, `_kcat_components`, `_kcat_forward`) and `rescale_parameter_values`; AllostericEnzymeMechanism MWC rate equation assembly (`_build_allosteric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
 - `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
-- `src/mechanism_enumeration.jl` — Staged pipeline for mechanism enumeration. Types: `SiteDefinition`, `EnzymeFormSpec`, `MechanismSpec` (6 fields), `AllostericMechanismSpec`, `MechanismIterator`. 8 stages: `_catalytic_topologies` → `_expand_ress_variants` → `_expand_dead_end_inhibitors` → `_expand_equivalence_constraints` → `_deduplicate` → `_expand_allosteric` → `_expand_tr_equivalence` → `_deduplicate_allosteric`. `compile_mechanism` converts specs to `EnzymeMechanism`/`AllostericEnzymeMechanism`. Helpers: `_dead_end_catalytic_map`/`_propagate_de_eq_steps!`, `_set_partitions`/`_partition_mult_count`, `_concentration_fingerprint`/`_constraint_descriptor` for dedup
+- `src/mechanism_enumeration.jl` — Staged pipeline for mechanism enumeration. Types: `StepSpec`, `MechanismSpec` (6 fields), `AllostericMechanismSpec`, `MechanismIterator`. 8 stages: `_catalytic_topologies` → `_expand_ress_variants` → `_expand_dead_end` → `_expand_equivalence_constraints` → `_deduplicate` → `_expand_allosteric` → `_expand_tr_equivalence` → `_deduplicate_allosteric`. `compile_mechanism` converts specs to `EnzymeMechanism`/`AllostericEnzymeMechanism`. Helpers: `_set_partitions`/`_partition_mult_count`, `_concentration_fingerprint`/`_constraint_descriptor` for dedup
 
 ## Vmax Normalization (kcat factoring) — IMPLEMENTED
 
