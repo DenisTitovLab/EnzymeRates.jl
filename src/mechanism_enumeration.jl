@@ -1324,6 +1324,139 @@ function _expand_dead_end(
     result
 end
 
+"""Compute incidence matrix nullspace for a set of steps."""
+function _compute_step_nullspace(steps::Vector{StepSpec})
+    form_list = Symbol[]
+    form_idx = Dict{Symbol, Int}()
+    for s in steps
+        for f in (s.reactants[1], s.products[1])
+            if !haskey(form_idx, f)
+                push!(form_list, f)
+                form_idx[f] = length(form_list)
+            end
+        end
+    end
+    n_forms = length(form_list)
+    n_steps = length(steps)
+    B = zeros(Int, n_forms, n_steps)
+    for (j, s) in enumerate(steps)
+        B[form_idx[s.reactants[1]], j] -= 1
+        B[form_idx[s.products[1]], j] += 1
+    end
+    _integer_nullspace(B)
+end
+
+"""
+    _redundant_thermo_count_cached(steps, NS, active_groups)
+
+Cached variant: takes pre-computed nullspace NS to avoid
+recomputing it per constraint mask. Uses integer arithmetic
+for the rank computation to minimize allocations.
+"""
+function _redundant_thermo_count_cached(
+    steps::Vector{StepSpec},
+    NS::Matrix{Int},
+    active_groups::Vector{Vector{Int}},
+)
+    n_steps = length(steps)
+    n_cycles = size(NS, 2)
+    n_cycles == 0 && return 0
+
+    equiv_rows = Int[]
+    for g in active_groups
+        for j in 2:length(g)
+            push!(equiv_rows, g[1], g[j])
+        end
+    end
+    n_equiv = length(equiv_rows) ÷ 2
+    n_equiv == 0 && return 0
+
+    n_total = n_cycles + n_equiv
+
+    # Build num/den matrices (no Rational{BigInt})
+    num = zeros(Int, n_total, n_steps)
+    den = ones(Int, n_total, n_steps)
+    for i in 1:n_cycles, j in 1:n_steps
+        num[i, j] = NS[j, i]
+    end
+    for k in 1:n_equiv
+        num[n_cycles + k, equiv_rows[2k - 1]] = 1
+        num[n_cycles + k, equiv_rows[2k]] = -1
+    end
+
+    # Row echelon with explicit loops (no slice ops)
+    rank_combined = 0
+    row = 1
+    for col in 1:n_steps
+        # Find pivot
+        piv = 0
+        for r in row:n_total
+            if num[r, col] != 0
+                piv = r
+                break
+            end
+        end
+        piv == 0 && continue
+
+        # Swap rows
+        if piv != row
+            for j in 1:n_steps
+                num[row, j], num[piv, j] =
+                    num[piv, j], num[row, j]
+                den[row, j], den[piv, j] =
+                    den[piv, j], den[row, j]
+            end
+        end
+
+        # Scale pivot row: divide by pivot element
+        pn, pd = num[row, col], den[row, col]
+        for j in 1:n_steps
+            num[row, j] *= pd
+            den[row, j] *= pn
+            g = gcd(abs(num[row, j]),
+                abs(den[row, j]))
+            if g > 0
+                num[row, j] ÷= g
+                den[row, j] ÷= g
+            end
+            if den[row, j] < 0
+                num[row, j] = -num[row, j]
+                den[row, j] = -den[row, j]
+            end
+        end
+
+        # Eliminate column in other rows
+        for r in 1:n_total
+            r == row && continue
+            num[r, col] == 0 && continue
+            fn, fd = num[r, col], den[r, col]
+            for j in 1:n_steps
+                rn = num[r, j] * fd *
+                    den[row, j] -
+                    fn * num[row, j] * den[r, j]
+                rd = den[r, j] * fd *
+                    den[row, j]
+                g = gcd(abs(rn), abs(rd))
+                if g > 0
+                    num[r, j] = rn ÷ g
+                    den[r, j] = rd ÷ g
+                else
+                    num[r, j] = 0
+                    den[r, j] = 1
+                end
+                if den[r, j] < 0
+                    num[r, j] = -num[r, j]
+                    den[r, j] = -den[r, j]
+                end
+            end
+        end
+        rank_combined += 1
+        row += 1
+    end
+
+    n_cycles + n_equiv - rank_combined
+end
+
 """
 Count equivalence constraints that make Wegscheider
 constraints redundant. Works in equilibrium-constant
@@ -1583,11 +1716,13 @@ function _expand_equiv_and_deduplicate(
     for spec in specs
         steps = spec.steps
 
-        # Compute fingerprint once per source spec
+        # Compute fingerprint and nullspace once per
+        # source spec
         partition = _compute_re_partition_from_steps(
             steps)
         fp = _concentration_fingerprint(
             steps, partition)
+        NS = _compute_step_nullspace(steps)
 
         # Build equivalence groups (same logic as
         # _expand_equivalence_constraints)
@@ -1640,8 +1775,8 @@ function _expand_equiv_and_deduplicate(
                 (mask >> (gi - 1)) & 1 == 1 &&
                     push!(active, g)
             end
-            redundancy = _redundant_thermo_count(
-                steps, active)
+            redundancy = _redundant_thermo_count_cached(
+                steps, NS, active)
 
             param_count = lower_bound + redundancy
             if !haskey(best, dedup_key) ||
