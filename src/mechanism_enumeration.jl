@@ -2041,6 +2041,25 @@ end
 
 # ─── T/R Equivalence ─────────────────────────────────────────
 
+"""All metabolites with T-state binding parameters."""
+function _collect_t_state_metabolites(
+    spec::AllostericMechanismSpec,
+)
+    t_mets = Symbol[]
+    for s in spec.base.steps
+        s.is_equilibrium || continue
+        met = step_metabolite(s)
+        met !== nothing && met ∉ t_mets &&
+            push!(t_mets, met)
+    end
+    for site in spec.allosteric_reg_sites
+        for lig in site
+            lig ∉ t_mets && push!(t_mets, lig)
+        end
+    end
+    t_mets
+end
+
 """
     _expand_tr_equivalence(specs, reaction)
         -> Vector{AllostericMechanismSpec}
@@ -2056,24 +2075,7 @@ function _expand_tr_equivalence(
 )
     result = AllostericMechanismSpec[]
     for spec in specs
-        # Collect metabolites with T-state params
-        t_mets = Symbol[]
-
-        # 1. All metabolites in RE binding steps
-        for s in spec.base.steps
-            s.is_equilibrium || continue
-            met = step_metabolite(s)
-            met !== nothing && met ∉ t_mets &&
-                push!(t_mets, met)
-        end
-
-        # 2. Regulator ligands
-        for site in spec.allosteric_reg_sites
-            for lig in site
-                lig ∉ t_mets && push!(t_mets, lig)
-            end
-        end
-
+        t_mets = _collect_t_state_metabolites(spec)
         n = length(t_mets)
         for mask in 0:(1 << n) - 1
             equiv = Symbol[t_mets[i] for i in 1:n
@@ -2102,14 +2104,20 @@ function _deduplicate_allosteric(
     seen = Dict{Any, AllostericMechanismSpec}()
     for spec in specs
         key = _allosteric_canonical_key(spec)
-        if !haskey(seen, key)
+        if !haskey(seen, key) ||
+                spec.base.param_count <
+                seen[key].base.param_count
             seen[key] = spec
         end
     end
     collect(values(seen))
 end
 
-"""Canonical key for allosteric dedup: includes sorted TR equiv metabolites."""
+"""Canonical key for allosteric dedup.
+
+Maps complementary TR-equiv sets to the same key so
+T/R mirror mechanisms are recognized as duplicates.
+"""
 function _allosteric_canonical_key(spec::AllostericMechanismSpec)
     base_key = (spec.base.steps,
                 spec.base.param_constraints)
@@ -2119,8 +2127,14 @@ function _allosteric_canonical_key(spec::AllostericMechanismSpec)
     sort!(pairs)
     sorted_sites = [p[1] for p in pairs]
     sorted_mults = [p[2] for p in pairs]
-    (base_key, spec.catalytic_n, sorted_sites, sorted_mults,
-     sort(spec.tr_equiv_metabolites))
+    # Canonical TR-equiv: min of set and its complement
+    # so T↔R mirrors map to the same key
+    tr = sort(spec.tr_equiv_metabolites)
+    all_t = sort(_collect_t_state_metabolites(spec))
+    complement = sort(setdiff(all_t, tr))
+    canonical_tr = min(tr, complement)
+    (base_key, spec.catalytic_n, sorted_sites,
+     sorted_mults, canonical_tr)
 end
 
 # ─── MechanismSpec → EnzymeMechanism Conversion ──────────────

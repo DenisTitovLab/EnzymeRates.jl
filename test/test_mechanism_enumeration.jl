@@ -876,19 +876,12 @@ end
         @test length(tr) == 64  # 2^6
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, bi_bi_allosteric_R1_R2)
-        # Bug: _allosteric_canonical_key uses sort(tr_equiv_metabolites)
-        # directly, so complementary TR-equiv sets (T↔R mirrors) get
-        # different keys and both survive dedup. Mirrors should be removed.
-        @test_broken length(deduped) < length(tr)
-        @test length(deduped) == length(tr)
+        @test length(deduped) < length(tr)
     end
 
-    @testset "Uni-Uni + R: no mirrors (odd metabolites)" begin
-        # 3 metabolites (S, P, R): complementary subsets always
-        # differ in size → different param counts → no true mirrors.
-        # (Additionally, _allosteric_canonical_key never maps
-        # complements to the same key, but even with correct dedup,
-        # odd metabolite counts produce no equal-size mirrors.)
+    @testset "Uni-Uni + R: mirrors removed (odd metabolites)" begin
+        # 3 metabolites (S, P, R): complements differ in size but
+        # are still T↔R mirrors. 2^3 = 8 → 4 after dedup.
         topo = EnzymeRates._catalytic_topologies(
             uni_uni_allosteric_R)[1]
         dd = EnzymeRates._deduplicate(
@@ -900,7 +893,7 @@ end
             allo, uni_uni_allosteric_R)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, uni_uni_allosteric_R)
-        @test length(deduped) == length(tr)
+        @test length(deduped) == length(tr) ÷ 2
     end
 
     @testset "Keeps lower param_count on mirror" begin
@@ -915,11 +908,7 @@ end
             [allo[1]], bi_bi_allosteric_R1_R2)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, bi_bi_allosteric_R1_R2)
-        # Bug: mirror dedup is broken — _allosteric_canonical_key
-        # never maps complementary TR-equiv sets to the same key,
-        # so no mirrors are removed and param_count selection
-        # is untestable. Already covered by @test_broken in
-        # "T/R mirrors dedup" above.
+        @test length(deduped) < length(tr)
         for s in deduped
             @test s isa EnzymeRates.AllostericMechanismSpec
         end
@@ -1101,14 +1090,14 @@ end
         result = collect(
             EnzymeRates.enumerate_mechanisms(
                 uni_uni_reg_unknown))
-        @test length(result) == 25
+        @test length(result) == 17
     end
 
     @testset "Uni-Bi + 1 unknown reg" begin
         result = collect(
             EnzymeRates.enumerate_mechanisms(
                 uni_bi_reg_unknown))
-        @test length(result) == 1239
+        @test length(result) == 1012
     end
 end
 
