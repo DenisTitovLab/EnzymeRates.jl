@@ -486,6 +486,26 @@ end
         end
     end
 
+    @testset "Ter-Bi" begin
+        ter_bi = @enzyme_reaction begin
+            substrates: A[C], B[N], D[X]
+            products: P[CN], Q[X]
+        end
+        topos = EnzymeRates._catalytic_topologies(
+            ter_bi)
+        # 204 = 189 sequential + 15 ping-pong.
+        # Sequential: (2^(3!) - 1) × (2^(2!) - 1)
+        #   = 63 × 3 = 189.
+        # Ping-pong: D[X]→Q[X] can isomerize
+        # independently, creating 15 Estar topologies.
+        @test length(topos) == 204
+        for t in topos
+            @test count(
+                !s.is_equilibrium for s in t.steps
+            ) == 1
+        end
+    end
+
 end
 
 @testset "Stage 2: RE/SS expansion" begin
@@ -610,6 +630,12 @@ end
         result_mrg3 = EnzymeRates._expand_ress_variants(
             [topo], bi_bi; max_re_groups=3)
         @test length(result_mrg3) == 379
+        result_mrg1 = EnzymeRates._expand_ress_variants(
+            [topo], bi_bi; max_re_groups=1)
+        # 89 = 9 single-SS + 32 two-SS + 48 three-SS
+        # where remaining RE steps form 1 connected
+        # component in each case
+        @test length(result_mrg1) == 89
     end
 end
 
@@ -975,22 +1001,15 @@ end
             m_bb_seq, bi_bi)
         de = EnzymeRates._expand_dead_end(
             [topo], bi_bi; dead_end_regs=Symbol[])
-        # Find a spec with exactly 1 equiv group
-        function _n_equiv_groups(spec)
-            gs = Dict{Tuple{Symbol,Bool},
-                Vector{Int}}()
-            for (j, st) in enumerate(spec.steps)
-                met = EnzymeRates.step_metabolite(st)
-                met === nothing && continue
-                key = (met, st.is_equilibrium)
-                push!(get!(gs, key, Int[]), j)
-            end
-            count(v -> length(v) >= 2,
-                values(gs))
-        end
+        # Variant with E_A_P dead-end: P appears in 2
+        # RE steps (EQ+P→EPQ, EA+P→EAP) → 1 equiv
+        # group → 2 variants
+        target = Set([:E, :E_A, :E_A_B, :E_Q,
+            :E_P_Q, :E_A_P])
         s = first(
             x for x in de
-            if _n_equiv_groups(x) == 1)
+            if Set(EnzymeRates.all_form_names(x)) ==
+                target)
         eq =
             EnzymeRates._expand_equivalence_constraints(
                 [s], bi_bi)
@@ -1022,27 +1041,18 @@ end
             m_bb_seq, bi_bi)
         de = EnzymeRates._expand_dead_end(
             [topo], bi_bi; dead_end_regs=Symbol[])
-        # Find spec with ≥ 2 equiv groups
-        function _count_equiv_groups(spec)
-            gs = Dict{Tuple{Symbol,Bool},
-                Vector{Int}}()
-            for (j, st) in enumerate(spec.steps)
-                met = EnzymeRates.step_metabolite(st)
-                met === nothing && continue
-                key = (met, st.is_equilibrium)
-                push!(get!(gs, key, Int[]), j)
-            end
-            count(v -> length(v) >= 2,
-                values(gs))
-        end
-        multi = filter(
-            x -> _count_equiv_groups(x) >= 2, de)
-        @test !isempty(multi)
-        s = first(multi)
-        n_groups = _count_equiv_groups(s)
+        # Variant with E_A_Q dead-end: A in 2 RE steps
+        # (E+A→EA, EQ+A→EAQ) and Q in 2 RE steps
+        # (E+Q→EQ, EA+Q→EAQ) → 2 equiv groups
+        target = Set([:E, :E_A, :E_A_B, :E_Q,
+            :E_P_Q, :E_A_Q])
+        s = first(
+            x for x in de
+            if Set(EnzymeRates.all_form_names(x)) ==
+                target)
         eq = EnzymeRates._expand_equivalence_constraints(
             [s], bi_bi)
-        @test length(eq) == 2^n_groups
+        @test length(eq) == 4
     end
 
     @testset "Substrate/regulator same metabolite" begin
@@ -1111,19 +1121,18 @@ end
         has_de = filter(
             x -> length(x.steps) > length(topo.steps),
             de)
-        if !isempty(has_de)
-            s = has_de[argmax(
-                length(x.steps) for x in has_de)]
-            eq =
-                EnzymeRates._expand_equivalence_constraints(
-                    [s], bi_bi)
-            # Should have equivalence variants
-            @test length(eq) >= 2
-            constrained = filter(
-                x -> !isempty(x.param_constraints),
-                eq)
-            @test !isempty(constrained)
-        end
+        @test !isempty(has_de)
+        s = has_de[argmax(
+            length(x.steps) for x in has_de)]
+        eq =
+            EnzymeRates._expand_equivalence_constraints(
+                [s], bi_bi)
+        # Should have equivalence variants
+        @test length(eq) >= 2
+        constrained = filter(
+            x -> !isempty(x.param_constraints),
+            eq)
+        @test !isempty(constrained)
     end
 
     @testset "Properties" begin
@@ -1327,6 +1336,38 @@ end
             single_ss, bi_bi)
         # Symmetric paths collapse: 9 → 5
         @test length(deduped) == 5
+    end
+
+    @testset "Uni-Uni + I: regulator dedup" begin
+        # Dead-end regulator creates additional forms.
+        # Some RE/SS variants produce identical
+        # fingerprints → dedup removes them.
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_dead_end_I)
+        ress = EnzymeRates._expand_ress_variants(
+            [topo], uni_uni_dead_end_I)
+        de = EnzymeRates._expand_dead_end(
+            ress, uni_uni_dead_end_I;
+            dead_end_regs=[:I],
+            include_substrate_product=true)
+        eq = EnzymeRates._expand_equivalence_constraints(
+            de, uni_uni_dead_end_I)
+        deduped = EnzymeRates._deduplicate(
+            eq, uni_uni_dead_end_I)
+        @test length(eq) == 14
+        @test length(deduped) == 6
     end
 
     @testset "Bi-Bi random: full dedup" begin

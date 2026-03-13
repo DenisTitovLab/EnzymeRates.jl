@@ -902,7 +902,7 @@ function _expand_ress_variants(
     result
 end
 
-# ─── Stage 2.5: Substrate/Product Dead-End Expansion ──────────
+# ─── Stage 3a: Substrate/Product Dead-End Expansion ──────────
 
 """
     _bound_metabolites_at_forms(spec, reaction)
@@ -983,8 +983,10 @@ form combinations. A dead-end form is created when a
 substrate or product binds to a catalytic form where it
 doesn't normally bind, subject to:
 - The resulting form is not already a catalytic form
-- The resulting form doesn't have all substrates + any
-  product, or all products + any substrate
+- The resulting form binds at least one substrate AND
+  at least one product (mixed binding required)
+- The resulting form doesn't have all substrates or
+  all products
 """
 function _expand_substrate_product_dead_ends(
     specs::Vector{MechanismSpec},
@@ -1091,7 +1093,7 @@ function _expand_substrate_product_dead_ends(
     result
 end
 
-# ─── Stage 3: Combined Dead-End Expansion ─────────────────────
+# ─── Stage 3b: Combined Dead-End Expansion ─────────────────────
 
 """
     _substrate_product_dead_end_opportunities(
