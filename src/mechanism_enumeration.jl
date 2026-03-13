@@ -1103,8 +1103,9 @@ substrates and products. A dead-end is valid when:
   products
 - The metabolite isn't already bound at the form
 - The resulting form isn't a catalytic form
-- The result doesn't have all substrates + any product
-  or all products + any substrate
+- The result binds at least one substrate AND at least
+  one product (mixed binding required)
+- The result doesn't have all substrates or all products
 """
 function _substrate_product_dead_end_opportunities(
     bound::Dict{Symbol, Set{Symbol}},
@@ -1131,10 +1132,13 @@ function _substrate_product_dead_end_opportunities(
                 new_bound, sub_names)
             new_prods = intersect(
                 new_bound, prod_names)
-            if (new_subs == sub_names &&
-                    length(new_prods) > 0) ||
-               (new_prods == prod_names &&
-                    length(new_subs) > 0)
+            # Must bind at least one of each type
+            if isempty(new_subs) || isempty(new_prods)
+                continue
+            end
+            # Must not bind all of either type
+            if new_subs == sub_names ||
+                    new_prods == prod_names
                 continue
             end
             push!(opportunities, (f, m))

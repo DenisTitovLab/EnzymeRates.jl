@@ -559,16 +559,16 @@ end
         @test length(result) == length(ress)
     end
 
-    @testset "Bi-Bi random: 4 dead-end forms" begin
+    @testset "Bi-Bi random: 4 mixed dead-end forms" begin
         # Fully-random Bi-Bi (topo 9, 7 forms):
         # E, E_A, E_B, E_A_B, E_P, E_Q, E_P_Q
+        # Dead-ends require mixed substrate+product.
         # Eligible forms (not all-subs or all-prods):
-        #   E: all 4 mets → catalytic forms (no dead-ends)
-        #   E_A: +P→E_A_P, +Q→E_A_Q (valid)
-        #   E_B: +P→E_B_P, +Q→E_B_Q (valid)
-        #   E_P: +A→E_A_P, +B→E_B_P (valid, not
-        #         all subs since 2 subs needed)
-        #   E_Q: +A→E_A_Q, +B→E_B_Q (valid)
+        #   E: all 4 mets → catalytic (no dead-ends)
+        #   E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
+        #   E_B: +P→E_B_P(mixed✓), +Q→E_B_Q(mixed✓)
+        #   E_P: +A→E_A_P(mixed✓), +B→E_B_P(mixed✓)
+        #   E_Q: +A→E_A_Q(mixed✓), +B→E_B_Q(mixed✓)
         # 4 unique dead-end forms → 2^4 = 16 variants
         topo = EnzymeRates._catalytic_topologies(
             bi_bi)[end]
@@ -578,29 +578,19 @@ end
         @test length(result) == 16
     end
 
-    @testset "Uni-Bi ordered: 1 dead-end form" begin
+    @testset "Uni-Bi ordered: passthrough (no mixed forms)" begin
         # Uni-Bi topo 1 (ordered Q-first release):
         # E, E_S, E_P_Q, E_Q (4 forms)
-        # Eligible: E (not all subs/prods)
-        #   E+S→E_S (catalytic), E+Q→E_Q (catalytic)
-        #   E+P→E_P: not catalytic, 1 prod bound,
-        #   not all prods → valid dead-end
-        # E_Q: +S→all subs+prod → invalid
-        #       +P→E_P_Q catalytic
-        # 2^1 = 2 variants per input spec
+        # E+P→E_P would be single-product → rejected
+        #   (mixed substrate+product required)
+        # E_Q+S→E_S_Q has all subs (S only) → rejected
+        # → 0 dead-end forms, passthrough.
         topo = EnzymeRates._catalytic_topologies(
             uni_bi)[1]
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo], uni_bi)
-        @test length(result) == 2
-        # The original (no dead-ends) must be included
-        original_forms = EnzymeRates.all_form_names(topo)
-        has_original = any(result) do spec
-            EnzymeRates.all_form_names(spec) ==
-                original_forms
-        end
-        @test has_original
+        @test length(result) == 1
     end
 end
 
@@ -634,10 +624,11 @@ end
         # Topo[1] Q-first: E, ES, EQ, EPQ (4 forms).
         # ES has all subs, EPQ has all prods
         # → eligible = {E, EQ} = 2 forms
-        # Sub/prod dead-ends: E_P (from E)
+        # Sub/prod dead-ends: 0 (E_P is single-product,
+        #   E_S_Q has all subs — both rejected)
         # Regulator dead-ends: E_I__reg1, E_I__reg1_Q
-        # Combined: 3 dead-end forms → 2^3 = 8
-        @test length(result) == 8
+        # Combined: 2 dead-end forms → 2^2 = 4
+        @test length(result) == 4
     end
 
     @testset "Bi-Bi + I" begin
@@ -649,12 +640,13 @@ end
         # Topo[1] sequential (5 forms: E, EA, EAB,
         # EQ, EPQ). EAB has all subs, EPQ all prods
         # → eligible = {E, EA, EQ} = 3 forms
-        # Sub/prod dead-ends: E_B, E_P, E_A_P,
-        #   E_A_Q, E_B_Q (5 forms)
+        # Sub/prod dead-ends: E_A_P, E_A_Q, E_B_Q
+        #   (3 mixed forms; E_B and E_P rejected as
+        #   single-type, not mixed sub+prod)
         # Regulator dead-ends: E_I__reg1,
         #   E_A_I__reg1, E_I__reg1_Q (3 forms)
-        # Combined: 8 dead-end forms → 2^8 = 256
-        @test length(result) == 256
+        # Combined: 6 dead-end forms → 2^6 = 64
+        @test length(result) == 64
     end
 
     @testset "2 inhibitors: Uni-Uni + I, J" begin
@@ -1287,7 +1279,7 @@ end
     @testset "Uni-Bi, no regs" begin
         result = collect(
             EnzymeRates.enumerate_mechanisms(uni_bi))
-        @test length(result) == 59
+        @test length(result) == 56
     end
 
     # Bi-Bi and Bi-Bi Ping-Pong end-to-end tests
@@ -1324,7 +1316,7 @@ end
         result = collect(
             EnzymeRates.enumerate_mechanisms(
                 uni_bi_reg_unknown))
-        @test length(result) == 1033
+        @test length(result) == 1012
     end
 end
 
@@ -1332,12 +1324,12 @@ end
     @testset "All Uni-Bi specs" begin
         all_specs = collect(
             EnzymeRates.enumerate_mechanisms(uni_bi))
-        @test length(all_specs) == 59
+        @test length(all_specs) == 56
         n_match = count(all_specs) do s
             m = compile_mechanism(s)
             s.param_count == length(parameters(m))
         end
-        @test n_match == 59
+        @test n_match == 56
     end
 
     # AllostericMechanismSpec.base.param_count only covers
