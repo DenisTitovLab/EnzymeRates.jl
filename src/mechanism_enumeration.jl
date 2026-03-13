@@ -1562,6 +1562,132 @@ function _constraints_to_mask(constraints, valid_groups,
     mask
 end
 
+# ─── Fused Stage 4+5: Equiv Constraints + Deduplication ───────
+
+"""
+    _expand_equiv_and_deduplicate(specs, reaction)
+        -> Vector{MechanismSpec}
+
+Fuses equivalence constraint expansion (stage 4) with
+deduplication (stage 5). Computes the concentration
+fingerprint once per source spec instead of once per
+constraint variant.
+"""
+function _expand_equiv_and_deduplicate(
+    specs::Vector{MechanismSpec},
+    @nospecialize(reaction::EnzymeReaction),
+)
+    isempty(specs) && return specs
+
+    best = Dict{_DedupKey, MechanismSpec}()
+    for spec in specs
+        steps = spec.steps
+
+        # Compute fingerprint once per source spec
+        partition = _compute_re_partition_from_steps(
+            steps)
+        fp = _concentration_fingerprint(
+            steps, partition)
+
+        # Build equivalence groups (same logic as
+        # _expand_equivalence_constraints)
+        groups = Dict{
+            Tuple{Symbol,Bool}, Vector{Int}}()
+        for (i, s) in enumerate(steps)
+            met = step_metabolite(s)
+            met === nothing && continue
+            key = (met, s.is_equilibrium)
+            push!(get!(groups, key, Int[]), i)
+        end
+        valid_groups = sort!(
+            [sort!(g) for (_, g) in groups
+             if length(g) >= 2];
+            by=first)
+
+        n_groups = length(valid_groups)
+        for mask in 0:(1 << n_groups) - 1
+            # Compute dedup key early to skip
+            # redundancy computation for duplicates
+            desc = _constraint_descriptor(
+                steps, valid_groups, mask)
+            dedup_key = (fp, desc)
+
+            # Compute delta (cheap) to enable
+            # early-exit before redundancy (expensive)
+            delta = 0
+            for (gi, g) in enumerate(valid_groups)
+                (mask >> (gi - 1)) & 1 == 1 ||
+                    continue
+                is_re = steps[g[1]].is_equilibrium
+                n_constrained = length(g) - 1
+                delta -= is_re ?
+                    n_constrained : 2 * n_constrained
+            end
+
+            # Skip if this key exists and our lower
+            # bound (delta alone, redundancy >= 0)
+            # can't beat the current best
+            lower_bound = spec.param_count + delta
+            if haskey(best, dedup_key) &&
+                    lower_bound >=
+                        best[dedup_key].param_count
+                continue
+            end
+
+            # Compute redundant thermo count
+            active = Vector{Int}[]
+            for (gi, g) in enumerate(valid_groups)
+                (mask >> (gi - 1)) & 1 == 1 &&
+                    push!(active, g)
+            end
+            redundancy = _redundant_thermo_count(
+                steps, active)
+
+            param_count = lower_bound + redundancy
+            if !haskey(best, dedup_key) ||
+                    param_count <
+                        best[dedup_key].param_count
+                # Build constraints only when needed
+                constraints = ParamConstraint[]
+                for (gi, g) in enumerate(valid_groups)
+                    (mask >> (gi - 1)) & 1 == 1 ||
+                        continue
+                    is_re = steps[g[1]].is_equilibrium
+                    if is_re
+                        for j in 2:length(g)
+                            push!(constraints, (
+                                Symbol("K$(g[j])"),
+                                1,
+                                [(Symbol("K$(g[1])"),
+                                  1)]
+                            ))
+                        end
+                    else
+                        for j in 2:length(g)
+                            for sfx in ("f", "r")
+                                push!(constraints, (
+                                    Symbol(
+                                        "k$(g[j])" *
+                                        "$sfx"),
+                                    1,
+                                    [(Symbol(
+                                        "k$(g[1])" *
+                                        "$sfx"),
+                                      1)]
+                                ))
+                            end
+                        end
+                    end
+                end
+                best[dedup_key] = MechanismSpec(
+                    spec.reaction, steps,
+                    constraints, param_count)
+            end
+        end
+    end
+    collect(values(best))
+end
+
 # ─── Allosteric Expansion ─────────────────────────────────────
 
 """
@@ -1935,9 +2061,8 @@ function enumerate_mechanisms(
         base = _expand_dead_end(
             base, reaction; dead_end_regs=de_regs,
             include_substrate_product=true)
-        base = _expand_equivalence_constraints(
+        base = _expand_equiv_and_deduplicate(
             base, reaction)
-        base = _deduplicate(base, reaction)
         append!(all_base, base)
 
         # Stages 6-8: allosteric expansion
