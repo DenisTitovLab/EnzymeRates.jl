@@ -490,7 +490,20 @@ end
 
 @testset "Stage 2: RE/SS expansion" begin
     @testset "Uni-Uni: 2^3 - 1 = 7 variants" begin
-        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni)
         result = EnzymeRates._expand_ress_variants(
             [topo], uni_uni)
         @test length(result) == 7
@@ -503,7 +516,23 @@ end
     end
 
     @testset "Uni-Bi" begin
-        topo = EnzymeRates._catalytic_topologies(uni_bi)[1]
+        # Ordered Q-first release: E→ES→EPQ→EQ→E
+        m_ub1 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E, E_P_Q[AB],
+                    E_Q[B], E_S[AB]
+            end
+            steps: begin
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_ub1, uni_bi)
         n_steps = length(topo.steps)
         result = EnzymeRates._expand_ress_variants(
             [topo], uni_bi)
@@ -517,7 +546,25 @@ end
     end
 
     @testset "Bi-Bi" begin
-        topo = EnzymeRates._catalytic_topologies(bi_bi)[1]
+        # Sequential A-first bind, Q-first release
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi)
         n_steps = length(topo.steps)
         result = EnzymeRates._expand_ress_variants(
             [topo], bi_bi)
@@ -531,7 +578,29 @@ end
     end
 
     @testset "max_re_groups filtering" begin
-        topo = EnzymeRates._catalytic_topologies(bi_bi)[end]
+        # Fully random Bi-Bi
+        m_bb_random = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_random, bi_bi)
         result_default = EnzymeRates._expand_ress_variants(
             [topo], bi_bi)
         # With strict max_re_groups=2, fewer variants survive
@@ -549,8 +618,20 @@ end
         # E_S has all subs, E_P has all prods, and E
         # can only bind S→E_S or P→E_P (both catalytic).
         # → 0 dead-end forms, passthrough.
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni)
         ress = EnzymeRates._expand_ress_variants(
             [topo], uni_uni)
         result =
@@ -560,7 +641,7 @@ end
     end
 
     @testset "Bi-Bi random: 4 mixed dead-end forms" begin
-        # Fully-random Bi-Bi (topo 9, 7 forms):
+        # Fully-random Bi-Bi (7 forms):
         # E, E_A, E_B, E_A_B, E_P, E_Q, E_P_Q
         # Dead-ends require mixed substrate+product.
         # Eligible forms (not all-subs or all-prods):
@@ -570,8 +651,28 @@ end
         #   E_P: +A→E_A_P(mixed✓), +B→E_B_P(mixed✓)
         #   E_Q: +A→E_A_Q(mixed✓), +B→E_B_Q(mixed✓)
         # 4 unique dead-end forms → 2^4 = 16 variants
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi)[end]
+        m_bb_random = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_random, bi_bi)
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo], bi_bi)
@@ -579,14 +680,28 @@ end
     end
 
     @testset "Uni-Bi ordered: passthrough (no mixed forms)" begin
-        # Uni-Bi topo 1 (ordered Q-first release):
+        # Uni-Bi ordered Q-first release:
         # E, E_S, E_P_Q, E_Q (4 forms)
         # E+P→E_P would be single-product → rejected
         #   (mixed substrate+product required)
         # E_Q+S→E_S_Q has all subs (S only) → rejected
         # → 0 dead-end forms, passthrough.
-        topo = EnzymeRates._catalytic_topologies(
-            uni_bi)[1]
+        m_ub1 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E, E_P_Q[AB],
+                    E_Q[B], E_S[AB]
+            end
+            steps: begin
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_ub1, uni_bi)
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo], uni_bi)
@@ -596,16 +711,41 @@ end
 
 @testset "Stage 3b: Regulator dead-end expansion" begin
     @testset "No regulators: passthrough" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni)
         result = EnzymeRates._expand_dead_end(
             [topo], uni_uni; dead_end_regs=Symbol[])
         @test length(result) == 1
     end
 
     @testset "Uni-Uni + I: eligible forms" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_dead_end_I)[1]
+        # Catalytic topology same as base Uni-Uni
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_dead_end_I)
         result = EnzymeRates._expand_dead_end(
             [topo], uni_uni_dead_end_I;
             dead_end_regs=[:I])
@@ -616,12 +756,27 @@ end
     end
 
     @testset "Uni-Bi + I" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_bi_dead_end_I)[1]
+        # Ordered Q-first release
+        m_ub1 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E, E_P_Q[AB],
+                    E_Q[B], E_S[AB]
+            end
+            steps: begin
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_ub1, uni_bi_dead_end_I)
         result = EnzymeRates._expand_dead_end(
             [topo], uni_bi_dead_end_I;
             dead_end_regs=[:I])
-        # Topo[1] Q-first: E, ES, EQ, EPQ (4 forms).
+        # Q-first release: E, ES, EQ, EPQ (4 forms).
         # ES has all subs, EPQ has all prods
         # → eligible = {E, EQ} = 2 forms
         # Sub/prod dead-ends: 0 (E_P is single-product,
@@ -632,12 +787,29 @@ end
     end
 
     @testset "Bi-Bi + I" begin
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi_dead_end_I)[1]
+        # Sequential A-first bind, Q-first release
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi_dead_end_I)
         result = EnzymeRates._expand_dead_end(
             [topo], bi_bi_dead_end_I;
             dead_end_regs=[:I])
-        # Topo[1] sequential (5 forms: E, EA, EAB,
+        # Sequential (5 forms: E, EA, EAB,
         # EQ, EPQ). EAB has all subs, EPQ all prods
         # → eligible = {E, EA, EQ} = 3 forms
         # Sub/prod dead-ends: E_A_P, E_A_Q, E_B_Q
@@ -650,8 +822,20 @@ end
     end
 
     @testset "2 inhibitors: Uni-Uni + I, J" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_dead_end_I_J)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_dead_end_I_J)
         result = EnzymeRates._expand_dead_end(
             [topo], uni_uni_dead_end_I_J;
             dead_end_regs=[:I, :J])
@@ -660,8 +844,20 @@ end
     end
 
     @testset "Allosteric-only: passthrough" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_allosteric_R)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_allosteric_R)
         result = EnzymeRates._expand_dead_end(
             [topo], uni_uni_allosteric_R;
             dead_end_regs=Symbol[])
@@ -669,8 +865,20 @@ end
     end
 
     @testset "Properties" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_dead_end_I)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_dead_end_I)
         result = EnzymeRates._expand_dead_end(
             [topo], uni_uni_dead_end_I;
             dead_end_regs=[:I])
@@ -683,8 +891,20 @@ end
 
 @testset "Stage 4: Equivalence constraints" begin
     @testset "No equiv groups: passthrough" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni)
         result =
             EnzymeRates._expand_equivalence_constraints(
                 [topo], uni_uni)
@@ -696,8 +916,24 @@ end
         # creates EA+P→EAP step. Combined with
         # catalytic EQ+P→EPQ, P appears in 2 RE steps
         # → 1 equiv group → 2 variants.
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi)[1]
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi)
         de = EnzymeRates._expand_dead_end(
             [topo], bi_bi; dead_end_regs=Symbol[])
         # Find a spec with exactly 1 equiv group
@@ -727,8 +963,24 @@ end
         # both A (at E_Q) and Q (at E_A), creating
         # mirror steps. A appears in 2 RE steps and Q
         # in 2 RE steps → 2 equiv groups → 4 variants.
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi)[1]
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi)
         de = EnzymeRates._expand_dead_end(
             [topo], bi_bi; dead_end_regs=Symbol[])
         # Find spec with ≥ 2 equiv groups
@@ -761,8 +1013,20 @@ end
         # Uni-Uni + I, the dead-end spec has :S and
         # :I__reg1 as distinct metabolites → no equiv
         # group → only 1 variant (passthrough).
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_dead_end_I)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_dead_end_I)
         de = EnzymeRates._expand_dead_end(
             [topo], uni_uni_dead_end_I;
             dead_end_regs=[:I])
@@ -784,8 +1048,24 @@ end
         # Bi-Bi sequential: EA+B→EAB (catalytic).
         # If E also has dead-end B-binding (E+B→E_B),
         # both steps bind B → equiv group.
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi)[1]
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi)
         de = EnzymeRates._expand_dead_end(
             [topo], bi_bi; dead_end_regs=Symbol[])
         # Find specs with substrate/product dead-ends
@@ -808,8 +1088,25 @@ end
     end
 
     @testset "Properties" begin
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi_dead_end_I)[1]
+        # Sequential A-first bind, Q-first release
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi_dead_end_I)
         de = EnzymeRates._expand_dead_end(
             [topo], bi_bi_dead_end_I;
             dead_end_regs=[:I])
@@ -834,7 +1131,20 @@ end
 
 @testset "Stage 5: Deduplication" begin
     @testset "Uni-Uni dedup" begin
-        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni)
         ress = EnzymeRates._expand_ress_variants(
             [topo], uni_uni)
         deduped = EnzymeRates._deduplicate(ress, uni_uni)
@@ -848,7 +1158,20 @@ end
     end
 
     @testset "Duplicate removal" begin
-        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni)
         result = EnzymeRates._deduplicate(
             [topo, deepcopy(topo)], uni_uni)
         @test length(result) == 1
@@ -859,7 +1182,24 @@ end
         # variants by toggling each RE step to SS one at a
         # time. The step-based pipeline correctly toggles
         # all steps including isomerization.
-        topo = EnzymeRates._catalytic_topologies(bi_bi)[1]
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi)
         ress = EnzymeRates._expand_ress_variants(
             [topo], bi_bi)
         # Filter to single-SS variants: exactly one SS step
@@ -875,7 +1215,20 @@ end
     end
 
     @testset "Keeps lower param_count" begin
-        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni)
         topo2 = EnzymeRates.MechanismSpec(
             topo.reaction, topo.steps,
             topo.param_constraints,
@@ -889,7 +1242,20 @@ end
 
 @testset "Stage 6: Allosteric expansion" begin
     @testset "No allosteric regs: passthrough" begin
-        topo = EnzymeRates._catalytic_topologies(uni_uni)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni)
         dd = EnzymeRates._deduplicate([topo], uni_uni)
         result = EnzymeRates._expand_allosteric(
             dd, uni_uni; catalytic_n=1,
@@ -898,8 +1264,20 @@ end
     end
 
     @testset "1 reg, catalytic_n=1" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_allosteric_R)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_allosteric_R)
         dd = EnzymeRates._deduplicate(
             [topo], uni_uni_allosteric_R)
         result = EnzymeRates._expand_allosteric(
@@ -909,8 +1287,23 @@ end
     end
 
     @testset "1 reg, catalytic_n=2" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_bi_allosteric_R)[1]
+        # Ordered Q-first release
+        m_ub1 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E, E_P_Q[AB],
+                    E_Q[B], E_S[AB]
+            end
+            steps: begin
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_ub1, uni_bi_allosteric_R)
         dd = EnzymeRates._deduplicate(
             [topo], uni_bi_allosteric_R)
         result = EnzymeRates._expand_allosteric(
@@ -920,8 +1313,20 @@ end
     end
 
     @testset "1 reg, catalytic_n=3" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_allosteric_R)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_allosteric_R)
         dd = EnzymeRates._deduplicate(
             [topo], uni_uni_allosteric_R)
         result = EnzymeRates._expand_allosteric(
@@ -931,8 +1336,25 @@ end
     end
 
     @testset "2 regs, catalytic_n=1" begin
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi_allosteric_R1_R2)[1]
+        # Sequential A-first bind, Q-first release
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi_allosteric_R1_R2)
         dd = EnzymeRates._deduplicate(
             [topo], bi_bi_allosteric_R1_R2)
         result = EnzymeRates._expand_allosteric(
@@ -944,8 +1366,25 @@ end
     end
 
     @testset "2 regs, catalytic_n=2" begin
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi_allosteric_R1_R2)[1]
+        # Sequential A-first bind, Q-first release
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi_allosteric_R1_R2)
         dd = EnzymeRates._deduplicate(
             [topo], bi_bi_allosteric_R1_R2)
         result = EnzymeRates._expand_allosteric(
@@ -957,8 +1396,20 @@ end
     end
 
     @testset "Dead-end edges: passthrough" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_dead_end_I)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_dead_end_I)
         de = EnzymeRates._expand_dead_end(
             [topo], uni_uni_dead_end_I;
             dead_end_regs=[:I],
@@ -972,8 +1423,25 @@ end
     end
 
     @testset "Dead-end I + allosteric R" begin
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi_dead_end_I_allosteric_R)[1]
+        # Sequential A-first bind, Q-first release
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi_dead_end_I_allosteric_R)
         de = EnzymeRates._expand_dead_end(
             [topo], bi_bi_dead_end_I_allosteric_R;
             dead_end_regs=[:I],
@@ -989,8 +1457,23 @@ end
     end
 
     @testset "Properties" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_bi_allosteric_R)[1]
+        # Ordered Q-first release
+        m_ub1 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E, E_P_Q[AB],
+                    E_Q[B], E_S[AB]
+            end
+            steps: begin
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_ub1, uni_bi_allosteric_R)
         dd = EnzymeRates._deduplicate(
             [topo], uni_bi_allosteric_R)
         result = EnzymeRates._expand_allosteric(
@@ -1005,8 +1488,20 @@ end
 
 @testset "Stage 7: TR equivalence" begin
     @testset "Uni-Uni + R: 2^3 = 8 variants" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_allosteric_R)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_allosteric_R)
         dd = EnzymeRates._deduplicate(
             [topo], uni_uni_allosteric_R)
         allo = EnzymeRates._expand_allosteric(
@@ -1019,8 +1514,23 @@ end
     end
 
     @testset "Uni-Bi + R: 2^4 = 16 variants" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_bi_allosteric_R)[1]
+        # Ordered Q-first release
+        m_ub1 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E, E_P_Q[AB],
+                    E_Q[B], E_S[AB]
+            end
+            steps: begin
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_ub1, uni_bi_allosteric_R)
         dd = EnzymeRates._deduplicate(
             [topo], uni_bi_allosteric_R)
         allo = EnzymeRates._expand_allosteric(
@@ -1033,8 +1543,25 @@ end
     end
 
     @testset "Bi-Bi + R1, R2: 2^6 = 64 per spec" begin
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi_allosteric_R1_R2)[1]
+        # Sequential A-first bind, Q-first release
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi_allosteric_R1_R2)
         dd = EnzymeRates._deduplicate(
             [topo], bi_bi_allosteric_R1_R2)
         allo = EnzymeRates._expand_allosteric(
@@ -1048,8 +1575,20 @@ end
     end
 
     @testset "Properties" begin
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_allosteric_R)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_allosteric_R)
         dd = EnzymeRates._deduplicate(
             [topo], uni_uni_allosteric_R)
         allo = EnzymeRates._expand_allosteric(
@@ -1078,8 +1617,24 @@ end
         # Use Bi-Bi + R1, R2 (6 metabolites) — with even
         # count, complementary subsets of equal size exist
         # (true T↔R mirrors with same param count).
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi_allosteric_R1_R2)[1]
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi_allosteric_R1_R2)
         dd = EnzymeRates._deduplicate(
             [topo], bi_bi_allosteric_R1_R2)
         allo = EnzymeRates._expand_allosteric(
@@ -1097,8 +1652,20 @@ end
     @testset "Uni-Uni + R: mirrors removed (odd metabolites)" begin
         # 3 metabolites (S, P, R): complements differ in size but
         # are still T↔R mirrors. 2^3 = 8 → 4 after dedup.
-        topo = EnzymeRates._catalytic_topologies(
-            uni_uni_allosteric_R)[1]
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_allosteric_R)
         dd = EnzymeRates._deduplicate(
             [topo], uni_uni_allosteric_R)
         allo = EnzymeRates._expand_allosteric(
@@ -1112,8 +1679,25 @@ end
     end
 
     @testset "Keeps lower param_count on mirror" begin
-        topo = EnzymeRates._catalytic_topologies(
-            bi_bi_allosteric_R1_R2)[1]
+        # Sequential A-first bind, Q-first release
+        m_bb_seq = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C],
+                    E_A_B[CN], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        topo = mechanism_spec_from_mechanism(
+            m_bb_seq, bi_bi_allosteric_R1_R2)
         dd = EnzymeRates._deduplicate(
             [topo], bi_bi_allosteric_R1_R2)
         allo = EnzymeRates._expand_allosteric(
@@ -1130,30 +1714,75 @@ end
     end
 
     @testset "Different base mechanisms survive" begin
-        topos = EnzymeRates._catalytic_topologies(
-            uni_bi_allosteric_R)
-        @test length(topos) >= 2
-        dd = EnzymeRates._deduplicate(
-            topos[1:2], uni_bi_allosteric_R)
-        @test length(dd) >= 2
-        if length(dd) >= 2
-            allo = EnzymeRates._expand_allosteric(
-                dd, uni_bi_allosteric_R;
-                catalytic_n=1, allosteric_regs=[:R])
-            tr = EnzymeRates._expand_tr_equivalence(
-                allo, uni_bi_allosteric_R)
-            deduped = EnzymeRates._deduplicate_allosteric(
-                tr, uni_bi_allosteric_R)
-            @test length(deduped) >= 2
+        # Ordered Q-first release: E→ES→EPQ→EQ→E
+        m_ub1 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E, E_P_Q[AB],
+                    E_Q[B], E_S[AB]
+            end
+            steps: begin
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
+            end
         end
+        # Random release: E→ES→EPQ→{EP,EQ}→E
+        m_ub2 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E, E_P[A], E_P_Q[AB],
+                    E_Q[B], E_S[AB]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
+            end
+        end
+        t1 = mechanism_spec_from_mechanism(
+            m_ub1, uni_bi_allosteric_R)
+        t2 = mechanism_spec_from_mechanism(
+            m_ub2, uni_bi_allosteric_R)
+        dd = EnzymeRates._deduplicate(
+            [t1, t2], uni_bi_allosteric_R)
+        @test length(dd) >= 2
+        allo = EnzymeRates._expand_allosteric(
+            dd, uni_bi_allosteric_R;
+            catalytic_n=1, allosteric_regs=[:R])
+        tr = EnzymeRates._expand_tr_equivalence(
+            allo, uni_bi_allosteric_R)
+        deduped = EnzymeRates._deduplicate_allosteric(
+            tr, uni_bi_allosteric_R)
+        @test length(deduped) >= 2
     end
 end
 
 @testset "Cross-stage properties" begin
     @testset "RE partition bounds" begin
-        catalytic = EnzymeRates._catalytic_topologies(
-            uni_bi)
-        spec = catalytic[1]
+        # Ordered Q-first release
+        m_ub1 = @enzyme_mechanism begin
+            species: begin
+                substrates: S[AB]
+                products: P[A], Q[B]
+                enzymes: E, E_P_Q[AB],
+                    E_Q[B], E_S[AB]
+            end
+            steps: begin
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P_Q]
+            end
+        end
+        spec = mechanism_spec_from_mechanism(
+            m_ub1, uni_bi)
         ress = EnzymeRates._expand_ress_variants(
             [spec], uni_bi)
         for s in ress
