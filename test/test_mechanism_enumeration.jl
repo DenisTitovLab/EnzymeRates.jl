@@ -2073,28 +2073,23 @@ end
         @test length(result) == 56
     end
 
-    # Bi-Bi and Bi-Bi Ping-Pong end-to-end tests
-    # commented out: OOM on VM with 7.7 GiB RAM. Each
-    # runs in ~2 min standalone, but the combination of
-    # test suite memory + enumeration memory exceeds
-    # available RAM. Reactivate once pipeline performance
-    # is improved.
-    # @testset "Bi-Bi, no regs" begin
-    #     result = collect(
-    #         EnzymeRates.enumerate_mechanisms(bi_bi))
-    #     @test length(result) == 94173
-    # end
-    # @testset "Bi-Bi Ping-Pong, no regs" begin
-    #     stats = @timed collect(
-    #         EnzymeRates.enumerate_mechanisms(
-    #             bi_bi_ping_pong))
-    #     @test length(stats.value) == 114703
-    #     # Performance regression guards
-    #     # Allocation budget: 250 GiB (baseline ~221 GiB)
-    #     @test stats.bytes < 250 * 1024^3
-    #     # Time budget: 300s (baseline ~150s)
-    #     @test stats.time < 300
-    # end
+    @testset "Bi-Bi, no regs" begin
+        stats = @timed collect(
+            EnzymeRates.enumerate_mechanisms(bi_bi))
+        @test length(stats.value) == 63762
+        # Performance: ~3s / 5GB baseline
+        @test stats.bytes < 15 * 1024^3
+        @test stats.time < 30
+    end
+    @testset "Bi-Bi Ping-Pong, no regs" begin
+        stats = @timed collect(
+            EnzymeRates.enumerate_mechanisms(
+                bi_bi_ping_pong))
+        @test length(stats.value) == 64276
+        # Performance: ~7s / 6GB baseline
+        @test stats.bytes < 15 * 1024^3
+        @test stats.time < 30
+    end
 
     @testset "Uni-Uni + 1 unknown reg" begin
         result = collect(
@@ -2141,24 +2136,20 @@ end
         end
     end
 
-    # Bi-Bi param_count test commented out: OOM on VM
-    # with 7.7 GiB RAM. Bi-Bi enumeration runs in ~2 min
-    # standalone, but combined with test suite memory it
-    # exceeds available RAM. Reactivate once pipeline
-    # performance is improved.
-    # @testset "Sampled Bi-Bi specs" begin
-    #     all_specs = collect(
-    #         EnzymeRates.enumerate_mechanisms(bi_bi))
-    #     @test length(all_specs) == 94173
-    #     sample = all_specs[randperm(
-    #         rng, length(all_specs))[1:min(50, end)]]
-    #     n_match = count(sample) do s
-    #         s isa EnzymeRates.MechanismSpec || return true
-    #         m = compile_mechanism(s)
-    #         s.param_count == length(parameters(m))
-    #     end
-    #     @test n_match == length(sample)
-    # end
+    @testset "Sampled Bi-Bi specs" begin
+        rng_bb = Random.MersenneTwister(42)
+        all_specs = collect(
+            EnzymeRates.enumerate_mechanisms(bi_bi))
+        @test length(all_specs) == 63762
+        sample = all_specs[randperm(
+            rng_bb, length(all_specs))[1:min(50, end)]]
+        n_match = count(sample) do s
+            s isa EnzymeRates.MechanismSpec || return true
+            m = compile_mechanism(s)
+            s.param_count == length(parameters(m))
+        end
+        @test n_match == length(sample)
+    end
 end
 
 end # outer testset
