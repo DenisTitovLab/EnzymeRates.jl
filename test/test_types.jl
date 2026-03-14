@@ -19,6 +19,20 @@
         @test EnzymeRates.regulators(r) == (:I,)
     end
 
+    @testset "EnzymeReaction with regulator roles" begin
+        r = EnzymeReaction(
+            ((:S, ((:C, 1),)),),
+            ((:P, ((:C, 1),)),),
+            ((:I, :dead_end), (:A, :allosteric)),
+        )
+        @test EnzymeRates.regulators(r) == (:A, :I)
+        roles = EnzymeRates.regulator_roles(r)
+        @test length(roles) == 2
+        role_dict = Dict(r[1] => r[2] for r in roles)
+        @test role_dict[:I] == :dead_end
+        @test role_dict[:A] == :allosteric
+    end
+
     @testset "EnzymeReaction canonical ordering" begin
         r1 = EnzymeReaction(
             ((:S2, ((:C, 2),)), (:S1, ((:C, 1),))),

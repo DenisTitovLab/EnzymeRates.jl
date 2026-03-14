@@ -1,7 +1,7 @@
 module EnzymeRates
 
 # Types
-export EnzymeReaction, EnzymeMechanism, OligomericEnzymeMechanism
+export EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism
 export FittingProblem
 # export IdentifyRateEquationProblem, IdentifyRateEquationResults  # when implemented
 
@@ -20,9 +20,8 @@ export rescale_parameter_values
 export fit_rate_equation
 # export identify_rate_equation  # when implemented
 
-# Mechanism enumeration (internal types, not public API)
-# SiteState, EnzymeFormSpec, MechanismSpec, EnumerationStage subtypes
-# enumerate_enzyme_forms, enumerate_mechanisms are accessible via EnzymeRates.*
+# Mechanism enumeration
+export compile_mechanism
 
 using Tables
 using Optimization

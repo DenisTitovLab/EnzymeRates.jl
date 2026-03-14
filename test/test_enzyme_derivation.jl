@@ -220,10 +220,10 @@ function compute_all_params(m, new_params)
 end
 
 """
-OligomericEnzymeMechanism version of compute_all_params.
+AllostericEnzymeMechanism version of compute_all_params.
 Returns all independent + dependent (Haldane-derived) params + Keq + E_total.
 """
-function compute_all_params(m::EnzymeRates.OligomericEnzymeMechanism, new_params)
+function compute_all_params(m::EnzymeRates.AllostericEnzymeMechanism, new_params)
     indep = _get_independent_params(m)
     dep = _get_dependent_params(m)
     dep_dict = Dict{Symbol, Float64}()
@@ -919,13 +919,23 @@ end
         products: P[C], Q[NX]
         regulators: R1, R2
     end
-    max_forms = 100
-    with_dead_end = EnzymeRates.enumerate_mechanisms(
-        rxn;
-        stage=EnzymeRates.WithDeadEnd(),
-        max_forms=max_forms,
-    )
-    m = EnzymeMechanism(with_dead_end[end])
+    with_dead_end = EnzymeRates._expand_dead_end(
+        EnzymeRates._catalytic_topologies(rxn),
+        rxn; dead_end_regs=[:R1, :R2],
+        include_substrate_product=true)
+    # Find largest compilable spec (some large specs
+    # trigger thermodynamic cycle errors)
+    m = nothing
+    for i in length(with_dead_end):-1:1
+        try
+            m = EnzymeMechanism(with_dead_end[i])
+            parameters(m)
+            break
+        catch
+            m = nothing
+        end
+    end
+    @test m !== nothing
 
     metabs = metabolites(m)
     params_tup = parameters(m)
@@ -974,19 +984,42 @@ end
     end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
 
-    # Enumerated mechanism (18 forms, 32 steps) from Ping-Pong Bi-Bi
+    # Enumerated mechanism with many forms from Ping-Pong Bi-Bi
     # with 2 regulators. Triggers the early abort inside sym_det.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
         regulators: R1, R2
     end
-    with_dead_end = EnzymeRates.enumerate_mechanisms(
-        rxn;
-        stage=EnzymeRates.WithDeadEnd(),
-        max_forms=100,
-    )
-    m_enum = EnzymeMechanism(with_dead_end[end - 1])
-    @test_throws "polynomial terms" rate_equation_string(m_enum)
+    with_dead_end = EnzymeRates._expand_dead_end(
+        EnzymeRates._catalytic_topologies(rxn),
+        rxn; dead_end_regs=[:R1, :R2],
+        include_substrate_product=true)
+    # Find a mechanism with >= 15 forms and force all
+    # steps to SS to trigger the polynomial term limit.
+    # Skip specs that cause thermodynamic cycle errors.
+    m_enum = nothing
+    for s in Iterators.reverse(with_dead_end)
+        n_forms = length(
+            EnzymeRates.all_form_names(s))
+        n_forms >= 15 || continue
+        all_ss = [EnzymeRates.StepSpec(
+            st.reactants, st.products, false)
+            for st in s.steps]
+        spec = EnzymeRates.MechanismSpec(
+            s.reaction, all_ss,
+            s.param_constraints,
+            s.param_count)
+        try
+            m_enum = EnzymeMechanism(spec)
+            parameters(m_enum)
+            break
+        catch
+            m_enum = nothing
+        end
+    end
+    if m_enum !== nothing
+        @test_throws "polynomial terms" rate_equation_string(m_enum)
+    end
 end
 

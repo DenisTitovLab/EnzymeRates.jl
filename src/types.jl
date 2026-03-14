@@ -13,22 +13,49 @@ Singleton type encoding an enzyme reaction specification in type parameters.
 """
 struct EnzymeReaction{Substrates, Products, Regulators} end
 
+"""Regulator role in mechanism enumeration."""
+abstract type RegulatorRole end
+
+"""Allosteric regulator: participates in MWC allosteric regulation."""
+struct Allosteric <: RegulatorRole end
+
+"""Dead-end inhibitor: creates dead-end complexes only."""
+struct DeadEnd <: RegulatorRole end
+
+"""Unconstrained: try all roles (allosteric + dead-end)."""
+struct UnconstrainedRegulator <: RegulatorRole end
+
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
     subs_names = [s[1] for s in subs]
     prods_names = [s[1] for s in prods]
-    length(subs_names) != length(Set(subs_names)) && error("Duplicate substrate names")
-    length(prods_names) != length(Set(prods_names)) && error("Duplicate product names")
-    for r in regs
-        r isa Symbol || error("Regulators must be Symbols, got $r")
+    length(subs_names) != length(Set(subs_names)) &&
+        error("Duplicate substrate names")
+    length(prods_names) != length(Set(prods_names)) &&
+        error("Duplicate product names")
+    # Normalize regulators to (name, role) pairs
+    normalized_regs = if isempty(regs)
+        regs
+    elseif regs[1] isa Symbol
+        Tuple((r, :unknown) for r in regs)
+    else
+        regs
     end
-    length(regs) != length(Set(regs)) && error("Duplicate regulator names")
+    for r in normalized_regs
+        r isa Tuple{Symbol,Symbol} ||
+            error("Regulators must be (Symbol, Symbol) pairs, got $r")
+    end
+    reg_names = [r[1] for r in normalized_regs]
+    length(reg_names) != length(Set(reg_names)) &&
+        error("Duplicate regulator names")
     subs = _sort_species(subs)
     prods = _sort_species(prods)
-    regs = Tuple(sort(collect(regs)))
-    EnzymeReaction{subs, prods, regs}()
+    sorted_regs = Tuple(sort(collect(normalized_regs); by=first))
+    EnzymeReaction{subs, prods, sorted_regs}()
 end
+
+abstract type AbstractEnzymeMechanism end
 
 """
     EnzymeMechanism{Species,Reactions,EquilibriumSteps}
@@ -45,7 +72,7 @@ Singleton type encoding an enzyme mechanism in type parameters.
 """
 struct EnzymeMechanism{
     Species, Reactions, EquilibriumSteps, ParamConstraints,
-} end
+} <: AbstractEnzymeMechanism end
 
 """Count enzymes, metabolites, atoms, and metabolite names on one side of a reaction."""
 function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
@@ -262,19 +289,20 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
 end
 
 """
-    OligomericEnzymeMechanism{Metabolites, CatalyticMech, CatalyticN, RegSites, NConf}
+    AllostericEnzymeMechanism{Metabolites, CatalyticMech, CatSites, RegSites}
 
-Singleton type for multi-site, multi-conformation allosteric enzymes.
+Singleton type for allosteric enzymes (MWC model, always 2 conformations).
 
 - `Metabolites`: tuple of `Symbol` names from `metabolites:` block
 - `CatalyticMech`: `EnzymeMechanism` type for one catalytic subunit
-- `CatalyticN`: number of catalytic sites per enzyme molecule
-- `RegSites`: tuple of `((ligand_syms...,), multiplicity)` pairs
-- `NConf`: number of conformational states (1 = non-cooperative, 2 = two-state MWC)
+- `CatSites`: `(catalytic_metabolites, multiplicity, tr_equiv_mets)` — the
+  third element lists metabolites with K_T = K_R (TR equivalence)
+- `RegSites`: tuple of `((ligand_syms...,), multiplicity, tr_equiv_ligands)`
+  triples — the third element lists ligands with K_T = K_R
 """
-struct OligomericEnzymeMechanism{
-    Metabolites, CatalyticMech, CatalyticN, RegSites, NConf,
-} end
+struct AllostericEnzymeMechanism{
+    Metabolites, CatalyticMech, CatSites, RegSites,
+} <: AbstractEnzymeMechanism end
 
 # --- Rate equation mode types ---
 
@@ -316,7 +344,7 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}
     prods_str = join([string(name) for (name, _) in P], " + ")
     print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
     if !isempty(R)
-        regs_str = join([string(r) for r in R], ", ")
+        regs_str = join([string(r[1]) for r in R], ", ")
         print(io, " | regulators: ", regs_str)
     end
 end
@@ -406,7 +434,11 @@ products(::EnzymeReaction{S,P,R}) where {S,P,R} = P
 
 """Return regulators."""
 regulators(::EnzymeMechanism{Species}) where {Species} = Species[3]
-regulators(::EnzymeReaction{S,P,R}) where {S,P,R} = R
+regulators(::EnzymeReaction{S,P,R}) where {S,P,R} =
+    Tuple(r[1] for r in R)
+
+"""Return regulator (name, role) pairs."""
+regulator_roles(::EnzymeReaction{S,P,R}) where {S,P,R} = R
 
 """Return all enzyme forms as a tuple of (name, atoms)."""
 enzyme_forms(::EnzymeMechanism{Species}) where {Species} = Species[4]
@@ -505,31 +537,31 @@ Positive = produced, negative = consumed.
     return S
 end
 
-# ─── OligomericEnzymeMechanism Accessors ────────────────────────
+# ─── AllostericEnzymeMechanism Accessors ────────────────────────
 
 """Delegate structural accessors to the CatalyticMech singleton."""
-n_states(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+n_states(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     n_states(CM())
-n_steps(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+n_steps(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     n_steps(CM())
-equilibrium_steps(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+equilibrium_steps(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     equilibrium_steps(CM())
-substrates(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+substrates(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     substrates(CM())
-products(::OligomericEnzymeMechanism{M,CM,N,RS,NC}) where {M,CM,N,RS,NC} =
+products(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
     products(CM())
 @generated function regulators(
-    ::OligomericEnzymeMechanism{M,CM,N,RS,NC},
-) where {M,CM,N,RS,NC}
+    ::AllostericEnzymeMechanism{M,CM,CS,RS},
+) where {M,CM,CS,RS}
     ligs = Symbol[]
-    for (ligands, _) in RS
+    for (ligands, _, _) in RS
         for lig in ligands
             lig in ligs || push!(ligs, lig)
         end
     end
     Tuple(ligs)
 end
-param_constraints(::OligomericEnzymeMechanism) = ()
+param_constraints(::AllostericEnzymeMechanism) = ()
 
 """Return all metabolite names (catalytic + regulatory) from the Metabolites type param."""
-metabolites(::OligomericEnzymeMechanism{Mets,CM,N,RS,NC}) where {Mets,CM,N,RS,NC} = Mets
+metabolites(::AllostericEnzymeMechanism{Mets,CM,CS,RS}) where {Mets,CM,CS,RS} = Mets

@@ -80,16 +80,26 @@ Multi-species lines use comma separation:
     regulators: I, A
 """
 macro enzyme_reaction(block)
-    parsed = _parse_labeled_block(block, Set([:substrates, :products, :regulators]))
+    parsed = _parse_labeled_block(block,
+        Set([:substrates, :products, :regulators,
+             :dead_end_inhibitors, :allosteric_regulators]))
     haskey(parsed, :substrates) || error("substrates not specified")
     haskey(parsed, :products) || error("products not specified")
     subs = parsed[:substrates]
     prods = parsed[:products]
-    regs = get(parsed, :regulators, nothing)
-    if regs === nothing
-        regs = Expr(:tuple)
-    else
-        regs = _regulator_tuple_to_symbols(regs)
+    regs = Expr(:tuple)
+    for (label, role_sym) in [
+        (:regulators, :unknown),
+        (:dead_end_inhibitors, :dead_end),
+        (:allosteric_regulators, :allosteric),
+    ]
+        if haskey(parsed, label)
+            syms = _regulator_tuple_to_symbols(parsed[label])
+            for s in syms.args
+                push!(regs.args,
+                    Expr(:tuple, s, QuoteNode(role_sym)))
+            end
+        end
     end
     return esc(:(EnzymeReaction($subs, $prods, $regs)))
 end
@@ -201,18 +211,18 @@ function _walk_rhs!(expr, factors::Dict{Symbol,Int}, coeff::Ref{Int}, sign::Int)
 end
 
 macro enzyme_mechanism(block)
-    # Detect new OligomericEnzymeMechanism syntax (metabolites: or site(...):)
+    # Detect AllostericEnzymeMechanism syntax (metabolites: or site(...):)
     for arg in block.args
         arg isa LineNumberNode && continue
-        if _is_oligomeric_label(arg)
-            return esc(_parse_oligomeric_mechanism(block))
+        if _is_allosteric_label(arg)
+            return esc(_parse_allosteric_mechanism(block))
         end
     end
     return esc(_parse_enzyme_mechanism(block))
 end
 
-"""Return true if an @enzyme_mechanism block arg is part of new oligomeric syntax."""
-function _is_oligomeric_label(arg)
+"""Return true if an @enzyme_mechanism block arg is part of allosteric syntax."""
+function _is_allosteric_label(arg)
     # metabolites: ... (single or tuple form)
     if arg isa Expr && arg.head == :tuple
         inner = arg.args[1]
@@ -221,7 +231,7 @@ function _is_oligomeric_label(arg)
     end
     if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
         label = arg.args[2]
-        return label == :metabolites || label == :conformations ||
+        return label == :metabolites ||
                (label isa Expr && label.head == :call && label.args[1] == :site)
     end
     false
@@ -319,12 +329,11 @@ function _push_constraint!(constraints, arg)
 end
 
 """
-Parse the OligomericEnzymeMechanism DSL syntax.
-Handles: metabolites:, conformations:, site(:catalytic, N):, site(:regulatory, N):
+Parse the AllostericEnzymeMechanism DSL syntax.
+Handles: metabolites:, site(:catalytic, N):, site(:regulatory, N):
 """
-function _parse_oligomeric_mechanism(block)
+function _parse_allosteric_mechanism(block)
     met_names = nothing   # vector of Symbol (metabolite names only, no atoms)
-    nconf = 1
     catalytic_n = nothing
     catalytic_block = nothing
     reg_sites = Any[]     # vector of (ligand_syms, n_reg)
@@ -350,8 +359,6 @@ function _parse_oligomeric_mechanism(block)
 
             if label == :metabolites
                 met_names = [_met_sym(value)]
-            elseif label == :conformations
-                nconf = value  # integer literal
             elseif label isa Expr && label.head == :call && label.args[1] == :site
                 site_kind = label.args[2]   # QuoteNode(:catalytic) or QuoteNode(:regulatory)
                 site_n = label.args[3]      # integer literal
@@ -393,19 +400,21 @@ function _parse_oligomeric_mechanism(block)
         cm_expr = :(EnzymeMechanism($species_tuple, $reactions, $eq_steps))
     end
 
-    # Build RegSites type parameter tuple: ((ligand_syms...,), n_reg) pairs
+    # Build RegSites type parameter tuple: ((ligand_syms...,), n_reg, ()) triples
     reg_sites_elems = Any[]
     for (ligs, n_reg) in reg_sites
         ligs_tuple = Expr(:tuple, (QuoteNode(l) for l in ligs)...)
-        push!(reg_sites_elems, Expr(:tuple, ligs_tuple, n_reg))
+        tr_equiv = Expr(:tuple)  # empty TR equiv tuple by default
+        push!(reg_sites_elems, Expr(:tuple, ligs_tuple, n_reg, tr_equiv))
     end
     reg_sites_expr = Expr(:tuple, reg_sites_elems...)
 
-    # Emit: let _cm = EnzymeMechanism(...)
-    #           OligomericEnzymeMechanism{mets, typeof(_cm), CatN, RegSites, NConf}()
-    #       end
+    # Build CatSites: (catalytic_metabolites, multiplicity, tr_equiv_mets)
+    # catalytic_metabolites come from the inner EnzymeMechanism at runtime
+    cat_tr_equiv = Expr(:tuple)  # empty TR equiv tuple by default
     :(let _cm = $cm_expr
-        OligomericEnzymeMechanism{$mets_tuple, typeof(_cm), $catalytic_n, $reg_sites_expr, $nconf}()
+        _cat_sites = (metabolites(_cm), $catalytic_n, $cat_tr_equiv)
+        AllostericEnzymeMechanism{$mets_tuple, typeof(_cm), _cat_sites, $reg_sites_expr}()
     end)
 end
 

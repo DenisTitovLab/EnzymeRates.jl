@@ -120,20 +120,18 @@ m = @enzyme_mechanism begin
 end
 ```
 
-### Oligomeric (multi-subunit) enzymes — `OligomericEnzymeMechanism`
+### Allosteric (multi-subunit) enzymes — `AllostericEnzymeMechanism`
 
 Multi-subunit allosteric enzymes following the Monod-Wyman-Changeux (MWC)
 model are defined with the same `@enzyme_mechanism` macro but with a
 different top-level structure. Instead of flat `species:` and `steps:` blocks,
-you provide a `metabolites:` list, an optional `conformations:` count, and
-`site(...)` blocks.
+you provide a `metabolites:` list and `site(...)` blocks.
 
 ```julia
 # MWC homodimer: 2 identical catalytic subunits, 2 conformations (R/T),
 # 1 enzyme-level regulatory site
 m = @enzyme_mechanism begin
     metabolites: S[C], P[C], I[X]  # all metabolites (catalytic + regulatory)
-    conformations: 2                # NConf=2: R (active) and T (tense) states
     site(:catalytic, 2): begin      # 2 identical catalytic subunits
         species: begin
             substrates: S[C]
@@ -159,15 +157,15 @@ params = parameters(m)  # (K1, K2, k3f, K1_T, K2_T, k3f_T, L, K_I_reg1, Keq, E_t
 Key DSL rules:
 
 - `metabolites:` is **required** (declares all metabolites; atoms used for atom-balance checks)
-- `conformations: N` is optional (default 1). `conformations: 2` adds a conformational
-  equilibrium constant `L` ([T]/[R] for bare enzyme) and auto-generates T-state parameters
-  with `_T` suffix (`K1_T`, `k3f_T`, etc.) and their Haldane constraints.
+- Always 2 conformations (R and T states). A conformational equilibrium constant `L`
+  ([T]/[R] for bare enzyme) is auto-generated, along with T-state parameters with `_T`
+  suffix (`K1_T`, `k3f_T`, etc.) and their Haldane constraints.
 - `site(:catalytic, N)` specifies N identical catalytic subunits. The inner block uses the
   same `species:`/`steps:`/`constraints:` syntax as `@enzyme_mechanism` for `EnzymeMechanism`.
 - `site(:regulatory, n)` specifies a regulatory binding site present on n copies of the enzyme.
-  If `n == CatN` (per-subunit), it appears in both numerator and denominator. If `n < CatN`
-  (enzyme-level), it appears in the denominator only. Regulatory site binding constants are
-  named `K_{ligand}_reg{i}` (R-state) and `K_{ligand}_T_reg{i}` (T-state).
+  If `n == catalytic_n` (per-subunit), it appears in both numerator and denominator. If
+  `n < catalytic_n` (enzyme-level), it appears in the denominator only. Regulatory site
+  binding constants are named `K_{ligand}_reg{i}` (R-state) and `K_{ligand}_T_reg{i}` (T-state).
 
 The same API applies as for `EnzymeMechanism`:
 
@@ -248,15 +246,18 @@ end
 
 ### Pipeline stages
 
-The enumeration runs in five stages, exposed via `enumerate_mechanism_stages`:
+The enumeration runs in 8 stages:
 
-| Stage | Description |
-|-------|-------------|
-| **1. Enzyme forms** | Enumerate all distinguishable enzyme states: free enzyme, substrate-bound, product-bound, and ping-pong residual intermediates. |
-| **2. Catalytic topologies** | Build minimal catalytic cycles (sequential and ping-pong), then combine into multi-cycle unions. A purity filter removes hybrid topologies (see below). |
-| **3. Activator configurations** | For each regulator, decide if it is an activator (essential or non-essential) or an inhibitor. Activators add new catalytic forms; inhibitors are handled in the next stage. |
-| **4. Dead-end complexes** | Each inhibitor can independently form a dead-end complex at each topology form, giving `(2^r_inh)^n_topo` configurations per activator setup. |
-| **5. RE/SS + constraints** | For each dead-end topology, enumerate all rapid-equilibrium (RE) vs. steady-state (SS) assignments for each elementary step, plus optional parameter constraints for equivalent binding steps. This stage is lazy — variants are generated on iteration. |
+| Stage | Function | Description |
+|-------|----------|-------------|
+| **1** | `_catalytic_topologies` | Build catalytic topologies from enzyme forms and valid elementary steps. |
+| **2** | `_expand_ress_variants` | Enumerate RE/SS assignments for each step. |
+| **3** | `_expand_dead_end` | Add dead-end complexes for regulators and substrate/product inhibition. |
+| **4** | `_expand_equivalence_constraints` | Add parameter equivalence constraints for steps binding the same metabolite. |
+| **5** | `_deduplicate` | Remove duplicate `MechanismSpec`s. |
+| **6** | `_expand_allosteric` | Expand allosteric regulators into MWC `AllostericMechanismSpec`s. |
+| **7** | `_expand_tr_equivalence` | Enumerate T/R parameter equivalence variants. |
+| **8** | `_deduplicate_allosteric` | Remove duplicate `AllostericMechanismSpec`s. |
 
 ### Enzyme forms
 
@@ -410,11 +411,9 @@ v/(E_total × kcat) automatically scale-invariant.
 |------|-------------|
 | `EnzymeReaction{S,P,R}` | Overall reaction specification (substrates, products, regulators encoded in type parameters). |
 | `EnzymeMechanism{Species,Reactions,EquilibriumSteps,ParamConstraints}` | Full mechanism with species, elementary steps, RE/SS flags, and parameter constraints encoded in type parameters. |
-| `OligomericEnzymeMechanism{Mets,CatalyticMech,CatN,RegSites,NConf}` | Multi-subunit allosteric enzyme under the MWC model. `CatalyticMech` is the `EnzymeMechanism` of one subunit; `CatN` is the subunit count; `RegSites` describes regulatory binding sites; `NConf` is 1 or 2 (R/T conformations). |
+| `AllostericEnzymeMechanism{Mets,CatalyticMech,CatSites,RegSites}` | Multi-subunit allosteric enzyme under the MWC model (always 2 conformations). `CatalyticMech` is the `EnzymeMechanism` of one subunit; `CatSites` is `(catalytic_mets, multiplicity, tr_equiv_mets)`; `RegSites` describes regulatory binding sites with TR equivalence info. |
 | `MechanismSpec` | Lightweight runtime description of a mechanism. Convert to `EnzymeMechanism` via `EnzymeMechanism(spec)`. |
 | `FittingProblem` | Wraps a mechanism + data table for parameter fitting. |
-| `SiteState` | State of a single binding site (metabolite, atoms, role). |
-| `EnzymeFormSpec` | Specification of an enzyme form with named binding sites. |
 
 ### Macros
 
@@ -436,8 +435,6 @@ v/(E_total × kcat) automatically scale-invariant.
 | `fit_rate_equation(fp, optimizer; ...)` | Fit rate constants via multi-start optimization. |
 | `rescale_parameter_values(m, params; kcat=1.0)` | Rescale SS rate constants so kcat equals target. K's, Keq, E_total unchanged. |
 | `enumerate_mechanisms(rxn; max_forms)` | Lazy iterator over all valid mechanisms for a reaction. |
-| `enumerate_mechanism_stages(rxn; max_forms)` | Run enumeration pipeline, returning intermediate results at each stage. |
-| `enumerate_enzyme_forms(rxn)` | Enumerate all possible enzyme forms for a reaction. |
 | `substrates(m)` | Substrates (with stoichiometric multiplicity). |
 | `products(m)` | Products (with stoichiometric multiplicity). |
 | `regulators(m)` | Regulators. |

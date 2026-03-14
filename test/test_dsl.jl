@@ -20,6 +20,34 @@
         @test EnzymeRates.regulators(spec2)[1] == :I
     end
 
+    @testset "@enzyme_reaction regulator roles" begin
+        spec_roles = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+            allosteric_regulators: A
+            regulators: R
+        end
+        @test spec_roles isa EnzymeReaction
+        @test Set(EnzymeRates.regulators(spec_roles)) == Set([:I, :A, :R])
+        roles = EnzymeRates.regulator_roles(spec_roles)
+        @test length(roles) == 3
+        role_dict = Dict(r[1] => r[2] for r in roles)
+        @test role_dict[:I] == :dead_end
+        @test role_dict[:A] == :allosteric
+        @test role_dict[:R] == :unknown
+
+        # Backward compatibility: plain regulators
+        spec_plain = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            regulators: R1, R2
+        end
+        roles_plain = EnzymeRates.regulator_roles(spec_plain)
+        @test all(r[2] == :unknown for r in roles_plain)
+        @test Set(r[1] for r in roles_plain) == Set([:R1, :R2])
+    end
+
     @testset "@enzyme_mechanism" begin
         m = @enzyme_mechanism begin
             species: begin
