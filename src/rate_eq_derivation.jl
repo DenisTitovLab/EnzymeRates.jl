@@ -313,12 +313,12 @@ Build substitution pairs merging Haldane-derived parameters that have
 identical expressions after user constraints. E.g., if k8r and k7r both
 resolve to `k7f / (K1 * Keq)`, returns `[:k8r => :k7r]`.
 """
-function _haldane_equality_substitutions(M::Type{<:EnzymeMechanism})
-    dep_exprs, _ = _dependent_param_exprs(M)
+function _haldane_equality_substitutions(dep_exprs)
     length(dep_exprs) < 2 && return Pair{Symbol,Symbol}[]
     # Sort by step number for stable canonical choice (lowest first)
     _step_num(s) = let m = match(r"\d+", string(s))
-        m === nothing ? 0 : something(tryparse(Int, m.match::SubString), 0)
+        m === nothing ? 0 :
+            something(tryparse(Int, m.match::SubString), 0)
     end
     sorted = sort(collect(dep_exprs); by=p -> _step_num(p[1]))
     subs = Pair{Symbol,Symbol}[]
@@ -328,6 +328,13 @@ function _haldane_equality_substitutions(M::Type{<:EnzymeMechanism})
         canon !== sym && push!(subs, sym => canon)
     end
     subs
+end
+
+function _haldane_equality_substitutions(
+    M::Type{<:EnzymeMechanism},
+)
+    dep_exprs, _ = _dependent_param_exprs(M)
+    _haldane_equality_substitutions(dep_exprs)
 end
 
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
@@ -362,20 +369,17 @@ function _factor_poly(
 end
 
 """Build raw numerator POLY and factored denominator terms for the rate equation."""
-function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
-    m = M()
-    subs_species = substrates(m)
-    prods_species = products(m)
-    enzs = enzyme_forms(m)
-    rxns = reactions(m)
-    eq_steps = equilibrium_steps(m)
-
-    enz_names = Tuple(e[1] for e in enzs)
-    enz_set = Set(enz_names)
-    groups, form_to_group = _compute_re_groups(enz_names, enz_set, rxns, eq_steps)
-    alpha_num, alpha_den, sigma_num, sigma_den = _compute_alpha(
-        enz_names, enz_set, rxns, eq_steps, groups,
+function _raw_symbolic_rate_polys(
+    subs_species, prods_species, enz_names, enz_set,
+    rxns, eq_steps, pc, dep_exprs,
+)
+    groups, form_to_group = _compute_re_groups(
+        enz_names, enz_set, rxns, eq_steps,
     )
+    alpha_num, alpha_den, sigma_num, sigma_den =
+        _compute_alpha(
+            enz_names, enz_set, rxns, eq_steps, groups,
+        )
     G = length(groups)
 
     # Build rate matrix R[g1,g2] with alpha denominators cleared
@@ -408,7 +412,8 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     end
 
     # Build Laplacian and cofactor determinants
-    L = [i == j ? poly_zero() : poly_neg(R[i,j]) for i in 1:G, j in 1:G]
+    L = [i == j ? poly_zero() : poly_neg(R[i,j])
+         for i in 1:G, j in 1:G]
     for i in 1:G
         L[i, i] = reduce(
             poly_add,
@@ -418,13 +423,14 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     end
     D = [begin
         idx = [r for r in 1:G if r != root]
-        isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
+        isempty(idx) ? poly_one() :
+            sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
-    # Factor sigma for each RE group; try poly_power → algebraic → unfactored
-    pc = param_constraints(m)
+    # Factor sigma for each RE group
     binding_Ks = Set{Symbol}(
-        Symbol("K$i") for (i, (lhs, rhs)) in enumerate(rxns)
+        Symbol("K$i")
+        for (i, (lhs, rhs)) in enumerate(rxns)
         if eq_steps[i] && any(s ∉ enz_set for s in lhs) &&
            all(s ∈ enz_set for s in rhs)
     )
@@ -440,9 +446,14 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
         else
             sigma_num[g]
         end
-        csigma = _apply_param_constraints(raw_sigma, pc; binding_Ks)
+        csigma = _apply_param_constraints(
+            raw_sigma, pc; binding_Ks,
+        )
         push!(denom_terms, DenomTerm(
-            _factor_poly(csigma, rxns, eq_steps, enz_set, pc; binding_Ks),
+            _factor_poly(
+                csigma, rxns, eq_steps, enz_set, pc;
+                binding_Ks,
+            ),
             D[g],
         ))
     end
@@ -470,9 +481,9 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     denom_terms = [_apply_param_constraints(dt, pc; binding_Ks)
                    for dt in denom_terms]
 
-    # Merge Haldane-derived equal parameters (e.g., k8r→k7r when both
-    # resolve to the same thermodynamic expression after user constraints)
-    haldane_subs = _haldane_equality_substitutions(M)
+    # Merge Haldane-derived equal parameters (e.g., k8r→k7r when
+    # both resolve to the same thermodynamic expression)
+    haldane_subs = _haldane_equality_substitutions(dep_exprs)
     if !isempty(haldane_subs)
         hc = [(t, 1, [(c, 1)]) for (t, c) in haldane_subs]
         num = _apply_param_constraints(num, hc)
@@ -480,13 +491,16 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
                        for dt in denom_terms]
     end
 
-    n_terms = length(num) + _estimate_expanded_term_count(denom_terms)
+    n_terms = (length(num) +
+               _estimate_expanded_term_count(denom_terms))
     if n_terms > MAX_RATE_EQUATION_TERMS
         error(
-            "Rate equation for this mechanism has $n_terms polynomial " *
-            "terms (limit: $MAX_RATE_EQUATION_TERMS). Equations this " *
-            "large take a very long time to compile and are unlikely " *
-            "to be practically useful for parameter fitting.",
+            "Rate equation for this mechanism has " *
+            "$n_terms polynomial terms " *
+            "(limit: $MAX_RATE_EQUATION_TERMS). Equations " *
+            "this large take a very long time to compile " *
+            "and are unlikely to be practically useful " *
+            "for parameter fitting.",
         )
     end
 
@@ -497,6 +511,20 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     )
 
     num_fs, denom_terms
+end
+
+function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
+    m = M()
+    enzs = enzyme_forms(m)
+    rxns = reactions(m)
+    eq_steps = equilibrium_steps(m)
+    enz_names = Tuple(e[1] for e in enzs)
+    enz_set = Set(enz_names)
+    dep_exprs, _ = _dependent_param_exprs(M)
+    _raw_symbolic_rate_polys(
+        substrates(m), products(m), enz_names, enz_set,
+        rxns, eq_steps, param_constraints(m), dep_exprs,
+    )
 end
 
 """
@@ -589,13 +617,17 @@ Identify K symbols for binding RE steps (where K should be Kd, not Ka).
 Canonical form invariant: all RE metabolite steps have metabolite on LHS,
 so a binding step is simply any RE step with a non-enzyme species on LHS.
 """
+function _binding_K_symbols(rxns, eq_steps, enz_set)
+    [Symbol("K$i") for (i, (lhs, _)) in enumerate(rxns)
+     if eq_steps[i] && any(s ∉ enz_set for s in lhs)]
+end
+
 function _binding_K_symbols(M::Type{<:EnzymeMechanism})
     m = M()
-    rxns = reactions(m)
-    eq = equilibrium_steps(m)
-    enz_set = Set(e[1] for e in enzyme_forms(m))
-    [Symbol("K$i") for (i, (lhs, _)) in enumerate(rxns)
-     if eq[i] && any(s ∉ enz_set for s in lhs)]
+    _binding_K_symbols(
+        reactions(m), equilibrium_steps(m),
+        Set(e[1] for e in enzyme_forms(m)),
+    )
 end
 
 """
