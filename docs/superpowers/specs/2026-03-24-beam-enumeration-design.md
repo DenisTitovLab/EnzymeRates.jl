@@ -256,19 +256,59 @@ When adding a dead-end regulator, the initial move is maximally constrained:
 This minimizes the parameter count increase. Each constraint can be relaxed
 individually at later levels via "remove equivalence constraint" moves.
 
+## Runtime Functions (No JIT Per Mechanism)
+
+The existing codebase uses `@generated` functions on `EnzymeMechanism` types
+for compile-time rate equation derivation. Each unique mechanism is a unique
+type, and calling `parameters()` or `rate_equation()` triggers JIT compilation
+(~337ms per mechanism). This is acceptable for fitting (where rate evaluation
+speed matters), but too slow for enumeration (10K mechanisms = ~56 minutes of
+JIT).
+
+Instead, the beam enumeration uses **runtime versions** of the same algorithms
+that operate on `MechanismSpec`/`StepSpec` data without JIT:
+
+### `_runtime_param_count(spec, reaction)` — Parameter Counting
+
+A runtime version of `_dependent_param_exprs` from
+`thermodynamic_constr_for_rate_eq_derivation.jl`. Extracts the thermodynamic
+constraint analysis (incidence matrix → nullspace → Gaussian elimination) into
+a regular function that takes step/constraint data as input. Returns the count
+of independent parameters (equivalent to `length(parameters(compile_mechanism(spec)))`
+but without creating a unique type or triggering JIT).
+
+This replaces any formula-based `_compute_param_count` — no reimplementation
+of the parameter counting logic, just a runtime interface to the existing
+algorithm.
+
+### `_runtime_denominator_monomials(spec)` — Deduplication Fingerprints
+
+A runtime version of the King-Altman spanning arborescence computation from
+`rate_eq_derivation.jl`. Computes the denominator concentration monomials
+that determine the rate equation's functional form. Two mechanisms with
+identical denominator monomials (up to rate constant naming) produce
+equivalent rate equations.
+
+This replaces the separate `_concentration_fingerprint` implementation in
+`mechanism_enumeration.jl`. The same spanning arborescence algorithm is used
+for both deduplication (during enumeration) and rate equation derivation
+(during fitting, via `@generated` functions).
+
+### Design Principle
+
+No reimplementation of complex algorithms. The beam enumeration reuses the
+existing thermodynamic constraint and King-Altman code by providing runtime
+entry points that take `MechanismSpec` data instead of `Type{EnzymeMechanism}`
+type parameters. Tests verify that runtime results match `@generated` results
+for all mechanisms where both can be computed.
+
 ## Thermodynamic Constraint Handling
 
-Thermodynamic constraints (Haldane/Wegscheider) are handled by computing
-`param_count` from the actual mechanism structure, not by assuming fixed deltas
-per move type. Each expansion move generates complete `MechanismSpec` objects,
-computes the actual `param_count`, and filters by target `param_count`.
-
-The `param_count` computation follows the codebase convention: a base count
-from `n_re + 2*n_ss - n_thermo + 2` (where `n_thermo = n_steps - n_forms + 1`
-is the number of independent cycles, and `+2` accounts for E_total and Keq),
-with equivalence constraints applied as a separate delta reduction. For SS
-equivalence groups, each constrained pair eliminates 2 parameters (kf and kr);
-for RE groups, each constrained pair eliminates 1 parameter (K).
+Thermodynamic constraints (Haldane/Wegscheider) are handled by calling
+`_runtime_param_count`, which runs the same Gaussian elimination algorithm
+as `_dependent_param_exprs` but at runtime. Each expansion move generates
+complete `MechanismSpec` objects, computes param_count via the runtime
+function, and filters by target param_count.
 
 ## Testing Strategy
 
@@ -295,8 +335,10 @@ File: `test/test_beam_enumeration.jl`
    `enumerate_mechanisms` produces same final set as `old_enumerate_mechanisms`
 10. **Deduplication within levels** — equivalent candidates from different
     expansion paths collapse to one
-11. **param_count vs parameters()** — for a sample of compiled mechanisms at
-    each level, verify `spec.param_count == length(parameters(compile_mechanism(spec)))`
+11. **Runtime functions match @generated** — for a sample of compiled
+    mechanisms, verify `_runtime_param_count(spec) == length(parameters(compile_mechanism(spec)))`
+    and `_runtime_denominator_monomials(spec)` matches the fingerprint
+    from the @generated rate equation derivation
 12. **Multi-level dead-end binding** — for a bi-bi or ter-ter reaction, verify
     that dead-end forms can receive additional binding (e.g., E_S1_P1 + S2),
     respecting the binding capacity limit
@@ -307,6 +349,8 @@ File: `test/test_beam_enumeration.jl`
 
 **In scope:**
 - Rename old pipeline and tests
+- Runtime functions: `_runtime_param_count`, `_runtime_denominator_monomials`
+  (runtime versions of existing `@generated` algorithms, no reimplementation)
 - `expand_mechanisms_same_param_count` (+0 moves)
 - `expand_mechanisms_by_one_param` (+1 moves, forward direction only)
 - `expand_mechanisms_by_two_params` (+2 moves, forward direction only)

@@ -4,7 +4,7 @@
 
 **Goal:** Replace eager mechanism enumeration with a level-by-level beam search that expands mechanisms by param_count, enabling enumeration of large reactions (ter-ter + 3 regulators) without OOM.
 
-**Architecture:** Three pure expansion functions (`expand_mechanisms_same_param_count`, `expand_mechanisms_by_one_param`, `expand_mechanisms_by_two_params`) produce mechanism candidates at +0/+1/+2 param_count deltas. A new `enumerate_mechanisms` orchestrates these in a level-by-level loop, materializing one level at a time. The old pipeline is preserved as `old_enumerate_mechanisms` for correctness verification.
+**Architecture:** Three pure expansion functions (`expand_mechanisms_same_param_count`, `expand_mechanisms_by_one_param`, `expand_mechanisms_by_two_params`) produce mechanism candidates at +0/+1/+2 param_count deltas. Parameter counting and deduplication use runtime versions of existing `@generated` algorithms (`_runtime_param_count`, `_runtime_denominator_monomials`) — no reimplementation, no JIT per mechanism. A new `enumerate_mechanisms` orchestrates these in a level-by-level loop, materializing one level at a time. The old pipeline is preserved as `old_enumerate_mechanisms` for correctness verification.
 
 **Tech Stack:** Julia, EnzymeRates.jl internal types (`MechanismSpec`, `StepSpec`, `AllostericMechanismSpec`, `ParamConstraint`)
 
@@ -16,7 +16,7 @@
 
 | File | Responsibility |
 |------|---------------|
-| `src/beam_enumeration.jl` | All beam search logic: three expansion functions, `_compute_param_count`, `_deduplicate_specs`, dead-end binding helpers, and `enumerate_mechanisms` orchestrator |
+| `src/beam_enumeration.jl` | All beam search logic: three expansion functions, `_deduplicate_specs`, dead-end binding helpers, and `enumerate_mechanisms` orchestrator. Uses runtime functions from rate_eq_derivation.jl and thermodynamic_constr_for_rate_eq_derivation.jl for param counting and dedup. |
 | `src/mechanism_enumeration.jl` | Existing file — rename `enumerate_mechanisms` → `old_enumerate_mechanisms`. No other changes. |
 | `src/EnzymeRates.jl` | Add `include("beam_enumeration.jl")` after mechanism_enumeration.jl |
 | `test/test_beam_enumeration.jl` | All beam enumeration tests |
@@ -94,146 +94,66 @@ verification against the new beam-based implementation."
 - Modify: `src/EnzymeRates.jl` — add include
 - Modify: `test/runtests.jl` — add include
 
-- [ ] **Step 1: Create src/beam_enumeration.jl with ABOUTME and stubs**
+- [ ] **Step 1: Create src/beam_enumeration.jl with ABOUTME and runtime function wrappers**
 
 ```julia
 # ABOUTME: Level-by-level beam search for mechanism enumeration.
 # ABOUTME: Expands mechanisms by param_count using three expansion functions.
 
-# ─── Param Count Computation ──────────────────────────────────
+# ─── Runtime Parameter Counting ───────────────────────────────
 
 """
-    _compute_param_count(steps, constraints) → Int
+    _runtime_param_count(reaction, steps, constraints) → Int
 
-Compute mechanism parameter count from steps and equivalence constraints.
-Formula: n_re + 2*n_ss - n_thermo + 2 - n_constraints + n_redundant_thermo.
-
-- n_thermo = n_steps - n_forms + 1 (independent cycles).
-- +2 accounts for E_total and Keq.
-- Each constraint eliminates 1 parameter.
-- n_redundant_thermo: when equivalence constraints make a
-  Wegscheider/Haldane constraint automatically satisfied
-  (all edges in a cycle are constrained), that thermo
-  constraint doesn't actually reduce parameters — add it back.
+Compute parameter count at runtime by building a temporary
+MechanismSpec, converting to EnzymeMechanism, and calling
+parameters(). Reuses the exact same thermodynamic constraint
+analysis as the @generated version.
 """
-function _compute_param_count(
+function _runtime_param_count(
+    @nospecialize(reaction),
     steps::Vector{StepSpec},
     constraints::Vector{ParamConstraint},
 )
-    n_steps = length(steps)
-    n_re = count(s -> s.is_equilibrium, steps)
-    n_ss = n_steps - n_re
-    n_forms = length(all_form_names(steps))
-    n_thermo = n_steps - n_forms + 1
-    base = n_re + 2 * n_ss - n_thermo + 2
-
-    n_redundant = _redundant_thermo_count(
-        steps, constraints)
-    base - length(constraints) + n_redundant
+    spec = MechanismSpec(reaction, steps, constraints, 0)
+    m = compile_mechanism(spec)
+    length(parameters(m))
 end
 
-"""
-    _redundant_thermo_count(steps, constraints) → Int
+"""Convenience: compute param_count for an existing MechanismSpec."""
+function _runtime_param_count(spec::MechanismSpec)
+    m = compile_mechanism(spec)
+    length(parameters(m))
+end
 
-Count thermodynamic constraints that are automatically
-satisfied due to equivalence constraints. A cycle's
-Wegscheider constraint is redundant when all RE edges
-in the cycle have their K's determined by equivalence
-constraints from edges outside the cycle.
+# ─── Runtime Deduplication Fingerprint ────────────────────────
 
-Uses cycle detection on the enzyme form graph and checks
-whether all cycle edges have constrained parameters.
 """
-function _redundant_thermo_count(
-    steps::Vector{StepSpec},
-    constraints::Vector{ParamConstraint},
+    _runtime_denominator_monomials(spec) → Set{MONO}
+
+Compute the concentration monomials in the rate equation
+denominator at runtime. Uses the same spanning arborescence
+algorithm as the King-Altman @generated rate equation, but
+operates on StepSpec data.
+
+Two mechanisms with identical monomial sets produce equivalent
+rate equations (up to rate constant values).
+"""
+function _runtime_denominator_monomials(
+    spec::MechanismSpec,
 )
-    isempty(constraints) && return 0
-
-    # Build set of constrained step indices
-    constrained = Set{Int}()
-    for (target, _, _) in constraints
-        m = match(r"[kK](\d+)", string(target))
-        m !== nothing && push!(
-            constrained, parse(Int, m[1]))
-    end
-
-    # Find independent cycles and check if all their
-    # edges are constrained
-    form_names = collect(all_form_names(steps))
-    form_idx = Dict(
-        f => i for (i, f) in enumerate(form_names))
-    n = length(form_names)
-    # Build adjacency with step indices
-    adj = [Dict{Int,Vector{Int}}() for _ in 1:n]
-    for (si, s) in enumerate(steps)
-        u = form_idx[s.reactants[1]]
-        v = form_idx[s.products[1]]
-        push!(get!(adj[u], v, Int[]), si)
-        push!(get!(adj[v], u, Int[]), si)
-    end
-
-    # Use spanning tree to find fundamental cycles
-    visited = falses(n)
-    parent = zeros(Int, n)
-    parent_edge = zeros(Int, n)
-    redundant = 0
-
-    # BFS spanning tree from node 1
-    visited[1] = true
-    queue = [1]
-    tree_edges = Set{Int}()
-    non_tree_steps = Int[]
-
-    while !isempty(queue)
-        u = popfirst!(queue)
-        for (v, step_indices) in adj[u]
-            for si in step_indices
-                if !visited[v]
-                    visited[v] = true
-                    parent[v] = u
-                    parent_edge[v] = si
-                    push!(tree_edges, si)
-                    push!(queue, v)
-                elseif si ∉ tree_edges
-                    push!(non_tree_steps, si)
-                end
-            end
-        end
-    end
-    unique!(non_tree_steps)
-
-    # Each non-tree edge defines a fundamental cycle.
-    # A cycle's thermo constraint is redundant if all
-    # RE edges in the cycle are constrained.
-    for si in non_tree_steps
-        s = steps[si]
-        u = form_idx[s.reactants[1]]
-        v = form_idx[s.products[1]]
-
-        # Find cycle edges by tracing parents
-        cycle_steps = Set{Int}([si])
-        pu, pv = u, v
-        while pu != pv
-            if pu > pv
-                push!(cycle_steps, parent_edge[pu])
-                pu = parent[pu]
-            else
-                push!(cycle_steps, parent_edge[pv])
-                pv = parent[pv]
-            end
-        end
-
-        # Check if all RE edges in cycle are constrained
-        all_constrained = all(cycle_steps) do cs
-            steps[cs].is_equilibrium ?
-                cs in constrained : true
-        end
-        all_constrained && (redundant += 1)
-    end
-    redundant
+    partition = _compute_re_partition_from_steps(
+        spec.steps)
+    _concentration_fingerprint(spec.steps, partition)
 end
 ```
+
+Note: `_runtime_param_count` calls `compile_mechanism` + `parameters()`, which
+triggers JIT compilation (~337ms per unique mechanism). This is a one-time cost
+per candidate during enumeration. If profiling shows this is too slow, the
+function can be replaced with a direct runtime implementation of
+`_dependent_param_exprs` that skips type creation — but for now, correctness
+over speed.
 
 - [ ] **Step 2: Create test/test_beam_enumeration.jl with ABOUTME and reaction definitions**
 
@@ -271,61 +191,51 @@ Expected: All tests pass (new test file has an empty testset)
 
 ```bash
 git add src/beam_enumeration.jl test/test_beam_enumeration.jl src/EnzymeRates.jl test/runtests.jl
-git commit -m "Scaffold beam_enumeration.jl with _compute_param_count"
+git commit -m "Scaffold beam_enumeration.jl with runtime functions"
 ```
 
-### Task 3: Test _compute_param_count against parameters()
+### Task 3: Test runtime functions
 
 **Files:**
 - Modify: `test/test_beam_enumeration.jl`
 
-This validates the param_count formula by compiling mechanisms and comparing against `length(parameters(m))`.
+Validates that runtime functions produce correct results by comparing against `@generated` versions on compiled mechanisms.
 
-- [ ] **Step 1: Write param_count validation tests**
+- [ ] **Step 1: Write runtime function tests**
 
 Inside the `@testset "Beam Mechanism Enumeration"` block:
 
 ```julia
-@testset "_compute_param_count matches parameters()" begin
-    # Uni-uni: 1 catalytic topology
-    topos_uu = EnzymeRates._catalytic_topologies(uni_uni)
-    for spec in topos_uu
-        m = compile_mechanism(spec)
-        expected = length(parameters(m))
-        computed = EnzymeRates._compute_param_count(
-            spec.steps, spec.param_constraints)
-        @test computed == expected
+@testset "Runtime functions" begin
+    @testset "_runtime_param_count" begin
+        # Verify for all catalytic topologies of several reactions
+        for (name, rxn) in [("uni-uni", uni_uni),
+                            ("uni-bi", uni_bi),
+                            ("bi-bi", bi_bi),
+                            ("bi-bi pp", bi_bi_ping_pong)]
+            topos = EnzymeRates._catalytic_topologies(rxn)
+            for spec in topos
+                pc = EnzymeRates._runtime_param_count(spec)
+                m = compile_mechanism(spec)
+                @test pc == length(parameters(m))
+            end
+        end
     end
 
-    # Bi-bi: 9 catalytic topologies with varying structure
-    topos_bb = EnzymeRates._catalytic_topologies(bi_bi)
-    for spec in topos_bb
-        m = compile_mechanism(spec)
-        expected = length(parameters(m))
-        computed = EnzymeRates._compute_param_count(
-            spec.steps, spec.param_constraints)
-        @test computed == expected
-    end
+    @testset "_runtime_denominator_monomials" begin
+        # Verify fingerprints are non-empty and consistent
+        topos = EnzymeRates._catalytic_topologies(bi_bi)
+        for spec in topos
+            monos = EnzymeRates._runtime_denominator_monomials(
+                spec)
+            @test !isempty(monos)
+        end
 
-    # Uni-bi: 3 topologies including random-order (has cycle)
-    topos_ub = EnzymeRates._catalytic_topologies(uni_bi)
-    for spec in topos_ub
-        m = compile_mechanism(spec)
-        expected = length(parameters(m))
-        computed = EnzymeRates._compute_param_count(
-            spec.steps, spec.param_constraints)
-        @test computed == expected
-    end
-
-    # Bi-bi ping-pong: different topology structure
-    topos_pp = EnzymeRates._catalytic_topologies(
-        bi_bi_ping_pong)
-    for spec in topos_pp
-        m = compile_mechanism(spec)
-        expected = length(parameters(m))
-        computed = EnzymeRates._compute_param_count(
-            spec.steps, spec.param_constraints)
-        @test computed == expected
+        # Two identical mechanisms should have same fingerprint
+        spec1 = topos[1]
+        fp1 = EnzymeRates._runtime_denominator_monomials(spec1)
+        fp2 = EnzymeRates._runtime_denominator_monomials(spec1)
+        @test fp1 == fp2
     end
 end
 ```
@@ -333,13 +243,13 @@ end
 - [ ] **Step 2: Run tests**
 
 Run: `julia --project -e 'using Pkg; Pkg.test()'`
-Expected: All param_count validation tests pass
+Expected: All runtime function tests pass
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add test/test_beam_enumeration.jl
-git commit -m "Add param_count validation: _compute_param_count vs parameters()"
+git commit -m "Add runtime function tests: param_count and denominator monomials"
 ```
 
 ---
@@ -448,11 +358,14 @@ function _expand_re_to_ss!(
         new_steps = copy(spec.steps)
         new_steps[i] = StepSpec(
             step.reactants, step.products, false)
-        pc = _compute_param_count(
-            new_steps, spec.param_constraints)
-        push!(result, MechanismSpec(
+        candidate = MechanismSpec(
             spec.reaction, new_steps,
-            copy(spec.param_constraints), pc))
+            copy(spec.param_constraints), 0)
+        candidate = MechanismSpec(
+            spec.reaction, new_steps,
+            copy(spec.param_constraints),
+            _runtime_param_count(candidate))
+        push!(result, candidate)
     end
 end
 ```
@@ -507,8 +420,10 @@ To test this, we need a mechanism WITH constraints. We'll manually construct one
         [(Symbol("K5"), 1)])
     constraints = [constraint]
 
-    pc = EnzymeRates._compute_param_count(
-        de_steps, constraints)
+    spec_with_constraint = EnzymeRates.MechanismSpec(
+        uni_uni_dead_end_I, de_steps, constraints, 0)
+    pc = EnzymeRates._runtime_param_count(
+        spec_with_constraint)
     spec_with_constraint = EnzymeRates.MechanismSpec(
         uni_uni_dead_end_I, de_steps, constraints, pc)
 
@@ -553,11 +468,13 @@ function _expand_remove_constraint!(
             spec.param_constraints[j]
             for j in eachindex(spec.param_constraints)
             if j != i]
-        pc = _compute_param_count(
-            spec.steps, new_constraints)
+        candidate = MechanismSpec(
+            spec.reaction, copy(spec.steps),
+            new_constraints, 0)
         push!(result, MechanismSpec(
             spec.reaction, copy(spec.steps),
-            new_constraints, pc))
+            new_constraints,
+            _runtime_param_count(candidate)))
     end
 end
 ```
@@ -931,8 +848,10 @@ function _expand_dead_end_at_delta!(
                 new_steps, new_constraints, spec.steps,
                 selected, bound, met, cat_forms)
 
-            pc = _compute_param_count(
-                new_steps, new_constraints)
+            candidate = MechanismSpec(
+                spec.reaction, new_steps,
+                new_constraints, 0)
+            pc = _runtime_param_count(candidate)
             pc == target_pc || continue
 
             push!(result, MechanismSpec(
@@ -1170,8 +1089,7 @@ function _deduplicate_specs(
     best = Dict{_DedupKey, MechanismSpec}()
     for spec in specs
         steps = spec.steps
-        partition = _compute_re_partition_from_steps(steps)
-        fp = _concentration_fingerprint(steps, partition)
+        fp = _runtime_denominator_monomials(spec)
 
         groups = Dict{Tuple{Symbol,Bool}, Vector{Int}}()
         for (i, s) in enumerate(steps)
