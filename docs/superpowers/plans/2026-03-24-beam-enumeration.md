@@ -10,6 +10,52 @@
 
 **Spec:** `docs/superpowers/specs/2026-03-24-beam-enumeration-design.md`
 
+## Review Findings (Implementation Notes)
+
+The following issues were identified during review. They are implementation-level
+details that TDD will catch — listed here so the implementer watches for them.
+
+### Critical (will cause wrong results if missed)
+
+- **C1**: `_runtime_param_count` must pass `_binding_K_symbols` data to the
+  runtime `_dependent_param_exprs`. The runtime version needs to know which K's
+  are binding K's (for Kd/Ka convention in Haldane constraints). Extract this
+  info from the step structure (RE steps with metabolite on LHS).
+- **C2**: `_strip_to_concentration_fingerprint` references `_expand_factored` —
+  verify the actual function name in `sym_poly_for_rate_eq_derivation.jl` and
+  use the correct name. The sigma field in `DenomTerm` may be a `FactoredPoly`,
+  not a plain `POLY`.
+- **C3**: The runtime `_raw_symbolic_rate_polys` must also handle
+  `_haldane_equality_substitutions` (merging Haldane-derived equal parameters).
+  This function currently takes `Type{EnzymeMechanism}` — needs a runtime
+  entry point too.
+- **C4**: Verify that stripping kinetic symbols from POLY monomials produces
+  the same `Set{MONO}` as `_concentration_fingerprint`. The MONO canonical form
+  (sorted pairs) must match. Write a comparison test for all catalytic topologies.
+- **C5**: Allosteric `expand_mechanisms_by_one_param` must handle ALL +1 moves,
+  not just TR removal. RE→SS, constraint removal, and dead-end moves apply to
+  the base mechanism — each produces a new `AllostericMechanismSpec` with a
+  modified base.
+
+### Major (will cause test failures)
+
+- **M1**: `expand_mechanisms_by_two_params` hardcodes `allo_addition = 1 +
+  n_non_equiv` instead of using `_runtime_param_count`. Use runtime param
+  counting for correctness.
+- **M2**: Test edge case where `expand_mechanisms_by_two_params` is called with
+  a reaction that has zero allosteric regulators — should return empty.
+- **M3**: `expand_mechanisms_same_param_count` uses `s ∉ specs` which requires
+  `==` on `MechanismSpec`. Either define `==` or use a fingerprint-based
+  approach (dedup handles this anyway).
+
+### Minor (cleanup)
+
+- **m4**: Rename `cat_forms` to `existing_forms` in `_dead_end_opportunities`.
+- **m5**: `_runtime_param_count` signature: plan uses 1 arg (spec only), spec
+  says 2 args (spec, reaction). Use 1 arg since `MechanismSpec.reaction` exists.
+- **m7**: `_deduplicate_allosteric` is reused from old pipeline. Explicitly
+  document it as shared utility, not pipeline-specific code.
+
 ---
 
 ## File Structure
