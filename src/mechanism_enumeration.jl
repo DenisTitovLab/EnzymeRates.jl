@@ -2158,12 +2158,12 @@ end
 # ─── Pipeline Orchestration ──────────────────────────────────
 
 """
-    enumerate_mechanisms(reaction; max_re_groups=7, catalytic_n=0)
+    old_enumerate_mechanisms(reaction; max_re_groups=7, catalytic_n=0)
 
 Enumerate valid mechanism topologies for the given reaction
 using a staged pipeline.
 """
-function enumerate_mechanisms(
+function old_enumerate_mechanisms(
     @nospecialize(reaction::EnzymeReaction);
     max_re_groups::Int=7,
     catalytic_n::Int=0,

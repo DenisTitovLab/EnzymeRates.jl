@@ -2030,7 +2030,7 @@ end
     @testset "compile_mechanism round-trip" begin
         for rxn in [uni_uni, uni_bi]
             all_specs = collect(
-                EnzymeRates.enumerate_mechanisms(rxn))
+                EnzymeRates.old_enumerate_mechanisms(rxn))
             cat_specs = filter(
                 s -> s isa EnzymeRates.MechanismSpec, all_specs)
             for s in first(cat_specs, 3)
@@ -2045,7 +2045,7 @@ end
 
         @testset "allosteric compilation" begin
             all_specs = collect(
-                EnzymeRates.enumerate_mechanisms(
+                EnzymeRates.old_enumerate_mechanisms(
                     uni_uni_allosteric_R))
             allo_specs = filter(
                 s -> s isa EnzymeRates.AllostericMechanismSpec,
@@ -2063,19 +2063,19 @@ end
 @testset "End-to-end pipeline" begin
     @testset "Uni-Uni, no regs" begin
         result = collect(
-            EnzymeRates.enumerate_mechanisms(uni_uni))
+            EnzymeRates.old_enumerate_mechanisms(uni_uni))
         @test length(result) == 3
     end
 
     @testset "Uni-Bi, no regs" begin
         result = collect(
-            EnzymeRates.enumerate_mechanisms(uni_bi))
+            EnzymeRates.old_enumerate_mechanisms(uni_bi))
         @test length(result) == 56
     end
 
     @testset "Bi-Bi, no regs" begin
         stats = @timed collect(
-            EnzymeRates.enumerate_mechanisms(bi_bi))
+            EnzymeRates.old_enumerate_mechanisms(bi_bi))
         @test length(stats.value) == 63762
         # Performance: ~3s / 5GB baseline
         @test stats.bytes < 15 * 1024^3
@@ -2083,7 +2083,7 @@ end
     end
     @testset "Bi-Bi Ping-Pong, no regs" begin
         stats = @timed collect(
-            EnzymeRates.enumerate_mechanisms(
+            EnzymeRates.old_enumerate_mechanisms(
                 bi_bi_ping_pong))
         @test length(stats.value) == 64276
         # Performance: ~7s / 6GB baseline
@@ -2093,14 +2093,14 @@ end
 
     @testset "Uni-Uni + 1 unknown reg" begin
         result = collect(
-            EnzymeRates.enumerate_mechanisms(
+            EnzymeRates.old_enumerate_mechanisms(
                 uni_uni_reg_unknown))
         @test length(result) == 17
     end
 
     @testset "Uni-Bi + 1 unknown reg" begin
         result = collect(
-            EnzymeRates.enumerate_mechanisms(
+            EnzymeRates.old_enumerate_mechanisms(
                 uni_bi_reg_unknown))
         @test length(result) == 1012
     end
@@ -2109,7 +2109,7 @@ end
 @testset "param_count accuracy" begin
     @testset "All Uni-Bi specs" begin
         all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(uni_bi))
+            EnzymeRates.old_enumerate_mechanisms(uni_bi))
         @test length(all_specs) == 56
         n_match = count(all_specs) do s
             m = compile_mechanism(s)
@@ -2124,7 +2124,7 @@ end
     # succeeds and produces parameters.
     @testset "Allosteric specs (compilation)" begin
         all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(
+            EnzymeRates.old_enumerate_mechanisms(
                 uni_uni_allosteric_R))
         allo_specs = filter(
             s -> s isa EnzymeRates.AllostericMechanismSpec,
@@ -2139,7 +2139,7 @@ end
     @testset "Sampled Bi-Bi specs" begin
         rng_bb = Random.MersenneTwister(42)
         all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(bi_bi))
+            EnzymeRates.old_enumerate_mechanisms(bi_bi))
         @test length(all_specs) == 63762
         sample = all_specs[randperm(
             rng_bb, length(all_specs))[1:min(50, end)]]
