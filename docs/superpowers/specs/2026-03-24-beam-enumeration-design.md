@@ -22,7 +22,8 @@ correctness verification.
 - `test/test_mechanism_enumeration.jl` →
   `test/old_test_mechanism_enumeration.jl`
 - New file: `src/beam_enumeration.jl` — public `enumerate_mechanisms`,
-  `expand_mechanisms`, `expand_same_param_count`
+  `expand_mechanisms_same_param_count`, `expand_mechanisms_by_one_param`,
+  `expand_mechanisms_by_two_params`
 - New file: `test/test_beam_enumeration.jl`
 - `_catalytic_topologies` stays shared (used by both old and new)
 
@@ -33,17 +34,17 @@ catalytic_topologies (all, grouped by param_count)
     │
     ▼
 Level N_min: catalytic seeds with smallest param_count
-    │ expand_same_param_count → +0 dead-end variants (to fixed point)
+    │ expand_mechanisms_same_param_count → +0 variants (to fixed point)
     │ deduplicate
-    │ expand_mechanisms → candidates at +1 and +2
-    │                     +2 candidates → cached[N_min+2]
+    │ expand_mechanisms_by_one_param → candidates at +1
+    │ expand_mechanisms_by_two_params → candidates at +2 → cached[N_min+2]
     │
     ▼
 Level N_min+1: expanded(+1) + catalytic seeds at this count + cached[N_min+1]
-    │ expand_same_param_count → +0 variants (to fixed point)
+    │ expand_mechanisms_same_param_count → +0 variants (to fixed point)
     │ deduplicate
-    │ expand_mechanisms → candidates at +1 and +2
-    │                     +2 candidates → cached[N_min+3]
+    │ expand_mechanisms_by_one_param → candidates at +1
+    │ expand_mechanisms_by_two_params → candidates at +2 → cached[N_min+3]
     │
     ▼
   ... continues until max_param_count or no new mechanisms ...
@@ -58,26 +59,25 @@ Level N_min+1: expanded(+1) + catalytic seeds at this count + cached[N_min+1]
   specs. When expanding level N, +2 candidates are inserted at cache[N+2].
   When starting level M, specs from cache[M] are merged with the +1
   expansion results from level M-1 and any catalytic seeds at M.
-- `expand_mechanisms` is a pure function:
+- The three expansion functions are pure:
   `Vector{AbstractMechanismSpec} → Vector{AbstractMechanismSpec}`.
 - Deduplication happens within each level via concentration fingerprints +
   constraint descriptors (same as current `_deduplicate`). Within-level
   dedup is sufficient because two expansion paths that arrive at the same
   mechanism always arrive at the same param_count (the moves are additive
   and param_count is a property of the mechanism structure, not the path).
-- Termination: expansion stops when `expand_mechanisms` plus cache plus
-  catalytic seeds produce an empty set after dedup, or when `param_count`
-  exceeds `max_param_count`.
+- Termination: expansion stops when all three expansion functions plus cache
+  plus catalytic seeds produce an empty set after dedup, or when
+  `param_count` exceeds `max_param_count`.
 - For `identify_rate_equation` (future): the loop wraps this with fitting +
   top-X% filtering between levels. For plain `enumerate_mechanisms` (X=100%),
   every mechanism at each level passes through to expansion.
 
 ## Expansion Moves
 
-`expand_mechanisms(specs, reaction)` applies all valid moves to each input spec
-and returns candidates at `param_count + 1` and `param_count + 2`.
+Three separate functions handle expansion at different param_count deltas.
 
-### +1 Parameter Moves
+### `expand_mechanisms_by_one_param` — +1 Parameter Moves
 
 1. **RE→SS**: Convert one RE step to SS. One candidate per RE step. Always
    exactly +1 param because the topology (forms, steps, cycles) is unchanged,
@@ -111,7 +111,7 @@ and returns candidates at `param_count + 1` and `param_count + 2`.
 4. **Remove TR equivalence** (allosteric only): Make one metabolite's K_T ≠ K_R.
    One candidate per metabolite currently in the TR-equivalent set.
 
-### +2 Parameter Moves
+### `expand_mechanisms_by_two_params` — +2 Parameter Moves
 
 5. **Add allosteric regulation**: Convert a base mechanism to allosteric. Adds L
    (conformational equilibrium) + one K_T≠K_R. All remaining metabolites start
@@ -135,10 +135,9 @@ regulator produces dead-end candidates (move 3) AND allosteric candidates
 (move 5). This replaces the current pipeline's 2^n_unknown bitmask partitioning
 with per-regulator, per-move exploration.
 
-### +0 Parameter Moves (Same-Level Expansion)
+### `expand_mechanisms_same_param_count` — +0 Parameter Moves
 
-`expand_same_param_count(specs, reaction)` adds dead-end configurations that
-result in +0 net parameter change.
+Adds dead-end configurations that result in +0 net parameter change.
 
 Concrete example: ordered bi-bi mechanism with forms E, EA, EAB, EPQ, E_Q.
 Adding dead-end complex E_Q + A ⇌ E_QA where K_A is constrained to equal the
@@ -171,21 +170,26 @@ enumerate_mechanisms(
     max_param_count=nothing,
 ) → MechanismIterator
 
-# Core expansion function (pure, stateless)
-expand_mechanisms(
+# Three separate expansion functions (pure, stateless)
+expand_mechanisms_same_param_count(
     specs::Vector{<:AbstractMechanismSpec},
     reaction::EnzymeReaction,
-) → Vector{<:AbstractMechanismSpec}  # candidates at +1 and +2
+) → Vector{<:AbstractMechanismSpec}  # +0 dead-end additions
 
-# Same-level expansion (pure, stateless)
-expand_same_param_count(
+expand_mechanisms_by_one_param(
     specs::Vector{<:AbstractMechanismSpec},
     reaction::EnzymeReaction,
-) → Vector{<:AbstractMechanismSpec}  # candidates at +0
+) → Vector{<:AbstractMechanismSpec}  # RE→SS, remove constraint,
+                                     # add dead-end (+1), remove TR equiv
+
+expand_mechanisms_by_two_params(
+    specs::Vector{<:AbstractMechanismSpec},
+    reaction::EnzymeReaction,
+) → Vector{<:AbstractMechanismSpec}  # add allosteric regulation
 ```
 
 `enumerate_mechanisms` returns `MechanismIterator` for backward compatibility.
-Internally it uses `expand_mechanisms` with X=100%.
+Internally it calls all three expansion functions at each level.
 
 `max_param_count` caps how far the expansion goes. Without it, it expands until
 no new mechanisms are generated.
@@ -278,8 +282,8 @@ File: `test/test_beam_enumeration.jl`
    original + 1
 7. **expand_same_param_count** — verify +0 dead-end additions, iterate to fixed
    point
-8. **expand_mechanisms integration** — combined function returns union of all
-   moves, correctly bucketed by param_count
+8. **Expansion integration** — all three expansion functions together produce
+   the expected candidates, correctly bucketed by param_count delta
 9. **Level-by-level equivalence** — for small reactions, verify new
    `enumerate_mechanisms` produces same final set as `old_enumerate_mechanisms`
 10. **Deduplication within levels** — equivalent candidates from different
@@ -296,8 +300,9 @@ File: `test/test_beam_enumeration.jl`
 
 **In scope:**
 - Rename old pipeline and tests
-- `expand_same_param_count` (+0 moves)
-- `expand_mechanisms` (+1 and +2 moves, forward direction only)
+- `expand_mechanisms_same_param_count` (+0 moves)
+- `expand_mechanisms_by_one_param` (+1 moves, forward direction only)
+- `expand_mechanisms_by_two_params` (+2 moves, forward direction only)
 - Multi-level dead-end binding with binding capacity limit (new capability
   beyond `old_enumerate_mechanisms`)
 - New `enumerate_mechanisms` using the beam loop with X=100%
