@@ -90,20 +90,23 @@ and returns candidates at `param_count + 1` and `param_count + 2`.
    K_dead_end ≠ K_catalytic). One candidate per active constraint. Always +1
    because each constraint eliminates exactly one parameter.
 
-3. **Add dead-end regulator**: For each regulator not yet in the mechanism,
-   generate all dead-end binding configurations that result in exactly +1 net
-   parameter. The regulator binds to 1, 2, 3, ... enzyme forms with maximal
+3. **Add dead-end binding**: For each metabolite or dead-end regulator not yet
+   bound at a given form, generate all dead-end binding configurations that
+   result in exactly +1 net parameter. Binding targets include both catalytic
+   forms AND existing dead-end forms (multi-level dead-end), subject to the
+   binding capacity limit (max(n_substrates, n_products) bound entities per
+   form). The regulator binds to 1, 2, 3, ... eligible forms with maximal
    equivalence constraints:
    - All R-binding steps share one K_R
    - All substrate/product-binding steps on dead-end forms share K with their
      catalytic counterpart
    - Only configurations where the actual computed `param_count` of the
      resulting mechanism equals `source.param_count + 1` are kept
-   Coverage argument: every dead-end configuration reachable by the current
-   pipeline can be built by (a) starting with the maximally-constrained
-   version (all K's shared), which is generated here, then (b) relaxing
-   constraints one at a time via move 2 at subsequent levels. The order of
-   relaxation doesn't matter — each relaxation is an independent +1 move.
+   Coverage argument: every dead-end configuration can be built by (a) starting
+   with the maximally-constrained version (all K's shared), which is generated
+   here, then (b) relaxing constraints one at a time via move 2 at subsequent
+   levels. The order of relaxation doesn't matter — each relaxation is an
+   independent +1 move.
 
 4. **Remove TR equivalence** (allosteric only): Make one metabolite's K_T ≠ K_R.
    One candidate per metabolite currently in the TR-equivalent set.
@@ -148,10 +151,16 @@ Other +0 cases:
   across forms AND substrate K matches catalytic): new cycle creates 1 thermo
   constraint that, combined with equivalence constraints, cancels the new
   parameters.
+- Multi-level dead-end binding: adding a metabolite to an existing dead-end
+  form where the K is shared with an existing step (e.g., S2 binding to
+  E_S1_P1 with K_S2 = K_S2_catalytic).
 
 Iterates to a fixed point (adding one +0 complex may enable another). Runs at
 every level before +1/+2 expansion, because topology changes at each level
 (e.g., new enzyme forms from adding a regulator) may enable new +0 moves.
+Multi-level dead-end binding respects the binding capacity limit:
+max(n_substrates, n_products) bound entities per form (counting substrates,
+products, and dead-end regulators but not allosteric regulators).
 
 ## Interface
 
@@ -198,7 +207,34 @@ X < 100%, per-level count is bounded by beam_width × moves_per_mechanism.
 A `max_mechanisms_per_level` safety cap (deferred) will warn/error if a level
 exceeds a threshold.
 
-## Dead-End Addition Conventions
+## Dead-End Binding Rules
+
+### Multi-Level Dead-End Binding
+
+Dead-end forms can themselves be targets for further metabolite/regulator
+binding. For example, in a ter-ter reaction: E_S1 (catalytic) → E_S1_P1
+(dead-end) → E_S1_P1_S2 (dead-end binding to dead-end form).
+
+This is a change from the current `old_enumerate_mechanisms` pipeline, which
+only creates single-level dead-end complexes (binding to catalytic forms only).
+
+### Binding Capacity Limit
+
+Total bound entities per enzyme form ≤ max(n_substrates, n_products).
+
+Entities that count toward the limit:
+- Substrates
+- Products
+- Dead-end regulators (bind at catalytic site)
+
+Entities that do NOT count:
+- Allosteric regulators (bind at non-catalytic site)
+
+Rationale: the catalytic site has limited physical space. For a ter-ter
+reaction (limit = 3), forms like E_S1_S2_P1 (3 bound) are valid but
+E_S1_S2_P1_P2 (4 bound) exceeds the limit.
+
+### Maximal Constraints on Addition
 
 When adding a dead-end regulator, the initial move is maximally constrained:
 
@@ -248,6 +284,13 @@ File: `test/test_beam_enumeration.jl`
    `enumerate_mechanisms` produces same final set as `old_enumerate_mechanisms`
 10. **Deduplication within levels** — equivalent candidates from different
     expansion paths collapse to one
+11. **param_count vs parameters()** — for a sample of compiled mechanisms at
+    each level, verify `spec.param_count == length(parameters(compile_mechanism(spec)))`
+12. **Multi-level dead-end binding** — for a bi-bi or ter-ter reaction, verify
+    that dead-end forms can receive additional binding (e.g., E_S1_P1 + S2),
+    respecting the binding capacity limit
+13. **Binding capacity limit** — verify forms exceeding
+    max(n_substrates, n_products) bound entities are not generated
 
 ## Scope (First PR)
 
@@ -255,9 +298,12 @@ File: `test/test_beam_enumeration.jl`
 - Rename old pipeline and tests
 - `expand_same_param_count` (+0 moves)
 - `expand_mechanisms` (+1 and +2 moves, forward direction only)
+- Multi-level dead-end binding with binding capacity limit (new capability
+  beyond `old_enumerate_mechanisms`)
 - New `enumerate_mechanisms` using the beam loop with X=100%
 - Tests for all of the above
 - Equivalence test against `old_enumerate_mechanisms` for small reactions
+  (excluding multi-level dead-end mechanisms, which are new)
 
 **Deferred:**
 - Reverse direction (max→min)
