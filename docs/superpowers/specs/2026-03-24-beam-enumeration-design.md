@@ -294,18 +294,33 @@ parameters.
 
 ### `_runtime_denominator_monomials(spec)` — Deduplication Fingerprints
 
-Calls the runtime version of the King-Altman spanning arborescence computation.
-The existing `_concentration_fingerprint` in `mechanism_enumeration.jl` already
-operates at runtime on `StepSpec` data. This function wraps it. Future
-refactoring may unify it with the `@generated` King-Altman code following the
-same pattern (shared runtime core, `@generated` wrapper).
+Calls the runtime version of the King-Altman/Cha spanning arborescence
+computation to get the full denominator `POLY` (symbolic polynomial with
+both rate constants and metabolite concentrations). Then strips kinetic
+symbols (`K1`, `k2f`, `k2r`, etc.) from each monomial to produce
+concentration-only `MONO` entries. The set of unique stripped monomials
+IS the concentration fingerprint.
+
+```julia
+function _runtime_denominator_monomials(spec)
+    poly = _runtime_denominator_poly(spec)
+    Set(_strip_kinetic_symbols(m) for m in keys(poly))
+end
+```
+
+This replaces the separate `_concentration_fingerprint` implementation
+(~140 lines of duplicate graph code in `mechanism_enumeration.jl`). The
+same runtime King-Altman/Cha function is used for both:
+- Rate equation derivation (`@generated` wrapper calls runtime core)
+- Deduplication fingerprints (strip kinetic symbols from the result)
 
 ### Design Principle
 
 ONE implementation of each algorithm, callable both at runtime (for
 enumeration) and at compile time (for `@generated` rate equation derivation).
-No reimplementation. Tests verify that runtime results match `@generated`
-results for all mechanisms where both can be computed.
+No reimplementation. No duplicate graph algorithms. Tests verify that runtime
+results match `@generated` results for all mechanisms where both can be
+computed.
 
 ## Thermodynamic Constraint Handling
 
@@ -356,8 +371,13 @@ File: `test/test_beam_enumeration.jl`
 - Rename old pipeline and tests
 - Refactor `_enzyme_incidence_matrix`, `_thermodynamic_constraints`,
   `_dependent_param_exprs` to have runtime entry points (accept data, not types)
-- `_runtime_param_count`, `_runtime_denominator_monomials` — thin wrappers
-  that extract data from `MechanismSpec` and call the runtime entry points
+- Refactor King-Altman/Cha spanning arborescence computation (`_compute_alpha`,
+  `_build_rate_body` or equivalent) to have a runtime entry point
+- `_runtime_param_count` — extracts data from `MechanismSpec`, calls runtime
+  `_dependent_param_exprs`
+- `_runtime_denominator_monomials` — calls runtime King-Altman to get
+  denominator `POLY`, strips kinetic symbols → concentration fingerprint.
+  Replaces separate `_concentration_fingerprint` (~140 lines of duplicate code)
 - `expand_mechanisms_same_param_count` (+0 moves)
 - `expand_mechanisms_by_one_param` (+1 moves, forward direction only)
 - `expand_mechanisms_by_two_params` (+2 moves, forward direction only)

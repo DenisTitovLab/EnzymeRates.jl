@@ -16,8 +16,9 @@
 
 | File | Responsibility |
 |------|---------------|
-| `src/beam_enumeration.jl` | All beam search logic: three expansion functions, `_deduplicate_specs`, dead-end binding helpers, and `enumerate_mechanisms` orchestrator. Calls runtime entry points in thermodynamic_constr_for_rate_eq_derivation.jl for param counting and uses existing `_concentration_fingerprint` for dedup. |
-| `src/thermodynamic_constr_for_rate_eq_derivation.jl` | Refactor: extract runtime entry points from `_enzyme_incidence_matrix`, `_thermodynamic_constraints`, `_dependent_param_exprs`. Existing `@generated` code becomes thin wrappers. |
+| `src/beam_enumeration.jl` | All beam search logic: three expansion functions, `_deduplicate_specs`, dead-end binding helpers, and `enumerate_mechanisms` orchestrator. Calls runtime entry points for param counting and dedup fingerprints. |
+| `src/thermodynamic_constr_for_rate_eq_derivation.jl` | Refactor: extract runtime entry points from `_enzyme_incidence_matrix`, `_thermodynamic_constraints`, `_dependent_param_exprs`. Existing type-dispatch code becomes thin wrappers. |
+| `src/rate_eq_derivation.jl` | Refactor: extract runtime entry point from `_raw_symbolic_rate_polys`. Existing type-dispatch code becomes thin wrapper. Dedup fingerprints use this + kinetic symbol stripping. |
 | `src/mechanism_enumeration.jl` | Existing file — rename `enumerate_mechanisms` → `old_enumerate_mechanisms`. No other changes. |
 | `src/EnzymeRates.jl` | Add `include("beam_enumeration.jl")` after mechanism_enumeration.jl |
 | `test/test_beam_enumeration.jl` | All beam enumeration tests |
@@ -102,11 +103,22 @@ currently take `Type{<:EnzymeMechanism}` and call `m = M()` to extract data.
 Refactor each to have a runtime core that takes data directly, then have the
 type-dispatch version call the runtime core.
 
-Functions to refactor (in `src/thermodynamic_constr_for_rate_eq_derivation.jl`):
+Functions to refactor:
+
+**In `src/thermodynamic_constr_for_rate_eq_derivation.jl`** (for param counting):
 
 1. `_enzyme_incidence_matrix(M)` → runtime core takes `(enz_names, steps_lhs, steps_rhs)`
 2. `_thermodynamic_constraints(M)` → runtime core takes incidence matrix + stoich data
-3. `_dependent_param_exprs(M)` → runtime core takes `(enz_names, steps_lhs, steps_rhs, eq_steps, constraints, sub_names, prod_names, met_names)` plus any data needed for `_binding_K_symbols` and pivot priority
+3. `_dependent_param_exprs(M)` → runtime core takes `(enz_names, steps_lhs, steps_rhs, eq_steps, constraints, sub_names, prod_names, met_names)` plus data for `_binding_K_symbols` and pivot priority
+
+**In `src/rate_eq_derivation.jl`** (for dedup fingerprints):
+
+4. `_raw_symbolic_rate_polys(M)` → runtime core takes `(enz_names, steps_lhs, steps_rhs, eq_steps, constraints, sub_names, prod_names, reg_names)`. Returns `(num::POLY, denom_terms)`. The `@generated` `rate_equation` body calls this at compile time; dedup calls it at runtime and strips kinetic symbols to get concentration fingerprints.
+
+Helper functions already called by `_raw_symbolic_rate_polys` that take data
+(not types): `_compute_re_groups`, `_compute_alpha`, `_split_reaction_side`,
+`_ss_contrib`. These don't need refactoring — they already take runtime data.
+The refactoring is at the top-level entry point that currently calls `m = M()`.
 
 Pattern for each:
 ```julia
@@ -179,16 +191,63 @@ end
 """
     _runtime_denominator_monomials(spec) → Set{MONO}
 
-Compute concentration monomials at runtime using the existing
-_concentration_fingerprint (already a runtime function on
-StepSpec data).
+Compute concentration monomials at runtime by calling the
+runtime version of _raw_symbolic_rate_polys (King-Altman/Cha)
+and stripping kinetic symbols from denominator monomials.
 """
 function _runtime_denominator_monomials(
     spec::MechanismSpec,
 )
-    partition = _compute_re_partition_from_steps(
-        spec.steps)
-    _concentration_fingerprint(spec.steps, partition)
+    enz_names = collect(all_form_names(spec.steps))
+    steps_lhs = [Tuple(s.reactants) for s in spec.steps]
+    steps_rhs = [Tuple(s.products) for s in spec.steps]
+    eq_steps = Tuple(s.is_equilibrium for s in spec.steps)
+    rxn = spec.reaction
+    sub_names = Symbol[s[1] for s in substrates(rxn)]
+    prod_names = Symbol[p[1] for p in products(rxn)]
+    reg_names = collect(regulators(rxn))
+
+    _, denom_terms = _raw_symbolic_rate_polys(
+        enz_names, steps_lhs, steps_rhs, eq_steps,
+        spec.param_constraints,
+        sub_names, prod_names, reg_names)
+
+    # Expand denom POLY and strip kinetic symbols
+    _strip_to_concentration_fingerprint(denom_terms)
+end
+
+"""
+    _is_kinetic_symbol(s::Symbol) → Bool
+
+True for rate constant symbols: K1, k2f, k3r, etc.
+"""
+function _is_kinetic_symbol(s::Symbol)
+    occursin(r"^[kK]\d+[fr]?$", string(s))
+end
+
+"""
+    _strip_to_concentration_fingerprint(denom_terms) → Set{MONO}
+
+Extract concentration monomials from denominator polynomial
+terms by stripping kinetic symbols (K's and k's).
+"""
+function _strip_to_concentration_fingerprint(
+    denom_terms,
+)
+    fingerprint = Set{MONO}()
+    for dt in denom_terms
+        # dt has sigma (POLY) and cofactor (POLY)
+        # Expand sigma * cofactor
+        expanded = poly_mul(
+            _expand_factored(dt.sigma), dt.cofactor)
+        for mono in keys(expanded)
+            stripped = MONO(
+                filter(p -> !_is_kinetic_symbol(p.first),
+                    mono))
+            push!(fingerprint, stripped)
+        end
+    end
+    fingerprint
 end
 ```
 
@@ -276,6 +335,21 @@ Inside the `@testset "Beam Mechanism Enumeration"` block:
         fp1 = EnzymeRates._runtime_denominator_monomials(spec1)
         fp2 = EnzymeRates._runtime_denominator_monomials(spec1)
         @test fp1 == fp2
+
+        # Verify runtime fingerprint matches old
+        # _concentration_fingerprint for all topologies
+        for spec in topos
+            runtime_fp =
+                EnzymeRates._runtime_denominator_monomials(
+                    spec)
+            partition =
+                EnzymeRates._compute_re_partition_from_steps(
+                    spec.steps)
+            old_fp =
+                EnzymeRates._concentration_fingerprint(
+                    spec.steps, partition)
+            @test runtime_fp == old_fp
+        end
     end
 end
 ```
