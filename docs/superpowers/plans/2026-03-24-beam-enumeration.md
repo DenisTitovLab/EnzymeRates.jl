@@ -106,9 +106,15 @@ verification against the new beam-based implementation."
     _compute_param_count(steps, constraints) → Int
 
 Compute mechanism parameter count from steps and equivalence constraints.
-Formula: n_re + 2*n_ss - n_thermo + 2, minus equivalence constraint reductions.
-n_thermo = n_steps - n_forms + 1 (independent cycles in connected graph).
-The +2 accounts for E_total and Keq.
+Formula: n_re + 2*n_ss - n_thermo + 2 - n_constraints + n_redundant_thermo.
+
+- n_thermo = n_steps - n_forms + 1 (independent cycles).
+- +2 accounts for E_total and Keq.
+- Each constraint eliminates 1 parameter.
+- n_redundant_thermo: when equivalence constraints make a
+  Wegscheider/Haldane constraint automatically satisfied
+  (all edges in a cycle are constrained), that thermo
+  constraint doesn't actually reduce parameters — add it back.
 """
 function _compute_param_count(
     steps::Vector{StepSpec},
@@ -121,10 +127,111 @@ function _compute_param_count(
     n_thermo = n_steps - n_forms + 1
     base = n_re + 2 * n_ss - n_thermo + 2
 
-    # Each constraint eliminates exactly 1 parameter.
-    # SS equivalence creates 2 ParamConstraint entries
-    # (one for kf, one for kr), so counting entries is correct.
-    base - length(constraints)
+    n_redundant = _redundant_thermo_count(
+        steps, constraints)
+    base - length(constraints) + n_redundant
+end
+
+"""
+    _redundant_thermo_count(steps, constraints) → Int
+
+Count thermodynamic constraints that are automatically
+satisfied due to equivalence constraints. A cycle's
+Wegscheider constraint is redundant when all RE edges
+in the cycle have their K's determined by equivalence
+constraints from edges outside the cycle.
+
+Uses cycle detection on the enzyme form graph and checks
+whether all cycle edges have constrained parameters.
+"""
+function _redundant_thermo_count(
+    steps::Vector{StepSpec},
+    constraints::Vector{ParamConstraint},
+)
+    isempty(constraints) && return 0
+
+    # Build set of constrained step indices
+    constrained = Set{Int}()
+    for (target, _, _) in constraints
+        m = match(r"[kK](\d+)", string(target))
+        m !== nothing && push!(
+            constrained, parse(Int, m[1]))
+    end
+
+    # Find independent cycles and check if all their
+    # edges are constrained
+    form_names = collect(all_form_names(steps))
+    form_idx = Dict(
+        f => i for (i, f) in enumerate(form_names))
+    n = length(form_names)
+    # Build adjacency with step indices
+    adj = [Dict{Int,Vector{Int}}() for _ in 1:n]
+    for (si, s) in enumerate(steps)
+        u = form_idx[s.reactants[1]]
+        v = form_idx[s.products[1]]
+        push!(get!(adj[u], v, Int[]), si)
+        push!(get!(adj[v], u, Int[]), si)
+    end
+
+    # Use spanning tree to find fundamental cycles
+    visited = falses(n)
+    parent = zeros(Int, n)
+    parent_edge = zeros(Int, n)
+    redundant = 0
+
+    # BFS spanning tree from node 1
+    visited[1] = true
+    queue = [1]
+    tree_edges = Set{Int}()
+    non_tree_steps = Int[]
+
+    while !isempty(queue)
+        u = popfirst!(queue)
+        for (v, step_indices) in adj[u]
+            for si in step_indices
+                if !visited[v]
+                    visited[v] = true
+                    parent[v] = u
+                    parent_edge[v] = si
+                    push!(tree_edges, si)
+                    push!(queue, v)
+                elseif si ∉ tree_edges
+                    push!(non_tree_steps, si)
+                end
+            end
+        end
+    end
+    unique!(non_tree_steps)
+
+    # Each non-tree edge defines a fundamental cycle.
+    # A cycle's thermo constraint is redundant if all
+    # RE edges in the cycle are constrained.
+    for si in non_tree_steps
+        s = steps[si]
+        u = form_idx[s.reactants[1]]
+        v = form_idx[s.products[1]]
+
+        # Find cycle edges by tracing parents
+        cycle_steps = Set{Int}([si])
+        pu, pv = u, v
+        while pu != pv
+            if pu > pv
+                push!(cycle_steps, parent_edge[pu])
+                pu = parent[pu]
+            else
+                push!(cycle_steps, parent_edge[pv])
+                pv = parent[pv]
+            end
+        end
+
+        # Check if all RE edges in cycle are constrained
+        all_constrained = all(cycle_steps) do cs
+            steps[cs].is_equilibrium ?
+                cs in constrained : true
+        end
+        all_constrained && (redundant += 1)
+    end
+    redundant
 end
 ```
 
@@ -1580,7 +1687,29 @@ function enumerate_mechanisms(
             end
         end
 
-        isempty(level) && isempty(all_results) && continue
+        # Check for allosteric specs at this level
+        allo_at_level = AllostericMechanismSpec[]
+        for spec in cached_at_pc
+            if spec isa AllostericMechanismSpec
+                push!(allo_at_level, spec)
+            end
+        end
+        delete!(cache, pc)
+
+        # Process allosteric specs even if level is empty
+        if !isempty(allo_at_level)
+            allo_deduped = _deduplicate_allosteric(
+                allo_at_level, reaction)
+            append!(all_results, allo_deduped)
+
+            allo_plus_one = expand_mechanisms_by_one_param(
+                allo_deduped, reaction)
+            for spec in allo_plus_one
+                push!(get!(cache, pc + 1,
+                    AbstractMechanismSpec[]), spec)
+            end
+        end
+
         isempty(level) && continue
 
         # +0 expansion (fixed point handled internally)
@@ -1608,32 +1737,15 @@ function enumerate_mechanisms(
                 AbstractMechanismSpec[]), spec)
         end
 
-        # Handle allosteric specs from cache (same cached_at_pc)
-        allo_at_level = AllostericMechanismSpec[]
-        for spec in cached_at_pc
-            if spec isa AllostericMechanismSpec
-                push!(allo_at_level, spec)
-            end
-        end
-        delete!(cache, pc)
-        if !isempty(allo_at_level)
-            allo_deduped = _deduplicate_allosteric(
-                allo_at_level, reaction)
-            append!(all_results, allo_deduped)
+        # (allosteric handling already done above)
 
-            # Expand allosteric by +1 (TR removal)
-            allo_plus_one = expand_mechanisms_by_one_param(
-                allo_deduped, reaction)
-            for spec in allo_plus_one
-                push!(get!(cache, pc + 1,
-                    AbstractMechanismSpec[]), spec)
-            end
-        end
-
-        # Termination: if no new mechanisms generated
+        # Termination: if no new mechanisms from any source
+        has_future_seeds = any(
+            haskey(seeds_by_pc, k) for k in (pc+1):max_pc)
+        has_future_cache = any(
+            haskey(cache, k) for k in (pc+1):max_pc)
         if isempty(current_plus_one) &&
-                !any(haskey(cache, k)
-                     for k in (pc+1):max_pc)
+                !has_future_seeds && !has_future_cache
             break
         end
     end
