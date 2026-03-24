@@ -265,50 +265,55 @@ type, and calling `parameters()` or `rate_equation()` triggers JIT compilation
 speed matters), but too slow for enumeration (10K mechanisms = ~56 minutes of
 JIT).
 
-Instead, the beam enumeration uses **runtime versions** of the same algorithms
-that operate on `MechanismSpec`/`StepSpec` data without JIT:
+Instead, the beam enumeration uses **true runtime versions** of the same
+algorithms that operate on `MechanismSpec`/`StepSpec` data — no type creation,
+no `@generated` functions, no JIT. Expected runtime: <1ms per mechanism.
+
+### Refactoring Approach
+
+The existing functions (`_enzyme_incidence_matrix`, `_thermodynamic_constraints`,
+`_dependent_param_exprs`) currently take `Type{<:EnzymeMechanism}` and call
+`m = M()` to access reactions, eq_steps, etc. The refactoring:
+
+1. Extract the core algorithm into a regular function that takes runtime data
+   (enzyme form names, step tuples, eq_steps, constraints, substrates, products)
+2. Have the existing `@generated` / type-dispatch versions call the runtime
+   version (extract data from type parameters, pass to runtime function)
+3. Beam enumeration calls the runtime versions directly with `StepSpec` data
+
+This means ONE implementation of each algorithm, shared between the `@generated`
+path (for fitting) and the runtime path (for enumeration).
 
 ### `_runtime_param_count(spec, reaction)` — Parameter Counting
 
-A runtime version of `_dependent_param_exprs` from
-`thermodynamic_constr_for_rate_eq_derivation.jl`. Extracts the thermodynamic
-constraint analysis (incidence matrix → nullspace → Gaussian elimination) into
-a regular function that takes step/constraint data as input. Returns the count
-of independent parameters (equivalent to `length(parameters(compile_mechanism(spec)))`
-but without creating a unique type or triggering JIT).
-
-This replaces any formula-based `_compute_param_count` — no reimplementation
-of the parameter counting logic, just a runtime interface to the existing
-algorithm.
+Calls the runtime version of `_dependent_param_exprs`. Extracts enzyme form
+names, step structure, eq_steps flags, constraints, and substrate/product info
+from `MechanismSpec` + `EnzymeReaction`. Runs the same incidence matrix →
+nullspace → Gaussian elimination algorithm. Returns the count of independent
+parameters.
 
 ### `_runtime_denominator_monomials(spec)` — Deduplication Fingerprints
 
-A runtime version of the King-Altman spanning arborescence computation from
-`rate_eq_derivation.jl`. Computes the denominator concentration monomials
-that determine the rate equation's functional form. Two mechanisms with
-identical denominator monomials (up to rate constant naming) produce
-equivalent rate equations.
-
-This replaces the separate `_concentration_fingerprint` implementation in
-`mechanism_enumeration.jl`. The same spanning arborescence algorithm is used
-for both deduplication (during enumeration) and rate equation derivation
-(during fitting, via `@generated` functions).
+Calls the runtime version of the King-Altman spanning arborescence computation.
+The existing `_concentration_fingerprint` in `mechanism_enumeration.jl` already
+operates at runtime on `StepSpec` data. This function wraps it. Future
+refactoring may unify it with the `@generated` King-Altman code following the
+same pattern (shared runtime core, `@generated` wrapper).
 
 ### Design Principle
 
-No reimplementation of complex algorithms. The beam enumeration reuses the
-existing thermodynamic constraint and King-Altman code by providing runtime
-entry points that take `MechanismSpec` data instead of `Type{EnzymeMechanism}`
-type parameters. Tests verify that runtime results match `@generated` results
-for all mechanisms where both can be computed.
+ONE implementation of each algorithm, callable both at runtime (for
+enumeration) and at compile time (for `@generated` rate equation derivation).
+No reimplementation. Tests verify that runtime results match `@generated`
+results for all mechanisms where both can be computed.
 
 ## Thermodynamic Constraint Handling
 
 Thermodynamic constraints (Haldane/Wegscheider) are handled by calling
 `_runtime_param_count`, which runs the same Gaussian elimination algorithm
-as `_dependent_param_exprs` but at runtime. Each expansion move generates
-complete `MechanismSpec` objects, computes param_count via the runtime
-function, and filters by target param_count.
+as `_dependent_param_exprs` at runtime (<1ms, no JIT). Each expansion move
+generates complete `MechanismSpec` objects, computes param_count via the
+runtime function, and filters by target param_count.
 
 ## Testing Strategy
 
@@ -349,8 +354,10 @@ File: `test/test_beam_enumeration.jl`
 
 **In scope:**
 - Rename old pipeline and tests
-- Runtime functions: `_runtime_param_count`, `_runtime_denominator_monomials`
-  (runtime versions of existing `@generated` algorithms, no reimplementation)
+- Refactor `_enzyme_incidence_matrix`, `_thermodynamic_constraints`,
+  `_dependent_param_exprs` to have runtime entry points (accept data, not types)
+- `_runtime_param_count`, `_runtime_denominator_monomials` — thin wrappers
+  that extract data from `MechanismSpec` and call the runtime entry points
 - `expand_mechanisms_same_param_count` (+0 moves)
 - `expand_mechanisms_by_one_param` (+1 moves, forward direction only)
 - `expand_mechanisms_by_two_params` (+2 moves, forward direction only)

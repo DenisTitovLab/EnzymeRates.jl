@@ -16,7 +16,8 @@
 
 | File | Responsibility |
 |------|---------------|
-| `src/beam_enumeration.jl` | All beam search logic: three expansion functions, `_deduplicate_specs`, dead-end binding helpers, and `enumerate_mechanisms` orchestrator. Uses runtime functions from rate_eq_derivation.jl and thermodynamic_constr_for_rate_eq_derivation.jl for param counting and dedup. |
+| `src/beam_enumeration.jl` | All beam search logic: three expansion functions, `_deduplicate_specs`, dead-end binding helpers, and `enumerate_mechanisms` orchestrator. Calls runtime entry points in thermodynamic_constr_for_rate_eq_derivation.jl for param counting and uses existing `_concentration_fingerprint` for dedup. |
+| `src/thermodynamic_constr_for_rate_eq_derivation.jl` | Refactor: extract runtime entry points from `_enzyme_incidence_matrix`, `_thermodynamic_constraints`, `_dependent_param_exprs`. Existing `@generated` code becomes thin wrappers. |
 | `src/mechanism_enumeration.jl` | Existing file — rename `enumerate_mechanisms` → `old_enumerate_mechanisms`. No other changes. |
 | `src/EnzymeRates.jl` | Add `include("beam_enumeration.jl")` after mechanism_enumeration.jl |
 | `test/test_beam_enumeration.jl` | All beam enumeration tests |
@@ -94,7 +95,50 @@ verification against the new beam-based implementation."
 - Modify: `src/EnzymeRates.jl` — add include
 - Modify: `test/runtests.jl` — add include
 
-- [ ] **Step 1: Create src/beam_enumeration.jl with ABOUTME and runtime function wrappers**
+- [ ] **Step 1: Refactor existing functions to have runtime entry points**
+
+The key functions in `src/thermodynamic_constr_for_rate_eq_derivation.jl`
+currently take `Type{<:EnzymeMechanism}` and call `m = M()` to extract data.
+Refactor each to have a runtime core that takes data directly, then have the
+type-dispatch version call the runtime core.
+
+Functions to refactor (in `src/thermodynamic_constr_for_rate_eq_derivation.jl`):
+
+1. `_enzyme_incidence_matrix(M)` → runtime core takes `(enz_names, steps_lhs, steps_rhs)`
+2. `_thermodynamic_constraints(M)` → runtime core takes incidence matrix + stoich data
+3. `_dependent_param_exprs(M)` → runtime core takes `(enz_names, steps_lhs, steps_rhs, eq_steps, constraints, sub_names, prod_names, met_names)` plus any data needed for `_binding_K_symbols` and pivot priority
+
+Pattern for each:
+```julia
+# Runtime core: takes data, no types
+function _enzyme_incidence_matrix(
+    enz_names::Vector{Symbol},
+    steps_lhs::Vector,
+    steps_rhs::Vector,
+)
+    # ... existing algorithm, unchanged ...
+end
+
+# Type-dispatch wrapper: extracts data, calls runtime core
+function _enzyme_incidence_matrix(M::Type{<:EnzymeMechanism})
+    m = M()
+    enz_names = [e[1] for e in enzyme_forms(m)]
+    rxns = reactions(m)
+    _enzyme_incidence_matrix(
+        enz_names,
+        [r[1] for r in rxns],
+        [r[2] for r in rxns])
+end
+```
+
+The implementer should:
+1. Read each existing function carefully
+2. Identify every accessor call (`reactions(m)`, `equilibrium_steps(m)`, etc.)
+3. Replace with data parameters in the runtime core
+4. Keep the type-dispatch version as a thin wrapper
+5. Run existing tests to verify no regression
+
+- [ ] **Step 2: Create src/beam_enumeration.jl with ABOUTME and runtime wrappers**
 
 ```julia
 # ABOUTME: Level-by-level beam search for mechanism enumeration.
@@ -103,27 +147,31 @@ verification against the new beam-based implementation."
 # ─── Runtime Parameter Counting ───────────────────────────────
 
 """
-    _runtime_param_count(reaction, steps, constraints) → Int
+    _runtime_param_count(spec) → Int
 
-Compute parameter count at runtime by building a temporary
-MechanismSpec, converting to EnzymeMechanism, and calling
-parameters(). Reuses the exact same thermodynamic constraint
-analysis as the @generated version.
+Compute parameter count at runtime (<1ms, no JIT) by calling
+the runtime version of _dependent_param_exprs with data
+extracted from the MechanismSpec.
 """
-function _runtime_param_count(
-    @nospecialize(reaction),
-    steps::Vector{StepSpec},
-    constraints::Vector{ParamConstraint},
-)
-    spec = MechanismSpec(reaction, steps, constraints, 0)
-    m = compile_mechanism(spec)
-    length(parameters(m))
-end
-
-"""Convenience: compute param_count for an existing MechanismSpec."""
 function _runtime_param_count(spec::MechanismSpec)
-    m = compile_mechanism(spec)
-    length(parameters(m))
+    enz_names = collect(all_form_names(spec.steps))
+    steps_lhs = [Tuple(s.reactants) for s in spec.steps]
+    steps_rhs = [Tuple(s.products) for s in spec.steps]
+    eq_steps = Tuple(s.is_equilibrium for s in spec.steps)
+
+    rxn = spec.reaction
+    sub_names = Symbol[s[1] for s in substrates(rxn)]
+    prod_names = Symbol[p[1] for p in products(rxn)]
+    reg_names = collect(regulators(rxn))
+    met_names = unique(vcat(
+        sub_names, prod_names, reg_names))
+
+    _, indep = _dependent_param_exprs(
+        enz_names, steps_lhs, steps_rhs, eq_steps,
+        spec.param_constraints,
+        sub_names, prod_names, met_names)
+    # indep params + Keq + E_total
+    length(indep) + 2
 end
 
 # ─── Runtime Deduplication Fingerprint ────────────────────────
@@ -131,13 +179,9 @@ end
 """
     _runtime_denominator_monomials(spec) → Set{MONO}
 
-Compute the concentration monomials in the rate equation
-denominator at runtime. Uses the same spanning arborescence
-algorithm as the King-Altman @generated rate equation, but
-operates on StepSpec data.
-
-Two mechanisms with identical monomial sets produce equivalent
-rate equations (up to rate constant values).
+Compute concentration monomials at runtime using the existing
+_concentration_fingerprint (already a runtime function on
+StepSpec data).
 """
 function _runtime_denominator_monomials(
     spec::MechanismSpec,
@@ -147,13 +191,6 @@ function _runtime_denominator_monomials(
     _concentration_fingerprint(spec.steps, partition)
 end
 ```
-
-Note: `_runtime_param_count` calls `compile_mechanism` + `parameters()`, which
-triggers JIT compilation (~337ms per unique mechanism). This is a one-time cost
-per candidate during enumeration. If profiling shows this is too slow, the
-function can be replaced with a direct runtime implementation of
-`_dependent_param_exprs` that skips type creation — but for now, correctness
-over speed.
 
 - [ ] **Step 2: Create test/test_beam_enumeration.jl with ABOUTME and reaction definitions**
 
@@ -207,17 +244,20 @@ Inside the `@testset "Beam Mechanism Enumeration"` block:
 
 ```julia
 @testset "Runtime functions" begin
-    @testset "_runtime_param_count" begin
-        # Verify for all catalytic topologies of several reactions
+    @testset "_runtime_param_count matches @generated" begin
+        # Verify runtime param count matches compile_mechanism
+        # + parameters() for all catalytic topologies
         for (name, rxn) in [("uni-uni", uni_uni),
                             ("uni-bi", uni_bi),
                             ("bi-bi", bi_bi),
                             ("bi-bi pp", bi_bi_ping_pong)]
             topos = EnzymeRates._catalytic_topologies(rxn)
             for spec in topos
-                pc = EnzymeRates._runtime_param_count(spec)
+                runtime_pc = EnzymeRates._runtime_param_count(
+                    spec)
                 m = compile_mechanism(spec)
-                @test pc == length(parameters(m))
+                generated_pc = length(parameters(m))
+                @test runtime_pc == generated_pc
             end
         end
     end
