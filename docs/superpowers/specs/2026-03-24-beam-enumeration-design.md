@@ -25,7 +25,14 @@ correctness verification.
   `expand_mechanisms_same_param_count`, `expand_mechanisms_by_one_param`,
   `expand_mechanisms_by_two_params`
 - New file: `test/test_beam_enumeration.jl`
-- `_catalytic_topologies` stays shared (used by both old and new)
+- Shared types from `mechanism_enumeration.jl`: `MechanismSpec`, `StepSpec`,
+  `AllostericMechanismSpec`, `ParamConstraint`, `MechanismIterator`, and
+  `compile_mechanism`. Also `_catalytic_topologies` (used by both old and new).
+- The beam enumeration pipeline logic is written from scratch — no code reuse
+  from the old pipeline stages (`_expand_ress_variants`, `_expand_dead_end`,
+  `_expand_equivalence_constraints`, `_deduplicate`, etc.). The old pipeline
+  is overengineered at ~2000 lines; clean reimplementation with the beam
+  approach should be significantly simpler.
 
 ## Core Data Flow
 
