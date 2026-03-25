@@ -538,3 +538,49 @@ function _runtime_denominator_monomials(spec::MechanismSpec)
     )
     _strip_to_concentration_fingerprint(denom_terms)
 end
+
+# ─── Deduplication ────────────────────────────────────────────
+
+"""
+    _deduplicate_specs(specs, reaction) → Vector{MechanismSpec}
+
+Remove duplicate mechanisms within a level. Two mechanisms are
+duplicates if they have the same concentration fingerprint and
+constraint descriptor. Keeps the one with lowest param_count.
+"""
+function _deduplicate_specs(
+    specs::Vector{MechanismSpec},
+    @nospecialize(reaction::EnzymeReaction),
+)
+    isempty(specs) && return specs
+
+    best = Dict{_DedupKey, MechanismSpec}()
+    for spec in specs
+        steps = spec.steps
+        fp = _runtime_denominator_monomials(spec)
+
+        groups = Dict{Tuple{Symbol,Bool}, Vector{Int}}()
+        for (i, s) in enumerate(steps)
+            met = step_metabolite(s)
+            met === nothing && continue
+            key = (met, s.is_equilibrium)
+            push!(get!(groups, key, Int[]), i)
+        end
+        valid_groups = sort!(
+            [sort!(g) for (_, g) in groups
+             if length(g) >= 2];
+            by=first)
+
+        constraint_mask = _constraints_to_mask(
+            spec.param_constraints, valid_groups, steps)
+        desc = _constraint_descriptor(
+            steps, valid_groups, constraint_mask)
+
+        dedup_key = (fp, desc)
+        if !haskey(best, dedup_key) ||
+                spec.param_count < best[dedup_key].param_count
+            best[dedup_key] = spec
+        end
+    end
+    collect(values(best))
+end

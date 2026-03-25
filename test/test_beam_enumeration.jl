@@ -239,4 +239,31 @@
             end
         end
     end
+
+    @testset "Deduplication within levels" begin
+        # Two different catalytic topologies for bi-bi that
+        # produce equivalent rate equations should deduplicate
+        topos = EnzymeRates._catalytic_topologies(bi_bi)
+        @test length(topos) >= 2
+
+        # Expand all by one param (RE→SS)
+        all_expanded = EnzymeRates.expand_mechanisms_by_one_param(
+            topos, bi_bi)
+
+        # Deduplication should reduce count (strict for bi-bi
+        # since different topologies produce equivalent expansions)
+        deduped = EnzymeRates._deduplicate_specs(
+            all_expanded, bi_bi)
+        @test length(deduped) < length(all_expanded)
+
+        # All deduped specs should still have valid param_counts
+        for spec in deduped
+            @test spec.param_count > 0
+        end
+
+        # Deduplication is idempotent
+        deduped2 = EnzymeRates._deduplicate_specs(
+            deduped, bi_bi)
+        @test length(deduped2) == length(deduped)
+    end
 end
