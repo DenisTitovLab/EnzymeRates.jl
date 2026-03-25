@@ -161,7 +161,8 @@ end
 """
     expand_mechanisms_by_one_param(specs, reaction) → Vector{MechanismSpec}
 
-Generate mechanism candidates with param_count + 1 by flipping one RE step to SS.
+Generate mechanism candidates with param_count + 1 by either flipping one
+RE step to SS or removing one equivalence constraint.
 """
 function expand_mechanisms_by_one_param(
     specs::Vector{MechanismSpec},
@@ -170,14 +171,35 @@ function expand_mechanisms_by_one_param(
     result = MechanismSpec[]
     for spec in specs
         _expand_re_to_ss!(result, spec)
+        _expand_remove_constraint!(result, spec)
     end
     result
 end
 
-"""Convert each RE step to SS, producing one candidate per RE step."""
+"""
+Collect all parameter symbols referenced in constraints
+(both the constrained symbol and the reference symbols).
+"""
+function _constrained_symbols(constraints::Vector{ParamConstraint})
+    syms = Set{Symbol}()
+    for (dep, _, refs) in constraints
+        push!(syms, dep)
+        for (ref, _) in refs
+            push!(syms, ref)
+        end
+    end
+    syms
+end
+
+"""Convert each RE step to SS, producing one candidate per RE step.
+Skips steps whose K parameter appears in any constraint, as flipping
+them would invalidate the constraint.
+"""
 function _expand_re_to_ss!(result::Vector{MechanismSpec}, spec::MechanismSpec)
+    constrained = _constrained_symbols(spec.param_constraints)
     for (i, step) in enumerate(spec.steps)
         step.is_equilibrium || continue
+        Symbol("K$i") in constrained && continue
         new_steps = copy(spec.steps)
         new_steps[i] = StepSpec(step.reactants, step.products, false)
         candidate = MechanismSpec(
@@ -186,6 +208,26 @@ function _expand_re_to_ss!(result::Vector{MechanismSpec}, spec::MechanismSpec)
         push!(result, MechanismSpec(
             spec.reaction, new_steps,
             copy(spec.param_constraints),
+            _runtime_param_count(candidate)))
+    end
+end
+
+"""Remove one equivalence constraint, producing one candidate per constraint."""
+function _expand_remove_constraint!(
+    result::Vector{MechanismSpec},
+    spec::MechanismSpec,
+)
+    for i in eachindex(spec.param_constraints)
+        new_constraints = [
+            spec.param_constraints[j]
+            for j in eachindex(spec.param_constraints)
+            if j != i]
+        candidate = MechanismSpec(
+            spec.reaction, copy(spec.steps),
+            new_constraints, 0)
+        push!(result, MechanismSpec(
+            spec.reaction, copy(spec.steps),
+            new_constraints,
             _runtime_param_count(candidate)))
     end
 end

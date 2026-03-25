@@ -39,6 +39,38 @@
             end
         end
 
+        @testset "Remove equivalence constraint" begin
+            topos = EnzymeRates._catalytic_topologies(uni_uni)
+            base = topos[1]
+
+            de_steps = copy(base.steps)
+            push!(de_steps, EnzymeRates.StepSpec([:E, :I], [:E_I], true))
+            push!(de_steps, EnzymeRates.StepSpec([:E_S, :I], [:E_I_S], true))
+            push!(de_steps, EnzymeRates.StepSpec([:E_I, :S], [:E_I_S], true))
+
+            constraint = (Symbol("K5"), 1, [(Symbol("K4"), 1)])
+            constraints = [constraint]
+
+            spec_with_constraint = EnzymeRates.MechanismSpec(
+                uni_uni_dead_end_I, de_steps, constraints, 0)
+            pc = EnzymeRates._runtime_param_count(spec_with_constraint)
+            spec_with_constraint = EnzymeRates.MechanismSpec(
+                uni_uni_dead_end_I, de_steps, constraints, pc)
+
+            results = EnzymeRates.expand_mechanisms_by_one_param(
+                [spec_with_constraint], uni_uni_dead_end_I)
+
+            remove_constraint = filter(results) do r
+                length(r.param_constraints) <
+                    length(spec_with_constraint.param_constraints)
+            end
+
+            @test length(remove_constraint) == 1
+            @test isempty(remove_constraint[1].param_constraints)
+            @test remove_constraint[1].param_count ==
+                spec_with_constraint.param_count + 1
+        end
+
     end  # expand_mechanisms_by_one_param testset
 
     @testset "Runtime functions" begin
