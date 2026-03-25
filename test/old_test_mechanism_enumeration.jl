@@ -1649,7 +1649,7 @@ end
 end
 
 @testset "Stage 7: TR equivalence" begin
-    @testset "Uni-Uni + R: 2^3 = 8 variants" begin
+    @testset "Uni-Uni + R: 2^4 = 16 variants" begin
         m_uu = @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
@@ -1671,11 +1671,11 @@ end
             allosteric_regs=[:R])
         tr = EnzymeRates._expand_tr_equivalence(
             allo, uni_uni_allosteric_R)
-        # 3 metabolites with T-state params: S, P, R
-        @test length(tr) == 8
+        # 3 metabolites + 1 non-binding SS step = 2^4
+        @test length(tr) == 16
     end
 
-    @testset "Uni-Bi + R: 2^4 = 16 variants" begin
+    @testset "Uni-Bi + R: 2^5 = 32 variants" begin
         # Ordered Q-first release
         m_ub1 = @enzyme_mechanism begin
             species: begin
@@ -1700,11 +1700,11 @@ end
             allosteric_regs=[:R])
         tr = EnzymeRates._expand_tr_equivalence(
             allo, uni_bi_allosteric_R)
-        # 4 metabolites: S, P, Q, R
-        @test length(tr) == 16
+        # 4 metabolites + 1 non-binding SS step = 2^5
+        @test length(tr) == 32
     end
 
-    @testset "Bi-Bi + R1, R2: 2^6 = 64 per spec" begin
+    @testset "Bi-Bi + R1, R2: 2^7 = 128 per spec" begin
         # Sequential A-first bind, Q-first release
         m_bb_seq = @enzyme_mechanism begin
             species: begin
@@ -1732,8 +1732,8 @@ end
         # Use first allosteric spec only
         tr = EnzymeRates._expand_tr_equivalence(
             [allo[1]], bi_bi_allosteric_R1_R2)
-        # 6 metabolites: A, B, P, Q, R1, R2
-        @test length(tr) == 64
+        # 6 metabolites + 1 non-binding SS step = 2^7
+        @test length(tr) == 128
     end
 
     @testset "Properties" begin
@@ -1805,15 +1805,17 @@ end
         # Use first allosteric spec
         tr = EnzymeRates._expand_tr_equivalence(
             [allo[1]], bi_bi_allosteric_R1_R2)
-        @test length(tr) == 64  # 2^6
+        @test length(tr) == 128  # 2^7 (6 mets + 1 SS step)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, bi_bi_allosteric_R1_R2)
         @test length(deduped) < length(tr)
     end
 
-    @testset "Uni-Uni + R: mirrors removed (odd metabolites)" begin
-        # 3 metabolites (S, P, R): complements differ in size but
-        # are still T↔R mirrors. 2^3 = 8 → 4 after dedup.
+    @testset "Uni-Uni + R: mirrors removed" begin
+        # 3 metabolites (S, P, R) + 1 SS step: 2^4=16 variants.
+        # Metabolite mirrors: 4 unique keys (3 items → 8/2).
+        # Cat step mirrors: 1 unique key (1 item → 2/2).
+        # Total: 4 × 1 = 4 after dedup.
         m_uu = @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
@@ -1837,7 +1839,7 @@ end
             allo, uni_uni_allosteric_R)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, uni_uni_allosteric_R)
-        @test length(deduped) == length(tr) ÷ 2
+        @test length(deduped) == length(tr) ÷ 4
     end
 
     @testset "Keeps lower param_count on mirror" begin
@@ -2102,7 +2104,7 @@ end
         result = collect(
             EnzymeRates.old_enumerate_mechanisms(
                 uni_bi_reg_unknown))
-        @test length(result) == 1012
+        @test length(result) == 1090
     end
 end
 

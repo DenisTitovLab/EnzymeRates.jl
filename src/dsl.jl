@@ -409,11 +409,13 @@ function _parse_allosteric_mechanism(block)
     end
     reg_sites_expr = Expr(:tuple, reg_sites_elems...)
 
-    # Build CatSites: (catalytic_metabolites, multiplicity, tr_equiv_mets)
+    # Build CatSites: (catalytic_metabolites, multiplicity,
+    #   tr_equiv_mets, tr_equiv_cat_steps)
     # catalytic_metabolites come from the inner EnzymeMechanism at runtime
     cat_tr_equiv = Expr(:tuple)  # empty TR equiv tuple by default
+    cat_steps_tr = Expr(:tuple)  # empty cat steps TR equiv by default
     :(let _cm = $cm_expr
-        _cat_sites = (metabolites(_cm), $catalytic_n, $cat_tr_equiv)
+        _cat_sites = (metabolites(_cm), $catalytic_n, $cat_tr_equiv, $cat_steps_tr)
         AllostericEnzymeMechanism{$mets_tuple, typeof(_cm), _cat_sites, $reg_sites_expr}()
     end)
 end

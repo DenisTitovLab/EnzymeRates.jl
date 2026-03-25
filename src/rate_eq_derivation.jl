@@ -1086,36 +1086,37 @@ function _is_tr_equiv_catalytic_K(
     false
 end
 
-"""Check if all RE binding metabolites are TR-equivalent."""
-function _all_re_mets_tr_equiv(
-    CM::Type{<:EnzymeMechanism}, cat_tr_equiv,
-)
-    isempty(cat_tr_equiv) && return false
-    m = CM()
-    rxns = reactions(m)
-    eq_steps = equilibrium_steps(m)
-    enz_set = Set(e[1] for e in enzyme_forms(m))
-    for (idx, (lhs, _)) in enumerate(rxns)
-        eq_steps[idx] || continue
-        _, m_lhs = _split_reaction_side(lhs, enz_set)
-        for met in m_lhs
-            met ∉ cat_tr_equiv && return false
-        end
-    end
-    true
-end
-
 """Check if a catalytic parameter should be TR-equivalent.
-Returns true for RE binding K's whose metabolite is in
-cat_tr_equiv, and for SS rate constants (kf, kr) when all
-RE binding metabolites are TR-equivalent."""
+
+Three-level control:
+1. RE binding K → TR-equiv if metabolite is in cat_tr_equiv
+2. SS binding kf/kr → TR-equiv if step's metabolite is in cat_tr_equiv
+3. SS non-binding kf/kr → TR-equiv if step index is in tr_equiv_cat_steps
+"""
 function _is_tr_equiv_catalytic_param(
-    p::Symbol, CM::Type{<:EnzymeMechanism}, cat_tr_equiv,
+    p::Symbol, CM::Type{<:EnzymeMechanism},
+    cat_tr_equiv, tr_equiv_cat_steps,
 )
     _is_tr_equiv_catalytic_K(p, CM, cat_tr_equiv) && return true
-    # SS rate constants: TR-equiv if all RE binding mets are equiv
     _is_ss_rate_constant(p) || return false
-    _all_re_mets_tr_equiv(CM, cat_tr_equiv)
+    # Extract step index from k{idx}f or k{idx}r
+    m_match = match(r"^k(\d+)[fr]$", string(p))
+    m_match === nothing && return false
+    cap = m_match.captures[1]::SubString
+    idx = parse(Int, cap)
+    # Check if this step binds a metabolite
+    m_inst = CM()
+    rxns = reactions(m_inst)
+    eq_steps = equilibrium_steps(m_inst)
+    enz_set = Set(e[1] for e in enzyme_forms(m_inst))
+    lhs, _ = rxns[idx]
+    _, mets_lhs = _split_reaction_side(lhs, enz_set)
+    if !isempty(mets_lhs)
+        # SS binding step: TR-equiv if metabolite is in cat_tr_equiv
+        return any(met ∈ cat_tr_equiv for met in mets_lhs)
+    end
+    # Non-binding SS step: TR-equiv if index is in tr_equiv_cat_steps
+    return idx ∈ tr_equiv_cat_steps
 end
 
 # ─── Dependent parameter expressions ─────────────────────────────
@@ -1131,6 +1132,7 @@ function _dependent_param_exprs(
     ::Type{AllostericEnzymeMechanism{Mets,CM,CS,RS}},
 ) where {Mets,CM,CS,RS}
     cat_tr_equiv = CS[3]
+    tr_equiv_cat_steps = length(CS) >= 4 ? CS[4] : ()
     dep_R, indep_R = _dependent_param_exprs(CM)
 
     reg_params_r = [
@@ -1150,7 +1152,8 @@ function _dependent_param_exprs(
     end
     for p in indep_R
         t_p = _rename_params_T(p)
-        if _is_tr_equiv_catalytic_param(p, CM, cat_tr_equiv)
+        if _is_tr_equiv_catalytic_param(
+                p, CM, cat_tr_equiv, tr_equiv_cat_steps)
             # TR equivalent: p_T = p_R (dependent, not independent)
             dep_T[t_p] = p
         else
@@ -1218,6 +1221,7 @@ function _allosteric_dep_assignments(
     CS = M_type.parameters[3]
     RS = M_type.parameters[4]
     cat_tr_equiv = CS[3]
+    tr_equiv_cat_steps = length(CS) >= 4 ? CS[4] : ()
 
     dep_R, indep_R = _dependent_param_exprs(CM)
     dep_R_kd = _apply_kd_inversion(dep_R, CM, inv_fn)
@@ -1238,7 +1242,8 @@ function _allosteric_dep_assignments(
 
     # TR-equivalent catalytic independent params: p_T = p_R
     for p in indep_R
-        if _is_tr_equiv_catalytic_param(p, CM, cat_tr_equiv)
+        if _is_tr_equiv_catalytic_param(
+                p, CM, cat_tr_equiv, tr_equiv_cat_steps)
             push!(t_assignments, Expr(:(=), _rename_params_T(p), p))
         end
     end

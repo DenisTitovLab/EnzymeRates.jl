@@ -121,20 +121,6 @@ function _runtime_param_count(spec::MechanismSpec)
     length(indep) + 2
 end
 
-"""Check if all RE binding metabolites are in tr_equiv_metabolites."""
-function _all_re_mets_tr_equiv_spec(
-    steps, eq_steps, enz_set, tr_equiv_metabolites,
-)
-    isempty(tr_equiv_metabolites) && return false
-    for (idx, s) in enumerate(steps)
-        eq_steps[idx] || continue
-        met = step_metabolite(s)
-        met === nothing && continue
-        met ∉ tr_equiv_metabolites && return false
-    end
-    true
-end
-
 # ─── Runtime Parameter Counting: AllostericMechanismSpec ───
 
 """
@@ -167,17 +153,15 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
     )
 
     # Count TR-equivalent catalytic params among indep_R
-    # RE binding K's are TR-equiv if their metabolite is in
-    # tr_equiv_metabolites. SS rate constants are TR-equiv
-    # if ALL RE binding metabolites are TR-equivalent.
-    all_re_mets_equiv = _all_re_mets_tr_equiv_spec(
-        base.steps, eq_steps, enz_set,
-        spec.tr_equiv_metabolites)
-
+    # Three levels:
+    # 1. RE binding K → TR-equiv if metabolite in tr_equiv_metabolites
+    # 2. SS binding k → TR-equiv if step's metabolite in tr_equiv_metabolites
+    # 3. SS non-binding k → TR-equiv if step index in tr_equiv_cat_steps
     n_tr_equiv = 0
     for p in indep_R
         m = match(r"^K(\d+)$", string(p))
         if m !== nothing
+            # RE binding K
             cap = m.captures[1]::SubString
             idx = parse(Int, cap)
             if idx <= length(base.steps) && eq_steps[idx]
@@ -187,8 +171,24 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
                     n_tr_equiv += 1
                 end
             end
-        elseif _is_ss_rate_constant(p) && all_re_mets_equiv
-            n_tr_equiv += 1
+        elseif _is_ss_rate_constant(p)
+            # SS rate constant: extract step index
+            km = match(r"^k(\d+)[fr]$", string(p))
+            km === nothing && continue
+            cap = km.captures[1]::SubString
+            idx = parse(Int, cap)
+            met = step_metabolite(base.steps[idx])
+            if met !== nothing
+                # SS binding step: TR-equiv if metabolite is in tr_equiv_metabolites
+                if met in spec.tr_equiv_metabolites
+                    n_tr_equiv += 1
+                end
+            else
+                # Non-binding SS step: TR-equiv if index in tr_equiv_cat_steps
+                if idx in spec.tr_equiv_cat_steps
+                    n_tr_equiv += 1
+                end
+            end
         end
     end
 
@@ -286,11 +286,13 @@ function expand_mechanisms_by_one_param(
     result
 end
 
-"""Remove one TR equivalence: make one metabolite's K_T ≠ K_R."""
+"""Remove one TR equivalence: make one metabolite's K_T ≠ K_R,
+or one catalytic step's kf_T ≠ kf_R."""
 function _expand_remove_tr_equiv!(
     result::Vector{AllostericMechanismSpec},
     spec::AllostericMechanismSpec,
 )
+    # Remove one metabolite TR equivalence
     for (i, met) in enumerate(spec.tr_equiv_metabolites)
         new_equiv = [
             spec.tr_equiv_metabolites[j]
@@ -300,7 +302,21 @@ function _expand_remove_tr_equiv!(
             spec.base, spec.catalytic_n,
             spec.allosteric_reg_sites,
             spec.allosteric_multiplicities,
-            new_equiv))
+            new_equiv,
+            copy(spec.tr_equiv_cat_steps)))
+    end
+    # Remove one catalytic step TR equivalence
+    for (i, idx) in enumerate(spec.tr_equiv_cat_steps)
+        new_cat_steps = [
+            spec.tr_equiv_cat_steps[j]
+            for j in eachindex(spec.tr_equiv_cat_steps)
+            if j != i]
+        push!(result, AllostericMechanismSpec(
+            spec.base, spec.catalytic_n,
+            spec.allosteric_reg_sites,
+            spec.allosteric_multiplicities,
+            copy(spec.tr_equiv_metabolites),
+            new_cat_steps))
     end
 end
 
@@ -324,7 +340,8 @@ function _expand_base_moves!(
             new_base, spec.catalytic_n,
             spec.allosteric_reg_sites,
             spec.allosteric_multiplicities,
-            copy(spec.tr_equiv_metabolites)))
+            copy(spec.tr_equiv_metabolites),
+            copy(spec.tr_equiv_cat_steps)))
     end
 end
 
@@ -872,6 +889,9 @@ function expand_mechanisms_by_two_params(
         # Collect metabolites that would have T-state params
         t_mets = _collect_t_state_metabolites_from_spec(
             spec, allo_regs)
+        # All non-binding SS steps start TR-equivalent
+        all_ss_steps = _collect_nonbinding_ss_steps_from_spec(
+            spec)
 
         for partition in partitions
             n_groups = length(partition)
@@ -886,7 +906,8 @@ function expand_mechanisms_by_two_params(
                             if m != non_equiv_met]
                         allo = AllostericMechanismSpec(
                             spec, cn, partition,
-                            collect(combo), tr_equiv)
+                            collect(combo), tr_equiv,
+                            copy(all_ss_steps))
                         push!(result, allo)
                     end
                 end
@@ -915,6 +936,19 @@ function _collect_t_state_metabolites_from_spec(
         reg ∉ t_mets && push!(t_mets, reg)
     end
     t_mets
+end
+
+"""Indices of non-binding SS steps in a MechanismSpec."""
+function _collect_nonbinding_ss_steps_from_spec(
+    spec::MechanismSpec,
+)
+    indices = Int[]
+    for (i, s) in enumerate(spec.steps)
+        if !s.is_equilibrium && step_metabolite(s) === nothing
+            push!(indices, i)
+        end
+    end
+    indices
 end
 
 # ─── Orchestrator ─────────────────────────────────────────────

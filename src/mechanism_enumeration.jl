@@ -50,6 +50,8 @@ end
 Represents an allosteric enzyme mechanism built from a
 base `MechanismSpec` plus allosteric site and multiplicity info.
 `tr_equiv_metabolites` lists metabolites with K_T = K_R.
+`tr_equiv_cat_steps` lists indices of non-binding SS steps
+with kf_T = kf_R (catalytic step TR equivalence).
 """
 struct AllostericMechanismSpec <: AbstractMechanismSpec
     base::MechanismSpec
@@ -57,6 +59,7 @@ struct AllostericMechanismSpec <: AbstractMechanismSpec
     allosteric_reg_sites::Vector{Vector{Symbol}}
     allosteric_multiplicities::Vector{Int}
     tr_equiv_metabolites::Vector{Symbol}
+    tr_equiv_cat_steps::Vector{Int}
 end
 
 # ─── StepSpec Helpers ──────────────────────────────────────────
@@ -1844,7 +1847,7 @@ function _expand_allosteric(
         for spec in specs
             push!(result, AllostericMechanismSpec(
                 spec, catalytic_n,
-                Vector{Symbol}[], Int[], Symbol[]))
+                Vector{Symbol}[], Int[], Symbol[], Int[]))
         end
         return result
     end
@@ -1856,7 +1859,7 @@ function _expand_allosteric(
                     ntuple(_ -> 1:catalytic_n, n_groups)...)
                 push!(result, AllostericMechanismSpec(
                     spec, catalytic_n, partition,
-                    collect(combo), Symbol[]))
+                    collect(combo), Symbol[], Int[]))
             end
         end
     end
@@ -1884,14 +1887,29 @@ function _collect_t_state_metabolites(
     t_mets
 end
 
+"""Indices of non-binding SS steps (isomerization)."""
+function _collect_nonbinding_ss_steps(
+    spec::AllostericMechanismSpec,
+)
+    indices = Int[]
+    for (i, s) in enumerate(spec.base.steps)
+        if !s.is_equilibrium && step_metabolite(s) === nothing
+            push!(indices, i)
+        end
+    end
+    indices
+end
+
 """
     _expand_tr_equivalence(specs, reaction)
         -> Vector{AllostericMechanismSpec}
 
-Enumerate T/R parameter equivalence variants. For each metabolite
-with a T-state parameter, K_T can equal K_R (fewer params) or be
-independent. Produces 2^n variants per input spec where n is the
-number of metabolites with T-state binding parameters.
+Enumerate T/R parameter equivalence variants at three levels:
+1. Per-metabolite: K_T = K_R for RE/SS binding steps
+2. Per-regulator ligand: K_T = K_R for reg site params
+3. Per-catalytic step: kf_T = kf_R for non-binding SS steps
+
+Produces 2^(n_mets + n_cat_steps) variants per input spec.
 """
 function _expand_tr_equivalence(
     specs::Vector{AllostericMechanismSpec},
@@ -1900,15 +1918,21 @@ function _expand_tr_equivalence(
     result = AllostericMechanismSpec[]
     for spec in specs
         t_mets = _collect_t_state_metabolites(spec)
-        n = length(t_mets)
-        for mask in 0:(1 << n) - 1
-            equiv = Symbol[t_mets[i] for i in 1:n
+        ss_steps = _collect_nonbinding_ss_steps(spec)
+        n_mets = length(t_mets)
+        n_steps = length(ss_steps)
+        n_total = n_mets + n_steps
+        for mask in 0:(1 << n_total) - 1
+            equiv = Symbol[t_mets[i] for i in 1:n_mets
                           if ((mask >> (i-1)) & 1) == 1]
+            cat_equiv = Int[ss_steps[j]
+                for j in 1:n_steps
+                if ((mask >> (n_mets + j - 1)) & 1) == 1]
             push!(result, AllostericMechanismSpec(
                 spec.base, spec.catalytic_n,
                 spec.allosteric_reg_sites,
                 spec.allosteric_multiplicities,
-                equiv))
+                equiv, cat_equiv))
         end
     end
     result
@@ -1957,8 +1981,13 @@ function _allosteric_canonical_key(spec::AllostericMechanismSpec)
     all_t = sort(_collect_t_state_metabolites(spec))
     complement = sort(setdiff(all_t, tr))
     canonical_tr = min(tr, complement)
+    # Cat steps: min of set and complement
+    cat_steps = sort(spec.tr_equiv_cat_steps)
+    all_ss = sort(_collect_nonbinding_ss_steps(spec))
+    cat_complement = sort(setdiff(all_ss, cat_steps))
+    canonical_cat = min(cat_steps, cat_complement)
     (base_key, spec.catalytic_n, sorted_sites,
-     sorted_mults, canonical_tr)
+     sorted_mults, canonical_tr, canonical_cat)
 end
 
 # ─── MechanismSpec → EnzymeMechanism Conversion ──────────────
@@ -2138,10 +2167,13 @@ function compile_mechanism(spec::AllostericMechanismSpec)
     end
     mets = (cat_mets..., reg_syms...)
 
-    # Build CatSites: (catalytic_metabolites, multiplicity, tr_equiv_mets)
+    # Build CatSites: (catalytic_metabolites, multiplicity,
+    #   tr_equiv_mets, tr_equiv_cat_steps)
     cat_tr = Tuple(m for m in cat_mets
                    if m in spec.tr_equiv_metabolites)
-    cat_sites = (cat_mets, spec.catalytic_n, cat_tr)
+    cat_steps_tr = Tuple(spec.tr_equiv_cat_steps)
+    cat_sites = (cat_mets, spec.catalytic_n, cat_tr,
+                 cat_steps_tr)
 
     # Build RegSites with TR equivalence info
     reg_sites = Tuple(

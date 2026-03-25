@@ -295,8 +295,9 @@ Singleton type for allosteric enzymes (MWC model, always 2 conformations).
 
 - `Metabolites`: tuple of `Symbol` names from `metabolites:` block
 - `CatalyticMech`: `EnzymeMechanism` type for one catalytic subunit
-- `CatSites`: `(catalytic_metabolites, multiplicity, tr_equiv_mets)` — the
-  third element lists metabolites with K_T = K_R (TR equivalence)
+- `CatSites`: `(catalytic_metabolites, multiplicity, tr_equiv_mets,
+  tr_equiv_cat_steps)` — third element lists metabolites with K_T = K_R,
+  fourth lists non-binding SS step indices with kf_T = kf_R
 - `RegSites`: tuple of `((ligand_syms...,), multiplicity, tr_equiv_ligands)`
   triples — the third element lists ligands with K_T = K_R
 """
