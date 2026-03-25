@@ -436,6 +436,12 @@ function _expand_dead_end_at_delta!(
                 new_steps, new_constraints, spec.steps,
                 selected, bound, met)
 
+            if delta == 0
+                _add_catalytic_equivalence!(
+                    new_steps, new_constraints,
+                    spec.steps, first_step_idx, met)
+            end
+
             candidate = MechanismSpec(
                 reaction, new_steps,
                 new_constraints, 0)
@@ -583,4 +589,61 @@ function _deduplicate_specs(
         end
     end
     collect(values(best))
+end
+
+# ─── Catalytic Equivalence for +0 Dead-End ────────────────────
+
+"""
+    _add_catalytic_equivalence!(
+        new_steps, new_constraints, orig_steps,
+        first_new_step_idx, met)
+
+Constrain the first new dead-end binding step's K to equal the
+catalytic step's K for the same metabolite. Only matches RE
+catalytic steps (SS steps have kf/kr, not K).
+"""
+function _add_catalytic_equivalence!(
+    new_steps, new_constraints,
+    orig_steps, first_new_step_idx, met,
+)
+    for (i, s) in enumerate(orig_steps)
+        s.is_equilibrium || continue
+        step_metabolite(s) == met || continue
+        # Constrain new dead-end K to catalytic K
+        push!(new_constraints, (
+            Symbol("K$first_new_step_idx"), 1,
+            [(Symbol("K$i"), 1)]))
+        return
+    end
+end
+
+# ─── Expansion: Same Param Count (+0) ────────────────────────
+
+"""
+    expand_mechanisms_same_param_count(specs, reaction)
+        → Vector{MechanismSpec}
+
+Add dead-end configurations that result in +0 net parameter
+change. Iterates to a fixed point: each pass may create new
+forms that enable further +0 additions. Returns only the
+newly discovered +0 variants (deduplicated).
+"""
+function expand_mechanisms_same_param_count(
+    specs::Vector{MechanismSpec},
+    @nospecialize(reaction::EnzymeReaction),
+)
+    all_specs = copy(specs)
+    prev_count = 0
+    while length(all_specs) != prev_count
+        prev_count = length(all_specs)
+        new_zero = MechanismSpec[]
+        for spec in all_specs
+            _expand_dead_end_at_delta!(
+                new_zero, spec, reaction, 0)
+        end
+        append!(all_specs, new_zero)
+        all_specs = _deduplicate_specs(
+            all_specs, reaction)
+    end
+    filter(s -> s ∉ specs, all_specs)
 end

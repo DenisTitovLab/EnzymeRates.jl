@@ -266,4 +266,40 @@
             deduped, bi_bi)
         @test length(deduped2) == length(deduped)
     end
+
+    @testset "expand_mechanisms_same_param_count" begin
+        # Ordered bi-bi: E→EA→EAB→EPQ→EQ→E
+        # E_Q + A ⇌ E_A_Q where K_A = K_A_catalytic → +0
+        topos = EnzymeRates._catalytic_topologies(bi_bi)
+        spec = topos[1]  # ordered bi-bi
+        original_pc = spec.param_count
+
+        results = EnzymeRates.expand_mechanisms_same_param_count(
+            [spec], bi_bi)
+
+        # All results should have same param_count
+        for r in results
+            @test r.param_count == original_pc
+        end
+
+        # Should find at least one +0 dead-end
+        @test !isempty(results)
+
+        # Verify param_count matches compiled mechanism
+        for r in results
+            m = compile_mechanism(r)
+            @test length(parameters(m)) == r.param_count
+        end
+
+        # Fixed-point: calling again on the union should
+        # produce no additional mechanisms
+        all_input = vcat([spec], results)
+        results2 = EnzymeRates.expand_mechanisms_same_param_count(
+            all_input, bi_bi)
+        all_specs = vcat(all_input, results2)
+        deduped = EnzymeRates._deduplicate_specs(
+            all_specs, bi_bi)
+        @test length(deduped) == length(
+            EnzymeRates._deduplicate_specs(all_input, bi_bi))
+    end
 end
