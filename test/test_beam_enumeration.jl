@@ -488,6 +488,39 @@
         @test runtime_pc_partial == length(params_partial)
     end
 
+    @testset "enumerate_mechanisms (beam)" begin
+        # Uni-uni: should produce mechanisms at multiple
+        # param_count levels
+        iter = EnzymeRates.enumerate_mechanisms(uni_uni)
+        mechs = collect(iter)
+        @test !isempty(mechs)
+
+        # All mechanisms should have valid param_count
+        for m in mechs
+            @test m.param_count >= 0
+        end
+
+        # Should include mechanisms at different param levels
+        param_counts = Set(m.param_count for m in mechs
+            if m isa EnzymeRates.MechanismSpec)
+        @test length(param_counts) >= 2
+
+        # Uni-uni + allosteric R: should include both
+        # MechanismSpec and AllostericMechanismSpec
+        iter_allo = EnzymeRates.enumerate_mechanisms(
+            uni_uni_allosteric_R)
+        mechs_allo = collect(iter_allo)
+        @test !isempty(mechs_allo)
+        has_base = any(
+            m isa EnzymeRates.MechanismSpec
+            for m in mechs_allo)
+        has_allo = any(
+            m isa EnzymeRates.AllostericMechanismSpec
+            for m in mechs_allo)
+        @test has_base
+        @test has_allo
+    end
+
     @testset "_runtime_param_count for AllostericMechanismSpec" begin
         # Verify runtime param count matches compiled for
         # allosteric specs from old pipeline

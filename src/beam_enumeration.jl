@@ -770,14 +770,54 @@ end
 
 # ─── Expansion: Same Param Count (+0) ────────────────────────
 
+"""Swap one RE step with one SS step, producing candidates
+where param_count is unchanged."""
+function _expand_ress_swap!(
+    result::Vector{MechanismSpec},
+    spec::MechanismSpec,
+)
+    constrained = _constrained_symbols(spec.param_constraints)
+    target_pc = spec.param_count
+    for (i, si) in enumerate(spec.steps)
+        for (j, sj) in enumerate(spec.steps)
+            i >= j && continue
+            # One must be RE, other SS
+            si.is_equilibrium == sj.is_equilibrium && continue
+            # Skip if constrained params would be invalidated
+            re_idx = si.is_equilibrium ? i : j
+            ss_idx = si.is_equilibrium ? j : i
+            Symbol("K$re_idx") in constrained && continue
+            Symbol("k$(ss_idx)f") in constrained && continue
+            Symbol("k$(ss_idx)r") in constrained && continue
+
+            new_steps = copy(spec.steps)
+            new_steps[i] = StepSpec(
+                si.reactants, si.products,
+                !si.is_equilibrium)
+            new_steps[j] = StepSpec(
+                sj.reactants, sj.products,
+                !sj.is_equilibrium)
+
+            candidate = MechanismSpec(
+                spec.reaction, new_steps,
+                copy(spec.param_constraints), 0)
+            pc = _runtime_param_count(candidate)
+            pc == target_pc || continue
+            push!(result, MechanismSpec(
+                spec.reaction, new_steps,
+                copy(spec.param_constraints), pc))
+        end
+    end
+end
+
 """
     expand_mechanisms_same_param_count(specs, reaction)
         → Vector{MechanismSpec}
 
-Add dead-end configurations that result in +0 net parameter
-change. Iterates to a fixed point: each pass may create new
-forms that enable further +0 additions. Returns only the
-newly discovered +0 variants (deduplicated).
+Generate +0 variants: RE↔SS swaps and dead-end configurations
+that preserve param_count. Iterates to a fixed point: each
+pass may create new forms enabling further +0 additions.
+Returns only newly discovered variants (deduplicated).
 """
 function expand_mechanisms_same_param_count(
     specs::Vector{MechanismSpec},
@@ -789,6 +829,7 @@ function expand_mechanisms_same_param_count(
         prev_count = length(all_specs)
         new_zero = MechanismSpec[]
         for spec in all_specs
+            _expand_ress_swap!(new_zero, spec)
             _expand_dead_end_at_delta!(
                 new_zero, spec, reaction, 0)
         end
@@ -874,4 +915,142 @@ function _collect_t_state_metabolites_from_spec(
         reg ∉ t_mets && push!(t_mets, reg)
     end
     t_mets
+end
+
+# ─── Orchestrator ─────────────────────────────────────────────
+
+"""
+    enumerate_mechanisms(reaction; max_param_count=nothing,
+        max_catalytic_n=4) → MechanismIterator
+
+Enumerate all valid mechanisms for a reaction, expanding
+level-by-level by param_count. At each level:
+1. Merge catalytic seeds + cached +2 specs + expanded +1 specs
+2. Apply expand_mechanisms_same_param_count to fixed point
+3. Deduplicate
+4. Yield this level's mechanisms
+5. Expand by +1 and +2 for next levels
+"""
+function enumerate_mechanisms(
+    @nospecialize(reaction::EnzymeReaction);
+    max_param_count::Union{Nothing,Int}=nothing,
+    max_catalytic_n::Int=4,
+)
+    catalytic = _catalytic_topologies(reaction)
+
+    # Group catalytic topologies by param_count
+    seeds_by_pc = Dict{Int, Vector{MechanismSpec}}()
+    for spec in catalytic
+        push!(get!(seeds_by_pc, spec.param_count,
+            MechanismSpec[]), spec)
+    end
+
+    min_pc = minimum(keys(seeds_by_pc))
+    max_pc = if max_param_count !== nothing
+        max_param_count
+    else
+        min_pc + 50
+    end
+
+    cache = Dict{Int, Vector{AbstractMechanismSpec}}()
+    all_results = AbstractMechanismSpec[]
+    current_plus_one = MechanismSpec[]
+    current_allo_plus_one = AllostericMechanismSpec[]
+
+    for pc in min_pc:max_pc
+        # Assemble base MechanismSpec level
+        level = MechanismSpec[]
+        append!(level, get(seeds_by_pc, pc, MechanismSpec[]))
+        append!(level, current_plus_one)
+
+        # Assemble AllostericMechanismSpec level
+        allo_level = copy(current_allo_plus_one)
+
+        # Add cached specs
+        cached = get(cache, pc, AbstractMechanismSpec[])
+        for spec in cached
+            if spec isa MechanismSpec
+                push!(level, spec)
+            elseif spec isa AllostericMechanismSpec
+                push!(allo_level, spec)
+            end
+        end
+        delete!(cache, pc)
+
+        # Process allosteric specs
+        if !isempty(allo_level)
+            allo_deduped = _deduplicate_allosteric(
+                allo_level, reaction)
+            append!(all_results, allo_deduped)
+
+            current_allo_plus_one =
+                expand_mechanisms_by_one_param(
+                    allo_deduped, reaction)
+            # Filter to actual pc + 1
+            filter!(current_allo_plus_one) do s
+                _runtime_param_count(s) == pc + 1
+            end
+        else
+            current_allo_plus_one = AllostericMechanismSpec[]
+        end
+
+        if isempty(level)
+            # Still need to check termination
+            has_future = _has_future_work(
+                seeds_by_pc, cache,
+                current_plus_one,
+                current_allo_plus_one, pc, max_pc)
+            has_future || break
+            current_plus_one = MechanismSpec[]
+            continue
+        end
+
+        # +0 expansion (fixed point handled internally)
+        new_zero = expand_mechanisms_same_param_count(
+            level, reaction)
+        append!(level, new_zero)
+        level = _deduplicate_specs(level, reaction)
+
+        # Yield this level
+        append!(all_results, level)
+
+        # Expand +1 (base mechanisms)
+        current_plus_one = expand_mechanisms_by_one_param(
+            level, reaction)
+        filter!(s -> s.param_count == pc + 1,
+            current_plus_one)
+
+        # Expand +2 (allosteric)
+        plus_two = expand_mechanisms_by_two_params(
+            level, reaction; max_catalytic_n)
+        for spec in plus_two
+            target_pc = _runtime_param_count(spec)
+            push!(get!(cache, target_pc,
+                AbstractMechanismSpec[]), spec)
+        end
+
+        # Termination check
+        has_future = _has_future_work(
+            seeds_by_pc, cache,
+            current_plus_one,
+            current_allo_plus_one, pc, max_pc)
+        has_future || break
+    end
+
+    MechanismIterator(all_results, length(all_results))
+end
+
+"""Check if there's any work remaining at future levels."""
+function _has_future_work(
+    seeds_by_pc, cache,
+    current_plus_one, current_allo_plus_one,
+    pc, max_pc,
+)
+    !isempty(current_plus_one) && return true
+    !isempty(current_allo_plus_one) && return true
+    for k in (pc + 1):max_pc
+        haskey(seeds_by_pc, k) && return true
+        haskey(cache, k) && return true
+    end
+    false
 end
