@@ -118,11 +118,28 @@ Three separate functions handle expansion at different param_count deltas.
 4. **Remove TR equivalence** (allosteric only): Make one metabolite's K_T ≠ K_R.
    One candidate per metabolite currently in the TR-equivalent set.
 
+### Allosteric TR-Equivalence Fix
+
+The existing `AllostericEnzymeMechanism` only supports TR-equivalence for
+RE binding constants (K), not for SS rate constants (kf, kr) or regulator
+binding constants. This means T-state SS params (`k3f_T`) are always
+independent, making the minimum allosteric delta much larger than +2.
+
+Fix: extend TR-equivalence to cover ALL T-state parameters (K's, k's,
+and regulator K's). When a parameter is TR-equivalent, the T-state
+version equals the R-state version (dependent, not independent). Each
+state independently satisfies Haldane, so only one SS k per state is
+truly independent.
+
+With full TR-equivalence: L + one non-equivalent metabolite K = +2 minimum.
+"Remove TR equivalence" moves then make individual T-state params
+independent (+1 each), covering SS rate constants and regulator K's too.
+
 ### `expand_mechanisms_by_two_params` — +2 Parameter Moves
 
 5. **Add allosteric regulation**: Convert a base mechanism to allosteric. Adds L
-   (conformational equilibrium) + one K_T≠K_R. All remaining metabolites start
-   TR-equivalent. Generates:
+   (conformational equilibrium) + one K_T≠K_R. All remaining metabolites AND
+   SS rate constants AND regulator K's start TR-equivalent. Generates:
    - All variants of which single metabolite has K_T≠K_R
    - All `catalytic_n` values (1 to a configurable max, typically the number
      of subunits)

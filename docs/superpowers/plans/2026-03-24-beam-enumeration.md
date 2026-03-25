@@ -1436,6 +1436,58 @@ git commit -m "Add expand_mechanisms_same_param_count (+0 dead-end)"
 
 ## Chunk 6: Allosteric Expansion (+2) and TR Equivalence
 
+### Task 10b: Fix AllostericEnzymeMechanism TR-equivalence for SS k's
+
+**Files:**
+- Modify: `src/rate_eq_derivation.jl` — extend `_dependent_param_exprs` for
+  `AllostericEnzymeMechanism` to support TR-equivalence for SS rate constants
+  and regulator binding constants (not just RE metabolite K's)
+- Modify: `src/beam_enumeration.jl` — update `_runtime_param_count` for
+  allosteric specs accordingly
+
+The current `_is_tr_equiv_catalytic_K` only checks RE binding K's. Extend
+the TR-equivalence mechanism so that when `tr_equiv_metabolites` lists all
+metabolites, ALL T-state params (including SS `kf_T`, `kr_T` and regulator
+`K_R_T`) become dependent (`= R-state value`). This enables +2 minimum
+allosteric expansion (L + one non-equiv K).
+
+The `tr_equiv_metabolites` field semantics change: it now means "these
+metabolites have identical T/R binding" AND implicitly "SS rate constants
+are also TR-equivalent when all metabolites are TR-equivalent." Or
+alternatively, add a separate `tr_equiv_ss::Bool` field or treat SS k's
+as always TR-equivalent by default (relaxed via "remove TR equivalence"
+moves).
+
+The simplest approach: in `_dependent_param_exprs` for
+`AllostericEnzymeMechanism`, when processing independent R-state params,
+check BOTH `_is_tr_equiv_catalytic_K` (for RE K's) AND a new check for
+SS k's. A SS k is TR-equivalent if ALL metabolites involved in steps
+sharing the same cycle are TR-equivalent, OR more simply: SS k's start
+TR-equivalent and can be made non-equivalent individually.
+
+**Recommended implementation**: extend `tr_equiv_metabolites` to also
+contain symbols like `:_SS` as a sentinel to indicate SS rate constants
+are TR-equivalent. Or add a `tr_equiv_params` field that lists specific
+parameter symbols that are TR-equivalent (more general). The beam search
+starts with all params TR-equivalent and removes them one by one.
+
+- [ ] **Step 1: Write test showing current behavior is wrong**
+
+```julia
+@testset "AllostericMechanism SS TR-equivalence" begin
+    # With all metabolites TR-equiv, SS k's should also
+    # be TR-equiv → minimum delta should be small
+    # (currently it's too large because k3f_T is independent)
+end
+```
+
+- [ ] **Step 2: Fix _dependent_param_exprs for AllostericEnzymeMechanism**
+- [ ] **Step 3: Update _runtime_param_count for AllostericMechanismSpec**
+- [ ] **Step 4: Run tests, verify fix**
+- [ ] **Step 5: Commit**
+
+---
+
 ### Task 11: expand_mechanisms_by_two_params — test and implement
 
 **Files:**
