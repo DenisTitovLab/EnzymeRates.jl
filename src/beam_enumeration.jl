@@ -121,6 +121,20 @@ function _runtime_param_count(spec::MechanismSpec)
     length(indep) + 2
 end
 
+"""Check if all RE binding metabolites are in tr_equiv_metabolites."""
+function _all_re_mets_tr_equiv_spec(
+    steps, eq_steps, enz_set, tr_equiv_metabolites,
+)
+    isempty(tr_equiv_metabolites) && return false
+    for (idx, s) in enumerate(steps)
+        eq_steps[idx] || continue
+        met = step_metabolite(s)
+        met === nothing && continue
+        met ∉ tr_equiv_metabolites && return false
+    end
+    true
+end
+
 # ─── Runtime Parameter Counting: AllostericMechanismSpec ───
 
 """
@@ -152,23 +166,34 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
         binding_Ks, rxns, enz_set, free_enz_set,
     )
 
-    # Count TR-equivalent catalytic K params among indep_R
-    n_tr_equiv_cat_K = 0
+    # Count TR-equivalent catalytic params among indep_R
+    # RE binding K's are TR-equiv if their metabolite is in
+    # tr_equiv_metabolites. SS rate constants are TR-equiv
+    # if ALL RE binding metabolites are TR-equivalent.
+    all_re_mets_equiv = _all_re_mets_tr_equiv_spec(
+        base.steps, eq_steps, enz_set,
+        spec.tr_equiv_metabolites)
+
+    n_tr_equiv = 0
     for p in indep_R
         m = match(r"^K(\d+)$", string(p))
-        m === nothing && continue
-        cap = m.captures[1]::SubString
-        idx = parse(Int, cap)
-        idx > length(base.steps) && continue
-        eq_steps[idx] || continue
-        met = step_metabolite(base.steps[idx])
-        met === nothing && continue
-        met in spec.tr_equiv_metabolites &&
-            (n_tr_equiv_cat_K += 1)
+        if m !== nothing
+            cap = m.captures[1]::SubString
+            idx = parse(Int, cap)
+            if idx <= length(base.steps) && eq_steps[idx]
+                met = step_metabolite(base.steps[idx])
+                if met !== nothing &&
+                        met in spec.tr_equiv_metabolites
+                    n_tr_equiv += 1
+                end
+            end
+        elseif _is_ss_rate_constant(p) && all_re_mets_equiv
+            n_tr_equiv += 1
+        end
     end
 
-    # T-state indep = base indep minus TR-equiv catalytic K
-    indep_T_count = length(indep_R) - n_tr_equiv_cat_K
+    # T-state indep = base indep minus TR-equiv params
+    indep_T_count = length(indep_R) - n_tr_equiv
 
     # Reg R-state params (always independent)
     n_reg_R = sum(length(site)

@@ -448,6 +448,46 @@
         end
     end
 
+    @testset "TR-equivalence covers SS rate constants" begin
+        # When all RE binding metabolites are TR-equivalent,
+        # SS rate constants should also be TR-equivalent
+        # (k3f_T = k3f, so k3f_T is dependent, not independent)
+        topos = EnzymeRates._catalytic_topologies(uni_uni)
+        spec = topos[1]
+
+        # All metabolites TR-equivalent
+        allo_all_equiv = EnzymeRates.AllostericMechanismSpec(
+            spec, 1, [[:R]], [1], [:S, :P, :R])
+        m_all = compile_mechanism(allo_all_equiv)
+        params_all = parameters(m_all)
+
+        # k3f_T should NOT appear (it should be dependent)
+        @test :k3f_T ∉ params_all
+
+        # Base has 3 indep (K1, K2, k3f) + Keq + E_total = 5
+        # Allosteric adds: L + K_R_reg1 = +2
+        # Total should be 7
+        @test length(params_all) == 7
+
+        # Runtime param count should match compiled
+        runtime_pc = EnzymeRates._runtime_param_count(allo_all_equiv)
+        @test runtime_pc == length(params_all)
+
+        # With one metabolite NOT TR-equivalent (S):
+        # S's binding K1_T becomes independent, AND
+        # SS k3f_T becomes independent (since not all RE mets are equiv)
+        # → delta from base = +4 (L, K_R_reg1, K1_T, k3f_T)
+        allo_partial = EnzymeRates.AllostericMechanismSpec(
+            spec, 1, [[:R]], [1], [:P, :R])
+        m_partial = compile_mechanism(allo_partial)
+        params_partial = parameters(m_partial)
+
+        @test :k3f_T ∈ params_partial
+        runtime_pc_partial = EnzymeRates._runtime_param_count(
+            allo_partial)
+        @test runtime_pc_partial == length(params_partial)
+    end
+
     @testset "_runtime_param_count for AllostericMechanismSpec" begin
         # Verify runtime param count matches compiled for
         # allosteric specs from old pipeline

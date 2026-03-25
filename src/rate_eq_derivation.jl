@@ -1086,6 +1086,38 @@ function _is_tr_equiv_catalytic_K(
     false
 end
 
+"""Check if all RE binding metabolites are TR-equivalent."""
+function _all_re_mets_tr_equiv(
+    CM::Type{<:EnzymeMechanism}, cat_tr_equiv,
+)
+    isempty(cat_tr_equiv) && return false
+    m = CM()
+    rxns = reactions(m)
+    eq_steps = equilibrium_steps(m)
+    enz_set = Set(e[1] for e in enzyme_forms(m))
+    for (idx, (lhs, _)) in enumerate(rxns)
+        eq_steps[idx] || continue
+        _, m_lhs = _split_reaction_side(lhs, enz_set)
+        for met in m_lhs
+            met ∉ cat_tr_equiv && return false
+        end
+    end
+    true
+end
+
+"""Check if a catalytic parameter should be TR-equivalent.
+Returns true for RE binding K's whose metabolite is in
+cat_tr_equiv, and for SS rate constants (kf, kr) when all
+RE binding metabolites are TR-equivalent."""
+function _is_tr_equiv_catalytic_param(
+    p::Symbol, CM::Type{<:EnzymeMechanism}, cat_tr_equiv,
+)
+    _is_tr_equiv_catalytic_K(p, CM, cat_tr_equiv) && return true
+    # SS rate constants: TR-equiv if all RE binding mets are equiv
+    _is_ss_rate_constant(p) || return false
+    _all_re_mets_tr_equiv(CM, cat_tr_equiv)
+end
+
 # ─── Dependent parameter expressions ─────────────────────────────
 
 """
@@ -1118,8 +1150,8 @@ function _dependent_param_exprs(
     end
     for p in indep_R
         t_p = _rename_params_T(p)
-        if _is_tr_equiv_catalytic_K(p, CM, cat_tr_equiv)
-            # TR equivalent: K_T = K_R (dependent, not independent)
+        if _is_tr_equiv_catalytic_param(p, CM, cat_tr_equiv)
+            # TR equivalent: p_T = p_R (dependent, not independent)
             dep_T[t_p] = p
         else
             push!(indep_T_list, t_p)
@@ -1204,9 +1236,9 @@ function _allosteric_dep_assignments(
             substitute_params_expr(dep_R_kd[sym], T_subs)))
     end
 
-    # TR-equivalent catalytic independent params: K_T = K_R
+    # TR-equivalent catalytic independent params: p_T = p_R
     for p in indep_R
-        if _is_tr_equiv_catalytic_K(p, CM, cat_tr_equiv)
+        if _is_tr_equiv_catalytic_param(p, CM, cat_tr_equiv)
             push!(t_assignments, Expr(:(=), _rename_params_T(p), p))
         end
     end
