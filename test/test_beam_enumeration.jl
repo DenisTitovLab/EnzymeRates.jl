@@ -2,6 +2,45 @@
 # ABOUTME: Validates parameter counting and fingerprinting against compiled mechanisms.
 
 @testset "Beam Enumeration" begin
+    @testset "expand_mechanisms_by_one_param" begin
+
+        @testset "RE→SS move" begin
+            topos = EnzymeRates._catalytic_topologies(uni_uni)
+            spec = topos[1]
+            n_re = count(s -> s.is_equilibrium, spec.steps)
+            @test n_re == 2
+
+            results = EnzymeRates.expand_mechanisms_by_one_param(
+                [spec], uni_uni)
+            re_to_ss = filter(
+                r -> r.param_count == spec.param_count + 1, results)
+            @test length(re_to_ss) == n_re
+
+            for r in re_to_ss
+                r_n_re = count(s -> s.is_equilibrium, r.steps)
+                @test r_n_re == n_re - 1
+                @test r.param_count == spec.param_count + 1
+            end
+
+            topos_bb = EnzymeRates._catalytic_topologies(bi_bi)
+            spec_bb = topos_bb[1]
+            n_re_bb = count(s -> s.is_equilibrium, spec_bb.steps)
+            @test n_re_bb == 4
+
+            results_bb = EnzymeRates.expand_mechanisms_by_one_param(
+                [spec_bb], bi_bi)
+            re_to_ss_bb = filter(
+                r -> r.param_count == spec_bb.param_count + 1, results_bb)
+            @test length(re_to_ss_bb) == n_re_bb
+
+            for r in re_to_ss_bb
+                m = compile_mechanism(r)
+                @test length(parameters(m)) == r.param_count
+            end
+        end
+
+    end  # expand_mechanisms_by_one_param testset
+
     @testset "Runtime functions" begin
         @testset "_runtime_param_count matches @generated" begin
             for (name, rxn) in [("uni-uni", uni_uni),

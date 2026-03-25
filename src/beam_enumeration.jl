@@ -159,6 +159,38 @@ function _strip_to_concentration_fingerprint(
 end
 
 """
+    expand_mechanisms_by_one_param(specs, reaction) → Vector{MechanismSpec}
+
+Generate mechanism candidates with param_count + 1 by flipping one RE step to SS.
+"""
+function expand_mechanisms_by_one_param(
+    specs::Vector{MechanismSpec},
+    @nospecialize(reaction::EnzymeReaction),
+)
+    result = MechanismSpec[]
+    for spec in specs
+        _expand_re_to_ss!(result, spec)
+    end
+    result
+end
+
+"""Convert each RE step to SS, producing one candidate per RE step."""
+function _expand_re_to_ss!(result::Vector{MechanismSpec}, spec::MechanismSpec)
+    for (i, step) in enumerate(spec.steps)
+        step.is_equilibrium || continue
+        new_steps = copy(spec.steps)
+        new_steps[i] = StepSpec(step.reactants, step.products, false)
+        candidate = MechanismSpec(
+            spec.reaction, new_steps,
+            copy(spec.param_constraints), 0)
+        push!(result, MechanismSpec(
+            spec.reaction, new_steps,
+            copy(spec.param_constraints),
+            _runtime_param_count(candidate)))
+    end
+end
+
+"""
     _runtime_denominator_monomials(spec::MechanismSpec)
 
 Derive the rate equation denominator at runtime and return a
