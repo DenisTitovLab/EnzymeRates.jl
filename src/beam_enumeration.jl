@@ -980,18 +980,17 @@ function enumerate_mechanisms(
     end
 
     min_pc = minimum(keys(seeds_by_pc))
-    max_pc = if max_param_count !== nothing
-        max_param_count
-    else
-        min_pc + 50
-    end
+    max_pc = max_param_count
 
     cache = Dict{Int, Vector{AbstractMechanismSpec}}()
     all_results = AbstractMechanismSpec[]
     current_plus_one = MechanismSpec[]
     current_allo_plus_one = AllostericMechanismSpec[]
 
-    for pc in min_pc:max_pc
+    pc = min_pc - 1
+    while true
+        pc += 1
+        max_pc !== nothing && pc > max_pc && break
         # Assemble base MechanismSpec level
         level = MechanismSpec[]
         append!(level, get(seeds_by_pc, pc, MechanismSpec[]))
@@ -1078,13 +1077,17 @@ end
 function _has_future_work(
     seeds_by_pc, cache,
     current_plus_one, current_allo_plus_one,
-    pc, max_pc,
+    pc, max_pc::Union{Nothing,Int},
 )
     !isempty(current_plus_one) && return true
     !isempty(current_allo_plus_one) && return true
-    for k in (pc + 1):max_pc
-        haskey(seeds_by_pc, k) && return true
-        haskey(cache, k) && return true
+    for k in keys(seeds_by_pc)
+        k > pc && (max_pc === nothing || k <= max_pc) &&
+            return true
+    end
+    for k in keys(cache)
+        k > pc && (max_pc === nothing || k <= max_pc) &&
+            return true
     end
     false
 end
