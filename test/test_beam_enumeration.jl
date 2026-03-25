@@ -369,6 +369,85 @@
         @test length(site_configs) >= 2
     end
 
+    @testset "Remove TR equivalence (+1, allosteric)" begin
+        # Create an allosteric mechanism with TR-equivalent mets
+        topos = EnzymeRates._catalytic_topologies(uni_uni)
+        spec = topos[1]
+
+        allo_results = EnzymeRates.expand_mechanisms_by_two_params(
+            [spec], uni_uni_allosteric_R)
+        @test !isempty(allo_results)
+
+        # Pick one with TR-equivalent metabolites
+        allo_spec = first(
+            r for r in allo_results
+            if !isempty(r.tr_equiv_metabolites))
+
+        n_equiv = length(allo_spec.tr_equiv_metabolites)
+        @test n_equiv >= 1
+
+        # expand_mechanisms_by_one_param should handle
+        # AllostericMechanismSpec and produce TR-removal
+        # candidates
+        results = EnzymeRates.expand_mechanisms_by_one_param(
+            [allo_spec], uni_uni_allosteric_R)
+
+        tr_removed = filter(results) do r
+            r isa EnzymeRates.AllostericMechanismSpec &&
+            length(r.tr_equiv_metabolites) ==
+                n_equiv - 1
+        end
+
+        # One candidate per TR-equivalent metabolite
+        @test length(tr_removed) == n_equiv
+
+        # Each TR-removed candidate should have one fewer
+        # TR-equiv metabolite and higher param count
+        base_pc = EnzymeRates._runtime_param_count(allo_spec)
+        for r in tr_removed
+            pc = EnzymeRates._runtime_param_count(r)
+            @test pc == base_pc + 1
+        end
+
+        # Each removed metabolite should be from the original
+        # TR-equiv set
+        for r in tr_removed
+            removed = setdiff(
+                Set(allo_spec.tr_equiv_metabolites),
+                Set(r.tr_equiv_metabolites))
+            @test length(removed) == 1
+            @test first(removed) in allo_spec.tr_equiv_metabolites
+        end
+    end
+
+    @testset "Allosteric expand_by_one_param: base moves" begin
+        # RE→SS on the base should produce an allosteric spec
+        # with a modified base
+        topos = EnzymeRates._catalytic_topologies(uni_uni)
+        spec = topos[1]
+
+        allo_results = EnzymeRates.expand_mechanisms_by_two_params(
+            [spec], uni_uni_allosteric_R)
+        allo_spec = first(allo_results)
+
+        results = EnzymeRates.expand_mechanisms_by_one_param(
+            [allo_spec], uni_uni_allosteric_R)
+
+        # Should have some results from base RE→SS moves
+        base_re_count = count(
+            s -> s.is_equilibrium, allo_spec.base.steps)
+
+        # Results include TR-removal AND base moves
+        @test length(results) >= 1
+
+        # Verify param counts match compiled
+        for r in first(results, 3)
+            m = compile_mechanism(r)
+            @test EnzymeRates._runtime_param_count(r) ==
+                length(parameters(m))
+        end
+    end
+
     @testset "_runtime_param_count for AllostericMechanismSpec" begin
         # Verify runtime param count matches compiled for
         # allosteric specs from old pipeline

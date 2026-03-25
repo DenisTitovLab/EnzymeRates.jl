@@ -157,7 +157,8 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
     for p in indep_R
         m = match(r"^K(\d+)$", string(p))
         m === nothing && continue
-        idx = parse(Int, m.captures[1])
+        cap = m.captures[1]::SubString
+        idx = parse(Int, cap)
         idx > length(base.steps) && continue
         eq_steps[idx] || continue
         met = step_metabolite(base.steps[idx])
@@ -238,6 +239,68 @@ function expand_mechanisms_by_one_param(
         _expand_add_dead_end!(result, spec, reaction)
     end
     result
+end
+
+"""
+    expand_mechanisms_by_one_param(specs, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Generate allosteric mechanism candidates with param_count + 1
+via four moves: remove TR equivalence, RE→SS on base,
+remove constraint on base, or add dead-end binding on base.
+"""
+function expand_mechanisms_by_one_param(
+    specs::Vector{AllostericMechanismSpec},
+    @nospecialize(reaction::EnzymeReaction),
+)
+    result = AllostericMechanismSpec[]
+    for spec in specs
+        _expand_remove_tr_equiv!(result, spec)
+        _expand_base_moves!(result, spec, reaction)
+    end
+    result
+end
+
+"""Remove one TR equivalence: make one metabolite's K_T ≠ K_R."""
+function _expand_remove_tr_equiv!(
+    result::Vector{AllostericMechanismSpec},
+    spec::AllostericMechanismSpec,
+)
+    for (i, met) in enumerate(spec.tr_equiv_metabolites)
+        new_equiv = [
+            spec.tr_equiv_metabolites[j]
+            for j in eachindex(spec.tr_equiv_metabolites)
+            if j != i]
+        push!(result, AllostericMechanismSpec(
+            spec.base, spec.catalytic_n,
+            spec.allosteric_reg_sites,
+            spec.allosteric_multiplicities,
+            new_equiv))
+    end
+end
+
+"""Apply base mechanism +1 moves (RE→SS, remove constraint,
+dead-end binding) to produce AllostericMechanismSpec variants
+with modified bases."""
+function _expand_base_moves!(
+    result::Vector{AllostericMechanismSpec},
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    # Get +1 expansions of the base MechanismSpec
+    base_results = MechanismSpec[]
+    _expand_re_to_ss!(base_results, spec.base)
+    _expand_remove_constraint!(base_results, spec.base)
+    _expand_add_dead_end!(base_results, spec.base, reaction)
+
+    # Wrap each expanded base in the allosteric structure
+    for new_base in base_results
+        push!(result, AllostericMechanismSpec(
+            new_base, spec.catalytic_n,
+            spec.allosteric_reg_sites,
+            spec.allosteric_multiplicities,
+            copy(spec.tr_equiv_metabolites)))
+    end
 end
 
 """
