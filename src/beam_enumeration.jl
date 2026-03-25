@@ -121,6 +121,69 @@ function _runtime_param_count(spec::MechanismSpec)
     length(indep) + 2
 end
 
+# ─── Runtime Parameter Counting: AllostericMechanismSpec ───
+
+"""
+    _runtime_param_count(spec::AllostericMechanismSpec)
+
+Count independent parameters for an allosteric mechanism
+without JIT compilation. Mirrors the logic of
+`_dependent_param_exprs(::Type{AllostericEnzymeMechanism})`.
+"""
+function _runtime_param_count(spec::AllostericMechanismSpec)
+    base = spec.base
+    rxn = base.reaction
+
+    # Get base indep params (without Keq, E_total)
+    enz_names, enz_set = _spec_enzyme_names(base)
+    rxns = _spec_reactions(base)
+    eq_steps = _spec_eq_steps(base)
+    met_names = _spec_met_names(rxn)
+    stoich_mat = _spec_stoich_matrix(base, met_names, enz_set)
+    free_enz_set = _spec_free_enz_set(base, enz_set)
+    binding_Ks = Set(_binding_K_symbols(rxns, eq_steps, enz_set))
+
+    C, rhs_coeffs = _thermodynamic_constraints(
+        enz_names, enz_set, rxns, stoich_mat,
+        met_names, substrates(rxn), products(rxn),
+    )
+    _, indep_R = _dependent_param_exprs(
+        C, rhs_coeffs, eq_steps, base.param_constraints,
+        binding_Ks, rxns, enz_set, free_enz_set,
+    )
+
+    # Count TR-equivalent catalytic K params among indep_R
+    n_tr_equiv_cat_K = 0
+    for p in indep_R
+        m = match(r"^K(\d+)$", string(p))
+        m === nothing && continue
+        idx = parse(Int, m.captures[1])
+        idx > length(base.steps) && continue
+        eq_steps[idx] || continue
+        met = step_metabolite(base.steps[idx])
+        met === nothing && continue
+        met in spec.tr_equiv_metabolites &&
+            (n_tr_equiv_cat_K += 1)
+    end
+
+    # T-state indep = base indep minus TR-equiv catalytic K
+    indep_T_count = length(indep_R) - n_tr_equiv_cat_K
+
+    # Reg R-state params (always independent)
+    n_reg_R = sum(length(site)
+        for site in spec.allosteric_reg_sites; init=0)
+
+    # Reg T-state params (only non-TR-equiv ligands)
+    n_reg_T = sum(
+        count(lig -> lig ∉ spec.tr_equiv_metabolites, site)
+        for site in spec.allosteric_reg_sites; init=0)
+
+    # Total: base_indep + indep_T + reg_R + reg_T + L
+    #        + Keq + E_total
+    length(indep_R) + indep_T_count + n_reg_R + n_reg_T +
+        1 + 2
+end
+
 # ─── Kinetic Symbol Detection ───────────────────────────────
 
 """
@@ -646,4 +709,81 @@ function expand_mechanisms_same_param_count(
             all_specs, reaction)
     end
     filter(s -> s ∉ specs, all_specs)
+end
+
+# ─── Expansion: Allosteric (+2 or more) ──────────────────────
+
+"""
+    expand_mechanisms_by_two_params(specs, reaction;
+        max_catalytic_n=4) → Vector{AllostericMechanismSpec}
+
+Convert base mechanisms to allosteric with exactly one
+non-TR-equivalent metabolite. Generates all variants of which
+single metabolite has K_T≠K_R, all catalytic_n values, and
+all regulator site partitions. Param counts are computed via
+`_runtime_param_count`.
+
+For reactions without allosteric regulators, returns empty.
+"""
+function expand_mechanisms_by_two_params(
+    specs::Vector{MechanismSpec},
+    @nospecialize(reaction::EnzymeReaction);
+    max_catalytic_n::Int=4,
+)
+    roles = regulator_roles(reaction)
+    allo_regs = Symbol[
+        r[1] for r in roles
+        if r[2] == :allosteric || r[2] == :unknown]
+    isempty(allo_regs) && return AllostericMechanismSpec[]
+
+    result = AllostericMechanismSpec[]
+    partitions = _set_partitions(allo_regs)
+
+    for spec in specs
+        # Collect metabolites that would have T-state params
+        t_mets = _collect_t_state_metabolites_from_spec(
+            spec, allo_regs)
+
+        for partition in partitions
+            n_groups = length(partition)
+            for cn in 1:max_catalytic_n
+                for combo in Iterators.product(
+                        ntuple(_ -> 1:cn, n_groups)...)
+                    # Try each single metabolite as
+                    # non-TR-equivalent
+                    for non_equiv_met in t_mets
+                        tr_equiv = Symbol[
+                            m for m in t_mets
+                            if m != non_equiv_met]
+                        allo = AllostericMechanismSpec(
+                            spec, cn, partition,
+                            collect(combo), tr_equiv)
+                        push!(result, allo)
+                    end
+                end
+            end
+        end
+    end
+    result
+end
+
+"""
+Collect metabolites that would have T-state binding
+parameters for a base MechanismSpec + allosteric regulators.
+"""
+function _collect_t_state_metabolites_from_spec(
+    spec::MechanismSpec,
+    allo_regs::Vector{Symbol},
+)
+    t_mets = Symbol[]
+    for s in spec.steps
+        s.is_equilibrium || continue
+        met = step_metabolite(s)
+        met !== nothing && met ∉ t_mets &&
+            push!(t_mets, met)
+    end
+    for reg in allo_regs
+        reg ∉ t_mets && push!(t_mets, reg)
+    end
+    t_mets
 end

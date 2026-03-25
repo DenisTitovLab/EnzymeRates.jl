@@ -302,4 +302,87 @@
         @test length(deduped) == length(
             EnzymeRates._deduplicate_specs(all_input, bi_bi))
     end
+
+    @testset "expand_mechanisms_by_two_params" begin
+        # Uni-uni + allosteric R
+        topos = EnzymeRates._catalytic_topologies(uni_uni)
+        spec = topos[1]
+
+        results = EnzymeRates.expand_mechanisms_by_two_params(
+            [spec], uni_uni_allosteric_R)
+
+        @test !isempty(results)
+
+        # All results should be AllostericMechanismSpec
+        for r in results
+            @test r isa EnzymeRates.AllostericMechanismSpec
+        end
+
+        # Each result has exactly one non-TR-equivalent
+        # metabolite (by construction)
+        for r in results
+            t_mets = EnzymeRates._collect_t_state_metabolites(r)
+            n_non_equiv = length(t_mets) -
+                length(r.tr_equiv_metabolites)
+            @test n_non_equiv == 1
+        end
+
+        # Each result should compile and have correct param count
+        for r in results
+            m = compile_mechanism(r)
+            compiled_pc = length(parameters(m))
+            runtime_pc = EnzymeRates._runtime_param_count(r)
+            @test runtime_pc == compiled_pc
+        end
+
+        # All allosteric param_counts should exceed base
+        for r in results
+            @test EnzymeRates._runtime_param_count(r) >
+                spec.param_count
+        end
+
+        # No results for reaction without allosteric regulators
+        results_no_allo = EnzymeRates.expand_mechanisms_by_two_params(
+            [spec], uni_uni)
+        @test isempty(results_no_allo)
+
+        # Bi-bi + allosteric R1, R2: should produce results
+        # with different site partitions
+        topos_bb = EnzymeRates._catalytic_topologies(bi_bi)
+        results_bb = EnzymeRates.expand_mechanisms_by_two_params(
+            topos_bb, bi_bi_allosteric_R1_R2;
+            max_catalytic_n=2)
+        @test !isempty(results_bb)
+
+        for r in first(results_bb, 5)
+            m = compile_mechanism(r)
+            @test EnzymeRates._runtime_param_count(r) ==
+                length(parameters(m))
+        end
+
+        # Multiple site partitions should be represented
+        # for 2 regulators (Bell number B(2)=2: {R1,R2}
+        # and {R1},{R2})
+        site_configs = Set(
+            length(r.allosteric_reg_sites)
+            for r in results_bb)
+        @test length(site_configs) >= 2
+    end
+
+    @testset "_runtime_param_count for AllostericMechanismSpec" begin
+        # Verify runtime param count matches compiled for
+        # allosteric specs from old pipeline
+        all_specs = collect(
+            EnzymeRates.old_enumerate_mechanisms(
+                uni_uni_allosteric_R))
+        allo_specs = filter(
+            s -> s isa EnzymeRates.AllostericMechanismSpec,
+            all_specs)
+        @test !isempty(allo_specs)
+        for s in first(allo_specs, 5)
+            m = compile_mechanism(s)
+            @test EnzymeRates._runtime_param_count(s) ==
+                length(parameters(m))
+        end
+    end
 end
