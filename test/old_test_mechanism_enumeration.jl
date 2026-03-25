@@ -2104,7 +2104,7 @@ end
         result = collect(
             EnzymeRates.old_enumerate_mechanisms(
                 uni_bi_reg_unknown))
-        @test length(result) == 1090
+        @test length(result) == 1012
     end
 end
 

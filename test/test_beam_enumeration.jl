@@ -520,14 +520,14 @@
         @test EnzymeRates._runtime_param_count(
             allo_partial_met) == length(p_partial)
 
-        # Nothing TR-equiv → delta = +5
-        # (K1_T, K2_T, k3f_T, L, K_R_reg1)
+        # Nothing TR-equiv → delta = +6
+        # (K1_T, K2_T, k3f_T, K_R_reg1, K_R_T_reg1, L)
         allo_none = EnzymeRates.AllostericMechanismSpec(
             spec, 2, [[:R]], [1],
             Symbol[], Int[])
         m_none = compile_mechanism(allo_none)
         p_none = parameters(m_none)
-        @test length(p_none) - base_pc == 5
+        @test length(p_none) - base_pc == 6
 
         @test EnzymeRates._runtime_param_count(allo_none) ==
             length(p_none)
