@@ -537,4 +537,58 @@
                 length(parameters(m))
         end
     end
+
+    @testset "Equivalence with old_enumerate_mechanisms" begin
+        # Normalize metabolite names: strip __reg1 suffix
+        # used by old pipeline
+        function _normalize_met(s::Symbol)
+            str = string(s)
+            m = match(r"^(.+)__reg\d+$", str)
+            m === nothing ? s : Symbol(m.captures[1])
+        end
+
+        function _normalize_fp(fp)
+            Set(
+                Pair{Symbol,Int}[
+                    _normalize_met(p.first) => p.second
+                    for p in mono]
+                for mono in fp)
+        end
+
+        function spec_fingerprint(spec)
+            partition =
+                EnzymeRates._compute_re_partition_from_steps(
+                    spec.steps)
+            raw = EnzymeRates._concentration_fingerprint(
+                spec.steps, partition)
+            _normalize_fp(raw)
+        end
+
+        function base_fp_set(specs)
+            Set(spec_fingerprint(s) for s in specs
+                if s isa EnzymeRates.MechanismSpec)
+        end
+
+        for (name, rxn) in [
+                ("uni-uni", uni_uni),
+                ("uni-bi", uni_bi),
+                ("uni-uni + I", uni_uni_dead_end_I),
+                ("uni-uni unknown reg",
+                    uni_uni_reg_unknown),
+            ]
+            @testset "$name" begin
+                old = collect(
+                    EnzymeRates.old_enumerate_mechanisms(rxn))
+                new = collect(
+                    EnzymeRates.enumerate_mechanisms(rxn))
+
+                old_fps = base_fp_set(old)
+                new_fps = base_fp_set(new)
+
+                # New should be a superset (may include
+                # multi-level dead-end that old doesn't have)
+                @test issubset(old_fps, new_fps)
+            end
+        end
+    end
 end
