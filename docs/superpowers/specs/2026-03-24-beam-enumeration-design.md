@@ -118,22 +118,39 @@ Three separate functions handle expansion at different param_count deltas.
 4. **Remove TR equivalence** (allosteric only): Make one metabolite's K_T ≠ K_R.
    One candidate per metabolite currently in the TR-equivalent set.
 
-### Allosteric TR-Equivalence Fix
+### Allosteric TR-Equivalence: Three Independent Levels
 
-The existing `AllostericEnzymeMechanism` only supports TR-equivalence for
-RE binding constants (K), not for SS rate constants (kf, kr) or regulator
-binding constants. This means T-state SS params (`k3f_T`) are always
-independent, making the minimum allosteric delta much larger than +2.
+TR-equivalence (T-state parameter = R-state parameter) operates at three
+independent levels, each allowing +1 parameter removal in the beam search:
 
-Fix: extend TR-equivalence to cover ALL T-state parameters (K's, k's,
-and regulator K's). When a parameter is TR-equivalent, the T-state
-version equals the R-state version (dependent, not independent). Each
-state independently satisfies Haldane, so only one SS k per state is
-truly independent.
+1. **Per-metabolite** (`tr_equiv_metabolites`): controls binding K's AND
+   binding k's for each metabolite. When metabolite S is TR-equivalent,
+   ALL parameters of S-binding steps have T = R.
 
-With full TR-equivalence: L + one non-equivalent metabolite K = +2 minimum.
-"Remove TR equivalence" moves then make individual T-state params
-independent (+1 each), covering SS rate constants and regulator K's too.
+2. **Per-catalytic-step** (`tr_equiv_cat_steps`): controls non-binding SS
+   steps (isomerization like EAB → EPQ). Each step index can independently
+   be TR-equivalent (kf_T = kf). kr_T stays dependent via T-state Haldane.
+
+3. **Per-regulator** (`RegSites` tr_equiv_ligands): controls regulator
+   binding constants (K_R_T = K_R). Already exists and works correctly.
+
+Type parameter extension:
+```
+CatSites = (cat_mets, multiplicity, tr_equiv_mets, tr_equiv_cat_steps)
+```
+
+`AllostericMechanismSpec` gets a new field:
+```
+tr_equiv_cat_steps::Vector{Int}  # non-binding SS step indices with k_T = k_R
+```
+
+Thermodynamic consistency: both T and R states independently satisfy
+Haldane (same Keq). When all inputs to a Haldane expression are
+TR-equivalent, the dependent param is automatically TR-equivalent too.
+L is thermodynamically independent of kcat — no constraint between them.
+
+With maximal TR-equivalence (all three levels active): minimum allosteric
+delta = +2 (L + K_R_reg). Each "remove TR equiv" move adds exactly +1.
 
 ### `expand_mechanisms_by_two_params` — +2 Parameter Moves
 
