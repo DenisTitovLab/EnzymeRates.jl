@@ -635,5 +635,58 @@
                 @test issubset(old_fps, new_fps)
             end
         end
+
+        # Allosteric equivalence: normalize ligand names and
+        # compare allosteric canonical keys
+        function _normalize_sites(sites)
+            [sort([_normalize_met(lig) for lig in site])
+             for site in sites]
+        end
+
+        function _normalize_tr_equiv(tr_equiv)
+            sort([_normalize_met(m) for m in tr_equiv])
+        end
+
+        function allo_key(s::EnzymeRates.AllostericMechanismSpec)
+            base_fp = spec_fingerprint(s.base)
+            sites = sort(_normalize_sites(s.allosteric_reg_sites))
+            mults = sort(s.allosteric_multiplicities)
+            tr = _normalize_tr_equiv(s.tr_equiv_metabolites)
+            all_t_mets = sort(
+                _normalize_met.(
+                    EnzymeRates._collect_t_state_metabolites(s)))
+            # Canonicalize: min of set and complement
+            complement = sort(setdiff(all_t_mets, tr))
+            canonical_tr = min(tr, complement)
+            all_ss = sort(s.tr_equiv_cat_steps)
+            cat_complement = sort(setdiff(
+                EnzymeRates._collect_nonbinding_ss_steps(s),
+                all_ss))
+            canonical_cat = min(all_ss, cat_complement)
+            (base_fp, sites, mults, s.catalytic_n,
+             canonical_tr, canonical_cat)
+        end
+
+        function allo_fp_set(specs)
+            Set(allo_key(s) for s in specs
+                if s isa EnzymeRates.AllostericMechanismSpec)
+        end
+
+        @testset "uni-uni allosteric R" begin
+            old = collect(
+                EnzymeRates.old_enumerate_mechanisms(
+                    uni_uni_allosteric_R))
+            new = collect(
+                EnzymeRates.enumerate_mechanisms(
+                    uni_uni_allosteric_R))
+
+            old_allo_fps = allo_fp_set(old)
+            new_allo_fps = allo_fp_set(new)
+
+            @test !isempty(old_allo_fps)
+            @test !isempty(new_allo_fps)
+            # Old allosteric mechanisms should be a subset
+            @test issubset(old_allo_fps, new_allo_fps)
+        end
     end
 end
