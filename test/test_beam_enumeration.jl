@@ -2,6 +2,31 @@
 # ABOUTME: Validates parameter counting and fingerprinting against compiled mechanisms.
 
 @testset "Beam Enumeration" begin
+    @testset "Catalytic topology counts" begin
+        @test length(
+            EnzymeRates._catalytic_topologies(uni_uni)
+        ) == 1
+        @test length(
+            EnzymeRates._catalytic_topologies(uni_bi)
+        ) == 3
+        @test length(
+            EnzymeRates._catalytic_topologies(bi_bi)
+        ) == 9
+        @test length(
+            EnzymeRates._catalytic_topologies(
+                bi_bi_ping_pong)
+        ) == 10
+
+        # All topologies have exactly 1 SS step
+        for rxn in [uni_uni, uni_bi, bi_bi, bi_bi_ping_pong]
+            for t in EnzymeRates._catalytic_topologies(rxn)
+                @test count(
+                    !s.is_equilibrium for s in t.steps
+                ) == 1
+            end
+        end
+    end
+
     @testset "expand_mechanisms_by_one_param" begin
 
         @testset "RE→SS move" begin
