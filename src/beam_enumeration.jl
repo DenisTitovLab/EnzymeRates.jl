@@ -863,11 +863,14 @@ end
     expand_mechanisms_by_two_params(specs, reaction;
         max_catalytic_n=4) → Vector{AllostericMechanismSpec}
 
-Convert base mechanisms to allosteric with exactly one
-non-TR-equivalent metabolite. Generates all variants of which
-single metabolite has K_T≠K_R, all catalytic_n values, and
-all regulator site partitions. Param counts are computed via
-`_runtime_param_count`.
+Convert base mechanisms to allosteric with minimum delta (+2):
+all metabolites AND all non-binding SS steps TR-equivalent.
+The +2 comes from L and K_R_reg. Generates all catalytic_n
+values and regulator site partitions, keeping only specs where
+`_runtime_param_count == base_param_count + 2`.
+
+Non-TR-equivalent variants (delta +3, +4, ...) are generated
+later by `_expand_remove_tr_equiv!` at subsequent beam levels.
 
 For reactions without allosteric regulators, returns empty.
 """
@@ -886,10 +889,11 @@ function expand_mechanisms_by_two_params(
     partitions = _set_partitions(allo_regs)
 
     for spec in specs
-        # Collect metabolites that would have T-state params
+        base_pc = spec.param_count
+        # All metabolites with T-state params are TR-equivalent
         t_mets = _collect_t_state_metabolites_from_spec(
             spec, allo_regs)
-        # All non-binding SS steps start TR-equivalent
+        # All non-binding SS steps are TR-equivalent
         all_ss_steps = _collect_nonbinding_ss_steps_from_spec(
             spec)
 
@@ -898,18 +902,13 @@ function expand_mechanisms_by_two_params(
             for cn in 1:max_catalytic_n
                 for combo in Iterators.product(
                         ntuple(_ -> 1:cn, n_groups)...)
-                    # Try each single metabolite as
-                    # non-TR-equivalent
-                    for non_equiv_met in t_mets
-                        tr_equiv = Symbol[
-                            m for m in t_mets
-                            if m != non_equiv_met]
-                        allo = AllostericMechanismSpec(
-                            spec, cn, partition,
-                            collect(combo), tr_equiv,
-                            copy(all_ss_steps))
-                        push!(result, allo)
-                    end
+                    allo = AllostericMechanismSpec(
+                        spec, cn, partition,
+                        collect(combo), copy(t_mets),
+                        copy(all_ss_steps))
+                    _runtime_param_count(allo) ==
+                        base_pc + 2 || continue
+                    push!(result, allo)
                 end
             end
         end

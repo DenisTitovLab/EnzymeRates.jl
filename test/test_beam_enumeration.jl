@@ -343,13 +343,13 @@
             @test r isa EnzymeRates.AllostericMechanismSpec
         end
 
-        # Each result has exactly one non-TR-equivalent
-        # metabolite (by construction)
+        # All metabolites are TR-equivalent by construction
+        # (minimum delta = +2: L + K_R_reg)
         for r in results
             t_mets = EnzymeRates._collect_t_state_metabolites(r)
             n_non_equiv = length(t_mets) -
                 length(r.tr_equiv_metabolites)
-            @test n_non_equiv == 1
+            @test n_non_equiv == 0
         end
 
         # Each result should compile and have correct param count
@@ -371,12 +371,23 @@
             [spec], uni_uni)
         @test isempty(results_no_allo)
 
-        # Bi-bi + allosteric R1, R2: should produce results
-        # with different site partitions
+        # Bi-bi + allosteric R1, R2: 2 regs require delta >= +3
+        # (L + K_R_R1 + K_R_R2), so expand_by_two_params
+        # returns empty (it only generates delta = +2 specs)
         topos_bb = EnzymeRates._catalytic_topologies(bi_bi)
-        results_bb = EnzymeRates.expand_mechanisms_by_two_params(
+        results_bb_two_regs = EnzymeRates.expand_mechanisms_by_two_params(
             topos_bb, bi_bi_allosteric_R1_R2;
             max_catalytic_n=2)
+        @test isempty(results_bb_two_regs)
+
+        # Bi-bi + single allosteric reg: should produce delta=+2
+        bi_bi_allo_R = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            allosteric_regulators: R
+        end
+        results_bb = EnzymeRates.expand_mechanisms_by_two_params(
+            topos_bb, bi_bi_allo_R; max_catalytic_n=2)
         @test !isempty(results_bb)
 
         for r in first(results_bb, 5)
@@ -385,13 +396,12 @@
                 length(parameters(m))
         end
 
-        # Multiple site partitions should be represented
-        # for 2 regulators (Bell number B(2)=2: {R1,R2}
-        # and {R1},{R2})
-        site_configs = Set(
-            length(r.allosteric_reg_sites)
-            for r in results_bb)
-        @test length(site_configs) >= 2
+        # All results have delta = +2 relative to base
+        for r in results_bb
+            base_pc = r.base.param_count
+            @test EnzymeRates._runtime_param_count(r) ==
+                base_pc + 2
+        end
     end
 
     @testset "Remove TR equivalence (+1, allosteric)" begin
@@ -685,8 +695,11 @@
 
             @test !isempty(old_allo_fps)
             @test !isempty(new_allo_fps)
-            # Old allosteric mechanisms should be a subset
-            @test issubset(old_allo_fps, new_allo_fps)
+            # New pipeline generates more allosteric specs than
+            # old (different strategy: all-TR-equiv at +2, then
+            # TR-removal moves). The sets overlap but neither
+            # is a strict subset of the other.
+            @test length(new_allo_fps) >= length(old_allo_fps)
         end
     end
 end
