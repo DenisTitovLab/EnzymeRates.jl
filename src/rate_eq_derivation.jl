@@ -1081,27 +1081,6 @@ function _binding_K_symbols(
     (r_ks..., t_ks..., reg_ks_r..., reg_ks_t...)
 end
 
-"""Check if a catalytic K symbol corresponds to a metabolite in the given set."""
-function _is_catalytic_K_for_met_set(
-    K::Symbol, CM::Type{<:EnzymeMechanism}, met_set,
-)
-    isempty(met_set) && return false
-    m = CM()
-    rxns = reactions(m)
-    eq_steps = equilibrium_steps(m)
-    enz_set = Set(e[1] for e in enzyme_forms(m))
-    for (idx, (lhs, rhs)) in enumerate(rxns)
-        eq_steps[idx] || continue
-        Symbol("K$idx") != K && continue
-        _, m_lhs = _split_reaction_side(lhs, enz_set)
-        for met in m_lhs
-            met ∈ met_set && return true
-        end
-    end
-    false
-end
-
-
 """Check if a catalytic K symbol corresponds to a TR-equivalent metabolite."""
 function _is_tr_equiv_catalytic_K(
     K::Symbol, CM::Type{<:EnzymeMechanism}, cat_tr_equiv,
@@ -1233,49 +1212,6 @@ function _dependent_param_exprs(
     return merged_dep, merged_indep
 end
 
-"""Check if a catalytic parameter is for an r_only metabolite or r_only cat step."""
-function _is_r_only_catalytic_param(
-    p::Symbol, CM::Type{<:EnzymeMechanism},
-    cat_r_only, r_only_cat_steps,
-)
-    isempty(cat_r_only) && isempty(r_only_cat_steps) && return false
-    _is_in_met_or_step_set(p, CM, cat_r_only, r_only_cat_steps)
-end
-
-"""Check if a catalytic parameter is for a t_only metabolite."""
-function _is_t_only_catalytic_param(
-    p::Symbol, CM::Type{<:EnzymeMechanism}, cat_t_only,
-)
-    isempty(cat_t_only) && return false
-    _is_in_met_or_step_set(p, CM, cat_t_only, ())
-end
-
-"""Check if a parameter symbol belongs to a metabolite set or step index set."""
-function _is_in_met_or_step_set(
-    p::Symbol, CM::Type{<:EnzymeMechanism},
-    met_set, step_set,
-)
-    # RE binding K
-    m = match(r"^K(\d+)$", string(p))
-    if m !== nothing
-        return _is_catalytic_K_for_met_set(p, CM, met_set)
-    end
-    # SS rate constant
-    _is_ss_rate_constant(p) || return false
-    m_match = match(r"^k(\d+)[fr]$", string(p))
-    m_match === nothing && return false
-    cap = m_match.captures[1]::SubString
-    idx = parse(Int, cap)
-    m_inst = CM()
-    rxns = reactions(m_inst)
-    enz_set = Set(e[1] for e in enzyme_forms(m_inst))
-    lhs, _ = rxns[idx]
-    _, mets_lhs = _split_reaction_side(lhs, enz_set)
-    if !isempty(mets_lhs)
-        return any(met ∈ met_set for met in mets_lhs)
-    end
-    return idx ∈ step_set
-end
 
 # parameters and fitted_params for AllostericEnzymeMechanism are handled
 # by the unified _AnyMechanism methods at the top of this file.
