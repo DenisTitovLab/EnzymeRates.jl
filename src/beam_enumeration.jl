@@ -152,37 +152,27 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
         binding_Ks, rxns, enz_set, free_enz_set,
     )
 
-    # Classify each independent R-state param:
-    # - tr_equiv: no T-state param (dependent on R)
-    # - r_only: no T-state param (absent)
-    # - t_only: no R-state param (only T-state is independent)
-    # - both: independent T-state param
-    n_no_t_param = 0   # tr_equiv + r_only: no independent T param
-    n_no_r_param = 0   # t_only: no independent R param
+    # Count TR-equivalent catalytic params among indep_R
+    # (r_only/t_only catalytic params don't affect param count —
+    # they only change rate equation structure, not parameter set)
+    n_tr_equiv = 0
     for p in indep_R
         mode = _classify_catalytic_param(
             p, base, eq_steps, spec)
-        if mode == :tr_equiv || mode == :r_only
-            n_no_t_param += 1
-        elseif mode == :t_only
-            n_no_r_param += 1
+        if mode == :tr_equiv
+            n_tr_equiv += 1
         end
     end
 
-    # R-state indep = base indep minus t_only params (no R-state)
-    indep_R_count = length(indep_R) - n_no_r_param
+    # T-state indep = base indep minus TR-equiv params
+    indep_T_count = length(indep_R) - n_tr_equiv
 
-    # T-state indep = base indep minus params without T version
-    # (tr_equiv + r_only have no independent T; t_only adds to T)
-    indep_T_count = length(indep_R) - n_no_t_param
-
-    # Reg R-state params: exclude t_only ligands
+    # Reg R-state params: exclude t_only ligands (no R-state binding)
     n_reg_R = sum(
         count(lig -> lig ∉ spec.t_only_metabolites, site)
         for site in spec.allosteric_reg_sites; init=0)
 
-    # Reg T-state params: exclude tr_equiv, r_only, and t_only ligands
-    # (t_only contributes to T-state independently, handled below)
+    # Reg T-state params: exclude tr_equiv, r_only, and t_only
     n_reg_T = sum(
         count(lig -> lig ∉ spec.tr_equiv_metabolites &&
                      lig ∉ spec.r_only_metabolites &&
@@ -194,9 +184,9 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
         count(lig -> lig ∈ spec.t_only_metabolites, site)
         for site in spec.allosteric_reg_sites; init=0)
 
-    # Total: R_indep + T_indep + reg_R + reg_T + reg_t_only + L
+    # Total: base_indep + indep_T + reg_R + reg_T + reg_t_only + L
     #        + Keq + E_total
-    indep_R_count + indep_T_count + n_reg_R + n_reg_T +
+    length(indep_R) + indep_T_count + n_reg_R + n_reg_T +
         n_reg_t_only + 1 + 2
 end
 

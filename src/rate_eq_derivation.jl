@@ -1058,18 +1058,11 @@ function _binding_K_symbols(
     ::Type{AllostericEnzymeMechanism{Mets,CM,CS,RS}},
 ) where {Mets,CM,CS,RS}
     cat_tr_equiv = CS[3]
-    cat_r_only = length(CS) >= 5 ? CS[5] : ()
-    cat_t_only = length(CS) >= 6 ? CS[6] : ()
-    all_r_ks = Tuple(_binding_K_symbols(CM))
-    # R-state K's: exclude t_only metabolites (no R-state binding)
-    r_ks = Tuple(K for K in all_r_ks
-        if !_is_catalytic_K_for_met_set(K, CM, cat_t_only))
-    # T-state K's: skip TR-equiv, r_only, and t_only
+    r_ks = Tuple(_binding_K_symbols(CM))
+    # For catalytic T-state K's, skip those whose metabolite is TR-equivalent
     t_ks = Tuple(
-        _rename_params_T(K) for K in all_r_ks
-        if !_is_tr_equiv_catalytic_K(K, CM, cat_tr_equiv) &&
-           !_is_catalytic_K_for_met_set(K, CM, cat_r_only) &&
-           !_is_catalytic_K_for_met_set(K, CM, cat_t_only)
+        _rename_params_T(K) for K in r_ks
+        if !_is_tr_equiv_catalytic_K(K, CM, cat_tr_equiv)
     )
     reg_ks_r = Tuple(
         _reg_param_name(lig, i, false)
@@ -1176,9 +1169,6 @@ function _dependent_param_exprs(
 ) where {Mets,CM,CS,RS}
     cat_tr_equiv = CS[3]
     tr_equiv_cat_steps = length(CS) >= 4 ? CS[4] : ()
-    cat_r_only = length(CS) >= 5 ? CS[5] : ()
-    cat_t_only = length(CS) >= 6 ? CS[6] : ()
-    r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
     dep_R, indep_R = _dependent_param_exprs(CM)
 
     # R-state reg params: exclude t_only ligands (no R-state binding)
@@ -1194,34 +1184,20 @@ function _dependent_param_exprs(
     dep_T = Dict{Symbol, Union{Symbol, Expr}}()
     indep_T_list = Symbol[]
     for (k, v) in dep_R
-        t_k = _rename_params_T(k)
-        # Skip T-state dependent params for r_only catalytic metabolites
-        if _is_r_only_catalytic_param(k, CM, cat_r_only, r_only_cat_steps)
-            continue
-        end
-        dep_T[t_k] = substitute_params_expr(v, T_subs)
+        dep_T[_rename_params_T(k)] = substitute_params_expr(v, T_subs)
     end
     for p in indep_R
         t_p = _rename_params_T(p)
         if _is_tr_equiv_catalytic_param(
                 p, CM, cat_tr_equiv, tr_equiv_cat_steps)
+            # TR equivalent: p_T = p_R (dependent, not independent)
             dep_T[t_p] = p
-        elseif _is_r_only_catalytic_param(p, CM, cat_r_only, r_only_cat_steps)
-            # R-only: no T-state param at all (absent, not dependent)
-            continue
-        elseif _is_t_only_catalytic_param(p, CM, cat_t_only)
-            # T-only: R-state param doesn't exist, T-state is independent
-            # Remove R-state from indep_R later; add T-state to indep_T
-            push!(indep_T_list, t_p)
         else
             push!(indep_T_list, t_p)
         end
     end
 
     # T-state reg params: exclude tr_equiv, r_only, and t_only ligands
-    # (tr_equiv and r_only have no independent T param;
-    #  t_only has no R-state param so T is independent,
-    #  but it was already excluded from reg_params_r above)
     reg_params_t = [
         _reg_param_name(lig, i, true)
         for (i, entry) in enumerate(RS)
@@ -1250,15 +1226,8 @@ function _dependent_param_exprs(
         end
     end
 
-    # Filter out t_only catalytic params from R-state indep
-    # (t_only metabolites have no R-state param)
-    filtered_indep_R = Tuple(
-        p for p in indep_R
-        if !_is_t_only_catalytic_param(p, CM, cat_t_only)
-    )
-
     merged_dep = merge(dep_R, dep_T)
-    merged_indep = (filtered_indep_R..., indep_T_list...,
+    merged_indep = (indep_R..., indep_T_list...,
                     reg_params_r..., reg_params_t...,
                     reg_params_t_only..., :L)
     return merged_dep, merged_indep
@@ -1371,17 +1340,8 @@ function _allosteric_dep_assignments(
     T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
     t_assignments = Expr[]
 
-    # T-state assignments for catalytic dependent params
-    # Skip r_only params (no T-state version)
-    for (sym, _) in sorted_deps
-        if _is_r_only_catalytic_param(sym, CM, cat_r_only, r_only_cat_steps)
-            continue
-        end
-        push!(t_assignments, Expr(:(=), _rename_params_T(sym),
-            substitute_params_expr(dep_R_kd[sym], T_subs)))
-    end
-
-    # TR-equivalent catalytic independent params: p_T = p_R
+    # TR-equivalent catalytic independent params first: p_T = p_R
+    # (must come before dependent assignments that reference them)
     for p in indep_R
         if _is_tr_equiv_catalytic_param(
                 p, CM, cat_tr_equiv, tr_equiv_cat_steps)
@@ -1398,6 +1358,13 @@ function _allosteric_dep_assignments(
                 push!(t_assignments, Expr(:(=), K_T, K_R))
             end
         end
+    end
+
+    # T-state assignments for catalytic dependent params
+    # (after all TR-equiv assignments so referenced symbols are defined)
+    for (sym, _) in sorted_deps
+        push!(t_assignments, Expr(:(=), _rename_params_T(sym),
+            substitute_params_expr(dep_R_kd[sym], T_subs)))
     end
 
     return r_assignments, t_assignments

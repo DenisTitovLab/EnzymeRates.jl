@@ -547,6 +547,90 @@
             length(p_none)
     end
 
+    @testset "R-only/T-only binding modes" begin
+        topos = EnzymeRates._catalytic_topologies(uni_uni)
+        spec = topos[1]
+        m_base = compile_mechanism(spec)
+        base_pc = length(parameters(m_base))
+
+        iso_idx = findfirst(
+            s -> EnzymeRates.step_metabolite(s) === nothing &&
+                !s.is_equilibrium, spec.steps)
+
+        # R-only substrate: S only binds R-state, absent from T-state
+        allo_r_only = EnzymeRates.AllostericMechanismSpec(
+            spec, 1, [[:R]], [1],
+            [:P, :R], [iso_idx],
+            [:S], Symbol[], Int[])
+        m_r_only = compile_mechanism(allo_r_only)
+        p_r_only = parameters(m_r_only)
+        @test EnzymeRates._runtime_param_count(allo_r_only) ==
+            length(p_r_only)
+
+        # Rate equation should work and S should not appear
+        # in T-state polynomial
+        rate_str = rate_equation_string(m_r_only)
+        @test occursin("K2", rate_str)  # R-state binding K exists
+
+        # Evaluate at known concentrations
+        concs = (; S=1.0, P=0.0, R=0.5)
+        param_vals = NamedTuple{Tuple(p_r_only)}(
+            ones(length(p_r_only)))
+        v = rate_equation(m_r_only, concs, param_vals)
+        @test isfinite(v)
+        @test v != 0.0
+
+        # T-only substrate: S only binds T-state, absent from R-state
+        allo_t_only = EnzymeRates.AllostericMechanismSpec(
+            spec, 1, [[:R]], [1],
+            [:P, :R], [iso_idx],
+            Symbol[], [:S], Int[])
+        m_t_only = compile_mechanism(allo_t_only)
+        p_t_only = parameters(m_t_only)
+        @test EnzymeRates._runtime_param_count(allo_t_only) ==
+            length(p_t_only)
+
+        # Same param count as r_only (symmetric structure)
+        @test length(p_r_only) == length(p_t_only)
+
+        param_vals_t = NamedTuple{Tuple(p_t_only)}(
+            ones(length(p_t_only)))
+        v_t = rate_equation(m_t_only, concs, param_vals_t)
+        @test isfinite(v_t)
+        @test v_t != 0.0
+
+        # R-only cat step: T-state doesn't catalyze through this step
+        allo_r_only_cat = EnzymeRates.AllostericMechanismSpec(
+            spec, 1, [[:R]], [1],
+            [:S, :P, :R], Int[],
+            Symbol[], Symbol[], [iso_idx])
+        m_r_only_cat = compile_mechanism(allo_r_only_cat)
+        p_r_only_cat = parameters(m_r_only_cat)
+        @test EnzymeRates._runtime_param_count(
+            allo_r_only_cat) == length(p_r_only_cat)
+
+        param_vals_rc = NamedTuple{Tuple(p_r_only_cat)}(
+            ones(length(p_r_only_cat)))
+        v_rc = rate_equation(m_r_only_cat, concs, param_vals_rc)
+        @test isfinite(v_rc)
+
+        # R-only regulator: R only binds R-state
+        allo_r_only_reg = EnzymeRates.AllostericMechanismSpec(
+            spec, 1, [[:R]], [1],
+            [:S, :P], [iso_idx],
+            [:R], Symbol[], Int[])
+        m_r_only_reg = compile_mechanism(allo_r_only_reg)
+        p_r_only_reg = parameters(m_r_only_reg)
+        @test EnzymeRates._runtime_param_count(
+            allo_r_only_reg) == length(p_r_only_reg)
+        # R-only reg: no K_R_T_reg param
+        @test !any(
+            p -> occursin("_T_reg", string(p)), p_r_only_reg)
+        # But K_R_reg exists
+        @test any(
+            p -> occursin("_R_reg", string(p)), p_r_only_reg)
+    end
+
     @testset "enumerate_mechanisms (beam)" begin
         # Uni-uni: should produce mechanisms at multiple
         # param_count levels
