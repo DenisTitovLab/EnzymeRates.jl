@@ -562,6 +562,46 @@ function _rename_poly_T(p::POLY)
     )
 end
 
+"""Remove monomials containing any of the given metabolites from a POLY."""
+function _zero_metabolites_in_poly(p::POLY, met_set)
+    isempty(met_set) && return p
+    result = POLY()
+    for (mono, coeff) in p
+        has_met = any(s ∈ met_set for (s, _) in mono)
+        has_met || (result[mono] = coeff)
+    end
+    result
+end
+
+"""Remove monomials containing any of the given symbols from a POLY."""
+function _zero_symbols_in_poly(p::POLY, sym_set::Set{Symbol})
+    isempty(sym_set) && return p
+    result = POLY()
+    for (mono, coeff) in p
+        has_sym = any(s ∈ sym_set for (s, _) in mono)
+        has_sym || (result[mono] = coeff)
+    end
+    result
+end
+
+"""Get the set of k symbols (kNf, kNr) for r_only cat steps."""
+function _r_only_cat_step_k_syms(CM, r_only_cat_steps)
+    isempty(r_only_cat_steps) && return Set{Symbol}()
+    syms = Set{Symbol}()
+    for idx in r_only_cat_steps
+        push!(syms, Symbol("k$(idx)f"))
+        push!(syms, Symbol("k$(idx)r"))
+    end
+    syms
+end
+
+"""Access tr_equiv ligands from a RegSites entry (element 3)."""
+_rs_tr_equiv(entry) = length(entry) >= 3 ? entry[3] : ()
+"""Access r_only ligands from a RegSites entry (element 4)."""
+_rs_r_only(entry) = length(entry) >= 4 ? entry[4] : ()
+"""Access t_only ligands from a RegSites entry (element 5)."""
+_rs_t_only(entry) = length(entry) >= 5 ? entry[5] : ()
+
 """
 Count distinct concentration monomials in the full allosteric rate numerator and
 denominator. Treats all K/k/L symbols as parameters (strips them from monomials).
@@ -569,19 +609,33 @@ Returns `(n_num, n_denom)`.
 """
 function _count_allosteric_rate_monomials(CM, CS, RS)
     CatN = CS[2]
+    cat_r_only = length(CS) >= 5 ? CS[5] : ()
+    cat_t_only = length(CS) >= 6 ? CS[6] : ()
+    r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
-    N_cat_R = _expand_factored_sigma(num_fs)
-    Q_cat_R = _expand_to_poly(denom_terms)
+    N_cat_base = _expand_factored_sigma(num_fs)
+    Q_cat_base = _expand_to_poly(denom_terms)
 
-    # Build reg site partition polynomials (1 + ligand_sym for each ligand)
+    # R-state: filter out t_only metabolites
+    N_cat_R = _zero_metabolites_in_poly(N_cat_base, cat_t_only)
+    Q_cat_R = _zero_metabolites_in_poly(Q_cat_base, cat_t_only)
+
+    # Build reg site partition polynomials
+    # R-state: exclude t_only ligands
     reg_Q_R = POLY[
-        reduce(poly_add, (poly_add(poly_one(), poly_sym(lig)) for lig in ligs))
-        for (ligs, _, _) in RS
+        let ligs_filtered = [lig for lig in entry[1]
+                             if lig ∉ _rs_t_only(entry)]
+            isempty(ligs_filtered) ? poly_one() :
+                reduce(poly_add, (poly_add(poly_one(), poly_sym(lig))
+                    for lig in ligs_filtered))
+        end
+        for entry in RS
     ]
 
     function num_poly_for_conf(N_cat, Q_cat, reg_Qs, L_factor)
         n_term = poly_mul(N_cat, _poly_power(Q_cat, CatN - 1))
-        for (idx, (_, n_reg, _)) in enumerate(RS)
+        for (idx, entry) in enumerate(RS)
+            n_reg = entry[2]
             n_reg == CatN || continue
             n_term = poly_mul(n_term, _poly_power(reg_Qs[idx], n_reg))
         end
@@ -590,7 +644,8 @@ function _count_allosteric_rate_monomials(CM, CS, RS)
 
     function den_poly_for_conf(Q_cat, reg_Qs, L_factor)
         d_term = _poly_power(Q_cat, CatN)
-        for (idx, (_, n_reg, _)) in enumerate(RS)
+        for (idx, entry) in enumerate(RS)
+            n_reg = entry[2]
             d_term = poly_mul(d_term, _poly_power(reg_Qs[idx], n_reg))
         end
         L_factor === nothing ? d_term : poly_mul(poly_sym(L_factor), d_term)
@@ -599,9 +654,28 @@ function _count_allosteric_rate_monomials(CM, CS, RS)
     full_num = num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing)
     full_den = den_poly_for_conf(Q_cat_R, reg_Q_R, nothing)
 
-    N_cat_T = _rename_poly_T(N_cat_R)
-    Q_cat_T = _rename_poly_T(Q_cat_R)
-    reg_Q_T = POLY[_rename_poly_T(q) for q in reg_Q_R]
+    # T-state: filter out r_only metabolites and r_only cat steps
+    N_cat_T = _zero_metabolites_in_poly(N_cat_base, cat_r_only)
+    Q_cat_T = _zero_metabolites_in_poly(Q_cat_base, cat_r_only)
+    if !isempty(r_only_cat_steps)
+        r_only_k_syms = _r_only_cat_step_k_syms(CM, r_only_cat_steps)
+        N_cat_T = _zero_symbols_in_poly(N_cat_T, r_only_k_syms)
+        Q_cat_T = _zero_symbols_in_poly(Q_cat_T, r_only_k_syms)
+    end
+    N_cat_T = _rename_poly_T(N_cat_T)
+    Q_cat_T = _rename_poly_T(Q_cat_T)
+
+    # T-state reg: exclude r_only ligands
+    reg_Q_T = POLY[
+        let ligs_filtered = [lig for lig in entry[1]
+                             if lig ∉ _rs_r_only(entry)]
+            isempty(ligs_filtered) ? poly_one() :
+                reduce(poly_add, (poly_add(poly_one(), poly_sym(lig))
+                    for lig in ligs_filtered))
+        end
+        for entry in RS
+    ]
+    reg_Q_T = POLY[_rename_poly_T(q) for q in reg_Q_T]
 
     full_num = poly_add(full_num, num_poly_for_conf(N_cat_T, Q_cat_T, reg_Q_T, :L))
     full_den = poly_add(full_den, den_poly_for_conf(Q_cat_T, reg_Q_T, :L))

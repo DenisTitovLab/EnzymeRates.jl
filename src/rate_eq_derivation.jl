@@ -920,8 +920,8 @@ corners and return the max.
 
     # Enumerate all unique ligands across reg sites
     all_ligs = Symbol[]
-    for (ligs, _, _) in RS
-        for lig in ligs
+    for entry in RS
+        for lig in entry[1]
             lig in all_ligs || push!(all_ligs, lig)
         end
     end
@@ -936,28 +936,38 @@ corners and return the max.
     for mask in 0:(2^n_ligs - 1)
         W_R_factors = Any[]
         W_T_factors = Any[]
-        for (site_idx, (ligs, n_reg, _)) in enumerate(RS)
+        for (site_idx, entry) in enumerate(RS)
+            ligs = entry[1]
+            n_reg = entry[2]
+            ro_ligs = _rs_r_only(entry)
+            to_ligs = _rs_t_only(entry)
             # Build effective Q_reg for this site at this corner
             sat_terms_R = Any[]
             sat_terms_T = Any[]
             for lig in ligs
                 if (mask >> lig_idx[lig]) & 1 == 1
-                    K_R = _reg_param_name(lig, site_idx, false)
-                    K_T = _reg_param_name(lig, site_idx, true)
-                    push!(sat_terms_R, :(inv($K_R)))
-                    push!(sat_terms_T, :(inv($K_T)))
+                    # R-state: skip t_only ligands
+                    if lig ∉ to_ligs
+                        K_R = _reg_param_name(lig, site_idx, false)
+                        push!(sat_terms_R, :(inv($K_R)))
+                    end
+                    # T-state: skip r_only ligands
+                    if lig ∉ ro_ligs
+                        K_T = _reg_param_name(lig, site_idx, true)
+                        push!(sat_terms_T, :(inv($K_T)))
+                    end
                 end
             end
-            if isempty(sat_terms_R)
-                # All ligands at 0: Q_reg = 1, W contribution = 1
-            else
+            if !isempty(sat_terms_R)
                 q_R = length(sat_terms_R) == 1 ?
                     sat_terms_R[1] :
                     _nest_binary(:+, sat_terms_R)
+                push!(W_R_factors, _power_expr(q_R, n_reg))
+            end
+            if !isempty(sat_terms_T)
                 q_T = length(sat_terms_T) == 1 ?
                     sat_terms_T[1] :
                     _nest_binary(:+, sat_terms_T)
-                push!(W_R_factors, _power_expr(q_R, n_reg))
                 push!(W_T_factors, _power_expr(q_T, n_reg))
             end
         end
@@ -1048,23 +1058,56 @@ function _binding_K_symbols(
     ::Type{AllostericEnzymeMechanism{Mets,CM,CS,RS}},
 ) where {Mets,CM,CS,RS}
     cat_tr_equiv = CS[3]
-    r_ks = Tuple(_binding_K_symbols(CM))
-    # For catalytic T-state K's, skip those whose metabolite is TR-equivalent
+    cat_r_only = length(CS) >= 5 ? CS[5] : ()
+    cat_t_only = length(CS) >= 6 ? CS[6] : ()
+    all_r_ks = Tuple(_binding_K_symbols(CM))
+    # R-state K's: exclude t_only metabolites (no R-state binding)
+    r_ks = Tuple(K for K in all_r_ks
+        if !_is_catalytic_K_for_met_set(K, CM, cat_t_only))
+    # T-state K's: skip TR-equiv, r_only, and t_only
     t_ks = Tuple(
-        _rename_params_T(K) for K in r_ks
-        if !_is_tr_equiv_catalytic_K(K, CM, cat_tr_equiv)
+        _rename_params_T(K) for K in all_r_ks
+        if !_is_tr_equiv_catalytic_K(K, CM, cat_tr_equiv) &&
+           !_is_catalytic_K_for_met_set(K, CM, cat_r_only) &&
+           !_is_catalytic_K_for_met_set(K, CM, cat_t_only)
     )
     reg_ks_r = Tuple(
         _reg_param_name(lig, i, false)
-        for (i, (ligs, _, _)) in enumerate(RS) for lig in ligs
+        for (i, entry) in enumerate(RS)
+        for lig in entry[1]
+        if lig ∉ _rs_t_only(entry)
     )
     reg_ks_t = Tuple(
         _reg_param_name(lig, i, true)
-        for (i, (ligs, _, tr_eq)) in enumerate(RS)
-        for lig in ligs if lig ∉ tr_eq
+        for (i, entry) in enumerate(RS)
+        for lig in entry[1]
+        if lig ∉ _rs_tr_equiv(entry) &&
+           lig ∉ _rs_r_only(entry) &&
+           lig ∉ _rs_t_only(entry)
     )
     (r_ks..., t_ks..., reg_ks_r..., reg_ks_t...)
 end
+
+"""Check if a catalytic K symbol corresponds to a metabolite in the given set."""
+function _is_catalytic_K_for_met_set(
+    K::Symbol, CM::Type{<:EnzymeMechanism}, met_set,
+)
+    isempty(met_set) && return false
+    m = CM()
+    rxns = reactions(m)
+    eq_steps = equilibrium_steps(m)
+    enz_set = Set(e[1] for e in enzyme_forms(m))
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        eq_steps[idx] || continue
+        Symbol("K$idx") != K && continue
+        _, m_lhs = _split_reaction_side(lhs, enz_set)
+        for met in m_lhs
+            met ∈ met_set && return true
+        end
+    end
+    false
+end
+
 
 """Check if a catalytic K symbol corresponds to a TR-equivalent metabolite."""
 function _is_tr_equiv_catalytic_K(
@@ -1133,44 +1176,73 @@ function _dependent_param_exprs(
 ) where {Mets,CM,CS,RS}
     cat_tr_equiv = CS[3]
     tr_equiv_cat_steps = length(CS) >= 4 ? CS[4] : ()
+    cat_r_only = length(CS) >= 5 ? CS[5] : ()
+    cat_t_only = length(CS) >= 6 ? CS[6] : ()
+    r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
     dep_R, indep_R = _dependent_param_exprs(CM)
 
+    # R-state reg params: exclude t_only ligands (no R-state binding)
     reg_params_r = [
         _reg_param_name(lig, i, false)
-        for (i, (ligs, _, _)) in enumerate(RS) for lig in ligs
+        for (i, entry) in enumerate(RS)
+        for lig in entry[1]
+        if lig ∉ _rs_t_only(entry)
     ]
 
     T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
 
-    # For TR-equivalent catalytic params, T-state dep = R-state dep
-    # (the T_subs rename is applied, but the _T param is then
-    # added as dependent = R-state value, not independent)
     dep_T = Dict{Symbol, Union{Symbol, Expr}}()
     indep_T_list = Symbol[]
     for (k, v) in dep_R
-        dep_T[_rename_params_T(k)] = substitute_params_expr(v, T_subs)
+        t_k = _rename_params_T(k)
+        # Skip T-state dependent params for r_only catalytic metabolites
+        if _is_r_only_catalytic_param(k, CM, cat_r_only, r_only_cat_steps)
+            continue
+        end
+        dep_T[t_k] = substitute_params_expr(v, T_subs)
     end
     for p in indep_R
         t_p = _rename_params_T(p)
         if _is_tr_equiv_catalytic_param(
                 p, CM, cat_tr_equiv, tr_equiv_cat_steps)
-            # TR equivalent: p_T = p_R (dependent, not independent)
             dep_T[t_p] = p
+        elseif _is_r_only_catalytic_param(p, CM, cat_r_only, r_only_cat_steps)
+            # R-only: no T-state param at all (absent, not dependent)
+            continue
+        elseif _is_t_only_catalytic_param(p, CM, cat_t_only)
+            # T-only: R-state param doesn't exist, T-state is independent
+            # Remove R-state from indep_R later; add T-state to indep_T
+            push!(indep_T_list, t_p)
         else
             push!(indep_T_list, t_p)
         end
     end
 
+    # T-state reg params: exclude tr_equiv, r_only, and t_only ligands
+    # (tr_equiv and r_only have no independent T param;
+    #  t_only has no R-state param so T is independent,
+    #  but it was already excluded from reg_params_r above)
     reg_params_t = [
         _reg_param_name(lig, i, true)
-        for (i, (ligs, _, tr_eq)) in enumerate(RS)
-        for lig in ligs if lig ∉ tr_eq
+        for (i, entry) in enumerate(RS)
+        for lig in entry[1]
+        if lig ∉ _rs_tr_equiv(entry) &&
+           lig ∉ _rs_r_only(entry) &&
+           lig ∉ _rs_t_only(entry)
+    ]
+
+    # T-only reg params: T-state is independent (already excluded from reg_params_r)
+    reg_params_t_only = [
+        _reg_param_name(lig, i, true)
+        for (i, entry) in enumerate(RS)
+        for lig in entry[1]
+        if lig ∈ _rs_t_only(entry)
     ]
 
     # TR-equivalent reg params: K_T = K_R (dependent)
-    for (i, (ligs, _, tr_eq)) in enumerate(RS)
-        for lig in ligs
-            if lig ∈ tr_eq
+    for (i, entry) in enumerate(RS)
+        for lig in entry[1]
+            if lig ∈ _rs_tr_equiv(entry)
                 K_R = _reg_param_name(lig, i, false)
                 K_T = _reg_param_name(lig, i, true)
                 dep_T[K_T] = K_R
@@ -1178,10 +1250,62 @@ function _dependent_param_exprs(
         end
     end
 
+    # Filter out t_only catalytic params from R-state indep
+    # (t_only metabolites have no R-state param)
+    filtered_indep_R = Tuple(
+        p for p in indep_R
+        if !_is_t_only_catalytic_param(p, CM, cat_t_only)
+    )
+
     merged_dep = merge(dep_R, dep_T)
-    merged_indep = (indep_R..., indep_T_list...,
-                    reg_params_r..., reg_params_t..., :L)
+    merged_indep = (filtered_indep_R..., indep_T_list...,
+                    reg_params_r..., reg_params_t...,
+                    reg_params_t_only..., :L)
     return merged_dep, merged_indep
+end
+
+"""Check if a catalytic parameter is for an r_only metabolite or r_only cat step."""
+function _is_r_only_catalytic_param(
+    p::Symbol, CM::Type{<:EnzymeMechanism},
+    cat_r_only, r_only_cat_steps,
+)
+    isempty(cat_r_only) && isempty(r_only_cat_steps) && return false
+    _is_in_met_or_step_set(p, CM, cat_r_only, r_only_cat_steps)
+end
+
+"""Check if a catalytic parameter is for a t_only metabolite."""
+function _is_t_only_catalytic_param(
+    p::Symbol, CM::Type{<:EnzymeMechanism}, cat_t_only,
+)
+    isempty(cat_t_only) && return false
+    _is_in_met_or_step_set(p, CM, cat_t_only, ())
+end
+
+"""Check if a parameter symbol belongs to a metabolite set or step index set."""
+function _is_in_met_or_step_set(
+    p::Symbol, CM::Type{<:EnzymeMechanism},
+    met_set, step_set,
+)
+    # RE binding K
+    m = match(r"^K(\d+)$", string(p))
+    if m !== nothing
+        return _is_catalytic_K_for_met_set(p, CM, met_set)
+    end
+    # SS rate constant
+    _is_ss_rate_constant(p) || return false
+    m_match = match(r"^k(\d+)[fr]$", string(p))
+    m_match === nothing && return false
+    cap = m_match.captures[1]::SubString
+    idx = parse(Int, cap)
+    m_inst = CM()
+    rxns = reactions(m_inst)
+    enz_set = Set(e[1] for e in enzyme_forms(m_inst))
+    lhs, _ = rxns[idx]
+    _, mets_lhs = _split_reaction_side(lhs, enz_set)
+    if !isempty(mets_lhs)
+        return any(met ∈ met_set for met in mets_lhs)
+    end
+    return idx ∈ step_set
 end
 
 # parameters and fitted_params for AllostericEnzymeMechanism are handled
@@ -1189,10 +1313,20 @@ end
 
 # ─── Rate body building helpers ───────────────────────────────────
 
-"""Build the regulatory site partition function expression: 1 + lig/K_lig_reg_i + ..."""
-function _reg_site_expr(ligs, site_idx::Int, T_state::Bool)
+"""Build the regulatory site partition function expression: 1 + lig/K_lig_reg_i + ...
+Skips ligands absent from the given conformation (r_only in T-state, t_only in R-state)."""
+function _reg_site_expr(ligs, site_idx::Int, T_state::Bool;
+                        r_only_ligs=(), t_only_ligs=())
     terms = Any[1]
     for lig in ligs
+        # R-only ligands are absent from T-state polynomial
+        if T_state && lig ∈ r_only_ligs
+            continue
+        end
+        # T-only ligands are absent from R-state polynomial
+        if !T_state && lig ∈ t_only_ligs
+            continue
+        end
         K_sym = _reg_param_name(lig, site_idx, T_state)
         push!(terms, :($(lig) / $K_sym))
     end
@@ -1222,6 +1356,9 @@ function _allosteric_dep_assignments(
     RS = M_type.parameters[4]
     cat_tr_equiv = CS[3]
     tr_equiv_cat_steps = length(CS) >= 4 ? CS[4] : ()
+    cat_r_only = length(CS) >= 5 ? CS[5] : ()
+    cat_t_only = length(CS) >= 6 ? CS[6] : ()
+    r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
 
     dep_R, indep_R = _dependent_param_exprs(CM)
     dep_R_kd = _apply_kd_inversion(dep_R, CM, inv_fn)
@@ -1235,7 +1372,11 @@ function _allosteric_dep_assignments(
     t_assignments = Expr[]
 
     # T-state assignments for catalytic dependent params
+    # Skip r_only params (no T-state version)
     for (sym, _) in sorted_deps
+        if _is_r_only_catalytic_param(sym, CM, cat_r_only, r_only_cat_steps)
+            continue
+        end
         push!(t_assignments, Expr(:(=), _rename_params_T(sym),
             substitute_params_expr(dep_R_kd[sym], T_subs)))
     end
@@ -1249,9 +1390,9 @@ function _allosteric_dep_assignments(
     end
 
     # TR-equivalent reg params: K_T_reg = K_R_reg
-    for (i, (ligs, _, tr_eq)) in enumerate(RS)
-        for lig in ligs
-            if lig ∈ tr_eq
+    for (i, entry) in enumerate(RS)
+        for lig in entry[1]
+            if lig ∈ _rs_tr_equiv(entry)
                 K_R = _reg_param_name(lig, i, false)
                 K_T = _reg_param_name(lig, i, true)
                 push!(t_assignments, Expr(:(=), K_T, K_R))
@@ -1269,6 +1410,9 @@ Shared by `_build_allosteric_rate_body` and `rate_equation_string`.
 """
 function _allosteric_num_den_exprs(CM, CS, RS)
     CatN = CS[2]
+    cat_r_only = length(CS) >= 5 ? CS[5] : ()
+    cat_t_only = length(CS) >= 6 ? CS[6] : ()
+    r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
     m_cat = CM()
     cat_constr = Set(c[1] for c in param_constraints(m_cat))
@@ -1278,17 +1422,29 @@ function _allosteric_num_den_exprs(CM, CS, RS)
     cat_mets = Set{Symbol}(metabolites(m_cat))
     binding_Ks_r = Set(_binding_K_symbols(CM))
 
-    N_R = _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r)
-    Q_R = _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r)
-    reg_Q_R = Any[_reg_site_expr(ligs, i, false)
-                  for (i, (ligs, _, _)) in enumerate(RS)]
+    # Build R-state catalytic polys, filtering t_only metabolites
+    if isempty(cat_t_only)
+        N_R = _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r)
+        Q_R = _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r)
+    else
+        num_r_poly = _zero_metabolites_in_poly(
+            _expand_factored_sigma(num_fs), cat_t_only)
+        den_r_poly = _zero_metabolites_in_poly(
+            _expand_to_poly(denom_terms), cat_t_only)
+        N_R = _poly_to_expr(num_r_poly, cat_params, cat_mets, binding_Ks_r)
+        Q_R = _poly_to_expr(den_r_poly, cat_params, cat_mets, binding_Ks_r)
+    end
 
-    # Per-subunit reg sites (n_reg == CatN) go in both num and den.
-    # Enzyme-level reg sites (n_reg < CatN) go in denominator only.
+    reg_Q_R = Any[_reg_site_expr(entry[1], i, false;
+                  r_only_ligs=_rs_r_only(entry),
+                  t_only_ligs=_rs_t_only(entry))
+                  for (i, entry) in enumerate(RS)]
+
     function make_num_term(N, Q, reg_Qs)
         factors = Any[N]
         CatN > 1 && push!(factors, _power_expr(Q, CatN - 1))
-        for (idx, (_, n_reg, _)) in enumerate(RS)
+        for (idx, entry) in enumerate(RS)
+            n_reg = entry[2]
             n_reg == CatN || continue
             push!(factors, _power_expr(reg_Qs[idx], n_reg))
         end
@@ -1297,7 +1453,8 @@ function _allosteric_num_den_exprs(CM, CS, RS)
 
     function make_den_term(Q, reg_Qs)
         factors = Any[_power_expr(Q, CatN)]
-        for (idx, (_, n_reg, _)) in enumerate(RS)
+        for (idx, entry) in enumerate(RS)
+            n_reg = entry[2]
             push!(factors, _power_expr(reg_Qs[idx], n_reg))
         end
         _nest_binary(:*, factors)
@@ -1306,16 +1463,47 @@ function _allosteric_num_den_exprs(CM, CS, RS)
     num_R = make_num_term(N_R, Q_R, reg_Q_R)
     den_R = make_den_term(Q_R, reg_Q_R)
 
+    # Build T-state catalytic polys, filtering r_only metabolites
+    # and zeroing r_only cat steps
     T_subs = _build_T_subs(cat_params)
-    N_T = substitute_params_expr(N_R, T_subs)
-    Q_T = substitute_params_expr(Q_R, T_subs)
-    reg_Q_T = Any[_reg_site_expr(ligs, i, true)
-                  for (i, (ligs, _, _)) in enumerate(RS)]
+    if isempty(cat_r_only) && isempty(r_only_cat_steps)
+        N_T = substitute_params_expr(
+            _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r),
+            T_subs)
+        Q_T = substitute_params_expr(
+            _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r),
+            T_subs)
+    else
+        # Expand, zero r_only metabolites, rename to T
+        num_t_poly = _zero_metabolites_in_poly(
+            _expand_factored_sigma(num_fs), cat_r_only)
+        den_t_poly = _zero_metabolites_in_poly(
+            _expand_to_poly(denom_terms), cat_r_only)
+        # Zero r_only cat steps: set their k's to 0
+        r_only_k_syms = _r_only_cat_step_k_syms(CM, r_only_cat_steps)
+        num_t_poly = _zero_symbols_in_poly(num_t_poly, r_only_k_syms)
+        den_t_poly = _zero_symbols_in_poly(den_t_poly, r_only_k_syms)
+        N_T_expr = _poly_to_expr(num_t_poly, cat_params, cat_mets, binding_Ks_r)
+        Q_T_expr = _poly_to_expr(den_t_poly, cat_params, cat_mets, binding_Ks_r)
+        N_T = substitute_params_expr(N_T_expr, T_subs)
+        Q_T = substitute_params_expr(Q_T_expr, T_subs)
+    end
+
+    reg_Q_T = Any[_reg_site_expr(entry[1], i, true;
+                  r_only_ligs=_rs_r_only(entry),
+                  t_only_ligs=_rs_t_only(entry))
+                  for (i, entry) in enumerate(RS)]
 
     num_T = make_num_term(N_T, Q_T, reg_Q_T)
     den_T = make_den_term(Q_T, reg_Q_T)
 
     :($(CatN) * ($(num_R) + L * $(num_T))), :($(den_R) + L * $(den_T))
+end
+
+"""Convert a flat POLY to an Expr using the standard parameter/concentration display."""
+function _poly_to_expr(p::POLY, param_syms, conc_syms, inv_set)
+    fs = FactoredSigma([poly_one()], [FactoredPoly([p], [1])])
+    _factored_sigma_to_expr(fs, param_syms, conc_syms, inv_set)
 end
 
 """Build the MWC rate equation body as an Expr block."""

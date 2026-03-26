@@ -152,62 +152,89 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
         binding_Ks, rxns, enz_set, free_enz_set,
     )
 
-    # Count TR-equivalent catalytic params among indep_R
-    # Three levels:
-    # 1. RE binding K → TR-equiv if metabolite in tr_equiv_metabolites
-    # 2. SS binding k → TR-equiv if step's metabolite in tr_equiv_metabolites
-    # 3. SS non-binding k → TR-equiv if step index in tr_equiv_cat_steps
-    n_tr_equiv = 0
+    # Classify each independent R-state param:
+    # - tr_equiv: no T-state param (dependent on R)
+    # - r_only: no T-state param (absent)
+    # - t_only: no R-state param (only T-state is independent)
+    # - both: independent T-state param
+    n_no_t_param = 0   # tr_equiv + r_only: no independent T param
+    n_no_r_param = 0   # t_only: no independent R param
     for p in indep_R
-        m = match(r"^K(\d+)$", string(p))
-        if m !== nothing
-            # RE binding K
-            cap = m.captures[1]::SubString
-            idx = parse(Int, cap)
-            if idx <= length(base.steps) && eq_steps[idx]
-                met = step_metabolite(base.steps[idx])
-                if met !== nothing &&
-                        met in spec.tr_equiv_metabolites
-                    n_tr_equiv += 1
-                end
-            end
-        elseif _is_ss_rate_constant(p)
-            # SS rate constant: extract step index
-            km = match(r"^k(\d+)[fr]$", string(p))
-            km === nothing && continue
-            cap = km.captures[1]::SubString
-            idx = parse(Int, cap)
-            met = step_metabolite(base.steps[idx])
-            if met !== nothing
-                # SS binding step: TR-equiv if metabolite is in tr_equiv_metabolites
-                if met in spec.tr_equiv_metabolites
-                    n_tr_equiv += 1
-                end
-            else
-                # Non-binding SS step: TR-equiv if index in tr_equiv_cat_steps
-                if idx in spec.tr_equiv_cat_steps
-                    n_tr_equiv += 1
-                end
-            end
+        mode = _classify_catalytic_param(
+            p, base, eq_steps, spec)
+        if mode == :tr_equiv || mode == :r_only
+            n_no_t_param += 1
+        elseif mode == :t_only
+            n_no_r_param += 1
         end
     end
 
-    # T-state indep = base indep minus TR-equiv params
-    indep_T_count = length(indep_R) - n_tr_equiv
+    # T-state indep = base indep minus params without T version,
+    # minus t_only (which have no R but do have T, already counted)
+    indep_T_count = length(indep_R) - n_no_t_param - n_no_r_param
 
-    # Reg R-state params (always independent)
-    n_reg_R = sum(length(site)
+    # R-state indep = base indep minus t_only params
+    indep_R_count = length(indep_R) - n_no_r_param
+
+    # Reg R-state params: exclude t_only ligands
+    n_reg_R = sum(
+        count(lig -> lig ∉ spec.t_only_metabolites, site)
         for site in spec.allosteric_reg_sites; init=0)
 
-    # Reg T-state params (only non-TR-equiv ligands)
+    # Reg T-state params: exclude tr_equiv, r_only, and t_only ligands
+    # (t_only contributes to T-state independently, handled below)
     n_reg_T = sum(
-        count(lig -> lig ∉ spec.tr_equiv_metabolites, site)
+        count(lig -> lig ∉ spec.tr_equiv_metabolites &&
+                     lig ∉ spec.r_only_metabolites &&
+                     lig ∉ spec.t_only_metabolites, site)
         for site in spec.allosteric_reg_sites; init=0)
 
-    # Total: base_indep + indep_T + reg_R + reg_T + L
+    # t_only reg params: T-state is independent
+    n_reg_t_only = sum(
+        count(lig -> lig ∈ spec.t_only_metabolites, site)
+        for site in spec.allosteric_reg_sites; init=0)
+
+    # Total: R_indep + T_indep + reg_R + reg_T + reg_t_only + L
     #        + Keq + E_total
-    length(indep_R) + indep_T_count + n_reg_R + n_reg_T +
-        1 + 2
+    indep_R_count + indep_T_count + n_reg_R + n_reg_T +
+        n_reg_t_only + 1 + 2
+end
+
+"""Classify a catalytic parameter as :both, :tr_equiv, :r_only, or :t_only."""
+function _classify_catalytic_param(
+    p::Symbol, base::MechanismSpec,
+    eq_steps, spec::AllostericMechanismSpec,
+)
+    m = match(r"^K(\d+)$", string(p))
+    if m !== nothing
+        cap = m.captures[1]::SubString
+        idx = parse(Int, cap)
+        if idx <= length(base.steps) && eq_steps[idx]
+            met = step_metabolite(base.steps[idx])
+            if met !== nothing
+                met in spec.tr_equiv_metabolites && return :tr_equiv
+                met in spec.r_only_metabolites && return :r_only
+                met in spec.t_only_metabolites && return :t_only
+            end
+        end
+        return :both
+    end
+    if _is_ss_rate_constant(p)
+        km = match(r"^k(\d+)[fr]$", string(p))
+        km === nothing && return :both
+        cap = km.captures[1]::SubString
+        idx = parse(Int, cap)
+        met = step_metabolite(base.steps[idx])
+        if met !== nothing
+            met in spec.tr_equiv_metabolites && return :tr_equiv
+            met in spec.r_only_metabolites && return :r_only
+            met in spec.t_only_metabolites && return :t_only
+        else
+            idx in spec.tr_equiv_cat_steps && return :tr_equiv
+            idx in spec.r_only_cat_steps && return :r_only
+        end
+    end
+    :both
 end
 
 # ─── Kinetic Symbol Detection ───────────────────────────────
@@ -303,7 +330,10 @@ function _expand_remove_tr_equiv!(
             spec.allosteric_reg_sites,
             spec.allosteric_multiplicities,
             new_equiv,
-            copy(spec.tr_equiv_cat_steps)))
+            copy(spec.tr_equiv_cat_steps),
+            copy(spec.r_only_metabolites),
+            copy(spec.t_only_metabolites),
+            copy(spec.r_only_cat_steps)))
     end
     # Remove one catalytic step TR equivalence
     for (i, idx) in enumerate(spec.tr_equiv_cat_steps)
@@ -316,7 +346,10 @@ function _expand_remove_tr_equiv!(
             spec.allosteric_reg_sites,
             spec.allosteric_multiplicities,
             copy(spec.tr_equiv_metabolites),
-            new_cat_steps))
+            new_cat_steps,
+            copy(spec.r_only_metabolites),
+            copy(spec.t_only_metabolites),
+            copy(spec.r_only_cat_steps)))
     end
 end
 
@@ -341,7 +374,10 @@ function _expand_base_moves!(
             spec.allosteric_reg_sites,
             spec.allosteric_multiplicities,
             copy(spec.tr_equiv_metabolites),
-            copy(spec.tr_equiv_cat_steps)))
+            copy(spec.tr_equiv_cat_steps),
+            copy(spec.r_only_metabolites),
+            copy(spec.t_only_metabolites),
+            copy(spec.r_only_cat_steps)))
     end
 end
 
@@ -905,7 +941,8 @@ function expand_mechanisms_by_two_params(
                     allo = AllostericMechanismSpec(
                         spec, cn, partition,
                         collect(combo), copy(t_mets),
-                        copy(all_ss_steps))
+                        copy(all_ss_steps),
+                        Symbol[], Symbol[], Int[])
                     _runtime_param_count(allo) ==
                         base_pc + 2 || continue
                     push!(result, allo)

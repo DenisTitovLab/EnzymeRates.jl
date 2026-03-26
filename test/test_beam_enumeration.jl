@@ -498,7 +498,8 @@
         # All TR-equiv: mets + cat step → delta = +2
         allo_full = EnzymeRates.AllostericMechanismSpec(
             spec, 2, [[:R]], [1],
-            [:S, :P, :R], [iso_idx])
+            [:S, :P, :R], [iso_idx],
+            Symbol[], Symbol[], Int[])
         m_full = compile_mechanism(allo_full)
         p_full = parameters(m_full)
         @test length(p_full) - base_pc == 2
@@ -510,7 +511,8 @@
         # Without cat step TR-equiv → delta = +3
         allo_no_cat = EnzymeRates.AllostericMechanismSpec(
             spec, 2, [[:R]], [1],
-            [:S, :P, :R], Int[])
+            [:S, :P, :R], Int[],
+            Symbol[], Symbol[], Int[])
         m_no_cat = compile_mechanism(allo_no_cat)
         p_no_cat = parameters(m_no_cat)
         @test length(p_no_cat) - base_pc == 3
@@ -522,7 +524,8 @@
         # (with cat step still equiv)
         allo_partial_met = EnzymeRates.AllostericMechanismSpec(
             spec, 2, [[:R]], [1],
-            [:P, :R], [iso_idx])
+            [:P, :R], [iso_idx],
+            Symbol[], Symbol[], Int[])
         m_partial = compile_mechanism(allo_partial_met)
         p_partial = parameters(m_partial)
         @test length(p_partial) - base_pc == 3
@@ -534,7 +537,8 @@
         # (K1_T, K2_T, k3f_T, K_R_reg1, K_R_T_reg1, L)
         allo_none = EnzymeRates.AllostericMechanismSpec(
             spec, 2, [[:R]], [1],
-            Symbol[], Int[])
+            Symbol[], Int[],
+            Symbol[], Symbol[], Int[])
         m_none = compile_mechanism(allo_none)
         p_none = parameters(m_none)
         @test length(p_none) - base_pc == 6
