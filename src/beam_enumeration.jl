@@ -100,25 +100,100 @@ and dependent parameter analysis.
 Returns the total parameter count including Keq and E_total.
 """
 function _runtime_param_count(spec::MechanismSpec)
-    rxn = spec.reaction
-    enz_names, enz_set = _spec_enzyme_names(spec)
-    rxns = _spec_reactions(spec)
-    eq_steps = _spec_eq_steps(spec)
-    met_names = _spec_met_names(rxn)
-    stoich_mat = _spec_stoich_matrix(spec, met_names, enz_set)
-    free_enz_set = _spec_free_enz_set(spec, enz_set)
-    binding_Ks = Set(_binding_K_symbols(rxns, eq_steps, enz_set))
+    steps = spec.steps
+    n_steps = length(steps)
+    n_re = count(s -> s.is_equilibrium, steps)
+    n_ss = n_steps - n_re
+    n_forms = length(all_form_names(steps))
+    n_thermo = n_steps - n_forms + 1
+    n_redundant = _constraint_thermo_redundancy(spec)
+    n_re + 2 * n_ss - (n_thermo - n_redundant) +
+        2 - length(spec.param_constraints)
+end
 
-    C, rhs_coeffs = _thermodynamic_constraints(
-        enz_names, enz_set, rxns, stoich_mat,
-        met_names, substrates(rxn), products(rxn),
-    )
-    _, indep = _dependent_param_exprs(
-        C, rhs_coeffs, eq_steps, spec.param_constraints,
-        binding_Ks, rxns, enz_set, free_enz_set,
-    )
-    # indep params + Keq + E_total
-    length(indep) + 2
+"""
+    _constraint_thermo_redundancy(spec::MechanismSpec) → Int
+
+Count thermodynamic constraints made redundant by parameter
+equivalence constraints. When constrained steps (mirror steps)
+form cycles in the enzyme form graph, each independent cycle
+has a Wegscheider condition that is trivially satisfied by the
+equivalence constraints, reducing the effective number of
+thermodynamic constraints.
+
+Returns the number of independent cycles in the subgraph
+formed by constrained steps only.
+"""
+function _constraint_thermo_redundancy(spec::MechanismSpec)
+    constraints = spec.param_constraints
+    isempty(constraints) && return 0
+
+    # Collect step indices that appear in constraints
+    constrained_indices = Set{Int}()
+    for (dep, _, refs) in constraints
+        m = match(r"^[kK](\d+)", string(dep))
+        if m !== nothing
+            cap = m[1]::SubString
+            push!(constrained_indices, parse(Int, cap))
+        end
+        for (ref, _) in refs
+            m = match(r"^[kK](\d+)", string(ref))
+            if m !== nothing
+                cap = m[1]::SubString
+                push!(constrained_indices, parse(Int, cap))
+            end
+        end
+    end
+
+    isempty(constrained_indices) && return 0
+
+    # Build subgraph of constrained steps only. Count
+    # forms (nodes) and edges in this subgraph.
+    forms = Set{Symbol}()
+    n_edges = 0
+    for idx in constrained_indices
+        idx > length(spec.steps) && continue
+        s = spec.steps[idx]
+        push!(forms, s.reactants[1])
+        push!(forms, s.products[1])
+        n_edges += 1
+    end
+
+    # Independent cycles in the constrained subgraph.
+    # For a connected graph: cycles = edges - nodes + 1.
+    # For multiple components: cycles = edges - nodes + components.
+    n_nodes = length(forms)
+    n_components = _count_components(
+        forms, spec.steps, constrained_indices)
+    max(0, n_edges - n_nodes + n_components)
+end
+
+"""Count connected components in the subgraph of constrained steps."""
+function _count_components(
+    forms::Set{Symbol},
+    steps::Vector{StepSpec},
+    constrained_indices::Set{Int},
+)
+    parent = Dict(f => f for f in forms)
+    function find(x)
+        while parent[x] != x
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        end
+        x
+    end
+    function union!(a, b)
+        ra, rb = find(a), find(b)
+        ra != rb && (parent[ra] = rb)
+    end
+
+    for idx in constrained_indices
+        idx > length(steps) && continue
+        s = steps[idx]
+        union!(s.reactants[1], s.products[1])
+    end
+
+    length(Set(find(f) for f in forms))
 end
 
 # ─── Runtime Parameter Counting: AllostericMechanismSpec ───
@@ -1008,34 +1083,37 @@ function expand_mechanisms_same_param_count(
     specs::Vector{MechanismSpec},
     @nospecialize(reaction::EnzymeReaction),
 )
-    # Phase 1: RE↔SS swaps to fixed point
-    all_ress = copy(specs)
-    prev_count = 0
-    while length(all_ress) != prev_count
-        prev_count = length(all_ress)
-        new_swaps = MechanismSpec[]
-        for spec in all_ress
-            _expand_ress_swap!(new_swaps, spec)
+    known = Set(
+        hash((s.steps, s.param_constraints))
+        for s in specs)
+    to_expand = copy(specs)
+    result = MechanismSpec[]
+
+    while !isempty(to_expand)
+        new_this_round = MechanismSpec[]
+        for s in to_expand
+            candidates = MechanismSpec[]
+            _expand_dead_end_at_delta!(
+                candidates, s, reaction, 0;
+                catalytic_forms=all_form_names(s))
+            _expand_ress_swap!(candidates, s)
+
+            for c in candidates
+                h = hash((c.steps, c.param_constraints))
+                h in known && continue
+                push!(known, h)
+                push!(new_this_round, c)
+                push!(result, c)
+            end
         end
-        append!(all_ress, new_swaps)
-        all_ress = _deduplicate_specs(
-            all_ress, reaction)
+        to_expand = new_this_round
     end
 
-    # Phase 2: dead-end +0 on each RE/SS variant,
-    # binding only to catalytic forms
-    all_specs = copy(all_ress)
-    for spec in all_ress
-        cat_forms = all_form_names(spec)
-        new_de = MechanismSpec[]
-        _expand_dead_end_at_delta!(
-            new_de, spec, reaction, 0;
-            catalytic_forms=cat_forms)
-        append!(all_specs, new_de)
-    end
-    all_specs = _deduplicate_specs(
-        all_specs, reaction)
-
+    # Structural deduplication: hash-based dedup catches
+    # identical specs but not structurally equivalent ones
+    # (same rate equation, different step ordering)
+    all_specs = vcat(specs, result)
+    all_specs = _deduplicate_specs(all_specs, reaction)
     filter(s -> s ∉ specs, all_specs)
 end
 
