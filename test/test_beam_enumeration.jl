@@ -294,7 +294,8 @@
 
     @testset "expand_mechanisms_same_param_count" begin
         # Ordered bi-bi: E→EA→EAB→EPQ→EQ→E
-        # E_Q + A ⇌ E_A_Q where K_A = K_A_catalytic → +0
+        # Valid dead-end forms: EAP (P at EA), EBQ (B at EQ)
+        # 4 dead-end combos × 5 RE/SS variants = 20 total
         topos = EnzymeRates._catalytic_topologies(bi_bi)
         spec = topos[1]  # ordered bi-bi
         original_pc = spec.param_count
@@ -315,6 +316,10 @@
             m = compile_mechanism(r)
             @test length(parameters(m)) == r.param_count
         end
+
+        # Exact count: 4 dead-end combos × 5 RE/SS = 20
+        all_mechs = vcat([spec], results)
+        @test length(all_mechs) == 20
 
         # Fixed-point: calling again on the union should
         # produce no additional mechanisms
