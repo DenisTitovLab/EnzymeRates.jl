@@ -169,12 +169,12 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
         end
     end
 
-    # T-state indep = base indep minus params without T version,
-    # minus t_only (which have no R but do have T, already counted)
-    indep_T_count = length(indep_R) - n_no_t_param - n_no_r_param
-
-    # R-state indep = base indep minus t_only params
+    # R-state indep = base indep minus t_only params (no R-state)
     indep_R_count = length(indep_R) - n_no_r_param
+
+    # T-state indep = base indep minus params without T version
+    # (tr_equiv + r_only have no independent T; t_only adds to T)
+    indep_T_count = length(indep_R) - n_no_t_param
 
     # Reg R-state params: exclude t_only ligands
     n_reg_R = sum(

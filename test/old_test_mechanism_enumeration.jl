@@ -1671,8 +1671,8 @@ end
             allosteric_regs=[:R])
         tr = EnzymeRates._expand_tr_equivalence(
             allo, uni_uni_allosteric_R)
-        # 3 metabolites + 1 non-binding SS step = 2^4
-        @test length(tr) == 16
+        # 3 metabolites (4 modes each) + 1 SS step (3 modes) = 4^3 * 3^1
+        @test length(tr) == 192
     end
 
     @testset "Uni-Bi + R: 2^5 = 32 variants" begin
@@ -1700,8 +1700,8 @@ end
             allosteric_regs=[:R])
         tr = EnzymeRates._expand_tr_equivalence(
             allo, uni_bi_allosteric_R)
-        # 4 metabolites + 1 non-binding SS step = 2^5
-        @test length(tr) == 32
+        # 4 metabolites (4 modes each) + 1 SS step (3 modes) = 4^4 * 3^1
+        @test length(tr) == 768
     end
 
     @testset "Bi-Bi + R1, R2: 2^7 = 128 per spec" begin
@@ -1732,8 +1732,8 @@ end
         # Use first allosteric spec only
         tr = EnzymeRates._expand_tr_equivalence(
             [allo[1]], bi_bi_allosteric_R1_R2)
-        # 6 metabolites + 1 non-binding SS step = 2^7
-        @test length(tr) == 128
+        # 6 metabolites (4 modes each) + 1 SS step (3 modes) = 4^6 * 3^1
+        @test length(tr) == 12288
     end
 
     @testset "Properties" begin
@@ -1805,17 +1805,19 @@ end
         # Use first allosteric spec
         tr = EnzymeRates._expand_tr_equivalence(
             [allo[1]], bi_bi_allosteric_R1_R2)
-        @test length(tr) == 128  # 2^7 (6 mets + 1 SS step)
+        @test length(tr) == 12288  # 4^6 * 3^1 (6 mets + 1 SS step)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, bi_bi_allosteric_R1_R2)
         @test length(deduped) < length(tr)
     end
 
     @testset "Uni-Uni + R: mirrors removed" begin
-        # 3 metabolites (S, P, R) + 1 SS step: 2^4=16 variants.
-        # Metabolite mirrors: 4 unique keys (3 items → 8/2).
-        # Cat step mirrors: 1 unique key (1 item → 2/2).
-        # Total: 4 × 1 = 4 after dedup.
+        # 3 metabolites (4 modes each) + 1 SS step (3 modes):
+        # 4^3 * 3^1 = 192 variants.
+        # Mirror swaps r_only↔t_only (mets) and r_only↔both (steps).
+        # By Burnside: orbits = (4^n + 2^n)/2 per item type.
+        # Mets (n=3): (64+8)/2 = 36. Steps (n=1): (3+1)/2 = 2.
+        # Total after dedup: 36 * 2 = 72.
         m_uu = @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
@@ -1839,7 +1841,7 @@ end
             allo, uni_uni_allosteric_R)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, uni_uni_allosteric_R)
-        @test length(deduped) == length(tr) ÷ 4
+        @test length(deduped) == 72
     end
 
     @testset "Keeps lower param_count on mirror" begin
@@ -2097,14 +2099,14 @@ end
         result = collect(
             EnzymeRates.old_enumerate_mechanisms(
                 uni_uni_reg_unknown))
-        @test length(result) == 17
+        @test length(result) == 101
     end
 
     @testset "Uni-Bi + 1 unknown reg" begin
         result = collect(
             EnzymeRates.old_enumerate_mechanisms(
                 uni_bi_reg_unknown))
-        @test length(result) == 1012
+        @test length(result) == 3794
     end
 end
 
