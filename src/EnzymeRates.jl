@@ -33,5 +33,6 @@ include("rate_eq_derivation.jl")
 include("thermodynamic_constr_for_rate_eq_derivation.jl")
 include("fitting.jl")
 include("mechanism_enumeration.jl")
+include("beam_enumeration.jl")
 
 end

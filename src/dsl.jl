@@ -400,20 +400,28 @@ function _parse_allosteric_mechanism(block)
         cm_expr = :(EnzymeMechanism($species_tuple, $reactions, $eq_steps))
     end
 
-    # Build RegSites type parameter tuple: ((ligand_syms...,), n_reg, ()) triples
+    # Build RegSites type parameter tuple: ((ligand_syms...,), n_reg, (), (), ()) quintuples
     reg_sites_elems = Any[]
     for (ligs, n_reg) in reg_sites
         ligs_tuple = Expr(:tuple, (QuoteNode(l) for l in ligs)...)
-        tr_equiv = Expr(:tuple)  # empty TR equiv tuple by default
-        push!(reg_sites_elems, Expr(:tuple, ligs_tuple, n_reg, tr_equiv))
+        empty_tuple = Expr(:tuple)
+        push!(reg_sites_elems, Expr(:tuple, ligs_tuple, n_reg,
+            empty_tuple, empty_tuple, empty_tuple))
     end
     reg_sites_expr = Expr(:tuple, reg_sites_elems...)
 
-    # Build CatSites: (catalytic_metabolites, multiplicity, tr_equiv_mets)
+    # Build CatSites: (catalytic_metabolites, multiplicity,
+    #   tr_equiv_mets, tr_equiv_cat_steps,
+    #   r_only_mets, t_only_mets, r_only_cat_steps)
     # catalytic_metabolites come from the inner EnzymeMechanism at runtime
-    cat_tr_equiv = Expr(:tuple)  # empty TR equiv tuple by default
+    cat_tr_equiv = Expr(:tuple)
+    cat_steps_tr = Expr(:tuple)
+    cat_r_only = Expr(:tuple)
+    cat_t_only = Expr(:tuple)
+    cat_r_only_steps = Expr(:tuple)
     :(let _cm = $cm_expr
-        _cat_sites = (metabolites(_cm), $catalytic_n, $cat_tr_equiv)
+        _cat_sites = (metabolites(_cm), $catalytic_n, $cat_tr_equiv,
+            $cat_steps_tr, $cat_r_only, $cat_t_only, $cat_r_only_steps)
         AllostericEnzymeMechanism{$mets_tuple, typeof(_cm), _cat_sites, $reg_sites_expr}()
     end)
 end

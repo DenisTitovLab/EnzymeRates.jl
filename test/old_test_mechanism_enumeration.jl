@@ -1649,7 +1649,7 @@ end
 end
 
 @testset "Stage 7: TR equivalence" begin
-    @testset "Uni-Uni + R: 2^3 = 8 variants" begin
+    @testset "Uni-Uni + R: 2^4 = 16 variants" begin
         m_uu = @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
@@ -1671,11 +1671,11 @@ end
             allosteric_regs=[:R])
         tr = EnzymeRates._expand_tr_equivalence(
             allo, uni_uni_allosteric_R)
-        # 3 metabolites with T-state params: S, P, R
-        @test length(tr) == 8
+        # 3 metabolites (4 modes each) + 1 SS step (3 modes) = 4^3 * 3^1
+        @test length(tr) == 192
     end
 
-    @testset "Uni-Bi + R: 2^4 = 16 variants" begin
+    @testset "Uni-Bi + R: 2^5 = 32 variants" begin
         # Ordered Q-first release
         m_ub1 = @enzyme_mechanism begin
             species: begin
@@ -1700,11 +1700,11 @@ end
             allosteric_regs=[:R])
         tr = EnzymeRates._expand_tr_equivalence(
             allo, uni_bi_allosteric_R)
-        # 4 metabolites: S, P, Q, R
-        @test length(tr) == 16
+        # 4 metabolites (4 modes each) + 1 SS step (3 modes) = 4^4 * 3^1
+        @test length(tr) == 768
     end
 
-    @testset "Bi-Bi + R1, R2: 2^6 = 64 per spec" begin
+    @testset "Bi-Bi + R1, R2: 2^7 = 128 per spec" begin
         # Sequential A-first bind, Q-first release
         m_bb_seq = @enzyme_mechanism begin
             species: begin
@@ -1732,8 +1732,8 @@ end
         # Use first allosteric spec only
         tr = EnzymeRates._expand_tr_equivalence(
             [allo[1]], bi_bi_allosteric_R1_R2)
-        # 6 metabolites: A, B, P, Q, R1, R2
-        @test length(tr) == 64
+        # 6 metabolites (4 modes each) + 1 SS step (3 modes) = 4^6 * 3^1
+        @test length(tr) == 12288
     end
 
     @testset "Properties" begin
@@ -1805,15 +1805,19 @@ end
         # Use first allosteric spec
         tr = EnzymeRates._expand_tr_equivalence(
             [allo[1]], bi_bi_allosteric_R1_R2)
-        @test length(tr) == 64  # 2^6
+        @test length(tr) == 12288  # 4^6 * 3^1 (6 mets + 1 SS step)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, bi_bi_allosteric_R1_R2)
         @test length(deduped) < length(tr)
     end
 
-    @testset "Uni-Uni + R: mirrors removed (odd metabolites)" begin
-        # 3 metabolites (S, P, R): complements differ in size but
-        # are still T↔R mirrors. 2^3 = 8 → 4 after dedup.
+    @testset "Uni-Uni + R: mirrors removed" begin
+        # 3 metabolites (4 modes each) + 1 SS step (3 modes):
+        # 4^3 * 3^1 = 192 variants.
+        # Mirror swaps r_only↔t_only (mets) and r_only↔both (steps).
+        # By Burnside: orbits = (4^n + 2^n)/2 per item type.
+        # Mets (n=3): (64+8)/2 = 36. Steps (n=1): (3+1)/2 = 2.
+        # Total after dedup: 36 * 2 = 72.
         m_uu = @enzyme_mechanism begin
             species: begin
                 substrates: S[C]
@@ -1837,7 +1841,7 @@ end
             allo, uni_uni_allosteric_R)
         deduped = EnzymeRates._deduplicate_allosteric(
             tr, uni_uni_allosteric_R)
-        @test length(deduped) == length(tr) ÷ 2
+        @test length(deduped) == 72
     end
 
     @testset "Keeps lower param_count on mirror" begin
@@ -2030,7 +2034,7 @@ end
     @testset "compile_mechanism round-trip" begin
         for rxn in [uni_uni, uni_bi]
             all_specs = collect(
-                EnzymeRates.enumerate_mechanisms(rxn))
+                EnzymeRates.old_enumerate_mechanisms(rxn))
             cat_specs = filter(
                 s -> s isa EnzymeRates.MechanismSpec, all_specs)
             for s in first(cat_specs, 3)
@@ -2045,7 +2049,7 @@ end
 
         @testset "allosteric compilation" begin
             all_specs = collect(
-                EnzymeRates.enumerate_mechanisms(
+                EnzymeRates.old_enumerate_mechanisms(
                     uni_uni_allosteric_R))
             allo_specs = filter(
                 s -> s isa EnzymeRates.AllostericMechanismSpec,
@@ -2063,19 +2067,19 @@ end
 @testset "End-to-end pipeline" begin
     @testset "Uni-Uni, no regs" begin
         result = collect(
-            EnzymeRates.enumerate_mechanisms(uni_uni))
+            EnzymeRates.old_enumerate_mechanisms(uni_uni))
         @test length(result) == 3
     end
 
     @testset "Uni-Bi, no regs" begin
         result = collect(
-            EnzymeRates.enumerate_mechanisms(uni_bi))
+            EnzymeRates.old_enumerate_mechanisms(uni_bi))
         @test length(result) == 56
     end
 
     @testset "Bi-Bi, no regs" begin
         stats = @timed collect(
-            EnzymeRates.enumerate_mechanisms(bi_bi))
+            EnzymeRates.old_enumerate_mechanisms(bi_bi))
         @test length(stats.value) == 63762
         # Performance: ~3s / 5GB baseline
         @test stats.bytes < 15 * 1024^3
@@ -2083,7 +2087,7 @@ end
     end
     @testset "Bi-Bi Ping-Pong, no regs" begin
         stats = @timed collect(
-            EnzymeRates.enumerate_mechanisms(
+            EnzymeRates.old_enumerate_mechanisms(
                 bi_bi_ping_pong))
         @test length(stats.value) == 64276
         # Performance: ~7s / 6GB baseline
@@ -2093,23 +2097,23 @@ end
 
     @testset "Uni-Uni + 1 unknown reg" begin
         result = collect(
-            EnzymeRates.enumerate_mechanisms(
+            EnzymeRates.old_enumerate_mechanisms(
                 uni_uni_reg_unknown))
-        @test length(result) == 17
+        @test length(result) == 101
     end
 
     @testset "Uni-Bi + 1 unknown reg" begin
         result = collect(
-            EnzymeRates.enumerate_mechanisms(
+            EnzymeRates.old_enumerate_mechanisms(
                 uni_bi_reg_unknown))
-        @test length(result) == 1012
+        @test length(result) == 3794
     end
 end
 
 @testset "param_count accuracy" begin
     @testset "All Uni-Bi specs" begin
         all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(uni_bi))
+            EnzymeRates.old_enumerate_mechanisms(uni_bi))
         @test length(all_specs) == 56
         n_match = count(all_specs) do s
             m = compile_mechanism(s)
@@ -2124,7 +2128,7 @@ end
     # succeeds and produces parameters.
     @testset "Allosteric specs (compilation)" begin
         all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(
+            EnzymeRates.old_enumerate_mechanisms(
                 uni_uni_allosteric_R))
         allo_specs = filter(
             s -> s isa EnzymeRates.AllostericMechanismSpec,
@@ -2139,7 +2143,7 @@ end
     @testset "Sampled Bi-Bi specs" begin
         rng_bb = Random.MersenneTwister(42)
         all_specs = collect(
-            EnzymeRates.enumerate_mechanisms(bi_bi))
+            EnzymeRates.old_enumerate_mechanisms(bi_bi))
         @test length(all_specs) == 63762
         sample = all_specs[randperm(
             rng_bb, length(all_specs))[1:min(50, end)]]
