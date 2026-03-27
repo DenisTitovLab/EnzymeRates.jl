@@ -962,7 +962,8 @@ function _deduplicate_specs(
     best = Dict{_DedupKey, MechanismSpec}()
     for spec in specs
         steps = spec.steps
-        fp = _runtime_denominator_monomials(spec)
+        partition = _compute_re_partition_from_steps(steps)
+        fp = _concentration_fingerprint(steps, partition)
 
         groups = Dict{Tuple{Symbol,Bool}, Vector{Int}}()
         for (i, s) in enumerate(steps)
@@ -1312,6 +1313,8 @@ function enumerate_mechanisms(
             level, reaction)
         filter!(s -> s.param_count == pc + 1,
             current_plus_one)
+        current_plus_one = _deduplicate_specs(
+            current_plus_one, reaction)
 
         # Expand +2 (allosteric)
         plus_two = expand_mechanisms_by_two_params(
