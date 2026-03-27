@@ -599,43 +599,27 @@ function _catalytic_from_forms(spec::MechanismSpec)
 end
 
 """
-    _dead_end_opportunities(spec, reaction;
-        catalytic_forms=nothing)
+    _substrate_product_dead_end_forms(spec, reaction)
         → Vector{Tuple{Symbol, Symbol}}
 
-Find (form, metabolite) pairs where dead-end binding is possible.
-A binding is valid when:
-- The form is a catalytic form (not a dead-end form from prior expansion)
-- The metabolite is not already bound at the form
-- The result doesn't exceed binding capacity
-- The result is not already a form in the mechanism
-- For substrates/products: the result must have at least one substrate
-  AND at least one product bound, and must not have ALL substrates
-  or ALL products bound
-- For substrates/products: the metabolite's catalytic binding step
-  must start from a non-free enzyme form (metabolites that bind
-  free enzyme directly don't create dead-ends)
-
-When `catalytic_forms` is provided, only those forms are eligible
-as binding targets. Otherwise all forms in the spec are eligible.
+Find (form, metabolite) pairs where a substrate or product can
+form a dead-end complex with K constrained to the catalytic K.
+Rules: metabolite must bind at a non-free enzyme form in the
+catalytic cycle, the result must have mixed subs+prods without
+having ALL subs or ALL prods, and must not exceed capacity.
 """
-function _dead_end_opportunities(
+function _substrate_product_dead_end_forms(
     spec::MechanismSpec,
-    @nospecialize(reaction::EnzymeReaction);
-    catalytic_forms::Union{Nothing, Set{Symbol}}=nothing,
+    @nospecialize(reaction::EnzymeReaction),
 )
     bound = _bound_entities(spec)
     cap = _binding_capacity(reaction)
     existing_forms = all_form_names(spec)
-    eligible_forms = catalytic_forms !== nothing ?
-        catalytic_forms : existing_forms
 
     sub_names = Set(s[1] for s in substrates(reaction))
     prod_names = Set(p[1] for p in products(reaction))
     all_mets = union(sub_names, prod_names)
 
-    # Only metabolites whose catalytic from-form is NOT the
-    # free enzyme can create dead-end complexes
     cat_from = _catalytic_from_forms(spec)
     free_enz = Set(f for f in keys(bound)
         if isempty(bound[f]))
@@ -644,23 +628,15 @@ function _dead_end_opportunities(
         if haskey(cat_from, m) &&
             cat_from[m] ∉ free_enz)
 
-    roles = regulator_roles(reaction)
-    de_regs = Symbol[
-        r[1] for r in roles
-        if r[2] == :dead_end || r[2] == :unknown]
-
-    opportunities = Tuple{Symbol, Symbol}[]
+    result = Tuple{Symbol, Symbol}[]
 
     for form in sort!(collect(keys(bound)))
-        form in eligible_forms || continue
+        form in existing_forms || continue
         fb = bound[form]
-        n_bound = length(fb)
-        n_bound >= cap && continue
+        length(fb) >= cap && continue
 
-        # Substrate/product dead-end opportunities
         fb_subs = intersect(fb, sub_names)
         fb_prods = intersect(fb, prod_names)
-        # Skip forms that already have all subs or all prods
         (fb_subs == sub_names ||
             fb_prods == prod_names) && continue
 
@@ -672,25 +648,102 @@ function _dead_end_opportunities(
             new_bound = union(fb, Set([met]))
             new_subs = intersect(new_bound, sub_names)
             new_prods = intersect(new_bound, prod_names)
-            # Must have at least one sub AND one prod
             (isempty(new_subs) || isempty(new_prods)) &&
                 continue
-            # Must not have ALL subs or ALL prods
             (new_subs == sub_names ||
                 new_prods == prod_names) && continue
 
-            push!(opportunities, (form, met))
+            push!(result, (form, met))
         end
+    end
+    result
+end
 
-        # Dead-end regulator opportunities
-        for reg in de_regs
+"""
+    _regulator_extension_forms(spec, reaction)
+        → Dict{Symbol, Vector{Symbol}}
+
+For each regulator already bound in the mechanism, find
+catalytic forms where it can additionally bind (+0: K
+constrained to existing K).
+"""
+function _regulator_extension_forms(
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    bound = _bound_entities(spec)
+    cap = _binding_capacity(reaction)
+    existing_forms = all_form_names(spec)
+
+    # Find regulators already bound somewhere
+    bound_regs = Set{Symbol}()
+    roles = regulator_roles(reaction)
+    de_regs = Set(r[1] for r in roles
+        if r[2] == :dead_end || r[2] == :unknown)
+    for (_, entities) in bound
+        for e in entities
+            e in de_regs && push!(bound_regs, e)
+        end
+    end
+
+    result = Dict{Symbol, Vector{Symbol}}()
+    for reg in sort!(collect(bound_regs))
+        forms = Symbol[]
+        for form in sort!(collect(keys(bound)))
+            form in existing_forms || continue
+            fb = bound[form]
+            length(fb) >= cap && continue
             reg in fb && continue
             de_name = _beam_dead_end_form_name(fb, reg)
             de_name in existing_forms && continue
-            push!(opportunities, (form, reg))
+            push!(forms, form)
+        end
+        isempty(forms) || (result[reg] = forms)
+    end
+    result
+end
+
+"""
+    _new_regulator_eligible_forms(spec, reaction)
+        → Dict{Symbol, Vector{Symbol}}
+
+For each regulator not yet bound in the mechanism, find
+catalytic forms where it can bind (+1: introduces one new K).
+"""
+function _new_regulator_eligible_forms(
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    bound = _bound_entities(spec)
+    cap = _binding_capacity(reaction)
+    existing_forms = all_form_names(spec)
+
+    roles = regulator_roles(reaction)
+    de_regs = Set(r[1] for r in roles
+        if r[2] == :dead_end || r[2] == :unknown)
+
+    # Find regulators NOT yet bound
+    bound_regs = Set{Symbol}()
+    for (_, entities) in bound
+        for e in entities
+            e in de_regs && push!(bound_regs, e)
         end
     end
-    opportunities
+
+    result = Dict{Symbol, Vector{Symbol}}()
+    for reg in sort!(collect(setdiff(de_regs, bound_regs)))
+        forms = Symbol[]
+        for form in sort!(collect(keys(bound)))
+            form in existing_forms || continue
+            fb = bound[form]
+            length(fb) >= cap && continue
+            de_name = _beam_dead_end_form_name(fb, reg)
+            de_name in existing_forms && continue
+            push!(forms, form)
+        end
+        isempty(forms) || (result[reg] = forms)
+    end
+    result
 end
 
 """
@@ -698,7 +751,8 @@ end
 
 Add dead-end binding configurations at exactly +1 param.
 Only new regulators (not yet bound in the mechanism) produce
-+1: they introduce one free K parameter.
++1: one new step per eligible catalytic form, introducing
+one independent K parameter.
 """
 function _expand_add_dead_end!(
     result::Vector{MechanismSpec},
@@ -709,199 +763,41 @@ function _expand_add_dead_end!(
 end
 
 """
-    _expand_dead_end_plus_zero!(result, spec, reaction;
-        catalytic_forms=nothing)
-
-Add dead-end binding configurations that preserve param_count.
-Two cases are +0 by construction:
-1. Substrate/product dead-ends: K constrained to catalytic K
-2. Existing regulator extended to new forms: K constrained to
-   existing K
-
-No `_runtime_param_count` call needed.
-"""
-function _expand_dead_end_plus_zero!(
-    result::Vector{MechanismSpec},
-    spec::MechanismSpec,
-    @nospecialize(reaction::EnzymeReaction);
-    catalytic_forms::Union{Nothing, Set{Symbol}}=nothing,
-)
-    opps = _dead_end_opportunities(
-        spec, reaction; catalytic_forms)
-    isempty(opps) && return
-
-    bound = _bound_entities(spec)
-
-    # Classify metabolites: existing = already has a
-    # binding step in spec (subs/prods or existing regs)
-    existing_met_step = Dict{Symbol, Tuple{Int, Bool}}()
-    for (i, s) in enumerate(spec.steps)
-        met = step_metabolite(s)
-        met === nothing && continue
-        haskey(existing_met_step, met) && continue
-        existing_met_step[met] = (i, s.is_equilibrium)
-    end
-
-    # Filter to +0 opportunities: met must already have
-    # a binding step in the mechanism
-    opps_zero = filter(opps) do (_, met)
-        haskey(existing_met_step, met)
-    end
-    isempty(opps_zero) && return
-
-    # Group by dead-end form name
-    de_forms = Dict{Symbol,
-        Vector{Tuple{Symbol, Symbol}}}()
-    for (form, met) in opps_zero
-        de_name = _beam_dead_end_form_name(
-            bound[form], met)
-        push!(get!(de_forms, de_name,
-            Tuple{Symbol, Symbol}[]), (form, met))
-    end
-
-    for (de_name, entries) in
-            sort!(collect(de_forms); by=first)
-        new_steps = copy(spec.steps)
-        new_constraints = copy(spec.param_constraints)
-        first_step_by_met = Dict{Symbol, Int}()
-
-        for (cat_form, met) in entries
-            cat_idx, cat_is_re = existing_met_step[met]
-            push!(new_steps, StepSpec(
-                [cat_form, met], [de_name],
-                cat_is_re))
-            step_idx = length(new_steps)
-
-            if haskey(first_step_by_met, met)
-                first_idx = first_step_by_met[met]
-                _add_same_met_constraint!(
-                    new_constraints, step_idx,
-                    first_idx, cat_is_re)
-            else
-                first_step_by_met[met] = step_idx
-            end
-        end
-
-        # Mirror steps
-        all_de_mets = Set{Symbol}(
-            met for (_, met) in entries)
-        for de_met in all_de_mets
-            selected_forms = Symbol[
-                form for (form, met) in entries
-                if met == de_met]
-            _add_mirror_steps!(
-                new_steps, new_constraints,
-                spec.steps, selected_forms,
-                bound, de_met)
-        end
-
-        # Constrain first dead-end step to existing step
-        for (met, first_idx) in first_step_by_met
-            _, cat_is_re = existing_met_step[met]
-            _add_catalytic_equivalence!(
-                new_steps, new_constraints,
-                spec.steps, first_idx, met,
-                cat_is_re)
-        end
-
-        push!(result, MechanismSpec(
-            reaction, new_steps,
-            new_constraints, spec.param_count))
-    end
-end
-
-"""
     _expand_dead_end_plus_one!(result, spec, reaction)
 
-Add dead-end binding configurations at exactly +1 param.
-Each dead-end form introduces one independent parameter
-(no catalytic equivalence constraint). Within-form
-constraints tie steps for the same metabolite together,
-and mirror steps are constrained to their originals.
-
-RE dead-end bindings are +1 by construction (one free K).
-SS dead-end bindings may be +1 due to thermodynamic
-constraints absorbing one of the two params — verified
-with `_runtime_param_count`.
+Add dead-end binding for new regulators at exactly +1 param.
+Each new regulator binds to ONE eligible catalytic form,
+producing one candidate per form. Multi-form bindings are
+discovered by the +0 cross-product at the same level.
+Dead-end binding steps are always RE.
 """
 function _expand_dead_end_plus_one!(
     result::Vector{MechanismSpec},
     spec::MechanismSpec,
     @nospecialize(reaction::EnzymeReaction),
 )
-    opps = _dead_end_opportunities(spec, reaction)
-    isempty(opps) && return
+    new_reg_forms = _new_regulator_eligible_forms(
+        spec, reaction)
+    isempty(new_reg_forms) && return
 
     bound = _bound_entities(spec)
     target_pc = spec.param_count + 1
 
-    # Build catalytic step lookup for RE/SS inheritance
-    cat_step_info = Dict{Symbol, Tuple{Int, Bool}}()
-    for (i, s) in enumerate(spec.steps)
-        met = step_metabolite(s)
-        met === nothing && continue
-        haskey(cat_step_info, met) && continue
-        cat_step_info[met] = (i, s.is_equilibrium)
-    end
+    for (reg, forms) in sort!(collect(new_reg_forms);
+            by=first)
+        for form in forms
+            de_name = _beam_dead_end_form_name(
+                bound[form], reg)
+            new_steps = copy(spec.steps)
+            new_constraints = copy(spec.param_constraints)
 
-    # Group by dead-end form name
-    de_forms = Dict{Symbol,
-        Vector{Tuple{Symbol, Symbol}}}()
-    for (form, met) in opps
-        de_name = _beam_dead_end_form_name(
-            bound[form], met)
-        push!(get!(de_forms, de_name,
-            Tuple{Symbol, Symbol}[]), (form, met))
-    end
-
-    for (de_name, entries) in
-            sort!(collect(de_forms); by=first)
-        met = entries[1][2]
-        _, cat_is_re = get(
-            cat_step_info, met, (0, true))
-
-        new_steps = copy(spec.steps)
-        new_constraints = copy(spec.param_constraints)
-        first_step_idx = 0
-
-        for (cat_form, m) in entries
+            # Dead-end binding is always RE
             push!(new_steps, StepSpec(
-                [cat_form, m], [de_name],
-                cat_is_re))
-            step_idx = length(new_steps)
+                [form, reg], [de_name], true))
 
-            if first_step_idx == 0
-                first_step_idx = step_idx
-            else
-                _add_same_met_constraint!(
-                    new_constraints, step_idx,
-                    first_step_idx, cat_is_re)
-            end
-        end
-
-        # Mirror steps
-        selected_forms = Symbol[
-            form for (form, _) in entries]
-        _add_mirror_steps!(
-            new_steps, new_constraints,
-            spec.steps, selected_forms,
-            bound, met)
-
-        if cat_is_re
-            # RE: exactly +1 by construction
             push!(result, MechanismSpec(
                 reaction, new_steps,
                 new_constraints, target_pc))
-        else
-            # SS: verify with runtime count
-            candidate = MechanismSpec(
-                reaction, new_steps,
-                new_constraints, 0)
-            pc = _runtime_param_count(candidate)
-            pc == target_pc || continue
-            push!(result, MechanismSpec(
-                reaction, new_steps,
-                new_constraints, pc))
         end
     end
 end
@@ -1099,57 +995,19 @@ end
 
 # ─── Expansion: Same Param Count (+0) ────────────────────────
 
-"""Swap one RE step with one SS step, producing candidates
-where param_count is unchanged."""
-function _expand_ress_swap!(
-    result::Vector{MechanismSpec},
-    spec::MechanismSpec,
-)
-    constrained = _constrained_symbols(spec.param_constraints)
-    target_pc = spec.param_count
-    for (i, si) in enumerate(spec.steps)
-        for (j, sj) in enumerate(spec.steps)
-            i >= j && continue
-            # One must be RE, other SS
-            si.is_equilibrium == sj.is_equilibrium && continue
-            # Skip if constrained params would be invalidated
-            re_idx = si.is_equilibrium ? i : j
-            ss_idx = si.is_equilibrium ? j : i
-            Symbol("K$re_idx") in constrained && continue
-            Symbol("k$(ss_idx)f") in constrained && continue
-            Symbol("k$(ss_idx)r") in constrained && continue
-
-            new_steps = copy(spec.steps)
-            new_steps[i] = StepSpec(
-                si.reactants, si.products,
-                !si.is_equilibrium)
-            new_steps[j] = StepSpec(
-                sj.reactants, sj.products,
-                !sj.is_equilibrium)
-
-            candidate = MechanismSpec(
-                spec.reaction, new_steps,
-                copy(spec.param_constraints), 0)
-            pc = _runtime_param_count(candidate)
-            pc == target_pc || continue
-            push!(result, MechanismSpec(
-                spec.reaction, new_steps,
-                copy(spec.param_constraints), pc))
-        end
-    end
-end
-
 """
     expand_mechanisms_same_param_count(specs, reaction)
         → Vector{MechanismSpec}
 
-Generate +0 variants: RE↔SS swaps and dead-end configurations
-that preserve param_count.
+Generate all +0 variants via direct cross-product enumeration.
+For each input mechanism, enumerates ALL combinations of:
+1. RE/SS pattern (which catalytic step is SS)
+2. Substrate/product dead-end subsets (each present or absent,
+   K constrained to catalytic K)
+3. Regulator extension subsets (existing regulator extended to
+   unbound catalytic forms, K constrained to existing K)
 
-Strategy: first generate all RE↔SS swap variants (fixed point),
-then apply dead-end +0 to each variant. Dead-end binding targets
-are restricted to catalytic forms only (not dead-end forms from
-prior expansions) to avoid combinatorial explosion.
+No BFS, no fixed-point, no `_runtime_param_count` calls.
 """
 function expand_mechanisms_same_param_count(
     specs::Vector{MechanismSpec},
@@ -1158,35 +1016,388 @@ function expand_mechanisms_same_param_count(
     known = Set(
         hash((s.steps, s.param_constraints))
         for s in specs)
-    to_expand = copy(specs)
     result = MechanismSpec[]
 
-    while !isempty(to_expand)
-        new_this_round = MechanismSpec[]
-        for s in to_expand
-            candidates = MechanismSpec[]
-            _expand_dead_end_plus_zero!(
-                candidates, s, reaction;
-                catalytic_forms=all_form_names(s))
-            _expand_ress_swap!(candidates, s)
-
-            for c in candidates
-                h = hash((c.steps, c.param_constraints))
-                h in known && continue
-                push!(known, h)
-                push!(new_this_round, c)
-                push!(result, c)
-            end
-        end
-        to_expand = new_this_round
+    for spec in specs
+        _cross_product_expand!(
+            result, known, spec, reaction)
     end
 
-    # Structural deduplication: hash-based dedup catches
-    # identical specs but not structurally equivalent ones
-    # (same rate equation, different step ordering)
+    # Structural deduplication
     all_specs = vcat(specs, result)
     all_specs = _deduplicate_specs(all_specs, reaction)
     filter(s -> s ∉ specs, all_specs)
+end
+
+"""
+    _cross_product_expand!(result, known, spec, reaction)
+
+Generate all +0 variants of `spec` as the cross-product of
+RE/SS patterns × dead-end subsets × regulator extensions.
+
+For specs without existing dead-end steps: full cross-product
+of all three axes. For specs with dead-end steps: only extend
+with new dead-end opportunities (no RE/SS re-enumeration).
+"""
+function _cross_product_expand!(
+    result::Vector{MechanismSpec},
+    known::Set{UInt64},
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    cat_indices = _catalytic_step_indices(spec)
+    has_dead_ends = length(cat_indices) < length(spec.steps)
+
+    # Build catalytic step index lookup
+    cat_step_for_met = Dict{Symbol, Int}()
+    for (i, s) in enumerate(spec.steps)
+        met = step_metabolite(s)
+        met !== nothing && !haskey(cat_step_for_met, met) &&
+            (cat_step_for_met[met] = i)
+    end
+
+    # Dead-end opportunities (new ones not already in spec)
+    sp_opps = _substrate_product_dead_end_forms(
+        spec, reaction)
+    reg_ext = _regulator_extension_forms(spec, reaction)
+    reg_names = sort!(collect(keys(reg_ext)))
+    n_regs = length(reg_names)
+
+    if has_dead_ends
+        # For specs with existing dead-ends, only extend
+        # with new dead-ends (no RE/SS re-enumeration)
+        ress_patterns = [(spec.steps,
+            copy(spec.param_constraints))]
+    else
+        # Full cross-product: RE/SS × dead-ends × reg ext
+        ress_patterns = _enumerate_ress_patterns(
+            spec, cat_indices)
+    end
+
+    n_sp = length(sp_opps)
+    n_sp_combos = 1 << n_sp
+    n_reg_combos = 1 << n_regs
+
+    for (ress_steps, ress_constraints) in ress_patterns
+        for sp_mask in 0:(n_sp_combos - 1)
+            for reg_mask in 0:(n_reg_combos - 1)
+                candidate = _build_cross_product_spec(
+                    spec, reaction,
+                    ress_steps, ress_constraints,
+                    sp_opps, sp_mask,
+                    cat_step_for_met, reg_ext,
+                    reg_names, reg_mask)
+                h = hash((candidate.steps,
+                    candidate.param_constraints))
+                h in known && continue
+                push!(known, h)
+                push!(result, candidate)
+            end
+        end
+    end
+end
+
+"""Identify indices of catalytic steps (those forming the
+enzyme cycle, not dead-end branches). A step is dead-end
+if its product form is a leaf in the enzyme form graph."""
+function _catalytic_step_indices(spec::MechanismSpec)
+    # Count connections for each form
+    connections = Dict{Symbol, Int}()
+    for s in spec.steps
+        from = s.reactants[1]
+        to = s.products[1]
+        connections[from] = get(connections, from, 0) + 1
+        connections[to] = get(connections, to, 0) + 1
+    end
+    # A step is catalytic if its product form has > 1
+    # connection (i.e., participates in the cycle)
+    indices = Int[]
+    for (i, s) in enumerate(spec.steps)
+        to = s.products[1]
+        if get(connections, to, 0) > 1
+            push!(indices, i)
+        end
+    end
+    indices
+end
+
+"""Enumerate all RE/SS patterns for catalytic steps that
+preserve param_count. For each step, independently choose
+RE or SS. When steps binding the same metabolite have the
+same RE/SS status, optionally add equivalence constraints.
+Dead-end substrate/product binding steps inherit RE/SS from
+their catalytic counterpart. Returns (steps, constraints)
+pairs filtered by param_count == target."""
+function _enumerate_ress_patterns(
+    spec::MechanismSpec,
+    cat_indices::Vector{Int},
+)
+    n = length(spec.steps)
+    cat_set = Set(cat_indices)
+    target_pc = spec.param_count
+    n_cat = length(cat_indices)
+
+    # Group catalytic steps by metabolite for constraints
+    met_groups = Dict{Union{Symbol,Nothing},Vector{Int}}()
+    for i in cat_indices
+        met = step_metabolite(spec.steps[i])
+        push!(get!(met_groups, met, Int[]), i)
+    end
+
+    # Equivalence groups: 2+ steps binding same metabolite
+    equiv_groups = Tuple{Union{Symbol,Nothing},Vector{Int}}[]
+    for (met, indices) in sort!(collect(met_groups);
+            by=p -> first(p[2]))
+        length(indices) >= 2 &&
+            push!(equiv_groups, (met, sort!(indices)))
+    end
+
+    # Map metabolite → first catalytic step for dead-end
+    # RE/SS inheritance
+    met_cat_idx = Dict{Symbol, Int}()
+    for i in cat_indices
+        met = step_metabolite(spec.steps[i])
+        met !== nothing && !haskey(met_cat_idx, met) &&
+            (met_cat_idx[met] = i)
+    end
+
+    # Identify dead-end step → catalytic step inheritance
+    de_sp_inheritance = Dict{Int, Int}()
+    for i in 1:n
+        i in cat_set && continue
+        s = spec.steps[i]
+        met = step_metabolite(s)
+        met === nothing && continue
+        ci = get(met_cat_idx, met, 0)
+        ci > 0 && (de_sp_inheritance[i] = ci)
+    end
+
+    results = Tuple{Vector{StepSpec},
+        Vector{ParamConstraint}}[]
+
+    # Enumerate all 2^n_cat RE/SS patterns for catalytic
+    # steps, then for each, enumerate constraint subsets
+    for ress_mask in 0:(1 << n_cat - 1)
+        steps = copy(spec.steps)
+
+        # Apply RE/SS to catalytic steps
+        for (bi, idx) in enumerate(cat_indices)
+            is_ss = (ress_mask >> (bi - 1)) & 1 == 1
+            s = steps[idx]
+            new_re = !is_ss
+            if s.is_equilibrium != new_re
+                steps[idx] = StepSpec(
+                    s.reactants, s.products, new_re)
+            end
+        end
+
+        # Update dead-end steps
+        for (de_idx, cat_idx) in de_sp_inheritance
+            s = steps[de_idx]
+            new_re = steps[cat_idx].is_equilibrium
+            if s.is_equilibrium != new_re
+                steps[de_idx] = StepSpec(
+                    s.reactants, s.products, new_re)
+            end
+        end
+
+        # Find eligible constraints: groups where all
+        # steps have the same RE/SS status
+        eligible = Tuple{Bool,Int,Vector{Int}}[]
+        for (_, indices) in equiv_groups
+            all_re = all(
+                steps[i].is_equilibrium for i in indices)
+            all_ss = all(
+                !steps[i].is_equilibrium for i in indices)
+            if all_re
+                push!(eligible, (true, indices[1],
+                    indices[2:end]))
+            elseif all_ss
+                push!(eligible, (false, indices[1],
+                    indices[2:end]))
+            end
+        end
+
+        # Enumerate constraint subsets (each eligible
+        # constraint is either present or absent)
+        n_elig = length(eligible)
+        for c_mask in 0:(1 << n_elig - 1)
+            constraints = copy(spec.param_constraints)
+            for (ci, (is_re, first_idx, rest)) in
+                    enumerate(eligible)
+                (c_mask >> (ci - 1)) & 1 == 1 || continue
+                for idx in rest
+                    if is_re
+                        push!(constraints, (
+                            Symbol("K$idx"), 1,
+                            [(Symbol("K$first_idx"), 1)]))
+                    else
+                        push!(constraints, (
+                            Symbol("k$(idx)f"), 1,
+                            [(Symbol("k$(first_idx)f"), 1)]))
+                        push!(constraints, (
+                            Symbol("k$(idx)r"), 1,
+                            [(Symbol("k$(first_idx)r"), 1)]))
+                    end
+                end
+            end
+
+            candidate = MechanismSpec(
+                spec.reaction, steps, constraints, 0)
+            pc = _runtime_param_count(candidate)
+            pc == target_pc || continue
+
+            push!(results, (steps, constraints))
+        end
+    end
+    results
+end
+
+"""Build one cross-product combination into a MechanismSpec."""
+function _build_cross_product_spec(
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+    ress_steps::Vector{StepSpec},
+    ress_constraints::Vector{ParamConstraint},
+    sp_opps::Vector{Tuple{Symbol, Symbol}},
+    sp_mask::Int,
+    cat_step_for_met::Dict{Symbol, Int},
+    reg_ext::Dict{Symbol, Vector{Symbol}},
+    reg_names::Vector{Symbol},
+    reg_mask::Int,
+)
+    new_steps = copy(ress_steps)
+    new_constraints = copy(ress_constraints)
+    bound = _bound_entities(spec)
+
+    # Track which catalytic forms have dead-end extensions
+    # with which metabolite, for mirror step generation
+    de_at_form = Dict{Symbol, Set{Symbol}}()
+
+    # Add substrate/product dead-ends (inherit RE/SS from
+    # catalytic counterpart in this RE/SS pattern)
+    for (bit, (form, met)) in enumerate(sp_opps)
+        (sp_mask >> (bit - 1)) & 1 == 1 || continue
+
+        cat_idx = cat_step_for_met[met]
+        cat_is_re = ress_steps[cat_idx].is_equilibrium
+        de_name = _beam_dead_end_form_name(
+            bound[form], met)
+        push!(new_steps, StepSpec(
+            [form, met], [de_name], cat_is_re))
+        step_idx = length(new_steps)
+
+        # Constrain to catalytic step parameters
+        if cat_is_re
+            push!(new_constraints, (
+                Symbol("K$step_idx"), 1,
+                [(Symbol("K$cat_idx"), 1)]))
+        else
+            push!(new_constraints, (
+                Symbol("k$(step_idx)f"), 1,
+                [(Symbol("k$(cat_idx)f"), 1)]))
+            push!(new_constraints, (
+                Symbol("k$(step_idx)r"), 1,
+                [(Symbol("k$(cat_idx)r"), 1)]))
+        end
+
+        push!(get!(de_at_form, form,
+            Set{Symbol}()), met)
+    end
+
+    # Add regulator extensions
+    for (j, reg) in enumerate(reg_names)
+        (reg_mask >> (j - 1)) & 1 == 1 || continue
+
+        # Find existing step for this reg (for constraint)
+        existing_idx = 0
+        for (i, s) in enumerate(spec.steps)
+            step_metabolite(s) == reg || continue
+            existing_idx = i
+            break
+        end
+        existing_idx == 0 && continue
+
+        forms = reg_ext[reg]
+        first_new_idx = 0
+        for form in forms
+            de_name = _beam_dead_end_form_name(
+                bound[form], reg)
+            # Dead-end binding steps are always RE
+            push!(new_steps, StepSpec(
+                [form, reg], [de_name], true))
+            step_idx = length(new_steps)
+
+            if first_new_idx == 0
+                first_new_idx = step_idx
+                # Constrain to existing K
+                push!(new_constraints, (
+                    Symbol("K$step_idx"), 1,
+                    [(Symbol("K$existing_idx"), 1)]))
+            else
+                # Constrain to first new step
+                push!(new_constraints, (
+                    Symbol("K$step_idx"), 1,
+                    [(Symbol("K$first_new_idx"), 1)]))
+            end
+
+            push!(get!(de_at_form, form,
+                Set{Symbol}()), reg)
+        end
+    end
+
+    # Add mirror steps: for each catalytic step where
+    # BOTH endpoints have dead-end extensions with the
+    # SAME metabolite
+    for (orig_idx, s) in enumerate(ress_steps)
+        from = s.reactants[1]
+        to = s.products[1]
+
+        from_de = get(de_at_form, from, Set{Symbol}())
+        to_de = get(de_at_form, to, Set{Symbol}())
+        common_mets = intersect(from_de, to_de)
+        isempty(common_mets) && continue
+
+        for de_met in sort!(collect(common_mets))
+            de_met in bound[from] && continue
+            de_met in bound[to] && continue
+
+            from_de_name = _beam_dead_end_form_name(
+                bound[from], de_met)
+            to_de_name = _beam_dead_end_form_name(
+                bound[to], de_met)
+
+            met = step_metabolite(s)
+            if met !== nothing
+                # Mirror inherits RE/SS from catalytic
+                push!(new_steps, StepSpec(
+                    [from_de_name, met], [to_de_name],
+                    s.is_equilibrium))
+            else
+                push!(new_steps, StepSpec(
+                    [from_de_name], [to_de_name],
+                    s.is_equilibrium))
+            end
+
+            mirror_idx = length(new_steps)
+            if s.is_equilibrium
+                push!(new_constraints, (
+                    Symbol("K$mirror_idx"), 1,
+                    [(Symbol("K$orig_idx"), 1)]))
+            else
+                push!(new_constraints, (
+                    Symbol("k$(mirror_idx)f"), 1,
+                    [(Symbol("k$(orig_idx)f"), 1)]))
+                push!(new_constraints, (
+                    Symbol("k$(mirror_idx)r"), 1,
+                    [(Symbol("k$(orig_idx)r"), 1)]))
+            end
+        end
+    end
+
+    MechanismSpec(
+        reaction, new_steps, new_constraints,
+        spec.param_count)
 end
 
 # ─── Expansion: Allosteric (+2 or more) ──────────────────────
