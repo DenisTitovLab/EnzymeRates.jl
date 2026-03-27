@@ -205,21 +205,22 @@
         end
         @test !isempty(de_with_I)
 
-        # Second expansion: expand the I-containing
-        # mechanisms. Some should have further binding to
-        # dead-end forms.
-        results2 = EnzymeRates.expand_mechanisms_by_one_param(
+        # Multi-level dead-ends (e.g., substrate binding
+        # to E_I) are produced by +0 expansion, not +1.
+        # Extending existing regulator to new forms, or
+        # adding substrate dead-ends with K=K_catalytic,
+        # preserves param_count.
+        multi_level = EnzymeRates.expand_mechanisms_same_param_count(
             de_with_I, bi_bi_dead_end_I)
-        multi_level = filter(results2) do r
+        multi_with_more_steps = filter(multi_level) do r
             length(r.steps) > maximum(
                 length(d.steps) for d in de_with_I)
         end
-        # Multi-level dead-end forms should exist for bi-bi
-        @test !isempty(multi_level)
+        @test !isempty(multi_with_more_steps)
 
         # All forms respect capacity
         cap = EnzymeRates._binding_capacity(bi_bi_dead_end_I)
-        for r in multi_level
+        for r in multi_with_more_steps
             bound = EnzymeRates._bound_entities(r)
             for (_, entities) in bound
                 @test length(entities) <= cap
