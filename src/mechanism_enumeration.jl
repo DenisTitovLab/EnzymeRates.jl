@@ -73,6 +73,102 @@ function _max_equivalence_constraints(spec::MechanismSpec)
     constraints
 end
 
+"""
+    _step_index_from_constraint_sym(sym) -> Int or nothing
+
+Parse the step index from a constraint parameter symbol like `K3`, `k3f`, `k3r`.
+Returns nothing if the symbol doesn't match the expected pattern.
+"""
+function _step_index_from_constraint_sym(sym::Symbol)
+    s = string(sym)
+    m = match(r"^[Kk](\d+)", s)
+    m === nothing && return nothing
+    cap = m.captures[1]
+    cap === nothing && return nothing
+    parse(Int, cap)
+end
+
+"""Return the set of step indices involved in any param constraint."""
+function _constrained_step_indices(constraints::Vector{ParamConstraint})
+    idxs = Set{Int}()
+    for (target, _, followers) in constraints
+        idx = _step_index_from_constraint_sym(target)
+        idx !== nothing && push!(idxs, idx)
+        for (src, _) in followers
+            sidx = _step_index_from_constraint_sym(src)
+            sidx !== nothing && push!(idxs, sidx)
+        end
+    end
+    idxs
+end
+
+"""
+    _expand_re_to_ss(spec::MechanismSpec) → Vector{MechanismSpec}
+
+Convert one RE step to SS. Skip constrained RE steps.
+Mirror dead-end steps inherit the new SS status.
+"""
+function _expand_re_to_ss(spec::MechanismSpec)
+    result = MechanismSpec[]
+    constrained = _constrained_step_indices(spec.param_constraints)
+
+    for (i, s) in enumerate(spec.steps)
+        s.is_equilibrium || continue
+        i in constrained && continue
+
+        new_steps = [StepSpec(st.reactants, st.products, st.is_equilibrium)
+                     for st in spec.steps]
+        new_steps[i] = StepSpec(s.reactants, s.products, false)
+
+        # Propagate SS to dead-end mirror steps
+        from_form, to_form = step_forms(s)
+        for (j, ms) in enumerate(new_steps)
+            j == i && continue
+            ms.is_equilibrium || continue
+            mf, mt = step_forms(ms)
+            if _is_mirror_of(mf, mt, from_form, to_form, spec.steps)
+                new_steps[j] = StepSpec(ms.reactants, ms.products, false)
+            end
+        end
+
+        push!(result, MechanismSpec(
+            spec.reaction, new_steps,
+            copy(spec.param_constraints),
+            spec.param_count + 1))
+    end
+    result
+end
+
+"""
+    _is_mirror_of(mf, mt, from, to, steps) -> Bool
+
+Check if (mf, mt) is a dead-end mirror of the catalytic step (from, to).
+A mirror step connects dead-end forms that extend the catalytic endpoints
+by binding the same extra metabolite.
+"""
+function _is_mirror_of(
+    mf::Symbol, mt::Symbol,
+    from::Symbol, to::Symbol,
+    steps::Vector{StepSpec},
+)
+    # For (mf, mt) to be a mirror of (from, to):
+    # there must be a binding step [from, met] → [mf] and
+    # a binding step [to, met] → [mt] for the same metabolite.
+    from_met = nothing
+    to_met = nothing
+    for s in steps
+        f, t = step_forms(s)
+        m = step_metabolite(s)
+        m === nothing && continue
+        if f == from && t == mf
+            from_met = m
+        elseif f == to && t == mt
+            to_met = m
+        end
+    end
+    from_met !== nothing && to_met !== nothing && from_met == to_met
+end
+
 """Construct AllostericEnzymeMechanism from AllostericMechanismSpec."""
 function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
     cm = EnzymeMechanism(spec.base)

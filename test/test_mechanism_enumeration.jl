@@ -278,4 +278,65 @@ end
     end
 end
 
+@testset "Move 1: RE→SS conversion" begin
+    @testset "Multiple RE steps" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
+        result = EnzymeRates._expand_re_to_ss(spec)
+        @test length(result) == 2
+        for r in result
+            @test r.param_count == spec.param_count + 1
+        end
+    end
+
+    @testset "All SS → yields nothing" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] <--> [E_P]
+                [E, S] <--> [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
+        result = EnzymeRates._expand_re_to_ss(spec)
+        @test isempty(result)
+    end
+
+    @testset "Constrained RE steps skipped" begin
+        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        constrained_spec = first(filter(
+            s -> !isempty(s.param_constraints), specs))
+        constrained_idxs = EnzymeRates._constrained_step_indices(
+            constrained_spec.param_constraints)
+        n_eligible = count(
+            s.is_equilibrium && !(i in constrained_idxs)
+            for (i, s) in enumerate(constrained_spec.steps))
+        result = EnzymeRates._expand_re_to_ss(constrained_spec)
+        @test length(result) == n_eligible
+        for r in result
+            new_ss_idxs = [i for (i, s) in enumerate(r.steps)
+                if !s.is_equilibrium && constrained_spec.steps[i].is_equilibrium]
+            for idx in new_ss_idxs
+                @test !(idx in constrained_idxs)
+            end
+        end
+    end
+end
+
 end # top-level testset
