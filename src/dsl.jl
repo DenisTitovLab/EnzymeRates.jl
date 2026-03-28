@@ -43,8 +43,11 @@ function _parse_label_species_tuple(expr)
     error("Expected label: species, got $expr")
 end
 
-function _parse_labeled_block(block, valid_labels::Set{Symbol})
-    result = Dict{Symbol, Expr}()
+function _parse_labeled_block(
+    block, valid_labels::Set{Symbol},
+    scalar_labels::Set{Symbol}=Set{Symbol}(),
+)
+    result = Dict{Symbol, Any}()
     for arg in block.args
         arg isa LineNumberNode && continue
         if arg isa Expr && arg.head == :tuple
@@ -58,7 +61,11 @@ function _parse_labeled_block(block, valid_labels::Set{Symbol})
         elseif arg isa Expr && arg.head == :call && arg.args[1] == :(:)
             label = arg.args[2]
             label in valid_labels || error("Unknown label: $label")
-            result[label] = Expr(:tuple, _parse_species_tuple_expr(arg.args[3]))
+            if label in scalar_labels
+                result[label] = arg.args[3]
+            else
+                result[label] = Expr(:tuple, _parse_species_tuple_expr(arg.args[3]))
+            end
         end
     end
     result
@@ -69,11 +76,13 @@ end
         substrates: S[C]
         products:   P[C]
         regulators: I
+        oligomeric_state: 4
     end
 
 Create an `EnzymeReaction` from a DSL block. Species atoms use chemical
 formula bracket syntax: `S[C6H12O6]`. Bare symbols (no brackets) are allowed
 when all metabolites omit atoms. Regulators are plain symbol names.
+`oligomeric_state` is an optional integer (defaults to 1).
 
 Multi-species lines use comma separation:
     substrates: S[C6H12O6], ATP[C10H16N5O13P3]
@@ -82,7 +91,9 @@ Multi-species lines use comma separation:
 macro enzyme_reaction(block)
     parsed = _parse_labeled_block(block,
         Set([:substrates, :products, :regulators,
-             :dead_end_inhibitors, :allosteric_regulators]))
+             :dead_end_inhibitors, :allosteric_regulators,
+             :oligomeric_state]),
+        Set([:oligomeric_state]))
     haskey(parsed, :substrates) || error("substrates not specified")
     haskey(parsed, :products) || error("products not specified")
     subs = parsed[:substrates]
@@ -101,7 +112,8 @@ macro enzyme_reaction(block)
             end
         end
     end
-    return esc(:(EnzymeReaction($subs, $prods, $regs)))
+    oligo = haskey(parsed, :oligomeric_state) ? parsed[:oligomeric_state] : 1
+    return esc(:(EnzymeReaction($subs, $prods, $regs; oligomeric_state=$oligo)))
 end
 
 """Convert a parsed species tuple for regulators into a plain Symbol tuple.
