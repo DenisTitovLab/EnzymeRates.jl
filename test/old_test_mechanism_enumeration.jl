@@ -241,7 +241,7 @@ end
             end
         end
 
-        @test compile_mechanism(topos[1]) === m_uu
+        @test EnzymeRates.compile_mechanism(topos[1]) === m_uu
 
         for t in topos
             @test count(
@@ -310,7 +310,7 @@ end
         # a compiled topology
         defined = [m_ub1, m_ub2, m_ub3]
         for (i, m) in enumerate(defined)
-            compiled = compile_mechanism(topos[i])
+            compiled = EnzymeRates.compile_mechanism(topos[i])
             @test compiled === m
         end
 
@@ -344,7 +344,7 @@ end
                 [E_A_B] <--> [E_P_Q]
             end
         end
-        @test compile_mechanism(topos[1]) === m_bb1
+        @test EnzymeRates.compile_mechanism(topos[1]) === m_bb1
 
         # Topo 2: sequential bind B-first,
         #         sequential release P-first
@@ -365,7 +365,7 @@ end
                 [E_A_B] <--> [E_P_Q]
             end
         end
-        @test compile_mechanism(topos[2]) === m_bb2
+        @test EnzymeRates.compile_mechanism(topos[2]) === m_bb2
 
         # Topo 6: sequential bind A-first,
         #         sequential release P-first
@@ -386,7 +386,7 @@ end
                 [E_A_B] <--> [E_P_Q]
             end
         end
-        @test compile_mechanism(topos[6]) === m_bb6
+        @test EnzymeRates.compile_mechanism(topos[6]) === m_bb6
 
         # Topo 9: random bind, random release (fully
         # random on both sides)
@@ -410,7 +410,7 @@ end
                 [E_A_B] <--> [E_P_Q]
             end
         end
-        @test compile_mechanism(topos[9]) === m_bb9
+        @test EnzymeRates.compile_mechanism(topos[9]) === m_bb9
 
         # Verify structural properties hold for all
         for t in topos
@@ -427,7 +427,7 @@ end
         form_counts = [
             length(
                 EnzymeRates.enzyme_forms(
-                    compile_mechanism(t))
+                    EnzymeRates.compile_mechanism(t))
             ) for t in topos
         ]
         @test count(==(5), form_counts) == 4
@@ -461,7 +461,7 @@ end
                 [Estar_B] ⇌ [E_Q]
             end
         end
-        @test compile_mechanism(topos[6]) === m_pp
+        @test EnzymeRates.compile_mechanism(topos[6]) === m_pp
 
         for t in topos
             @test count(
@@ -1767,8 +1767,8 @@ end
         @test !isempty(with_tr)
 
         # TR equiv reduces parameter count
-        m_no = compile_mechanism(no_tr[1])
-        m_with = compile_mechanism(with_tr[end])
+        m_no = EnzymeRates.compile_mechanism(no_tr[1])
+        m_with = EnzymeRates.compile_mechanism(with_tr[end])
         @test length(parameters(m_with)) <
             length(parameters(m_no))
     end
@@ -1987,7 +1987,7 @@ end
         catalytic = EnzymeRates._catalytic_topologies(
             uni_bi)
         for s in catalytic
-            m = compile_mechanism(s)
+            m = EnzymeRates.compile_mechanism(s)
             @test s.param_count ==
                 length(parameters(m))
         end
@@ -1996,7 +1996,7 @@ end
         ress = EnzymeRates._expand_ress_variants(
             catalytic, uni_bi)
         for s in ress[1:min(10, length(ress))]
-            m = compile_mechanism(s)
+            m = EnzymeRates.compile_mechanism(s)
             @test s.param_count ==
                 length(parameters(m))
         end
@@ -2006,7 +2006,7 @@ end
             EnzymeRates._expand_equivalence_constraints(
                 ress, uni_bi)
         for s in eq[1:min(10, length(eq))]
-            m = compile_mechanism(s)
+            m = EnzymeRates.compile_mechanism(s)
             @test s.param_count ==
                 length(parameters(m))
         end
@@ -2025,7 +2025,7 @@ end
             rng, length(de_r))[
             1:min(10, length(de_r))]]
         for s in sample_de
-            m = compile_mechanism(s)
+            m = EnzymeRates.compile_mechanism(s)
             @test s.param_count ==
                 length(parameters(m))
         end
@@ -2038,7 +2038,7 @@ end
             cat_specs = filter(
                 s -> s isa EnzymeRates.MechanismSpec, all_specs)
             for s in first(cat_specs, 3)
-                m = compile_mechanism(s)
+                m = EnzymeRates.compile_mechanism(s)
                 @test m isa EnzymeMechanism
                 s2 = mechanism_spec_from_mechanism(
                     m, rxn)
@@ -2055,7 +2055,7 @@ end
                 s -> s isa EnzymeRates.AllostericMechanismSpec,
                 all_specs)
             for s in first(allo_specs, 2)
-                m = compile_mechanism(s)
+                m = EnzymeRates.compile_mechanism(s)
                 @test m isa AllostericEnzymeMechanism
                 @test length(metabolites(m)) > 0
                 @test length(parameters(m)) > 0
@@ -2116,7 +2116,7 @@ end
             EnzymeRates.old_enumerate_mechanisms(uni_bi))
         @test length(all_specs) == 56
         n_match = count(all_specs) do s
-            m = compile_mechanism(s)
+            m = EnzymeRates.compile_mechanism(s)
             s.param_count == length(parameters(m))
         end
         @test n_match == 56
@@ -2135,7 +2135,7 @@ end
             all_specs)
         @test !isempty(allo_specs)
         for s in first(allo_specs, 3)
-            m = compile_mechanism(s)
+            m = EnzymeRates.compile_mechanism(s)
             @test length(parameters(m)) > 0
         end
     end
@@ -2149,7 +2149,7 @@ end
             rng_bb, length(all_specs))[1:min(50, end)]]
         n_match = count(sample) do s
             s isa EnzymeRates.MechanismSpec || return true
-            m = compile_mechanism(s)
+            m = EnzymeRates.compile_mechanism(s)
             s.param_count == length(parameters(m))
         end
         @test n_match == length(sample)

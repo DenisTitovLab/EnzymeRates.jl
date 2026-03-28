@@ -61,7 +61,7 @@
             @test length(re_to_ss_bb) == n_re_bb
 
             for r in re_to_ss_bb
-                m = compile_mechanism(r)
+                m = EnzymeRates.compile_mechanism(r)
                 @test length(parameters(m)) == r.param_count
             end
         end
@@ -122,7 +122,7 @@
 
             # Verify param_count matches compiled mechanism
             for r in de_results
-                m = compile_mechanism(r)
+                m = EnzymeRates.compile_mechanism(r)
                 @test length(parameters(m)) == r.param_count
             end
 
@@ -141,7 +141,7 @@
 
             for r in de_results_bb
                 @test r.param_count == spec_bb.param_count + 1
-                m = compile_mechanism(r)
+                m = EnzymeRates.compile_mechanism(r)
                 @test length(parameters(m)) == r.param_count
             end
         end
@@ -237,7 +237,7 @@
                 topos = EnzymeRates._catalytic_topologies(rxn)
                 for spec in topos
                     runtime_pc = EnzymeRates._runtime_param_count(spec)
-                    m = compile_mechanism(spec)
+                    m = EnzymeRates.compile_mechanism(spec)
                     generated_pc = length(parameters(m))
                     @test runtime_pc == generated_pc
                 end
@@ -314,7 +314,7 @@
 
         # Verify param_count matches compiled mechanism
         for r in results
-            m = compile_mechanism(r)
+            m = EnzymeRates.compile_mechanism(r)
             @test length(parameters(m)) == r.param_count
         end
 
@@ -360,7 +360,7 @@
 
         # Each result should compile and have correct param count
         for r in results
-            m = compile_mechanism(r)
+            m = EnzymeRates.compile_mechanism(r)
             compiled_pc = length(parameters(m))
             runtime_pc = EnzymeRates._runtime_param_count(r)
             @test runtime_pc == compiled_pc
@@ -397,7 +397,7 @@
         @test !isempty(results_bb)
 
         for r in first(results_bb, 5)
-            m = compile_mechanism(r)
+            m = EnzymeRates.compile_mechanism(r)
             @test EnzymeRates._runtime_param_count(r) ==
                 length(parameters(m))
         end
@@ -483,7 +483,7 @@
 
         # Verify param counts match compiled
         for r in first(results, 3)
-            m = compile_mechanism(r)
+            m = EnzymeRates.compile_mechanism(r)
             @test EnzymeRates._runtime_param_count(r) ==
                 length(parameters(m))
         end
@@ -492,7 +492,7 @@
     @testset "Three-level TR-equivalence" begin
         topos = EnzymeRates._catalytic_topologies(uni_uni)
         spec = topos[1]
-        m_base = compile_mechanism(spec)
+        m_base = EnzymeRates.compile_mechanism(spec)
         base_pc = length(parameters(m_base))
 
         # Find non-binding SS step index
@@ -506,7 +506,7 @@
             spec, 2, [[:R]], [1],
             [:S, :P, :R], [iso_idx],
             Symbol[], Symbol[], Int[])
-        m_full = compile_mechanism(allo_full)
+        m_full = EnzymeRates.compile_mechanism(allo_full)
         p_full = parameters(m_full)
         @test length(p_full) - base_pc == 2
 
@@ -519,7 +519,7 @@
             spec, 2, [[:R]], [1],
             [:S, :P, :R], Int[],
             Symbol[], Symbol[], Int[])
-        m_no_cat = compile_mechanism(allo_no_cat)
+        m_no_cat = EnzymeRates.compile_mechanism(allo_no_cat)
         p_no_cat = parameters(m_no_cat)
         @test length(p_no_cat) - base_pc == 3
 
@@ -532,7 +532,7 @@
             spec, 2, [[:R]], [1],
             [:P, :R], [iso_idx],
             Symbol[], Symbol[], Int[])
-        m_partial = compile_mechanism(allo_partial_met)
+        m_partial = EnzymeRates.compile_mechanism(allo_partial_met)
         p_partial = parameters(m_partial)
         @test length(p_partial) - base_pc == 3
 
@@ -545,7 +545,7 @@
             spec, 2, [[:R]], [1],
             Symbol[], Int[],
             Symbol[], Symbol[], Int[])
-        m_none = compile_mechanism(allo_none)
+        m_none = EnzymeRates.compile_mechanism(allo_none)
         p_none = parameters(m_none)
         @test length(p_none) - base_pc == 6
 
@@ -556,7 +556,7 @@
     @testset "R-only/T-only binding modes" begin
         topos = EnzymeRates._catalytic_topologies(uni_uni)
         spec = topos[1]
-        m_base = compile_mechanism(spec)
+        m_base = EnzymeRates.compile_mechanism(spec)
         base_pc = length(parameters(m_base))
 
         iso_idx = findfirst(
@@ -568,7 +568,7 @@
             spec, 1, [[:R]], [1],
             [:P, :R], [iso_idx],
             [:S], Symbol[], Int[])
-        m_r_only = compile_mechanism(allo_r_only)
+        m_r_only = EnzymeRates.compile_mechanism(allo_r_only)
         p_r_only = parameters(m_r_only)
         @test EnzymeRates._runtime_param_count(allo_r_only) ==
             length(p_r_only)
@@ -591,7 +591,7 @@
             spec, 1, [[:R]], [1],
             [:P, :R], [iso_idx],
             Symbol[], [:S], Int[])
-        m_t_only = compile_mechanism(allo_t_only)
+        m_t_only = EnzymeRates.compile_mechanism(allo_t_only)
         p_t_only = parameters(m_t_only)
         @test EnzymeRates._runtime_param_count(allo_t_only) ==
             length(p_t_only)
@@ -610,7 +610,7 @@
             spec, 1, [[:R]], [1],
             [:S, :P, :R], Int[],
             Symbol[], Symbol[], [iso_idx])
-        m_r_only_cat = compile_mechanism(allo_r_only_cat)
+        m_r_only_cat = EnzymeRates.compile_mechanism(allo_r_only_cat)
         p_r_only_cat = parameters(m_r_only_cat)
         @test EnzymeRates._runtime_param_count(
             allo_r_only_cat) == length(p_r_only_cat)
@@ -625,7 +625,7 @@
             spec, 1, [[:R]], [1],
             [:S, :P], [iso_idx],
             [:R], Symbol[], Int[])
-        m_r_only_reg = compile_mechanism(allo_r_only_reg)
+        m_r_only_reg = EnzymeRates.compile_mechanism(allo_r_only_reg)
         p_r_only_reg = parameters(m_r_only_reg)
         @test EnzymeRates._runtime_param_count(
             allo_r_only_reg) == length(p_r_only_reg)
@@ -681,7 +681,7 @@
             all_specs)
         @test !isempty(allo_specs)
         for s in first(allo_specs, 5)
-            m = compile_mechanism(s)
+            m = EnzymeRates.compile_mechanism(s)
             @test EnzymeRates._runtime_param_count(s) ==
                 length(parameters(m))
         end

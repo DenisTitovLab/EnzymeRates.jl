@@ -20,8 +20,6 @@ export rescale_parameter_values
 export fit_rate_equation
 # export identify_rate_equation  # when implemented
 
-# Mechanism enumeration
-export compile_mechanism
 
 using Tables
 using Optimization
