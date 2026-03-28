@@ -4,14 +4,15 @@ using Graphs
 _sort_species(t::Tuple) = Tuple(sort(collect(t); by=s -> s[1]))
 
 """
-    EnzymeReaction{Substrates, Products, Regulators}
+    EnzymeReaction{Substrates, Products, Regulators, OligomericState}
 
 Singleton type encoding an enzyme reaction specification in type parameters.
 
 - `Substrates`, `Products`: tuple of `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
 - `Regulators`: tuple of `Symbol` (plain names, no atoms).
+- `OligomericState`: number of subunits (Int, default 1).
 """
-struct EnzymeReaction{Substrates, Products, Regulators} end
+struct EnzymeReaction{Substrates, Products, Regulators, OligomericState} end
 
 """Regulator role in mechanism enumeration."""
 abstract type RegulatorRole end
@@ -25,7 +26,7 @@ struct DeadEnd <: RegulatorRole end
 """Unconstrained: try all roles (allosteric + dead-end)."""
 struct UnconstrainedRegulator <: RegulatorRole end
 
-function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
+function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_state::Int=1)
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
     subs_names = [s[1] for s in subs]
@@ -52,7 +53,7 @@ function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=())
     subs = _sort_species(subs)
     prods = _sort_species(prods)
     sorted_regs = Tuple(sort(collect(normalized_regs); by=first))
-    EnzymeReaction{subs, prods, sorted_regs}()
+    EnzymeReaction{subs, prods, sorted_regs, oligomeric_state}()
 end
 
 abstract type AbstractEnzymeMechanism end
@@ -339,7 +340,7 @@ const Reduced = ReducedMode()
 
 # --- Pretty printing ---
 
-function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}
+function Base.show(io::IO, ::EnzymeReaction{S,P,R,N}) where {S,P,R,N}
     subs_str = join([string(name) for (name, _) in S], " + ")
     prods_str = join([string(name) for (name, _) in P], " + ")
     print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
@@ -347,6 +348,7 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R}) where {S,P,R}
         regs_str = join([string(r[1]) for r in R], ", ")
         print(io, " | regulators: ", regs_str)
     end
+    N > 1 && print(io, " | oligomeric_state: ", N)
 end
 
 function Base.show(
@@ -426,19 +428,22 @@ end
 
 """Return substrates (with stoichiometric multiplicity)."""
 substrates(::EnzymeMechanism{Species}) where {Species} = Species[1]
-substrates(::EnzymeReaction{S,P,R}) where {S,P,R} = S
+substrates(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = S
 
 """Return products (with stoichiometric multiplicity)."""
 products(::EnzymeMechanism{Species}) where {Species} = Species[2]
-products(::EnzymeReaction{S,P,R}) where {S,P,R} = P
+products(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = P
 
 """Return regulators."""
 regulators(::EnzymeMechanism{Species}) where {Species} = Species[3]
-regulators(::EnzymeReaction{S,P,R}) where {S,P,R} =
+regulators(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} =
     Tuple(r[1] for r in R)
 
 """Return regulator (name, role) pairs."""
-regulator_roles(::EnzymeReaction{S,P,R}) where {S,P,R} = R
+regulator_roles(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = R
+
+"""Return oligomeric state (number of subunits)."""
+oligomeric_state(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = N
 
 """Return all enzyme forms as a tuple of (name, atoms)."""
 enzyme_forms(::EnzymeMechanism{Species}) where {Species} = Species[4]

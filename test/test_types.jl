@@ -78,6 +78,27 @@
         )
     end
 
+    @testset "EnzymeReaction oligomeric_state" begin
+        # Default oligomeric_state is 1
+        rxn = EnzymeReaction(
+            ((:S, ((:C, 1),)),),
+            ((:P, ((:C, 1),)),),
+        )
+        @test EnzymeRates.oligomeric_state(rxn) == 1
+
+        # Explicit oligomeric_state
+        rxn2 = EnzymeReaction(
+            ((:S, ((:C, 1),)),),
+            ((:P, ((:C, 1),)),),
+            ();
+            oligomeric_state=4
+        )
+        @test EnzymeRates.oligomeric_state(rxn2) == 4
+
+        # Different oligomeric_state = different type
+        @test typeof(rxn) !== typeof(rxn2)
+    end
+
     @testset "Pretty printing" begin
         r = EnzymeReaction(((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),))
         @test sprint(show, r) == "EnzymeReaction: S ⇌ P"
