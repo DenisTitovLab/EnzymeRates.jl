@@ -52,6 +52,12 @@ const uni_uni_with_reg = @enzyme_reaction begin
     dead_end_inhibitors: I
 end
 
+const uni_uni_allo = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    oligomeric_state: 2
+end
+
 @testset "Mechanism Enumeration" begin
 
 @testset "Types and round-trip" begin
@@ -490,6 +496,90 @@ end
             else
                 @test isempty(new_constraints)
             end
+        end
+    end
+end
+
+@testset "Move 6: Allosteric conversion" begin
+    @testset "Non-allosteric → allosteric variants" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        result = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        # S × {r_only, t_only} + P × {r_only, t_only} = 4
+        @test length(result) == 4
+        for r in result
+            @test r isa AllostericMechanismSpec
+            @test r.catalytic_n == 2
+        end
+    end
+
+    @testset "Already allosteric → yields nothing" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        for a in allo_specs
+            @test isempty(
+                EnzymeRates._expand_to_allosteric(
+                    a, uni_uni_allo))
+        end
+    end
+
+    @testset "All results compile" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        for a in allo_specs
+            m = AllostericEnzymeMechanism(a)
+            @test m isa AllostericEnzymeMechanism
+        end
+    end
+
+    @testset "oligomeric_state from reaction" begin
+        rxn4 = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            oligomeric_state: 4
+        end
+        specs = EnzymeRates.init_mechanisms(rxn4)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, rxn4)
+        for a in allo_specs
+            @test a.catalytic_n == 4
+        end
+    end
+
+    @testset "TR-equiv and r/t-only lists" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        for a in allo_specs
+            # Exactly one metabolite is r_only or t_only
+            n_diff = length(a.r_only_metabolites) +
+                     length(a.t_only_metabolites)
+            @test n_diff == 1
+            # The other metabolite is tr_equiv
+            @test length(a.tr_equiv_metabolites) == 1
+            # No allosteric reg sites
+            @test isempty(a.allosteric_reg_sites)
+        end
+    end
+
+    @testset "SS isomerization steps are tr_equiv" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        # The uni-uni mechanism has one SS step (isomerization)
+        ss_isom = [i for (i, s) in enumerate(spec.steps)
+            if !s.is_equilibrium &&
+               EnzymeRates.step_metabolite(s) === nothing]
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        for a in allo_specs
+            @test sort(a.tr_equiv_cat_steps) == sort(ss_isom)
         end
     end
 end

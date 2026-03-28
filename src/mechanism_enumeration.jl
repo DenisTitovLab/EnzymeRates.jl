@@ -323,6 +323,61 @@ function _expand_add_dead_end_regulator(
     result
 end
 
+"""
+    _expand_to_allosteric(spec, reaction) → Vector{AllostericMechanismSpec}
+
+Convert non-allosteric mechanism to allosteric (+2 params):
+L + one metabolite r_only or t_only.
+"""
+function _expand_to_allosteric(
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    cn = oligomeric_state(reaction)
+
+    # Catalytic metabolites (substrates + products)
+    sub_names = [s[1] for s in substrates(reaction)]
+    prod_names = [p[1] for p in products(reaction)]
+    cat_mets = Symbol[sub_names; prod_names]
+
+    # Non-binding SS step indices (isomerization steps)
+    ss_isom_idxs = Int[]
+    for (i, s) in enumerate(spec.steps)
+        if !s.is_equilibrium &&
+                step_metabolite(s) === nothing
+            push!(ss_isom_idxs, i)
+        end
+    end
+
+    result = AllostericMechanismSpec[]
+
+    for diff_met in cat_mets
+        tr_equiv = Symbol[
+            m for m in cat_mets if m != diff_met]
+
+        for mode in (:r_only, :t_only)
+            r_only = mode == :r_only ?
+                Symbol[diff_met] : Symbol[]
+            t_only = mode == :t_only ?
+                Symbol[diff_met] : Symbol[]
+
+            push!(result, AllostericMechanismSpec(
+                spec, cn,
+                Vector{Symbol}[], Int[],
+                tr_equiv, copy(ss_isom_idxs),
+                r_only, t_only, Int[]))
+        end
+    end
+    result
+end
+
+function _expand_to_allosteric(
+    ::AllostericMechanismSpec,
+    @nospecialize(::EnzymeReaction),
+)
+    AllostericMechanismSpec[]
+end
+
 """Construct AllostericEnzymeMechanism from AllostericMechanismSpec."""
 function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
     cm = EnzymeMechanism(spec.base)
