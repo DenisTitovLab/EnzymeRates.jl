@@ -190,6 +190,139 @@ function _is_mirror_of(
     from_met !== nothing && to_met !== nothing && from_met == to_met
 end
 
+"""
+    _expand_add_dead_end_regulator(spec, reaction; exclude_regs)
+        → Vector{MechanismSpec}
+
+Add a new dead-end regulator to non-empty subsets of eligible
+forms. Each variant adds +1 param (one new K, constrained equal
+across all binding sites for this regulator).
+"""
+function _expand_add_dead_end_regulator(
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction);
+    exclude_regs::Set{Symbol}=Set{Symbol}(),
+)
+    roles = regulator_roles(reaction)
+    isempty(roles) && return MechanismSpec[]
+
+    # Find regulators not yet in mechanism
+    existing_mets = Set{Symbol}()
+    for s in spec.steps
+        for sym in Iterators.flatten(
+                (s.reactants, s.products))
+            push!(existing_mets, sym)
+        end
+    end
+
+    eligible_regs = Symbol[]
+    for (name, role) in roles
+        (role == :unknown || role == :dead_end) ||
+            continue
+        name in exclude_regs && continue
+        reg_prefix = string(name) * "__reg"
+        already = any(
+            contains(string(m), reg_prefix)
+            for m in existing_mets)
+        already && continue
+        push!(eligible_regs, name)
+    end
+    sort!(eligible_regs)
+
+    isempty(eligible_regs) && return MechanismSpec[]
+
+    sub_names = Set(s[1] for s in substrates(reaction))
+    prod_names = Set(
+        p[1] for p in products(reaction))
+    bound = _bound_metabolites_at_forms(spec, reaction)
+    cat_forms = all_form_names(spec)
+
+    result = MechanismSpec[]
+
+    for (ri, reg) in enumerate(eligible_regs)
+        dummy = Symbol(
+            string(reg) * "__reg" * string(ri))
+
+        # Eligible: neither all subs nor all prods bound
+        eligible_forms = Symbol[]
+        for f in sort(collect(cat_forms))
+            haskey(bound, f) || continue
+            fb = bound[f]
+            (intersect(fb, sub_names) == sub_names ||
+                intersect(fb, prod_names) ==
+                    prod_names) && continue
+            push!(eligible_forms, f)
+        end
+
+        isempty(eligible_forms) && continue
+        n_forms = length(eligible_forms)
+
+        # Enumerate all non-empty subsets
+        for mask in 1:(1 << n_forms) - 1
+            active = Symbol[]
+            for (j, f) in enumerate(eligible_forms)
+                if (mask >> (j - 1)) & 1 == 1
+                    push!(active, f)
+                end
+            end
+
+            new_steps = copy(spec.steps)
+            de_form_map = Dict{Symbol, Symbol}()
+
+            # Add binding steps (always RE)
+            binding_step_indices = Int[]
+            for cf in active
+                de_name = _dead_end_form_name(
+                    bound[cf], dummy)
+                de_form_map[cf] = de_name
+                push!(new_steps, StepSpec(
+                    [cf, dummy], [de_name], true))
+                push!(binding_step_indices,
+                    length(new_steps))
+            end
+
+            # Add mirror steps for catalytic steps
+            # whose both endpoints have dead-end forms
+            for s in spec.steps
+                from, to = step_forms(s)
+                haskey(de_form_map, from) || continue
+                haskey(de_form_map, to) || continue
+                met = step_metabolite(s)
+                from_de = de_form_map[from]
+                to_de = de_form_map[to]
+                if met !== nothing
+                    push!(new_steps, StepSpec(
+                        [from_de, met], [to_de],
+                        s.is_equilibrium))
+                else
+                    push!(new_steps, StepSpec(
+                        [from_de], [to_de],
+                        s.is_equilibrium))
+                end
+            end
+
+            # Equivalence constraints: all K's equal
+            new_constraints = copy(
+                spec.param_constraints)
+            if length(binding_step_indices) >= 2
+                first_idx = binding_step_indices[1]
+                for j in 2:length(binding_step_indices)
+                    push!(new_constraints, (
+                        Symbol("K$(binding_step_indices[j])"),
+                        1,
+                        [(Symbol("K$(first_idx)"), 1)]))
+                end
+            end
+
+            push!(result, MechanismSpec(
+                spec.reaction, new_steps,
+                new_constraints,
+                spec.param_count + 1))
+        end
+    end
+    result
+end
+
 """Construct AllostericEnzymeMechanism from AllostericMechanismSpec."""
 function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
     cm = EnzymeMechanism(spec.base)
