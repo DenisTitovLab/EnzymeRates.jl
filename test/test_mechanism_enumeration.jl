@@ -72,6 +72,36 @@ const uni_uni_allo_2reg = @enzyme_reaction begin
     oligomeric_state: 2
 end
 
+"""Collect all mechanisms by running the full enumeration loop."""
+function enumerate_all(
+    @nospecialize(reaction::EnzymeReaction);
+    max_params::Int=20)
+    cache = Dict{Int, Vector{EnzymeRates.AbstractMechanismSpec}}()
+
+    init_specs = EnzymeRates.init_mechanisms(reaction)
+    min_pc = init_specs[1].param_count
+    cache[min_pc] = EnzymeRates.AbstractMechanismSpec[init_specs...]
+    EnzymeRates.dedup!(cache)
+
+    results = Dict{Int, Vector{EnzymeRates.AbstractMechanismSpec}}()
+
+    for pc in min_pc:max_params
+        level = pop!(cache, pc, EnzymeRates.AbstractMechanismSpec[])
+        isempty(level) && (isempty(cache) ? break : continue)
+
+        results[pc] = level
+
+        new_specs = EnzymeRates.expand_mechanisms(level, reaction)
+        for (target_pc, specs) in new_specs
+            target_pc > max_params && continue
+            append!(get!(cache, target_pc,
+                EnzymeRates.AbstractMechanismSpec[]), specs)
+        end
+        EnzymeRates.dedup!(cache)
+    end
+    results
+end
+
 @testset "Mechanism Enumeration" begin
 
 @testset "Types and round-trip" begin
@@ -800,6 +830,71 @@ end
                 end
             end
         end
+    end
+end
+
+@testset "Integration" begin
+    @testset "Uni-uni full enumeration" begin
+        results = enumerate_all(uni_uni_rxn; max_params=8)
+        @test !isempty(results)
+        pcs = sort(collect(keys(results)))
+        @test issorted(pcs)
+        # Every mechanism compiles
+        for (pc, specs) in results
+            for spec in specs
+                if spec isa EnzymeRates.MechanismSpec
+                    m = EnzymeMechanism(spec)
+                    @test length(parameters(m)) <= pc
+                end
+            end
+        end
+    end
+
+    @testset "Bi-bi full enumeration" begin
+        results = enumerate_all(bi_bi_rxn; max_params=10)
+        @test !isempty(results)
+        for (pc, specs) in results
+            for spec in specs
+                if spec isa EnzymeRates.MechanismSpec
+                    m = EnzymeMechanism(spec)
+                    @test length(parameters(m)) <= pc
+                end
+            end
+        end
+    end
+
+    @testset "With allosteric regulators" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+        results = enumerate_all(rxn; max_params=10)
+        has_allo = any(
+            any(s isa EnzymeRates.AllostericMechanismSpec for s in specs)
+            for (_, specs) in results)
+        @test has_allo
+    end
+
+    @testset "With dead-end regulator" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+        end
+        results = enumerate_all(rxn; max_params=8)
+        @test !isempty(results)
+        # Should have more mechanisms than plain uni-uni
+        plain = enumerate_all(uni_uni_rxn; max_params=8)
+        total_with_reg = sum(length(v) for v in values(results))
+        total_plain = sum(length(v) for v in values(plain))
+        @test total_with_reg > total_plain
+    end
+
+    @testset "Multiple levels populated" begin
+        results = enumerate_all(uni_uni_rxn; max_params=8)
+        @test length(results) >= 2  # At least 2 param count levels
     end
 end
 

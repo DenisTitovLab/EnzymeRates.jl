@@ -120,11 +120,12 @@ function _expand_re_to_ss(spec::MechanismSpec)
                      for st in spec.steps]
         new_steps[i] = StepSpec(s.reactants, s.products, false)
 
-        # Propagate SS to dead-end mirror steps
+        # Propagate SS to dead-end mirror steps (skip constrained steps)
         from_form, to_form = step_forms(s)
         for (j, ms) in enumerate(new_steps)
             j == i && continue
             ms.is_equilibrium || continue
+            j in constrained && continue
             mf, mt = step_forms(ms)
             if _is_mirror_of(mf, mt, from_form, to_form, spec.steps)
                 new_steps[j] = StepSpec(ms.reactants, ms.products, false)
@@ -717,14 +718,48 @@ function _step_sort_key(s::StepSpec)
      s.is_equilibrium)
 end
 
+"""Remap a constraint symbol given a step index remapping (old index → new index)."""
+function _remap_constraint_sym(sym::Symbol, idx_map::Dict{Int,Int})
+    s = string(sym)
+    m = match(r"^([Kk])(\d+)(.*)", s)
+    m === nothing && return sym
+    cap_prefix = m.captures[1]
+    cap_idx = m.captures[2]
+    cap_suffix = m.captures[3]
+    (cap_prefix === nothing || cap_idx === nothing ||
+        cap_suffix === nothing) && return sym
+    old_idx = parse(Int, cap_idx)
+    haskey(idx_map, old_idx) || return sym
+    Symbol(cap_prefix, idx_map[old_idx], cap_suffix)
+end
+
 function _canonicalize!(spec::MechanismSpec)
+    # Compute permutation before sorting
+    n = length(spec.steps)
+    perm = sortperm(spec.steps, by=_step_sort_key)
+    # Build old→new index map
+    idx_map = Dict{Int,Int}(perm[new] => new for new in 1:n)
     sort!(spec.steps, by=_step_sort_key)
+    # Update constraint symbols to reflect new step positions
+    for i in eachindex(spec.param_constraints)
+        (target, coeff, followers) = spec.param_constraints[i]
+        new_target = _remap_constraint_sym(target, idx_map)
+        new_followers = [
+            (_remap_constraint_sym(s, idx_map), c)
+            for (s, c) in followers]
+        spec.param_constraints[i] = (new_target, coeff, new_followers)
+    end
     sort!(spec.param_constraints, by=c -> c[1])
-    spec
+    idx_map
 end
 
 function _canonicalize!(spec::AllostericMechanismSpec)
-    _canonicalize!(spec.base)
+    idx_map = _canonicalize!(spec.base)
+    # Remap step indices that refer to base.steps positions
+    map!(i -> get(idx_map, i, i), spec.tr_equiv_cat_steps,
+        spec.tr_equiv_cat_steps)
+    map!(i -> get(idx_map, i, i), spec.r_only_cat_steps,
+        spec.r_only_cat_steps)
     sort!(spec.tr_equiv_metabolites)
     sort!(spec.tr_equiv_cat_steps)
     sort!(spec.r_only_metabolites)
