@@ -1,6 +1,78 @@
 # ABOUTME: Mechanism enumeration by incremental parameter count growth
 # ABOUTME: Provides init_mechanisms, expand_mechanisms, dedup! building blocks
 
+"""
+    init_mechanisms(reaction) -> Vector{MechanismSpec}
+
+Produce all mechanisms at minimum parameter count for a reaction.
+For each catalytic topology: 1 SS step, all K's constrained equal
+per metabolite, all substrate/product dead-end subsets (2^n).
+"""
+function init_mechanisms(
+    @nospecialize(reaction::EnzymeReaction),
+)
+    topos = _catalytic_topologies(reaction)
+    expanded = _expand_substrate_product_dead_ends(
+        topos, reaction)
+
+    n_s = length(substrates(reaction))
+    n_p = length(products(reaction))
+    expected_pc = n_s + n_p + 3
+
+    result = MechanismSpec[]
+    for spec in expanded
+        constraints = _max_equivalence_constraints(spec)
+        push!(result, MechanismSpec(
+            spec.reaction, spec.steps,
+            constraints, expected_pc))
+    end
+    result
+end
+
+"""
+Build equivalence constraints for all groups of steps binding
+the same metabolite with the same RE/SS status. Each group's
+steps beyond the first are constrained to equal the first.
+"""
+function _max_equivalence_constraints(spec::MechanismSpec)
+    # Group step indices by (metabolite, RE/SS)
+    groups = Dict{Tuple{Symbol,Bool}, Vector{Int}}()
+    for (i, s) in enumerate(spec.steps)
+        met = step_metabolite(s)
+        met === nothing && continue
+        key = (met, s.is_equilibrium)
+        push!(get!(groups, key, Int[]), i)
+    end
+
+    constraints = ParamConstraint[]
+    for (_, g) in groups
+        length(g) >= 2 || continue
+        sort!(g)
+        is_re = spec.steps[g[1]].is_equilibrium
+        if is_re
+            for j in 2:length(g)
+                push!(constraints, (
+                    Symbol("K$(g[j])"),
+                    1,
+                    [(Symbol("K$(g[1])"), 1)]
+                ))
+            end
+        else
+            for j in 2:length(g)
+                for sfx in ("f", "r")
+                    push!(constraints, (
+                        Symbol("k$(g[j])$sfx"),
+                        1,
+                        [(Symbol("k$(g[1])$sfx"),
+                          1)]
+                    ))
+                end
+            end
+        end
+    end
+    constraints
+end
+
 """Construct AllostericEnzymeMechanism from AllostericMechanismSpec."""
 function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
     cm = EnzymeMechanism(spec.base)

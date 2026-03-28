@@ -220,4 +220,62 @@ end
     end
 end
 
+@testset "init_mechanisms" begin
+
+    @testset "Param count invariant" begin
+        for (rxn, n_s, n_p) in [
+            (uni_uni_rxn, 1, 1),
+            (uni_bi_rxn, 1, 2),
+            (bi_bi_rxn, 2, 2),
+            (bi_bi_pp_rxn, 2, 2),
+        ]
+            specs = EnzymeRates.init_mechanisms(rxn)
+            expected_pc = n_s + n_p + 3
+            for s in specs
+                @test s.param_count == expected_pc
+            end
+        end
+    end
+
+    @testset "All have exactly 1 SS step" begin
+        for rxn in [uni_uni_rxn, uni_bi_rxn,
+                    bi_bi_rxn, bi_bi_pp_rxn]
+            specs = EnzymeRates.init_mechanisms(rxn)
+            for s in specs
+                @test count(
+                    !st.is_equilibrium
+                    for st in s.steps) == 1
+            end
+        end
+    end
+
+    @testset "Uni-Uni: no dead-end forms" begin
+        specs = EnzymeRates.init_mechanisms(
+            uni_uni_rxn)
+        @test length(specs) == 1
+    end
+
+    @testset "Dead-end counts" begin
+        bi_bi_specs = EnzymeRates.init_mechanisms(
+            bi_bi_rxn)
+        # More than just the 9 topologies
+        @test length(bi_bi_specs) > 9
+
+        pp_specs = EnzymeRates.init_mechanisms(
+            bi_bi_pp_rxn)
+        # More than just the 10 topologies
+        @test length(pp_specs) > 10
+    end
+
+    @testset "All compile correctly" begin
+        for rxn in [uni_uni_rxn, uni_bi_rxn]
+            specs = EnzymeRates.init_mechanisms(rxn)
+            for s in specs
+                m = EnzymeMechanism(s)
+                @test m isa EnzymeMechanism
+            end
+        end
+    end
+end
+
 end # top-level testset
