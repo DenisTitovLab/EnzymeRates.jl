@@ -31,6 +31,21 @@ const uni_uni_rxn = @enzyme_reaction begin
     products: P[C]
 end
 
+const uni_bi_rxn = @enzyme_reaction begin
+    substrates: S[AB]
+    products: P[A], Q[B]
+end
+
+const bi_bi_rxn = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products: P[C], Q[N]
+end
+
+const bi_bi_pp_rxn = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+end
+
 @testset "Mechanism Enumeration" begin
 
 @testset "Types and round-trip" begin
@@ -147,6 +162,62 @@ end
     cat_sites = typeof(m_compiled).parameters[3]
     @test :S in cat_sites[3]   # tr_equiv_mets
     @test :P in cat_sites[6]   # t_only_mets
+end
+
+@testset "Catalytic topologies" begin
+
+    @testset "Uni-Uni" begin
+        topos = EnzymeRates._catalytic_topologies(uni_uni_rxn)
+        @test length(topos) == 1
+
+        m_uu = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        @test EnzymeMechanism(topos[1]) === m_uu
+        for t in topos
+            @test count(
+                !s.is_equilibrium for s in t.steps) == 1
+        end
+    end
+
+    @testset "Uni-Bi" begin
+        topos = EnzymeRates._catalytic_topologies(uni_bi_rxn)
+        @test length(topos) == 3
+        for t in topos
+            @test count(
+                !s.is_equilibrium for s in t.steps) == 1
+            m = EnzymeMechanism(t)
+            @test m isa EnzymeMechanism
+        end
+    end
+
+    @testset "Bi-Bi" begin
+        topos = EnzymeRates._catalytic_topologies(bi_bi_rxn)
+        @test length(topos) == 9
+        for t in topos
+            @test count(
+                !s.is_equilibrium for s in t.steps) == 1
+        end
+    end
+
+    @testset "Bi-Bi Ping-Pong" begin
+        topos = EnzymeRates._catalytic_topologies(
+            bi_bi_pp_rxn)
+        @test length(topos) == 10
+        for t in topos
+            @test count(
+                !s.is_equilibrium for s in t.steps) == 1
+        end
+    end
 end
 
 end # top-level testset
