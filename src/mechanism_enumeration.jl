@@ -570,3 +570,210 @@ function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
     AllostericEnzymeMechanism{
         mets, typeof(cm), cat_sites, reg_sites}()
 end
+
+"""
+    _estimated_param_count(spec) → Int
+
+Compute estimated parameter count for any mechanism spec.
+"""
+_estimated_param_count(spec::MechanismSpec) =
+    spec.param_count
+
+function _estimated_param_count(
+    spec::AllostericMechanismSpec)
+    pc = spec.base.param_count
+    # +1 for L (allosteric constant)
+    pc += 1
+    # +1 per regulator ligand across all sites
+    pc += sum(
+        length(site)
+        for site in spec.allosteric_reg_sites;
+        init=0)
+    # +1 per catalytic metabolite that is independent
+    # in T vs R (not tr_equiv, not r_only, not t_only)
+    sub_names = [s[1] for s in substrates(
+        spec.base.reaction)]
+    prod_names = [p[1] for p in products(
+        spec.base.reaction)]
+    for m in Iterators.flatten((sub_names, prod_names))
+        m in spec.tr_equiv_metabolites && continue
+        m in spec.r_only_metabolites && continue
+        m in spec.t_only_metabolites && continue
+        pc += 1
+    end
+    # +1 per non-binding SS step that is independent
+    for (i, s) in enumerate(spec.base.steps)
+        s.is_equilibrium && continue
+        step_metabolite(s) !== nothing && continue
+        i in spec.tr_equiv_cat_steps && continue
+        i in spec.r_only_cat_steps && continue
+        pc += 1
+    end
+    pc
+end
+
+"""
+    _rewrap_allosteric(original, new_base) → AllostericMechanismSpec
+
+Replace the base of an allosteric spec with a new base,
+preserving all allosteric structure.
+"""
+function _rewrap_allosteric(
+    original::AllostericMechanismSpec,
+    new_base::MechanismSpec)
+    AllostericMechanismSpec(
+        new_base, original.catalytic_n,
+        deepcopy(original.allosteric_reg_sites),
+        copy(original.allosteric_multiplicities),
+        copy(original.tr_equiv_metabolites),
+        copy(original.tr_equiv_cat_steps),
+        copy(original.r_only_metabolites),
+        copy(original.t_only_metabolites),
+        copy(original.r_only_cat_steps))
+end
+
+function _push_to_dict!(
+    result::Dict{Int, Vector{AbstractMechanismSpec}},
+    spec::AbstractMechanismSpec)
+    pc = _estimated_param_count(spec)
+    push!(get!(result, pc, AbstractMechanismSpec[]),
+        spec)
+end
+
+"""
+    expand_mechanisms(specs, reaction) → Dict{Int, Vector{AbstractMechanismSpec}}
+
+Apply all +1 and +2 expansion moves. Results grouped
+by target param_count.
+"""
+function expand_mechanisms(
+    specs::Vector{<:AbstractMechanismSpec},
+    @nospecialize(reaction::EnzymeReaction))
+    result = Dict{Int, Vector{AbstractMechanismSpec}}()
+    for spec in specs
+        _add_expansions!(result, spec, reaction)
+    end
+    result
+end
+
+function _add_expansions!(
+    result::Dict{Int, Vector{AbstractMechanismSpec}},
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction))
+    for s in _expand_re_to_ss(spec)
+        _push_to_dict!(result, s)
+    end
+    for s in _expand_remove_constraint(spec)
+        _push_to_dict!(result, s)
+    end
+    for s in _expand_add_dead_end_regulator(
+            spec, reaction)
+        _push_to_dict!(result, s)
+    end
+    for s in _expand_to_allosteric(spec, reaction)
+        _push_to_dict!(result, s)
+    end
+end
+
+function _add_expansions!(
+    result::Dict{Int, Vector{AbstractMechanismSpec}},
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction))
+    for s in _expand_add_allosteric_regulator(
+            spec, reaction)
+        _push_to_dict!(result, s)
+    end
+    for s in _expand_remove_tr_equiv(spec, reaction)
+        _push_to_dict!(result, s)
+    end
+    # Apply base moves, rewrap
+    for new_base in _expand_re_to_ss(spec.base)
+        _push_to_dict!(result,
+            _rewrap_allosteric(spec, new_base))
+    end
+    for new_base in _expand_remove_constraint(spec.base)
+        _push_to_dict!(result,
+            _rewrap_allosteric(spec, new_base))
+    end
+    # Dead-end regs: exclude allosteric regs
+    allo_regs = Set{Symbol}()
+    for site in spec.allosteric_reg_sites
+        for lig in site
+            push!(allo_regs, lig)
+        end
+    end
+    for new_base in _expand_add_dead_end_regulator(
+            spec.base, reaction;
+            exclude_regs=allo_regs)
+        _push_to_dict!(result,
+            _rewrap_allosteric(spec, new_base))
+    end
+end
+
+# --- Dedup ---
+
+function _step_sort_key(s::StepSpec)
+    (sort(s.reactants), sort(s.products),
+     s.is_equilibrium)
+end
+
+function _canonicalize!(spec::MechanismSpec)
+    sort!(spec.steps, by=_step_sort_key)
+    sort!(spec.param_constraints, by=c -> c[1])
+    spec
+end
+
+function _canonicalize!(spec::AllostericMechanismSpec)
+    _canonicalize!(spec.base)
+    sort!(spec.tr_equiv_metabolites)
+    sort!(spec.tr_equiv_cat_steps)
+    sort!(spec.r_only_metabolites)
+    sort!(spec.t_only_metabolites)
+    sort!(spec.r_only_cat_steps)
+    for site in spec.allosteric_reg_sites
+        sort!(site)
+    end
+    spec
+end
+
+function _dedup_key(spec::MechanismSpec)
+    steps = Tuple(
+        (Tuple(sort(s.reactants)),
+         Tuple(sort(s.products)),
+         s.is_equilibrium)
+        for s in spec.steps)
+    constraints = Tuple(
+        (c[1], c[2], Tuple(c[3]))
+        for c in spec.param_constraints)
+    (steps, constraints)
+end
+
+function _dedup_key(spec::AllostericMechanismSpec)
+    base_key = _dedup_key(spec.base)
+    (base_key, spec.catalytic_n,
+     Tuple(Tuple.(spec.allosteric_reg_sites)),
+     Tuple(spec.allosteric_multiplicities),
+     Tuple(spec.tr_equiv_metabolites),
+     Tuple(spec.tr_equiv_cat_steps),
+     Tuple(spec.r_only_metabolites),
+     Tuple(spec.t_only_metabolites),
+     Tuple(spec.r_only_cat_steps))
+end
+
+"""
+    dedup!(cache) → cache
+
+Remove structural duplicates from each param_count bucket
+via canonical form comparison.
+"""
+function dedup!(
+    cache::Dict{Int, Vector{AbstractMechanismSpec}})
+    for (pc, specs) in cache
+        for s in specs
+            _canonicalize!(s)
+        end
+        unique!(s -> _dedup_key(s), specs)
+        isempty(specs) && delete!(cache, pc)
+    end
+    cache
+end

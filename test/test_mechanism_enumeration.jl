@@ -683,4 +683,124 @@ end
     end
 end
 
+@testset "Dedup" begin
+    @testset "Same mechanism, different step order" begin
+        spec1 = MechanismSpec(
+            uni_uni_rxn,
+            [StepSpec([:E, :S], [:E_S], true),
+             StepSpec([:E, :P], [:E_P], true),
+             StepSpec([:E_S], [:E_P], false)],
+            ParamConstraint[], 5)
+        spec2 = MechanismSpec(
+            uni_uni_rxn,
+            [StepSpec([:E, :P], [:E_P], true),
+             StepSpec([:E_S], [:E_P], false),
+             StepSpec([:E, :S], [:E_S], true)],
+            ParamConstraint[], 5)
+        cache = Dict(5 => AbstractMechanismSpec[spec1, spec2])
+        EnzymeRates.dedup!(cache)
+        @test length(cache[5]) == 1
+    end
+
+    @testset "Different mechanisms preserved" begin
+        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        pc = specs[1].param_count
+        cache = Dict(pc => AbstractMechanismSpec[specs...])
+        EnzymeRates.dedup!(cache)
+        @test length(cache[pc]) >= 1
+        @test length(cache[pc]) <= length(specs)
+    end
+
+    @testset "Idempotent" begin
+        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        pc = specs[1].param_count
+        cache = Dict(pc => AbstractMechanismSpec[specs...])
+        EnzymeRates.dedup!(cache)
+        n1 = length(cache[pc])
+        EnzymeRates.dedup!(cache)
+        @test length(cache[pc]) == n1
+    end
+end
+
+@testset "expand_mechanisms" begin
+    @testset "Returns dict keyed by param count" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
+        result = EnzymeRates.expand_mechanisms(
+            specs, uni_uni_rxn)
+        @test result isa Dict{Int,
+            Vector{AbstractMechanismSpec}}
+        base_pc = specs[1].param_count
+        @test haskey(result, base_pc + 1)
+    end
+
+    @testset "Allosteric expansion included" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        result = EnzymeRates.expand_mechanisms(
+            specs, uni_uni_allo)
+        base_pc = specs[1].param_count
+        has_allo = any(
+            any(s isa AllostericMechanismSpec
+                for s in ss)
+            for (_, ss) in result)
+        @test has_allo
+    end
+
+    @testset "No self-expansion to same param count" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
+        base_pc = specs[1].param_count
+        result = EnzymeRates.expand_mechanisms(
+            specs, uni_uni_rxn)
+        # All results should have param_count > base
+        for (pc, _) in result
+            @test pc > base_pc
+        end
+    end
+
+    @testset "Allosteric rewrap preserves structure" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        allo = first(allo_specs)
+        result = EnzymeRates.expand_mechanisms(
+            [allo], uni_uni_allo)
+        # Should have expansions from base moves (RE→SS)
+        # rewrapped as AllostericMechanismSpec
+        has_rewrapped = any(
+            any(s isa AllostericMechanismSpec
+                for s in ss)
+            for (_, ss) in result)
+        @test has_rewrapped
+    end
+
+    @testset "Dead-end excludes allosteric regs" begin
+        specs = EnzymeRates.init_mechanisms(
+            uni_uni_allo_reg)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo_reg)
+        allo = first(allo_specs)
+        # Add R as allosteric regulator
+        with_reg = first(
+            EnzymeRates._expand_add_allosteric_regulator(
+                allo, uni_uni_allo_reg))
+        result = EnzymeRates.expand_mechanisms(
+            [with_reg], uni_uni_allo_reg)
+        # R should NOT appear as dead-end in any expansion
+        for (_, ss) in result
+            for s in ss
+                base = s isa AllostericMechanismSpec ?
+                    s.base : s
+                for step in base.steps
+                    for sym in Iterators.flatten(
+                            (step.reactants, step.products))
+                        @test !contains(
+                            string(sym), "R__reg")
+                    end
+                end
+            end
+        end
+    end
+end
+
 end # top-level testset
