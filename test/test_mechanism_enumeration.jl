@@ -339,4 +339,29 @@ end
     end
 end
 
+@testset "Move 2: Remove equivalence constraint" begin
+    @testset "Mechanism with constraints" begin
+        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        constrained = filter(
+            s -> !isempty(s.param_constraints), specs)
+        @test !isempty(constrained)
+        spec = first(constrained)
+        n_constraints = length(spec.param_constraints)
+        result = EnzymeRates._expand_remove_constraint(spec)
+        @test length(result) == n_constraints
+        for r in result
+            @test r.param_count == spec.param_count + 1
+            @test length(r.param_constraints) == n_constraints - 1
+        end
+    end
+
+    @testset "No constraints → yields nothing" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
+        spec = first(specs)
+        @test isempty(spec.param_constraints)
+        result = EnzymeRates._expand_remove_constraint(spec)
+        @test isempty(result)
+    end
+end
+
 end # top-level testset

@@ -140,6 +140,27 @@ function _expand_re_to_ss(spec::MechanismSpec)
 end
 
 """
+    _expand_remove_constraint(spec::MechanismSpec) → Vector{MechanismSpec}
+
+Remove one equivalence constraint (+1 estimated param).
+Each removable constraint produces one new mechanism.
+"""
+function _expand_remove_constraint(spec::MechanismSpec)
+    result = MechanismSpec[]
+    for i in eachindex(spec.param_constraints)
+        new_constraints = [
+            spec.param_constraints[j]
+            for j in eachindex(spec.param_constraints)
+            if j != i]
+        push!(result, MechanismSpec(
+            spec.reaction, copy(spec.steps),
+            new_constraints,
+            spec.param_count + 1))
+    end
+    result
+end
+
+"""
     _is_mirror_of(mf, mt, from, to, steps) -> Bool
 
 Check if (mf, mt) is a dead-end mirror of the catalytic step (from, to).
