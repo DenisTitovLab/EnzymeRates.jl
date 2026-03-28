@@ -378,6 +378,151 @@ function _expand_to_allosteric(
     AllostericMechanismSpec[]
 end
 
+"""
+    _expand_add_allosteric_regulator(spec, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Add one allosteric regulator not yet in the mechanism.
+Three flavors (r_only, t_only, tr_equiv) × site options
+(new site or same site as each existing regulator site).
+"""
+function _expand_add_allosteric_regulator(
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    existing_allo = Set{Symbol}()
+    for site in spec.allosteric_reg_sites
+        for lig in site
+            push!(existing_allo, lig)
+        end
+    end
+
+    # Dead-end regulators already in base mechanism
+    existing_de = Set{Symbol}()
+    for s in spec.base.steps
+        for sym in Iterators.flatten(
+                (s.reactants, s.products))
+            m = match(r"^(.+)__reg\d+$", string(sym))
+            m !== nothing &&
+                push!(existing_de, Symbol(m.captures[1]))
+        end
+    end
+
+    roles = regulator_roles(reaction)
+    new_regs = Symbol[]
+    for (name, role) in roles
+        (role == :unknown || role == :allosteric) ||
+            continue
+        name in existing_allo && continue
+        name in existing_de && continue
+        push!(new_regs, name)
+    end
+    sort!(new_regs)
+
+    isempty(new_regs) && return AllostericMechanismSpec[]
+    result = AllostericMechanismSpec[]
+
+    for reg in new_regs
+        n_sites = length(spec.allosteric_reg_sites)
+
+        for mode in (:r_only, :t_only, :tr_equiv)
+            # 0 = new site, 1..n_sites = existing site
+            for site_idx in 0:n_sites
+                new_sites = deepcopy(
+                    spec.allosteric_reg_sites)
+                new_mults = copy(
+                    spec.allosteric_multiplicities)
+                new_tr = copy(spec.tr_equiv_metabolites)
+                new_r = copy(spec.r_only_metabolites)
+                new_t = copy(spec.t_only_metabolites)
+
+                if site_idx == 0
+                    push!(new_sites, Symbol[reg])
+                    push!(new_mults, spec.catalytic_n)
+                else
+                    push!(new_sites[site_idx], reg)
+                end
+
+                if mode == :tr_equiv
+                    push!(new_tr, reg)
+                elseif mode == :r_only
+                    push!(new_r, reg)
+                else
+                    push!(new_t, reg)
+                end
+
+                push!(result, AllostericMechanismSpec(
+                    spec.base, spec.catalytic_n,
+                    new_sites, new_mults,
+                    new_tr,
+                    copy(spec.tr_equiv_cat_steps),
+                    new_r, new_t,
+                    copy(spec.r_only_cat_steps)))
+            end
+        end
+    end
+    result
+end
+
+function _expand_add_allosteric_regulator(
+    ::MechanismSpec,
+    @nospecialize(::EnzymeReaction),
+)
+    AllostericMechanismSpec[]
+end
+
+"""
+    _expand_remove_tr_equiv(spec, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Remove one TR equivalence (metabolite or catalytic step),
+making T-state and R-state parameters independent (+1 param).
+"""
+function _expand_remove_tr_equiv(
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    result = AllostericMechanismSpec[]
+
+    for (i, _) in enumerate(spec.tr_equiv_metabolites)
+        new_equiv = [spec.tr_equiv_metabolites[j]
+            for j in eachindex(spec.tr_equiv_metabolites)
+            if j != i]
+        push!(result, AllostericMechanismSpec(
+            spec.base, spec.catalytic_n,
+            deepcopy(spec.allosteric_reg_sites),
+            copy(spec.allosteric_multiplicities),
+            new_equiv,
+            copy(spec.tr_equiv_cat_steps),
+            copy(spec.r_only_metabolites),
+            copy(spec.t_only_metabolites),
+            copy(spec.r_only_cat_steps)))
+    end
+
+    for (i, _) in enumerate(spec.tr_equiv_cat_steps)
+        new_steps = [spec.tr_equiv_cat_steps[j]
+            for j in eachindex(spec.tr_equiv_cat_steps)
+            if j != i]
+        push!(result, AllostericMechanismSpec(
+            spec.base, spec.catalytic_n,
+            deepcopy(spec.allosteric_reg_sites),
+            copy(spec.allosteric_multiplicities),
+            copy(spec.tr_equiv_metabolites),
+            new_steps,
+            copy(spec.r_only_metabolites),
+            copy(spec.t_only_metabolites),
+            copy(spec.r_only_cat_steps)))
+    end
+    result
+end
+
+function _expand_remove_tr_equiv(
+    ::MechanismSpec,
+    @nospecialize(::EnzymeReaction),
+)
+    AllostericMechanismSpec[]
+end
+
 """Construct AllostericEnzymeMechanism from AllostericMechanismSpec."""
 function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
     cm = EnzymeMechanism(spec.base)

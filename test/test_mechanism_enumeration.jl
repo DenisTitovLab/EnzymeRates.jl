@@ -58,6 +58,20 @@ const uni_uni_allo = @enzyme_reaction begin
     oligomeric_state: 2
 end
 
+const uni_uni_allo_reg = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    allosteric_regulators: R
+    oligomeric_state: 2
+end
+
+const uni_uni_allo_2reg = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    allosteric_regulators: R1, R2
+    oligomeric_state: 2
+end
+
 @testset "Mechanism Enumeration" begin
 
 @testset "Types and round-trip" begin
@@ -581,6 +595,91 @@ end
         for a in allo_specs
             @test sort(a.tr_equiv_cat_steps) == sort(ss_isom)
         end
+    end
+end
+
+@testset "Move 4: Add allosteric regulator" begin
+    @testset "Add regulator to allosteric spec" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo_reg)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo_reg)
+        @test !isempty(allo_specs)
+        allo = first(allo_specs)
+        result = EnzymeRates._expand_add_allosteric_regulator(
+            allo, uni_uni_allo_reg)
+        # R not yet added: 3 flavors × 1 site option
+        # (new site only, no existing reg sites) = 3
+        @test length(result) == 3
+    end
+
+    @testset "Non-allosteric → yields nothing" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo_reg)
+        spec = first(specs)
+        result = EnzymeRates._expand_add_allosteric_regulator(
+            spec, uni_uni_allo_reg)
+        @test isempty(result)
+    end
+
+    @testset "Second regulator with site options" begin
+        specs = EnzymeRates.init_mechanisms(
+            uni_uni_allo_2reg)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo_2reg)
+        allo = first(allo_specs)
+        # Add R1 first
+        r1_added = EnzymeRates._expand_add_allosteric_regulator(
+            allo, uni_uni_allo_2reg)
+        @test !isempty(r1_added)
+        # Now add R2 to one with R1
+        with_r1 = first(r1_added)
+        r2_added = EnzymeRates._expand_add_allosteric_regulator(
+            with_r1, uni_uni_allo_2reg)
+        # R2: 3 flavors × 2 site options
+        # (new site + R1's site) = 6
+        @test length(r2_added) == 6
+    end
+end
+
+@testset "Move 5: Remove TR equivalence" begin
+    @testset "Remove metabolite TR equiv" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        allo = first(allo_specs)
+        n_tr = length(allo.tr_equiv_metabolites) +
+               length(allo.tr_equiv_cat_steps)
+        result = EnzymeRates._expand_remove_tr_equiv(
+            allo, uni_uni_allo)
+        @test length(result) == n_tr
+    end
+
+    @testset "No TR equivs left → yields nothing" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        allo = first(allo_specs)
+        fully_relaxed = allo
+        while true
+            r = EnzymeRates._expand_remove_tr_equiv(
+                fully_relaxed, uni_uni_allo)
+            isempty(r) && break
+            fully_relaxed = first(r)
+        end
+        @test isempty(
+            EnzymeRates._expand_remove_tr_equiv(
+                fully_relaxed, uni_uni_allo))
+    end
+
+    @testset "MechanismSpec → yields nothing" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        result = EnzymeRates._expand_remove_tr_equiv(
+            spec, uni_uni_allo)
+        @test isempty(result)
     end
 end
 
