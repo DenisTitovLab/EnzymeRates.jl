@@ -227,20 +227,26 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
         binding_Ks, rxns, enz_set, free_enz_set,
     )
 
-    # Count TR-equivalent catalytic params among indep_R
-    # (r_only/t_only catalytic params don't affect param count —
-    # they only change rate equation structure, not parameter set)
+    # Count TR-equivalent, r_only, and t_only catalytic params
     n_tr_equiv = 0
+    n_r_only = 0
+    n_t_only = 0
     for p in indep_R
         mode = _classify_catalytic_param(
             p, base, eq_steps, spec)
         if mode == :tr_equiv
             n_tr_equiv += 1
+        elseif mode == :r_only
+            n_r_only += 1
+        elseif mode == :t_only
+            n_t_only += 1
         end
     end
 
-    # T-state indep = base indep minus TR-equiv params
-    indep_T_count = length(indep_R) - n_tr_equiv
+    # R-state indep = base indep minus t_only params
+    indep_R_count = length(indep_R) - n_t_only
+    # T-state indep = base indep minus TR-equiv and r_only params
+    indep_T_count = length(indep_R) - n_tr_equiv - n_r_only
 
     # Reg R-state params: exclude t_only ligands (no R-state binding)
     n_reg_R = sum(
@@ -259,9 +265,9 @@ function _runtime_param_count(spec::AllostericMechanismSpec)
         count(lig -> lig ∈ spec.t_only_metabolites, site)
         for site in spec.allosteric_reg_sites; init=0)
 
-    # Total: base_indep + indep_T + reg_R + reg_T + reg_t_only + L
+    # Total: R_indep + T_indep + reg_R + reg_T + reg_t_only + L
     #        + Keq + E_total
-    length(indep_R) + indep_T_count + n_reg_R + n_reg_T +
+    indep_R_count + indep_T_count + n_reg_R + n_reg_T +
         n_reg_t_only + 1 + 2
 end
 

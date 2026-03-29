@@ -1032,4 +1032,34 @@ end
     end
 end
 
+@testset "r_only params excluded from parameter list" begin
+    specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+    spec = first(specs)
+    allo_specs = EnzymeRates._expand_to_allosteric(
+        spec, uni_uni_allo)
+
+    @testset "K-type: no K_T params for r_only metabolites" begin
+        k_type = first(filter(
+            r -> !isempty(r.r_only_metabolites), allo_specs))
+        m = AllostericEnzymeMechanism(k_type)
+        params = parameters(m)
+        @test length(params) == k_type.param_count
+        t_params = filter(
+            p -> endswith(string(p), "_T"), params)
+        @test isempty(t_params)
+    end
+
+    @testset "V-type: no kf_T/kr_T for r_only cat steps" begin
+        v_type = first(filter(
+            r -> !isempty(r.r_only_cat_steps), allo_specs))
+        m = AllostericEnzymeMechanism(v_type)
+        params = parameters(m)
+        @test length(params) == v_type.param_count
+        t_k_params = filter(
+            p -> contains(string(p), "f_T") ||
+                 contains(string(p), "r_T"), params)
+        @test isempty(t_k_params)
+    end
+end
+
 end # top-level testset
