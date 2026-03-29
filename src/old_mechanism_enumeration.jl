@@ -67,6 +67,7 @@ struct AllostericMechanismSpec <: AbstractMechanismSpec
     r_only_metabolites::Vector{Symbol}
     t_only_metabolites::Vector{Symbol}
     r_only_cat_steps::Vector{Int}
+    param_count::Int
 end
 
 # ─── StepSpec Helpers ──────────────────────────────────────────
@@ -1855,7 +1856,7 @@ function _expand_allosteric(
             push!(result, AllostericMechanismSpec(
                 spec, catalytic_n,
                 Vector{Symbol}[], Int[], Symbol[], Int[],
-                Symbol[], Symbol[], Int[]))
+                Symbol[], Symbol[], Int[], 0))
         end
         return result
     end
@@ -1868,7 +1869,7 @@ function _expand_allosteric(
                 push!(result, AllostericMechanismSpec(
                     spec, catalytic_n, partition,
                     collect(combo), Symbol[], Int[],
-                    Symbol[], Symbol[], Int[]))
+                    Symbol[], Symbol[], Int[], 0))
             end
         end
     end
@@ -1950,7 +1951,7 @@ function _expand_tr_equivalence(
                 spec.allosteric_reg_sites,
                 spec.allosteric_multiplicities,
                 equiv, cat_equiv,
-                r_only, t_only, r_only_cat))
+                r_only, t_only, r_only_cat, 0))
             # Increment mixed-radix counter
             carry = true
             for j in n_steps:-1:1

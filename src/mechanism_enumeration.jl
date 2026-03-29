@@ -366,7 +366,8 @@ function _expand_to_allosteric(
                 spec, cn,
                 Vector{Symbol}[], Int[],
                 tr_equiv, copy(ss_isom_idxs),
-                r_only, t_only, Int[]))
+                r_only, t_only, Int[],
+                spec.param_count + 1))
         end
     end
     result
@@ -458,7 +459,8 @@ function _expand_add_allosteric_regulator(
                     new_tr,
                     copy(spec.tr_equiv_cat_steps),
                     new_r, new_t,
-                    copy(spec.r_only_cat_steps)))
+                    copy(spec.r_only_cat_steps),
+                    spec.param_count + 1))
             end
         end
     end
@@ -497,7 +499,8 @@ function _expand_remove_tr_equiv(
             copy(spec.tr_equiv_cat_steps),
             copy(spec.r_only_metabolites),
             copy(spec.t_only_metabolites),
-            copy(spec.r_only_cat_steps)))
+            copy(spec.r_only_cat_steps),
+            spec.param_count + 1))
     end
 
     for (i, _) in enumerate(spec.tr_equiv_cat_steps)
@@ -512,7 +515,8 @@ function _expand_remove_tr_equiv(
             new_steps,
             copy(spec.r_only_metabolites),
             copy(spec.t_only_metabolites),
-            copy(spec.r_only_cat_steps)))
+            copy(spec.r_only_cat_steps),
+            spec.param_count + 1))
     end
     result
 end
@@ -573,47 +577,6 @@ function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
 end
 
 """
-    _estimated_param_count(spec) → Int
-
-Compute estimated parameter count for any mechanism spec.
-"""
-_estimated_param_count(spec::MechanismSpec) =
-    spec.param_count
-
-function _estimated_param_count(
-    spec::AllostericMechanismSpec)
-    pc = spec.base.param_count
-    # +1 for L (allosteric constant)
-    pc += 1
-    # +1 per regulator ligand across all sites
-    pc += sum(
-        length(site)
-        for site in spec.allosteric_reg_sites;
-        init=0)
-    # +1 per catalytic metabolite that is independent
-    # in T vs R (not tr_equiv, not r_only, not t_only)
-    sub_names = [s[1] for s in substrates(
-        spec.base.reaction)]
-    prod_names = [p[1] for p in products(
-        spec.base.reaction)]
-    for m in Iterators.flatten((sub_names, prod_names))
-        m in spec.tr_equiv_metabolites && continue
-        m in spec.r_only_metabolites && continue
-        m in spec.t_only_metabolites && continue
-        pc += 1
-    end
-    # +1 per non-binding SS step that is independent
-    for (i, s) in enumerate(spec.base.steps)
-        s.is_equilibrium && continue
-        step_metabolite(s) !== nothing && continue
-        i in spec.tr_equiv_cat_steps && continue
-        i in spec.r_only_cat_steps && continue
-        pc += 1
-    end
-    pc
-end
-
-"""
     _rewrap_allosteric(original, new_base) → AllostericMechanismSpec
 
 Replace the base of an allosteric spec with a new base,
@@ -630,15 +593,17 @@ function _rewrap_allosteric(
         copy(original.tr_equiv_cat_steps),
         copy(original.r_only_metabolites),
         copy(original.t_only_metabolites),
-        copy(original.r_only_cat_steps))
+        copy(original.r_only_cat_steps),
+        original.param_count +
+            new_base.param_count -
+            original.base.param_count)
 end
 
 function _push_to_dict!(
     result::Dict{Int, Vector{AbstractMechanismSpec}},
     spec::AbstractMechanismSpec)
-    pc = _estimated_param_count(spec)
-    push!(get!(result, pc, AbstractMechanismSpec[]),
-        spec)
+    push!(get!(result, spec.param_count,
+        AbstractMechanismSpec[]), spec)
 end
 
 """

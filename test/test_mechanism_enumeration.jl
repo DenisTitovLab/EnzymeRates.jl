@@ -143,7 +143,8 @@ end
         base_spec, 2,
         Vector{Symbol}[], Int[],
         Symbol[], Int[],
-        Symbol[], Symbol[], Int[])
+        Symbol[], Symbol[], Int[],
+        base_spec.param_count + 1)
 
     m_compiled = AllostericEnzymeMechanism(allo_spec)
     @test m_compiled isa AllostericEnzymeMechanism
@@ -178,7 +179,8 @@ end
         base_spec, 2,
         [[:A]], [1],
         Symbol[], Int[],
-        Symbol[], Symbol[], Int[])
+        Symbol[], Symbol[], Int[],
+        base_spec.param_count + 2)
 
     m_compiled = AllostericEnzymeMechanism(allo_spec)
     @test m_compiled isa AllostericEnzymeMechanism
@@ -212,7 +214,8 @@ end
         base_spec, 2,
         Vector{Symbol}[], Int[],
         [:S], Int[],
-        Symbol[], [:P], Int[])
+        Symbol[], [:P], Int[],
+        base_spec.param_count + 1)
 
     m_compiled = AllostericEnzymeMechanism(allo_spec)
     cat_sites = typeof(m_compiled).parameters[3]
@@ -556,6 +559,15 @@ end
             @test r isa AllostericMechanismSpec
             @test r.catalytic_n == 2
         end
+    end
+
+    @testset "AllostericMechanismSpec has param_count" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        allo = first(allo_specs)
+        @test allo.param_count == spec.param_count + 1
     end
 
     @testset "Already allosteric → yields nothing" begin

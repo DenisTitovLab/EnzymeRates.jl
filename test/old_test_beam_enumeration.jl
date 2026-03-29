@@ -505,7 +505,7 @@
         allo_full = EnzymeRates.AllostericMechanismSpec(
             spec, 2, [[:R]], [1],
             [:S, :P, :R], [iso_idx],
-            Symbol[], Symbol[], Int[])
+            Symbol[], Symbol[], Int[], 0)
         m_full = EnzymeRates.compile_mechanism(allo_full)
         p_full = parameters(m_full)
         @test length(p_full) - base_pc == 2
@@ -518,7 +518,7 @@
         allo_no_cat = EnzymeRates.AllostericMechanismSpec(
             spec, 2, [[:R]], [1],
             [:S, :P, :R], Int[],
-            Symbol[], Symbol[], Int[])
+            Symbol[], Symbol[], Int[], 0)
         m_no_cat = EnzymeRates.compile_mechanism(allo_no_cat)
         p_no_cat = parameters(m_no_cat)
         @test length(p_no_cat) - base_pc == 3
@@ -531,7 +531,7 @@
         allo_partial_met = EnzymeRates.AllostericMechanismSpec(
             spec, 2, [[:R]], [1],
             [:P, :R], [iso_idx],
-            Symbol[], Symbol[], Int[])
+            Symbol[], Symbol[], Int[], 0)
         m_partial = EnzymeRates.compile_mechanism(allo_partial_met)
         p_partial = parameters(m_partial)
         @test length(p_partial) - base_pc == 3
@@ -544,7 +544,7 @@
         allo_none = EnzymeRates.AllostericMechanismSpec(
             spec, 2, [[:R]], [1],
             Symbol[], Int[],
-            Symbol[], Symbol[], Int[])
+            Symbol[], Symbol[], Int[], 0)
         m_none = EnzymeRates.compile_mechanism(allo_none)
         p_none = parameters(m_none)
         @test length(p_none) - base_pc == 6
@@ -567,7 +567,7 @@
         allo_r_only = EnzymeRates.AllostericMechanismSpec(
             spec, 1, [[:R]], [1],
             [:P, :R], [iso_idx],
-            [:S], Symbol[], Int[])
+            [:S], Symbol[], Int[], 0)
         m_r_only = EnzymeRates.compile_mechanism(allo_r_only)
         p_r_only = parameters(m_r_only)
         @test EnzymeRates._runtime_param_count(allo_r_only) ==
@@ -590,7 +590,7 @@
         allo_t_only = EnzymeRates.AllostericMechanismSpec(
             spec, 1, [[:R]], [1],
             [:P, :R], [iso_idx],
-            Symbol[], [:S], Int[])
+            Symbol[], [:S], Int[], 0)
         m_t_only = EnzymeRates.compile_mechanism(allo_t_only)
         p_t_only = parameters(m_t_only)
         @test EnzymeRates._runtime_param_count(allo_t_only) ==
@@ -609,7 +609,7 @@
         allo_r_only_cat = EnzymeRates.AllostericMechanismSpec(
             spec, 1, [[:R]], [1],
             [:S, :P, :R], Int[],
-            Symbol[], Symbol[], [iso_idx])
+            Symbol[], Symbol[], [iso_idx], 0)
         m_r_only_cat = EnzymeRates.compile_mechanism(allo_r_only_cat)
         p_r_only_cat = parameters(m_r_only_cat)
         @test EnzymeRates._runtime_param_count(
@@ -624,7 +624,7 @@
         allo_r_only_reg = EnzymeRates.AllostericMechanismSpec(
             spec, 1, [[:R]], [1],
             [:S, :P], [iso_idx],
-            [:R], Symbol[], Int[])
+            [:R], Symbol[], Int[], 0)
         m_r_only_reg = EnzymeRates.compile_mechanism(allo_r_only_reg)
         p_r_only_reg = parameters(m_r_only_reg)
         @test EnzymeRates._runtime_param_count(

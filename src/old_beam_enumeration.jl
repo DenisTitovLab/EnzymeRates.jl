@@ -398,7 +398,7 @@ function _expand_remove_tr_equiv!(
             copy(spec.tr_equiv_cat_steps),
             copy(spec.r_only_metabolites),
             copy(spec.t_only_metabolites),
-            copy(spec.r_only_cat_steps)))
+            copy(spec.r_only_cat_steps), 0))
     end
     # Remove one catalytic step TR equivalence
     for (i, idx) in enumerate(spec.tr_equiv_cat_steps)
@@ -414,7 +414,7 @@ function _expand_remove_tr_equiv!(
             new_cat_steps,
             copy(spec.r_only_metabolites),
             copy(spec.t_only_metabolites),
-            copy(spec.r_only_cat_steps)))
+            copy(spec.r_only_cat_steps), 0))
     end
 end
 
@@ -442,7 +442,7 @@ function _expand_base_moves!(
             copy(spec.tr_equiv_cat_steps),
             copy(spec.r_only_metabolites),
             copy(spec.t_only_metabolites),
-            copy(spec.r_only_cat_steps)))
+            copy(spec.r_only_cat_steps), 0))
     end
 end
 
@@ -1449,7 +1449,7 @@ function expand_mechanisms_by_two_params(
                         spec, cn, partition,
                         collect(combo), copy(t_mets),
                         copy(all_ss_steps),
-                        Symbol[], Symbol[], Int[])
+                        Symbol[], Symbol[], Int[], 0)
                     _runtime_param_count(allo) ==
                         base_pc + 2 || continue
                     push!(result, allo)
