@@ -856,6 +856,34 @@ end
         EnzymeRates.dedup!(cache)
         @test length(cache[pc]) == n1
     end
+
+    @testset "Allosteric dedup: site order" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo = first(EnzymeRates._expand_to_allosteric(spec, uni_uni_allo))
+        spec_ab = AllostericMechanismSpec(
+            allo.base, allo.catalytic_n,
+            [[:A], [:B]], [2, 2],
+            copy(allo.tr_equiv_metabolites),
+            copy(allo.tr_equiv_cat_steps),
+            copy(allo.r_only_metabolites),
+            copy(allo.t_only_metabolites),
+            copy(allo.r_only_cat_steps),
+            allo.param_count + 2)
+        spec_ba = AllostericMechanismSpec(
+            allo.base, allo.catalytic_n,
+            [[:B], [:A]], [2, 2],
+            copy(allo.tr_equiv_metabolites),
+            copy(allo.tr_equiv_cat_steps),
+            copy(allo.r_only_metabolites),
+            copy(allo.t_only_metabolites),
+            copy(allo.r_only_cat_steps),
+            allo.param_count + 2)
+        pc = spec_ab.param_count
+        cache = Dict(pc => EnzymeRates.AbstractMechanismSpec[spec_ab, spec_ba])
+        EnzymeRates.dedup!(cache)
+        @test length(cache[pc]) == 1
+    end
 end
 
 @testset "expand_mechanisms" begin

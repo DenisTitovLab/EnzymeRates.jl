@@ -800,6 +800,12 @@ function _canonicalize!(spec::AllostericMechanismSpec)
     for site in spec.allosteric_reg_sites
         sort!(site)
     end
+    # Sort sites themselves (with multiplicities) by content
+    if length(spec.allosteric_reg_sites) >= 2
+        perm = sortperm(spec.allosteric_reg_sites)
+        spec.allosteric_reg_sites .= spec.allosteric_reg_sites[perm]
+        spec.allosteric_multiplicities .= spec.allosteric_multiplicities[perm]
+    end
     spec
 end
 
