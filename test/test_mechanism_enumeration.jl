@@ -547,50 +547,97 @@ end
     end
 end
 
-@testset "Move 6: Allosteric conversion" begin
-    @testset "Non-allosteric → allosteric variants" begin
+@testset "Move 6: Allosteric conversion (+1)" begin
+    @testset "Uni-uni: K-type + V-type" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
         result = EnzymeRates._expand_to_allosteric(
             spec, uni_uni_allo)
-        # S × {r_only, t_only} + P × {r_only, t_only} = 4
-        @test length(result) == 4
+        # K-type: 1×1 = 1, V-type: 1. Total = 2
+        @test length(result) == 2
         for r in result
             @test r isa AllostericMechanismSpec
             @test r.catalytic_n == 2
         end
     end
 
-    @testset "AllostericMechanismSpec has param_count" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+    @testset "Bi-bi: all substrate+product combos" begin
+        bi_bi_allo = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            oligomeric_state: 2
+        end
+        specs = EnzymeRates.init_mechanisms(bi_bi_allo)
         spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        allo = first(allo_specs)
-        @test allo.param_count == spec.param_count + 1
+        result = EnzymeRates._expand_to_allosteric(
+            spec, bi_bi_allo)
+        # K-type: 3×3 = 9, V-type: 1. Total = 10
+        @test length(result) == 10
     end
 
-    @testset "Already allosteric → yields nothing" begin
+    @testset "All are +1 param" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
+        result = EnzymeRates._expand_to_allosteric(
             spec, uni_uni_allo)
-        for a in allo_specs
-            @test isempty(
-                EnzymeRates._expand_to_allosteric(
-                    a, uni_uni_allo))
+        for r in result
+            @test r.param_count == spec.param_count + 1
         end
     end
 
-    @testset "All results compile" begin
+    @testset "K-type: cat steps stay tr_equiv" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
+        result = EnzymeRates._expand_to_allosteric(
             spec, uni_uni_allo)
-        for a in allo_specs
-            m = AllostericEnzymeMechanism(a)
+        k_type = filter(
+            r -> !isempty(r.r_only_metabolites), result)
+        @test !isempty(k_type)
+        for r in k_type
+            @test isempty(r.r_only_cat_steps)
+            @test isempty(r.t_only_metabolites)
+        end
+    end
+
+    @testset "V-type: all metabolites tr_equiv" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        result = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        v_type = filter(
+            r -> !isempty(r.r_only_cat_steps) &&
+                 isempty(r.r_only_metabolites),
+            result)
+        @test length(v_type) == 1
+        sub_names = [s[1] for s in EnzymeRates.substrates(
+            uni_uni_allo)]
+        prod_names = [p[1] for p in EnzymeRates.products(
+            uni_uni_allo)]
+        for r in v_type
+            for m in Symbol[sub_names; prod_names]
+                @test m in r.tr_equiv_metabolites
+            end
+        end
+    end
+
+    @testset "All compile" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        result = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        for r in result
+            m = AllostericEnzymeMechanism(r)
             @test m isa AllostericEnzymeMechanism
         end
+    end
+
+    @testset "Already allosteric → empty" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo = first(EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo))
+        @test isempty(EnzymeRates._expand_to_allosteric(
+            allo, uni_uni_allo))
     end
 
     @testset "oligomeric_state from reaction" begin
@@ -601,41 +648,10 @@ end
         end
         specs = EnzymeRates.init_mechanisms(rxn4)
         spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
+        result = EnzymeRates._expand_to_allosteric(
             spec, rxn4)
-        for a in allo_specs
-            @test a.catalytic_n == 4
-        end
-    end
-
-    @testset "TR-equiv and r/t-only lists" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        for a in allo_specs
-            # Exactly one metabolite is r_only or t_only
-            n_diff = length(a.r_only_metabolites) +
-                     length(a.t_only_metabolites)
-            @test n_diff == 1
-            # The other metabolite is tr_equiv
-            @test length(a.tr_equiv_metabolites) == 1
-            # No allosteric reg sites
-            @test isempty(a.allosteric_reg_sites)
-        end
-    end
-
-    @testset "SS isomerization steps are tr_equiv" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        # The uni-uni mechanism has one SS step (isomerization)
-        ss_isom = [i for (i, s) in enumerate(spec.steps)
-            if !s.is_equilibrium &&
-               EnzymeRates.step_metabolite(s) === nothing]
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        for a in allo_specs
-            @test sort(a.tr_equiv_cat_steps) == sort(ss_isom)
+        for r in result
+            @test r.catalytic_n == 4
         end
     end
 end

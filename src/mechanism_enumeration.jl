@@ -325,58 +325,104 @@ function _expand_add_dead_end_regulator(
 end
 
 """
-    _expand_to_allosteric(spec, reaction) → Vector{AllostericMechanismSpec}
+    _valid_allosteric_differentiations(reaction, spec)
 
-Convert non-allosteric mechanism to allosteric (+2 params):
-L + one metabolite r_only or t_only.
+Enumerate biochemically valid T/R differentiations.
+K-type: ≥1 substrate + ≥1 product absent from T-state.
+V-type: all SS isomerization steps inactive in T-state.
+Only r_only (T is inactive conformation).
 """
-function _expand_to_allosteric(
-    spec::MechanismSpec,
+function _valid_allosteric_differentiations(
     @nospecialize(reaction::EnzymeReaction),
-)
-    cn = oligomeric_state(reaction)
-
-    # Catalytic metabolites (substrates + products)
+    spec::MechanismSpec)
     sub_names = [s[1] for s in substrates(reaction)]
     prod_names = [p[1] for p in products(reaction)]
-    cat_mets = Symbol[sub_names; prod_names]
 
-    # Non-binding SS step indices (isomerization steps)
-    ss_isom_idxs = Int[]
+    ss_isom = Int[]
     for (i, s) in enumerate(spec.steps)
-        if !s.is_equilibrium &&
-                step_metabolite(s) === nothing
-            push!(ss_isom_idxs, i)
+        !s.is_equilibrium &&
+            step_metabolite(s) === nothing &&
+            push!(ss_isom, i)
+    end
+
+    result = @NamedTuple{
+        r_only_mets::Vector{Symbol},
+        r_only_cat_steps::Vector{Int}}[]
+
+    # K-type: non-empty subsets of substrates ×
+    # non-empty subsets of products, all r_only
+    n_s = length(sub_names)
+    n_p = length(prod_names)
+    for s_mask in 1:(1 << n_s) - 1
+        absent_subs = Symbol[sub_names[j]
+            for j in 1:n_s
+            if (s_mask >> (j - 1)) & 1 == 1]
+        for p_mask in 1:(1 << n_p) - 1
+            absent_prods = Symbol[prod_names[j]
+                for j in 1:n_p
+                if (p_mask >> (j - 1)) & 1 == 1]
+            push!(result, (
+                r_only_mets=Symbol[
+                    absent_subs; absent_prods],
+                r_only_cat_steps=Int[]))
         end
     end
 
+    # V-type: all SS isomerization steps r_only
+    if !isempty(ss_isom)
+        push!(result, (r_only_mets=Symbol[],
+            r_only_cat_steps=copy(ss_isom)))
+    end
+
+    result
+end
+
+"""
+    _expand_to_allosteric(spec, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Convert non-allosteric mechanism to allosteric (+1 param
+for L). K-type: ≥1 substrate + ≥1 product absent from
+T-state. V-type: all SS isomerization steps inactive in
+T-state (kf_T=kr_T=0).
+"""
+function _expand_to_allosteric(
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction))
+    cn = oligomeric_state(reaction)
+    sub_names = [s[1] for s in substrates(reaction)]
+    prod_names = [p[1] for p in products(reaction)]
+    all_cat = Symbol[sub_names; prod_names]
+
+    ss_isom = Int[i for (i, s) in enumerate(spec.steps)
+        if !s.is_equilibrium &&
+           step_metabolite(s) === nothing]
+
     result = AllostericMechanismSpec[]
 
-    for diff_met in cat_mets
+    for diff in _valid_allosteric_differentiations(
+            reaction, spec)
+        absent = Set(diff.r_only_mets)
         tr_equiv = Symbol[
-            m for m in cat_mets if m != diff_met]
+            m for m in all_cat if m ∉ absent]
+        tr_steps = Int[i for i in ss_isom
+            if i ∉ diff.r_only_cat_steps]
 
-        for mode in (:r_only, :t_only)
-            r_only = mode == :r_only ?
-                Symbol[diff_met] : Symbol[]
-            t_only = mode == :t_only ?
-                Symbol[diff_met] : Symbol[]
-
-            push!(result, AllostericMechanismSpec(
-                spec, cn,
-                Vector{Symbol}[], Int[],
-                tr_equiv, copy(ss_isom_idxs),
-                r_only, t_only, Int[],
-                spec.param_count + 1))
-        end
+        push!(result, AllostericMechanismSpec(
+            spec, cn,
+            Vector{Symbol}[], Int[],
+            tr_equiv, tr_steps,
+            diff.r_only_mets,
+            Symbol[],  # no t_only metabolites
+            diff.r_only_cat_steps,
+            spec.param_count + 1))
     end
     result
 end
 
 function _expand_to_allosteric(
     ::AllostericMechanismSpec,
-    @nospecialize(::EnzymeReaction),
-)
+    @nospecialize(::EnzymeReaction))
     AllostericMechanismSpec[]
 end
 
