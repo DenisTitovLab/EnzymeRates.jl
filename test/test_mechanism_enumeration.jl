@@ -547,6 +547,38 @@ end
     end
 end
 
+@testset "Regulator dummy naming stability" begin
+    rxn2 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: I, J
+    end
+    specs = EnzymeRates.init_mechanisms(rxn2)
+    spec = first(specs)
+    # Add I first
+    i_specs = EnzymeRates._expand_add_dead_end_regulator(
+        spec, rxn2)
+    with_i = first(filter(i_specs) do s
+        any(contains(string(sym), "I__reg")
+            for st in s.steps
+            for sym in Iterators.flatten(
+                (st.reactants, st.products)))
+    end)
+    # Now add J to a mechanism that already has I
+    j_specs = EnzymeRates._expand_add_dead_end_regulator(
+        with_i, rxn2)
+    # J should use J__reg (no numeric suffix)
+    for s in j_specs
+        j_syms = [sym for st in s.steps
+            for sym in Iterators.flatten(
+                (st.reactants, st.products))
+            if contains(string(sym), "J__reg")]
+        for sym in j_syms
+            @test !contains(string(sym), r"__reg\d")
+        end
+    end
+end
+
 @testset "Move 6: Allosteric conversion (+1)" begin
     @testset "Uni-uni: K-type + V-type" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)

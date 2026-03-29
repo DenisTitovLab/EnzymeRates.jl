@@ -1186,10 +1186,8 @@ function _regulator_dead_end_opportunities(
         # Eligible: neither all subs nor all prods
         (fb_subs == sub_names ||
             fb_prods == prod_names) && continue
-        for (i, reg) in enumerate(
-                sort(dead_end_regs))
-            dummy = Symbol(
-                string(reg) * "__reg" * string(i))
+        for reg in sort(dead_end_regs)
+            dummy = Symbol(string(reg) * "__reg")
             push!(opportunities, (f, dummy))
         end
     end
@@ -2090,7 +2088,7 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
     # Strip __regN suffixes from metabolite names
     function _clean_met(sym::Symbol)
         s = string(sym)
-        m = match(r"^(.+)__reg\d+$", s)
+        m = match(r"^(.+)__reg\d*$", s)
         m !== nothing ? Symbol(m.captures[1]) : sym
     end
 

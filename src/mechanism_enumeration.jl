@@ -240,9 +240,8 @@ function _expand_add_dead_end_regulator(
 
     result = MechanismSpec[]
 
-    for (ri, reg) in enumerate(eligible_regs)
-        dummy = Symbol(
-            string(reg) * "__reg" * string(ri))
+    for reg in eligible_regs
+        dummy = Symbol(string(reg) * "__reg")
 
         # Eligible: neither all subs nor all prods bound
         eligible_forms = Symbol[]
@@ -450,7 +449,7 @@ function _expand_add_allosteric_regulator(
     for s in spec.base.steps
         for sym in Iterators.flatten(
                 (s.reactants, s.products))
-            m = match(r"^(.+)__reg\d+$", string(sym))
+            m = match(r"^(.+)__reg\d*$", string(sym))
             m !== nothing &&
                 push!(existing_de, Symbol(m.captures[1]))
         end

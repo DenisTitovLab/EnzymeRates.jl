@@ -692,7 +692,7 @@
         # used by old pipeline
         function _normalize_met(s::Symbol)
             str = string(s)
-            m = match(r"^(.+)__reg\d+$", str)
+            m = match(r"^(.+)__reg\d*$", str)
             m === nothing ? s : Symbol(m.captures[1])
         end
 
