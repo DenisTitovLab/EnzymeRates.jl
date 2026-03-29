@@ -563,6 +563,28 @@ function _expand_remove_tr_equiv(
             copy(spec.r_only_cat_steps),
             spec.param_count + 1))
     end
+
+    # Remove one r_only cat step → step becomes independent (+1)
+    # Only when no metabolites are r_only/t_only (otherwise
+    # kf_T is unidentifiable — state can't catalyze)
+    if isempty(spec.r_only_metabolites) &&
+            isempty(spec.t_only_metabolites)
+        for (i, _) in enumerate(spec.r_only_cat_steps)
+            new_r_steps = [spec.r_only_cat_steps[j]
+                for j in eachindex(spec.r_only_cat_steps)
+                if j != i]
+            push!(result, AllostericMechanismSpec(
+                spec.base, spec.catalytic_n,
+                deepcopy(spec.allosteric_reg_sites),
+                copy(spec.allosteric_multiplicities),
+                copy(spec.tr_equiv_metabolites),
+                copy(spec.tr_equiv_cat_steps),
+                copy(spec.r_only_metabolites),
+                copy(spec.t_only_metabolites),
+                new_r_steps,
+                spec.param_count + 1))
+        end
+    end
     result
 end
 

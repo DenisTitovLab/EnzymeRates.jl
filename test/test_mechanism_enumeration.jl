@@ -771,6 +771,52 @@ end
             spec, uni_uni_allo)
         @test isempty(result)
     end
+
+    @testset "V-type can remove r_only_cat_step" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        v_type = first(filter(
+            r -> !isempty(r.r_only_cat_steps), allo_specs))
+        @test !isempty(v_type.r_only_cat_steps)
+        result = EnzymeRates._expand_remove_tr_equiv(
+            v_type, uni_uni_allo)
+        step_removals = filter(result) do r
+            length(r.r_only_cat_steps) <
+                length(v_type.r_only_cat_steps)
+        end
+        @test !isempty(step_removals)
+        for r in step_removals
+            @test r.param_count == v_type.param_count + 1
+        end
+    end
+
+    @testset "Blocked when metabolites are r_only" begin
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, uni_uni_allo)
+        k_type = first(filter(
+            r -> !isempty(r.r_only_metabolites), allo_specs))
+        mixed = AllostericMechanismSpec(
+            k_type.base, k_type.catalytic_n,
+            deepcopy(k_type.allosteric_reg_sites),
+            copy(k_type.allosteric_multiplicities),
+            copy(k_type.tr_equiv_metabolites),
+            copy(k_type.tr_equiv_cat_steps),
+            copy(k_type.r_only_metabolites),
+            copy(k_type.t_only_metabolites),
+            [1],  # r_only_cat_steps
+            k_type.param_count)
+        result = EnzymeRates._expand_remove_tr_equiv(
+            mixed, uni_uni_allo)
+        step_removals = filter(result) do r
+            length(r.r_only_cat_steps) <
+                length(mixed.r_only_cat_steps)
+        end
+        @test isempty(step_removals)
+    end
 end
 
 @testset "Dedup" begin
