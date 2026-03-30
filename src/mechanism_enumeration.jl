@@ -520,11 +520,31 @@ function _expand_add_allosteric_regulator(
 end
 
 """
+    _tr_equiv_met_delta(met, steps) → Int
+
+Count how many new T-state independent params are added
+when removing `met` from tr_equiv_metabolites.
+RE binding steps add 1 (K_T), SS binding steps add 2
+(kf_T and kr_T, both independent in T-state).
+"""
+function _tr_equiv_met_delta(met::Symbol, steps::Vector{StepSpec})
+    delta = 0
+    for s in steps
+        step_metabolite(s) === met || continue
+        delta += s.is_equilibrium ? 1 : 2
+    end
+    delta
+end
+
+"""
     _expand_remove_tr_equiv(spec, reaction)
         → Vector{AllostericMechanismSpec}
 
 Remove one TR equivalence (metabolite or catalytic step),
-making T-state and R-state parameters independent (+1 param).
+making T-state and R-state parameters independent.
+RE metabolite removal adds +1; SS metabolite removal adds +2
+(both kf_T and kr_T become independent); catalytic step removal
+adds +1.
 """
 function _expand_remove_tr_equiv(
     spec::AllostericMechanismSpec,
@@ -532,10 +552,11 @@ function _expand_remove_tr_equiv(
 )
     result = AllostericMechanismSpec[]
 
-    for (i, _) in enumerate(spec.tr_equiv_metabolites)
+    for (i, met) in enumerate(spec.tr_equiv_metabolites)
         new_equiv = [spec.tr_equiv_metabolites[j]
             for j in eachindex(spec.tr_equiv_metabolites)
             if j != i]
+        delta = _tr_equiv_met_delta(met, spec.base.steps)
         push!(result, AllostericMechanismSpec(
             spec.base, spec.catalytic_n,
             deepcopy(spec.allosteric_reg_sites),
@@ -545,7 +566,7 @@ function _expand_remove_tr_equiv(
             copy(spec.r_only_metabolites),
             copy(spec.t_only_metabolites),
             copy(spec.r_only_cat_steps),
-            spec.param_count + 1))
+            spec.param_count + delta))
     end
 
     for (i, _) in enumerate(spec.tr_equiv_cat_steps)

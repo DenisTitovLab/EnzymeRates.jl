@@ -974,11 +974,17 @@ end
         pcs = sort(collect(keys(results)))
         @test issorted(pcs)
         # Every mechanism compiles
+        allo_count = 0
         for (pc, specs) in results
             for spec in specs
                 if spec isa EnzymeRates.MechanismSpec
                     m = EnzymeMechanism(spec)
                     @test length(parameters(m)) <= pc
+                elseif spec isa EnzymeRates.AllostericMechanismSpec
+                    allo_count += 1
+                    allo_count > 3 && continue
+                    m = AllostericEnzymeMechanism(spec)
+                    @test length(parameters(m)) <= spec.param_count
                 end
             end
         end
@@ -987,11 +993,17 @@ end
     @testset "Bi-bi full enumeration" begin
         results = enumerate_all(bi_bi_rxn; max_params=10)
         @test !isempty(results)
+        allo_count = 0
         for (pc, specs) in results
             for spec in specs
                 if spec isa EnzymeRates.MechanismSpec
                     m = EnzymeMechanism(spec)
                     @test length(parameters(m)) <= pc
+                elseif spec isa EnzymeRates.AllostericMechanismSpec
+                    allo_count += 1
+                    allo_count > 3 && continue
+                    m = AllostericEnzymeMechanism(spec)
+                    @test length(parameters(m)) <= spec.param_count
                 end
             end
         end
@@ -1009,6 +1021,21 @@ end
             any(s isa EnzymeRates.AllostericMechanismSpec for s in specs)
             for (_, specs) in results)
         @test has_allo
+        # Every mechanism compiles
+        allo_count = 0
+        for (pc, specs) in results
+            for spec in specs
+                if spec isa EnzymeRates.MechanismSpec
+                    m = EnzymeMechanism(spec)
+                    @test length(parameters(m)) <= pc
+                elseif spec isa EnzymeRates.AllostericMechanismSpec
+                    allo_count += 1
+                    allo_count > 3 && continue
+                    m = AllostericEnzymeMechanism(spec)
+                    @test length(parameters(m)) <= spec.param_count
+                end
+            end
+        end
     end
 
     @testset "With dead-end regulator" begin
