@@ -868,6 +868,43 @@ end
             @test r.param_count == pc_before + 1
         end
     end
+
+    @testset "TR equiv removal delta skips constrained follower steps" begin
+        # bi-bi random has 2 binding steps for A with K_follower = K_leader
+        # constraint. Removing TR equiv for A should add +1 (one K_A_T),
+        # not +2 (which would count both binding steps independently).
+        const_bi_bi = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            oligomeric_state: 2
+        end
+        specs = EnzymeRates.init_mechanisms(const_bi_bi)
+        # Find a spec with 2 A-binding steps (constrained equal)
+        two_a = filter(specs) do s
+            length(filter(st -> EnzymeRates.step_metabolite(st) === :A,
+                s.steps)) >= 2
+        end
+        @test !isempty(two_a)
+        spec = first(two_a)
+        allo_specs = EnzymeRates._expand_to_allosteric(
+            spec, const_bi_bi)
+        # Find an allosteric spec with A in tr_equiv_metabolites
+        tr_specs = filter(s -> :A in s.tr_equiv_metabolites, allo_specs)
+        @test !isempty(tr_specs)
+        tr_spec = first(tr_specs)
+        result = EnzymeRates._expand_remove_tr_equiv(
+            tr_spec, const_bi_bi)
+        a_removals = filter(result) do r
+            :A ∉ r.tr_equiv_metabolites &&
+            :A ∉ r.r_only_metabolites &&
+            :A ∉ r.t_only_metabolites
+        end
+        @test !isempty(a_removals)
+        for r in a_removals
+            m = EnzymeRates.compile_mechanism(r)
+            @test length(parameters(m)) == r.param_count
+        end
+    end
 end
 
 @testset "Dedup" begin

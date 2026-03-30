@@ -522,23 +522,32 @@ function _expand_add_allosteric_regulator(
 end
 
 """
-    _tr_equiv_met_delta(met, steps, allosteric_reg_sites) → Int
+    _tr_equiv_met_delta(met, steps, allosteric_reg_sites; param_constraints) → Int
 
 Count how many new T-state independent params are added
 when removing `met` from tr_equiv_metabolites.
 RE binding steps add 1 (K_T), SS binding steps add 2
 (kf_T and kr_T, both independent in T-state).
 Allosteric regulators always add 1 (one K_T per reg site).
+Constrained follower steps (targets of equivalence constraints)
+are skipped since they share parameters with the leader step.
 """
 function _tr_equiv_met_delta(
     met::Symbol, steps::Vector{StepSpec},
-    allosteric_reg_sites::Vector{Vector{Symbol}}=Vector{Symbol}[])
+    allosteric_reg_sites::Vector{Vector{Symbol}}=Vector{Symbol}[];
+    param_constraints::Vector{ParamConstraint}=ParamConstraint[])
     for site in allosteric_reg_sites
         met in site && return 1
     end
+    follower_idxs = Set{Int}()
+    for (target, _, _) in param_constraints
+        idx = _step_index_from_constraint_sym(target)
+        idx !== nothing && push!(follower_idxs, idx)
+    end
     delta = 0
-    for s in steps
+    for (idx, s) in enumerate(steps)
         step_metabolite(s) === met || continue
+        idx in follower_idxs && continue
         delta += s.is_equilibrium ? 1 : 2
     end
     delta
@@ -566,7 +575,8 @@ function _expand_remove_tr_equiv(
             if j != i]
         delta = _tr_equiv_met_delta(
             met, spec.base.steps,
-            spec.allosteric_reg_sites)
+            spec.allosteric_reg_sites;
+            param_constraints=spec.base.param_constraints)
         push!(result, AllostericMechanismSpec(
             spec.base, spec.catalytic_n,
             deepcopy(spec.allosteric_reg_sites),
