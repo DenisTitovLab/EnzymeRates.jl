@@ -446,6 +446,61 @@ end
         result = EnzymeRates._expand_remove_constraint(spec)
         @test isempty(result)
     end
+
+    @testset "SS constraints removed as kf/kr pairs" begin
+        # Build a spec with SS constraints: take a constrained
+        # bi_bi spec, convert the constrained steps (which bind
+        # the same metabolite) to SS, then rebuild constraints.
+        # This produces kf/kr pairs that must be removed together.
+        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        constrained = first(filter(
+            s -> !isempty(s.param_constraints), specs))
+        c_idxs = EnzymeRates._constrained_step_indices(
+            constrained.param_constraints)
+        new_steps = [
+            EnzymeRates.StepSpec(
+                s.reactants, s.products,
+                (i in c_idxs) ? false : s.is_equilibrium)
+            for (i, s) in enumerate(constrained.steps)]
+        ss_spec = EnzymeRates.MechanismSpec(
+            constrained.reaction, new_steps,
+            ParamConstraint[], constrained.param_count)
+        # Rebuild constraints; the SS group gets kf/kr pairs
+        new_constraints = EnzymeRates._max_equivalence_constraints(
+            ss_spec)
+        has_ss_pair = any(
+            endswith(string(c[1]), "f") for c in new_constraints)
+        if has_ss_pair
+            spec_with_ss = EnzymeRates.MechanismSpec(
+                ss_spec.reaction, ss_spec.steps,
+                new_constraints, constrained.param_count)
+            result = EnzymeRates._expand_remove_constraint(
+                spec_with_ss)
+            # Each result must not have an orphaned kf without
+            # its matching kr (or vice versa)
+            for r in result
+                for c in r.param_constraints
+                    s = string(c[1])
+                    if endswith(s, "f")
+                        kr_sym = Symbol(s[1:end-1] * "r")
+                        @test any(
+                            c2[1] == kr_sym
+                            for c2 in r.param_constraints)
+                    elseif endswith(s, "r")
+                        kf_sym = Symbol(s[1:end-1] * "f")
+                        @test any(
+                            c2[1] == kf_sym
+                            for c2 in r.param_constraints)
+                    end
+                end
+            end
+            # param_count delta must be +1 (RE) or +2 (SS pair)
+            for r in result
+                delta = r.param_count - spec_with_ss.param_count
+                @test delta == 1 || delta == 2
+            end
+        end
+    end
 end
 
 @testset "Move 3: Add dead-end regulator" begin

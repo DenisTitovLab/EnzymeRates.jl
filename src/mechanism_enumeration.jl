@@ -145,16 +145,51 @@ end
 """
     _expand_remove_constraint(spec::MechanismSpec) → Vector{MechanismSpec}
 
-Remove one equivalence constraint (+1 estimated param).
-Each removable constraint produces one new mechanism.
+Remove one equivalence constraint group (+1 param for an RE K
+constraint, +2 params for an SS kf/kr pair) per result.
+SS kf and kr constraints for the same step are always paired and
+removed together to avoid biochemically invalid mechanisms where
+forward and reverse rates share a K while the other does not.
 """
 function _expand_remove_constraint(spec::MechanismSpec)
+    n = length(spec.param_constraints)
+    # Identify kf/kr pairs: find each "f"-suffixed constraint
+    # and its matching "r"-suffixed partner.
+    paired = Set{Int}()
+    pairs = Tuple{Int,Int}[]
+    for i in 1:n
+        i in paired && continue
+        target_str = string(spec.param_constraints[i][1])
+        endswith(target_str, "f") || continue
+        kr_sym = Symbol(target_str[1:end-1] * "r")
+        for j in (i+1):n
+            j in paired && continue
+            if spec.param_constraints[j][1] == kr_sym
+                push!(pairs, (i, j))
+                push!(paired, i)
+                push!(paired, j)
+                break
+            end
+        end
+    end
+
     result = MechanismSpec[]
-    for i in eachindex(spec.param_constraints)
+    # Remove each kf/kr pair together (+2 params)
+    for (i, j) in pairs
         new_constraints = [
-            spec.param_constraints[j]
-            for j in eachindex(spec.param_constraints)
-            if j != i]
+            spec.param_constraints[k]
+            for k in 1:n if k != i && k != j]
+        push!(result, MechanismSpec(
+            spec.reaction, copy(spec.steps),
+            new_constraints,
+            spec.param_count + 2))
+    end
+    # Remove each unpaired constraint (+1 param)
+    for i in 1:n
+        i in paired && continue
+        new_constraints = [
+            spec.param_constraints[k]
+            for k in 1:n if k != i]
         push!(result, MechanismSpec(
             spec.reaction, copy(spec.steps),
             new_constraints,
