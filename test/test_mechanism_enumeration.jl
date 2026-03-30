@@ -396,6 +396,31 @@ end
             end
         end
     end
+
+    @testset "Mirror steps count toward param_count delta" begin
+        bi_bi_specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        specs_with_de = filter(
+            s -> length(s.steps) > 9, bi_bi_specs)
+        if !isempty(specs_with_de)
+            spec = first(specs_with_de)
+            if !isempty(spec.param_constraints)
+                spec = first(
+                    EnzymeRates._expand_remove_constraint(spec))
+            end
+            result = EnzymeRates._expand_re_to_ss(spec)
+            for r in result
+                n_converted = count(
+                    !r.steps[i].is_equilibrium &&
+                        spec.steps[i].is_equilibrium
+                    for i in eachindex(r.steps)
+                    if i <= length(spec.steps))
+                if n_converted > 0
+                    @test r.param_count ==
+                        spec.param_count + n_converted
+                end
+            end
+        end
+    end
 end
 
 @testset "Move 2: Remove equivalence constraint" begin

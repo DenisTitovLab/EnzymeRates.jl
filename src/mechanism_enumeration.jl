@@ -122,6 +122,7 @@ function _expand_re_to_ss(spec::MechanismSpec)
 
         # Propagate SS to dead-end mirror steps (skip constrained steps)
         from_form, to_form = step_forms(s)
+        n_mirrors = 0
         for (j, ms) in enumerate(new_steps)
             j == i && continue
             ms.is_equilibrium || continue
@@ -129,13 +130,14 @@ function _expand_re_to_ss(spec::MechanismSpec)
             mf, mt = step_forms(ms)
             if _is_mirror_of(mf, mt, from_form, to_form, spec.steps)
                 new_steps[j] = StepSpec(ms.reactants, ms.products, false)
+                n_mirrors += 1
             end
         end
 
         push!(result, MechanismSpec(
             spec.reaction, new_steps,
             copy(spec.param_constraints),
-            spec.param_count + 1))
+            spec.param_count + 1 + n_mirrors))
     end
     result
 end
