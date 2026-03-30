@@ -1177,4 +1177,80 @@ end
     end
 end
 
+@testset "Metabolite overlap: substrate as dead-end inhibitor" begin
+    rxn_overlap = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S
+    end
+    specs = EnzymeRates.init_mechanisms(rxn_overlap)
+    @test !isempty(specs)
+
+    spec = first(specs)
+    de_specs = EnzymeRates._expand_add_dead_end_regulator(
+        spec, rxn_overlap)
+    @test !isempty(de_specs)
+
+    # S-as-regulator uses __reg suffix
+    for s in de_specs
+        reg_syms = [sym for st in s.steps
+            for sym in Iterators.flatten(
+                (st.reactants, st.products))
+            if contains(string(sym), "S__reg")]
+        @test !isempty(reg_syms)
+    end
+
+    # All compile correctly
+    for s in de_specs
+        m = EnzymeMechanism(s)
+        @test m isa EnzymeMechanism
+    end
+end
+
+@testset "Metabolite overlap: substrate as allosteric regulator" begin
+    rxn_allo_overlap = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: S
+        oligomeric_state: 2
+    end
+    specs = EnzymeRates.init_mechanisms(rxn_allo_overlap)
+    @test !isempty(specs)
+    spec = first(specs)
+
+    # Allosteric conversion works
+    allo_specs = EnzymeRates._expand_to_allosteric(
+        spec, rxn_allo_overlap)
+    @test !isempty(allo_specs)
+
+    # Add S as allosteric regulator
+    allo = first(allo_specs)
+    reg_specs = EnzymeRates._expand_add_allosteric_regulator(
+        allo, rxn_allo_overlap)
+    @test !isempty(reg_specs)
+
+    # S appears in allosteric_reg_sites
+    for r in reg_specs
+        has_s = any(:S in site for site in r.allosteric_reg_sites)
+        @test has_s
+    end
+
+    # All compile correctly
+    for r in reg_specs
+        m = AllostericEnzymeMechanism(r)
+        @test m isa AllostericEnzymeMechanism
+    end
+
+    # TR equiv removal produces separate results for
+    # S-as-substrate and S-as-regulator
+    tr_spec = first(filter(
+        r -> :S in r.tr_equiv_metabolites, reg_specs))
+    result = EnzymeRates._expand_remove_tr_equiv(
+        tr_spec, rxn_allo_overlap)
+    # S as catalytic met and S as regulator are both
+    # in tr_equiv_metabolites. Removing each should
+    # produce separate variants.
+    @test length(result) >= 2
+end
+
 end # top-level testset

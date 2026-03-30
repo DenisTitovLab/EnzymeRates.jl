@@ -137,7 +137,9 @@ function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Varar
         end
     end
     for name in regs
-        met_atoms[name] = Dict{Symbol,Int}()
+        # Don't overwrite existing atom dict (e.g., a metabolite
+        # that also appears as a regulator)
+        haskey(met_atoms, name) || (met_atoms[name] = Dict{Symbol,Int}())
     end
 
     enzyme_atoms = Dict{Symbol,Dict{Symbol,Int}}()

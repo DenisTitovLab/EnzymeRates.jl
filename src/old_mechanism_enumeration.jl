@@ -2082,7 +2082,9 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
     met_set = Set(keys(met_atoms))
     for r in regulators(rxn)
         push!(met_set, r)
-        met_atoms[r] = Dict{Symbol,Int}()
+        # Don't overwrite existing atom dict (e.g., substrate
+        # that also appears as a regulator)
+        haskey(met_atoms, r) || (met_atoms[r] = Dict{Symbol,Int}())
     end
 
     # Strip __regN suffixes from metabolite names
@@ -2178,10 +2180,24 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
         end
     end
 
-    # Build enzyme forms tuple sorted by cleaned name
+    # Build form name → cleaned name mapping, preserving
+    # original name when cleaning would produce a collision
     form_names = sort!(collect(form_set))
+    form_name_map = Dict{Symbol,Symbol}()
+    used_clean = Set{Symbol}()
+    for name in form_names
+        candidate = _clean_met(name)
+        if candidate == name || candidate ∉ used_clean
+            form_name_map[name] = candidate
+            push!(used_clean, candidate)
+        else
+            form_name_map[name] = name
+            push!(used_clean, name)
+        end
+    end
+
     enzymes = Tuple(
-        (_clean_met(name), Tuple(sort!(
+        (form_name_map[name], Tuple(sort!(
             [Tuple(p) for p in form_atoms[name]];
             by=first
         )))
@@ -2195,8 +2211,14 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
 
     reactions = Tuple(
         let r = s.reactants, p = s.products
-            lhs = Tuple(_clean_met(x) for x in r)
-            rhs = Tuple(_clean_met(x) for x in p)
+            lhs = Tuple(
+                haskey(form_name_map, x) ?
+                    form_name_map[x] : _clean_met(x)
+                for x in r)
+            rhs = Tuple(
+                haskey(form_name_map, x) ?
+                    form_name_map[x] : _clean_met(x)
+                for x in p)
             (lhs, rhs)
         end
         for s in spec.steps
