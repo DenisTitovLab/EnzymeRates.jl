@@ -520,14 +520,20 @@ function _expand_add_allosteric_regulator(
 end
 
 """
-    _tr_equiv_met_delta(met, steps) → Int
+    _tr_equiv_met_delta(met, steps, allosteric_reg_sites) → Int
 
 Count how many new T-state independent params are added
 when removing `met` from tr_equiv_metabolites.
 RE binding steps add 1 (K_T), SS binding steps add 2
 (kf_T and kr_T, both independent in T-state).
+Allosteric regulators always add 1 (one K_T per reg site).
 """
-function _tr_equiv_met_delta(met::Symbol, steps::Vector{StepSpec})
+function _tr_equiv_met_delta(
+    met::Symbol, steps::Vector{StepSpec},
+    allosteric_reg_sites::Vector{Vector{Symbol}}=Vector{Symbol}[])
+    for site in allosteric_reg_sites
+        met in site && return 1
+    end
     delta = 0
     for s in steps
         step_metabolite(s) === met || continue
@@ -556,7 +562,9 @@ function _expand_remove_tr_equiv(
         new_equiv = [spec.tr_equiv_metabolites[j]
             for j in eachindex(spec.tr_equiv_metabolites)
             if j != i]
-        delta = _tr_equiv_met_delta(met, spec.base.steps)
+        delta = _tr_equiv_met_delta(
+            met, spec.base.steps,
+            spec.allosteric_reg_sites)
         push!(result, AllostericMechanismSpec(
             spec.base, spec.catalytic_n,
             deepcopy(spec.allosteric_reg_sites),

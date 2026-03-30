@@ -817,6 +817,32 @@ end
         end
         @test isempty(step_removals)
     end
+
+    @testset "TR equiv removal delta for allosteric regulators" begin
+        rxn_r = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+        specs = EnzymeRates.init_mechanisms(rxn_r)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(spec, rxn_r)
+        allo = first(allo_specs)
+        reg_specs = EnzymeRates._expand_add_allosteric_regulator(allo, rxn_r)
+        tr_spec = first(filter(r -> :R in r.tr_equiv_metabolites, reg_specs))
+        pc_before = tr_spec.param_count
+        result = EnzymeRates._expand_remove_tr_equiv(tr_spec, rxn_r)
+        r_removal = filter(result) do r
+            :R ∉ r.tr_equiv_metabolites &&
+            :R ∉ r.r_only_metabolites &&
+            :R ∉ r.t_only_metabolites
+        end
+        @test !isempty(r_removal)
+        for r in r_removal
+            @test r.param_count == pc_before + 1
+        end
+    end
 end
 
 @testset "Dedup" begin
