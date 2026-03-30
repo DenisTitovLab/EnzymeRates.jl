@@ -254,12 +254,15 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `expand_mechanisms(specs, reaction)` → `Dict{Int, Vector{AbstractMechanismSpec}}` keyed by estimated param count. Applies +1 moves (RE→SS, remove constraint, add dead-end regulator, add allosteric regulator, remove TR equiv) and +2 move (allosteric conversion).
 - `dedup!(cache)` → canonicalizes specs (sorted steps/constraints) and removes structural duplicates
 - `MechanismSpec` has 4 fields: `reaction, steps::Vector{StepSpec}, param_constraints::Vector{ParamConstraint}, param_count::Int`
-- `AllostericMechanismSpec` has 9 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, tr_equiv_metabolites, tr_equiv_cat_steps, r_only_metabolites, t_only_metabolites, r_only_cat_steps`
+- `AllostericMechanismSpec` has 10 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, tr_equiv_metabolites, tr_equiv_cat_steps, r_only_metabolites, t_only_metabolites, r_only_cat_steps, param_count`
 - `param_count` is an upper-bound estimate during enumeration; true count comes from `length(parameters(m))` after compilation
 - `oligomeric_state` from `EnzymeReaction` sets `catalytic_n` and all regulator site multiplicities (not enumerated)
 - `EnzymeMechanism(spec::MechanismSpec)` and `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` are type constructors (replace old `compile_mechanism`)
 - Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor
 - T/R equivalence: each metabolite can be `tr_equiv` (K_T=K_R), `r_only` (absent from T-state), `t_only` (absent from R-state), or `both` (independent K_T, K_R). Each non-binding SS step can be `tr_equiv`, `r_only`, or `both`.
+- r_only/t_only params are eliminated from the parameter list (unidentifiable — zeroed in the rate equation polynomial). Haldane is irrelevant when a state can't complete the catalytic cycle.
+- Allosteric conversion is +1 param (just L). Two differentiation modes: K-type (≥1 substrate + ≥1 product r_only, T can't catalyze) and V-type (all catalytic steps r_only, kf_T=kr_T=0). Only r_only variants — T is the inactive conformation.
+- `AllostericMechanismSpec` has 10 fields (9 original + `param_count::Int`). `param_count` is set by construction (+1 per move), not computed from structure.
 - Old pipeline files preserved as `old_mechanism_enumeration.jl`, `old_beam_enumeration.jl`
 
 ## Source Layout
