@@ -264,25 +264,121 @@ end
         @test length(specs) == 1
     end
 
-    @testset "Dead-end counts" begin
-        bi_bi_specs = EnzymeRates.init_mechanisms(
-            bi_bi_rxn)
-        # More than just the 9 topologies
-        @test length(bi_bi_specs) > 9
+    @testset "Dead-end substrate/product expansion" begin
 
-        pp_specs = EnzymeRates.init_mechanisms(
-            bi_bi_pp_rxn)
-        # More than just the 10 topologies
-        @test length(pp_specs) > 10
-    end
-
-    @testset "All compile correctly" begin
-        for rxn in [uni_uni_rxn, uni_bi_rxn]
-            specs = EnzymeRates.init_mechanisms(rxn)
-            for s in specs
-                m = EnzymeMechanism(s)
-                @test m isa EnzymeMechanism
+        @testset "Uni-Uni: no dead-end forms" begin
+            # 3 forms: E, E_S[C], E_P[C]. E_S has all subs,
+            # E_P has all prods. No mixed dead-end possible.
+            # → 0 dead-end forms, 1 variant (bare topology)
+            m = @enzyme_mechanism begin
+                species: begin
+                    substrates: S[C]
+                    products: P[C]
+                    enzymes: E, E_P[C], E_S[C]
+                end
+                steps: begin
+                    [E, P] ⇌ [E_P]
+                    [E, S] ⇌ [E_S]
+                    [E_S] <--> [E_P]
+                end
             end
+            spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
+            @test EnzymeMechanism(spec) === m
+            result =
+                EnzymeRates._expand_substrate_product_dead_ends(
+                    [spec], uni_uni_rxn)
+            @test length(result) == 1
+        end
+
+        @testset "Bi-Bi random: 4 dead-end forms" begin
+            # 7 forms: E, E_A, E_B, E_A_B, E_P, E_Q, E_P_Q
+            # Eligible dead-end forms (mixed sub+prod binding):
+            #   E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
+            #   E_B: +P→E_B_P(mixed✓), +Q→E_B_Q(mixed✓)
+            #   E_P: +A→E_A_P(same), +B→E_B_P(same)
+            #   E_Q: +A→E_A_Q(same), +B→E_B_Q(same)
+            # 4 unique dead-end forms → 2^4 = 16 variants
+            m = @enzyme_mechanism begin
+                species: begin
+                    substrates: A[C], B[N]
+                    products: P[C], Q[N]
+                    enzymes: E, E_A[C], E_A_B[CN],
+                        E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
+                end
+                steps: begin
+                    [E, A] ⇌ [E_A]
+                    [E_B, A] ⇌ [E_A_B]
+                    [E, B] ⇌ [E_B]
+                    [E_A, B] ⇌ [E_A_B]
+                    [E, P] ⇌ [E_P]
+                    [E_P, Q] ⇌ [E_P_Q]
+                    [E, Q] ⇌ [E_Q]
+                    [E_Q, P] ⇌ [E_P_Q]
+                    [E_A_B] <--> [E_P_Q]
+                end
+            end
+            spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
+            @test EnzymeMechanism(spec) === m
+            result =
+                EnzymeRates._expand_substrate_product_dead_ends(
+                    [spec], bi_bi_rxn)
+            @test length(result) == 16
+        end
+
+        @testset "Uni-Bi ordered: no dead-end forms" begin
+            # 4 forms: E, E_S, E_P_Q, E_Q
+            # E+P→E_P: single-product → rejected (need mixed)
+            # E_Q+S→E_S_Q: has all subs → rejected
+            # → 0 dead-end forms, 1 variant
+            m = @enzyme_mechanism begin
+                species: begin
+                    substrates: S[AB]
+                    products: P[A], Q[B]
+                    enzymes: E, E_P_Q[AB], E_Q[B], E_S[AB]
+                end
+                steps: begin
+                    [E, Q] ⇌ [E_Q]
+                    [E_Q, P] ⇌ [E_P_Q]
+                    [E, S] ⇌ [E_S]
+                    [E_S] <--> [E_P_Q]
+                end
+            end
+            spec = mechanism_spec_from_mechanism(m, uni_bi_rxn)
+            @test EnzymeMechanism(spec) === m
+            result =
+                EnzymeRates._expand_substrate_product_dead_ends(
+                    [spec], uni_bi_rxn)
+            @test length(result) == 1
+        end
+
+        @testset "Bi-Bi Ping-Pong: 3 dead-end forms" begin
+            # Forms: E, E_A, Estar, Estar_A_P, Estar_B, E_Q
+            # E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
+            # E_Q: +B→E_B_Q(mixed✓)
+            # 3 dead-end forms → 2^3 = 8 variants
+            m = @enzyme_mechanism begin
+                species: begin
+                    substrates: A[CX], B[N]
+                    products: P[C], Q[NX]
+                    enzymes: E, E_A[CX], E_Q[NX],
+                        Estar[X], Estar_A_P[CX], Estar_B[NX]
+                end
+                steps: begin
+                    [E, A] ⇌ [E_A]
+                    [Estar, B] ⇌ [Estar_B]
+                    [E, Q] ⇌ [E_Q]
+                    [Estar, P] ⇌ [Estar_A_P]
+                    [E_A] <--> [Estar_A_P]
+                    [Estar_B] ⇌ [E_Q]
+                end
+            end
+            spec = mechanism_spec_from_mechanism(
+                m, bi_bi_pp_rxn)
+            @test EnzymeMechanism(spec) === m
+            result =
+                EnzymeRates._expand_substrate_product_dead_ends(
+                    [spec], bi_bi_pp_rxn)
+            @test length(result) == 8
         end
     end
 end
