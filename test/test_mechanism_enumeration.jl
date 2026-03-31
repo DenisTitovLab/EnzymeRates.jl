@@ -1308,4 +1308,112 @@ end
     @test length(result) >= 2
 end
 
+@testset "Base-level moves on allosteric specs" begin
+    m_uu = @enzyme_mechanism begin
+        species: begin
+            substrates: S[C]
+            products: P[C]
+            enzymes: E, E_P[C], E_S[C]
+        end
+        steps: begin
+            [E, P] ⇌ [E_P]
+            [E, S] ⇌ [E_S]
+            [E_S] <--> [E_P]
+        end
+    end
+    spec = mechanism_spec_from_mechanism(m_uu, uni_uni_allo)
+    @test EnzymeMechanism(spec) === m_uu
+    allo_specs = EnzymeRates._expand_to_allosteric(
+        spec, uni_uni_allo)
+    allo = first(allo_specs)
+
+    @testset "RE→SS on allosteric" begin
+        result = EnzymeRates._expand_re_to_ss(allo)
+        @test !isempty(result)
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanismSpec
+            @test r.catalytic_n == allo.catalytic_n
+            @test r.allosteric_reg_sites ==
+                allo.allosteric_reg_sites
+            @test r.r_only_metabolites ==
+                allo.r_only_metabolites
+            @test r.param_count > allo.param_count
+        end
+    end
+
+    @testset "Remove constraint on allosteric" begin
+        m_bb = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        bi_bi_allo_rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            oligomeric_state: 2
+        end
+        bb_spec = mechanism_spec_from_mechanism(
+            m_bb, bi_bi_allo_rxn)
+        @test EnzymeMechanism(bb_spec) === m_bb
+        bb_spec_c = EnzymeRates.MechanismSpec(
+            bb_spec.reaction, bb_spec.steps,
+            EnzymeRates._max_equivalence_constraints(
+                bb_spec),
+            bb_spec.param_count)
+        bb_allo = first(
+            EnzymeRates._expand_to_allosteric(
+                bb_spec_c, bi_bi_allo_rxn))
+        @test !isempty(bb_allo.base.param_constraints)
+        result = EnzymeRates._expand_remove_constraint(
+            bb_allo)
+        @test !isempty(result)
+        for r in result
+            @test r isa
+                EnzymeRates.AllostericMechanismSpec
+            @test r.catalytic_n == bb_allo.catalytic_n
+            @test r.r_only_metabolites ==
+                bb_allo.r_only_metabolites
+        end
+    end
+
+    @testset "Add dead-end reg on allosteric" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+            oligomeric_state: 2
+        end
+        spec_i = mechanism_spec_from_mechanism(
+            m_uu, rxn)
+        allo_i = first(
+            EnzymeRates._expand_to_allosteric(
+                spec_i, rxn))
+        result =
+            EnzymeRates._expand_add_dead_end_regulator(
+                allo_i, rxn)
+        @test !isempty(result)
+        for r in result
+            @test r isa
+                EnzymeRates.AllostericMechanismSpec
+            @test r.catalytic_n == allo_i.catalytic_n
+            @test r.r_only_metabolites ==
+                allo_i.r_only_metabolites
+        end
+    end
+end
+
 end # top-level testset

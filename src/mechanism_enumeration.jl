@@ -360,6 +360,34 @@ function _expand_add_dead_end_regulator(
     result
 end
 
+function _expand_re_to_ss(spec::AllostericMechanismSpec)
+    [_rewrap_allosteric(spec, new_base)
+     for new_base in _expand_re_to_ss(spec.base)]
+end
+
+function _expand_remove_constraint(
+    spec::AllostericMechanismSpec)
+    [_rewrap_allosteric(spec, new_base)
+     for new_base in _expand_remove_constraint(spec.base)]
+end
+
+function _expand_add_dead_end_regulator(
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction);
+    exclude_regs::Set{Symbol}=Set{Symbol}())
+    allo_regs = Set{Symbol}()
+    for site in spec.allosteric_reg_sites
+        for lig in site
+            push!(allo_regs, lig)
+        end
+    end
+    all_excluded = union(exclude_regs, allo_regs)
+    [_rewrap_allosteric(spec, new_base)
+     for new_base in _expand_add_dead_end_regulator(
+         spec.base, reaction;
+         exclude_regs=all_excluded)]
+end
+
 """
     _valid_allosteric_differentiations(reaction, spec)
 
@@ -767,7 +795,7 @@ end
 
 function _add_expansions!(
     result::Dict{Int, Vector{AbstractMechanismSpec}},
-    spec::MechanismSpec,
+    spec::AbstractMechanismSpec,
     @nospecialize(reaction::EnzymeReaction))
     for s in _expand_re_to_ss(spec)
         _push_to_dict!(result, s)
@@ -782,40 +810,12 @@ function _add_expansions!(
     for s in _expand_to_allosteric(spec, reaction)
         _push_to_dict!(result, s)
     end
-end
-
-function _add_expansions!(
-    result::Dict{Int, Vector{AbstractMechanismSpec}},
-    spec::AllostericMechanismSpec,
-    @nospecialize(reaction::EnzymeReaction))
     for s in _expand_add_allosteric_regulator(
             spec, reaction)
         _push_to_dict!(result, s)
     end
     for s in _expand_remove_tr_equiv(spec, reaction)
         _push_to_dict!(result, s)
-    end
-    # Apply base moves, rewrap
-    for new_base in _expand_re_to_ss(spec.base)
-        _push_to_dict!(result,
-            _rewrap_allosteric(spec, new_base))
-    end
-    for new_base in _expand_remove_constraint(spec.base)
-        _push_to_dict!(result,
-            _rewrap_allosteric(spec, new_base))
-    end
-    # Dead-end regs: exclude allosteric regs
-    allo_regs = Set{Symbol}()
-    for site in spec.allosteric_reg_sites
-        for lig in site
-            push!(allo_regs, lig)
-        end
-    end
-    for new_base in _expand_add_dead_end_regulator(
-            spec.base, reaction;
-            exclude_regs=allo_regs)
-        _push_to_dict!(result,
-            _rewrap_allosteric(spec, new_base))
     end
 end
 
