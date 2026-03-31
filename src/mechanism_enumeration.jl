@@ -1,11 +1,102 @@
 # ABOUTME: Mechanism enumeration by incremental parameter count growth
 # ABOUTME: Provides init_mechanisms, expand_mechanisms, dedup! building blocks
 
-# Types (ParamConstraint, AbstractMechanismSpec, StepSpec,
-# MechanismSpec, AllostericMechanismSpec) and their basic
-# methods (==, hash, step_metabolite, step_forms,
-# all_form_names) are defined in old_mechanism_enumeration.jl
-# and will be moved here in Task 3.
+# ─── Data Types ─────────────────────────────────────────────
+
+"""
+Constraint on kinetic parameters: target parameter equals a linear
+combination of source parameters.
+Format: `(target_sym, coeff, [(src_sym, src_coeff), ...])`.
+"""
+const ParamConstraint = Tuple{Symbol, Int, Vector{Tuple{Symbol, Int}}}
+
+# ─── Mechanism Spec Types ──────────────────────────────────────
+
+abstract type AbstractMechanismSpec end
+
+"""Elementary step in canonical binding direction (metabolite on LHS)."""
+struct StepSpec
+    reactants::Vector{Symbol}   # [:E, :S] or [:EAB]
+    products::Vector{Symbol}    # [:ES] or [:EPQ]
+    is_equilibrium::Bool
+end
+
+Base.:(==)(a::StepSpec, b::StepSpec) =
+    a.reactants == b.reactants &&
+    a.products == b.products &&
+    a.is_equilibrium == b.is_equilibrium
+
+Base.hash(s::StepSpec, h::UInt) =
+    hash(s.is_equilibrium,
+        hash(s.products, hash(s.reactants, h)))
+
+"""
+    MechanismSpec <: AbstractMechanismSpec
+
+Represents a monomeric enzyme mechanism specification in the
+staged enumeration pipeline. Steps are `StepSpec` values with
+inline form names and equilibrium status.
+"""
+struct MechanismSpec <: AbstractMechanismSpec
+    reaction::Any
+    steps::Vector{StepSpec}
+    param_constraints::Vector{ParamConstraint}
+    param_count::Int
+end
+
+"""
+    AllostericMechanismSpec <: AbstractMechanismSpec
+
+Represents an allosteric enzyme mechanism built from a
+base `MechanismSpec` plus allosteric site and multiplicity info.
+`tr_equiv_metabolites` lists metabolites with K_T = K_R.
+`tr_equiv_cat_steps` lists indices of non-binding SS steps
+with kf_T = kf_R (catalytic step TR equivalence).
+`r_only_metabolites` lists metabolites absent from T-state (K_T = ∞).
+`t_only_metabolites` lists metabolites absent from R-state (K_R = ∞).
+`r_only_cat_steps` lists non-binding SS step indices where T-state
+doesn't catalyze (kf_T = 0).
+"""
+struct AllostericMechanismSpec <: AbstractMechanismSpec
+    base::MechanismSpec
+    catalytic_n::Int
+    allosteric_reg_sites::Vector{Vector{Symbol}}
+    allosteric_multiplicities::Vector{Int}
+    tr_equiv_metabolites::Vector{Symbol}
+    tr_equiv_cat_steps::Vector{Int}
+    r_only_metabolites::Vector{Symbol}
+    t_only_metabolites::Vector{Symbol}
+    r_only_cat_steps::Vector{Int}
+    param_count::Int
+end
+
+# ─── StepSpec Helpers ──────────────────────────────────────────
+
+"""Return the metabolite for a step, or nothing for isomerization."""
+step_metabolite(s::StepSpec) =
+    length(s.reactants) == 2 ? s.reactants[2] : nothing
+
+"""Return (from_form, to_form) for a step."""
+step_forms(s::StepSpec) = (s.reactants[1], s.products[1])
+
+"""Collect all unique form names from steps."""
+function all_form_names(spec::MechanismSpec)
+    forms = Set{Symbol}()
+    for s in spec.steps
+        push!(forms, s.reactants[1])
+        push!(forms, s.products[1])
+    end
+    forms
+end
+
+function all_form_names(steps::Vector{StepSpec})
+    forms = Set{Symbol}()
+    for s in steps
+        push!(forms, s.reactants[1])
+        push!(forms, s.products[1])
+    end
+    forms
+end
 
 # ─── Stage 1: Catalytic Topologies ───────────────────────────
 
@@ -767,6 +858,18 @@ end
 """Construct EnzymeMechanism from MechanismSpec."""
 EnzymeMechanism(spec::MechanismSpec) =
     _compile_enzyme_mechanism(spec)
+
+"""
+    compile_mechanism(spec::MechanismSpec)
+    compile_mechanism(spec::AllostericMechanismSpec)
+
+Convert a `MechanismSpec` to an `EnzymeMechanism`, or an
+`AllostericMechanismSpec` to an `AllostericEnzymeMechanism`.
+"""
+compile_mechanism(spec::MechanismSpec) =
+    EnzymeMechanism(spec)
+compile_mechanism(spec::AllostericMechanismSpec) =
+    AllostericEnzymeMechanism(spec)
 
 function _compile_enzyme_mechanism(spec::MechanismSpec)
     rxn = spec.reaction

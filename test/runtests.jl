@@ -11,8 +11,6 @@ include("mechanism_definitions_for_test_enzyme_derivation.jl")
     include("test_sym_poly.jl")
     include("test_enzyme_derivation.jl")
     include("test_fitting.jl")
-    include("old_test_mechanism_enumeration.jl")
-    include("old_test_beam_enumeration.jl")
     include("test_mechanism_enumeration.jl")
     include("test_aqua_jet.jl")
 end
