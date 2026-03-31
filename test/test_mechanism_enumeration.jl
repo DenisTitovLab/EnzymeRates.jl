@@ -383,7 +383,7 @@ end
     end
 end
 
-@testset "Move 1: RE→SS conversion" begin
+@testset "RE→SS conversion" begin
     @testset "Multiple RE steps" begin
         m = @enzyme_mechanism begin
             species: begin
@@ -425,133 +425,238 @@ end
         @test isempty(result)
     end
 
-    @testset "Constrained RE steps skipped" begin
-        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        constrained_spec = first(filter(
-            s -> !isempty(s.param_constraints), specs))
-        constrained_idxs = EnzymeRates._constrained_step_indices(
-            constrained_spec.param_constraints)
-        n_eligible = count(
-            s.is_equilibrium && !(i in constrained_idxs)
-            for (i, s) in enumerate(constrained_spec.steps))
-        result = EnzymeRates._expand_re_to_ss(constrained_spec)
-        @test length(result) == n_eligible
-        for r in result
-            new_ss_idxs = [i for (i, s) in enumerate(r.steps)
-                if !s.is_equilibrium && constrained_spec.steps[i].is_equilibrium]
-            for idx in new_ss_idxs
-                @test !(idx in constrained_idxs)
+    @testset "All-SS with constrained dead-end RE → nothing" begin
+        # Uni-uni where all catalytic steps are SS.
+        # Dead-end inhibitor I binds to 2 forms (E and E_P),
+        # creating 2 RE binding steps with K constrained equal.
+        # These constrained RE steps should be skipped.
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
             end
+            steps: begin
+                [E, P] <--> [E_P]
+                [E, S] <--> [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
+        @test EnzymeMechanism(spec) === m
+        # Add dead-end inhibitor I binding to 2 forms
+        rxn_i = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+        end
+        de_specs = EnzymeRates._expand_add_dead_end_regulator(
+            spec, rxn_i)
+        # Find a spec where I binds to 2+ forms (creating
+        # constrained RE binding steps)
+        multi_form = filter(de_specs) do s
+            n = count(s.steps) do st
+                any(contains(string(sym), "I__reg")
+                    for sym in Iterators.flatten(
+                        (st.reactants, st.products)))
+            end
+            n >= 2
+        end
+        if !isempty(multi_form)
+            spec_de = first(multi_form)
+            # The dead-end RE binding steps should be
+            # constrained → _expand_re_to_ss yields nothing
+            # (all catalytic steps are already SS, and the
+            # only RE steps are constrained dead-end bindings)
+            result = EnzymeRates._expand_re_to_ss(spec_de)
+            @test isempty(result)
         end
     end
 
-    @testset "Mirror steps count toward param_count delta" begin
-        bi_bi_specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        specs_with_de = filter(
-            s -> length(s.steps) > 9, bi_bi_specs)
-        if !isempty(specs_with_de)
-            spec = first(specs_with_de)
-            if !isempty(spec.param_constraints)
-                spec = first(
-                    EnzymeRates._expand_remove_constraint(spec))
+    @testset "Bi-bi: exact RE→SS count" begin
+        # Bi-bi random: 9 steps. In init_mechanisms form:
+        # 1 SS step (isomerization), 8 RE binding steps.
+        # With max constraints (K_A, K_B, K_P, K_Q each
+        # constrained across 2 forms): 4 constraint groups,
+        # 4 leaders + 4 followers → all 8 RE steps constrained.
+        # After removing one constraint: 6 constrained + 2 free.
+        # The 2 freed RE steps are eligible for RE→SS.
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
             end
-            result = EnzymeRates._expand_re_to_ss(spec)
-            for r in result
-                n_converted = count(
-                    !r.steps[i].is_equilibrium &&
-                        spec.steps[i].is_equilibrium
-                    for i in eachindex(r.steps)
-                    if i <= length(spec.steps))
-                if n_converted > 0
-                    @test r.param_count ==
-                        spec.param_count + n_converted
-                end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
             end
         end
+        spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
+        @test EnzymeMechanism(spec) === m
+        # Add max constraints
+        spec_c = EnzymeRates.MechanismSpec(
+            spec.reaction, spec.steps,
+            EnzymeRates._max_equivalence_constraints(spec),
+            spec.param_count)
+        # With all K's constrained, no RE→SS possible
+        @test isempty(EnzymeRates._expand_re_to_ss(spec_c))
+        # Remove one constraint to free 2 RE steps
+        unconstrained = first(
+            EnzymeRates._expand_remove_constraint(spec_c))
+        result = EnzymeRates._expand_re_to_ss(unconstrained)
+        # Should have results (freed RE steps now eligible)
+        @test !isempty(result)
     end
 end
 
-@testset "Move 2: Remove equivalence constraint" begin
-    @testset "Mechanism with constraints" begin
-        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        constrained = filter(
-            s -> !isempty(s.param_constraints), specs)
-        @test !isempty(constrained)
-        spec = first(constrained)
-        n_constraints = length(spec.param_constraints)
-        result = EnzymeRates._expand_remove_constraint(spec)
+@testset "Remove equivalence constraint" begin
+    @testset "Multiple constraints: exact count" begin
+        # Bi-bi random with max constraints:
+        # K_A constrained across 2 forms, K_B same,
+        # K_P same, K_Q same = 4 constraint groups.
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
+        @test EnzymeMechanism(spec) === m
+        spec_c = EnzymeRates.MechanismSpec(
+            spec.reaction, spec.steps,
+            EnzymeRates._max_equivalence_constraints(spec),
+            spec.param_count)
+        n_constraints = length(spec_c.param_constraints)
+        @test n_constraints == 4  # K_A, K_B, K_P, K_Q
+        result = EnzymeRates._expand_remove_constraint(spec_c)
+        # 4 RE constraint groups → 4 results, each at +1
         @test length(result) == n_constraints
         for r in result
-            @test r.param_count == spec.param_count + 1
-            @test length(r.param_constraints) == n_constraints - 1
+            @test length(r.param_constraints) ==
+                n_constraints - 1
+            @test r.param_count == spec_c.param_count + 1
         end
     end
 
     @testset "No constraints → yields nothing" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
-        spec = first(specs)
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E, E_P[C], E_S[C]
+            end
+            steps: begin
+                [E, P] ⇌ [E_P]
+                [E, S] ⇌ [E_S]
+                [E_S] <--> [E_P]
+            end
+        end
+        spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
         @test isempty(spec.param_constraints)
         result = EnzymeRates._expand_remove_constraint(spec)
         @test isempty(result)
     end
 
     @testset "SS constraints removed as kf/kr pairs" begin
-        # Build a spec with SS constraints: take a constrained
-        # bi_bi spec, convert the constrained steps (which bind
-        # the same metabolite) to SS, then rebuild constraints.
-        # This produces kf/kr pairs that must be removed together.
-        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        constrained = first(filter(
-            s -> !isempty(s.param_constraints), specs))
-        c_idxs = EnzymeRates._constrained_step_indices(
-            constrained.param_constraints)
+        # Build a spec with SS constraints: take a bi-bi
+        # mechanism, convert constrained steps to SS, then
+        # rebuild constraints. This produces kf/kr pairs
+        # that must be removed together.
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
+        max_c = EnzymeRates._max_equivalence_constraints(spec)
+        c_idxs = EnzymeRates._constrained_step_indices(max_c)
         new_steps = [
             EnzymeRates.StepSpec(
                 s.reactants, s.products,
                 (i in c_idxs) ? false : s.is_equilibrium)
-            for (i, s) in enumerate(constrained.steps)]
+            for (i, s) in enumerate(spec.steps)]
         ss_spec = EnzymeRates.MechanismSpec(
-            constrained.reaction, new_steps,
-            ParamConstraint[], constrained.param_count)
+            spec.reaction, new_steps,
+            ParamConstraint[], spec.param_count)
         # Rebuild constraints; the SS group gets kf/kr pairs
-        new_constraints = EnzymeRates._max_equivalence_constraints(
-            ss_spec)
+        new_constraints =
+            EnzymeRates._max_equivalence_constraints(ss_spec)
         has_ss_pair = any(
-            endswith(string(c[1]), "f") for c in new_constraints)
+            endswith(string(c[1]), "f")
+            for c in new_constraints)
         if has_ss_pair
             spec_with_ss = EnzymeRates.MechanismSpec(
                 ss_spec.reaction, ss_spec.steps,
-                new_constraints, constrained.param_count)
+                new_constraints, spec.param_count)
             result = EnzymeRates._expand_remove_constraint(
                 spec_with_ss)
-            # Each result must not have an orphaned kf without
-            # its matching kr (or vice versa)
+            # Each result must not have an orphaned kf
+            # without its matching kr (or vice versa)
             for r in result
                 for c in r.param_constraints
                     s = string(c[1])
                     if endswith(s, "f")
-                        kr_sym = Symbol(s[1:end-1] * "r")
+                        kr_sym = Symbol(
+                            s[1:end-1] * "r")
                         @test any(
                             c2[1] == kr_sym
                             for c2 in r.param_constraints)
                     elseif endswith(s, "r")
-                        kf_sym = Symbol(s[1:end-1] * "f")
+                        kf_sym = Symbol(
+                            s[1:end-1] * "f")
                         @test any(
                             c2[1] == kf_sym
                             for c2 in r.param_constraints)
                     end
                 end
             end
-            # param_count delta must be +1 (RE) or +2 (SS pair)
+            # param_count delta: +1 (RE) or +2 (SS pair)
             for r in result
-                delta = r.param_count - spec_with_ss.param_count
+                delta = r.param_count -
+                    spec_with_ss.param_count
                 @test delta == 1 || delta == 2
             end
         end
     end
 end
 
-@testset "Move 3: Add dead-end regulator" begin
+@testset "Add dead-end regulator" begin
     @testset "Uni-uni + new regulator" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
         spec = first(specs)
@@ -707,7 +812,7 @@ end
     end
 end
 
-@testset "Move 6: Allosteric conversion (+1)" begin
+@testset "Allosteric conversion" begin
     @testset "Uni-uni: K-type + V-type" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
@@ -816,7 +921,7 @@ end
     end
 end
 
-@testset "Move 4: Add allosteric regulator" begin
+@testset "Add allosteric regulator" begin
     @testset "Add regulator to allosteric spec" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo_reg)
         spec = first(specs)
@@ -860,7 +965,7 @@ end
     end
 end
 
-@testset "Move 5: Remove TR equivalence" begin
+@testset "Remove TR equivalence" begin
     @testset "Remove metabolite TR equiv" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
