@@ -574,6 +574,7 @@ end
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
+        @test EnzymeMechanism(spec) === m
         @test isempty(spec.param_constraints)
         result = EnzymeRates._expand_remove_constraint(spec)
         @test isempty(result)
@@ -604,6 +605,7 @@ end
             end
         end
         spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
+        @test EnzymeMechanism(spec) === m
         max_c = EnzymeRates._max_equivalence_constraints(spec)
         c_idxs = EnzymeRates._constrained_step_indices(max_c)
         new_steps = [
@@ -1378,7 +1380,7 @@ end
 
     @testset "Different mechanisms preserved" begin
         specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        pc = specs[1].param_count
+        pc = first(specs).param_count
         cache = Dict(pc => AbstractMechanismSpec[specs...])
         EnzymeRates.dedup!(cache)
         @test length(cache[pc]) >= 1
@@ -1387,7 +1389,7 @@ end
 
     @testset "Idempotent" begin
         specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        pc = specs[1].param_count
+        pc = first(specs).param_count
         cache = Dict(pc => AbstractMechanismSpec[specs...])
         EnzymeRates.dedup!(cache)
         n1 = length(cache[pc])
@@ -1431,7 +1433,7 @@ end
             specs, uni_uni_rxn)
         @test result isa Dict{Int,
             Vector{AbstractMechanismSpec}}
-        base_pc = specs[1].param_count
+        base_pc = first(specs).param_count
         @test haskey(result, base_pc + 1)
     end
 
@@ -1439,7 +1441,7 @@ end
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         result = EnzymeRates.expand_mechanisms(
             specs, uni_uni_allo)
-        base_pc = specs[1].param_count
+        base_pc = first(specs).param_count
         has_allo = any(
             any(s isa AllostericMechanismSpec
                 for s in ss)
@@ -1449,7 +1451,7 @@ end
 
     @testset "No self-expansion to same param count" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
-        base_pc = specs[1].param_count
+        base_pc = first(specs).param_count
         result = EnzymeRates.expand_mechanisms(
             specs, uni_uni_rxn)
         # All results should have param_count > base
