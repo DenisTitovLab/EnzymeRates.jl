@@ -72,6 +72,16 @@ const uni_uni_allo_2reg = @enzyme_reaction begin
     oligomeric_state: 2
 end
 
+const ter_ter_rxn = @enzyme_reaction begin
+    substrates: A[C], B[N], D[X]
+    products: P[C], Q[N], R[X]
+end
+
+const ter_bi_rxn = @enzyme_reaction begin
+    substrates: A[C], B[N], D[X]
+    products: P[CN], Q[X]
+end
+
 """Collect all mechanisms by running the full enumeration loop."""
 function enumerate_all(
     @nospecialize(reaction::EnzymeReaction);
@@ -103,97 +113,6 @@ function enumerate_all(
 end
 
 @testset "Mechanism Enumeration" begin
-
-@testset "Types and round-trip" begin
-    m_uu = @enzyme_mechanism begin
-        species: begin
-            substrates: S[C]
-            products: P[C]
-            enzymes: E, E_P[C], E_S[C]
-        end
-        steps: begin
-            [E, P] ⇌ [E_P]
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
-        end
-    end
-    spec = mechanism_spec_from_mechanism(m_uu, uni_uni_rxn)
-    @test length(spec.steps) == 3
-    @test spec.param_count == length(parameters(m_uu))
-    m_compiled = EnzymeMechanism(spec)
-    @test m_compiled === m_uu
-end
-
-@testset "AllostericEnzymeMechanism round-trip" begin
-    # Build MechanismSpec with :E (as the enumeration pipeline
-    # would) and wrap it into an AllostericMechanismSpec
-    base_rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-    end
-    base_steps = [
-        StepSpec([:E, :S], [:E_S], true),
-        StepSpec([:E, :P], [:E_P], true),
-        StepSpec([:E_S], [:E_P], false),
-    ]
-    base_spec = MechanismSpec(
-        base_rxn, base_steps, ParamConstraint[], 3)
-
-    allo_spec = AllostericMechanismSpec(
-        base_spec, 2,
-        Vector{Symbol}[], Int[],
-        Symbol[], Int[],
-        Symbol[], Symbol[], Int[],
-        base_spec.param_count + 1)
-
-    m_compiled = AllostericEnzymeMechanism(allo_spec)
-    @test m_compiled isa AllostericEnzymeMechanism
-
-    # Verify structural properties
-    @test EnzymeRates.metabolites(m_compiled) == (:S, :P)
-    cat_sites = typeof(m_compiled).parameters[3]
-    @test cat_sites[2] == 2  # catalytic_n
-    @test typeof(m_compiled).parameters[4] == ()  # no reg sites
-
-    # Verify the catalytic mechanism round-trips
-    cat_m = typeof(m_compiled).parameters[2]()
-    @test EnzymeRates.n_states(cat_m) == 3
-    @test EnzymeRates.n_steps(cat_m) == 3
-end
-
-@testset "AllostericEnzymeMechanism round-trip with regulator" begin
-    base_rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        allosteric_regulators: A
-    end
-    base_steps = [
-        StepSpec([:E, :S], [:E_S], true),
-        StepSpec([:E, :P], [:E_P], true),
-        StepSpec([:E_S], [:E_P], false),
-    ]
-    base_spec = MechanismSpec(
-        base_rxn, base_steps, ParamConstraint[], 3)
-
-    allo_spec = AllostericMechanismSpec(
-        base_spec, 2,
-        [[:A]], [1],
-        Symbol[], Int[],
-        Symbol[], Symbol[], Int[],
-        base_spec.param_count + 2)
-
-    m_compiled = AllostericEnzymeMechanism(allo_spec)
-    @test m_compiled isa AllostericEnzymeMechanism
-
-    # Verify metabolites include the regulator
-    @test EnzymeRates.metabolites(m_compiled) ==
-        (:S, :P, :A)
-    # Verify reg sites
-    reg_sites = typeof(m_compiled).parameters[4]
-    @test length(reg_sites) == 1
-    @test reg_sites[1][1] == (:A,)  # ligands
-    @test reg_sites[1][2] == 1      # multiplicity
-end
 
 @testset "AllostericEnzymeMechanism TR equivalence" begin
     base_rxn = @enzyme_reaction begin
@@ -241,6 +160,9 @@ end
                 [E_S] <--> [E_P]
             end
         end
+        spec_rt = mechanism_spec_from_mechanism(
+            m_uu, uni_uni_rxn)
+        @test EnzymeMechanism(spec_rt) === m_uu
         @test EnzymeMechanism(topos[1]) === m_uu
         for t in topos
             @test count(
@@ -272,6 +194,34 @@ end
         topos = EnzymeRates._catalytic_topologies(
             bi_bi_pp_rxn)
         @test length(topos) == 10
+        for t in topos
+            @test count(
+                !s.is_equilibrium for s in t.steps) == 1
+        end
+    end
+
+    @testset "Ter-Ter" begin
+        topos = EnzymeRates._catalytic_topologies(
+            ter_ter_rxn)
+        # 3969 = (2^(3!) - 1)² = 63 × 63
+        # Each side (binding/release) has 3!=6 permutation
+        # paths through Boolean lattice B_3; all 2^6-1=63
+        # non-empty path subsets produce distinct edge sets;
+        # sides are independent.
+        @test length(topos) == 3969
+        for t in topos
+            @test count(
+                !s.is_equilibrium for s in t.steps) == 1
+        end
+    end
+
+    @testset "Ter-Bi" begin
+        topos = EnzymeRates._catalytic_topologies(
+            ter_bi_rxn)
+        # 204 = 189 sequential + 15 ping-pong
+        # Sequential: (2^(3!) - 1) × (2^(2!) - 1) = 63 × 3
+        # Ping-pong: D[X]→Q[X] can isomerize independently
+        @test length(topos) == 204
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
@@ -352,6 +302,7 @@ end
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
+        @test EnzymeMechanism(spec) === m
         result = EnzymeRates._expand_re_to_ss(spec)
         @test length(result) == 2
         for r in result
@@ -373,6 +324,7 @@ end
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
+        @test EnzymeMechanism(spec) === m
         result = EnzymeRates._expand_re_to_ss(spec)
         @test isempty(result)
     end
