@@ -322,7 +322,9 @@ end
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [spec], bi_bi_rxn)
-            @test length(result) == 16
+            # 4 unique dead-end forms, 7 competition patterns,
+            # all 7 produce distinct dead-end sets → 7 variants
+            @test length(result) == 7
         end
 
         @testset "Uni-Bi ordered: no dead-end forms" begin
@@ -378,7 +380,9 @@ end
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [spec], bi_bi_pp_rxn)
-            @test length(result) == 8
+            # 3 dead-end forms, 7 competition patterns,
+            # 5 unique dead-end sets after dedup → 5 variants
+            @test length(result) == 5
         end
     end
 
@@ -435,6 +439,77 @@ end
                     s -> (s, p) in pat,
                     [:A, :B, :C])
             end
+        end
+    end
+
+    @testset "Dead-end filtering by competition" begin
+
+        # Shared bi-bi random mechanism for multiple tests
+        m_bb = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        spec_bb = mechanism_spec_from_mechanism(
+            m_bb, bi_bi_rxn)
+
+        @testset "Bi-bi random: 7 variants (was 16)" begin
+            # 4 dead-end forms × 7 competition patterns.
+            # Each pattern yields a distinct dead-end set:
+            #   {A↔P,B↔Q}: {E_A_Q,E_B_P}
+            #   {A↔Q,B↔P}: {E_A_P,E_B_Q}
+            #   {A↔P,A↔Q,B↔P}: {E_B_Q}
+            #   {A↔P,A↔Q,B↔Q}: {E_B_P}
+            #   {A↔P,B↔P,B↔Q}: {E_A_Q}
+            #   {A↔Q,B↔P,B↔Q}: {E_A_P}
+            #   {A↔P,A↔Q,B↔P,B↔Q}: {} (no dead-ends)
+            # All 7 sets are distinct → 7 variants after dedup
+            result =
+                EnzymeRates._expand_substrate_product_dead_ends(
+                    [spec_bb], bi_bi_rxn)
+            @test length(result) == 7
+        end
+
+        @testset "Bi-bi random: complete competition → bare topology" begin
+            result =
+                EnzymeRates._expand_substrate_product_dead_ends(
+                    [spec_bb], bi_bi_rxn)
+            # Complete pattern {A↔P,A↔Q,B↔P,B↔Q} forbids
+            # all dead-end forms → 1 variant has no dead-end
+            # steps (same step count as original)
+            bare = filter(
+                r -> length(r.steps) == length(spec_bb.steps),
+                result)
+            @test length(bare) == 1
+        end
+
+        @testset "Bi-bi random: diagonal has exactly 2 dead-end forms" begin
+            result =
+                EnzymeRates._expand_substrate_product_dead_ends(
+                    [spec_bb], bi_bi_rxn)
+            # Diagonal patterns {A↔P,B↔Q} and {A↔Q,B↔P}
+            # each allow exactly 2 dead-end forms.
+            two_de = filter(result) do r
+                de_forms = setdiff(
+                    EnzymeRates.all_form_names(r),
+                    EnzymeRates.all_form_names(spec_bb))
+                length(de_forms) == 2
+            end
+            @test length(two_de) == 2  # diagonal + anti-diagonal
         end
     end
 end

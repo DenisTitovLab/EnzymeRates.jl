@@ -815,14 +815,41 @@ function _expand_substrate_product_dead_ends(
         de_form_names = sort(collect(keys(de_forms)))
         n_de = length(de_form_names)
 
-        # Enumerate 2^n subsets of dead-end forms
-        for mask in 0:(1 << n_de) - 1
-            active_de = Set{Symbol}()
-            for (j, name) in enumerate(de_form_names)
-                if (mask >> (j - 1)) & 1 == 1
-                    push!(active_de, name)
-                end
+        # Map each dead-end form to its bound metabolites
+        de_bound = Dict{Symbol, Set{Symbol}}()
+        for de_name in de_form_names
+            entries = de_forms[de_name]
+            f, m = first(entries)
+            de_bound[de_name] = union(
+                bound[f], Set([m]))
+        end
+
+        # Enumerate competition patterns
+        patterns = _competition_patterns(
+            sub_names, prod_names)
+        seen = Set{Vector{Symbol}}()
+
+        for pattern in patterns
+            # Filter dead-end forms by competition
+            allowed_de = Symbol[]
+            for de_name in de_form_names
+                mets = de_bound[de_name]
+                de_subs = intersect(mets, sub_names)
+                de_prods = intersect(
+                    mets, prod_names)
+                has_conflict = any(
+                    (s, p) in pattern
+                    for s in de_subs
+                    for p in de_prods)
+                has_conflict || push!(
+                    allowed_de, de_name)
             end
+
+            # Dedup by form set
+            allowed_de in seen && continue
+            push!(seen, allowed_de)
+
+            active_de = Set{Symbol}(allowed_de)
 
             # Build new steps: original + dead-end
             new_steps = copy(spec.steps)
@@ -831,20 +858,16 @@ function _expand_substrate_product_dead_ends(
             for de_name in sort(collect(active_de))
                 entries = de_forms[de_name]
                 for (cat_form, met) in entries
-                    # Binding step: [cat_form, met]
-                    #   → [de_name] (always RE)
                     push!(new_steps, StepSpec(
                         [cat_form, met],
                         [de_name], true))
                 end
             end
 
-            # Add mirror steps: for each catalytic
-            # step, if both endpoints have extensions
-            # to active dead-end forms with the same
-            # metabolite, add a mirror step
+            # Add mirror steps
             for s in spec.steps
-                from, to = s.reactants[1], s.products[1]
+                from, to =
+                    s.reactants[1], s.products[1]
                 met = step_metabolite(s)
                 for de_met in sort(collect(all_mets))
                     haskey(bound, from) || continue
@@ -857,7 +880,6 @@ function _expand_substrate_product_dead_ends(
                         bound[to], de_met)
                     from_de in active_de || continue
                     to_de in active_de || continue
-                    # Mirror step inherits RE/SS
                     if met !== nothing
                         push!(new_steps, StepSpec(
                             [from_de, met],
@@ -876,7 +898,8 @@ function _expand_substrate_product_dead_ends(
             n_re = count(
                 s -> s.is_equilibrium, new_steps)
             n_ss = n_steps - n_re
-            n_forms = length(all_form_names(new_steps))
+            n_forms = length(
+                all_form_names(new_steps))
             n_thermo = n_steps - n_forms + 1
             pc = n_re + 2 * n_ss - n_thermo + 2
 
