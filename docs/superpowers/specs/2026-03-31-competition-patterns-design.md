@@ -29,9 +29,19 @@ A dead-end inhibitor I binds to the catalytic site (not allosteric). Its competi
 
 1. I competes with ≥ 1 substrate (independent-site regulators are allosteric, not dead-end)
 2. I competes with ≥ 1 product (catalytic site overlaps with both substrate and product regions)
-3. I cannot bind to any enzyme form containing a metabolite that I competes with
-4. For a given inhibitor competition pattern, the set of forms I binds to is **deterministic**: I binds to every eligible catalytic form that contains none of I's competing metabolites
+3. I can only bind to catalytic form F if F is the **source of a binding step** for at least one metabolite that I competes with. I blocks a specific metabolite's binding event, so it can only bind where that event exists in the topology.
+4. For a given inhibitor competition pattern and topology, the set of forms I binds to is **deterministic**: take the union of source forms across all competing metabolites' binding steps.
 5. An eligible form has neither all substrates nor all products bound (same rule as substrate/product dead-ends)
+
+**Example — sequential bi-bi (A→B→catalysis→P→Q), I competes with {B, P}:**
+- B-binding step: E_A + B → E_AB. Source form: E_A
+- P-release step: E_PQ → E_Q + P. Source form: E_Q
+- I binds to: {E_A, E_Q} — NOT free enzyme E (no B or P binding step from E)
+
+**Example — random bi-bi, I competes with {B, P}:**
+- B-binding steps: E + B → E_B, E_A + B → E_AB. Sources: {E, E_A}
+- P-binding steps: E + P → E_P, E_Q + P → E_PQ. Sources: {E, E_Q}
+- I binds to: {E, E_A, E_Q} — includes E because B and P binding steps exist from E
 
 **Pattern counts** (by inclusion-exclusion formula):
 
@@ -58,7 +68,7 @@ Inhibitor formula: (2^n_s - 1)(2^n_p - 1) — non-empty substrate subset × non-
 
 **Current behavior:** Enumerate all non-empty subsets of eligible enzyme forms (2^n).
 
-**New behavior:** Enumerate inhibitor competition patterns. Each pattern determines which forms I can bind to per constraints above.
+**New behavior:** Enumerate inhibitor competition patterns. For each pattern, find all catalytic forms that are sources of binding steps for competing metabolites (using `step_metabolite(s)` and `step_forms(s)`). This set is deterministic per topology.
 
 **Dedup:** Same strategy — dedup by the set of forms I binds to before building MechanismSpec.
 
@@ -72,15 +82,11 @@ Both derive competition patterns from the `EnzymeReaction`, not from the mechani
 
 ### Code Reuse
 
-Substrate/product dead-end filtering and inhibitor dead-end filtering share the same core logic:
+S/P and inhibitor dead-end expansion differ in how they select forms (competition-edge filtering vs step-source lookup) but share:
 
-1. **Competition pattern enumeration**: both enumerate subsets of metabolite pairs/sets with coverage constraints. Extract a shared `_covered_subsets(items, n_groups, min_per_group)` or parameterize `_competition_patterns`.
+1. **Competition pattern enumeration**: both enumerate subsets with coverage constraints. `_competition_patterns` (bipartite edges with min degree) and `_inhibitor_competition_patterns` (non-empty sub/prod subsets) are similar loops over bitmasks. Consider a shared `_nonempty_covered_subsets` helper.
 
-2. **Form filtering**: both check "does this form contain any metabolite that conflicts?" Extract a shared `_allowed_forms(forms, bound, competing_mets, sub_names, prod_names)` that returns the set of forms compatible with a set of competing metabolites.
-
-3. **Dedup-then-build**: both dedup by form set before constructing MechanismSpec. The build loop (binding steps + mirror steps) is structurally identical.
-
-Target: one shared filtering function used by both `_expand_substrate_product_dead_ends` and `_expand_add_dead_end_regulator`.
+2. **Dedup-then-build**: both dedup by form set before constructing MechanismSpec. The build loop (binding steps + mirror steps) is structurally identical — extract shared step-building logic.
 
 ## Source Changes
 
@@ -106,11 +112,11 @@ Output: Vector{Tuple{Set{Symbol}, Set{Symbol}}}  # (competing_subs, competing_pr
 
 Returns all (non-empty substrate subset, non-empty product subset) pairs. Count: (2^n_s - 1)(2^n_p - 1).
 
-### 3. New function: `_filter_forms_by_competition(forms, bound, competing_mets, sub_names, prod_names)`
+### 3. New function: `_forms_with_binding_step(steps, metabolite)`
 
-Shared filtering logic. Returns forms from `forms` where the bound metabolites don't include any metabolite in `competing_mets`, subject to constraints (mixed binding, not all subs/prods).
+Returns the set of source forms that have a binding step for `metabolite`. Uses `step_metabolite(s)` and `step_forms(s)` to find steps involving the metabolite, returns the form that doesn't contain it (the source side).
 
-Used by both S/P dead-end expansion and inhibitor expansion.
+Used by `_expand_add_dead_end_regulator` to determine where an inhibitor can bind.
 
 ### 4. Modified: `_expand_substrate_product_dead_ends`
 
@@ -137,13 +143,17 @@ Replace the `for mask in 1:(1 << n_forms) - 1` loop with:
 inh_patterns = _inhibitor_competition_patterns(sub_names, prod_names)
 seen = Set{Vector{Symbol}}()
 for (comp_subs, comp_prods) in inh_patterns
-    competing_mets = comp_subs ∪ comp_prods
-    allowed_forms = [f for f in eligible_forms
-        if no metabolite in bound[f] is in competing_mets]
-    isempty(allowed_forms) && continue
-    allowed_forms in seen && continue
-    push!(seen, allowed_forms)
-    build mechanism with inhibitor binding to allowed_forms
+    # Find forms where competing metabolites have binding steps
+    target_forms = Set{Symbol}()
+    for met in union(comp_subs, comp_prods)
+        union!(target_forms, _forms_with_binding_step(spec.steps, met))
+    end
+    # Filter to eligible forms only
+    allowed = sort([f for f in target_forms if f in eligible_forms])
+    isempty(allowed) && continue
+    allowed in seen && continue
+    push!(seen, allowed)
+    build mechanism with inhibitor binding to allowed
 end
 ```
 
@@ -191,27 +201,34 @@ Tests follow TDD: write failing test with expected count first, then implement.
 ### Diagnostic tests for inhibitor dead-end form selection
 
 13. **Uni-uni + inhibitor competing with {S, P}:**
-    - I can only bind to E (form without S or P)
-    - 1 dead-end form: E_I
+    - S-binding step from E, P-binding step from E
+    - I binds to E → 1 dead-end form: E_I
 
-14. **Bi-bi random + inhibitor competing with {A, P}:**
-    - I binds to forms without A and without P
-    - Eligible catalytic forms: E, E_B, E_Q (E_B_Q has all remaining so check eligibility)
-    - Verify exact form count
+14. **Bi-bi sequential (A→B, P→Q release) + I competes with {B, P}:**
+    - B-binding step: E_A + B → E_AB. Source: E_A
+    - P-release step: E_PQ → E_Q + P. Source: E_Q
+    - I binds to {E_A, E_Q} — NOT E (no B or P step from E)
+    - 2 dead-end forms: E_A_I, E_Q_I
 
-15. **Bi-bi random + inhibitor competing with {A, B, P, Q}:**
-    - I can only bind to E
-    - 1 dead-end form: E_I
+15. **Bi-bi random + inhibitor competing with {A, P}:**
+    - A-binding steps from: E, E_B, E_Q, ... (all forms without A)
+    - P-binding steps from: E, E_A, E_B, ... (all forms without P)  
+    - Union of source forms, filtered to eligible
+    - Verify exact forms
+
+16. **Bi-bi random + inhibitor competing with {A, B, P, Q}:**
+    - A/B/P/Q binding steps all include E as source
+    - I binds to E (and possibly others) → verify exact set
 
 ### Integration tests with expected counts
 
-16. **init_mechanisms bi-bi:** compute expected total = Σ over topologies of (unique dead-end sets per topology across 7 competition patterns). Verify exact count.
+17. **init_mechanisms bi-bi:** compute expected total = Σ over topologies of (unique dead-end sets per topology across 7 competition patterns). Verify exact count.
 
-17. **init_mechanisms ter-ter:** verify completes without OOM. Verify count is reasonable (265 patterns × n_topologies, minus dedup).
+18. **init_mechanisms ter-ter:** verify completes without OOM. Verify count is reasonable (265 patterns × n_topologies, minus dedup).
 
-18. **expand_mechanisms with dead-end regulator:** for a specific bi-bi mechanism + regulator, verify inhibitor variant count matches 9 inhibitor patterns minus dedup.
+19. **expand_mechanisms with dead-end regulator:** for a specific bi-bi mechanism + regulator, verify inhibitor variant count matches 9 inhibitor patterns minus dedup.
 
-19. **Round-trip:** for a sample of generated mechanisms, verify `EnzymeMechanism(spec)` compiles and `length(parameters(m)) <= spec.param_count`
+20. **Round-trip:** for a sample of generated mechanisms, verify `EnzymeMechanism(spec)` compiles and `length(parameters(m)) <= spec.param_count`
 
 ### Existing test changes
 
