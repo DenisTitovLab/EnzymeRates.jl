@@ -145,116 +145,77 @@ Add a new testset after the "Competition patterns" testset from Task 1:
 ```julia
 @testset "Dead-end filtering by competition" begin
 
-    @testset "Bi-bi random, diagonal {A↔P, B↔Q}" begin
-        m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
-            steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
-            end
+    # Shared bi-bi random mechanism for multiple tests
+    m_bb = @enzyme_mechanism begin
+        species: begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            enzymes: E, E_A[C], E_A_B[CN],
+                E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
         end
-        spec = mechanism_spec_from_mechanism(
-            m, bi_bi_rxn)
-        bound = EnzymeRates._bound_metabolites_at_forms(
-            spec, bi_bi_rxn)
-        competition = Set([(:A, :P), (:B, :Q)])
-
-        # E_A_Q: bound={A,Q}, A↔Q not competing → allowed
-        @test !any(
-            (s, p) in competition
-            for s in intersect(
-                bound[:E_A] ∪ Set([:Q]),
-                Set([:A, :B]))
-            for p in intersect(
-                bound[:E_A] ∪ Set([:Q]),
-                Set([:P, :Q])))
-        # E_A_P: bound={A,P}, A↔P competing → forbidden
-        @test any(
-            (s, p) in competition
-            for s in intersect(
-                bound[:E_A] ∪ Set([:P]),
-                Set([:A, :B]))
-            for p in intersect(
-                bound[:E_A] ∪ Set([:P]),
-                Set([:P, :Q])))
+        steps: begin
+            [E, A] ⇌ [E_A]
+            [E_B, A] ⇌ [E_A_B]
+            [E, B] ⇌ [E_B]
+            [E_A, B] ⇌ [E_A_B]
+            [E, P] ⇌ [E_P]
+            [E_P, Q] ⇌ [E_P_Q]
+            [E, Q] ⇌ [E_Q]
+            [E_Q, P] ⇌ [E_P_Q]
+            [E_A_B] <--> [E_P_Q]
+        end
     end
+    spec_bb = mechanism_spec_from_mechanism(
+        m_bb, bi_bi_rxn)
 
-    @testset "Bi-bi random, complete → 0 dead-ends" begin
-        m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
-            steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
-            end
-        end
-        spec = mechanism_spec_from_mechanism(
-            m, bi_bi_rxn)
+    @testset "Bi-bi random: 7 variants (was 16)" begin
+        # 4 dead-end forms × 7 competition patterns.
+        # Each pattern yields a distinct dead-end set:
+        #   {A↔P,B↔Q}: {E_A_Q,E_B_P}
+        #   {A↔Q,B↔P}: {E_A_P,E_B_Q}
+        #   {A↔P,A↔Q,B↔P}: {E_B_Q}
+        #   {A↔P,A↔Q,B↔Q}: {E_B_P}
+        #   {A↔P,B↔P,B↔Q}: {E_A_Q}
+        #   {A↔Q,B↔P,B↔Q}: {E_A_P}
+        #   {A↔P,A↔Q,B↔P,B↔Q}: {} (no dead-ends)
+        # All 7 sets are distinct → 7 variants after dedup
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
-                [spec], bi_bi_rxn)
-        # Complete competition pattern exists among the 7.
-        # It produces 0 dead-end forms → bare topology only.
-        # At least one result should have the same steps
-        # as the original (no dead-end forms added).
+                [spec_bb], bi_bi_rxn)
+        @test length(result) == 7
+    end
+
+    @testset "Bi-bi random: complete competition → bare topology" begin
+        result =
+            EnzymeRates._expand_substrate_product_dead_ends(
+                [spec_bb], bi_bi_rxn)
+        # Complete pattern {A↔P,A↔Q,B↔P,B↔Q} forbids
+        # all dead-end forms → 1 variant has no dead-end
+        # steps (same step count as original)
         bare = filter(
-            r -> length(r.steps) == length(spec.steps),
+            r -> length(r.steps) == length(spec_bb.steps),
             result)
         @test length(bare) == 1
     end
 
-    @testset "Bi-bi random: ≤ 7 variants (was 16)" begin
-        m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
-            steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
-            end
-        end
-        spec = mechanism_spec_from_mechanism(
-            m, bi_bi_rxn)
+    @testset "Bi-bi random: diagonal has exactly 2 dead-end forms" begin
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
-                [spec], bi_bi_rxn)
-        # 7 competition patterns, some may dedup →
-        # result ≤ 7
-        @test length(result) <= 7
-        @test length(result) >= 1
+                [spec_bb], bi_bi_rxn)
+        # Diagonal patterns {A↔P,B↔Q} and {A↔Q,B↔P}
+        # each allow exactly 2 dead-end forms. Find the
+        # variant with 2 dead-end binding steps.
+        # Original has 9 steps. Each dead-end form adds
+        # 2 binding steps (from 2 catalytic parents) +
+        # mirror steps. With 2 forms: 9 + 4 binding +
+        # mirror steps.
+        two_de = filter(result) do r
+            de_forms = setdiff(
+                EnzymeRates.all_form_names(r),
+                EnzymeRates.all_form_names(spec_bb))
+            length(de_forms) == 2
+        end
+        @test length(two_de) == 2  # diagonal + anti-diagonal
     end
 end
 ```
@@ -365,27 +326,26 @@ In `src/mechanism_enumeration.jl`, replace lines 783-851 (the `for mask in 0:(1 
 
 - [ ] **Step 4: Update existing test counts**
 
-In `test/test_mechanism_enumeration.jl`, update the existing "Bi-Bi random: 4 dead-end forms" test (around line 325) — change the count from 16 to the actual result. The test comment should also be updated:
+In `test/test_mechanism_enumeration.jl`, update the existing "Bi-Bi random: 4 dead-end forms" test (around line 325). Change the count and comment:
 
 ```julia
-            # 4 unique dead-end forms, 7 competition patterns
-            # after dedup → N unique variants
-            @test length(result) == 16  # PLACEHOLDER: run once to get actual count, then update
+            # 4 unique dead-end forms, 7 competition patterns,
+            # all 7 produce distinct dead-end sets → 7 variants
+            @test length(result) == 7
 ```
 
-Also update the "Bi-Bi Ping-Pong: 3 dead-end forms" test (around line 381):
+Also update the "Bi-Bi Ping-Pong: 3 dead-end forms" test (around line 381). Ping-pong has 3 dead-end forms (E_A_P, E_A_Q, E_B_Q) but E_B_P doesn't exist, so B↔P edges have no effect, causing patterns 4&7 and 1&5 to collapse:
 
 ```julia
-            @test length(result) == 8  # PLACEHOLDER: run once to get actual count, then update
+            # 3 dead-end forms, 7 competition patterns,
+            # 5 unique dead-end sets after dedup → 5 variants
+            @test length(result) == 5
 ```
 
-**Important:** Run the tests once first to discover the actual counts, then update the assertions. The actual counts depend on how many competition patterns dedup for each topology.
+- [ ] **Step 5: Run tests to verify all pass**
 
-- [ ] **Step 5: Run tests to discover actual counts and verify**
-
-Run: `julia --project -e 'using Pkg; Pkg.test()' 2>&1 | tail -50`
-
-Look for the actual counts in the failure messages. Update the test assertions with the correct values. Re-run to confirm all pass.
+Run: `julia --project -e 'using Pkg; Pkg.test()' 2>&1 | tail -30`
+Expected: All tests PASS
 
 - [ ] **Step 6: Commit**
 
@@ -406,23 +366,16 @@ git commit -m "Replace 2^n dead-end enumeration with competition patterns"
 Add inside the "Dead-end filtering by competition" testset:
 
 ```julia
-@testset "Ter-ter diagonal: 12 of 27 allowed" begin
-    # Build random ter-ter topology manually using
-    # init_mechanisms — pick the random topology
-    # (largest form count) from the results
-    specs = EnzymeRates.init_mechanisms(ter_ter_rxn)
-    @test !isempty(specs)
-    # Verify ter-ter doesn't OOM (was 134M, now ≤ 265
-    # per topology)
-    @test length(specs) < 100_000
-end
-
 @testset "Ter-ter completes without OOM" begin
+    # Previously OOM: 27 dead-end forms → 2^27 = 134M
+    # Now: 265 competition patterns per topology, each
+    # deterministic, with dedup
     specs = EnzymeRates.init_mechanisms(ter_ter_rxn)
     @test length(specs) > 0
-    # Verify param count invariant
+    @test length(specs) < 100_000
+    # Param count invariant: n_s + n_p + 3 = 9
     for s in specs
-        @test s.param_count == 3 + 3 + 3  # n_s + n_p + 3
+        @test s.param_count == 9
     end
 end
 ```
@@ -681,8 +634,18 @@ Add inside the "Add dead-end regulator" testset:
 
 ```julia
 @testset "Topology-aware: sequential bi-bi" begin
-    # Sequential: A binds first, then B
+    # Sequential: A first, B second, P released, Q last
     # Forms: E, E_A, E_A_B (=E_P_Q), E_Q
+    # Binding step sources:
+    #   A: from E    B: from E_A
+    #   P: from E_Q  Q: from E
+    # Eligible forms: E, E_A, E_Q
+    # 9 inhibitor patterns → 4 unique form sets:
+    #   {E,E_Q}: ({A},{P}), ({A,B},{P})
+    #   {E,E_A}: ({B},{Q}), ({B},{P,Q})
+    #   {E_A,E_Q}: ({B},{P})
+    #   {E}: ({A},{Q}), ({A},{P,Q}), ({A,B},{Q}),
+    #         ({A,B},{P,Q})
     m = @enzyme_mechanism begin
         species: begin
             substrates: A[C], B[N]
@@ -706,56 +669,122 @@ Add inside the "Add dead-end regulator" testset:
     spec = _spec_with_rxn(m, bi_bi_rxn, rxn_seq)
     result = EnzymeRates._expand_add_dead_end_regulator(
         spec, rxn_seq)
-    # With topology-aware binding, inhibitor patterns
-    # that only compete with B and P should NOT bind to
-    # free enzyme E (no B or P binding step from E).
-    # Check that no variant has I binding to E alone
-    # when B-binding and P-binding steps don't exist
-    # from E.
-    @test !isempty(result)
+    @test length(result) == 4
     for r in result
         @test r.param_count == spec.param_count + 1
     end
+    # Verify E is NOT a target when I competes only
+    # with B and P: {B,P} binding sources = {E_A,E_Q},
+    # so the variant binding {E_A,E_Q} must exist
+    form_sets = [sort(collect(setdiff(
+        EnzymeRates.all_form_names(r),
+        EnzymeRates.all_form_names(spec))))
+        for r in result]
+    # At least one variant has dead-end forms from E_A
+    # and E_Q but NOT E
+    @test any(fs -> all(
+        f -> !startswith(string(f), "E_I") ||
+            !contains(string(f), "_A_") &&
+            !contains(string(f), "_Q_"),
+        fs) == false, form_sets)
+end
+
+@testset "Bi-bi random: 9 inhibitor variants" begin
+    # Random bi-bi with inhibitor: 9 patterns, each
+    # produces a distinct form set → 9 variants
+    m = @enzyme_mechanism begin
+        species: begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            enzymes: E, E_A[C], E_A_B[CN],
+                E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
+        end
+        steps: begin
+            [E, A] ⇌ [E_A]
+            [E_B, A] ⇌ [E_A_B]
+            [E, B] ⇌ [E_B]
+            [E_A, B] ⇌ [E_A_B]
+            [E, P] ⇌ [E_P]
+            [E_P, Q] ⇌ [E_P_Q]
+            [E, Q] ⇌ [E_Q]
+            [E_Q, P] ⇌ [E_P_Q]
+            [E_A_B] <--> [E_P_Q]
+        end
+    end
+    bb_with_reg = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: I
+    end
+    spec = _spec_with_rxn(m, bi_bi_rxn, bb_with_reg)
+    result = EnzymeRates._expand_add_dead_end_regulator(
+        spec, bb_with_reg)
+    # 9 inhibitor patterns (3 sub subsets × 3 prod
+    # subsets), all distinct form sets → 9 variants
+    @test length(result) == 9
 end
 
 @testset "Two inhibitors: compete vs not compete" begin
+    # Use bi-bi random so I1 has mirror steps.
+    # I1 competes with ({A},{P}) → binds to {E,E_B,E_Q}.
+    # Mirror steps: E_I1+B→E_B_I1, E_I1+Q→E_Q_I1.
+    # When adding I2: compete-with-I1 excludes I1 forms,
+    # not-compete-with-I1 can use I1 forms via mirrors.
     m = @enzyme_mechanism begin
         species: begin
-            substrates: S[C]
-            products: P[C]
-            enzymes: E, E_P[C], E_S[C]
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            enzymes: E, E_A[C], E_A_B[CN],
+                E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
         end
         steps: begin
+            [E, A] ⇌ [E_A]
+            [E_B, A] ⇌ [E_A_B]
+            [E, B] ⇌ [E_B]
+            [E_A, B] ⇌ [E_A_B]
             [E, P] ⇌ [E_P]
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
+            [E_P, Q] ⇌ [E_P_Q]
+            [E, Q] ⇌ [E_Q]
+            [E_Q, P] ⇌ [E_P_Q]
+            [E_A_B] <--> [E_P_Q]
         end
     end
     rxn_2i = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
         dead_end_inhibitors: I1, I2
     end
-    spec = _spec_with_rxn(m, uni_uni_rxn, rxn_2i)
-
-    # Add first inhibitor
+    spec = _spec_with_rxn(m, bi_bi_rxn, rxn_2i)
+    # Add I1 first
     result1 = EnzymeRates._expand_add_dead_end_regulator(
         spec, rxn_2i)
-    @test length(result1) >= 1
-
-    # Add second inhibitor to a result with I1
-    spec_with_i1 = first(result1)
+    @test length(result1) == 9
+    # Pick a variant where I1 binds to multiple forms
+    # (so mirror steps exist)
+    multi_form = filter(result1) do r
+        inh_forms = filter(
+            f -> contains(string(f), "I1__reg"),
+            collect(EnzymeRates.all_form_names(r)))
+        length(inh_forms) >= 2
+    end
+    @test !isempty(multi_form)
+    spec_i1 = first(multi_form)
+    # Add I2
     result2 = EnzymeRates._expand_add_dead_end_regulator(
-        spec_with_i1, rxn_2i)
-    # Should have variants: I2 competing with I1
-    # (can't coexist) and not competing (can coexist)
-    @test length(result2) >= 1
-    # At least one variant should have 2 inhibitor
-    # forms (E_I2 and/or E_I1_I2 etc)
-    all_forms = [
-        EnzymeRates.all_form_names(r)
-        for r in result2]
-    @test !isempty(all_forms)
+        spec_i1, rxn_2i)
+    # With 1 existing inhibitor: 9 × 2 = 18 patterns.
+    # After dedup some collapse → verify > 9 (the extra
+    # variants come from compete/not-compete with I1)
+    @test length(result2) >= 9
+    # Verify compete vs not-compete produces different
+    # form sets: not-competing variants can have forms
+    # containing I1__reg, competing variants cannot
+    has_i1_coexist = any(result2) do r
+        any(f -> contains(string(f), "I1__reg") &&
+                 contains(string(f), "I2__reg"),
+            collect(EnzymeRates.all_form_names(r)))
+    end
+    @test has_i1_coexist  # at least one non-competing variant
 end
 ```
 
@@ -885,21 +914,20 @@ In `src/mechanism_enumeration.jl`, replace lines 1340-1401 (the `for mask in 1:(
 
 - [ ] **Step 4: Update existing test counts**
 
-The existing "Bi-bi: exact dead-end regulator count" test (line 924) expects 31 (2^5 - 1). This will change. Run tests first to discover the new count, then update:
+The existing "Bi-bi: exact dead-end regulator count" test (line 924) expects 31 (2^5 - 1). With competition patterns, bi-bi random has 9 inhibitor patterns, all producing distinct form sets → 9 variants:
 
 ```julia
-        # 5 eligible forms, competition patterns determine
-        # which subsets are valid → new count
-        @test length(result) == 31  # PLACEHOLDER: update after running
+        # 5 eligible forms, 9 inhibitor competition patterns
+        # (3 sub subsets × 3 prod subsets), all distinct → 9
+        @test length(result) == 9
 ```
 
-The "Uni-uni + new regulator" test (line 694) should still return 1 (only 1 form E eligible, 1 pattern for uni-uni). Verify this doesn't change.
+The "Uni-uni + new regulator" test (line 694) stays 1 (only 1 form E eligible, 1 pattern for uni-uni).
 
-- [ ] **Step 5: Run tests, discover actual counts, update assertions**
+- [ ] **Step 5: Run tests to verify all pass**
 
-Run: `julia --project -e 'using Pkg; Pkg.test()' 2>&1 | tail -50`
-
-Update all assertions with the actual counts from failure messages.
+Run: `julia --project -e 'using Pkg; Pkg.test()' 2>&1 | tail -30`
+Expected: All tests PASS
 
 - [ ] **Step 6: Commit**
 
