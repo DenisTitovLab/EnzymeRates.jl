@@ -381,6 +381,62 @@ end
             @test length(result) == 8
         end
     end
+
+    @testset "Competition patterns" begin
+        # Uni-uni: 1×1, only 1 pattern (single edge)
+        pats_11 = EnzymeRates._competition_patterns(
+            Set([:S]), Set([:P]))
+        @test length(pats_11) == 1
+        @test pats_11[1] == Set([(:S, :P)])
+
+        # Uni-bi: 1×2, S competes with both P and Q
+        pats_12 = EnzymeRates._competition_patterns(
+            Set([:S]), Set([:P, :Q]))
+        @test length(pats_12) == 1
+        @test pats_12[1] == Set([(:S, :P), (:S, :Q)])
+
+        # Bi-uni: symmetric
+        pats_21 = EnzymeRates._competition_patterns(
+            Set([:A, :B]), Set([:P]))
+        @test length(pats_21) == 1
+        @test pats_21[1] == Set([(:A, :P), (:B, :P)])
+
+        # Bi-bi: 7 patterns
+        pats_22 = EnzymeRates._competition_patterns(
+            Set([:A, :B]), Set([:P, :Q]))
+        @test length(pats_22) == 7
+        # Every pattern covers all vertices
+        for pat in pats_22
+            for s in [:A, :B]
+                @test any(
+                    p -> (s, p) in pat, [:P, :Q])
+            end
+            for p in [:P, :Q]
+                @test any(
+                    s -> (s, p) in pat, [:A, :B])
+            end
+        end
+        # Invalid: {A↔P, B↔P} leaves Q uncovered
+        @test Set([(:A, :P), (:B, :P)]) ∉ pats_22
+
+        # Ter-ter: 265 patterns
+        pats_33 = EnzymeRates._competition_patterns(
+            Set([:A, :B, :C]),
+            Set([:P, :Q, :R]))
+        @test length(pats_33) == 265
+        for pat in pats_33
+            for s in [:A, :B, :C]
+                @test any(
+                    p -> (s, p) in pat,
+                    [:P, :Q, :R])
+            end
+            for p in [:P, :Q, :R]
+                @test any(
+                    s -> (s, p) in pat,
+                    [:A, :B, :C])
+            end
+        end
+    end
 end
 
 @testset "RE→SS conversion" begin

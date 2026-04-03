@@ -735,6 +735,41 @@ function _substrate_product_dead_end_opportunities(
 end
 
 """
+    _competition_patterns(sub_names, prod_names)
+        → Vector{Set{Tuple{Symbol,Symbol}}}
+
+Enumerate all bipartite competition graphs on
+substrates × products where every substrate and every
+product has degree ≥ 1.
+"""
+function _competition_patterns(
+    sub_names::Set{Symbol},
+    prod_names::Set{Symbol},
+)
+    subs = sort(collect(sub_names))
+    prods = sort(collect(prod_names))
+    edges = [(s, p) for s in subs for p in prods]
+    n = length(edges)
+    result = Set{Tuple{Symbol,Symbol}}[]
+    for mask in 1:(1 << n) - 1
+        pat = Set{Tuple{Symbol,Symbol}}()
+        for j in 1:n
+            if (mask >> (j - 1)) & 1 == 1
+                push!(pat, edges[j])
+            end
+        end
+        all(s -> any(
+            p -> (s, p) in pat, prods), subs) ||
+            continue
+        all(p -> any(
+            s -> (s, p) in pat, subs), prods) ||
+            continue
+        push!(result, pat)
+    end
+    result
+end
+
+"""
     _expand_substrate_product_dead_ends(specs, reaction)
         -> Vector{MechanismSpec}
 
