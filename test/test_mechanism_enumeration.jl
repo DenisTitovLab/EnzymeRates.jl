@@ -539,6 +539,20 @@ end
                 end
             end
         end
+
+        @testset "Round-trip: competition-filtered specs compile" begin
+            for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
+                specs =
+                    EnzymeRates.init_mechanisms(rxn)
+                # Test first 5 specs (compilation can be slow)
+                for spec in first(specs, 5)
+                    m = EnzymeMechanism(spec)
+                    @test m isa EnzymeMechanism
+                    @test length(parameters(m)) <=
+                        spec.param_count
+                end
+            end
+        end
     end
 end
 
