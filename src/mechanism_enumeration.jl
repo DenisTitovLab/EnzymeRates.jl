@@ -789,6 +789,59 @@ function _competition_patterns(
 end
 
 """
+    _inhibitor_competition_patterns(sub_names, prod_names,
+        existing_inhibitors)
+        → Vector{Tuple{Set{Symbol},Set{Symbol},Set{Symbol}}}
+
+Enumerate inhibitor competition patterns: (competing_subs,
+competing_prods, competing_inhibitors). Each inhibitor must
+compete with ≥1 substrate and ≥1 product. Competition with
+existing inhibitors is a free binary choice.
+"""
+function _inhibitor_competition_patterns(
+    sub_names::Set{Symbol},
+    prod_names::Set{Symbol},
+    existing_inhibitors::Vector{Symbol},
+)
+    subs = sort(collect(sub_names))
+    prods = sort(collect(prod_names))
+    inhs = sort(existing_inhibitors)
+    n_s = length(subs)
+    n_p = length(prods)
+    n_i = length(inhs)
+
+    result = Tuple{
+        Set{Symbol}, Set{Symbol}, Set{Symbol}}[]
+    for s_mask in 1:(1 << n_s) - 1
+        comp_subs = Set{Symbol}()
+        for j in 1:n_s
+            if (s_mask >> (j - 1)) & 1 == 1
+                push!(comp_subs, subs[j])
+            end
+        end
+        for p_mask in 1:(1 << n_p) - 1
+            comp_prods = Set{Symbol}()
+            for j in 1:n_p
+                if (p_mask >> (j - 1)) & 1 == 1
+                    push!(comp_prods, prods[j])
+                end
+            end
+            for i_mask in 0:(1 << n_i) - 1
+                comp_inhs = Set{Symbol}()
+                for j in 1:n_i
+                    if (i_mask >> (j - 1)) & 1 == 1
+                        push!(comp_inhs, inhs[j])
+                    end
+                end
+                push!(result, (
+                    comp_subs, comp_prods, comp_inhs))
+            end
+        end
+    end
+    result
+end
+
+"""
     _expand_substrate_product_dead_ends(specs, reaction)
         -> Vector{MechanismSpec}
 

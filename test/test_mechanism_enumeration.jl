@@ -815,6 +815,35 @@ end
     end
 end
 
+@testset "Inhibitor competition patterns" begin
+    # Uni-uni, no existing inhibitors
+    pats = EnzymeRates._inhibitor_competition_patterns(
+        Set([:S]), Set([:P]), Symbol[])
+    @test length(pats) == 1
+    @test pats[1] == (Set([:S]), Set([:P]), Set{Symbol}())
+
+    # Bi-bi, no existing inhibitors: 3×3 = 9
+    pats_bb = EnzymeRates._inhibitor_competition_patterns(
+        Set([:A, :B]), Set([:P, :Q]), Symbol[])
+    @test length(pats_bb) == 9
+
+    # Ter-ter, no existing inhibitors: 7×7 = 49
+    pats_tt = EnzymeRates._inhibitor_competition_patterns(
+        Set([:A, :B, :C]), Set([:P, :Q, :R]), Symbol[])
+    @test length(pats_tt) == 49
+
+    # Bi-bi, 1 existing inhibitor: 9 × 2 = 18
+    pats_1i = EnzymeRates._inhibitor_competition_patterns(
+        Set([:A, :B]), Set([:P, :Q]), [:I1__reg])
+    @test length(pats_1i) == 18
+
+    # Bi-bi, 2 existing inhibitors: 9 × 4 = 36
+    pats_2i = EnzymeRates._inhibitor_competition_patterns(
+        Set([:A, :B]), Set([:P, :Q]),
+        [:I1__reg, :I2__reg])
+    @test length(pats_2i) == 36
+end
+
 @testset "Forms with binding step" begin
     # Uni-uni: S binds to E, P binds to E
     m_uu = @enzyme_mechanism begin
