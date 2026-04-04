@@ -532,8 +532,10 @@ end
                 for spec in result
                     # Verify param_count set correctly
                     @test spec.param_count >=
-                        length(substrates(ter_ter_rxn)) +
-                        length(products(ter_ter_rxn)) + 3
+                        length(EnzymeRates.substrates(
+                            ter_ter_rxn)) +
+                        length(EnzymeRates.products(
+                            ter_ter_rxn)) + 3
                 end
             end
         end
