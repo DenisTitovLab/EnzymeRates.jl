@@ -1161,8 +1161,9 @@ end
                 spec, rxn_i)
         # E_A_B has all subs → ineligible
         # E_P_Q has all prods → ineligible
-        # 5 eligible → 2^5 - 1 = 31
-        @test length(result) == 31
+        # 5 eligible forms, 9 inhibitor patterns
+        # (3 sub subsets × 3 prod subsets) → 9
+        @test length(result) == 9
     end
 
     @testset "Dead-end reg on allosteric spec" begin
@@ -1247,6 +1248,79 @@ end
         # Estar_B has all subs → ineligible
         # 4 eligible → 2^4 - 1 = 15
         @test length(result) == 15
+    end
+
+    @testset "Topology-aware: sequential bi-bi" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_P_Q[CN], E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_A, B] ⇌ [E_A_B]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        rxn_seq = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            dead_end_inhibitors: I
+        end
+        spec = _spec_with_rxn(m, bi_bi_rxn, rxn_seq)
+        result = EnzymeRates._expand_add_dead_end_regulator(
+            spec, rxn_seq)
+        # Sequential bi-bi: binding step sources:
+        #   A: from E    B: from E_A
+        #   P: from E_Q  Q: from E
+        # Eligible forms: E, E_A, E_Q
+        # 9 inhibitor patterns → 4 unique form sets:
+        #   {E,E_Q}: ({A},{P}), ({A,B},{P})
+        #   {E,E_A}: ({B},{Q}), ({B},{P,Q})
+        #   {E_A,E_Q}: ({B},{P})
+        #   {E}: ({A},{Q}), ({A},{P,Q}),
+        #         ({A,B},{Q}), ({A,B},{P,Q})
+        @test length(result) == 4
+        for r in result
+            @test r.param_count == spec.param_count + 1
+        end
+    end
+
+    @testset "Bi-bi random: 9 inhibitor variants" begin
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN],
+                    E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        bb_with_reg = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            dead_end_inhibitors: I
+        end
+        spec = _spec_with_rxn(
+            m, bi_bi_rxn, bb_with_reg)
+        result = EnzymeRates._expand_add_dead_end_regulator(
+            spec, bb_with_reg)
+        @test length(result) == 9
     end
 end
 
