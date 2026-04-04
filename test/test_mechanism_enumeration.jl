@@ -511,6 +511,19 @@ end
             end
             @test length(two_de) == 2  # diagonal + anti-diagonal
         end
+
+        @testset "Ter-ter completes without OOM" begin
+            # Previously OOM: 27 dead-end forms → 2^27 = 134M
+            # Now: 265 competition patterns per topology, each
+            # deterministic, with dedup
+            specs = EnzymeRates.init_mechanisms(ter_ter_rxn)
+            @test length(specs) > 0
+            @test length(specs) < 100_000
+            # Param count invariant: n_s + n_p + 3 = 9
+            for s in specs
+                @test s.param_count == 9
+            end
+        end
     end
 end
 
@@ -787,6 +800,59 @@ end
             end
         end
     end
+end
+
+@testset "Forms with binding step" begin
+    # Uni-uni: S binds to E, P binds to E
+    m_uu = @enzyme_mechanism begin
+        species: begin
+            substrates: S[C]
+            products: P[C]
+            enzymes: E, E_P[C], E_S[C]
+        end
+        steps: begin
+            [E, P] ⇌ [E_P]
+            [E, S] ⇌ [E_S]
+            [E_S] <--> [E_P]
+        end
+    end
+    spec_uu = mechanism_spec_from_mechanism(
+        m_uu, uni_uni_rxn)
+    @test EnzymeRates._forms_with_binding_step(
+        spec_uu.steps, :S) == Set([:E])
+    @test EnzymeRates._forms_with_binding_step(
+        spec_uu.steps, :P) == Set([:E])
+
+    # Bi-bi random: B binds to E and E_A
+    m_bb = @enzyme_mechanism begin
+        species: begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            enzymes: E, E_A[C], E_A_B[CN],
+                E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
+        end
+        steps: begin
+            [E, A] ⇌ [E_A]
+            [E_B, A] ⇌ [E_A_B]
+            [E, B] ⇌ [E_B]
+            [E_A, B] ⇌ [E_A_B]
+            [E, P] ⇌ [E_P]
+            [E_P, Q] ⇌ [E_P_Q]
+            [E, Q] ⇌ [E_Q]
+            [E_Q, P] ⇌ [E_P_Q]
+            [E_A_B] <--> [E_P_Q]
+        end
+    end
+    spec_bb = mechanism_spec_from_mechanism(
+        m_bb, bi_bi_rxn)
+    @test EnzymeRates._forms_with_binding_step(
+        spec_bb.steps, :B) == Set([:E, :E_A])
+    @test EnzymeRates._forms_with_binding_step(
+        spec_bb.steps, :A) == Set([:E, :E_B])
+    @test EnzymeRates._forms_with_binding_step(
+        spec_bb.steps, :P) == Set([:E, :E_Q])
+    @test EnzymeRates._forms_with_binding_step(
+        spec_bb.steps, :Q) == Set([:E, :E_P])
 end
 
 @testset "Add dead-end regulator" begin

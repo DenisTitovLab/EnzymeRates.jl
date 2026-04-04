@@ -98,6 +98,25 @@ function all_form_names(steps::Vector{StepSpec})
     forms
 end
 
+"""
+    _forms_with_binding_step(steps, metabolite)
+        → Set{Symbol}
+
+Return source forms that have a binding step for `metabolite`.
+The source form is the one that doesn't contain the metabolite
+(the reactant side of a binding step).
+"""
+function _forms_with_binding_step(
+    steps::Vector{StepSpec}, metabolite::Symbol,
+)
+    result = Set{Symbol}()
+    for s in steps
+        step_metabolite(s) === metabolite || continue
+        push!(result, s.reactants[1])
+    end
+    result
+end
+
 # ─── Stage 1: Catalytic Topologies ───────────────────────────
 
 """Build a form name Symbol from sorted bound metabolite names."""
