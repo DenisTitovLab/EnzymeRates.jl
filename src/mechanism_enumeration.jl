@@ -1465,16 +1465,64 @@ function _expand_add_dead_end_regulator(
         end
 
         isempty(eligible_forms) && continue
-        n_forms = length(eligible_forms)
 
-        # Enumerate all non-empty subsets
-        for mask in 1:(1 << n_forms) - 1
-            active = Symbol[]
-            for (j, f) in enumerate(eligible_forms)
-                if (mask >> (j - 1)) & 1 == 1
-                    push!(active, f)
-                end
+        # Find existing inhibitor dummies
+        existing_inhibitors = Symbol[]
+        for met in existing_mets
+            s_met = string(met)
+            if contains(s_met, "__reg") &&
+                    !contains(s_met, string(reg))
+                push!(existing_inhibitors, met)
             end
+        end
+        sort!(unique!(existing_inhibitors))
+
+        # Enumerate inhibitor competition patterns
+        inh_patterns =
+            _inhibitor_competition_patterns(
+                sub_names, prod_names,
+                existing_inhibitors)
+        seen = Set{Vector{Symbol}}()
+
+        for (comp_subs, comp_prods,
+                comp_inhibitors) in inh_patterns
+            # Find forms where competing metabolites
+            # have binding steps (topology-aware)
+            target_forms = Set{Symbol}()
+            for met in comp_subs
+                union!(target_forms,
+                    _forms_with_binding_step(
+                        spec.steps, met))
+            end
+            for met in comp_prods
+                union!(target_forms,
+                    _forms_with_binding_step(
+                        spec.steps, met))
+            end
+            for inh in comp_inhibitors
+                union!(target_forms,
+                    _forms_with_binding_step(
+                        spec.steps, inh))
+            end
+
+            # Filter: eligible AND not already
+            # bound to any competing metabolite
+            all_competing = union(
+                comp_subs, comp_prods,
+                comp_inhibitors)
+            active = Symbol[]
+            for f in sort(collect(target_forms))
+                f in eligible_forms || continue
+                haskey(bound, f) || continue
+                isempty(intersect(
+                    bound[f], all_competing)) ||
+                    continue
+                push!(active, f)
+            end
+
+            isempty(active) && continue
+            active in seen && continue
+            push!(seen, active)
 
             new_steps = copy(spec.steps)
             de_form_map = Dict{Symbol, Symbol}()
@@ -1491,8 +1539,7 @@ function _expand_add_dead_end_regulator(
                     length(new_steps))
             end
 
-            # Add mirror steps for catalytic steps
-            # whose both endpoints have dead-end forms
+            # Add mirror steps
             for s in spec.steps
                 from, to = step_forms(s)
                 haskey(de_form_map, from) || continue
@@ -1511,16 +1558,18 @@ function _expand_add_dead_end_regulator(
                 end
             end
 
-            # Equivalence constraints: all K's equal
+            # Equivalence constraints
             new_constraints = copy(
                 spec.param_constraints)
             if length(binding_step_indices) >= 2
                 first_idx = binding_step_indices[1]
-                for j in 2:length(binding_step_indices)
+                for j in 2:length(
+                        binding_step_indices)
                     push!(new_constraints, (
                         Symbol("K$(binding_step_indices[j])"),
                         1,
-                        [(Symbol("K$(first_idx)"), 1)]))
+                        [(Symbol("K$(first_idx)"),
+                            1)]))
                 end
             end
 

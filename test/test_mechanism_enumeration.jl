@@ -1246,8 +1246,8 @@ end
                 spec, rxn_pp_i)
         # Estar_A_P has all prods → ineligible
         # Estar_B has all subs → ineligible
-        # 4 eligible → 2^4 - 1 = 15
-        @test length(result) == 15
+        # 4 eligible, 9 patterns → 3 unique form sets
+        @test length(result) == 3
     end
 
     @testset "Topology-aware: sequential bi-bi" begin
