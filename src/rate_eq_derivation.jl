@@ -1134,6 +1134,41 @@ function _is_tr_equiv_catalytic_param(
     return idx ∈ tr_equiv_cat_steps
 end
 
+"""Check if a catalytic parameter is zeroed in the T-state polynomial
+(r_only metabolite or r_only catalytic step)."""
+function _is_r_only_catalytic_param(
+    p::Symbol, CM::Type{<:EnzymeMechanism},
+    cat_r_only, r_only_cat_steps,
+)
+    # Check K params for r_only metabolites
+    m_inst = CM()
+    rxns = reactions(m_inst)
+    eq_steps = equilibrium_steps(m_inst)
+    enz_set = Set(e[1] for e in enzyme_forms(m_inst))
+    for (idx, (lhs, rhs)) in enumerate(rxns)
+        eq_steps[idx] || continue
+        Symbol("K$idx") != p && continue
+        _, m_lhs = _split_reaction_side(lhs, enz_set)
+        for met in m_lhs
+            met ∈ cat_r_only && return true
+        end
+    end
+    # Check SS rate constants for r_only metabolites or steps
+    _is_ss_rate_constant(p) || return false
+    m_match = match(r"^k(\d+)[fr]$", string(p))
+    m_match === nothing && return false
+    cap = m_match.captures[1]::SubString
+    idx = parse(Int, cap)
+    # SS binding step: r_only if metabolite is r_only
+    lhs, _ = rxns[idx]
+    _, mets_lhs = _split_reaction_side(lhs, enz_set)
+    if !isempty(mets_lhs)
+        return any(met ∈ cat_r_only for met in mets_lhs)
+    end
+    # Non-binding SS step: r_only if index is in r_only_cat_steps
+    return idx ∈ r_only_cat_steps
+end
+
 # ─── Dependent parameter expressions ─────────────────────────────
 
 """
@@ -1148,7 +1183,34 @@ function _dependent_param_exprs(
 ) where {Mets,CM,CS,RS}
     cat_tr_equiv = CS[3]
     tr_equiv_cat_steps = length(CS) >= 4 ? CS[4] : ()
-    dep_R, indep_R = _dependent_param_exprs(CM)
+    cat_r_only = length(CS) >= 5 ? CS[5] : ()
+    cat_t_only = length(CS) >= 6 ? CS[6] : ()
+    r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
+    dep_R_all, indep_R_all = _dependent_param_exprs(CM)
+
+    # Identify params zeroed in each conformation
+    r_only_syms = Set{Symbol}(
+        p for p in indep_R_all
+        if _is_r_only_catalytic_param(
+            p, CM, cat_r_only, r_only_cat_steps))
+    # t_only metabolites: their R-state K/k params are unidentifiable
+    t_only_syms = Set{Symbol}(
+        p for p in indep_R_all
+        if _is_r_only_catalytic_param(
+            p, CM, cat_t_only, ()))
+
+    # Filter R-state: exclude t_only params (zeroed in R-state)
+    dep_R = Dict{Symbol, Union{Symbol, Expr}}()
+    indep_R = Symbol[]
+    for (k, v) in dep_R_all
+        _expr_references_any(v, t_only_syms) && continue
+        dep_R[k] = v
+    end
+    for p in indep_R_all
+        if p ∉ t_only_syms
+            push!(indep_R, p)
+        end
+    end
 
     # R-state reg params: exclude t_only ligands (no R-state binding)
     reg_params_r = [
@@ -1158,19 +1220,24 @@ function _dependent_param_exprs(
         if lig ∉ _rs_t_only(entry)
     ]
 
-    T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
+    T_subs = _build_T_subs(
+        Iterators.flatten([keys(dep_R_all), indep_R_all]))
 
     dep_T = Dict{Symbol, Union{Symbol, Expr}}()
     indep_T_list = Symbol[]
-    for (k, v) in dep_R
+    for (k, v) in dep_R_all
+        # Skip dependent params that reference r_only symbols
+        _expr_references_any(v, r_only_syms) && continue
         dep_T[_rename_params_T(k)] = substitute_params_expr(v, T_subs)
     end
-    for p in indep_R
+    for p in indep_R_all
         t_p = _rename_params_T(p)
         if _is_tr_equiv_catalytic_param(
                 p, CM, cat_tr_equiv, tr_equiv_cat_steps)
             # TR equivalent: p_T = p_R (dependent, not independent)
             dep_T[t_p] = p
+        elseif p ∈ r_only_syms
+            # r_only: zeroed in T-state polynomial, skip
         else
             push!(indep_T_list, t_p)
         end
@@ -1269,9 +1336,25 @@ function _allosteric_dep_assignments(
     dep_R_kd = _apply_kd_inversion(dep_R, CM, inv_fn)
     sorted_deps = sort(collect(dep_R_kd); by=first)
 
-    r_assignments = Expr[
-        Expr(:(=), sym, dep_R_kd[sym]) for (sym, _) in sorted_deps
-    ]
+    r_only_syms = Set{Symbol}(
+        p for p in indep_R
+        if _is_r_only_catalytic_param(
+            p, CM, cat_r_only, r_only_cat_steps))
+    t_only_syms = Set{Symbol}(
+        p for p in indep_R
+        if _is_r_only_catalytic_param(
+            p, CM, cat_t_only, ()))
+
+    # R-state dependent param assignments
+    # Set to zero if expression references t_only symbols
+    r_assignments = Expr[]
+    for (sym, _) in sorted_deps
+        if _expr_references_any(dep_R_kd[sym], t_only_syms)
+            push!(r_assignments, Expr(:(=), sym, 0))
+        else
+            push!(r_assignments, Expr(:(=), sym, dep_R_kd[sym]))
+        end
+    end
 
     T_subs = _build_T_subs(Iterators.flatten([keys(dep_R), indep_R]))
     t_assignments = Expr[]
@@ -1296,11 +1379,16 @@ function _allosteric_dep_assignments(
         end
     end
 
-    # T-state assignments for catalytic dependent params
-    # (after all TR-equiv assignments so referenced symbols are defined)
+    # T-state dependent param assignments
+    # Set to zero if expression references r_only symbols
     for (sym, _) in sorted_deps
-        push!(t_assignments, Expr(:(=), _rename_params_T(sym),
-            substitute_params_expr(dep_R_kd[sym], T_subs)))
+        t_sym = _rename_params_T(sym)
+        if _expr_references_any(dep_R_kd[sym], r_only_syms)
+            push!(t_assignments, Expr(:(=), t_sym, 0))
+        else
+            push!(t_assignments, Expr(:(=), t_sym,
+                substitute_params_expr(dep_R_kd[sym], T_subs)))
+        end
     end
 
     return r_assignments, t_assignments

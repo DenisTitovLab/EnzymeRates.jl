@@ -48,6 +48,22 @@
         @test Set(r[1] for r in roles_plain) == Set([:R1, :R2])
     end
 
+    @testset "@enzyme_reaction with oligomeric_state" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            oligomeric_state: 4
+        end
+        @test EnzymeRates.oligomeric_state(rxn) == 4
+
+        # Without oligomeric_state defaults to 1
+        rxn2 = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+        end
+        @test EnzymeRates.oligomeric_state(rxn2) == 1
+    end
+
     @testset "@enzyme_mechanism" begin
         m = @enzyme_mechanism begin
             species: begin

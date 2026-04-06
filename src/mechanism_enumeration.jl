@@ -1,5 +1,5 @@
-# ABOUTME: Staged pipeline for enumerating enzyme mechanism topologies.
-# ABOUTME: Converts EnzymeReaction → MechanismSpec/AllostericMechanismSpec via 8 stages.
+# ABOUTME: Mechanism enumeration by incremental parameter count growth
+# ABOUTME: Provides init_mechanisms, expand_mechanisms, dedup! building blocks
 
 # ─── Data Types ─────────────────────────────────────────────
 
@@ -67,6 +67,7 @@ struct AllostericMechanismSpec <: AbstractMechanismSpec
     r_only_metabolites::Vector{Symbol}
     t_only_metabolites::Vector{Symbol}
     r_only_cat_steps::Vector{Int}
+    param_count::Int
 end
 
 # ─── StepSpec Helpers ──────────────────────────────────────────
@@ -97,257 +98,23 @@ function all_form_names(steps::Vector{StepSpec})
     forms
 end
 
-# ─── MechanismIterator ────────────────────────────────────────
-
-struct MechanismIterator
-    inner::Any
-    total::Int
-end
-
-Base.eltype(::Type{MechanismIterator}) = AbstractMechanismSpec
-Base.IteratorSize(::Type{MechanismIterator}) = Base.HasLength()
-Base.length(iter::MechanismIterator) = iter.total
-Base.iterate(iter::MechanismIterator, s...) = iterate(iter.inner, s...)
-
-# ─── RE Partition (union-find) ─────────────────────────────────
-
 """
-    _compute_re_partition_from_steps(steps) -> Vector{Vector{Symbol}}
+    _forms_with_binding_step(steps, metabolite)
+        → Set{Symbol}
 
-Connected components of enzyme forms linked by RE steps.
+Return source forms that have a binding step for `metabolite`.
+The source form is the one that doesn't contain the metabolite
+(the reactant side of a binding step).
 """
-function _compute_re_partition_from_steps(
-    steps::Vector{StepSpec},
+function _forms_with_binding_step(
+    steps::Vector{StepSpec}, metabolite::Symbol,
 )
-    form_names = collect(all_form_names(steps))
-    parent = Dict(f => f for f in form_names)
-    function find(x)
-        while parent[x] != x
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        end
-        x
-    end
+    result = Set{Symbol}()
     for s in steps
-        s.is_equilibrium || continue
-        a, b = s.reactants[1], s.products[1]
-        ra, rb = find(a), find(b)
-        ra != rb && (parent[ra] = rb)
-    end
-    groups = Dict{Symbol, Vector{Symbol}}()
-    for f in form_names
-        r = find(f)
-        push!(get!(groups, r, Symbol[]), f)
-    end
-    sort!([sort!(v) for v in values(groups)])
-end
-
-# ─── Concentration Fingerprint ─────────────────────────────────
-
-"""Increment the exponent of `met` in a sorted monomial."""
-function _add_met(mono::MONO, met::Symbol)::MONO
-    result = copy(mono)
-    idx = findfirst(p -> p.first == met, result)
-    if idx !== nothing
-        result[idx] = met => result[idx].second + 1
-    else
-        push!(result, met => 1)
-        sort!(result; by=first)
+        step_metabolite(s) === metabolite || continue
+        push!(result, s.reactants[1])
     end
     result
-end
-
-"""
-Enumerate all spanning arborescences of a G-node directed graph
-rooted at `root`, returning the set of concentration monomials.
-"""
-function _spanning_arborescence_monomials(
-    G::Int, R_conc::Dict{Tuple{Int,Int}, Set{MONO}}, root::Int,
-)
-    result = Set{MONO}()
-    non_root = [g for g in 1:G if g != root]
-    isempty(non_root) && return Set{MONO}([MONO()])
-    function enumerate_trees!(idx, current_mono)
-        if idx > length(non_root)
-            push!(result, current_mono)
-            return
-        end
-        node = non_root[idx]
-        for dst in 1:G
-            dst == node && continue
-            edge_monos = get(R_conc, (node, dst), nothing)
-            edge_monos === nothing && continue
-            for emono in edge_monos
-                enumerate_trees!(
-                    idx + 1, _mono_mul(current_mono, emono))
-            end
-        end
-    end
-    enumerate_trees!(1, MONO())
-    result
-end
-
-"""
-    _concentration_fingerprint(steps, partition) → Set{MONO}
-
-Concentration monomials in the rate equation denominator.
-Uses step-based representation with Symbol-named forms.
-Binding direction is always forward (reactant→product) since
-steps are in canonical form.
-"""
-function _concentration_fingerprint(
-    steps::Vector{StepSpec},
-    partition::Vector{Vector{Symbol}},
-)
-    G = length(partition)
-    group_set = [Set(g) for g in partition]
-    form_to_group = Dict(
-        f => g
-        for (g, grp) in enumerate(partition)
-        for f in grp)
-
-    # BFS within each RE component to compute
-    # relative concentration monomials
-    alpha_conc = Dict{Symbol, MONO}()
-    for (g, group) in enumerate(partition)
-        ref = group[1]
-        alpha_conc[ref] = MONO()
-        queue = [ref]
-        while !isempty(queue)
-            cur = popfirst!(queue)
-            for s in steps
-                s.is_equilibrium || continue
-                from, to = step_forms(s)
-                met = step_metabolite(s)
-                # Check both directions of the edge
-                neighbor = if from == cur &&
-                        to in group_set[g]
-                    to
-                elseif to == cur &&
-                        from in group_set[g]
-                    from
-                else
-                    nothing
-                end
-                (neighbor === nothing ||
-                    haskey(alpha_conc, neighbor)) &&
-                    continue
-                parent_mono = alpha_conc[cur]
-                child_mono = if met !== nothing
-                    # Forward = binding direction
-                    if cur == from
-                        _add_met(parent_mono, met)
-                    else
-                        copy(parent_mono)
-                    end
-                else
-                    copy(parent_mono)
-                end
-                alpha_conc[neighbor] = child_mono
-                push!(queue, neighbor)
-            end
-        end
-    end
-
-    sigma_conc = [Set{MONO}(alpha_conc[f] for f in group)
-                  for group in partition]
-
-    # Build SS inter-group transitions
-    R_conc = Dict{Tuple{Int,Int}, Set{MONO}}()
-    for s in steps
-        s.is_equilibrium && continue
-        from, to = step_forms(s)
-        met = step_metabolite(s)
-        g1, g2 = form_to_group[from], form_to_group[to]
-        g1 == g2 && continue
-
-        # Forward direction: from→to binds metabolite
-        fwd_mono = met !== nothing ?
-            _add_met(alpha_conc[from], met) :
-            copy(alpha_conc[from])
-        push!(get!(R_conc, (g1, g2), Set{MONO}()),
-            fwd_mono)
-
-        # Reverse direction: to→from unbinds metabolite
-        rev_mono = copy(alpha_conc[to])
-        push!(get!(R_conc, (g2, g1), Set{MONO}()),
-            rev_mono)
-    end
-
-    fingerprint = Set{MONO}()
-    for g in 1:G
-        D_g = _spanning_arborescence_monomials(
-            G, R_conc, g)
-        for s in sigma_conc[g], d in D_g
-            push!(fingerprint, _mono_mul(s, d))
-        end
-    end
-    fingerprint
-end
-
-# ─── Equivalence Groups + Constraints ──────────────────────────
-
-"""
-    _constraint_descriptor(steps, valid_groups, constraint_mask)
-
-Constraint descriptor for step-based representation.
-"""
-function _constraint_descriptor(
-    steps::Vector{StepSpec},
-    valid_groups::Vector{Vector{Int}},
-    constraint_mask::Int,
-)
-    descriptor = Set{Tuple{Symbol, Symbol}}()
-    for (gi, g) in enumerate(valid_groups)
-        (constraint_mask >> (gi - 1)) & 1 == 1 || continue
-        met = step_metabolite(steps[g[1]])
-        mode = steps[g[1]].is_equilibrium ? :RE : :SS
-        push!(descriptor, (met, mode))
-    end
-    descriptor
-end
-
-const _DedupKey = Tuple{Set{MONO}, Set{Tuple{Symbol,Symbol}}}
-
-# ─── Set Partitions + Allosteric Helpers ─────────────────────
-
-"""
-    _set_partitions(elements::Vector{Symbol})
-
-Enumerate all set partitions (Bell number partitions).
-"""
-function _set_partitions(elements::Vector{Symbol})
-    n = length(elements)
-    n == 0 && return [Vector{Symbol}[]]
-    n == 1 && return [Vector{Symbol}[elements]]
-    result = Vector{Vector{Vector{Symbol}}}()
-    for partition in _set_partitions(elements[1:end-1])
-        last_elem = elements[end]
-        for i in eachindex(partition)
-            new_part = [copy(g) for g in partition]
-            push!(new_part[i], last_elem)
-            push!(result, new_part)
-        end
-        push!(result, [partition; [Symbol[last_elem]]])
-    end
-    result
-end
-
-"""
-    _partition_mult_count(k, N) → Int
-
-Count allosteric multiplicity variants: sum_{g=1}^{k} S(k,g) * N^g.
-"""
-function _partition_mult_count(k::Int, N::Int)
-    k == 0 && return 1
-    S = zeros(Int, k, k)
-    S[1, 1] = 1
-    for n in 2:k
-        for g in 1:n
-            S[n, g] = (g > 1 ? S[n-1, g-1] : 0) + g * S[n-1, g]
-        end
-    end
-    sum(S[k, g] * N^g for g in 1:k)
 end
 
 # ─── Stage 1: Catalytic Topologies ───────────────────────────
@@ -860,59 +627,7 @@ function _catalytic_topologies(
     result
 end
 
-# ─── Stage 2: RE/SS Assignment ───────────────────────────────
-
-"""
-    _expand_ress_variants(specs, reaction; max_re_groups=7)
-        -> Vector{MechanismSpec}
-
-Enumerate all RE/SS assignment combinations for mechanism
-steps. Every step can independently be RE or SS. The all-RE
-assignment (mask=0) is excluded because at least one step
-must be SS for the King-Altman method.
-"""
-function _expand_ress_variants(
-    specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction);
-    max_re_groups::Int=7,
-)
-    result = MechanismSpec[]
-    for spec in specs
-        n = length(spec.steps)
-        n == 0 && continue
-
-        for mask in 1:(1 << n) - 1
-            steps = [
-                StepSpec(
-                    s.reactants, s.products,
-                    (mask >> (i - 1)) & 1 == 0,
-                )
-                for (i, s) in enumerate(spec.steps)
-            ]
-            # At least one step must be SS
-            any(!s.is_equilibrium for s in steps) ||
-                continue
-            # Check RE-connected groups ≤ max_re_groups
-            partition =
-                _compute_re_partition_from_steps(steps)
-            length(partition) > max_re_groups && continue
-
-            n_re = count(s.is_equilibrium for s in steps)
-            n_ss = n - n_re
-            n_forms = length(all_form_names(steps))
-            n_thermo = n - n_forms + 1
-            pc = n_re + 2 * n_ss - n_thermo + 2
-
-            push!(result, MechanismSpec(
-                spec.reaction, steps,
-                spec.param_constraints, pc,
-            ))
-        end
-    end
-    result
-end
-
-# ─── Stage 3a: Substrate/Product Dead-End Expansion ──────────
+# ─── Dead-End Helpers ────────────────────────────────────────
 
 """
     _bound_metabolites_at_forms(spec, reaction)
@@ -985,127 +700,6 @@ function _dead_end_form_name(
 end
 
 """
-    _expand_substrate_product_dead_ends(specs, reaction)
-        -> Vector{MechanismSpec}
-
-For each spec, enumerate substrate/product dead-end
-form combinations. A dead-end form is created when a
-substrate or product binds to a catalytic form where it
-doesn't normally bind, subject to:
-- The resulting form is not already a catalytic form
-- The resulting form binds at least one substrate AND
-  at least one product (mixed binding required)
-- The resulting form doesn't have all substrates or
-  all products
-"""
-function _expand_substrate_product_dead_ends(
-    specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction),
-)
-    sub_names = Set(s[1] for s in substrates(reaction))
-    prod_names = Set(p[1] for p in products(reaction))
-    all_mets = union(sub_names, prod_names)
-
-    result = MechanismSpec[]
-    for spec in specs
-        bound = _bound_metabolites_at_forms(
-            spec, reaction)
-        cat_forms = all_form_names(spec)
-
-        de_opportunities =
-            _substrate_product_dead_end_opportunities(
-                bound, cat_forms, sub_names,
-                prod_names)
-
-        # Deduplicate: multiple catalytic forms may
-        # produce the same dead-end form. Group by
-        # dead-end form name.
-        de_forms = Dict{Symbol,
-            Vector{Tuple{Symbol, Symbol}}}()
-        for (f, m) in de_opportunities
-            de_name = _dead_end_form_name(bound[f], m)
-            push!(get!(de_forms, de_name,
-                Tuple{Symbol, Symbol}[]), (f, m))
-        end
-        de_form_names = sort(collect(keys(de_forms)))
-        n_de = length(de_form_names)
-
-        # Enumerate 2^n subsets of dead-end forms
-        for mask in 0:(1 << n_de) - 1
-            active_de = Set{Symbol}()
-            for (j, name) in enumerate(de_form_names)
-                if (mask >> (j - 1)) & 1 == 1
-                    push!(active_de, name)
-                end
-            end
-
-            # Build new steps: original + dead-end
-            new_steps = copy(spec.steps)
-
-            # Add binding steps for active dead-ends
-            for de_name in sort(collect(active_de))
-                entries = de_forms[de_name]
-                for (cat_form, met) in entries
-                    # Binding step: [cat_form, met]
-                    #   → [de_name] (always RE)
-                    push!(new_steps, StepSpec(
-                        [cat_form, met],
-                        [de_name], true))
-                end
-            end
-
-            # Add mirror steps: for each catalytic
-            # step, if both endpoints have extensions
-            # to active dead-end forms with the same
-            # metabolite, add a mirror step
-            for s in spec.steps
-                from, to = s.reactants[1], s.products[1]
-                met = step_metabolite(s)
-                for de_met in sort(collect(all_mets))
-                    haskey(bound, from) || continue
-                    haskey(bound, to) || continue
-                    de_met in bound[from] && continue
-                    de_met in bound[to] && continue
-                    from_de = _dead_end_form_name(
-                        bound[from], de_met)
-                    to_de = _dead_end_form_name(
-                        bound[to], de_met)
-                    from_de in active_de || continue
-                    to_de in active_de || continue
-                    # Mirror step inherits RE/SS
-                    if met !== nothing
-                        push!(new_steps, StepSpec(
-                            [from_de, met],
-                            [to_de],
-                            s.is_equilibrium))
-                    else
-                        push!(new_steps, StepSpec(
-                            [from_de], [to_de],
-                            s.is_equilibrium))
-                    end
-                end
-            end
-
-            # Compute param_count
-            n_steps = length(new_steps)
-            n_re = count(
-                s -> s.is_equilibrium, new_steps)
-            n_ss = n_steps - n_re
-            n_forms = length(all_form_names(new_steps))
-            n_thermo = n_steps - n_forms + 1
-            pc = n_re + 2 * n_ss - n_thermo + 2
-
-            push!(result, MechanismSpec(
-                spec.reaction, new_steps,
-                spec.param_constraints, pc))
-        end
-    end
-    result
-end
-
-# ─── Stage 3b: Combined Dead-End Expansion ─────────────────────
-
-"""
     _substrate_product_dead_end_opportunities(
         bound, cat_forms, sub_names, prod_names)
 
@@ -1160,63 +754,119 @@ function _substrate_product_dead_end_opportunities(
 end
 
 """
-    _regulator_dead_end_opportunities(
-        bound, cat_forms, sub_names, prod_names,
-        dead_end_regs)
+    _competition_patterns(sub_names, prod_names)
+        → Vector{Set{Tuple{Symbol,Symbol}}}
 
-Find (form, dummy_met) dead-end opportunities for
-regulators. Eligible forms are those where neither all
-substrates nor all products are bound. Returns pairs of
-(catalytic_form, dummy_metabolite_name).
+Enumerate all bipartite competition graphs on
+substrates × products where every substrate and every
+product has degree ≥ 1.
 """
-function _regulator_dead_end_opportunities(
-    bound::Dict{Symbol, Set{Symbol}},
-    cat_forms::Set{Symbol},
+function _competition_patterns(
     sub_names::Set{Symbol},
     prod_names::Set{Symbol},
-    dead_end_regs::Vector{Symbol},
 )
-    opportunities = Tuple{Symbol, Symbol}[]
-    for f in sort(collect(cat_forms))
-        haskey(bound, f) || continue
-        fb = bound[f]
-        fb_subs = intersect(fb, sub_names)
-        fb_prods = intersect(fb, prod_names)
-        # Eligible: neither all subs nor all prods
-        (fb_subs == sub_names ||
-            fb_prods == prod_names) && continue
-        for (i, reg) in enumerate(
-                sort(dead_end_regs))
-            dummy = Symbol(
-                string(reg) * "__reg" * string(i))
-            push!(opportunities, (f, dummy))
+    subs = sort(collect(sub_names))
+    prods = sort(collect(prod_names))
+    edges = [(s, p) for s in subs for p in prods]
+    n = length(edges)
+    result = Set{Tuple{Symbol,Symbol}}[]
+    for mask in 1:(1 << n) - 1
+        pat = Set{Tuple{Symbol,Symbol}}()
+        for j in 1:n
+            if (mask >> (j - 1)) & 1 == 1
+                push!(pat, edges[j])
+            end
         end
+        all(s -> any(
+            p -> (s, p) in pat, prods), subs) ||
+            continue
+        all(p -> any(
+            s -> (s, p) in pat, subs), prods) ||
+            continue
+        push!(result, pat)
     end
-    opportunities
+    result
 end
 
 """
-    _expand_dead_end(specs, reaction;
-        dead_end_regs) -> Vector{MechanismSpec}
+    _inhibitor_competition_patterns(sub_names, prod_names,
+        existing_inhibitors)
+        → Vector{Tuple{Set{Symbol},Set{Symbol},Set{Symbol}}}
 
-Combined dead-end expansion: finds substrate/product
-AND regulator dead-end opportunities, then enumerates
-the power set over all unique dead-end forms in a
-single pass. Dead-end binding steps are always RE.
-Mirror steps inherit RE/SS from their catalytic
-counterparts.
+Enumerate inhibitor competition patterns: (competing_subs,
+competing_prods, competing_inhibitors). Each inhibitor must
+compete with ≥1 substrate and ≥1 product. Competition with
+existing inhibitors is a free binary choice.
 """
-function _expand_dead_end(
-    specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction);
-    dead_end_regs::Vector{Symbol}=Symbol[],
-    include_substrate_product::Bool=true,
+function _inhibitor_competition_patterns(
+    sub_names::Set{Symbol},
+    prod_names::Set{Symbol},
+    existing_inhibitors::Vector{Symbol},
 )
-    sub_names = Set(
-        s[1] for s in substrates(reaction))
-    prod_names = Set(
-        p[1] for p in products(reaction))
+    subs = sort(collect(sub_names))
+    prods = sort(collect(prod_names))
+    inhs = sort(existing_inhibitors)
+    n_s = length(subs)
+    n_p = length(prods)
+    n_i = length(inhs)
+
+    result = Tuple{
+        Set{Symbol}, Set{Symbol}, Set{Symbol}}[]
+    for s_mask in 1:(1 << n_s) - 1
+        comp_subs = Set{Symbol}()
+        for j in 1:n_s
+            if (s_mask >> (j - 1)) & 1 == 1
+                push!(comp_subs, subs[j])
+            end
+        end
+        for p_mask in 1:(1 << n_p) - 1
+            comp_prods = Set{Symbol}()
+            for j in 1:n_p
+                if (p_mask >> (j - 1)) & 1 == 1
+                    push!(comp_prods, prods[j])
+                end
+            end
+            for i_mask in 0:(1 << n_i) - 1
+                comp_inhs = Set{Symbol}()
+                for j in 1:n_i
+                    if (i_mask >> (j - 1)) & 1 == 1
+                        push!(comp_inhs, inhs[j])
+                    end
+                end
+                push!(result, (
+                    comp_subs, comp_prods, comp_inhs))
+            end
+        end
+    end
+    result
+end
+
+"""
+    _expand_substrate_product_dead_ends(specs, reaction)
+        -> Vector{MechanismSpec}
+
+For each spec, enumerate substrate/product dead-end
+form combinations. A dead-end form is created when a
+substrate or product binds to a catalytic form where it
+doesn't normally bind, subject to:
+- The resulting form is not already a catalytic form
+- The resulting form binds at least one substrate AND
+  at least one product (mixed binding required)
+- The resulting form doesn't have all substrates or
+  all products
+"""
+function _expand_substrate_product_dead_ends(
+    specs::Vector{MechanismSpec},
+    @nospecialize(reaction::EnzymeReaction),
+)
+    sub_names = Set(s[1] for s in substrates(reaction))
+    prod_names = Set(p[1] for p in products(reaction))
     all_mets = union(sub_names, prod_names)
+
+    # Competition patterns depend only on the reaction,
+    # not the topology — compute once.
+    patterns = _competition_patterns(
+        sub_names, prod_names)
 
     result = MechanismSpec[]
     for spec in specs
@@ -1224,54 +874,66 @@ function _expand_dead_end(
             spec, reaction)
         cat_forms = all_form_names(spec)
 
-        sp_opps = if include_substrate_product
+        de_opportunities =
             _substrate_product_dead_end_opportunities(
                 bound, cat_forms, sub_names,
                 prod_names)
-        else
-            Tuple{Symbol, Symbol}[]
-        end
 
-        # Collect regulator dead-end opportunities
-        reg_opps = _regulator_dead_end_opportunities(
-            bound, cat_forms, sub_names, prod_names,
-            dead_end_regs)
-
-        # Merge all opportunities
-        all_opps = vcat(sp_opps, reg_opps)
-
-        # Group by dead-end form name. For
-        # substrate/product mets, the dead-end form
-        # name uses the bound set. For regulators, we
-        # extend the bound set with the dummy name.
+        # Deduplicate: multiple catalytic forms may
+        # produce the same dead-end form. Group by
+        # dead-end form name.
         de_forms = Dict{Symbol,
             Vector{Tuple{Symbol, Symbol}}}()
-        for (f, m) in all_opps
-            de_name = _dead_end_form_name(
-                bound[f], m)
+        for (f, m) in de_opportunities
+            de_name = _dead_end_form_name(bound[f], m)
             push!(get!(de_forms, de_name,
                 Tuple{Symbol, Symbol}[]), (f, m))
         end
-        de_form_names = sort(collect(
-            keys(de_forms)))
+        de_form_names = sort(collect(keys(de_forms)))
         n_de = length(de_form_names)
 
-        # Enumerate 2^n subsets of dead-end forms
-        for mask in 0:(1 << n_de) - 1
-            active_de = Set{Symbol}()
-            for (j, name) in enumerate(
-                    de_form_names)
-                if (mask >> (j - 1)) & 1 == 1
-                    push!(active_de, name)
-                end
+        # Map each dead-end form to its bound metabolites
+        de_bound = Dict{Symbol, Set{Symbol}}()
+        for de_name in de_form_names
+            entries = de_forms[de_name]
+            f, m = first(entries)
+            de_bound[de_name] = union(
+                bound[f], Set([m]))
+        end
+
+        seen = Set{Vector{Symbol}}()
+
+        for pattern in patterns
+            # Filter dead-end forms by competition
+            allowed_de = Symbol[]
+            for de_name in de_form_names
+                mets = de_bound[de_name]
+                de_subs = intersect(mets, sub_names)
+                de_prods = intersect(
+                    mets, prod_names)
+                has_conflict = any(
+                    (s, p) in pattern
+                    for s in de_subs
+                    for p in de_prods)
+                has_conflict || push!(
+                    allowed_de, de_name)
             end
 
+            # Dedup by form set
+            allowed_de in seen && continue
+            push!(seen, allowed_de)
+
+            active_de = Set{Symbol}(allowed_de)
+
+            # Build new steps: original + dead-end
             new_steps = copy(spec.steps)
 
             # Add binding steps for active dead-ends
             for de_name in sort(collect(active_de))
                 entries = de_forms[de_name]
                 for (cat_form, met) in entries
+                    # [cat_form, met] → [de_name]
+                    # (always RE)
                     push!(new_steps, StepSpec(
                         [cat_form, met],
                         [de_name], true))
@@ -1279,20 +941,14 @@ function _expand_dead_end(
             end
 
             # Add mirror steps: for each catalytic
-            # step, check if both endpoints can be
-            # extended with the same dead-end met
-            # All de mets = union of sub/prod mets
-            # and regulator dummy names
-            all_de_mets = Set{Symbol}()
-            for (_, m) in all_opps
-                push!(all_de_mets, m)
-            end
+            # step, if both endpoints have dead-end
+            # forms with the same metabolite, add a
+            # parallel step. Mirror inherits RE/SS.
             for s in spec.steps
-                from = s.reactants[1]
-                to = s.products[1]
+                from, to =
+                    s.reactants[1], s.products[1]
                 met = step_metabolite(s)
-                for de_met in sort(
-                        collect(all_de_mets))
+                for de_met in sort(collect(all_mets))
                     haskey(bound, from) || continue
                     haskey(bound, to) || continue
                     de_met in bound[from] && continue
@@ -1334,736 +990,23 @@ function _expand_dead_end(
     result
 end
 
-"""Compute incidence matrix nullspace for a set of steps."""
-function _compute_step_nullspace(steps::Vector{StepSpec})
-    form_list = Symbol[]
-    form_idx = Dict{Symbol, Int}()
-    for s in steps
-        for f in (s.reactants[1], s.products[1])
-            if !haskey(form_idx, f)
-                push!(form_list, f)
-                form_idx[f] = length(form_list)
-            end
-        end
-    end
-    n_forms = length(form_list)
-    n_steps = length(steps)
-    B = zeros(Int, n_forms, n_steps)
-    for (j, s) in enumerate(steps)
-        B[form_idx[s.reactants[1]], j] -= 1
-        B[form_idx[s.products[1]], j] += 1
-    end
-    _integer_nullspace(B)
-end
-
-"""
-    _redundant_thermo_count_cached(steps, NS, active_groups)
-
-Cached variant: takes pre-computed nullspace NS to avoid
-recomputing it per constraint mask. Uses integer arithmetic
-for the rank computation to minimize allocations.
-"""
-function _redundant_thermo_count_cached(
-    steps::Vector{StepSpec},
-    NS::Matrix{Int},
-    active_groups::Vector{Vector{Int}},
-)
-    n_steps = length(steps)
-    n_cycles = size(NS, 2)
-    n_cycles == 0 && return 0
-
-    equiv_rows = Int[]
-    for g in active_groups
-        for j in 2:length(g)
-            push!(equiv_rows, g[1], g[j])
-        end
-    end
-    n_equiv = length(equiv_rows) ÷ 2
-    n_equiv == 0 && return 0
-
-    n_total = n_cycles + n_equiv
-
-    # Build num/den matrices (no Rational{BigInt})
-    num = zeros(Int, n_total, n_steps)
-    den = ones(Int, n_total, n_steps)
-    for i in 1:n_cycles, j in 1:n_steps
-        num[i, j] = NS[j, i]
-    end
-    for k in 1:n_equiv
-        num[n_cycles + k, equiv_rows[2k - 1]] = 1
-        num[n_cycles + k, equiv_rows[2k]] = -1
-    end
-
-    # Row echelon with explicit loops (no slice ops)
-    rank_combined = 0
-    row = 1
-    for col in 1:n_steps
-        # Find pivot
-        piv = 0
-        for r in row:n_total
-            if num[r, col] != 0
-                piv = r
-                break
-            end
-        end
-        piv == 0 && continue
-
-        # Swap rows
-        if piv != row
-            for j in 1:n_steps
-                num[row, j], num[piv, j] =
-                    num[piv, j], num[row, j]
-                den[row, j], den[piv, j] =
-                    den[piv, j], den[row, j]
-            end
-        end
-
-        # Scale pivot row: divide by pivot element
-        pn, pd = num[row, col], den[row, col]
-        for j in 1:n_steps
-            num[row, j] *= pd
-            den[row, j] *= pn
-            g = gcd(abs(num[row, j]),
-                abs(den[row, j]))
-            if g > 0
-                num[row, j] ÷= g
-                den[row, j] ÷= g
-            end
-            if den[row, j] < 0
-                num[row, j] = -num[row, j]
-                den[row, j] = -den[row, j]
-            end
-        end
-
-        # Eliminate column in other rows
-        for r in 1:n_total
-            r == row && continue
-            num[r, col] == 0 && continue
-            fn, fd = num[r, col], den[r, col]
-            for j in 1:n_steps
-                rn = num[r, j] * fd *
-                    den[row, j] -
-                    fn * num[row, j] * den[r, j]
-                rd = den[r, j] * fd *
-                    den[row, j]
-                g = gcd(abs(rn), abs(rd))
-                if g > 0
-                    num[r, j] = rn ÷ g
-                    den[r, j] = rd ÷ g
-                else
-                    num[r, j] = 0
-                    den[r, j] = 1
-                end
-                if den[r, j] < 0
-                    num[r, j] = -num[r, j]
-                    den[r, j] = -den[r, j]
-                end
-            end
-        end
-        rank_combined += 1
-        row += 1
-    end
-
-    n_cycles + n_equiv - rank_combined
-end
-
-"""
-Count equivalence constraints that make Wegscheider
-constraints redundant. Works in equilibrium-constant
-space (one dimension per step): cycle rows from the
-graph null space, equiv rows as p_a - p_b = 0.
-Returns the number of redundant thermo constraints.
-"""
-function _redundant_thermo_count(
-    steps::Vector{StepSpec},
-    active_groups::Vector{Vector{Int}},
-)
-    # Build incidence matrix (forms × steps)
-    form_list = Symbol[]
-    form_idx = Dict{Symbol, Int}()
-    for s in steps
-        for f in (s.reactants[1], s.products[1])
-            if !haskey(form_idx, f)
-                push!(form_list, f)
-                form_idx[f] = length(form_list)
-            end
-        end
-    end
-    n_forms = length(form_list)
-    n_steps = length(steps)
-    B = zeros(Int, n_forms, n_steps)
-    for (j, s) in enumerate(steps)
-        B[form_idx[s.reactants[1]], j] -= 1
-        B[form_idx[s.products[1]], j] += 1
-    end
-
-    NS = _integer_nullspace(B)
-    n_cycles = size(NS, 2)
-    n_cycles == 0 && return 0
-
-    # Build equiv rows in step space
-    equiv_rows = Int[]
-    for g in active_groups
-        for j in 2:length(g)
-            push!(equiv_rows, g[1], g[j])
-        end
-    end
-    n_equiv = length(equiv_rows) ÷ 2
-    n_equiv == 0 && return 0
-
-    # Combined matrix: cycles (transposed) + equiv
-    n_total = n_cycles + n_equiv
-    M = zeros(Rational{BigInt}, n_total, n_steps)
-    for i in 1:n_cycles
-        for j in 1:n_steps
-            M[i, j] = NS[j, i]
-        end
-    end
-    for k in 1:n_equiv
-        a = equiv_rows[2k - 1]
-        b = equiv_rows[2k]
-        M[n_cycles + k, a] = 1
-        M[n_cycles + k, b] = -1
-    end
-
-    # Rank via row echelon
-    rank_combined = 0
-    row = 1
-    Mc = copy(M)
-    for col in 1:n_steps
-        piv = findfirst(
-            r -> Mc[r, col] != 0, row:n_total)
-        piv === nothing && continue
-        piv += row - 1
-        Mc[row, :], Mc[piv, :] =
-            Mc[piv, :], Mc[row, :]
-        Mc[row, :] ./= Mc[row, col]
-        for r in 1:n_total
-            r != row && Mc[r, col] != 0 &&
-                (Mc[r, :] .-= Mc[r, col] .* Mc[row, :])
-        end
-        rank_combined += 1
-        row += 1
-    end
-
-    n_cycles + n_equiv - rank_combined
-end
-
-# ─── Stage 4: Equivalence Constraint Expansion ────────────────
-
-"""
-    _expand_equivalence_constraints(specs, reaction)
-        -> Vector{MechanismSpec}
-
-For each spec, enumerate equivalence constraint masks.
-Groups steps by (metabolite_name, is_equilibrium). Steps
-binding the same metabolite with the same RE/SS status can
-share parameters. Dummy regulatory names (:X__reg1)
-naturally separate catalytic from regulatory binding.
-"""
-function _expand_equivalence_constraints(
-    specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction),
-)
-    result = MechanismSpec[]
-    for spec in specs
-        # Group step indices by (metabolite, RE/SS)
-        groups = Dict{
-            Tuple{Symbol,Bool}, Vector{Int}}()
-        for (i, s) in enumerate(spec.steps)
-            met = step_metabolite(s)
-            met === nothing && continue
-            key = (met, s.is_equilibrium)
-            push!(get!(groups, key, Int[]), i)
-        end
-
-        # Keep only groups with ≥ 2 steps
-        valid_groups = sort!(
-            [sort!(g) for (_, g) in groups
-             if length(g) >= 2];
-            by=first)
-
-        n_groups = length(valid_groups)
-        for mask in 0:(1 << n_groups) - 1
-            constraints = ParamConstraint[]
-            delta = 0
-            for (gi, g) in enumerate(valid_groups)
-                (mask >> (gi - 1)) & 1 == 1 ||
-                    continue
-                is_re = spec.steps[g[1]].is_equilibrium
-                n_constrained = length(g) - 1
-                if is_re
-                    delta -= n_constrained
-                    for j in 2:length(g)
-                        push!(constraints, (
-                            Symbol("K$(g[j])"),
-                            1,
-                            [(Symbol("K$(g[1])"), 1)]
-                        ))
-                    end
-                else
-                    delta -= 2 * n_constrained
-                    for j in 2:length(g)
-                        for sfx in ("f", "r")
-                            push!(constraints, (
-                                Symbol(
-                                    "k$(g[j])$sfx"),
-                                1,
-                                [(Symbol(
-                                    "k$(g[1])$sfx"),
-                                  1)]
-                            ))
-                        end
-                    end
-                end
-            end
-            # Equivalence constraints can make
-            # Wegscheider constraints redundant
-            active = Vector{Int}[]
-            for (gi, g) in enumerate(valid_groups)
-                (mask >> (gi - 1)) & 1 == 1 &&
-                    push!(active, g)
-            end
-            redundancy = _redundant_thermo_count(
-                spec.steps, active)
-            push!(result, MechanismSpec(
-                spec.reaction, spec.steps,
-                constraints,
-                spec.param_count + delta +
-                    redundancy))
-        end
-    end
-    result
-end
-
-# ─── Stage 5: Deduplication ────────────────────────────────────
-
-"""
-    _deduplicate(specs, reaction) -> Vector{MechanismSpec}
-
-Deduplicate by (concentration fingerprint, constraint descriptor).
-Keeps mechanism with fewest parameters.
-"""
-function _deduplicate(
-    specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction),
-)
-    isempty(specs) && return specs
-
-    best = Dict{_DedupKey, MechanismSpec}()
-    for spec in specs
-        steps = spec.steps
-        partition = _compute_re_partition_from_steps(steps)
-        fp = _concentration_fingerprint(steps, partition)
-
-        # Build valid equivalence groups (same as Stage 4)
-        groups = Dict{
-            Tuple{Symbol,Bool}, Vector{Int}}()
-        for (i, s) in enumerate(steps)
-            met = step_metabolite(s)
-            met === nothing && continue
-            key = (met, s.is_equilibrium)
-            push!(get!(groups, key, Int[]), i)
-        end
-        valid_groups = sort!(
-            [sort!(g) for (_, g) in groups
-             if length(g) >= 2];
-            by=first)
-
-        constraint_mask = _constraints_to_mask(
-            spec.param_constraints, valid_groups, steps)
-        desc = _constraint_descriptor(
-            steps, valid_groups, constraint_mask)
-
-        dedup_key = (fp, desc)
-        if !haskey(best, dedup_key) ||
-                spec.param_count <
-                    best[dedup_key].param_count
-            best[dedup_key] = spec
-        end
-    end
-    collect(values(best))
-end
-
-"""Reverse-map param_constraints to a bitmask over valid_groups."""
-function _constraints_to_mask(constraints, valid_groups,
-                              steps::Vector{StepSpec})
-    mask = 0
-    constrained_step_indices = Set{Int}()
-    for (target, _, srcs) in constraints
-        m = match(r"[kK](\d+)", string(target))
-        m !== nothing && m[1] !== nothing &&
-            push!(constrained_step_indices,
-                parse(Int, m[1]::SubString))
-    end
-    for (gi, g) in enumerate(valid_groups)
-        if any(idx in constrained_step_indices
-               for idx in g[2:end])
-            mask |= (1 << (gi - 1))
-        end
-    end
-    mask
-end
-
-# ─── Fused Stage 4+5: Equiv Constraints + Deduplication ───────
-
-"""
-    _expand_equiv_and_deduplicate(specs, reaction)
-        -> Vector{MechanismSpec}
-
-Fuses equivalence constraint expansion (stage 4) with
-deduplication (stage 5). Computes the concentration
-fingerprint once per source spec instead of once per
-constraint variant.
-"""
-function _expand_equiv_and_deduplicate(
-    specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction),
-)
-    isempty(specs) && return specs
-
-    best = Dict{_DedupKey, MechanismSpec}()
-    for spec in specs
-        steps = spec.steps
-
-        # Compute fingerprint and nullspace once per
-        # source spec
-        partition = _compute_re_partition_from_steps(
-            steps)
-        fp = _concentration_fingerprint(
-            steps, partition)
-        NS = _compute_step_nullspace(steps)
-
-        # Build equivalence groups (same logic as
-        # _expand_equivalence_constraints)
-        groups = Dict{
-            Tuple{Symbol,Bool}, Vector{Int}}()
-        for (i, s) in enumerate(steps)
-            met = step_metabolite(s)
-            met === nothing && continue
-            key = (met, s.is_equilibrium)
-            push!(get!(groups, key, Int[]), i)
-        end
-        valid_groups = sort!(
-            [sort!(g) for (_, g) in groups
-             if length(g) >= 2];
-            by=first)
-
-        n_groups = length(valid_groups)
-        for mask in 0:(1 << n_groups) - 1
-            # Compute dedup key early to skip
-            # redundancy computation for duplicates
-            desc = _constraint_descriptor(
-                steps, valid_groups, mask)
-            dedup_key = (fp, desc)
-
-            # Compute delta (cheap) to enable
-            # early-exit before redundancy (expensive)
-            delta = 0
-            for (gi, g) in enumerate(valid_groups)
-                (mask >> (gi - 1)) & 1 == 1 ||
-                    continue
-                is_re = steps[g[1]].is_equilibrium
-                n_constrained = length(g) - 1
-                delta -= is_re ?
-                    n_constrained : 2 * n_constrained
-            end
-
-            # Skip if this key exists and our lower
-            # bound (delta alone, redundancy >= 0)
-            # can't beat the current best
-            lower_bound = spec.param_count + delta
-            if haskey(best, dedup_key) &&
-                    lower_bound >=
-                        best[dedup_key].param_count
-                continue
-            end
-
-            # Compute redundant thermo count
-            active = Vector{Int}[]
-            for (gi, g) in enumerate(valid_groups)
-                (mask >> (gi - 1)) & 1 == 1 &&
-                    push!(active, g)
-            end
-            redundancy = _redundant_thermo_count_cached(
-                steps, NS, active)
-
-            param_count = lower_bound + redundancy
-            if !haskey(best, dedup_key) ||
-                    param_count <
-                        best[dedup_key].param_count
-                # Build constraints only when needed
-                constraints = ParamConstraint[]
-                for (gi, g) in enumerate(valid_groups)
-                    (mask >> (gi - 1)) & 1 == 1 ||
-                        continue
-                    is_re = steps[g[1]].is_equilibrium
-                    if is_re
-                        for j in 2:length(g)
-                            push!(constraints, (
-                                Symbol("K$(g[j])"),
-                                1,
-                                [(Symbol("K$(g[1])"),
-                                  1)]
-                            ))
-                        end
-                    else
-                        for j in 2:length(g)
-                            for sfx in ("f", "r")
-                                push!(constraints, (
-                                    Symbol(
-                                        "k$(g[j])" *
-                                        "$sfx"),
-                                    1,
-                                    [(Symbol(
-                                        "k$(g[1])" *
-                                        "$sfx"),
-                                      1)]
-                                ))
-                            end
-                        end
-                    end
-                end
-                best[dedup_key] = MechanismSpec(
-                    spec.reaction, steps,
-                    constraints, param_count)
-            end
-        end
-    end
-    collect(values(best))
-end
-
-# ─── Allosteric Expansion ─────────────────────────────────────
-
-"""
-    _expand_allosteric(specs, reaction;
-        catalytic_n, allosteric_regs)
-        -> Vector{AllostericMechanismSpec}
-
-Expand monomeric specs into allosteric (MWC) variants.
-"""
-function _expand_allosteric(
-    specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction);
-    catalytic_n::Int=2,
-    allosteric_regs::Vector{Symbol}=Symbol[],
-)
-    result = AllostericMechanismSpec[]
-    if isempty(allosteric_regs)
-        # No allosteric regulators: catalytic subunits only
-        for spec in specs
-            push!(result, AllostericMechanismSpec(
-                spec, catalytic_n,
-                Vector{Symbol}[], Int[], Symbol[], Int[],
-                Symbol[], Symbol[], Int[]))
-        end
-        return result
-    end
-    partitions = _set_partitions(allosteric_regs)
-    for spec in specs
-        for partition in partitions
-            n_groups = length(partition)
-            for combo in Iterators.product(
-                    ntuple(_ -> 1:catalytic_n, n_groups)...)
-                push!(result, AllostericMechanismSpec(
-                    spec, catalytic_n, partition,
-                    collect(combo), Symbol[], Int[],
-                    Symbol[], Symbol[], Int[]))
-            end
-        end
-    end
-    result
-end
-
-# ─── T/R Equivalence ─────────────────────────────────────────
-
-"""All metabolites with T-state binding parameters."""
-function _collect_t_state_metabolites(
-    spec::AllostericMechanismSpec,
-)
-    t_mets = Symbol[]
-    for s in spec.base.steps
-        s.is_equilibrium || continue
-        met = step_metabolite(s)
-        met !== nothing && met ∉ t_mets &&
-            push!(t_mets, met)
-    end
-    for site in spec.allosteric_reg_sites
-        for lig in site
-            lig ∉ t_mets && push!(t_mets, lig)
-        end
-    end
-    t_mets
-end
-
-"""Indices of non-binding SS steps (isomerization)."""
-function _collect_nonbinding_ss_steps(
-    spec::AllostericMechanismSpec,
-)
-    indices = Int[]
-    for (i, s) in enumerate(spec.base.steps)
-        if !s.is_equilibrium && step_metabolite(s) === nothing
-            push!(indices, i)
-        end
-    end
-    indices
-end
-
-"""
-    _expand_tr_equivalence(specs, reaction)
-        -> Vector{AllostericMechanismSpec}
-
-Enumerate T/R parameter equivalence variants at three levels:
-1. Per-metabolite: 4 modes — both, tr_equiv, r_only, t_only
-2. Per-regulator ligand: same 4 modes
-3. Per-catalytic step: 3 modes — both, tr_equiv, r_only
-
-Produces 4^n_mets * 3^n_cat_steps variants per input spec.
-"""
-function _expand_tr_equivalence(
-    specs::Vector{AllostericMechanismSpec},
-    @nospecialize(reaction::EnzymeReaction),
-)
-    result = AllostericMechanismSpec[]
-    for spec in specs
-        t_mets = _collect_t_state_metabolites(spec)
-        ss_steps = _collect_nonbinding_ss_steps(spec)
-        n_mets = length(t_mets)
-        n_steps = length(ss_steps)
-        # Metabolite modes: 0=both, 1=tr_equiv, 2=r_only, 3=t_only
-        # Cat step modes: 0=both, 1=tr_equiv, 2=r_only
-        met_modes = fill(0, n_mets)
-        step_modes = fill(0, n_steps)
-        while true
-            equiv = Symbol[t_mets[i] for i in 1:n_mets
-                          if met_modes[i] == 1]
-            r_only = Symbol[t_mets[i] for i in 1:n_mets
-                           if met_modes[i] == 2]
-            t_only = Symbol[t_mets[i] for i in 1:n_mets
-                           if met_modes[i] == 3]
-            cat_equiv = Int[ss_steps[j] for j in 1:n_steps
-                           if step_modes[j] == 1]
-            r_only_cat = Int[ss_steps[j] for j in 1:n_steps
-                            if step_modes[j] == 2]
-            push!(result, AllostericMechanismSpec(
-                spec.base, spec.catalytic_n,
-                spec.allosteric_reg_sites,
-                spec.allosteric_multiplicities,
-                equiv, cat_equiv,
-                r_only, t_only, r_only_cat))
-            # Increment mixed-radix counter
-            carry = true
-            for j in n_steps:-1:1
-                if carry
-                    step_modes[j] += 1
-                    if step_modes[j] >= 3
-                        step_modes[j] = 0
-                    else
-                        carry = false
-                    end
-                end
-            end
-            for i in n_mets:-1:1
-                if carry
-                    met_modes[i] += 1
-                    if met_modes[i] >= 4
-                        met_modes[i] = 0
-                    else
-                        carry = false
-                    end
-                end
-            end
-            carry && break
-        end
-    end
-    result
-end
-
-# ─── Post-Allosteric Deduplication ────────────────────────────
-
-"""
-    _deduplicate_allosteric(specs, reaction) -> Vector{AllostericMechanismSpec}
-
-Remove T<->R mirror duplicates.
-"""
-function _deduplicate_allosteric(
-    specs::Vector{AllostericMechanismSpec},
-    @nospecialize(reaction::EnzymeReaction),
-)
-    seen = Dict{Any, AllostericMechanismSpec}()
-    for spec in specs
-        key = _allosteric_canonical_key(spec)
-        if !haskey(seen, key) ||
-                spec.base.param_count <
-                seen[key].base.param_count
-            seen[key] = spec
-        end
-    end
-    collect(values(seen))
-end
-
-"""Canonical key for allosteric dedup.
-
-Maps T↔R mirror mechanisms to the same key. Mirroring swaps:
-- tr_equiv stays tr_equiv
-- r_only ↔ t_only
-- r_only_cat_steps ↔ both (complement)
-Per-metabolite mode triple (tr_equiv, r_only, t_only) is
-canonicalized by comparing against its mirror and taking min.
-"""
-function _allosteric_canonical_key(spec::AllostericMechanismSpec)
-    base_key = (spec.base.steps,
-                spec.base.param_constraints)
-    # Sort reg sites and multiplicities together
-    pairs = collect(zip(spec.allosteric_reg_sites,
-                        spec.allosteric_multiplicities))
-    sort!(pairs)
-    sorted_sites = [p[1] for p in pairs]
-    sorted_mults = [p[2] for p in pairs]
-    # Per-metabolite mode: encode as (met, mode) sorted list
-    # where mode ∈ {:both, :tr_equiv, :r_only, :t_only}
-    # Mirror swaps r_only ↔ t_only, both and tr_equiv unchanged
-    all_t = sort(_collect_t_state_metabolites(spec))
-    tr_set = Set(spec.tr_equiv_metabolites)
-    ro_set = Set(spec.r_only_metabolites)
-    to_set = Set(spec.t_only_metabolites)
-    modes = [(m, m ∈ tr_set ? :tr_equiv :
-                  m ∈ ro_set ? :r_only :
-                  m ∈ to_set ? :t_only : :both) for m in all_t]
-    mirror_modes = [(m, mode == :r_only ? :t_only :
-                        mode == :t_only ? :r_only : mode)
-                    for (m, mode) in modes]
-    canonical_modes = min(modes, mirror_modes)
-    # Cat steps: encode per-step mode
-    all_ss = sort(_collect_nonbinding_ss_steps(spec))
-    cat_tr_set = Set(spec.tr_equiv_cat_steps)
-    cat_ro_set = Set(spec.r_only_cat_steps)
-    cat_modes = [(s, s ∈ cat_tr_set ? :tr_equiv :
-                     s ∈ cat_ro_set ? :r_only : :both)
-                 for s in all_ss]
-    # Mirror: r_only ↔ both (complement), tr_equiv stays
-    cat_mirror = [(s, mode == :r_only ? :both :
-                      mode == :both ? :r_only : mode)
-                  for (s, mode) in cat_modes]
-    canonical_cat = min(cat_modes, cat_mirror)
-    (base_key, spec.catalytic_n, sorted_sites,
-     sorted_mults, canonical_modes, canonical_cat)
-end
-
-# ─── MechanismSpec → EnzymeMechanism Conversion ──────────────
-
-"""
-    compile_mechanism(spec::MechanismSpec)
-
-Convert a `MechanismSpec` to an `EnzymeMechanism`.
-"""
-function compile_mechanism(spec::MechanismSpec)
-    _compile_enzyme_mechanism(spec)
-end
+# ─── Compilation ─────────────────────────────────────────────
 
 """Construct EnzymeMechanism from MechanismSpec."""
 EnzymeMechanism(spec::MechanismSpec) =
     _compile_enzyme_mechanism(spec)
+
+"""
+    compile_mechanism(spec::MechanismSpec)
+    compile_mechanism(spec::AllostericMechanismSpec)
+
+Convert a `MechanismSpec` to an `EnzymeMechanism`, or an
+`AllostericMechanismSpec` to an `AllostericEnzymeMechanism`.
+"""
+compile_mechanism(spec::MechanismSpec) =
+    EnzymeMechanism(spec)
+compile_mechanism(spec::AllostericMechanismSpec) =
+    AllostericEnzymeMechanism(spec)
 
 function _compile_enzyme_mechanism(spec::MechanismSpec)
     rxn = spec.reaction
@@ -2083,13 +1026,15 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
     met_set = Set(keys(met_atoms))
     for r in regulators(rxn)
         push!(met_set, r)
-        met_atoms[r] = Dict{Symbol,Int}()
+        # Don't overwrite existing atom dict (e.g., substrate
+        # that also appears as a regulator)
+        haskey(met_atoms, r) || (met_atoms[r] = Dict{Symbol,Int}())
     end
 
     # Strip __regN suffixes from metabolite names
     function _clean_met(sym::Symbol)
         s = string(sym)
-        m = match(r"^(.+)__reg\d+$", s)
+        m = match(r"^(.+)__reg\d*$", s)
         m !== nothing ? Symbol(m.captures[1]) : sym
     end
 
@@ -2179,10 +1124,24 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
         end
     end
 
-    # Build enzyme forms tuple sorted by cleaned name
+    # Build form name → cleaned name mapping, preserving
+    # original name when cleaning would produce a collision
     form_names = sort!(collect(form_set))
+    form_name_map = Dict{Symbol,Symbol}()
+    used_clean = Set{Symbol}()
+    for name in form_names
+        candidate = _clean_met(name)
+        if candidate == name || candidate ∉ used_clean
+            form_name_map[name] = candidate
+            push!(used_clean, candidate)
+        else
+            form_name_map[name] = name
+            push!(used_clean, name)
+        end
+    end
+
     enzymes = Tuple(
-        (_clean_met(name), Tuple(sort!(
+        (form_name_map[name], Tuple(sort!(
             [Tuple(p) for p in form_atoms[name]];
             by=first
         )))
@@ -2196,8 +1155,14 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
 
     reactions = Tuple(
         let r = s.reactants, p = s.products
-            lhs = Tuple(_clean_met(x) for x in r)
-            rhs = Tuple(_clean_met(x) for x in p)
+            lhs = Tuple(
+                haskey(form_name_map, x) ?
+                    form_name_map[x] : _clean_met(x)
+                for x in r)
+            rhs = Tuple(
+                haskey(form_name_map, x) ?
+                    form_name_map[x] : _clean_met(x)
+                for x in p)
             (lhs, rhs)
         end
         for s in spec.steps
@@ -2214,15 +1179,770 @@ function _compile_enzyme_mechanism(spec::MechanismSpec)
         constraints)
 end
 
-function compile_mechanism(spec::AllostericMechanismSpec)
-    cm = compile_mechanism(spec.base)
+# ─── Mechanism Enumeration ───────────────────────────────────
+
+"""
+    init_mechanisms(reaction) -> Vector{MechanismSpec}
+
+Produce all mechanisms at minimum parameter count for a reaction.
+For each catalytic topology: 1 SS step, all K's constrained equal
+per metabolite, all substrate/product dead-end subsets (2^n).
+"""
+function init_mechanisms(
+    @nospecialize(reaction::EnzymeReaction),
+)
+    topos = _catalytic_topologies(reaction)
+    expanded = _expand_substrate_product_dead_ends(
+        topos, reaction)
+
+    n_s = length(substrates(reaction))
+    n_p = length(products(reaction))
+    expected_pc = n_s + n_p + 3
+
+    result = MechanismSpec[]
+    for spec in expanded
+        constraints = _max_equivalence_constraints(spec)
+        push!(result, MechanismSpec(
+            spec.reaction, spec.steps,
+            constraints, expected_pc))
+    end
+    result
+end
+
+"""
+Build equivalence constraints for all groups of steps binding
+the same metabolite with the same RE/SS status. Each group's
+steps beyond the first are constrained to equal the first.
+"""
+function _max_equivalence_constraints(spec::MechanismSpec)
+    # Group step indices by (metabolite, RE/SS)
+    groups = Dict{Tuple{Symbol,Bool}, Vector{Int}}()
+    for (i, s) in enumerate(spec.steps)
+        met = step_metabolite(s)
+        met === nothing && continue
+        key = (met, s.is_equilibrium)
+        push!(get!(groups, key, Int[]), i)
+    end
+
+    constraints = ParamConstraint[]
+    for (_, g) in groups
+        length(g) >= 2 || continue
+        sort!(g)
+        is_re = spec.steps[g[1]].is_equilibrium
+        if is_re
+            for j in 2:length(g)
+                push!(constraints, (
+                    Symbol("K$(g[j])"),
+                    1,
+                    [(Symbol("K$(g[1])"), 1)]
+                ))
+            end
+        else
+            for j in 2:length(g)
+                for sfx in ("f", "r")
+                    push!(constraints, (
+                        Symbol("k$(g[j])$sfx"),
+                        1,
+                        [(Symbol("k$(g[1])$sfx"),
+                          1)]
+                    ))
+                end
+            end
+        end
+    end
+    constraints
+end
+
+"""
+    _step_index_from_constraint_sym(sym) -> Int or nothing
+
+Parse the step index from a constraint parameter symbol like `K3`, `k3f`, `k3r`.
+Returns nothing if the symbol doesn't match the expected pattern.
+"""
+function _step_index_from_constraint_sym(sym::Symbol)
+    s = string(sym)
+    m = match(r"^[Kk](\d+)", s)
+    m === nothing && return nothing
+    cap = m.captures[1]
+    cap === nothing && return nothing
+    parse(Int, cap)
+end
+
+"""Return the set of step indices involved in any param constraint."""
+function _constrained_step_indices(constraints::Vector{ParamConstraint})
+    idxs = Set{Int}()
+    for (target, _, followers) in constraints
+        idx = _step_index_from_constraint_sym(target)
+        idx !== nothing && push!(idxs, idx)
+        for (src, _) in followers
+            sidx = _step_index_from_constraint_sym(src)
+            sidx !== nothing && push!(idxs, sidx)
+        end
+    end
+    idxs
+end
+
+"""
+    _expand_re_to_ss(spec::MechanismSpec) → Vector{MechanismSpec}
+
+Convert one RE step to SS. Skip constrained RE steps.
+Mirror dead-end steps inherit the new SS status.
+"""
+function _expand_re_to_ss(spec::MechanismSpec)
+    result = MechanismSpec[]
+    constrained = _constrained_step_indices(spec.param_constraints)
+
+    for (i, s) in enumerate(spec.steps)
+        s.is_equilibrium || continue
+        i in constrained && continue
+
+        new_steps = [StepSpec(st.reactants, st.products, st.is_equilibrium)
+                     for st in spec.steps]
+        new_steps[i] = StepSpec(s.reactants, s.products, false)
+
+        # Propagate SS to dead-end mirror steps (skip constrained steps)
+        from_form, to_form = step_forms(s)
+        n_mirrors = 0
+        for (j, ms) in enumerate(new_steps)
+            j == i && continue
+            ms.is_equilibrium || continue
+            j in constrained && continue
+            mf, mt = step_forms(ms)
+            if _is_mirror_of(mf, mt, from_form, to_form, spec.steps)
+                new_steps[j] = StepSpec(ms.reactants, ms.products, false)
+                n_mirrors += 1
+            end
+        end
+
+        push!(result, MechanismSpec(
+            spec.reaction, new_steps,
+            copy(spec.param_constraints),
+            spec.param_count + 1 + n_mirrors))
+    end
+    result
+end
+
+"""
+    _expand_remove_constraint(spec::MechanismSpec) → Vector{MechanismSpec}
+
+Remove one equivalence constraint group (+1 param for an RE K
+constraint, +2 params for an SS kf/kr pair) per result.
+SS kf and kr constraints for the same step are always paired and
+removed together to avoid biochemically invalid mechanisms where
+forward and reverse rates share a K while the other does not.
+"""
+function _expand_remove_constraint(spec::MechanismSpec)
+    n = length(spec.param_constraints)
+    # Identify kf/kr pairs: find each "f"-suffixed constraint
+    # and its matching "r"-suffixed partner.
+    paired = Set{Int}()
+    pairs = Tuple{Int,Int}[]
+    for i in 1:n
+        i in paired && continue
+        target_str = string(spec.param_constraints[i][1])
+        endswith(target_str, "f") || continue
+        kr_sym = Symbol(target_str[1:end-1] * "r")
+        for j in (i+1):n
+            j in paired && continue
+            if spec.param_constraints[j][1] == kr_sym
+                push!(pairs, (i, j))
+                push!(paired, i)
+                push!(paired, j)
+                break
+            end
+        end
+    end
+
+    result = MechanismSpec[]
+    # Remove each kf/kr pair together (+2 params)
+    for (i, j) in pairs
+        new_constraints = [
+            spec.param_constraints[k]
+            for k in 1:n if k != i && k != j]
+        push!(result, MechanismSpec(
+            spec.reaction, copy(spec.steps),
+            new_constraints,
+            spec.param_count + 2))
+    end
+    # Remove each unpaired constraint (+1 param)
+    for i in 1:n
+        i in paired && continue
+        new_constraints = [
+            spec.param_constraints[k]
+            for k in 1:n if k != i]
+        push!(result, MechanismSpec(
+            spec.reaction, copy(spec.steps),
+            new_constraints,
+            spec.param_count + 1))
+    end
+    result
+end
+
+"""
+    _is_mirror_of(mf, mt, from, to, steps) -> Bool
+
+Check if (mf, mt) is a dead-end mirror of the catalytic step (from, to).
+A mirror step connects dead-end forms that extend the catalytic endpoints
+by binding the same extra metabolite.
+"""
+function _is_mirror_of(
+    mf::Symbol, mt::Symbol,
+    from::Symbol, to::Symbol,
+    steps::Vector{StepSpec},
+)
+    # For (mf, mt) to be a mirror of (from, to):
+    # there must be a binding step [from, met] → [mf] and
+    # a binding step [to, met] → [mt] for the same metabolite.
+    from_met = nothing
+    to_met = nothing
+    for s in steps
+        f, t = step_forms(s)
+        m = step_metabolite(s)
+        m === nothing && continue
+        if f == from && t == mf
+            from_met = m
+        elseif f == to && t == mt
+            to_met = m
+        end
+    end
+    from_met !== nothing && to_met !== nothing && from_met == to_met
+end
+
+"""
+    _expand_add_dead_end_regulator(spec, reaction; exclude_regs)
+        → Vector{MechanismSpec}
+
+Add a new dead-end regulator to non-empty subsets of eligible
+forms. Each variant adds +1 param (one new K, constrained equal
+across all binding sites for this regulator).
+"""
+function _expand_add_dead_end_regulator(
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction);
+    exclude_regs::Set{Symbol}=Set{Symbol}(),
+)
+    roles = regulator_roles(reaction)
+    isempty(roles) && return MechanismSpec[]
+
+    # Find regulators not yet in mechanism
+    existing_mets = Set{Symbol}()
+    for s in spec.steps
+        for sym in Iterators.flatten(
+                (s.reactants, s.products))
+            push!(existing_mets, sym)
+        end
+    end
+
+    eligible_regs = Symbol[]
+    for (name, role) in roles
+        (role == :unknown || role == :dead_end) ||
+            continue
+        name in exclude_regs && continue
+        reg_prefix = string(name) * "__reg"
+        already = any(
+            contains(string(m), reg_prefix)
+            for m in existing_mets)
+        already && continue
+        push!(eligible_regs, name)
+    end
+    sort!(eligible_regs)
+
+    isempty(eligible_regs) && return MechanismSpec[]
+
+    sub_names = Set(s[1] for s in substrates(reaction))
+    prod_names = Set(
+        p[1] for p in products(reaction))
+    bound = _bound_metabolites_at_forms(spec, reaction)
+    cat_forms = all_form_names(spec)
+
+    result = MechanismSpec[]
+
+    for reg in eligible_regs
+        dummy = Symbol(string(reg) * "__reg")
+
+        # Eligible: neither all subs nor all prods bound
+        eligible_forms = Symbol[]
+        for f in sort(collect(cat_forms))
+            haskey(bound, f) || continue
+            fb = bound[f]
+            (intersect(fb, sub_names) == sub_names ||
+                intersect(fb, prod_names) ==
+                    prod_names) && continue
+            push!(eligible_forms, f)
+        end
+
+        isempty(eligible_forms) && continue
+
+        # Find existing inhibitor dummies in steps.
+        # Only metabolite dummies (not form names).
+        existing_inhibitors = Symbol[]
+        for s in spec.steps
+            met = step_metabolite(s)
+            met === nothing && continue
+            s_met = string(met)
+            contains(s_met, "__reg") || continue
+            met === dummy && continue
+            push!(existing_inhibitors, met)
+        end
+        sort!(unique!(existing_inhibitors))
+
+        # Enumerate inhibitor competition patterns
+        inh_patterns =
+            _inhibitor_competition_patterns(
+                sub_names, prod_names,
+                existing_inhibitors)
+        seen = Set{Vector{Symbol}}()
+
+        for (comp_subs, comp_prods,
+                comp_inhibitors) in inh_patterns
+            # Find forms where competing metabolites
+            # have binding steps (topology-aware)
+            target_forms = Set{Symbol}()
+            for met in comp_subs
+                union!(target_forms,
+                    _forms_with_binding_step(
+                        spec.steps, met))
+            end
+            for met in comp_prods
+                union!(target_forms,
+                    _forms_with_binding_step(
+                        spec.steps, met))
+            end
+            for inh in comp_inhibitors
+                union!(target_forms,
+                    _forms_with_binding_step(
+                        spec.steps, inh))
+            end
+
+            # Filter: eligible AND not already
+            # bound to any competing metabolite
+            all_competing = union(
+                comp_subs, comp_prods,
+                comp_inhibitors)
+            active = Symbol[]
+            for f in sort(collect(target_forms))
+                f in eligible_forms || continue
+                haskey(bound, f) || continue
+                isempty(intersect(
+                    bound[f], all_competing)) ||
+                    continue
+                push!(active, f)
+            end
+
+            isempty(active) && continue
+            active in seen && continue
+            push!(seen, active)
+
+            new_steps = copy(spec.steps)
+            de_form_map = Dict{Symbol, Symbol}()
+
+            # Add binding steps (always RE)
+            binding_step_indices = Int[]
+            for cf in active
+                de_name = _dead_end_form_name(
+                    bound[cf], dummy)
+                de_form_map[cf] = de_name
+                push!(new_steps, StepSpec(
+                    [cf, dummy], [de_name], true))
+                push!(binding_step_indices,
+                    length(new_steps))
+            end
+
+            # Add mirror steps for catalytic steps
+            # whose both endpoints have dead-end forms
+            for s in spec.steps
+                from, to = step_forms(s)
+                haskey(de_form_map, from) || continue
+                haskey(de_form_map, to) || continue
+                met = step_metabolite(s)
+                from_de = de_form_map[from]
+                to_de = de_form_map[to]
+                if met !== nothing
+                    push!(new_steps, StepSpec(
+                        [from_de, met], [to_de],
+                        s.is_equilibrium))
+                else
+                    push!(new_steps, StepSpec(
+                        [from_de], [to_de],
+                        s.is_equilibrium))
+                end
+            end
+
+            # Equivalence constraints: all K's equal
+            # for this regulator across binding sites
+            new_constraints = copy(
+                spec.param_constraints)
+            if length(binding_step_indices) >= 2
+                first_idx = binding_step_indices[1]
+                for j in 2:length(
+                        binding_step_indices)
+                    push!(new_constraints, (
+                        Symbol("K$(binding_step_indices[j])"),
+                        1,
+                        [(Symbol("K$(first_idx)"),
+                            1)]))
+                end
+            end
+
+            push!(result, MechanismSpec(
+                spec.reaction, new_steps,
+                new_constraints,
+                spec.param_count + 1))
+        end
+    end
+    result
+end
+
+function _expand_re_to_ss(spec::AllostericMechanismSpec)
+    [_rewrap_allosteric(spec, new_base)
+     for new_base in _expand_re_to_ss(spec.base)]
+end
+
+function _expand_remove_constraint(
+    spec::AllostericMechanismSpec)
+    [_rewrap_allosteric(spec, new_base)
+     for new_base in _expand_remove_constraint(spec.base)]
+end
+
+function _expand_add_dead_end_regulator(
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction);
+    exclude_regs::Set{Symbol}=Set{Symbol}())
+    allo_regs = Set{Symbol}()
+    for site in spec.allosteric_reg_sites
+        for lig in site
+            push!(allo_regs, lig)
+        end
+    end
+    all_excluded = union(exclude_regs, allo_regs)
+    [_rewrap_allosteric(spec, new_base)
+     for new_base in _expand_add_dead_end_regulator(
+         spec.base, reaction;
+         exclude_regs=all_excluded)]
+end
+
+"""
+    _valid_allosteric_differentiations(reaction, spec)
+
+Enumerate biochemically valid T/R differentiations.
+K-type: ≥1 substrate + ≥1 product absent from T-state.
+V-type: all SS isomerization steps inactive in T-state.
+Only r_only (T is inactive conformation).
+"""
+function _valid_allosteric_differentiations(
+    @nospecialize(reaction::EnzymeReaction),
+    spec::MechanismSpec)
+    sub_names = [s[1] for s in substrates(reaction)]
+    prod_names = [p[1] for p in products(reaction)]
+
+    ss_isom = Int[]
+    for (i, s) in enumerate(spec.steps)
+        !s.is_equilibrium &&
+            step_metabolite(s) === nothing &&
+            push!(ss_isom, i)
+    end
+
+    result = @NamedTuple{
+        r_only_mets::Vector{Symbol},
+        r_only_cat_steps::Vector{Int}}[]
+
+    # K-type: non-empty subsets of substrates ×
+    # non-empty subsets of products, all r_only
+    n_s = length(sub_names)
+    n_p = length(prod_names)
+    for s_mask in 1:(1 << n_s) - 1
+        absent_subs = Symbol[sub_names[j]
+            for j in 1:n_s
+            if (s_mask >> (j - 1)) & 1 == 1]
+        for p_mask in 1:(1 << n_p) - 1
+            absent_prods = Symbol[prod_names[j]
+                for j in 1:n_p
+                if (p_mask >> (j - 1)) & 1 == 1]
+            push!(result, (
+                r_only_mets=Symbol[
+                    absent_subs; absent_prods],
+                r_only_cat_steps=Int[]))
+        end
+    end
+
+    # V-type: all SS isomerization steps r_only
+    if !isempty(ss_isom)
+        push!(result, (r_only_mets=Symbol[],
+            r_only_cat_steps=copy(ss_isom)))
+    end
+
+    result
+end
+
+"""
+    _expand_to_allosteric(spec, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Convert non-allosteric mechanism to allosteric (+1 param
+for L). K-type: ≥1 substrate + ≥1 product absent from
+T-state. V-type: all SS isomerization steps inactive in
+T-state (kf_T=kr_T=0).
+"""
+function _expand_to_allosteric(
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction))
+    cn = oligomeric_state(reaction)
+    sub_names = [s[1] for s in substrates(reaction)]
+    prod_names = [p[1] for p in products(reaction)]
+    all_cat = Symbol[sub_names; prod_names]
+
+    ss_isom = Int[i for (i, s) in enumerate(spec.steps)
+        if !s.is_equilibrium &&
+           step_metabolite(s) === nothing]
+
+    result = AllostericMechanismSpec[]
+
+    for diff in _valid_allosteric_differentiations(
+            reaction, spec)
+        absent = Set(diff.r_only_mets)
+        tr_equiv = Symbol[
+            m for m in all_cat if m ∉ absent]
+        tr_steps = Int[i for i in ss_isom
+            if i ∉ diff.r_only_cat_steps]
+
+        push!(result, AllostericMechanismSpec(
+            spec, cn,
+            Vector{Symbol}[], Int[],
+            tr_equiv, tr_steps,
+            diff.r_only_mets,
+            Symbol[],  # no t_only metabolites
+            diff.r_only_cat_steps,
+            spec.param_count + 1))
+    end
+    result
+end
+
+function _expand_to_allosteric(
+    ::AllostericMechanismSpec,
+    @nospecialize(::EnzymeReaction))
+    AllostericMechanismSpec[]
+end
+
+"""
+    _expand_add_allosteric_regulator(spec, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Add one allosteric regulator not yet in the mechanism.
+Three flavors (r_only, t_only, tr_equiv) × site options
+(new site or same site as each existing regulator site).
+"""
+function _expand_add_allosteric_regulator(
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    existing_allo = Set{Symbol}()
+    for site in spec.allosteric_reg_sites
+        for lig in site
+            push!(existing_allo, lig)
+        end
+    end
+
+    # Dead-end regulators already in base mechanism
+    existing_de = Set{Symbol}()
+    for s in spec.base.steps
+        for sym in Iterators.flatten(
+                (s.reactants, s.products))
+            m = match(r"^(.+)__reg\d*$", string(sym))
+            m !== nothing &&
+                push!(existing_de, Symbol(m.captures[1]))
+        end
+    end
+
+    roles = regulator_roles(reaction)
+    new_regs = Symbol[]
+    for (name, role) in roles
+        (role == :unknown || role == :allosteric) ||
+            continue
+        name in existing_allo && continue
+        name in existing_de && continue
+        push!(new_regs, name)
+    end
+    sort!(new_regs)
+
+    isempty(new_regs) && return AllostericMechanismSpec[]
+    result = AllostericMechanismSpec[]
+
+    for reg in new_regs
+        n_sites = length(spec.allosteric_reg_sites)
+
+        for mode in (:r_only, :t_only, :tr_equiv)
+            # 0 = new site, 1..n_sites = existing site
+            for site_idx in 0:n_sites
+                new_sites = deepcopy(
+                    spec.allosteric_reg_sites)
+                new_mults = copy(
+                    spec.allosteric_multiplicities)
+                new_tr = copy(spec.tr_equiv_metabolites)
+                new_r = copy(spec.r_only_metabolites)
+                new_t = copy(spec.t_only_metabolites)
+
+                if site_idx == 0
+                    push!(new_sites, Symbol[reg])
+                    push!(new_mults, spec.catalytic_n)
+                else
+                    push!(new_sites[site_idx], reg)
+                end
+
+                if mode == :tr_equiv
+                    push!(new_tr, reg)
+                elseif mode == :r_only
+                    push!(new_r, reg)
+                else
+                    push!(new_t, reg)
+                end
+
+                push!(result, AllostericMechanismSpec(
+                    spec.base, spec.catalytic_n,
+                    new_sites, new_mults,
+                    new_tr,
+                    copy(spec.tr_equiv_cat_steps),
+                    new_r, new_t,
+                    copy(spec.r_only_cat_steps),
+                    spec.param_count + 1))
+            end
+        end
+    end
+    result
+end
+
+function _expand_add_allosteric_regulator(
+    ::MechanismSpec,
+    @nospecialize(::EnzymeReaction),
+)
+    AllostericMechanismSpec[]
+end
+
+"""
+    _tr_equiv_met_delta(met, steps, allosteric_reg_sites; param_constraints) → Int
+
+Count how many new T-state independent params are added
+when removing `met` from tr_equiv_metabolites.
+RE binding steps add 1 (K_T), SS binding steps add 2
+(kf_T and kr_T, both independent in T-state).
+Allosteric regulators always add 1 (one K_T per reg site).
+Constrained follower steps (targets of equivalence constraints)
+are skipped since they share parameters with the leader step.
+"""
+function _tr_equiv_met_delta(
+    met::Symbol, steps::Vector{StepSpec},
+    allosteric_reg_sites::Vector{Vector{Symbol}}=Vector{Symbol}[];
+    param_constraints::Vector{ParamConstraint}=ParamConstraint[])
+    for site in allosteric_reg_sites
+        met in site && return 1
+    end
+    follower_idxs = Set{Int}()
+    for (target, _, _) in param_constraints
+        idx = _step_index_from_constraint_sym(target)
+        idx !== nothing && push!(follower_idxs, idx)
+    end
+    delta = 0
+    for (idx, s) in enumerate(steps)
+        step_metabolite(s) === met || continue
+        idx in follower_idxs && continue
+        delta += s.is_equilibrium ? 1 : 2
+    end
+    delta
+end
+
+"""
+    _expand_remove_tr_equiv(spec, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Remove one TR equivalence (metabolite or catalytic step),
+making T-state and R-state parameters independent.
+RE metabolite removal adds +1; SS metabolite removal adds +2
+(both kf_T and kr_T become independent); catalytic step removal
+adds +1.
+"""
+function _expand_remove_tr_equiv(
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    result = AllostericMechanismSpec[]
+
+    for (i, met) in enumerate(spec.tr_equiv_metabolites)
+        new_equiv = [spec.tr_equiv_metabolites[j]
+            for j in eachindex(spec.tr_equiv_metabolites)
+            if j != i]
+        delta = _tr_equiv_met_delta(
+            met, spec.base.steps,
+            spec.allosteric_reg_sites;
+            param_constraints=spec.base.param_constraints)
+        push!(result, AllostericMechanismSpec(
+            spec.base, spec.catalytic_n,
+            deepcopy(spec.allosteric_reg_sites),
+            copy(spec.allosteric_multiplicities),
+            new_equiv,
+            copy(spec.tr_equiv_cat_steps),
+            copy(spec.r_only_metabolites),
+            copy(spec.t_only_metabolites),
+            copy(spec.r_only_cat_steps),
+            spec.param_count + delta))
+    end
+
+    for (i, _) in enumerate(spec.tr_equiv_cat_steps)
+        new_steps = [spec.tr_equiv_cat_steps[j]
+            for j in eachindex(spec.tr_equiv_cat_steps)
+            if j != i]
+        push!(result, AllostericMechanismSpec(
+            spec.base, spec.catalytic_n,
+            deepcopy(spec.allosteric_reg_sites),
+            copy(spec.allosteric_multiplicities),
+            copy(spec.tr_equiv_metabolites),
+            new_steps,
+            copy(spec.r_only_metabolites),
+            copy(spec.t_only_metabolites),
+            copy(spec.r_only_cat_steps),
+            spec.param_count + 1))
+    end
+
+    # Remove one r_only cat step → step becomes independent (+1)
+    # Only when no metabolites are r_only/t_only (otherwise
+    # kf_T is unidentifiable — state can't catalyze)
+    if isempty(spec.r_only_metabolites) &&
+            isempty(spec.t_only_metabolites)
+        for (i, _) in enumerate(spec.r_only_cat_steps)
+            new_r_steps = [spec.r_only_cat_steps[j]
+                for j in eachindex(spec.r_only_cat_steps)
+                if j != i]
+            push!(result, AllostericMechanismSpec(
+                spec.base, spec.catalytic_n,
+                deepcopy(spec.allosteric_reg_sites),
+                copy(spec.allosteric_multiplicities),
+                copy(spec.tr_equiv_metabolites),
+                copy(spec.tr_equiv_cat_steps),
+                copy(spec.r_only_metabolites),
+                copy(spec.t_only_metabolites),
+                new_r_steps,
+                spec.param_count + 1))
+        end
+    end
+    result
+end
+
+function _expand_remove_tr_equiv(
+    ::MechanismSpec,
+    @nospecialize(::EnzymeReaction),
+)
+    AllostericMechanismSpec[]
+end
+
+"""Construct AllostericEnzymeMechanism from AllostericMechanismSpec."""
+function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
+    cm = EnzymeMechanism(spec.base)
     cat_mets = metabolites(cm)
 
     # Build Metabolites tuple (catalytic + regulatory)
     reg_syms = Symbol[]
     for site in spec.allosteric_reg_sites
         for s in site
-            s in reg_syms || s in cat_mets || push!(reg_syms, s)
+            s in reg_syms || s in cat_mets ||
+                push!(reg_syms, s)
         end
     end
     mets = (cat_mets..., reg_syms...)
@@ -2242,7 +1962,8 @@ function compile_mechanism(spec::AllostericMechanismSpec)
                  cat_steps_tr, cat_r_only, cat_t_only,
                  cat_r_only_steps)
 
-    # Build RegSites with TR equivalence and r_only/t_only info
+    # Build RegSites with TR equivalence and
+    # r_only/t_only info
     reg_sites = Tuple(
         (Tuple(group), mult,
          Tuple(lig for lig in group
@@ -2255,71 +1976,186 @@ function compile_mechanism(spec::AllostericMechanismSpec)
             spec.allosteric_reg_sites,
             spec.allosteric_multiplicities))
 
-    AllostericEnzymeMechanism{mets, typeof(cm), cat_sites, reg_sites}()
+    AllostericEnzymeMechanism{
+        mets, typeof(cm), cat_sites, reg_sites}()
 end
 
-# ─── Pipeline Orchestration ──────────────────────────────────
+"""
+    _rewrap_allosteric(original, new_base) → AllostericMechanismSpec
+
+Replace the base of an allosteric spec with a new base,
+preserving all allosteric structure.
+"""
+function _rewrap_allosteric(
+    original::AllostericMechanismSpec,
+    new_base::MechanismSpec)
+    AllostericMechanismSpec(
+        new_base, original.catalytic_n,
+        deepcopy(original.allosteric_reg_sites),
+        copy(original.allosteric_multiplicities),
+        copy(original.tr_equiv_metabolites),
+        copy(original.tr_equiv_cat_steps),
+        copy(original.r_only_metabolites),
+        copy(original.t_only_metabolites),
+        copy(original.r_only_cat_steps),
+        original.param_count +
+            new_base.param_count -
+            original.base.param_count)
+end
+
+function _push_to_dict!(
+    result::Dict{Int, Vector{AbstractMechanismSpec}},
+    spec::AbstractMechanismSpec)
+    push!(get!(result, spec.param_count,
+        AbstractMechanismSpec[]), spec)
+end
 
 """
-    old_enumerate_mechanisms(reaction; max_re_groups=7, catalytic_n=0)
+    expand_mechanisms(specs, reaction) → Dict{Int, Vector{AbstractMechanismSpec}}
 
-Enumerate valid mechanism topologies for the given reaction
-using a staged pipeline.
+Apply all +1 and +2 expansion moves. Results grouped
+by target param_count.
 """
-function old_enumerate_mechanisms(
-    @nospecialize(reaction::EnzymeReaction);
-    max_re_groups::Int=7,
-    catalytic_n::Int=0,
-)
-    catalytic = _catalytic_topologies(reaction)
-
-    roles = regulator_roles(reaction)
-    fixed_dead_end = Symbol[
-        r[1] for r in roles if r[2] == :dead_end]
-    fixed_allosteric = Symbol[
-        r[1] for r in roles if r[2] == :allosteric]
-    unknown = Symbol[
-        r[1] for r in roles if r[2] == :unknown]
-    n_unknown = length(unknown)
-
-    all_base = MechanismSpec[]
-    all_allosteric = AllostericMechanismSpec[]
-
-    for reg_mask in 0:(1 << n_unknown) - 1
-        de_regs = Symbol[fixed_dead_end;
-            [unknown[i] for i in 1:n_unknown
-             if (reg_mask >> (i - 1)) & 1 == 0]]
-        allo_regs = Symbol[fixed_allosteric;
-            [unknown[i] for i in 1:n_unknown
-             if (reg_mask >> (i - 1)) & 1 == 1]]
-
-        # Stages 2-5: base mechanism pipeline
-        base = _expand_ress_variants(
-            catalytic, reaction; max_re_groups)
-        base = _expand_dead_end(
-            base, reaction; dead_end_regs=de_regs,
-            include_substrate_product=true)
-        base = _expand_equiv_and_deduplicate(
-            base, reaction)
-        append!(all_base, base)
-
-        # Stages 6-8: allosteric expansion
-        if !isempty(allo_regs)
-            cn = catalytic_n > 0 ? catalytic_n : 1
-            allo = _expand_allosteric(
-                base, reaction;
-                catalytic_n=cn,
-                allosteric_regs=allo_regs)
-            allo = _expand_tr_equivalence(
-                allo, reaction)
-            allo = _deduplicate_allosteric(
-                allo, reaction)
-            append!(all_allosteric, allo)
-        end
+function expand_mechanisms(
+    specs::Vector{<:AbstractMechanismSpec},
+    @nospecialize(reaction::EnzymeReaction))
+    result = Dict{Int, Vector{AbstractMechanismSpec}}()
+    for spec in specs
+        _add_expansions!(result, spec, reaction)
     end
+    result
+end
 
-    total = length(all_base) + length(all_allosteric)
-    inner = Iterators.flatten(
-        (all_base, all_allosteric))
-    MechanismIterator(inner, total)
+function _add_expansions!(
+    result::Dict{Int, Vector{AbstractMechanismSpec}},
+    spec::AbstractMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction))
+    for s in _expand_re_to_ss(spec)
+        _push_to_dict!(result, s)
+    end
+    for s in _expand_remove_constraint(spec)
+        _push_to_dict!(result, s)
+    end
+    for s in _expand_add_dead_end_regulator(
+            spec, reaction)
+        _push_to_dict!(result, s)
+    end
+    for s in _expand_to_allosteric(spec, reaction)
+        _push_to_dict!(result, s)
+    end
+    for s in _expand_add_allosteric_regulator(
+            spec, reaction)
+        _push_to_dict!(result, s)
+    end
+    for s in _expand_remove_tr_equiv(spec, reaction)
+        _push_to_dict!(result, s)
+    end
+end
+
+# --- Dedup ---
+
+function _step_sort_key(s::StepSpec)
+    (sort(s.reactants), sort(s.products),
+     s.is_equilibrium)
+end
+
+"""Remap a constraint symbol given a step index remapping (old index → new index)."""
+function _remap_constraint_sym(sym::Symbol, idx_map::Dict{Int,Int})
+    s = string(sym)
+    m = match(r"^([Kk])(\d+)(.*)", s)
+    m === nothing && return sym
+    cap_prefix = m.captures[1]
+    cap_idx = m.captures[2]
+    cap_suffix = m.captures[3]
+    (cap_prefix === nothing || cap_idx === nothing ||
+        cap_suffix === nothing) && return sym
+    old_idx = parse(Int, cap_idx)
+    haskey(idx_map, old_idx) || return sym
+    Symbol(cap_prefix, idx_map[old_idx], cap_suffix)
+end
+
+function _canonicalize!(spec::MechanismSpec)
+    # Compute permutation before sorting
+    n = length(spec.steps)
+    perm = sortperm(spec.steps, by=_step_sort_key)
+    # Build old→new index map
+    idx_map = Dict{Int,Int}(perm[new] => new for new in 1:n)
+    sort!(spec.steps, by=_step_sort_key)
+    # Update constraint symbols to reflect new step positions
+    for i in eachindex(spec.param_constraints)
+        (target, coeff, followers) = spec.param_constraints[i]
+        new_target = _remap_constraint_sym(target, idx_map)
+        new_followers = [
+            (_remap_constraint_sym(s, idx_map), c)
+            for (s, c) in followers]
+        spec.param_constraints[i] = (new_target, coeff, new_followers)
+    end
+    sort!(spec.param_constraints, by=c -> c[1])
+    idx_map
+end
+
+function _canonicalize!(spec::AllostericMechanismSpec)
+    idx_map = _canonicalize!(spec.base)
+    # Remap step indices that refer to base.steps positions
+    map!(i -> get(idx_map, i, i), spec.tr_equiv_cat_steps,
+        spec.tr_equiv_cat_steps)
+    map!(i -> get(idx_map, i, i), spec.r_only_cat_steps,
+        spec.r_only_cat_steps)
+    sort!(spec.tr_equiv_metabolites)
+    sort!(spec.tr_equiv_cat_steps)
+    sort!(spec.r_only_metabolites)
+    sort!(spec.t_only_metabolites)
+    sort!(spec.r_only_cat_steps)
+    for site in spec.allosteric_reg_sites
+        sort!(site)
+    end
+    # Sort sites themselves (with multiplicities) by content
+    if length(spec.allosteric_reg_sites) >= 2
+        perm = sortperm(spec.allosteric_reg_sites)
+        spec.allosteric_reg_sites .= spec.allosteric_reg_sites[perm]
+        spec.allosteric_multiplicities .= spec.allosteric_multiplicities[perm]
+    end
+    spec
+end
+
+function _dedup_key(spec::MechanismSpec)
+    steps = Tuple(
+        (Tuple(sort(s.reactants)),
+         Tuple(sort(s.products)),
+         s.is_equilibrium)
+        for s in spec.steps)
+    constraints = Tuple(
+        (c[1], c[2], Tuple(c[3]))
+        for c in spec.param_constraints)
+    (steps, constraints)
+end
+
+function _dedup_key(spec::AllostericMechanismSpec)
+    base_key = _dedup_key(spec.base)
+    (base_key, spec.catalytic_n,
+     Tuple(Tuple.(spec.allosteric_reg_sites)),
+     Tuple(spec.allosteric_multiplicities),
+     Tuple(spec.tr_equiv_metabolites),
+     Tuple(spec.tr_equiv_cat_steps),
+     Tuple(spec.r_only_metabolites),
+     Tuple(spec.t_only_metabolites),
+     Tuple(spec.r_only_cat_steps))
+end
+
+"""
+    dedup!(cache) → cache
+
+Remove structural duplicates from each param_count bucket
+via canonical form comparison.
+"""
+function dedup!(
+    cache::Dict{Int, Vector{AbstractMechanismSpec}})
+    for (pc, specs) in cache
+        for s in specs
+            _canonicalize!(s)
+        end
+        unique!(s -> _dedup_key(s), specs)
+        isempty(specs) && delete!(cache, pc)
+    end
+    cache
 end

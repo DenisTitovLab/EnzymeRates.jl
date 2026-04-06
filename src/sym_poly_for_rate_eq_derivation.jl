@@ -281,6 +281,16 @@ function build_power_expr(keq_exp::Rational, factors)
     end
 end
 
+"""Check if an expression references any symbol in the given set."""
+function _expr_references_any(expr, syms::Set{Symbol})
+    if expr isa Symbol
+        return expr ∈ syms
+    elseif expr isa Expr
+        return any(_expr_references_any(a, syms) for a in expr.args)
+    end
+    false
+end
+
 # Substitute symbols in an Expr tree (bare symbol matching)
 function substitute_params_expr(expr, subs::AbstractDict)
     if expr isa Symbol

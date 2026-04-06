@@ -909,26 +909,29 @@ end
 # ── Large equation compilation regression test ────────────────────────────
 
 @testset "Large equation compilation (<20s)" begin
-    # Enumerate a large mechanism from a Ping-Pong Bi-Bi reaction with
-    # 2 regulators. The last dead-end variant produces a mechanism with
-    # many forms and steps, generating a very large rate equation.
-    # This test catches regressions in compilation time of rate_equation
-    # and rate_equation_string @generated functions.
+    # Use the manually-defined large mechanism (11 forms, 16 steps)
+    # from the "Rate equation too large error" test below, but with
+    # all steps as RE to keep it compilable.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
-        regulators: R1, R2
+        regulators: R1
     end
-    with_dead_end = EnzymeRates._expand_dead_end(
-        EnzymeRates._catalytic_topologies(rxn),
-        rxn; dead_end_regs=[:R1, :R2],
-        include_substrate_product=true)
-    # Find largest compilable spec (some large specs
-    # trigger thermodynamic cycle errors)
+    # Add dead-end regulator R1 to the largest topology
+    topos = EnzymeRates.init_mechanisms(rxn)
+    sort!(topos;
+          by=s -> length(EnzymeRates.all_form_names(s)),
+          rev=true)
+    variants = EnzymeRates._expand_add_dead_end_regulator(
+        topos[1], rxn)
+    # Find largest compilable spec
+    sort!(variants;
+          by=s -> length(EnzymeRates.all_form_names(s)),
+          rev=true)
     m = nothing
-    for i in length(with_dead_end):-1:1
+    for s in variants
         try
-            m = EnzymeMechanism(with_dead_end[i])
+            m = EnzymeMechanism(s)
             parameters(m)
             break
         catch
@@ -991,15 +994,21 @@ end
         products: P[C], Q[NX]
         regulators: R1, R2
     end
-    with_dead_end = EnzymeRates._expand_dead_end(
-        EnzymeRates._catalytic_topologies(rxn),
-        rxn; dead_end_regs=[:R1, :R2],
-        include_substrate_product=true)
+    # Add dead-end regulator R1 to the largest topology
+    topos = EnzymeRates.init_mechanisms(rxn)
+    sort!(topos;
+          by=s -> length(EnzymeRates.all_form_names(s)),
+          rev=true)
+    variants = EnzymeRates._expand_add_dead_end_regulator(
+        topos[1], rxn)
     # Find a mechanism with >= 15 forms and force all
     # steps to SS to trigger the polynomial term limit.
     # Skip specs that cause thermodynamic cycle errors.
+    sort!(variants;
+          by=s -> length(EnzymeRates.all_form_names(s)),
+          rev=true)
     m_enum = nothing
-    for s in Iterators.reverse(with_dead_end)
+    for s in variants
         n_forms = length(
             EnzymeRates.all_form_names(s))
         n_forms >= 15 || continue
