@@ -1473,7 +1473,7 @@ end
                 spec_i1, rxn_2i)
         # With I1 present, competition patterns produce
         # more I2 variants than the base 9.
-        @test length(result2) > 9
+        @test length(result2) == 17
         # Not-competing variant: I2 coexists with I1
         has_coexist = any(result2) do r
             any(
@@ -1483,6 +1483,20 @@ end
                     EnzymeRates.all_form_names(r)))
         end
         @test has_coexist
+        # Competing variant: I2 forms but no coexistence
+        has_compete = any(result2) do r
+            forms = collect(
+                EnzymeRates.all_form_names(r))
+            has_i2 = any(
+                f -> contains(string(f), "I2__reg"),
+                forms)
+            no_coexist = !any(
+                f -> contains(string(f), "I1__reg") &&
+                     contains(string(f), "I2__reg"),
+                forms)
+            has_i2 && no_coexist
+        end
+        @test has_compete  # competing variant exists
     end
 end
 

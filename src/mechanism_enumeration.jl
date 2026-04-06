@@ -1475,14 +1475,13 @@ function _expand_add_dead_end_regulator(
 
         # Find existing inhibitor dummies in steps.
         # Only metabolite dummies (not form names).
-        our_dummy = Symbol(string(reg) * "__reg")
         existing_inhibitors = Symbol[]
         for s in spec.steps
             met = step_metabolite(s)
             met === nothing && continue
             s_met = string(met)
             contains(s_met, "__reg") || continue
-            met === our_dummy && continue
+            met === dummy && continue
             push!(existing_inhibitors, met)
         end
         sort!(unique!(existing_inhibitors))
