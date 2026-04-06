@@ -540,6 +540,92 @@ end
             end
         end
 
+        @testset "Ter-ter diagonal: 12 of 27 allowed" begin
+            # Random ter-ter topology has 27 possible
+            # dead-end forms. With diagonal competition
+            # {A↔P, B↔Q, D↔R}:
+            #   1S+1P: 6 allowed, 3 forbidden (the 3
+            #     diagonal pairs A-P, B-Q, D-R)
+            #   2S+1P: 3 allowed (E_A_B_R, E_A_D_Q,
+            #     E_B_D_P), 6 forbidden
+            #   1S+2P: 3 allowed (E_A_Q_R, E_B_P_R,
+            #     E_D_P_Q), 6 forbidden
+            #   Total: 12 allowed out of 27
+            topos = EnzymeRates._catalytic_topologies(
+                ter_ter_rxn)
+            random_topo = topos[1]  # most forms
+            bound =
+                EnzymeRates._bound_metabolites_at_forms(
+                    random_topo, ter_ter_rxn)
+            sub_names = Set([:A, :B, :D])
+            prod_names = Set([:P, :Q, :R])
+            cat_forms =
+                EnzymeRates.all_form_names(random_topo)
+            _sp_de_opps =
+                EnzymeRates._substrate_product_dead_end_opportunities
+            de_opps = _sp_de_opps(
+                bound, cat_forms,
+                sub_names, prod_names)
+            # Group dead-end forms
+            de_forms = Dict{Symbol,
+                Vector{Tuple{Symbol, Symbol}}}()
+            for (f, m) in de_opps
+                de_name =
+                    EnzymeRates._dead_end_form_name(
+                        bound[f], m)
+                push!(get!(de_forms, de_name,
+                    Tuple{Symbol, Symbol}[]), (f, m))
+            end
+            de_form_names =
+                sort(collect(keys(de_forms)))
+            @test length(de_form_names) == 27
+
+            # Build de_bound mapping
+            de_bound = Dict{Symbol, Set{Symbol}}()
+            for de_name in de_form_names
+                f, m = first(de_forms[de_name])
+                de_bound[de_name] = union(
+                    bound[f], Set([m]))
+            end
+
+            # Apply diagonal competition filter
+            diagonal =
+                Set([(:A, :P), (:B, :Q), (:D, :R)])
+            allowed = Symbol[]
+            for de_name in de_form_names
+                mets = de_bound[de_name]
+                de_subs = intersect(mets, sub_names)
+                de_prods =
+                    intersect(mets, prod_names)
+                has_conflict = any(
+                    (s, p) in diagonal
+                    for s in de_subs
+                    for p in de_prods)
+                has_conflict ||
+                    push!(allowed, de_name)
+            end
+            @test length(allowed) == 12
+
+            # Verify specific allowed forms
+            @test :E_A_Q in allowed   # 1S+1P
+            @test :E_A_R in allowed
+            @test :E_B_P in allowed
+            @test :E_B_R in allowed
+            @test :E_D_P in allowed
+            @test :E_D_Q in allowed
+            @test :E_A_B_R in allowed # 2S+1P
+            @test :E_A_D_Q in allowed
+            @test :E_B_D_P in allowed
+            @test :E_A_Q_R in allowed # 1S+2P
+            @test :E_B_P_R in allowed
+            @test :E_D_P_Q in allowed
+
+            # Verify specific forbidden forms
+            @test :E_A_P ∉ allowed    # A↔P diagonal
+            @test :E_B_Q ∉ allowed    # B↔Q diagonal
+            @test :E_D_R ∉ allowed    # D↔R diagonal
+        end
+
         @testset "Round-trip: competition-filtered specs compile" begin
             for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
                 specs =
@@ -1335,6 +1421,68 @@ end
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, bb_with_reg)
         @test length(result) == 9
+    end
+
+    @testset "Two inhibitors: compete vs not" begin
+        # Use bi-bi random: I1 binds to multiple forms,
+        # creating mirror steps. When adding I2, compete
+        # vs not-compete with I1 produces different forms.
+        m = @enzyme_mechanism begin
+            species: begin
+                substrates: A[C], B[N]
+                products: P[C], Q[N]
+                enzymes: E, E_A[C], E_A_B[CN],
+                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
+            end
+            steps: begin
+                [E, A] ⇌ [E_A]
+                [E_B, A] ⇌ [E_A_B]
+                [E, B] ⇌ [E_B]
+                [E_A, B] ⇌ [E_A_B]
+                [E, P] ⇌ [E_P]
+                [E_P, Q] ⇌ [E_P_Q]
+                [E, Q] ⇌ [E_Q]
+                [E_Q, P] ⇌ [E_P_Q]
+                [E_A_B] <--> [E_P_Q]
+            end
+        end
+        rxn_2i = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            dead_end_inhibitors: I1, I2
+        end
+        spec = _spec_with_rxn(m, bi_bi_rxn, rxn_2i)
+        # Adds both eligible regs (I1 + I2): 9 each
+        result1 =
+            EnzymeRates._expand_add_dead_end_regulator(
+                spec, rxn_2i)
+        @test length(result1) == 18
+        # Pick variant where I1 binds to multiple forms
+        multi = filter(result1) do r
+            inh_forms = filter(
+                f -> contains(string(f), "I1__reg"),
+                collect(
+                    EnzymeRates.all_form_names(r)))
+            length(inh_forms) >= 2
+        end
+        @test !isempty(multi)
+        spec_i1 = first(multi)
+        # Add I2 to spec that already has I1
+        result2 =
+            EnzymeRates._expand_add_dead_end_regulator(
+                spec_i1, rxn_2i)
+        # With I1 present, competition patterns produce
+        # more I2 variants than the base 9.
+        @test length(result2) > 9
+        # Not-competing variant: I2 coexists with I1
+        has_coexist = any(result2) do r
+            any(
+                f -> contains(string(f), "I1__reg") &&
+                     contains(string(f), "I2__reg"),
+                collect(
+                    EnzymeRates.all_form_names(r)))
+        end
+        @test has_coexist
     end
 end
 
