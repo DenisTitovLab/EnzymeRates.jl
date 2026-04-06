@@ -863,6 +863,11 @@ function _expand_substrate_product_dead_ends(
     prod_names = Set(p[1] for p in products(reaction))
     all_mets = union(sub_names, prod_names)
 
+    # Competition patterns depend only on the reaction,
+    # not the topology — compute once.
+    patterns = _competition_patterns(
+        sub_names, prod_names)
+
     result = MechanismSpec[]
     for spec in specs
         bound = _bound_metabolites_at_forms(
@@ -896,9 +901,6 @@ function _expand_substrate_product_dead_ends(
                 bound[f], Set([m]))
         end
 
-        # Enumerate competition patterns
-        patterns = _competition_patterns(
-            sub_names, prod_names)
         seen = Set{Vector{Symbol}}()
 
         for pattern in patterns
@@ -930,13 +932,18 @@ function _expand_substrate_product_dead_ends(
             for de_name in sort(collect(active_de))
                 entries = de_forms[de_name]
                 for (cat_form, met) in entries
+                    # [cat_form, met] → [de_name]
+                    # (always RE)
                     push!(new_steps, StepSpec(
                         [cat_form, met],
                         [de_name], true))
                 end
             end
 
-            # Add mirror steps
+            # Add mirror steps: for each catalytic
+            # step, if both endpoints have dead-end
+            # forms with the same metabolite, add a
+            # parallel step. Mirror inherits RE/SS.
             for s in spec.steps
                 from, to =
                     s.reactants[1], s.products[1]
@@ -1466,14 +1473,17 @@ function _expand_add_dead_end_regulator(
 
         isempty(eligible_forms) && continue
 
-        # Find existing inhibitor dummies
+        # Find existing inhibitor dummies in steps.
+        # Only metabolite dummies (not form names).
+        our_dummy = Symbol(string(reg) * "__reg")
         existing_inhibitors = Symbol[]
-        for met in existing_mets
+        for s in spec.steps
+            met = step_metabolite(s)
+            met === nothing && continue
             s_met = string(met)
-            if contains(s_met, "__reg") &&
-                    !contains(s_met, string(reg))
-                push!(existing_inhibitors, met)
-            end
+            contains(s_met, "__reg") || continue
+            met === our_dummy && continue
+            push!(existing_inhibitors, met)
         end
         sort!(unique!(existing_inhibitors))
 
@@ -1539,7 +1549,8 @@ function _expand_add_dead_end_regulator(
                     length(new_steps))
             end
 
-            # Add mirror steps
+            # Add mirror steps for catalytic steps
+            # whose both endpoints have dead-end forms
             for s in spec.steps
                 from, to = step_forms(s)
                 haskey(de_form_map, from) || continue
@@ -1558,7 +1569,8 @@ function _expand_add_dead_end_regulator(
                 end
             end
 
-            # Equivalence constraints
+            # Equivalence constraints: all K's equal
+            # for this regulator across binding sites
             new_constraints = copy(
                 spec.param_constraints)
             if length(binding_step_indices) >= 2
