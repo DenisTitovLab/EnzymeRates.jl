@@ -26,8 +26,19 @@ function _parse_species_tuple_expr(expr)
         return Expr(:tuple, QuoteNode(expr), atoms)
     elseif expr isa Expr && expr.head == :ref
         name = expr.args[1]
-        formula = string(expr.args[2])
-        atoms = _parse_chemical_formula(formula)
+        # Parse each ref arg individually and merge
+        # (handles A[C,N] where Julia parses as
+        # ref with args [:A, :C, :N]).
+        # Each arg is parsed as a chemical formula
+        # separately to avoid ambiguity (e.g.,
+        # A[CO2,H] must not become "CO2H" → cobalt).
+        atoms = Expr(:tuple)
+        for arg in expr.args[2:end]
+            parsed = _parse_chemical_formula(string(arg))
+            for atom in parsed.args
+                push!(atoms.args, atom)
+            end
+        end
         return Expr(:tuple, QuoteNode(name), atoms)
     else
         error("Cannot parse species definition: $expr")
