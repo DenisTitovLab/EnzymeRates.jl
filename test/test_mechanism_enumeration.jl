@@ -218,7 +218,8 @@ end
 
     @testset "Bi-Bi" begin
         topos = EnzymeRates._catalytic_topologies(bi_bi_rxn)
-        @test length(topos) == 9
+        # 11 = 9 sequential + 2 empty-residual ping-pong
+        @test length(topos) == 11
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
@@ -238,10 +239,9 @@ end
     @testset "Ter-Ter" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
-        # 169 = 13 × 13. Weak orderings of 3 items = 13
-        # (Fubini number F(3)). Substrate and product
-        # orderings are independent.
-        @test length(topos) == 169
+        # 223 = 169 sequential + 54 empty-residual
+        # ping-pong
+        @test length(topos) == 223
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
@@ -251,34 +251,50 @@ end
     @testset "Ter-Bi" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_bi_rxn)
-        # 45 = 39 sequential + 6 ping-pong
-        # Sequential: F(3) × F(2) = 13 × 3 = 39
-        # Ping-pong: 6 topologies from D[X]→Q[X] iso group
-        @test length(topos) == 45
+        # 51 = 39 sequential + 6 nonempty-residual +
+        # 6 empty-residual ping-pong
+        @test length(topos) == 51
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
         end
     end
 
+    @testset "empty-residual ping-pong" begin
+        ter_ter = @enzyme_reaction begin
+            substrates: A[C], B[N], D[X]
+            products: P[C], Q[N], R[X]
+        end
+        topos = EnzymeRates._catalytic_topologies(ter_ter)
+        has_estar = any(topos) do spec
+            any(spec.steps) do s
+                any(
+                    sym -> startswith(
+                        string(sym), "Estar"),
+                    Iterators.flatten(
+                        (s.reactants, s.products)),
+                )
+            end
+        end
+        @test has_estar
+    end
+
     @testset "weak-ordering combining" begin
-        # For bi-bi: 2 subs × 2 prods, all sequential
-        # Weak orderings of 2 items = 3 (F(2))
-        # Total: 3 × 3 = 9 topologies
+        # For bi-bi: 9 sequential + 2 empty-residual
+        # ping-pong = 11
         bi_bi_rxn_test = @enzyme_reaction begin
             substrates: A[C], B[N]
             products: P[C], Q[N]
         end
         topos = EnzymeRates._catalytic_topologies(
             bi_bi_rxn_test)
-        @test length(topos) == 9
+        @test length(topos) == 11
 
-        # For ter-ter: 3 subs × 3 prods, all sequential
-        # Weak orderings of 3 items = 13 (F(3))
-        # Total: 13 × 13 = 169 topologies
+        # For ter-ter: 169 sequential +
+        # 54 empty-residual ping-pong = 223
         topos_tt = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
-        @test length(topos_tt) == 169
+        @test length(topos_tt) == 223
     end
 end
 
@@ -292,9 +308,9 @@ end
             (bi_bi_pp_rxn, 2, 2),
         ]
             specs = EnzymeRates.init_mechanisms(rxn)
-            expected_pc = n_s + n_p + 3
+            min_pc = n_s + n_p + 3
             for s in specs
-                @test s.param_count == expected_pc
+                @test s.param_count >= min_pc
             end
         end
     end
@@ -433,9 +449,10 @@ end
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [spec], bi_bi_pp_rxn)
-            # 3 dead-end forms, 7 competition patterns,
-            # 5 unique dead-end sets after dedup → 5 variants
-            @test length(result) == 5
+            # 5 dead-end forms (E_A_P, E_A_Q, E_B_Q from
+            # E-side + Estar_B_P, Estar_B_Q from
+            # Estar-side), competition-filtered
+            @test length(result) == 7
         end
     end
 
@@ -570,7 +587,7 @@ end
             # on representative ter-ter topologies.
             topos = EnzymeRates._catalytic_topologies(
                 ter_ter_rxn)
-            @test length(topos) == 169
+            @test length(topos) == 223
             # Test first (random, most forms) and last topology
             for topo in [topos[1], topos[end]]
                 result =
@@ -604,7 +621,11 @@ end
             #   Total: 12 allowed out of 27
             topos = EnzymeRates._catalytic_topologies(
                 ter_ter_rxn)
-            random_topo = topos[1]  # most forms
+            # Pick a sequential topo with most forms
+            _, idx = findmax(
+                length(EnzymeRates.all_form_names(t))
+                for t in topos)
+            random_topo = topos[idx]
             bound =
                 EnzymeRates._bound_metabolites_at_forms(
                     random_topo, ter_ter_rxn)
@@ -623,7 +644,7 @@ end
             for (f, m) in de_opps
                 de_name =
                     EnzymeRates._dead_end_form_name(
-                        bound[f], m)
+                        f, bound[f], m)
                 push!(get!(de_forms, de_name,
                     Tuple{Symbol, Symbol}[]), (f, m))
             end

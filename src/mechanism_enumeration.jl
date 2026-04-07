@@ -338,9 +338,6 @@ function _catalytic_topologies(
                     residual = _subtract_atoms(
                         acc_atoms, prod_atoms[p]
                     )
-                    # Genuine ping-pong needs nonzero
-                    # residual
-                    isempty(residual) && continue
                     iso_form = _form_name(
                         on_enzyme_subs, [p], true
                     )
@@ -413,6 +410,38 @@ function _catalytic_topologies(
                     true, false, steps
                 )
                 pop!(steps)
+            end
+            # Final isomerize: all subs consumed, release
+            # remaining products
+            if isempty(remaining_subs) &&
+                    !isempty(remaining_prods)
+                all_prod_atoms = reduce(
+                    _add_atoms, (
+                        prod_atoms[p]
+                        for p in remaining_prods
+                    );
+                    init=Dict{Symbol,Int}()
+                )
+                if _can_pingpong(
+                    acc_atoms, all_prod_atoms
+                )
+                    new_form = _form_name(
+                        Symbol[],
+                        copy(remaining_prods), false
+                    )
+                    step = StepSpec(
+                        [cur_form], [new_form], true
+                    )
+                    push!(steps, step)
+                    backtrack!(
+                        new_form, acc_atoms,
+                        consumed_subs, released_prods,
+                        Symbol[],
+                        copy(remaining_prods),
+                        false, true, steps
+                    )
+                    pop!(steps)
+                end
             end
         elseif !isempty(on_enzyme_subs) && has_residual
             # Residual + substrates bound
@@ -729,63 +758,85 @@ function _bound_metabolites_at_forms(
     spec::MechanismSpec,
     @nospecialize(reaction::EnzymeReaction),
 )
-    sub_names = Set(s[1] for s in substrates(reaction))
-    prod_names = Set(p[1] for p in products(reaction))
-    bound = Dict{Symbol, Set{Symbol}}(:E => Set{Symbol}())
-    changed = true
-    while changed
-        changed = false
-        for s in spec.steps
-            from, to = s.reactants[1], s.products[1]
-            met = step_metabolite(s)
-            if met !== nothing
-                # Binding step: to = from + met
-                if haskey(bound, from) &&
-                        !haskey(bound, to)
-                    bound[to] = union(
-                        bound[from], Set([met]))
-                    changed = true
-                end
-                if haskey(bound, to) &&
-                        !haskey(bound, from)
-                    bound[from] = setdiff(
-                        bound[to], Set([met]))
-                    changed = true
-                end
-            else
-                # Isomerization: all subs become all prods
-                if haskey(bound, from) &&
-                        !haskey(bound, to)
-                    bound[to] = union(
-                        setdiff(bound[from], sub_names),
-                        prod_names)
-                    changed = true
-                end
-                if haskey(bound, to) &&
-                        !haskey(bound, from)
-                    bound[from] = union(
-                        setdiff(bound[to], prod_names),
-                        sub_names)
-                    changed = true
+    # Collect all metabolite names (including
+    # suffixed regulator dummies)
+    met_set = Set{Symbol}()
+    for (name, _) in substrates(reaction)
+        push!(met_set, name)
+    end
+    for (name, _) in products(reaction)
+        push!(met_set, name)
+    end
+    for s in spec.steps
+        met = step_metabolite(s)
+        met !== nothing && push!(met_set, met)
+    end
+
+    # Parse bound metabolites from form name
+    # by greedily matching known metabolites
+    function _parse_bound(form::Symbol)
+        s = string(form)
+        # Strip E_ or Estar_ prefix
+        if s == "E" || s == "Estar"
+            return Set{Symbol}()
+        end
+        body = startswith(s, "Estar_") ? s[7:end] :
+               startswith(s, "E_") ? s[3:end] : s
+        # Split by _ and reassemble multi-part
+        # metabolite names (e.g., I1__reg)
+        parts = split(body, "_")
+        result = Set{Symbol}()
+        i = 1
+        while i <= length(parts)
+            # Try longest match first
+            matched = false
+            for len in length(parts):-1:1
+                i + len - 1 > length(parts) && continue
+                candidate = Symbol(join(
+                    parts[i:i+len-1], "_"))
+                if candidate in met_set
+                    push!(result, candidate)
+                    i += len
+                    matched = true
+                    break
                 end
             end
+            if !matched
+                # Unknown part — skip
+                i += 1
+            end
         end
+        result
+    end
+
+    forms = all_form_names(spec)
+    bound = Dict{Symbol, Set{Symbol}}()
+    for f in forms
+        bound[f] = _parse_bound(f)
     end
     bound
 end
 
 """
-    _dead_end_form_name(base_bound, added_met)
+    _dead_end_form_name(base_form, base_bound, added_met)
 
 Create form name for a dead-end form: base form's bound
-metabolites plus the added metabolite.
+metabolites plus the added metabolite. Preserves the E/Estar
+prefix of the base form.
 """
 function _dead_end_form_name(
+    base_form::Symbol,
     base_bound::Set{Symbol}, added_met::Symbol,
 )
     all_mets = sort(collect(
         union(base_bound, Set([added_met]))))
-    Symbol("E_" * join(all_mets, "_"))
+    prefix = _is_estar_form(base_form) ? "Estar" : "E"
+    Symbol(prefix * "_" * join(all_mets, "_"))
+end
+
+function _is_estar_form(form::Symbol)
+    s = string(form)
+    s == "Estar" || startswith(s, "Estar_")
 end
 
 """
@@ -820,7 +871,7 @@ function _substrate_product_dead_end_opportunities(
             fb_prods == prod_names) && continue
         for m in sort(collect(all_mets))
             m in fb && continue
-            de_name = _dead_end_form_name(fb, m)
+            de_name = _dead_end_form_name(f, fb, m)
             de_name in cat_forms && continue
             new_bound = union(fb, Set([m]))
             new_subs = intersect(
@@ -974,7 +1025,8 @@ function _expand_substrate_product_dead_ends(
         de_forms = Dict{Symbol,
             Vector{Tuple{Symbol, Symbol}}}()
         for (f, m) in de_opportunities
-            de_name = _dead_end_form_name(bound[f], m)
+            de_name = _dead_end_form_name(
+                f, bound[f], m)
             push!(get!(de_forms, de_name,
                 Tuple{Symbol, Symbol}[]), (f, m))
         end
@@ -1043,9 +1095,9 @@ function _expand_substrate_product_dead_ends(
                     de_met in bound[from] && continue
                     de_met in bound[to] && continue
                     from_de = _dead_end_form_name(
-                        bound[from], de_met)
+                        from, bound[from], de_met)
                     to_de = _dead_end_form_name(
-                        bound[to], de_met)
+                        to, bound[to], de_met)
                     from_de in active_de || continue
                     to_de in active_de || continue
                     if met !== nothing
@@ -1286,14 +1338,28 @@ function init_mechanisms(
 
     n_s = length(substrates(reaction))
     n_p = length(products(reaction))
-    expected_pc = n_s + n_p + 3
+    min_pc = n_s + n_p + 3
 
     result = MechanismSpec[]
     for spec in expanded
         constraints = _max_equivalence_constraints(spec)
+        # For specs with Estar forms (ping-pong), the
+        # isomerization step adds an independent K that
+        # is not reducible by equivalence constraints.
+        # The +1 accounts for possible overlap between
+        # equivalence and thermodynamic constraints.
+        has_estar = any(all_form_names(spec.steps)) do f
+            _is_estar_form(f)
+        end
+        pc = has_estar ?
+            spec.param_count -
+                length(constraints) + 1 :
+            min_pc
+        # Ensure upper bound invariant
+        pc = max(pc, min_pc)
         push!(result, MechanismSpec(
             spec.reaction, spec.steps,
-            constraints, expected_pc))
+            constraints, pc))
     end
     result
 end
@@ -1629,7 +1695,7 @@ function _expand_add_dead_end_regulator(
             binding_step_indices = Int[]
             for cf in active
                 de_name = _dead_end_form_name(
-                    bound[cf], dummy)
+                    cf, bound[cf], dummy)
                 de_form_map[cf] = de_name
                 push!(new_steps, StepSpec(
                     [cf, dummy], [de_name], true))
