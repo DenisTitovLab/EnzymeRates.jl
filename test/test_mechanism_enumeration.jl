@@ -82,6 +82,22 @@ const ter_bi_rxn = @enzyme_reaction begin
     products: P[CN], Q[X]
 end
 
+# Pyruvate carboxylase: Pyr + HCO3 + ATP = OAA + ADP + Pi
+# Mechanism: ATP+HCO3 → ADP+Pi+CO2_residual,
+#            then Pyr+CO2 → OAA
+const pyruvate_carboxylase_rxn = @enzyme_reaction begin
+    substrates: Pyr[C3H3O3], HCO3[HCO3], ATP[C10H16N5O13P3]
+    products: OAA[C4H3O5], ADP[C10H15N5O10P2], Pi[H2PO4]
+end
+
+# Pyruvate dehydrogenase: Pyr + NAD + CoA = AcCoA + NADH + CO2
+# Mechanism: Pyr → CO2+residual, CoA+residual → AcCoA+residual,
+#            NAD+residual → NADH
+const pyruvate_dehydrogenase_rxn = @enzyme_reaction begin
+    substrates: Pyr[C3H3O3], NAD[C21H28N7O14P2], CoA[C21H36N7O16P3S]
+    products: AcCoA[C23H38N7O17P3S], NADH[C21H29N7O14P2], CO2[CO2]
+end
+
 """Collect all mechanisms by running the full enumeration loop."""
 function enumerate_all(
     @nospecialize(reaction::EnzymeReaction);
@@ -113,6 +129,25 @@ function enumerate_all(
 end
 
 @testset "Mechanism Enumeration" begin
+
+@testset "test reaction atom balance" begin
+    for rxn in [pyruvate_carboxylase_rxn,
+                pyruvate_dehydrogenase_rxn]
+        sub_atoms = Dict{Symbol,Int}()
+        for (_, atoms) in EnzymeRates.substrates(rxn)
+            for (a, c) in atoms
+                sub_atoms[a] = get(sub_atoms, a, 0) + c
+            end
+        end
+        prod_atoms = Dict{Symbol,Int}()
+        for (_, atoms) in EnzymeRates.products(rxn)
+            for (a, c) in atoms
+                prod_atoms[a] = get(prod_atoms, a, 0) + c
+            end
+        end
+        @test sub_atoms == prod_atoms
+    end
+end
 
 @testset "AllostericEnzymeMechanism TR equivalence" begin
     base_rxn = @enzyme_reaction begin
