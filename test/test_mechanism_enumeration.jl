@@ -238,12 +238,10 @@ end
     @testset "Ter-Ter" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
-        # 3969 = (2^(3!) - 1)² = 63 × 63
-        # Each side (binding/release) has 3!=6 permutation
-        # paths through Boolean lattice B_3; all 2^6-1=63
-        # non-empty path subsets produce distinct edge sets;
-        # sides are independent.
-        @test length(topos) == 3969
+        # 169 = 13 × 13. Weak orderings of 3 items = 13
+        # (Fubini number F(3)). Substrate and product
+        # orderings are independent.
+        @test length(topos) == 169
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
@@ -253,14 +251,34 @@ end
     @testset "Ter-Bi" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_bi_rxn)
-        # 204 = 189 sequential + 15 ping-pong
-        # Sequential: (2^(3!) - 1) × (2^(2!) - 1) = 63 × 3
-        # Ping-pong: D[X]→Q[X] can isomerize independently
-        @test length(topos) == 204
+        # 45 = 39 sequential + 6 ping-pong
+        # Sequential: F(3) × F(2) = 13 × 3 = 39
+        # Ping-pong: 6 topologies from D[X]→Q[X] iso group
+        @test length(topos) == 45
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
         end
+    end
+
+    @testset "weak-ordering combining" begin
+        # For bi-bi: 2 subs × 2 prods, all sequential
+        # Weak orderings of 2 items = 3 (F(2))
+        # Total: 3 × 3 = 9 topologies
+        bi_bi_rxn_test = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+        end
+        topos = EnzymeRates._catalytic_topologies(
+            bi_bi_rxn_test)
+        @test length(topos) == 9
+
+        # For ter-ter: 3 subs × 3 prods, all sequential
+        # Weak orderings of 3 items = 13 (F(3))
+        # Total: 13 × 13 = 169 topologies
+        topos_tt = EnzymeRates._catalytic_topologies(
+            ter_ter_rxn)
+        @test length(topos_tt) == 169
     end
 end
 
@@ -548,13 +566,11 @@ end
         end
 
         @testset "Ter-ter per-topology (OOM on full init)" begin
-            # Full init_mechanisms(ter_ter_rxn) is intractable:
-            # 3969 topologies × 265 patterns ≈ 1M specs.
-            # Instead, test that competition filtering works
+            # Test that competition filtering works
             # on representative ter-ter topologies.
             topos = EnzymeRates._catalytic_topologies(
                 ter_ter_rxn)
-            @test length(topos) == 3969
+            @test length(topos) == 169
             # Test first (random, most forms) and last topology
             for topo in [topos[1], topos[end]]
                 result =

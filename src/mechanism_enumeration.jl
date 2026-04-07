@@ -520,109 +520,198 @@ function _catalytic_topologies(
         push!(unique_paths, path)
     end
 
-    # Partition paths into ping-pong (has Estar forms)
-    # and sequential groups. Only combine paths within
-    # the same group to avoid biochemically unrealistic
-    # mixed topologies.
-    function _is_pingpong_path(path)
-        for s in path
-            for sym in Iterators.flatten(
-                (s.reactants, s.products)
-            )
-                startswith(string(sym), "Estar") &&
-                    return true
-            end
-        end
-        false
-    end
-    pp_paths = [p for p in unique_paths
-                if _is_pingpong_path(p)]
-    seq_paths = [p for p in unique_paths
-                 if !_is_pingpong_path(p)]
+    # --- Group paths by isomerization pattern ---
+    met_names = Set{Symbol}(sub_names)
+    union!(met_names, prod_names)
 
-    # Build step-set unions incrementally within each
-    # group. For each path, union its steps with all
-    # existing step-sets and add any new results.
-    known_combos = Dict{Set{StepKey},
-                        Dict{StepKey, StepSpec}}()
-    for group in (pp_paths, seq_paths)
-        isempty(group) && continue
-        grp_keys = [
-            Set(_step_key(s) for s in p)
-            for p in group
-        ]
-        grp_dicts = [
-            Dict(_step_key(s) => s for s in p)
-            for p in group
-        ]
-        grp_combos = Dict{Set{StepKey},
-                          Dict{StepKey, StepSpec}}()
-        for (i, pkeys) in enumerate(grp_keys)
-            if !haskey(grp_combos, pkeys)
-                grp_combos[pkeys] = copy(grp_dicts[i])
-            end
-            new_entries = Dict{Set{StepKey},
-                               Dict{StepKey, StepSpec}}()
-            for (ks, sd) in grp_combos
-                merged_keys = union(ks, pkeys)
-                merged_keys == ks && continue
-                haskey(grp_combos, merged_keys) &&
-                    continue
-                haskey(new_entries, merged_keys) &&
-                    continue
-                merged = copy(sd)
-                merge!(merged, grp_dicts[i])
-                new_entries[merged_keys] = merged
-            end
-            merge!(grp_combos, new_entries)
-        end
-        merge!(known_combos, grp_combos)
-    end
-
-    # Build MechanismSpec for each topology
-    result = MechanismSpec[]
-    for step_dict in values(known_combos)
-        steps = collect(values(step_dict))
-        # Sort steps: binding first, then isomerization
-        sort!(steps; by=s -> (
-            length(s.reactants) == 1 ? 1 : 0,
-            join(sort(s.reactants), "_")
-        ))
-
-        n_steps = length(steps)
-        # Default RE/SS: first isomerization is SS, rest RE
-        iso_idx = findfirst(
-            s -> length(s.reactants) == 1, steps
+    function _iso_pattern(path)
+        Set(
+            (_step_key(s) for s in path
+             if length(s.reactants) == 1 &&
+                length(s.products) == 1 &&
+                s.reactants[1] ∉ met_names &&
+                s.products[1] ∉ met_names)
         )
-        tagged = [
-            StepSpec(
-                s.reactants, s.products,
-                i != iso_idx
-            )
-            for (i, s) in enumerate(steps)
-        ]
+    end
 
-        # Compute param_count
-        form_names = Set{Symbol}()
-        for s in tagged
-            union!(form_names, s.reactants)
-            union!(form_names, s.products)
+    iso_groups = Dict{
+        Set{StepKey}, Vector{Vector{StepSpec}}
+    }()
+    for path in unique_paths
+        pat = _iso_pattern(path)
+        paths_vec = get!(iso_groups, pat,
+            Vector{Vector{StepSpec}}())
+        push!(paths_vec, path)
+    end
+
+    # --- Enumerate weak orderings within each group ---
+    function _weak_orderings(items::Vector{T}) where T
+        n = length(items)
+        n == 0 && return [Vector{Vector{T}}()]
+        n == 1 && return [[items]]
+        orderings = Vector{Vector{Vector{T}}}()
+        _wo_recurse!(orderings, Vector{Vector{T}}(), items)
+        orderings
+    end
+
+    function _wo_recurse!(
+        orderings, prefix, remaining::Vector{T},
+    ) where T
+        if isempty(remaining)
+            push!(orderings, copy(prefix))
+            return
         end
-        # Remove metabolite names from form set
-        met_names = Set{Symbol}(sub_names)
-        union!(met_names, prod_names)
-        setdiff!(form_names, met_names)
-        n_forms = length(form_names)
-        n_independent_cycles = n_steps - n_forms + 1
-        n_thermo = n_independent_cycles
-        n_re = n_steps - 1  # all except the one SS
-        n_ss = 1
-        param_count = n_re + 2 * n_ss - n_thermo + 2
+        for mask in 1:(2^length(remaining) - 1)
+            level = T[]
+            rest = T[]
+            for (i, item) in enumerate(remaining)
+                if (mask >> (i - 1)) & 1 == 1
+                    push!(level, item)
+                else
+                    push!(rest, item)
+                end
+            end
+            push!(prefix, sort(level))
+            _wo_recurse!(orderings, prefix, rest)
+            pop!(prefix)
+        end
+    end
 
-        push!(result, MechanismSpec(
-            reaction, tagged, ParamConstraint[],
-            param_count
-        ))
+    function _steps_for_ordering(
+        all_group_steps, ordering, met_set,
+    )
+        selected = Set{StepKey}()
+        accessible = Set{Symbol}()
+        for level in ordering
+            level_set = Set{Symbol}(level)
+            allowed = union(accessible, level_set)
+            for met in level
+                for sk in all_group_steps
+                    lhs_mets = [
+                        s for s in sk[1] if s ∈ met_names
+                    ]
+                    length(lhs_mets) == 1 || continue
+                    lhs_mets[1] == met || continue
+                    form = [
+                        s for s in sk[1] if s ∉ met_names
+                    ]
+                    length(form) == 1 || continue
+                    form_met_parts = [
+                        Symbol(p) for p in split(
+                            replace(string(form[1]),
+                                    "Estar" => "E"),
+                            "_")
+                        if Symbol(p) ∈ met_set
+                    ]
+                    if all(m ∈ allowed
+                           for m in form_met_parts)
+                        push!(selected, sk)
+                    end
+                end
+            end
+            union!(accessible, level)
+        end
+        selected
+    end
+
+    # --- Build topologies ---
+    result = MechanismSpec[]
+    for (iso_pat, group_paths) in iso_groups
+        all_group_steps = Set{StepKey}()
+        step_dict = Dict{StepKey, StepSpec}()
+        for path in group_paths
+            for s in path
+                sk = _step_key(s)
+                push!(all_group_steps, sk)
+                step_dict[sk] = s
+            end
+        end
+
+        # Always include all isomerization steps
+        iso_keys = Set{StepKey}()
+        for sk in all_group_steps
+            lhs_mets = [s for s in sk[1] if s ∈ met_names]
+            rhs_mets = [s for s in sk[2] if s ∈ met_names]
+            if isempty(lhs_mets) && isempty(rhs_mets)
+                push!(iso_keys, sk)
+            end
+        end
+
+        sub_met_set = Set(sub_names)
+        prod_met_set = Set(prod_names)
+
+        sub_binding_mets = Set{Symbol}()
+        prod_binding_mets = Set{Symbol}()
+        for sk in all_group_steps
+            lhs_mets = [
+                s for s in sk[1] if s ∈ met_names
+            ]
+            length(lhs_mets) == 1 || continue
+            met = lhs_mets[1]
+            if met ∈ sub_met_set
+                push!(sub_binding_mets, met)
+            else
+                push!(prod_binding_mets, met)
+            end
+        end
+
+        sub_orderings = _weak_orderings(
+            sort(collect(sub_binding_mets)))
+        prod_orderings = _weak_orderings(
+            sort(collect(prod_binding_mets)))
+
+        seen_topos = Set{Set{StepKey}}()
+        for sub_ord in sub_orderings
+            for prod_ord in prod_orderings
+                sub_keys = _steps_for_ordering(
+                    all_group_steps, sub_ord, sub_met_set,
+                )
+                prod_keys = _steps_for_ordering(
+                    all_group_steps, prod_ord, prod_met_set,
+                )
+                topo_keys = union(iso_keys, sub_keys,
+                    prod_keys)
+                topo_keys ∈ seen_topos && continue
+                push!(seen_topos, topo_keys)
+
+                steps = [step_dict[sk] for sk in topo_keys]
+                sort!(steps; by=s -> (
+                    length(s.reactants) == 1 ? 1 : 0,
+                    join(sort(s.reactants), "_")
+                ))
+
+                iso_idx = findfirst(
+                    s -> length(s.reactants) == 1, steps
+                )
+                tagged = [
+                    StepSpec(
+                        s.reactants, s.products,
+                        i != iso_idx
+                    )
+                    for (i, s) in enumerate(steps)
+                ]
+
+                form_names = Set{Symbol}()
+                for s in tagged
+                    union!(form_names, s.reactants)
+                    union!(form_names, s.products)
+                end
+                setdiff!(form_names, met_names)
+                n_forms = length(form_names)
+                n_steps = length(tagged)
+                n_cycles = n_steps - n_forms + 1
+                n_re = count(s -> s.is_equilibrium, tagged)
+                n_ss = n_steps - n_re
+                n_thermo = n_cycles
+                param_count = n_re + 2 * n_ss -
+                    n_thermo + 2
+
+                push!(result, MechanismSpec(
+                    reaction, tagged,
+                    ParamConstraint[], param_count
+                ))
+            end
+        end
     end
     result
 end
