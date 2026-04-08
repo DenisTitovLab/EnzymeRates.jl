@@ -105,13 +105,15 @@ function enumerate_all(
     cache = Dict{Int, Vector{EnzymeRates.AbstractMechanismSpec}}()
 
     init_specs = EnzymeRates.init_mechanisms(reaction)
-    min_pc = init_specs[1].param_count
-    cache[min_pc] = EnzymeRates.AbstractMechanismSpec[init_specs...]
+    for spec in init_specs
+        push!(get!(cache, spec.param_count,
+            EnzymeRates.AbstractMechanismSpec[]), spec)
+    end
     EnzymeRates.dedup!(cache)
 
     results = Dict{Int, Vector{EnzymeRates.AbstractMechanismSpec}}()
 
-    for pc in min_pc:max_params
+    for pc in minimum(keys(cache)):max_params
         level = pop!(cache, pc, EnzymeRates.AbstractMechanismSpec[])
         isempty(level) && (isempty(cache) ? break : continue)
 
@@ -239,9 +241,7 @@ end
     @testset "Ter-Ter" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
-        # 223 = 169 sequential + 54 empty-residual
-        # ping-pong
-        @test length(topos) == 223
+        @test length(topos) == 277
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
@@ -290,11 +290,71 @@ end
             bi_bi_rxn_test)
         @test length(topos) == 11
 
-        # For ter-ter: 169 sequential +
-        # 54 empty-residual ping-pong = 223
         topos_tt = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
-        @test length(topos_tt) == 223
+        @test length(topos_tt) == 277
+    end
+
+    @testset "isomerization constraints" begin
+        topos = EnzymeRates._catalytic_topologies(
+            ter_ter_rxn)
+
+        met_names = Set([:A, :B, :D, :P, :Q, :R])
+        sub_names_set = Set([:A, :B, :D])
+
+        # C5: max bound metabolites = max(3,3) = 3
+        for spec in topos
+            for s in spec.steps
+                for sym_list in (s.reactants, s.products)
+                    for sym in sym_list
+                        str = replace(
+                            string(sym),
+                            "Estar" => "E")
+                        parts = split(str, "_")
+                        n_mets = count(
+                            p -> Symbol(p) ∈ met_names,
+                            parts)
+                        @test n_mets <= 3
+                    end
+                end
+            end
+        end
+
+        # C7: every iso source must contain at
+        # least one substrate
+        for spec in topos
+            for s in spec.steps
+                if length(s.reactants) == 1 &&
+                        length(s.products) == 1
+                    src = string(s.reactants[1])
+                    src_parts = Symbol.(split(
+                        replace(src, "Estar" => "E"),
+                        "_"))
+                    has_sub = any(
+                        p -> p ∈ sub_names_set,
+                        src_parts)
+                    @test has_sub
+                end
+            end
+        end
+
+        # C8: iso product forms should not contain
+        # substrate names
+        for spec in topos
+            for s in spec.steps
+                if length(s.reactants) == 1 &&
+                        length(s.products) == 1
+                    dst = string(s.products[1])
+                    if startswith(dst, "Estar_")
+                        dst_parts = Symbol.(
+                            split(dst[7:end], "_"))
+                        for p in dst_parts
+                            @test p ∉ sub_names_set
+                        end
+                    end
+                end
+            end
+        end
     end
 end
 
@@ -587,7 +647,7 @@ end
             # on representative ter-ter topologies.
             topos = EnzymeRates._catalytic_topologies(
                 ter_ter_rxn)
-            @test length(topos) == 223
+            @test length(topos) == 277
             # Test first (random, most forms) and last topology
             for topo in [topos[1], topos[end]]
                 result =

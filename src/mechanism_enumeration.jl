@@ -192,6 +192,95 @@ function _add_atoms(
     result
 end
 
+"""Generate all combinations of `k` elements from `arr`."""
+function _combinations(arr, k)
+    n = length(arr)
+    k == 0 && return [eltype(arr)[]]
+    k == 1 && return [[x] for x in arr]
+    k == n && return [collect(arr)]
+    result = Vector{Vector{eltype(arr)}}()
+    for i in 1:n
+        for rest in _combinations(arr[i+1:end], k - 1)
+            push!(result, [arr[i]; rest])
+        end
+    end
+    result
+end
+
+"""
+Release products one at a time after a multi-product
+isomerization, then continue backtracking.
+`is_estar` controls form naming (Estar prefix).
+`has_residual_atoms` tracks whether residual atoms remain.
+"""
+function _release_products!(
+    all_paths, backtrack!,
+    iso_form::Symbol,
+    residual_atoms::Dict{Symbol,Int},
+    consumed_subs::Vector{Symbol},
+    released_prods::Vector{Symbol},
+    prod_subset::Vector{Symbol},
+    prod_atoms::Dict{Symbol,Dict{Symbol,Int}},
+    is_estar::Bool,
+    has_residual_atoms::Bool,
+    remaining_subs::Vector{Symbol},
+    steps::Vector{StepSpec},
+)
+    # Generate all release orderings of products
+    function _release_recurse!(
+        cur::Symbol,
+        cur_atoms::Dict{Symbol,Int},
+        unreleased::Vector{Symbol},
+        rel_so_far::Vector{Symbol},
+    )
+        if isempty(unreleased)
+            # All products released, continue
+            backtrack!(
+                cur, residual_atoms,
+                consumed_subs, rel_so_far,
+                Symbol[], Symbol[],
+                is_estar, false, steps
+            )
+            return
+        end
+        for p in copy(unreleased)
+            new_unreleased = filter(!=(p), unreleased)
+            new_form = if isempty(new_unreleased)
+                _form_name(
+                    Symbol[], Symbol[], is_estar)
+            else
+                _form_name(
+                    Symbol[], new_unreleased,
+                    is_estar)
+            end
+            # Canonical: metabolite on LHS
+            rel_step = StepSpec(
+                [new_form, p], [cur], true
+            )
+            push!(steps, rel_step)
+            _release_recurse!(
+                new_form,
+                _subtract_atoms(
+                    cur_atoms, prod_atoms[p]),
+                new_unreleased,
+                [rel_so_far; p],
+            )
+            pop!(steps)
+        end
+    end
+
+    _release_recurse!(
+        iso_form,
+        _add_atoms(
+            residual_atoms,
+            reduce(_add_atoms,
+                [prod_atoms[p] for p in prod_subset];
+                init=Dict{Symbol,Int}())),
+        collect(prod_subset),
+        copy(released_prods),
+    )
+end
+
 """
     _catalytic_topologies(reaction) -> Vector{MechanismSpec}
 
@@ -214,6 +303,9 @@ function _catalytic_topologies(
     prod_atoms = Dict(
         p => _atoms_dict(reaction, p) for p in prod_names
     )
+
+    # C5: max simultaneously bound metabolites
+    max_bound = max(length(sub_names), length(prod_names))
 
     # Collect all complete catalytic paths as step lists
     all_paths = Vector{Vector{StepSpec}}()
@@ -309,58 +401,75 @@ function _catalytic_topologies(
             end
         elseif !isempty(on_enzyme_subs) && !has_residual
             # Substrates bound, no residual
-            # Option 1: bind another substrate
-            for s in remaining_subs
-                new_on = [on_enzyme_subs; s]
-                new_consumed = [consumed_subs; s]
-                new_form = _form_name(
-                    new_on, Symbol[], false
-                )
-                step = StepSpec(
-                    [cur_form, s], [new_form], true
-                )
-                push!(steps, step)
-                backtrack!(
-                    new_form,
-                    _add_atoms(acc_atoms, sub_atoms[s]),
-                    new_consumed, released_prods,
-                    new_on, Symbol[],
-                    false, false, steps
-                )
-                pop!(steps)
-            end
-            # Option 2: ping-pong isomerize
-            if !isempty(remaining_subs)
-                for p in remaining_prods
-                    _can_pingpong(
-                        acc_atoms, prod_atoms[p]
-                    ) || continue
-                    residual = _subtract_atoms(
-                        acc_atoms, prod_atoms[p]
-                    )
-                    iso_form = _form_name(
-                        on_enzyme_subs, [p], true
+            # Option 1: bind another substrate (C5)
+            if length(on_enzyme_subs) < max_bound
+                for s in remaining_subs
+                    new_on = [on_enzyme_subs; s]
+                    new_consumed = [consumed_subs; s]
+                    new_form = _form_name(
+                        new_on, Symbol[], false
                     )
                     step = StepSpec(
-                        [cur_form], [iso_form], true
+                        [cur_form, s], [new_form], true
                     )
                     push!(steps, step)
-                    rel_form = _form_name(
-                        Symbol[], Symbol[], true
-                    )
-                    rel_step = StepSpec(
-                        [rel_form, p], [iso_form], true
-                    )
-                    push!(steps, rel_step)
                     backtrack!(
-                        rel_form, residual,
-                        consumed_subs,
-                        [released_prods; p],
-                        Symbol[], Symbol[],
-                        true, false, steps
+                        new_form,
+                        _add_atoms(
+                            acc_atoms, sub_atoms[s]),
+                        new_consumed, released_prods,
+                        new_on, Symbol[],
+                        false, false, steps
                     )
                     pop!(steps)
-                    pop!(steps)
+                end
+            end
+            # Option 2: ping-pong isomerize (C9)
+            if !isempty(remaining_subs)
+                for k in 1:length(remaining_prods)
+                    for prod_subset in _combinations(
+                        remaining_prods, k)
+                        need = reduce(
+                            _add_atoms,
+                            [prod_atoms[p]
+                             for p in prod_subset];
+                            init=Dict{Symbol,Int}()
+                        )
+                        _can_pingpong(
+                            acc_atoms, need
+                        ) || continue
+                        residual = _subtract_atoms(
+                            acc_atoms, need
+                        )
+                        n_prods_eff = k + (
+                            isempty(residual) ? 0 : 1)
+                        # C6: iso size limit
+                        length(on_enzyme_subs) > 3 &&
+                            continue
+                        n_prods_eff > 3 && continue
+                        # C8: product-only iso form
+                        iso_form = _form_name(
+                            Symbol[],
+                            collect(prod_subset),
+                            true
+                        )
+                        step = StepSpec(
+                            [cur_form], [iso_form], true
+                        )
+                        push!(steps, step)
+                        # Release products one at a time
+                        # Ping-pong from free enzyme
+                        # always creates Estar
+                        _release_products!(
+                            all_paths, backtrack!,
+                            iso_form, residual,
+                            consumed_subs, released_prods,
+                            prod_subset, prod_atoms,
+                            true, !isempty(residual),
+                            remaining_subs, steps
+                        )
+                        pop!(steps)
+                    end
                 end
             end
             # Option 3: final isomerize (all subs bound)
@@ -369,9 +478,13 @@ function _catalytic_topologies(
                     _add_atoms, values(prod_atoms);
                     init=Dict{Symbol,Int}()
                 )
-                if _can_pingpong(
-                    acc_atoms, all_prod_atoms
-                )
+                # C6: iso size limit
+                n_subs_react = length(on_enzyme_subs)
+                n_prods_eff = length(remaining_prods)
+                if n_subs_react <= 3 &&
+                        n_prods_eff <= 3 &&
+                        _can_pingpong(
+                            acc_atoms, all_prod_atoms)
                     new_form = _form_name(
                         Symbol[],
                         copy(remaining_prods), false
@@ -391,7 +504,7 @@ function _catalytic_topologies(
                 end
             end
         elseif isempty(on_enzyme_subs) && has_residual
-            # Residual only (E*): bind any remaining sub
+            # C7: Estar with no subs — only bind, no iso
             for s in remaining_subs
                 new_on = [s]
                 new_consumed = [consumed_subs; s]
@@ -411,118 +524,108 @@ function _catalytic_topologies(
                 )
                 pop!(steps)
             end
-            # Final isomerize: all subs consumed, release
-            # remaining products
-            if isempty(remaining_subs) &&
-                    !isempty(remaining_prods)
-                all_prod_atoms = reduce(
-                    _add_atoms, (
-                        prod_atoms[p]
-                        for p in remaining_prods
-                    );
-                    init=Dict{Symbol,Int}()
-                )
-                if _can_pingpong(
-                    acc_atoms, all_prod_atoms
-                )
-                    new_form = _form_name(
-                        Symbol[],
-                        copy(remaining_prods), false
-                    )
-                    step = StepSpec(
-                        [cur_form], [new_form], true
-                    )
-                    push!(steps, step)
-                    backtrack!(
-                        new_form, acc_atoms,
-                        consumed_subs, released_prods,
-                        Symbol[],
-                        copy(remaining_prods),
-                        false, true, steps
-                    )
-                    pop!(steps)
-                end
-            end
         elseif !isempty(on_enzyme_subs) && has_residual
             # Residual + substrates bound
-            # Option 1: bind another remaining substrate
-            for s in remaining_subs
-                new_on = [on_enzyme_subs; s]
-                new_consumed = [consumed_subs; s]
-                new_form = _form_name(
-                    new_on, Symbol[], true
-                )
-                step = StepSpec(
-                    [cur_form, s], [new_form], true
-                )
-                push!(steps, step)
-                backtrack!(
-                    new_form,
-                    _add_atoms(acc_atoms, sub_atoms[s]),
-                    new_consumed, released_prods,
-                    new_on, Symbol[],
-                    true, false, steps
-                )
-                pop!(steps)
-            end
-            # Option 2: isomerize to release a product
-            for p in remaining_prods
-                _can_pingpong(
-                    acc_atoms, prod_atoms[p]
-                ) || continue
-                residual_atoms = _subtract_atoms(
-                    acc_atoms, prod_atoms[p]
-                )
-                has_more = !isempty(residual_atoms)
-                if has_more ||
-                        !isempty(remaining_subs)
-                    # Ping-pong: isomerize + release
-                    iso_form = _form_name(
-                        on_enzyme_subs, [p], has_more
+            # Option 1: bind another substrate (C5)
+            if length(on_enzyme_subs) < max_bound
+                for s in remaining_subs
+                    new_on = [on_enzyme_subs; s]
+                    new_consumed = [consumed_subs; s]
+                    new_form = _form_name(
+                        new_on, Symbol[], true
                     )
                     step = StepSpec(
-                        [cur_form], [iso_form], true
+                        [cur_form, s], [new_form], true
                     )
                     push!(steps, step)
-                    rel_form = _form_name(
-                        Symbol[], Symbol[], has_more
-                    )
-                    rel_step = StepSpec(
-                        [rel_form, p],
-                        [iso_form], true
-                    )
-                    push!(steps, rel_step)
                     backtrack!(
-                        rel_form, residual_atoms,
-                        consumed_subs,
-                        [released_prods; p],
-                        Symbol[], Symbol[],
-                        has_more, false, steps
+                        new_form,
+                        _add_atoms(
+                            acc_atoms, sub_atoms[s]),
+                        new_consumed, released_prods,
+                        new_on, Symbol[],
+                        true, false, steps
                     )
-                    pop!(steps)
                     pop!(steps)
                 end
-                if !has_more &&
-                        isempty(remaining_subs)
-                    # Final: all subs consumed, all
-                    # residual consumed — release all
-                    # remaining products
-                    new_form = _form_name(
-                        Symbol[],
-                        copy(remaining_prods), false
+            end
+            # Option 2: isomerize to release products
+            # (C9: multi-product release)
+            for k in 1:length(remaining_prods)
+                for prod_subset in _combinations(
+                    remaining_prods, k)
+                    need = reduce(
+                        _add_atoms,
+                        [prod_atoms[p]
+                         for p in prod_subset];
+                        init=Dict{Symbol,Int}()
                     )
-                    step = StepSpec(
-                        [cur_form], [new_form], true
+                    _can_pingpong(
+                        acc_atoms, need
+                    ) || continue
+                    residual_atoms = _subtract_atoms(
+                        acc_atoms, need
                     )
-                    push!(steps, step)
-                    backtrack!(
-                        new_form, acc_atoms,
-                        consumed_subs, released_prods,
-                        Symbol[],
-                        copy(remaining_prods),
-                        false, true, steps
-                    )
-                    pop!(steps)
+                    n_prods_eff = k + (
+                        isempty(residual_atoms) ? 0 : 1)
+                    # C6: iso size limit
+                    length(on_enzyme_subs) > 3 &&
+                        continue
+                    n_prods_eff > 3 && continue
+
+                    has_more = !isempty(residual_atoms)
+                    is_final = !has_more &&
+                        isempty(remaining_subs) &&
+                        k == length(remaining_prods)
+
+                    if is_final
+                        # Final iso: release all
+                        # remaining products
+                        new_form = _form_name(
+                            Symbol[],
+                            copy(remaining_prods),
+                            false
+                        )
+                        step = StepSpec(
+                            [cur_form], [new_form],
+                            true
+                        )
+                        push!(steps, step)
+                        backtrack!(
+                            new_form, acc_atoms,
+                            consumed_subs,
+                            released_prods,
+                            Symbol[],
+                            copy(remaining_prods),
+                            false, true, steps
+                        )
+                        pop!(steps)
+                    else
+                        can_cont = has_more ||
+                            !isempty(remaining_subs)
+                        can_cont || continue
+                        # C8: product-only iso form
+                        iso_form = _form_name(
+                            Symbol[],
+                            collect(prod_subset),
+                            has_more
+                        )
+                        step = StepSpec(
+                            [cur_form], [iso_form],
+                            true
+                        )
+                        push!(steps, step)
+                        _release_products!(
+                            all_paths, backtrack!,
+                            iso_form, residual_atoms,
+                            consumed_subs,
+                            released_prods,
+                            prod_subset, prod_atoms,
+                            has_more, has_more,
+                            remaining_subs, steps
+                        )
+                        pop!(steps)
+                    end
                 end
             end
         end
@@ -1343,18 +1446,23 @@ function init_mechanisms(
     result = MechanismSpec[]
     for spec in expanded
         constraints = _max_equivalence_constraints(spec)
-        # For specs with Estar forms (ping-pong), the
-        # isomerization step adds an independent K that
-        # is not reducible by equivalence constraints.
-        # The +1 accounts for possible overlap between
-        # equivalence and thermodynamic constraints.
         has_estar = any(all_form_names(spec.steps)) do f
             _is_estar_form(f)
         end
-        pc = has_estar ?
-            spec.param_count -
-                length(constraints) + 1 :
-            min_pc
+        if has_estar
+            # Equivalence constraints may overlap with
+            # thermodynamic constraints. The number of
+            # overlaps is at most n_cycles - 1.
+            n_forms = length(
+                all_form_names(spec.steps))
+            n_steps = length(spec.steps)
+            n_cycles = n_steps - n_forms + 1
+            overlap = max(n_cycles - 1, 0)
+            pc = spec.param_count -
+                length(constraints) + overlap
+        else
+            pc = min_pc
+        end
         # Ensure upper bound invariant
         pc = max(pc, min_pc)
         push!(result, MechanismSpec(
