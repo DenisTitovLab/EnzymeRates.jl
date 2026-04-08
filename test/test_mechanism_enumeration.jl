@@ -2524,4 +2524,24 @@ end
     end
 end
 
+@testset "C6 iso size limit blocks 4x4" begin
+    # Quad-quad reaction: 4 subs, 4 prods
+    # With C6 (iso ≤ 3×3), 4→4 sequential iso is blocked
+    # All topologies must use ping-pong (at least 2 iso steps)
+    quad_rxn = @enzyme_reaction begin
+        substrates: A[C], B[N], D[X], F[Y]
+        products: P[C], Q[N], R[X], S[Y]
+    end
+    topos = EnzymeRates._catalytic_topologies(quad_rxn)
+    @test length(topos) > 0
+    # Every topology must have ≥ 2 iso steps (no 4→4)
+    for spec in topos
+        n_iso = count(spec.steps) do s
+            length(s.reactants) == 1 &&
+                length(s.products) == 1
+        end
+        @test n_iso >= 2
+    end
+end
+
 end # top-level testset

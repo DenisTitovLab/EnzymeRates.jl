@@ -223,7 +223,6 @@ function _release_products!(
     prod_atoms::Dict{Symbol,Dict{Symbol,Int}},
     is_estar::Bool,
     has_residual_atoms::Bool,
-    remaining_subs::Vector{Symbol},
     steps::Vector{StepSpec},
 )
     # Generate all release orderings of products
@@ -330,6 +329,11 @@ function _catalytic_topologies(
         released_prods::Vector{Symbol},
         on_enzyme_subs::Vector{Symbol},
         on_enzyme_prods::Vector{Symbol},
+        # has_residual: true when enzyme is in Estar
+        # conformation (ping-pong intermediate), even if
+        # no residual atoms remain (empty-residual pp).
+        # Controls both form naming (Estar prefix) and
+        # branch selection.
         has_residual::Bool,
         post_final::Bool,
         steps::Vector{StepSpec},
@@ -466,7 +470,7 @@ function _catalytic_topologies(
                             consumed_subs, released_prods,
                             prod_subset, prod_atoms,
                             true, !isempty(residual),
-                            remaining_subs, steps
+                            steps
                         )
                         pop!(steps)
                     end
@@ -624,7 +628,7 @@ function _catalytic_topologies(
                             released_prods,
                             prod_subset, prod_atoms,
                             has_more, has_more,
-                            remaining_subs, steps
+                            steps
                         )
                         pop!(steps)
                     end
