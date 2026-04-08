@@ -356,6 +356,94 @@ end
             end
         end
     end
+
+    @testset "pyruvate carboxylase mechanism" begin
+        topos = EnzymeRates._catalytic_topologies(
+            pyruvate_carboxylase_rxn)
+
+        # Known mechanism: ATP+HCO3 → ADP+Pi (CO2 residual),
+        # then Pyr+CO2 → OAA
+        found = false
+        for spec in topos
+            iso_steps = [
+                (sort(s.reactants), sort(s.products))
+                for s in spec.steps
+                if length(s.reactants) == 1 &&
+                    length(s.products) == 1
+            ]
+            has_atp_hco3_iso = any(iso_steps) do (r, p)
+                r == [Symbol("E_ATP_HCO3")] &&
+                    p == [Symbol("Estar_ADP_Pi")]
+            end
+            has_pyr_iso = any(iso_steps) do (r, p)
+                r == [Symbol("Estar_Pyr")] &&
+                    p == [Symbol("E_OAA")]
+            end
+            if has_atp_hco3_iso && has_pyr_iso
+                found = true
+                break
+            end
+        end
+        @test found
+
+        # 312 = 169 seq + 143 pp
+        @test length(topos) == 312
+        seq_count = count(topos) do spec
+            !any(spec.steps) do s
+                any(sym -> startswith(string(sym), "Estar"),
+                    Iterators.flatten(
+                        (s.reactants, s.products)))
+            end
+        end
+        pp_count = length(topos) - seq_count
+        @test seq_count == 169
+        @test pp_count == 143
+    end
+
+    @testset "pyruvate dehydrogenase mechanism" begin
+        topos = EnzymeRates._catalytic_topologies(
+            pyruvate_dehydrogenase_rxn)
+
+        # Known mechanism: Pyr→CO2 (residual C2H3O),
+        # CoA+residual→AcCoA (residual H),
+        # NAD+residual→NADH (no residual)
+        found = false
+        for spec in topos
+            iso_steps = [
+                (sort(s.reactants), sort(s.products))
+                for s in spec.steps
+                if length(s.reactants) == 1 &&
+                    length(s.products) == 1
+            ]
+            has_pyr = any(iso_steps) do (r, p)
+                r == [:E_Pyr] && p == [:Estar_CO2]
+            end
+            has_coa = any(iso_steps) do (r, p)
+                r == [:Estar_CoA] && p == [:Estar_AcCoA]
+            end
+            has_nad = any(iso_steps) do (r, p)
+                r == [:Estar_NAD] && p == [:E_NADH]
+            end
+            if has_pyr && has_coa && has_nad
+                found = true
+                break
+            end
+        end
+        @test found
+
+        # 334 = 169 seq + 165 pp
+        @test length(topos) == 334
+        seq_count = count(topos) do spec
+            !any(spec.steps) do s
+                any(sym -> startswith(string(sym), "Estar"),
+                    Iterators.flatten(
+                        (s.reactants, s.products)))
+            end
+        end
+        pp_count = length(topos) - seq_count
+        @test seq_count == 169
+        @test pp_count == 165
+    end
 end
 
 @testset "init_mechanisms" begin
