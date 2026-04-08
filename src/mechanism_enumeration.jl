@@ -475,7 +475,9 @@ function _catalytic_topologies(
             # Option 3: final isomerize (all subs bound)
             if isempty(remaining_subs)
                 all_prod_atoms = reduce(
-                    _add_atoms, values(prod_atoms);
+                    _add_atoms,
+                    [prod_atoms[p]
+                     for p in remaining_prods];
                     init=Dict{Symbol,Int}()
                 )
                 # C6: iso size limit

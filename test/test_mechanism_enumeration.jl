@@ -241,7 +241,7 @@ end
     @testset "Ter-Ter" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
-        @test length(topos) == 277
+        @test length(topos) == 283
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
@@ -292,7 +292,7 @@ end
 
         topos_tt = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
-        @test length(topos_tt) == 277
+        @test length(topos_tt) == 283
     end
 
     @testset "isomerization constraints" begin
@@ -735,7 +735,7 @@ end
             # on representative ter-ter topologies.
             topos = EnzymeRates._catalytic_topologies(
                 ter_ter_rxn)
-            @test length(topos) == 277
+            @test length(topos) == 283
             # Test first (random, most forms) and last topology
             for topo in [topos[1], topos[end]]
                 result =
