@@ -248,9 +248,25 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `_expand_equivalence_constraints` groups steps by `step_metabolite()` and RE/SS status; groups with 2+ steps binding the same metabolite can be constrained to share parameters
 - This adds constrained variants where K_S_dead_end = K_S_catalytic (fewer params: R doesn't affect S-binding)
 
+### Catalytic topology constraints
+- `_catalytic_topologies(reaction)` generates biochemically plausible catalytic
+  topologies using constructive backtracking with these constraints:
+  - **Weak orderings** (C1): paths sharing the same isomerization steps are
+    combined using Fubini numbers (F(2)=3, F(3)=13), not arbitrary subsets.
+    Substrate and product orderings are independent.
+  - **Max bound metabolites** (C5): at most `max(n_subs, n_prods)` simultaneously
+  - **Iso size limit** (C6): `n_subs ≤ 3 AND n_prods_effective ≤ 3` (hard cap)
+  - **Substrate participation** (C7): every isomerization requires ≥1 substrate bound
+  - **Product-only iso forms** (C8): iso product forms use `_form_name(Symbol[], prods, ...)`
+  - **Multi-product release** (C9): isomerization can produce multiple products (released one at a time)
+  - **Empty-residual ping-pong** (C4): Estar conformation without covalent atoms is valid
+- Verified topology counts: bi-bi=11, ter-ter=283, pyruvate carboxylase=312, pyruvate dehydrogenase=334
+- `has_residual` parameter in `backtrack!` means "enzyme is in Estar conformation" (not just "has atoms") — covers empty-residual ping-pong
+- Bystander mechanisms not needed at init level (same K gives identical rate equation; deferred to `expand_mechanisms`)
+
 ### Mechanism enumeration building blocks
 - Three composable functions, no monolithic pipeline. Caller owns the loop and cache.
-- `init_mechanisms(reaction)` → `Vector{MechanismSpec}` at minimum param count (n_substrates + n_products + 3). Enumerates catalytic topologies × 2^n dead-end subsets, 1 SS step, all K's constrained equal per metabolite.
+- `init_mechanisms(reaction)` → `Vector{MechanismSpec}` at minimum param count (n_substrates + n_products + 3). Enumerates catalytic topologies × dead-end subsets (competition-filtered), 1 SS step, all K's constrained equal per metabolite.
 - `expand_mechanisms(specs, reaction)` → `Dict{Int, Vector{AbstractMechanismSpec}}` keyed by estimated param count. Applies +1 moves (RE→SS, remove constraint, add dead-end regulator, add allosteric regulator, remove TR equiv) and +2 move (allosteric conversion).
 - `dedup!(cache)` → canonicalizes specs (sorted steps/constraints) and removes structural duplicates
 - `MechanismSpec` has 4 fields: `reaction, steps::Vector{StepSpec}, param_constraints::Vector{ParamConstraint}, param_count::Int`
@@ -268,7 +284,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 ## Source Layout
 
 - `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `AllostericEnzymeMechanism` structs; `RegulatorRole` hierarchy (`Allosteric`, `DeadEnd`, `UnconstrainedRegulator`); `EnzymeMechanism` and `AllostericEnzymeMechanism` accessors; `regulator_roles()`; `RateEquationMode` hierarchy
-- `src/dsl.jl` — `@enzyme_reaction` (supports `substrates:`, `products:`, `regulators:`, `dead_end_inhibitors:`, `allosteric_regulators:`, `oligomeric_state:` labels) and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `AllostericEnzymeMechanism` DSL)
+- `src/dsl.jl` — `@enzyme_reaction` (supports `substrates:`, `products:`, `regulators:`, `dead_end_inhibitors:`, `allosteric_regulators:`, `oligomeric_state:` labels; multi-atom bracket syntax `A[C3H3O3]` and `A[C,N]`) and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `AllostericEnzymeMechanism` DSL)
 - `src/sym_poly_for_rate_eq_derivation.jl` — Symbolic polynomial algebra (`Poly` type); `_rename_poly_T`, `_count_allosteric_rate_monomials` for MWC identifiability
 - `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; kcat computation (`_is_ss_rate_constant`, `_kcat_components`, `_kcat_forward`) and `rescale_parameter_values`; AllostericEnzymeMechanism MWC rate equation assembly (`_build_allosteric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
 - `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`

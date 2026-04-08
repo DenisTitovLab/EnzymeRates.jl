@@ -20,6 +20,19 @@
         @test EnzymeRates.regulators(spec2)[1] == :I
     end
 
+    @testset "multi-atom metabolites" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C2H3], B[N,P]
+            products: P[C2,N], Q[H3,P]
+        end
+        subs = EnzymeRates.substrates(rxn)
+        @test subs[1] == (:A, ((:C, 2), (:H, 3)))
+        @test subs[2] == (:B, ((:N, 1), (:P, 1)))
+        prods = EnzymeRates.products(rxn)
+        @test prods[1] == (:P, ((:C, 2), (:N, 1)))
+        @test prods[2] == (:Q, ((:H, 3), (:P, 1)))
+    end
+
     @testset "@enzyme_reaction regulator roles" begin
         spec_roles = @enzyme_reaction begin
             substrates: S[C]

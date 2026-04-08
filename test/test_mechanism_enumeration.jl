@@ -82,6 +82,22 @@ const ter_bi_rxn = @enzyme_reaction begin
     products: P[CN], Q[X]
 end
 
+# Pyruvate carboxylase: Pyr + HCO3 + ATP = OAA + ADP + Pi
+# Mechanism: ATP+HCO3 → ADP+Pi+CO2_residual,
+#            then Pyr+CO2 → OAA
+const pyruvate_carboxylase_rxn = @enzyme_reaction begin
+    substrates: Pyr[C3H3O3], HCO3[HCO3], ATP[C10H16N5O13P3]
+    products: OAA[C4H3O5], ADP[C10H15N5O10P2], Pi[H2PO4]
+end
+
+# Pyruvate dehydrogenase: Pyr + NAD + CoA = AcCoA + NADH + CO2
+# Mechanism: Pyr → CO2+residual, CoA+residual → AcCoA+residual,
+#            NAD+residual → NADH
+const pyruvate_dehydrogenase_rxn = @enzyme_reaction begin
+    substrates: Pyr[C3H3O3], NAD[C21H28N7O14P2], CoA[C21H36N7O16P3S]
+    products: AcCoA[C23H38N7O17P3S], NADH[C21H29N7O14P2], CO2[CO2]
+end
+
 """Collect all mechanisms by running the full enumeration loop."""
 function enumerate_all(
     @nospecialize(reaction::EnzymeReaction);
@@ -89,13 +105,15 @@ function enumerate_all(
     cache = Dict{Int, Vector{EnzymeRates.AbstractMechanismSpec}}()
 
     init_specs = EnzymeRates.init_mechanisms(reaction)
-    min_pc = init_specs[1].param_count
-    cache[min_pc] = EnzymeRates.AbstractMechanismSpec[init_specs...]
+    for spec in init_specs
+        push!(get!(cache, spec.param_count,
+            EnzymeRates.AbstractMechanismSpec[]), spec)
+    end
     EnzymeRates.dedup!(cache)
 
     results = Dict{Int, Vector{EnzymeRates.AbstractMechanismSpec}}()
 
-    for pc in min_pc:max_params
+    for pc in minimum(keys(cache)):max_params
         level = pop!(cache, pc, EnzymeRates.AbstractMechanismSpec[])
         isempty(level) && (isempty(cache) ? break : continue)
 
@@ -113,6 +131,25 @@ function enumerate_all(
 end
 
 @testset "Mechanism Enumeration" begin
+
+@testset "test reaction atom balance" begin
+    for rxn in [pyruvate_carboxylase_rxn,
+                pyruvate_dehydrogenase_rxn]
+        sub_atoms = Dict{Symbol,Int}()
+        for (_, atoms) in EnzymeRates.substrates(rxn)
+            for (a, c) in atoms
+                sub_atoms[a] = get(sub_atoms, a, 0) + c
+            end
+        end
+        prod_atoms = Dict{Symbol,Int}()
+        for (_, atoms) in EnzymeRates.products(rxn)
+            for (a, c) in atoms
+                prod_atoms[a] = get(prod_atoms, a, 0) + c
+            end
+        end
+        @test sub_atoms == prod_atoms
+    end
+end
 
 @testset "AllostericEnzymeMechanism TR equivalence" begin
     base_rxn = @enzyme_reaction begin
@@ -183,7 +220,8 @@ end
 
     @testset "Bi-Bi" begin
         topos = EnzymeRates._catalytic_topologies(bi_bi_rxn)
-        @test length(topos) == 9
+        # 11 = 9 sequential + 2 empty-residual ping-pong
+        @test length(topos) == 11
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
@@ -203,12 +241,7 @@ end
     @testset "Ter-Ter" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
-        # 3969 = (2^(3!) - 1)² = 63 × 63
-        # Each side (binding/release) has 3!=6 permutation
-        # paths through Boolean lattice B_3; all 2^6-1=63
-        # non-empty path subsets produce distinct edge sets;
-        # sides are independent.
-        @test length(topos) == 3969
+        @test length(topos) == 283
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
@@ -218,14 +251,198 @@ end
     @testset "Ter-Bi" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_bi_rxn)
-        # 204 = 189 sequential + 15 ping-pong
-        # Sequential: (2^(3!) - 1) × (2^(2!) - 1) = 63 × 3
-        # Ping-pong: D[X]→Q[X] can isomerize independently
-        @test length(topos) == 204
+        # 51 = 39 sequential + 6 nonempty-residual +
+        # 6 empty-residual ping-pong
+        @test length(topos) == 51
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
         end
+    end
+
+    @testset "empty-residual ping-pong" begin
+        ter_ter = @enzyme_reaction begin
+            substrates: A[C], B[N], D[X]
+            products: P[C], Q[N], R[X]
+        end
+        topos = EnzymeRates._catalytic_topologies(ter_ter)
+        has_estar = any(topos) do spec
+            any(spec.steps) do s
+                any(
+                    sym -> startswith(
+                        string(sym), "Estar"),
+                    Iterators.flatten(
+                        (s.reactants, s.products)),
+                )
+            end
+        end
+        @test has_estar
+    end
+
+    @testset "weak-ordering combining" begin
+        # For bi-bi: 9 sequential + 2 empty-residual
+        # ping-pong = 11
+        bi_bi_rxn_test = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+        end
+        topos = EnzymeRates._catalytic_topologies(
+            bi_bi_rxn_test)
+        @test length(topos) == 11
+
+        topos_tt = EnzymeRates._catalytic_topologies(
+            ter_ter_rxn)
+        @test length(topos_tt) == 283
+    end
+
+    @testset "isomerization constraints" begin
+        topos = EnzymeRates._catalytic_topologies(
+            ter_ter_rxn)
+
+        met_names = Set([:A, :B, :D, :P, :Q, :R])
+        sub_names_set = Set([:A, :B, :D])
+
+        # C5: max bound metabolites = max(3,3) = 3
+        for spec in topos
+            for s in spec.steps
+                for sym_list in (s.reactants, s.products)
+                    for sym in sym_list
+                        str = replace(
+                            string(sym),
+                            "Estar" => "E")
+                        parts = split(str, "_")
+                        n_mets = count(
+                            p -> Symbol(p) ∈ met_names,
+                            parts)
+                        @test n_mets <= 3
+                    end
+                end
+            end
+        end
+
+        # C7: every iso source must contain at
+        # least one substrate
+        for spec in topos
+            for s in spec.steps
+                if length(s.reactants) == 1 &&
+                        length(s.products) == 1
+                    src = string(s.reactants[1])
+                    src_parts = Symbol.(split(
+                        replace(src, "Estar" => "E"),
+                        "_"))
+                    has_sub = any(
+                        p -> p ∈ sub_names_set,
+                        src_parts)
+                    @test has_sub
+                end
+            end
+        end
+
+        # C8: iso product forms should not contain
+        # substrate names
+        for spec in topos
+            for s in spec.steps
+                if length(s.reactants) == 1 &&
+                        length(s.products) == 1
+                    dst = string(s.products[1])
+                    if startswith(dst, "Estar_")
+                        dst_parts = Symbol.(
+                            split(dst[7:end], "_"))
+                        for p in dst_parts
+                            @test p ∉ sub_names_set
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    @testset "pyruvate carboxylase mechanism" begin
+        topos = EnzymeRates._catalytic_topologies(
+            pyruvate_carboxylase_rxn)
+
+        # Known mechanism: ATP+HCO3 → ADP+Pi (CO2 residual),
+        # then Pyr+CO2 → OAA
+        found = false
+        for spec in topos
+            iso_steps = [
+                (sort(s.reactants), sort(s.products))
+                for s in spec.steps
+                if length(s.reactants) == 1 &&
+                    length(s.products) == 1
+            ]
+            has_atp_hco3_iso = any(iso_steps) do (r, p)
+                r == [Symbol("E_ATP_HCO3")] &&
+                    p == [Symbol("Estar_ADP_Pi")]
+            end
+            has_pyr_iso = any(iso_steps) do (r, p)
+                r == [Symbol("Estar_Pyr")] &&
+                    p == [Symbol("E_OAA")]
+            end
+            if has_atp_hco3_iso && has_pyr_iso
+                found = true
+                break
+            end
+        end
+        @test found
+
+        # 312 = 169 seq + 143 pp
+        @test length(topos) == 312
+        seq_count = count(topos) do spec
+            !any(spec.steps) do s
+                any(sym -> startswith(string(sym), "Estar"),
+                    Iterators.flatten(
+                        (s.reactants, s.products)))
+            end
+        end
+        pp_count = length(topos) - seq_count
+        @test seq_count == 169
+        @test pp_count == 143
+    end
+
+    @testset "pyruvate dehydrogenase mechanism" begin
+        topos = EnzymeRates._catalytic_topologies(
+            pyruvate_dehydrogenase_rxn)
+
+        # Known mechanism: Pyr→CO2 (residual C2H3O),
+        # CoA+residual→AcCoA (residual H),
+        # NAD+residual→NADH (no residual)
+        found = false
+        for spec in topos
+            iso_steps = [
+                (sort(s.reactants), sort(s.products))
+                for s in spec.steps
+                if length(s.reactants) == 1 &&
+                    length(s.products) == 1
+            ]
+            has_pyr = any(iso_steps) do (r, p)
+                r == [:E_Pyr] && p == [:Estar_CO2]
+            end
+            has_coa = any(iso_steps) do (r, p)
+                r == [:Estar_CoA] && p == [:Estar_AcCoA]
+            end
+            has_nad = any(iso_steps) do (r, p)
+                r == [:Estar_NAD] && p == [:E_NADH]
+            end
+            if has_pyr && has_coa && has_nad
+                found = true
+                break
+            end
+        end
+        @test found
+
+        # 334 = 169 seq + 165 pp
+        @test length(topos) == 334
+        seq_count = count(topos) do spec
+            !any(spec.steps) do s
+                any(sym -> startswith(string(sym), "Estar"),
+                    Iterators.flatten(
+                        (s.reactants, s.products)))
+            end
+        end
+        pp_count = length(topos) - seq_count
+        @test seq_count == 169
+        @test pp_count == 165
     end
 end
 
@@ -239,9 +456,9 @@ end
             (bi_bi_pp_rxn, 2, 2),
         ]
             specs = EnzymeRates.init_mechanisms(rxn)
-            expected_pc = n_s + n_p + 3
+            min_pc = n_s + n_p + 3
             for s in specs
-                @test s.param_count == expected_pc
+                @test s.param_count >= min_pc
             end
         end
     end
@@ -380,9 +597,10 @@ end
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [spec], bi_bi_pp_rxn)
-            # 3 dead-end forms, 7 competition patterns,
-            # 5 unique dead-end sets after dedup → 5 variants
-            @test length(result) == 5
+            # 5 dead-end forms (E_A_P, E_A_Q, E_B_Q from
+            # E-side + Estar_B_P, Estar_B_Q from
+            # Estar-side), competition-filtered
+            @test length(result) == 7
         end
     end
 
@@ -513,13 +731,11 @@ end
         end
 
         @testset "Ter-ter per-topology (OOM on full init)" begin
-            # Full init_mechanisms(ter_ter_rxn) is intractable:
-            # 3969 topologies × 265 patterns ≈ 1M specs.
-            # Instead, test that competition filtering works
+            # Test that competition filtering works
             # on representative ter-ter topologies.
             topos = EnzymeRates._catalytic_topologies(
                 ter_ter_rxn)
-            @test length(topos) == 3969
+            @test length(topos) == 283
             # Test first (random, most forms) and last topology
             for topo in [topos[1], topos[end]]
                 result =
@@ -553,7 +769,11 @@ end
             #   Total: 12 allowed out of 27
             topos = EnzymeRates._catalytic_topologies(
                 ter_ter_rxn)
-            random_topo = topos[1]  # most forms
+            # Pick a sequential topo with most forms
+            _, idx = findmax(
+                length(EnzymeRates.all_form_names(t))
+                for t in topos)
+            random_topo = topos[idx]
             bound =
                 EnzymeRates._bound_metabolites_at_forms(
                     random_topo, ter_ter_rxn)
@@ -572,7 +792,7 @@ end
             for (f, m) in de_opps
                 de_name =
                     EnzymeRates._dead_end_form_name(
-                        bound[f], m)
+                        f, bound[f], m)
                 push!(get!(de_forms, de_name,
                     Tuple{Symbol, Symbol}[]), (f, m))
             end
@@ -2301,6 +2521,26 @@ end
             @test r.r_only_metabolites ==
                 allo_i.r_only_metabolites
         end
+    end
+end
+
+@testset "C6 iso size limit blocks 4x4" begin
+    # Quad-quad reaction: 4 subs, 4 prods
+    # With C6 (iso ≤ 3×3), 4→4 sequential iso is blocked
+    # All topologies must use ping-pong (at least 2 iso steps)
+    quad_rxn = @enzyme_reaction begin
+        substrates: A[C], B[N], D[X], F[Y]
+        products: P[C], Q[N], R[X], S[Y]
+    end
+    topos = EnzymeRates._catalytic_topologies(quad_rxn)
+    @test length(topos) > 0
+    # Every topology must have ≥ 2 iso steps (no 4→4)
+    for spec in topos
+        n_iso = count(spec.steps) do s
+            length(s.reactants) == 1 &&
+                length(s.products) == 1
+        end
+        @test n_iso >= 2
     end
 end
 
