@@ -1,5 +1,5 @@
 # ABOUTME: Tests for identify_rate_equation pipeline.
-# ABOUTME: Covers IdentifyRateEquationProblem construction and _beam_search.
+# ABOUTME: Covers construction, beam search, CV, and end-to-end integration.
 
 using DataFrames
 using CSV
@@ -201,6 +201,53 @@ using OptimizationBBO
         @test "cv_score" in names(results.cv_results)
         @test all(
             isfinite, results.cv_results.cv_score)
+    end
+
+    # ── identify_rate_equation end-to-end ─────────────────
+    @testset "identify_rate_equation end-to-end" begin
+        prob = IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val)
+
+        results = identify_rate_equation(prob;
+            min_beam_width=200, beam_fraction=0.1,
+            max_param_count=8,
+            n_cv_candidates=3,
+            save_dir=nothing, pmap_function=map,
+            optimizer=bbo_opt,
+            n_restarts=2, maxtime=5.0)
+
+        @test results isa IdentifyRateEquationResults
+        @test results.best isa
+            EnzymeRates.AbstractEnzymeMechanism
+        @test nrow(results.cv_results) > 0
+    end
+
+    # ── CSV save ──────────────────────────────────────────
+    @testset "CSV save" begin
+        prob = IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val)
+
+        save_dir = mktempdir()
+        results = identify_rate_equation(prob;
+            min_beam_width=200, beam_fraction=0.1,
+            max_param_count=8,
+            n_cv_candidates=3,
+            save_dir=save_dir, pmap_function=map,
+            optimizer=bbo_opt,
+            n_restarts=2, maxtime=5.0)
+
+        csv_files = filter(
+            f -> endswith(f, ".csv"),
+            readdir(save_dir))
+        @test length(csv_files) > 0
+
+        first_csv = CSV.read(
+            joinpath(save_dir, csv_files[1]),
+            DataFrame)
+        @test "n_params" in names(first_csv)
+        @test "loss" in names(first_csv)
+        @test "mechanism_type" in names(first_csv)
+        @test nrow(first_csv) > 0
     end
 
 end
