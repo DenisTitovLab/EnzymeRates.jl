@@ -1,4 +1,5 @@
-# ─── Fitting rate equations to experimental data ─────────────────────
+# ABOUTME: Fitting rate equations to experimental data.
+# ABOUTME: Constructs FittingProblem, computes loss, and runs multi-start optimization.
 
 """
     FittingProblem{M, D}

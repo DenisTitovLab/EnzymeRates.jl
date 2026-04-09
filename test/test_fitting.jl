@@ -86,7 +86,7 @@ using Tables
         @test l ≈ 0.0 atol=1e-20
     end
 
-    # ── Test 4: Per-figure centering invariance ───────────────────────────────
+    # ── Test 4: Per-group centering invariance ───────────────────────────────
     @testset "Centering invariance" begin
         Keq_val = 2.0
         true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
@@ -117,8 +117,8 @@ using Tables
         end
     end
 
-    # ── Test 5: Multi-figure centering invariance ─────────────────────────────
-    @testset "Multi-figure centering invariance" begin
+    # ── Test 5: Multi-group centering invariance ─────────────────────────────
+    @testset "Multi-group centering invariance" begin
         Keq_val = 2.0
         true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
 
@@ -136,7 +136,7 @@ using Tables
             scale=1.0)
         fp1 = FittingProblem(uni_uni, data1; Keq=Keq_val)
 
-        # Scale fig1 by 5x and fig2 by 100x
+        # Scale group1 by 5x and group2 by 100x
         rates2 = copy(data1.Rate)
         rates2[1:3] .*= 5.0
         rates2[4:5] .*= 100.0
@@ -178,17 +178,17 @@ using Tables
         @test l > 0.0
     end
 
-    # ── Test 6b: All-mismatch figure has positive loss ────────────────────────
-    # Regression test: previously, when all predictions in a figure were sign-
+    # ── Test 6b: All-mismatch group has positive loss ─────────────────────────
+    # Regression test: previously, when all predictions in a group were sign-
     # mismatches, the centering step zeroed every deviation (10-mean(10)=0).
     # The loss must be nonzero to distinguish a bad mechanism from a perfect one.
     # Three sub-cases exercise each path that sets buf[i] = 10.0:
     #   (i)  pred == 0.0            (S=0, P=0)
     #   (ii) pred < 0, Rate > 0     (S=0, P>0: only reverse term survives → pred always negative)
     #   (iii) pred > 0, Rate < 0    (S>0, P=0: only forward term survives → pred always positive)
-    # In all cases every point in the figure is a mismatch so the expected
+    # In all cases every point in the group is a mismatch so the expected
     # loss is: (0 from centering + 100.0 × n_mismatch) / n_data = 100.0
-    @testset "All-mismatch figure not cancelled by centering" begin
+    @testset "All-mismatch group not cancelled by centering" begin
         Keq_val = 2.0
         pn = EnzymeRates.fitted_params(uni_uni)
         x = randn(length(pn))
