@@ -23,6 +23,7 @@ export identify_rate_equation
 
 using Tables
 using Optimization
+using Distributed
 
 include("types.jl")
 include("dsl.jl")

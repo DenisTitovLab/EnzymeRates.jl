@@ -1,5 +1,5 @@
-# ABOUTME: Beam-search pipeline to identify the best rate equation for an enzyme.
-# ABOUTME: Enumerates mechanisms, fits each to data, selects optimal complexity via CV.
+# ABOUTME: Beam-search pipeline to identify the best rate equation.
+# ABOUTME: Enumerates mechanisms, fits each, selects via CV.
 
 using DataFrames
 using CSV
@@ -8,15 +8,18 @@ using Statistics
 """
     IdentifyRateEquationProblem{R, D}
 
-Holds the reaction, experimental data, and equilibrium constant for rate equation
-identification.
+Holds the reaction, experimental data, and equilibrium
+constant for rate equation identification.
 
 # Fields
 - `reaction`: the `EnzymeReaction` instance
-- `data`: `NamedTuple` of column vectors with `:group`, `:Rate`, and metabolite columns
+- `data`: `NamedTuple` of column vectors with `:group`,
+  `:Rate`, and metabolite columns
 - `Keq`: fixed equilibrium constant
 """
-struct IdentifyRateEquationProblem{R<:EnzymeReaction, D<:NamedTuple}
+struct IdentifyRateEquationProblem{
+    R<:EnzymeReaction, D<:NamedTuple
+}
     reaction::R
     data::D
     Keq::Float64
@@ -37,16 +40,20 @@ function IdentifyRateEquationProblem(
     mnames = tuple(
         [s[1] for s in substrates(reaction)]...,
         [p[1] for p in products(reaction)]...,
+        regulators(reaction)...,
     )
     for m in mnames
         m in col_names ||
-            error("Missing metabolite column: $m")
+            error(
+                "Missing metabolite column: $m")
     end
 
     # Validate non-zero rates
     for i in eachindex(data.Rate)
         data.Rate[i] == 0 &&
-            error("Zero rate at row $i: log(0) is undefined")
+            error(
+                "Zero rate at row $i: " *
+                "log(0) is undefined")
     end
 
     # Validate at least 2 groups for CV
@@ -55,8 +62,9 @@ function IdentifyRateEquationProblem(
         "Need at least 2 unique groups for " *
         "cross-validation, got $n_groups")
 
-    IdentifyRateEquationProblem{typeof(reaction),typeof(data)}(
-        reaction, data, Float64(Keq))
+    IdentifyRateEquationProblem{
+        typeof(reaction),typeof(data)
+    }(reaction, data, Float64(Keq))
 end
 
 """
@@ -67,8 +75,8 @@ Results from `identify_rate_equation`.
 # Fields
 - `best`: the best `AbstractEnzymeMechanism`
   (lowest loss at optimal param count)
-- `cv_results`: `DataFrame` with LOOCV results for top
-  candidates per param count
+- `cv_results`: `DataFrame` with LOOCV results for
+  top candidates per param count
 """
 struct IdentifyRateEquationResults
     best::AbstractEnzymeMechanism
@@ -78,42 +86,63 @@ end
 """
     identify_rate_equation(prob; kwargs...)
 
-Find the best rate equation for the given reaction and data
-using beam search.
+Find the best rate equation for the given reaction
+and data using beam search.
 
 # Keyword Arguments
-- `min_beam_width::Int = 200`: minimum mechanisms to keep
+- `min_beam_width::Int = 200`: minimum mechanisms
+  to keep per level
 - `beam_fraction::Float64 = 0.1`: fraction to keep
-- `max_param_count::Int = 20`: stop expanding beyond this
-- `optimizer`: Optimization.jl optimizer
+- `max_param_count::Int = 20`: stop expanding beyond
+- `optimizer`: Optimization.jl optimizer (required).
+  Recommended: `PyCMAOpt()` from OptimizationPyCMAES.
 - `n_restarts::Int = 10`: multi-start restarts per fit
 - `maxtime::Real = 60.0`: max time per fit (seconds)
-- `n_cv_candidates::Int = 5`: LOOCV top N per param count
+- `n_cv_candidates::Int = 5`: LOOCV top N per
+  param count
 - `save_dir`: directory for per-level CSV files
-- `pmap_function::Function = map`: parallelism function
+- `pmap_function::Function = pmap`: parallelism
+  function (Distributed.pmap by default)
+- Extra kwargs are forwarded to `fit_rate_equation`
+  and then to `Optimization.solve`.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
+    # Beam search
     min_beam_width::Int = 200,
     beam_fraction::Float64 = 0.1,
     max_param_count::Int = 20,
-    optimizer = nothing,
+    # Fitting
+    optimizer,
+    n_restarts::Int = 10,
+    maxtime::Real = 60.0,
+    # Model selection
     n_cv_candidates::Int = 5,
+    # Output & parallelism
     save_dir::Union{Nothing,String} = nothing,
-    pmap_function::Function = map,
-    kwargs...
+    pmap_function::Function = pmap,
+    # Extra fitting/optimizer kwargs
+    optim_kwargs...
 )
-    specs, df = _beam_search(prob;
-        min_beam_width, beam_fraction, max_param_count,
-        save_dir, pmap_function, optimizer, kwargs...)
+    fitting_kwargs = (;
+        n_restarts, maxtime,
+        optim_kwargs...)
 
-    return _cv_model_selection(specs, df, prob;
-        n_cv_candidates, pmap_function, optimizer,
-        kwargs...)
+    specs, df = _beam_search(prob;
+        min_beam_width, beam_fraction,
+        max_param_count, save_dir,
+        pmap_function, optimizer,
+        fitting_kwargs...)
+
+    return _cv_model_selection(
+        specs, df, prob;
+        n_cv_candidates, pmap_function,
+        optimizer, fitting_kwargs...)
 end
 
 # Compile a mechanism spec to the appropriate type.
-_compile(spec::MechanismSpec) = EnzymeMechanism(spec)
+_compile(spec::MechanismSpec) =
+    EnzymeMechanism(spec)
 _compile(spec::AllostericMechanismSpec) =
     AllostericEnzymeMechanism(spec)
 
@@ -127,10 +156,12 @@ function _build_result_row(mechanism, fit_result)
         loss = fit_result.loss,
         mechanism_type = _mechanism_type_string(
             mechanism),
-        rate_equation = rate_equation_string(mechanism),
+        rate_equation = rate_equation_string(
+            mechanism),
         fitted_param_names = pnames,
         fitted_param_values = Tuple(
-            fit_result.params[p] for p in pnames),
+            fit_result.params[p]
+            for p in pnames),
     )
 end
 
@@ -141,47 +172,6 @@ function _mechanism_type_string(
     m::AbstractEnzymeMechanism
 )
     return string(typeof(m))
-end
-
-"""
-Save results for one beam level to a CSV file.
-"""
-function _save_level_csv(
-    save_dir::String, rows, param_count::Int
-)
-    isdir(save_dir) || mkpath(save_dir)
-    path = joinpath(
-        save_dir, "params_$(param_count).csv")
-
-    all_pnames = Set{Symbol}()
-    for row in rows
-        for p in row.fitted_param_names
-            push!(all_pnames, p)
-        end
-    end
-    sorted_pnames = sort(collect(all_pnames))
-
-    df = DataFrame(
-        n_params = [r.n_params for r in rows],
-        loss = [r.loss for r in rows],
-        mechanism_type = [
-            r.mechanism_type for r in rows],
-        rate_equation = [
-            r.rate_equation for r in rows],
-    )
-    for pn in sorted_pnames
-        df[!, pn] = [
-            pn in r.fitted_param_names ?
-                r.fitted_param_values[
-                    findfirst(
-                        ==(pn),
-                        r.fitted_param_names)
-                ] : missing
-            for r in rows
-        ]
-    end
-
-    CSV.write(path, df; append=isfile(path))
 end
 
 """
@@ -223,28 +213,59 @@ function _rows_to_dataframe(rows)
     return df
 end
 
+"""
+Save results for one beam level to a CSV file.
+"""
+function _save_level_csv(
+    save_dir::String, rows, param_count::Int
+)
+    isdir(save_dir) || mkpath(save_dir)
+    path = joinpath(
+        save_dir, "params_$(param_count).csv")
+    df = _rows_to_dataframe(rows)
+    CSV.write(path, df; append=isfile(path))
+end
+
 function _beam_search(
     prob::IdentifyRateEquationProblem;
-    min_beam_width=200, beam_fraction=0.1,
-    max_param_count=20, save_dir=nothing,
-    pmap_function=map, optimizer=nothing, kwargs...
+    min_beam_width, beam_fraction,
+    max_param_count, save_dir, pmap_function,
+    optimizer, kwargs...
 )
-    specs = init_mechanisms(prob.reaction)
+    # Initialize cache by param count
+    cache = Dict{
+        Int,Vector{AbstractMechanismSpec}
+    }()
+    for spec in init_mechanisms(prob.reaction)
+        push!(
+            get!(cache, spec.param_count,
+                AbstractMechanismSpec[]),
+            spec)
+    end
+    dedup!(cache)
+
     all_specs = AbstractMechanismSpec[]
     all_rows = NamedTuple[]
 
-    while !isempty(specs)
-        filter!(
-            s -> s.param_count <= max_param_count,
-            specs)
-        isempty(specs) && break
+    isempty(cache) && return (
+        all_specs,
+        _rows_to_dataframe(all_rows))
 
-        # Fit all specs in parallel; catch failures
-        results = pmap_function(specs) do spec
+    min_pc = minimum(keys(cache))
+    for pc in min_pc:max_param_count
+        level = pop!(
+            cache, pc,
+            AbstractMechanismSpec[])
+        isempty(level) &&
+            (isempty(cache) ? break : continue)
+
+        # Fit all specs at this level in parallel
+        results = pmap_function(level) do spec
             try
                 m = _compile(spec)
                 fp = FittingProblem(
-                    m, prob.data; Keq=prob.Keq)
+                    m, prob.data;
+                    Keq=prob.Keq)
                 fit = fit_rate_equation(
                     fp, optimizer; kwargs...)
                 (spec=spec,
@@ -252,56 +273,56 @@ function _beam_search(
                  ok=true)
             catch e
                 @warn(
-                    "Mechanism compilation/fitting" *
-                    " failed",
-                    exception=(e, catch_backtrace()))
-                (spec=spec, row=nothing, ok=false)
+                    "Mechanism compilation/" *
+                    "fitting failed",
+                    exception=(
+                        e, catch_backtrace()))
+                (spec=spec,
+                 row=nothing, ok=false)
             end
         end
         filter!(r -> r.ok, results)
-        isempty(results) && break
+        isempty(results) && continue
 
-        new_specs = [r.spec for r in results]
-        new_rows = [r.row for r in results]
+        append!(
+            all_specs,
+            [r.spec for r in results])
+        append!(
+            all_rows,
+            [r.row for r in results])
 
-        append!(all_specs, new_specs)
-        append!(all_rows, new_rows)
-
-        # Save per-param-count CSV if requested
+        # Save CSV for this param count
         if save_dir !== nothing
-            by_pc = Dict{Int,Vector{eltype(
-                new_rows)}}()
-            for row in new_rows
-                push!(
-                    get!(by_pc, row.n_params,
-                        eltype(new_rows)[]),
-                    row)
-            end
-            for (pc, rows) in by_pc
-                _save_level_csv(save_dir, rows, pc)
-            end
+            _save_level_csv(
+                save_dir,
+                [r.row for r in results], pc)
         end
 
-        # Beam select: keep top mechanisms by loss
+        # Beam select within this level
         perm = sortperm(
             [r.row.loss for r in results])
         beam_size = max(
             ceil(Int,
-                beam_fraction * length(results)),
+                beam_fraction *
+                length(results)),
             min_beam_width)
-        beam_size = min(beam_size, length(results))
+        beam_size = min(
+            beam_size, length(results))
         beam_specs = [results[perm[i]].spec
                       for i in 1:beam_size]
 
-        # Expand to next level
-        cache = expand_mechanisms(
+        # Expand beam to next levels
+        new_cache = expand_mechanisms(
             beam_specs, prob.reaction)
+        for (target_pc, specs) in new_cache
+            target_pc > max_param_count &&
+                continue
+            append!(
+                get!(cache, target_pc,
+                    AbstractMechanismSpec[]),
+                specs)
+        end
         dedup!(cache)
-
-        specs = reduce(vcat,
-            [v for (k, v) in cache
-             if k <= max_param_count];
-            init=AbstractMechanismSpec[])
     end
 
     df = _rows_to_dataframe(all_rows)
@@ -316,9 +337,12 @@ function _subset_data(data::NamedTuple, mask)
 end
 
 """
-Evaluate loss of a mechanism on data with given params.
+Evaluate loss of a mechanism on data with given
+params.
 """
-function _evaluate_loss(mechanism, data, params, Keq)
+function _evaluate_loss(
+    mechanism, data, params, Keq
+)
     pnames = fitted_params(mechanism)
     x = [log(params[p]) for p in pnames]
     fp = FittingProblem(mechanism, data; Keq=Keq)
@@ -328,9 +352,9 @@ end
 """
     _loocv(mechanism, prob; optimizer, kwargs...)
 
-Leave-one-group-out cross-validation. `optimizer` is
-extracted explicitly because `fit_rate_equation` takes
-it as a positional argument.
+Leave-one-group-out cross-validation. `optimizer`
+is extracted explicitly because `fit_rate_equation`
+takes it as a positional argument.
 """
 function _loocv(
     mechanism::AbstractEnzymeMechanism,
@@ -340,37 +364,51 @@ function _loocv(
     groups = unique(prob.data.group)
     scores = Float64[]
 
-    for held_out in groups
-        train_mask = prob.data.group .!= held_out
-        test_mask = prob.data.group .== held_out
+    try
+        for held_out in groups
+            train_mask =
+                prob.data.group .!= held_out
+            test_mask =
+                prob.data.group .== held_out
 
-        train_data = _subset_data(
-            prob.data, train_mask)
-        test_data = _subset_data(
-            prob.data, test_mask)
+            train_data = _subset_data(
+                prob.data, train_mask)
+            test_data = _subset_data(
+                prob.data, test_mask)
 
-        fp_train = FittingProblem(
-            mechanism, train_data; Keq=prob.Keq)
-        fit = fit_rate_equation(
-            fp_train, optimizer; kwargs...)
+            fp_train = FittingProblem(
+                mechanism, train_data;
+                Keq=prob.Keq)
+            fit = fit_rate_equation(
+                fp_train, optimizer;
+                kwargs...)
 
-        test_loss = _evaluate_loss(
-            mechanism, test_data,
-            fit.params, prob.Keq)
-        push!(scores, test_loss)
+            test_loss = _evaluate_loss(
+                mechanism, test_data,
+                fit.params, prob.Keq)
+            push!(scores, test_loss)
+        end
+    catch e
+        @warn("LOOCV failed",
+            exception=(e, catch_backtrace()))
+        return Inf
     end
 
-    return mean(scores)
+    result = mean(scores)
+    return isfinite(result) ? result : Inf
 end
 
 function _cv_model_selection(
     specs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
-    n_cv_candidates=5, pmap_function=map,
-    optimizer=nothing, kwargs...
+    n_cv_candidates, pmap_function,
+    optimizer, kwargs...
 )
     # specs[i] corresponds to df[i, :] (same append
     # order in _beam_search, df is NOT sorted)
+    isempty(specs) && error(
+        "No mechanisms were successfully " *
+        "fitted during beam search")
     df_indexed = copy(df)
     df_indexed.spec_idx = 1:nrow(df_indexed)
 
@@ -411,7 +449,8 @@ function _cv_model_selection(
         argmin(best_cv_per_pc.best_cv), :]
     best_param_count = best_pc_row.n_params
 
-    # Best mechanism = lowest loss at that param count
+    # Best mechanism = lowest loss at that
+    # param count
     at_best_pc = filter(
         row -> row.n_params == best_param_count,
         cv_df)
