@@ -3,43 +3,46 @@
 """
     FittingProblem{M, D}
 
-Holds pre-processed experimental data and mechanism info for fitting rate constants.
+Holds pre-processed experimental data and mechanism info for fitting
+rate constants.
 
 # Fields
-- `mechanism`: the `EnzymeMechanism` instance
+- `mechanism`: an `AbstractEnzymeMechanism` instance
 - `data`: `NamedTuple` of column vectors (via `Tables.columntable`)
-- `fig_point_indexes`: row indices grouped by unique `(Article, Fig)` pairs
+- `group_point_indexes`: row indices grouped by unique `group` values
 - `Keq`: fixed equilibrium constant
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
 """
-struct FittingProblem{M<:EnzymeMechanism, D<:NamedTuple}
+struct FittingProblem{M<:AbstractEnzymeMechanism, D<:NamedTuple}
     mechanism::M
     data::D
-    fig_point_indexes::Vector{Vector{Int}}
+    group_point_indexes::Vector{Vector{Int}}
     Keq::Float64
     log_abs_rates::Vector{Float64}
     log_ratios_buffer::Vector{Float64}
 end
 
 """
-    FittingProblem(mechanism::EnzymeMechanism, table; Keq::Real)
+    FittingProblem(mechanism::AbstractEnzymeMechanism, table; Keq::Real)
 
 Construct a `FittingProblem` from an enzyme mechanism and tabular data.
 
-The table must have columns: `Article`, `Fig`, `Rate`, and one column per metabolite
-matching `metabolites(mechanism)`. Uses `Tables.columntable` for conversion.
+The table must have columns: `group`, `Rate`, and one column per
+metabolite matching `metabolites(mechanism)`. Uses
+`Tables.columntable` for conversion.
 
 Rate values must be nonzero (zero rates produce `-Inf` in log space).
 """
-function FittingProblem(mechanism::EnzymeMechanism, table; Keq::Real)
+function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
+        Keq::Real)
     data = Tables.columntable(table)
 
     mnames = metabolites(mechanism)
 
     # Validate required columns
     col_names = keys(data)
-    for req in (:Article, :Fig, :Rate)
+    for req in (:group, :Rate)
         req in col_names || error("Missing required column: $req")
     end
     for m in mnames
@@ -56,25 +59,24 @@ function FittingProblem(mechanism::EnzymeMechanism, table; Keq::Real)
     # Pre-compute log(abs(rates))
     log_abs_rates = log.(abs.(rates))
 
-    # Build fig_point_indexes by grouping on (Article, Fig) pairs
-    articles = data.Article
-    figs = data.Fig
-    group_map = Dict{Tuple{eltype(articles),eltype(figs)}, Vector{Int}}()
+    # Build group_point_indexes by grouping on group column
+    groups = data.group
+    group_map = Dict{eltype(groups), Vector{Int}}()
     for i in 1:n
-        key = (articles[i], figs[i])
+        key = groups[i]
         if haskey(group_map, key)
             push!(group_map[key], i)
         else
             group_map[key] = [i]
         end
     end
-    fig_point_indexes = collect(values(group_map))
+    group_point_indexes = collect(values(group_map))
 
     # Allocate working buffer
     log_ratios_buffer = Vector{Float64}(undef, n)
 
     FittingProblem{typeof(mechanism), typeof(data)}(
-        mechanism, data, fig_point_indexes, Float64(Keq),
+        mechanism, data, group_point_indexes, Float64(Keq),
         log_abs_rates, log_ratios_buffer
     )
 end
@@ -82,16 +84,18 @@ end
 """
     loss!(x::AbstractVector, fp::FittingProblem)
 
-Compute the per-figure-centered log-ratio loss. Zero-allocation on the hot path.
+Compute the per-group-centered log-ratio loss. Zero-allocation on the
+hot path.
 
-Parameters in `x` are in log-space (i.e., actual rate constants = `exp.(x)`).
-Each figure's log-ratios are centered (mean-subtracted) before squaring,
-making the loss invariant to per-figure E_total scaling.
+Parameters in `x` are in log-space (i.e., actual rate constants =
+`exp.(x)`). Each group's log-ratios are centered (mean-subtracted)
+before squaring, making the loss invariant to per-group E_total
+scaling.
 
-Sign mismatches (predicted vs measured rate sign) incur a flat penalty of 100.0
-per point, accumulated after the centering loop. This prevents all-mismatch
-figures from contributing zero loss (a uniform sentinel would cancel under
-mean-subtraction).
+Sign mismatches (predicted vs measured rate sign) incur a flat penalty
+of 100.0 per point, accumulated after the centering loop. This
+prevents all-mismatch groups from contributing zero loss (a uniform
+sentinel would cancel under mean-subtraction).
 """
 function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
     buf = fp.log_ratios_buffer
@@ -119,25 +123,25 @@ function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
         end
     end
 
-    # Pass 2: per-figure centered loss
+    # Pass 2: per-group centered loss
     total_loss = 0.0
-    @inbounds for fig_idx in fp.fig_point_indexes
-        n_fig = length(fig_idx)
+    @inbounds for grp_idx in fp.group_point_indexes
+        n_grp = length(grp_idx)
         mean_lr = 0.0
-        for j in fig_idx
+        for j in grp_idx
             mean_lr += buf[j]
         end
-        mean_lr /= n_fig
-        for j in fig_idx
+        mean_lr /= n_grp
+        for j in grp_idx
             d = buf[j] - mean_lr
             total_loss += d * d
         end
     end
 
     # Flat penalty for sign mismatches, applied after centering so it cannot be
-    # cancelled. When all points in a figure share the sentinel value (10.0),
+    # cancelled. When all points in a group share the sentinel value (10.0),
     # mean-subtraction zeros every deviation; the post-hoc penalty ensures such
-    # figures still contribute positively to the loss.
+    # groups still contribute positively to the loss.
     n_mismatch = 0
     @inbounds for i in 1:n_data
         buf[i] == 10.0 && (n_mismatch += 1)
