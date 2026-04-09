@@ -117,13 +117,195 @@ _compile(spec::MechanismSpec) = EnzymeMechanism(spec)
 _compile(spec::AllostericMechanismSpec) =
     AllostericEnzymeMechanism(spec)
 
+"""
+Build a result row NamedTuple from a fitted mechanism.
+"""
+function _build_result_row(mechanism, fit_result)
+    pnames = fitted_params(mechanism)
+    return (
+        n_params = length(pnames),
+        loss = fit_result.loss,
+        mechanism_type = _mechanism_type_string(
+            mechanism),
+        rate_equation = rate_equation_string(mechanism),
+        fitted_param_names = pnames,
+        fitted_param_values = Tuple(
+            fit_result.params[p] for p in pnames),
+    )
+end
+
+"""
+Convert a mechanism to an eval-able type string.
+"""
+function _mechanism_type_string(
+    m::AbstractEnzymeMechanism
+)
+    return string(typeof(m))
+end
+
+"""
+Save results for one beam level to a CSV file.
+"""
+function _save_level_csv(
+    save_dir::String, rows, param_count::Int
+)
+    isdir(save_dir) || mkpath(save_dir)
+    path = joinpath(
+        save_dir, "params_$(param_count).csv")
+
+    all_pnames = Set{Symbol}()
+    for row in rows
+        for p in row.fitted_param_names
+            push!(all_pnames, p)
+        end
+    end
+    sorted_pnames = sort(collect(all_pnames))
+
+    df = DataFrame(
+        n_params = [r.n_params for r in rows],
+        loss = [r.loss for r in rows],
+        mechanism_type = [
+            r.mechanism_type for r in rows],
+        rate_equation = [
+            r.rate_equation for r in rows],
+    )
+    for pn in sorted_pnames
+        df[!, pn] = [
+            pn in r.fitted_param_names ?
+                r.fitted_param_values[
+                    findfirst(
+                        ==(pn),
+                        r.fitted_param_names)
+                ] : missing
+            for r in rows
+        ]
+    end
+
+    CSV.write(path, df; append=isfile(path))
+end
+
+"""
+Convert result row NamedTuples to a DataFrame.
+Row order is preserved (no sorting) to maintain
+alignment with the specs vector.
+"""
+function _rows_to_dataframe(rows)
+    isempty(rows) && return DataFrame()
+
+    all_pnames = Set{Symbol}()
+    for row in rows
+        for p in row.fitted_param_names
+            push!(all_pnames, p)
+        end
+    end
+    sorted_pnames = sort(collect(all_pnames))
+
+    df = DataFrame(
+        n_params = [r.n_params for r in rows],
+        loss = [r.loss for r in rows],
+        mechanism_type = [
+            r.mechanism_type for r in rows],
+        rate_equation = [
+            r.rate_equation for r in rows],
+    )
+    for pn in sorted_pnames
+        df[!, pn] = [
+            pn in r.fitted_param_names ?
+                r.fitted_param_values[
+                    findfirst(
+                        ==(pn),
+                        r.fitted_param_names)
+                ] : missing
+            for r in rows
+        ]
+    end
+
+    return df
+end
+
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width=200, beam_fraction=0.1,
     max_param_count=20, save_dir=nothing,
     pmap_function=map, optimizer=nothing, kwargs...
 )
-    error("Not implemented yet")
+    specs = init_mechanisms(prob.reaction)
+    all_specs = AbstractMechanismSpec[]
+    all_rows = NamedTuple[]
+
+    while !isempty(specs)
+        filter!(
+            s -> s.param_count <= max_param_count,
+            specs)
+        isempty(specs) && break
+
+        # Fit all specs in parallel; catch failures
+        results = pmap_function(specs) do spec
+            try
+                m = _compile(spec)
+                fp = FittingProblem(
+                    m, prob.data; Keq=prob.Keq)
+                fit = fit_rate_equation(
+                    fp, optimizer; kwargs...)
+                (spec=spec,
+                 row=_build_result_row(m, fit),
+                 ok=true)
+            catch e
+                @warn(
+                    "Mechanism compilation/fitting" *
+                    " failed",
+                    exception=(e, catch_backtrace()))
+                (spec=spec, row=nothing, ok=false)
+            end
+        end
+        filter!(r -> r.ok, results)
+        isempty(results) && break
+
+        new_specs = [r.spec for r in results]
+        new_rows = [r.row for r in results]
+
+        append!(all_specs, new_specs)
+        append!(all_rows, new_rows)
+
+        # Save per-param-count CSV if requested
+        if save_dir !== nothing
+            by_pc = Dict{Int,Vector{eltype(
+                new_rows)}}()
+            for row in new_rows
+                push!(
+                    get!(by_pc, row.n_params,
+                        eltype(new_rows)[]),
+                    row)
+            end
+            for (pc, rows) in by_pc
+                _save_level_csv(save_dir, rows, pc)
+            end
+        end
+
+        # Beam select: keep top mechanisms by loss
+        perm = sortperm(
+            [r.row.loss for r in results])
+        beam_size = max(
+            ceil(Int,
+                beam_fraction * length(results)),
+            min_beam_width)
+        beam_size = min(beam_size, length(results))
+        beam_specs = [results[perm[i]].spec
+                      for i in 1:beam_size]
+
+        # Expand to next level
+        cache = expand_mechanisms(
+            beam_specs, prob.reaction)
+        dedup!(cache)
+
+        specs = reduce(vcat,
+            [v for (k, v) in cache
+             if k <= max_param_count];
+            init=AbstractMechanismSpec[])
+    end
+
+    df = _rows_to_dataframe(all_rows)
+    return all_specs, df
 end
 
 function _cv_model_selection(
