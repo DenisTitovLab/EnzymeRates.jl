@@ -158,17 +158,19 @@ identify_rate_equation(
     beam_fraction::Float64 = 0.1,       # fraction of mechanisms to keep
     max_param_count::Int = 20,          # stop expanding beyond this
     # Fitting parameters
-    optimizer = PyCMAOpt(),             # Optimization.jl optimizer
+    optimizer,                           # Optimization.jl optimizer (required)
+                                          # Recommended: PyCMAOpt() from OptimizationPyCMA
     n_restarts::Int = 10,               # multi-start restarts per mechanism
     maxtime::Real = 60.0,               # max time per mechanism fit (seconds)
     maxiters::Int = 10_000_000,         # max iterations per optimizer run
     popsize::Int = 200,                 # population size for optimizer
+    verbose::Int = -9,                   # optimizer verbosity (forwarded to Optimization.solve)
     # Model selection
     n_cv_candidates::Int = 5,           # LOOCV top N per param count
     # Output
     save_dir::Union{Nothing,String} = nothing,  # directory for per-level CSVs
     # Parallelism
-    pmap_function::Function = map,      # e.g. Distributed.pmap for HPC
+    pmap_function::Function = pmap,      # Distributed.pmap; runs serially with 1 worker
 ) → IdentifyRateEquationResults
 ```
 

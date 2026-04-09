@@ -4,7 +4,7 @@
 using DataFrames
 using CSV
 using Statistics
-using OptimizationBBO
+using OptimizationPyCMA
 
 @testset "identify_rate_equation" begin
 
@@ -67,8 +67,7 @@ using OptimizationBBO
     test_data = make_test_data(
         test_mechanism, true_params)
 
-    bbo_opt =
-        BBO_adaptive_de_rand_1_bin_radiuslimited()
+    pycma_opt = PyCMAOpt()
 
     # ── IdentifyRateEquationProblem construction ─────
     @testset "construction" begin
@@ -132,8 +131,9 @@ using OptimizationBBO
             test_mechanism, test_data;
             Keq=Keq_val)
         fit = fit_rate_equation(
-            fp, bbo_opt;
-            n_restarts=1, maxtime=3.0)
+            fp, pycma_opt;
+            n_restarts=1, maxtime=3.0,
+            popsize=200)
         row = EnzymeRates._build_result_row(
             test_mechanism, fit)
         @test row.n_params == length(
@@ -182,8 +182,9 @@ using OptimizationBBO
             max_param_count=8,
             save_dir=nothing,
             pmap_function=map,
-            optimizer=bbo_opt,
-            n_restarts=2, maxtime=5.0)
+            optimizer=pycma_opt,
+            n_restarts=2, maxtime=5.0,
+            popsize=200)
 
         @test length(specs) > 0
         @test nrow(df) > 0
@@ -207,8 +208,9 @@ using OptimizationBBO
 
         cv_score = EnzymeRates._loocv(
             test_mechanism, prob;
-            optimizer=bbo_opt,
-            n_restarts=2, maxtime=5.0)
+            optimizer=pycma_opt,
+            n_restarts=2, maxtime=5.0,
+            popsize=200)
 
         @test isfinite(cv_score)
         @test cv_score >= 0.0
@@ -226,16 +228,18 @@ using OptimizationBBO
             max_param_count=8,
             save_dir=nothing,
             pmap_function=map,
-            optimizer=bbo_opt,
-            n_restarts=2, maxtime=5.0)
+            optimizer=pycma_opt,
+            n_restarts=2, maxtime=5.0,
+            popsize=200)
 
         results =
             EnzymeRates._cv_model_selection(
                 specs, df, prob;
                 n_cv_candidates=3,
                 pmap_function=map,
-                optimizer=bbo_opt,
-                n_restarts=2, maxtime=5.0)
+                optimizer=pycma_opt,
+                n_restarts=2, maxtime=5.0,
+                popsize=200)
 
         @test results isa
             IdentifyRateEquationResults
@@ -249,8 +253,8 @@ using OptimizationBBO
             results.cv_results.cv_score)
     end
 
-    # ── identify_rate_equation end-to-end ────────────
-    @testset "end-to-end" begin
+    # ── recovers generating mechanism ──────────────
+    @testset "recovers generating mechanism" begin
         prob = IdentifyRateEquationProblem(
             test_rxn, test_data; Keq=Keq_val)
 
@@ -259,16 +263,50 @@ using OptimizationBBO
             beam_fraction=0.1,
             max_param_count=8,
             n_cv_candidates=3,
-            save_dir=nothing,
             pmap_function=map,
-            optimizer=bbo_opt,
-            n_restarts=2, maxtime=5.0)
+            optimizer=pycma_opt,
+            popsize=200,
+            n_restarts=3, maxtime=10.0)
 
         @test results isa
             IdentifyRateEquationResults
         @test results.best isa
             EnzymeRates.AbstractEnzymeMechanism
         @test nrow(results.cv_results) > 0
+
+        # Best mechanism should have same or fewer
+        # params as the generating mechanism
+        best_n = length(
+            parameters(results.best, Reduced))
+        gen_n = length(
+            parameters(test_mechanism, Reduced))
+        @test best_n <= gen_n + 2
+
+        # Best param count from CV results
+        best_pc = results.cv_results[
+            argmin(results.cv_results.cv_score),
+            :n_params]
+        @test best_pc <= gen_n + 2
+    end
+
+    # ── best mechanism computes rates ───────────────
+    @testset "best mechanism computes rates" begin
+        prob = IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val)
+
+        results = identify_rate_equation(prob;
+            min_beam_width=200,
+            beam_fraction=0.1,
+            max_param_count=8,
+            n_cv_candidates=3,
+            pmap_function=map,
+            optimizer=pycma_opt,
+            popsize=200,
+            n_restarts=3, maxtime=10.0)
+
+        # Should be able to get rate equation string
+        req = rate_equation_string(results.best)
+        @test length(req) > 0
     end
 
     # ── CSV save ─────────────────────────────────────
@@ -284,7 +322,8 @@ using OptimizationBBO
             n_cv_candidates=3,
             save_dir=save_dir,
             pmap_function=map,
-            optimizer=bbo_opt,
+            optimizer=pycma_opt,
+            popsize=200,
             n_restarts=2, maxtime=5.0)
 
         csv_files = filter(

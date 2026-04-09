@@ -98,6 +98,12 @@ and data using beam search.
   Recommended: `PyCMAOpt()` from OptimizationPyCMAES.
 - `n_restarts::Int = 10`: multi-start restarts per fit
 - `maxtime::Real = 60.0`: max time per fit (seconds)
+- `maxiters::Int = 10_000_000`: max iterations per
+  optimizer run (forwarded to `Optimization.solve`)
+- `popsize::Int = 200`: population size for optimizer
+  (forwarded to `Optimization.solve`)
+- `verbose::Int = -9`: optimizer verbosity
+  (forwarded to `Optimization.solve`)
 - `n_cv_candidates::Int = 5`: LOOCV top N per
   param count
 - `save_dir`: directory for per-level CSV files
@@ -116,6 +122,9 @@ function identify_rate_equation(
     optimizer,
     n_restarts::Int = 10,
     maxtime::Real = 60.0,
+    maxiters::Int = 10_000_000,
+    popsize::Int = 200,
+    verbose::Int = -9,
     # Model selection
     n_cv_candidates::Int = 5,
     # Output & parallelism
@@ -126,7 +135,18 @@ function identify_rate_equation(
 )
     fitting_kwargs = (;
         n_restarts, maxtime,
+        maxiters, popsize, verbose,
         optim_kwargs...)
+
+    if save_dir !== nothing && isdir(save_dir)
+        existing = filter(
+            f -> endswith(f, ".csv"),
+            readdir(save_dir))
+        isempty(existing) || error(
+            "save_dir already contains CSV " *
+            "files. Use an empty directory " *
+            "to avoid mixing results.")
+    end
 
     specs, df = _beam_search(prob;
         min_beam_width, beam_fraction,
@@ -139,12 +159,6 @@ function identify_rate_equation(
         n_cv_candidates, pmap_function,
         optimizer, fitting_kwargs...)
 end
-
-# Compile a mechanism spec to the appropriate type.
-_compile(spec::MechanismSpec) =
-    EnzymeMechanism(spec)
-_compile(spec::AllostericMechanismSpec) =
-    AllostericEnzymeMechanism(spec)
 
 """
 Build a result row NamedTuple from a fitted mechanism.
@@ -262,7 +276,7 @@ function _beam_search(
         # Fit all specs at this level in parallel
         results = pmap_function(level) do spec
             try
-                m = _compile(spec)
+                m = compile_mechanism(spec)
                 fp = FittingProblem(
                     m, prob.data;
                     Keq=prob.Keq)
@@ -432,7 +446,7 @@ function _cv_model_selection(
     cv_scores = pmap_function(
         candidate_specs
     ) do spec
-        m = _compile(spec)
+        m = compile_mechanism(spec)
         _loocv(m, prob; optimizer, kwargs...)
     end
 
@@ -456,7 +470,8 @@ function _cv_model_selection(
         cv_df)
     sort!(at_best_pc, :loss)
     best_idx = at_best_pc[1, :spec_idx]
-    best_mechanism = _compile(specs[best_idx])
+    best_mechanism = compile_mechanism(
+        specs[best_idx])
 
     select!(cv_df, Not(:spec_idx))
     return IdentifyRateEquationResults(
