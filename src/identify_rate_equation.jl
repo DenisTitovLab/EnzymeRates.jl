@@ -308,11 +308,118 @@ function _beam_search(
     return all_specs, df
 end
 
+"""
+Subset a columnar NamedTuple by a boolean mask.
+"""
+function _subset_data(data::NamedTuple, mask)
+    return map(col -> col[mask], data)
+end
+
+"""
+Evaluate loss of a mechanism on data with given params.
+"""
+function _evaluate_loss(mechanism, data, params, Keq)
+    pnames = fitted_params(mechanism)
+    x = [log(params[p]) for p in pnames]
+    fp = FittingProblem(mechanism, data; Keq=Keq)
+    return loss!(x, fp)
+end
+
+"""
+    _loocv(mechanism, prob; optimizer, kwargs...)
+
+Leave-one-group-out cross-validation. `optimizer` is
+extracted explicitly because `fit_rate_equation` takes
+it as a positional argument.
+"""
+function _loocv(
+    mechanism::AbstractEnzymeMechanism,
+    prob::IdentifyRateEquationProblem;
+    optimizer, kwargs...
+)
+    groups = unique(prob.data.group)
+    scores = Float64[]
+
+    for held_out in groups
+        train_mask = prob.data.group .!= held_out
+        test_mask = prob.data.group .== held_out
+
+        train_data = _subset_data(
+            prob.data, train_mask)
+        test_data = _subset_data(
+            prob.data, test_mask)
+
+        fp_train = FittingProblem(
+            mechanism, train_data; Keq=prob.Keq)
+        fit = fit_rate_equation(
+            fp_train, optimizer; kwargs...)
+
+        test_loss = _evaluate_loss(
+            mechanism, test_data,
+            fit.params, prob.Keq)
+        push!(scores, test_loss)
+    end
+
+    return mean(scores)
+end
+
 function _cv_model_selection(
     specs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
     n_cv_candidates=5, pmap_function=map,
     optimizer=nothing, kwargs...
 )
-    error("Not implemented yet")
+    # specs[i] corresponds to df[i, :] (same append
+    # order in _beam_search, df is NOT sorted)
+    df_indexed = copy(df)
+    df_indexed.spec_idx = 1:nrow(df_indexed)
+
+    # Group by n_params, take top n_cv_candidates
+    # by loss
+    candidate_indices = Int[]
+    for gdf in groupby(df_indexed, :n_params)
+        sorted = sort(gdf, :loss)
+        n_take = min(
+            n_cv_candidates, nrow(sorted))
+        for i in 1:n_take
+            push!(candidate_indices,
+                sorted[i, :spec_idx])
+        end
+    end
+
+    candidate_specs = specs[candidate_indices]
+    candidate_rows = df[candidate_indices, :]
+
+    # LOOCV each candidate in parallel
+    cv_scores = pmap_function(
+        candidate_specs
+    ) do spec
+        m = _compile(spec)
+        _loocv(m, prob; optimizer, kwargs...)
+    end
+
+    # Build CV results DataFrame
+    cv_df = copy(candidate_rows)
+    cv_df.cv_score = collect(cv_scores)
+    cv_df.spec_idx = candidate_indices
+
+    # Best param count by CV score
+    best_cv_per_pc = combine(
+        groupby(cv_df, :n_params),
+        :cv_score => minimum => :best_cv)
+    best_pc_row = best_cv_per_pc[
+        argmin(best_cv_per_pc.best_cv), :]
+    best_param_count = best_pc_row.n_params
+
+    # Best mechanism = lowest loss at that param count
+    at_best_pc = filter(
+        row -> row.n_params == best_param_count,
+        cv_df)
+    sort!(at_best_pc, :loss)
+    best_idx = at_best_pc[1, :spec_idx]
+    best_mechanism = _compile(specs[best_idx])
+
+    select!(cv_df, Not(:spec_idx))
+    return IdentifyRateEquationResults(
+        best_mechanism, cv_df)
 end

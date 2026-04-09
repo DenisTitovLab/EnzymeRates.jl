@@ -160,4 +160,47 @@ using OptimizationBBO
         @test length(unique(df.n_params)) >= 1
     end
 
+    # ── _loocv ────────────────────────────────────────────
+    @testset "_loocv" begin
+        prob = IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val)
+
+        cv_score = EnzymeRates._loocv(
+            test_mechanism, prob;
+            optimizer=bbo_opt,
+            n_restarts=2, maxtime=5.0)
+
+        @test isfinite(cv_score)
+        @test cv_score >= 0.0
+    end
+
+    # ── _cv_model_selection ───────────────────────────────
+    @testset "_cv_model_selection" begin
+        prob = IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val)
+
+        specs, df = EnzymeRates._beam_search(prob;
+            min_beam_width=200,
+            beam_fraction=0.1,
+            max_param_count=8,
+            save_dir=nothing,
+            pmap_function=map,
+            optimizer=bbo_opt,
+            n_restarts=2, maxtime=5.0)
+
+        results = EnzymeRates._cv_model_selection(
+            specs, df, prob;
+            n_cv_candidates=3, pmap_function=map,
+            optimizer=bbo_opt,
+            n_restarts=2, maxtime=5.0)
+
+        @test results isa IdentifyRateEquationResults
+        @test results.best isa
+            EnzymeRates.AbstractEnzymeMechanism
+        @test nrow(results.cv_results) > 0
+        @test "cv_score" in names(results.cv_results)
+        @test all(
+            isfinite, results.cv_results.cv_score)
+    end
+
 end
