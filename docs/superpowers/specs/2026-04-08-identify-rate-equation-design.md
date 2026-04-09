@@ -17,7 +17,9 @@ end
 ```
 
 Constructor validates:
-- `data` has `:group`, `:Rate` columns + one column per metabolite in `reaction`
+- `data` has `:group`, `:Rate` columns + one column per substrate/product name in `reaction`
+  (metabolite names extracted via `substrates(reaction)` and `products(reaction)`, which return
+  `(name, atoms)` pairs — use `s[1]` to get the name `Symbol`)
 - At least 2 unique `group` values (required for LOOCV)
 - All `Rate` values are non-zero
 
@@ -42,10 +44,10 @@ The `best` mechanism is selected as: the mechanism with lowest training loss at 
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
     # Beam search
-    max_beam_width::Int = 200,
+    min_beam_width::Int = 200,
     beam_fraction::Float64 = 0.1,
     max_param_count::Int = 20,
-    # Fitting
+    # Fitting — optimizer is passed positionally to fit_rate_equation
     optimizer = PyCMAOpt(),
     n_restarts::Int = 10,
     maxtime::Real = 60.0,
@@ -62,14 +64,14 @@ function identify_rate_equation(
 
 ## Internal Structure
 
-Two internal functions. `identify_rate_equation` collects all its keyword arguments and passes them through as `kwargs...` to both internal functions. Each internal function destructures the kwargs it needs and passes the rest along (e.g., to `fit_rate_equation`). This avoids fragile per-kwarg copying.
+Two internal functions. `identify_rate_equation` collects all its keyword arguments and passes them through as `kwargs...` to both internal functions. Each internal function destructures the kwargs it needs and passes the rest along (e.g., to `fit_rate_equation`). Note: `optimizer` is extracted explicitly because `fit_rate_equation` takes it as a positional argument — it cannot flow through `kwargs...`.
 
 ### `_beam_search`
 
 ```julia
 function _beam_search(
     prob::IdentifyRateEquationProblem;
-    max_beam_width, beam_fraction, max_param_count,
+    min_beam_width, beam_fraction, max_param_count,
     save_dir, pmap_function, optimizer, kwargs...
 ) → Vector{AbstractMechanismSpec}, DataFrame
 ```
@@ -86,13 +88,19 @@ while !isempty(specs)
     filter!(s -> s.param_count <= max_param_count, specs)
     isempty(specs) && break
 
-    # Fit all specs in parallel
+    # Fit all specs in parallel; wrap in try/catch to handle compilation failures
     fitted = pmap_function(specs) do spec
-        m = _compile(spec)
-        fp = FittingProblem(m, prob.data; Keq=prob.Keq)
-        fit = fit_rate_equation(fp, optimizer; kwargs...)  # n_restarts, maxtime, etc. flow through
-        (spec=spec, row=_build_result_row(spec, m, fit))
+        try
+            m = _compile(spec)
+            fp = FittingProblem(m, prob.data; Keq=prob.Keq)
+            fit = fit_rate_equation(fp, optimizer; kwargs...)
+            (spec=spec, row=_build_result_row(spec, m, fit), ok=true)
+        catch e
+            @warn "Mechanism compilation/fitting failed" exception=e
+            (spec=spec, row=nothing, ok=false)
+        end
     end
+    filter!(r -> r.ok, fitted)
 
     append!(all_results, fitted)
 
@@ -101,16 +109,17 @@ while !isempty(specs)
         _save_level_results(save_dir, fitted)
     end
 
-    # Beam select: keep top max(beam_fraction * n, max_beam_width) by loss
+    # Beam select: keep at least min_beam_width, or beam_fraction of total
     sort!(fitted, by = r -> r.row.loss)
-    beam_size = max(ceil(Int, beam_fraction * length(fitted)), max_beam_width)
-    beam = fitted[1:min(beam_size, end)]
+    beam_size = max(ceil(Int, beam_fraction * length(fitted)), min_beam_width)
+    beam_size = min(beam_size, length(fitted))
+    beam = fitted[1:beam_size]
     beam_specs = [r.spec for r in beam]
 
     # Expand to next level
     cache = expand_mechanisms(beam_specs, prob.reaction)
     dedup!(cache)
-    specs = reduce(vcat, [v for (k,v) in cache if k <= max_param_count]; init=eltype(values(cache))[])
+    specs = reduce(vcat, [v for (k,v) in cache if k <= max_param_count]; init=AbstractMechanismSpec[])
 end
 
 return [r.spec for r in all_results], DataFrame([r.row for r in all_results])
@@ -120,41 +129,44 @@ return [r.spec for r in all_results], DataFrame([r.row for r in all_results])
 
 ```julia
 function _cv_model_selection(
-    specs::Vector{<:AbstractMechanismSpec},
-    df::DataFrame,
+    specs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
-    n_cv_candidates, pmap_function, kwargs...
+    n_cv_candidates, pmap_function, optimizer, kwargs...
 ) → IdentifyRateEquationResults
 ```
 
 Algorithm:
 
+Note: `specs` and `df` rows are positionally aligned (both built in the same
+order by `_beam_search`). We track the original index via a `spec_idx` column
+to map back from sorted/grouped DataFrames to the correct spec.
+
 ```
+# Track original row→spec mapping (df may be unsorted)
+df_indexed = copy(df)
+df_indexed.spec_idx = 1:nrow(df_indexed)
+
 # Group by n_params, take top n_cv_candidates per group by loss
-candidates = []
-for group in groupby(df, :n_params)
-    sorted = sort(group, :loss)
-    top = sorted[1:min(n_cv_candidates, nrow(sorted)), :]
-    append!(candidates, zip(matching_specs, eachrow(top)))
+candidate_indices = Int[]
+for gdf in groupby(df_indexed, :n_params)
+    sorted = sort(gdf, :loss)
+    for i in 1:min(n_cv_candidates, nrow(sorted))
+        push!(candidate_indices, sorted[i, :spec_idx])
+    end
 end
 
 # LOOCV each candidate in parallel
-groups = unique(prob.data.group)
-cv_results = pmap_function(candidates) do (spec, row)
+candidate_specs = specs[candidate_indices]
+cv_scores = pmap_function(candidate_specs) do spec
     m = _compile(spec)
-    cv_score = _loocv(m, prob, groups; kwargs...)
-    merge(row, (cv_score=cv_score,))
+    _loocv(m, prob; optimizer, kwargs...)
 end
 
-cv_df = DataFrame(cv_results)
-
-# Select best: param count with best CV, then lowest loss at that count
-best_param_count = cv_df[argmin(cv_df.cv_score), :n_params]
-best_row = filter(r -> r.n_params == best_param_count, cv_df) |> 
-           r -> sort(r, :loss) |> first
-best_spec = ... # matching spec
-best_mechanism = _compile(best_spec)
-
+# Build CV results, select best param count, then best loss at that count
+cv_df = df[candidate_indices, :]
+cv_df.cv_score = collect(cv_scores)
+...
+best_mechanism = _compile(specs[best_idx])
 return IdentifyRateEquationResults(best_mechanism, cv_df)
 ```
 
@@ -163,14 +175,16 @@ return IdentifyRateEquationResults(best_mechanism, cv_df)
 ```julia
 function _loocv(
     mechanism::AbstractEnzymeMechanism,
-    prob::IdentifyRateEquationProblem,
-    groups; kwargs...
+    prob::IdentifyRateEquationProblem;
+    optimizer, kwargs...
 ) → Float64
 ```
 
-Leave-one-group-out cross-validation:
+Leave-one-group-out cross-validation. `optimizer` is extracted explicitly
+from kwargs because `fit_rate_equation` takes it as a positional argument.
 
 ```
+groups = unique(prob.data.group)
 scores = Float64[]
 for held_out in groups
     train_mask = prob.data.group .!= held_out
@@ -212,6 +226,8 @@ save_dir/
 Each CSV has columns: `n_params, loss, mechanism_type, rate_equation, K_S, K_P, k1f, ...`
 
 Written after each beam level completes. Parameter columns vary per mechanism — missing params get `missing` values.
+
+If the same param count appears across multiple beam iterations, results are **appended** to the existing file (not overwritten).
 
 ## FittingProblem Migration
 

@@ -263,7 +263,9 @@ function IdentifyRateEquationProblem(reaction::EnzymeReaction, table; Keq::Real)
     for req in (:group, :Rate)
         req in col_names || error("Missing required column: $req")
     end
-    mnames = metabolites(reaction)
+    # Extract metabolite names from reaction (substrates/products are (name, atoms) pairs)
+    mnames = tuple([s[1] for s in substrates(reaction)]...,
+                   [p[1] for p in products(reaction)]...)
     for m in mnames
         m in col_names || error("Missing metabolite column: $m")
     end
@@ -301,8 +303,8 @@ end
 Find the best rate equation for the given reaction and data using beam search.
 
 # Keyword Arguments
-- `max_beam_width::Int = 200`: maximum number of mechanisms to keep per beam level
-- `beam_fraction::Float64 = 0.1`: fraction of mechanisms to keep (beam = max of this and max_beam_width)
+- `min_beam_width::Int = 200`: minimum number of mechanisms to keep per beam level
+- `beam_fraction::Float64 = 0.1`: fraction of mechanisms to keep (beam = max of this and min_beam_width)
 - `max_param_count::Int = 20`: stop expanding beyond this parameter count
 - `optimizer`: Optimization.jl optimizer (default: PyCMAOpt())
 - `n_restarts::Int = 10`: multi-start restarts per mechanism fit
@@ -315,20 +317,21 @@ Find the best rate equation for the given reaction and data using beam search.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
-    max_beam_width::Int = 200,
+    min_beam_width::Int = 200,
     beam_fraction::Float64 = 0.1,
     max_param_count::Int = 20,
+    optimizer = BBO_adaptive_de_rand_1_bin_radiuslimited(),
     n_cv_candidates::Int = 5,
     save_dir::Union{Nothing,String} = nothing,
     pmap_function::Function = map,
     kwargs...
 )
     specs, df = _beam_search(prob;
-        max_beam_width, beam_fraction, max_param_count,
-        save_dir, pmap_function, kwargs...)
+        min_beam_width, beam_fraction, max_param_count,
+        save_dir, pmap_function, optimizer, kwargs...)
 
     return _cv_model_selection(specs, df, prob;
-        n_cv_candidates, pmap_function, kwargs...)
+        n_cv_candidates, pmap_function, optimizer, kwargs...)
 end
 ```
 
@@ -361,14 +364,16 @@ Append to `src/identify_rate_equation.jl`:
 _compile(spec::MechanismSpec) = EnzymeMechanism(spec)
 _compile(spec::AllostericMechanismSpec) = AllostericEnzymeMechanism(spec)
 
-function _beam_search(prob::IdentifyRateEquationProblem; kwargs...)
+function _beam_search(prob::IdentifyRateEquationProblem;
+    min_beam_width=200, beam_fraction=0.1, max_param_count=20,
+    save_dir=nothing, pmap_function=map, optimizer=nothing, kwargs...)
     error("Not implemented yet")
 end
 
 function _cv_model_selection(
     specs::Vector, df::DataFrame,
-    prob::IdentifyRateEquationProblem; kwargs...
-)
+    prob::IdentifyRateEquationProblem;
+    n_cv_candidates=5, pmap_function=map, optimizer=nothing, kwargs...)
     error("Not implemented yet")
 end
 ```
@@ -479,7 +484,7 @@ using Statistics
         prob = IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val)
 
         specs, df = EnzymeRates._beam_search(prob;
-            max_beam_width=200, beam_fraction=0.1, max_param_count=8,
+            min_beam_width=200, beam_fraction=0.1, max_param_count=8,
             save_dir=nothing, pmap_function=map,
             optimizer=BBO_adaptive_de_rand_1_bin_radiuslimited(),
             n_restarts=2, maxtime=5.0)
@@ -490,10 +495,10 @@ using Statistics
         @test nrow(df) == length(specs)
 
         # DataFrame should have required columns
-        @test :n_params in names(df)
-        @test :loss in names(df)
-        @test :mechanism_type in names(df)
-        @test :rate_equation in names(df)
+        @test "n_params" in names(df)
+        @test "loss" in names(df)
+        @test "mechanism_type" in names(df)
+        @test "rate_equation" in names(df)
 
         # All losses should be finite and non-negative
         @test all(isfinite, df.loss)
@@ -583,12 +588,12 @@ function _save_level_csv(save_dir::String, rows, param_count::Int)
         ]
     end
 
-    CSV.write(path, df)
+    CSV.write(path, df; append=isfile(path))
 end
 
 function _beam_search(prob::IdentifyRateEquationProblem;
-    max_beam_width, beam_fraction, max_param_count,
-    save_dir, pmap_function, kwargs...
+    min_beam_width, beam_fraction, max_param_count,
+    save_dir, pmap_function, optimizer, kwargs...
 )
     specs = init_mechanisms(prob.reaction)
     all_specs = AbstractMechanismSpec[]
@@ -598,13 +603,20 @@ function _beam_search(prob::IdentifyRateEquationProblem;
         filter!(s -> s.param_count <= max_param_count, specs)
         isempty(specs) && break
 
-        # Fit all specs in parallel
+        # Fit all specs in parallel; catch compilation/fitting failures
         results = pmap_function(specs) do spec
-            m = _compile(spec)
-            fp = FittingProblem(m, prob.data; Keq=prob.Keq)
-            fit = fit_rate_equation(fp; kwargs...)
-            (spec=spec, row=_build_result_row(spec, m, fit))
+            try
+                m = _compile(spec)
+                fp = FittingProblem(m, prob.data; Keq=prob.Keq)
+                fit = fit_rate_equation(fp, optimizer; kwargs...)
+                (spec=spec, row=_build_result_row(spec, m, fit), ok=true)
+            catch e
+                @warn "Mechanism compilation/fitting failed" exception=e
+                (spec=spec, row=nothing, ok=false)
+            end
         end
+        filter!(r -> r.ok, results)
+        isempty(results) && break
 
         new_specs = [r.spec for r in results]
         new_rows = [r.row for r in results]
@@ -623,9 +635,9 @@ function _beam_search(prob::IdentifyRateEquationProblem;
             end
         end
 
-        # Beam select: keep top max(beam_fraction * n, max_beam_width) by loss
+        # Beam select: keep at least min_beam_width, or beam_fraction of total
         perm = sortperm([r.row.loss for r in results])
-        beam_size = max(ceil(Int, beam_fraction * length(results)), max_beam_width)
+        beam_size = max(ceil(Int, beam_fraction * length(results)), min_beam_width)
         beam_size = min(beam_size, length(results))
         beam_specs = [results[perm[i]].spec for i in 1:beam_size]
 
@@ -673,7 +685,8 @@ function _rows_to_dataframe(rows)
         ]
     end
 
-    sort!(df, [:n_params, :loss])
+    # Do NOT sort here — row order must match all_specs order for positional
+    # indexing in _cv_model_selection.
     return df
 end
 ```
@@ -750,14 +763,17 @@ function _evaluate_loss(mechanism, data, params, Keq)
 end
 
 """
-    _loocv(mechanism, prob; kwargs...) → Float64
+    _loocv(mechanism, prob; optimizer, kwargs...) → Float64
 
 Leave-one-group-out cross-validation. Fits the mechanism on all groups except
 the held-out group, evaluates loss on the held-out group, and returns the mean
 CV score across all held-out groups.
+
+`optimizer` is extracted explicitly because `fit_rate_equation` takes it as a
+positional argument.
 """
 function _loocv(mechanism::AbstractEnzymeMechanism,
-    prob::IdentifyRateEquationProblem; kwargs...
+    prob::IdentifyRateEquationProblem; optimizer, kwargs...
 )
     groups = unique(prob.data.group)
     scores = Float64[]
@@ -770,7 +786,7 @@ function _loocv(mechanism::AbstractEnzymeMechanism,
         test_data = _subset_data(prob.data, test_mask)
 
         fp_train = FittingProblem(mechanism, train_data; Keq=prob.Keq)
-        fit = fit_rate_equation(fp_train; kwargs...)
+        fit = fit_rate_equation(fp_train, optimizer; kwargs...)
 
         test_loss = _evaluate_loss(mechanism, test_data, fit.params, prob.Keq)
         push!(scores, test_loss)
@@ -805,7 +821,7 @@ In `test/test_identify_rate_equation.jl`, add:
         prob = IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val)
 
         specs, df = EnzymeRates._beam_search(prob;
-            max_beam_width=200, beam_fraction=0.1, max_param_count=8,
+            min_beam_width=200, beam_fraction=0.1, max_param_count=8,
             save_dir=nothing, pmap_function=map,
             optimizer=BBO_adaptive_de_rand_1_bin_radiuslimited(),
             n_restarts=2, maxtime=5.0)
@@ -818,7 +834,7 @@ In `test/test_identify_rate_equation.jl`, add:
         @test results isa IdentifyRateEquationResults
         @test results.best isa EnzymeRates.AbstractEnzymeMechanism
         @test nrow(results.cv_results) > 0
-        @test :cv_score in names(results.cv_results)
+        @test "cv_score" in names(results.cv_results)
         @test all(isfinite, results.cv_results.cv_score)
     end
 ```
@@ -838,10 +854,10 @@ In `src/identify_rate_equation.jl`, replace the `_cv_model_selection` stub with:
 function _cv_model_selection(
     specs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
-    n_cv_candidates, pmap_function, kwargs...
+    n_cv_candidates, pmap_function, optimizer, kwargs...
 )
     # specs[i] corresponds to df[i, :] — they're appended in the same order
-    # in _beam_search. Use positional indexing to avoid recompilation.
+    # in _beam_search (df is NOT sorted). Use positional indexing.
     df_indexed = copy(df)
     df_indexed.spec_idx = 1:nrow(df_indexed)
 
@@ -861,7 +877,7 @@ function _cv_model_selection(
     # LOOCV each candidate in parallel
     cv_scores = pmap_function(candidate_specs) do spec
         m = _compile(spec)
-        _loocv(m, prob; kwargs...)
+        _loocv(m, prob; optimizer, kwargs...)
     end
 
     # Build CV results DataFrame
@@ -918,7 +934,7 @@ In `test/test_identify_rate_equation.jl`, add:
         prob = IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val)
 
         results = identify_rate_equation(prob;
-            max_beam_width=200, beam_fraction=0.1, max_param_count=8,
+            min_beam_width=200, beam_fraction=0.1, max_param_count=8,
             n_cv_candidates=3, save_dir=nothing, pmap_function=map,
             optimizer=BBO_adaptive_de_rand_1_bin_radiuslimited(),
             n_restarts=2, maxtime=5.0)
@@ -935,7 +951,7 @@ In `test/test_identify_rate_equation.jl`, add:
 
         save_dir = mktempdir()
         results = identify_rate_equation(prob;
-            max_beam_width=200, beam_fraction=0.1, max_param_count=8,
+            min_beam_width=200, beam_fraction=0.1, max_param_count=8,
             n_cv_candidates=3, save_dir=save_dir, pmap_function=map,
             optimizer=BBO_adaptive_de_rand_1_bin_radiuslimited(),
             n_restarts=2, maxtime=5.0)
@@ -946,9 +962,9 @@ In `test/test_identify_rate_equation.jl`, add:
 
         # Check a CSV file is readable and has expected columns
         first_csv = CSV.read(joinpath(save_dir, csv_files[1]), DataFrame)
-        @test :n_params in names(first_csv)
-        @test :loss in names(first_csv)
-        @test :mechanism_type in names(first_csv)
+        @test "n_params" in names(first_csv)
+        @test "loss" in names(first_csv)
+        @test "mechanism_type" in names(first_csv)
         @test nrow(first_csv) > 0
     end
 ```
