@@ -10,38 +10,41 @@ using OptimizationPyCMA
 @testset "identify_rate_equation" begin
 
     # ── Shared test setup ────────────────────────────
-    # Allosteric uni-uni with regulator R
-    test_mechanism = @enzyme_mechanism begin
-        metabolites: S[C], P[C], R
-        site(:catalytic, 1):begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E_c, E_S[C]
-            end
-            steps: begin
-                [E_c, S] ⇌ [E_S]
-                [E_S] <--> [E_c, P]
-            end
-        end
-        site(:regulatory, 1):begin
-            ligands: R
-        end
-    end
-
-    # Reaction with regulator R (role=:unknown) so
-    # enumeration explores dead-end + allosteric paths
+    # Allosteric K-type uni-uni with regulator R:
+    # S, P bind only R-state; R binds only T-state.
+    # T-state cannot catalyze (K-type allosteric).
     test_rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
         regulators: R
     end
 
+    # Build the constrained allosteric mechanism
+    # from a MechanismSpec (DSL doesn't support
+    # r_only/t_only annotations directly)
+    _init = EnzymeRates.init_mechanisms(test_rxn)
+    _base_spec = _init[1]
+    _allo_spec =
+        EnzymeRates.AllostericMechanismSpec(
+            _base_spec,
+            1,            # catalytic_n
+            [[:R]],       # reg sites
+            [1],          # multiplicities
+            Symbol[],     # tr_equiv_metabolites
+            Int[],        # tr_equiv_cat_steps
+            [:S, :P],     # r_only_metabolites
+            [:R],         # t_only_metabolites
+            Int[],        # r_only_cat_steps
+            8)            # param_count
+    test_mechanism =
+        EnzymeRates.AllostericEnzymeMechanism(
+            _allo_spec)
+
     Keq_val = 2.0
+    # 5 identifiable params + 1 ghost (k3f_T)
     true_params = (
-        K1 = 1.0, k2f = 5.0, K1_T = 3.0,
-        k2f_T = 1.0, K_R_reg1 = 2.0,
-        K_R_T_reg1 = 0.5, L = 0.1,
+        K1 = 1.0, K2 = 0.5, k3f = 5.0,
+        k3f_T = 1.0, K_R_T_reg1 = 2.0, L = 0.1,
         Keq = Keq_val, E_total = 1.0)
 
     function make_test_data(
@@ -140,7 +143,7 @@ using OptimizationPyCMA
         fit = fit_rate_equation(
             fp, pycma_opt;
             n_restarts=1, maxtime=3.0,
-            popsize=200)
+            popsize=200, kcat=nothing)
         row = EnzymeRates._build_result_row(
             test_mechanism, fit)
         @test row.n_params == length(
@@ -182,7 +185,7 @@ using OptimizationPyCMA
     results = identify_rate_equation(prob;
         min_beam_width=200,
         beam_fraction=0.1,
-        max_param_count=10,
+        max_param_count=8,
         n_cv_candidates=3,
         save_dir=save_dir,
         pmap_function=map,
@@ -193,22 +196,22 @@ using OptimizationPyCMA
     @testset "mechanism recovery" begin
         # The best mechanism should have the same
         # number of independent parameters as the
-        # generating mechanism (or fewer, if
-        # algebraically equivalent with constraints)
+        # generating mechanism (or fewer)
         best_np = length(
             parameters(results.best, Reduced))
         gen_np = length(
             parameters(test_mechanism, Reduced))
         @test best_np <= gen_np
 
-        # The best mechanism should fit the noiseless
-        # data with near-zero loss
+        # The best mechanism should fit the
+        # noiseless data with near-zero loss
         fp_best = FittingProblem(
-            results.best, test_data; Keq=Keq_val)
+            results.best, test_data;
+            Keq=Keq_val)
         fit_best = fit_rate_equation(
             fp_best, pycma_opt;
             n_restarts=3, maxtime=10.0,
-            popsize=200)
+            popsize=200, kcat=nothing)
         @test fit_best.loss < 0.01
     end
 
