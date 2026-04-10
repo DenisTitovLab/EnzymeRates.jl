@@ -18,8 +18,7 @@ using Tables
     # ── Synthetic data generator ──────────────────────────────────────────────
     function make_synthetic_data(
             mechanism, true_params, concs_list;
-            articles=fill("A1", length(concs_list)),
-            figs=fill("F1", length(concs_list)),
+            groups=fill("G1", length(concs_list)),
             scale=1.0,
     )
         rates = Float64[]
@@ -29,13 +28,12 @@ using Tables
         end
         met_names = metabolites(mechanism)
         cols = Dict{Symbol, Vector}()
-        cols[:Article] = articles
-        cols[:Fig] = figs
+        cols[:group] = groups
         cols[:Rate] = rates
         for mn in met_names
             cols[mn] = [concs[mn] for concs in concs_list]
         end
-        return (; (k => cols[k] for k in (:Article, :Fig, :Rate, met_names...))...)
+        return (; (k => cols[k] for k in (:group, :Rate, met_names...))...)
     end
 
     # ── Test 1: Mechanism-level accessors ─────────────────────────────────────
@@ -63,8 +61,8 @@ using Tables
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
         @test length(fp.log_abs_rates) == 5
-        @test length(fp.fig_point_indexes) == 1  # all same (Article, Fig)
-        @test length(fp.fig_point_indexes[1]) == 5
+        @test length(fp.group_point_indexes) == 1
+        @test length(fp.group_point_indexes[1]) == 5
     end
 
     # ── Test 3: Loss function correctness ─────────────────────────────────────
@@ -88,7 +86,7 @@ using Tables
         @test l ≈ 0.0 atol=1e-20
     end
 
-    # ── Test 4: Per-figure centering invariance ───────────────────────────────
+    # ── Test 4: Per-group centering invariance ───────────────────────────────
     @testset "Centering invariance" begin
         Keq_val = 2.0
         true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
@@ -103,12 +101,12 @@ using Tables
 
         # Data with scale=1
         data1 = make_synthetic_data(uni_uni, true_params, concs_list;
-            articles=fill("A1", 5), figs=fill("F1", 5), scale=1.0)
+            groups=fill("G1", 5), scale=1.0)
         fp1 = FittingProblem(uni_uni, data1; Keq=Keq_val)
 
         # Data with scale=10 (simulates different E_total)
         data2 = make_synthetic_data(uni_uni, true_params, concs_list;
-            articles=fill("A1", 5), figs=fill("F1", 5), scale=10.0)
+            groups=fill("G1", 5), scale=10.0)
         fp2 = FittingProblem(uni_uni, data2; Keq=Keq_val)
 
         # For any x, loss should be the same (centering removes the uniform scale)
@@ -119,8 +117,8 @@ using Tables
         end
     end
 
-    # ── Test 5: Multi-figure centering invariance ─────────────────────────────
-    @testset "Multi-figure centering invariance" begin
+    # ── Test 5: Multi-group centering invariance ─────────────────────────────
+    @testset "Multi-group centering invariance" begin
         Keq_val = 2.0
         true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
 
@@ -132,14 +130,13 @@ using Tables
             (S = 2.0, P = 0.5),
         ]
 
-        # Two figures, each independently scaled
+        # Two groups, each independently scaled
         data1 = make_synthetic_data(uni_uni, true_params, concs_list;
-            articles=["A1","A1","A1","A2","A2"],
-            figs=["F1","F1","F1","F1","F1"],
+            groups=["G1","G1","G1","G2","G2"],
             scale=1.0)
         fp1 = FittingProblem(uni_uni, data1; Keq=Keq_val)
 
-        # Scale fig1 by 5x and fig2 by 100x
+        # Scale group1 by 5x and group2 by 100x
         rates2 = copy(data1.Rate)
         rates2[1:3] .*= 5.0
         rates2[4:5] .*= 100.0
@@ -158,8 +155,7 @@ using Tables
         Keq_val = 2.0
         # Create data with positive rates
         data = (
-            Article = ["A1", "A1", "A1"],
-            Fig = ["F1", "F1", "F1"],
+            group = ["G1", "G1", "G1"],
             Rate = [1.0, 2.0, 3.0],
             S = [1.0, 2.0, 3.0],
             P = [0.1, 0.1, 0.1],
@@ -182,28 +178,27 @@ using Tables
         @test l > 0.0
     end
 
-    # ── Test 6b: All-mismatch figure has positive loss ────────────────────────
-    # Regression test: previously, when all predictions in a figure were sign-
+    # ── Test 6b: All-mismatch group has positive loss ─────────────────────────
+    # Regression test: previously, when all predictions in a group were sign-
     # mismatches, the centering step zeroed every deviation (10-mean(10)=0).
     # The loss must be nonzero to distinguish a bad mechanism from a perfect one.
     # Three sub-cases exercise each path that sets buf[i] = 10.0:
     #   (i)  pred == 0.0            (S=0, P=0)
     #   (ii) pred < 0, Rate > 0     (S=0, P>0: only reverse term survives → pred always negative)
     #   (iii) pred > 0, Rate < 0    (S>0, P=0: only forward term survives → pred always positive)
-    # In all cases every point in the figure is a mismatch so the expected
+    # In all cases every point in the group is a mismatch so the expected
     # loss is: (0 from centering + 100.0 × n_mismatch) / n_data = 100.0
-    @testset "All-mismatch figure not cancelled by centering" begin
+    @testset "All-mismatch group not cancelled by centering" begin
         Keq_val = 2.0
         pn = EnzymeRates.fitted_params(uni_uni)
         x = randn(length(pn))
 
         @testset "zero prediction (S=0, P=0)" begin
             data = (
-                Article = fill("A1", 5),
-                Fig     = fill("F1", 5),
-                Rate    = [1.0, 2.0, 3.0, 4.0, 5.0],
-                S       = zeros(5),
-                P       = zeros(5),
+                group = fill("G1", 5),
+                Rate  = [1.0, 2.0, 3.0, 4.0, 5.0],
+                S     = zeros(5),
+                P     = zeros(5),
             )
             fp = FittingProblem(uni_uni, data; Keq=Keq_val)
             l = EnzymeRates.loss!(x, fp)
@@ -215,11 +210,10 @@ using Tables
             # With S=0 the forward numerator term vanishes; only the reverse
             # term (∝ -P) remains, so pred < 0 for any positive parameters.
             data = (
-                Article = fill("A1", 5),
-                Fig     = fill("F1", 5),
-                Rate    = [1.0, 2.0, 3.0, 4.0, 5.0],
-                S       = zeros(5),
-                P       = [0.1, 0.2, 0.3, 0.4, 0.5],
+                group = fill("G1", 5),
+                Rate  = [1.0, 2.0, 3.0, 4.0, 5.0],
+                S     = zeros(5),
+                P     = [0.1, 0.2, 0.3, 0.4, 0.5],
             )
             fp = FittingProblem(uni_uni, data; Keq=Keq_val)
             l = EnzymeRates.loss!(x, fp)
@@ -231,11 +225,10 @@ using Tables
             # With P=0 the reverse numerator term vanishes; only the forward
             # term (∝ S) remains, so pred > 0 for any positive parameters.
             data = (
-                Article = fill("A1", 5),
-                Fig     = fill("F1", 5),
-                Rate    = [-1.0, -2.0, -3.0, -4.0, -5.0],
-                S       = [0.1, 0.2, 0.3, 0.4, 0.5],
-                P       = zeros(5),
+                group = fill("G1", 5),
+                Rate  = [-1.0, -2.0, -3.0, -4.0, -5.0],
+                S     = [0.1, 0.2, 0.3, 0.4, 0.5],
+                P     = zeros(5),
             )
             fp = FittingProblem(uni_uni, data; Keq=Keq_val)
             l = EnzymeRates.loss!(x, fp)
@@ -287,14 +280,12 @@ using Tables
         n_points = 500
         concs_list = [(A = 0.1 + 9.9*rand(), B = 0.1 + 9.9*rand(),
                        P = 0.1 + 9.9*rand(), Q = 0.1 + 9.9*rand()) for _ in 1:n_points]
-        articles = [string("A", div(i-1, 50)+1) for i in 1:n_points]
-        figs = [string("F", mod(i-1, 5)+1) for i in 1:n_points]
+        groups = [string("G", div(i-1, 50)+1) for i in 1:n_points]
 
         rates = [rate_equation(ordered_bi_bi, c, bb_true_params) for c in concs_list]
         met_names_bb = metabolites(ordered_bi_bi)
         data = (
-            Article = articles,
-            Fig = figs,
+            group = groups,
             Rate = rates,
             (mn => [c[mn] for c in concs_list] for mn in met_names_bb)...
         )
@@ -344,20 +335,20 @@ using Tables
     # ── Test 10: Validation errors ─────────────────────────────────────────────
     @testset "Validation errors" begin
         # Missing Rate column
-        data_no_rate = (Article = ["A1"], Fig = ["F1"], S = [1.0], P = [0.1])
+        data_no_rate = (group = ["G1"], S = [1.0], P = [0.1])
         @test_throws ErrorException FittingProblem(uni_uni, data_no_rate; Keq=1.0)
 
         # Missing metabolite column
-        data_no_met = (Article = ["A1"], Fig = ["F1"], Rate = [1.0], S = [1.0])
+        data_no_met = (group = ["G1"], Rate = [1.0], S = [1.0])
         @test_throws ErrorException FittingProblem(uni_uni, data_no_met; Keq=1.0)
 
         # Zero rate
-        data_zero = (Article = ["A1"], Fig = ["F1"], Rate = [0.0], S = [1.0], P = [0.1])
+        data_zero = (group = ["G1"], Rate = [0.0], S = [1.0], P = [0.1])
         @test_throws ErrorException FittingProblem(uni_uni, data_zero; Keq=1.0)
 
-        # Missing Article column
-        data_no_art = (Fig = ["F1"], Rate = [1.0], S = [1.0], P = [0.1])
-        @test_throws ErrorException FittingProblem(uni_uni, data_no_art; Keq=1.0)
+        # Missing group column
+        data_no_grp = (Rate = [1.0], S = [1.0], P = [0.1])
+        @test_throws ErrorException FittingProblem(uni_uni, data_no_grp; Keq=1.0)
     end
 
 end

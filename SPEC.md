@@ -76,16 +76,14 @@ prob = IdentifyRateEquationProblem(rxn, data; Keq=5.0)
 results = identify_rate_equation(prob)
 
 # 4. Inspect results
-best = results.best
-best.mechanism        # EnzymeMechanism
-best.params           # NamedTuple of fitted parameter values
-best.cv_score         # cross-validation score
-best.loss             # training loss
+results.best              # AbstractEnzymeMechanism — best mechanism
+results.cv_results        # DataFrame with LOOCV results for top candidates
 
-rate_equation_string(best.mechanism)
+rate_equation_string(results.best)
 
 # 5. Use the identified equation
-v = rate_equation(best.mechanism, (A=1.0, B=0.5, P=0.1, Q=0.05), best.params)
+params = results.cv_results[1, :]  # get params from CV results DataFrame
+v = rate_equation(results.best, (A=1.0, B=0.5, P=0.1, Q=0.05), params)
 ```
 
 ---
@@ -132,24 +130,19 @@ IdentifyRateEquationProblem(
     reaction::EnzymeReaction,
     data;
     Keq::Real,
-    max_re_groups::Int = 7,
-    catalytic_n::Int = 0,
 )
 ```
 
-**Construction is eager**: the `MechanismIterator` is created at
-construction time (enumeration stages 1-4 are materialized, stage 5 is
-lazy). This lets users inspect `prob.mechanism_iterator` and
-`length(prob.mechanism_iterator)` before calling `identify_rate_equation`.
+Holds the reaction, data, and equilibrium constant. The beam search
+pipeline is driven by `identify_rate_equation`, not by a pre-built iterator.
 
 ### Fields (User-Accessible)
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `reaction` | `EnzymeReaction` | The reaction being analyzed. |
-| `data` | NamedTuple | The data table (columnar). |
+| `data` | NamedTuple | The data table (columnar, with `:group` column). |
 | `Keq` | `Float64` | Thermodynamic equilibrium constant. |
-| `mechanism_iterator` | `MechanismIterator` | Lazy iterator over all candidate mechanisms. |
 
 ---
 
@@ -160,44 +153,47 @@ lazy). This lets users inspect `prob.mechanism_iterator` and
 ```julia
 identify_rate_equation(
     prob::IdentifyRateEquationProblem;
-    # Search strategy
-    strategy::Symbol = :exhaustive,     # :exhaustive or :beam (future)
+    # Beam search
+    min_beam_width::Int = 200,          # minimum mechanisms to keep per level
+    beam_fraction::Float64 = 0.1,       # fraction of mechanisms to keep
+    max_param_count::Int = 20,          # stop expanding beyond this
     # Fitting parameters
-    optimizer = LBFGSB(),               # Optimization.jl optimizer
+    optimizer,                           # Optimization.jl optimizer (required)
+                                          # Recommended: PyCMAOpt() from OptimizationPyCMA
     n_restarts::Int = 10,               # multi-start restarts per mechanism
     maxtime::Real = 60.0,               # max time per mechanism fit (seconds)
-    # Cross-validation
-    cv_fraction::Float64 = 0.2,         # fraction of groups held out per fold
+    maxiters::Int = 10_000_000,         # max iterations per optimizer run
+    popsize::Int = 200,                 # population size for optimizer
+    verbose::Int = -9,                   # optimizer verbosity (forwarded to Optimization.solve)
+    # Model selection
+    n_cv_candidates::Int = 5,           # LOOCV top N per param count
     # Output
-    save_path::Union{Nothing,String} = nothing,  # CSV save path (incremental)
-    # Progress
-    show_progress::Bool = true,
+    save_dir::Union{Nothing,String} = nothing,  # directory for per-level CSVs
+    # Parallelism
+    pmap_function::Function = pmap,      # Distributed.pmap; runs serially with 1 worker
 ) → IdentifyRateEquationResults
 ```
 
 ### Algorithm
 
-1. **Group mechanisms by parameter count** using the lazy iterator.
-2. **For each parameter-count group** (ascending order):
-   a. Compile each mechanism (`MechanismSpec` → `EnzymeMechanism`).
-   b. Fit to full training data via `fit_rate_equation`.
-   c. Compute leave-one-group-out CV score.
-   d. Record results.
-   e. If `save_path` is set, append results for this group to CSV.
-3. **Show progress** within each parameter-count group.
-4. **Select best**: mechanism with fewest parameters whose CV score is
-   adequate (details of the selection criterion are a future design
-   decision — initially just return the full ranking and let the user
-   decide).
-5. Return `IdentifyRateEquationResults`.
+Two-phase beam search pipeline:
 
-### Future: Beam Search Strategy
+**Phase 1 — Beam search** (finds candidate mechanisms):
+1. `init_mechanisms(reaction)` → fit all on full data → rank by loss.
+2. Keep top N by loss (beam width = `max(beam_fraction * n, min_beam_width)`).
+3. `expand_mechanisms` on beam → `dedup!` → fit → rank by loss.
+4. Repeat until no new mechanisms or `max_param_count` reached.
+5. Save all fitted mechanisms to per-param-count CSV files if `save_dir` set.
 
-When `strategy = :beam` (not yet implemented):
-1. Fit all mechanisms with the minimum parameter count.
-2. Take the top-N by CV score.
-3. For each, expand to mechanisms with one additional parameter.
-4. Repeat until no improvement or max parameters reached.
+**Phase 2 — Model selection** (finds optimal complexity):
+1. Take top `n_cv_candidates` per param count (by loss from Phase 1).
+2. Leave-one-group-out CV each candidate.
+3. Best mechanism = lowest training loss at the param count with best CV score.
+
+### Note on `optimizer`
+
+`optimizer` is passed as a keyword argument to `identify_rate_equation` but
+forwarded as a **positional** argument to `fit_rate_equation` internally.
 
 ---
 
@@ -207,38 +203,26 @@ When `strategy = :beam` (not yet implemented):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `best` | `CandidateResult` | Best mechanism by selection criterion. |
-| `candidates` | `Vector{CandidateResult}` | All fitted candidates, sorted by (n_params, cv_score). |
-| `problem` | `IdentifyRateEquationProblem` | Reference to the problem that produced these results. |
-
-### `CandidateResult` (Internal Struct, Accessed via Results)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `mechanism` | `EnzymeMechanism` | The compiled mechanism. |
-| `params` | `NamedTuple` | Fitted parameter values (independent k's + Keq + E_total). |
-| `n_params` | `Int` | Number of fitted parameters. |
-| `cv_score` | `Float64` | Leave-one-group-out cross-validation score. |
-| `loss` | `Float64` | Training loss on full data. |
+| `best` | `AbstractEnzymeMechanism` | Best mechanism (lowest loss at optimal param count). |
+| `cv_results` | `DataFrame` | LOOCV results for top candidates per param count. |
 
 ### CSV Output Format
 
-When `save_path` is provided, results are written incrementally as each
-parameter-count group completes. One CSV file at the specified path.
+When `save_dir` is provided, one CSV file per parameter count level:
+`save_dir/params_7.csv`, `save_dir/params_8.csv`, etc.
 
 Columns:
 
 | Column | Description |
 |--------|-------------|
 | `n_params` | Number of fitted parameters |
-| `cv_score` | Cross-validation score |
 | `loss` | Training loss |
-| `mechanism_type` | Eval-able string that reconstructs the `EnzymeMechanism` type (e.g., the full type signature) |
+| `mechanism_type` | Eval-able string that reconstructs the mechanism type |
 | `rate_equation` | Human-readable rate equation string |
-| `param_1`, `param_2`, ... | Fitted parameter values |
+| `K_S`, `k1f`, ... | Fitted parameter values (vary per mechanism) |
 
 The `mechanism_type` column contains a string that can be `eval`-ed to
-produce the `EnzymeMechanism` instance:
+produce the mechanism instance:
 
 ```julia
 row = CSV.Row(...)
@@ -252,7 +236,7 @@ m = eval(Meta.parse(row.mechanism_type))
 ### Constructor
 
 ```julia
-FittingProblem(mechanism::EnzymeMechanism, data; Keq::Real)
+FittingProblem(mechanism::AbstractEnzymeMechanism, data; Keq::Real)
 ```
 
 The data table uses the same format as `IdentifyRateEquationProblem`:
@@ -324,10 +308,7 @@ experimental conditions.
 ### Requirements
 
 - At least 2 unique `group` values are required.
-- The `cv_fraction` parameter in `identify_rate_equation` controls what
-  fraction of groups are held out per fold (default 0.2). If there are
-  5 groups, each fold holds out 1 group. If there are 20 groups, each
-  fold holds out 4 groups.
+- LOOCV is used: each fold holds out exactly one group.
 
 ---
 
