@@ -57,8 +57,7 @@ using OptimizationPyCMA
                 concs = (S = s, P = p)
                 r = rate_equation(
                     mechanism, concs,
-                    params) *
-                    (0.5 + rand())
+                    params)
                 push!(groups, "G$g")
                 push!(rates, r)
                 push!(S_vals, s)
@@ -71,7 +70,8 @@ using OptimizationPyCMA
 
     Random.seed!(42)
     test_data = make_test_data(
-        test_mechanism, true_params)
+        test_mechanism, true_params;
+        n_per_group=10, n_groups=5)
 
     pycma_opt = PyCMAOpt()
 
@@ -82,7 +82,7 @@ using OptimizationPyCMA
         @test prob.reaction === test_rxn
         @test prob.Keq == Keq_val
         @test length(
-            unique(prob.data.group)) == 3
+            unique(prob.data.group)) == 5
 
         # Missing metabolite column
         @test_throws(
@@ -196,9 +196,26 @@ using OptimizationPyCMA
         popsize=200,
         n_restarts=3, maxtime=10.0)
 
-    @testset "exact mechanism recovery" begin
-        @test typeof(results.best) ==
-            typeof(test_mechanism)
+    @testset "mechanism recovery" begin
+        # The best mechanism should have the same
+        # number of independent parameters as the
+        # generating mechanism (or fewer, if
+        # algebraically equivalent with constraints)
+        best_np = length(
+            parameters(results.best, Reduced))
+        gen_np = length(
+            parameters(test_mechanism, Reduced))
+        @test best_np <= gen_np
+
+        # The best mechanism should fit the noiseless
+        # data with near-zero loss
+        fp_best = FittingProblem(
+            results.best, test_data; Keq=Keq_val)
+        fit_best = fit_rate_equation(
+            fp_best, pycma_opt;
+            n_restarts=3, maxtime=10.0,
+            popsize=200)
+        @test fit_best.loss < 0.01
     end
 
     @testset "results structure" begin
