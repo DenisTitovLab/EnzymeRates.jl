@@ -1,6 +1,6 @@
 # ABOUTME: Tests for identify_rate_equation pipeline.
 # ABOUTME: Covers construction, helpers, and full pipeline
-# ABOUTME: with exact mechanism recovery.
+# ABOUTME: with mechanism recovery including allosteric path.
 
 using DataFrames
 using CSV
@@ -10,68 +10,72 @@ using OptimizationPyCMA
 @testset "identify_rate_equation" begin
 
     # ── Shared test setup ────────────────────────────
+    # Allosteric uni-uni with regulator R
     test_mechanism = @enzyme_mechanism begin
-        species: begin
-            substrates: S[C]
-            products:   P[C]
-            enzymes:    E, ES[C]
+        metabolites: S[C], P[C], R
+        site(:catalytic, 1):begin
+            species: begin
+                substrates: S[C]
+                products: P[C]
+                enzymes: E_c, E_S[C]
+            end
+            steps: begin
+                [E_c, S] ⇌ [E_S]
+                [E_S] <--> [E_c, P]
+            end
         end
-        steps: begin
-            [E, S] <--> [ES]
-            [ES] <--> [E, P]
+        site(:regulatory, 1):begin
+            ligands: R
         end
     end
 
-    # Plain reaction (no regulators) — matches the
-    # generating mechanism for exact recovery testing
+    # Reaction with regulator R (role=:unknown) so
+    # enumeration explores dead-end + allosteric paths
     test_rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
-    end
-
-    # Reaction with regulator — for construction
-    # validation only
-    test_rxn_with_reg = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        dead_end_inhibitors: I
+        regulators: R
     end
 
     Keq_val = 2.0
     true_params = (
-        k1f = 10.0, k2f = 5.0, k2r = 1.0,
+        K1 = 1.0, k2f = 5.0, K1_T = 3.0,
+        k2f_T = 1.0, K_R_reg1 = 2.0,
+        K_R_T_reg1 = 0.5, L = 0.1,
         Keq = Keq_val, E_total = 1.0)
 
     function make_test_data(
         mechanism, params;
-        n_per_group=5, n_groups=3
+        n_per_group=10, n_groups=5
     )
         groups = String[]
         rates = Float64[]
         S_vals = Float64[]
         P_vals = Float64[]
+        R_vals = Float64[]
         for g in 1:n_groups
             for _ in 1:n_per_group
                 s = 0.1 + 9.9 * rand()
                 p = 0.1 + 9.9 * rand()
-                concs = (S = s, P = p)
-                r = rate_equation(
-                    mechanism, concs,
-                    params)
+                r = 0.1 + 9.9 * rand()
+                concs = (S = s, P = p, R = r)
+                v = rate_equation(
+                    mechanism, concs, params)
                 push!(groups, "G$g")
-                push!(rates, r)
+                push!(rates, v)
                 push!(S_vals, s)
                 push!(P_vals, p)
+                push!(R_vals, r)
             end
         end
         return (group = groups, Rate = rates,
-                S = S_vals, P = P_vals)
+                S = S_vals, P = P_vals,
+                R = R_vals)
     end
 
     Random.seed!(42)
     test_data = make_test_data(
-        test_mechanism, true_params;
-        n_per_group=10, n_groups=5)
+        test_mechanism, true_params)
 
     pycma_opt = PyCMAOpt()
 
@@ -92,6 +96,17 @@ using OptimizationPyCMA
                 (group = ["G1"], Rate = [1.0]);
                 Keq=1.0))
 
+        # Missing regulator column
+        @test_throws(
+            ErrorException,
+            IdentifyRateEquationProblem(
+                test_rxn,
+                (group = ["G1", "G2"],
+                 Rate = [1.0, 2.0],
+                 S = [1.0, 2.0],
+                 P = [0.1, 0.1]);
+                Keq=1.0))
+
         # Zero rate
         @test_throws(
             ErrorException,
@@ -100,7 +115,8 @@ using OptimizationPyCMA
                 (group = ["G1", "G2"],
                  Rate = [0.0, 1.0],
                  S = [1.0, 1.0],
-                 P = [0.1, 0.1]);
+                 P = [0.1, 0.1],
+                 R = [1.0, 1.0]);
                 Keq=1.0))
 
         # Need >= 2 groups
@@ -111,31 +127,9 @@ using OptimizationPyCMA
                 (group = ["G1", "G1"],
                  Rate = [1.0, 2.0],
                  S = [1.0, 2.0],
-                 P = [0.1, 0.1]);
+                 P = [0.1, 0.1],
+                 R = [1.0, 1.0]);
                 Keq=1.0))
-
-        # Missing regulator column
-        @test_throws(
-            ErrorException,
-            IdentifyRateEquationProblem(
-                test_rxn_with_reg,
-                (group = ["G1", "G2"],
-                 Rate = [1.0, 2.0],
-                 S = [1.0, 2.0],
-                 P = [0.1, 0.1]);
-                Keq=1.0))
-
-        # Regulator column present — should work
-        prob_reg = IdentifyRateEquationProblem(
-            test_rxn_with_reg,
-            (group = ["G1", "G2"],
-             Rate = [1.0, 2.0],
-             S = [1.0, 2.0],
-             P = [0.1, 0.1],
-             I = [0.5, 0.5]);
-            Keq=1.0)
-        @test prob_reg.reaction ===
-            test_rxn_with_reg
     end
 
     # ── Helper unit tests (cheap, no fitting) ────────
@@ -188,7 +182,7 @@ using OptimizationPyCMA
     results = identify_rate_equation(prob;
         min_beam_width=200,
         beam_fraction=0.1,
-        max_param_count=8,
+        max_param_count=10,
         n_cv_candidates=3,
         save_dir=save_dir,
         pmap_function=map,
