@@ -143,7 +143,7 @@ using OptimizationPyCMA
         fit = fit_rate_equation(
             fp, pycma_opt;
             n_restarts=1, maxtime=3.0,
-            popsize=200, kcat=nothing)
+            popsize=200)
         row = EnzymeRates._build_result_row(
             test_mechanism, fit)
         @test row.n_params == length(
@@ -211,7 +211,7 @@ using OptimizationPyCMA
         fit_best = fit_rate_equation(
             fp_best, pycma_opt;
             n_restarts=3, maxtime=10.0,
-            popsize=200, kcat=nothing)
+            popsize=200)
         @test fit_best.loss < 0.01
     end
 

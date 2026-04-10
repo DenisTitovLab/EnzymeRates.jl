@@ -883,7 +883,7 @@ corners and return the max.
 
     # Build dependent param assignments for R-state
     M_type = AllostericEnzymeMechanism{Mets,CM,CS,RS}
-    r_assignments, t_assignments = _allosteric_dep_assignments(
+    r_assignments, t_assignments_ = _allosteric_dep_assignments(
         CM, M_type, K -> :(inv($K)),
     )
 
@@ -891,21 +891,44 @@ corners and return the max.
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq)
 
-    # Build T-state expressions for catalytic subunit
-    dep_R, indep_R = _dependent_param_exprs(CM)
-    T_subs = _build_T_subs(
-        Iterators.flatten([keys(dep_R), indep_R]),
-    )
-    num_k_T_expr = substitute_params_expr(num_k_R_expr, T_subs)
-    den_k_T_expr = substitute_params_expr(den_k_R_expr, T_subs)
+    # Check if T-state can catalyze: if any substrate
+    # is r_only or any catalytic step is r_only, the
+    # T-state flux is zero at saturating substrates.
+    cat_r_only = CS[5]
+    r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
+    cm_inst = CM()
+    sub_names = Tuple(s[1] for s in substrates(cm_inst))
+    t_state_dead = any(s -> s in cat_r_only, sub_names) ||
+        !isempty(r_only_cat_steps)
 
     # A_c = num_k_c * den_k_c^(CatN-1), B_c = den_k_c^CatN
     A_R = CatN == 1 ? num_k_R_expr :
         :($(num_k_R_expr) * $(den_k_R_expr)^$(CatN - 1))
-    A_T = CatN == 1 ? num_k_T_expr :
-        :($(num_k_T_expr) * $(den_k_T_expr)^$(CatN - 1))
     B_R = :($(den_k_R_expr)^$(CatN))
-    B_T = :($(den_k_T_expr)^$(CatN))
+
+    if t_state_dead
+        # T-state can't catalyze: A_T = 0, B_T = 1
+        A_T = 0
+        B_T = 1
+    else
+        # Build T-state expressions for catalytic subunit
+        dep_R, indep_R = _dependent_param_exprs(CM)
+        T_subs = _build_T_subs(
+            Iterators.flatten([keys(dep_R), indep_R]),
+        )
+        num_k_T_expr = substitute_params_expr(
+            num_k_R_expr, T_subs)
+        den_k_T_expr = substitute_params_expr(
+            den_k_R_expr, T_subs)
+        A_T = CatN == 1 ? num_k_T_expr :
+            :($(num_k_T_expr) * $(den_k_T_expr)^$(CatN - 1))
+        B_T = :($(den_k_T_expr)^$(CatN))
+    end
+
+    # Skip T-state dependent param assignments when
+    # T-state is dead (they reference eliminated params)
+    t_assignments = t_state_dead ? Expr[] :
+        t_assignments_
 
     if isempty(RS)
         # No regulatory sites: single kcat value
