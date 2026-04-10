@@ -1,5 +1,6 @@
 # ABOUTME: Tests for identify_rate_equation pipeline.
-# ABOUTME: Covers construction, beam search, CV, and integration.
+# ABOUTME: Covers construction, helpers, and full pipeline
+# ABOUTME: with exact mechanism recovery.
 
 using DataFrames
 using CSV
@@ -21,7 +22,16 @@ using OptimizationPyCMA
         end
     end
 
+    # Plain reaction (no regulators) — matches the
+    # generating mechanism for exact recovery testing
     test_rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+
+    # Reaction with regulator — for construction
+    # validation only
+    test_rxn_with_reg = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
         dead_end_inhibitors: I
@@ -40,12 +50,10 @@ using OptimizationPyCMA
         rates = Float64[]
         S_vals = Float64[]
         P_vals = Float64[]
-        I_vals = Float64[]
         for g in 1:n_groups
             for _ in 1:n_per_group
                 s = 0.1 + 9.9 * rand()
                 p = 0.1 + 9.9 * rand()
-                i_val = 0.1 + 9.9 * rand()
                 concs = (S = s, P = p)
                 r = rate_equation(
                     mechanism, concs,
@@ -55,12 +63,10 @@ using OptimizationPyCMA
                 push!(rates, r)
                 push!(S_vals, s)
                 push!(P_vals, p)
-                push!(I_vals, i_val)
             end
         end
         return (group = groups, Rate = rates,
-                S = S_vals, P = P_vals,
-                I = I_vals)
+                S = S_vals, P = P_vals)
     end
 
     Random.seed!(42)
@@ -69,7 +75,7 @@ using OptimizationPyCMA
 
     pycma_opt = PyCMAOpt()
 
-    # ── IdentifyRateEquationProblem construction ─────
+    # ── Construction validation ──────────────────────
     @testset "construction" begin
         prob = IdentifyRateEquationProblem(
             test_rxn, test_data; Keq=Keq_val)
@@ -79,53 +85,60 @@ using OptimizationPyCMA
             unique(prob.data.group)) == 3
 
         # Missing metabolite column
-        bad_data = (
-            group = ["G1"], Rate = [1.0])
         @test_throws(
             ErrorException,
             IdentifyRateEquationProblem(
-                test_rxn, bad_data; Keq=1.0))
-
-        # Missing regulator column
-        bad_data_no_reg = (
-            group = ["G1", "G2"],
-            Rate = [1.0, 2.0],
-            S = [1.0, 2.0],
-            P = [0.1, 0.1])
-        @test_throws(
-            ErrorException,
-            IdentifyRateEquationProblem(
-                test_rxn, bad_data_no_reg;
+                test_rxn,
+                (group = ["G1"], Rate = [1.0]);
                 Keq=1.0))
 
         # Zero rate
-        bad_data2 = (
-            group = ["G1", "G2"],
-            Rate = [0.0, 1.0],
-            S = [1.0, 1.0],
-            P = [0.1, 0.1],
-            I = [1.0, 1.0])
         @test_throws(
             ErrorException,
             IdentifyRateEquationProblem(
-                test_rxn, bad_data2;
+                test_rxn,
+                (group = ["G1", "G2"],
+                 Rate = [0.0, 1.0],
+                 S = [1.0, 1.0],
+                 P = [0.1, 0.1]);
                 Keq=1.0))
 
         # Need >= 2 groups
-        bad_data3 = (
-            group = ["G1", "G1"],
-            Rate = [1.0, 2.0],
-            S = [1.0, 2.0],
-            P = [0.1, 0.1],
-            I = [1.0, 1.0])
         @test_throws(
             ErrorException,
             IdentifyRateEquationProblem(
-                test_rxn, bad_data3;
+                test_rxn,
+                (group = ["G1", "G1"],
+                 Rate = [1.0, 2.0],
+                 S = [1.0, 2.0],
+                 P = [0.1, 0.1]);
                 Keq=1.0))
+
+        # Missing regulator column
+        @test_throws(
+            ErrorException,
+            IdentifyRateEquationProblem(
+                test_rxn_with_reg,
+                (group = ["G1", "G2"],
+                 Rate = [1.0, 2.0],
+                 S = [1.0, 2.0],
+                 P = [0.1, 0.1]);
+                Keq=1.0))
+
+        # Regulator column present — should work
+        prob_reg = IdentifyRateEquationProblem(
+            test_rxn_with_reg,
+            (group = ["G1", "G2"],
+             Rate = [1.0, 2.0],
+             S = [1.0, 2.0],
+             P = [0.1, 0.1],
+             I = [0.5, 0.5]);
+            Keq=1.0)
+        @test prob_reg.reaction ===
+            test_rxn_with_reg
     end
 
-    # ── Helper functions ─────────────────────────────
+    # ── Helper unit tests (cheap, no fitting) ────────
     @testset "_build_result_row" begin
         fp = FittingProblem(
             test_mechanism, test_data;
@@ -159,10 +172,8 @@ using OptimizationPyCMA
         df = EnzymeRates._rows_to_dataframe(
             rows)
         @test nrow(df) == 1
-        @test "a" in names(df) ||
-            :a in names(df)
-        @test "b" in names(df) ||
-            :b in names(df)
+        @test "a" in names(df)
+        @test "b" in names(df)
 
         # Empty rows
         df2 = EnzymeRates._rows_to_dataframe(
@@ -170,77 +181,27 @@ using OptimizationPyCMA
         @test nrow(df2) == 0
     end
 
-    # ── _beam_search ─────────────────────────────────
-    @testset "_beam_search" begin
-        prob = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val)
+    # ── Run pipeline ONCE, test everything ───────────
+    prob = IdentifyRateEquationProblem(
+        test_rxn, test_data; Keq=Keq_val)
+    save_dir = mktempdir()
+    results = identify_rate_equation(prob;
+        min_beam_width=200,
+        beam_fraction=0.1,
+        max_param_count=8,
+        n_cv_candidates=3,
+        save_dir=save_dir,
+        pmap_function=map,
+        optimizer=pycma_opt,
+        popsize=200,
+        n_restarts=3, maxtime=10.0)
 
-        specs, df = EnzymeRates._beam_search(
-            prob;
-            min_beam_width=200,
-            beam_fraction=0.1,
-            max_param_count=8,
-            save_dir=nothing,
-            pmap_function=map,
-            optimizer=pycma_opt,
-            n_restarts=2, maxtime=5.0,
-            popsize=200)
-
-        @test length(specs) > 0
-        @test nrow(df) > 0
-        @test nrow(df) == length(specs)
-
-        @test "n_params" in names(df)
-        @test "loss" in names(df)
-        @test "mechanism_type" in names(df)
-        @test "rate_equation" in names(df)
-
-        @test all(isfinite, df.loss)
-        @test all(>=(0), df.loss)
-
-        @test length(unique(df.n_params)) >= 1
+    @testset "exact mechanism recovery" begin
+        @test typeof(results.best) ==
+            typeof(test_mechanism)
     end
 
-    # ── _loocv ───────────────────────────────────────
-    @testset "_loocv" begin
-        prob = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val)
-
-        cv_score = EnzymeRates._loocv(
-            test_mechanism, prob;
-            optimizer=pycma_opt,
-            n_restarts=2, maxtime=5.0,
-            popsize=200)
-
-        @test isfinite(cv_score)
-        @test cv_score >= 0.0
-    end
-
-    # ── _cv_model_selection ──────────────────────────
-    @testset "_cv_model_selection" begin
-        prob = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val)
-
-        specs, df = EnzymeRates._beam_search(
-            prob;
-            min_beam_width=200,
-            beam_fraction=0.1,
-            max_param_count=8,
-            save_dir=nothing,
-            pmap_function=map,
-            optimizer=pycma_opt,
-            n_restarts=2, maxtime=5.0,
-            popsize=200)
-
-        results =
-            EnzymeRates._cv_model_selection(
-                specs, df, prob;
-                n_cv_candidates=3,
-                pmap_function=map,
-                optimizer=pycma_opt,
-                n_restarts=2, maxtime=5.0,
-                popsize=200)
-
+    @testset "results structure" begin
         @test results isa
             IdentifyRateEquationResults
         @test results.best isa
@@ -251,81 +212,18 @@ using OptimizationPyCMA
         @test all(
             isfinite,
             results.cv_results.cv_score)
+        @test "n_params" in names(
+            results.cv_results)
+        @test "loss" in names(
+            results.cv_results)
     end
 
-    # ── recovers generating mechanism ──────────────
-    @testset "recovers generating mechanism" begin
-        prob = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val)
-
-        results = identify_rate_equation(prob;
-            min_beam_width=200,
-            beam_fraction=0.1,
-            max_param_count=8,
-            n_cv_candidates=3,
-            pmap_function=map,
-            optimizer=pycma_opt,
-            popsize=200,
-            n_restarts=3, maxtime=10.0)
-
-        @test results isa
-            IdentifyRateEquationResults
-        @test results.best isa
-            EnzymeRates.AbstractEnzymeMechanism
-        @test nrow(results.cv_results) > 0
-
-        # Best mechanism should have same or fewer
-        # params as the generating mechanism
-        best_n = length(
-            parameters(results.best, Reduced))
-        gen_n = length(
-            parameters(test_mechanism, Reduced))
-        @test best_n <= gen_n + 2
-
-        # Best param count from CV results
-        best_pc = results.cv_results[
-            argmin(results.cv_results.cv_score),
-            :n_params]
-        @test best_pc <= gen_n + 2
-    end
-
-    # ── best mechanism computes rates ───────────────
     @testset "best mechanism computes rates" begin
-        prob = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val)
-
-        results = identify_rate_equation(prob;
-            min_beam_width=200,
-            beam_fraction=0.1,
-            max_param_count=8,
-            n_cv_candidates=3,
-            pmap_function=map,
-            optimizer=pycma_opt,
-            popsize=200,
-            n_restarts=3, maxtime=10.0)
-
-        # Should be able to get rate equation string
         req = rate_equation_string(results.best)
         @test length(req) > 0
     end
 
-    # ── CSV save ─────────────────────────────────────
-    @testset "CSV save" begin
-        prob = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val)
-
-        save_dir = mktempdir()
-        results = identify_rate_equation(prob;
-            min_beam_width=200,
-            beam_fraction=0.1,
-            max_param_count=8,
-            n_cv_candidates=3,
-            save_dir=save_dir,
-            pmap_function=map,
-            optimizer=pycma_opt,
-            popsize=200,
-            n_restarts=2, maxtime=5.0)
-
+    @testset "CSV output" begin
         csv_files = filter(
             f -> endswith(f, ".csv"),
             readdir(save_dir))
@@ -340,6 +238,20 @@ using OptimizationPyCMA
         @test "mechanism_type" in names(
             first_csv)
         @test nrow(first_csv) > 0
+    end
+
+    @testset "save_dir non-empty check" begin
+        @test_throws(
+            ErrorException,
+            identify_rate_equation(prob;
+                min_beam_width=200,
+                beam_fraction=0.1,
+                max_param_count=8,
+                n_cv_candidates=3,
+                save_dir=save_dir,
+                pmap_function=map,
+                optimizer=pycma_opt,
+                n_restarts=1, maxtime=1.0))
     end
 
 end
