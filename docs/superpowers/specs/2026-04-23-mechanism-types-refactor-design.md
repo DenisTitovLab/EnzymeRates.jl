@@ -87,7 +87,21 @@ Changes vs. current:
 - `Species` (4-tuple) → `Metabolites` (3-tuple of substrates/products/regulators). Enzyme forms no longer stored in type parameters; derived from `Reactions` via atomic-balance bookkeeping (already exists).
 - `Reactions` + `EquilibriumSteps` + `ParamConstraints` collapse into a single tuple of 4-tuples. Each step carries its `kinetic_group::Int`. Steps with identical `kinetic_group` share kinetic parameters (one `K` for the whole RE group, one `k_f` and one `k_r` for the whole SS group). Steps with unique `kinetic_group` values have independent parameters. No parallel `SameKineticsSteps` type parameter, no general-linear `ParamConstraints` machinery.
 
-At construction time, the `@enzyme_mechanism` / `@allosteric_mechanism` parser assigns `kinetic_group` integers to steps: all steps inside a parenthesized DSL group share the same `kinetic_group`; standalone steps receive unique `kinetic_group` values. Canonicalization (sort by `_step_sort_key`) preserves group membership because `kinetic_group` travels on the step tuple itself — no separate index mapping needed.
+At construction time, the `@enzyme_mechanism` / `@allosteric_mechanism` parser assigns `kinetic_group` integers to steps: all steps inside a parenthesized DSL group share the same `kinetic_group`; standalone steps receive unique `kinetic_group` values.
+
+**Kinetic-group composition rules (enforced at construction):**
+- A kinetic group of 2+ steps contains either all RE steps binding the same metabolite, or all SS binding steps of the same metabolite. Never a mix of RE and SS. Never an iso step. (RE steps are parameterized by a single `K`; SS binding steps by `k_f` and `k_r` — the parameter structures are incompatible.)
+- Iso steps (SS, no metabolite) always form **singleton groups** of size 1. They cannot share kinetic parameters with any other step, even another iso step — Haldane closure is the correct mechanism for relating iso-step k's, not same-kinetics equivalence.
+- Binding steps where the metabolite is being added to a form that already contains it (inhibitor-type binding when the metabolite is both substrate and catalytic inhibitor) cannot be grouped with binding steps where the form does not yet contain the metabolite (substrate-type binding). Different binding pockets, independent K.
+
+**Canonicalization is not trivial.** Because `kinetic_group` integers are user-assigned labels of a partition, the same semantic mechanism can be written with different integer labels (e.g., `(A, B):g=1, C:g=2` vs `(A, B):g=2, C:g=1`). The constructor must renumber groups to produce a unique type encoding for equivalent mechanisms:
+
+1. Sort steps by `_step_sort_key` (reactant/product content plus `is_eq`).
+2. Walk the sorted step list, maintaining a map `old_group_num → new_group_num`. The first step encountered introduces `new_group_num = 1`; each subsequent step either reuses its group's already-assigned new number or is assigned the next unused integer.
+3. Rewrite each step tuple's `kinetic_group` field with its new number.
+4. Rewrite `CatSites.group_tags` (for `AllostericEnzymeMechanism`) with the new numbering.
+
+The result: two `@enzyme_mechanism` / `@allosteric_mechanism` blocks that describe the same underlying mechanism (same sorted step set, same partition into groups, same tags per group) produce the **same Julia type** — independent of DSL entry order or the user's group-number labelling.
 
 ### 4.2 `AllostericEnzymeMechanism`
 
@@ -270,12 +284,12 @@ The `allosteric_regulators:` tag governs **reg-site binding only**. If the same 
 
 All raised at macro-expansion time with specific diagnostic messages:
 
-### 8.1 Step-group validation (same-kinetics rules)
+### 8.1 Kinetic-group validation
 
-- Group contains steps that bind **different metabolites** — K/k values are not interchangeable across metabolites.
-- Group contains an **iso step** — iso cycle closure is handled by Haldane, not manual equality.
-- Group **mixes RE and SS** binding steps — different parameter structures (K vs k_f/k_r) cannot be equated.
-- Group contains both **substrate-type** binding (metabolite M binding at a form that does not yet contain M) **and inhibitor-type** binding (M binding at a form that already contains M). These use different binding pockets and must have independent K values, even when the metabolite symbol is the same (Denis's edge case: M appears as both substrate and catalytic inhibitor).
+- Group of 2+ steps contains steps that bind **different metabolites** — K/k values are not interchangeable across metabolites.
+- Group of 2+ steps contains an **iso step** — iso cycle closure is handled by Haldane, not same-kinetics equivalence. Iso steps must always be singleton groups of size 1.
+- Group of 2+ steps **mixes RE and SS** binding — different parameter structures (K vs k_f/k_r) cannot be equated.
+- Group of 2+ steps contains both **substrate-type** binding (metabolite M binding at a form that does not yet contain M) **and inhibitor-type** binding (M binding at a form that already contains M). These use different binding pockets and must have independent K values, even when the metabolite symbol is the same (Denis's edge case: M appears as both substrate and catalytic inhibitor).
 
 ### 8.2 Tag validation
 
@@ -370,7 +384,7 @@ Mechanism:
 Tests:
 - `rate_equation_string(m)` matches hand-derived form. G6P appears in three distinct partition-function contributions: catalytic-product release, catalytic-inhibitor dead-end, reg-site T-state binding.
 - G6P-inhibition curve at fixed Glucose, ATP: matches the analytical substrate-inhibition form plus the allosteric T-stabilization contribution.
-- Pi at zero G6P shifts nothing at the reg site (Pi alone with no co-ligand — but here G6P is always present in reg site 1's partition function since `::OnlyT` means "binds T only", not "absent from site"; Pi does shift kinetics because at zero G6P the R/T partition functions still differ only by Pi... wait — if Pi is `::EqualRT` and the only OTHER ligand at the site is G6P `::OnlyT`, then at zero G6P, reg_Q_R = 1 + Pi/K_Pi and reg_Q_T = 1 + Pi/K_Pi (G6P term is zero by concentration). The Pi term cancels in this concentration regime. But when G6P > 0, reg_Q_T gets an extra G6P/K_G6P_T term, and Pi's competition with G6P for the site is meaningful.
+- Reg-site 1 partition functions: reg_Q_R = 1 + Pi/K_Pi (G6P is `::OnlyT` so absent from R); reg_Q_T = 1 + Pi/K_Pi + G6P/K_G6P_T. Verify: at [G6P] = 0, the Pi term cancels in num/den ratio (reg_Q_R = reg_Q_T); at [G6P] > 0, Pi competes with G6P for the T-state site and its concentration matters. Both regimes match their respective hand-derived analytical forms.
 
 ### 10.2.3 Ancillary narrow tests
 
