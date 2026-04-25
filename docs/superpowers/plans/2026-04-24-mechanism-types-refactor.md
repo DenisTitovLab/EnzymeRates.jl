@@ -2,42 +2,42 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Refactor `EnzymeMechanism` and `AllostericEnzymeMechanism` to simpler, non-redundant type parameters. Replace `constraints:` blocks with step-grouping. Add per-step TR-mode tagging (`OnlyR`/`OnlyT`/`EqualRT`/`NonequalRT`) via DSL. Split `@enzyme_mechanism` into `@enzyme_mechanism` (plain) and `@allosteric_mechanism` (MWC). Eliminate magic-index type-parameter access. Delete dead code and duplicated R/T-state derivation paths.
+**Goal:** Refactor `EnzymeMechanism` and `AllostericEnzymeMechanism` to simpler, non-redundant type parameters. Drop atom tracking at the mechanism level. Replace `constraints:` blocks with kinetic-group encoding via parenthesized step-groups. Add per-kinetic-group TR-mode tagging (`OnlyR`/`OnlyT`/`EqualRT`/`NonequalRT`) via DSL. Split `@enzyme_mechanism` into `@enzyme_mechanism` (plain) and `@allosteric_mechanism` (MWC). Eliminate magic-index type-parameter access. Delete dead code and duplicated R/T-state derivation paths. Substantial net deletion across `src/`.
 
-**Architecture:** `EnzymeMechanism{Metabolites, Reactions}` — each step is `(lhs, rhs, is_eq, kinetic_group::Int)`; steps with identical `kinetic_group` share kinetic parameters. `AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites}` — `CatSites = (multiplicity, group_tags)`; `RegSites` entries `(ligands, multiplicity, ligand_tags)`. Accessor-only read interface, no magic indices. Canonical form enforced by constructor (sort steps, renumber kinetic groups by first-occurrence order).
+**Architecture:** `EnzymeMechanism{Metabolites, Reactions}` — `Metabolites` is `((subs_names,), (prods_names,), (regs_names,))` (Symbols only, no atoms); each step is `(lhs, rhs, is_eq, kinetic_group::Int)`; steps with identical `kinetic_group` share kinetic parameters. `AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites}` — `CatSites = (multiplicity, group_tags)`; `RegSites` entries `(ligands, multiplicity, ligand_tags)`. Accessor-only read interface. No canonicalization in constructor (preserves user step order for predictable parameter naming). Stoichiometric feasibility checked via `rank(S) == rank([S | r])` on the full stoichiometry matrix.
 
-**Tech Stack:** Julia 1.x, `@generated` functions for rate-equation derivation, `Test`/`Aqua`/`JET` for testing.
+**Tech Stack:** Julia 1.x, `@generated` functions for rate-equation derivation, `LinearAlgebra.rank` (no `Graphs.jl` for validation), `Test`/`Aqua`/`JET` for testing.
 
 **Spec:** `docs/superpowers/specs/2026-04-23-mechanism-types-refactor-design.md`
 
-**Branch:** `allosteric-refactor-spec` (already created; contains spec commits).
+**Branch:** `allosteric-refactor-spec`.
 
 ---
 
 ## Execution notes
 
-- The refactor has significant breaking surface. Work in the `allosteric-refactor-spec` branch. Main stays unchanged until this branch merges.
-- Key invariant: **each task either keeps the test suite green or explicitly pauses red in a controlled transitional state** that the next task restores. A "commit" step only runs after the relevant tests pass unless the step header marks the state as **RED-OK**.
-- Run tests via `julia --project -e 'using Pkg; Pkg.test()'` (cold — takes several minutes). For incremental feedback during development, `julia --project=. test/runtests.jl` can be run in a persistent REPL.
-- Code reduction is a first-class success criterion. After major tasks, run `git diff --shortstat main` and compare to the reduction targets in Section 9.1 of the spec.
-- Strict accessor-only rule: grep for `Species[` / `CS[` / `RS[` / `.parameters[` in `src/` after refactor. Zero hits expected.
+- The refactor has significant breaking surface. Work in `allosteric-refactor-spec` branch. Main stays untouched until merge.
+- Each task either keeps tests green or **explicitly marks RED-OK transitional state**. A "commit" step runs only after the relevant tests pass unless the step header says RED-OK.
+- Run tests via `julia --project -e 'using Pkg; Pkg.test()'` (cold). For incremental work use a persistent REPL.
+- Code reduction is a first-class success criterion. After major tasks, run `git diff --shortstat origin/main` and check against the targets in spec §9.
+- Strict accessor-only rule: grep for `Species[`, `CS[`, `RS[`, `.parameters[` in `src/` after refactor. Zero hits expected.
 
 ---
 
 ## Phase 0: Preliminaries
 
-### Task 0.1: Capture current test-pass baseline
+### Task 0.1: Capture baseline
 
 **Files:** none (validation only)
 
-- [ ] **Step 1: Run the full test suite on baseline**
+- [ ] **Step 1: Run full test suite on baseline**
 
 ```bash
 cd /home/denis.linux/.julia/dev/EnzymeRates
 julia --project -e 'using Pkg; Pkg.test()' 2>&1 | tail -40
 ```
 
-Expected: all tests pass. Record timing and any flaky warnings.
+Expected: all tests pass.
 
 - [ ] **Step 2: Record baseline line counts**
 
@@ -45,13 +45,13 @@ Expected: all tests pass. Record timing and any flaky warnings.
 wc -l src/types.jl src/dsl.jl src/rate_eq_derivation.jl src/mechanism_enumeration.jl src/sym_poly_for_rate_eq_derivation.jl src/thermodynamic_constr_for_rate_eq_derivation.jl
 ```
 
-Store the numbers in a scratch file `REFACTOR_BASELINE.txt` (gitignored or deleted later). Used for the reduction-target self-check after major phases.
+Save the numbers in a scratch file `REFACTOR_BASELINE.txt` for the line-count check at the end.
 
 ---
 
-## Phase 1: Dead Code Removal
+## Phase 1: Dead-code Removal and Export Cleanup
 
-These are independent, safe deletions. Done first because they reduce surface area for the main refactor and don't risk interaction with new work.
+These are independently committable, keep main green, and reduce surface area for the main refactor.
 
 ### Task 1.1: Delete `graph()` accessor
 
@@ -61,46 +61,23 @@ The `graph()` accessor is defined in `src/types.jl:508-521`, used only by `test/
 - Modify: `src/types.jl`
 - Modify: `test/test_accessors.jl`
 
-- [ ] **Step 1: Remove test references**
+- [ ] **Step 1: Remove the test references**
 
 In `test/test_accessors.jl`, delete the two lines that call `graph`:
-
-Line 21 (approximately): remove `EnzymeRates.graph(m);`. The remaining calls on that line stay.
-
-Line 79: delete the `@test (@allocated EnzymeRates.graph(m)) == 0` testset entry.
+- Line ~21: remove `EnzymeRates.graph(m);`. Other accessor calls on that line stay.
+- Line ~79: delete the `@test (@allocated EnzymeRates.graph(m)) == 0` line.
 
 - [ ] **Step 2: Delete the accessor definition**
 
-In `src/types.jl`, delete the `graph` docstring + `@generated function graph(...)` definition (currently lines 504-521, approximately):
+In `src/types.jl`, delete the `graph` docstring and `@generated function graph(...)` body (currently lines ~504-521).
 
-```julia
-"""
-Build a directed graph of enzyme-form connectivity.
-Returns (graph, enzyme_forms_tuple).
-"""
-@generated function graph(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
-    enzs = Species[4]
-    enz_names = Tuple(e[1] for e in enzs)
-    name_to_idx = Dict(n => i for (i, n) in enz_names)
-    enz_set = Set(enz_names)
-    g = SimpleDiGraph(length(enzs))
-    for (lhs, rhs) in Reactions
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        add_edge!(g, name_to_idx[e_lhs], name_to_idx[e_rhs])
-        add_edge!(g, name_to_idx[e_rhs], name_to_idx[e_lhs])
-    end
-    return g, enzs
-end
-```
-
-- [ ] **Step 3: Check for `Graphs` import necessity**
+- [ ] **Step 3: Decide on `Graphs.jl` dependency**
 
 ```bash
 grep -rn "using Graphs\|import Graphs\|SimpleDiGraph\|add_edge!" src/
 ```
 
-If `graph()` was the only user, remove `using Graphs` from `src/types.jl` (line 1) and the `Graphs` dependency from `Project.toml`. If still used elsewhere, leave imports untouched.
+If `graph()` was the only user (likely), remove `using Graphs` from `src/types.jl:1` and the `Graphs` entry from `Project.toml`. Otherwise leave the import alone.
 
 - [ ] **Step 4: Run tests**
 
@@ -116,14 +93,14 @@ Expected: pass.
 git add src/types.jl test/test_accessors.jl Project.toml
 git commit -m "Delete unused graph() accessor
 
-The graph accessor was defined but never called from src/ — the only
-user was an allocation-smoke test in test_accessors.jl. Delete it
-along with its test and (if unused elsewhere) the Graphs dependency."
+Only consumer was an allocation-smoke test; not called from src/
+computation paths. Remove the accessor, its test, and the Graphs
+dependency if unused elsewhere."
 ```
 
 ### Task 1.2: Delete `RegulatorRole` type hierarchy
 
-`abstract type RegulatorRole` and its three concrete subtypes (`Allosteric`, `DeadEnd`, `UnconstrainedRegulator`) are defined in `src/types.jl:18-27` but never dispatched on. All regulator-role logic uses `Symbol`s (`:unknown`, `:dead_end`, `:allosteric`).
+Defined in `src/types.jl:18-27` but never dispatched on. All regulator-role logic uses `Symbol`s (`:unknown`, `:dead_end`, `:allosteric`).
 
 **Files:**
 - Modify: `src/types.jl`
@@ -134,31 +111,13 @@ along with its test and (if unused elsewhere) the Graphs dependency."
 grep -rn "::RegulatorRole\|::Allosteric\b\|::DeadEnd\b\|::UnconstrainedRegulator" src/ test/ --include="*.jl"
 ```
 
-Expected: zero hits (the type names appear only in their own definitions). If any hit shows a real dispatch, pause and consult Denis before deleting.
+Expected: zero hits beyond the type definitions themselves. If any real dispatch shows up, pause and consult Denis.
 
 - [ ] **Step 2: Delete the declarations**
 
-In `src/types.jl`, delete lines ~17-27:
-
-```julia
-"""Regulator role in mechanism enumeration."""
-abstract type RegulatorRole end
-
-"""Allosteric regulator: participates in MWC allosteric regulation."""
-struct Allosteric <: RegulatorRole end
-
-"""Dead-end inhibitor: creates dead-end complexes only."""
-struct DeadEnd <: RegulatorRole end
-
-"""Unconstrained: try all roles (allosteric + dead-end)."""
-struct UnconstrainedRegulator <: RegulatorRole end
-```
+In `src/types.jl`, delete lines ~17-27 (`abstract type RegulatorRole`, `struct Allosteric`, `struct DeadEnd`, `struct UnconstrainedRegulator`, plus their docstrings).
 
 - [ ] **Step 3: Run tests**
-
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
 
 Expected: pass.
 
@@ -168,104 +127,106 @@ Expected: pass.
 git add src/types.jl
 git commit -m "Delete unused RegulatorRole type hierarchy
 
-The RegulatorRole abstract type and its Allosteric / DeadEnd /
-UnconstrainedRegulator subtypes were defined but never dispatched on.
-All regulator-role logic uses Symbol values directly."
+Defined but never dispatched on; symbols :unknown / :dead_end /
+:allosteric are used directly throughout."
 ```
 
-### Task 1.3: Delete complex `ParamConstraint` monomial parsing
+### Task 1.3: Remove `compile_mechanism` from exports
 
-The constraint-RHS parser supports coefficients and multi-symbol products, but every real usage in tests is a simple equality (`K2 = K1`). Only `test/test_dsl.jl` exercises the monomial forms (`k3r = 2 * k1r`, `k3r = k1f * k2f / k2r`) as parser-generality tests. We will later replace the whole constraint representation with `kinetic_group`; start by restricting the DSL now.
-
-Defer full deletion of `_parse_constraint_rhs` / `_walk_rhs!` until Phase 3 (new DSL), since the current DSL still uses them. This task just trims the test cases and adds a guard error.
+`compile_mechanism` is the dispatcher used internally by `identify_rate_equation` and the enumeration pipeline. CLAUDE.md already states it's not user-facing. SPEC.md exports it (stale). Resolution: keep the function as internal, remove it from the export list.
 
 **Files:**
-- Modify: `src/dsl.jl`
-- Modify: `test/test_dsl.jl`
+- Modify: `src/EnzymeRates.jl`
 
-- [ ] **Step 1: Delete DSL-generality tests for monomial forms**
-
-In `test/test_dsl.jl`, find the testsets that include `k3r = 2 * k1r` (around line 246) and `k3r = k1f * k2f / k2r` (around line 265). Delete just those two constraint lines (keep the surrounding mechanism tests intact, replacing these constraints with simple equalities if the surrounding mechanism would otherwise be invalid). If the whole `@testset` is dedicated to monomial-form parsing, delete the whole testset.
-
-Concrete pattern to search for:
+- [ ] **Step 1: Verify call sites are all internal**
 
 ```bash
-grep -n "k3r = 2 \* k1r\|k3r = k1f \* k2f / k2r" test/test_dsl.jl
+grep -rn "compile_mechanism" src/ test/ --include="*.jl"
 ```
 
-- [ ] **Step 2: Restrict the DSL parser to equality-only**
+Expected hits: definitions in `src/mechanism_enumeration.jl`, internal calls in `src/identify_rate_equation.jl`, the test file. No user-tutorial consumers.
 
-In `src/dsl.jl`, modify `_push_constraint!` (around line 347) to error on non-trivial constraints:
+- [ ] **Step 2: Remove from export list**
 
-```julia
-function _push_constraint!(constraints, arg)
-    target = arg.args[1]
-    target isa Symbol || error("Constraint target must be a symbol, got $target")
-    rhs = arg.args[2]
-    rhs isa Symbol ||
-        error("Constraint RHS must be a bare symbol (equality only); " *
-              "complex constraints are auto-generated by Haldane/Wegscheider. " *
-              "Got: $target = $rhs")
-    coeff = 1
-    factors = Expr(:tuple, Expr(:tuple, QuoteNode(rhs), 1))
-    push!(constraints.args, Expr(:tuple, QuoteNode(target), coeff, factors))
-end
-```
+In `src/EnzymeRates.jl`, find the line exporting `compile_mechanism` and delete it. Adjacent exports stay.
 
 - [ ] **Step 3: Run tests**
 
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
-
-Expected: pass (we removed the only tests that needed complex RHS).
+Expected: pass — internal call sites use `EnzymeRates.compile_mechanism` or unqualified within the package, neither requires the export.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/dsl.jl test/test_dsl.jl
-git commit -m "Restrict constraint DSL to simple equalities
+git add src/EnzymeRates.jl
+git commit -m "Remove compile_mechanism from exports
 
-No production mechanism uses constraint-RHS coefficients or multi-symbol
-products. The general ParamConstraint machinery will be replaced
-entirely in a follow-up commit; meanwhile, reject the unused forms at
-parse time with a clear error."
+compile_mechanism is an internal dispatcher used by identify_rate_equation
+and the enumeration pipeline; it has no user-facing role per CLAUDE.md.
+SPEC.md exports table will be updated in the docs cleanup phase."
+```
+
+### Task 1.4: Clean stale `old_*.jl` references in CLAUDE.md
+
+These files were cleaned up earlier; CLAUDE.md still references them.
+
+**Files:**
+- Modify: `.claude/CLAUDE.md`
+
+- [ ] **Step 1: Confirm files don't exist**
+
+```bash
+ls src/old_*.jl test/old_*.jl 2>&1
+# Expected: "No such file or directory"
+```
+
+- [ ] **Step 2: Delete stale references**
+
+In `.claude/CLAUDE.md`, delete:
+- Line ~282: "Old pipeline files preserved as `old_mechanism_enumeration.jl`, `old_beam_enumeration.jl`"
+- Line ~293: "`src/old_mechanism_enumeration.jl` — Legacy 8-stage pipeline (preserved, still included for shared helpers)"
+- Line ~294: "`src/old_beam_enumeration.jl` — Legacy beam-search pipeline (preserved, still included for shared helpers)"
+- Line ~325: "Old enumeration tests preserved in `test/old_test_mechanism_enumeration.jl` and `test/old_test_beam_enumeration.jl`"
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add .claude/CLAUDE.md
+git commit -m "Remove stale old_*.jl file references from CLAUDE.md
+
+These files were removed in an earlier cleanup; the CLAUDE.md
+references were never updated."
 ```
 
 ---
 
-## Phase 2: Introduce new `EnzymeMechanism` type and DSL
+## Phase 2: New `EnzymeMechanism` Type and DSL
 
-This phase replaces the `EnzymeMechanism` type signature and the `@enzyme_mechanism` macro. It's a breaking change — every call site migrates in this phase. `AllostericEnzymeMechanism` is touched minimally here (only to keep compilation working); its own refactor is Phase 3.
+This phase replaces the `EnzymeMechanism` type signature and the `@enzyme_mechanism` macro grammar. Breaking change — every plain-mechanism call site migrates in this phase. `AllostericEnzymeMechanism` is touched minimally to keep compilation working; its full refactor is Phase 3.
 
-### Task 2.1: Define new `EnzymeMechanism` struct and basic accessors
+### Task 2.1: Define new `EnzymeMechanism` struct and accessors
 
 **Files:**
 - Modify: `src/types.jl`
 - Modify: `test/test_types.jl`
 
-- [ ] **Step 1: Write failing test for new struct and accessors**
+- [ ] **Step 1: Write failing test for new struct + accessors**
 
-Add a new testset to `test/test_types.jl`:
+Add to `test/test_types.jl`:
 
 ```julia
 @testset "EnzymeMechanism struct + accessors (new design)" begin
-    # Build a mechanism by raw tuple construction — verify accessors work.
-    subs = ((:S, ((:C, 1),)),)
-    prods = ((:P, ((:C, 1),)),)
-    regs = ()
-    mets = (subs, prods, regs)
-    # Steps: (lhs, rhs, is_eq, kinetic_group)
+    mets = ((:S,), (:P,), ())
     rxns = (
-        ((:E, :S), (:ES,), true, 1),
-        ((:ES,), (:EP,), false, 2),
-        ((:EP,), (:E, :P), true, 3),
+        ((:E, :S), (:ES,), true,  1),
+        ((:ES,),   (:EP,), false, 2),
+        ((:EP,),   (:E, :P), true, 3),
     )
     m = EnzymeRates.EnzymeMechanism{mets, rxns}()
 
-    @test EnzymeRates.substrates(m) == subs
-    @test EnzymeRates.products(m) == prods
-    @test EnzymeRates.regulators(m) == regs
+    @test EnzymeRates.substrates(m) == (:S,)
+    @test EnzymeRates.products(m) == (:P,)
+    @test EnzymeRates.regulators(m) == ()
+    @test EnzymeRates.metabolites(m) == (:S, :P)
     @test EnzymeRates.reactions(m) == rxns
     @test EnzymeRates.equilibrium_steps(m) == (true, false, true)
     @test EnzymeRates.n_steps(m) == 3
@@ -277,17 +238,11 @@ Add a new testset to `test/test_types.jl`:
 end
 ```
 
-- [ ] **Step 2: Run test — expect failure**
+- [ ] **Step 2: Run — expect failure**
 
-```bash
-julia --project -e 'using Pkg; Pkg.test(test_args=["types"])'
-```
+- [ ] **Step 3: Replace `EnzymeMechanism` struct + accessors**
 
-Expected: fail (new struct signature not yet defined).
-
-- [ ] **Step 3: Replace `EnzymeMechanism` struct and add accessors**
-
-In `src/types.jl`, replace the existing `struct EnzymeMechanism{...}` definition (currently lines 74-76 approximately) with:
+In `src/types.jl`, replace the existing `EnzymeMechanism` definition with:
 
 ```julia
 """
@@ -295,34 +250,27 @@ In `src/types.jl`, replace the existing `struct EnzymeMechanism{...}` definition
 
 Singleton type encoding an enzyme mechanism.
 
-- `Metabolites`: 3-tuple `(substrates, products, regulators)`, each a
-  tuple of `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
+- `Metabolites`: 3-tuple `(substrates::Tuple{Symbol,...}, products::Tuple{Symbol,...},
+  regulators::Tuple{Symbol,...})`. Plain symbol names — no atom content stored.
 - `Reactions`: tuple of 4-tuples `(lhs_syms, rhs_syms, is_eq::Bool,
-  kinetic_group::Int)`. Steps with identical `kinetic_group` share
-  kinetic parameters (one `K` for RE groups, one `k_f` and one `k_r`
-  for SS groups).
+  kinetic_group::Int)`. Steps with identical `kinetic_group` share kinetic
+  parameters (one `K` for RE groups, one `k_f` and one `k_r` for SS groups).
 """
 struct EnzymeMechanism{Metabolites, Reactions} <: AbstractEnzymeMechanism end
 ```
 
-Replace the accessors in `src/types.jl` (lines 432-504 approximately — the existing `substrates`/`products`/`regulators`/`enzyme_forms`/`n_states`/`n_steps`/`reactions`/`equilibrium_steps`/`param_constraints` definitions). Delete the now-invalid `Species[k]` indexing. Accessor code below:
+Replace the existing accessors. Delete the now-invalid `Species[k]` indexing throughout `src/types.jl`. New accessor implementations:
 
 ```julia
-"""Return substrates as tuple of `(name, atoms)` pairs."""
 substrates(::EnzymeMechanism{M}) where {M} = M[1]
-
-"""Return products as tuple of `(name, atoms)` pairs."""
 products(::EnzymeMechanism{M}) where {M} = M[2]
-
-"""Return regulators as tuple of `(name, atoms)` pairs (usually atoms empty)."""
 regulators(::EnzymeMechanism{M}) where {M} = M[3]
 
-"""Full metabolite list (substrates ∪ products ∪ regulators, deduplicated by name)."""
 @generated function metabolites(::EnzymeMechanism{M}) where {M}
     seen = Set{Symbol}()
     names = Symbol[]
     for group in M
-        for (name, _) in group
+        for name in group
             if name ∉ seen
                 push!(seen, name)
                 push!(names, name)
@@ -332,153 +280,45 @@ regulators(::EnzymeMechanism{M}) where {M} = M[3]
     Tuple(names)
 end
 
-"""Return the reactions tuple directly: `((lhs, rhs, is_eq, kinetic_group), ...)`."""
 reactions(::EnzymeMechanism{M, R}) where {M, R} = R
 
-"""Return the RE/SS flags as a tuple of Bool, parallel to reactions()."""
 @generated function equilibrium_steps(::EnzymeMechanism{M, R}) where {M, R}
     Tuple(step[3] for step in R)
 end
 
-"""Number of reaction steps."""
 n_steps(::EnzymeMechanism{M, R}) where {M, R} = length(R)
 
-"""Return the kinetic group integer for step `idx`."""
 kinetic_group(::EnzymeMechanism{M, R}, idx::Int) where {M, R} = R[idx][4]
 
-"""Return the unique kinetic-group integers present in the mechanism, sorted."""
 @generated function kinetic_groups(::EnzymeMechanism{M, R}) where {M, R}
-    gs = unique(step[4] for step in R)
-    Tuple(sort(collect(gs)))
+    Tuple(sort(unique(step[4] for step in R)))
 end
 
-"""Return step indices belonging to the given kinetic group."""
 @generated function steps_in_group(
     ::EnzymeMechanism{M, R}, ::Val{G},
 ) where {M, R, G}
     Tuple(i for (i, step) in enumerate(R) if step[4] == G)
 end
 steps_in_group(m::EnzymeMechanism, g::Int) = steps_in_group(m, Val(g))
-```
 
-Enzyme-form accessors (derive from `Reactions`):
-
-```julia
-"""Infer enzyme forms from reaction steps + atom balance. Returns tuple of (name, atoms)."""
 @generated function enzyme_forms(::EnzymeMechanism{M, R}) where {M, R}
-    # All symbols appearing in step sides that are not substrates/products/regulators.
     met_names = Set{Symbol}()
-    for group in M
-        for (name, _) in group
-            push!(met_names, name)
-        end
-    end
-    forms_order = Symbol[]
+    for group in M; for name in group; push!(met_names, name); end; end
+    seen = Set{Symbol}()
+    forms = Symbol[]
     for (lhs, rhs, _, _) in R
-        for s in lhs; s ∉ met_names && s ∉ forms_order && push!(forms_order, s); end
-        for s in rhs; s ∉ met_names && s ∉ forms_order && push!(forms_order, s); end
+        for s in lhs; s ∉ met_names && s ∉ seen && (push!(seen, s); push!(forms, s)); end
+        for s in rhs; s ∉ met_names && s ∉ seen && (push!(seen, s); push!(forms, s)); end
     end
-    # Atom content inferred by solving mass balance; see _infer_enzyme_atoms below.
-    atoms_map = _infer_enzyme_atoms(M, R, forms_order)
-    Tuple((f, atoms_map[f]) for f in forms_order)
+    Tuple(forms)
 end
 
-"""Number of distinct enzyme forms."""
 n_states(m::EnzymeMechanism) = length(enzyme_forms(m))
 ```
 
-Add helper `_infer_enzyme_atoms(M, R, forms_order)` (pseudo-code here — implement as pure function that walks the reaction graph assigning atom dicts by mass balance, errors if inconsistent):
+- [ ] **Step 4: Run tests**
 
-```julia
-"""
-Infer enzyme-form atom content by walking the reaction graph and enforcing
-atomic conservation: for each step `E_lhs + M_lhs ⇌ E_rhs + M_rhs` (or
-`E_lhs ⇌ E_rhs` for iso), atoms(E_rhs) = atoms(E_lhs) ± atoms(M).
-Free enzyme (form with no atoms bound anywhere) starts at ∅.
-"""
-function _infer_enzyme_atoms(
-    Metabolites::NTuple{3},
-    Reactions,
-    forms_order::Vector{Symbol},
-)
-    # Map metabolite name -> atom Dict{Symbol,Int}
-    met_atoms = Dict{Symbol, Dict{Symbol,Int}}()
-    for group in Metabolites
-        for (name, atoms) in group
-            met_atoms[name] = Dict{Symbol,Int}(a => c for (a, c) in atoms)
-        end
-    end
-    met_names = Set(keys(met_atoms))
-
-    # Initialize: first form in forms_order gets empty atoms (the free enzyme).
-    # This convention matches the existing `_AnyMechanism` assumption that
-    # at least one form has no atoms.
-    atoms = Dict{Symbol, Dict{Symbol,Int}}()
-    for f in forms_order; atoms[f] = Dict{Symbol,Int}(); end
-
-    # Iteratively propagate atom content across known steps until stable.
-    changed = true
-    known = Set{Symbol}()
-    # Start from any form that's reachable from an iso step that has only
-    # one enzyme-on-one-side (needs an entry point; use the first form).
-    push!(known, forms_order[1])
-    atoms[forms_order[1]] = Dict{Symbol,Int}()
-
-    while changed
-        changed = false
-        for (lhs, rhs, _, _) in Reactions
-            e_lhs = first(s for s in lhs if s ∉ met_names)
-            e_rhs = first(s for s in rhs if s ∉ met_names)
-            m_lhs = [s for s in lhs if s in met_names]
-            m_rhs = [s for s in rhs if s in met_names]
-            if e_lhs ∈ known && e_rhs ∉ known
-                # Atoms(e_rhs) = Atoms(e_lhs) + sum(m_lhs) - sum(m_rhs)
-                new_atoms = copy(atoms[e_lhs])
-                for m in m_lhs, (a, c) in met_atoms[m]; new_atoms[a] = get(new_atoms, a, 0) + c; end
-                for m in m_rhs, (a, c) in met_atoms[m]; new_atoms[a] = get(new_atoms, a, 0) - c; end
-                filter!(p -> p.second != 0, new_atoms)
-                atoms[e_rhs] = new_atoms
-                push!(known, e_rhs)
-                changed = true
-            elseif e_rhs ∈ known && e_lhs ∉ known
-                new_atoms = copy(atoms[e_rhs])
-                for m in m_rhs, (a, c) in met_atoms[m]; new_atoms[a] = get(new_atoms, a, 0) + c; end
-                for m in m_lhs, (a, c) in met_atoms[m]; new_atoms[a] = get(new_atoms, a, 0) - c; end
-                filter!(p -> p.second != 0, new_atoms)
-                atoms[e_lhs] = new_atoms
-                push!(known, e_lhs)
-                changed = true
-            elseif e_lhs ∈ known && e_rhs ∈ known
-                # Consistency check
-                expected = copy(atoms[e_lhs])
-                for m in m_lhs, (a, c) in met_atoms[m]; expected[a] = get(expected, a, 0) + c; end
-                for m in m_rhs, (a, c) in met_atoms[m]; expected[a] = get(expected, a, 0) - c; end
-                filter!(p -> p.second != 0, expected)
-                expected == atoms[e_rhs] ||
-                    error("Atom-balance inconsistency at step $(lhs) ⇌ $(rhs): " *
-                          "expected $(atoms[e_rhs]), derived $expected")
-            end
-        end
-    end
-
-    # Every form must be reachable
-    for f in forms_order
-        f ∈ known || error("Enzyme form $f is not reachable from the free form.")
-    end
-
-    Dict(f => Tuple((a, c) for (a, c) in atoms[f]) for f in forms_order)
-end
-```
-
-- [ ] **Step 4: Run the new accessor test**
-
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
-
-Expected: the new test case passes. Other tests **will break** — that's expected and handled in the next tasks. Mark the expected-red state.
-
-**RED-OK from this point until end of Task 2.6.**
+The new accessor test passes; many other tests break (they use the old DSL or old type). **RED-OK from this point through end of Phase 2.**
 
 - [ ] **Step 5: Commit**
 
@@ -486,126 +326,231 @@ Expected: the new test case passes. Other tests **will break** — that's expect
 git add src/types.jl test/test_types.jl
 git commit -m "Introduce new EnzymeMechanism{Metabolites, Reactions} type
 
-Each step tuple carries (lhs, rhs, is_eq, kinetic_group). Steps sharing
-a kinetic_group share their K (RE) or k_f/k_r (SS) parameters.
-Species split into ((subs,), (prods,), (regs,)). Enzyme forms derived
-from reactions via atom-balance (_infer_enzyme_atoms).
+Metabolites is ((subs,), (prods,), (regs,)) of plain Symbols — no
+atoms. Each step tuple is (lhs, rhs, is_eq, kinetic_group). Steps
+sharing kinetic_group share K (RE) or k_f/k_r (SS).
 
-KNOWN RED: downstream code still expects 4-param type. Fixed in
-subsequent commits within this phase."
+KNOWN RED: downstream code uses old 4-param signature."
 ```
 
-### Task 2.2: Update `EnzymeMechanism` constructor
+### Task 2.2: Refactor `stoich_matrix` to return full matrix
 
-The existing constructor accepts `(species, reactions, eq_steps, [constraints])`. The new constructor accepts `(metabolites_3tuple, reactions_4tuple)` and handles canonicalization.
+The existing `stoich_matrix` returns metabolites-only rows. We extend it to return the full matrix (enzymes followed by metabolites) for the rank-based stoichiometric feasibility check, and migrate the one existing caller.
 
 **Files:**
 - Modify: `src/types.jl`
+- Modify: `src/thermodynamic_constr_for_rate_eq_derivation.jl`
 
-- [ ] **Step 1: Write constructor test**
+- [ ] **Step 1: Replace `stoich_matrix` definition**
+
+In `src/types.jl`, replace the existing `@generated function stoich_matrix(...)` with:
+
+```julia
+"""
+    stoich_matrix(m::EnzymeMechanism) → Matrix{Int}
+
+Full stoichiometry matrix. Rows are species in the order
+`(enzyme_forms..., metabolites...)` (use `enzyme_row_range(m)` and
+`metabolite_row_range(m)` to slice). Columns are step indices.
+Positive = produced; negative = consumed in the forward direction.
+
+Enzyme-row columns sum to zero by construction (each step has one
+enzyme on each side).
+"""
+@generated function stoich_matrix(::EnzymeMechanism{M, R}) where {M, R}
+    met_names_set = Set{Symbol}()
+    for group in M; for name in group; push!(met_names_set, name); end; end
+
+    seen = Set{Symbol}()
+    enz = Symbol[]
+    for (lhs, rhs, _, _) in R
+        for s in lhs; s ∉ met_names_set && s ∉ seen && (push!(seen, s); push!(enz, s)); end
+        for s in rhs; s ∉ met_names_set && s ∉ seen && (push!(seen, s); push!(enz, s)); end
+    end
+
+    met_seen = Set{Symbol}()
+    mets = Symbol[]
+    for group in M
+        for name in group
+            name ∉ met_seen && (push!(met_seen, name); push!(mets, name))
+        end
+    end
+
+    species = [enz; mets]
+    sp_idx = Dict(s => i for (i, s) in enumerate(species))
+    S = zeros(Int, length(species), length(R))
+    for (j, (lhs, rhs, _, _)) in enumerate(R)
+        for s in lhs; S[sp_idx[s], j] -= 1; end
+        for s in rhs; S[sp_idx[s], j] += 1; end
+    end
+    S
+end
+
+enzyme_row_range(m::EnzymeMechanism) = 1:n_states(m)
+metabolite_row_range(m::EnzymeMechanism) = (n_states(m) + 1):(n_states(m) + length(metabolites(m)))
+```
+
+- [ ] **Step 2: Migrate the one existing caller**
+
+In `src/thermodynamic_constr_for_rate_eq_derivation.jl:116`, change:
+
+```julia
+# Before:
+stoich_matrix(m), collect(metabolites(m)),
+# After:
+stoich_matrix(m)[metabolite_row_range(m), :], collect(metabolites(m)),
+```
+
+- [ ] **Step 3: Verify the slice returns the same shape and values**
+
+Add a quick smoke test in `test/test_types.jl`:
+
+```julia
+@testset "stoich_matrix has expected enzyme/metabolite rows" begin
+    mets = ((:S,), (:P,), ())
+    rxns = (
+        ((:E, :S), (:ES,), true,  1),
+        ((:ES,),   (:EP,), false, 2),
+        ((:EP,),   (:E, :P), true, 3),
+    )
+    m = EnzymeRates.EnzymeMechanism{mets, rxns}()
+    S = EnzymeRates.stoich_matrix(m)
+
+    enz_idx = EnzymeRates.enzyme_row_range(m)
+    met_idx = EnzymeRates.metabolite_row_range(m)
+    @test all(sum(S[enz_idx, j]) == 0 for j in 1:size(S, 2))   # enzyme conservation
+    @test S[met_idx, :] |> size == (2, 3)                       # 2 metabolites × 3 steps
+end
+```
+
+- [ ] **Step 4: RED-OK; commit**
+
+```bash
+git add src/types.jl src/thermodynamic_constr_for_rate_eq_derivation.jl test/test_types.jl
+git commit -m "Refactor stoich_matrix to return full enzyme + metabolite matrix
+
+Adds enzyme_row_range / metabolite_row_range slicing accessors.
+Migrates the one existing caller (thermodynamic_constr) to slice
+metabolite rows. Used by the new rank-based stoichiometric
+feasibility check in the EnzymeMechanism constructor."
+```
+
+### Task 2.3: Implement `EnzymeMechanism(metabolites, reactions)` constructor
+
+**Files:**
+- Modify: `src/types.jl`
+- Modify: `test/test_types.jl`
+
+- [ ] **Step 1: Write failing constructor test**
 
 Add to `test/test_types.jl`:
 
 ```julia
-@testset "EnzymeMechanism constructor + canonicalization" begin
-    # Same mechanism, two different DSL orderings — should produce same type.
-    mets = (((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), ())
-
-    # Ordering 1
-    rxns_a = (
-        ((:E, :S), (:ES,), true, 1),
-        ((:ES,), (:EP,), false, 2),
-        ((:EP,), (:E, :P), true, 3),
+@testset "EnzymeMechanism constructor" begin
+    mets = ((:S,), (:P,), ())
+    rxns = (
+        ((:E, :S), (:ES,), true,  1),
+        ((:ES,),   (:EP,), false, 2),
+        ((:EP,),   (:E, :P), true, 3),
     )
-    m_a = EnzymeRates.EnzymeMechanism(mets, rxns_a)
-
-    # Ordering 2 — same steps, shuffled with different group numbers
-    rxns_b = (
-        ((:EP,), (:E, :P), true, 99),
-        ((:ES,), (:EP,), false, 5),
-        ((:E, :S), (:ES,), true, 42),
-    )
-    m_b = EnzymeRates.EnzymeMechanism(mets, rxns_b)
-
-    @test typeof(m_a) == typeof(m_b)
+    m = EnzymeRates.EnzymeMechanism(mets, rxns)
+    @test EnzymeRates.n_steps(m) == 3
+    @test EnzymeRates.substrates(m) == (:S,)
 
     # Same-kinetics group test
-    rxns_c = (
-        ((:E, :S), (:ES,), true, 1),
-        ((:ES, :S), (:ESS,), true, 1),  # shares group with first step
-        ((:ES,), (:EP,), false, 2),
-        ((:EP,), (:E, :P), true, 3),
+    rxns_grouped = (
+        ((:E, :S),   (:ES,),   true,  1),
+        ((:ES, :S),  (:ESS,),  true,  1),  # same group as step 1
+        ((:ESS,),    (:EP,),   false, 2),
+        ((:EP,),     (:E, :P), true,  3),
     )
-    mets_2s = (((:S, ((:C, 1),)),), ((:P, ((:C, 1),)),), ())
-    m_c = EnzymeRates.EnzymeMechanism(mets_2s, rxns_c)
-    @test EnzymeRates.kinetic_group(m_c, 1) == EnzymeRates.kinetic_group(m_c, 2)
+    m_g = EnzymeRates.EnzymeMechanism(mets, rxns_grouped)
+    @test EnzymeRates.kinetic_group(m_g, 1) == EnzymeRates.kinetic_group(m_g, 2)
+
+    # Stoichiometry violation: substrate not actually consumed
+    bad_rxns = (
+        ((:E, :S), (:ES,), true,  1),
+        ((:ES,),   (:E,),  false, 2),    # S "vanishes" — no product
+    )
+    @test_throws ErrorException EnzymeRates.EnzymeMechanism(((:S,), (:P,), ()), bad_rxns)
+
+    # Iso group with size > 1 should error
+    bad_iso = (
+        ((:E, :S), (:ES,), true,  1),
+        ((:ES,),   (:EP,), false, 99),
+        ((:EP,),   (:EQ,), false, 99),    # second iso step in same group → error
+        ((:EQ,),   (:E, :P), true, 2),
+    )
+    @test_throws ErrorException EnzymeRates.EnzymeMechanism(((:S,), (:P,), ()), bad_iso)
 end
 ```
 
-- [ ] **Step 2: Run test — expect failure**
+- [ ] **Step 2: Run — expect failure**
 
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
+- [ ] **Step 3: Implement the constructor**
 
-Expected: fail (no 2-arg constructor yet).
-
-- [ ] **Step 3: Implement constructor**
-
-In `src/types.jl`, replace the current `function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps, constraints=())` with the new 2-arg constructor. Keep the validation logic (enzyme reachability, atom balance, etc.) but adapt to new tuple shape.
+In `src/types.jl`, replace the existing `function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps, constraints=())` with the new 2-arg constructor. Validation steps in order:
 
 ```julia
 """
     EnzymeMechanism(metabolites, reactions) → EnzymeMechanism
 
 Construct an `EnzymeMechanism` from explicit metabolite 3-tuple and
-reaction 4-tuples. The reactions tuple is canonicalized (sorted by
-step_sort_key; kinetic groups renumbered by first-occurrence order).
-
-Validates:
-- at least one SS step,
-- canonical RE step direction (metabolite on LHS),
-- atom conservation,
-- enzyme reachability,
-- kinetic-group composition rules (all RE-same-metabolite, all
-  SS-binding-same-metabolite, or iso singleton),
-- no mixing substrate-type and inhibitor-type binding in one group.
+reaction 4-tuples. Step order is preserved (no canonicalization).
+Validates structure, enzyme-form connectivity, kinetic-group
+composition rules, and stoichiometric feasibility.
 """
-function EnzymeMechanism(mets::Tuple{Tuple,Tuple,Tuple}, rxns::Tuple)
+function EnzymeMechanism(
+    mets::Tuple{Tuple{Vararg{Symbol}}, Tuple{Vararg{Symbol}}, Tuple{Vararg{Symbol}}},
+    rxns::Tuple,
+)
     subs, prods, regs = mets
-    # ---- Normalize species tuples (sort alphabetically by name) ----
-    subs = _sort_species(subs)
-    prods = _sort_species(prods)
-    regs = _sort_species(regs)
+
+    # ---- Sort each species list alphabetically (canonical form for type
+    #      uniqueness). Step ORDER is preserved per spec §4.1.2.
+    subs = Tuple(sort(collect(subs)))
+    prods = Tuple(sort(collect(prods)))
+    regs = Tuple(sort(collect(regs)))
     mets = (subs, prods, regs)
 
     isempty(rxns) && error("Reactions tuple must not be empty")
     all(step[3] for step in rxns) &&
-        error("At least one SS step is required (not all steps can be RE)")
+        error("At least one SS step required (not all steps can be RE)")
 
-    # ---- Build lookup tables ----
-    met_atoms = Dict{Symbol, Dict{Symbol, Int}}()
+    # ---- Build metabolite set
+    met_set = Set{Symbol}()
     for group in (subs, prods, regs)
-        for (name, atoms) in group
-            d = Dict{Symbol, Int}(a => c for (a, c) in atoms)
-            if haskey(met_atoms, name)
-                met_atoms[name] == d ||
-                    error("Inconsistent atoms for metabolite $name")
-            else
-                met_atoms[name] = d
-            end
-        end
+        for name in group; push!(met_set, name); end
     end
-    met_set = Set(keys(met_atoms))
 
-    # ---- Canonicalize RE step direction (metabolite on LHS) ----
+    # ---- Validate each step shape
+    for (i, step) in enumerate(rxns)
+        length(step) == 4 ||
+            error("Step $i must be (lhs, rhs, is_eq, kinetic_group); got $step")
+        lhs, rhs, is_eq, gnum = step
+        is_eq isa Bool || error("Step $i is_eq must be Bool")
+        gnum isa Int || error("Step $i kinetic_group must be Int")
+        # Each side has exactly one enzyme form (= one non-metabolite name)
+        n_enz_lhs = count(s -> s ∉ met_set, lhs)
+        n_enz_rhs = count(s -> s ∉ met_set, rhs)
+        n_enz_lhs == 1 ||
+            error("Step $i LHS must contain exactly one enzyme form; got $lhs")
+        n_enz_rhs == 1 ||
+            error("Step $i RHS must contain exactly one enzyme form; got $rhs")
+        n_met_lhs = count(s -> s ∈ met_set, lhs)
+        n_met_rhs = count(s -> s ∈ met_set, rhs)
+        n_met_lhs <= 1 || error("Step $i LHS has more than one metabolite")
+        n_met_rhs <= 1 || error("Step $i RHS has more than one metabolite")
+    end
+
+    # ---- Canonicalize RE step direction (metabolite on LHS for binding steps)
     rxns = ntuple(length(rxns)) do i
         (lhs, rhs, is_eq, gnum) = rxns[i]
         if !is_eq
             return (lhs, rhs, is_eq, gnum)
         end
-        lhs_has_met = any(s in met_set for s in lhs)
         rhs_has_met = any(s in met_set for s in rhs)
+        lhs_has_met = any(s in met_set for s in lhs)
         if rhs_has_met && !lhs_has_met
             (rhs, lhs, is_eq, gnum)
         else
@@ -613,302 +558,368 @@ function EnzymeMechanism(mets::Tuple{Tuple,Tuple,Tuple}, rxns::Tuple)
         end
     end
 
-    # ---- Sort steps by _step_sort_key ----
-    sort_key(step) = (sort(collect(step[1])), sort(collect(step[2])), step[3])
-    sorted_rxns = sort(collect(rxns), by=sort_key)
-
-    # ---- Renumber kinetic groups by first-occurrence order ----
-    old_to_new = Dict{Int, Int}()
-    next_new = 1
-    renumbered = map(sorted_rxns) do step
-        (lhs, rhs, is_eq, gnum) = step
-        if !haskey(old_to_new, gnum)
-            old_to_new[gnum] = next_new
-            next_new += 1
-        end
-        (lhs, rhs, is_eq, old_to_new[gnum])
+    # ---- Each substrate / product / regulator must appear in some step
+    appears = Set{Symbol}()
+    for (lhs, rhs, _, _) in rxns
+        for s in lhs; appears |= Set([s]); end
+        for s in rhs; appears |= Set([s]); end
     end
-    rxns_canonical = Tuple(renumbered)
+    for name in vcat(collect(subs), collect(prods), collect(regs))
+        name in appears ||
+            error("Listed metabolite $name does not appear in any reaction step")
+    end
 
-    # ---- Validate kinetic-group composition ----
-    _validate_kinetic_groups(rxns_canonical, met_set, met_atoms)
+    # ---- No unlisted metabolite-looking name (anything in steps not in met_set
+    #      is treated as enzyme form; no extra check needed).
 
-    # ---- Validate atom balance (delegates to _infer_enzyme_atoms) ----
-    #  Compute the enzyme-form atoms to trigger the consistency check;
-    #  store nothing here — `enzyme_forms(m)` recomputes lazily.
-    forms_order = _extract_forms_order(rxns_canonical, met_set)
-    _infer_enzyme_atoms(mets, rxns_canonical, forms_order)
+    # ---- Kinetic-group composition rules
+    _validate_kinetic_groups(rxns, met_set)
 
-    # ---- Validate net stoichiometry ----
-    _validate_net_stoichiometry(mets, rxns_canonical, met_set)
+    # ---- Build the singleton type and run remaining checks via accessors
+    m = EnzymeMechanism{mets, rxns}()
 
-    EnzymeMechanism{mets, rxns_canonical}()
+    # ---- Enzyme-form graph weakly connected
+    _validate_enzyme_connectivity(m)
+
+    # ---- Stoichiometric feasibility (rank check)
+    _validate_stoichiometry(m)
+
+    m
 end
 ```
 
-Add helpers (`_validate_kinetic_groups`, `_extract_forms_order`, `_validate_net_stoichiometry`) as pure Julia functions in `src/types.jl`. Key behaviors:
+Add helpers:
 
 ```julia
 """
-Validate: for each kinetic group of size 2+, all steps must be all RE
-(same metabolite bound) or all SS binding (same metabolite bound);
-never mixed, never iso. Also: no mixing substrate-type (form doesn't
-contain metabolite) with inhibitor-type (form contains metabolite).
+Validate kinetic-group composition: 2+ groups must be all RE binding
+or all SS binding (same metabolite); iso steps must be singletons.
 """
-function _validate_kinetic_groups(rxns, met_set, met_atoms)
+function _validate_kinetic_groups(rxns, met_set)
     groups = Dict{Int, Vector{Int}}()
     for (i, step) in enumerate(rxns)
         push!(get!(groups, step[4], Int[]), i)
     end
-    for (gnum, idxs) in groups
-        length(idxs) == 1 && continue  # singleton groups are always valid
-        # All members: extract (is_eq, metabolite_bound, lhs_form_has_metabolite)
+    for (g, idxs) in groups
+        length(idxs) == 1 && continue
         kinds = map(idxs) do i
             lhs, rhs, is_eq, _ = rxns[i]
-            mets_in_step = [s for s in lhs if s in met_set]
-            # Iso step = no metabolite on either side
-            isempty(mets_in_step) && isempty(s for s in rhs if s in met_set) &&
-                error("Iso step at index $i cannot be in a multi-step kinetic group $gnum")
-            length(mets_in_step) == 1 ||
-                error("Step $i has $(length(mets_in_step)) metabolites on LHS; expected 1")
-            met = mets_in_step[1]
-            # Find the enzyme form on LHS
-            enz_lhs = first(s for s in lhs if s ∉ met_set)
-            # Is this substrate-type (enz_lhs doesn't already bind met)
-            # or inhibitor-type (enz_lhs already carries met's atoms)?
-            # We detect by: substrate-type if the metabolite atoms aren't
-            # already in the enzyme's accumulated atoms. We use the atom
-            # map computed lazily; simpler check: does enz_rhs contain
-            # the SAME symbol M (e.g., ES with S already) as a second copy?
-            # Use a string heuristic on the enzyme name: inhibitor-type if
-            # the name contains the metabolite twice (e.g., E_S_S).
-            # (This isn't robust — better: count occurrences of met in
-            #  enzyme form names by walking reachability. For the MVP,
-            #  ask the user to distinguish at DSL level.)
-            (is_eq, met)
+            mets_in = [s for s in lhs if s in met_set]
+            mets_out = [s for s in rhs if s in met_set]
+            isempty(mets_in) && isempty(mets_out) &&
+                error("Iso step (no metabolite) at index $i must be a " *
+                      "singleton kinetic group; found in group $g of size $(length(idxs))")
+            length(mets_in) == 1 ||
+                error("Step $i has $(length(mets_in)) metabolites on LHS; expected 1")
+            (is_eq, mets_in[1])
         end
         first_kind = kinds[1]
-        for k in kinds[2:end]
+        for (i, k) in zip(idxs[2:end], kinds[2:end])
             k[1] == first_kind[1] ||
-                error("Kinetic group $gnum mixes RE and SS binding steps")
+                error("Kinetic group $g contains both RE and SS binding steps")
             k[2] == first_kind[2] ||
-                error("Kinetic group $gnum binds different metabolites " *
-                      "($(first_kind[2]) and $(k[2]))")
-        end
-        # Substrate-type vs inhibitor-type check: compare each step's
-        # enz_lhs form atom content against met atoms. If the enz_lhs
-        # already contains met's atoms, this is inhibitor-type binding
-        # (metabolite being added to a form that already carries it).
-        # All members of the group must match on this classification.
-    end
-end
-```
-
-Implementation detail for the substrate-type vs inhibitor-type check: use the enzyme-form atom map from `_infer_enzyme_atoms` (which runs earlier in the constructor). For each binding step in the group, check whether the LHS enzyme form's atoms contain the metabolite's atoms as a subset. If so, this is inhibitor-type binding. All group members must agree on this classification — if some are substrate-type and others inhibitor-type, error with a message identifying the offending metabolite.
-
-```julia
-function _extract_forms_order(rxns, met_set)
-    seen = Set{Symbol}()
-    order = Symbol[]
-    for (lhs, rhs, _, _) in rxns
-        for s in lhs; s ∉ met_set && s ∉ seen && (push!(seen, s); push!(order, s)); end
-        for s in rhs; s ∉ met_set && s ∉ seen && (push!(seen, s); push!(order, s)); end
-    end
-    order
-end
-
-function _validate_net_stoichiometry(mets, rxns, met_set)
-    subs, prods, regs = mets
-    expected = Dict{Symbol, Int}()
-    for (n, _) in subs; expected[n] = get(expected, n, 0) - 1; end
-    for (n, _) in prods; expected[n] = get(expected, n, 0) + 1; end
-    for (n, _) in regs; expected[n] = get(expected, n, 0); end
-    net = Dict{Symbol, Int}()
-    for (lhs, rhs, _, _) in rxns
-        for s in lhs; s in met_set && (net[s] = get(net, s, 0) - 1); end
-        for s in rhs; s in met_set && (net[s] = get(net, s, 0) + 1); end
-    end
-    for (name, coeff) in expected
-        if coeff != 0
-            haskey(net, name) ||
-                error("$(coeff < 0 ? "Substrate" : "Product") $name does not appear in any reaction")
+                error("Kinetic group $g binds different metabolites: " *
+                      "$(first_kind[2]) and $(k[2])")
         end
     end
-    for name in keys(net)
-        haskey(expected, name) ||
-            error("Metabolite $name not in species tuple")
-    end
 end
+
+"""Verify the enzyme-form graph is weakly connected."""
+function _validate_enzyme_connectivity(m::EnzymeMechanism)
+    enz = enzyme_forms(m)
+    isempty(enz) && error("Mechanism has no enzyme forms")
+    name_set = Set(enz)
+    adj = Dict(n => Set{Symbol}() for n in enz)
+    for (lhs, rhs, _, _) in reactions(m)
+        e_l = first(s for s in lhs if s in name_set)
+        e_r = first(s for s in rhs if s in name_set)
+        push!(adj[e_l], e_r)
+        push!(adj[e_r], e_l)
+    end
+    visited = Set{Symbol}()
+    queue = [first(enz)]
+    while !isempty(queue)
+        cur = popfirst!(queue)
+        cur in visited && continue
+        push!(visited, cur)
+        for n in adj[cur]; n in visited || push!(queue, n); end
+    end
+    visited == name_set ||
+        error("Enzyme-form graph not connected; orphan forms: " *
+              "$(setdiff(name_set, visited))")
+end
+
+"""
+Stoichiometric feasibility via `r ∈ col(S)` rank test on the full
+stoichiometry matrix. The target vector r has 0 on enzyme rows and
+on regulator rows, and ±count(M in subs/prods) on substrate/product rows.
+"""
+function _validate_stoichiometry(m::EnzymeMechanism)
+    S = stoich_matrix(m)
+    species = (enzyme_forms(m)..., metabolites(m)...)
+    sp_idx = Dict(s => i for (i, s) in enumerate(species))
+    r = zeros(Int, length(species))
+    for s in substrates(m); r[sp_idx[s]] -= 1; end
+    for p in products(m);   r[sp_idx[p]] += 1; end
+
+    rs = Rational.(S)
+    rr = Rational.(r)
+    rank(rs) == rank(hcat(rs, rr)) ||
+        error("Mechanism stoichiometry does not match the declared net reaction. " *
+              "Check substrate / product multiplicities and that regulators " *
+              "have net zero change. Declared: " *
+              "$(_pretty_reaction(substrates(m), products(m)))")
+end
+
+_pretty_reaction(subs, prods) =
+    "$(join(string.(subs), " + ")) → $(join(string.(prods), " + "))"
 ```
 
-- [ ] **Step 4: Run the constructor test**
+- [ ] **Step 4: Run tests**
 
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
-
-Expected: new constructor test passes; many other tests still failing (still RED, as expected).
+The new constructor tests pass. Other plain-mechanism tests still failing (still RED).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/types.jl test/test_types.jl
-git commit -m "Implement EnzymeMechanism 2-arg constructor with canonicalization
+git commit -m "Implement EnzymeMechanism 2-arg constructor
 
-Canonicalization: sort steps by (sorted reactants, sorted products, is_eq);
-renumber kinetic_groups by first-occurrence order in the sorted list.
-Two DSL orderings of the same semantic mechanism produce identical types.
+Validation: at least one SS step, each species appears in steps,
+exactly one enzyme form per side, kinetic-group composition rules,
+weakly-connected enzyme-form graph, rank-based stoichiometric
+feasibility (r ∈ col(S)). No canonicalization of step order; user
+DSL order preserved.
 
-KNOWN RED: downstream code still expects old signature."
+KNOWN RED: downstream code uses old DSL / old type."
 ```
 
-### Task 2.3: Update `@enzyme_mechanism` macro to emit new type
+### Task 2.4: Rewrite `@enzyme_mechanism` macro
 
 **Files:**
 - Modify: `src/dsl.jl`
+- Modify: `test/test_dsl.jl`
 
-- [ ] **Step 1: Write DSL macro test**
-
-Add to `test/test_dsl.jl`:
+- [ ] **Step 1: Write failing DSL test**
 
 ```julia
 @testset "@enzyme_mechanism (new grammar)" begin
     m = @enzyme_mechanism begin
-        substrates: S[C]
-        products:   P[C]
+        substrates: S
+        products:   P
         regulators: I
 
         steps: begin
-            [E, S]  ⇌    [ES]
-            [ES, I] ⇌    [ESI]
-            [ES]   <--> [EP]
-            [EP]   ⇌    [E, P]
-        end
-    end
-
-    @test EnzymeRates.substrates(m) == ((:S, ((:C, 1),)),)
-    @test EnzymeRates.products(m) == ((:P, ((:C, 1),)),)
-    @test EnzymeRates.regulators(m) == ((:I, ()),)
-    @test EnzymeRates.n_steps(m) == 4
-    @test count(EnzymeRates.equilibrium_steps(m)) == 3   # 3 RE, 1 SS
-
-    # Grouping test
-    m_grouped = @enzyme_mechanism begin
-        substrates: S[C]
-        products:   P[C]
-
-        steps: begin
-            ([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])      # shared K group
+            ([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])
+            [ES, I] ⇌ [ESI]
             [ES]   <--> [EP]
             [EP]   ⇌   [E, P]
         end
     end
+    @test EnzymeRates.substrates(m) == (:S,)
+    @test EnzymeRates.products(m) == (:P,)
+    @test EnzymeRates.regulators(m) == (:I,)
+    @test EnzymeRates.kinetic_group(m, 1) == EnzymeRates.kinetic_group(m, 2)
+    @test EnzymeRates.kinetic_group(m, 3) != EnzymeRates.kinetic_group(m, 4)
 
-    @test EnzymeRates.kinetic_group(m_grouped, 1) ==
-          EnzymeRates.kinetic_group(m_grouped, 2)   # both in same group after sort
+    # Reject atom bracket syntax
+    @test_throws Exception eval(:(@enzyme_mechanism begin
+        substrates: S[C]
+        products:   P
+        steps: begin
+            [E, S] ⇌ [ES]
+            [ES] <--> [EP]
+            [EP] ⇌ [E, P]
+        end
+    end))
+
+    # Reject allosteric-only syntax
+    @test_throws Exception eval(:(@enzyme_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]
+                [ES] <--> [EP]
+                [EP] ⇌ [E, P]
+            end
+        end
+    end))
 end
 ```
 
-- [ ] **Step 2: Run test — expect failure**
+- [ ] **Step 2: Run — expect failure**
 
-- [ ] **Step 3: Rewrite `@enzyme_mechanism` macro body**
+- [ ] **Step 3: Replace `@enzyme_mechanism` body**
 
-Replace the current `@enzyme_mechanism` body in `src/dsl.jl` with the new grammar.
-
-The full replacement:
+Replace the existing `@enzyme_mechanism` body in `src/dsl.jl` with new grammar. The full replacement:
 
 ```julia
 """
     @enzyme_mechanism begin
-        substrates: S[C]
-        products:   P[C]
+        substrates: S
+        products:   P
         regulators: I
+
         steps: begin
-            [E, S]  ⇌   [ES]
-            [ES, I] ⇌   [ESI]
+            ([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])    # parenthesized → shared kinetics
+            [ES, I] ⇌ [ESI]
             [ES]   <--> [EP]
             [EP]   ⇌   [E, P]
-
-            # Optional same-kinetics grouping:
-            # ([E, S] ⇌ [ES], [ES, S] ⇌ [ESS])
         end
     end
 
-Build a plain (non-allosteric) `EnzymeMechanism`. Rejects allosteric-only
-constructs (`site(...)` / `::Tag` / `allosteric_regulators:` /
-`catalytic_inhibitors:`) with clear errors.
+Build a plain (non-allosteric) `EnzymeMechanism`.
+- `substrates:`, `products:`, `regulators:` accept comma-separated bare symbols.
+  Atom brackets (e.g. `S[C]`) are rejected — atom declarations belong in `@enzyme_reaction`.
+- `enzymes:` block deleted (forms inferred from steps).
+- `constraints:` block deleted (same-kinetics groups are expressed by parenthesizing
+  the steps that share parameters).
+- Allosteric-only constructs (`site(...)` blocks, `::Tag` annotations,
+  `allosteric_regulators:`, `catalytic_inhibitors:`) are rejected with clear errors.
 """
 macro enzyme_mechanism(block)
-    _reject_allosteric_syntax(block)
+    _reject_allosteric_syntax!(block)
     mets_expr, rxns_expr = _parse_plain_mechanism_body(block)
     return esc(:(EnzymeMechanism($mets_expr, $rxns_expr)))
 end
 
-"""Reject allosteric-only DSL fragments in @enzyme_mechanism."""
-function _reject_allosteric_syntax(block)
+function _reject_allosteric_syntax!(block)
     for arg in block.args
         arg isa LineNumberNode && continue
         if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
             label = arg.args[2]
             if label isa Expr && label.head == :call && label.args[1] == :site
-                error("@enzyme_mechanism: `site(...)` belongs in @allosteric_mechanism, not here")
+                error("@enzyme_mechanism: `site(...)` belongs in @allosteric_mechanism")
             end
             label in (:allosteric_regulators, :catalytic_inhibitors) &&
-                error("@enzyme_mechanism: `$label:` is an allosteric-only field; " *
+                error("@enzyme_mechanism: `$label:` is allosteric-only; " *
                       "use @allosteric_mechanism instead")
         end
     end
 end
-```
 
-Implement `_parse_plain_mechanism_body(block)` to:
-1. Parse `substrates:`, `products:`, `regulators:` blocks (no tags).
-2. Parse `steps: begin ... end` where each line is one of:
-   - A step tuple `[lhs...] ⇌ [rhs...]` or `[lhs...] <--> [rhs...]` (standalone — unique kinetic group).
-   - A parenthesized group of step tuples — all share a kinetic group.
-3. Assign kinetic group integers (arbitrary at parse time; constructor canonicalizes).
-4. Return `(mets_expr, rxns_expr)` where:
-   - `mets_expr` is `Expr(:tuple, subs_tuple, prods_tuple, regs_tuple)`.
-   - `rxns_expr` is `Expr(:tuple, step_tuples...)`, each `(lhs_syms, rhs_syms, is_eq, group_num)`.
-
-Rejects `::Tag` on any step:
-
-```julia
-function _parse_step_line(arg, next_group::Ref{Int})
-    # Match: `(s1, s2, s3)` — a parenthesized tuple of steps sharing kinetics
-    if arg isa Expr && arg.head == :tuple
-        gnum = next_group[]; next_group[] += 1
-        steps = Expr(:tuple)
-        for e in arg.args
-            push!(steps.args, _parse_single_step(e, gnum))
+function _parse_plain_mechanism_body(block)
+    subs_list, prods_list, regs_list = Symbol[], Symbol[], Symbol[]
+    steps_block = nothing
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        arg isa Expr && arg.head == :call && arg.args[1] == :(:) ||
+            error("Unexpected expression: $arg")
+        label, value = arg.args[2], arg.args[3]
+        if label == :substrates
+            append!(subs_list, _parse_bare_symbol_list(value, label))
+        elseif label == :products
+            append!(prods_list, _parse_bare_symbol_list(value, label))
+        elseif label == :regulators
+            append!(regs_list, _parse_bare_symbol_list(value, label))
+        elseif label == :steps
+            steps_block = value
+        else
+            error("Unknown @enzyme_mechanism label: $label")
         end
-        return steps.args  # multiple steps, same group
     end
-    # Match: `[lhs] ⇌ [rhs]` or `[lhs] <--> [rhs]` — standalone
-    gnum = next_group[]; next_group[] += 1
-    return [_parse_single_step(arg, gnum)]
+    isempty(subs_list) && error("substrates: not specified")
+    isempty(prods_list) && error("products: not specified")
+    steps_block === nothing && error("steps: not specified")
+
+    rxns_expr = _parse_steps_block_with_groups(steps_block)
+    mets_expr = Expr(:tuple,
+        Expr(:tuple, QuoteNode.(subs_list)...),
+        Expr(:tuple, QuoteNode.(prods_list)...),
+        Expr(:tuple, QuoteNode.(regs_list)...),
+    )
+    mets_expr, rxns_expr
 end
 
-function _parse_single_step(expr, gnum::Int)
+"""
+Parse `substrates: S, A` — comma-separated bare Symbols. Reject
+atom brackets and tag annotations.
+"""
+function _parse_bare_symbol_list(value, label)
+    syms = Symbol[]
+    function push_one(arg)
+        if arg isa Symbol
+            push!(syms, arg)
+        elseif arg isa Expr && arg.head == :ref
+            error("@enzyme_mechanism: atom bracket syntax `$arg` is not allowed " *
+                  "at the mechanism level; declare atoms in @enzyme_reaction.")
+        elseif arg isa Expr && arg.head == :(::)
+            error("@enzyme_mechanism: tag annotation `$arg` is not allowed; " *
+                  "tags are only valid in @allosteric_mechanism.")
+        else
+            error("@enzyme_mechanism `$label:` expects bare Symbol names; got $arg")
+        end
+    end
+    if value isa Expr && value.head == :tuple
+        for a in value.args; push_one(a); end
+    else
+        push_one(value)
+    end
+    syms
+end
+
+"""
+Parse the steps block. Each line is either a single step or a
+parenthesized tuple of steps sharing kinetics. Returns a tuple-Expr of
+4-tuples `(lhs, rhs, is_eq, kinetic_group)`.
+"""
+function _parse_steps_block_with_groups(steps_block)
+    next_group = Ref(0)
+    rxns = Expr(:tuple)
+    for arg in steps_block.args
+        arg isa LineNumberNode && continue
+        if arg isa Expr && arg.head == :tuple
+            # Parenthesized group: all share one kinetic group
+            next_group[] += 1
+            gnum = next_group[]
+            for e in arg.args
+                push!(rxns.args, _parse_single_step(e, gnum, allow_tag=false))
+            end
+        else
+            next_group[] += 1
+            gnum = next_group[]
+            push!(rxns.args, _parse_single_step(arg, gnum, allow_tag=false))
+        end
+    end
+    rxns
+end
+
+"""
+Parse a single step `[lhs] ⇌ [rhs]` or `[lhs] <--> [rhs]`. With
+`allow_tag=false` (plain mechanism), reject any `::Tag` postfix. With
+`allow_tag=true` (allosteric), the caller handles the tag.
+"""
+function _parse_single_step(expr, gnum::Int; allow_tag::Bool=false)
+    if allow_tag && expr isa Expr && expr.head == :(::)
+        # Caller is responsible for unwrapping the tag in allosteric context.
+        # In plain context this branch isn't reached (allow_tag=false).
+    end
+    if !allow_tag && expr isa Expr && expr.head == :(::)
+        error("@enzyme_mechanism: tag annotation `$expr` is not allowed; " *
+              "tags are only valid in @allosteric_mechanism.")
+    end
     expr isa Expr && expr.head == :call ||
-        error("Expected [lhs] ⇌ [rhs] or [lhs] <--> [rhs], got: $expr")
+        error("Expected [lhs] ⇌ [rhs] or [lhs] <--> [rhs]; got $expr")
     op = expr.args[1]
     is_eq = op == :⇌
     is_eq || op == :(<-->) ||
-        error("Expected ⇌ or <-->, got operator: $op")
+        error("Expected ⇌ or <--> step operator; got $op")
     lhs = _parse_step_side_symbols(expr.args[2])
     rhs = _parse_step_side_symbols(expr.args[3])
     Expr(:tuple, lhs, rhs, is_eq, gnum)
 end
 ```
 
-Reuse the existing `_parse_species_tuple_expr` and `_parse_step_side_symbols` helpers.
+Reuse the existing `_parse_step_side_symbols` (which expects `[a, b, c]` vector syntax and produces a tuple of QuoteNodes).
 
-Delete the old `_parse_enzyme_mechanism` function body, the `_parse_allosteric_mechanism` helper (moved to new macro in Task 2.4), and the `_is_allosteric_label` detection.
+Delete the old `_parse_enzyme_mechanism`, `_parse_allosteric_mechanism`, `_is_allosteric_label`, `_parse_constraint_rhs`, `_walk_rhs!`, `_push_constraint!`, `_parse_constraints_block`, `_parse_species_block`, `_parse_steps_block`, `_parse_chemical_formula`, `_parse_species_tuple_expr`, `_parse_label_species_tuple`, `_parse_labeled_block`, `_regulator_tuple_to_symbols`, `_parse_reg_ligands_block`, `_parse_catalytic_block`, `_met_sym` functions to the extent they're only used by the deleted DSL.
+
+Note: `@enzyme_reaction` macro at the top of `dsl.jl` uses `_parse_chemical_formula`, `_parse_species_tuple_expr`, `_parse_label_species_tuple`, `_parse_labeled_block`, `_regulator_tuple_to_symbols`. These must be preserved. Audit before deletion.
 
 - [ ] **Step 4: Run tests**
 
-Expected: new DSL test passes. Most other tests still broken (they use old DSL grammar with `species:` block and `constraints:` — migrated in Task 2.5).
+The new DSL test passes; existing tests using old grammar still fail (Phase 2.6 migrates them).
 
 - [ ] **Step 5: Commit**
 
@@ -916,163 +927,82 @@ Expected: new DSL test passes. Most other tests still broken (they use old DSL g
 git add src/dsl.jl test/test_dsl.jl
 git commit -m "Rewrite @enzyme_mechanism with new flat grammar
 
-substrates: / products: / regulators: fields at top level.
-steps: block accepts standalone step lines and parenthesized
-step-groups (shared kinetics). No species/enzymes/constraints blocks.
-Rejects allosteric-only syntax with clear error messages.
+substrates: / products: / regulators: at top level (bare Symbols only;
+atom brackets rejected). steps: block accepts standalone step lines and
+parenthesized step-groups (shared kinetics). Allosteric-only syntax
+rejected with clear errors. Constraint-DSL parser (_walk_rhs!,
+_parse_constraint_rhs, _push_constraint!) deleted.
 
-KNOWN RED: existing @enzyme_mechanism call sites in tests use old
-grammar."
+KNOWN RED: existing test mechanisms use old grammar."
 ```
 
-### Task 2.4: Write `@allosteric_mechanism` macro
+### Task 2.5: Add `@allosteric_mechanism` macro skeleton
+
+This task adds the macro and its DSL parser, sufficient to construct `AllostericEnzymeMechanism` types using the OLD allosteric type signature. The new allosteric signature comes in Phase 3, after which the macro emits the new shape. Splitting this way lets us migrate all plain-mechanism tests (Task 2.6) before touching the allosteric type itself.
 
 **Files:**
 - Modify: `src/dsl.jl`
-- Modify: `src/EnzymeRates.jl` (export new macro)
+- Modify: `src/EnzymeRates.jl`
+- Modify: `test/test_dsl.jl`
 
-- [ ] **Step 1: Write allosteric macro test**
-
-Add to `test/test_dsl.jl`:
+- [ ] **Step 1: Write a smoke test for the new macro**
 
 ```julia
-@testset "@allosteric_mechanism (new grammar)" begin
+@testset "@allosteric_mechanism (smoke)" begin
     m = @allosteric_mechanism begin
-        substrates: S[C]
-        products:   P[C]
-        allosteric_regulators: I::OnlyT, A::OnlyT, R::NonequalRT
-        catalytic_inhibitors:  J
+        substrates: F6P
+        products:   F16BP
+        allosteric_regulators: I::OnlyT
 
         site(:catalytic, 2): begin
             steps: begin
-                ([E, S] ⇌ [ES], [ES, S] ⇌ [ESS])   :: EqualRT
-                [ES]    <--> [EP]                    :: OnlyR
-                [EP]    ⇌   [E, P]                   :: EqualRT
-                [ES, J] ⇌   [ESJ]                    :: OnlyR
+                [E, F6P] ⇌ [E_F6P]    :: EqualRT
+                [E_F6P] <--> [E_F16BP] :: EqualRT
+                [E_F16BP] ⇌ [E, F16BP] :: EqualRT
             end
         end
-
-        site(:regulatory, 2): begin
-            ligands: A, I
-        end
     end
-
     @test m isa EnzymeRates.AllostericEnzymeMechanism
-    @test EnzymeRates.catalytic_multiplicity(m) == 2
-
-    # Allosteric regulator tags
-    allo_regs = EnzymeRates.allosteric_regulators(m)
-    @test (:I, :OnlyT) in allo_regs
-    @test (:A, :OnlyT) in allo_regs
-    @test (:R, :NonequalRT) in allo_regs
-
-    @test EnzymeRates.catalytic_inhibitors(m) == (:J,)
+    @test EnzymeRates.allosteric_regulators(m) ⊇ ((:I, :OnlyT),)
 end
 ```
 
-- [ ] **Step 2: Run test — expect failure**
+- [ ] **Step 2: Run — expect failure**
 
-- [ ] **Step 3: Implement the new macro**
+- [ ] **Step 3: Add the macro**
 
-Add to `src/dsl.jl`:
+In `src/dsl.jl`, add `macro allosteric_mechanism(block)` and its parser, generating the OLD allosteric type signature (`AllostericEnzymeMechanism{Mets, CM, CS, RS}`) for now. The new signature is introduced in Phase 3.
 
-```julia
-"""
-    @allosteric_mechanism begin
-        substrates: S[C]
-        products:   P[C]
-        allosteric_regulators: I::OnlyT, A::OnlyT, R::NonequalRT
-        catalytic_inhibitors:  J
+Parser responsibilities:
+- Parse `substrates:`, `products:`, `allosteric_regulators:` (with required `::Tag`), `catalytic_inhibitors:` (no tag).
+- Parse `site(:catalytic, N): begin steps: ... end` (required exactly once).
+- Parse `site(:regulatory, N): begin ligands: A, I end` (optional, multiple allowed).
+- Each step or step-group has a required `:: Tag`.
+- Reject single-ligand `::EqualRT` reg sites (validated when site is built).
+- Build the inner `EnzymeMechanism` (catalytic mechanism) using the same step-grouping logic as `@enzyme_mechanism`.
 
-        site(:catalytic, N): begin
-            steps: begin
-                ...
-            end
-        end
-
-        # optional
-        site(:regulatory, N): begin
-            ligands: A, I
-        end
-    end
-
-Build an `AllostericEnzymeMechanism` (MWC). Required: one
-`site(:catalytic, N):` block. `site(:regulatory, N):` blocks are
-optional and declare competing-ligand reg sites; regulators not
-listed in any explicit reg site get their own independent reg site
-with multiplicity = N (the catalytic multiplicity).
-"""
-macro allosteric_mechanism(block)
-    return esc(_parse_allosteric_mechanism_body(block))
-end
-
-function _parse_allosteric_mechanism_body(block)
-    species_state = _AllostericSpecies()
-    cat_n = nothing
-    cat_steps_block = nothing
-    reg_sites = Tuple{Tuple{Vararg{Symbol}}, Int}[]
-
-    for arg in block.args
-        arg isa LineNumberNode && continue
-        _parse_allosteric_top_level!(
-            arg, species_state, reg_sites,
-            (n, b) -> (cat_n = n; cat_steps_block = b),
-        )
-    end
-
-    cat_n === nothing && error("@allosteric_mechanism: site(:catalytic, N): is required")
-    cat_steps_block === nothing &&
-        error("@allosteric_mechanism: site(:catalytic, N): must contain a steps: block")
-
-    rxns_expr, group_tags_expr = _parse_allosteric_steps(cat_steps_block)
-
-    # Build CatalyticMech expression
-    mets_expr = _build_allosteric_metabolites(species_state)
-    cm_expr = :(EnzymeMechanism($mets_expr, $rxns_expr))
-
-    # Build CatSites: (multiplicity, group_tags)
-    cat_sites_expr = :(($cat_n, $group_tags_expr))
-
-    # Build RegSites: distribute allosteric_regulators across sites
-    reg_sites_expr = _build_reg_sites(species_state, reg_sites, cat_n)
-
-    :(AllostericEnzymeMechanism($cm_expr, $cat_sites_expr, $reg_sites_expr))
-end
-```
-
-Plus helpers (all in `src/dsl.jl`):
-- `_AllostericSpecies` mutable struct holding parsed subs/prods/allosteric_regs/cat_inhibitors lists.
-- `_parse_allosteric_top_level!` dispatches on each top-level label.
-- `_parse_tagged_species_list` parses `X::OnlyT, Y::OnlyR` from the `allosteric_regulators:` line.
-- `_parse_allosteric_steps` parses `steps: begin ... end` with required `::Tag` on each step or step-group.
-- `_build_reg_sites` distributes ligands: explicit reg sites pull their ligands; unlisted ligands go to their own default site.
-
-Reject `::EqualRT` on single-ligand reg site at parse time (or at construction if you prefer to defer to the `AllostericEnzymeMechanism` constructor — see Task 3.3).
-
-Also export the new macro: in `src/EnzymeRates.jl`, add `@allosteric_mechanism` to the export list.
+Export `@allosteric_mechanism` in `src/EnzymeRates.jl`.
 
 - [ ] **Step 4: Run tests**
 
-Expected: `@allosteric_mechanism` test passes. `AllostericEnzymeMechanism` constructor not yet updated — test may pass via whatever stub / old constructor remains; some allosteric tests will still fail.
+Smoke test passes; the old allosteric type is still used internally so the rest of the suite is unaffected.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/dsl.jl src/EnzymeRates.jl test/test_dsl.jl
-git commit -m "Add @allosteric_mechanism macro
+git commit -m "Add @allosteric_mechanism macro skeleton
 
-substrates: / products: / allosteric_regulators: / catalytic_inhibitors:
-top-level fields. site(:catalytic, N): block required with required
-::Tag on each step or step-group. site(:regulatory, N): optional for
-competing ligands; unlisted allosteric regulators go to default
-independent sites with multiplicity = N.
-
-KNOWN RED: AllostericEnzymeMechanism constructor not yet updated."
+Generates old AllostericEnzymeMechanism type signature for now;
+Phase 3 swaps to the new signature. Parses substrates/products/
+allosteric_regulators (with required ::Tag)/catalytic_inhibitors,
+site(:catalytic, N): with required tagged steps, optional
+site(:regulatory, N): for competing ligands."
 ```
 
-### Task 2.5: Migrate plain-mechanism call sites in tests
+### Task 2.6: Migrate plain-mechanism call sites
 
-**Files:**
+**Files (per migration):**
 - Modify: `test/test_dsl.jl`
 - Modify: `test/test_types.jl`
 - Modify: `test/test_enzyme_derivation.jl`
@@ -1083,178 +1013,183 @@ KNOWN RED: AllostericEnzymeMechanism constructor not yet updated."
 - Modify: `test/test_accessors.jl`
 - Modify: `test/test_sym_poly.jl`
 
-For each `@enzyme_mechanism` call site that uses the old grammar (with `species: begin ... end` + `steps: begin ... end` + `constraints: begin ... end`), rewrite to new grammar.
+For each `@enzyme_mechanism` call site that uses old grammar, rewrite to new grammar.
 
-- [ ] **Step 1: Find all call sites**
+**Translation rules:**
+1. `species: begin substrates: S[C]; products: P[C]; regulators: I; enzymes: E, ES[C] end`
+   → `substrates: S` / `products: P` / `regulators: I` (drop atoms; drop `enzymes:` block).
+2. `steps: begin [E,S]⇌[ES]; ...; end` stays as-is (each step keeps its expression).
+3. `constraints: begin K2 = K1 end` → wrap the corresponding two steps in a parenthesized group: `([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])`. Multiple constraints `K2=K1, K3=K1, K4=K1` become one group containing all four steps.
+4. **Delete the three flat-written-out homodimer tests entirely** (decision B): "MWC Dimer" (`test/mechanism_definitions_for_test_enzyme_derivation.jl:~1453`), "Homodimer + Non-competitive Inhibitor" (~1636), "MWC Dimer + Independent Inhibitor" (~1903). Their `[AllostericEnzymeMechanism]` siblings remain (and migrate to the new `@allosteric_mechanism` macro).
+
+- [ ] **Step 1: Find all call sites and triage**
 
 ```bash
-grep -rn "@enzyme_mechanism" test/ --include="*.jl" | wc -l
-grep -rln "@enzyme_mechanism" test/ --include="*.jl"
+grep -rln "@enzyme_mechanism\|species: begin\|constraints: begin\|enzymes:" test/ --include="*.jl"
 ```
-
-Record the count — should be ~30-50 sites. Work through them file by file.
 
 - [ ] **Step 2: Per-file migration**
 
-For each test file, replace each `@enzyme_mechanism` block as follows.
+Work through each test file. After each file, run:
 
-**Translation rules:**
-
-1. `species: begin substrates: S[C]; products: P[C]; regulators: I; enzymes: E, ES[C] end` →
-   ```
-   substrates: S[C]
-   products:   P[C]
-   regulators: I
-   ```
-   (Drop `enzymes:` entirely — forms inferred from steps.)
-
-2. `steps: begin [E,S]⇌[ES]; ...; end` stays as-is. Each step keeps its syntax.
-
-3. `constraints: begin K2 = K1 end` → replace with parenthesized step grouping:
-   Find the step whose binding K is `K2` and the step whose binding K is `K1` (usually determinable by step order). Wrap them in parentheses:
-   ```
-   ([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])    # K1 = K2 now encoded as same kinetic group
-   ```
-   Multiple constraints `K2=K1, K3=K1, K4=K1` become one group: `([E,S]⇌[ES], [ES,S]⇌[ESS], [ESS,S]⇌[ESSS], [ESSS,S]⇌[ESSSS])`.
-
-4. Same-kinetics grouping for SS steps (where old constraint was `k8f = k7f; k9f = k7f`): wrap the SS steps in parentheses. Note the new DSL groups both k_f and k_r for SS; the old DSL constrained only k_f. **If any old constraint applied to only k_f or only k_r but not both, the new DSL cannot express it.** Such tests need hand-review — if k_f and k_r were implicitly tied by Haldane, the new DSL produces the same equation. If they were truly independent (rare), the test must be dropped or marked.
-
-- [ ] **Step 3: Run tests after each file**
-
-After migrating each test file, run:
 ```bash
 julia --project -e 'using Pkg; Pkg.test()' 2>&1 | tail -20
 ```
 
-Expected: per-file failures decrease. Goal: by end of Task 2.5, only allosteric-mechanism tests should still be failing.
+Expected: per-file failures decrease as plain mechanisms migrate.
 
-- [ ] **Step 4: Commit progressively (one commit per file or logical batch)**
+- [ ] **Step 3: Migrate analytical-formula references**
+
+Some tests have hand-derived `analytical_rate_fn(p, c)` formulas referencing `K1`, `k2f`, etc. by step index. Step order is preserved (no canonicalization), so indices stay aligned with the user-DSL order — formulas should still work as long as the step ORDER in the new DSL matches the old. Verify by running the test; if `@test rate_equation(...) ≈ analytical_rate_fn(...)` fails, the migration likely reordered steps. Restore original step order.
+
+- [ ] **Step 4: Delete the flat homodimer tests**
+
+In `test/mechanism_definitions_for_test_enzyme_derivation.jl`, delete the three "flat" homodimer mechanism definitions and their `MechanismTestSpec` entries. Their `[AllostericEnzymeMechanism]` siblings stay (now using `@allosteric_mechanism`).
+
+- [ ] **Step 5: Commit progressively**
+
+One commit per file or logical batch:
 
 ```bash
 git add test/<file>.jl
 git commit -m "Migrate <file> to new @enzyme_mechanism DSL"
 ```
 
-Expected final state: plain `EnzymeMechanism` tests pass; allosteric tests still fail (handled in Phase 3).
+End state: plain-mechanism tests pass; allosteric tests still failing (handled in Phase 3).
 
-### Task 2.6: Update rate-equation derivation for new `EnzymeMechanism` signature
+### Task 2.7: Migrate rate-equation derivation for new types
 
 **Files:**
 - Modify: `src/rate_eq_derivation.jl`
 - Modify: `src/thermodynamic_constr_for_rate_eq_derivation.jl`
+- Modify: `src/sym_poly_for_rate_eq_derivation.jl`
 
-The rate-equation derivation machinery (`_build_rate_body`, `_dependent_param_exprs`, etc.) currently indexes `Species[k]` and reads `param_constraints(m)` to fan out shared kinetic parameters. Update it to use the new accessors and kinetic-group semantics.
+The rate-equation machinery currently indexes `Species[k]` and reads `param_constraints(m)`. Update to use new accessors and kinetic-group fan-out via symbol renaming (decision G).
 
-- [ ] **Step 1: Identify all magic-index reads to fix**
+- [ ] **Step 1: Audit magic-index reads**
 
 ```bash
-grep -n "Species\[" src/rate_eq_derivation.jl src/thermodynamic_constr_for_rate_eq_derivation.jl src/sym_poly_for_rate_eq_derivation.jl
-grep -n "param_constraints\|.parameters\[" src/rate_eq_derivation.jl src/thermodynamic_constr_for_rate_eq_derivation.jl src/sym_poly_for_rate_eq_derivation.jl
+grep -n "Species\[\|.parameters\[" src/rate_eq_derivation.jl src/thermodynamic_constr_for_rate_eq_derivation.jl src/sym_poly_for_rate_eq_derivation.jl
 ```
 
-Replace every `Species[1]` → `substrates(m)`, `Species[2]` → `products(m)`, `Species[3]` → `regulators(m)`, `Species[4]` → `enzyme_forms(m)`.
+Replace each with the appropriate accessor: `Species[1]` → `substrates(m)`, etc.
 
-- [ ] **Step 2: Replace constraint fan-out with kinetic-group fan-out**
+- [ ] **Step 2: Replace constraint fan-out with symbol renaming**
 
-Where the old code does:
+In `src/sym_poly_for_rate_eq_derivation.jl`, delete the `_apply_param_constraints` methods on `POLY` / `FactoredSigma` / `FactoredPoly` / `DenomTerm`. Replace with a single `_rename_symbols(poly, rename_map)` that performs a recursive symbol substitution:
 
 ```julia
-# For each constraint (target, coeff, factors), substitute target params
-# with coeff * ∏ factor_i^exp_i in the polynomial.
+"""
+Rename symbols in a polynomial structure. `rename_map` is a `Dict{Symbol, Symbol}`;
+absent keys are left unchanged.
+"""
+_rename_symbols(p::POLY, m) = ... # apply to monomial keys
+_rename_symbols(fp::FactoredPoly, m) = ...
+_rename_symbols(fs::FactoredSigma, m) = ...
+_rename_symbols(dt::DenomTerm, m) = ...
+```
+
+In `src/rate_eq_derivation.jl`, where the old code computed:
+
+```julia
 for (target, coeff, factors) in param_constraints(m)
-    ...
+    # build substitution Expr
 end
+csigma = _apply_param_constraints(csigma, pc; ...)
 ```
 
-Replace with kinetic-group-based fan-out:
+Replace with:
 
 ```julia
-# For each kinetic group with 2+ members, substitute all non-representative
-# step parameters with the representative's parameter.
-for g in kinetic_groups(m)
-    steps = steps_in_group(m, g)
-    length(steps) == 1 && continue
-    rep_idx = first(steps)
-    for idx in Base.tail(steps)
-        # Determine param name based on is_eq: K{idx} vs k{idx}f / k{idx}r
-        if equilibrium_steps(m)[idx]
-            # RE: K{idx} → K{rep_idx}
-            push!(subs, Symbol("K$idx") => Symbol("K$rep_idx"))
-        else
-            push!(subs, Symbol("k$(idx)f") => Symbol("k$(rep_idx)f"))
-            push!(subs, Symbol("k$(idx)r") => Symbol("k$(rep_idx)r"))
+function _build_kinetic_rename_map(m)
+    rename = Dict{Symbol, Symbol}()
+    for g in kinetic_groups(m)
+        idxs = steps_in_group(m, g)
+        length(idxs) == 1 && continue
+        rep = first(idxs)
+        for idx in idxs
+            idx == rep && continue
+            if equilibrium_steps(m)[idx]
+                rename[Symbol("K$idx")] = Symbol("K$rep")
+            else
+                rename[Symbol("k$(idx)f")] = Symbol("k$(rep)f")
+                rename[Symbol("k$(idx)r")] = Symbol("k$(rep)r")
+            end
         end
     end
+    rename
 end
+
+# Apply to polynomials before Haldane runs:
+poly = _rename_symbols(poly, _build_kinetic_rename_map(m))
 ```
 
-Apply this substitution to polynomials before the Haldane/Wegscheider closure runs.
+Update `parameters(m)`, `_raw_param_symbols`, and any other helper to skip non-representative steps' parameters (they're aliased to their group representative).
 
-- [ ] **Step 3: Run full test suite**
+- [ ] **Step 3: Update Haldane derivation in `thermodynamic_constr_for_rate_eq_derivation.jl`**
+
+The Haldane Gaussian-elimination machinery operates on the parameter symbol set. With kinetic-group renaming applied to polynomials, the parameter set passed to Haldane shrinks (one symbol per group). Verify Haldane's `_dependent_param_exprs` still produces correct output.
+
+- [ ] **Step 4: Run tests**
+
+Plain-mechanism rate-equation tests pass. Allosteric tests still failing (handled in Phase 3).
+
+- [ ] **Step 5: Commit**
 
 ```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
+git add src/rate_eq_derivation.jl src/thermodynamic_constr_for_rate_eq_derivation.jl src/sym_poly_for_rate_eq_derivation.jl
+git commit -m "Rewrite rate-equation derivation for new EnzymeMechanism
 
-Expected: plain `EnzymeMechanism` rate-equation tests pass. Allosteric tests still failing.
+Replace Species[k] magic-index reads with accessors. Replace
+_apply_param_constraints (general constraint handling) with
+_rename_symbols (simple symbol substitution) driven by kinetic-group
+representatives. parameters(m) returns only group representatives
+(one K or k_f/k_r symbol per kinetic group). Haldane runs on the
+reduced parameter set.
 
-- [ ] **Step 4: Commit**
-
-```bash
-git add src/rate_eq_derivation.jl src/thermodynamic_constr_for_rate_eq_derivation.jl
-git commit -m "Rewrite rate-equation derivation for new EnzymeMechanism signature
-
-Replace Species[k] magic-index reads with substrates/products/regulators/
-enzyme_forms accessors. Replace ParamConstraints fan-out with
-kinetic-group fan-out (steps with shared kinetic_group share their
-K / k_f / k_r values).
-
-Allosteric codepath still uses old CatSites/RegSites structure."
+Allosteric paths still use old type / old derivation; Phase 3 fixes."
 ```
 
 ---
 
-## Phase 3: New `AllostericEnzymeMechanism` type
+## Phase 3: New `AllostericEnzymeMechanism` Type and Rate-Equation Derivation
 
-### Task 3.1: Redefine type and accessors
+### Task 3.1: Redefine `AllostericEnzymeMechanism` struct + accessors
 
 **Files:**
 - Modify: `src/types.jl`
 - Modify: `test/test_types.jl`
 
-- [ ] **Step 1: Write failing test for new allosteric type**
+- [ ] **Step 1: Write failing test for new struct**
 
 ```julia
-@testset "AllostericEnzymeMechanism struct (new design)" begin
-    # Hand-build a minimal AllostericEnzymeMechanism
+@testset "AllostericEnzymeMechanism (new design)" begin
     cm = @enzyme_mechanism begin
-        substrates: S[C]
-        products:   P[C]
+        substrates: S
+        products:   P
         steps: begin
-            [E, S]  ⇌   [ES]
-            [ES]   <--> [EP]
-            [EP]   ⇌   [E, P]
+            [E, S] ⇌ [ES]
+            [ES] <--> [EP]
+            [EP] ⇌ [E, P]
         end
     end
-    cat_sites = (2, ((1, :EqualRT), (2, :OnlyR), (3, :EqualRT)))
+    cat_sites = (2, ((2, :OnlyR),))
     reg_sites = ((((:I,), 2, ((:I, :OnlyT),)),),)
-    m = EnzymeRates.AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites}()
+    m = EnzymeRates.AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites[1]}()
 
     @test EnzymeRates.catalytic_mechanism(m) === cm
     @test EnzymeRates.catalytic_multiplicity(m) == 2
-    @test EnzymeRates.group_tag(m, 1) == :EqualRT
+    @test EnzymeRates.group_tag(m, 1) == :NonequalRT   # default
     @test EnzymeRates.group_tag(m, 2) == :OnlyR
-    @test EnzymeRates.regulatory_sites(m) == reg_sites[1]  # first element only for this test
+    @test EnzymeRates.regulatory_sites(m) == reg_sites[1]
 end
 ```
 
-(Adjust the `reg_sites` literal shape if your chosen convention differs — the test is documentation of the chosen shape.)
+- [ ] **Step 2: Run — expect failure**
 
-- [ ] **Step 2: Run test — expect failure**
+- [ ] **Step 3: Replace struct + accessors**
 
-- [ ] **Step 3: Rewrite struct and accessors**
-
-Replace the current `AllostericEnzymeMechanism` struct (lines 297-308 approximately in `src/types.jl`):
+In `src/types.jl`, replace `AllostericEnzymeMechanism` with:
 
 ```julia
 """
@@ -1262,25 +1197,23 @@ Replace the current `AllostericEnzymeMechanism` struct (lines 297-308 approximat
 
 Singleton type encoding a multi-subunit MWC allosteric enzyme.
 
-- `CatalyticMech`: an `EnzymeMechanism` type (the single-subunit
-  catalytic mechanism).
+- `CatalyticMech`: an `EnzymeMechanism` type (single-subunit catalytic mech).
 - `CatSites`: `(multiplicity::Int, group_tags::Tuple{Pair{Int,Symbol}...})`.
-  Non-default TR tags only; missing entries default to `:NonequalRT`.
-- `RegSites`: tuple of entries `((ligands::Tuple{Symbol,...}, multiplicity::Int,
-  ligand_tags::Tuple{Pair{Symbol,Symbol}...}),)`. One entry per reg site.
+  Non-default-only storage; absent groups have tag `:NonequalRT`.
+- `RegSites`: tuple of entries `((ligands, multiplicity, ligand_tags),)`.
+  One entry per reg site.
 """
 struct AllostericEnzymeMechanism{
     CatalyticMech, CatSites, RegSites,
 } <: AbstractEnzymeMechanism end
 ```
 
-Replace all allosteric accessors (lines 550-574 approximately):
+Add accessors:
 
 ```julia
 catalytic_mechanism(::AllostericEnzymeMechanism{CM}) where {CM} = CM()
 catalytic_multiplicity(::AllostericEnzymeMechanism{CM, CS}) where {CM, CS} = CS[1]
 
-"""Tag for kinetic group `g`; default :NonequalRT if not stored."""
 function group_tag(m::AllostericEnzymeMechanism, g::Int)
     CS = typeof(m).parameters[2]
     for (k, t) in CS[2]
@@ -1292,50 +1225,46 @@ end
 step_tag(m::AllostericEnzymeMechanism, idx::Int) =
     group_tag(m, kinetic_group(catalytic_mechanism(m), idx))
 
-# Shared structural accessors (delegate to catalytic mech)
-substrates(m::AllostericEnzymeMechanism)      = substrates(catalytic_mechanism(m))
-products(m::AllostericEnzymeMechanism)        = products(catalytic_mechanism(m))
-reactions(m::AllostericEnzymeMechanism)       = reactions(catalytic_mechanism(m))
-equilibrium_steps(m::AllostericEnzymeMechanism) = equilibrium_steps(catalytic_mechanism(m))
-n_steps(m::AllostericEnzymeMechanism)         = n_steps(catalytic_mechanism(m))
-enzyme_forms(m::AllostericEnzymeMechanism)    = enzyme_forms(catalytic_mechanism(m))
-n_states(m::AllostericEnzymeMechanism)        = n_states(catalytic_mechanism(m))
-kinetic_group(m::AllostericEnzymeMechanism, idx::Int) =
-    kinetic_group(catalytic_mechanism(m), idx)
-kinetic_groups(m::AllostericEnzymeMechanism) =
-    kinetic_groups(catalytic_mechanism(m))
-steps_in_group(m::AllostericEnzymeMechanism, g) =
-    steps_in_group(catalytic_mechanism(m), g)
+substrates(m::AllostericEnzymeMechanism)         = substrates(catalytic_mechanism(m))
+products(m::AllostericEnzymeMechanism)           = products(catalytic_mechanism(m))
+reactions(m::AllostericEnzymeMechanism)          = reactions(catalytic_mechanism(m))
+equilibrium_steps(m::AllostericEnzymeMechanism)  = equilibrium_steps(catalytic_mechanism(m))
+n_steps(m::AllostericEnzymeMechanism)            = n_steps(catalytic_mechanism(m))
+enzyme_forms(m::AllostericEnzymeMechanism)       = enzyme_forms(catalytic_mechanism(m))
+n_states(m::AllostericEnzymeMechanism)           = n_states(catalytic_mechanism(m))
+kinetic_group(m::AllostericEnzymeMechanism, i::Int) = kinetic_group(catalytic_mechanism(m), i)
+kinetic_groups(m::AllostericEnzymeMechanism)     = kinetic_groups(catalytic_mechanism(m))
+steps_in_group(m::AllostericEnzymeMechanism, g)  = steps_in_group(catalytic_mechanism(m), g)
+stoich_matrix(m::AllostericEnzymeMechanism)      = stoich_matrix(catalytic_mechanism(m))
+enzyme_row_range(m::AllostericEnzymeMechanism)   = enzyme_row_range(catalytic_mechanism(m))
+metabolite_row_range(m::AllostericEnzymeMechanism) = metabolite_row_range(catalytic_mechanism(m))
 
-"""Return union of catalytic-mechanism regulators and reg-site ligands."""
 function regulators(m::AllostericEnzymeMechanism)
     cat_regs = regulators(catalytic_mechanism(m))
     RS = typeof(m).parameters[3]
-    names = Set(r[1] for r in cat_regs)
     extra = Symbol[]
+    seen = Set{Symbol}(cat_regs)
     for entry in RS
         for lig in entry[1]
-            lig ∉ names && (push!(names, lig); push!(extra, lig))
+            lig in seen || (push!(seen, lig); push!(extra, lig))
         end
     end
-    (cat_regs..., Tuple((l, ()) for l in extra)...)
+    (cat_regs..., extra...)
 end
 
-"""Return full metabolite list (catalytic + reg-site-only ligands)."""
 function metabolites(m::AllostericEnzymeMechanism)
     cat_mets = metabolites(catalytic_mechanism(m))
     RS = typeof(m).parameters[3]
-    names = Set(cat_mets)
     extra = Symbol[]
+    seen = Set{Symbol}(cat_mets)
     for entry in RS
         for lig in entry[1]
-            lig ∉ names && (push!(names, lig); push!(extra, lig))
+            lig in seen || (push!(seen, lig); push!(extra, lig))
         end
     end
     (cat_mets..., extra...)
 end
 
-"""Return the allosteric regulators as `((name, tag), ...)` pairs, one per ligand across all reg sites."""
 function allosteric_regulators(m::AllostericEnzymeMechanism)
     RS = typeof(m).parameters[3]
     result = Tuple{Symbol, Symbol}[]
@@ -1348,25 +1277,19 @@ function allosteric_regulators(m::AllostericEnzymeMechanism)
     Tuple(result)
 end
 
-"""Return dead-end-only regulator names (present in CatalyticMech.regulators but no reg site)."""
 function catalytic_inhibitors(m::AllostericEnzymeMechanism)
     RS = typeof(m).parameters[3]
-    reg_site_names = Set{Symbol}()
-    for (ligands, _, _) in RS
-        for lig in ligands; push!(reg_site_names, lig); end
+    rs_names = Set{Symbol}()
+    for (ligs, _, _) in RS
+        for l in ligs; push!(rs_names, l); end
     end
     cat_regs = regulators(catalytic_mechanism(m))
-    Tuple(r[1] for r in cat_regs if r[1] ∉ reg_site_names)
+    Tuple(r for r in cat_regs if r ∉ rs_names)
 end
 
-"""Raw reg-site entries."""
 regulatory_sites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = RS
-
-regulatory_site_ligands(m::AllostericEnzymeMechanism, i::Int) =
-    regulatory_sites(m)[i][1]
-
-regulatory_site_multiplicity(m::AllostericEnzymeMechanism, i::Int) =
-    regulatory_sites(m)[i][2]
+regulatory_site_ligands(m::AllostericEnzymeMechanism, i::Int)     = regulatory_sites(m)[i][1]
+regulatory_site_multiplicity(m::AllostericEnzymeMechanism, i::Int) = regulatory_sites(m)[i][2]
 
 function regulatory_ligand_tag(m::AllostericEnzymeMechanism, i::Int, lig::Symbol)
     for (k, t) in regulatory_sites(m)[i][3]
@@ -1378,336 +1301,474 @@ end
 
 - [ ] **Step 4: Run tests**
 
-Expected: new type accessor tests pass; allosteric rate-equation tests still fail (constructor not updated, derivation not updated).
+New struct test passes. `@allosteric_mechanism` macro from Task 2.5 still emits old type — the test from Task 2.5 may now fail. Mark RED-OK; Task 3.2 fixes.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/types.jl test/test_types.jl
-git commit -m "Redefine AllostericEnzymeMechanism with new CatSites/RegSites shape
+git commit -m "Redefine AllostericEnzymeMechanism with new shape
 
 CatSites = (multiplicity, group_tags). RegSites entries are
-(ligands, multiplicity, ligand_tags). All access via named accessors
-(catalytic_mechanism, catalytic_multiplicity, group_tag, step_tag,
-allosteric_regulators, catalytic_inhibitors, regulatory_sites,
-regulatory_site_{ligands,multiplicity}, regulatory_ligand_tag).
-No magic indices in the implementation.
+(ligands, multiplicity, ligand_tags). Non-default-only tag storage.
+All access via named accessors.
 
-KNOWN RED: rate-equation derivation for allosteric uses old fields."
+KNOWN RED: @allosteric_mechanism still emits old type."
 ```
 
-### Task 3.2: Implement `AllostericEnzymeMechanism` constructor
+### Task 3.2: Implement `AllostericEnzymeMechanism` constructor and update `@allosteric_mechanism`
 
 **Files:**
 - Modify: `src/types.jl`
-- Modify: `src/dsl.jl` (the `@allosteric_mechanism` expansion feeds into this constructor)
+- Modify: `src/dsl.jl`
 
-- [ ] **Step 1: Write constructor test**
+- [ ] **Step 1: Write failing test**
 
 ```julia
-@testset "AllostericEnzymeMechanism constructor" begin
+@testset "AllostericEnzymeMechanism constructor + DSL" begin
     cm = @enzyme_mechanism begin
-        substrates: S[C]
-        products:   P[C]
+        substrates: S
+        products:   P
         steps: begin
-            [E, S]  ⇌   [ES]
-            [ES]   <--> [EP]
-            [EP]   ⇌   [E, P]
+            [E, S] ⇌ [ES]
+            [ES] <--> [EP]
+            [EP] ⇌ [E, P]
         end
     end
-    cat_sites = (2, ((2, :OnlyR),))  # only non-default: group 2 OnlyR
-    reg_sites = ((((:I,), 2, ((:I, :OnlyT),)),),)
-    m = EnzymeRates.AllostericEnzymeMechanism(cm, cat_sites, reg_sites[1])
 
-    @test EnzymeRates.group_tag(m, 1) == :NonequalRT  # default
-    @test EnzymeRates.group_tag(m, 2) == :OnlyR
-    @test EnzymeRates.step_tag(m, 2) == :OnlyR
-
-    # Validation: EqualRT at single-ligand reg site → error
-    bad_reg_sites = ((((:I,), 2, ((:I, :EqualRT),)),),)
+    # Single-ligand :EqualRT reg site → error
     @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-        cm, cat_sites, bad_reg_sites[1],
+        cm, (2, ()), ((((:I,), 2, ((:I, :EqualRT),)),),)[1],
     )
+
+    # Iso group :OnlyT → error
+    @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+        cm, (2, ((2, :OnlyT),)), (),
+    )
+
+    # Build via DSL
+    m = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: I::OnlyT
+
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]    :: EqualRT
+                [ES] <--> [EP]    :: OnlyR
+                [EP] ⇌ [E, P]    :: EqualRT
+            end
+        end
+    end
+    @test EnzymeRates.catalytic_multiplicity(m) == 2
+    @test EnzymeRates.group_tag(m, 1) == :EqualRT
+    @test EnzymeRates.group_tag(m, 2) == :OnlyR
+    @test EnzymeRates.allosteric_regulators(m) == ((:I, :OnlyT),)
 end
 ```
 
-- [ ] **Step 2: Run test — expect failure**
+- [ ] **Step 2: Run — expect failure**
 
-- [ ] **Step 3: Implement the constructor**
-
-Add to `src/types.jl`:
+- [ ] **Step 3: Implement constructor in `src/types.jl`**
 
 ```julia
-"""
-    AllostericEnzymeMechanism(catalytic_mech, cat_sites, reg_sites)
-
-Construct an `AllostericEnzymeMechanism`. Validates:
-- Each reg site has at least one non-`:EqualRT` ligand (else reg_Q cancels
-  identically in num/den ratio).
-- Iso-group tags are not `:OnlyT` (R-inactive is a relabel).
-- Group tags reference actual kinetic-group integers present in
-  catalytic_mech.
-- Reg-site ligands appear in the ligand_tags list iff their tag is
-  not `:NonequalRT`.
-"""
 function AllostericEnzymeMechanism(
     cm::EnzymeMechanism,
     cat_sites::Tuple{Int, <:Tuple},
     reg_sites::Tuple,
 )
     multiplicity, group_tags = cat_sites
+    valid_groups = Set(kinetic_groups(cm))
+    eq_steps = equilibrium_steps(cm)
+    rxns = reactions(cm)
+    cat_mets = Set(metabolites(cm))
 
     # Validate group tags
-    valid_groups = Set(kinetic_groups(cm))
     for (g, tag) in group_tags
         g in valid_groups ||
             error("group_tag references non-existent kinetic_group $g")
         tag in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
             error("Invalid group tag: $tag")
-        # Iso groups cannot be :OnlyT
-        step_idxs = steps_in_group(cm, g)
-        for idx in step_idxs
-            step = reactions(cm)[idx]
-            is_binding = any(s == sym for sym in metabolites(cm) for s in step[1])
-            if !is_binding && !step[3]  # SS iso step
-                tag == :OnlyT &&
-                    error("Iso step (kinetic_group $g) tagged :OnlyT is forbidden " *
-                          "(R-inactive is a relabel)")
+        # Iso-only groups can't be :OnlyT
+        any_iso = false
+        for idx in steps_in_group(cm, g)
+            lhs, rhs, is_eq, _ = rxns[idx]
+            mets_in = any(s in cat_mets for s in (lhs..., rhs...))
+            if !is_eq && !mets_in
+                any_iso = true
             end
         end
+        any_iso && tag == :OnlyT &&
+            error("Iso group $g tagged :OnlyT is forbidden (R-inactive is a relabel)")
     end
 
     # Validate reg sites
-    for entry in reg_sites
+    for (i, entry) in enumerate(reg_sites)
         ligands, mult, lig_tags = entry
-        isempty(ligands) && error("Reg site must have at least one ligand")
-        # Build tag map (defaults :NonequalRT)
+        isempty(ligands) && error("Reg site $i has no ligands")
         tag_map = Dict(lig_tags)
-        all_equal = all(get(tag_map, l, :NonequalRT) == :EqualRT for l in ligands)
-        all_equal &&
-            error("Reg site with all `:EqualRT` ligands cancels identically; " *
-                  "at least one ligand must have non-:EqualRT tag. Ligands: $ligands")
-        # Sanity on tag vocabulary
         for (lig, tag) in lig_tags
-            tag in (:OnlyR, :OnlyT, :NonequalRT, :EqualRT) ||
-                error("Invalid reg-site tag: $tag for ligand $lig")
+            tag in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
+                error("Invalid reg-site tag $tag for ligand $lig")
         end
+        all_eq = all(get(tag_map, l, :NonequalRT) == :EqualRT for l in ligands)
+        all_eq &&
+            error("Reg site $i with all `:EqualRT` ligands cancels identically " *
+                  "(or single-ligand :EqualRT reg site); at least one ligand " *
+                  "must have a non-:EqualRT tag. Ligands: $ligands")
     end
 
     # Sort group_tags by group number for canonical form
     sorted_tags = Tuple(sort(collect(group_tags); by=first))
+    cat_sites_canon = (multiplicity, sorted_tags)
 
-    cat_sites_canonical = (multiplicity, sorted_tags)
-
-    AllostericEnzymeMechanism{typeof(cm), cat_sites_canonical, reg_sites}()
+    AllostericEnzymeMechanism{typeof(cm), cat_sites_canon, reg_sites}()
 end
 ```
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 4: Update `@allosteric_mechanism` macro to emit the new type**
 
-Expected: new constructor tests pass, allosteric DSL tests from Task 2.4 now produce valid types.
+In `src/dsl.jl`, change the macro's expansion to call the new 3-arg `AllostericEnzymeMechanism(cm, cat_sites, reg_sites)` constructor.
 
-- [ ] **Step 5: Commit**
+The parser:
+- Builds `cm` from the `site(:catalytic, N):` block's `steps:` body via the same step-grouping logic as `@enzyme_mechanism`.
+- Captures `::Tag` annotations on each step or step-group; aggregates them into `group_tags::Tuple{Pair{Int,Symbol}...}`.
+- Builds `reg_sites` from the species declarations (all listed allosteric_regulators) and explicit `site(:regulatory, N):` blocks. Unlisted allosteric regulators each get their own reg site with multiplicity = N (catalytic multiplicity).
+- Tag distribution: for each ligand, look up its declared tag from `allosteric_regulators:`. Build `ligand_tags::Tuple{Pair{Symbol,Symbol}...}`.
+
+- [ ] **Step 5: Run tests**
+
+The new tests pass. The Task 2.5 smoke test now produces the new type. Other allosteric tests still fail (rate-eq derivation, kcat — Task 3.3 / 3.4 fix).
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/types.jl test/test_types.jl
-git commit -m "Implement AllostericEnzymeMechanism constructor with validation
+git add src/types.jl src/dsl.jl test/test_types.jl
+git commit -m "Implement AllostericEnzymeMechanism constructor + new DSL emission
 
-Validates: iso group tagged :OnlyT forbidden; reg site with all
-:EqualRT ligands forbidden (pure cancellation). Canonicalizes
-cat_sites.group_tags by group number."
+Validates group tags, iso-group :OnlyT prohibition, single-/all-EqualRT
+reg-site rejection. @allosteric_mechanism now emits the new 3-param
+type signature.
+
+KNOWN RED: rate-equation derivation and _kcat_forward use old impl."
 ```
 
 ### Task 3.3: Rewrite allosteric rate-equation derivation
 
 **Files:**
 - Modify: `src/rate_eq_derivation.jl`
-- Modify: `src/sym_poly_for_rate_eq_derivation.jl` (remove `_rs_*` helpers)
+- Modify: `src/sym_poly_for_rate_eq_derivation.jl`
 
-The current code has a parallel R/T-state derivation with many specialized helpers (`_is_tr_equiv_catalytic_param`, `_is_r_only_catalytic_param`, `_build_allosteric_rate_body`). Rewrite as: derive R-state via plain `EnzymeMechanism` machinery, then apply a single substitution pass over parameter symbols driven by `group_tag(m, g)` lookups.
+The current parallel R/T-state derivation is replaced with: derive R-state via the plain `EnzymeMechanism` machinery, then build T-state by symbol substitution at POLY level (zero `:OnlyR` symbols, rename `:NonequalRT` symbols to T-counterparts; for R-state, zero `:OnlyT` symbols).
 
-- [ ] **Step 1: Write rate-equation tests to lock behavior**
+- [ ] **Step 1: Migrate the existing reference allosteric mechanism tests to `@allosteric_mechanism`**
 
-Before refactoring, capture the expected rate-equation strings for a few allosteric mechanisms currently in `test/mechanism_definitions_for_test_enzyme_derivation.jl`. Specifically: `rate_mwc_dimer_oligo`, `rate_homodimer_noncomp_inh_oligo`, `rate_mwc_dimer_inh_oligo`. These are the existing reference closed forms.
+In `test/mechanism_definitions_for_test_enzyme_derivation.jl`, find the existing `[AllostericEnzymeMechanism]`-suffixed test specs (e.g., `MWC Dimer [AllostericEnzymeMechanism]` at ~1502, the homodimer-noncomp-inh sibling at ~1691, the MWC-dimer-inh sibling at ~1959). Rewrite each using `@allosteric_mechanism` with explicit `:: NonequalRT` tags on every step group (matching their existing default-NonequalRT behavior).
 
-Migrate each to new DSL:
+- [ ] **Step 2: Run tests — expect failure for these allosteric mechanisms**
 
-```julia
-# test/mechanism_definitions_for_test_enzyme_derivation.jl
-mwc_dimer_new_dsl = @allosteric_mechanism begin
-    substrates: S[C]
-    products:   P[C]
-
-    site(:catalytic, 2): begin
-        steps: begin
-            [E_c, S] ⇌   [E_S]    :: NonequalRT
-            [E_c, P] ⇌   [E_P]    :: NonequalRT
-            [E_S]   <--> [E_P]    :: NonequalRT
-        end
-    end
-end
-
-@testset "MWC dimer rate equation (baseline)" begin
-    params = (K1=..., K2=..., k3f=..., k3r=..., K1_T=..., K2_T=..., k3f_T=..., k3r_T=..., L=..., Keq=..., E_total=...)
-    concs = (S=1.0, P=0.5)
-    @test rate_equation(mwc_dimer_new_dsl, concs, params) ≈
-          rate_mwc_dimer_oligo(params, concs)
-end
-```
-
-- [ ] **Step 2: Run tests — expect failure on allosteric rate equation**
-
-The test expresses the intended semantics but the allosteric rate-equation generation is about to be rewritten.
+The new type doesn't have rate-equation derivation yet.
 
 - [ ] **Step 3: Delete old allosteric rate-equation code**
 
-Delete from `src/rate_eq_derivation.jl`:
-- `_is_tr_equiv_catalytic_K`
-- `_is_tr_equiv_catalytic_param`
-- `_is_r_only_catalytic_param`
-- Old `_binding_K_symbols(::Type{<:AllostericEnzymeMechanism{...}})`
-- Old `_dependent_param_exprs(::Type{<:AllostericEnzymeMechanism{...}})`
-- Old `_allosteric_dep_assignments`
-- Old `_allosteric_num_den_exprs`
-- Old `_build_allosteric_rate_body`
-- Old `@generated rate_equation(...,::AllostericEnzymeMechanism)`
-- Old `rate_equation_string(::AllostericEnzymeMechanism, ::ReducedMode)`
-- Old `structural_identifiability_deficit(::AllostericEnzymeMechanism)`
+In `src/rate_eq_derivation.jl`, delete:
+- `_is_tr_equiv_catalytic_K`, `_is_tr_equiv_catalytic_param`, `_is_r_only_catalytic_param`.
+- The old `_binding_K_symbols(::Type{<:AllostericEnzymeMechanism{...}})` method.
+- The old `_dependent_param_exprs(::Type{<:AllostericEnzymeMechanism{...}})` method (~100 lines).
+- `_allosteric_dep_assignments`.
+- `_allosteric_num_den_exprs`.
+- `_build_allosteric_rate_body`.
+- The old `@generated rate_equation(...,::AllostericEnzymeMechanism, ::ReducedMode)`.
+- The old `rate_equation_string(::AllostericEnzymeMechanism, ::ReducedMode)`.
+- The old `structural_identifiability_deficit(::AllostericEnzymeMechanism)`.
 
-Delete from `src/sym_poly_for_rate_eq_derivation.jl`:
-- `_rs_tr_equiv`, `_rs_r_only`, `_rs_t_only`
-- `_count_allosteric_rate_monomials` (move logic into new helper)
+In `src/sym_poly_for_rate_eq_derivation.jl`, delete:
+- `_rs_tr_equiv` / `_rs_r_only` / `_rs_t_only`.
+- `_count_allosteric_rate_monomials`.
 
-- [ ] **Step 4: Implement new derivation path**
+- [ ] **Step 4: Implement new derivation**
 
 Add to `src/rate_eq_derivation.jl`:
 
 ```julia
 # ═══════════════════════════════════════════════════════════════════
-# AllostericEnzymeMechanism rate equation — new unified path
-#
-# MWC formula (summed over conformations c ∈ {R, T}):
-#   num = CS[1] * sum_c( L_c * N_cat_c * Q_cat_c^(CS[1]-1)
-#                        * prod_i( reg_Q_i_c^n_i ) )
-#   den = sum_c( L_c * Q_cat_c^CS[1] * prod_i( reg_Q_i_c^n_i ) )
-#   v = E_total * num / den
-#
-# R-state polynomials (N_cat_R, Q_cat_R, reg_Q_i_R) come from the
-# plain EnzymeMechanism derivation on catalytic_mechanism(m). T-state
-# polynomials are computed by applying a tag-driven symbol substitution
-# to the R-state polynomials — never a parallel symbolic derivation.
+# AllostericEnzymeMechanism rate equation — unified path
 # ═══════════════════════════════════════════════════════════════════
 
-function _allosteric_rate_expr(m::Type{<:AllostericEnzymeMechanism})
-    cm = m.parameters[1]
-    multiplicity = m.parameters[2][1]
-    group_tags = m.parameters[2][2]
-    reg_sites = m.parameters[3]
+"""
+    _onlyT_syms(m::AllostericEnzymeMechanism) → Set{Symbol}
 
-    # R-state polynomials from plain-EnzymeMechanism derivation
-    N_R, Q_R = _raw_rate_polys(cm)
-
-    # T-state substitution map driven by group_tags
-    tag_lookup = Dict(group_tags)
-    t_subs = Dict{Symbol, Any}()
-    for g in kinetic_groups(cm())
-        tag = get(tag_lookup, g, :NonequalRT)
-        group_members = steps_in_group(cm(), g)
-        rep_idx = first(group_members)
-        rep_step_is_eq = equilibrium_steps(cm())[rep_idx]
-        # Determine symbol names
-        if rep_step_is_eq
-            sym_R = Symbol("K$rep_idx")
-            sym_T = Symbol("K$(rep_idx)_T")
+Symbols (K, k_f, k_r) that are absent in R-state polynomial because
+their kinetic group is tagged :OnlyT, plus reg-site ligand-name
+symbols for ligands tagged :OnlyT (their concentration is "absent" from
+R-state Q).
+"""
+function _onlyT_syms(m)
+    cm = catalytic_mechanism(m)
+    syms = Set{Symbol}()
+    for g in kinetic_groups(cm)
+        group_tag(m, g) == :OnlyT || continue
+        rep = first(steps_in_group(cm, g))
+        if equilibrium_steps(cm)[rep]
+            push!(syms, Symbol("K$rep"))
         else
-            # SS — has two symbols (kf, kr); handle both
-            for sfx in ("f", "r")
-                sym_R = Symbol("k$rep_idx$sfx")
-                sym_T = Symbol("k$rep_idx$sfx", "_T")
-                _apply_tag_to_subs!(t_subs, tag, sym_R, sym_T)
-            end
-            continue
+            push!(syms, Symbol("k$(rep)f"))
+            push!(syms, Symbol("k$(rep)r"))
         end
-        _apply_tag_to_subs!(t_subs, tag, sym_R, sym_T)
     end
-
-    # Apply substitution to get T-state polynomials
-    N_T = substitute_symbols(N_R, t_subs)
-    Q_T = substitute_symbols(Q_R, t_subs)
-
-    # Build reg-site partition-function polynomials (per site, per conformation)
-    reg_Q_R = [_build_reg_Q(entry, :R) for entry in reg_sites]
-    reg_Q_T = [_build_reg_Q(entry, :T) for entry in reg_sites]
-
-    # Assemble num and den
-    num = :(
-        $multiplicity * (
-            $N_R * $Q_R^($multiplicity - 1) * $(_reg_product(reg_Q_R, reg_sites, multiplicity))
-            + L * $N_T * $Q_T^($multiplicity - 1) * $(_reg_product(reg_Q_T, reg_sites, multiplicity))
-        )
-    )
-    den = :(
-        $Q_R^$multiplicity * $(_reg_product(reg_Q_R, reg_sites, multiplicity))
-        + L * $Q_T^$multiplicity * $(_reg_product(reg_Q_T, reg_sites, multiplicity))
-    )
-    :(E_total * ($num) / ($den))
+    # Reg-site OnlyT ligands are absent from R-state Q only on a per-site basis;
+    # they are not zeroed at the catalytic-poly level — they're handled in reg_Q construction.
+    syms
 end
 
-function _apply_tag_to_subs!(t_subs, tag, sym_R, sym_T)
-    if tag == :EqualRT
-        t_subs[sym_R] = sym_R  # T uses same sym as R
-    elseif tag == :OnlyR
-        t_subs[sym_R] = 0     # T-state has this set to zero
-    elseif tag == :OnlyT
-        # R-state substitution is identity; T gets its own symbol
-        # (handled differently — see below)
-        t_subs[sym_R] = sym_T
-    else  # :NonequalRT
-        t_subs[sym_R] = sym_T
+"""
+    _onlyR_syms(m) → Set{Symbol}
+
+Symmetric to _onlyT_syms but for :OnlyR-tagged kinetic groups (T-state zeroing).
+"""
+function _onlyR_syms(m)
+    cm = catalytic_mechanism(m)
+    syms = Set{Symbol}()
+    for g in kinetic_groups(cm)
+        group_tag(m, g) == :OnlyR || continue
+        rep = first(steps_in_group(cm, g))
+        if equilibrium_steps(cm)[rep]
+            push!(syms, Symbol("K$rep"))
+        else
+            push!(syms, Symbol("k$(rep)f"))
+            push!(syms, Symbol("k$(rep)r"))
+        end
     end
+    syms
+end
+
+"""
+    _nonequalRT_rename(m) → Dict{Symbol, Symbol}
+
+Symbol rename map for T-state derivation: each `:NonequalRT`-tagged group's
+representative symbols are renamed to T-suffixed counterparts. `:EqualRT` and
+`:OnlyR` groups keep R-state names (EqualRT shares with R; OnlyR has been zeroed
+already).
+"""
+function _nonequalRT_rename(m)
+    cm = catalytic_mechanism(m)
+    rename = Dict{Symbol, Symbol}()
+    for g in kinetic_groups(cm)
+        tag = group_tag(m, g)
+        tag == :NonequalRT || continue
+        rep = first(steps_in_group(cm, g))
+        if equilibrium_steps(cm)[rep]
+            rename[Symbol("K$rep")] = Symbol("K$(rep)_T")
+        else
+            rename[Symbol("k$(rep)f")] = Symbol("k$(rep)f_T")
+            rename[Symbol("k$(rep)r")] = Symbol("k$(rep)r_T")
+        end
+    end
+    rename
+end
+
+"""
+    _build_reg_Q(entry, conformation::Symbol) → Expr
+
+Build the reg-site partition function Expr for the given site entry and
+conformation (:R or :T).
+- :R: skip ligands tagged :OnlyT.
+- :T: skip ligands tagged :OnlyR; use T-suffixed K names for :NonequalRT ligands.
+"""
+function _build_reg_Q(site_idx::Int, entry, conf::Symbol)
+    ligs, mult, lig_tags_raw = entry
+    lig_tags = Dict(lig_tags_raw)
+    terms = Any[1]
+    for lig in ligs
+        tag = get(lig_tags, lig, :NonequalRT)
+        if conf == :R && tag == :OnlyT; continue; end
+        if conf == :T && tag == :OnlyR; continue; end
+        K_sym = if conf == :T && tag == :NonequalRT
+            Symbol("K_$(lig)_T_reg$(site_idx)")
+        else
+            Symbol("K_$(lig)_reg$(site_idx)")
+        end
+        push!(terms, :($lig / $K_sym))
+    end
+    isempty(terms) ? 1 : foldl((a, b) -> :($a + $b), terms)
+end
+
+@generated function rate_equation(
+    m::AllostericEnzymeMechanism, concs::NamedTuple, params::NamedTuple, ::ReducedMode,
+)
+    M = m
+    cm_type = M.parameters[1]
+    cat_n = M.parameters[2][1]
+    reg_sites = M.parameters[3]
+
+    # R-state and T-state polynomials via tag-driven substitution
+    raw_num, raw_den = _raw_rate_polys(cm_type)
+    m_inst = M()
+
+    onlyT = _onlyT_syms(m_inst)
+    onlyR = _onlyR_syms(m_inst)
+    rename_T = _nonequalRT_rename(m_inst)
+
+    # R-state: zero :OnlyT syms
+    num_R = _zero_symbols_in_poly(raw_num, onlyT)
+    den_R = _zero_symbols_in_poly(raw_den, onlyT)
+
+    # T-state: zero :OnlyR syms, then rename :NonequalRT syms
+    num_T_zeroed = _zero_symbols_in_poly(raw_num, onlyR)
+    den_T_zeroed = _zero_symbols_in_poly(raw_den, onlyR)
+    num_T = _rename_symbols(num_T_zeroed, rename_T)
+    den_T = _rename_symbols(den_T_zeroed, rename_T)
+
+    # Convert to Exprs
+    binding_Ks_r = ... # accessor-based
+    N_R = _poly_to_expr(num_R, ..., binding_Ks_r)
+    Q_R = _poly_to_expr(den_R, ..., binding_Ks_r)
+    N_T = _poly_to_expr(num_T, ..., binding_Ks_r)
+    Q_T = _poly_to_expr(den_T, ..., binding_Ks_r)
+
+    reg_Q_R = [_build_reg_Q(i, e, :R) for (i, e) in enumerate(reg_sites)]
+    reg_Q_T = [_build_reg_Q(i, e, :T) for (i, e) in enumerate(reg_sites)]
+
+    # Assemble num and den (MWC formula)
+    # num = cat_n * (N_R * Q_R^(cat_n-1) * Π reg_Q_R^mult + L * N_T * Q_T^(cat_n-1) * Π reg_Q_T^mult)
+    # den = Q_R^cat_n * Π reg_Q_R^mult + L * Q_T^cat_n * Π reg_Q_T^mult
+
+    num_expr = ... # build as before, with the new R/T poly Exprs
+    den_expr = ...
+    rate_expr = :(E_total * ($num_expr) / ($den_expr))
+
+    # Parameter destructuring
+    params_list = ... # via parameters(m_inst, ReducedMode())
+    Expr(:block,
+        _destructuring_expr(params_list, :params),
+        _destructuring_expr(metabolites(m_inst), :concs),
+        :(return $rate_expr))
 end
 ```
 
-Then `rate_equation(m::AllostericEnzymeMechanism, concs, params)` uses `_allosteric_rate_expr(typeof(m))` as its generated body.
+- [ ] **Step 5: Update `rate_equation_string` and `structural_identifiability_deficit` to use the same path**
 
-Full implementation guidance:
-
-1. **`_raw_rate_polys(cm)`**: returns the symbolic `(N_cat, Q_cat)` polynomial pair for the R-state by running the existing King-Altman / Cha derivation on `cm` (a plain `EnzymeMechanism`). This is the same machinery used by `rate_equation(::EnzymeMechanism, ...)` — factor it out so both paths call it.
-
-2. **`_apply_tag_to_subs!`**: builds the T-state substitution dictionary. For `:EqualRT`, T symbol → R symbol (no rename). For `:OnlyR`, T symbol → literal `0` (zeroes T-state polynomial at that step's contribution). For `:OnlyT`, R symbol stays R, but the R-state polynomial needs the *R symbol zeroed* — track this separately (collect a second dict `r_zero_subs`). For `:NonequalRT`, T symbol is `Symbol("..._T")`.
-
-3. **`_build_reg_Q(entry, conformation)`**: for each ligand in `entry[1]`, inspect its tag in `entry[3]` (default `:NonequalRT`). Emit `(1 + lig/K_lig_reg_i)` in R-state if ligand isn't `:OnlyT`; `(1 + lig/K_lig_T_reg_i)` in T-state if ligand isn't `:OnlyR`. `:EqualRT` ligand uses the R-state symbol in both conformations. Returns an `Expr`.
-
-4. **`_reg_product(reg_Qs, reg_sites, multiplicity)`**: folds `prod_i (reg_Q_i ^ entry.multiplicity)` over all sites.
-
-5. **Iso-step `:OnlyR` handling**: already falls out of (2) — both `k{idx}f_T` and `k{idx}r_T` substitute to `0`, zeroing the T-state polynomial where they appear.
-
-Key simplification vs. current code: no separate `_dependent_param_exprs` for allosteric, no `_is_tr_equiv_catalytic_param`, no `_allosteric_num_den_exprs`. One function builds the full rate expression; substitution dictionaries encode all the TR logic.
-
-- [ ] **Step 5: Implement `rate_equation_string` and `structural_identifiability_deficit` using the same path**
-
-These two share the substitution machinery. Extract the common expression-building into a helper and call it from both.
+Both share the substitution machinery. Extract common substring/expression-building into a helper.
 
 - [ ] **Step 6: Run tests**
 
-Expected: all allosteric-mechanism rate-equation tests pass, including the baseline MWC-dimer reference.
+Allosteric rate-equation tests pass.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add src/rate_eq_derivation.jl src/sym_poly_for_rate_eq_derivation.jl test/mechanism_definitions_for_test_enzyme_derivation.jl
-git commit -m "Rewrite allosteric rate-equation derivation as substitution over R-state
+git commit -m "Rewrite allosteric rate-equation derivation as POLY-level substitution
 
-T-state polynomials are produced by a tag-driven symbol substitution
-over the R-state polynomials derived via the plain-EnzymeMechanism
-path, not by a parallel symbolic derivation. Deletes _is_tr_equiv_*,
-_is_r_only_*, _rs_tr_equiv/r_only/t_only, _count_allosteric_rate_monomials,
-_allosteric_dep_assignments, and the 7-field-CatSites indexing throughout."
+R-state and T-state polynomials are produced by symbol substitutions
+over a shared raw polynomial (derived once via the plain-EnzymeMechanism
+path on the embedded CatalyticMech). For R: zero :OnlyT symbols. For T:
+zero :OnlyR symbols, then rename :NonequalRT symbols to T-suffixed
+counterparts. Reg-site Q polynomials are built per-site, per-conformation,
+filtering ligands by tag.
+
+Deletes _is_tr_equiv_*, _is_r_only_*, _rs_tr_equiv/r_only/t_only,
+_count_allosteric_rate_monomials, _allosteric_dep_assignments, and the
+parallel R/T control flow throughout."
+```
+
+### Task 3.4: Migrate `_kcat_forward(::AllostericEnzymeMechanism)`
+
+**Files:**
+- Modify: `src/rate_eq_derivation.jl`
+- Modify: `test/test_enzyme_derivation.jl`
+
+The existing `_kcat_forward(::AllostericEnzymeMechanism)` (~150 lines, magic-index access throughout) is replaced with a function that uses the same POLY-level substitution machinery as Task 3.3, plus a shared `_kcat_from_poly(num_poly, den_poly, params)` helper that also serves the plain-mechanism path.
+
+- [ ] **Step 1: Extract `_kcat_from_poly` helper from existing plain-mechanism code**
+
+In `src/rate_eq_derivation.jl`, find the existing `_kcat_forward(m::EnzymeMechanism, params)` body. Factor out the polynomial-traversal kcat extraction into a standalone function:
+
+```julia
+"""
+    _kcat_from_poly(num_poly, den_poly, params) → Float64
+
+Compute kcat (forward) analytically from the polynomial structure:
+group monomials by metabolite pattern, identify the saturation-limit
+contribution, return the bounded kcat ratio.
+"""
+function _kcat_from_poly(num_poly::POLY, den_poly::POLY, params::NamedTuple)
+    ... # extracted body
+end
+```
+
+Update the plain-mechanism `_kcat_forward` to call this helper.
+
+- [ ] **Step 2: Write failing test for allosteric kcat**
+
+```julia
+@testset "_kcat_forward(::AllostericEnzymeMechanism)" begin
+    m = mwc_dimer_new_dsl   # the migrated reference
+    params = (...)            # specific test point
+    expected = ...            # hand-derived kcat at this point
+    @test EnzymeRates._kcat_forward(m, params) ≈ expected
+
+    # Verify rescale invariant holds
+    rescaled = rescale_parameter_values(m, params; kcat=1.0)
+    sat_concs = (S=1e6, P=0.0)
+    @test rate_equation(m, sat_concs, rescaled) ≈ params.E_total
+end
+```
+
+- [ ] **Step 3: Run — expect failure**
+
+- [ ] **Step 4: Implement new `_kcat_forward(::AllostericEnzymeMechanism)`**
+
+```julia
+function _kcat_forward(m::AllostericEnzymeMechanism, params)
+    cm = catalytic_mechanism(m)
+    raw_num, raw_den = _raw_rate_polys(typeof(cm))
+
+    onlyT = _onlyT_syms(m)
+    onlyR = _onlyR_syms(m)
+    rename_T = _nonequalRT_rename(m)
+
+    num_R = _zero_symbols_in_poly(raw_num, onlyT)
+    den_R = _zero_symbols_in_poly(raw_den, onlyT)
+    num_T = _rename_symbols(_zero_symbols_in_poly(raw_num, onlyR), rename_T)
+    den_T = _rename_symbols(_zero_symbols_in_poly(raw_den, onlyR), rename_T)
+
+    kcat_R = _kcat_from_poly(num_R, den_R, params)
+    kcat_T = _kcat_from_poly(num_T, den_T, params)
+
+    # Iterate regulator corners: for each subset of regulators "saturating",
+    # compute effective L factor and weighted kcat. Return max.
+    n_lig = sum(length(regulatory_site_ligands(m, i)) for i in 1:length(regulatory_sites(m)))
+    best = max(kcat_R, kcat_T)
+    for mask in 0:(2^n_lig - 1)
+        # ... iterate corners, compute corner-specific R/T weighting from L and tag-modified Q's
+        # update best if a higher kcat is reachable at this corner
+    end
+    best
+end
+```
+
+The corner-iteration logic preserves the semantics of the old code: at saturating regulator concentrations, certain regulators are "fully bound" (R-state or T-state, per their tag) and shift the L_effective. The function returns the max kcat across corners.
+
+- [ ] **Step 5: Run tests**
+
+Allosteric kcat test passes; `rescale_parameter_values` invariant holds.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/rate_eq_derivation.jl test/test_enzyme_derivation.jl
+git commit -m "Migrate _kcat_forward(::AllostericEnzymeMechanism) to new tag system
+
+Uses _kcat_from_poly shared helper (factored from the plain-mechanism
+path) and the same POLY-level substitution machinery as the allosteric
+rate-equation derivation. Magic-index access (CS[2]/CS[5]/CS[7]) is gone;
+all access via accessors. Reduces ~150 lines to ~60."
 ```
 
 ---
 
-## Phase 4: Mechanism Enumeration
+## Phase 4: Mechanism Enumeration Simplification
 
 ### Task 4.1: Update `MechanismSpec` / `AllostericMechanismSpec`
 
@@ -1715,16 +1776,14 @@ _allosteric_dep_assignments, and the 7-field-CatSites indexing throughout."
 - Modify: `src/mechanism_enumeration.jl`
 - Modify: `test/test_mechanism_enumeration.jl`
 
-The enumeration's `StepSpec` already has `reactants`/`products`/`is_equilibrium`. Add `kinetic_group::Int` field. Delete `param_constraints` from `MechanismSpec`.
-
-- [ ] **Step 1: Modify `StepSpec` struct**
+- [ ] **Step 1: Update `StepSpec`**
 
 ```julia
 struct StepSpec
     reactants::Vector{Symbol}
     products::Vector{Symbol}
     is_equilibrium::Bool
-    kinetic_group::Int   # NEW
+    kinetic_group::Int
 end
 
 Base.:(==)(a::StepSpec, b::StepSpec) =
@@ -1734,12 +1793,11 @@ Base.:(==)(a::StepSpec, b::StepSpec) =
     a.kinetic_group == b.kinetic_group
 
 Base.hash(s::StepSpec, h::UInt) =
-    hash(s.kinetic_group,
-        hash(s.is_equilibrium,
-            hash(s.products, hash(s.reactants, h))))
+    hash(s.kinetic_group, hash(s.is_equilibrium,
+        hash(s.products, hash(s.reactants, h))))
 ```
 
-- [ ] **Step 2: Modify `MechanismSpec` struct**
+- [ ] **Step 2: Update `MechanismSpec`**
 
 ```julia
 struct MechanismSpec <: AbstractMechanismSpec
@@ -1749,9 +1807,9 @@ struct MechanismSpec <: AbstractMechanismSpec
 end
 ```
 
-Delete `param_constraints::Vector{ParamConstraint}`. Delete `ParamConstraint` type alias if no longer used.
+Delete the `param_constraints::Vector{ParamConstraint}` field. Delete `ParamConstraint` type alias.
 
-- [ ] **Step 3: Modify `AllostericMechanismSpec` struct**
+- [ ] **Step 3: Update `AllostericMechanismSpec`**
 
 ```julia
 struct AllostericMechanismSpec <: AbstractMechanismSpec
@@ -1759,50 +1817,40 @@ struct AllostericMechanismSpec <: AbstractMechanismSpec
     catalytic_n::Int
     allosteric_reg_sites::Vector{Vector{Symbol}}
     allosteric_multiplicities::Vector{Int}
-    group_tags::Dict{Int, Symbol}           # kinetic_group -> tag
-    reg_ligand_tags::Dict{Symbol, Symbol}   # ligand -> tag (per reg site handled in sites structure if needed)
+    group_tags::Dict{Int, Symbol}           # kinetic_group → tag
+    reg_ligand_tags::Dict{Symbol, Symbol}   # ligand → tag
     param_count::Int
 end
 ```
 
-Delete `tr_equiv_metabolites`, `tr_equiv_cat_steps`, `r_only_metabolites`, `t_only_metabolites`, `r_only_cat_steps` fields.
+Delete the old fields: `tr_equiv_metabolites`, `tr_equiv_cat_steps`, `r_only_metabolites`, `t_only_metabolites`, `r_only_cat_steps`.
 
-- [ ] **Step 4: Update `EnzymeMechanism(spec::MechanismSpec)` constructor**
+- [ ] **Step 4: Update spec → mechanism constructors**
 
 ```julia
 function EnzymeMechanism(spec::MechanismSpec)
-    subs = substrates(spec.reaction)
-    prods = products(spec.reaction)
-    regs = regulator_roles(spec.reaction)  # ((name, role), ...)
-    # Normalize regs to ((name, atoms=()),) shape
-    regs_normalized = Tuple((r[1], ()) for r in regs)
-    mets = (subs, prods, regs_normalized)
-
+    rxn = spec.reaction
+    subs = Tuple(s for s in substrates(rxn))   # already Symbol tuple at reaction level
+    prods = Tuple(s for s in products(rxn))
+    regs = Tuple(r for r in regulators(rxn))
+    mets = (subs, prods, regs)
     rxns = Tuple(
         (Tuple(s.reactants), Tuple(s.products), s.is_equilibrium, s.kinetic_group)
         for s in spec.steps
     )
     EnzymeMechanism(mets, rxns)
 end
-```
 
-- [ ] **Step 5: Update `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` constructor**
-
-```julia
 function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
     cm = EnzymeMechanism(spec.base)
-    group_tags = Tuple((g, t) for (g, t) in spec.group_tags)
+    group_tags = Tuple(sort(collect(spec.group_tags); by=first))
     cat_sites = (spec.catalytic_n, group_tags)
 
-    # Build reg-site entries: group ligands by reg site
     reg_sites = Tuple(
-        let ligs = Tuple(group),
-            mult = spec.allosteric_multiplicities[i],
-            lig_tags = Tuple(
-                (l, spec.reg_ligand_tags[l])
-                for l in group if haskey(spec.reg_ligand_tags, l))
-            (ligs, mult, lig_tags)
-        end
+        (Tuple(group),
+         spec.allosteric_multiplicities[i],
+         Tuple((l, spec.reg_ligand_tags[l])
+               for l in group if haskey(spec.reg_ligand_tags, l)))
         for (i, group) in enumerate(spec.allosteric_reg_sites)
     )
 
@@ -1810,49 +1858,54 @@ function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
 end
 ```
 
-- [ ] **Step 6: Update all call sites in `mechanism_enumeration.jl` that construct `StepSpec` or `MechanismSpec`**
+- [ ] **Step 5: Migrate `init_mechanisms` and existing call sites**
 
-Every `StepSpec(reactants, products, is_eq)` becomes `StepSpec(reactants, products, is_eq, kinetic_group)`. Use fresh integers — each step gets a unique `kinetic_group` by default; enumeration moves that introduce shared kinetics set the same group on multiple steps.
+Every `StepSpec(reactants, products, is_eq)` becomes `StepSpec(reactants, products, is_eq, gnum)`. `init_mechanisms` should put mirror dead-end steps in the same kinetic group as their catalytic counterpart (replaces the old `K_mirror = K_catalytic` constraint encoding).
 
-- [ ] **Step 7: Run enumeration tests**
+- [ ] **Step 6: Run tests**
 
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
+Some enumeration tests may still fail due to expansion-move changes (Task 4.2). Mark RED.
 
-Expected: some enumeration tests may fail because expansion moves haven't been updated yet. Expected target: at least basic `init_mechanisms` passes.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/mechanism_enumeration.jl test/test_mechanism_enumeration.jl
-git commit -m "Update MechanismSpec / AllostericMechanismSpec for new type system
+git commit -m "Update MechanismSpec / AllostericMechanismSpec for new types
 
 StepSpec gains kinetic_group::Int. MechanismSpec drops ParamConstraint
-vector. AllostericMechanismSpec drops 5 TR/rr fields, gains group_tags
-and reg_ligand_tags dicts. Constructors EnzymeMechanism(spec) and
-AllostericEnzymeMechanism(spec) updated to produce new types."
+vector. AllostericMechanismSpec drops 5 TR/r-only fields, gains
+group_tags and reg_ligand_tags Dicts. Constructors EnzymeMechanism(spec)
+and AllostericEnzymeMechanism(spec) updated. init_mechanisms puts
+catalytic + dead-end mirror steps in the same kinetic group.
+
+KNOWN RED: expansion moves not yet updated."
 ```
 
-### Task 4.2: Simplify expansion moves
+### Task 4.2: Unify expansion moves
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl`
 
-Each expansion move currently has a `::MechanismSpec` and a `::AllostericMechanismSpec` method, joined by `_rewrap_allosteric`. With the new cleaner spec structure, these collapse.
+- [ ] **Step 1: Unify `_expand_re_to_ss`**
 
-- [ ] **Step 1: Unified `_expand_re_to_ss`**
+Replace the existing `MechanismSpec` and `AllostericMechanismSpec` methods with a single method parametric over spec type. The expansion converts ONE WHOLE kinetic group from RE to SS (atomic; mirror propagation is implicit).
 
 ```julia
 function _expand_re_to_ss(spec::AbstractMechanismSpec)
     results = typeof(spec)[]
-    for (i, step) in enumerate(_steps(spec))
-        step.is_equilibrium || continue
-        new_step = StepSpec(
-            step.reactants, step.products, false, step.kinetic_group,
-        )
-        new_steps = copy(_steps(spec))
-        new_steps[i] = new_step
+    steps = _steps(spec)
+    groups = Dict{Int, Vector{Int}}()
+    for (i, s) in enumerate(steps)
+        push!(get!(groups, s.kinetic_group, Int[]), i)
+    end
+    for (g, idxs) in groups
+        all(steps[i].is_equilibrium for i in idxs) || continue
+        new_steps = copy(steps)
+        for i in idxs
+            old = steps[i]
+            new_steps[i] = StepSpec(old.reactants, old.products, false, g)
+        end
+        # +1 net: K (1 param) replaced by k_f, k_r (2 params), shared across group
         push!(results, _with_steps(spec, new_steps, _param_count(spec) + 1))
     end
     results
@@ -1860,188 +1913,46 @@ end
 
 _steps(s::MechanismSpec) = s.steps
 _steps(s::AllostericMechanismSpec) = s.base.steps
-_param_count(s::MechanismSpec) = s.param_count
-_param_count(s::AllostericMechanismSpec) = s.param_count
+_param_count(s::AbstractMechanismSpec) = s.param_count
 
 _with_steps(spec::MechanismSpec, new_steps, new_pc) =
     MechanismSpec(spec.reaction, new_steps, new_pc)
-_with_steps(spec::AllostericMechanismSpec, new_steps, new_pc) =
-    AllostericMechanismSpec(
-        MechanismSpec(spec.base.reaction, new_steps, spec.base.param_count + 1),
-        spec.catalytic_n,
-        deepcopy(spec.allosteric_reg_sites),
-        copy(spec.allosteric_multiplicities),
-        copy(spec.group_tags),
-        copy(spec.reg_ligand_tags),
-        new_pc,
-    )
+_with_steps(spec::AllostericMechanismSpec, new_steps, new_pc) = ...
 ```
 
-- [ ] **Step 2: Replace `_expand_remove_constraint` with `_expand_split_kinetic_group`**
+- [ ] **Step 2: Unify other expansion moves**
 
-Old: remove one `ParamConstraint` entry, splitting one shared K.
-New: split one kinetic group into two — pick a subset of steps in a multi-step group, give them a new group number.
+Apply the same pattern to:
+- `_expand_split_kinetic_group` (replaces `_expand_remove_constraint`).
+- `_expand_add_dead_end_regulator`.
+- `_expand_add_allosteric_regulator`.
+- `_expand_change_group_tag` (replaces `_expand_remove_tr_equiv` and `_expand_to_allosteric`).
 
-```julia
-function _expand_split_kinetic_group(spec::AbstractMechanismSpec)
-    steps = _steps(spec)
-    # Build group -> step_indices mapping
-    groups = Dict{Int, Vector{Int}}()
-    for (i, s) in enumerate(steps)
-        push!(get!(groups, s.kinetic_group, Int[]), i)
-    end
-    results = typeof(spec)[]
-    # Next group number to assign
-    max_group = maximum(keys(groups); init=0)
-    # For each group of size 2+, generate all ways to split off at least one step
-    for (g, idxs) in groups
-        length(idxs) >= 2 || continue
-        for subset_mask in 1:(1 << length(idxs)) - 2
-            # Skip empty subset and full subset (no-op)
-            subset_indices = [idxs[j] for j in 1:length(idxs)
-                              if (subset_mask >> (j-1)) & 1 == 1]
-            new_group = max_group + 1
-            new_steps = copy(steps)
-            for i in subset_indices
-                old = new_steps[i]
-                new_steps[i] = StepSpec(old.reactants, old.products,
-                                        old.is_equilibrium, new_group)
-            end
-            push!(results, _with_steps(spec, new_steps, _param_count(spec) + 1))
-        end
-    end
-    results
-end
-```
+- [ ] **Step 3: Delete the K-type/V-type hardcoded enumeration**
 
-- [ ] **Step 3: Delete `_valid_allosteric_differentiations`**
+Delete `_valid_allosteric_differentiations`. Replace with uniform per-group tag enumeration in `_expand_change_group_tag` and `_expand_to_allosteric`.
 
-The old K-type / V-type hardcoded branches are replaced by uniform tag enumeration over groups.
+- [ ] **Step 4: Delete dead helpers**
 
-- [ ] **Step 4: Rewrite `_expand_to_allosteric` as group-tag enumeration**
+Delete:
+- `_is_mirror_of` (mirror propagation now via kinetic-group atomicity).
+- `_constrained_step_indices`.
+- `_rewrap_allosteric` (single methods via `_with_steps` dispatch).
+- `_tr_equiv_met_delta`.
+- The `::AllostericMechanismSpec` variants of every expansion move.
 
-```julia
-function _expand_to_allosteric(spec::MechanismSpec, @nospecialize(reaction::EnzymeReaction))
-    cn = oligomeric_state(reaction)
-    results = AllostericMechanismSpec[]
-
-    # Identify kinetic groups and their types (RE binding / SS binding / SS iso)
-    group_info = _kinetic_group_info(spec.steps)
-
-    # Valid tag options per group
-    for (g, info) in group_info
-        if info.is_iso
-            valid_tags = [:OnlyR, :EqualRT, :NonequalRT]  # no OnlyT for iso
-        else
-            valid_tags = [:OnlyR, :OnlyT, :EqualRT, :NonequalRT]
-        end
-        # Enumerate one differentiation at a time (beam-search friendly):
-        # set group g to a non-default tag, leave all others default.
-        for tag in valid_tags
-            tag == :NonequalRT && continue  # default, no expansion
-            gtags = Dict{Int,Symbol}(g => tag)
-            push!(results, AllostericMechanismSpec(
-                spec, cn,
-                Vector{Symbol}[], Int[],
-                gtags,
-                Dict{Symbol,Symbol}(),
-                spec.param_count + 1,
-            ))
-        end
-    end
-    results
-end
-
-function _expand_to_allosteric(::AllostericMechanismSpec, @nospecialize(::EnzymeReaction))
-    AllostericMechanismSpec[]  # already allosteric
-end
-```
-
-- [ ] **Step 5: Rewrite `_expand_add_allosteric_regulator` with tag enumeration**
-
-```julia
-function _expand_add_allosteric_regulator(
-    spec::AllostericMechanismSpec,
-    @nospecialize(reaction::EnzymeReaction),
-)
-    # Existing allosteric regs
-    existing = Set(l for site in spec.allosteric_reg_sites for l in site)
-    # Candidate new regulators from reaction
-    new_regs = Symbol[]
-    for (name, role) in regulator_roles(reaction)
-        (role == :unknown || role == :allosteric) || continue
-        name in existing && continue
-        push!(new_regs, name)
-    end
-    sort!(new_regs)
-
-    results = AllostericMechanismSpec[]
-    for reg in new_regs
-        n_sites = length(spec.allosteric_reg_sites)
-        for tag in (:OnlyR, :OnlyT, :NonequalRT)
-            # Add to new site
-            new_sites = deepcopy(spec.allosteric_reg_sites)
-            new_mults = copy(spec.allosteric_multiplicities)
-            push!(new_sites, Symbol[reg])
-            push!(new_mults, spec.catalytic_n)
-            new_lig_tags = copy(spec.reg_ligand_tags)
-            new_lig_tags[reg] = tag
-            push!(results, AllostericMechanismSpec(
-                spec.base, spec.catalytic_n,
-                new_sites, new_mults,
-                copy(spec.group_tags),
-                new_lig_tags,
-                spec.param_count + 1,
-            ))
-
-            # Add to each existing site (competing)
-            for si in 1:n_sites
-                new_sites2 = deepcopy(spec.allosteric_reg_sites)
-                push!(new_sites2[si], reg)
-                new_lig_tags2 = copy(spec.reg_ligand_tags)
-                new_lig_tags2[reg] = tag
-                push!(results, AllostericMechanismSpec(
-                    spec.base, spec.catalytic_n,
-                    new_sites2, copy(spec.allosteric_multiplicities),
-                    copy(spec.group_tags),
-                    new_lig_tags2,
-                    spec.param_count + 1,
-                ))
-            end
-        end
-    end
-    results
-end
-```
-
-- [ ] **Step 6: Rewrite `_expand_remove_tr_equiv` as group-tag transition**
-
-Replace with a `_expand_change_group_tag` move that changes one group's tag from its current value to `:NonequalRT` (or vice versa, depending on refinement strategy).
-
-- [ ] **Step 7: Delete old variants**
-
-Remove:
-- `_tr_equiv_met_delta`
-- Old `_rewrap_allosteric` (no longer needed, unified dispatch via `_with_steps`).
-- Old `_valid_allosteric_differentiations`.
-- Old `_expand_re_to_ss(spec::AllostericMechanismSpec)` method (the single-method version handles both now).
-- Same for other expansion moves.
-
-- [ ] **Step 8: Update canonicalization**
-
-`_canonicalize!` must renumber kinetic_groups after step sort, matching the constructor's canonicalization:
+- [ ] **Step 5: Update `_canonicalize!` for new structure**
 
 ```julia
 function _canonicalize!(spec::MechanismSpec)
-    # Sort steps
     sort!(spec.steps, by=_step_sort_key)
-    # Renumber kinetic_groups by first-occurrence order
+    # Renumber kinetic_groups by first-occurrence order in sorted list
     old_to_new = Dict{Int, Int}()
-    next = 1
+    next_g = 1
     for (i, s) in enumerate(spec.steps)
         if !haskey(old_to_new, s.kinetic_group)
-            old_to_new[s.kinetic_group] = next
-            next += 1
+            old_to_new[s.kinetic_group] = next_g
+            next_g += 1
         end
         spec.steps[i] = StepSpec(
             s.reactants, s.products, s.is_equilibrium,
@@ -2052,13 +1963,10 @@ function _canonicalize!(spec::MechanismSpec)
 end
 
 function _canonicalize!(spec::AllostericMechanismSpec)
-    group_remap = _canonicalize!(spec.base)
-    # Remap group_tags
+    remap = _canonicalize!(spec.base)
     new_gtags = Dict{Int, Symbol}()
-    for (old_g, tag) in spec.group_tags
-        if haskey(group_remap, old_g)
-            new_gtags[group_remap[old_g]] = tag
-        end
+    for (old_g, t) in spec.group_tags
+        haskey(remap, old_g) && (new_gtags[remap[old_g]] = t)
     end
     empty!(spec.group_tags); merge!(spec.group_tags, new_gtags)
     sort!.(spec.allosteric_reg_sites)
@@ -2071,285 +1979,52 @@ function _canonicalize!(spec::AllostericMechanismSpec)
 end
 ```
 
-- [ ] **Step 9: Run enumeration tests**
+- [ ] **Step 6: Update `_dedup_key` for new structure**
+
+Make sure `Dict` fields are converted to sorted tuples for deterministic hashing.
+
+- [ ] **Step 7: Run enumeration tests**
 
 ```bash
 julia --project -e 'using Pkg; Pkg.test()'
 ```
 
-Expected: enumeration count invariants hold (bi-bi=11, ter-ter=283, etc.) — or new numbers emerge; if they do, record them as the new expected values and verify they're consistent (same mechanisms, different enumeration path). Denis reviews any divergence.
+Counts may shift due to (a) per-group tag enumeration replacing K-type/V-type hardcoded subsets, and (b) atomic group RE→SS conversion replacing independent-mirror conversion. Record new counts; verify with Denis.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/mechanism_enumeration.jl test/test_mechanism_enumeration.jl
-git commit -m "Unify expansion moves and delete K-type/V-type hardcoding
+git commit -m "Unify expansion moves; delete K-type/V-type hardcoding
 
-Each expansion move is now a single method parametric over spec type.
-_valid_allosteric_differentiations deleted — iso-step/metabolite
-tag enumeration emerges uniformly from per-group tag moves.
-_rewrap_allosteric and _tr_equiv_met_delta deleted. Canonicalization
-renumbers kinetic_groups by first-occurrence order after step sort.
-Enumeration count invariants preserved / recorded."
+Each expansion move is now a single method parametric over spec type via
+_steps/_with_steps accessors. Mirror propagation is implicit in
+kinetic-group atomicity (a group's RE→SS conversion converts every
+member). _is_mirror_of, _constrained_step_indices, _rewrap_allosteric,
+_tr_equiv_met_delta, _valid_allosteric_differentiations all deleted.
+Canonicalization renumbers kinetic_groups by first-occurrence in the
+sorted step list."
 ```
 
----
-
-## Phase 5: New PFK and HK Tests
-
-### Task 5.1: PFK mechanism and analytical rate
+### Task 4.3: Verify mirror+catalytic kinetic-group invariant
 
 **Files:**
-- Modify: `test/mechanism_definitions_for_test_enzyme_derivation.jl`
-- Modify: `test/test_enzyme_derivation.jl`
+- Modify: `test/test_mechanism_enumeration.jl`
 
-- [ ] **Step 1: Write PFK mechanism definition in new DSL**
-
-In `test/mechanism_definitions_for_test_enzyme_derivation.jl`, add:
+- [ ] **Step 1: Add unit test asserting init_mechanisms puts catalytic + mirror in same kinetic group**
 
 ```julia
-pfk_mechanism = @allosteric_mechanism begin
-    substrates: F6P[C6H12O6P], ATP[C10H16N5O13P3]
-    products:   F16BP[C6H12O12P2], ADP[C10H15N5O10P2]
-    allosteric_regulators:
-        Pi::EqualRT,
-        ATP::OnlyT,       # ATP also an allosteric regulator (OnlyT)
-        ADP::OnlyR,
-        Citrate::OnlyT,
-        F26BP::NonequalRT
-
-    site(:catalytic, 4): begin
-        steps: begin
-            # Random order bi-bi:  F6P can bind first or ATP can bind first.
-            # Substrate bindings (two routes):
-            ([E, F6P] ⇌ [E_F6P], [E_ATP, F6P] ⇌ [E_F6P_ATP])   :: OnlyR     # F6P K-type
-            ([E, ATP] ⇌ [E_ATP], [E_F6P, ATP] ⇌ [E_F6P_ATP])   :: EqualRT
-            # Isomerization step (SS):
-            [E_F6P_ATP] <--> [E_F16BP_ADP]                        :: EqualRT
-            # Product releases (two routes, random order):
-            ([E_F16BP_ADP] ⇌ [E_ADP, F16BP], [E_F16BP] ⇌ [E, F16BP]) :: EqualRT
-            ([E_F16BP_ADP] ⇌ [E_F16BP, ADP], [E_ADP] ⇌ [E, ADP])     :: EqualRT
-        end
+@testset "init_mechanisms: mirror steps share kinetic_group with catalytic" begin
+    rxn = @enzyme_reaction begin
+        substrates: S
+        products:   P
+        regulators: I
+        dead_end_inhibitors: I
     end
-
-    site(:regulatory, 4): begin
-        ligands: Pi, ATP           # Pi and ATP compete at this site
-    end
-    # ADP, Citrate, F26BP each get their own independent reg site (mult=4)
-end
-```
-
-- [ ] **Step 2: Write analytical rate function for PFK**
-
-```julia
-function pfk_rate_analytical(params, concs)
-    # Named parameters expected (derived from new DSL's kinetic-group numbering)
-    # ... explicit arithmetic here matching the MWC formula for this mechanism.
-end
-```
-
-Derive by hand the N_cat_R, Q_cat_R, reg_Q_i_R (and T versions) polynomials following the MWC structure laid out in spec §10.2.1. Key points:
-
-- `F6P :: OnlyR` on its binding group: T-state K_F6P absent → F6P terms appear only in R-state partition function.
-- `ATP :: EqualRT` catalytic binding: K_ATP_T = K_ATP in catalytic Q.
-- Iso step `:: EqualRT`: k_iso_T_f = k_iso_f, k_iso_T_r = k_iso_r.
-- Reg site 1: `(1 + Pi/K_Pi)` in R (ATP is OnlyT so absent from R); `(1 + Pi/K_Pi + ATP/K_ATP_T_reg)` in T.
-- ADP reg site: `(1 + ADP/K_ADP_R_reg)` in R; `1` in T (ADP is OnlyR).
-- Citrate: `1` in R; `(1 + Citrate/K_Citrate_T_reg)` in T.
-- F26BP: `(1 + F26BP/K_F26BP_R_reg)` in R; `(1 + F26BP/K_F26BP_T_reg)` in T.
-
-- [ ] **Step 3: Write test**
-
-In `test/test_enzyme_derivation.jl`:
-
-```julia
-@testset "PFK rate equation matches analytical form" begin
-    concs_test = (F6P=0.1, ATP=1.0, F16BP=0.001, ADP=0.1, Pi=1.0,
-                  Citrate=0.01, F26BP=0.01)
-    params_test = (; K_F6P=0.1, K_ATP=0.5, ..., Keq=1000.0, E_total=1.0, L=1.0)
-    @test rate_equation(pfk_mechanism, concs_test, params_test) ≈
-          pfk_rate_analytical(params_test, concs_test)
-
-    # Test: at [F6P] → 0, rate → 0 (F6P OnlyR means no T-path)
-    low_f6p = merge(concs_test, (F6P=1e-10,))
-    @test rate_equation(pfk_mechanism, low_f6p, params_test) < 1e-6
-
-    # Test: Pi shifts R/T ratio when ATP is present at reg site
-    # (non-trivial because ATP is OnlyT, so reg_Q_R ≠ reg_Q_T)
-    concs_noPi = merge(concs_test, (Pi=0.0,))
-    concs_Pi   = merge(concs_test, (Pi=10.0,))
-    r_noPi = rate_equation(pfk_mechanism, concs_noPi, params_test)
-    r_Pi   = rate_equation(pfk_mechanism, concs_Pi, params_test)
-    @test r_noPi != r_Pi  # Pi has an effect via asymmetric coupling with ATP
-end
-```
-
-- [ ] **Step 4: Run test**
-
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
-
-Expected: PFK test passes.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add test/mechanism_definitions_for_test_enzyme_derivation.jl test/test_enzyme_derivation.jl
-git commit -m "Add PFK hand-verified rate-equation test
-
-Tests: F6P OnlyR (K-type), ATP both substrate and allosteric regulator
-with different tags per context, Pi EqualRT at reg site with OnlyT
-co-ligand (non-cancelling), ADP OnlyR own site, Citrate OnlyT,
-F26BP NonequalRT. Validates the full allosteric rate-equation
-machinery against a hand-derived analytical form."
-```
-
-### Task 5.2: HK mechanism and analytical rate
-
-**Files:**
-- Modify: `test/mechanism_definitions_for_test_enzyme_derivation.jl`
-- Modify: `test/test_enzyme_derivation.jl`
-
-- [ ] **Step 1: Write HK mechanism**
-
-```julia
-hk_mechanism = @allosteric_mechanism begin
-    substrates: Glucose[C6H12O6], ATP[C10H16N5O13P3]
-    products:   G6P[C6H12O9P], ADP[C10H15N5O10P2]
-    allosteric_regulators: G6P::OnlyT, Pi::EqualRT
-    catalytic_inhibitors:  G6P        # same symbol, third role: dead-end inhibitor
-
-    site(:catalytic, 2): begin
-        steps: begin
-            # Random-order bi-bi substrate binding
-            ([E, Glucose] ⇌ [E_Glc], [E_ATP, Glucose] ⇌ [E_Glc_ATP])   :: EqualRT
-            ([E, ATP] ⇌ [E_ATP], [E_Glc, ATP] ⇌ [E_Glc_ATP])           :: EqualRT
-            # Iso step
-            [E_Glc_ATP] <--> [E_G6P_ADP]                                :: EqualRT
-            # Random-order product release
-            ([E_G6P_ADP] ⇌ [E_ADP, G6P], [E_G6P] ⇌ [E, G6P])          :: EqualRT
-            ([E_G6P_ADP] ⇌ [E_G6P, ADP], [E_ADP] ⇌ [E, ADP])          :: EqualRT
-            # Dead-end G6P binding (catalytic inhibitor role)
-            [E_ATP, G6P] ⇌ [E_ATP_G6P]                                  :: EqualRT
-            [E_ADP, G6P] ⇌ [E_ADP_G6P]                                  :: EqualRT
-        end
-    end
-
-    site(:regulatory, 2): begin
-        ligands: G6P, Pi            # G6P and Pi compete; Pi EqualRT allowed because G6P is OnlyT
-    end
-end
-```
-
-- [ ] **Step 2: Write analytical rate function `hk_rate_analytical`**
-
-Derive per spec §10.2.2. The three G6P roles:
-1. Product in catalytic release steps.
-2. Catalytic inhibitor: two dead-end steps, each with its own K.
-3. Allosteric inhibitor: reg site 1, OnlyT.
-
-- [ ] **Step 3: Write test**
-
-```julia
-@testset "HK rate equation matches analytical form" begin
-    concs_test = (Glucose=1.0, ATP=1.0, G6P=0.01, ADP=0.1, Pi=1.0)
-    params_test = (...; Keq=..., E_total=1.0, L=1.0)
-    @test rate_equation(hk_mechanism, concs_test, params_test) ≈
-          hk_rate_analytical(params_test, concs_test)
-
-    # Test: G6P inhibits (three coupled mechanisms)
-    high_g6p = merge(concs_test, (G6P=10.0,))
-    low_g6p  = merge(concs_test, (G6P=0.001,))
-    @test rate_equation(hk_mechanism, high_g6p, params_test) <
-          rate_equation(hk_mechanism, low_g6p, params_test)
-
-    # Substrate-type vs inhibitor-type grouping: G6P release steps
-    # and G6P dead-end steps MUST be in separate kinetic groups.
-    # Confirm construction didn't merge them (would error).
-end
-```
-
-- [ ] **Step 4: Run test**
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add test/mechanism_definitions_for_test_enzyme_derivation.jl test/test_enzyme_derivation.jl
-git commit -m "Add HK hand-verified rate-equation test
-
-G6P appears in three independent roles: product (release steps),
-catalytic_inhibitor (dead-end steps), allosteric inhibitor (OnlyT
-reg-site ligand). Pi EqualRT allowed at reg site because G6P is
-OnlyT co-ligand. Substrate-type and inhibitor-type G6P bindings
-stay in separate kinetic groups."
-```
-
-### Task 5.3: Narrow feature tests
-
-**Files:**
-- Modify: `test/test_enzyme_derivation.jl`
-
-- [ ] **Step 1: Write single-feature edge-case tests**
-
-```julia
-@testset "Single-feature allosteric edge cases" begin
-    # OnlyT substrate — rate → 0 as K_T → ∞
-    onlyT_sub = @allosteric_mechanism begin
-        substrates: S[C]
-        products:   P[C]
-        site(:catalytic, 2): begin
-            steps: begin
-                [E, S] ⇌   [ES]    :: OnlyT
-                [ES]   <--> [EP]    :: EqualRT
-                [EP]   ⇌   [E, P]   :: EqualRT
-            end
-        end
-    end
-    # ... rate at typical concs should be low / proportional to T-path only
-
-    # Iso OnlyR alone (V-type) — verify T-state numerator is zero
-    vtype = @allosteric_mechanism begin
-        substrates: S[C]; products: P[C]
-        site(:catalytic, 2): begin
-            steps: begin
-                [E, S] ⇌   [ES]    :: EqualRT
-                [ES]   <--> [EP]    :: OnlyR       # V-type
-                [EP]   ⇌   [E, P]   :: EqualRT
-            end
-        end
-    end
-    # ... verify rate → 0 as L → ∞ (fully T-state)
-
-    # EqualRT single-ligand reg site → construction error
-    @test_throws ErrorException @allosteric_mechanism begin
-        substrates: S[C]; products: P[C]
-        allosteric_regulators: I::EqualRT     # alone at its site — cancels identically
-        site(:catalytic, 2): begin
-            steps: begin
-                [E, S] ⇌   [ES]    :: EqualRT
-                [ES]   <--> [EP]    :: EqualRT
-                [EP]   ⇌   [E, P]   :: EqualRT
-            end
-        end
-    end
-
-    # HK substrate-type + inhibitor-type G6P in one group → error
-    @test_throws ErrorException @allosteric_mechanism begin
-        substrates: S[C]
-        products:   P[C]
-        catalytic_inhibitors: P        # P as catalytic inhibitor too
-        site(:catalytic, 2): begin
-            steps: begin
-                [E, S] ⇌ [ES]                                      :: EqualRT
-                ([E_P, S] ⇌ [E_P_S], [E_S, P] ⇌ [E_S_P])           :: EqualRT
-                # ^ ERROR: First binds S to a form without S; second binds P to E_S which already has S.
-                # (Adjust example — the point is to construct a group mixing binding
-                #  types of the same metabolite.)
-                [ES] <--> [EP]                                      :: EqualRT
-                [EP] ⇌ [E, P]                                       :: EqualRT
-            end
-        end
+    specs = init_mechanisms(rxn)
+    for spec in specs
+        # Find catalytic and mirror dead-end steps
+        ... # assert they share kinetic_group
     end
 end
 ```
@@ -2359,13 +2034,197 @@ end
 - [ ] **Step 3: Commit**
 
 ```bash
-git add test/test_enzyme_derivation.jl
-git commit -m "Add narrow allosteric feature edge-case tests
-
-OnlyT substrate, V-type iso alone, single-ligand EqualRT reg site
-rejection, substrate-type + inhibitor-type same-metabolite grouping
-rejection."
+git add test/test_mechanism_enumeration.jl
+git commit -m "Verify init_mechanisms preserves mirror-catalytic kinetic-group sharing"
 ```
+
+---
+
+## Phase 5: PFK and HK Hand-Verified Tests
+
+### Task 5.1: PFK-1
+
+**Files:**
+- Modify: `test/mechanism_definitions_for_test_enzyme_derivation.jl`
+- Modify: `test/test_enzyme_derivation.jl`
+
+- [ ] **Step 1: Write the PFK mechanism via `@allosteric_mechanism`**
+
+```julia
+pfk_mechanism = @allosteric_mechanism begin
+    substrates: F6P, ATP
+    products:   F16BP, ADP
+    allosteric_regulators:
+        Pi::EqualRT, ATP::OnlyT, ADP::OnlyR, Citrate::OnlyT, F26BP::NonequalRT
+
+    site(:catalytic, 4): begin
+        steps: begin
+            ([E, F6P] ⇌ [E_F6P], [E_ATP, F6P] ⇌ [E_F6P_ATP])      :: OnlyR
+            ([E, ATP] ⇌ [E_ATP], [E_F6P, ATP] ⇌ [E_F6P_ATP])      :: EqualRT
+            [E_F6P_ATP] <--> [E_F16BP_ADP]                         :: EqualRT
+            ([E_F16BP_ADP] ⇌ [E_ADP, F16BP], [E_F16BP] ⇌ [E, F16BP]) :: EqualRT
+            ([E_F16BP_ADP] ⇌ [E_F16BP, ADP], [E_ADP] ⇌ [E, ADP])     :: EqualRT
+        end
+    end
+
+    site(:regulatory, 4): begin
+        ligands: Pi, ATP
+    end
+end
+```
+
+- [ ] **Step 2: Write hand-derived analytical rate function**
+
+`pfk_rate_analytical(params, concs)` — hand-derive following spec §10.2.1. Key:
+- F6P :: OnlyR → no F6P term in T-state Q.
+- Pi at reg site 1 (EqualRT) → 1 + Pi/K_Pi in both reg_Q_R and reg_Q_T.
+- ATP at reg site 1 (OnlyT) → ATP/K_ATP_T_reg1 only in reg_Q_T.
+- ADP, Citrate, F26BP each at own reg sites.
+
+- [ ] **Step 3: Write test**
+
+```julia
+@testset "PFK rate equation matches analytical form" begin
+    concs = (F6P=0.1, ATP=1.0, F16BP=0.001, ADP=0.1, Pi=1.0, Citrate=0.01, F26BP=0.01)
+    params = (...; Keq=1000.0, E_total=1.0, L=1.0)
+    @test rate_equation(pfk_mechanism, concs, params) ≈ pfk_rate_analytical(params, concs)
+
+    # F6P → 0 implies rate → 0
+    @test rate_equation(pfk_mechanism, merge(concs, (F6P=1e-10,)), params) < 1e-6
+
+    # ADP shifts via R-only stabilization; Citrate / ATP via T-only
+    rate_low_ADP  = rate_equation(pfk_mechanism, merge(concs, (ADP=0.0,)), params)
+    rate_high_ADP = rate_equation(pfk_mechanism, merge(concs, (ADP=10.0,)), params)
+    @test rate_high_ADP > rate_low_ADP
+
+    # F26BP NonequalRT: differential effect when K_F26BP_R ≠ K_F26BP_T
+    ...
+end
+```
+
+- [ ] **Step 4: Run tests**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test/mechanism_definitions_for_test_enzyme_derivation.jl test/test_enzyme_derivation.jl
+git commit -m "Add PFK hand-verified rate-equation test
+
+Tests F6P :: OnlyR (K-type), ATP both substrate and allosteric
+regulator with different tags per context, Pi :: EqualRT at reg site
+with OnlyT co-ligand (non-cancelling), ADP / Citrate / F26BP at own
+reg sites with their respective tags. Validates the full allosteric
+rate-equation machinery against a hand-derived analytical form."
+```
+
+### Task 5.2: HK
+
+**Files:**
+- Modify: `test/mechanism_definitions_for_test_enzyme_derivation.jl`
+- Modify: `test/test_enzyme_derivation.jl`
+
+- [ ] **Step 1: Write the HK mechanism**
+
+```julia
+hk_mechanism = @allosteric_mechanism begin
+    substrates: Glucose, ATP
+    products:   G6P, ADP
+    allosteric_regulators: G6P::OnlyT, Pi::EqualRT
+    catalytic_inhibitors:  G6P
+
+    site(:catalytic, 2): begin
+        steps: begin
+            ([E, Glucose] ⇌ [E_Glc], [E_ATP, Glucose] ⇌ [E_Glc_ATP])  :: EqualRT
+            ([E, ATP] ⇌ [E_ATP], [E_Glc, ATP] ⇌ [E_Glc_ATP])           :: EqualRT
+            [E_Glc_ATP] <--> [E_G6P_ADP]                                :: EqualRT
+            ([E_G6P_ADP] ⇌ [E_ADP, G6P], [E_G6P] ⇌ [E, G6P])           :: EqualRT
+            ([E_G6P_ADP] ⇌ [E_G6P, ADP], [E_ADP] ⇌ [E, ADP])           :: EqualRT
+            [E_ATP, G6P] ⇌ [E_ATP_G6P]                                  :: EqualRT
+            [E_ADP, G6P] ⇌ [E_ADP_G6P]                                  :: EqualRT
+        end
+    end
+
+    site(:regulatory, 2): begin
+        ligands: G6P, Pi
+    end
+end
+```
+
+- [ ] **Step 2: Write `hk_rate_analytical` function**
+
+- [ ] **Step 3: Test that G6P appears in three independent contributions**
+
+- [ ] **Step 4: Run + commit**
+
+### Task 5.3: Single-feature edge-case tests
+
+**Files:**
+- Modify: `test/test_enzyme_derivation.jl`
+
+- [ ] **Step 1: Add edge-case tests**
+
+```julia
+@testset "Allosteric edge cases" begin
+    # OnlyT substrate
+    onlyT_sub = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]  :: OnlyT
+                [ES] <--> [EP] :: EqualRT
+                [EP] ⇌ [E, P]  :: EqualRT
+            end
+        end
+    end
+    # rate → 0 as K_T → ∞
+    ...
+
+    # V-type only
+    vtype = @allosteric_mechanism begin ... end
+    # T-state numerator zero
+    ...
+
+    # Single-ligand :EqualRT reg site → error
+    @test_throws ErrorException @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: I::EqualRT
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]  :: EqualRT
+                [ES] <--> [EP] :: EqualRT
+                [EP] ⇌ [E, P]  :: EqualRT
+            end
+        end
+    end
+
+    # Atom bracket in mechanism DSL → error
+    @test_throws ErrorException @enzyme_mechanism begin
+        substrates: S[C]
+        ...
+    end
+
+    # Stoichiometric infeasibility → error
+    @test_throws ErrorException EnzymeRates.EnzymeMechanism(
+        ((:S,), (:P, :Q), ()),    # P AND Q listed as products
+        (((:E, :S), (:ES,), true, 1),
+         ((:ES,), (:EP,), false, 2),
+         ((:EP,), (:E, :P), true, 3)),    # only P produced; Q never produced → error
+    )
+
+    # same_kinetics group across different metabolites → error
+    @test_throws ErrorException EnzymeRates.EnzymeMechanism(
+        ((:S, :A), (:P,), ()),
+        (((:E, :S), (:ES,), true, 1),
+         ((:E, :A), (:EA,), true, 1),    # same group as S-binding but different metabolite → error
+         ((:EA,), (:E,), false, 2),     # placeholder
+         ((:EA,), (:E, :P), true, 3)),
+    )
+end
+```
+
+- [ ] **Step 2: Run + commit**
 
 ---
 
@@ -2373,7 +2232,7 @@ rejection."
 
 ### Task 6.1: Magic-index audit
 
-**Files:** various `src/`
+**Files:** various src/
 
 - [ ] **Step 1: Grep for magic-index access**
 
@@ -2381,99 +2240,89 @@ rejection."
 grep -rn "Species\[\|CS\[\|RS\[\|\.parameters\[" src/ --include="*.jl" | grep -v "^.*#"
 ```
 
-Expected: zero hits. Any remaining hits → fix by replacing with named accessor.
+Expected: zero hits. Fix any remaining hits with appropriate accessor calls.
 
 - [ ] **Step 2: Grep for stale function names**
 
 ```bash
-grep -rn "_is_tr_equiv_catalytic\|_is_r_only_catalytic\|_rs_tr_equiv\|_rs_r_only\|_rs_t_only\|_rewrap_allosteric\|_tr_equiv_met_delta\|_valid_allosteric_differentiations\|param_constraints" src/ --include="*.jl"
+grep -rn "_is_tr_equiv_catalytic\|_is_r_only_catalytic\|_rs_tr_equiv\|_rs_r_only\|_rs_t_only\|_rewrap_allosteric\|_tr_equiv_met_delta\|_valid_allosteric_differentiations\|_is_mirror_of\|_constrained_step_indices\|_apply_param_constraints\|_walk_rhs!\|_parse_constraint_rhs" src/ --include="*.jl"
 ```
 
-Expected: zero hits (all deleted).
+Expected: zero hits.
 
-- [ ] **Step 3: Delete `src/old_mechanism_enumeration.jl` and `src/old_beam_enumeration.jl` if present**
-
-These are preserved legacy files. With the refactor complete they should be removed (they reference the old type signatures and will now fail to load).
-
-```bash
-ls src/old_*.jl 2>/dev/null
-# If present:
-git rm src/old_mechanism_enumeration.jl src/old_beam_enumeration.jl
-# Update src/EnzymeRates.jl to remove any include("old_...") lines
-```
-
-- [ ] **Step 4: Run full suite**
-
-```bash
-julia --project -e 'using Pkg; Pkg.test()'
-```
+- [ ] **Step 3: Run full suite**
 
 Expected: all green.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add -A
-git commit -m "Delete legacy old_*.jl files and stale references
-
-Audit passed: no magic-index type-parameter access anywhere in src/,
-no references to deleted helpers (_is_tr_equiv_*, _rs_*, etc.)."
-```
-
-### Task 6.2: Update CLAUDE.md
-
-**Files:**
-- Modify: `.claude/CLAUDE.md`
-
-Update the architecture section to reflect the new type signatures, DSL shape, and testing approach. Key sections to touch:
-
-- "Key Architecture Decisions" — replace old `EnzymeMechanism` / `AllostericEnzymeMechanism` descriptions with new ones.
-- "Canonical Step Form" — add the kinetic-group renumbering canonical rule.
-- "Regulator representation" — rewrite to new `allosteric_regulators` / `catalytic_inhibitors` separation.
-- "Dead-end SS/RE propagation" and "Dead-end parameter equivalence constraints" — replace or delete.
-- Remove "Catalytic topology constraints" references to deleted helpers.
-- "Mechanism enumeration building blocks" — update move descriptions.
-- "Vmax Normalization" — verify still accurate post-refactor.
-- "Known Issues" — update `rate_equation` discussion if behavior changed.
-
-- [ ] **Step 1: Write the updates inline**
-
-Read current `.claude/CLAUDE.md`, replace sections as noted above. Keep the rules (Rule #1, foundational rules, etc.) intact.
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add .claude/CLAUDE.md
-git commit -m "Update CLAUDE.md for new mechanism type signatures and DSL"
-```
-
-### Task 6.3: Update SPEC.md
-
-**Files:**
-- Modify: `SPEC.md`
-
-SPEC.md currently documents `compile_mechanism` as exported; the new design keeps it as the `EnzymeMechanism(spec)` / `AllostericEnzymeMechanism(spec)` constructors (internal). Also add `@allosteric_mechanism` to exports.
-
-- [ ] **Step 1: Update exported-API tables and core-workflow examples**
-
-- [ ] **Step 2: Add `@allosteric_mechanism` to the macro table**
-
-- [ ] **Step 3: Update the "Complete Exported Symbol List" code block**
-
-```julia
-export @enzyme_mechanism, @allosteric_mechanism
-```
 
 - [ ] **Step 4: Commit**
 
 ```bash
+git add -A
+git commit -m "Final magic-index and stale-symbol audit pass"
+```
+
+### Task 6.2: Update SPEC.md
+
+**Files:**
+- Modify: `SPEC.md`
+
+- [ ] **Step 1: Remove `compile_mechanism` from exports table** (line ~57)
+
+- [ ] **Step 2: Remove `compile_mechanism` from "Complete Exported Symbol List"** (line ~383)
+
+- [ ] **Step 3: Add `@allosteric_mechanism` to the macros table**
+
+- [ ] **Step 4: Update the example workflows that reference `S[C]` atoms** at the mechanism level — strip atoms (or rewrite to use `@enzyme_reaction`).
+
+- [ ] **Step 5: Commit**
+
+```bash
 git add SPEC.md
-git commit -m "Update SPEC.md for new macros and refactored type system"
+git commit -m "Update SPEC.md for new macros and refactored type system
+
+- Remove compile_mechanism from exports (it's an internal dispatcher).
+- Add @allosteric_mechanism to the macros table.
+- Strip atom syntax from mechanism-level DSL examples."
+```
+
+### Task 6.3: Update CLAUDE.md
+
+**Files:**
+- Modify: `.claude/CLAUDE.md`
+
+- [ ] **Step 1: Update "Key Architecture Decisions"**
+
+Replace old `EnzymeMechanism` / `AllostericEnzymeMechanism` descriptions with new ones (matching spec §4).
+
+- [ ] **Step 2: Update "Regulator representation"**
+
+Rewrite for new `allosteric_regulators` / `catalytic_inhibitors` / DSL split.
+
+- [ ] **Step 3: Remove obsolete sections**
+
+- "Dead-end SS/RE propagation" — replaced by kinetic-group atomicity.
+- "Dead-end parameter equivalence constraints" — replaced by kinetic-group encoding.
+- References to `RegulatorRole` types.
+- (Stale `old_*.jl` references already removed in Task 1.4.)
+
+- [ ] **Step 4: Update "Mechanism enumeration building blocks"**
+
+Match the unified expansion-move structure.
+
+- [ ] **Step 5: Verify "Vmax Normalization" still accurate**
+
+Should reference the new `_kcat_from_poly` shared helper.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add .claude/CLAUDE.md
+git commit -m "Update CLAUDE.md for refactored type system and DSL"
 ```
 
 ### Task 6.4: Line-count reduction check
 
-**Files:** none (verification only)
+**Files:** none (verification)
 
 - [ ] **Step 1: Compare against baseline**
 
@@ -2482,14 +2331,7 @@ wc -l src/types.jl src/dsl.jl src/rate_eq_derivation.jl src/mechanism_enumeratio
 cat REFACTOR_BASELINE.txt
 ```
 
-Expected reductions vs. spec §9.1 targets:
-- `src/types.jl`: ≥30% reduction.
-- `src/rate_eq_derivation.jl`: ≥25% reduction.
-- `src/mechanism_enumeration.jl`: ≥30% reduction.
-- `src/sym_poly_for_rate_eq_derivation.jl`: `_rs_*` helpers deleted.
-- `src/dsl.jl`: small net change acceptable (two macros, but less constraint-RHS machinery).
-
-Record actual numbers; investigate deviations.
+Verify substantial reduction across `src/` per spec §1 / §9. If any file is flat or grew significantly, investigate.
 
 - [ ] **Step 2: Clean up baseline file**
 
@@ -2503,38 +2345,40 @@ rm REFACTOR_BASELINE.txt
 julia --project -e 'using Pkg; Pkg.test()'
 ```
 
-Expected: all green. If not, stop and address issues before PR.
+Expected: all green.
 
 ---
 
 ## Completion
 
-Final git diff against `origin/main` should:
-- Delete substantial code across the touched src/ files (verify against spec §9 and §9.1 targets).
-- Add the new PFK and HK test fixtures.
-- Leave the public API (`rate_equation`, `rate_equation_string`, `parameters`, `identify_rate_equation`, `fit_rate_equation`, `FittingProblem`, `IdentifyRateEquationProblem`, `IdentifyRateEquationResults`) functionally unchanged; only internals reshaped.
-
-Push the branch and open a PR against `main` with the spec linked as the design reference.
+Final git diff against `origin/main`:
+- Substantial code deletion across `src/types.jl`, `src/dsl.jl`, `src/rate_eq_derivation.jl`, `src/mechanism_enumeration.jl`, `src/sym_poly_for_rate_eq_derivation.jl`.
+- New PFK + HK test fixtures.
+- Public API (`rate_equation`, `rate_equation_string`, `parameters`, `identify_rate_equation`, `fit_rate_equation`) functionally unchanged.
+- `compile_mechanism` removed from exports (internal only).
+- `@allosteric_mechanism` added to exports.
 
 ```bash
 git push -u origin allosteric-refactor-spec
 gh pr create --title "Mechanism types refactor" --body "$(cat <<'EOF'
 ## Summary
-- Refactor EnzymeMechanism and AllostericEnzymeMechanism with simpler, non-redundant type parameters
-- Add per-step TR-mode tagging (OnlyR/OnlyT/EqualRT/NonequalRT) with @allosteric_mechanism macro
-- Unify step-grouping into a single DSL construct (parenthesized tuple) that encodes shared kinetics + shared TR mode
+- Refactor EnzymeMechanism and AllostericEnzymeMechanism with simpler type parameters
+- Drop atom tracking at mechanism level; rank-based stoichiometric feasibility check
+- Per-kinetic-group TR-mode tagging via @allosteric_mechanism
+- Unify step grouping into parenthesized DSL syntax (no constraints/enzymes blocks)
 - Eliminate magic-index access; strict accessor-only internal interface
-- Delete dead code: graph() accessor, RegulatorRole type hierarchy, complex ParamConstraint monomial machinery, parallel R/T-state derivation paths
+- Substantial code deletion (target ≥30% in touched src/ files)
 
 ## Design reference
 docs/superpowers/specs/2026-04-23-mechanism-types-refactor-design.md
 
 ## Test plan
-- [ ] Full test suite passes (Aqua + JET + all unit/integration tests)
+- [ ] Full test suite passes (Aqua + JET + all unit/integration)
 - [ ] PFK hand-verified rate equation matches analytical form
 - [ ] HK hand-verified rate equation matches analytical form (G6P in three roles)
-- [ ] Enumeration count invariants preserved or recorded
-- [ ] Line-count reduction meets spec §9.1 targets
+- [ ] Stoichiometric feasibility check rejects malformed mechanisms
+- [ ] Magic-index grep returns zero hits in src/
+- [ ] Line-count reduction targets met
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
@@ -2545,24 +2389,20 @@ EOF
 
 ## Spec-coverage self-check
 
-Before executing, verify this plan covers every spec section:
-
-- **§1 Primary goal (code reduction):** Task 6.4 validates against §9.1 targets.
-- **§2 Motivation (taxonomy, DSL, tests, streamlined derivation):** Phases 2-5 implement all four.
-- **§3 Current state:** informational only.
-- **§4.1 EnzymeMechanism type:** Task 2.1 + 2.2.
-- **§4.2 AllostericEnzymeMechanism type:** Task 3.1 + 3.2.
+- **§1 Primary goal (code reduction):** Task 6.4.
+- **§2 Motivation:** Phases 2-5 implement.
+- **§4.1 EnzymeMechanism type:** Task 2.1, 2.2, 2.3.
+- **§4.2 AllostericEnzymeMechanism type:** Task 3.1, 3.2.
 - **§5 Accessors:** Task 2.1, 3.1.
-- **§6 DSL:** Task 2.3 + 2.4.
-- **§7 Tag semantics:** Task 3.3 (rate-eq derivation) embodies.
-- **§8 Error cases:** Task 2.3, 3.2 (construction-time), 2.4 (DSL-level).
-- **§9 Dead code:** Phase 1 (Task 1.1, 1.2, 1.3) + Phase 3 + 4 (_rs_*, _rewrap_allosteric, etc.).
-- **§9.1 Reduction targets:** Task 6.4.
-- **§10.1 DSL tests:** Tasks 2.3, 2.4 (new DSL tests); Task 2.5 (migrated existing).
+- **§6 DSL:** Task 2.4, 2.5, 3.2.
+- **§7 Tag semantics:** Task 3.3 embodies; Task 5 tests.
+- **§8 Error cases:** Tasks 2.3, 2.4, 3.2 (validation), Task 5.3 (tests).
+- **§9 Dead code:** Phase 1 + 2.4 + 2.7 + 3.3 + 3.4 + 4.2.
+- **§10.1 DSL tests:** Tasks 2.4, 2.5, 3.2; Task 2.6 migrates existing.
 - **§10.2 PFK / HK / edge cases:** Tasks 5.1, 5.2, 5.3.
-- **§10.3 Enumeration invariants:** Task 4.2 step 9.
-- **§10.4 kcat invariants:** covered by existing suite + Task 5 kcat-related assertions.
-- **§10.5 Aqua/JET:** covered by existing suite run in every task.
-- **§11 Migration notes:** Task 2.5 (plain) + embedded in Phase 3 for allosteric.
-- **§12 Out-of-scope:** no plan tasks — confirmed not touching listed APIs.
-- **§13 Sequence:** this plan *is* step 2.
+- **§10.3 Enumeration invariants:** Task 4.2 step 7 + Task 4.3.
+- **§10.4 kcat invariants:** Task 3.4.
+- **§10.5 Aqua/JET:** ongoing across tasks.
+- **§10.6 Graphs.jl removal:** Task 1.1 step 3.
+- **§11 Migration notes:** Phase 1 + 2.6 + Phase 3 spread.
+- **§12 Out-of-scope:** Confirmed not touching listed APIs.

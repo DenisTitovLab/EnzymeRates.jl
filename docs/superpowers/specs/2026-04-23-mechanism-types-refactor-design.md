@@ -1,26 +1,22 @@
 # Mechanism Types Refactor — Design
 
-**Status:** Draft — pending user review before implementation planning
-**Date:** 2026-04-23
+**Status:** Draft (revised after first reviewer round)
+**Date:** 2026-04-23 (revised 2026-04-24)
 **Scope:** `EnzymeMechanism`, `AllostericEnzymeMechanism`, `@enzyme_mechanism`, `@allosteric_mechanism`, and all code that reads their internals.
 
 ---
 
 ## 1. Primary Goal: Remove Code
 
-**Less code == simpler code.** The refactor is a success only if a substantial fraction of the affected files is deleted. The current fragmented representations (7-field `CatSites` tuples accessed by magic indices `CS[3]`, `CS[5]`, `CS[6]`, `CS[7]`; 5-per-entry `RegSites`; parallel `tr_equiv_metabolites` / `tr_equiv_cat_steps` / `r_only_metabolites` / `t_only_metabolites` / `r_only_cat_steps` fields; general `ParamConstraint` machinery used only for trivial equalities; duplicated R-state/T-state derivation paths) encode the same underlying information in multiple places and force conditional branches throughout the codebase.
+**Less code == simpler code.** The refactor is a success only if a substantial fraction of the affected files is deleted. The current fragmented representations (7-field `CatSites` tuples accessed by magic indices `CS[3]`, `CS[5]`, `CS[6]`, `CS[7]`; 5-per-entry `RegSites`; `_apply_param_constraints` machinery for fully-general monomial constraints; per-species atom inference; parallel R-state/T-state derivation) encode information in multiple places and force conditional branches throughout. A unified internal representation + accessor-only interface should let us delete substantial code in:
 
-A unified internal representation + accessor-only interface should let us delete, not just move, a large fraction of:
+- `src/types.jl` — magic-index accessors, atom inference, `_count_side`, `_infer_enzyme_atoms`, `RegulatorRole` hierarchy, `graph()`, `param_constraints` stub.
+- `src/rate_eq_derivation.jl` — `_is_tr_equiv_catalytic_param`, `_is_r_only_catalytic_param`, parallel-path R/T control flow in `_dependent_param_exprs` and `_build_allosteric_rate_body`, the duplicated allosteric `_kcat_forward`.
+- `src/mechanism_enumeration.jl` — `_valid_allosteric_differentiations` K-type/V-type branches, `_rewrap_allosteric`, `_tr_equiv_met_delta`, `_is_mirror_of`, `_constrained_step_indices`, the `::AllostericMechanismSpec` variants of every expansion move.
+- `src/sym_poly_for_rate_eq_derivation.jl` — `_rs_tr_equiv` / `_rs_r_only` / `_rs_t_only` magic-index helpers, `_count_allosteric_rate_monomials`, `_apply_param_constraints` methods on POLY / FactoredSigma / FactoredPoly / DenomTerm.
+- `src/dsl.jl` — `_walk_rhs!`, `_parse_constraint_rhs`, `_push_constraint!`, the heuristic `_is_allosteric_label`, the dual `_parse_enzyme_mechanism` / `_parse_allosteric_mechanism` flavors.
 
-- `src/types.jl` (~574 lines) — magic-index accessors, duplicated structural accessors for the two types, `CatSites`/`RegSites` ad-hoc decoding.
-- `src/rate_eq_derivation.jl` (~1591 lines) — parallel R-state/T-state symbol-routing logic, `_is_tr_equiv_catalytic_param` / `_is_r_only_catalytic_param` helpers that re-derive per-param-context what tags should declare directly.
-- `src/mechanism_enumeration.jl` (~2430 lines) — `_valid_allosteric_differentiations` K-type/V-type hardcoded branches; `_tr_equiv_met_delta`, `_rewrap_allosteric`, `_canonicalize!` step-index remapping for `ParamConstraints`; separate `_expand_re_to_ss` / `_expand_remove_constraint` / `_expand_add_dead_end_regulator` / `_expand_to_allosteric` / `_expand_add_allosteric_regulator` / `_expand_remove_tr_equiv` functions that each handle both `MechanismSpec` and `AllostericMechanismSpec` variants with near-duplicate code.
-- `src/sym_poly_for_rate_eq_derivation.jl` — `_rs_tr_equiv` / `_rs_r_only` / `_rs_t_only` magic-index helpers for `RegSites`.
-- `src/dsl.jl` — the two DSL grammars (plain and allosteric) currently branch early via `_is_allosteric_label` detection; shared helpers are minimal.
-
-Target outcome: one unified representation per type, zero magic-index access, a single rate-equation derivation path (the R-state path of `AllostericEnzymeMechanism` *is* plain-`EnzymeMechanism` derivation called directly), and a single DSL grammar with MWC-specific extensions layered on top.
-
-**If the implementation PR doesn't show a net reduction in the touched files, the design is still carrying redundancy somewhere and should be revisited.**
+**If the implementation PR doesn't show large net code reduction across these files, the design is still carrying redundancy somewhere and should be revisited.**
 
 ---
 
@@ -28,10 +24,10 @@ Target outcome: one unified representation per type, zero magic-index access, a 
 
 Beyond code reduction, this refactor addresses four concrete capability gaps:
 
-1. **Rigorous per-step TR-binding-mode taxonomy.** Each step in an allosteric mechanism explicitly declares whether it operates in R only, T only, with equal R/T kinetics, or with independent R/T kinetics. Currently TR-mode information is fragmented across five parallel fields and inaccessible from the DSL.
-2. **DSL support for TR modes.** Users can currently write `@enzyme_mechanism` for `AllostericEnzymeMechanism` but cannot specify `OnlyR` / `OnlyT` / `EqualRT` / `NonequalRT` — every user-facing mechanism defaults to fully-independent K_T / K_R, and refined mechanisms are only reachable via enumeration expansion.
-3. **Tests for TR semantics.** New tests cover derived rate equations against hand-written closed forms for: OnlyR substrate, OnlyT substrate, OnlyR / OnlyT / NonequalRT regulator, EqualRT regulator at catalytic dead-end binding, substrate-also-regulator with different tags per context.
-4. **Streamlined enumeration and derivation.** The mechanism enumeration pipeline's K-type/V-type special-case branches collapse into uniform per-step/per-species tag moves. The rate-equation derivation's T-state path becomes an expression substitution on the R-state path, not a duplicated symbolic derivation.
+1. **Rigorous per-step TR-binding-mode taxonomy.** Each kinetic group in an allosteric mechanism explicitly declares whether it operates in R only, T only, with equal R/T kinetics, or with independent R/T kinetics.
+2. **DSL support for TR modes.** Users can specify `OnlyR` / `OnlyT` / `EqualRT` / `NonequalRT` directly via `@allosteric_mechanism`.
+3. **Hand-verified tests.** PFK-1 and HK as primary tests; rate equations checked against analytical closed forms.
+4. **Streamlined enumeration and derivation.** K-type / V-type special-case branches in enumeration collapse into uniform per-group tag moves. The rate-equation derivation collapses parallel R/T-state symbolic derivation into a shared raw-polynomial derivation followed by tag-driven symbol substitution.
 
 ---
 
@@ -50,25 +46,14 @@ struct EnzymeMechanism{
 struct AllostericEnzymeMechanism{
     Metabolites,          # tuple of Symbol (full metabolite names, incl reg-only)
     CatalyticMech,        # EnzymeMechanism type (embedded)
-    CatSites,             # 7-tuple: (cat_mets, multiplicity, tr_equiv_mets,
-                          #           tr_equiv_cat_steps, r_only_mets, t_only_mets, r_only_cat_steps)
-    RegSites,             # tuple of 5-tuples: ((ligands,), multiplicity, tr_equiv_ligs,
-                          #                       r_only_ligs, t_only_ligs)
+    CatSites,             # 7-tuple
+    RegSites,             # tuple of 5-tuples
 } <: AbstractEnzymeMechanism end
 ```
 
 ### 3.2 DSL as it is today
 
-Two flavors of `@enzyme_mechanism`, switched via `_is_allosteric_label` heuristic:
-- Plain: `species: / steps: / constraints:` blocks. `enzymes:` explicitly lists forms. `constraints:` uses general monomial equality.
-- Allosteric: `metabolites:` + `site(:catalytic, N): / site(:regulatory, N):` blocks. **No DSL for `OnlyR` / `OnlyT` / `EqualRT`** — all mechanisms default to `NonequalRT`.
-
-### 3.3 Symptoms of the current design
-
-- Magic-index reads sprinkled throughout (`CS[3]`, `RS[i][5]`, `Species[4]`, etc.).
-- `_valid_allosteric_differentiations` generates K-type and V-type mechanisms as separate hardcoded branches.
-- `_dependent_param_exprs(M::Type{<:AllostericEnzymeMechanism})` duplicates the R-state logic with `_T`-suffixed symbols, conditionally zeroing `r_only_syms` / `t_only_syms`.
-- `_expand_re_to_ss`, `_expand_remove_constraint`, `_expand_add_dead_end_regulator`, etc. each have a `::MechanismSpec` and a `::AllostericMechanismSpec` method with near-duplicate bodies, joined by `_rewrap_allosteric`.
+Two flavors of `@enzyme_mechanism`, switched via `_is_allosteric_label` heuristic. Allosteric flavor cannot express TR tags from the DSL — every user-facing mechanism defaults to fully-independent K_T / K_R.
 
 ---
 
@@ -78,104 +63,125 @@ Two flavors of `@enzyme_mechanism`, switched via `_is_allosteric_label` heuristi
 
 ```julia
 struct EnzymeMechanism{
-    Metabolites,          # ((substrates,), (products,), (regulators,)); each ((name, atoms),)
+    Metabolites,          # ((subs_names,), (prod_names,), (reg_names,))   — each Tuple{Symbol,...}
     Reactions,            # ((lhs_syms, rhs_syms, is_eq::Bool, kinetic_group::Int),)
 } <: AbstractEnzymeMechanism end
 ```
 
 Changes vs. current:
-- `Species` (4-tuple) → `Metabolites` (3-tuple of substrates/products/regulators). Enzyme forms no longer stored in type parameters; derived from `Reactions` via atomic-balance bookkeeping (already exists).
-- `Reactions` + `EquilibriumSteps` + `ParamConstraints` collapse into a single tuple of 4-tuples. Each step carries its `kinetic_group::Int`. Steps with identical `kinetic_group` share kinetic parameters (one `K` for the whole RE group, one `k_f` and one `k_r` for the whole SS group). Steps with unique `kinetic_group` values have independent parameters. No parallel `SameKineticsSteps` type parameter, no general-linear `ParamConstraints` machinery.
+
+- **`Species` (4-tuple) → `Metabolites` (3-tuple of plain Symbol tuples).** No atom content stored anywhere on the mechanism. Enzyme forms inferred from steps as "any name in steps not in Metabolites." Substrate/product atoms remain at the `EnzymeReaction` level for catalytic-topology enumeration; they are never used at the mechanism level.
+- **`Reactions` + `EquilibriumSteps` + `ParamConstraints` collapse into a single tuple of 4-tuples.** Each step carries its `kinetic_group::Int`. Steps with identical `kinetic_group` share kinetic parameters (one `K` for the whole RE group; one `k_f` and one `k_r` for the whole SS group). Steps with unique `kinetic_group` values have independent parameters. No `SameKineticsSteps` type parameter, no general `ParamConstraints` machinery.
 
 At construction time, the `@enzyme_mechanism` / `@allosteric_mechanism` parser assigns `kinetic_group` integers to steps: all steps inside a parenthesized DSL group share the same `kinetic_group`; standalone steps receive unique `kinetic_group` values.
 
-**Kinetic-group composition rules (enforced at construction):**
-- A kinetic group of 2+ steps contains either all RE steps binding the same metabolite, or all SS binding steps of the same metabolite. Never a mix of RE and SS. Never an iso step. (RE steps are parameterized by a single `K`; SS binding steps by `k_f` and `k_r` — the parameter structures are incompatible.)
-- Iso steps (SS, no metabolite) always form **singleton groups** of size 1. They cannot share kinetic parameters with any other step, even another iso step — Haldane closure is the correct mechanism for relating iso-step k's, not same-kinetics equivalence.
-- Binding steps where the metabolite is being added to a form that already contains it (inhibitor-type binding when the metabolite is both substrate and catalytic inhibitor) cannot be grouped with binding steps where the form does not yet contain the metabolite (substrate-type binding). Different binding pockets, independent K.
+#### 4.1.1 Kinetic-group composition rules (constructor-enforced)
 
-**Canonicalization is not trivial.** Because `kinetic_group` integers are user-assigned labels of a partition, the same semantic mechanism can be written with different integer labels (e.g., `(A, B):g=1, C:g=2` vs `(A, B):g=2, C:g=1`). The constructor must renumber groups to produce a unique type encoding for equivalent mechanisms:
+- A kinetic group of 2+ steps contains either all RE steps binding the same metabolite, or all SS binding steps of the same metabolite. Never a mix of RE and SS. Never an iso step.
+- Iso steps (SS, no metabolite) always form **singleton groups**. They cannot share kinetic parameters with any other step — Haldane closure relates iso-step k's, not same-kinetics equivalence.
 
-1. Sort steps by `_step_sort_key` (reactant/product content plus `is_eq`).
-2. Walk the sorted step list, maintaining a map `old_group_num → new_group_num`. The first step encountered introduces `new_group_num = 1`; each subsequent step either reuses its group's already-assigned new number or is assigned the next unused integer.
-3. Rewrite each step tuple's `kinetic_group` field with its new number.
-4. Rewrite `CatSites.group_tags` (for `AllostericEnzymeMechanism`) with the new numbering.
+#### 4.1.2 Step canonicalization: NONE
 
-The result: two `@enzyme_mechanism` / `@allosteric_mechanism` blocks that describe the same underlying mechanism (same sorted step set, same partition into groups, same tags per group) produce the **same Julia type** — independent of DSL entry order or the user's group-number labelling.
+The constructor does **not** sort steps or renumber kinetic groups. Step indices in `Reactions` match the order the user wrote them in the DSL. This preserves predictable parameter naming (`K1` is whatever step the user wrote first as a binding step in its own group, etc.) for hand-derived analytical formulas in tests.
+
+Two semantically equivalent mechanisms written in different DSL orders therefore produce **different Julia types**. This is acceptable: type uniqueness across DSL rewrites is not a load-bearing requirement, and `_canonicalize!` in `mechanism_enumeration.jl`'s `dedup!` path handles canonical form for spec-level dedup independently (sorting steps + renumbering groups before hashing — happens within enumeration, not at type construction).
+
+#### 4.1.3 Constructor validation
+
+The `EnzymeMechanism(metabolites, reactions)` constructor validates:
+
+1. At least one SS step (`is_eq == false`).
+2. Each substrate / product / regulator listed appears in some step.
+3. Every name in steps is either a listed metabolite or an enzyme form (anything not a listed metabolite is treated as an enzyme form).
+4. Each step has exactly one enzyme form on each side.
+5. Enzyme-form graph (built from steps) is weakly connected.
+6. Kinetic-group composition rules (§4.1.1).
+7. **Stoichiometric feasibility**: `r ∈ col(S)` where `S` is the full stoichiometry matrix (enzymes + metabolites) and `r` is the target vector (0 on enzyme rows, `-count(M in subs:)` on substrate rows, `+count(M in prods:)` on product rows, 0 on regulator rows). Verified via `rank(Rational.(S)) == rank(Rational.(hcat(S, r)))`. Catches typos: missing substrate consumption, accidental side-product, regulator with net consumption/production.
+
+No atom-balance check, no enzyme-form atom inference, no substrate-type vs inhibitor-type classification. The user is trusted on chemistry beyond the stoichiometric feasibility check.
 
 ### 4.2 `AllostericEnzymeMechanism`
 
 ```julia
 struct AllostericEnzymeMechanism{
     CatalyticMech,        # embedded EnzymeMechanism type
-    CatSites,             # (multiplicity, group_tags) — non-default-only storage
-    RegSites,             # (((ligands,), multiplicity, ligand_tags),)  — one entry per reg site
+    CatSites,             # (multiplicity::Int, group_tags::Tuple{Pair{Int,Symbol},...})
+    RegSites,             # (((ligands::Tuple{Symbol,...}, multiplicity::Int, ligand_tags::Tuple{Pair{Symbol,Symbol},...}),),)
 } <: AbstractEnzymeMechanism end
 ```
 
-`CatSites` fields (2, down from 7):
-- `multiplicity::Int` — catalytic subunit count (was `CS[2]`).
-- `group_tags::Tuple{Pair{Int, Symbol}, ...}` — `(kinetic_group, tag)` pairs for kinetic groups with non-default TR tags. A group with no pair has tag `:NonequalRT`. Keyed by `kinetic_group` (not `step_idx`), so a group of 3 substrate-binding steps needs one entry, not three.
+`CatSites` (2 fields, was 7):
+- `multiplicity::Int` — catalytic subunit count.
+- `group_tags::Tuple{Pair{Int, Symbol}, ...}` — `(kinetic_group, tag)` pairs for groups with non-default TR tags. A group not listed has tag `:NonequalRT`.
 
-No `species_tags` field: substrates, products, and catalytic inhibitors carry no metabolite-level TR tags (group tags govern). Allosteric-regulator tags live in `RegSites.ligand_tags`.
-
-Tag vocabulary: `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`. Only three valid for iso steps (`:OnlyT` forbidden — it is a mere relabeling of `:OnlyR` since the theory is asymmetric in R/T).
-
-`RegSites` entry fields (3, down from 5):
+`RegSites` per-entry (3 fields, was 5):
 - `ligands::Tuple{Symbol, ...}` — ligand names at this reg site.
 - `multiplicity::Int` — number of binding sites of this kind.
-- `ligand_tags::Tuple{Pair{Symbol, Symbol}, ...}` — `(ligand_name, tag)` pairs. Tag vocabulary at reg sites: `:OnlyR`, `:OnlyT`, `:NonequalRT` (no `:EqualRT` — cancels identically at reg sites).
+- `ligand_tags::Tuple{Pair{Symbol, Symbol}, ...}` — `(ligand_name, tag)` pairs.
 
-`Metabolites` is **derived** (not stored):
+Tag vocabulary:
+- Group tags (catalytic): `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`. Iso groups forbid `:OnlyT` (R-inactive is a relabel).
+- Ligand tags (reg sites): `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`. `:EqualRT` is allowed only at multi-ligand reg sites where at least one co-ligand has a non-`:EqualRT` tag (otherwise the ligand's contribution cancels identically).
 
+`Metabolites` (full list) is **derived** by accessor:
 ```julia
 metabolites(m::AllostericEnzymeMechanism) =
     unique union of catalytic-mechanism metabolites and reg-site ligands
 ```
 
-No field carries information derivable from another field. `cat_metabolites` (was `CS[1]`) is read from `CatalyticMech`. `same_kinetics_steps` is on the `CatalyticMech`. Atom content for metabolites is on the `CatalyticMech` (for anything that binds catalytically) or omitted (pure reg-site ligands have no atoms stored).
+No information is stored twice. `cat_metabolites` is read from `CatalyticMech`. `same_kinetics_steps` (kinetic groups) live on the `CatalyticMech`'s reactions tuple.
+
+#### 4.2.1 Constructor validation
+
+The `AllostericEnzymeMechanism(catalytic_mech, cat_sites, reg_sites)` constructor validates:
+
+1. `cat_sites.group_tags` references only kinetic groups that exist in `catalytic_mech`.
+2. Iso-only groups do not carry `:OnlyT` tags.
+3. Each reg-site entry has at least one ligand.
+4. No reg site has all `:EqualRT` ligands (cancellation identity); single-ligand `:EqualRT` reg site is forbidden.
+5. Reg-site ligand tags are in the allowed vocabulary.
 
 ---
 
 ## 5. Accessor Interface
 
-**All reads of type-parameter data go through named accessor functions. No `m.parameters[k]` or `CS[k]` or `RS[i][k]` anywhere in the implementation.** Grep-for-magic-indices becomes part of the verification before merging.
+**All reads of type-parameter data go through named accessor functions. No `m.parameters[k]`, `CS[k]`, `RS[i][k]`, `Species[k]` lookups in the implementation.** Audit at merge time: grep for `\.parameters\[` / `CS\[` / `RS\[` / `Species\[` returns zero hits in `src/`.
 
-### 5.1 Shared accessors (both types)
+### 5.1 Shared accessors (both `EnzymeMechanism` and `AllostericEnzymeMechanism`)
 
 | Accessor | Description |
 |---|---|
-| `substrates(m)` | Tuple of `(name, atoms)` substrate entries |
-| `products(m)` | Tuple of `(name, atoms)` product entries |
-| `regulators(m)` | Tuple of `(name,)` or `(name, atoms)` regulator entries (inclusive — dead-end and allosteric) |
-| `metabolites(m)` | Full metabolite list (union of the above) |
-| `reactions(m)` | Step tuple `((lhs, rhs, is_eq, kinetic_group),)` |
+| `substrates(m)` | `Tuple{Symbol, ...}` — substrate names |
+| `products(m)` | `Tuple{Symbol, ...}` — product names |
+| `regulators(m)` | `Tuple{Symbol, ...}` — regulator names (dead-end + allosteric, as a flat list) |
+| `metabolites(m)` | `Tuple{Symbol, ...}` — full metabolite list (substrates ∪ products ∪ regulators) |
+| `reactions(m)` | Step tuple `((lhs_syms, rhs_syms, is_eq, kinetic_group), ...)` |
 | `equilibrium_steps(m)` | `Tuple{Vararg{Bool}}` — extracted from `reactions(m)` |
 | `n_steps(m)` | `length(reactions(m))` |
-| `enzyme_forms(m)` | Tuple of `(name, atoms)` enzyme forms (derived, not stored) |
+| `enzyme_forms(m)` | `Tuple{Symbol, ...}` — enzyme form names (derived from steps; not stored) |
 | `n_states(m)` | `length(enzyme_forms(m))` |
 | `kinetic_group(m, step_idx)` | `Int` — the kinetic group assigned to step `step_idx` |
-| `kinetic_groups(m)` | Tuple of unique kinetic-group integers present in the mechanism |
-| `steps_in_group(m, group_num)` | Tuple of step indices that share this kinetic group |
-| `stoich_matrix(m)` | `Matrix{Int}` (mets × steps) |
-| `graph(m)` | `(SimpleDiGraph, enzyme_forms_tuple)` |
+| `kinetic_groups(m)` | Tuple of unique kinetic-group integers in the mechanism |
+| `steps_in_group(m, group_num)` | Tuple of step indices in group `group_num` |
+| `stoich_matrix(m)` | Full stoichiometry matrix; rows are `(enzyme_forms..., metabolites...)` in that order, columns are step indices. Positive = produced, negative = consumed. |
+| `enzyme_row_range(m)` / `metabolite_row_range(m)` | Index ranges for slicing `stoich_matrix(m)` |
 
 ### 5.2 Allosteric-specific accessors
 
 | Accessor | Description |
 |---|---|
-| `catalytic_mechanism(m)` | `EnzymeMechanism` singleton (embedded) |
+| `catalytic_mechanism(m)` | `EnzymeMechanism` singleton (the embedded `CatalyticMech`) |
 | `catalytic_multiplicity(m)` | `Int` — subunit count |
-| `group_tag(m, group_num)` | `:OnlyR`/`:OnlyT`/`:EqualRT`/`:NonequalRT` — tag for kinetic group `group_num` (`:OnlyT` forbidden for iso groups). Defaults to `:NonequalRT` if not stored. |
-| `step_tag(m, step_idx)` | Derived as `group_tag(m, kinetic_group(m, step_idx))`. |
-| `allosteric_regulators(m)` | Tuple of `(name, reg_site_tag)` pairs |
-| `catalytic_inhibitors(m)` | Tuple of dead-end inhibitor names |
-| `regulatory_sites(m)` | Tuple of site descriptors |
+| `group_tag(m, group_num)` | `:OnlyR`/`:OnlyT`/`:EqualRT`/`:NonequalRT`. Defaults to `:NonequalRT` if absent. `:OnlyT` is forbidden for iso groups. |
+| `step_tag(m, step_idx)` | Convenience: `group_tag(m, kinetic_group(m, step_idx))`. |
+| `allosteric_regulators(m)` | Tuple of `(name, tag)` pairs, one per ligand across all reg sites |
+| `catalytic_inhibitors(m)` | Tuple of dead-end-only regulator names (regulators in `CatalyticMech.regulators` that don't appear in any reg site) |
+| `regulatory_sites(m)` | Tuple of reg-site descriptors |
 | `regulatory_site_ligands(m, i)` | Tuple of ligand names at site `i` |
 | `regulatory_site_multiplicity(m, i)` | `Int` |
-| `regulatory_ligand_tag(m, i, lig)` | `:OnlyR`/`:OnlyT`/`:NonequalRT` |
+| `regulatory_ligand_tag(m, i, lig)` | `:OnlyR`/`:OnlyT`/`:EqualRT`/`:NonequalRT` |
 
-Accessors return defaults (`:NonequalRT`) for absent entries in `step_tags` / `ligand_tags` — callers never need to distinguish "present but default" from "absent."
+Accessors return defaults (`:NonequalRT`) for absent entries — callers never need to distinguish "present but default" from "absent."
 
 ---
 
@@ -183,149 +189,164 @@ Accessors return defaults (`:NonequalRT`) for absent entries in `step_tags` / `l
 
 ### 6.1 Plain `@enzyme_mechanism`
 
-Tag-free. No `site(...)` blocks, no `::Tag` annotations, no `allosteric_regulators:` or `catalytic_inhibitors:` fields.
+Tag-free at species level. No `site(...)` blocks, no `::Tag` annotations on steps, no `allosteric_regulators:` / `catalytic_inhibitors:` fields, **no atom syntax** (no `S[C]` brackets — the bracket form is rejected at parse time with a clear error directing users to `@enzyme_reaction` if they want atom declarations).
 
 ```julia
 @enzyme_mechanism begin
-    substrates: S[C]
-    products:   P[C]
+    substrates: S
+    products:   P
     regulators: I
 
     steps: begin
-      ([E, S] ⇌ [ES], [ES, S] ⇌ [ESS], [EP, S] ⇌ [EPS])   # grouped → same kinetics (K shared)
-      [ES, I] ⇌ [ESI]                                      # dead-end
-      [ES]   <--> [EP]
-      [EP]   ⇌   [E, P]
+        ([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])    # parenthesized → shared kinetics
+        [ES, I] ⇌ [ESI]                      # dead-end inhibitor
+        [ES]   <--> [EP]
+        [EP]   ⇌   [E, P]
     end
 end
 ```
 
-- `substrates:`, `products:`, `regulators:` replace the current `species: begin ... end` block; atoms use bracket syntax (`S[C]`, `S[C6H12O6]`, `A[C,N]`).
-- `enzymes:` block removed — enzyme form names are the species symbols appearing in steps that are neither substrates, products, nor regulators. Atom content inferred from atomic-balance (existing machinery).
-- `constraints:` block removed. **Same-kinetics groups are expressed by wrapping the sharing steps in a parenthesized tuple** — no separate `same_kinetics:` directive, no step duplication. A standalone step is itself; a parenthesized group of steps declares shared kinetics (shared K for RE binding, shared k_f and k_r for SS binding).
+- `substrates:`, `products:`, `regulators:` accept comma-separated bare symbol lists.
+- No `enzymes:` block — enzyme form names are inferred as "any name in steps that is not a listed metabolite."
+- No `constraints:` block — same-kinetics groups are expressed by wrapping the sharing steps in a parenthesized tuple. A standalone step is its own group of one. A parenthesized group of steps declares shared kinetics.
 
 ### 6.2 `@allosteric_mechanism`
 
 ```julia
 @allosteric_mechanism begin
-    substrates:            S[C]
-    products:              P[C]
-    allosteric_regulators: I::OnlyT, A::OnlyT, R::NonequalRT
-    catalytic_inhibitors:  J
+    substrates: F6P, ATP
+    products:   F16BP, ADP
+    allosteric_regulators: Pi::EqualRT, ATP::OnlyT, ADP::OnlyR, Citrate::OnlyT, F26BP::NonequalRT
+    catalytic_inhibitors:  J        # optional; dead-end regulators bound only in catalytic steps
 
-    site(:catalytic, 2): begin
-      steps: begin
-        ([E, S] ⇌ [ES],
-         [ES, S] ⇌ [ESS],
-         [EP, S] ⇌ [EPS])         :: EqualRT     # 3 steps, shared kinetics, all EqualRT
-        [ES]     <--> [EP]        :: OnlyR       # iso step, T inactive
-        [EP]     ⇌   [E, P]       :: EqualRT
-        [ES, J]  ⇌   [ESJ]        :: OnlyR       # dead-end J in R state only
-      end
+    site(:catalytic, 4): begin
+        steps: begin
+            ([E, F6P] ⇌ [E_F6P], [E_ATP, F6P] ⇌ [E_F6P_ATP])    :: OnlyR
+            ([E, ATP] ⇌ [E_ATP], [E_F6P, ATP] ⇌ [E_F6P_ATP])    :: EqualRT
+            [E_F6P_ATP]   <--> [E_F16BP_ADP]                      :: EqualRT
+            ([E_F16BP_ADP] ⇌ [E_ADP, F16BP], [E_F16BP] ⇌ [E, F16BP]) :: EqualRT
+            ([E_F16BP_ADP] ⇌ [E_F16BP, ADP], [E_ADP] ⇌ [E, ADP])     :: EqualRT
+        end
     end
 
-    site(:regulatory, 2): begin                  # optional — only for competing ligands
-      ligands: A, I
+    site(:regulatory, 4): begin           # optional — only for competing ligands
+        ligands: Pi, ATP                   # tags come from allosteric_regulators: declaration
     end
-    # R tagged in allosteric_regulators: but not in an explicit reg site →
-    # its own independent site, multiplicity = catalytic multiplicity (N = 2 here)
+    # ADP, Citrate, F26BP are tagged but not in an explicit site → each gets its own
+    # independent reg site with multiplicity = 4 (the catalytic multiplicity).
 end
 ```
 
-- `substrates:` and `products:` carry **no tags** (no magic defaults). Their T/R binding behavior is fully determined by step-group tags.
-- `allosteric_regulators:` carries **required tag** `::Tag` where `Tag ∈ {OnlyR, OnlyT, NonequalRT}`. No `EqualRT` (cancels at reg sites).
-- `catalytic_inhibitors:` carries **no tag**. These regulators appear only in catalytic steps (dead-end binding) and their T/R mode is set by the step-group tag there.
-- `site(:catalytic, N):` is **required** and specifies the catalytic multiplicity. Contains only a `steps:` block.
-- `site(:regulatory, N):` is **optional**. Used only to declare allosteric regulators that *compete for the same site* (shared partition-function factor). Non-listed allosteric regulators are placed at their own independent site with multiplicity = catalytic multiplicity (the `N` from `site(:catalytic, N):`).
-- **Every step or step-group has a required `:: Tag`.** Tag vocabulary: `{OnlyR, OnlyT, EqualRT, NonequalRT}`; iso steps (single, never grouped) forbid `OnlyT`. No site-level aggregate, no defaults.
-- A parenthesized group of steps declares shared kinetics and a shared TR tag (both same-kinetics and same TR mode for the group — they can't differ, since grouped steps share K or k_f/k_r values outright, which would be inconsistent with different TR modes).
+- `substrates:` / `products:` carry **no tags** and **no atoms**. Their T/R binding behavior is fully determined by the kinetic-group tag on each of their binding steps.
+- `allosteric_regulators:` carries **required tag** `::Tag` where `Tag ∈ {OnlyR, OnlyT, EqualRT, NonequalRT}`. `EqualRT` is permitted only when a non-`EqualRT` co-ligand exists at the same reg site (validation at construction).
+- `catalytic_inhibitors:` carries **no tag**. These dead-end regulators bind in catalytic steps; their TR mode is set by the kinetic-group tag of those steps.
+- `site(:catalytic, N):` is **required** in `@allosteric_mechanism` and specifies the catalytic multiplicity. Contains only a `steps:` block.
+- `site(:regulatory, N):` is **optional**. Used to declare allosteric regulators that compete at one site (shared partition-function factor). Non-listed allosteric regulators get their own independent reg site with multiplicity = catalytic multiplicity.
+- **Every step or step-group has a required `:: Tag`.** Tag vocabulary `{OnlyR, OnlyT, EqualRT, NonequalRT}`. Iso steps (SS, no metabolite) forbid `OnlyT`.
 
 ### 6.3 Detection: two macros, no heuristics
 
-`@enzyme_mechanism` and `@allosteric_mechanism` are two separate macros. No detection/inference of which type to build from block contents. Each macro rejects blocks that don't match its grammar with clear errors.
+`@enzyme_mechanism` and `@allosteric_mechanism` are two separate macros. No heuristic detection. Each rejects the other's exclusive syntax with clear errors.
 
 ---
 
 ## 7. Tag Semantics
 
-### 7.1 Allosteric-regulator tag (at reg sites)
+### 7.1 Allosteric regulator tag (at reg sites)
 
 | Tag | Meaning at reg site |
 |---|---|
 | `::OnlyR` | Ligand binds only in R state (no T-state K) |
 | `::OnlyT` | Ligand binds only in T state (no R-state K) |
-| `::EqualRT` | K_T = K_R. Allowed **only** when at least one other ligand at the same reg site has a non-`EqualRT` tag. |
+| `::EqualRT` | K_T = K_R. Allowed only when at least one co-ligand at the same site is non-`EqualRT`. |
 | `::NonequalRT` | Independent K_T, K_R |
-
-**`EqualRT` at a reg site is not an identity.** At a multi-ligand site with mixed tags, an `EqualRT` ligand still affects the rate because its partition-function contribution combines additively with a non-`EqualRT` co-ligand whose R-state and T-state factors differ. Example: PFK reg site with Pi (`EqualRT`) and ATP (`OnlyT`) competing — reg_Q_R = 1 + Pi/K_Pi + ATP_R_missing_so_just_Pi, reg_Q_T = 1 + Pi/K_Pi + ATP/K_ATP_T. The Pi term couples with the ATP term asymmetrically, and Pi's concentration shifts the R/T ratio even though K_Pi is the same in both states.
-
-`EqualRT` **is disallowed** at a reg site if every ligand at that site is `EqualRT` (pure cancellation), or if it is the only ligand at its site.
 
 ### 7.2 Kinetic-group tag (catalytic steps)
 
-| Tag | On RE binding group | On SS binding group | On SS iso group |
+| Tag | RE binding group | SS binding group | SS iso group |
 |---|---|---|---|
-| `:: OnlyR` | K_T absent (T state doesn't bind here) | k_T_f = k_T_r = 0 (T doesn't bind productively) | k_T_f = k_T_r = 0 (T doesn't catalyze) |
-| `:: OnlyT` | K_R absent (R state doesn't bind here) | k_R_f = k_R_r = 0 | **Forbidden** (R-inactive is a relabel) |
+| `:: OnlyR` | K_T absent (T doesn't bind here) | k_T_f = k_T_r = 0 (T doesn't bind productively) | k_T_f = k_T_r = 0 (T doesn't catalyze) |
+| `:: OnlyT` | K_R absent (R doesn't bind here) | k_R_f = k_R_r = 0 | **Forbidden** (R-inactive is a relabel) |
 | `:: EqualRT` | K_T = K_R | k_T_f = k_f, k_T_r = k_r | k_T_f = k_f, k_T_r = k_r |
 | `:: NonequalRT` | Independent K_T, K_R | Independent T, R k's | Independent T, R k's |
 
-### 7.3 Granularity: kinetic group, not metabolite or step
+### 7.3 Tag is a property of the kinetic group, not of metabolites or steps individually
 
-Substrates, products, and catalytic inhibitors carry no metabolite-level TR tags. TR tags live on kinetic groups (a standalone step forms its own group). Different groups binding the same metabolite can carry different tags (e.g., a group of 3 substrate-binding steps tagged `:: EqualRT` and a standalone substrate-binding step tagged `:: NonequalRT`). Within a group, all steps share *both* kinetics and TR mode — the two properties can't diverge because the DSL binds them in one declaration. Nonsensical configurations surface as unidentifiable-parameter warnings via `structural_identifiability_deficit`, not as DSL errors.
+Substrates, products, and catalytic inhibitors carry no metabolite-level TR tags. TR tags live on kinetic groups. A standalone step is its own group of one. Different groups binding the same metabolite can carry different tags.
 
-### 7.4 Tag contexts are independent
+### 7.4 Reg-site and catalytic contexts are independent
 
-The `allosteric_regulators:` tag governs **reg-site binding only**. If the same regulator also appears in catalytic steps (dead-end or productive binding), the group tag there governs that context independently. A metabolite like ATP in PFK can be `::EqualRT` as a catalytic substrate binding and `::OnlyT` as an allosteric regulator — two contexts, two specifications.
+The `allosteric_regulators:` tag governs reg-site binding only. If the same regulator also appears in catalytic steps (e.g., as a dead-end inhibitor), the catalytic kinetic-group tag governs that context independently. ATP in PFK is `::EqualRT` as a catalytic substrate binding and `::OnlyT` as an allosteric regulator — two contexts, two specifications.
 
 ---
 
 ## 8. Error Cases (DSL-level)
 
-All raised at macro-expansion time with specific diagnostic messages:
+All raised at macro-expansion or constructor time with specific diagnostic messages.
 
-### 8.1 Kinetic-group validation
+### 8.1 Kinetic-group composition
 
-- Group of 2+ steps contains steps that bind **different metabolites** — K/k values are not interchangeable across metabolites.
-- Group of 2+ steps contains an **iso step** — iso cycle closure is handled by Haldane, not same-kinetics equivalence. Iso steps must always be singleton groups of size 1.
-- Group of 2+ steps **mixes RE and SS** binding — different parameter structures (K vs k_f/k_r) cannot be equated.
-- Group of 2+ steps contains both **substrate-type** binding (metabolite M binding at a form that does not yet contain M) **and inhibitor-type** binding (M binding at a form that already contains M). These use different binding pockets and must have independent K values, even when the metabolite symbol is the same (Denis's edge case: M appears as both substrate and catalytic inhibitor).
+- Group of 2+ steps contains different metabolites (K/k values not interchangeable).
+- Group of 2+ steps contains an iso step (iso steps must be singletons; Haldane handles cycle closure).
+- Group of 2+ steps mixes RE and SS binding (different parameter structures).
 
 ### 8.2 Tag validation
 
-- Iso step tagged `:: OnlyT`.
-- `allosteric_regulators:` ligand tagged `::EqualRT` at a single-ligand reg site, or at a multi-ligand reg site where every ligand is `::EqualRT` (cancellation identity).
+- Iso group tagged `:: OnlyT`.
+- `allosteric_regulators:` ligand tagged `::EqualRT` at a single-ligand reg site, or where every co-ligand is also `::EqualRT` (cancellation identity).
 - `catalytic_inhibitors:` entry carrying a tag.
-- Step or step-group in `@allosteric_mechanism` without a `:: Tag` (tags required on every step / group).
+- Step or step-group in `@allosteric_mechanism` without a `:: Tag`.
 
-### 8.3 Macro scope
+### 8.3 DSL syntax
 
+- Atom bracket syntax (`S[C]`) at mechanism level: rejected with message directing user to `@enzyme_reaction` for atom declarations.
 - `@enzyme_mechanism` block contains `site(...)` / `::Tag` / `allosteric_regulators:` / `catalytic_inhibitors:` — wrong macro.
 - `@allosteric_mechanism` block missing `site(:catalytic, N):`.
-- Atomic-balance inconsistency across steps (e.g., ping-pong mis-declaration).
+
+### 8.4 Stoichiometric feasibility
+
+- `rank(S) ≠ rank([S | r])` — mechanism cannot implement the declared net reaction with the declared substrate / product / regulator stoichiometry. Error message identifies the residual.
 
 ---
 
-## 9. Dead Code / Unused Surface to Delete Outright
+## 9. Dead Code / Unused Surface to Delete
 
-Audited during brainstorm (2026-04-23/24), all confirmed unused in production code paths:
+Confirmed unused or replaceable in production code paths:
 
-- **`graph(::EnzymeMechanism)` accessor** (`src/types.jl`). Defined, allocates a `SimpleDiGraph`, tested once in `test_accessors.jl` for non-allocation. Not called anywhere in `src/` computation. Delete the accessor, the `@generated` body, and the graph-allocation test; the `Graphs` import may become unnecessary.
-- **`RegulatorRole` type hierarchy** (`src/types.jl`): `abstract type RegulatorRole`, `struct Allosteric <: RegulatorRole end`, `struct DeadEnd <: RegulatorRole end`, `struct UnconstrainedRegulator <: RegulatorRole end`. Every usage in `src/` and `test/` compares against the symbols `:unknown` / `:dead_end` / `:allosteric` directly; the type hierarchy is never dispatched on. Delete.
-- **Complex `ParamConstraint` monomial form and the whole `ParamConstraints` type parameter.** User-facing `constraints:` with coefficients or multi-symbol products (`k3r = 2 * k1r`, `k3r = k1f * k2f / k2r`) is exercised only by DSL-parser generality tests in `test/test_dsl.jl`. No test mechanism or use case consumes the monomial form; every real constraint is a simple equality. The 4th type parameter `ParamConstraints` on `EnzymeMechanism`, the `ParamConstraint = Tuple{Symbol, Int, Vector{...}}` definition, the monomial-RHS parser (`_walk_rhs!`, `_parse_constraint_rhs`, `_push_constraint!`), the `coeff::Int, factors::Tuple` carrier, and `_remap_constraint_sym` all disappear. Constraint semantics are carried by the `kinetic_group::Int` stored on each step tuple.
-- **`param_constraints(::AllostericEnzymeMechanism) = ()`** stub (`src/types.jl:571`). Returns empty tuple because `AllostericEnzymeMechanism` never carried constraints. Removed along with the `param_constraints` accessor in general (callers switch to `kinetic_group(m, idx)`).
+### 9.1 `src/types.jl`
+- `graph()` accessor (only consumer is a non-allocation test).
+- `RegulatorRole` abstract type and concrete `Allosteric` / `DeadEnd` / `UnconstrainedRegulator` subtypes (never dispatched on; symbols `:unknown`/`:dead_end`/`:allosteric` are used everywhere).
+- `_count_side` per-step atom counter (no atoms stored at mechanism level).
+- `param_constraints(::AllostericEnzymeMechanism) = ()` stub.
+- 4-parameter `EnzymeMechanism{Species, Reactions, EquilibriumSteps, ParamConstraints}` and 4-parameter `AllostericEnzymeMechanism{Metabolites, ...}` — replaced by the 2-parameter and 3-parameter shapes in §4.
 
-## 9.1 Expected Code-Reduction Targets
+### 9.2 `src/dsl.jl`
+- `_walk_rhs!` / `_parse_constraint_rhs` / `_push_constraint!` — constraint-DSL parser (no `constraints:` block in new DSL).
+- `_is_allosteric_label` — heuristic detection (replaced by two distinct macros).
+- The `metabolites:` / `site(...):` allosteric flavor of `_parse_enzyme_mechanism`.
+- Bracket-atom parsing within mechanism DSL — atoms only appear in `@enzyme_reaction`.
 
-Non-binding indicative targets (exact figures depend on implementation — not acceptance criteria, but signal that the design is carrying its weight):
+### 9.3 `src/sym_poly_for_rate_eq_derivation.jl`
+- `_rs_tr_equiv` / `_rs_r_only` / `_rs_t_only` magic-index helpers.
+- `_count_allosteric_rate_monomials` — replaced by direct counting on the post-substitution expression tree.
+- `_apply_param_constraints` methods on `POLY` / `FactoredSigma` / `FactoredPoly` / `DenomTerm` (and the recursive walker). Replaced by `_rename_symbols(poly, rename_map)` — simple symbol substitution driven by kinetic-group representatives.
 
-- `src/types.jl`: eliminate magic-index accessors, shrink `CatSites` from 7 to 2 fields, shrink `RegSites` entry from 5 to 3 fields, delete `graph()`, delete `RegulatorRole` hierarchy, delete `param_constraints(::AllostericEnzymeMechanism)` stub. Expect ≥30% reduction.
-- `src/rate_eq_derivation.jl`: the T-state derivation collapses into a single substitution pass over the R-state result (driven by tag lookups), eliminating `_is_tr_equiv_catalytic_param`, `_is_r_only_catalytic_param`, and the parallel R/T control flow in `_dependent_param_exprs` and `_build_allosteric_rate_body`. Expect ≥25% reduction.
-- `src/mechanism_enumeration.jl`: `_valid_allosteric_differentiations` disappears (K-type / V-type branches become uniform tag enumeration); `_rewrap_allosteric`, `_tr_equiv_met_delta`, and the `::AllostericMechanismSpec` variants of each expansion move collapse into single methods parametric over tag category. Expect ≥30% reduction.
-- `src/dsl.jl`: one grammar with a shared helper set (`_parse_species_field`, `_parse_step_or_group`, atom-balance checker) driving both macros. `_walk_rhs!` / `_parse_constraint_rhs` deleted entirely. Expect small net growth *only* if two macros turn out to justify 2× the parser surface — otherwise expect reduction.
-- `src/sym_poly_for_rate_eq_derivation.jl`: `_rs_tr_equiv` / `_rs_r_only` / `_rs_t_only` magic-index helpers deleted outright.
+### 9.4 `src/rate_eq_derivation.jl`
+- `_is_tr_equiv_catalytic_K`, `_is_tr_equiv_catalytic_param`, `_is_r_only_catalytic_param` — tag-routing helpers replaced by direct accessor calls.
+- `_dependent_param_exprs(::AllostericEnzymeMechanism)` parallel-path implementation (~100 lines). Replaced by a single function deriving R-state from the embedded plain-mechanism path and producing T-state via tag-driven symbol substitution at POLY level (zero `:OnlyT` syms for R, zero `:OnlyR` syms + rename `:NonequalRT` syms for T).
+- `_allosteric_dep_assignments`, `_allosteric_num_den_exprs`, `_build_allosteric_rate_body` — collapsed into a single rate-expression builder.
+- `_kcat_forward(::AllostericEnzymeMechanism)` (~150 lines of magic-index access) — rewritten using a shared `_kcat_from_poly(num, den, params)` helper that also serves the plain `EnzymeMechanism` path.
 
-**Total: target large net reduction across `src/`. If the implementation doesn't deliver this, it means the new representation is still redundant and we should iterate on the design.**
+### 9.5 `src/mechanism_enumeration.jl`
+- `_valid_allosteric_differentiations` K-type / V-type hardcoded branches — replaced by uniform per-group tag enumeration.
+- `_rewrap_allosteric` — replaced by single methods parametric over spec type via `_steps(s)` / `_with_steps(s, ...)` accessors.
+- `_tr_equiv_met_delta`, `_constrained_step_indices` — group structure makes these unnecessary.
+- `_is_mirror_of` — mirror propagation is subsumed by kinetic-group atomicity (a group's RE→SS conversion is atomic; if `init_mechanisms` puts catalytic + dead-end-mirror steps in the same kinetic group, they convert together by construction).
+- The `::AllostericMechanismSpec` variants of `_expand_re_to_ss`, `_expand_remove_constraint`, `_expand_add_dead_end_regulator`, `_expand_to_allosteric`, `_expand_add_allosteric_regulator`, `_expand_remove_tr_equiv` — collapsed into single methods.
+- `compile_mechanism` remains as an internal dispatcher; **removed from the export list**. Internal callers (`identify_rate_equation.jl`, the enumeration pipeline) keep using it.
+
+### 9.6 Documentation drift
+- `.claude/CLAUDE.md` references `src/old_mechanism_enumeration.jl` / `src/old_beam_enumeration.jl` / `test/old_test_*.jl` — these files no longer exist; the references are stale and removed in the migration step.
 
 ---
 
@@ -333,95 +354,101 @@ Non-binding indicative targets (exact figures depend on implementation — not a
 
 ### 10.1 Unit tests for the new DSL
 
-- Tag-free plain `@enzyme_mechanism` mirrors existing semantics (tests migrated, not rewritten).
-- `@allosteric_mechanism` rejects tag-free steps and step-groups.
-- `@allosteric_mechanism` rejects iso step with `:: OnlyT`.
-- `@enzyme_mechanism` rejects `site(...)` / tags / allosteric fields.
-- Step-group validation: cross-metabolite group, iso-step in group, RE+SS mix, substrate-type + inhibitor-type mix in one group, group containing a single step (tautological — single steps need no group).
+- Tag-free plain `@enzyme_mechanism` mirrors existing semantics for migrated mechanisms.
+- `@enzyme_mechanism` rejects atom bracket syntax (`S[C]`) — test the error message.
+- `@enzyme_mechanism` rejects `site(...)` / `::Tag` / `allosteric_regulators:` / `catalytic_inhibitors:` — wrong-macro detection.
+- `@allosteric_mechanism` rejects tag-free step-groups; rejects iso step `:: OnlyT`; rejects single-ligand `::EqualRT` reg sites; rejects all-`::EqualRT` reg site.
+- Step-group validation: cross-metabolite group, iso-step in a 2+ group, RE+SS mix in one group.
+- Stoichiometric feasibility: a deliberately-broken mechanism (substrate listed but never consumed) errors; the error message is informative.
 
 ### 10.2 Hand-verified rate-equation tests (new)
 
-Two realistic enzyme mechanisms exercise the full feature set together. Each is compared against a hand-derived closed-form rate equation at multiple concentration points; agreement to floating-point tolerance is required.
+Two realistic mechanisms exercise the full feature set together. Each is compared against a hand-derived closed-form rate equation at multiple concentration / parameter points; agreement to floating-point tolerance is required.
 
 #### 10.2.1 PFK-1 (phosphofructokinase-1)
 
-Reaction: `F6P + ATP ⇌ F16BP + ADP`.
+Reaction: `F6P + ATP ⇌ F16BP + ADP`. Random-order bi-bi at catalytic site; all binding steps RE, iso step SS. Oligomeric state 4.
 
-Mechanism:
-- Random-order bi-bi at catalytic site; all binding steps RE, iso step SS.
-- Oligomeric state 4.
 - **Catalytic-site TR modes**:
   - F6P binding groups: `:: OnlyR` (K-type allosteric — F6P absent from T).
   - ATP, F16BP, ADP binding groups: `:: EqualRT`.
-  - Iso step: `:: EqualRT` (Vmax equal in R and T).
+  - Iso step group: `:: EqualRT` (Vmax equal in R and T).
 - **Allosteric regulators**:
-  - Pi: `::EqualRT`, competes with ATP at reg site 1.
-  - ATP: `::OnlyT`, competes with Pi at reg site 1. (ATP is also a substrate; catalytic and reg-site contexts have independent tags.)
+  - Pi: `::EqualRT`, competes with ATP at reg site 1 (allowed because ATP is `::OnlyT` at the same site — non-cancelling).
+  - ATP: `::OnlyT` at reg site 1 (also a substrate; catalytic and reg-site contexts have independent tags).
   - ADP: `::OnlyR`, own reg site.
   - Citrate: `::OnlyT`, own reg site.
   - F26BP: `::NonequalRT`, own reg site.
 
 Tests:
-- `rate_equation_string(m)` matches hand-derived form. Pi with `::EqualRT` appears in both R and T partition factors at site 1 (not cancelled because ATP is `::OnlyT` at the same site).
-- At saturating F6P and ATP, zero other regulators, rate matches Vmax × E_total.
-- At zero F6P, rate is zero (OnlyR substrate — but no allosteric shift can rescue catalysis without R-state bound F6P... actually still zero because no forward flux).
-- ADP concentration modulates rate via R-only stabilization; Citrate / ATP modulate via T-only stabilization.
-- F26BP produces differential kinetics between R and T (NonequalRT).
+- `rate_equation_string(m)` matches hand-derived form.
+- At saturating F6P / ATP and zero allosteric regulators, rate matches Vmax × E_total.
+- At F6P → 0, rate → 0 (F6P OnlyR; no T-path).
+- ADP, Citrate, ATP-as-regulator, F26BP each modulate rate via R/T equilibrium shift in the directions implied by their tags.
 
 #### 10.2.2 HK (hexokinase)
 
-Reaction: `Glucose + ATP ⇌ G6P + ADP`.
+Reaction: `Glucose + ATP ⇌ G6P + ADP`. Random-order bi-bi; all-`:: EqualRT` catalytic groups. Oligomeric state 2.
 
-Mechanism:
-- Random-order bi-bi at catalytic site; all binding steps RE, iso step SS.
-- Oligomeric state 2 (default — can also run with 4).
-- **Catalytic-site TR modes**: all groups `:: EqualRT` (no K-type or V-type refinement).
-- **Catalytic inhibitor**: G6P. G6P is also a product, so the same symbol appears in `products:` and `catalytic_inhibitors:`. G6P competes with ATP and ADP at the catalytic site (binding to the enzyme in states where ATP or ADP are bound, blocking turnover). Per the grouping rules, substrate-type G6P release (from `E_G6P_ADP` → `E_ADP` + G6P) and inhibitor-type G6P binding (to `E_ATP`, `E_ADP`) cannot share a kinetic group.
+- **Catalytic inhibitor**: G6P. The same G6P symbol is in `products:` AND `catalytic_inhibitors:`. Dead-end binding steps `[E_ATP, G6P] ⇌ [E_ATP_G6P]` and `[E_ADP, G6P] ⇌ [E_ADP_G6P]` are tagged `:: EqualRT`.
 - **Allosteric regulators**:
-  - G6P (same symbol, third role): `::OnlyT`, competes with Pi at reg site 1. Catalytic + catalytic-inhibitor + allosteric tags are all independent.
-  - Pi: `::EqualRT`, competes with G6P at reg site 1 — allowed because G6P is `::OnlyT` (non-cancelling).
+  - G6P (third role): `::OnlyT`, competes with Pi at reg site 1.
+  - Pi: `::EqualRT`, competes with G6P at reg site 1 — allowed because G6P is `::OnlyT`.
 
 Tests:
-- `rate_equation_string(m)` matches hand-derived form. G6P appears in three distinct partition-function contributions: catalytic-product release, catalytic-inhibitor dead-end, reg-site T-state binding.
-- G6P-inhibition curve at fixed Glucose, ATP: matches the analytical substrate-inhibition form plus the allosteric T-stabilization contribution.
-- Reg-site 1 partition functions: reg_Q_R = 1 + Pi/K_Pi (G6P is `::OnlyT` so absent from R); reg_Q_T = 1 + Pi/K_Pi + G6P/K_G6P_T. Verify: at [G6P] = 0, the Pi term cancels in num/den ratio (reg_Q_R = reg_Q_T); at [G6P] > 0, Pi competes with G6P for the T-state site and its concentration matters. Both regimes match their respective hand-derived analytical forms.
+- `rate_equation_string(m)` matches hand-derived form. G6P appears in three independent contributions: catalytic-product release, catalytic-inhibitor dead-end, reg-site T-state binding.
+- High G6P inhibits across all three mechanisms.
+- Reg-site 1 partition functions: at [G6P] = 0, the Pi term cancels in the R/T ratio (both reg_Q's contain only `1 + Pi/K_Pi`); at [G6P] > 0, Pi competes with G6P for the T-state site and shifts kinetics non-trivially.
 
-### 10.2.3 Ancillary narrow tests
+### 10.2.3 Single-feature edge-case tests
 
-Small targeted tests for individual features, each exercising one dimension:
-
-- OnlyT substrate (exotic but well-defined): verify rate goes to zero as K_T → ∞.
-- Iso step `:: OnlyR` alone (V-type with every other group EqualRT): verify numerator at T-state is zero.
-- `::EqualRT` at a single-ligand reg site → construction-time error.
-- Group mixing substrate-type and inhibitor-type bindings of G6P in HK → construction-time error.
-
-Each fixture includes an `analytical_rate_fn(params, concs)` alongside the mechanism definition; test asserts `rate_equation(m, concs, params)` ≈ `analytical_rate_fn(params, concs)` at multiple concentration points and parameter values.
+- OnlyT substrate (exotic but well-defined): rate → 0 as K_T → ∞.
+- V-type only: every iso group `:: OnlyR`; verify T-state numerator is zero.
+- Constructor errors:
+  - `::EqualRT` at single-ligand reg site → error.
+  - Iso group tagged `:: OnlyT` → error.
+  - All-`::EqualRT` reg site → error.
+  - Atom bracket in mechanism DSL → error.
+  - `same_kinetics` group across different metabolites / RE+SS / iso-included → error.
+  - Stoichiometrically infeasible mechanism (substrate listed but never consumed) → error.
 
 ### 10.3 Enumeration invariants
 
-`init_mechanisms(reaction)` and `expand_mechanisms(specs, reaction)` count checks retained from the existing test suite (bi-bi = 11, ter-ter = 283, pyruvate carboxylase = 312, pyruvate dehydrogenase = 334), with updates for any count changes introduced by uniform per-step tag enumeration (previously K-type was hardcoded as "subsets of substrates + subsets of products"; new implementation enumerates per-step tag assignments, which may produce a superset or subset depending on equivalences).
+`init_mechanisms(reaction)` and `expand_mechanisms(specs, reaction)` count checks for bi-bi, ter-ter, pyruvate carboxylase, pyruvate dehydrogenase. Counts may shift due to:
+- Per-group tag enumeration (replaces hard-coded K-type / V-type subsets).
+- Atomic kinetic-group RE→SS conversion (replaces independent-mirror conversion).
+
+The new counts are recorded as the post-refactor expected baseline. Denis reviews any divergence from the old counts.
 
 ### 10.4 kcat / rescale invariants
 
-Existing kcat analytical-formula and `rescale_parameter_values` tests extend uniformly over the new tag taxonomy: for every refactored test mechanism, verify that `rescale_parameter_values(m, params; kcat=target)` produces `rate_equation(m, sat, rescaled) ≈ E_total * target`.
+Existing kcat-analytical-formula and `rescale_parameter_values` tests apply unchanged for plain mechanisms. For allosteric mechanisms (PFK + HK), the new `_kcat_forward` (built from the shared `_kcat_from_poly` helper) is verified to:
+- Match a hand-derived kcat formula on at least one test point per mechanism.
+- Make `rescale_parameter_values(m, params; kcat=target)` produce `rate_equation(m, sat_concs, rescaled_params) ≈ E_total * target`.
 
 ### 10.5 Aqua / JET
 
-Runs as before; unused-export and type-stability checks cover the new accessors.
+Unchanged. Type stability checks cover the new accessors. Aqua's stale-deps check passes (after potential `Graphs` removal — see §10.6).
+
+### 10.6 `Graphs.jl` dependency
+
+If the rank-based stoichiometric feasibility check (§4.1.3) replaces the only consumer of `Graphs`, the `Graphs` dependency is removed from `Project.toml`. Checked during the migration audit.
 
 ---
 
 ## 11. Migration Notes
 
-This is a **breaking change** to `EnzymeMechanism`, `AllostericEnzymeMechanism`, `@enzyme_mechanism`, and adds `@allosteric_mechanism` as a new macro.
+This is a **breaking change** to `EnzymeMechanism`, `AllostericEnzymeMechanism`, the `@enzyme_mechanism` macro grammar, and adds `@allosteric_mechanism` as a new macro.
 
-- `compile_mechanism(spec::MechanismSpec)` continues to produce `EnzymeMechanism`; `compile_mechanism(spec::AllostericMechanismSpec)` continues to produce `AllostericEnzymeMechanism`. Internals change; public API preserved.
-- Existing `@enzyme_mechanism` call sites that used the allosteric syntax (`metabolites:` + `site(:catalytic, N):`) must migrate to `@allosteric_mechanism`.
-- Existing `constraints:` blocks (which are all simple equalities in current code) translate mechanically into parenthesized step-groups at the step's declaration site. For example, `constraints: begin K2 = K1 end` alongside steps `[E, S] ⇌ [ES]` and `[ES, S] ⇌ [ESS]` becomes `([E, S] ⇌ [ES], [ES, S] ⇌ [ESS])` (followed by `:: Tag` in allosteric).
-- Existing `enzymes:` blocks are deleted (forms inferred from steps).
-- `AllostericEnzymeMechanism`'s accessor API (`substrates`, `products`, `regulators`, `metabolites`, `n_states`, `n_steps`, `equilibrium_steps`, `reactions`, `regulatory_sites`) becomes the sole read interface; any caller doing `.parameters[k]` indexing is updated.
+- `compile_mechanism(spec::MechanismSpec)` and `compile_mechanism(spec::AllostericMechanismSpec)` remain as **internal** dispatchers used by `identify_rate_equation` and the enumeration pipeline. They are not exported. `compile_mechanism` is removed from the SPEC.md exports table and from `src/EnzymeRates.jl` exports. Users construct mechanisms via the DSL macros or via the typed constructors `EnzymeMechanism(metabolites, reactions)` / `AllostericEnzymeMechanism(catalytic_mech, cat_sites, reg_sites)`.
+- Existing `@enzyme_mechanism` call sites that used the allosteric flavor (`metabolites:` + `site(:catalytic, N):`) migrate to `@allosteric_mechanism`.
+- Existing `species: begin ... end` blocks split into top-level `substrates:` / `products:` / `regulators:` lines; `enzymes:` block deleted (forms inferred from steps).
+- Existing `constraints: K2 = K1` blocks translate mechanically into parenthesized step-groups: the steps whose K's were equal go inside one parenthesized tuple in the `steps:` block.
+- Existing atom syntax `S[C]` in mechanism-level DSL is dropped — atoms are declared in `@enzyme_reaction` only.
+- The three flat-written-out homodimer test mechanisms (`MWC Dimer`, `Homodimer + Non-competitive Inhibitor`, `MWC Dimer + Independent Inhibitor` — non-`[AllostericEnzymeMechanism]` variants) are **deleted**. Their `[AllostericEnzymeMechanism]` siblings (using `site(:catalytic, 2):`) are the canonical encoding and stay.
+- Any caller doing `.parameters[k]` indexing on mechanism types switches to named accessors.
 
-All migrations are mechanical. Test files carry the bulk of the migration work (one pass per file).
+All migrations are mechanical. Test files carry the bulk of the migration work.
 
 ---
 
@@ -430,13 +457,13 @@ All migrations are mechanical. Test files carry the bulk of the migration work (
 - Changes to `rate_equation`, `rate_equation_string`, `parameters`, `fit_rate_equation`, `identify_rate_equation`, `FittingProblem`, `IdentifyRateEquationProblem`, `IdentifyRateEquationResults` public signatures.
 - Changes to the rate equation's mathematical semantics.
 - Changes to the beam-search pipeline (though `mechanism_enumeration.jl` internals simplify).
-- First-class `Vmax` parameter (option C from brainstorm); V-type remains expressible via uniform per-iso-step tagging.
-- Per-k_f / per-k_r granularity in TR-equivalence. Not expressible in DSL; users needing this construct mechanisms via the low-level `EnzymeMechanism` / `AllostericEnzymeMechanism` constructors.
+- First-class `Vmax` parameter — V-type allostery remains expressible via uniform per-iso-step `:: OnlyR` tagging.
+- Per-k_f / per-k_r granularity in TR-equivalence — not expressible. The old code's asymmetric `kNf = kMf` (without matching `kNr = kMr`) constraints appear only in the three flat homodimer fixtures, which are deleted (their `[AllostericEnzymeMechanism]` siblings are equivalent under MWC multiplicity).
 
 ---
 
 ## 13. Sequence
 
 1. **User reviews this design** and requests edits.
-2. Implementation plan drafted (separate doc) via `superpowers:writing-plans`.
-3. Plan executed. Execution PRs should foreground the code-reduction metric; if a PR doesn't delete code, the design revisits before proceeding.
+2. Implementation plan (separate doc) executes the design.
+3. Plan execution PRs should foreground the code-reduction metric; if a PR doesn't delete code, the design revisits before proceeding.
