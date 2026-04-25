@@ -131,39 +131,9 @@ Defined but never dispatched on; symbols :unknown / :dead_end /
 :allosteric are used directly throughout."
 ```
 
-### Task 1.3: Remove `compile_mechanism` from exports
+### Task 1.3: (REMOVED — was no-op)
 
-`compile_mechanism` is the dispatcher used internally by `identify_rate_equation` and the enumeration pipeline. CLAUDE.md already states it's not user-facing. SPEC.md exports it (stale). Resolution: keep the function as internal, remove it from the export list.
-
-**Files:**
-- Modify: `src/EnzymeRates.jl`
-
-- [ ] **Step 1: Verify call sites are all internal**
-
-```bash
-grep -rn "compile_mechanism" src/ test/ --include="*.jl"
-```
-
-Expected hits: definitions in `src/mechanism_enumeration.jl`, internal calls in `src/identify_rate_equation.jl`, the test file. No user-tutorial consumers.
-
-- [ ] **Step 2: Remove from export list**
-
-In `src/EnzymeRates.jl`, find the line exporting `compile_mechanism` and delete it. Adjacent exports stay.
-
-- [ ] **Step 3: Run tests**
-
-Expected: pass — internal call sites use `EnzymeRates.compile_mechanism` or unqualified within the package, neither requires the export.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add src/EnzymeRates.jl
-git commit -m "Remove compile_mechanism from exports
-
-compile_mechanism is an internal dispatcher used by identify_rate_equation
-and the enumeration pipeline; it has no user-facing role per CLAUDE.md.
-SPEC.md exports table will be updated in the docs cleanup phase."
-```
+Verification (`grep -n compile_mechanism src/EnzymeRates.jl`) confirmed `compile_mechanism` is **already not exported** by `src/EnzymeRates.jl`. The export-table reference in `SPEC.md` is stale and gets cleaned up in Task 6.2 along with the other doc fixes. No code-level change needed at this stage.
 
 ### Task 1.4: Clean stale `old_*.jl` references in CLAUDE.md
 
@@ -787,16 +757,61 @@ end
 function _reject_allosteric_syntax!(block)
     for arg in block.args
         arg isa LineNumberNode && continue
-        if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
-            label = arg.args[2]
-            if label isa Expr && label.head == :call && label.args[1] == :site
-                error("@enzyme_mechanism: `site(...)` belongs in @allosteric_mechanism")
-            end
-            label in (:allosteric_regulators, :catalytic_inhibitors) &&
-                error("@enzyme_mechanism: `$label:` is allosteric-only; " *
-                      "use @allosteric_mechanism instead")
+        # Both `:call` (single labeled line) and `:tuple` (multi-element labeled line)
+        # arms can carry an `allosteric_regulators:` / `catalytic_inhibitors:` /
+        # `site(...):` first element. Inspect the first label.
+        label_expr = _line_label_expr(arg)
+        label_expr === nothing && continue
+        if label_expr isa Expr && label_expr.head == :call && label_expr.args[1] == :site
+            error("@enzyme_mechanism: `site(...)` belongs in @allosteric_mechanism")
+        end
+        label_expr in (:allosteric_regulators, :catalytic_inhibitors) &&
+            error("@enzyme_mechanism: `$label_expr:` is allosteric-only; " *
+                  "use @allosteric_mechanism instead")
+    end
+end
+
+"""
+Return the label of a line in the mechanism block, or `nothing` if not a
+labeled line. Handles both Julia parse shapes:
+  - `Expr(:call, :(:), label, value)` — single labeled value.
+  - `Expr(:tuple, Expr(:call, :(:), label, first), rest...)` — multi-element labeled.
+"""
+function _line_label_expr(arg)
+    if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
+        return arg.args[2]
+    elseif arg isa Expr && arg.head == :tuple && !isempty(arg.args)
+        first_arg = arg.args[1]
+        if first_arg isa Expr && first_arg.head == :call && first_arg.args[1] == :(:)
+            return first_arg.args[2]
         end
     end
+    nothing
+end
+
+"""
+Parse a labeled-line, returning `(label, values_vector)`. `values_vector` is the
+list of args after the label, in source order. Each value is either a bare
+Symbol or an `Expr(:(::), name, tag)` (for tagged lists).
+
+For `Expr(:call, :(:), label, value)` (single-value): values_vector = [value].
+For `Expr(:tuple, Expr(:call, :(:), label, first), rest...)` (multi-value):
+  values_vector = [first, rest...].
+"""
+function _parse_labeled_line(arg)
+    if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
+        label = arg.args[2]
+        return label, [arg.args[3]]
+    elseif arg isa Expr && arg.head == :tuple && !isempty(arg.args)
+        first_arg = arg.args[1]
+        if first_arg isa Expr && first_arg.head == :call && first_arg.args[1] == :(:)
+            label = first_arg.args[2]
+            values = Any[first_arg.args[3]]
+            append!(values, arg.args[2:end])
+            return label, values
+        end
+    end
+    error("Expected `label: value` or `label: v1, v2, ...`; got $arg")
 end
 
 function _parse_plain_mechanism_body(block)
@@ -804,17 +819,17 @@ function _parse_plain_mechanism_body(block)
     steps_block = nothing
     for arg in block.args
         arg isa LineNumberNode && continue
-        arg isa Expr && arg.head == :call && arg.args[1] == :(:) ||
-            error("Unexpected expression: $arg")
-        label, value = arg.args[2], arg.args[3]
+        if arg isa Expr && arg.head == :call && arg.args[1] == :(:) && arg.args[2] == :steps
+            steps_block = arg.args[3]
+            continue
+        end
+        label, values = _parse_labeled_line(arg)
         if label == :substrates
-            append!(subs_list, _parse_bare_symbol_list(value, label))
+            append!(subs_list, _bare_symbols_from_values(values, label))
         elseif label == :products
-            append!(prods_list, _parse_bare_symbol_list(value, label))
+            append!(prods_list, _bare_symbols_from_values(values, label))
         elseif label == :regulators
-            append!(regs_list, _parse_bare_symbol_list(value, label))
-        elseif label == :steps
-            steps_block = value
+            append!(regs_list, _bare_symbols_from_values(values, label))
         else
             error("Unknown @enzyme_mechanism label: $label")
         end
@@ -833,72 +848,114 @@ function _parse_plain_mechanism_body(block)
 end
 
 """
-Parse `substrates: S, A` — comma-separated bare Symbols. Reject
-atom brackets and tag annotations.
+Coerce labeled-line values to bare Symbols. Reject atom brackets and tag
+annotations (those are allosteric-only).
 """
-function _parse_bare_symbol_list(value, label)
+function _bare_symbols_from_values(values, label)
     syms = Symbol[]
-    function push_one(arg)
-        if arg isa Symbol
-            push!(syms, arg)
-        elseif arg isa Expr && arg.head == :ref
-            error("@enzyme_mechanism: atom bracket syntax `$arg` is not allowed " *
+    for v in values
+        if v isa Symbol
+            push!(syms, v)
+        elseif v isa Expr && v.head == :ref
+            error("@enzyme_mechanism: atom bracket syntax `$v` is not allowed " *
                   "at the mechanism level; declare atoms in @enzyme_reaction.")
-        elseif arg isa Expr && arg.head == :(::)
-            error("@enzyme_mechanism: tag annotation `$arg` is not allowed; " *
+        elseif v isa Expr && v.head == :(::)
+            error("@enzyme_mechanism: tag annotation `$v` is not allowed; " *
                   "tags are only valid in @allosteric_mechanism.")
         else
-            error("@enzyme_mechanism `$label:` expects bare Symbol names; got $arg")
+            error("@enzyme_mechanism `$label:` expects bare Symbol names; got $v")
         end
-    end
-    if value isa Expr && value.head == :tuple
-        for a in value.args; push_one(a); end
-    else
-        push_one(value)
     end
     syms
 end
 
 """
-Parse the steps block. Each line is either a single step or a
-parenthesized tuple of steps sharing kinetics. Returns a tuple-Expr of
-4-tuples `(lhs, rhs, is_eq, kinetic_group)`.
+Parse the steps block. Each top-level expression is either:
+  - `Expr(:(::), Expr(:tuple, step1, step2, ...), Tag)` — parenthesized group with tag
+    (allowed in `@allosteric_mechanism`; in `@enzyme_mechanism`, the tuple shape is
+    the same but no tag is attached, so head will be `:tuple` directly).
+  - `Expr(:tuple, step1, step2, ...)` — parenthesized group with no tag (plain mech).
+  - `Expr(:call, ⇌|<-->, lhs, Expr(:(::), rhs, Tag))` — single tagged step (allosteric).
+  - `Expr(:call, ⇌|<-->, lhs, rhs)` — single untagged step (plain).
+
+Returns the rxns tuple-Expr of 4-tuples `(lhs, rhs, is_eq, kinetic_group)`.
 """
-function _parse_steps_block_with_groups(steps_block)
+function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
     next_group = Ref(0)
     rxns = Expr(:tuple)
+    tags = Pair{Int, Symbol}[]   # (group_num, tag) for allosteric path
+
     for arg in steps_block.args
         arg isa LineNumberNode && continue
-        if arg isa Expr && arg.head == :tuple
-            # Parenthesized group: all share one kinetic group
+
+        # Detect parenthesized-group-with-tag (allosteric): head is :(::), arg.args[1]
+        # is the :tuple of steps, arg.args[2] is the tag Symbol.
+        if arg isa Expr && arg.head == :(::) && arg.args[1] isa Expr && arg.args[1].head == :tuple
+            allow_tag || error("@enzyme_mechanism: tag annotation `$arg` is not allowed")
             next_group[] += 1
             gnum = next_group[]
-            for e in arg.args
-                push!(rxns.args, _parse_single_step(e, gnum, allow_tag=false))
+            tag = arg.args[2]
+            tag isa Symbol || error("Step-group tag must be a Symbol; got $tag")
+            push!(tags, gnum => tag)
+            for step_expr in arg.args[1].args
+                push!(rxns.args, _parse_single_step(step_expr, gnum))
             end
-        else
+
+        # Parenthesized-group-without-tag (plain): head is :tuple.
+        elseif arg isa Expr && arg.head == :tuple
             next_group[] += 1
             gnum = next_group[]
-            push!(rxns.args, _parse_single_step(arg, gnum, allow_tag=false))
+            for step_expr in arg.args
+                push!(rxns.args, _parse_single_step(step_expr, gnum))
+            end
+
+        # Single step (with or without tag): head is :call.
+        elseif arg isa Expr && arg.head == :call
+            next_group[] += 1
+            gnum = next_group[]
+            tag = _peel_step_tag!(arg)   # mutates arg.args[3] to drop ::Tag if present
+            if tag !== nothing
+                allow_tag || error("@enzyme_mechanism: tag annotation on `$arg` is not allowed")
+                push!(tags, gnum => tag)
+            end
+            push!(rxns.args, _parse_single_step(arg, gnum))
+
+        else
+            error("Expected step or step-group; got $arg")
         end
     end
-    rxns
+
+    if allow_tag
+        return rxns, tags
+    else
+        # Plain mechanism: error if any step had a tag (already caught above)
+        return rxns
+    end
 end
 
 """
-Parse a single step `[lhs] ⇌ [rhs]` or `[lhs] <--> [rhs]`. With
-`allow_tag=false` (plain mechanism), reject any `::Tag` postfix. With
-`allow_tag=true` (allosteric), the caller handles the tag.
+If the step Expr has a `::Tag` attached to its RHS arg, remove the wrapper and
+return the tag Symbol. Otherwise return `nothing`. Mutates `step_expr.args[3]`.
+
+Single tagged step parses as:
+  Expr(:call, op, Expr(:vect, lhs_syms...), Expr(:(::), Expr(:vect, rhs_syms...), Tag))
 """
-function _parse_single_step(expr, gnum::Int; allow_tag::Bool=false)
-    if allow_tag && expr isa Expr && expr.head == :(::)
-        # Caller is responsible for unwrapping the tag in allosteric context.
-        # In plain context this branch isn't reached (allow_tag=false).
+function _peel_step_tag!(step_expr)
+    rhs = step_expr.args[3]
+    if rhs isa Expr && rhs.head == :(::)
+        tag = rhs.args[2]
+        tag isa Symbol || error("Step tag must be a Symbol; got $tag")
+        step_expr.args[3] = rhs.args[1]
+        return tag
     end
-    if !allow_tag && expr isa Expr && expr.head == :(::)
-        error("@enzyme_mechanism: tag annotation `$expr` is not allowed; " *
-              "tags are only valid in @allosteric_mechanism.")
-    end
+    nothing
+end
+
+"""
+Parse a single (already-de-tagged) step `[lhs] ⇌ [rhs]` or `[lhs] <--> [rhs]`.
+Returns the 4-tuple Expr `(lhs_syms, rhs_syms, is_eq, kinetic_group)`.
+"""
+function _parse_single_step(expr, gnum::Int)
     expr isa Expr && expr.head == :call ||
         error("Expected [lhs] ⇌ [rhs] or [lhs] <--> [rhs]; got $expr")
     op = expr.args[1]
@@ -910,6 +967,14 @@ function _parse_single_step(expr, gnum::Int; allow_tag::Bool=false)
     Expr(:tuple, lhs, rhs, is_eq, gnum)
 end
 ```
+
+**Verification:** the parse-tree shapes used in this code were verified by `Meta.parse` / `dump`:
+- `[E, S] ⇌ [ES] :: EqualRT` → `Expr(:call, :⇌, Expr(:vect, :E, :S), Expr(:(::), Expr(:vect, :ES), :EqualRT))` — tag on RHS, peeled by `_peel_step_tag!`.
+- `(s1, s2) :: EqualRT` → `Expr(:(::), Expr(:tuple, s1_call, s2_call), :EqualRT)` — tag on the whole tuple.
+- `(s1, s2)` (untagged group) → `Expr(:tuple, s1_call, s2_call)` — no `::` wrapper.
+- `substrates: F6P, ATP` (in a `begin` block) → `Expr(:tuple, Expr(:call, :(:), :substrates, :F6P), :ATP)` — head is `:tuple`, first arg is the labeled call.
+- `substrates: F6P` (single) → `Expr(:call, :(:), :substrates, :F6P)` — head is `:call`.
+- `I::OnlyT` → `Expr(:(::), :I, :OnlyT)` — uniform shape for both first-arg and subsequent-arg of a multi-element labeled list.
 
 Reuse the existing `_parse_step_side_symbols` (which expects `[a, b, c]` vector syntax and produces a tuple of QuoteNodes).
 
@@ -971,17 +1036,156 @@ end
 
 - [ ] **Step 3: Add the macro**
 
-In `src/dsl.jl`, add `macro allosteric_mechanism(block)` and its parser, generating the OLD allosteric type signature (`AllostericEnzymeMechanism{Mets, CM, CS, RS}`) for now. The new signature is introduced in Phase 3.
+In `src/dsl.jl`, add `macro allosteric_mechanism(block)` and its parser. Build:
+- `cm` (the catalytic `EnzymeMechanism`) via `_parse_steps_block_with_groups(steps_block; allow_tag=true)` — reuses the parser from Task 2.4 with the tag-collection branch enabled. Tags collected as `Vector{Pair{Int, Symbol}}` (group-num → tag).
+- The species lists via `_parse_labeled_line` + a `_tagged_symbols_from_values(values, label)` helper that accepts both bare `:Sym` and `Expr(:(::), :Sym, :Tag)`. Returns `Vector{Pair{Symbol, Symbol}}` for tagged lines, `Vector{Symbol}` for untagged.
+- `site(:catalytic, N): begin steps: ... end` block (required exactly once); the `N` literal is the `multiplicity`.
+- `site(:regulatory, N): begin ligands: A, I end` blocks (optional, multiple allowed). Each generates one entry in `RegSites`.
 
-Parser responsibilities:
-- Parse `substrates:`, `products:`, `allosteric_regulators:` (with required `::Tag`), `catalytic_inhibitors:` (no tag).
-- Parse `site(:catalytic, N): begin steps: ... end` (required exactly once).
-- Parse `site(:regulatory, N): begin ligands: A, I end` (optional, multiple allowed).
-- Each step or step-group has a required `:: Tag`.
-- Reject single-ligand `::EqualRT` reg sites (validated when site is built).
-- Build the inner `EnzymeMechanism` (catalytic mechanism) using the same step-grouping logic as `@enzyme_mechanism`.
+Tag-handling rules in the parser:
+- Each step or step-group inside `site(:catalytic, N):` MUST have a `:: Tag` (enforced after parsing — error if `tags` doesn't have an entry for every group).
+- `allosteric_regulators:` line: each value MUST be `Expr(:(::), name, tag)`. `_tagged_symbols_from_values` enforces this.
+- `catalytic_inhibitors:` line: each value MUST be a bare Symbol (no tag). `_bare_symbols_from_values` (already defined) enforces this.
 
-Export `@allosteric_mechanism` in `src/EnzymeRates.jl`.
+Helper sketch:
+
+```julia
+"""
+Coerce labeled-line values to `(name, tag)` pairs. Each value must be
+`Expr(:(::), name, tag)`; bare symbols are rejected with a message saying
+"this list requires per-entry ::Tag annotations." Used for
+`allosteric_regulators:`.
+"""
+function _tagged_symbols_from_values(values, label, valid_tags)
+    pairs = Pair{Symbol, Symbol}[]
+    for v in values
+        if v isa Expr && v.head == :(::)
+            name, tag = v.args[1], v.args[2]
+            name isa Symbol || error("@allosteric_mechanism `$label:`: expected " *
+                                     "Symbol name in `name::Tag`; got $name")
+            tag isa Symbol || error("@allosteric_mechanism `$label:`: tag must " *
+                                    "be a Symbol; got $tag")
+            tag in valid_tags ||
+                error("@allosteric_mechanism `$label:`: tag $tag not in $valid_tags")
+            push!(pairs, name => tag)
+        else
+            error("@allosteric_mechanism `$label:` requires per-entry ::Tag " *
+                  "annotations (e.g., I::OnlyT); got $v")
+        end
+    end
+    pairs
+end
+
+"""
+Parse `site(:regulatory, N): begin ligands: ... end`. Returns
+`(N, ligand_symbols::Vector{Symbol})`. Ligand tags are looked up against the
+top-level `allosteric_regulators:` list (validated at construction time).
+"""
+function _parse_regulatory_site_block(site_label_call, site_body)
+    # site_label_call is `Expr(:call, :site, QuoteNode(:regulatory), N_literal)`
+    # so site_label_call.args[2] should be QuoteNode(:regulatory)
+    # and site_label_call.args[3] is the multiplicity literal.
+    n = site_label_call.args[3]
+    ligands = Symbol[]
+    for arg in site_body.args
+        arg isa LineNumberNode && continue
+        label, values = _parse_labeled_line(arg)
+        label == :ligands ||
+            error("@allosteric_mechanism: site(:regulatory, ...) block expects " *
+                  "`ligands:`; got `$label`")
+        append!(ligands, _bare_symbols_from_values(values, :ligands))
+    end
+    (n, ligands)
+end
+```
+
+Top-level parser sketch:
+
+```julia
+macro allosteric_mechanism(block)
+    return esc(_parse_allosteric_mechanism_body(block))
+end
+
+const _ALLOSTERIC_REG_TAGS = Set([:OnlyR, :OnlyT, :EqualRT, :NonequalRT])
+
+function _parse_allosteric_mechanism_body(block)
+    subs_list = Symbol[]
+    prods_list = Symbol[]
+    allo_regs = Pair{Symbol, Symbol}[]   # (name, tag) per allosteric regulator
+    cat_inhibitors = Symbol[]
+    cat_n = nothing
+    cat_steps_block = nothing
+    reg_site_specs = Tuple{Any, Vector{Symbol}}[]   # (multiplicity_expr, ligands)
+
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        # Detect site(:catalytic, N): begin ... end and site(:regulatory, N): begin ... end
+        if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
+            label, value = arg.args[2], arg.args[3]
+            if label isa Expr && label.head == :call && label.args[1] == :site
+                site_kind = label.args[2]
+                site_n_lit = label.args[3]
+                if site_kind == QuoteNode(:catalytic)
+                    cat_n === nothing || error("Multiple site(:catalytic, ...) blocks")
+                    cat_n = site_n_lit
+                    # value is `begin steps: ... end`; extract steps body
+                    cat_steps_block = _extract_steps_block(value)
+                elseif site_kind == QuoteNode(:regulatory)
+                    n_lit = site_n_lit
+                    ligs = _parse_regulatory_site_inner(value)
+                    push!(reg_site_specs, (n_lit, ligs))
+                else
+                    error("Unknown site kind: $site_kind")
+                end
+                continue
+            end
+        end
+        label, values = _parse_labeled_line(arg)
+        if label == :substrates
+            append!(subs_list, _bare_symbols_from_values(values, label))
+        elseif label == :products
+            append!(prods_list, _bare_symbols_from_values(values, label))
+        elseif label == :allosteric_regulators
+            append!(allo_regs, _tagged_symbols_from_values(values, label, _ALLOSTERIC_REG_TAGS))
+        elseif label == :catalytic_inhibitors
+            append!(cat_inhibitors, _bare_symbols_from_values(values, label))
+        else
+            error("Unknown @allosteric_mechanism label: $label")
+        end
+    end
+
+    cat_n === nothing && error("@allosteric_mechanism: site(:catalytic, N): is required")
+
+    # Build catalytic mechanism: reuse the plain-mechanism parser path with allow_tag=true.
+    # Catalytic-mech regulator list = catalytic_inhibitors only (allosteric-only ligands
+    # appear in RegSites, not in cm.regulators — see Task 3.2 step 4).
+    rxns_expr, group_tags_pairs = _parse_steps_block_with_groups(cat_steps_block; allow_tag=true)
+    cm_mets_expr = Expr(:tuple,
+        Expr(:tuple, QuoteNode.(subs_list)...),
+        Expr(:tuple, QuoteNode.(prods_list)...),
+        Expr(:tuple, QuoteNode.(cat_inhibitors)...),
+    )
+    cm_expr = :(EnzymeMechanism($cm_mets_expr, $rxns_expr))
+
+    # Each kinetic group must have a tag in `group_tags_pairs`.
+    # Enforced by counting unique groups in rxns_expr vs len(group_tags_pairs).
+    # (Concrete check moves to construction time in Task 3.2.)
+
+    # Build CatSites: (multiplicity, group_tags_tuple)
+    group_tags_tuple_expr = Expr(:tuple,
+        (Expr(:call, :Pair, gnum, QuoteNode(tag)) for (gnum, tag) in group_tags_pairs)...)
+    cat_sites_expr = Expr(:tuple, cat_n, group_tags_tuple_expr)
+
+    # Build RegSites: each reg-site spec gets one entry; allosteric_regulators not
+    # listed in any explicit reg-site go into their own auto-site at multiplicity = cat_n.
+    reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
+
+    # During Phase 2, the inner constructor still emits the OLD type. Phase 3 swaps it.
+    :(AllostericEnzymeMechanism($cm_expr, $cat_sites_expr, $reg_sites_expr))
+end
+```
+
+Implement `_extract_steps_block`, `_parse_regulatory_site_inner`, `_build_reg_sites_expr` straightforwardly. Export `@allosteric_mechanism` in `src/EnzymeRates.jl`.
 
 - [ ] **Step 4: Run tests**
 
@@ -1128,7 +1332,72 @@ Update `parameters(m)`, `_raw_param_symbols`, and any other helper to skip non-r
 
 - [ ] **Step 3: Update Haldane derivation in `thermodynamic_constr_for_rate_eq_derivation.jl`**
 
-The Haldane Gaussian-elimination machinery operates on the parameter symbol set. With kinetic-group renaming applied to polynomials, the parameter set passed to Haldane shrinks (one symbol per group). Verify Haldane's `_dependent_param_exprs` still produces correct output.
+The Haldane Gaussian-elimination machinery currently:
+1. Builds an incidence matrix `C` from cycle equations using all per-step parameter symbols (`K_i`, `k_if`, `k_ir`).
+2. Absorbs user-written `param_constraints` via `csub` column-merging in log space.
+3. Solves the merged system to produce `dep_exprs::Dict{Symbol, Expr}` mapping each dependent parameter to an expression in independents + Keq.
+
+Under the new design, `param_constraints` is gone. Replace `csub` with a **column-merging step driven by kinetic-group representatives**: before Gaussian elimination runs, merge the columns of any non-representative step's parameter into its group representative's column. This produces an equivalent (smaller) system that Haldane solves uniformly.
+
+Concrete recipe:
+
+```julia
+"""
+Build the column-merge map from kinetic groups. Given the parameter symbol
+list `params` (one symbol per step in step-index order, RE → K_i, SS → k_if/k_ir),
+return a `Dict{Symbol, Symbol}` mapping each non-representative parameter symbol
+to its group representative's symbol.
+"""
+function _kinetic_group_column_merges(m::AbstractEnzymeMechanism)
+    merges = Dict{Symbol, Symbol}()
+    eq_steps = equilibrium_steps(m)
+    for g in kinetic_groups(m)
+        idxs = steps_in_group(m, g)
+        length(idxs) == 1 && continue
+        rep = first(idxs)
+        for idx in idxs
+            idx == rep && continue
+            if eq_steps[idx]
+                merges[Symbol("K$idx")] = Symbol("K$rep")
+            else
+                merges[Symbol("k$(idx)f")] = Symbol("k$(rep)f")
+                merges[Symbol("k$(idx)r")] = Symbol("k$(rep)r")
+            end
+        end
+    end
+    merges
+end
+
+"""
+Apply column merges to the cycle-incidence matrix C and parameter list `params`.
+Returns `(C_merged, params_merged)` with non-representative columns folded into
+their representative columns by addition.
+"""
+function _merge_cycle_columns(C::Matrix{Int}, params::Vector{Symbol},
+                              merges::Dict{Symbol, Symbol})
+    n_rows, n_cols = size(C)
+    keep_idx = [i for (i, p) in enumerate(params) if !haskey(merges, p)]
+    new_params = params[keep_idx]
+    new_idx = Dict(p => i for (i, p) in enumerate(new_params))
+    C_new = zeros(Int, n_rows, length(new_params))
+    for (j, p) in enumerate(params)
+        target = haskey(merges, p) ? merges[p] : p
+        C_new[:, new_idx[target]] .+= C[:, j]
+    end
+    C_new, new_params
+end
+```
+
+`_dependent_param_exprs(m)` is updated to call `_merge_cycle_columns` after
+building `C` and before invoking the Gaussian-elimination solver. The solver
+itself is unchanged. `dep_exprs` returned by the solver are now keyed on
+representative symbols only; aliased non-representative symbols are not in the
+output (they're handled by `_rename_symbols` at the polynomial level).
+
+This is mathematically equivalent to translating each kinetic-group equality
+into a `csub` constraint with `coeff=1` and a single source factor — the old
+machinery would have produced the same column merges. The new path skips the
+intermediate `ParamConstraint` representation.
 
 - [ ] **Step 4: Run tests**
 
@@ -1239,9 +1508,13 @@ stoich_matrix(m::AllostericEnzymeMechanism)      = stoich_matrix(catalytic_mecha
 enzyme_row_range(m::AllostericEnzymeMechanism)   = enzyme_row_range(catalytic_mechanism(m))
 metabolite_row_range(m::AllostericEnzymeMechanism) = metabolite_row_range(catalytic_mechanism(m))
 
-function regulators(m::AllostericEnzymeMechanism)
-    cat_regs = regulators(catalytic_mechanism(m))
-    RS = typeof(m).parameters[3]
+# All accessors below dispatch on the type's third parameter (RegSites) and
+# return tuples that are stable under canonicalization. Defined as `@generated`
+# (or as type-parametric methods) to avoid the magic-index `typeof(m).parameters[3]`
+# pattern that the spec §5 grep audit forbids.
+
+regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    cat_regs = regulators(CM())
     extra = Symbol[]
     seen = Set{Symbol}(cat_regs)
     for entry in RS
@@ -1252,9 +1525,8 @@ function regulators(m::AllostericEnzymeMechanism)
     (cat_regs..., extra...)
 end
 
-function metabolites(m::AllostericEnzymeMechanism)
-    cat_mets = metabolites(catalytic_mechanism(m))
-    RS = typeof(m).parameters[3]
+metabolites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    cat_mets = metabolites(CM())
     extra = Symbol[]
     seen = Set{Symbol}(cat_mets)
     for entry in RS
@@ -1265,8 +1537,7 @@ function metabolites(m::AllostericEnzymeMechanism)
     (cat_mets..., extra...)
 end
 
-function allosteric_regulators(m::AllostericEnzymeMechanism)
-    RS = typeof(m).parameters[3]
+allosteric_regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
     result = Tuple{Symbol, Symbol}[]
     for (ligands, _, lig_tags) in RS
         tag_map = Dict(lig_tags)
@@ -1277,13 +1548,12 @@ function allosteric_regulators(m::AllostericEnzymeMechanism)
     Tuple(result)
 end
 
-function catalytic_inhibitors(m::AllostericEnzymeMechanism)
-    RS = typeof(m).parameters[3]
+catalytic_inhibitors(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
     rs_names = Set{Symbol}()
     for (ligs, _, _) in RS
         for l in ligs; push!(rs_names, l); end
     end
-    cat_regs = regulators(catalytic_mechanism(m))
+    cat_regs = regulators(CM())
     Tuple(r for r in cat_regs if r ∉ rs_names)
 end
 
@@ -1646,9 +1916,88 @@ end
 end
 ```
 
-- [ ] **Step 5: Update `rate_equation_string` and `structural_identifiability_deficit` to use the same path**
+- [ ] **Step 5: Handle T-state Haldane dependent expressions that reference `:OnlyR` symbols**
 
-Both share the substitution machinery. Extract common substring/expression-building into a helper.
+Critical edge case (caught by reviewer round 2): if R-state Haldane closure produces `dep_exprs[Symbol("k$(j)r")] = :(k$(j)f * k$(i)r * K3 / (K1 * Keq * k$(i)f))` and step `i`'s kinetic group is tagged `:OnlyR`, then mapping this expression into T-state via `_nonequalRT_rename` would put `k$(i)f_T = 0` in the denominator → division by zero.
+
+The current code's `_allosteric_dep_assignments` (in `_expr_references_any` checks at `rate_eq_derivation.jl:1373-1380` and `1407-1414`) handles this by setting the T-state version of any dep-expr that references `:OnlyR` symbols to `0`. The new design must replicate this.
+
+Add to the rate-body derivation:
+
+```julia
+"""
+For each R-state dependent-parameter expression `dep_R[sym] = expr`, produce its
+T-state counterpart. Three cases:
+  1. `expr` references any `:OnlyR` symbol → T-state value is identically 0
+     (the dependent parameter is in a cycle that is broken in T-state).
+  2. Otherwise, apply `_nonequalRT_rename` to substitute `:NonequalRT` symbols
+     to T-suffixed counterparts.
+"""
+function _build_T_state_dep_exprs(dep_R::Dict{Symbol, Expr},
+                                  m::AllostericEnzymeMechanism)
+    onlyR = _onlyR_syms(m)
+    rename = _nonequalRT_rename(m)
+    dep_T = Dict{Symbol, Any}()
+    for (sym, expr) in dep_R
+        # Determine the T-state target symbol (rename if the dependent itself
+        # is :NonequalRT; otherwise it stays — :EqualRT means same name in T,
+        # :OnlyR means the parameter is zero in T anyway, :OnlyT can't reach
+        # this branch because :OnlyT means R-state lacks this symbol).
+        target_T = get(rename, sym, sym)
+        if _expr_references_any(expr, onlyR)
+            dep_T[target_T] = 0
+        else
+            dep_T[target_T] = _substitute_symbols(expr, rename)
+        end
+    end
+    dep_T
+end
+
+"""Recursively check if `expr` references any symbol in `syms`."""
+_expr_references_any(s::Symbol, syms) = s in syms
+_expr_references_any(x, _) = false
+function _expr_references_any(e::Expr, syms)
+    e.head == :call && any(_expr_references_any(a, syms) for a in e.args[2:end])
+end
+```
+
+The `rate_equation` body calls `_build_T_state_dep_exprs` to produce the T-state dep-expr block, which is emitted as preamble assignments alongside the R-state ones. Symbols that are zeroed in T-state propagate naturally through the polynomial substitution because `_zero_symbols_in_poly` already removes their monomial contributions.
+
+- [ ] **Step 6: Update `rate_equation_string` and `structural_identifiability_deficit` to use the same path**
+
+Both share the substitution machinery and the `_build_T_state_dep_exprs` helper. Extract common expression-building into a helper.
+
+For `structural_identifiability_deficit`, the monomial-counting logic that was in the deleted `_count_allosteric_rate_monomials` becomes:
+
+```julia
+@generated function structural_identifiability_deficit(m::AllostericEnzymeMechanism)
+    cm_type = m.parameters[1]
+    raw_num, raw_den = _raw_rate_polys(cm_type)
+    m_inst = m()
+
+    onlyT = _onlyT_syms(m_inst)
+    onlyR = _onlyR_syms(m_inst)
+    rename_T = _nonequalRT_rename(m_inst)
+
+    num_R = _zero_symbols_in_poly(raw_num, onlyT)
+    den_R = _zero_symbols_in_poly(raw_den, onlyT)
+    num_T = _rename_symbols(_zero_symbols_in_poly(raw_num, onlyR), rename_T)
+    den_T = _rename_symbols(_zero_symbols_in_poly(raw_den, onlyR), rename_T)
+
+    # Build full MWC num/den polys (with reg-site contributions) and count
+    # distinct concentration monomials (strip k/K/L parameter symbols).
+    full_num = _allosteric_full_num_poly(num_R, den_R, num_T, den_T,
+                                         m.parameters[3], m.parameters[2][1])
+    full_den = _allosteric_full_den_poly(den_R, den_T, m.parameters[3], m.parameters[2][1])
+    n_num = length(unique(_concentration_monomial(k) for (k, _) in full_num))
+    n_denom = length(unique(_concentration_monomial(k) for (k, _) in full_den))
+
+    n_indep = length(_independent_params(m_inst))
+    n_indep - (n_num - 1) - (n_denom - 1)
+end
+```
+
+(Helpers `_allosteric_full_num_poly` / `_allosteric_full_den_poly` build the full MWC polynomials at POLY level by combining R-state and T-state polynomials with reg-site Q polynomials and the L Boltzmann weight. Existing `_count_allosteric_rate_monomials` did this with magic indices; the new helper takes the four polys + reg_sites tuple + multiplicity as inputs.)
 
 - [ ] **Step 6: Run tests**
 
@@ -1719,6 +2068,15 @@ end
 
 - [ ] **Step 4: Implement new `_kcat_forward(::AllostericEnzymeMechanism)`**
 
+**Background**: at saturating substrate concentrations, kcat is the maximum forward turnover. For an allosteric enzyme, kcat depends on the populations of R and T states, which in turn depend on regulator binding. At each "regulator corner" (each regulator either at zero or saturating concentration), the populations differ, and the effective kcat differs. The function returns the **maximum kcat over all corners** (= the corner that yields the fastest turnover under saturating substrate).
+
+For each corner:
+- Compute `reg_Q_R_eff` and `reg_Q_T_eff` by evaluating each regulator's contribution at the corner-specified concentration (0 or ∞).
+- Compute `L_eff = L * (reg_Q_T_eff / reg_Q_R_eff)^multiplicity` per reg site (combined across sites).
+- The effective kcat at this corner is the saturation-weighted mix of `kcat_R` and `kcat_T` according to `L_eff`.
+
+Concrete recipe with all four tag flavors:
+
 ```julia
 function _kcat_forward(m::AllostericEnzymeMechanism, params)
     cm = catalytic_mechanism(m)
@@ -1736,19 +2094,92 @@ function _kcat_forward(m::AllostericEnzymeMechanism, params)
     kcat_R = _kcat_from_poly(num_R, den_R, params)
     kcat_T = _kcat_from_poly(num_T, den_T, params)
 
-    # Iterate regulator corners: for each subset of regulators "saturating",
-    # compute effective L factor and weighted kcat. Return max.
-    n_lig = sum(length(regulatory_site_ligands(m, i)) for i in 1:length(regulatory_sites(m)))
-    best = max(kcat_R, kcat_T)
-    for mask in 0:(2^n_lig - 1)
-        # ... iterate corners, compute corner-specific R/T weighting from L and tag-modified Q's
-        # update best if a higher kcat is reachable at this corner
+    # If T-state is structurally inert (no productive flux), kcat_T = 0.
+    # Same for R (rare). Quick exit when one conformation is dead.
+    sites = regulatory_sites(m)
+    cat_n = catalytic_multiplicity(m)
+    L = params.L
+
+    # Enumerate corners over all (site, ligand) pairs.
+    # For ligand l with tag t, "saturating" means concentration → ∞ at this corner.
+    # Per tag:
+    #   :OnlyR    → contributes 1/K_R to reg_Q_R_eff at saturation; absent in T.
+    #   :OnlyT    → absent in R; contributes 1/K_T to reg_Q_T_eff at saturation.
+    #   :EqualRT  → contributes 1/K (same in both states) at saturation.
+    #   :NonequalRT → contributes 1/K_R in R; 1/K_T_reg in T.
+    # For "non-saturating" (= 0 conc), the ligand contributes 0 to either Q_eff.
+    # The reg_Q_R_eff is `1 + Σ contributions` over each site, raised to mult.
+    sat_pairs = Tuple{Int, Symbol}[]
+    for (i, ligs) in enumerate(regulatory_site_ligands(m, i) for i in 1:length(sites))
+        for l in ligs; push!(sat_pairs, (i, l)); end
+    end
+    n_lig = length(sat_pairs)
+
+    best = max(kcat_R, kcat_T)   # corner where all regulators = 0
+    for mask in 1:(2^n_lig - 1)
+        sat = Set{Tuple{Int, Symbol}}()
+        for j in 0:(n_lig - 1)
+            ((mask >> j) & 1) == 1 && push!(sat, sat_pairs[j+1])
+        end
+
+        # Per-site Q_R_eff, Q_T_eff at this corner.
+        Q_R_eff = ones(Float64, length(sites))
+        Q_T_eff = ones(Float64, length(sites))
+        for (i, entry) in enumerate(sites)
+            ligs, mult, _ = entry
+            qR, qT = 1.0, 1.0
+            for l in ligs
+                ((i, l) in sat) || continue
+                tag = regulatory_ligand_tag(m, i, l)
+                if tag == :OnlyR
+                    qR += inv_K(params, l, i, :R)
+                elseif tag == :OnlyT
+                    qT += inv_K(params, l, i, :T)
+                elseif tag == :EqualRT
+                    qR += inv_K(params, l, i, :R)
+                    qT += inv_K(params, l, i, :R)   # same K
+                else  # :NonequalRT
+                    qR += inv_K(params, l, i, :R)
+                    qT += inv_K(params, l, i, :T)
+                end
+            end
+            Q_R_eff[i] = qR
+            Q_T_eff[i] = qT
+        end
+
+        # L_eff: ratio of T to R partition functions, raised to multiplicity per site.
+        L_eff = L
+        for (i, entry) in enumerate(sites)
+            mult = entry[2]
+            L_eff *= (Q_T_eff[i] / Q_R_eff[i])^mult
+        end
+
+        # Saturation-weighted kcat: at saturating substrate, the R/T population
+        # ratio is 1 : L_eff. Fastest turnover is dominated by the conformation
+        # with greater population × kcat.
+        # Effective kcat = (kcat_R + L_eff * kcat_T) / (1 + L_eff).
+        kcat_corner = (kcat_R + L_eff * kcat_T) / (1.0 + L_eff)
+        kcat_corner > best && (best = kcat_corner)
     end
     best
 end
+
+"""
+Return `1 / K_<lig>_<reg{site_idx}>` (R-state) or `1 / K_<lig>_T_reg{site_idx}`
+(T-state, only used for :NonequalRT and :OnlyT). For :EqualRT in T-state we
+look up the R-state symbol — same K.
+"""
+function inv_K(params, lig, site_idx, conf)
+    sym = if conf == :T
+        Symbol("K_$(lig)_T_reg$(site_idx)")
+    else
+        Symbol("K_$(lig)_reg$(site_idx)")
+    end
+    1.0 / getproperty(params, sym)
+end
 ```
 
-The corner-iteration logic preserves the semantics of the old code: at saturating regulator concentrations, certain regulators are "fully bound" (R-state or T-state, per their tag) and shift the L_effective. The function returns the max kcat across corners.
+This recipe matches the existing `_kcat_forward(::AllostericEnzymeMechanism)` semantics from the old code (max over `2^n_lig` corners), translated to the new tag vocabulary. Verification: at the all-zero corner, the expression collapses to `(kcat_R + L * kcat_T) / (1 + L)` — matches the standard MWC kcat formula at zero regulator. At each non-zero corner, regulator binding shifts L_eff, possibly increasing or decreasing the apparent kcat depending on which state is stabilized.
 
 - [ ] **Step 5: Run tests**
 
@@ -1769,6 +2200,92 @@ all access via accessors. Reduces ~150 lines to ~60."
 ---
 
 ## Phase 4: Mechanism Enumeration Simplification
+
+### Task 4.0: Rewrite `init_mechanisms` to assign kinetic groups and update `param_count` formula
+
+Before migrating `MechanismSpec` (Task 4.1), the `init_mechanisms` enumerator must be rewritten to assign `kinetic_group::Int` to each step it generates. This is the explicit implementation that backs the spec's "mirror+catalytic kinetic-group sharing" invariant (decision J / Task 4.3 verifies it after this task does the work).
+
+**Files:**
+- Modify: `src/mechanism_enumeration.jl`
+
+- [ ] **Step 1: Identify every `StepSpec(...)` constructor call site in `init_mechanisms` and the topology builder**
+
+```bash
+grep -n "StepSpec(" src/mechanism_enumeration.jl
+```
+
+Each call site needs a `kinetic_group` integer assigned. The strategy:
+- **Catalytic-cycle steps**: assign sequential integers in source-walk order. Each catalytic step is its own group initially (no sharing among distinct enzyme transitions).
+- **Dead-end mirror steps**: assigned the SAME `kinetic_group` as the catalytic step they mirror. The mirror relationship is determined by the existing `_is_mirror_of` logic (which we still use during construction here, even though it's deleted afterward — see Task 4.2).
+- **Symmetric repeated bindings**: e.g., in a homotetramer, the 4 substrate-binding steps `[E, S]⇌[E_S]`, `[E_S, S]⇌[E_SS]`, etc. are placed in ONE shared kinetic group reflecting symmetric binding. (`init_mechanisms` already emitted `K_n = K_1` constraints for these; the new code emits `kinetic_group = 1` for all of them instead.)
+
+- [ ] **Step 2: Update `param_count` formula in `init_mechanisms`**
+
+Currently (`src/mechanism_enumeration.jl:~844`):
+```julia
+pc = n_re + 2 * n_ss - n_thermo + 2     # +2 for Keq + E_total
+```
+This counts every step's parameters independently. With kinetic-group sharing, count groups instead:
+```julia
+n_re_groups = count(g for g in unique_groups if all_re_in(g))
+n_ss_groups = count(g for g in unique_groups if all_ss_in(g))
+pc = n_re_groups + 2 * n_ss_groups - n_thermo + 2
+```
+
+- [ ] **Step 3: Helper to assign mirror group sharing**
+
+```julia
+"""
+After generating the catalytic-cycle StepSpecs, walk the dead-end mirror steps
+and assign each one the kinetic_group of the catalytic step it mirrors. Uses
+`_is_mirror_of` from the current code; this helper is deleted in Task 4.2 once
+its only consumer is gone.
+"""
+function _assign_mirror_kinetic_groups!(steps::Vector{StepSpec})
+    n = length(steps)
+    for j in 1:n
+        steps[j].is_equilibrium || continue
+        # If this is a dead-end binding step, find its catalytic mirror.
+        for i in 1:n
+            i == j && continue
+            steps[i].is_equilibrium || continue
+            mf, mt = step_forms(steps[j])
+            cf, ct = step_forms(steps[i])
+            if _is_mirror_of(mf, mt, cf, ct, steps)
+                # Mutate j's kinetic_group to match i's
+                steps[j] = StepSpec(steps[j].reactants, steps[j].products,
+                                    steps[j].is_equilibrium,
+                                    steps[i].kinetic_group)
+                break
+            end
+        end
+    end
+end
+```
+
+- [ ] **Step 4: Run enumeration tests, record new counts**
+
+Counts will likely shift from the existing baselines (bi-bi=11, ter-ter=283, pyruvate carboxylase=312, pyruvate dehydrogenase=334) because:
+- Symmetric homomer-style bindings now sit in one group (count differently).
+- RE→SS conversion is atomic per group (one move, not one per step).
+
+Record the new counts as the post-refactor baseline. Pause and confirm with Denis if a count divergence looks suspicious.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/mechanism_enumeration.jl test/test_mechanism_enumeration.jl
+git commit -m "Rewrite init_mechanisms to assign kinetic_group integers
+
+Catalytic-cycle steps get sequential group numbers; dead-end mirror
+steps inherit the kinetic_group of their catalytic mirror via
+_is_mirror_of (deleted in Task 4.2). param_count formula updated to
+count groups, not steps. Symmetric homomer bindings collapse into
+single shared groups.
+
+Records new enumeration count baselines; old K-type/V-type-specific
+counts may shift."
+```
 
 ### Task 4.1: Update `MechanismSpec` / `AllostericMechanismSpec`
 
@@ -1830,9 +2347,11 @@ Delete the old fields: `tr_equiv_metabolites`, `tr_equiv_cat_steps`, `r_only_met
 ```julia
 function EnzymeMechanism(spec::MechanismSpec)
     rxn = spec.reaction
-    subs = Tuple(s for s in substrates(rxn))   # already Symbol tuple at reaction level
-    prods = Tuple(s for s in products(rxn))
-    regs = Tuple(r for r in regulators(rxn))
+    # `substrates(rxn)` and `products(rxn)` return Tuple{(name, atoms)} 2-tuples;
+    # the new mechanism level wants bare Symbol names, so destructure with [1].
+    subs = Tuple(s[1] for s in substrates(rxn))
+    prods = Tuple(p[1] for p in products(rxn))
+    regs = Tuple(regulators(rxn))   # `regulators(rxn)` already returns Symbol tuple
     mets = (subs, prods, regs)
     rxns = Tuple(
         (Tuple(s.reactants), Tuple(s.products), s.is_equilibrium, s.kinetic_group)
@@ -2237,7 +2756,7 @@ end
 - [ ] **Step 1: Grep for magic-index access**
 
 ```bash
-grep -rn "Species\[\|CS\[\|RS\[\|\.parameters\[" src/ --include="*.jl" | grep -v "^.*#"
+grep -rn "Species\[\|CS\[\|RS\[\|\.parameters\[\|typeof(.*)\.parameters" src/ --include="*.jl" | grep -v "^.*#"
 ```
 
 Expected: zero hits. Fix any remaining hits with appropriate accessor calls.
@@ -2400,7 +2919,7 @@ EOF
 - **§9 Dead code:** Phase 1 + 2.4 + 2.7 + 3.3 + 3.4 + 4.2.
 - **§10.1 DSL tests:** Tasks 2.4, 2.5, 3.2; Task 2.6 migrates existing.
 - **§10.2 PFK / HK / edge cases:** Tasks 5.1, 5.2, 5.3.
-- **§10.3 Enumeration invariants:** Task 4.2 step 7 + Task 4.3.
+- **§10.3 Enumeration invariants:** Task 4.0 step 4 + Task 4.2 step 7 + Task 4.3.
 - **§10.4 kcat invariants:** Task 3.4.
 - **§10.5 Aqua/JET:** ongoing across tasks.
 - **§10.6 Graphs.jl removal:** Task 1.1 step 3.
