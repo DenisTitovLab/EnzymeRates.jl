@@ -386,7 +386,8 @@ enzyme on each side).
 end
 
 enzyme_row_range(m::EnzymeMechanism) = 1:n_states(m)
-metabolite_row_range(m::EnzymeMechanism) = (n_states(m) + 1):(n_states(m) + length(metabolites(m)))
+metabolite_row_range(m::EnzymeMechanism) =
+    (n_states(m) + 1):(n_states(m) + length(metabolites(m)))
 
 # ─── AllostericEnzymeMechanism Accessors ────────────────────────
 
