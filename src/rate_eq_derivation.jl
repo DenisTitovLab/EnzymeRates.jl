@@ -929,11 +929,10 @@ corners and return the max.
         B_T = 1
     else
         # Build T-state expressions for catalytic subunit via the
-        # `:NonequalRT` rename map (`:EqualRT` symbols already pass through).
-        rename_T = _nonequalRT_rename(m)
-        T_subs = Dict{Symbol, Any}(k => v for (k, v) in rename_T)
-        num_k_T_expr = substitute_params_expr(num_k_R_expr, T_subs)
-        den_k_T_expr = substitute_params_expr(den_k_R_expr, T_subs)
+        # `:NonequalRT` / `:OnlyT` rename map (`:EqualRT` passes through).
+        rename_T = _T_rename(m)
+        num_k_T_expr = substitute_params_expr(num_k_R_expr, rename_T)
+        den_k_T_expr = substitute_params_expr(den_k_R_expr, rename_T)
         A_T = CatN == 1 ? num_k_T_expr :
             :($(num_k_T_expr) * $(den_k_T_expr)^$(CatN - 1))
         B_T = :($(den_k_T_expr)^$(CatN))
@@ -1071,9 +1070,6 @@ function _rename_params_T(sym::Symbol)
     is_k_parameter(sym) ? Symbol(string(sym) * "_T") : sym
 end
 
-"""Build T-state parameter substitution dictionary from a collection of parameter symbols."""
-_build_T_subs(params) = Dict(p => _rename_params_T(p) for p in params if is_k_parameter(p))
-
 """Name for a regulatory site parameter: K_{ligand}_reg{i} or K_{ligand}_T_reg{i}."""
 function _reg_param_name(ligand::Symbol, site_idx::Int, T_state::Bool)
     T_state ? Symbol("K_$(ligand)_T_reg$(site_idx)") :
@@ -1114,12 +1110,17 @@ function _onlyR_syms(m::AllostericEnzymeMechanism)
     syms
 end
 
-"""R→T rename map for `:NonequalRT` group representatives."""
-function _nonequalRT_rename(m::AllostericEnzymeMechanism)
+"""
+R→T rename map for groups whose T-state symbol differs from their R-state
+symbol — `:NonequalRT` (independent K_R, K_T) and `:OnlyT` (T-state-only,
+no R-state counterpart so the T-state symbol takes the canonical _T suffix).
+"""
+function _T_rename(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
     rename = Dict{Symbol, Symbol}()
     for g in kinetic_groups(cm)
-        group_tag(m, g) == :NonequalRT || continue
+        tag = group_tag(m, g)
+        (tag == :NonequalRT || tag == :OnlyT) || continue
         rep = first(steps_in_group(cm, g))
         for s in _group_param_symbols(cm, rep)
             rename[s] = _rename_params_T(s)
@@ -1189,7 +1190,7 @@ function _dependent_param_exprs(
     indep_R = Symbol[p for p in indep_R_all if p ∉ t_only_syms]
 
     # Build T-state symbol substitution for non-`:EqualRT` groups
-    rename_T = _nonequalRT_rename(m)
+    rename_T = _T_rename(m)
     T_subs = Dict{Symbol, Symbol}(rename_T)
 
     dep_T = Dict{Symbol, Union{Symbol, Expr}}()
@@ -1208,6 +1209,7 @@ function _dependent_param_exprs(
             # symbol. Add p_T = p as a dep, do not duplicate as indep.
             dep_T[_rename_params_T(p)] = p
         else
+            # `:NonequalRT` and `:OnlyT` get a distinct T-state independent.
             push!(indep_T_list, _rename_params_T(p))
         end
     end
@@ -1286,7 +1288,7 @@ function _build_dep_assignments(
 
     t_only_syms = _onlyT_syms(m)
     r_only_syms = _onlyR_syms(m)
-    rename_T = _nonequalRT_rename(m)
+    rename_T = _T_rename(m)
     T_subs = Dict{Symbol, Symbol}(rename_T)
 
     # R-state dependent param assignments
@@ -1361,7 +1363,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
 
     t_only_syms = _onlyT_syms(m)
     r_only_syms = _onlyR_syms(m)
-    rename_T = _nonequalRT_rename(m)
+    rename_T = _T_rename(m)
 
     # R-state catalytic Exprs.
     # Use factored form when no `:OnlyT` zeroing is needed (preserves nice
@@ -1377,17 +1379,16 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     end
 
     # T-state catalytic Exprs.
-    # Zero `:OnlyR` symbols at POLY level, then rename `:NonequalRT` symbols
-    # to T-suffixed counterparts. `:EqualRT` symbols pass through unchanged
-    # (R-state binding) and resolve through dep-param assignments.
-    T_subs = Dict{Symbol, Any}(k => v for (k, v) in rename_T)
+    # Zero `:OnlyR` symbols at POLY level, then rename `:NonequalRT` / `:OnlyT`
+    # symbols to T-suffixed counterparts. `:EqualRT` symbols pass through
+    # unchanged (R-state binding) and resolve through dep-param assignments.
     if isempty(r_only_syms)
         N_T = substitute_params_expr(
             _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r),
-            T_subs)
+            rename_T)
         Q_T = substitute_params_expr(
             _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r),
-            T_subs)
+            rename_T)
     else
         num_t_poly = _rename_symbols(
             _zero_symbols_in_poly(_expand_factored_sigma(num_fs), r_only_syms),
@@ -1513,7 +1514,7 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
 
     t_only_syms = _onlyT_syms(m)
     r_only_syms = _onlyR_syms(m)
-    rename_T = _nonequalRT_rename(m)
+    rename_T = _T_rename(m)
 
     N_cat_R = _zero_symbols_in_poly(N_cat_base, t_only_syms)
     Q_cat_R = _zero_symbols_in_poly(Q_cat_base, t_only_syms)
