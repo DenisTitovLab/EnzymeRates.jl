@@ -113,6 +113,47 @@
         @test EnzymeRates.regulatory_sites(m) == reg_sites[1]
     end
 
+    @testset "AllostericEnzymeMechanism constructor + DSL" begin
+        cm = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                [E, S] ⇌ [ES]
+                [ES] <--> [EP]
+                [EP] ⇌ [E, P]
+            end
+        end
+
+        # Single-ligand :EqualRT reg site → error
+        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, ()), ((((:I,), 2, ((:I, :EqualRT),)),),)[1],
+        )
+
+        # Iso group :OnlyT → error
+        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, ((2, :OnlyT),)), (),
+        )
+
+        # Build via DSL
+        m = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: I::OnlyT
+
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E, S] ⇌ [ES]    :: EqualRT
+                    [ES] <--> [EP]    :: OnlyR
+                    [EP] ⇌ [E, P]    :: EqualRT
+                end
+            end
+        end
+        @test EnzymeRates.catalytic_multiplicity(m) == 2
+        @test EnzymeRates.group_tag(m, 1) == :EqualRT
+        @test EnzymeRates.group_tag(m, 2) == :OnlyR
+        @test EnzymeRates.allosteric_regulators(m) == ((:I, :OnlyT),)
+    end
+
     @testset "EnzymeReaction" begin
         r = EnzymeReaction(
             ((:S, ((:C, 1),)),),

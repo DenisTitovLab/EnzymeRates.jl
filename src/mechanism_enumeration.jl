@@ -2203,76 +2203,13 @@ end
 
 """Construct AllostericEnzymeMechanism from AllostericMechanismSpec."""
 function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
-    cm = EnzymeMechanism(spec.base)
-    cat_mets = metabolites(cm)
-
-    # Build Metabolites tuple (catalytic + regulatory)
-    reg_syms = Symbol[]
-    for site in spec.allosteric_reg_sites
-        for s in site
-            s in reg_syms || s in cat_mets ||
-                push!(reg_syms, s)
-        end
-    end
-    mets = (cat_mets..., reg_syms...)
-
-    # Build CatSites: (catalytic_metabolites, multiplicity,
-    #   tr_equiv_mets, tr_equiv_cat_steps,
-    #   r_only_mets, t_only_mets, r_only_cat_steps)
-    cat_tr = Tuple(m for m in cat_mets
-                   if m in spec.tr_equiv_metabolites)
-    cat_steps_tr = Tuple(spec.tr_equiv_cat_steps)
-    cat_r_only = Tuple(m for m in cat_mets
-                       if m in spec.r_only_metabolites)
-    cat_t_only = Tuple(m for m in cat_mets
-                       if m in spec.t_only_metabolites)
-    cat_r_only_steps = Tuple(spec.r_only_cat_steps)
-    cat_sites = (cat_mets, spec.catalytic_n, cat_tr,
-                 cat_steps_tr, cat_r_only, cat_t_only,
-                 cat_r_only_steps)
-
-    # Build RegSites with TR equivalence and
-    # r_only/t_only info
-    reg_sites = Tuple(
-        (Tuple(group), mult,
-         Tuple(lig for lig in group
-               if lig in spec.tr_equiv_metabolites),
-         Tuple(lig for lig in group
-               if lig in spec.r_only_metabolites),
-         Tuple(lig for lig in group
-               if lig in spec.t_only_metabolites))
-        for (group, mult) in zip(
-            spec.allosteric_reg_sites,
-            spec.allosteric_multiplicities))
-
-    AllostericEnzymeMechanism{
-        mets, typeof(cm), cat_sites, reg_sites}()
-end
-
-"""
-    AllostericEnzymeMechanism(cm, cat_sites, reg_sites)
-
-Build an `AllostericEnzymeMechanism` from a pre-built catalytic
-mechanism `cm`, a `CatSites` 7-tuple, and a `RegSites` tuple of
-5-tuples. The `Metabolites` type parameter is computed as the
-catalytic metabolites followed by any regulator-only ligands
-introduced through `reg_sites`.
-"""
-function AllostericEnzymeMechanism(
-    cm::EnzymeMechanism,
-    cat_sites::Tuple,
-    reg_sites::Tuple,
-)
-    cat_mets = metabolites(cm)
-    reg_syms = Symbol[]
-    for entry in reg_sites
-        for s in entry[1]
-            s in reg_syms || s in cat_mets || push!(reg_syms, s)
-        end
-    end
-    mets = (cat_mets..., reg_syms...)
-    AllostericEnzymeMechanism{
-        mets, typeof(cm), cat_sites, reg_sites}()
+    # TODO Task 4.x: rewrite to emit the new 3-param
+    # AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites} type.
+    # The previous body built the OLD 4-param shape and is incompatible
+    # with the new struct. Mechanism enumeration expansion moves still
+    # construct AllostericMechanismSpec values; Phase 4 wires those to
+    # the new constructor in src/types.jl.
+    error("AllostericEnzymeMechanism(spec) not yet migrated to new type — Phase 4")
 end
 
 """

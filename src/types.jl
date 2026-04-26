@@ -270,6 +270,71 @@ struct AllostericEnzymeMechanism{
     CatalyticMech, CatSites, RegSites,
 } <: AbstractEnzymeMechanism end
 
+"""
+    AllostericEnzymeMechanism(cm, cat_sites, reg_sites)
+
+Build an `AllostericEnzymeMechanism` from a catalytic `EnzymeMechanism`,
+a `(multiplicity, group_tags)` pair, and a tuple of reg-site entries.
+
+`group_tags` and ligand-tag entries store only non-default tags; absent
+entries default to `:NonequalRT`. `group_tags` is sorted by group id for
+canonical type identity. Validates:
+  - tag values are one of `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`,
+  - `group_tags` reference existing kinetic groups,
+  - iso-only kinetic groups are not tagged `:OnlyT`,
+  - reg sites have at least one ligand and at least one non-`:EqualRT`
+    ligand (single-/all-`:EqualRT` reg sites cancel identically).
+"""
+function AllostericEnzymeMechanism(
+    cm::EnzymeMechanism,
+    cat_sites::Tuple{Int, <:Tuple},
+    reg_sites::Tuple,
+)
+    multiplicity, group_tags = cat_sites
+    valid_groups = Set(kinetic_groups(cm))
+    rxns = reactions(cm)
+    cat_mets = Set(metabolites(cm))
+
+    for (g, tag) in group_tags
+        g in valid_groups ||
+            error("group_tag references non-existent kinetic_group $g")
+        tag in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
+            error("Invalid group tag: $tag")
+        any_iso = false
+        for idx in steps_in_group(cm, g)
+            lhs, rhs, is_eq, _ = rxns[idx]
+            mets_in = any(s in cat_mets for s in (lhs..., rhs...))
+            if !is_eq && !mets_in
+                any_iso = true
+            end
+        end
+        any_iso && tag == :OnlyT &&
+            error("Iso group $g tagged :OnlyT is forbidden " *
+                  "(R-inactive is a relabel)")
+    end
+
+    for (i, entry) in enumerate(reg_sites)
+        ligands, _, lig_tags = entry
+        isempty(ligands) && error("Reg site $i has no ligands")
+        tag_map = Dict(lig_tags)
+        for (lig, tag) in lig_tags
+            tag in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
+                error("Invalid reg-site tag $tag for ligand $lig")
+        end
+        all_eq = all(get(tag_map, l, :NonequalRT) == :EqualRT for l in ligands)
+        all_eq &&
+            error("Reg site $i with all `:EqualRT` ligands cancels " *
+                  "identically (or single-ligand :EqualRT reg site); at " *
+                  "least one ligand must have a non-:EqualRT tag. " *
+                  "Ligands: $ligands")
+    end
+
+    sorted_tags = Tuple(sort(collect(group_tags); by=first))
+    cat_sites_canon = (multiplicity, sorted_tags)
+
+    AllostericEnzymeMechanism{typeof(cm), cat_sites_canon, reg_sites}()
+end
+
 # --- Rate equation mode types ---
 
 """

@@ -509,9 +509,11 @@ end
 
 """
 Build the `RegSites` tuple expression. Each entry is
-`(ligand_tuple, multiplicity, tr_equiv_ligands, r_only_ligands, t_only_ligands)`.
-Ligands not assigned to any explicit `site(:regulatory, ...):` block become
-their own single-ligand site at multiplicity `cat_n`.
+`(ligand_tuple, multiplicity, lig_tags)` where `lig_tags` is a tuple of
+`(name::Symbol, tag::Symbol)` pairs storing only non-default tags
+(`:NonequalRT` is the default and is omitted). Ligands not assigned to
+any explicit `site(:regulatory, ...):` block become their own
+single-ligand site at multiplicity `cat_n`.
 """
 function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
     tag_of = Dict{Symbol,Symbol}(allo_regs)
@@ -540,15 +542,17 @@ function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
     entries = Expr[]
     for (mult, ligs) in sites
         ligs_tuple = Expr(:tuple, QuoteNode.(ligs)...)
-        tr_equiv = [l for l in ligs if tag_of[l] == :EqualRT]
-        r_only = [l for l in ligs if tag_of[l] == :OnlyR]
-        t_only = [l for l in ligs if tag_of[l] == :OnlyT]
+        lig_tag_pairs = Expr[]
+        for l in ligs
+            tag = tag_of[l]
+            tag == :NonequalRT && continue
+            push!(lig_tag_pairs,
+                  Expr(:tuple, QuoteNode(l), QuoteNode(tag)))
+        end
         entry = Expr(:tuple,
             ligs_tuple,
             mult,
-            Expr(:tuple, QuoteNode.(tr_equiv)...),
-            Expr(:tuple, QuoteNode.(r_only)...),
-            Expr(:tuple, QuoteNode.(t_only)...),
+            Expr(:tuple, lig_tag_pairs...),
         )
         push!(entries, entry)
     end
@@ -556,43 +560,20 @@ function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
 end
 
 """
-Build the `CatSites` 7-tuple expression for the macro:
-`(cat_mets, multiplicity, tr_equiv_mets, tr_equiv_cat_steps,
-  r_only_mets, t_only_mets, r_only_cat_steps)`.
-
-All catalytic metabolites are treated as `EqualRT` (so
-`cat_mets == tr_equiv_mets`). Per-step tags from the catalytic `steps:`
-block are partitioned: `:EqualRT` → `tr_equiv_cat_steps`, `:OnlyR` →
-`r_only_cat_steps`, `:NonequalRT` → none. `:OnlyT` is rejected — the
-type signature has no `t_only_cat_steps` slot.
+Build the `CatSites` expression `(multiplicity, group_tags)` for the
+macro. `group_tags` is a tuple of `(group_number, tag)` pairs storing
+only non-default tags (`:NonequalRT` is the default and is omitted).
 """
-function _build_cat_sites_expr(subs, prods, cat_inhibitors, cat_n, group_tags)
-    cat_mets = (subs..., prods..., cat_inhibitors...)
-    tr_equiv_steps = Int[]
-    r_only_steps = Int[]
+function _build_cat_sites_expr(cat_n, group_tags)
+    pairs = Expr[]
     for (gnum, tag) in group_tags
         tag in _ALLOSTERIC_REG_TAGS ||
             error("@allosteric_mechanism: catalytic step tag :$tag not in " *
                   "($(_format_tag_set(_ALLOSTERIC_REG_TAGS)))")
-        if tag == :EqualRT
-            push!(tr_equiv_steps, gnum)
-        elseif tag == :OnlyR
-            push!(r_only_steps, gnum)
-        elseif tag == :OnlyT
-            error("@allosteric_mechanism: catalytic step tag :OnlyT is " *
-                  "not supported (V-type allostery)")
-        end
+        tag == :NonequalRT && continue
+        push!(pairs, Expr(:tuple, gnum, QuoteNode(tag)))
     end
-    met_tuple = Expr(:tuple, QuoteNode.(cat_mets)...)
-    Expr(:tuple,
-        met_tuple,
-        cat_n,
-        met_tuple,
-        Expr(:tuple, tr_equiv_steps...),
-        Expr(:tuple),
-        Expr(:tuple),
-        Expr(:tuple, r_only_steps...),
-    )
+    Expr(:tuple, cat_n, Expr(:tuple, pairs...))
 end
 
 """
@@ -678,9 +659,7 @@ function _parse_allosteric_mechanism_body(block)
     )
     cm_expr = :(EnzymeMechanism($cm_mets_expr, $rxns_expr))
 
-    cat_sites_expr = _build_cat_sites_expr(
-        subs_list, prods_list, cat_inhibitors, cat_n, group_tags,
-    )
+    cat_sites_expr = _build_cat_sites_expr(cat_n, group_tags)
     reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
 
     :(AllostericEnzymeMechanism($cm_expr, $cat_sites_expr, $reg_sites_expr))
