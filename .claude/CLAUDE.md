@@ -279,19 +279,16 @@ julia --project -e 'using Pkg; Pkg.test()'
 - r_only/t_only params are eliminated from the parameter list (unidentifiable — zeroed in the rate equation polynomial). Haldane is irrelevant when a state can't complete the catalytic cycle.
 - Allosteric conversion is +1 param (just L). Two differentiation modes: K-type (≥1 substrate + ≥1 product r_only, T can't catalyze) and V-type (all catalytic steps r_only, kf_T=kr_T=0). Only r_only variants — T is the inactive conformation.
 - `AllostericMechanismSpec` has 10 fields (9 original + `param_count::Int`). `param_count` is set by construction (+1 per move), not computed from structure.
-- Old pipeline files preserved as `old_mechanism_enumeration.jl`, `old_beam_enumeration.jl`
 
 ## Source Layout
 
-- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `AllostericEnzymeMechanism` structs; `RegulatorRole` hierarchy (`Allosteric`, `DeadEnd`, `UnconstrainedRegulator`); `EnzymeMechanism` and `AllostericEnzymeMechanism` accessors; `regulator_roles()`; `RateEquationMode` hierarchy
+- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `AllostericEnzymeMechanism` structs; `EnzymeMechanism` and `AllostericEnzymeMechanism` accessors; `regulator_roles()`; `RateEquationMode` hierarchy
 - `src/dsl.jl` — `@enzyme_reaction` (supports `substrates:`, `products:`, `regulators:`, `dead_end_inhibitors:`, `allosteric_regulators:`, `oligomeric_state:` labels; multi-atom bracket syntax `A[C3H3O3]` and `A[C,N]`) and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `AllostericEnzymeMechanism` DSL)
 - `src/sym_poly_for_rate_eq_derivation.jl` — Symbolic polynomial algebra (`Poly` type); `_rename_poly_T`, `_count_allosteric_rate_monomials` for MWC identifiability
 - `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; kcat computation (`_is_ss_rate_constant`, `_kcat_components`, `_kcat_forward`) and `rescale_parameter_values`; AllostericEnzymeMechanism MWC rate equation assembly (`_build_allosteric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
 - `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
 - `src/mechanism_enumeration.jl` — Building blocks for mechanism enumeration: `init_mechanisms`, `expand_mechanisms`, `dedup!`, `EnzymeMechanism(spec)`, `AllostericEnzymeMechanism(spec)` constructors, expansion moves (`_expand_re_to_ss`, `_expand_remove_constraint`, `_expand_add_dead_end_regulator`, `_expand_to_allosteric`, `_expand_add_allosteric_regulator`, `_expand_remove_tr_equiv`), helpers (`_rewrap_allosteric`, `_canonicalize!`, `_dedup_key`)
-- `src/old_mechanism_enumeration.jl` — Legacy 8-stage pipeline (preserved, still included for shared helpers)
-- `src/old_beam_enumeration.jl` — Legacy beam-search pipeline (preserved, still included for shared helpers)
 
 ## Vmax Normalization (kcat factoring) — IMPLEMENTED
 
@@ -322,6 +319,5 @@ julia --project -e 'using Pkg; Pkg.test()'
 - Don't leave profiling deps (SnoopCompile) in Project.toml — Aqua stale deps check will fail
 - `test/mechanism_definitions_for_test_enzyme_derivation.jl` defines shared mechanisms used by multiple test files — must be included before those tests
 - New mechanism enumeration tests (`test/test_mechanism_enumeration.jl`): unit tests per expansion move using `@enzyme_mechanism` definitions, integration tests via `enumerate_all` helper loop. Param count verified as `length(parameters(m)) <= param_count` (upper-bound estimate).
-- Old enumeration tests preserved in `test/old_test_mechanism_enumeration.jl` and `test/old_test_beam_enumeration.jl`
 - `MechanismTestSpec` has optional `analytical_kcat_fn` field for per-mechanism kcat formula validation
 - kcat/rescaling tests (scale invariance, rate proportionality, V≈1, custom target) run for ALL mechanism specs in the main `run_all_tests` loop — not in a separate file
