@@ -1,4 +1,27 @@
 @testset "Types" begin
+    @testset "EnzymeMechanism struct + accessors (new design)" begin
+        mets = ((:S,), (:P,), ())
+        rxns = (
+            ((:E, :S), (:ES,), true,  1),
+            ((:ES,),   (:EP,), false, 2),
+            ((:EP,),   (:E, :P), true, 3),
+        )
+        m = EnzymeRates.EnzymeMechanism{mets, rxns}()
+
+        @test EnzymeRates.substrates(m) == (:S,)
+        @test EnzymeRates.products(m) == (:P,)
+        @test EnzymeRates.regulators(m) == ()
+        @test EnzymeRates.metabolites(m) == (:S, :P)
+        @test EnzymeRates.reactions(m) == rxns
+        @test EnzymeRates.equilibrium_steps(m) == (true, false, true)
+        @test EnzymeRates.n_steps(m) == 3
+        @test EnzymeRates.kinetic_group(m, 1) == 1
+        @test EnzymeRates.kinetic_group(m, 2) == 2
+        @test EnzymeRates.kinetic_group(m, 3) == 3
+        @test EnzymeRates.kinetic_groups(m) == (1, 2, 3)
+        @test EnzymeRates.steps_in_group(m, 1) == (1,)
+    end
+
     @testset "EnzymeReaction" begin
         r = EnzymeReaction(
             ((:S, ((:C, 1),)),),

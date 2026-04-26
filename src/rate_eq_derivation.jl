@@ -16,13 +16,15 @@ function parameters end
 
 parameters(m::_AnyMechanism) = parameters(m, Reduced)
 
-@generated function parameters(
-    ::EnzymeMechanism{Species, Reactions, EqSteps, PC},
-    ::FullMode,
-) where {Species, Reactions, EqSteps, PC}
-    constrained = Set(c[1] for c in PC)
-    Tuple(p for p in (_raw_param_symbols(EqSteps)..., :E_total) if p ∉ constrained)
-end
+# Disabled — used the old 4-parameter EnzymeMechanism dispatch
+# (Species, Reactions, EqSteps, PC). Task 2.7 supplies the replacement.
+# @generated function parameters(
+#     ::EnzymeMechanism{Species, Reactions, EqSteps, PC},
+#     ::FullMode,
+# ) where {Species, Reactions, EqSteps, PC}
+#     constrained = Set(c[1] for c in PC)
+#     Tuple(p for p in (_raw_param_symbols(EqSteps)..., :E_total) if p ∉ constrained)
+# end
 
 @generated function parameters(::M, ::ReducedMode) where {M <: _AnyMechanism}
     _, indep = _dependent_param_exprs(M)
