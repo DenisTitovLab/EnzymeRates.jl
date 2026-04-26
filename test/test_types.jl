@@ -52,6 +52,46 @@
         @test size(S[met_idx, :]) == (2, 3)                          # 2 metabolites × 3 steps
     end
 
+    @testset "EnzymeMechanism constructor" begin
+        mets = ((:S,), (:P,), ())
+        rxns = (
+            ((:E, :S), (:ES,), true,  1),
+            ((:ES,),   (:EP,), false, 2),
+            ((:EP,),   (:E, :P), true, 3),
+        )
+        m = EnzymeRates.EnzymeMechanism(mets, rxns)
+        @test EnzymeRates.n_steps(m) == 3
+        @test EnzymeRates.substrates(m) == (:S,)
+
+        # Same-kinetics group test: regulator R binds E and ES sharing one K
+        mets_r = ((:S,), (:P,), (:R,))
+        rxns_grouped = (
+            ((:E, :S),   (:ES,),    true,  1),
+            ((:ES,),     (:EP,),    false, 2),
+            ((:EP,),     (:E, :P),  true,  3),
+            ((:E, :R),   (:ER,),    true,  4),
+            ((:ES, :R),  (:ESR,),   true,  4),
+        )
+        m_g = EnzymeRates.EnzymeMechanism(mets_r, rxns_grouped)
+        @test EnzymeRates.kinetic_group(m_g, 4) == EnzymeRates.kinetic_group(m_g, 5)
+
+        # Stoichiometry violation: substrate not actually consumed
+        bad_rxns = (
+            ((:E, :S), (:ES,), true,  1),
+            ((:ES,),   (:E,),  false, 2),    # S "vanishes" — no product
+        )
+        @test_throws ErrorException EnzymeRates.EnzymeMechanism(((:S,), (:P,), ()), bad_rxns)
+
+        # Iso group with size > 1 should error
+        bad_iso = (
+            ((:E, :S), (:ES,), true,  1),
+            ((:ES,),   (:EP,), false, 99),
+            ((:EP,),   (:EQ,), false, 99),    # second iso step in same group → error
+            ((:EQ,),   (:E, :P), true, 2),
+        )
+        @test_throws ErrorException EnzymeRates.EnzymeMechanism(((:S,), (:P,), ()), bad_iso)
+    end
+
     @testset "EnzymeReaction" begin
         r = EnzymeReaction(
             ((:S, ((:C, 1),)),),
