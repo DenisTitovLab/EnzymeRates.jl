@@ -165,14 +165,17 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     enz_names = enzyme_forms(m)
     enz_set = Set(enz_names)
 
-    # Free enzyme is any form that appears alone (no metabolite) on either
-    # side of any step. Used for pivot priority.
-    free_enz_set = Set{Symbol}()
-    for (lhs, rhs, _, _) in rxns
-        e_l, m_l = _split_reaction_side(lhs, enz_set)
+    # Free enzyme is any form that's never the RHS of a canonical RE binding
+    # step `[F, met...] ⇌ [F_bound]`. SS steps don't determine binding state
+    # (their direction isn't canonicalized). Used for pivot priority.
+    free_enz_set = Set{Symbol}(enz_names)
+    for (lhs, rhs, is_eq, _) in rxns
+        is_eq || continue
+        _, m_l = _split_reaction_side(lhs, enz_set)
         e_r, m_r = _split_reaction_side(rhs, enz_set)
-        isempty(m_l) && push!(free_enz_set, e_l)
-        isempty(m_r) && push!(free_enz_set, e_r)
+        if !isempty(m_l) && isempty(m_r)
+            delete!(free_enz_set, e_r)
+        end
     end
 
     C, rhs_coeffs = _thermodynamic_constraints(M)
