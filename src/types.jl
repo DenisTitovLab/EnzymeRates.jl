@@ -320,8 +320,7 @@ n_states(m::EnzymeMechanism) = length(enzyme_forms(m))
 
 # Old accessors disabled — they used `Species[k]` indexing on the old
 # 4-parameter EnzymeMechanism type. Replacements arrive in later tasks
-# (Task 2.2 returns a refactored stoich_matrix; constraint handling moves
-# out of the type entirely).
+# (constraint handling moves out of the type entirely).
 #
 # function _unique_metabolites(Species)
 #     subs, prods, regs = Species[1:3]
@@ -345,26 +344,49 @@ n_states(m::EnzymeMechanism) = length(enzyme_forms(m))
 # end
 #
 # param_constraints(::EnzymeMechanism{Sp, Rx, Eq, PC}) where {Sp, Rx, Eq, PC} = PC
-#
-# @generated function stoich_matrix(
-#     ::EnzymeMechanism{Species, Reactions, EqSteps},
-# ) where {Species, Reactions, EqSteps}
-#     mets = _unique_metabolites(Species)
-#     met_idx = Dict(m[1] => i for (i, m) in enumerate(mets))
-#     enz_names = Set(e[1] for e in Species[4])
-#     S = zeros(Int, length(mets), length(Reactions))
-#     for (step_j, (lhs, rhs)) in enumerate(Reactions)
-#         for s in lhs
-#             s in enz_names && continue
-#             S[met_idx[s], step_j] -= 1
-#         end
-#         for s in rhs
-#             s in enz_names && continue
-#             S[met_idx[s], step_j] += 1
-#         end
-#     end
-#     return S
-# end
+
+"""
+    stoich_matrix(m::EnzymeMechanism) → Matrix{Int}
+
+Full stoichiometry matrix. Rows are species in the order
+`(enzyme_forms..., metabolites...)` (use `enzyme_row_range(m)` and
+`metabolite_row_range(m)` to slice). Columns are step indices.
+Positive = produced; negative = consumed in the forward direction.
+
+Enzyme-row columns sum to zero by construction (each step has one
+enzyme on each side).
+"""
+@generated function stoich_matrix(::EnzymeMechanism{M, R}) where {M, R}
+    met_names_set = Set{Symbol}()
+    for group in M; for name in group; push!(met_names_set, name); end; end
+
+    seen = Set{Symbol}()
+    enz = Symbol[]
+    for (lhs, rhs, _, _) in R
+        for s in lhs; s ∉ met_names_set && s ∉ seen && (push!(seen, s); push!(enz, s)); end
+        for s in rhs; s ∉ met_names_set && s ∉ seen && (push!(seen, s); push!(enz, s)); end
+    end
+
+    met_seen = Set{Symbol}()
+    mets = Symbol[]
+    for group in M
+        for name in group
+            name ∉ met_seen && (push!(met_seen, name); push!(mets, name))
+        end
+    end
+
+    species = [enz; mets]
+    sp_idx = Dict(s => i for (i, s) in enumerate(species))
+    S = zeros(Int, length(species), length(R))
+    for (j, (lhs, rhs, _, _)) in enumerate(R)
+        for s in lhs; S[sp_idx[s], j] -= 1; end
+        for s in rhs; S[sp_idx[s], j] += 1; end
+    end
+    S
+end
+
+enzyme_row_range(m::EnzymeMechanism) = 1:n_states(m)
+metabolite_row_range(m::EnzymeMechanism) = (n_states(m) + 1):(n_states(m) + length(metabolites(m)))
 
 # ─── AllostericEnzymeMechanism Accessors ────────────────────────
 

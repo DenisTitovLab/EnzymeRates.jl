@@ -36,6 +36,22 @@
         @test EnzymeRates.steps_in_group(m2, 1) == (1, 2)
     end
 
+    @testset "stoich_matrix has expected enzyme/metabolite rows" begin
+        mets = ((:S,), (:P,), ())
+        rxns = (
+            ((:E, :S), (:ES,), true,  1),
+            ((:ES,),   (:EP,), false, 2),
+            ((:EP,),   (:E, :P), true, 3),
+        )
+        m = EnzymeRates.EnzymeMechanism{mets, rxns}()
+        S = EnzymeRates.stoich_matrix(m)
+
+        enz_idx = EnzymeRates.enzyme_row_range(m)
+        met_idx = EnzymeRates.metabolite_row_range(m)
+        @test all(sum(S[enz_idx, j]) == 0 for j in 1:size(S, 2))   # enzyme conservation
+        @test size(S[met_idx, :]) == (2, 3)                          # 2 metabolites × 3 steps
+    end
+
     @testset "EnzymeReaction" begin
         r = EnzymeReaction(
             ((:S, ((:C, 1),)),),

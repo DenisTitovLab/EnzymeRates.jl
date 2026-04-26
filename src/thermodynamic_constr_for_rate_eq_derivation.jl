@@ -113,7 +113,7 @@ function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
     enz_names = Tuple(e[1] for e in enzs)
     _thermodynamic_constraints(
         enz_names, Set(enz_names), reactions(m),
-        stoich_matrix(m), collect(metabolites(m)),
+        stoich_matrix(m)[metabolite_row_range(m), :], collect(metabolites(m)),
         substrates(m), products(m),
     )
 end
