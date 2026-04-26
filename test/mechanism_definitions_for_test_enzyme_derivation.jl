@@ -1526,6 +1526,10 @@ function build_mechanism_test_specs()
             end
         end
 
+        # TODO Task 2.7: parameter names use OLD step-index numbering
+        # (K7 = old I2-binding step). After migration, kinetic groups
+        # number sequentially: K1=S, K3=P, K4=I1, K5=I2. Update once
+        # Task 2.7 finalizes param naming.
         function rate_two_noncomp_inh(p, c)
             (; K1, k2f, k2r, K3, K4, K7, Et) = p
             (; S, P, I1, I2) = c
@@ -1580,6 +1584,10 @@ function build_mechanism_test_specs()
             end
         end
 
+        # TODO Task 2.7: parameter names use OLD step-index numbering
+        # (K9 = old I2-binding dead-end step). After migration, kinetic
+        # groups number sequentially: K1=S, K3=P, K4=I1, K5=I2. Update
+        # once Task 2.7 finalizes param naming.
         function rate_noncomp_comp_inh(p, c)
             (; K1, k2f, k2r, K3, K4, K9, Et) = p
             (; S, P, I1, I2) = c
@@ -1689,6 +1697,10 @@ function build_mechanism_test_specs()
             end
         end
 
+        # TODO Task 2.7: parameter names use OLD step-index numbering
+        # (K9 = old I2-binding step). After migration, kinetic groups
+        # number sequentially: K1=S, K3=P, K4=I1, K5=I2. Update once
+        # Task 2.7 finalizes param naming.
         function rate_two_samesite_inh(p, c)
             (; K1, k2f, k2r, K3, K4, K9, Et) = p
             (; S, P, I1, I2) = c
@@ -1812,6 +1824,11 @@ function build_mechanism_test_specs()
             #   Reg site 2, R state:  K_R3_reg2
             #   Reg site 2, T state:  K_R3_T_reg2
             #   Shared: L (= [E_T]/[E_R] for bare enzyme), Keq, Et
+            #
+            # TODO Task 2.7: k13f/k13r reference the OLD step index (iso
+            # was step 13 after 12 binding steps). Under the new
+            # kinetic-group-based naming the iso step is group 5 → k5f/k5r.
+            # Update once Task 2.7 finalizes param naming.
             function rate_mwc_tetramer_bi_bi(params, concs)
                 (; K1, K2, K3, K4, k13f, k13r,
                    K1_T, K2_T, K3_T, K4_T, k13f_T, k13r_T,
