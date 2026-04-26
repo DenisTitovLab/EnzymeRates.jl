@@ -449,12 +449,15 @@ function _tagged_symbols_from_values(values, label, valid_tags)
             error("@allosteric_mechanism `$label:`: tag must be a Symbol; " *
                   "got $tag")
         tag in valid_tags ||
-            error("@allosteric_mechanism `$label:`: tag $tag not in " *
-                  "$valid_tags")
+            error("@allosteric_mechanism `$label:`: tag :$tag not in " *
+                  "($(_format_tag_set(valid_tags)))")
         push!(pairs, name => tag)
     end
     pairs
 end
+
+"""Format a tag set as a sorted, comma-joined list for error messages."""
+_format_tag_set(tags) = join((":$t" for t in sort(collect(tags))), ", ")
 
 """
 Extract the inner `steps:` block from a `site(:catalytic, N):` body.
@@ -557,12 +560,11 @@ Build the `CatSites` 7-tuple expression for the macro:
 `(cat_mets, multiplicity, tr_equiv_mets, tr_equiv_cat_steps,
   r_only_mets, t_only_mets, r_only_cat_steps)`.
 
-For Task 2.5 the macro does not yet accept per-metabolite tags; all catalytic
-metabolites default to `EqualRT` (so `cat_mets == tr_equiv_mets`). Per-step
-tags from the catalytic `steps:` block are partitioned: `:EqualRT` →
-`tr_equiv_cat_steps`, `:OnlyR` → `r_only_cat_steps`, `:NonequalRT` → none.
-`:OnlyT` on catalytic steps is rejected (no `t_only_cat_steps` slot exists in
-the OLD type signature).
+All catalytic metabolites are treated as `EqualRT` (so
+`cat_mets == tr_equiv_mets`). Per-step tags from the catalytic `steps:`
+block are partitioned: `:EqualRT` → `tr_equiv_cat_steps`, `:OnlyR` →
+`r_only_cat_steps`, `:NonequalRT` → none. `:OnlyT` is rejected — the
+type signature has no `t_only_cat_steps` slot.
 """
 function _build_cat_sites_expr(subs, prods, cat_inhibitors, cat_n, group_tags)
     cat_mets = (subs..., prods..., cat_inhibitors...)
@@ -570,21 +572,22 @@ function _build_cat_sites_expr(subs, prods, cat_inhibitors, cat_n, group_tags)
     r_only_steps = Int[]
     for (gnum, tag) in group_tags
         tag in _ALLOSTERIC_REG_TAGS ||
-            error("@allosteric_mechanism: catalytic step tag $tag not in " *
-                  "$_ALLOSTERIC_REG_TAGS")
+            error("@allosteric_mechanism: catalytic step tag :$tag not in " *
+                  "($(_format_tag_set(_ALLOSTERIC_REG_TAGS)))")
         if tag == :EqualRT
             push!(tr_equiv_steps, gnum)
         elseif tag == :OnlyR
             push!(r_only_steps, gnum)
         elseif tag == :OnlyT
             error("@allosteric_mechanism: catalytic step tag :OnlyT is " *
-                  "not yet supported (V-type allostery comes in Phase 3)")
+                  "not supported (V-type allostery)")
         end
     end
+    met_tuple = Expr(:tuple, QuoteNode.(cat_mets)...)
     Expr(:tuple,
-        Expr(:tuple, QuoteNode.(cat_mets)...),
+        met_tuple,
         cat_n,
-        Expr(:tuple, QuoteNode.(cat_mets)...),
+        met_tuple,
         Expr(:tuple, tr_equiv_steps...),
         Expr(:tuple),
         Expr(:tuple),
@@ -661,15 +664,12 @@ function _parse_allosteric_mechanism_body(block)
     rxns_expr, group_tags = _parse_steps_block_with_groups(
         cat_steps_block; allow_tag=true,
     )
-    n_groups = length(group_tags)
-    # Count distinct kinetic groups in rxns_expr
-    distinct = Set{Int}()
-    for step in rxns_expr.args
-        push!(distinct, step.args[4])
-    end
-    n_groups == length(distinct) ||
-        error("@allosteric_mechanism: every catalytic step or step-group " *
-              "must carry a ::Tag annotation")
+    tagged = Set{Int}(g for (g, _) in group_tags)
+    all_groups = Set{Int}(step.args[4] for step in rxns_expr.args)
+    untagged = sort(collect(setdiff(all_groups, tagged)))
+    isempty(untagged) ||
+        error("@allosteric_mechanism: catalytic step-group(s) $untagged " *
+              "missing a ::Tag annotation")
 
     cm_mets_expr = Expr(:tuple,
         Expr(:tuple, QuoteNode.(subs_list)...),

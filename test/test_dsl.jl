@@ -59,6 +59,32 @@
         end
         @test m isa EnzymeRates.AllostericEnzymeMechanism
         @test EnzymeRates.allosteric_regulators(m) ⊇ ((:I, :OnlyT),)
+
+        # Reject untagged catalytic step
+        @test_throws Exception eval(:(@allosteric_mechanism begin
+            substrates: F6P
+            products:   F16BP
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E, F6P] ⇌ [E_F6P] :: EqualRT
+                    [E_F6P] <--> [E_F16BP]
+                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                end
+            end
+        end))
+
+        # Reject :OnlyT on a catalytic step (V-type allostery not supported)
+        @test_throws Exception eval(:(@allosteric_mechanism begin
+            substrates: F6P
+            products:   F16BP
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E, F6P] ⇌ [E_F6P] :: EqualRT
+                    [E_F6P] <--> [E_F16BP] :: OnlyT
+                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                end
+            end
+        end))
     end
 
     @testset "@enzyme_reaction" begin
