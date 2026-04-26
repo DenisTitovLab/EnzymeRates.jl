@@ -1456,17 +1456,25 @@ metabolite_row_range(m::AllostericEnzymeMechanism) = metabolite_row_range(cataly
 # (or as type-parametric methods) to avoid the magic-index `typeof(m).parameters[3]`
 # pattern that the spec §5 grep audit forbids.
 
+# IMPORTANT: matches existing semantics in `src/types.jl:589` — returns ONLY
+# reg-site ligands, NOT a union with catalytic_mechanism's regulators. Downstream
+# rate-equation code reads `regulators(m)` to find dead-end binding K's; including
+# allosteric-only ligands would cause it to look up nonexistent K names. Use
+# `metabolites(m)` (defined below) for the full metabolite list.
 regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
-    cat_regs = regulators(CM())
-    extra = Symbol[]
-    seen = Set{Symbol}(cat_regs)
+    syms = Symbol[]
+    seen = Set{Symbol}()
     for entry in RS
         for lig in entry[1]
-            lig in seen || (push!(seen, lig); push!(extra, lig))
+            lig in seen || (push!(seen, lig); push!(syms, lig))
         end
     end
-    (cat_regs..., extra...)
+    Tuple(syms)
 end
+
+# `catalytic_inhibitors(m)` (defined below) returns the dead-end-only regulators
+# from the catalytic mechanism. Use that when you specifically want dead-end
+# inhibitor names.
 
 metabolites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
     cat_mets = metabolites(CM())
@@ -1687,7 +1695,7 @@ The new type doesn't have rate-equation derivation yet.
 In `src/rate_eq_derivation.jl`, delete:
 - `_is_tr_equiv_catalytic_K`, `_is_tr_equiv_catalytic_param`, `_is_r_only_catalytic_param`.
 - The old `_binding_K_symbols(::Type{<:AllostericEnzymeMechanism{...}})` method.
-- The old `_dependent_param_exprs(::Type{<:AllostericEnzymeMechanism{...}})` method (~100 lines).
+- The old `_dependent_param_exprs(::Type{<:AllostericEnzymeMechanism{...}})` method (~100 lines). **Replaced**, not just deleted — see Step 4b below for the new method body that `parameters(m, ::ReducedMode)` and `fitted_params(m)` continue to require.
 - `_allosteric_dep_assignments`.
 - `_allosteric_num_den_exprs`.
 - `_build_allosteric_rate_body`.
@@ -1746,6 +1754,23 @@ The migration replaces source-of-truth queries with new accessors:
 
 **Watch for**: Kd inversion. `_apply_kd_inversion` must run on `dep_R` before the zero-out / rename passes (the existing code structure at `src/rate_eq_derivation.jl:1359` shows this ordering). Without it, dep-expr RHSes are still in Ka form and downstream consumers expect Kd form.
 
+- [ ] **Step 5b: Define `_dependent_param_exprs(::Type{<:AllostericEnzymeMechanism})` for the new shape**
+
+`parameters(m, ::ReducedMode)` (defined upstream at `src/rate_eq_derivation.jl:27-30` for `_AnyMechanism`) calls `_dependent_param_exprs(M)` to get the `(dep_dict, indep_list)` pair. The plain-mechanism method (in the same file) is updated under Task 2.7. The allosteric method is REPLACED, not deleted — `parameters(m, ReducedMode())` MUST keep working post-refactor.
+
+The new method body (concise — implementer reads existing structure for details):
+
+- Get `dep_R, indep_R = _dependent_param_exprs(CM)` (the catalytic mech's kinetic-group-aware version from Task 2.7).
+- Build `t_only_syms = _onlyT_syms(m)`, `r_only_syms = _onlyR_syms(m)`, `rename_T = _nonequalRT_rename(m)`.
+- Filter `dep_R` and `indep_R` to drop entries that reference `:OnlyT` or `:OnlyR` syms (they're zero in their respective conformation; not parameters of the model).
+- Build the union dep_map by adding T-state entries: T-suffixed copy of each `:NonequalRT`-tagged R-state entry; pass-through `T = R` entries for `:EqualRT`-tagged catalytic params; `:OnlyR`-tagged → 0 in T-state (drop from indep, add to dep with value 0); `:OnlyT`-tagged → 0 in R-state.
+- Append reg-site dependent assignments: for each `:EqualRT` ligand at site i, `K_lig_T_reg_i = K_lig_reg_i`.
+- Append reg-site independents: each `:NonequalRT` ligand has `K_lig_reg_i` (R) and `K_lig_T_reg_i` (T) as independents; each `:OnlyR` ligand has only `K_lig_reg_i`; each `:OnlyT` ligand has only `K_lig_T_reg_i`.
+- Append `:L` to indep.
+- Return `(merged_dep, merged_indep)`.
+
+The shape is the same as the existing `_dependent_param_exprs(::Type{<:AllostericEnzymeMechanism})` (`src/rate_eq_derivation.jl:1204-1303` in the existing code). Just translate the magic-index queries to the new accessors and replace the `cat_tr_equiv` / `cat_r_only` / `cat_t_only` / `r_only_cat_steps` field reads with `group_tag(m, g)` iteration.
+
 - [ ] **Step 6: Update `rate_equation_string` and `structural_identifiability_deficit` to use the same path**
 
 `rate_equation_string` extracts the same Expr building as `rate_equation` (without the `@generated` machinery) — share the helper.
@@ -1787,18 +1812,21 @@ parallel R/T control flow throughout."
 - Modify: `src/rate_eq_derivation.jl`
 - Modify: `test/test_enzyme_derivation.jl`
 
-The existing `_kcat_forward(::AllostericEnzymeMechanism)` (~150 lines, magic-index access throughout) is replaced with a function that uses the same POLY-level substitution machinery as Task 3.3, plus a shared `_kcat_from_poly(num_poly, den_poly, params)` helper that also serves the plain-mechanism path.
+The existing `_kcat_forward(::AllostericEnzymeMechanism)` (~150 lines, magic-index access throughout) is replaced with a function that uses the same POLY-level substitution machinery as Task 3.3, plus a shared `_kcat_from_components(M::Type, params)` helper that also serves the plain-mechanism path.
 
-- [ ] **Step 1: Extract `_kcat_from_poly` helper from existing plain-mechanism code**
+- [ ] **Step 1: Extract `_kcat_from_components` helper from existing plain-mechanism code**
 
-In `src/rate_eq_derivation.jl`, find the existing `_kcat_forward(m::EnzymeMechanism, params)` body. Factor out the polynomial-traversal kcat extraction into a standalone function:
+In `src/rate_eq_derivation.jl`, find the existing `_kcat_forward(m::EnzymeMechanism, params)` body. The existing body uses `_kcat_components(M::Type{<:EnzymeMechanism})` which returns `Vector{(num_k::Expr, den_k::Expr)}` candidate-component pairs (one per metabolite pattern; multiple for mechanisms with non-essential activators or branching paths). Factor out the per-component evaluation step:
 
-**Implementation guidance**: the existing `_kcat_forward(m::EnzymeMechanism, params)` body uses `_kcat_components(M::Type{<:EnzymeMechanism})` which returns `Vector{(num_k::Expr, den_k::Expr)}` candidate-component pairs (one per metabolite pattern; multiple for mechanisms with non-essential activators or branching paths). Read the existing body and:
+```
+_kcat_from_components(M::Type, params) → Float64
+```
 
-- Either factor out the per-component evaluation into a helper that takes `(M, params)` and returns `max(eval(:($n / $d)) for (n, d) in components)`. Both plain and allosteric paths can call this helper, with `M` being the appropriate mechanism type.
-- Or keep `_kcat_components` as the shared piece and have each path do its own evaluation.
+Body: walk `_kcat_components(M)`, evaluate `:($n / $d)` against `params` for each `(n, d)`, return `max`. The helper takes a Type — that's what the existing `_kcat_components` already takes; nothing about the helper signature touches raw polynomials.
 
-The factored helper signature should reflect what `_kcat_components` actually returns — do NOT invent a `_kcat_from_poly(num_poly, den_poly, params)` signature that takes raw polynomials; that's a fabrication. The existing function operates on Expr pairs already extracted from the polynomial structure by `_kcat_components`. The plain-mechanism `_kcat_forward` body shows the canonical evaluation pattern; keep it.
+(The name `_kcat_from_components` reflects "compute kcat from the output of `_kcat_components`," not "from a raw polynomial." Earlier drafts of this plan named it `_kcat_from_poly`, which was misleading because it suggested a `(num_poly, den_poly, params)` signature; we corrected the name to match the actual signature.)
+
+Update the plain-mechanism `_kcat_forward(m::EnzymeMechanism, params)` to be a one-liner: `_kcat_from_components(typeof(m), params)`.
 
 - [ ] **Step 2: Write failing test for allosteric kcat**
 
@@ -1851,7 +1879,7 @@ Edits:
 - `Expr(:call, :max, corner_exprs...)` reduction.
 - Preamble: `r_assignments, t_assignments` from the new `_build_dep_assignments(m)` (Task 3.3 step 5), then `_destructuring_expr(hw_params, :params)`. Use the same `hw_params` set as the existing function (`(indep..., :Keq)` — kcat is intrinsic; `E_total` is not read; `L` IS read but lives in `indep` for allosteric).
 
-**`_kcat_from_poly` shared helper**: factored from the existing plain-mechanism `_kcat_forward(m::EnzymeMechanism, params)`. The existing `_kcat_components(M::Type{<:EnzymeMechanism})` takes a `Type` and returns `Vector{(num_k::Expr, den_k::Expr)}` candidate pairs — keep this signature. The shared helper's single argument is the mechanism type; both plain and allosteric paths build candidates by calling `_kcat_components(M)` (or, for allosteric, by deriving candidates per conformation and then taking the per-corner kcat as above). Don't try to invent a `_kcat_from_poly(num, den, params)` signature that takes polynomials — that's a fabrication; the actual factoring is by mechanism type.
+**`_kcat_from_components` shared helper**: factored from the existing plain-mechanism `_kcat_forward` body per Step 1 above. Signature: `_kcat_from_components(M::Type, params) → Float64`. Both plain and allosteric paths use it (allosteric calls it on virtual per-conformation Types or extracts the existing `_kcat_components` output for the catalytic-mechanism Type then applies the corner-iteration logic on top).
 
 **Test point**: at the all-zero corner of a `cat_n = 2` all-`:NonequalRT` mechanism, the body must produce `2 * (N_R * Q_R + L * N_T * Q_T) / (Q_R^2 + L * Q_T^2)` — standard MWC kcat at zero regulator. Existing test mechanisms (e.g., `mwc_dimer_*` references in `test/mechanism_definitions_for_test_enzyme_derivation.jl`) already exercise this corner; verify the migrated function produces identical numerical values.
 
@@ -1865,7 +1893,7 @@ Allosteric kcat test passes; `rescale_parameter_values` invariant holds.
 git add src/rate_eq_derivation.jl test/test_enzyme_derivation.jl
 git commit -m "Migrate _kcat_forward(::AllostericEnzymeMechanism) to new tag system
 
-Uses _kcat_from_poly shared helper (factored from the plain-mechanism
+Uses _kcat_from_components shared helper (factored from the plain-mechanism
 path) and the same POLY-level substitution machinery as the allosteric
 rate-equation derivation. Magic-index access (CS[2]/CS[5]/CS[7]) is gone;
 all access via accessors. Reduces ~150 lines to ~60."
@@ -1981,11 +2009,11 @@ Every `StepSpec(reactants, products, is_eq)` constructor call site (`grep -n 'St
 
 **(a) Same-metabolite catalytic-cycle homo-multimer grouping.** The existing `_max_equivalence_constraints` (`src/mechanism_enumeration.jl:1486-1523`) groups catalytic-cycle binding steps by `(metabolite, RE/SS)` and emits `K_2 = K_1, K_3 = K_1` style constraints. Migrate this function: replace the constraint-list emission with kinetic-group integer assignment. After migration, `_max_equivalence_constraints` returns a `Dict{Tuple{Symbol,Bool}, Int}` mapping each `(metabolite, is_eq)` class to its assigned group number; callers then construct `StepSpec(..., gnum)` using the dict.
 
-**(b) Dead-end mirror grouping.** The existing `_expand_substrate_product_dead_ends` (`src/mechanism_enumeration.jl:1107-1241`) generates dead-end binding/release/iso mirror steps. At each call site, the catalytic step being mirrored is in scope — pass its `kinetic_group` integer through and assign it to the mirror's `StepSpec`. **Do not attempt post-hoc dead-end identification from `(reactants, products, is_eq)` alone — that information is irrecoverable after generation.** Use the existing `_is_mirror_of` (`src/mechanism_enumeration.jl:1657`) only as a sanity check during dev, not as the assignment mechanism.
+**(b) Dead-end mirror grouping.** The existing `_expand_substrate_product_dead_ends` (`src/mechanism_enumeration.jl:1107-1241`) generates dead-end binding/release/iso mirror steps. At each call site, the catalytic step being mirrored is in scope — pass its `kinetic_group` integer through and assign it to the mirror's `StepSpec`. **Do not attempt post-hoc dead-end identification from `(reactants, products, is_eq)` alone — that information is irrecoverable after generation.**
+
+`_is_mirror_of` is no longer needed once the in-phase tagging is in place. Task 4.2 deletes it.
 
 Iso steps that don't fall under (a) (i.e., aren't part of a same-metabolite group) and dead-end steps with no catalytic mirror each get their own fresh `kinetic_group` — singleton groups are valid per §4.1.1.
-
-`_is_mirror_of` is preserved through this task and Task 4.2 to support unit tests; deletion happens in Task 6.1's audit pass once no production code calls it.
 
 - [ ] **Step 6: Update `param_count` formula**
 
@@ -2479,7 +2507,7 @@ Match the unified expansion-move structure.
 
 - [ ] **Step 5: Verify "Vmax Normalization" still accurate**
 
-Should reference the new `_kcat_from_poly` shared helper.
+Should reference the new `_kcat_from_components` shared helper.
 
 - [ ] **Step 6: Commit**
 
