@@ -92,6 +92,27 @@
         @test_throws ErrorException EnzymeRates.EnzymeMechanism(((:S,), (:P,), ()), bad_iso)
     end
 
+    @testset "AllostericEnzymeMechanism (new design)" begin
+        cm = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                [E, S] ⇌ [ES]
+                [ES] <--> [EP]
+                [EP] ⇌ [E, P]
+            end
+        end
+        cat_sites = (2, ((2, :OnlyR),))
+        reg_sites = ((((:I,), 2, ((:I, :OnlyT),)),),)
+        m = EnzymeRates.AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites[1]}()
+
+        @test EnzymeRates.catalytic_mechanism(m) === cm
+        @test EnzymeRates.catalytic_multiplicity(m) == 2
+        @test EnzymeRates.group_tag(m, 1) == :NonequalRT   # default
+        @test EnzymeRates.group_tag(m, 2) == :OnlyR
+        @test EnzymeRates.regulatory_sites(m) == reg_sites[1]
+    end
+
     @testset "EnzymeReaction" begin
         r = EnzymeReaction(
             ((:S, ((:C, 1),)),),

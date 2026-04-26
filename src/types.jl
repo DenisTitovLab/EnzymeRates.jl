@@ -256,19 +256,18 @@ _pretty_reaction(subs, prods) =
     "$(join(string.(subs), " + ")) → $(join(string.(prods), " + "))"
 
 """
-    AllostericEnzymeMechanism{Metabolites, CatalyticMech, CatSites, RegSites}
+    AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites}
 
-Singleton type for allosteric enzymes (MWC model, always 2 conformations).
+Singleton type encoding a multi-subunit MWC allosteric enzyme.
 
-- `Metabolites`: tuple of `Symbol` names from `metabolites:` block
-- `CatalyticMech`: `EnzymeMechanism` type for one catalytic subunit
-- `CatSites`: `(catalytic_metabolites, multiplicity, tr_equiv_mets,
-  tr_equiv_cat_steps, r_only_mets, t_only_mets, r_only_cat_steps)`
-- `RegSites`: tuple of `((ligand_syms...,), multiplicity, tr_equiv_ligands,
-  r_only_ligands, t_only_ligands)` quintuples
+- `CatalyticMech`: an `EnzymeMechanism` type (single-subunit catalytic mech).
+- `CatSites`: `(multiplicity::Int, group_tags::Tuple{Pair{Int,Symbol}...})`.
+  Non-default-only storage; absent groups have tag `:NonequalRT`.
+- `RegSites`: tuple of entries `((ligands, multiplicity, ligand_tags),)`.
+  One entry per reg site.
 """
 struct AllostericEnzymeMechanism{
-    Metabolites, CatalyticMech, CatSites, RegSites,
+    CatalyticMech, CatSites, RegSites,
 } <: AbstractEnzymeMechanism end
 
 # --- Rate equation mode types ---
@@ -452,63 +451,92 @@ metabolite_row_range(m::EnzymeMechanism) =
 
 # ─── AllostericEnzymeMechanism Accessors ────────────────────────
 
-"""Delegate structural accessors to the CatalyticMech singleton."""
-n_states(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    n_states(CM())
-n_steps(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    n_steps(CM())
-equilibrium_steps(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    equilibrium_steps(CM())
-substrates(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    substrates(CM())
-products(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    products(CM())
-@generated function regulators(
-    ::AllostericEnzymeMechanism{M,CM,CS,RS},
-) where {M,CM,CS,RS}
-    ligs = Symbol[]
-    for entry in RS
-        for lig in entry[1]
-            lig in ligs || push!(ligs, lig)
-        end
+catalytic_mechanism(::AllostericEnzymeMechanism{CM}) where {CM} = CM()
+catalytic_multiplicity(::AllostericEnzymeMechanism{CM, CS}) where {CM, CS} = CS[1]
+
+function group_tag(::AllostericEnzymeMechanism{CM, CS, RS}, g::Int) where {CM, CS, RS}
+    for (k, t) in CS[2]
+        k == g && return t
     end
-    Tuple(ligs)
+    :NonequalRT
 end
-param_constraints(::AllostericEnzymeMechanism) = ()
 
-"""
-    allosteric_regulators(m::AllostericEnzymeMechanism) → Tuple{Tuple{Symbol,Symbol},...}
+step_tag(m::AllostericEnzymeMechanism, idx::Int) =
+    group_tag(m, kinetic_group(catalytic_mechanism(m), idx))
 
-Return `(ligand, tag)` pairs derived from `RegSites` membership:
-ligand listed in `r_only_ligands` → `:OnlyR`,
-in `t_only_ligands` → `:OnlyT`,
-in `tr_equiv_ligands` → `:EqualRT`,
-absent from all three → `:NonequalRT`.
-"""
-@generated function allosteric_regulators(
-    ::AllostericEnzymeMechanism{M,CM,CS,RS},
-) where {M,CM,CS,RS}
-    pairs = Tuple{Symbol,Symbol}[]
+substrates(m::AllostericEnzymeMechanism)         = substrates(catalytic_mechanism(m))
+products(m::AllostericEnzymeMechanism)           = products(catalytic_mechanism(m))
+reactions(m::AllostericEnzymeMechanism)          = reactions(catalytic_mechanism(m))
+equilibrium_steps(m::AllostericEnzymeMechanism)  = equilibrium_steps(catalytic_mechanism(m))
+n_steps(m::AllostericEnzymeMechanism)            = n_steps(catalytic_mechanism(m))
+enzyme_forms(m::AllostericEnzymeMechanism)       = enzyme_forms(catalytic_mechanism(m))
+n_states(m::AllostericEnzymeMechanism)           = n_states(catalytic_mechanism(m))
+kinetic_group(m::AllostericEnzymeMechanism, i::Int) =
+    kinetic_group(catalytic_mechanism(m), i)
+kinetic_groups(m::AllostericEnzymeMechanism)     = kinetic_groups(catalytic_mechanism(m))
+steps_in_group(m::AllostericEnzymeMechanism, g)  =
+    steps_in_group(catalytic_mechanism(m), g)
+stoich_matrix(m::AllostericEnzymeMechanism)      = stoich_matrix(catalytic_mechanism(m))
+enzyme_row_range(m::AllostericEnzymeMechanism)   = enzyme_row_range(catalytic_mechanism(m))
+metabolite_row_range(m::AllostericEnzymeMechanism) =
+    metabolite_row_range(catalytic_mechanism(m))
+
+# Returns ONLY reg-site ligands, NOT a union with catalytic_mechanism's
+# regulators. Downstream rate-equation code reads `regulators(m)` to find
+# dead-end binding K's; including allosteric-only ligands would cause it
+# to look up nonexistent K names.
+regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    syms = Symbol[]
     seen = Set{Symbol}()
     for entry in RS
-        ligs, _, tr_equiv, r_only, t_only = entry
-        for lig in ligs
-            lig in seen && continue
-            push!(seen, lig)
-            tag = if lig in r_only
-                :OnlyR
-            elseif lig in t_only
-                :OnlyT
-            elseif lig in tr_equiv
-                :EqualRT
-            else
-                :NonequalRT
-            end
-            push!(pairs, (lig, tag))
+        for lig in entry[1]
+            lig in seen || (push!(seen, lig); push!(syms, lig))
         end
     end
-    Tuple(pairs)
+    Tuple(syms)
 end
 
-"""Return all metabolite names (catalytic + regulatory) from the Metabolites type param."""
-metabolites(::AllostericEnzymeMechanism{Mets,CM,CS,RS}) where {Mets,CM,CS,RS} = Mets
+metabolites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    cat_mets = metabolites(CM())
+    extra = Symbol[]
+    seen = Set{Symbol}(cat_mets)
+    for entry in RS
+        for lig in entry[1]
+            lig in seen || (push!(seen, lig); push!(extra, lig))
+        end
+    end
+    (cat_mets..., extra...)
+end
+
+allosteric_regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    result = Tuple{Symbol, Symbol}[]
+    for (ligands, _, lig_tags) in RS
+        tag_map = Dict(lig_tags)
+        for lig in ligands
+            push!(result, (lig, get(tag_map, lig, :NonequalRT)))
+        end
+    end
+    Tuple(result)
+end
+
+catalytic_inhibitors(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    rs_names = Set{Symbol}()
+    for (ligs, _, _) in RS
+        for l in ligs; push!(rs_names, l); end
+    end
+    cat_regs = regulators(CM())
+    Tuple(r for r in cat_regs if r ∉ rs_names)
+end
+
+regulatory_sites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = RS
+regulatory_site_ligands(m::AllostericEnzymeMechanism, i::Int)     =
+    regulatory_sites(m)[i][1]
+regulatory_site_multiplicity(m::AllostericEnzymeMechanism, i::Int) =
+    regulatory_sites(m)[i][2]
+
+function regulatory_ligand_tag(m::AllostericEnzymeMechanism, i::Int, lig::Symbol)
+    for (k, t) in regulatory_sites(m)[i][3]
+        k == lig && return t
+    end
+    :NonequalRT
+end
