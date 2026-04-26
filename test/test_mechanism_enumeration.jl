@@ -2,28 +2,19 @@
 # ABOUTME: Unit tests per move + integration tests per reaction
 
 using EnzymeRates: StepSpec, MechanismSpec, AllostericMechanismSpec,
-    ParamConstraint, AbstractMechanismSpec
+    AbstractMechanismSpec
 
 # Helper: convert EnzymeMechanism → MechanismSpec
 function mechanism_spec_from_mechanism(
     m::EnzymeMechanism,
     @nospecialize(rxn::EnzymeReaction))
     rxns = EnzymeRates.reactions(m)
-    eq_steps_tuple = EnzymeRates.equilibrium_steps(m)
-    pc = EnzymeRates.param_constraints(m)
     steps = StepSpec[]
-    for (i, (lhs, rhs)) in enumerate(rxns)
+    for (lhs, rhs, is_eq, gnum) in rxns
         push!(steps, StepSpec(
-            collect(lhs), collect(rhs),
-            eq_steps_tuple[i]))
+            collect(lhs), collect(rhs), is_eq, gnum))
     end
-    constraints = [
-        (t, c, [(s, sc) for (s, sc) in f])
-        for (t, c, f) in pc
-    ]
-    MechanismSpec(
-        rxn, steps, constraints,
-        length(parameters(m)))
+    MechanismSpec(rxn, steps, length(parameters(m)))
 end
 
 const uni_uni_rxn = @enzyme_reaction begin
@@ -156,27 +147,27 @@ end
         substrates: S[C]
         products: P[C]
     end
+    # Steps with kinetic_group: 1 = S binding (RE),
+    # 2 = P binding (RE), 3 = iso (SS).
     base_steps = [
-        StepSpec([:E, :S], [:E_S], true),
-        StepSpec([:E, :P], [:E_P], true),
-        StepSpec([:E_S], [:E_P], false),
+        StepSpec([:E, :S], [:E_S], true, 1),
+        StepSpec([:E, :P], [:E_P], true, 2),
+        StepSpec([:E_S], [:E_P], false, 3),
     ]
-    base_spec = MechanismSpec(
-        base_rxn, base_steps, ParamConstraint[], 3)
+    base_spec = MechanismSpec(base_rxn, base_steps, 3)
 
-    # S is TR-equivalent (K_T_S = K_R_S),
-    # P is R-only (absent from T-state)
+    # S binding (group 1) is `:EqualRT` (K_T_S = K_R_S),
+    # P binding (group 2) is `:OnlyR` (absent from T-state).
     allo_spec = AllostericMechanismSpec(
         base_spec, 2,
         Vector{Symbol}[], Int[],
-        [:S], Int[],
-        Symbol[], [:P], Int[],
+        Dict(1 => :EqualRT, 2 => :OnlyR),
+        Dict{Symbol, Symbol}(),
         base_spec.param_count + 1)
 
     m_compiled = AllostericEnzymeMechanism(allo_spec)
-    cat_sites = typeof(m_compiled).parameters[3]
-    @test :S in cat_sites[3]   # tr_equiv_mets
-    @test :P in cat_sites[6]   # t_only_mets
+    @test EnzymeRates.group_tag(m_compiled, 1) == :EqualRT
+    @test EnzymeRates.group_tag(m_compiled, 2) == :OnlyR
 end
 
 @testset "Catalytic topologies" begin
@@ -1971,16 +1962,16 @@ end
     @testset "Same mechanism, different step order" begin
         spec1 = MechanismSpec(
             uni_uni_rxn,
-            [StepSpec([:E, :S], [:E_S], true),
-             StepSpec([:E, :P], [:E_P], true),
-             StepSpec([:E_S], [:E_P], false)],
-            ParamConstraint[], 5)
+            [StepSpec([:E, :S], [:E_S], true, 1),
+             StepSpec([:E, :P], [:E_P], true, 2),
+             StepSpec([:E_S], [:E_P], false, 3)],
+            5)
         spec2 = MechanismSpec(
             uni_uni_rxn,
-            [StepSpec([:E, :P], [:E_P], true),
-             StepSpec([:E_S], [:E_P], false),
-             StepSpec([:E, :S], [:E_S], true)],
-            ParamConstraint[], 5)
+            [StepSpec([:E, :P], [:E_P], true, 2),
+             StepSpec([:E_S], [:E_P], false, 3),
+             StepSpec([:E, :S], [:E_S], true, 1)],
+            5)
         cache = Dict(5 => AbstractMechanismSpec[spec1, spec2])
         EnzymeRates.dedup!(cache)
         @test length(cache[5]) == 1
@@ -2007,26 +1998,17 @@ end
 
     @testset "Allosteric dedup: site order" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        allo = first(EnzymeRates._expand_to_allosteric(spec, uni_uni_allo))
+        base = first(specs)
         spec_ab = AllostericMechanismSpec(
-            allo.base, allo.catalytic_n,
+            base, 2,
             [[:A], [:B]], [2, 2],
-            copy(allo.tr_equiv_metabolites),
-            copy(allo.tr_equiv_cat_steps),
-            copy(allo.r_only_metabolites),
-            copy(allo.t_only_metabolites),
-            copy(allo.r_only_cat_steps),
-            allo.param_count + 2)
+            Dict{Int, Symbol}(), Dict{Symbol, Symbol}(),
+            base.param_count + 2)
         spec_ba = AllostericMechanismSpec(
-            allo.base, allo.catalytic_n,
+            base, 2,
             [[:B], [:A]], [2, 2],
-            copy(allo.tr_equiv_metabolites),
-            copy(allo.tr_equiv_cat_steps),
-            copy(allo.r_only_metabolites),
-            copy(allo.t_only_metabolites),
-            copy(allo.r_only_cat_steps),
-            allo.param_count + 2)
+            Dict{Int, Symbol}(), Dict{Symbol, Symbol}(),
+            base.param_count + 2)
         pc = spec_ab.param_count
         cache = Dict(pc => EnzymeRates.AbstractMechanismSpec[spec_ab, spec_ba])
         EnzymeRates.dedup!(cache)
