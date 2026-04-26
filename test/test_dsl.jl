@@ -1,4 +1,48 @@
 @testset "DSL" begin
+    @testset "@enzyme_mechanism (new grammar)" begin
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            regulators: I
+
+            steps: begin
+                ([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])
+                [ES, I] ⇌ [ESI]
+                [ES]   <--> [EP]
+                [EP]   ⇌    [E, P]
+            end
+        end
+        @test EnzymeRates.substrates(m) == (:S,)
+        @test EnzymeRates.products(m) == (:P,)
+        @test EnzymeRates.regulators(m) == (:I,)
+        @test EnzymeRates.kinetic_group(m, 1) == EnzymeRates.kinetic_group(m, 2)
+        @test EnzymeRates.kinetic_group(m, 3) != EnzymeRates.kinetic_group(m, 4)
+
+        # Reject atom bracket syntax in substrates:
+        @test_throws Exception eval(:(@enzyme_mechanism begin
+            substrates: S[C]
+            products:   P
+            steps: begin
+                [E, S] ⇌ [ES]
+                [ES] <--> [EP]
+                [EP] ⇌ [E, P]
+            end
+        end))
+
+        # Reject allosteric-only syntax (site(:catalytic, N))
+        @test_throws Exception eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E, S] ⇌ [ES]
+                    [ES] <--> [EP]
+                    [EP] ⇌ [E, P]
+                end
+            end
+        end))
+    end
+
     @testset "@enzyme_reaction" begin
         spec = @enzyme_reaction begin
             substrates: S[C]
