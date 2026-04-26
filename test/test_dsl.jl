@@ -43,6 +43,24 @@
         end))
     end
 
+    @testset "@allosteric_mechanism (smoke)" begin
+        m = @allosteric_mechanism begin
+            substrates: F6P
+            products:   F16BP
+            allosteric_regulators: I::OnlyT
+
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E, F6P] ⇌ [E_F6P]    :: EqualRT
+                    [E_F6P] <--> [E_F16BP] :: EqualRT
+                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                end
+            end
+        end
+        @test m isa EnzymeRates.AllostericEnzymeMechanism
+        @test EnzymeRates.allosteric_regulators(m) ⊇ ((:I, :OnlyT),)
+    end
+
     @testset "@enzyme_reaction" begin
         spec = @enzyme_reaction begin
             substrates: S[C]

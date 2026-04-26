@@ -392,3 +392,296 @@ function _parse_single_step(expr, gnum::Int)
     rhs = _parse_step_side_symbols(expr.args[3])
     Expr(:tuple, lhs, rhs, is_eq, gnum)
 end
+
+"""
+    @allosteric_mechanism begin
+        substrates: F6P
+        products:   F16BP
+        allosteric_regulators: I::OnlyT
+
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, F6P] ⇌ [E_F6P]    :: EqualRT
+                [E_F6P] <--> [E_F16BP] :: EqualRT
+                [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+            end
+        end
+
+        site(:regulatory, 2): begin
+            ligands: A, I
+        end
+    end
+
+Build an `AllostericEnzymeMechanism` (MWC, two conformations).
+- `substrates:`, `products:`, `catalytic_inhibitors:` accept comma-separated
+  bare symbols.
+- `allosteric_regulators:` requires `name::Tag` per entry, where Tag is one of
+  `OnlyR`, `OnlyT`, `EqualRT`, `NonequalRT`.
+- `site(:catalytic, N): begin steps: ... end` is required (exactly once); each
+  step or step-group must carry a `::Tag` from the same set.
+- `site(:regulatory, N): begin ligands: A, I end` blocks group competing
+  ligands into a single regulatory site (optional, multiple allowed). Ligands
+  not listed in any `site(:regulatory, ...):` block default to a per-ligand
+  site at multiplicity `N` (the catalytic multiplicity).
+"""
+macro allosteric_mechanism(block)
+    return esc(_parse_allosteric_mechanism_body(block))
+end
+
+const _ALLOSTERIC_REG_TAGS = Set([:OnlyR, :OnlyT, :EqualRT, :NonequalRT])
+
+"""
+Coerce labeled-line values to `(name, tag)` pairs. Each value must be
+`Expr(:(::), name, tag)`; bare symbols are rejected. Used for
+`allosteric_regulators:` and similar tagged lists.
+"""
+function _tagged_symbols_from_values(values, label, valid_tags)
+    pairs = Pair{Symbol,Symbol}[]
+    for v in values
+        v isa Expr && v.head == :(::) ||
+            error("@allosteric_mechanism `$label:` requires per-entry " *
+                  "::Tag annotations (e.g., I::OnlyT); got $v")
+        name, tag = v.args[1], v.args[2]
+        name isa Symbol ||
+            error("@allosteric_mechanism `$label:`: expected Symbol name " *
+                  "in `name::Tag`; got $name")
+        tag isa Symbol ||
+            error("@allosteric_mechanism `$label:`: tag must be a Symbol; " *
+                  "got $tag")
+        tag in valid_tags ||
+            error("@allosteric_mechanism `$label:`: tag $tag not in " *
+                  "$valid_tags")
+        push!(pairs, name => tag)
+    end
+    pairs
+end
+
+"""
+Extract the inner `steps:` block from a `site(:catalytic, N):` body.
+The body is `begin steps: <block> end`; reject any other label.
+"""
+function _extract_steps_block(value)
+    value isa Expr && value.head == :block ||
+        error("@allosteric_mechanism: site(:catalytic, ...) body must be " *
+              "a `begin ... end` block; got $value")
+    steps_block = nothing
+    for arg in value.args
+        arg isa LineNumberNode && continue
+        if arg isa Expr && arg.head == :call && arg.args[1] == :(:) &&
+           arg.args[2] == :steps
+            steps_block === nothing ||
+                error("@allosteric_mechanism: multiple `steps:` blocks " *
+                      "inside site(:catalytic, ...)")
+            steps_block = arg.args[3]
+        else
+            error("@allosteric_mechanism: site(:catalytic, ...) body " *
+                  "expects `steps:`; got $arg")
+        end
+    end
+    steps_block === nothing &&
+        error("@allosteric_mechanism: site(:catalytic, ...) requires " *
+              "a `steps:` block")
+    steps_block
+end
+
+"""
+Parse the body of a `site(:regulatory, N): begin ligands: A, B end` block.
+Returns the ligand symbol vector.
+"""
+function _parse_regulatory_site_inner(value)
+    value isa Expr && value.head == :block ||
+        error("@allosteric_mechanism: site(:regulatory, ...) body must be " *
+              "a `begin ... end` block; got $value")
+    ligands = Symbol[]
+    for arg in value.args
+        arg isa LineNumberNode && continue
+        label, values = _parse_labeled_line(arg)
+        label == :ligands ||
+            error("@allosteric_mechanism: site(:regulatory, ...) body " *
+                  "expects `ligands:`; got `$label`")
+        append!(ligands, _bare_symbols_from_values(values, label))
+    end
+    ligands
+end
+
+"""
+Build the `RegSites` tuple expression. Each entry is
+`(ligand_tuple, multiplicity, tr_equiv_ligands, r_only_ligands, t_only_ligands)`.
+Ligands not assigned to any explicit `site(:regulatory, ...):` block become
+their own single-ligand site at multiplicity `cat_n`.
+"""
+function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
+    tag_of = Dict{Symbol,Symbol}(allo_regs)
+    explicit = Set{Symbol}()
+    for (_, ligs) in reg_site_specs
+        for l in ligs
+            l in explicit && error("@allosteric_mechanism: ligand $l " *
+                                   "appears in multiple regulatory sites")
+            haskey(tag_of, l) ||
+                error("@allosteric_mechanism: ligand $l in " *
+                      "site(:regulatory, ...) is not declared in " *
+                      "`allosteric_regulators:`")
+            push!(explicit, l)
+        end
+    end
+
+    sites = Tuple{Any,Vector{Symbol}}[]
+    for (mult, ligs) in reg_site_specs
+        push!(sites, (mult, ligs))
+    end
+    for (name, _) in allo_regs
+        name in explicit && continue
+        push!(sites, (cat_n, [name]))
+    end
+
+    entries = Expr[]
+    for (mult, ligs) in sites
+        ligs_tuple = Expr(:tuple, QuoteNode.(ligs)...)
+        tr_equiv = [l for l in ligs if tag_of[l] == :EqualRT]
+        r_only = [l for l in ligs if tag_of[l] == :OnlyR]
+        t_only = [l for l in ligs if tag_of[l] == :OnlyT]
+        entry = Expr(:tuple,
+            ligs_tuple,
+            mult,
+            Expr(:tuple, QuoteNode.(tr_equiv)...),
+            Expr(:tuple, QuoteNode.(r_only)...),
+            Expr(:tuple, QuoteNode.(t_only)...),
+        )
+        push!(entries, entry)
+    end
+    Expr(:tuple, entries...)
+end
+
+"""
+Build the `CatSites` 7-tuple expression for the macro:
+`(cat_mets, multiplicity, tr_equiv_mets, tr_equiv_cat_steps,
+  r_only_mets, t_only_mets, r_only_cat_steps)`.
+
+For Task 2.5 the macro does not yet accept per-metabolite tags; all catalytic
+metabolites default to `EqualRT` (so `cat_mets == tr_equiv_mets`). Per-step
+tags from the catalytic `steps:` block are partitioned: `:EqualRT` →
+`tr_equiv_cat_steps`, `:OnlyR` → `r_only_cat_steps`, `:NonequalRT` → none.
+`:OnlyT` on catalytic steps is rejected (no `t_only_cat_steps` slot exists in
+the OLD type signature).
+"""
+function _build_cat_sites_expr(subs, prods, cat_inhibitors, cat_n, group_tags)
+    cat_mets = (subs..., prods..., cat_inhibitors...)
+    tr_equiv_steps = Int[]
+    r_only_steps = Int[]
+    for (gnum, tag) in group_tags
+        tag in _ALLOSTERIC_REG_TAGS ||
+            error("@allosteric_mechanism: catalytic step tag $tag not in " *
+                  "$_ALLOSTERIC_REG_TAGS")
+        if tag == :EqualRT
+            push!(tr_equiv_steps, gnum)
+        elseif tag == :OnlyR
+            push!(r_only_steps, gnum)
+        elseif tag == :OnlyT
+            error("@allosteric_mechanism: catalytic step tag :OnlyT is " *
+                  "not yet supported (V-type allostery comes in Phase 3)")
+        end
+    end
+    Expr(:tuple,
+        Expr(:tuple, QuoteNode.(cat_mets)...),
+        cat_n,
+        Expr(:tuple, QuoteNode.(cat_mets)...),
+        Expr(:tuple, tr_equiv_steps...),
+        Expr(:tuple),
+        Expr(:tuple),
+        Expr(:tuple, r_only_steps...),
+    )
+end
+
+"""
+Detect a `site(KIND, N): begin ... end` line. Returns `(kind::Symbol, n_expr,
+body)` or `nothing` if `arg` isn't a site line.
+"""
+function _match_site_line(arg)
+    arg isa Expr && arg.head == :call && arg.args[1] == :(:) || return nothing
+    label, value = arg.args[2], arg.args[3]
+    label isa Expr && label.head == :call && label.args[1] == :site ||
+        return nothing
+    site_kind = label.args[2]
+    site_kind isa QuoteNode ||
+        error("@allosteric_mechanism: site kind must be a Symbol literal; " *
+              "got $site_kind")
+    (site_kind.value, label.args[3], value)
+end
+
+function _parse_allosteric_mechanism_body(block)
+    subs_list, prods_list, cat_inhibitors = Symbol[], Symbol[], Symbol[]
+    allo_regs = Pair{Symbol,Symbol}[]
+    cat_n = nothing
+    cat_steps_block = nothing
+    reg_site_specs = Tuple{Any,Vector{Symbol}}[]
+
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        site = _match_site_line(arg)
+        if site !== nothing
+            kind, n_expr, body = site
+            if kind == :catalytic
+                cat_n === nothing ||
+                    error("@allosteric_mechanism: multiple " *
+                          "site(:catalytic, ...) blocks")
+                cat_n = n_expr
+                cat_steps_block = _extract_steps_block(body)
+            elseif kind == :regulatory
+                push!(reg_site_specs,
+                      (n_expr, _parse_regulatory_site_inner(body)))
+            else
+                error("@allosteric_mechanism: unknown site kind :$kind")
+            end
+            continue
+        end
+        label, values = _parse_labeled_line(arg)
+        if label == :substrates
+            append!(subs_list, _bare_symbols_from_values(values, label))
+        elseif label == :products
+            append!(prods_list, _bare_symbols_from_values(values, label))
+        elseif label == :catalytic_inhibitors
+            append!(cat_inhibitors,
+                    _bare_symbols_from_values(values, label))
+        elseif label == :allosteric_regulators
+            append!(allo_regs,
+                    _tagged_symbols_from_values(values, label,
+                                                _ALLOSTERIC_REG_TAGS))
+        else
+            error("@allosteric_mechanism: unknown label `$label:`")
+        end
+    end
+
+    isempty(subs_list) &&
+        error("@allosteric_mechanism: substrates: not specified")
+    isempty(prods_list) &&
+        error("@allosteric_mechanism: products: not specified")
+    cat_n === nothing &&
+        error("@allosteric_mechanism: site(:catalytic, N): is required")
+
+    rxns_expr, group_tags = _parse_steps_block_with_groups(
+        cat_steps_block; allow_tag=true,
+    )
+    n_groups = length(group_tags)
+    # Count distinct kinetic groups in rxns_expr
+    distinct = Set{Int}()
+    for step in rxns_expr.args
+        push!(distinct, step.args[4])
+    end
+    n_groups == length(distinct) ||
+        error("@allosteric_mechanism: every catalytic step or step-group " *
+              "must carry a ::Tag annotation")
+
+    cm_mets_expr = Expr(:tuple,
+        Expr(:tuple, QuoteNode.(subs_list)...),
+        Expr(:tuple, QuoteNode.(prods_list)...),
+        Expr(:tuple, QuoteNode.(cat_inhibitors)...),
+    )
+    cm_expr = :(EnzymeMechanism($cm_mets_expr, $rxns_expr))
+
+    cat_sites_expr = _build_cat_sites_expr(
+        subs_list, prods_list, cat_inhibitors, cat_n, group_tags,
+    )
+    reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
+
+    :(AllostericEnzymeMechanism($cm_expr, $cat_sites_expr, $reg_sites_expr))
+end

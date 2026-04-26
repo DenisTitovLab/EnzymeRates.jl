@@ -579,5 +579,39 @@ products(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
 end
 param_constraints(::AllostericEnzymeMechanism) = ()
 
+"""
+    allosteric_regulators(m::AllostericEnzymeMechanism) → Tuple{Tuple{Symbol,Symbol},...}
+
+Return `(ligand, tag)` pairs derived from `RegSites` membership:
+ligand listed in `r_only_ligands` → `:OnlyR`,
+in `t_only_ligands` → `:OnlyT`,
+in `tr_equiv_ligands` → `:EqualRT`,
+absent from all three → `:NonequalRT`.
+"""
+@generated function allosteric_regulators(
+    ::AllostericEnzymeMechanism{M,CM,CS,RS},
+) where {M,CM,CS,RS}
+    pairs = Tuple{Symbol,Symbol}[]
+    seen = Set{Symbol}()
+    for entry in RS
+        ligs, _, tr_equiv, r_only, t_only = entry
+        for lig in ligs
+            lig in seen && continue
+            push!(seen, lig)
+            tag = if lig in r_only
+                :OnlyR
+            elseif lig in t_only
+                :OnlyT
+            elseif lig in tr_equiv
+                :EqualRT
+            else
+                :NonequalRT
+            end
+            push!(pairs, (lig, tag))
+        end
+    end
+    Tuple(pairs)
+end
+
 """Return all metabolite names (catalytic + regulatory) from the Metabolites type param."""
 metabolites(::AllostericEnzymeMechanism{Mets,CM,CS,RS}) where {Mets,CM,CS,RS} = Mets

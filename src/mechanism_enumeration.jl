@@ -2250,6 +2250,32 @@ function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
 end
 
 """
+    AllostericEnzymeMechanism(cm, cat_sites, reg_sites)
+
+Build an `AllostericEnzymeMechanism` from a pre-built catalytic
+mechanism `cm`, a `CatSites` 7-tuple, and a `RegSites` tuple of
+5-tuples. The `Metabolites` type parameter is computed as the
+catalytic metabolites followed by any regulator-only ligands
+introduced through `reg_sites`.
+"""
+function AllostericEnzymeMechanism(
+    cm::EnzymeMechanism,
+    cat_sites::Tuple,
+    reg_sites::Tuple,
+)
+    cat_mets = metabolites(cm)
+    reg_syms = Symbol[]
+    for entry in reg_sites
+        for s in entry[1]
+            s in reg_syms || s in cat_mets || push!(reg_syms, s)
+        end
+    end
+    mets = (cat_mets..., reg_syms...)
+    AllostericEnzymeMechanism{
+        mets, typeof(cm), cat_sites, reg_sites}()
+end
+
+"""
     _rewrap_allosteric(original, new_base) → AllostericMechanismSpec
 
 Replace the base of an allosteric spec with a new base,
