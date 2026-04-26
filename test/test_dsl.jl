@@ -167,11 +167,8 @@
 
     @testset "@enzyme_mechanism" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products:   P[C]
-                enzymes:    E, ES[C]
-            end
+            substrates: S
+            products:   P
             steps: begin
                 [E, S] <--> [ES]
                 [ES] <--> [E, P]
@@ -180,7 +177,7 @@
         @test m isa EnzymeMechanism
         @test EnzymeRates.n_steps(m) == 2
         @test EnzymeRates.n_states(m) == 2
-        @test Set(e[1] for e in EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
+        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
         @test Set(metabolites(m)) == Set([:S, :P])
 
         # Numeric check: same as Uni-Uni spot check
@@ -191,11 +188,8 @@
 
         # Multi-step mechanism
         m2 = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C2N], B[C3]
-                products:   P[C2], Q[C3N]
-                enzymes:    E, EA[C2N], FP[C2N], F[N], FB[C3N], EQ[C3N]
-            end
+            substrates: A, B
+            products:   P, Q
             steps: begin
                 [E, A] <--> [EA]
                 [EA] <--> [FP]
@@ -210,11 +204,8 @@
 
     @testset "Elementary steps" begin
         @test_throws ErrorException @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products:   P[C]
-                enzymes:    E, ESP[C]
-            end
+            substrates: S
+            products:   P
             steps: begin
                 [E, S, P] <--> [ESP]
             end
@@ -228,28 +219,24 @@
         @test spec isa EnzymeReaction
 
         # Dead-end inhibitor: valid mechanism (competitive inhibition)
-        species = (
-            ( (:S, ((:C, 1),)), ),           # substrates
-            ( (:P, ((:C, 1),)), ),           # products
-            (:I,),                           # regulators
-            ( (:E, ()), (:ES, ((:C, 1),)), (:EI, ((:C, 1),)) ),  # enzymes
-        )
-        rxns = (
-            ((:E, :S), (:ES,)),
-            ((:ES,), (:E, :P)),
-            ((:E, :I), (:EI,)),
-        )
-        @test EnzymeMechanism(species, rxns, (false, false, false)) isa EnzymeMechanism
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            regulators: I
+            steps: begin
+                [E, S] <--> [ES]
+                [ES] <--> [E, P]
+                [E, I] <--> [EI]
+            end
+        end
+        @test m isa EnzymeMechanism
     end
 
     @testset "No-atom species" begin
-        # All metabolites without atoms — should skip conservation checks
+        # All metabolites without atoms
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S
-                products:   P
-                enzymes:    E, ES
-            end
+            substrates: S
+            products:   P
             steps: begin
                 [E, S] <--> [ES]
                 [ES] <--> [E, P]
@@ -259,119 +246,22 @@
         @test EnzymeRates.n_steps(m) == 2
     end
 
-    @testset "Mixed atoms error" begin
-        # Some metabolites with atoms, some without — should error
-        species = (
-            ( (:S, ((:C, 1),)), ),   # substrates — has atoms
-            ( (:P, ()), ),           # products — no atoms
-            (),                      # regulators
-            ( (:E, ()), (:ES, ((:C, 1),)) ),  # enzymes
-        )
-        rxns = (
-            ((:E, :S), (:ES,)),
-            ((:ES,), (:E, :P)),
-        )
-        @test_throws ErrorException EnzymeMechanism(species, rxns, (false, false))
-    end
-
     @testset "Constraint DSL parsing" begin
-        # Simple K constraint via DSL
+        # Bi-bi random with two K_A binding steps in shared kinetic group
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C]
-                products:   P[C]
-                enzymes:    E, EA[C], EP[C]
-            end
+            substrates: A, B
+            products:   P, Q
             steps: begin
-                [E, A] ⇌ [EA]
-                [EA] <--> [EP]
-                [EP] ⇌ [E, P]
-            end
-            constraints: begin
-                K3 = K1
+                ([E, A] ⇌ [EA], [EB, A] ⇌ [EAB])
+                [E, B] ⇌ [EB]
+                [EA, B] ⇌ [EAB]
+                [EAB] <--> [EPQ]
+                [EPQ] ⇌ [EQ, P]
+                [EQ] ⇌ [E, Q]
             end
         end
         @test m isa EnzymeMechanism
-        pc = EnzymeRates.param_constraints(m)
-        @test length(pc) == 1
-        @test pc[1][1] == :K3  # target
-        @test pc[1][2] == 1    # coeff
-        @test pc[1][3] == ((:K1, 1),)  # factors
-
-        # k constraint via DSL
-        m2 = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C]
-                products:   P[C]
-                enzymes:    E, EA[C], EP[C]
-            end
-            steps: begin
-                [E, A] <--> [EA]
-                [EA] <--> [EP]
-                [EP] <--> [E, P]
-            end
-            constraints: begin
-                k3r = k1r
-            end
-        end
-        pc2 = EnzymeRates.param_constraints(m2)
-        @test length(pc2) == 1
-        @test pc2[1][1] == :k3r
-
-        # Coefficient constraint
-        m3 = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C]
-                products:   P[C]
-                enzymes:    E, EA[C], EP[C]
-            end
-            steps: begin
-                [E, A] <--> [EA]
-                [EA] <--> [EP]
-                [EP] <--> [E, P]
-            end
-            constraints: begin
-                k3r = 2 * k1r
-            end
-        end
-        pc3 = EnzymeRates.param_constraints(m3)
-        @test pc3[1][2] == 2  # coeff = 2
-
-        # Division constraint
-        m4 = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C]
-                products:   P[C]
-                enzymes:    E, EA[C], EP[C]
-            end
-            steps: begin
-                [E, A] <--> [EA]
-                [EA] <--> [EP]
-                [EP] <--> [E, P]
-            end
-            constraints: begin
-                k3r = k1f * k2f / k2r
-            end
-        end
-        pc4 = EnzymeRates.param_constraints(m4)
-        @test pc4[1][1] == :k3r
-        @test Set(
-            (sym, exp) for (sym, exp) in pc4[1][3]
-        ) == Set([(:k1f, 1), (:k2f, 1), (:k2r, -1)])
-    end
-
-    @testset "No constraints backward compat" begin
-        m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products:   P[C]
-                enzymes:    E, ES[C]
-            end
-            steps: begin
-                [E, S] <--> [ES]
-                [ES] <--> [E, P]
-            end
-        end
-        @test EnzymeRates.param_constraints(m) == ()
+        @test EnzymeRates.kinetic_group(m, 1) == EnzymeRates.kinetic_group(m, 2)
+        @test EnzymeRates.kinetic_group(m, 3) != EnzymeRates.kinetic_group(m, 1)
     end
 end
