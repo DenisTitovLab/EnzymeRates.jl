@@ -414,9 +414,10 @@
             ((:k3r, 0, ((:k1r, 1),)),))
     end
 
-    # TODO: Phase 3 — original constraint k3r=k1r is cross-metabolite
-    # (binding A vs binding P), which the new step-group syntax cannot
-    # express. Restore once richer constraint expressions return.
+    # TODO: Phase 3 — testsets below use cross-metabolite constraints
+    # (`K2 = K1` between A-binding and B-binding, `k3r = k1r` between
+    # A-binding and P-binding kinetics) that the new step-group syntax
+    # cannot express. Restore once richer constraint expressions return.
     @static if false
     @testset "parameters() excludes constrained params" begin
         m = @enzyme_mechanism begin
@@ -639,5 +640,5 @@
         @test occursin("constraints:", s)
         @test occursin("k3r = k1r", s)
     end
-    end
+    end # @static if false (Phase 3: cross-metabolite constraints)
 end

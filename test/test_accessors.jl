@@ -64,7 +64,7 @@
         @test best_ns_per_call(EnzymeRates.n_steps, m) < 100e-9
     end
 
-    # TODO: Phase 3 — restore once Task 2.7 migrates the parameters() accessor.
+    # TODO Task 2.7: restore once parameters() accessor is migrated.
     @static if false
         @testset "parameters: zero-alloc and <100ns" begin
             @test (@allocated parameters(m)) == 0
