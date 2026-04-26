@@ -20,6 +20,20 @@
         @test EnzymeRates.kinetic_group(m, 3) == 3
         @test EnzymeRates.kinetic_groups(m) == (1, 2, 3)
         @test EnzymeRates.steps_in_group(m, 1) == (1,)
+        @test EnzymeRates.enzyme_forms(m) == (:E, :ES, :EP)
+        @test EnzymeRates.n_states(m) == 3
+
+        # Shared kinetic-group: two steps in group 1
+        rxns_shared = (
+            ((:E, :S),  (:ES,),  true,  1),
+            ((:ES, :S), (:ESS,), true,  1),
+            ((:ESS,),   (:EP,),  false, 2),
+            ((:EP,),    (:E, :P), true, 3),
+        )
+        m2 = EnzymeRates.EnzymeMechanism{mets, rxns_shared}()
+        @test EnzymeRates.kinetic_group(m2, 1) == 1
+        @test EnzymeRates.kinetic_group(m2, 2) == 1
+        @test EnzymeRates.steps_in_group(m2, 1) == (1, 2)
     end
 
     @testset "EnzymeReaction" begin
