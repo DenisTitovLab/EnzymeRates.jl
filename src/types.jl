@@ -1,5 +1,3 @@
-using Graphs
-
 """Sort species tuples alphabetically by name (first element)."""
 _sort_species(t::Tuple) = Tuple(sort(collect(t); by=s -> s[1]))
 
@@ -500,25 +498,6 @@ equilibrium_steps(::EnzymeMechanism{Sp, Rx, Eq}) where {Sp, Rx, Eq} = Eq
 
 """Return the parameter constraints tuple."""
 param_constraints(::EnzymeMechanism{Sp, Rx, Eq, PC}) where {Sp, Rx, Eq, PC} = PC
-
-"""
-Build a directed graph of enzyme-form connectivity.
-Returns (graph, enzyme_forms_tuple).
-"""
-@generated function graph(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
-    enzs = Species[4]
-    enz_names = Tuple(e[1] for e in enzs)
-    name_to_idx = Dict(n => i for (i, n) in enumerate(enz_names))
-    enz_set = Set(enz_names)
-    g = SimpleDiGraph(length(enzs))
-    for (lhs, rhs) in Reactions
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        add_edge!(g, name_to_idx[e_lhs], name_to_idx[e_rhs])
-        add_edge!(g, name_to_idx[e_rhs], name_to_idx[e_lhs])
-    end
-    return g, enzs
-end
 
 """
 Stoichiometry matrix: rows = metabolites, columns = steps.
