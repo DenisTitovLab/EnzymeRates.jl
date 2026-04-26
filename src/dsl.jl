@@ -315,8 +315,10 @@ function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
         arg isa LineNumberNode && continue
 
         # Parenthesized-group-with-tag (allosteric)
-        if arg isa Expr && arg.head == :(::) && arg.args[1] isa Expr && arg.args[1].head == :tuple
-            allow_tag || error("@enzyme_mechanism: tag annotation `$arg` is not allowed")
+        if arg isa Expr && arg.head == :(::) &&
+           arg.args[1] isa Expr && arg.args[1].head == :tuple
+            allow_tag ||
+                error("@enzyme_mechanism: tag annotation `$arg` is not allowed")
             next_group[] += 1
             gnum = next_group[]
             tag = arg.args[2]
@@ -336,9 +338,12 @@ function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
         elseif arg isa Expr && arg.head == :call
             next_group[] += 1
             gnum = next_group[]
+            original = string(arg)
             tag = _peel_step_tag!(arg)
             if tag !== nothing
-                allow_tag || error("@enzyme_mechanism: tag annotation on `$arg` is not allowed")
+                allow_tag ||
+                    error("@enzyme_mechanism: tag annotation on `$original` " *
+                          "is not allowed")
                 push!(tags, gnum => tag)
             end
             push!(rxns.args, _parse_single_step(arg, gnum))
