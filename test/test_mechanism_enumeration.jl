@@ -186,11 +186,8 @@ end
         @test length(topos) == 1
 
         m_uu = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] ⇌ [E_P]
                 [E, S] ⇌ [E_S]
@@ -488,11 +485,8 @@ end
             # E_P has all prods. No mixed dead-end possible.
             # → 0 dead-end forms, 1 variant (bare topology)
             m = @enzyme_mechanism begin
-                species: begin
-                    substrates: S[C]
-                    products: P[C]
-                    enzymes: E, E_P[C], E_S[C]
-                end
+                substrates: S
+                products: P
                 steps: begin
                     [E, P] ⇌ [E_P]
                     [E, S] ⇌ [E_S]
@@ -516,12 +510,8 @@ end
             #   E_Q: +A→E_A_Q(same), +B→E_B_Q(same)
             # 4 unique dead-end forms → 2^4 = 16 variants
             m = @enzyme_mechanism begin
-                species: begin
-                    substrates: A[C], B[N]
-                    products: P[C], Q[N]
-                    enzymes: E, E_A[C], E_A_B[CN],
-                        E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-                end
+                substrates: A, B
+                products: P, Q
                 steps: begin
                     [E, A] ⇌ [E_A]
                     [E_B, A] ⇌ [E_A_B]
@@ -550,11 +540,8 @@ end
             # E_Q+S→E_S_Q: has all subs → rejected
             # → 0 dead-end forms, 1 variant
             m = @enzyme_mechanism begin
-                species: begin
-                    substrates: S[AB]
-                    products: P[A], Q[B]
-                    enzymes: E, E_P_Q[AB], E_Q[B], E_S[AB]
-                end
+                substrates: S
+                products: P, Q
                 steps: begin
                     [E, Q] ⇌ [E_Q]
                     [E_Q, P] ⇌ [E_P_Q]
@@ -576,12 +563,8 @@ end
             # E_Q: +B→E_B_Q(mixed✓)
             # 3 dead-end forms → 2^3 = 8 variants
             m = @enzyme_mechanism begin
-                species: begin
-                    substrates: A[CX], B[N]
-                    products: P[C], Q[NX]
-                    enzymes: E, E_A[CX], E_Q[NX],
-                        Estar[X], Estar_A_P[CX], Estar_B[NX]
-                end
+                substrates: A, B
+                products: P, Q
                 steps: begin
                     [E, A] ⇌ [E_A]
                     [Estar, B] ⇌ [Estar_B]
@@ -664,12 +647,8 @@ end
 
         # Shared bi-bi random mechanism for multiple tests
         m_bb = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
@@ -865,11 +844,8 @@ end
 @testset "RE→SS conversion" begin
     @testset "Multiple RE steps" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] ⇌ [E_P]
                 [E, S] ⇌ [E_S]
@@ -887,11 +863,8 @@ end
 
     @testset "All SS → yields nothing" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] <--> [E_P]
                 [E, S] <--> [E_S]
@@ -910,11 +883,8 @@ end
         # creating 2 RE binding steps with K constrained equal.
         # These constrained RE steps should be skipped.
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] <--> [E_P]
                 [E, S] <--> [E_S]
@@ -961,12 +931,8 @@ end
         # After removing one constraint: 6 constrained + 2 free.
         # The 2 freed RE steps are eligible for RE→SS.
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
@@ -1003,12 +969,8 @@ end
         # K_A constrained across 2 forms, K_B same,
         # K_P same, K_Q same = 4 constraint groups.
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
@@ -1041,11 +1003,8 @@ end
 
     @testset "No constraints → yields nothing" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] ⇌ [E_P]
                 [E, S] ⇌ [E_S]
@@ -1065,12 +1024,8 @@ end
         # rebuild constraints. This produces kf/kr pairs
         # that must be removed together.
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
@@ -1169,11 +1124,8 @@ end
 @testset "Forms with binding step" begin
     # Uni-uni: S binds to E, P binds to E
     m_uu = @enzyme_mechanism begin
-        species: begin
-            substrates: S[C]
-            products: P[C]
-            enzymes: E, E_P[C], E_S[C]
-        end
+        substrates: S
+        products: P
         steps: begin
             [E, P] ⇌ [E_P]
             [E, S] ⇌ [E_S]
@@ -1189,12 +1141,8 @@ end
 
     # Bi-bi random: B binds to E and E_A
     m_bb = @enzyme_mechanism begin
-        species: begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            enzymes: E, E_A[C], E_A_B[CN],
-                E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-        end
+        substrates: A, B
+        products: P, Q
         steps: begin
             [E, A] ⇌ [E_A]
             [E_B, A] ⇌ [E_A_B]
@@ -1232,11 +1180,8 @@ end
 
     @testset "Uni-uni + new regulator" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] ⇌ [E_P]
                 [E, S] ⇌ [E_S]
@@ -1260,11 +1205,8 @@ end
 
     @testset "No regulators → yields nothing" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] ⇌ [E_P]
                 [E, S] ⇌ [E_S]
@@ -1281,11 +1223,8 @@ end
 
     @testset "All results compile" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] ⇌ [E_P]
                 [E, S] ⇌ [E_S]
@@ -1304,11 +1243,8 @@ end
 
     @testset "exclude_regs works" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] ⇌ [E_P]
                 [E, S] ⇌ [E_S]
@@ -1325,12 +1261,8 @@ end
 
     @testset "Mirror steps created" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
@@ -1366,12 +1298,8 @@ end
 
     @testset "Equivalence constraints on binding K's" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
@@ -1413,11 +1341,8 @@ end
 
     @testset "Two regulators: both bound" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] ⇌ [E_P]
                 [E, S] ⇌ [E_S]
@@ -1452,12 +1377,8 @@ end
 
     @testset "Bi-bi: exact dead-end regulator count" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
@@ -1488,11 +1409,8 @@ end
 
     @testset "Dead-end reg on allosteric spec" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products: P[C]
-                enzymes: E, E_P[C], E_S[C]
-            end
+            substrates: S
+            products: P
             steps: begin
                 [E, P] ⇌ [E_P]
                 [E, S] ⇌ [E_S]
@@ -1538,13 +1456,8 @@ end
 
     @testset "Ping-pong: exact dead-end count" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[CX], B[N]
-                products: P[C], Q[NX]
-                enzymes: E, E_A[CX], E_Q[NX],
-                    Estar[X], Estar_A_P[CX],
-                    Estar_B[NX]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [Estar, B] ⇌ [Estar_B]
@@ -1572,12 +1485,8 @@ end
 
     @testset "Topology-aware: sequential bi-bi" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_A, B] ⇌ [E_A_B]
@@ -1612,13 +1521,8 @@ end
 
     @testset "Bi-bi random: 9 inhibitor variants" begin
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN],
-                    E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
@@ -1648,12 +1552,8 @@ end
         # creating mirror steps. When adding I2, compete
         # vs not-compete with I1 produces different forms.
         m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
@@ -1722,11 +1622,8 @@ end
 
 @testset "Regulator dummy naming stability" begin
     m = @enzyme_mechanism begin
-        species: begin
-            substrates: S[C]
-            products: P[C]
-            enzymes: E, E_P[C], E_S[C]
-        end
+        substrates: S
+        products: P
         steps: begin
             [E, P] ⇌ [E_P]
             [E, S] ⇌ [E_S]
@@ -2418,11 +2315,8 @@ end
 
 @testset "Base-level moves on allosteric specs" begin
     m_uu = @enzyme_mechanism begin
-        species: begin
-            substrates: S[C]
-            products: P[C]
-            enzymes: E, E_P[C], E_S[C]
-        end
+        substrates: S
+        products: P
         steps: begin
             [E, P] ⇌ [E_P]
             [E, S] ⇌ [E_S]
@@ -2451,12 +2345,8 @@ end
 
     @testset "Remove constraint on allosteric" begin
         m_bb = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products: P[C], Q[N]
-                enzymes: E, E_A[C], E_A_B[CN],
-                    E_B[N], E_P[C], E_P_Q[CN], E_Q[N]
-            end
+            substrates: A, B
+            products: P, Q
             steps: begin
                 [E, A] ⇌ [E_A]
                 [E_B, A] ⇌ [E_A_B]
