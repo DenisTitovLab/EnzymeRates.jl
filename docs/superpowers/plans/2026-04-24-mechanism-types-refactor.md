@@ -1483,8 +1483,7 @@ Add accessors:
 catalytic_mechanism(::AllostericEnzymeMechanism{CM}) where {CM} = CM()
 catalytic_multiplicity(::AllostericEnzymeMechanism{CM, CS}) where {CM, CS} = CS[1]
 
-function group_tag(m::AllostericEnzymeMechanism, g::Int)
-    CS = typeof(m).parameters[2]
+function group_tag(::AllostericEnzymeMechanism{CM, CS, RS}, g::Int) where {CM, CS, RS}
     for (k, t) in CS[2]
         k == g && return t
     end
@@ -1916,52 +1915,87 @@ end
 end
 ```
 
-- [ ] **Step 5: Handle T-state Haldane dependent expressions that reference `:OnlyR` symbols**
+- [ ] **Step 5: Handle Haldane dependent expressions that reference state-absent symbols (BOTH directions)**
 
-Critical edge case (caught by reviewer round 2): if R-state Haldane closure produces `dep_exprs[Symbol("k$(j)r")] = :(k$(j)f * k$(i)r * K3 / (K1 * Keq * k$(i)f))` and step `i`'s kinetic group is tagged `:OnlyR`, then mapping this expression into T-state via `_nonequalRT_rename` would put `k$(i)f_T = 0` in the denominator → division by zero.
+Critical edge case (caught by reviewer rounds 2 and 3): the existing `_allosteric_dep_assignments` (`src/rate_eq_derivation.jl:1373-1380` and `1407-1414`) handles **both directions** of the symbol-reference check:
 
-The current code's `_allosteric_dep_assignments` (in `_expr_references_any` checks at `rate_eq_derivation.jl:1373-1380` and `1407-1414`) handles this by setting the T-state version of any dep-expr that references `:OnlyR` symbols to `0`. The new design must replicate this.
+- **R-state assignments**: if a dep-expr references any `:OnlyT`-tagged (= old `t_only`) symbol, set the R-state assignment to 0.
+- **T-state assignments**: if a dep-expr references any `:OnlyR`-tagged (= old `r_only`) symbol, set the T-state assignment to 0.
 
-Add to the rate-body derivation:
+Both must be replicated. Build a single helper parametrized by direction:
 
 ```julia
 """
-For each R-state dependent-parameter expression `dep_R[sym] = expr`, produce its
-T-state counterpart. Three cases:
-  1. `expr` references any `:OnlyR` symbol → T-state value is identically 0
-     (the dependent parameter is in a cycle that is broken in T-state).
-  2. Otherwise, apply `_nonequalRT_rename` to substitute `:NonequalRT` symbols
-     to T-suffixed counterparts.
+Build the dep-param assignments preamble for one conformation.
+- `dep_R::Dict{Symbol, Union{Symbol, Expr}}`: the raw R-state dependent-param map
+  produced by the kinetic-group-aware Haldane derivation on the catalytic mech.
+- `state` is `:R` or `:T`.
+- `absent_syms` is the symbol set whose presence in a dep-expr forces that
+  dep-expr's assignment to 0:
+    - For R: `_onlyT_syms(m)` — symbols that are absent from R-state.
+    - For T: `_onlyR_syms(m)` — symbols absent from T-state.
+- `rename_map` is the symbol substitution applied to dep-exprs after the
+  zero-out check:
+    - For R: empty (R-state uses raw symbol names).
+    - For T: `_nonequalRT_rename(m)` (rename :NonequalRT-tagged R-syms to T-syms).
+- For `:R`, the assignment target stays as `sym`. For `:T`, the assignment
+  target is `get(rename_map, sym, sym)` — `:NonequalRT` syms get T-suffixed
+  targets, `:EqualRT` syms keep their R-state target name (so the T-state
+  dep_T[K_T] is just `K` from R-state).
+
+Returns `Vector{Expr}` of `:(target = value_or_zero)` assignments.
 """
-function _build_T_state_dep_exprs(dep_R::Dict{Symbol, Expr},
-                                  m::AllostericEnzymeMechanism)
-    onlyR = _onlyR_syms(m)
-    rename = _nonequalRT_rename(m)
-    dep_T = Dict{Symbol, Any}()
-    for (sym, expr) in dep_R
-        # Determine the T-state target symbol (rename if the dependent itself
-        # is :NonequalRT; otherwise it stays — :EqualRT means same name in T,
-        # :OnlyR means the parameter is zero in T anyway, :OnlyT can't reach
-        # this branch because :OnlyT means R-state lacks this symbol).
-        target_T = get(rename, sym, sym)
-        if _expr_references_any(expr, onlyR)
-            dep_T[target_T] = 0
+function _build_dep_assignments_one(dep_R::Dict{Symbol, Union{Symbol, Expr}},
+                                    state::Symbol,
+                                    absent_syms::Set{Symbol},
+                                    rename_map::Dict{Symbol, Symbol})
+    assignments = Expr[]
+    for sym in sort!(collect(keys(dep_R)))
+        expr = dep_R[sym]
+        target = state == :R ? sym : get(rename_map, sym, sym)
+        if _expr_references_any(expr, absent_syms)
+            push!(assignments, Expr(:(=), target, 0))
         else
-            dep_T[target_T] = _substitute_symbols(expr, rename)
+            value = state == :R ? expr : substitute_params_expr(expr, rename_map)
+            push!(assignments, Expr(:(=), target, value))
         end
     end
-    dep_T
+    assignments
 end
 
-"""Recursively check if `expr` references any symbol in `syms`."""
+"""
+Top-level helper used by rate-equation generation, kcat, and rate_equation_string.
+Returns `(r_assignments::Vector{Expr}, t_assignments::Vector{Expr})`.
+"""
+function _build_dep_assignments(m::AllostericEnzymeMechanism)
+    cm = catalytic_mechanism(m)
+    dep_R, _ = _dependent_param_exprs(typeof(cm))   # kinetic-group-aware
+    onlyT = _onlyT_syms(m)
+    onlyR = _onlyR_syms(m)
+    rename_T = _nonequalRT_rename(m)
+    r_ass = _build_dep_assignments_one(dep_R, :R, onlyT, Dict{Symbol, Symbol}())
+    t_ass = _build_dep_assignments_one(dep_R, :T, onlyR, rename_T)
+    # Plus EqualRT pass-through assignments and reg-site Equal/Nonequal ligand
+    # assignments — see _build_reg_assignments below.
+    extra_t = _build_reg_dep_assignments(m)
+    (r_ass, vcat(t_ass, extra_t))
+end
+
+"""
+Walks `expr` recursively, returning true if any symbol in `syms` appears anywhere.
+Walks all `Expr.args` regardless of head (matches the existing
+`_expr_references_any` in `src/sym_poly_for_rate_eq_derivation.jl:285-292`).
+"""
 _expr_references_any(s::Symbol, syms) = s in syms
 _expr_references_any(x, _) = false
 function _expr_references_any(e::Expr, syms)
-    e.head == :call && any(_expr_references_any(a, syms) for a in e.args[2:end])
+    any(_expr_references_any(a, syms) for a in e.args)
 end
 ```
 
-The `rate_equation` body calls `_build_T_state_dep_exprs` to produce the T-state dep-expr block, which is emitted as preamble assignments alongside the R-state ones. Symbols that are zeroed in T-state propagate naturally through the polynomial substitution because `_zero_symbols_in_poly` already removes their monomial contributions.
+Reg-site equivalence assignments (e.g., for `:EqualRT` ligand `K_lig_T_reg_i = K_lig_reg_i` and for `:NonequalRT` ligand independent T symbol) are produced by `_build_reg_dep_assignments(m)` — small helper iterating `regulatory_sites(m)` and emitting one assignment per ligand based on its tag. Existing code at `src/rate_eq_derivation.jl:1395-1403` shows the structure (`tr_equiv` → `K_T = K_R`); migrate one-for-one.
+
+The `rate_equation` body emits both `r_assignments` and `t_assignments` as preamble assignment blocks, alongside reg-site dep assignments. Symbols zeroed in either conformation propagate naturally through the polynomial substitution because `_zero_symbols_in_poly` already removes their monomial contributions at POLY level.
 
 - [ ] **Step 6: Update `rate_equation_string` and `structural_identifiability_deficit` to use the same path**
 
@@ -2038,11 +2072,21 @@ In `src/rate_eq_derivation.jl`, find the existing `_kcat_forward(m::EnzymeMechan
     _kcat_from_poly(num_poly, den_poly, params) → Float64
 
 Compute kcat (forward) analytically from the polynomial structure:
-group monomials by metabolite pattern, identify the saturation-limit
-contribution, return the bounded kcat ratio.
+1. Use `_kcat_components(M)` (existing in `rate_eq_derivation.jl:~858`) to
+   extract candidate `(num_k, den_k)` pairs by grouping monomials by
+   metabolite pattern. For mechanisms with non-essential activators or
+   multiple catalytic paths, this returns multiple components.
+2. For each component, evaluate `num_k / den_k` at the given `params`.
+3. Return `max` over components — the saturating kcat is the fastest path.
+
+This factors out the existing logic from the plain-mechanism
+`_kcat_forward` body. The plain-mechanism `_kcat_forward(m, params)` then
+becomes a one-liner: `_kcat_from_poly(_raw_rate_polys(typeof(m))..., params)`.
 """
 function _kcat_from_poly(num_poly::POLY, den_poly::POLY, params::NamedTuple)
-    ... # extracted body
+    components = _kcat_components((num_poly, den_poly))
+    isempty(components) && return 0.0
+    maximum(_eval_poly_ratio(num_k, den_k, params) for (num_k, den_k) in components)
 end
 ```
 
@@ -2068,118 +2112,135 @@ end
 
 - [ ] **Step 4: Implement new `_kcat_forward(::AllostericEnzymeMechanism)`**
 
-**Background**: at saturating substrate concentrations, kcat is the maximum forward turnover. For an allosteric enzyme, kcat depends on the populations of R and T states, which in turn depend on regulator binding. At each "regulator corner" (each regulator either at zero or saturating concentration), the populations differ, and the effective kcat differs. The function returns the **maximum kcat over all corners** (= the corner that yields the fastest turnover under saturating substrate).
+**Approach**: keep the existing `_kcat_forward(::AllostericEnzymeMechanism)` body structure intact (`src/rate_eq_derivation.jl:868-1023`) — it correctly assembles polynomial-derived `(A_R, B_R), (A_T, B_T)` expressions, walks `2^n_lig` corners, builds saturating reg-site factors `W_R, W_T`, and emits per-corner kcat Exprs. The migration is purely:
 
-For each corner:
-- Compute `reg_Q_R_eff` and `reg_Q_T_eff` by evaluating each regulator's contribution at the corner-specified concentration (0 or ∞).
-- Compute `L_eff = L * (reg_Q_T_eff / reg_Q_R_eff)^multiplicity` per reg site (combined across sites).
-- The effective kcat at this corner is the saturation-weighted mix of `kcat_R` and `kcat_T` according to `L_eff`.
+1. **Replace magic-index access** (`CS[2]`, `CS[5]`, `CS[7]`, `_rs_r_only(entry)`, `_rs_t_only(entry)`) with accessor calls (`catalytic_multiplicity(m)`, `group_tag(m, g)`, `regulatory_ligand_tag(m, i, lig)`).
+2. **Translate the old tag vocabulary** to the new one when classifying which terms appear in `sat_terms_R` / `sat_terms_T` per corner:
+   - Old `r_only` ligand at site i → new `regulatory_ligand_tag(m, i, lig) == :OnlyR`.
+   - Old `t_only` ligand → `:OnlyT`.
+   - Old `tr_equiv` ligand → `:EqualRT`.
+   - Old "default" (none of the above) → `:NonequalRT`.
+3. **Build `(A_R, B_R), (A_T, B_T)`** from the new dual POLY-level substitution (Task 3.3): R-state polynomials = raw-poly with `:OnlyT` syms zeroed; T-state = raw-poly with `:OnlyR` syms zeroed and `:NonequalRT` syms renamed to T-suffixed. Factor each into the per-conformation A and B Expr forms used by the existing kcat assembly.
+4. **The dep-param assignments preamble** (`r_assignments`, `t_assignments`) is built via `_build_R_state_dep_exprs` and `_build_T_state_dep_exprs` (see Task 3.3 step 5; Task 3.4 reuses them).
 
-Concrete recipe with all four tag flavors:
+Pseudocode mirroring the existing body:
 
 ```julia
-function _kcat_forward(m::AllostericEnzymeMechanism, params)
-    cm = catalytic_mechanism(m)
-    raw_num, raw_den = _raw_rate_polys(typeof(cm))
+@generated function _kcat_forward(m::AllostericEnzymeMechanism, params::NamedTuple)
+    cm_type = m.parameters[1]   # safe — we're inside @generated, type info only
+    cm_inst = cm_type()
+    cat_n = catalytic_multiplicity(m())
+    sites = regulatory_sites(m())
 
-    onlyT = _onlyT_syms(m)
-    onlyR = _onlyR_syms(m)
-    rename_T = _nonequalRT_rename(m)
+    # Build R/T polynomials via tag-driven substitution at POLY level
+    raw_num, raw_den = _raw_rate_polys(cm_type)
+    onlyT = _onlyT_syms(m())
+    onlyR = _onlyR_syms(m())
+    rename_T = _nonequalRT_rename(m())
 
     num_R = _zero_symbols_in_poly(raw_num, onlyT)
     den_R = _zero_symbols_in_poly(raw_den, onlyT)
     num_T = _rename_symbols(_zero_symbols_in_poly(raw_num, onlyR), rename_T)
     den_T = _rename_symbols(_zero_symbols_in_poly(raw_den, onlyR), rename_T)
 
-    kcat_R = _kcat_from_poly(num_R, den_R, params)
-    kcat_T = _kcat_from_poly(num_T, den_T, params)
+    # A_c = num_c * (den_c)^(cat_n - 1); B_c = (den_c)^cat_n   (as Exprs, after _poly_to_expr)
+    binding_Ks = Set(_binding_K_symbols(cm_type))
+    cat_params = ...; cat_mets = ...   # via accessors on cm_inst
+    N_R = _poly_to_expr(num_R, cat_params, cat_mets, binding_Ks)
+    Q_R = _poly_to_expr(den_R, cat_params, cat_mets, binding_Ks)
+    N_T = _poly_to_expr(num_T, cat_params, cat_mets, binding_Ks)
+    Q_T = _poly_to_expr(den_T, cat_params, cat_mets, binding_Ks)
+    A_R = :( $N_R * $(_power_expr(Q_R, cat_n - 1)) )
+    A_T = :( $N_T * $(_power_expr(Q_T, cat_n - 1)) )
+    B_R = _power_expr(Q_R, cat_n)
+    B_T = _power_expr(Q_T, cat_n)
 
-    # If T-state is structurally inert (no productive flux), kcat_T = 0.
-    # Same for R (rare). Quick exit when one conformation is dead.
-    sites = regulatory_sites(m)
-    cat_n = catalytic_multiplicity(m)
-    L = params.L
-
-    # Enumerate corners over all (site, ligand) pairs.
-    # For ligand l with tag t, "saturating" means concentration → ∞ at this corner.
-    # Per tag:
-    #   :OnlyR    → contributes 1/K_R to reg_Q_R_eff at saturation; absent in T.
-    #   :OnlyT    → absent in R; contributes 1/K_T to reg_Q_T_eff at saturation.
-    #   :EqualRT  → contributes 1/K (same in both states) at saturation.
-    #   :NonequalRT → contributes 1/K_R in R; 1/K_T_reg in T.
-    # For "non-saturating" (= 0 conc), the ligand contributes 0 to either Q_eff.
-    # The reg_Q_R_eff is `1 + Σ contributions` over each site, raised to mult.
-    sat_pairs = Tuple{Int, Symbol}[]
-    for (i, ligs) in enumerate(regulatory_site_ligands(m, i) for i in 1:length(sites))
-        for l in ligs; push!(sat_pairs, (i, l)); end
-    end
-    n_lig = length(sat_pairs)
-
-    best = max(kcat_R, kcat_T)   # corner where all regulators = 0
-    for mask in 1:(2^n_lig - 1)
-        sat = Set{Tuple{Int, Symbol}}()
-        for j in 0:(n_lig - 1)
-            ((mask >> j) & 1) == 1 && push!(sat, sat_pairs[j+1])
+    # Enumerate every (site_idx, ligand) pair across all reg sites.
+    all_ligs = Tuple{Int, Symbol}[]
+    for (i, entry) in enumerate(sites)
+        for lig in entry[1]
+            push!(all_ligs, (i, lig))
         end
+    end
+    n_ligs = length(all_ligs)
+    lig_to_bit = Dict(p => k - 1 for (k, p) in enumerate(all_ligs))
 
-        # Per-site Q_R_eff, Q_T_eff at this corner.
-        Q_R_eff = ones(Float64, length(sites))
-        Q_T_eff = ones(Float64, length(sites))
-        for (i, entry) in enumerate(sites)
-            ligs, mult, _ = entry
-            qR, qT = 1.0, 1.0
-            for l in ligs
-                ((i, l) in sat) || continue
-                tag = regulatory_ligand_tag(m, i, l)
-                if tag == :OnlyR
-                    qR += inv_K(params, l, i, :R)
-                elseif tag == :OnlyT
-                    qT += inv_K(params, l, i, :T)
-                elseif tag == :EqualRT
-                    qR += inv_K(params, l, i, :R)
-                    qT += inv_K(params, l, i, :R)   # same K
-                else  # :NonequalRT
-                    qR += inv_K(params, l, i, :R)
-                    qT += inv_K(params, l, i, :T)
+    corner_exprs = Any[]
+    for mask in 0:(2^n_ligs - 1)
+        W_R_factors = Any[]
+        W_T_factors = Any[]
+        for (site_idx, entry) in enumerate(sites)
+            ligs = entry[1]
+            n_reg = entry[2]
+            sat_terms_R = Any[]
+            sat_terms_T = Any[]
+            for lig in ligs
+                bit = lig_to_bit[(site_idx, lig)]
+                ((mask >> bit) & 1) == 1 || continue
+                tag = regulatory_ligand_tag(m(), site_idx, lig)
+                # R-state contribution: present unless tag is :OnlyT
+                if tag != :OnlyT
+                    K_R = Symbol("K_$(lig)_reg$(site_idx)")
+                    push!(sat_terms_R, :(inv($K_R)))
+                end
+                # T-state contribution: present unless tag is :OnlyR
+                if tag != :OnlyR
+                    K_T = if tag == :EqualRT
+                        Symbol("K_$(lig)_reg$(site_idx)")    # share R-state symbol
+                    else  # :OnlyT or :NonequalRT
+                        Symbol("K_$(lig)_T_reg$(site_idx)")
+                    end
+                    push!(sat_terms_T, :(inv($K_T)))
                 end
             end
-            Q_R_eff[i] = qR
-            Q_T_eff[i] = qT
+            if !isempty(sat_terms_R)
+                q_R = length(sat_terms_R) == 1 ? sat_terms_R[1] : _nest_binary(:+, sat_terms_R)
+                push!(W_R_factors, _power_expr(q_R, n_reg))
+            end
+            if !isempty(sat_terms_T)
+                q_T = length(sat_terms_T) == 1 ? sat_terms_T[1] : _nest_binary(:+, sat_terms_T)
+                push!(W_T_factors, _power_expr(q_T, n_reg))
+            end
         end
-
-        # L_eff: ratio of T to R partition functions, raised to multiplicity per site.
-        L_eff = L
-        for (i, entry) in enumerate(sites)
-            mult = entry[2]
-            L_eff *= (Q_T_eff[i] / Q_R_eff[i])^mult
+        # Build kcat Expr at this corner using the same shape as the existing code.
+        if isempty(W_R_factors) && isempty(W_T_factors)
+            # All regulators non-saturating (mask = 0 has no contributions)
+            kcat_expr = :( $cat_n * ($A_R + L * $A_T) / ($B_R + L * $B_T) )
+        else
+            W_R = isempty(W_R_factors) ? 1 :
+                  (length(W_R_factors) == 1 ? W_R_factors[1] : _nest_binary(:*, W_R_factors))
+            W_T = isempty(W_T_factors) ? 1 :
+                  (length(W_T_factors) == 1 ? W_T_factors[1] : _nest_binary(:*, W_T_factors))
+            kcat_expr = :( $cat_n * ($A_R * $W_R + L * $A_T * $W_T) /
+                                   ($B_R * $W_R + L * $B_T * $W_T) )
         end
-
-        # Saturation-weighted kcat: at saturating substrate, the R/T population
-        # ratio is 1 : L_eff. Fastest turnover is dominated by the conformation
-        # with greater population × kcat.
-        # Effective kcat = (kcat_R + L_eff * kcat_T) / (1 + L_eff).
-        kcat_corner = (kcat_R + L_eff * kcat_T) / (1.0 + L_eff)
-        kcat_corner > best && (best = kcat_corner)
+        push!(corner_exprs, kcat_expr)
     end
-    best
-end
 
-"""
-Return `1 / K_<lig>_<reg{site_idx}>` (R-state) or `1 / K_<lig>_T_reg{site_idx}`
-(T-state, only used for :NonequalRT and :OnlyT). For :EqualRT in T-state we
-look up the R-state symbol — same K.
-"""
-function inv_K(params, lig, site_idx, conf)
-    sym = if conf == :T
-        Symbol("K_$(lig)_T_reg$(site_idx)")
-    else
-        Symbol("K_$(lig)_reg$(site_idx)")
-    end
-    1.0 / getproperty(params, sym)
+    # Take max across all corners.
+    result = length(corner_exprs) == 1 ? corner_exprs[1] :
+             Expr(:call, :max, corner_exprs...)
+
+    # Preamble: dep-param assignments for both R-state and T-state.
+    r_assignments, t_assignments = _build_dep_assignments(m())
+    _, indep = _dependent_param_exprs(typeof(m()))
+    hw_params = (indep..., :Keq, :E_total, :L)
+    Expr(:block,
+        _destructuring_expr(hw_params, :params),
+        r_assignments...,
+        t_assignments...,
+        :(return $result))
 end
 ```
 
-This recipe matches the existing `_kcat_forward(::AllostericEnzymeMechanism)` semantics from the old code (max over `2^n_lig` corners), translated to the new tag vocabulary. Verification: at the all-zero corner, the expression collapses to `(kcat_R + L * kcat_T) / (1 + L)` — matches the standard MWC kcat formula at zero regulator. At each non-zero corner, regulator binding shifts L_eff, possibly increasing or decreasing the apparent kcat depending on which state is stabilized.
+This recipe is structurally identical to the existing `_kcat_forward(::AllostericEnzymeMechanism)` (`src/rate_eq_derivation.jl:868-1023`). The only changes vs. existing code: magic-index access replaced with accessors; old `r_only`/`t_only`/`tr_equiv` flags replaced with `regulatory_ligand_tag` lookups; R/T polynomial assembly via the new POLY-substitution path instead of `_allosteric_dep_assignments`.
+
+**Key correctness invariants** (from existing code, preserved):
+- `cat_n *` factor multiplies every per-corner kcat expression. NOT dropped.
+- mask=0 corner is **explicitly evaluated** (not just initialized as `max(kcat_R, kcat_T)`).
+- Per-conformation `A` and `B` use `den_c^(cat_n - 1)` and `den_c^cat_n` — polynomial structure carried through, NOT collapsed into scalar `kcat_R, kcat_T`.
+
+**Test point** for verification: at the all-zero corner (`mask = 0`) of a `cat_n = 2` mechanism with all groups `:NonequalRT`, the recipe should produce `2 * (N_R * Q_R + L * N_T * Q_T) / (Q_R^2 + L * Q_T^2)` — the standard MWC kcat at zero regulator. The plan's earlier (incorrect) `(kcat_R + L * kcat_T) / (1 + L)` recipe would NOT match this.
 
 - [ ] **Step 5: Run tests**
 
@@ -2201,93 +2262,17 @@ all access via accessors. Reduces ~150 lines to ~60."
 
 ## Phase 4: Mechanism Enumeration Simplification
 
-### Task 4.0: Rewrite `init_mechanisms` to assign kinetic groups and update `param_count` formula
+### Task 4.1: Update `MechanismSpec` / `AllostericMechanismSpec` AND rewrite `init_mechanisms`
 
-Before migrating `MechanismSpec` (Task 4.1), the `init_mechanisms` enumerator must be rewritten to assign `kinetic_group::Int` to each step it generates. This is the explicit implementation that backs the spec's "mirror+catalytic kinetic-group sharing" invariant (decision J / Task 4.3 verifies it after this task does the work).
+**Why one combined task**: the new `StepSpec(reactants, products, is_eq, kinetic_group)` 4-arg constructor must be defined *before* `init_mechanisms` can call it. Defining the type in one task and calling it from another breaks bisectability — every commit must keep tests green (or be marked RED-OK explicitly). Combining into one task lets us define the struct, rewrite `init_mechanisms` to populate the new field, and commit once.
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl`
+- Modify: `test/test_mechanism_enumeration.jl`
 
-- [ ] **Step 1: Identify every `StepSpec(...)` constructor call site in `init_mechanisms` and the topology builder**
+#### Sub-task 4.1.A: Update `StepSpec`, `MechanismSpec`, `AllostericMechanismSpec` structs
 
-```bash
-grep -n "StepSpec(" src/mechanism_enumeration.jl
-```
-
-Each call site needs a `kinetic_group` integer assigned. The strategy:
-- **Catalytic-cycle steps**: assign sequential integers in source-walk order. Each catalytic step is its own group initially (no sharing among distinct enzyme transitions).
-- **Dead-end mirror steps**: assigned the SAME `kinetic_group` as the catalytic step they mirror. The mirror relationship is determined by the existing `_is_mirror_of` logic (which we still use during construction here, even though it's deleted afterward — see Task 4.2).
-- **Symmetric repeated bindings**: e.g., in a homotetramer, the 4 substrate-binding steps `[E, S]⇌[E_S]`, `[E_S, S]⇌[E_SS]`, etc. are placed in ONE shared kinetic group reflecting symmetric binding. (`init_mechanisms` already emitted `K_n = K_1` constraints for these; the new code emits `kinetic_group = 1` for all of them instead.)
-
-- [ ] **Step 2: Update `param_count` formula in `init_mechanisms`**
-
-Currently (`src/mechanism_enumeration.jl:~844`):
-```julia
-pc = n_re + 2 * n_ss - n_thermo + 2     # +2 for Keq + E_total
-```
-This counts every step's parameters independently. With kinetic-group sharing, count groups instead:
-```julia
-n_re_groups = count(g for g in unique_groups if all_re_in(g))
-n_ss_groups = count(g for g in unique_groups if all_ss_in(g))
-pc = n_re_groups + 2 * n_ss_groups - n_thermo + 2
-```
-
-- [ ] **Step 3: Helper to assign mirror group sharing**
-
-```julia
-"""
-After generating the catalytic-cycle StepSpecs, walk the dead-end mirror steps
-and assign each one the kinetic_group of the catalytic step it mirrors. Uses
-`_is_mirror_of` from the current code; this helper is deleted in Task 4.2 once
-its only consumer is gone.
-"""
-function _assign_mirror_kinetic_groups!(steps::Vector{StepSpec})
-    n = length(steps)
-    for j in 1:n
-        steps[j].is_equilibrium || continue
-        # If this is a dead-end binding step, find its catalytic mirror.
-        for i in 1:n
-            i == j && continue
-            steps[i].is_equilibrium || continue
-            mf, mt = step_forms(steps[j])
-            cf, ct = step_forms(steps[i])
-            if _is_mirror_of(mf, mt, cf, ct, steps)
-                # Mutate j's kinetic_group to match i's
-                steps[j] = StepSpec(steps[j].reactants, steps[j].products,
-                                    steps[j].is_equilibrium,
-                                    steps[i].kinetic_group)
-                break
-            end
-        end
-    end
-end
-```
-
-- [ ] **Step 4: Run enumeration tests, record new counts**
-
-Counts will likely shift from the existing baselines (bi-bi=11, ter-ter=283, pyruvate carboxylase=312, pyruvate dehydrogenase=334) because:
-- Symmetric homomer-style bindings now sit in one group (count differently).
-- RE→SS conversion is atomic per group (one move, not one per step).
-
-Record the new counts as the post-refactor baseline. Pause and confirm with Denis if a count divergence looks suspicious.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/mechanism_enumeration.jl test/test_mechanism_enumeration.jl
-git commit -m "Rewrite init_mechanisms to assign kinetic_group integers
-
-Catalytic-cycle steps get sequential group numbers; dead-end mirror
-steps inherit the kinetic_group of their catalytic mirror via
-_is_mirror_of (deleted in Task 4.2). param_count formula updated to
-count groups, not steps. Symmetric homomer bindings collapse into
-single shared groups.
-
-Records new enumeration count baselines; old K-type/V-type-specific
-counts may shift."
-```
-
-### Task 4.1: Update `MechanismSpec` / `AllostericMechanismSpec`
+(These steps are the same as the previous Task 4.1 steps 1–3 — reproduced here for completeness.)
 
 **Files:**
 - Modify: `src/mechanism_enumeration.jl`
@@ -2377,25 +2362,153 @@ function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
 end
 ```
 
-- [ ] **Step 5: Migrate `init_mechanisms` and existing call sites**
+- [ ] **Step 5: Rewrite `init_mechanisms` and `_expand_substrate_product_dead_ends` to assign `kinetic_group`**
 
-Every `StepSpec(reactants, products, is_eq)` becomes `StepSpec(reactants, products, is_eq, gnum)`. `init_mechanisms` should put mirror dead-end steps in the same kinetic group as their catalytic counterpart (replaces the old `K_mirror = K_catalytic` constraint encoding).
+Every `StepSpec(reactants, products, is_eq)` constructor call site (`grep -n 'StepSpec(' src/mechanism_enumeration.jl` returns ~20 hits) becomes `StepSpec(reactants, products, is_eq, gnum)`. Two distinct grouping mechanisms must be implemented:
 
-- [ ] **Step 6: Run tests**
+**(a) Same-metabolite homo-multimer grouping** — mirrors the existing `_max_equivalence_constraints` (`src/mechanism_enumeration.jl:1486-1523`). Steps that bind the same metabolite at different enzyme forms in the catalytic cycle (e.g., `[E,S]⇌[E_S], [E_S,S]⇌[E_SS], [E_SS,S]⇌[E_SSS]`) are placed in ONE shared kinetic group. The existing function already groups by `(metabolite, RE/SS)` and emits constraints `K_2 = K_1, K_3 = K_1`; the new code emits `kinetic_group = 1` for all members of that group instead. **Drop-in replacement: do the same `(metabolite, RE/SS)` grouping pass, but assign integer group numbers instead of building a `ParamConstraint` list.**
+
+**(b) Dead-end mirror grouping** — for each dead-end binding step `[E_X, M] ⇌ [E_X_M]`, find its catalytic mirror via `_is_mirror_of` (existing helper at `src/mechanism_enumeration.jl:1657`) and assign the mirror step the catalytic step's `kinetic_group`. The existing `_expand_substrate_product_dead_ends` handles this implicitly through K-equality constraints; the new code emits `kinetic_group` directly.
+
+Concrete pseudocode covering BOTH grouping mechanisms:
+
+```julia
+"""
+After all steps (catalytic + dead-end mirrors) have been generated by the
+topology builder, assign final kinetic_group integers in two passes:
+  1. Same-metabolite catalytic-cycle grouping: steps binding the same metabolite
+     at different enzyme forms share a kinetic_group (homo-multimer pattern).
+  2. Dead-end mirror grouping: each dead-end mirror step inherits the
+     kinetic_group of its catalytic mirror.
+
+Mutates `steps` in place.
+"""
+function _assign_final_kinetic_groups!(steps::Vector{StepSpec})
+    # Pass 1: collect catalytic-cycle steps (those NOT in dead-end branches)
+    # and group by (metabolite, is_equilibrium). The metabolite for a binding
+    # step is its sole metabolite reactant; iso steps have none and form
+    # singletons.
+    cat_groups = Dict{Tuple{Symbol, Bool}, Vector{Int}}()
+    iso_steps = Int[]
+    dead_end_steps = Int[]
+    for (i, s) in enumerate(steps)
+        if _is_dead_end_step(s, steps)
+            push!(dead_end_steps, i)
+            continue
+        end
+        met = step_metabolite(s)
+        if met === nothing
+            push!(iso_steps, i)
+        else
+            key = (met, s.is_equilibrium)
+            push!(get!(cat_groups, key, Int[]), i)
+        end
+    end
+
+    next_group = 1
+    # Assign one group number per (metabolite, RE/SS) class for catalytic-cycle steps
+    for (key, idxs) in cat_groups
+        for i in idxs
+            steps[i] = StepSpec(steps[i].reactants, steps[i].products,
+                                steps[i].is_equilibrium, next_group)
+        end
+        next_group += 1
+    end
+    # Each iso step gets its own group (singletons by §4.1.1)
+    for i in iso_steps
+        steps[i] = StepSpec(steps[i].reactants, steps[i].products,
+                            steps[i].is_equilibrium, next_group)
+        next_group += 1
+    end
+
+    # Pass 2: dead-end mirror groups. Each dead-end binding step inherits the
+    # kinetic_group of its catalytic mirror; if no mirror found, gets a fresh group.
+    for j in dead_end_steps
+        s_j = steps[j]
+        mirror_group = _find_mirror_kinetic_group(s_j, steps)
+        gnum = mirror_group === nothing ? (next_group += 1; next_group - 1) : mirror_group
+        steps[j] = StepSpec(s_j.reactants, s_j.products, s_j.is_equilibrium, gnum)
+    end
+end
+
+"""
+Determine whether step `s` is a dead-end binding step (binds a metabolite at a
+form that already participates in the catalytic cycle, but the resulting form
+doesn't continue the cycle). Heuristic: a step is dead-end iff its product form
+appears nowhere else in `steps` except as the same step's reverse direction.
+
+(In the existing code, dead-end steps are added as a post-pass by
+`_expand_substrate_product_dead_ends`; we can preserve that distinction by
+tagging steps at generation time.)
+"""
+_is_dead_end_step(s, steps) = ...   # see existing _expand_substrate_product_dead_ends
+
+"""
+Find the catalytic mirror of dead-end step `s` and return its kinetic_group.
+Uses the existing `_is_mirror_of(mf, mt, cf, ct, steps)` to identify mirrors.
+Returns `nothing` if no mirror found.
+"""
+function _find_mirror_kinetic_group(s::StepSpec, steps::Vector{StepSpec})
+    mf, mt = step_forms(s)
+    for (i, c) in enumerate(steps)
+        c.is_equilibrium == s.is_equilibrium || continue
+        cf, ct = step_forms(c)
+        _is_mirror_of(mf, mt, cf, ct, steps) && return c.kinetic_group
+    end
+    nothing
+end
+```
+
+Note: `_is_mirror_of` is preserved during this task; deletion happens in Task 4.2 once it's no longer needed elsewhere.
+
+- [ ] **Step 6: Update `param_count` formula**
+
+Currently (`src/mechanism_enumeration.jl:~844`):
+```julia
+pc = n_re + 2 * n_ss - n_thermo + 2     # +2 for Keq + E_total
+```
+With kinetic-group sharing, count groups instead of steps:
+```julia
+groups_re = Set(s.kinetic_group for s in steps if s.is_equilibrium)
+groups_ss = Set(s.kinetic_group for s in steps if !s.is_equilibrium)
+pc = length(groups_re) + 2 * length(groups_ss) - n_thermo + 2
+```
+
+- [ ] **Step 7: Run enumeration tests, record new counts**
+
+Existing baselines: bi-bi=11, ter-ter=283, pyruvate carboxylase=312, pyruvate dehydrogenase=334.
+
+Counts will likely shift because:
+- Symmetric homomer-style bindings now sit in one group (count differently for K-type / V-type enumeration paths).
+- RE→SS conversion is atomic per group (one move per group, not one per step).
+
+Pre-compute the expected new bi-bi count by hand to bound the regression test before merging. (Manual derivation: bi-bi has 4 RE binding steps + 1 SS iso = currently produces 11 mechanisms via 2^n_dead_end × topology branching. Under kinetic-group encoding with `(metabolite, RE/SS)` grouping, the substrate's 2 binding steps share one group, the product's 2 binding steps share another, the iso step is alone — so 3 catalytic-cycle groups instead of 5 separate constraint sets. Expected count: TBD by manual derivation; reviewer should verify.)
+
+Pause and confirm with Denis if a count divergence looks suspicious.
+
+- [ ] **Step 8: Run tests**
 
 Some enumeration tests may still fail due to expansion-move changes (Task 4.2). Mark RED.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/mechanism_enumeration.jl test/test_mechanism_enumeration.jl
-git commit -m "Update MechanismSpec / AllostericMechanismSpec for new types
+git commit -m "Update spec types and rewrite init_mechanisms with kinetic groups
 
 StepSpec gains kinetic_group::Int. MechanismSpec drops ParamConstraint
 vector. AllostericMechanismSpec drops 5 TR/r-only fields, gains
-group_tags and reg_ligand_tags Dicts. Constructors EnzymeMechanism(spec)
-and AllostericEnzymeMechanism(spec) updated. init_mechanisms puts
-catalytic + dead-end mirror steps in the same kinetic group.
+group_tags and reg_ligand_tags Dicts.
+
+init_mechanisms / _expand_substrate_product_dead_ends rewritten to
+assign kinetic_group via two passes: (a) same-metabolite + RE/SS
+homo-multimer grouping in the catalytic cycle (replaces
+_max_equivalence_constraints), (b) dead-end mirror group inheritance
+via _is_mirror_of.
+
+param_count formula counts kinetic groups, not steps. New enumeration
+count baselines recorded; some shifts vs old K-type/V-type-specific
+counts are expected.
 
 KNOWN RED: expansion moves not yet updated."
 ```
@@ -2436,7 +2549,17 @@ _param_count(s::AbstractMechanismSpec) = s.param_count
 
 _with_steps(spec::MechanismSpec, new_steps, new_pc) =
     MechanismSpec(spec.reaction, new_steps, new_pc)
-_with_steps(spec::AllostericMechanismSpec, new_steps, new_pc) = ...
+
+_with_steps(spec::AllostericMechanismSpec, new_steps, new_pc) =
+    AllostericMechanismSpec(
+        MechanismSpec(spec.base.reaction, new_steps, new_pc),
+        spec.catalytic_n,
+        deepcopy(spec.allosteric_reg_sites),
+        copy(spec.allosteric_multiplicities),
+        copy(spec.group_tags),
+        copy(spec.reg_ligand_tags),
+        new_pc,
+    )
 ```
 
 - [ ] **Step 2: Unify other expansion moves**
