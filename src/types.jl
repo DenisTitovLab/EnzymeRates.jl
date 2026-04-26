@@ -12,18 +12,6 @@ Singleton type encoding an enzyme reaction specification in type parameters.
 """
 struct EnzymeReaction{Substrates, Products, Regulators, OligomericState} end
 
-"""Regulator role in mechanism enumeration."""
-abstract type RegulatorRole end
-
-"""Allosteric regulator: participates in MWC allosteric regulation."""
-struct Allosteric <: RegulatorRole end
-
-"""Dead-end inhibitor: creates dead-end complexes only."""
-struct DeadEnd <: RegulatorRole end
-
-"""Unconstrained: try all roles (allosteric + dead-end)."""
-struct UnconstrainedRegulator <: RegulatorRole end
-
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_state::Int=1)
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
