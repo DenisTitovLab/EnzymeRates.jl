@@ -16,15 +16,9 @@ function parameters end
 
 parameters(m::_AnyMechanism) = parameters(m, Reduced)
 
-# Disabled — used the old 4-parameter EnzymeMechanism dispatch
-# (Species, Reactions, EqSteps, PC). Task 2.7 supplies the replacement.
-# @generated function parameters(
-#     ::EnzymeMechanism{Species, Reactions, EqSteps, PC},
-#     ::FullMode,
-# ) where {Species, Reactions, EqSteps, PC}
-#     constrained = Set(c[1] for c in PC)
-#     Tuple(p for p in (_raw_param_symbols(EqSteps)..., :E_total) if p ∉ constrained)
-# end
+@generated function parameters(::M, ::FullMode) where {M <: EnzymeMechanism}
+    Tuple((_raw_param_symbols(M())..., :E_total))
+end
 
 @generated function parameters(::M, ::ReducedMode) where {M <: _AnyMechanism}
     _, indep = _dependent_param_exprs(M)
@@ -35,6 +29,41 @@ end
 @generated function fitted_params(::M) where {M <: _AnyMechanism}
     _, indep = _dependent_param_exprs(M)
     indep
+end
+
+# ─── Kinetic-group representatives ──────────────────────────
+
+"""
+Return per-group representative step indices: a `Dict{Int, Int}` mapping each
+kinetic group id `g` to `first(steps_in_group(m, g))`.
+"""
+function _kinetic_group_reps(m::EnzymeMechanism)
+    Dict{Int, Int}(g => first(steps_in_group(m, g)) for g in kinetic_groups(m))
+end
+
+"""
+Build a renaming map from non-representative step parameter symbols to the
+representative step's parameter symbols. Used to alias `K2` → `K1` (etc.) when
+steps 1 and 2 share a kinetic group.
+"""
+function _build_kinetic_rename_map(m::EnzymeMechanism)
+    rename = Dict{Symbol, Symbol}()
+    eq = equilibrium_steps(m)
+    for g in kinetic_groups(m)
+        idxs = steps_in_group(m, g)
+        length(idxs) == 1 && continue
+        rep = first(idxs)
+        for idx in idxs
+            idx == rep && continue
+            if eq[idx]
+                rename[Symbol("K$idx")] = Symbol("K$rep")
+            else
+                rename[Symbol("k$(idx)f")] = Symbol("k$(rep)f")
+                rename[Symbol("k$(idx)r")] = Symbol("k$(rep)r")
+            end
+        end
+    end
+    rename
 end
 
 # ─── RE Group Helpers ───────────────────────────────────────
@@ -129,14 +158,16 @@ end
 # ─── Algebraic Regulator Factoring ─────────────────────────────
 
 """
-Try algebraic polynomial factoring on a constrained sigma.
+Try algebraic polynomial factoring on a sigma.
 Tries each metabolite present in sigma: splits terms by metabolite presence,
 divides the metabolite-containing terms by K*met, and checks whether
 the result cleanly divides sigma into `base * (... + K*met)`.
+`rename_map` aliases non-representative kinetic-group K symbols to their
+representative — used to find the canonical binding K for each metabolite.
 Returns a `FactoredSigma` or `nothing`.
 """
 function _try_algebraic_factor_sigma(
-    sigma::POLY, rxns, eq_steps, enz_set, constraints;
+    sigma::POLY, rxns, eq_steps, enz_set, rename_map;
     binding_Ks::Set{Symbol}=Set{Symbol}(),
 )
     # Classify symbols present in sigma
@@ -152,29 +183,19 @@ function _try_algebraic_factor_sigma(
            s != :Keq && s != :E_total
     ]; by=string)
 
-    # 1:1 constraint resolution map for finding canonical K symbols
-    resolve = Dict{Symbol, Symbol}(
-        target => factors[1][1]
-        for (target, coeff, factors) in constraints
-        if coeff == 1 && length(factors) == 1 && factors[1][2] == 1
-    )
-
     # Try each metabolite, pick best factoring by score
     best = nothing
     best_score = (length(sigma), 0, 0)
     for met in met_syms
         # Find canonical binding K for this metabolite
         K_R = nothing
-        for (idx, (lhs, rhs_rxn)) in enumerate(rxns)
+        for (idx, (lhs, rhs_rxn, _, _)) in enumerate(rxns)
             eq_steps[idx] || continue
             _, m_lhs = _split_reaction_side(lhs, enz_set)
             _, m_rhs = _split_reaction_side(rhs_rxn, enz_set)
             ((met ∈ m_lhs) ⊻ (met ∈ m_rhs)) || continue
             K_R = Symbol("K$idx")
-            seen = Set{Symbol}()
-            while haskey(resolve, K_R) && K_R ∉ seen
-                push!(seen, K_R); K_R = resolve[K_R]
-            end
+            K_R = get(rename_map, K_R, K_R)
             break
         end
         K_R === nothing && continue
@@ -229,7 +250,7 @@ function _try_algebraic_factor_sigma(
             if absorbed
                 # Recurse on base_R for multi-site factoring
                 inner = _try_algebraic_factor_sigma(
-                    base_R, rxns, eq_steps, enz_set, constraints;
+                    base_R, rxns, eq_steps, enz_set, rename_map;
                     binding_Ks,
                 )
                 factors, exps = if inner !== nothing &&
@@ -347,14 +368,14 @@ When `check_benefit` is true, algebraic factoring is only used if it reduces
 the display term count compared to the unfactored polynomial.
 """
 function _factor_poly(
-    p::POLY, rxns, eq_steps, enz_set, constraints;
+    p::POLY, rxns, eq_steps, enz_set, rename_map;
     binding_Ks::Set{Symbol}=Set{Symbol}(),
     check_benefit::Bool=false,
 )
     result = _try_poly_power(p)
     result !== nothing && return result
     afs = _try_algebraic_factor_sigma(
-        p, rxns, eq_steps, enz_set, constraints; binding_Ks,
+        p, rxns, eq_steps, enz_set, rename_map; binding_Ks,
     )
     if afs !== nothing && _expand_factored_sigma(afs) == p
         if !check_benefit
@@ -370,10 +391,12 @@ function _factor_poly(
     FactoredSigma([poly_one()], [FactoredPoly([p], [1])])
 end
 
-"""Build raw numerator POLY and factored denominator terms for the rate equation."""
+"""Build raw numerator POLY and factored denominator terms for the rate equation.
+`rename_map` aliases non-representative kinetic-group parameter symbols to their
+representative (one K or k_f/k_r per group); `dep_exprs` is the Haldane solution."""
 function _raw_symbolic_rate_polys(
     subs_species, prods_species, enz_names, enz_set,
-    rxns, eq_steps, pc, dep_exprs,
+    rxns, eq_steps, rename_map, dep_exprs,
 )
     groups, form_to_group = _compute_re_groups(
         enz_names, enz_set, rxns, eq_steps,
@@ -387,7 +410,7 @@ function _raw_symbolic_rate_polys(
     # Build rate matrix R[g1,g2] with alpha denominators cleared
     R = [poly_zero() for _ in 1:G, _ in 1:G]
 
-    for (idx, (lhs, rhs)) in enumerate(rxns)
+    for (idx, (lhs, rhs, _, _)) in enumerate(rxns)
         eq_steps[idx] && continue
         e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
         e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
@@ -432,7 +455,7 @@ function _raw_symbolic_rate_polys(
     # Factor sigma for each RE group
     binding_Ks = Set{Symbol}(
         Symbol("K$i")
-        for (i, (lhs, rhs)) in enumerate(rxns)
+        for (i, (lhs, rhs, _, _)) in enumerate(rxns)
         if eq_steps[i] && any(s ∉ enz_set for s in lhs) &&
            all(s ∈ enz_set for s in rhs)
     )
@@ -448,12 +471,10 @@ function _raw_symbolic_rate_polys(
         else
             sigma_num[g]
         end
-        csigma = _apply_param_constraints(
-            raw_sigma, pc; binding_Ks,
-        )
+        csigma = _rename_symbols(raw_sigma, rename_map)
         push!(denom_terms, DenomTerm(
             _factor_poly(
-                csigma, rxns, eq_steps, enz_set, pc;
+                csigma, rxns, eq_steps, enz_set, rename_map;
                 binding_Ks,
             ),
             D[g],
@@ -478,18 +499,17 @@ function _raw_symbolic_rate_polys(
         end
     end
 
-    # Apply user-defined parameter constraints
-    num = _apply_param_constraints(num, pc; binding_Ks)
-    denom_terms = [_apply_param_constraints(dt, pc; binding_Ks)
-                   for dt in denom_terms]
+    # Apply kinetic-group renaming (K2 → K1 etc.) to numerator
+    num = _rename_symbols(num, rename_map)
+    denom_terms = [_rename_symbols(dt, rename_map) for dt in denom_terms]
 
     # Merge Haldane-derived equal parameters (e.g., k8r→k7r when
     # both resolve to the same thermodynamic expression)
     haldane_subs = _haldane_equality_substitutions(dep_exprs)
     if !isempty(haldane_subs)
-        hc = [(t, 1, [(c, 1)]) for (t, c) in haldane_subs]
-        num = _apply_param_constraints(num, hc)
-        denom_terms = [_apply_param_constraints(dt, hc)
+        hsub_map = Dict{Symbol, Symbol}(haldane_subs)
+        num = _rename_symbols(num, hsub_map)
+        denom_terms = [_rename_symbols(dt, hsub_map)
                        for dt in denom_terms]
     end
 
@@ -508,7 +528,7 @@ function _raw_symbolic_rate_polys(
 
     # Factor numerator (only if it reduces display terms)
     num_fs = _factor_poly(
-        num, rxns, eq_steps, enz_set, pc;
+        num, rxns, eq_steps, enz_set, rename_map;
         binding_Ks, check_benefit=true,
     )
 
@@ -517,15 +537,15 @@ end
 
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     m = M()
-    enzs = enzyme_forms(m)
+    enz_names = enzyme_forms(m)
+    enz_set = Set(enz_names)
     rxns = reactions(m)
     eq_steps = equilibrium_steps(m)
-    enz_names = Tuple(e[1] for e in enzs)
-    enz_set = Set(enz_names)
+    rename_map = _build_kinetic_rename_map(m)
     dep_exprs, _ = _dependent_param_exprs(M)
     _raw_symbolic_rate_polys(
         substrates(m), products(m), enz_names, enz_set,
-        rxns, eq_steps, param_constraints(m), dep_exprs,
+        rxns, eq_steps, rename_map, dep_exprs,
     )
 end
 
@@ -538,13 +558,13 @@ function _compute_numerator(
     alpha_num, alpha_den, form_to_group, groups,
     D, subs_species, prods_species,
 )
-    ref_name = subs_species[1][1]
-    nu_ref = (count(s -> s[1] == ref_name, prods_species) -
-              count(s -> s[1] == ref_name, subs_species))
+    ref_name = subs_species[1]
+    nu_ref = (count(==(ref_name), prods_species) -
+              count(==(ref_name), subs_species))
 
     # Classify metabolites into SS vs RE step sets
     ss_mets, re_mets = Set{Symbol}(), Set{Symbol}()
-    for (idx, (lhs, rhs)) in enumerate(rxns)
+    for (idx, (lhs, rhs, _, _)) in enumerate(rxns)
         _, m_lhs = _split_reaction_side(lhs, enz_set)
         _, m_rhs = _split_reaction_side(rhs, enz_set)
         target = eq_steps[idx] ? re_mets : ss_mets
@@ -559,8 +579,8 @@ function _compute_numerator(
         met_name = ref_name
     elseif !isempty(ss_mets)
         all_mets = Dict{Symbol, Int}()
-        for (n, _) in subs_species; all_mets[n] = get(all_mets, n, 0) - 1; end
-        for (n, _) in prods_species; all_mets[n] = get(all_mets, n, 0) + 1; end
+        for n in subs_species; all_mets[n] = get(all_mets, n, 0) - 1; end
+        for n in prods_species; all_mets[n] = get(all_mets, n, 0) + 1; end
         ss_only = setdiff(ss_mets, re_mets)
         search = isempty(ss_only) ? ss_mets : ss_only
         met_name = something(
@@ -572,7 +592,7 @@ function _compute_numerator(
 
     # Compute flux through SS steps
     result = poly_zero()
-    for (idx, (lhs, rhs)) in enumerate(rxns)
+    for (idx, (lhs, rhs, _, _)) in enumerate(rxns)
         eq_steps[idx] && continue
         e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
         e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
@@ -618,18 +638,26 @@ end
 Identify K symbols for binding RE steps (where K should be Kd, not Ka).
 Canonical form invariant: all RE metabolite steps have metabolite on LHS,
 so a binding step is simply any RE step with a non-enzyme species on LHS.
+The returned symbols use kinetic-group representatives (one per RE binding group).
 """
-function _binding_K_symbols(rxns, eq_steps, enz_set)
-    [Symbol("K$i") for (i, (lhs, _)) in enumerate(rxns)
-     if eq_steps[i] && any(s ∉ enz_set for s in lhs)]
-end
-
 function _binding_K_symbols(M::Type{<:EnzymeMechanism})
     m = M()
-    _binding_K_symbols(
-        reactions(m), equilibrium_steps(m),
-        Set(e[1] for e in enzyme_forms(m)),
-    )
+    rxns = reactions(m)
+    eq_steps = equilibrium_steps(m)
+    enz_set = Set(enzyme_forms(m))
+    rename_map = _build_kinetic_rename_map(m)
+    seen = Set{Symbol}()
+    syms = Symbol[]
+    for (i, (lhs, _, _, _)) in enumerate(rxns)
+        eq_steps[i] || continue
+        any(s ∉ enz_set for s in lhs) || continue
+        K = Symbol("K$i")
+        K = get(rename_map, K, K)
+        K in seen && continue
+        push!(seen, K)
+        push!(syms, K)
+    end
+    syms
 end
 
 """
@@ -639,13 +667,9 @@ Returns `(expr, all_params, sorted_concs)`.
 function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
     num, denom_terms = _raw_symbolic_rate_polys(M)
     m = M()
-    constrained = Set(c[1] for c in param_constraints(m))
-    raw_ps = _raw_param_symbols(equilibrium_steps(m))
-    param_syms = Set{Symbol}(
-        p for p in raw_ps if p ∉ constrained
-    )
+    param_syms = Set{Symbol}(_raw_param_symbols(m))
     conc_syms = Set{Symbol}(metabolites(m))
-    inv_set = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
+    inv_set = Set(_binding_K_symbols(M))
     expr = to_rate_expr(num, denom_terms, param_syms, conc_syms, inv_set)
     all_params = _sorted_raw_param_symbols(M)
     return expr, all_params, metabolites(m)
@@ -691,11 +715,9 @@ rate_equation_string(m::_AnyMechanism) = rate_equation_string(m, Reduced)
 function _rate_v_line(M::Type{<:EnzymeMechanism})
     num_fs, denom_terms = _raw_symbolic_rate_polys(M)
     m = M()
-    constrained = Set(c[1] for c in param_constraints(m))
-    raw_ps = _raw_param_symbols(equilibrium_steps(m))
-    ps = Set{Symbol}(p for p in raw_ps if p ∉ constrained)
+    ps = Set{Symbol}(_raw_param_symbols(m))
     cs = Set{Symbol}(metabolites(m))
-    inv = Set(K for K in _binding_K_symbols(M) if K ∉ constrained)
+    inv = Set(_binding_K_symbols(M))
     num_str = _expr_to_string(
         _factored_sigma_to_expr(num_fs, ps, cs, inv),
     )
@@ -708,9 +730,6 @@ end
 function rate_equation_string(::M, ::FullMode) where {M<:EnzymeMechanism}
     lines = ["(; $(join(_sorted_raw_param_symbols(M), ", "))) = params",
              "(; $(join(metabolites(M()), ", "))) = concs"]
-    for (target, coeff, factors) in param_constraints(M())
-        push!(lines, _user_constraint_to_string(target, coeff, factors))
-    end
     push!(lines, _rate_v_line(M))
     join(lines, "\n")
 end
@@ -899,7 +918,7 @@ corners and return the max.
     cat_r_only = CS[5]
     r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
     cm_inst = CM()
-    sub_names = Tuple(s[1] for s in substrates(cm_inst))
+    sub_names = substrates(cm_inst)
     t_state_dead = any(s -> s in cat_r_only, sub_names) ||
         !isempty(r_only_cat_steps)
 
@@ -1114,8 +1133,8 @@ function _is_tr_equiv_catalytic_K(
     m = CM()
     rxns = reactions(m)
     eq_steps = equilibrium_steps(m)
-    enz_set = Set(e[1] for e in enzyme_forms(m))
-    for (idx, (lhs, rhs)) in enumerate(rxns)
+    enz_set = Set(enzyme_forms(m))
+    for (idx, (lhs, _, _, _)) in enumerate(rxns)
         eq_steps[idx] || continue
         Symbol("K$idx") != K && continue
         _, m_lhs = _split_reaction_side(lhs, enz_set)
@@ -1147,9 +1166,8 @@ function _is_tr_equiv_catalytic_param(
     # Check if this step binds a metabolite
     m_inst = CM()
     rxns = reactions(m_inst)
-    eq_steps = equilibrium_steps(m_inst)
-    enz_set = Set(e[1] for e in enzyme_forms(m_inst))
-    lhs, _ = rxns[idx]
+    enz_set = Set(enzyme_forms(m_inst))
+    lhs = rxns[idx][1]
     _, mets_lhs = _split_reaction_side(lhs, enz_set)
     if !isempty(mets_lhs)
         # SS binding step: TR-equiv if metabolite is in cat_tr_equiv
@@ -1169,8 +1187,8 @@ function _is_r_only_catalytic_param(
     m_inst = CM()
     rxns = reactions(m_inst)
     eq_steps = equilibrium_steps(m_inst)
-    enz_set = Set(e[1] for e in enzyme_forms(m_inst))
-    for (idx, (lhs, rhs)) in enumerate(rxns)
+    enz_set = Set(enzyme_forms(m_inst))
+    for (idx, (lhs, _, _, _)) in enumerate(rxns)
         eq_steps[idx] || continue
         Symbol("K$idx") != p && continue
         _, m_lhs = _split_reaction_side(lhs, enz_set)
@@ -1185,7 +1203,7 @@ function _is_r_only_catalytic_param(
     cap = m_match.captures[1]::SubString
     idx = parse(Int, cap)
     # SS binding step: r_only if metabolite is r_only
-    lhs, _ = rxns[idx]
+    lhs = rxns[idx][1]
     _, mets_lhs = _split_reaction_side(lhs, enz_set)
     if !isempty(mets_lhs)
         return any(met ∈ cat_r_only for met in mets_lhs)
@@ -1431,10 +1449,7 @@ function _allosteric_num_den_exprs(CM, CS, RS)
     r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
     m_cat = CM()
-    cat_constr = Set(c[1] for c in param_constraints(m_cat))
-    cat_params = Set{Symbol}(
-        p for p in _raw_param_symbols(equilibrium_steps(m_cat)) if p ∉ cat_constr
-    )
+    cat_params = Set{Symbol}(_raw_param_symbols(m_cat))
     cat_mets = Set{Symbol}(metabolites(m_cat))
     binding_Ks_r = Set(_binding_K_symbols(CM))
 

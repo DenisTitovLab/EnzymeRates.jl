@@ -245,33 +245,33 @@
         @test string(expr) |> s -> occursin("E_total", s)
     end
 
-    @testset "Constraint application on factored types" begin
+    @testset "Symbol renaming on factored types" begin
         one = EnzymeRates.poly_one()
         pK1 = EnzymeRates.poly_sym(:K1)
         pK2 = EnzymeRates.poly_sym(:K2)
         pS = EnzymeRates.poly_sym(:S)
 
-        # Constraint: K2 -> K1 (coeff=1, factors=[(:K1, 1)])
-        constraints = [(:K2, 1, [(:K1, 1)])]
+        # Rename map: K2 → K1 (kinetic-group alias)
+        rename = Dict(:K2 => :K1)
 
         # FactoredPoly with K2*S in a factor
         f = EnzymeRates.poly_add(one, EnzymeRates.poly_mul(pK2, pS))
         fp = FP([f], [2])
-        fp_c = EnzymeRates._apply_param_constraints(fp, constraints)
-        # After constraint: factor should contain K1*S instead of K2*S
+        fp_c = EnzymeRates._rename_symbols(fp, rename)
+        # After rename: factor should contain K1*S instead of K2*S
         expected_f = EnzymeRates.poly_add(one, EnzymeRates.poly_mul(pK1, pS))
         @test fp_c.factors[1] == expected_f
         @test fp_c.exponents == [2]
 
         # FactoredSigma with K2 as coefficient
         fs = FS([pK2], [fp])
-        fs_c = EnzymeRates._apply_param_constraints(fs, constraints)
+        fs_c = EnzymeRates._rename_symbols(fs, rename)
         @test fs_c.coefficients[1] == pK1
 
-        # DenomTerm: check cofactor also gets constraints applied
+        # DenomTerm: check cofactor also gets renamed
         cofactor = EnzymeRates.poly_mul(pK2, pS)
         dt = DT(fs, cofactor)
-        dt_c = EnzymeRates._apply_param_constraints(dt, constraints)
+        dt_c = EnzymeRates._rename_symbols(dt, rename)
         expected_cof = EnzymeRates.poly_mul(pK1, pS)
         @test dt_c.cofactor == expected_cof
     end

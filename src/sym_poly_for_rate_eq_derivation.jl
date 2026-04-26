@@ -305,45 +305,32 @@ function substitute_params_expr(expr, subs::AbstractDict)
     end
 end
 
-# ─── Parameter constraint substitution in POLY ─────────────
+# ─── Symbol renaming in POLY ───────────────────────────────
 
 """
-Substitute `target` symbol in polynomial `p` with
-`coeff * prod(sym^exp for (sym,exp) in replacement)`.
+Rename symbols in a polynomial. `rename_map` is a `Dict{Symbol, Symbol}`;
+absent keys are left unchanged. Used to alias non-representative kinetic-group
+parameter symbols to their representative (e.g., `K2 → K1` when steps 1 and 2
+share a kinetic group).
 """
-function _substitute_sym_in_poly(p::POLY, target::Symbol, coeff, replacement)
+function _rename_symbols(p::POLY, rename_map::AbstractDict{Symbol, Symbol})
+    isempty(rename_map) && return p
     result = POLY()
     for (mono, val) in p
-        idx = findfirst(pair -> pair.first == target, mono)
-        if idx === nothing
-            result[mono] = get(result, mono, 0) + val
-        else
-            e = mono[idx].second
-            base = MONO([pair for (i, pair) in enumerate(mono) if i != idx])
-            repl = sort!(MONO([sym => exp * e for (sym, exp) in replacement]); by=first)
-            final = _mono_mul(base, repl)
-            result[final] = get(result, final, 0) + val * coeff^e
+        new_mono = sort!(
+            MONO([get(rename_map, s, s) => e for (s, e) in mono]);
+            by=first,
+        )
+        # Combine like-monomial entries by exponent merging
+        combined = Dict{Symbol, Int}()
+        for (s, e) in new_mono
+            combined[s] = get(combined, s, 0) + e
         end
+        filter!(p -> p.second != 0, combined)
+        canon = sort!(MONO(collect(combined)); by=first)
+        result[canon] = get(result, canon, 0) + val
     end
     filter!(p -> p.second != 0, result)
-end
-
-"""Apply all parameter constraints sequentially to a polynomial.
-When `binding_Ks` is provided, constraints between two binding K parameters
-use the reciprocal coefficient (1/c instead of c) to correct for the K→1/K
-inversion that happens later in the expression builder."""
-function _apply_param_constraints(
-    p::POLY, constraints;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-)
-    for (target, coeff, factors) in constraints
-        is_binding_to_binding = !isempty(binding_Ks) &&
-            target ∈ binding_Ks &&
-            all(f -> f[1] ∈ binding_Ks, factors)
-        c = is_binding_to_binding ? 1 // coeff : coeff
-        p = _substitute_sym_in_poly(p, target, c, factors)
-    end
-    p
 end
 
 # ─── Factored denominator types ──────────────────────────────
@@ -466,37 +453,26 @@ function to_rate_expr(
     :(E_total * ($num_expr) / ($den_expr))
 end
 
-# ─── Constraint application for factored types ────────────────
+# ─── Symbol renaming for factored types ───────────────────────
 
-function _apply_param_constraints(
-    fp::FactoredPoly, constraints;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-)
+function _rename_symbols(fp::FactoredPoly, rename_map::AbstractDict{Symbol, Symbol})
     FactoredPoly(
-        [_apply_param_constraints(f, constraints; binding_Ks) for f in fp.factors],
+        [_rename_symbols(f, rename_map) for f in fp.factors],
         copy(fp.exponents),
     )
 end
 
-function _apply_param_constraints(
-    fs::FactoredSigma, constraints;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-)
+function _rename_symbols(fs::FactoredSigma, rename_map::AbstractDict{Symbol, Symbol})
     FactoredSigma(
-        [_apply_param_constraints(c, constraints; binding_Ks)
-         for c in fs.coefficients],
-        [_apply_param_constraints(fp, constraints; binding_Ks)
-         for fp in fs.products],
+        [_rename_symbols(c, rename_map) for c in fs.coefficients],
+        [_rename_symbols(fp, rename_map) for fp in fs.products],
     )
 end
 
-function _apply_param_constraints(
-    dt::DenomTerm, constraints;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-)
+function _rename_symbols(dt::DenomTerm, rename_map::AbstractDict{Symbol, Symbol})
     DenomTerm(
-        _apply_param_constraints(dt.sigma, constraints; binding_Ks),
-        _apply_param_constraints(dt.cofactor, constraints; binding_Ks),
+        _rename_symbols(dt.sigma, rename_map),
+        _rename_symbols(dt.cofactor, rename_map),
     )
 end
 

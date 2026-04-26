@@ -13,13 +13,12 @@ Independent reference: compute QSSA rate using Laplacian cofactor method.
 Works directly with EnzymeMechanism type parameters.
 """
 function reference_qssa(
-    m::EnzymeMechanism{Species, Reactions},
+    m::EnzymeMechanism{Mets, Reactions},
     params::NamedTuple,
     concs::NamedTuple,
-) where {Species, Reactions}
-    enzs = EnzymeRates.enzyme_forms(m)
-    n = length(enzs)
-    enz_names = Tuple(e[1] for e in enzs)
+) where {Mets, Reactions}
+    enz_names = EnzymeRates.enzyme_forms(m)
+    n = length(enz_names)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
     enz_set = Set(enz_names)
 
@@ -201,16 +200,14 @@ function compute_all_params(m, new_params)
         val = _eval_dep_expr(expr_str, new_params)
         dep_dict[sym] = val
     end
-    # Resolve user param constraints (e.g., K3 = K2)
-    for (target, coeff, factors) in EnzymeRates.param_constraints(m)
-        val = Float64(coeff)
-        for (sym, exp) in factors
-            src = haskey(dep_dict, sym) ? dep_dict[sym] :
-                  haskey(new_params, sym) ? Float64(new_params[sym]) :
-                  error("Missing parameter $sym for constraint $target")
-            val *= src^exp
+    # Resolve kinetic-group aliases (e.g., K2 → K1 when steps share group)
+    rename = EnzymeRates._build_kinetic_rename_map(m)
+    for (alias, rep) in rename
+        if haskey(dep_dict, rep)
+            dep_dict[alias] = dep_dict[rep]
+        elseif haskey(new_params, rep)
+            dep_dict[alias] = Float64(new_params[rep])
         end
-        dep_dict[target] = val
     end
     all_vals = Float64[haskey(dep_dict, k) ? dep_dict[k] :
                        haskey(new_params, k) ? Float64(new_params[k]) :
@@ -309,19 +306,18 @@ end
 function _reference_metabolite(m)
     subs = EnzymeRates.substrates(m)
     isempty(subs) && error("No substrate found in mechanism")
-    name = subs[1][1]
-    coeff = -count(s -> s[1] == name, subs)
+    name = subs[1]
+    coeff = -count(==(name), subs)
     return name, coeff
 end
 
 # ── ODE steady-state helpers ────────────────────────────────────────────────
 
 function build_ode_rhs(
-    m::EnzymeMechanism{Species, Reactions},
+    m::EnzymeMechanism{Mets, Reactions},
     params, concs,
-) where {Species, Reactions}
-    enzs = EnzymeRates.enzyme_forms(m)
-    enz_names = Tuple(e[1] for e in enzs)
+) where {Mets, Reactions}
+    enz_names = EnzymeRates.enzyme_forms(m)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
     enz_set = Set(enz_names)
 
@@ -344,7 +340,7 @@ function build_ode_rhs(
         push!(step_data, (i, j, rf, rr))
     end
 
-    n = length(enzs)
+    n = length(enz_names)
     function rhs!(du, u, p, t)
         fill!(du, 0.0)
         for (i, j, rf, rr) in step_data
@@ -357,13 +353,12 @@ function build_ode_rhs(
 end
 
 function ode_steady_state_flux(
-    m::EnzymeMechanism{Species, Reactions},
+    m::EnzymeMechanism{Mets, Reactions},
     params, concs,
-) where {Species, Reactions}
+) where {Mets, Reactions}
     E_total = params.E_total
-    enzs = EnzymeRates.enzyme_forms(m)
-    n = length(enzs)
-    enz_names = Tuple(e[1] for e in enzs)
+    enz_names = EnzymeRates.enzyme_forms(m)
+    n = length(enz_names)
     enz_set = Set(enz_names)
     ref_name, nu_ref = _reference_metabolite(m)
 
@@ -508,8 +503,8 @@ function test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
         n_prods = length(EnzymeRates.products(m))
         # Build equilibrium concentrations: prod(P_i) / prod(S_i) = Keq
         # Set all substrates to 1.0, distribute Keq^(1/n_prods) across products
-        sub_names = [s[1] for s in EnzymeRates.substrates(m)]
-        prod_names = [p[1] for p in EnzymeRates.products(m)]
+        sub_names = collect(EnzymeRates.substrates(m))
+        prod_names = collect(EnzymeRates.products(m))
         eq_vals = Dict{Symbol,Float64}()
         for s in sub_names; eq_vals[s] = 1.0; end
         p_each = Keq^(1.0 / n_prods)
@@ -698,8 +693,8 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
         @test v_norm / v_orig ≈ 1.0 / kcat_orig rtol=1e-8
 
         # V ≈ 1 at saturating substrates, products=0
-        sub_names = Symbol[s[1] for s in EnzymeRates.substrates(m)]
-        prod_names = Symbol[p[1] for p in EnzymeRates.products(m)]
+        sub_names = collect(EnzymeRates.substrates(m))
+        prod_names = collect(EnzymeRates.products(m))
         reg_names = collect(EnzymeRates.regulators(m))
         n_reg = length(reg_names)
 

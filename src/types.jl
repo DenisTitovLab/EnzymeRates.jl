@@ -317,82 +317,6 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R,N}) where {S,P,R,N}
     N > 1 && print(io, " | oligomeric_state: ", N)
 end
 
-# Old EnzymeMechanism show method disabled — used the old 4-parameter type
-# signature (Species, Reactions, EqSteps, PC). New show method will be added
-# in a later task once the 2-parameter type is fully wired up.
-# function Base.show(
-#     io::IO,
-#     m::EnzymeMechanism{Species, Reactions, EqSteps, PC},
-# ) where {Species, Reactions, EqSteps, PC}
-#     subs, prods, regs, enzs = Species
-#     enz_names = Set(e[1] for e in enzs)
-#
-#     # Check if mechanism is linear (each enzyme form appears on LHS and RHS at most once)
-#     lhs_counts = Dict{Symbol,Int}()
-#     rhs_counts = Dict{Symbol,Int}()
-#     for (lhs, rhs) in Reactions
-#         for s in lhs; s in enz_names && (lhs_counts[s] = get(lhs_counts, s, 0) + 1); end
-#         for s in rhs; s in enz_names && (rhs_counts[s] = get(rhs_counts, s, 0) + 1); end
-#     end
-#     is_linear = (all(v <= 1 for v in values(lhs_counts)) &&
-#                   all(v <= 1 for v in values(rhs_counts)))
-#
-#     _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
-#
-#     if is_linear
-#         # Compact chain: E + S ⇌ ES <--> E + P
-#         parts = String[]
-#         arrows = String[]
-#         for (i, (lhs, rhs)) in enumerate(Reactions)
-#             if i == 1
-#                 push!(parts, join(lhs, " + "))
-#             end
-#             push!(arrows, _arrow(EqSteps[i]))
-#             push!(parts, join(rhs, " + "))
-#         end
-#         print(io, "EnzymeMechanism: ")
-#         for (i, part) in enumerate(parts)
-#             i > 1 && print(io, arrows[i-1])
-#             print(io, part)
-#         end
-#     else
-#         # Multi-line for branched mechanisms
-#         n = length(Reactions)
-#         ne = length(enzs)
-#         print(io, "EnzymeMechanism (", n, " steps, ", ne, " enzyme forms):")
-#         for (i, (lhs, rhs)) in enumerate(Reactions)
-#             print(io, "\n  ", join(lhs, " + "), _arrow(EqSteps[i]), join(rhs, " + "))
-#         end
-#     end
-#     if !isempty(regs)
-#         regs_str = join([string(r) for r in regs], ", ")
-#         print(io, " | regulators: ", regs_str)
-#     end
-#     if !isempty(PC)
-#         cstrs = [
-#             _user_constraint_to_string(target, coeff, factors)
-#             for (target, coeff, factors) in PC
-#         ]
-#         print(io, " | constraints: ", join(cstrs, ", "))
-#     end
-# end
-
-"""Format a user constraint as a string: target = rhs."""
-function _user_constraint_to_string(target::Symbol, coeff::Int, factors)
-    parts = String[]
-    coeff != 1 && push!(parts, string(coeff))
-    for (sym, exp) in factors
-        if exp == 1
-            push!(parts, string(sym))
-        elseif exp == -1
-            push!(parts, "1 / $sym")
-        else
-            push!(parts, "$sym^$exp")
-        end
-    end
-    "$target = $(isempty(parts) ? string(coeff) : join(parts, " * "))"
-end
-
 # ─── Accessors ─────────────────────────────────────────────────
 
 """Return substrates as a tuple of `Symbol` names."""
@@ -481,33 +405,6 @@ end
 
 """Number of distinct enzyme states."""
 n_states(m::EnzymeMechanism) = length(enzyme_forms(m))
-
-# Old accessors disabled — they used `Species[k]` indexing on the old
-# 4-parameter EnzymeMechanism type. Replacements arrive in later tasks
-# (constraint handling moves out of the type entirely).
-#
-# function _unique_metabolites(Species)
-#     subs, prods, regs = Species[1:3]
-#     seen = Set{Symbol}()
-#     mets = Tuple{Symbol,Any}[]
-#     for group in (subs, prods)
-#         for (name, atoms) in group
-#             if name ∉ seen
-#                 push!(seen, name)
-#                 push!(mets, (name, atoms))
-#             end
-#         end
-#     end
-#     for name in regs
-#         if name ∉ seen
-#             push!(seen, name)
-#             push!(mets, (name, ()))
-#         end
-#     end
-#     return mets
-# end
-#
-# param_constraints(::EnzymeMechanism{Sp, Rx, Eq, PC}) where {Sp, Rx, Eq, PC} = PC
 
 """
     stoich_matrix(m::EnzymeMechanism) → Matrix{Int}
