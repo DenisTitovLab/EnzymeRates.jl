@@ -31,16 +31,6 @@ end
     indep
 end
 
-# ─── Kinetic-group representatives ──────────────────────────
-
-"""
-Return per-group representative step indices: a `Dict{Int, Int}` mapping each
-kinetic group id `g` to `first(steps_in_group(m, g))`.
-"""
-function _kinetic_group_reps(m::EnzymeMechanism)
-    Dict{Int, Int}(g => first(steps_in_group(m, g)) for g in kinetic_groups(m))
-end
-
 """
 Build a renaming map from non-representative step parameter symbols to the
 representative step's parameter symbols. Used to alias `K2` → `K1` (etc.) when
@@ -82,7 +72,7 @@ function _compute_re_groups(enz_names, enz_set, rxns, eq_steps)
         while parent[x] != x; parent[x] = parent[parent[x]]; x = parent[x]; end
         x
     end
-    for (idx, (lhs, rhs)) in enumerate(rxns)
+    for (idx, (lhs, rhs, _, _)) in enumerate(rxns)
         eq_steps[idx] || continue
         e_lhs, _ = _split_reaction_side(lhs, enz_set)
         e_rhs, _ = _split_reaction_side(rhs, enz_set)
@@ -117,7 +107,7 @@ function _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
         queue = [group[1]]
         while !isempty(queue)
             cur = popfirst!(queue)
-            for (idx, (lhs, rhs)) in enumerate(rxns)
+            for (idx, (lhs, rhs, _, _)) in enumerate(rxns)
                 eq_steps[idx] || continue
                 e_l, m_l = _split_reaction_side(lhs, enz_set)
                 e_r, m_r = _split_reaction_side(rhs, enz_set)
