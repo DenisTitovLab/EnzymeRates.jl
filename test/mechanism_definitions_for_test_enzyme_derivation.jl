@@ -1526,16 +1526,14 @@ function build_mechanism_test_specs()
             end
         end
 
-        # TODO Task 2.7: parameter names use OLD step-index numbering
-        # (K7 = old I2-binding step). After migration, kinetic groups
-        # number sequentially: K1=S, K3=P, K4=I1, K5=I2. Update once
-        # Task 2.7 finalizes param naming.
+        # Param names use kinetic-group representative-step indices:
+        # K1=S-binding, k5f=iso, K6=P-binding, K10=I1-binding, K16=I2-binding.
         function rate_two_noncomp_inh(p, c)
-            (; K1, k2f, k2r, K3, K4, K7, Et) = p
+            (; K1, k5f, k5r, K6, K10, K16, Et) = p
             (; S, P, I1, I2) = c
-            num = k2f * S / K1 - k2r * P / K3
-            denom = (1.0 + S / K1 + P / K3) *
-                    (1.0 + I1 / K4) * (1.0 + I2 / K7)
+            num = k5f * S / K1 - k5r * P / K6
+            denom = (1.0 + S / K1 + P / K6) *
+                    (1.0 + I1 / K10) * (1.0 + I2 / K16)
             return Et * num / denom
         end
 
@@ -1584,16 +1582,14 @@ function build_mechanism_test_specs()
             end
         end
 
-        # TODO Task 2.7: parameter names use OLD step-index numbering
-        # (K9 = old I2-binding dead-end step). After migration, kinetic
-        # groups number sequentially: K1=S, K3=P, K4=I1, K5=I2. Update
-        # once Task 2.7 finalizes param naming.
+        # Param names use kinetic-group representative-step indices:
+        # K1=S, k3f=iso, K4=P, K6=I1-binding, K9=I2-dead-end.
         function rate_noncomp_comp_inh(p, c)
-            (; K1, k2f, k2r, K3, K4, K9, Et) = p
+            (; K1, k3f, k3r, K4, K6, K9, Et) = p
             (; S, P, I1, I2) = c
-            num = k2f * S / K1 - k2r * P / K3
-            denom = (1.0 + S / K1 + P / K3) *
-                    (1.0 + I1 / K4) + I2 / K9
+            num = k3f * S / K1 - k3r * P / K4
+            denom = (1.0 + S / K1 + P / K4) *
+                    (1.0 + I1 / K6) + I2 / K9
             return Et * num / denom
         end
 
@@ -1697,16 +1693,14 @@ function build_mechanism_test_specs()
             end
         end
 
-        # TODO Task 2.7: parameter names use OLD step-index numbering
-        # (K9 = old I2-binding step). After migration, kinetic groups
-        # number sequentially: K1=S, K3=P, K4=I1, K5=I2. Update once
-        # Task 2.7 finalizes param naming.
+        # Param names use kinetic-group representative-step indices:
+        # K1=S, k4f=iso, K5=P, K8=I1, K11=I2.
         function rate_two_samesite_inh(p, c)
-            (; K1, k2f, k2r, K3, K4, K9, Et) = p
+            (; K1, k4f, k4r, K5, K8, K11, Et) = p
             (; S, P, I1, I2) = c
-            num = k2f * S / K1 - k2r * P / K3
-            denom = (1.0 + S / K1 + P / K3) *
-                    (1.0 + I1 / K4 + I2 / K9)
+            num = k4f * S / K1 - k4r * P / K5
+            denom = (1.0 + S / K1 + P / K5) *
+                    (1.0 + I1 / K8 + I2 / K11)
             return Et * num / denom
         end
 
@@ -1825,33 +1819,33 @@ function build_mechanism_test_specs()
             #   Reg site 2, T state:  K_R3_T_reg2
             #   Shared: L (= [E_T]/[E_R] for bare enzyme), Keq, Et
             #
-            # TODO Task 2.7: k13f/k13r reference the OLD step index (iso
-            # was step 13 after 12 binding steps). Under the new
-            # kinetic-group-based naming the iso step is group 5 → k5f/k5r.
-            # Update once Task 2.7 finalizes param naming.
+            # Param naming uses kinetic-group representative-step indices:
+            # K1=S1-binding (group 1, rep step 1), K4=P1-binding (rep step 4),
+            # K7=S2-binding (rep step 7), K10=P2-binding (rep step 10),
+            # k13f/k13r=catalysis SS (rep step 13).
             function rate_mwc_tetramer_bi_bi(params, concs)
-                (; K1, K2, K3, K4, k13f, k13r,
-                   K1_T, K2_T, K3_T, K4_T, k13f_T, k13r_T,
+                (; K1, K4, K7, K10, k13f, k13r,
+                   K1_T, K4_T, K7_T, K10_T, k13f_T, k13r_T,
                    K_R1_reg1, K_R2_reg1, K_R1_T_reg1, K_R2_T_reg1,
                    K_R3_reg2, K_R3_T_reg2,
                    L, Et) = params
                 (; S1, S2, P1, P2, R1, R2, R3) = concs
 
                 # R-state: catalytic site factors by site-A ⊗ site-B independence
-                Q_A_R   = 1.0 + S1 / K1 + P1 / K2
-                Q_B_R   = 1.0 + S2 / K3 + P2 / K4
+                Q_A_R   = 1.0 + S1 / K1 + P1 / K4
+                Q_B_R   = 1.0 + S2 / K7 + P2 / K10
                 Q_cat_R = Q_A_R * Q_B_R
-                N_cat_R = k13f * S1 * S2 / (K1 * K3) - k13r * P1 * P2 / (K2 * K4)
+                N_cat_R = k13f * S1 * S2 / (K1 * K7) - k13r * P1 * P2 / (K4 * K10)
 
                 # R-state: regulatory site partition functions (star topology → direct sum)
                 Q_reg1_R = 1.0 + R1 / K_R1_reg1 + R2 / K_R2_reg1
                 Q_reg2_R = 1.0 + R3 / K_R3_reg2
 
                 # T-state: same structure with _T parameters
-                Q_A_T   = 1.0 + S1 / K1_T + P1 / K2_T
-                Q_B_T   = 1.0 + S2 / K3_T + P2 / K4_T
+                Q_A_T   = 1.0 + S1 / K1_T + P1 / K4_T
+                Q_B_T   = 1.0 + S2 / K7_T + P2 / K10_T
                 Q_cat_T = Q_A_T * Q_B_T
-                N_cat_T = k13f_T * S1 * S2 / (K1_T * K3_T) - k13r_T * P1 * P2 / (K2_T * K4_T)
+                N_cat_T = k13f_T * S1 * S2 / (K1_T * K7_T) - k13r_T * P1 * P2 / (K4_T * K10_T)
 
                 Q_reg1_T = 1.0 + R1 / K_R1_T_reg1 + R2 / K_R2_T_reg1
                 Q_reg2_T = 1.0 + R3 / K_R3_T_reg2
