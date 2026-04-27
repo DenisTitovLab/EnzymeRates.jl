@@ -622,20 +622,8 @@ function test_factored_form(spec::MechanismTestSpec)
         @test num_str !== nothing
         @test denom_str !== nothing
         if num_str !== nothing && denom_str !== nothing
-            if has_num
-                if spec.factored_num_broken
-                    @test_broken num_str == spec.expected_factored_num
-                else
-                    @test num_str == spec.expected_factored_num
-                end
-            end
-            if has_denom
-                if spec.factored_denom_broken
-                    @test_broken denom_str == spec.expected_factored_denom
-                else
-                    @test denom_str == spec.expected_factored_denom
-                end
-            end
+            has_num && @test num_str == spec.expected_factored_num
+            has_denom && @test denom_str == spec.expected_factored_denom
         end
     end
 end

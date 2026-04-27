@@ -47,11 +47,8 @@ Base.@kwdef struct MechanismTestSpec
 
     # Factored form validation (optional — for mechanisms with known factored forms)
     # Expected numerator/denominator from rate_equation_string output
-    # When broken=true, uses @test_broken (known bugs, will alert when fixed)
     expected_factored_num::Union{String,Nothing} = nothing
     expected_factored_denom::Union{String,Nothing} = nothing
-    factored_num_broken::Bool = false
-    factored_denom_broken::Bool = false
 end
 
 # ── Mechanism test specifications ───────────────────────────────────────────
@@ -966,8 +963,6 @@ function build_mechanism_test_specs()
             "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom=
             "1 + S / K1 + P / K3 + R / K4",
-            factored_num_broken=false,
-            factored_denom_broken=false,
         ))
     end
 
@@ -1015,8 +1010,6 @@ function build_mechanism_test_specs()
             "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom=
             "P / K3 + (1 + S / K1) * (1 + R / K4)",
-            factored_num_broken=false,
-            factored_denom_broken=false,
         ))
     end
 
@@ -1063,8 +1056,6 @@ function build_mechanism_test_specs()
             "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom=
             "1 + P / K3 + (S / K1) * (1 + R / K4)",
-            factored_num_broken=false,
-            factored_denom_broken=false,
         ))
     end
 
@@ -1114,10 +1105,8 @@ function build_mechanism_test_specs()
             # derivation now produces this form directly.
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3",
-            factored_num_broken=false,
             expected_factored_denom=
             "K4 / R + 1 + S / K1 + P / K3",
-            factored_denom_broken=false,
         ))
     end
 
@@ -1172,10 +1161,8 @@ function build_mechanism_test_specs()
             analytical_kcat_fn=p -> max(p.k2f, p.k5f),
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3 + (R / K7) * (k5f * S / K1 - k5r * P / K3)",
-            factored_num_broken=false,
             expected_factored_denom=
             "(1 + S / K1 + P / K3) * (1 + R / K7)",
-            factored_denom_broken=false,
         ))
     end
 
@@ -1238,10 +1225,8 @@ function build_mechanism_test_specs()
             # (inhibitor) structure
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3 + (A / K7) * (k5f * S / K1 - k5r * P / K3)",
-            factored_num_broken=false,
             expected_factored_denom=
             "I / K10 + (1 + S / K1 + P / K3) * (1 + A / K7)",
-            factored_denom_broken=false,
         ))
     end
 
