@@ -124,13 +124,15 @@ function EnzymeMechanism(
         end
     end
 
-    # Each substrate / product / regulator must appear in some step
+    # Each substrate / product must appear in some step. Regulators are
+    # optional bindings (a spec may list them before any expansion move
+    # has added their dead-end or allosteric binding steps).
     appears = Set{Symbol}()
     for (lhs, rhs, _, _) in rxns
         for s in lhs; push!(appears, s); end
         for s in rhs; push!(appears, s); end
     end
-    for name in vcat(collect(subs), collect(prods), collect(regs))
+    for name in vcat(collect(subs), collect(prods))
         name in appears ||
             error("Listed metabolite $name does not appear in any reaction step")
     end

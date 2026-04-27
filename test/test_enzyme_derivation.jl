@@ -266,8 +266,10 @@ function random_independent_params_concs(
 end
 
 """
-Convert raw params (K_i for RE steps) to ODE params
-(large k_if/k_ir for all steps).
+Convert raw params (K_g / k_g_f / k_g_r for each kinetic group's
+representative step) to ODE params (large k_if/k_ir for all steps).
+Steps sharing a kinetic_group share the same K (or k_f/k_r) param.
+
 For binding RE steps (metabolite on LHS, canonical form):
     K = Kd = kr/kf, so k_if = 1e6, k_ir = 1e6 * K.
 For RE isomerization steps (no metabolite, enzyme-only):
@@ -280,11 +282,13 @@ function raw_to_ode_params(m, raw_params)
     param_keys = Symbol[]
     param_vals = Float64[]
     for i in 1:ns
+        g = EnzymeRates.kinetic_group(m, i)
+        rep = first(EnzymeRates.steps_in_group(m, g))
         push!(param_keys, Symbol("k$(i)f"))
         push!(param_keys, Symbol("k$(i)r"))
         if eq[i]
-            K = Float64(raw_params[Symbol("K$i")])
-            if Symbol("K$i") in binding_Ks
+            K = Float64(raw_params[Symbol("K$rep")])
+            if Symbol("K$rep") in binding_Ks
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
                 push!(param_vals, 1e6 * K)
@@ -294,8 +298,8 @@ function raw_to_ode_params(m, raw_params)
                 push!(param_vals, 1e6)
             end
         else
-            push!(param_vals, Float64(raw_params[Symbol("k$(i)f")]))
-            push!(param_vals, Float64(raw_params[Symbol("k$(i)r")]))
+            push!(param_vals, Float64(raw_params[Symbol("k$(rep)f")]))
+            push!(param_vals, Float64(raw_params[Symbol("k$(rep)r")]))
         end
     end
     push!(param_keys, :E_total)

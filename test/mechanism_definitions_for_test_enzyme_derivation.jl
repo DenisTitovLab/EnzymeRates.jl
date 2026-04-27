@@ -1109,11 +1109,14 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) -> rate_essential_activator(
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
+            # Mathematically equivalent factoring: numerator and denominator
+            # are both multiplied by R/K4 in the alternative form. The
+            # derivation now produces this form directly.
             expected_factored_num=
-            "(R / K4) * (k2f * S / K1 - k2r * P / K3)",
+            "k2f * S / K1 - k2r * P / K3",
             factored_num_broken=false,
             expected_factored_denom=
-            "1 + (R / K4) * (1 + S / K1 + P / K3)",
+            "K4 / R + 1 + S / K1 + P / K3",
             factored_denom_broken=false,
         ))
     end
@@ -1552,9 +1555,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k5f * S / K1 - k5r * P / K6",
             expected_factored_denom=
-            "(1 + S / K1 + P / K3) * (1 + I1 / K4) * (1 + I2 / K7)",
+            "(1 + S / K1 + P / K6) * (1 + I1 / K10) * (1 + I2 / K16)",
         ))
     end
 
@@ -1608,9 +1611,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k3f * S / K1 - k3r * P / K4",
             expected_factored_denom=
-            "I2 / K9 + (1 + S / K1 + P / K3) * (1 + I1 / K4)",
+            "I2 / K9 + (1 + S / K1 + P / K4) * (1 + I1 / K6)",
         ))
     end
 
@@ -1719,9 +1722,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k4f * S / K1 - k4r * P / K5",
             expected_factored_denom=
-            "(1 + I1 / K4 + I2 / K9) * (1 + S / K1 + P / K3)",
+            "(1 + I1 / K8 + I2 / K11) * (1 + S / K1 + P / K5)",
         ))
     end
 
