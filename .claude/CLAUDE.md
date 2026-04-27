@@ -246,6 +246,10 @@ julia --project -e 'using Pkg; Pkg.test()'
 ### Mirror / dead-end kinetic-group sharing
 - The mechanism-enumeration generator assigns dead-end mirror steps the same `kinetic_group::Int` as their catalytic counterpart. Mirror propagation is implicit in the kinetic-group atomicity: when a group's RE→SS conversion fires, every member converts together.
 
+### Parameter naming convention
+- `parameters(m)` returns one symbol per kinetic group, named after the group's *representative step* (the first step in source order that belongs to the group), not the group number. So if steps 1, 2, 3 share `kinetic_group=1`, the binding K is `:K1`. If steps 6-9 share `kinetic_group=3`, the binding K is `:K6` (rep step is 6, the lowest-indexed step in that group). For SS groups: `:k{rep}f`, `:k{rep}r`. T-state suffix: `:K{rep}_T`, `:k{rep}f_T`.
+- This is consistent across `parameters`, `_dependent_param_exprs`, `rate_equation_string`, `_kcat_forward`. Hand-written analytical formulas should match the rep-step naming, not consecutive 1, 2, 3 numbering.
+
 ### Catalytic topology constraints
 - `_catalytic_topologies(reaction)` generates biochemically plausible catalytic
   topologies using constructive backtracking with these constraints:

@@ -1089,4 +1089,36 @@ end
          ((:EA,), (:E,), false, 2),
          ((:EA,), (:E, :P), true, 3)),
     )
+
+    # Regression: T-state binding K's must be in Kd convention even when
+    # `:OnlyR` and `:NonequalRT` catalytic groups coexist. Without the fix,
+    # the flat-poly path in _allosteric_num_den_exprs renders T-state K's
+    # as `K_T * met` (Ka) instead of `met / K_T` (Kd), silently producing
+    # wrong rates whenever a mechanism mixes these two tags. Regression
+    # for src/rate_eq_derivation.jl:1395-1396.
+    cm_mix = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            [E, S] ⇌ [ES]
+            [ES] <--> [EP]
+            [EP] ⇌ [E, P]
+        end
+    end
+    m_mix = EnzymeRates.AllostericEnzymeMechanism(
+        cm_mix,
+        (2, ((1, :NonequalRT), (2, :OnlyR))),
+        (((:I,), 2, ((:I, :OnlyT),)),),
+    )
+    p_mix = (K1=0.1, k2f=10.0, K3=0.5,
+             K1_T=10.0, K3_T=10.0,
+             K_I_T_reg1=1.0, L=1.0, Keq=1000.0, E_total=1.0)
+    rate_mix = rate_equation(m_mix, (S=10.0, P=0.0, I=0.0), p_mix)
+    # With Kd convention (correct): rate ≈ 19.79 (R-state catalysis dominates).
+    # With Ka convention (bug): rate ≈ 9.9 — half the correct value.
+    @test isapprox(rate_mix, 19.79; rtol=0.05)
+
+    # Sanity: rate_equation_string emits Kd form for T-state K's.
+    @test occursin("S / K1_T", rate_equation_string(m_mix))
+    @test occursin("P / K3_T", rate_equation_string(m_mix))
 end
