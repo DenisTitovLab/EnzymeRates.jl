@@ -1956,6 +1956,11 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=pfk_rate_analytical,
+            # F6P binding (group 3) is :OnlyR → the Glucose·ATP saturating
+            # pattern is unreachable in T-state, so kcat = catN · k5f
+            # for every regulator corner. Regression test for the
+            # `t_pattern_dead` branch in `_kcat_forward`.
+            analytical_kcat_fn = p -> 4 * p.k5f,
             expected_factored_num=nothing,
             expected_factored_denom=nothing,
         ))
@@ -2089,6 +2094,11 @@ function build_mechanism_test_specs()
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=hk_rate_analytical,
+            # ATP binding (group 2) is :OnlyR → the Glucose·ATP saturating
+            # pattern is unreachable in T-state, so kcat = catN · k6f
+            # for every regulator corner. Regression test for the
+            # `t_pattern_dead` branch in `_kcat_forward`.
+            analytical_kcat_fn = p -> 2 * p.k6f,
             expected_factored_num=nothing,
             expected_factored_denom=nothing,
         ))
