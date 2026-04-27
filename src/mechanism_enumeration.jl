@@ -1277,11 +1277,21 @@ that carry a `__regN?` suffix are stripped to their bare reaction
 name; form names matching the same pattern are stripped when no
 collision would result.
 """
-function EnzymeMechanism(spec::MechanismSpec)
+function EnzymeMechanism(
+    spec::MechanismSpec;
+    exclude_regs::Set{Symbol}=Set{Symbol}(),
+)
     rxn = spec.reaction
     subs = Tuple(s[1] for s in substrates(rxn))
     prods = Tuple(p[1] for p in products(rxn))
-    regs = Tuple(regulators(rxn))
+    # Allosteric regulators belong on regulatory sites, not in the
+    # catalytic mechanism — auto-exclude them from the catalytic
+    # `regulators` list so EnzymeMechanism can be built standalone.
+    auto_exclude = Set{Symbol}(
+        name for (name, role) in regulator_roles(rxn)
+        if role === :allosteric)
+    union!(auto_exclude, exclude_regs)
+    regs = Tuple(r for r in regulators(rxn) if r ∉ auto_exclude)
     met_set = Set{Symbol}()
     for g in (subs, prods, regs); for n in g; push!(met_set, n); end; end
 
@@ -1447,41 +1457,555 @@ function _max_equivalence_constraints(spec::MechanismSpec)
     result
 end
 
-# Expansion moves are stubbed pending Phase 4.2 rewrite.
+# ─── Expansion-Move Helpers ──────────────────────────────────
 
-_expand_re_to_ss(::MechanismSpec) = MechanismSpec[]
-_expand_re_to_ss(::AllostericMechanismSpec) = AllostericMechanismSpec[]
+"""Return the underlying `Vector{StepSpec}` for either spec type."""
+_steps(s::MechanismSpec) = s.steps
+_steps(s::AllostericMechanismSpec) = s.base.steps
 
-_expand_remove_constraint(::MechanismSpec) = MechanismSpec[]
-_expand_remove_constraint(::AllostericMechanismSpec) = AllostericMechanismSpec[]
+_param_count(s::AbstractMechanismSpec) = s.param_count
 
-_expand_add_dead_end_regulator(
-    ::MechanismSpec,
-    @nospecialize(::EnzymeReaction);
+"""
+Return a copy of `spec` with its steps replaced and param_count updated.
+For `AllostericMechanismSpec`, all allosteric-side state is preserved.
+"""
+_with_steps(spec::MechanismSpec, new_steps, new_pc) =
+    MechanismSpec(spec.reaction, new_steps, new_pc)
+
+_with_steps(spec::AllostericMechanismSpec, new_steps, new_pc) =
+    AllostericMechanismSpec(
+        MechanismSpec(spec.base.reaction, new_steps, new_pc),
+        spec.catalytic_n,
+        deepcopy(spec.allosteric_reg_sites),
+        copy(spec.allosteric_multiplicities),
+        copy(spec.group_tags),
+        copy(spec.reg_ligand_tags),
+        new_pc,
+    )
+
+# ─── Expansion Moves ─────────────────────────────────────────
+
+"""
+    _expand_re_to_ss(spec) → Vector{typeof(spec)}
+
+For each kinetic group whose members are all RE, convert the entire
+group to SS (atomic per group). One K (1 param) becomes one (k_f, k_r)
+pair (2 params); for `:NonequalRT` allosteric groups the T-state pair
+doubles the delta. Each variant adds +1 (cheap tag) or +2 (NonequalRT).
+"""
+function _expand_re_to_ss(spec::AbstractMechanismSpec)
+    results = typeof(spec)[]
+    steps = _steps(spec)
+    groups = Dict{Int, Vector{Int}}()
+    for (i, s) in enumerate(steps)
+        push!(get!(groups, s.kinetic_group, Int[]), i)
+    end
+    for (g, idxs) in groups
+        all(steps[i].is_equilibrium for i in idxs) || continue
+        new_steps = copy(steps)
+        for i in idxs
+            old = steps[i]
+            new_steps[i] = StepSpec(
+                old.reactants, old.products, false, g)
+        end
+        delta = _re_to_ss_delta(spec, g)
+        push!(results, _with_steps(
+            spec, new_steps, _param_count(spec) + delta))
+    end
+    results
+end
+
+"""
+ΔP for converting kinetic group `g` from RE to SS. +1 for plain
+mechanisms or allosteric groups with a "cheap" tag (`:EqualRT`,
+`:OnlyR`, `:OnlyT`); +2 for `:NonequalRT` (T-state K also splits
+into kf_T, kr_T).
+"""
+_re_to_ss_delta(::MechanismSpec, ::Int) = 1
+_re_to_ss_delta(spec::AllostericMechanismSpec, g::Int) =
+    get(spec.group_tags, g, :NonequalRT) == :NonequalRT ? 2 : 1
+
+"""
+    _expand_split_kinetic_group(spec) → Vector{typeof(spec)}
+
+For each kinetic group with 2+ members, split one step out into a
+fresh group. Each split adds +1 (RE plain or RE cheap-tag) up to
++4 (SS `:NonequalRT`) to `param_count`, doubling for SS and
+again for `:NonequalRT` (T-state).
+"""
+function _expand_split_kinetic_group(spec::AbstractMechanismSpec)
+    results = typeof(spec)[]
+    steps = _steps(spec)
+    groups = Dict{Int, Vector{Int}}()
+    for (i, s) in enumerate(steps)
+        push!(get!(groups, s.kinetic_group, Int[]), i)
+    end
+    used = isempty(steps) ? 0 :
+        maximum(s.kinetic_group for s in steps)
+    next_g = used + 1
+    for (g, idxs) in groups
+        length(idxs) >= 2 || continue
+        for split_idx in idxs
+            new_g = next_g
+            new_steps = copy(steps)
+            old = steps[split_idx]
+            new_steps[split_idx] = StepSpec(
+                old.reactants, old.products,
+                old.is_equilibrium, new_g)
+            delta = _split_group_delta(
+                spec, g, old.is_equilibrium)
+            push!(results, _with_steps(
+                spec, new_steps, _param_count(spec) + delta))
+        end
+        next_g += 1
+    end
+    results
+end
+
+"""
+ΔP for splitting one step out of kinetic group `g`. Base: +1 (RE)
+or +2 (SS). For `:NonequalRT` allosteric groups: doubled (T-state
+pair also splits).
+"""
+_split_group_delta(::MechanismSpec, ::Int, is_re::Bool) =
+    is_re ? 1 : 2
+
+function _split_group_delta(
+    spec::AllostericMechanismSpec, g::Int, is_re::Bool,
+)
+    base = is_re ? 1 : 2
+    tag = get(spec.group_tags, g, :NonequalRT)
+    tag == :NonequalRT ? 2 * base : base
+end
+
+# Backward-compat name retained for tests; same body as
+# `_expand_split_kinetic_group`.
+const _expand_remove_constraint = _expand_split_kinetic_group
+
+"""
+    _expand_add_dead_end_regulator(spec, reaction; exclude_regs)
+        → Vector{typeof(spec)}
+
+Add a dead-end regulator binding step set. For each regulator not
+yet present, enumerate inhibitor competition patterns (S × P × existing
+inhibitors); for each pattern, add RE binding steps to forms where the
+competing metabolite has a binding step and the form isn't already
+bound by any competing metabolite. Mirror steps inherit their
+catalytic counterpart's `kinetic_group`. All new binding steps for a
+single regulator share one new kinetic group (one K_R parameter).
+
+Each variant adds +1 to `param_count`.
+"""
+function _expand_add_dead_end_regulator(
+    spec::AbstractMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction);
     exclude_regs::Set{Symbol}=Set{Symbol}(),
-) = MechanismSpec[]
+)
+    roles = regulator_roles(reaction)
+    isempty(roles) && return typeof(spec)[]
 
-_expand_add_dead_end_regulator(
-    ::AllostericMechanismSpec,
-    @nospecialize(::EnzymeReaction);
-    exclude_regs::Set{Symbol}=Set{Symbol}(),
-) = AllostericMechanismSpec[]
+    steps = _steps(spec)
+    sub_names = Set(s[1] for s in substrates(reaction))
+    prod_names = Set(p[1] for p in products(reaction))
 
-_expand_to_allosteric(
-    ::MechanismSpec, @nospecialize(::EnzymeReaction),
-) = AllostericMechanismSpec[]
+    # Allosteric ligands (if any) are excluded — dead-end is
+    # not the right move for them.
+    allo_ligands = Set{Symbol}()
+    if spec isa AllostericMechanismSpec
+        for site in spec.allosteric_reg_sites
+            for l in site
+                push!(allo_ligands, l)
+            end
+        end
+    end
+
+    existing_mets = Set{Symbol}()
+    for s in steps
+        for sym in Iterators.flatten((s.reactants, s.products))
+            push!(existing_mets, sym)
+        end
+    end
+
+    eligible_regs = Symbol[]
+    for (name, role) in roles
+        (role == :unknown || role == :dead_end) || continue
+        name in exclude_regs && continue
+        name in allo_ligands && continue
+        reg_prefix = string(name) * "__reg"
+        already = any(
+            contains(string(m), reg_prefix)
+            for m in existing_mets)
+        already && continue
+        push!(eligible_regs, name)
+    end
+    sort!(eligible_regs)
+    isempty(eligible_regs) && return typeof(spec)[]
+
+    bound = _bound_metabolites_at_forms(
+        _base_or_self(spec), reaction)
+    cat_forms = all_form_names(steps)
+
+    cat_step_groups = Dict{Tuple{Symbol,Symbol}, Int}()
+    for s in steps
+        cat_step_groups[step_forms(s)] = s.kinetic_group
+    end
+
+    used_g = isempty(steps) ? 0 :
+        maximum(s.kinetic_group for s in steps)
+    next_g = used_g + 1
+
+    results = typeof(spec)[]
+
+    for reg in eligible_regs
+        dummy = Symbol(string(reg) * "__reg")
+
+        eligible_forms = Symbol[]
+        for f in sort(collect(cat_forms))
+            haskey(bound, f) || continue
+            fb = bound[f]
+            (intersect(fb, sub_names) == sub_names ||
+                intersect(fb, prod_names) == prod_names) &&
+                continue
+            push!(eligible_forms, f)
+        end
+        isempty(eligible_forms) && continue
+
+        existing_inhibitors = Symbol[]
+        for s in steps
+            met = step_metabolite(s)
+            met === nothing && continue
+            s_met = string(met)
+            contains(s_met, "__reg") || continue
+            met === dummy && continue
+            push!(existing_inhibitors, met)
+        end
+        sort!(unique!(existing_inhibitors))
+
+        inh_patterns = _inhibitor_competition_patterns(
+            sub_names, prod_names, existing_inhibitors)
+        seen = Set{Vector{Symbol}}()
+
+        for (comp_subs, comp_prods, comp_inhibitors) in inh_patterns
+            target_forms = Set{Symbol}()
+            for met in comp_subs
+                union!(target_forms,
+                    _forms_with_binding_step(steps, met))
+            end
+            for met in comp_prods
+                union!(target_forms,
+                    _forms_with_binding_step(steps, met))
+            end
+            for inh in comp_inhibitors
+                union!(target_forms,
+                    _forms_with_binding_step(steps, inh))
+            end
+
+            all_competing = union(
+                comp_subs, comp_prods, comp_inhibitors)
+            active = Symbol[]
+            for f in sort(collect(target_forms))
+                f in eligible_forms || continue
+                haskey(bound, f) || continue
+                isempty(intersect(
+                    bound[f], all_competing)) || continue
+                push!(active, f)
+            end
+
+            isempty(active) && continue
+            active in seen && continue
+            push!(seen, active)
+
+            new_steps = copy(steps)
+            de_form_map = Dict{Symbol, Symbol}()
+            reg_g = next_g
+
+            for cf in active
+                de_name = _dead_end_form_name(
+                    cf, bound[cf], dummy)
+                de_form_map[cf] = de_name
+                push!(new_steps, StepSpec(
+                    [cf, dummy], [de_name], true, reg_g))
+            end
+
+            for s in steps
+                from, to = step_forms(s)
+                haskey(de_form_map, from) || continue
+                haskey(de_form_map, to) || continue
+                met = step_metabolite(s)
+                from_de = de_form_map[from]
+                to_de = de_form_map[to]
+                g = s.kinetic_group
+                if met !== nothing
+                    push!(new_steps, StepSpec(
+                        [from_de, met], [to_de],
+                        s.is_equilibrium, g))
+                else
+                    push!(new_steps, StepSpec(
+                        [from_de], [to_de],
+                        s.is_equilibrium, g))
+                end
+            end
+
+            push!(results, _dead_end_with_steps(
+                spec, new_steps, reg_g))
+            next_g = reg_g + 1
+        end
+    end
+    results
+end
+
+_base_or_self(spec::MechanismSpec) = spec
+_base_or_self(spec::AllostericMechanismSpec) = spec.base
+
+"""
+Build the new spec after adding a dead-end regulator's binding-step
+kinetic group. For plain mechanisms: just +1. For allosteric: tag
+the new group `:EqualRT` so it's one shared K (no extra T-state),
+keeping the allosteric move at +1.
+"""
+_dead_end_with_steps(spec::MechanismSpec, new_steps, _new_g) =
+    MechanismSpec(spec.reaction, new_steps, spec.param_count + 1)
+
+function _dead_end_with_steps(
+    spec::AllostericMechanismSpec, new_steps, new_g::Int,
+)
+    new_tags = copy(spec.group_tags)
+    new_tags[new_g] = :EqualRT
+    AllostericMechanismSpec(
+        MechanismSpec(spec.base.reaction, new_steps,
+            spec.param_count + 1),
+        spec.catalytic_n,
+        deepcopy(spec.allosteric_reg_sites),
+        copy(spec.allosteric_multiplicities),
+        new_tags, copy(spec.reg_ligand_tags),
+        spec.param_count + 1)
+end
+
+"""
+    _expand_to_allosteric(spec, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Convert a non-allosteric `MechanismSpec` to allosteric. Per-group
+tag enumeration: for each kinetic group, emit a variant where THAT
+group carries a non-`:NonequalRT` tag and ALL OTHER groups carry
+`:EqualRT` (the cheapest non-default tag). Tag choices:
+`{:OnlyR, :OnlyT, :EqualRT}`. Iso-only groups skip `:OnlyT`
+(forbidden by the `AllostericEnzymeMechanism` constructor).
+
+Cost: +1 (for `L`). Other tag deltas are zero relative to the
+all-`:EqualRT` baseline.
+"""
+function _expand_to_allosteric(
+    spec::MechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    cn = oligomeric_state(reaction)
+    base_pc = spec.param_count
+
+    group_info = _group_info(spec.steps)
+    groups_sorted = sort!(collect(keys(group_info)))
+
+    # Default tag for "untouched" groups in this enumeration is
+    # :EqualRT — the cheapest reasonable value.
+    base_tags = Dict{Int, Symbol}(g => :EqualRT for g in groups_sorted)
+
+    results = AllostericMechanismSpec[]
+    for g in groups_sorted
+        _, iso_only = group_info[g]
+        for tag in (:OnlyR, :OnlyT, :EqualRT)
+            tag == :OnlyT && iso_only && continue
+            new_tags = copy(base_tags)
+            new_tags[g] = tag
+            push!(results, AllostericMechanismSpec(
+                spec, cn,
+                Vector{Symbol}[], Int[],
+                new_tags, Dict{Symbol, Symbol}(),
+                base_pc + 1))
+        end
+    end
+    results
+end
 
 _expand_to_allosteric(
     ::AllostericMechanismSpec, @nospecialize(::EnzymeReaction),
 ) = AllostericMechanismSpec[]
 
+"""
+Map kinetic_group → (is_re::Bool, iso_only::Bool). `iso_only` flags
+groups whose members are all isomerization steps (no metabolite).
+"""
+function _group_info(steps::Vector{StepSpec})
+    info = Dict{Int, Tuple{Bool, Bool}}()
+    members = Dict{Int, Vector{Int}}()
+    for (i, s) in enumerate(steps)
+        push!(get!(members, s.kinetic_group, Int[]), i)
+    end
+    for (g, idxs) in members
+        is_re = steps[idxs[1]].is_equilibrium
+        iso_only = all(
+            step_metabolite(steps[i]) === nothing for i in idxs)
+        info[g] = (is_re, iso_only)
+    end
+    info
+end
+
+"""
+ΔP when a kinetic group's tag changes from `from` to `to`. Group cost:
+1 param for `:EqualRT`/`:OnlyR`/`:OnlyT`, 2 params for `:NonequalRT`.
+RE groups have 1 K-style param per "unit"; SS groups have 2 (kf + kr).
+"""
+function _allo_tag_delta(from::Symbol, to::Symbol, is_re::Bool)
+    cost = t -> (t == :NonequalRT ? 2 : 1)
+    factor = is_re ? 1 : 2
+    factor * (cost(to) - cost(from))
+end
+
+"""
+ΔP when a regulatory ligand's tag changes from `from` to `to`. Each
+ligand contributes 1 binding K per state — `:NonequalRT` has K_R + K_T
+(2 params), `:EqualRT`/`:OnlyR`/`:OnlyT` have 1.
+"""
+function _allo_lig_tag_delta(from::Symbol, to::Symbol)
+    cost = t -> (t == :NonequalRT ? 2 : 1)
+    cost(to) - cost(from)
+end
+
+"""
+    _expand_add_allosteric_regulator(spec, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Add one allosteric regulator (not already present) to the mechanism,
+either at a new regulatory site or at an existing one. For each
+ligand × site option × tag flavor, emit a variant. Each variant adds
++1 (one K_R per reg site) plus a per-tag delta on top.
+"""
+function _expand_add_allosteric_regulator(
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    existing_allo = Set{Symbol}()
+    for site in spec.allosteric_reg_sites
+        for lig in site
+            push!(existing_allo, lig)
+        end
+    end
+
+    existing_de = Set{Symbol}()
+    for s in spec.base.steps
+        for sym in Iterators.flatten((s.reactants, s.products))
+            m = match(r"^(.+)__reg\d*$", string(sym))
+            m !== nothing &&
+                push!(existing_de, Symbol(m.captures[1]))
+        end
+    end
+
+    roles = regulator_roles(reaction)
+    new_regs = Symbol[]
+    for (name, role) in roles
+        (role == :unknown || role == :allosteric) || continue
+        name in existing_allo && continue
+        name in existing_de && continue
+        push!(new_regs, name)
+    end
+    sort!(new_regs)
+    isempty(new_regs) && return AllostericMechanismSpec[]
+
+    results = AllostericMechanismSpec[]
+    for reg in new_regs
+        n_sites = length(spec.allosteric_reg_sites)
+        for tag in (:OnlyR, :OnlyT, :NonequalRT)
+            for site_idx in 0:n_sites
+                new_sites = deepcopy(spec.allosteric_reg_sites)
+                new_mults = copy(spec.allosteric_multiplicities)
+                new_lig_tags = copy(spec.reg_ligand_tags)
+
+                if site_idx == 0
+                    push!(new_sites, Symbol[reg])
+                    push!(new_mults, spec.catalytic_n)
+                else
+                    push!(new_sites[site_idx], reg)
+                end
+                new_lig_tags[reg] = tag
+
+                # Cost: one K binding param at this site (+1) plus
+                # a per-tag delta vs the default `:EqualRT` "free"
+                # cost which already adds 1.
+                delta_cost = _allo_lig_tag_delta(:EqualRT, tag) + 1
+
+                push!(results, AllostericMechanismSpec(
+                    spec.base, spec.catalytic_n,
+                    new_sites, new_mults,
+                    copy(spec.group_tags), new_lig_tags,
+                    spec.param_count + delta_cost))
+            end
+        end
+    end
+    results
+end
+
 _expand_add_allosteric_regulator(
-    ::AbstractMechanismSpec, @nospecialize(::EnzymeReaction),
+    ::MechanismSpec, @nospecialize(::EnzymeReaction),
 ) = AllostericMechanismSpec[]
 
+"""
+    _expand_remove_tr_equiv(spec, reaction)
+        → Vector{AllostericMechanismSpec}
+
+Change one tag from a "constrained" tag (`:EqualRT`, `:OnlyR`,
+`:OnlyT`) to `:NonequalRT`, or remove an entry from the
+`group_tags`/`reg_ligand_tags` Dicts (Dict-absence defaults to
+`:NonequalRT` so the two operations are equivalent). Each variant
+adds the corresponding param delta.
+
+For an iso-only group already at `:OnlyR`, the `:OnlyT` direction
+is forbidden by the constructor — but the move only goes to
+`:NonequalRT` so this isn't a concern here.
+"""
+function _expand_remove_tr_equiv(
+    spec::AllostericMechanismSpec,
+    @nospecialize(reaction::EnzymeReaction),
+)
+    base_steps = spec.base.steps
+    group_info = _group_info(base_steps)
+    results = AllostericMechanismSpec[]
+
+    for (g, tag) in spec.group_tags
+        haskey(group_info, g) || continue
+        is_re, _ = group_info[g]
+        delta = _allo_tag_delta(tag, :NonequalRT, is_re)
+        new_tags = copy(spec.group_tags)
+        delete!(new_tags, g)
+        push!(results, AllostericMechanismSpec(
+            spec.base, spec.catalytic_n,
+            deepcopy(spec.allosteric_reg_sites),
+            copy(spec.allosteric_multiplicities),
+            new_tags, copy(spec.reg_ligand_tags),
+            spec.param_count + delta))
+    end
+
+    for (lig, tag) in spec.reg_ligand_tags
+        delta = _allo_lig_tag_delta(tag, :NonequalRT)
+        new_lig_tags = copy(spec.reg_ligand_tags)
+        delete!(new_lig_tags, lig)
+        push!(results, AllostericMechanismSpec(
+            spec.base, spec.catalytic_n,
+            deepcopy(spec.allosteric_reg_sites),
+            copy(spec.allosteric_multiplicities),
+            copy(spec.group_tags), new_lig_tags,
+            spec.param_count + delta))
+    end
+
+    results
+end
+
 _expand_remove_tr_equiv(
-    ::AbstractMechanismSpec, @nospecialize(::EnzymeReaction),
+    ::MechanismSpec, @nospecialize(::EnzymeReaction),
 ) = AllostericMechanismSpec[]
+
+# Alias used by callers that prefer the spec name; identical to
+# `_expand_remove_tr_equiv` (which only ever moves a tag to
+# `:NonequalRT`, the more-flexible default).
+const _expand_change_group_tag = _expand_remove_tr_equiv
 
 """
     AllostericEnzymeMechanism(spec::AllostericMechanismSpec) →
@@ -1493,7 +2017,16 @@ site contributes its ligand list, multiplicity, and the
 non-default per-ligand tag entries.
 """
 function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
-    cm = EnzymeMechanism(spec.base)
+    # Allosteric ligands sit at reg sites in the assembled allosteric
+    # mechanism; they don't appear in the catalytic-cycle steps and
+    # must not show up in the catalytic `EnzymeMechanism`'s
+    # `regulators` list.
+    allo_set = Set{Symbol}()
+    for site in spec.allosteric_reg_sites
+        for l in site; push!(allo_set, l); end
+    end
+    cm = EnzymeMechanism(spec.base; exclude_regs=allo_set)
+
     sorted_groups = sort(collect(spec.group_tags); by=first)
     group_tags = Tuple((g, t) for (g, t) in sorted_groups)
     cat_sites = (spec.catalytic_n, group_tags)

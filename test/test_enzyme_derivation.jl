@@ -1020,12 +1020,11 @@ end
             EnzymeRates.all_form_names(s))
         n_forms >= 15 || continue
         all_ss = [EnzymeRates.StepSpec(
-            st.reactants, st.products, false)
+            st.reactants, st.products, false,
+            st.kinetic_group)
             for st in s.steps]
         spec = EnzymeRates.MechanismSpec(
-            s.reaction, all_ss,
-            s.param_constraints,
-            s.param_count)
+            s.reaction, all_ss, s.param_count)
         try
             m_enum = EnzymeMechanism(spec)
             parameters(m_enum)

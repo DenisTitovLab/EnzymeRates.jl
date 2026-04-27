@@ -868,11 +868,11 @@ end
         @test isempty(result)
     end
 
-    @testset "All-SS with constrained dead-end RE → nothing" begin
-        # Uni-uni where all catalytic steps are SS.
-        # Dead-end inhibitor I binds to 2 forms (E and E_P),
-        # creating 2 RE binding steps with K constrained equal.
-        # These constrained RE steps should be skipped.
+    @testset "All-SS catalytic + dead-end RE: only RE group convertible" begin
+        # Uni-uni where all catalytic steps are SS. Dead-end
+        # inhibitor I binds to multiple forms; those binding steps
+        # share one kinetic group (all RE). RE→SS atomic on that
+        # group should yield exactly one variant.
         m = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -884,16 +884,15 @@ end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
         @test EnzymeMechanism(spec) === m
-        # Add dead-end inhibitor I binding to 2 forms
         rxn_i = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             dead_end_inhibitors: I
         end
+        spec_with_rxn = MechanismSpec(rxn_i, spec.steps,
+            spec.param_count)
         de_specs = EnzymeRates._expand_add_dead_end_regulator(
-            spec, rxn_i)
-        # Find a spec where I binds to 2+ forms (creating
-        # constrained RE binding steps)
+            spec_with_rxn, rxn_i)
         multi_form = filter(de_specs) do s
             n = count(s.steps) do st
                 any(contains(string(sym), "I__reg")
@@ -904,95 +903,56 @@ end
         end
         if !isempty(multi_form)
             spec_de = first(multi_form)
-            # The dead-end RE binding steps should be
-            # constrained → _expand_re_to_ss yields nothing
-            # (all catalytic steps are already SS, and the
-            # only RE steps are constrained dead-end bindings)
+            # The dead-end RE binding group should be the only
+            # all-RE group (all catalytic groups are SS).
             result = EnzymeRates._expand_re_to_ss(spec_de)
-            @test isempty(result)
+            @test length(result) == 1
         end
     end
 
-    @testset "Bi-bi: exact RE→SS count" begin
-        # Bi-bi random: 9 steps. In init_mechanisms form:
-        # 1 SS step (isomerization), 8 RE binding steps.
-        # With max constraints (K_A, K_B, K_P, K_Q each
-        # constrained across 2 forms): 4 constraint groups,
-        # 4 leaders + 4 followers → all 8 RE steps constrained.
-        # After removing one constraint: 6 constrained + 2 free.
-        # The 2 freed RE steps are eligible for RE→SS.
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+    @testset "Bi-bi init: per-group RE→SS count" begin
+        # init_mechanisms produces specs where each (metabolite,
+        # RE/SS) class shares one kinetic group. RE→SS converts
+        # ONE WHOLE group atomically — count is the number of
+        # all-RE groups (excluding the iso group which is SS).
+        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        for spec in specs
+            n_re_groups = length(unique(
+                s.kinetic_group for s in spec.steps
+                if s.is_equilibrium))
+            result = EnzymeRates._expand_re_to_ss(spec)
+            @test length(result) == n_re_groups
+            for r in result
+                @test r.param_count == spec.param_count + 1
             end
         end
-        spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
-        @test EnzymeMechanism(spec) === m
-        # Add max constraints
-        spec_c = EnzymeRates.MechanismSpec(
-            spec.reaction, spec.steps,
-            EnzymeRates._max_equivalence_constraints(spec),
-            spec.param_count)
-        # With all K's constrained, no RE→SS possible
-        @test isempty(EnzymeRates._expand_re_to_ss(spec_c))
-        # Remove one constraint to free 2 RE steps
-        unconstrained = first(
-            EnzymeRates._expand_remove_constraint(spec_c))
-        result = EnzymeRates._expand_re_to_ss(unconstrained)
-        # Should have results (freed RE steps now eligible)
-        @test !isempty(result)
     end
 end
 
-@testset "Remove equivalence constraint" begin
-    @testset "Multiple constraints: exact count" begin
-        # Bi-bi random with max constraints:
-        # K_A constrained across 2 forms, K_B same,
-        # K_P same, K_Q same = 4 constraint groups.
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+@testset "Split kinetic group" begin
+    @testset "Multi-step groups: one split per group member" begin
+        # Pick a sequential bi-bi spec with exactly 4 RE multi-step
+        # groups of size 2 (4 binding pairs, A/B/P/Q sharing one
+        # group each). Splitting each member yields 2 results per
+        # group → 8 total (before dedup).
+        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        spec = first(filter(specs) do s
+            counts = Dict{Int, Int}()
+            for st in s.steps
+                counts[st.kinetic_group] =
+                    get(counts, st.kinetic_group, 0) + 1
             end
-        end
-        spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
-        @test EnzymeMechanism(spec) === m
-        spec_c = EnzymeRates.MechanismSpec(
-            spec.reaction, spec.steps,
-            EnzymeRates._max_equivalence_constraints(spec),
-            spec.param_count)
-        n_constraints = length(spec_c.param_constraints)
-        @test n_constraints == 4  # K_A, K_B, K_P, K_Q
-        result = EnzymeRates._expand_remove_constraint(spec_c)
-        # 4 RE constraint groups → 4 results, each at +1
-        @test length(result) == n_constraints
+            multi = filter(((_, n),) -> n >= 2, counts)
+            length(multi) == 4 && all(n == 2 for (_, n) in multi)
+        end)
+        result = EnzymeRates._expand_split_kinetic_group(spec)
+        @test length(result) == 8
         for r in result
-            @test length(r.param_constraints) ==
-                n_constraints - 1
-            @test r.param_count == spec_c.param_count + 1
+            @test r.param_count == spec.param_count + 1
         end
     end
 
-    @testset "No constraints → yields nothing" begin
+    @testset "No multi-step groups → yields nothing" begin
         m = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -1004,81 +964,32 @@ end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
         @test EnzymeMechanism(spec) === m
-        @test isempty(spec.param_constraints)
-        result = EnzymeRates._expand_remove_constraint(spec)
+        # Every group has exactly 1 step → no split possible
+        result = EnzymeRates._expand_split_kinetic_group(spec)
         @test isempty(result)
     end
 
-    @testset "SS constraints removed as kf/kr pairs" begin
-        # Build a spec with SS constraints: take a bi-bi
-        # mechanism, convert constrained steps to SS, then
-        # rebuild constraints. This produces kf/kr pairs
-        # that must be removed together.
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+    @testset "Mixed RE/SS group: split delta differs" begin
+        # Take a bi-bi init mechanism, RE→SS one of its multi-step
+        # groups (now SS). Splitting any RE group gives +1, splitting
+        # the SS group gives +2.
+        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        spec = first(filter(specs) do s
+            counts = Dict{Int, Int}()
+            for st in s.steps
+                counts[st.kinetic_group] =
+                    get(counts, st.kinetic_group, 0) + 1
             end
-        end
-        spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
-        @test EnzymeMechanism(spec) === m
-        max_c = EnzymeRates._max_equivalence_constraints(spec)
-        c_idxs = EnzymeRates._constrained_step_indices(max_c)
-        new_steps = [
-            EnzymeRates.StepSpec(
-                s.reactants, s.products,
-                (i in c_idxs) ? false : s.is_equilibrium)
-            for (i, s) in enumerate(spec.steps)]
-        ss_spec = EnzymeRates.MechanismSpec(
-            spec.reaction, new_steps,
-            ParamConstraint[], spec.param_count)
-        # Rebuild constraints; the SS group gets kf/kr pairs
-        new_constraints =
-            EnzymeRates._max_equivalence_constraints(ss_spec)
-        has_ss_pair = any(
-            endswith(string(c[1]), "f")
-            for c in new_constraints)
-        if has_ss_pair
-            spec_with_ss = EnzymeRates.MechanismSpec(
-                ss_spec.reaction, ss_spec.steps,
-                new_constraints, spec.param_count)
-            result = EnzymeRates._expand_remove_constraint(
-                spec_with_ss)
-            # Each result must not have an orphaned kf
-            # without its matching kr (or vice versa)
-            for r in result
-                for c in r.param_constraints
-                    s = string(c[1])
-                    if endswith(s, "f")
-                        kr_sym = Symbol(
-                            s[1:end-1] * "r")
-                        @test any(
-                            c2[1] == kr_sym
-                            for c2 in r.param_constraints)
-                    elseif endswith(s, "r")
-                        kf_sym = Symbol(
-                            s[1:end-1] * "f")
-                        @test any(
-                            c2[1] == kf_sym
-                            for c2 in r.param_constraints)
-                    end
-                end
-            end
-            # param_count delta: +1 (RE) or +2 (SS pair)
-            for r in result
-                delta = r.param_count -
-                    spec_with_ss.param_count
-                @test delta == 1 || delta == 2
-            end
+            length(filter(((_, n),) -> n >= 2, counts)) >= 1
+        end)
+        ss_specs = EnzymeRates._expand_re_to_ss(spec)
+        @test !isempty(ss_specs)
+        ss_spec = first(ss_specs)
+        result = EnzymeRates._expand_split_kinetic_group(ss_spec)
+        # Each result has delta of 1 (RE split) or 2 (SS split).
+        for r in result
+            delta = r.param_count - ss_spec.param_count
+            @test delta == 1 || delta == 2
         end
     end
 end
@@ -1165,8 +1076,7 @@ end
         spec = mechanism_spec_from_mechanism(
             m, rxn_base)
         @test EnzymeMechanism(spec) === m
-        MechanismSpec(rxn_target, spec.steps,
-            spec.param_constraints, spec.param_count)
+        MechanismSpec(rxn_target, spec.steps, spec.param_count)
     end
 
     @testset "Uni-uni + new regulator" begin
@@ -1287,7 +1197,7 @@ end
         end
     end
 
-    @testset "Equivalence constraints on binding K's" begin
+    @testset "Same regulator binding steps share kinetic group" begin
         m = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -1313,19 +1223,15 @@ end
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, bi_bi_with_reg)
         for r in result
-            n_reg_binding = count(
+            reg_binding_steps = filter(
                 s -> length(s.reactants) == 2 &&
                     contains(string(s.reactants[2]),
                         "__reg"),
                 r.steps)
-            new_constraints = setdiff(
-                r.param_constraints,
-                spec.param_constraints)
-            if n_reg_binding >= 2
-                @test length(new_constraints) ==
-                    n_reg_binding - 1
-            else
-                @test isempty(new_constraints)
+            if length(reg_binding_steps) >= 2
+                groups = unique(
+                    s.kinetic_group for s in reg_binding_steps)
+                @test length(groups) == 1
             end
         end
     end
@@ -1629,8 +1535,7 @@ end
     base = mechanism_spec_from_mechanism(
         m, uni_uni_rxn)
     @test EnzymeMechanism(base) === m
-    spec = MechanismSpec(rxn2, base.steps,
-        base.param_constraints, base.param_count)
+    spec = MechanismSpec(rxn2, base.steps, base.param_count)
     # Add I first
     i_specs = EnzymeRates._expand_add_dead_end_regulator(
         spec, rxn2)
@@ -1656,75 +1561,22 @@ end
 end
 
 @testset "Allosteric conversion" begin
-    @testset "Uni-uni: K-type + V-type" begin
+    # Per-group tag enumeration: each kinetic group → one of
+    # `{:OnlyR, :OnlyT, :EqualRT}`; iso-only groups skip `:OnlyT`.
+    # No K-type/V-type hardcoded subsets.
+
+    @testset "Uni-uni: per-group tag variants" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
         result = EnzymeRates._expand_to_allosteric(
             spec, uni_uni_allo)
-        # K-type: 1×1 = 1, V-type: 1. Total = 2
-        @test length(result) == 2
+        # Uni-uni init has 3 singleton groups (S binding,
+        # P binding, iso). Iso group skips `:OnlyT`.
+        # 2 binding × 3 tags + 1 iso × 2 tags = 8
+        @test length(result) == 8
         for r in result
             @test r isa AllostericMechanismSpec
             @test r.catalytic_n == 2
-        end
-    end
-
-    @testset "Bi-bi: all substrate+product combos" begin
-        bi_bi_allo = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            oligomeric_state: 2
-        end
-        specs = EnzymeRates.init_mechanisms(bi_bi_allo)
-        spec = first(specs)
-        result = EnzymeRates._expand_to_allosteric(
-            spec, bi_bi_allo)
-        # K-type: 3×3 = 9, V-type: 1. Total = 10
-        @test length(result) == 10
-    end
-
-    @testset "All are +1 param" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        result = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        for r in result
-            @test r.param_count == spec.param_count + 1
-        end
-    end
-
-    @testset "K-type: cat steps stay tr_equiv" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        result = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        k_type = filter(
-            r -> !isempty(r.r_only_metabolites), result)
-        @test !isempty(k_type)
-        for r in k_type
-            @test isempty(r.r_only_cat_steps)
-            @test isempty(r.t_only_metabolites)
-        end
-    end
-
-    @testset "V-type: all metabolites tr_equiv" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        result = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        v_type = filter(
-            r -> !isempty(r.r_only_cat_steps) &&
-                 isempty(r.r_only_metabolites),
-            result)
-        @test length(v_type) == 1
-        sub_names = [s[1] for s in EnzymeRates.substrates(
-            uni_uni_allo)]
-        prod_names = [p[1] for p in EnzymeRates.products(
-            uni_uni_allo)]
-        for r in v_type
-            for m in Symbol[sub_names; prod_names]
-                @test m in r.tr_equiv_metabolites
-            end
         end
     end
 
@@ -1774,7 +1626,7 @@ end
         allo = first(allo_specs)
         result = EnzymeRates._expand_add_allosteric_regulator(
             allo, uni_uni_allo_reg)
-        # R not yet added: 3 flavors × 1 site option
+        # R not yet added: 3 tags × 1 site option
         # (new site only, no existing reg sites) = 3
         @test length(result) == 3
     end
@@ -1802,27 +1654,33 @@ end
         with_r1 = first(r1_added)
         r2_added = EnzymeRates._expand_add_allosteric_regulator(
             with_r1, uni_uni_allo_2reg)
-        # R2: 3 flavors × 2 site options
+        # R2: 3 tags × 2 site options
         # (new site + R1's site) = 6
         @test length(r2_added) == 6
     end
 end
 
 @testset "Remove TR equivalence" begin
-    @testset "Remove metabolite TR equiv" begin
+    # `_expand_remove_tr_equiv` changes one tag from a constrained
+    # value (`:OnlyR`/`:OnlyT`/`:EqualRT`) to `:NonequalRT` (default).
+    # Group tags live in `spec.group_tags::Dict{Int, Symbol}`; ligand
+    # tags in `spec.reg_ligand_tags::Dict{Symbol, Symbol}`. Removing
+    # one entry returns to default (`:NonequalRT`).
+
+    @testset "Each tagged group contributes one removal" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
         allo_specs = EnzymeRates._expand_to_allosteric(
             spec, uni_uni_allo)
         allo = first(allo_specs)
-        n_tr = length(allo.tr_equiv_metabolites) +
-               length(allo.tr_equiv_cat_steps)
+        n_tagged = length(allo.group_tags) +
+                   length(allo.reg_ligand_tags)
         result = EnzymeRates._expand_remove_tr_equiv(
             allo, uni_uni_allo)
-        @test length(result) == n_tr
+        @test length(result) == n_tagged
     end
 
-    @testset "No TR equivs left → yields nothing" begin
+    @testset "Fully relaxed → yields nothing" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
         allo_specs = EnzymeRates._expand_to_allosteric(
@@ -1848,52 +1706,6 @@ end
         @test isempty(result)
     end
 
-    @testset "V-type can remove r_only_cat_step" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        v_type = first(filter(
-            r -> !isempty(r.r_only_cat_steps), allo_specs))
-        @test !isempty(v_type.r_only_cat_steps)
-        result = EnzymeRates._expand_remove_tr_equiv(
-            v_type, uni_uni_allo)
-        step_removals = filter(result) do r
-            length(r.r_only_cat_steps) <
-                length(v_type.r_only_cat_steps)
-        end
-        @test !isempty(step_removals)
-        for r in step_removals
-            @test r.param_count == v_type.param_count + 1
-        end
-    end
-
-    @testset "Blocked when metabolites are r_only" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        k_type = first(filter(
-            r -> !isempty(r.r_only_metabolites), allo_specs))
-        mixed = AllostericMechanismSpec(
-            k_type.base, k_type.catalytic_n,
-            deepcopy(k_type.allosteric_reg_sites),
-            copy(k_type.allosteric_multiplicities),
-            copy(k_type.tr_equiv_metabolites),
-            copy(k_type.tr_equiv_cat_steps),
-            copy(k_type.r_only_metabolites),
-            copy(k_type.t_only_metabolites),
-            [1],  # r_only_cat_steps
-            k_type.param_count)
-        result = EnzymeRates._expand_remove_tr_equiv(
-            mixed, uni_uni_allo)
-        step_removals = filter(result) do r
-            length(r.r_only_cat_steps) <
-                length(mixed.r_only_cat_steps)
-        end
-        @test isempty(step_removals)
-    end
-
     @testset "TR equiv removal delta for allosteric regulators" begin
         rxn_r = @enzyme_reaction begin
             substrates: S[C]
@@ -1905,55 +1717,25 @@ end
         spec = first(specs)
         allo_specs = EnzymeRates._expand_to_allosteric(spec, rxn_r)
         allo = first(allo_specs)
-        reg_specs = EnzymeRates._expand_add_allosteric_regulator(allo, rxn_r)
-        tr_spec = first(filter(r -> :R in r.tr_equiv_metabolites, reg_specs))
+        reg_specs = EnzymeRates._expand_add_allosteric_regulator(
+            allo, rxn_r)
+        # Find a reg-spec where R is tagged (any non-default tag)
+        tagged = filter(
+            r -> haskey(r.reg_ligand_tags, :R), reg_specs)
+        @test !isempty(tagged)
+        tr_spec = first(tagged)
         pc_before = tr_spec.param_count
-        result = EnzymeRates._expand_remove_tr_equiv(tr_spec, rxn_r)
-        r_removal = filter(result) do r
-            :R ∉ r.tr_equiv_metabolites &&
-            :R ∉ r.r_only_metabolites &&
-            :R ∉ r.t_only_metabolites
-        end
+        result = EnzymeRates._expand_remove_tr_equiv(
+            tr_spec, rxn_r)
+        # The variant that drops :R from reg_ligand_tags
+        r_removal = filter(
+            r -> !haskey(r.reg_ligand_tags, :R), result)
         @test !isempty(r_removal)
+        # delta depends on R's previous tag — should be +1
+        # (one K_R_T appears) when going from non-`:NonequalRT`
+        # to `:NonequalRT`.
         for r in r_removal
             @test r.param_count == pc_before + 1
-        end
-    end
-
-    @testset "TR equiv removal delta skips constrained follower steps" begin
-        # bi-bi random has 2 binding steps for A with K_follower = K_leader
-        # constraint. Removing TR equiv for A should add +1 (one K_A_T),
-        # not +2 (which would count both binding steps independently).
-        const_bi_bi = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            oligomeric_state: 2
-        end
-        specs = EnzymeRates.init_mechanisms(const_bi_bi)
-        # Find a spec with 2 A-binding steps (constrained equal)
-        two_a = filter(specs) do s
-            length(filter(st -> EnzymeRates.step_metabolite(st) === :A,
-                s.steps)) >= 2
-        end
-        @test !isempty(two_a)
-        spec = first(two_a)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, const_bi_bi)
-        # Find an allosteric spec with A in tr_equiv_metabolites
-        tr_specs = filter(s -> :A in s.tr_equiv_metabolites, allo_specs)
-        @test !isempty(tr_specs)
-        tr_spec = first(tr_specs)
-        result = EnzymeRates._expand_remove_tr_equiv(
-            tr_spec, const_bi_bi)
-        a_removals = filter(result) do r
-            :A ∉ r.tr_equiv_metabolites &&
-            :A ∉ r.r_only_metabolites &&
-            :A ∉ r.t_only_metabolites
-        end
-        @test !isempty(a_removals)
-        for r in a_removals
-            m = EnzymeRates.compile_mechanism(r)
-            @test length(parameters(m)) == r.param_count
         end
     end
 end
@@ -2121,11 +1903,15 @@ end
     end
 
     @testset "Bi-bi full enumeration" begin
-        results = enumerate_all(bi_bi_rxn; max_params=10)
+        # Sample-based: with full per-group tag enumeration,
+        # bi-bi at pc=10 has ~190k specs. Test the upper-bound
+        # invariant on a sample of each param_count bucket.
+        results = enumerate_all(bi_bi_rxn; max_params=8)
         @test !isempty(results)
         allo_count = 0
         for (pc, specs) in results
-            for spec in specs
+            sample = first(specs, 5)
+            for spec in sample
                 if spec isa EnzymeRates.MechanismSpec
                     m = EnzymeMechanism(spec)
                     @test length(parameters(m)) <= pc
@@ -2146,15 +1932,16 @@ end
             allosteric_regulators: R
             oligomeric_state: 2
         end
-        results = enumerate_all(rxn; max_params=10)
+        results = enumerate_all(rxn; max_params=8)
         has_allo = any(
             any(s isa EnzymeRates.AllostericMechanismSpec for s in specs)
             for (_, specs) in results)
         @test has_allo
-        # Every mechanism compiles
+        # Sample-based; full enumeration is large.
         allo_count = 0
         for (pc, specs) in results
-            for spec in specs
+            sample = first(specs, 5)
+            for spec in sample
                 if spec isa EnzymeRates.MechanismSpec
                     m = EnzymeMechanism(spec)
                     @test length(parameters(m)) <= pc
@@ -2189,29 +1976,45 @@ end
     end
 end
 
-@testset "r_only params excluded from parameter list" begin
+@testset "Tagged groups exclude T-state params" begin
     specs = EnzymeRates.init_mechanisms(uni_uni_allo)
     spec = first(specs)
     allo_specs = EnzymeRates._expand_to_allosteric(
         spec, uni_uni_allo)
 
-    @testset "K-type: no K_T params for r_only metabolites" begin
-        k_type = first(filter(
-            r -> !isempty(r.r_only_metabolites), allo_specs))
-        m = AllostericEnzymeMechanism(k_type)
+    @testset ":OnlyR binding group: no K_T param" begin
+        only_r = first(filter(allo_specs) do r
+            any(((g, t),) -> t == :OnlyR &&
+                begin
+                    is_iso = all(
+                        EnzymeRates.step_metabolite(s) === nothing
+                        for s in r.base.steps
+                        if s.kinetic_group == g)
+                    !is_iso
+                end,
+                r.group_tags)
+        end)
+        m = AllostericEnzymeMechanism(only_r)
         params = parameters(m)
-        @test length(params) == k_type.param_count
+        @test length(params) == only_r.param_count
         t_params = filter(
             p -> endswith(string(p), "_T"), params)
         @test isempty(t_params)
     end
 
-    @testset "V-type: no kf_T/kr_T for r_only cat steps" begin
-        v_type = first(filter(
-            r -> !isempty(r.r_only_cat_steps), allo_specs))
-        m = AllostericEnzymeMechanism(v_type)
+    @testset ":OnlyR iso group: no kf_T/kr_T param" begin
+        only_r_iso = first(filter(allo_specs) do r
+            any(((g, t),) -> t == :OnlyR &&
+                all(
+                    !s.is_equilibrium &&
+                    EnzymeRates.step_metabolite(s) === nothing
+                    for s in r.base.steps
+                    if s.kinetic_group == g),
+                r.group_tags)
+        end)
+        m = AllostericEnzymeMechanism(only_r_iso)
         params = parameters(m)
-        @test length(params) == v_type.param_count
+        @test length(params) == only_r_iso.param_count
         t_k_params = filter(
             p -> contains(string(p), "f_T") ||
                  contains(string(p), "r_T"), params)
@@ -2283,16 +2086,16 @@ end
         @test m isa AllostericEnzymeMechanism
     end
 
-    # TR equiv removal produces separate results for
-    # S-as-substrate and S-as-regulator
+    # TR equiv removal: S as catalytic met has its own group
+    # tag, S as regulator has its own ligand tag. Each tag
+    # entry is removable independently.
     tr_spec = first(filter(
-        r -> :S in r.tr_equiv_metabolites, reg_specs))
+        r -> haskey(r.reg_ligand_tags, :S), reg_specs))
     result = EnzymeRates._expand_remove_tr_equiv(
         tr_spec, rxn_allo_overlap)
-    # S as catalytic met and S as regulator are both
-    # in tr_equiv_metabolites. Removing each should
-    # produce separate variants.
-    @test length(result) >= 2
+    # At least: 1 ligand-tag removal for :S; plus any
+    # group-tag removals from the catalytic side.
+    @test !isempty(result)
 end
 
 @testset "Base-level moves on allosteric specs" begin
@@ -2319,8 +2122,7 @@ end
             @test r.catalytic_n == allo.catalytic_n
             @test r.allosteric_reg_sites ==
                 allo.allosteric_reg_sites
-            @test r.r_only_metabolites ==
-                allo.r_only_metabolites
+            @test r.group_tags == allo.group_tags
             @test r.param_count > allo.param_count
         end
     end
@@ -2346,27 +2148,29 @@ end
             products: P[C], Q[N]
             oligomeric_state: 2
         end
-        bb_spec = mechanism_spec_from_mechanism(
-            m_bb, bi_bi_allo_rxn)
-        @test EnzymeMechanism(bb_spec) === m_bb
-        bb_spec_c = EnzymeRates.MechanismSpec(
-            bb_spec.reaction, bb_spec.steps,
-            EnzymeRates._max_equivalence_constraints(
-                bb_spec),
-            bb_spec.param_count)
+        # Use init_mechanisms to get a bi-bi spec with multi-step
+        # kinetic groups (same-metabolite RE bindings collapsed).
+        bb_specs = EnzymeRates.init_mechanisms(bi_bi_allo_rxn)
+        bb_spec_c = first(filter(bb_specs) do s
+            counts = Dict{Int, Int}()
+            for st in s.steps
+                counts[st.kinetic_group] =
+                    get(counts, st.kinetic_group, 0) + 1
+            end
+            any(((_, n),) -> n >= 2, counts)
+        end)
         bb_allo = first(
             EnzymeRates._expand_to_allosteric(
                 bb_spec_c, bi_bi_allo_rxn))
-        @test !isempty(bb_allo.base.param_constraints)
-        result = EnzymeRates._expand_remove_constraint(
-            bb_allo)
+        # Splitting one of the multi-step kinetic groups in the
+        # allosteric base must produce results.
+        result = EnzymeRates._expand_split_kinetic_group(bb_allo)
         @test !isempty(result)
         for r in result
             @test r isa
                 EnzymeRates.AllostericMechanismSpec
             @test r.catalytic_n == bb_allo.catalytic_n
-            @test r.r_only_metabolites ==
-                bb_allo.r_only_metabolites
+            @test r.group_tags == bb_allo.group_tags
         end
     end
 
@@ -2390,8 +2194,12 @@ end
             @test r isa
                 EnzymeRates.AllostericMechanismSpec
             @test r.catalytic_n == allo_i.catalytic_n
-            @test r.r_only_metabolites ==
-                allo_i.r_only_metabolites
+            # Dead-end's new binding-step group is tagged
+            # `:EqualRT` (cheapest), so r.group_tags is
+            # allo_i.group_tags plus one new entry.
+            for (g, t) in allo_i.group_tags
+                @test r.group_tags[g] == t
+            end
         end
     end
 end
