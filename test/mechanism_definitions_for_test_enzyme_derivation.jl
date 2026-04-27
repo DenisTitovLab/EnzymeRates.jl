@@ -1891,3 +1891,108 @@ function build_mechanism_test_specs()
 end
 
 const MECHANISM_TEST_SPECS = build_mechanism_test_specs()
+
+# ── PFK-1 hand-verified mechanism ───────────────────────────────────────────
+#
+# Reaction: F6P + ATP ⇌ F16BP + ADP, 4 catalytic subunits, 2 conformations.
+#
+# Catalytic site (×4 subunits, R/T conformations) — random Bi-Bi with shared K
+# per kinetic group. Five kinetic groups:
+#   Group 1 (F6P binding, OnlyR):    [E, F6P] ⇌ [E_F6P], [E_ATP, F6P] ⇌ [E_F6P_ATP]
+#   Group 2 (ATP binding, EqualRT):  [E, ATP] ⇌ [E_ATP], [E_F6P, ATP] ⇌ [E_F6P_ATP]
+#   Group 3 (catalysis, EqualRT):    [E_F6P_ATP] <--> [E_F16BP_ADP]
+#   Group 4 (F16BP release, EqualRT)
+#   Group 5 (ADP release, EqualRT)
+#
+# Allosteric regulators (4 reg sites, multiplicity 4):
+#   Site 1 (explicit): Pi (EqualRT), ATP (OnlyT)
+#   Site 2 (auto):     ADP (OnlyR)
+#   Site 3 (auto):     Citrate (OnlyT)
+#   Site 4 (auto):     F26BP (NonequalRT)
+#
+# Independent parameters returned by `parameters(pfk_mechanism)`:
+#   Catalytic R-state Kd: K1 (F6P), K3 (ATP), K6 (F16BP), K8 (ADP)
+#   Catalytic SS rate:    k5f (k5r is Haldane-derived)
+#   Reg site Kd:          K_Pi_reg1, K_ATP_T_reg1, K_ADP_reg2,
+#                         K_Citrate_T_reg3, K_F26BP_reg4, K_F26BP_T_reg4
+#   Conformational eq:    L
+#   Plus: Keq, E_total
+#
+# Note: catalytic param names use the representative-step index of each
+# kinetic group (group 1 = step 1 → K1, group 2 = step 3 → K3, group 3 =
+# step 5 → k5f, group 4 = step 6 → K6, group 5 = step 8 → K8). All other
+# catalytic groups are :EqualRT, so no T-state catalytic K params exist.
+if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
+    pfk_mechanism = @allosteric_mechanism begin
+        substrates: F6P, ATP
+        products:   F16BP, ADP
+        allosteric_regulators: Pi::EqualRT, ATP::OnlyT, ADP::OnlyR, Citrate::OnlyT, F26BP::NonequalRT
+
+        site(:catalytic, 4): begin
+            steps: begin
+                ([E, F6P] ⇌ [E_F6P], [E_ATP, F6P] ⇌ [E_F6P_ATP])      :: OnlyR
+                ([E, ATP] ⇌ [E_ATP], [E_F6P, ATP] ⇌ [E_F6P_ATP])      :: EqualRT
+                [E_F6P_ATP] <--> [E_F16BP_ADP]                         :: EqualRT
+                ([E_F16BP_ADP] ⇌ [E_ADP, F16BP], [E_F16BP] ⇌ [E, F16BP]) :: EqualRT
+                ([E_F16BP_ADP] ⇌ [E_F16BP, ADP], [E_ADP] ⇌ [E, ADP])     :: EqualRT
+            end
+        end
+
+        site(:regulatory, 4): begin
+            ligands: Pi, ATP
+        end
+    end
+
+    # Hand-derived analytical rate equation following the MWC formula:
+    #   rate = E_total * cat_n * (N_R * Q_cat_R^(cat_n-1) * Q_reg_R^n_reg
+    #                           + L * N_T * Q_cat_T^(cat_n-1) * Q_reg_T^n_reg)
+    #          / (Q_cat_R^cat_n * Q_reg_R^n_reg + L * Q_cat_T^cat_n * Q_reg_T^n_reg)
+    # where Q_reg_R = product over reg sites and similarly Q_reg_T.
+    function pfk_rate_analytical(params, concs)
+        (; K1, K3, k5f, K6, K8,
+           K_Pi_reg1, K_ATP_T_reg1,
+           K_ADP_reg2, K_Citrate_T_reg3,
+           K_F26BP_reg4, K_F26BP_T_reg4,
+           L, Keq, E_total) = params
+        (; F6P, ATP, F16BP, ADP, Pi, Citrate, F26BP) = concs
+
+        # Haldane: F6P + ATP ⇌ F16BP + ADP
+        # Keq = (k5f / k5r) * (K6 * K8) / (K1 * K3)
+        k5r = k5f * K6 * K8 / (Keq * K1 * K3)
+
+        # Catalytic R-state subunit partition (7 enzyme forms)
+        Q_cat_R = 1 + F6P/K1 + ATP/K3 + F6P*ATP/(K1*K3) +
+                  F16BP/K6 + ADP/K8 + F16BP*ADP/(K6*K8)
+        # Catalytic T-state: F6P group (:OnlyR) zeroes out → no F6P, no E_F6P_ATP
+        Q_cat_T = 1 + ATP/K3 + F16BP/K6 + ADP/K8 + F16BP*ADP/(K6*K8)
+
+        # Catalytic flux numerators (single SS step; T-state forward zeros
+        # because F6P is absent in T-state)
+        N_cat_R = k5f * F6P * ATP / (K1 * K3) - k5r * F16BP * ADP / (K6 * K8)
+        N_cat_T = -k5r * F16BP * ADP / (K6 * K8)
+
+        # Reg-site partition functions
+        # Site 1: Pi EqualRT (both states), ATP OnlyT (T only)
+        Q_reg1_R = 1 + Pi / K_Pi_reg1
+        Q_reg1_T = 1 + Pi / K_Pi_reg1 + ATP / K_ATP_T_reg1
+        # Site 2: ADP OnlyR
+        Q_reg2_R = 1 + ADP / K_ADP_reg2
+        Q_reg2_T = 1
+        # Site 3: Citrate OnlyT
+        Q_reg3_R = 1
+        Q_reg3_T = 1 + Citrate / K_Citrate_T_reg3
+        # Site 4: F26BP NonequalRT
+        Q_reg4_R = 1 + F26BP / K_F26BP_reg4
+        Q_reg4_T = 1 + F26BP / K_F26BP_T_reg4
+
+        # MWC assembly (cat_n = 4, all reg sites have multiplicity 4)
+        Q_R = Q_cat_R^4 * Q_reg1_R^4 * Q_reg2_R^4 * Q_reg3_R^4 * Q_reg4_R^4
+        Q_T = Q_cat_T^4 * Q_reg1_T^4 * Q_reg2_T^4 * Q_reg3_T^4 * Q_reg4_T^4
+        Z = Q_R + L * Q_T
+
+        num = N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4 * Q_reg3_R^4 * Q_reg4_R^4 +
+              L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4 * Q_reg3_T^4 * Q_reg4_T^4
+
+        return E_total * 4.0 * num / Z
+    end
+end

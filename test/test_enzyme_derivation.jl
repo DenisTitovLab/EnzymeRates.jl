@@ -1038,3 +1038,51 @@ end
     end
 end
 
+# ── PFK-1 hand-verified rate-equation test ────────────────────────────────
+# Validates the full allosteric rate-equation machinery against a hand-derived
+# analytical form. Tests F6P :: OnlyR (K-type), ATP both substrate and
+# allosteric regulator with different tags per context, Pi :: EqualRT at reg
+# site with OnlyT co-ligand (non-cancelling), ADP / Citrate / F26BP at own
+# reg sites with their respective tags.
+#
+# The PFK mechanism and `pfk_rate_analytical` are defined in
+# `mechanism_definitions_for_test_enzyme_derivation.jl`.
+@testset "PFK rate equation matches analytical form" begin
+    concs = (F6P=0.1, ATP=1.0, F16BP=0.001, ADP=0.1,
+             Pi=1.0, Citrate=0.01, F26BP=0.01)
+    # Param names use the kinetic-group representative-step convention:
+    #   K1 = F6P binding K (group 1, rep step 1)
+    #   K3 = ATP binding K (group 2, rep step 3)
+    #   k5f = catalysis SS rate (group 3, rep step 5)
+    #   K6 = F16BP binding K (group 4, rep step 6)
+    #   K8 = ADP binding K   (group 5, rep step 8)
+    # L = 100 makes the bare enzyme T-state-dominant so the OnlyR ADP
+    # regulator's R-stabilizing shift is observable in the monotonicity
+    # tests below; the analytical-form match holds for any L value.
+    params = (K1=0.1, K3=0.05, k5f=10.0, K6=0.5, K8=0.2,
+              K_Pi_reg1=1.0, K_ATP_T_reg1=2.0,
+              K_ADP_reg2=0.05, K_Citrate_T_reg3=0.005,
+              K_F26BP_reg4=0.001, K_F26BP_T_reg4=0.01,
+              L=100.0, Keq=1000.0, E_total=1.0)
+
+    @test rate_equation(pfk_mechanism, concs, params) ≈
+          pfk_rate_analytical(params, concs) rtol=1e-9
+
+    # F6P → 0 implies forward flux vanishes (F6P is :OnlyR, R-state-only)
+    @test rate_equation(pfk_mechanism,
+                        merge(concs, (F6P=1e-10,)), params) < 1e-6
+
+    # ADP at OnlyR reg site stabilizes R-state → higher ADP gives higher rate
+    rate_low_ADP  = rate_equation(pfk_mechanism,
+                                  merge(concs, (ADP=0.0,)), params)
+    rate_high_ADP = rate_equation(pfk_mechanism,
+                                  merge(concs, (ADP=10.0,)), params)
+    @test rate_high_ADP > rate_low_ADP
+
+    # Citrate at OnlyT reg site stabilizes T-state → higher Citrate inhibits
+    rate_low_cit  = rate_equation(pfk_mechanism,
+                                  merge(concs, (Citrate=0.0,)), params)
+    rate_high_cit = rate_equation(pfk_mechanism,
+                                  merge(concs, (Citrate=10.0,)), params)
+    @test rate_high_cit < rate_low_cit
+end
