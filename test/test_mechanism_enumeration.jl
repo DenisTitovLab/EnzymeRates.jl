@@ -1693,7 +1693,7 @@ end
 end
 
 @testset "Remove TR equivalence" begin
-    # `_expand_remove_tr_equiv` changes one tag from a constrained
+    # `_expand_change_group_tag` changes one tag from a constrained
     # value (`:OnlyR`/`:OnlyT`/`:EqualRT`) to `:NonequalRT` (default).
     # Group tags live in `spec.group_tags::Dict{Int, Symbol}`; ligand
     # tags in `spec.reg_ligand_tags::Dict{Symbol, Symbol}`. Removing
@@ -1707,7 +1707,7 @@ end
         allo = first(allo_specs)
         n_tagged = length(allo.group_tags) +
                    length(allo.reg_ligand_tags)
-        result = EnzymeRates._expand_remove_tr_equiv(
+        result = EnzymeRates._expand_change_group_tag(
             allo, uni_uni_allo)
         @test length(result) == n_tagged
     end
@@ -1720,20 +1720,20 @@ end
         allo = first(allo_specs)
         fully_relaxed = allo
         while true
-            r = EnzymeRates._expand_remove_tr_equiv(
+            r = EnzymeRates._expand_change_group_tag(
                 fully_relaxed, uni_uni_allo)
             isempty(r) && break
             fully_relaxed = first(r)
         end
         @test isempty(
-            EnzymeRates._expand_remove_tr_equiv(
+            EnzymeRates._expand_change_group_tag(
                 fully_relaxed, uni_uni_allo))
     end
 
     @testset "MechanismSpec → yields nothing" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
-        result = EnzymeRates._expand_remove_tr_equiv(
+        result = EnzymeRates._expand_change_group_tag(
             spec, uni_uni_allo)
         @test isempty(result)
     end
@@ -1757,7 +1757,7 @@ end
         @test !isempty(tagged)
         tr_spec = first(tagged)
         pc_before = tr_spec.param_count
-        result = EnzymeRates._expand_remove_tr_equiv(
+        result = EnzymeRates._expand_change_group_tag(
             tr_spec, rxn_r)
         # The variant that drops :R from reg_ligand_tags
         r_removal = filter(
@@ -2123,7 +2123,7 @@ end
     # entry is removable independently.
     tr_spec = first(filter(
         r -> haskey(r.reg_ligand_tags, :S), reg_specs))
-    result = EnzymeRates._expand_remove_tr_equiv(
+    result = EnzymeRates._expand_change_group_tag(
         tr_spec, rxn_allo_overlap)
     # At least: 1 ligand-tag removal for :S; plus any
     # group-tag removals from the catalytic side.

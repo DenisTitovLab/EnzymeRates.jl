@@ -1578,10 +1578,6 @@ function _split_group_delta(
     tag == :NonequalRT ? 2 * base : base
 end
 
-# Backward-compat name retained for tests; same body as
-# `_expand_split_kinetic_group`.
-const _expand_remove_constraint = _expand_split_kinetic_group
-
 """
     _expand_add_dead_end_regulator(spec, reaction; exclude_regs)
         → Vector{typeof(spec)}
@@ -1948,7 +1944,7 @@ _expand_add_allosteric_regulator(
 ) = AllostericMechanismSpec[]
 
 """
-    _expand_remove_tr_equiv(spec, reaction)
+    _expand_change_group_tag(spec, reaction)
         → Vector{AllostericMechanismSpec}
 
 Change one tag from a "constrained" tag (`:EqualRT`, `:OnlyR`,
@@ -1961,7 +1957,7 @@ For an iso-only group already at `:OnlyR`, the `:OnlyT` direction
 is forbidden by the constructor — but the move only goes to
 `:NonequalRT` so this isn't a concern here.
 """
-function _expand_remove_tr_equiv(
+function _expand_change_group_tag(
     spec::AllostericMechanismSpec,
     @nospecialize(reaction::EnzymeReaction),
 )
@@ -1998,14 +1994,9 @@ function _expand_remove_tr_equiv(
     results
 end
 
-_expand_remove_tr_equiv(
+_expand_change_group_tag(
     ::MechanismSpec, @nospecialize(::EnzymeReaction),
 ) = AllostericMechanismSpec[]
-
-# Alias used by callers that prefer the spec name; identical to
-# `_expand_remove_tr_equiv` (which only ever moves a tag to
-# `:NonequalRT`, the more-flexible default).
-const _expand_change_group_tag = _expand_remove_tr_equiv
 
 """
     AllostericEnzymeMechanism(spec::AllostericMechanismSpec) →
@@ -2073,7 +2064,7 @@ function _add_expansions!(
     for s in _expand_re_to_ss(spec)
         _push_to_dict!(result, s)
     end
-    for s in _expand_remove_constraint(spec)
+    for s in _expand_split_kinetic_group(spec)
         _push_to_dict!(result, s)
     end
     for s in _expand_add_dead_end_regulator(
@@ -2087,7 +2078,7 @@ function _add_expansions!(
             spec, reaction)
         _push_to_dict!(result, s)
     end
-    for s in _expand_remove_tr_equiv(spec, reaction)
+    for s in _expand_change_group_tag(spec, reaction)
         _push_to_dict!(result, s)
     end
 end

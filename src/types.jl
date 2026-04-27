@@ -59,28 +59,6 @@ Singleton type encoding an enzyme mechanism.
 """
 struct EnzymeMechanism{Metabolites, Reactions} <: AbstractEnzymeMechanism end
 
-"""Count enzymes, metabolites, atoms, and metabolite names on one side of a reaction."""
-function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
-    n_enz, n_met, atoms, mets = 0, 0, Dict{Symbol,Int}(), Symbol[]
-    for s in side
-        if s in enzyme_set
-            n_enz += 1
-            for (a, c) in enzyme_atoms[s]
-                atoms[a] = get(atoms, a, 0) + c
-            end
-        elseif haskey(met_atoms, s)
-            n_met += 1
-            push!(mets, s)
-            for (a, c) in met_atoms[s]
-                atoms[a] = get(atoms, a, 0) + c
-            end
-        else
-            error("Reaction $(step_idx) uses unknown species $(s)")
-        end
-    end
-    (n_enz, n_met, atoms, mets)
-end
-
 """
     EnzymeMechanism(metabolites, reactions) → EnzymeMechanism
 
