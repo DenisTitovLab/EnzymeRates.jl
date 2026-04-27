@@ -972,8 +972,8 @@ corners and return the max.
         W_R_factors = Any[]
         W_T_factors = Any[]
         for site_idx in eachindex(RS)
-            ligs = RS[site_idx][1]
-            n_reg = RS[site_idx][2]
+            ligs = regulatory_site_ligands(m, site_idx)
+            n_reg = regulatory_site_multiplicity(m, site_idx)
             sat_terms_R = Any[]
             sat_terms_T = Any[]
             for lig in ligs
@@ -1314,8 +1314,8 @@ function _build_dep_assignments(
     end
 
     # `:EqualRT` reg params: K_T_reg = K_R_reg
-    for (i, entry) in enumerate(M_type.parameters[3])
-        for lig in entry[1]
+    for i in eachindex(regulatory_sites(m))
+        for lig in regulatory_site_ligands(m, i)
             regulatory_ligand_tag(m, i, lig) == :EqualRT || continue
             push!(t_assignments,
                   Expr(:(=), _reg_param_name(lig, i, true),
@@ -1355,7 +1355,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     m = M_type()
     CM = typeof(catalytic_mechanism(m))
     CatN = catalytic_multiplicity(m)
-    RS = M_type.parameters[3]
+    RS = regulatory_sites(m)
 
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
     cat_params = Set{Symbol}(_raw_param_symbols(CM()))
@@ -1408,7 +1408,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         factors = Any[N]
         CatN > 1 && push!(factors, _power_expr(Q, CatN - 1))
         for i in eachindex(RS)
-            n_reg = RS[i][2]
+            n_reg = regulatory_site_multiplicity(m, i)
             n_reg == CatN || continue
             push!(factors, _power_expr(reg_Qs[i], n_reg))
         end
@@ -1418,7 +1418,8 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     function make_den_term(Q, reg_Qs)
         factors = Any[_power_expr(Q, CatN)]
         for i in eachindex(RS)
-            push!(factors, _power_expr(reg_Qs[i], RS[i][2]))
+            push!(factors, _power_expr(reg_Qs[i],
+                                       regulatory_site_multiplicity(m, i)))
         end
         _nest_binary(:*, factors)
     end
@@ -1507,7 +1508,7 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
     m = M_type()
     CM = typeof(catalytic_mechanism(m))
     CatN = catalytic_multiplicity(m)
-    RS = M_type.parameters[3]
+    RS = regulatory_sites(m)
 
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
     N_cat_base = _expand_factored_sigma(num_fs)
@@ -1524,7 +1525,7 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
 
     function reg_q_poly(i, T_state)
         ligs_filtered = Symbol[]
-        for lig in RS[i][1]
+        for lig in regulatory_site_ligands(m, i)
             tag = regulatory_ligand_tag(m, i, lig)
             if T_state
                 tag == :OnlyR && continue
@@ -1543,7 +1544,7 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
     function num_poly_for_conf(N_cat, Q_cat, reg_Qs, L_factor)
         n_term = poly_mul(N_cat, _poly_power(Q_cat, CatN - 1))
         for i in eachindex(RS)
-            n_reg = RS[i][2]
+            n_reg = regulatory_site_multiplicity(m, i)
             n_reg == CatN || continue
             n_term = poly_mul(n_term, _poly_power(reg_Qs[i], n_reg))
         end
@@ -1553,7 +1554,8 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
     function den_poly_for_conf(Q_cat, reg_Qs, L_factor)
         d_term = _poly_power(Q_cat, CatN)
         for i in eachindex(RS)
-            d_term = poly_mul(d_term, _poly_power(reg_Qs[i], RS[i][2]))
+            d_term = poly_mul(d_term, _poly_power(reg_Qs[i],
+                                       regulatory_site_multiplicity(m, i)))
         end
         L_factor === nothing ? d_term : poly_mul(poly_sym(L_factor), d_term)
     end
