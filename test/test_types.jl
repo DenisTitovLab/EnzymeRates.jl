@@ -265,10 +265,7 @@
         )
         @test sprint(show, r2) == "EnzymeReaction: ATP + S ⇌ ADP + P | regulators: I"
 
-        # The OLD show methods for EnzymeMechanism (linear-chain compact form,
-        # branched multi-line form) were removed during the refactor. The new
-        # type uses Julia's default `show` (struct-instance summary). If/when
-        # a custom show method is added, restore specific format assertions.
+        # Linear mechanism: compact chain.
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -277,8 +274,27 @@
                 [ES] <--> [E, P]
             end
         end
-        @test m isa EnzymeMechanism
-        @test occursin("EnzymeMechanism", sprint(show, m))
+        @test sprint(show, m) ==
+            "EnzymeMechanism: E + S <--> ES <--> E + P"
+
+        # Branched mechanism: multi-line with header summary.
+        m_b = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                [E, A] <--> [EA]
+                [E, B] <--> [EB]
+                [EA, B] <--> [EAB]
+                [EB, A] <--> [EAB]
+                [EAB] <--> [EPQ]
+                [EPQ] <--> [EQ, P]
+                [EQ] <--> [E, Q]
+            end
+        end
+        s = sprint(show, m_b)
+        @test startswith(s, "EnzymeMechanism (7 steps, 6 enzyme forms):")
+        @test contains(s, "E + A <--> EA")
+        @test contains(s, "EQ <--> E + Q")
     end
 
     @testset "EnzymeMechanism different orderings produce valid mechanisms" begin

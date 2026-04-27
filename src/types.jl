@@ -361,6 +361,42 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R,N}) where {S,P,R,N}
     N > 1 && print(io, " | oligomeric_state: ", N)
 end
 
+function Base.show(
+    io::IO, m::EnzymeMechanism{Mets, Rxns},
+) where {Mets, Rxns}
+    _, _, regs = Mets
+    enz_set = Set(enzyme_forms(m))
+
+    # Linear mechanism iff each enzyme form appears at most once on either side.
+    lhs_counts = Dict{Symbol,Int}()
+    rhs_counts = Dict{Symbol,Int}()
+    for (lhs, rhs, _, _) in Rxns
+        for s in lhs; s in enz_set && (lhs_counts[s] = get(lhs_counts, s, 0) + 1); end
+        for s in rhs; s in enz_set && (rhs_counts[s] = get(rhs_counts, s, 0) + 1); end
+    end
+    is_linear = all(v <= 1 for v in values(lhs_counts)) &&
+                all(v <= 1 for v in values(rhs_counts))
+    _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
+
+    if is_linear
+        print(io, "EnzymeMechanism: ")
+        for (i, (lhs, rhs, is_eq, _)) in enumerate(Rxns)
+            i == 1 && print(io, join(lhs, " + "))
+            print(io, _arrow(is_eq), join(rhs, " + "))
+        end
+    else
+        print(io, "EnzymeMechanism (", length(Rxns), " steps, ",
+              length(enz_set), " enzyme forms):")
+        for (lhs, rhs, is_eq, _) in Rxns
+            print(io, "\n  ", join(lhs, " + "), _arrow(is_eq),
+                      join(rhs, " + "))
+        end
+    end
+    if !isempty(regs)
+        print(io, " | regulators: ", join(regs, ", "))
+    end
+end
+
 # ─── Accessors ─────────────────────────────────────────────────
 
 """Return substrates as a tuple of `Symbol` names."""
