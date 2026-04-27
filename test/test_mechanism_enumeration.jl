@@ -463,6 +463,38 @@ end
         end
     end
 
+    @testset "Mirror steps share kinetic_group with catalytic" begin
+        # When a regulator binds the same metabolite via dead-end edges,
+        # those mirror steps must share the kinetic_group of the catalytic
+        # binding step. (Mirror propagation is implicit in the new design;
+        # this test is a guardrail.)
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            dead_end_inhibitors: I
+        end
+        specs = EnzymeRates.init_mechanisms(rxn)
+        @test !isempty(specs)
+        for spec in specs
+            # Group the steps by the metabolite they bind
+            by_metabolite = Dict{Symbol, Vector{EnzymeRates.StepSpec}}()
+            for step in spec.steps
+                step.is_equilibrium || continue
+                # Binding step has form [F, met] ⇌ [F_bound]
+                length(step.reactants) == 2 || continue
+                met = step.reactants[2]
+                push!(get!(by_metabolite, met,
+                           EnzymeRates.StepSpec[]), step)
+            end
+            # All same-metabolite RE binding steps must share kinetic_group
+            for (met, steps) in by_metabolite
+                length(steps) >= 2 || continue
+                groups = Set(s.kinetic_group for s in steps)
+                @test length(groups) == 1
+            end
+        end
+    end
+
     @testset "Uni-Uni: no dead-end forms" begin
         specs = EnzymeRates.init_mechanisms(
             uni_uni_rxn)
