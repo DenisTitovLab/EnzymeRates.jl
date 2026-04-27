@@ -22,8 +22,8 @@ secondary use cases.
 | Type | Description |
 |------|-------------|
 | `EnzymeReaction` | Overall reaction specification (substrates, products, regulators). Created via `@enzyme_reaction`. |
-| `EnzymeMechanism` | Full mechanism with species, steps, RE/SS flags, and constraints. Created via `@enzyme_mechanism` or from selection results. |
-| `AllostericEnzymeMechanism` | Multi-subunit MWC allosteric enzyme. Created via `@enzyme_mechanism` with `site()` DSL. |
+| `EnzymeMechanism` | Single-subunit enzyme mechanism. Created via `@enzyme_mechanism` or from selection results. |
+| `AllostericEnzymeMechanism` | Multi-subunit MWC allosteric enzyme. Created via `@allosteric_mechanism`. |
 | `FittingProblem` | Single-mechanism fitting problem (mechanism + data + Keq). |
 | `IdentifyRateEquationProblem` | Multi-mechanism selection problem (reaction + data + Keq + search config). |
 | `IdentifyRateEquationResults` | Results from `identify_rate_equation`: all fitted candidates with CV scores. |
@@ -33,7 +33,8 @@ secondary use cases.
 | Macro | Description |
 |-------|-------------|
 | `@enzyme_reaction` | Create an `EnzymeReaction` from a DSL block (substrates, products, regulators). |
-| `@enzyme_mechanism` | Create an `EnzymeMechanism` or `AllostericEnzymeMechanism` from DSL blocks. |
+| `@enzyme_mechanism` | Create an `EnzymeMechanism` from a DSL block (substrates, products, steps). |
+| `@allosteric_mechanism` | Create an `AllostericEnzymeMechanism` from a DSL block with `site(:catalytic, ...)` and tagged catalytic steps. |
 
 ### Constants
 
@@ -54,7 +55,6 @@ secondary use cases.
 | `metabolites` | Distinct metabolite names as a tuple of Symbols: `metabolites(m) → (:S, :P)`. |
 | `structural_identifiability_deficit` | Structural identifiability deficit (non-positive = identifiable). |
 | `rescale_parameter_values` | Rescale SS rate constants so kcat equals target (default 1.0). K's, Keq, E_total unchanged. |
-| `compile_mechanism` | Convert a `MechanismSpec` to `EnzymeMechanism` or `AllostericEnzymeMechanism`. |
 
 ---
 
@@ -247,11 +247,8 @@ The `Rate` column and one column per metabolite are required.
 
 ```julia
 m = @enzyme_mechanism begin
-    species: begin
-        substrates: S[C]
-        products:   P[C]
-        enzymes:    E, ES[C]
-    end
+    substrates: S
+    products:   P
     steps: begin
         [E, S] <--> [ES]
         [ES] <--> [E, P]
@@ -318,11 +315,8 @@ experimental conditions.
 
 ```julia
 m = @enzyme_mechanism begin
-    species: begin
-        substrates: A[CX], B[N]
-        products:   P[C], Q[NX]
-        enzymes:    E, EA[CX], FP[CX], F[X], FB[NX], EQ[NX]
-    end
+    substrates: A, B
+    products:   P, Q
     steps: begin
         [E, A] <--> [EA]
         [EA] <--> [FP]
@@ -356,7 +350,7 @@ export FittingProblem
 export IdentifyRateEquationProblem, IdentifyRateEquationResults
 
 # Macros
-export @enzyme_reaction, @enzyme_mechanism
+export @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 
 # Rate equation modes
 export Full, Reduced
@@ -378,12 +372,9 @@ export structural_identifiability_deficit
 
 # Parameter rescaling
 export rescale_parameter_values
-
-# Mechanism compilation
-export compile_mechanism
 ```
 
-Total: 6 types + 2 macros + 2 constants + 9 functions = **19 exported symbols**.
+Total: 6 types + 3 macros + 2 constants + 8 functions = **19 exported symbols**.
 
 ---
 
