@@ -16,6 +16,7 @@
     EnzymeRates.reactions(m)
     EnzymeRates.n_states(m)
     EnzymeRates.n_steps(m)
+    parameters(m)
     metabolites(m)
     EnzymeRates.stoich_matrix(m); EnzymeRates.equilibrium_steps(m)
 
@@ -64,12 +65,9 @@
         @test best_ns_per_call(EnzymeRates.n_steps, m) < 100e-9
     end
 
-    # TODO Task 2.7: restore once parameters() accessor is migrated.
-    @static if false
-        @testset "parameters: zero-alloc and <100ns" begin
-            @test (@allocated parameters(m)) == 0
-            @test best_ns_per_call(parameters, m) < 100e-9
-        end
+    @testset "parameters: zero-alloc and <100ns" begin
+        @test (@allocated parameters(m)) == 0
+        @test best_ns_per_call(parameters, m) < 100e-9
     end
 
     @testset "metabolites: zero-alloc and <100ns" begin
