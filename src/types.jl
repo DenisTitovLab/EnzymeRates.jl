@@ -397,6 +397,29 @@ function Base.show(
     end
 end
 
+function Base.show(io::IO, m::AllostericEnzymeMechanism)
+    cm = catalytic_mechanism(m)
+    print(io, "AllostericEnzymeMechanism (cat_n=", catalytic_multiplicity(m))
+    rs = regulatory_sites(m)
+    if !isempty(rs)
+        print(io, ", ", length(rs), " reg sites")
+    end
+    print(io, "):\n  catalytic: ", cm)
+    for (i, (ligands, mult, _)) in enumerate(rs)
+        print(io, "\n  reg site $i (n=", mult, "): ",
+              join(ligands, ", "))
+        tagged = allosteric_regulators(m)
+        site_ligs = Set(ligands)
+        site_tags = filter(p -> p[1] in site_ligs, collect(tagged))
+        non_default = filter(p -> p[2] != :NonequalRT, site_tags)
+        if !isempty(non_default)
+            print(io, " [")
+            print(io, join(("$(n)::$(t)" for (n, t) in non_default), ", "))
+            print(io, "]")
+        end
+    end
+end
+
 # ─── Accessors ─────────────────────────────────────────────────
 
 """Return substrates as a tuple of `Symbol` names."""
