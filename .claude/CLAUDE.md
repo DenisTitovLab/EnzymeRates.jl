@@ -218,35 +218,33 @@ julia --project -e 'using Pkg; Pkg.test()'
 
 ## Key Architecture Decisions
 
-- `EnzymeMechanism{Species,Reactions,EquilibriumSteps,ParamConstraints}` is a singleton type encoding mechanism info in type parameters
-- `AllostericEnzymeMechanism{Mets,CatalyticMech,CatSites,RegSites}` represents multi-subunit MWC allosteric enzymes (always 2 conformations). `CatSites = (cat_mets, multiplicity, tr_equiv_mets, tr_equiv_cat_steps, r_only_mets, t_only_mets, r_only_cat_steps)`. `RegSites` entries are `(ligands, mult, tr_equiv_ligands, r_only_ligands, t_only_ligands)`. See `src/types.jl` and `src/dsl.jl` for DSL syntax.
-- `EnzymeReaction{S,P,R,N}` similarly encodes reactions in types. `N` is `oligomeric_state` (default 1). `@enzyme_reaction` accepts `oligomeric_state:` label.
-- Each unique mechanism = unique type → affects compilation time
-- `@generated` functions used for compile-time computation (metabolites, graph, stoich_matrix, rate_equation, _kcat_forward)
-- `_AnyMechanism = AbstractEnzymeMechanism` used for shared dispatch (e.g., `rescale_parameter_values`)
+- `EnzymeMechanism{Metabolites, Reactions}` is a singleton type. `Metabolites = (substrates_tuple, products_tuple, regulators_tuple)` (each a tuple of bare Symbols). `Reactions` is a tuple of 4-tuples `(lhs, rhs, is_eq::Bool, kinetic_group::Int)`. Atoms are NOT tracked at the mechanism level — only at `@enzyme_reaction`.
+- `AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites}` represents multi-subunit MWC allosteric enzymes (always 2 conformations). `CatSites = (multiplicity::Int, group_tags::Tuple{Pair{Int,Symbol}...})`. `RegSites` entries are `(ligands, multiplicity, ligand_tags::Tuple{Pair{Symbol,Symbol}...})`. Tags are stored only when non-default — absent groups/ligands have tag `:NonequalRT`. See `src/types.jl` for accessors and `src/dsl.jl` for DSL.
+- `EnzymeReaction{S,P,R,N}` encodes reactions in types. `N` is `oligomeric_state` (default 1). `@enzyme_reaction` accepts `oligomeric_state:` label.
+- Each unique mechanism = unique type → affects compilation time.
+- `@generated` functions used for compile-time computation (`stoich_matrix`, `rate_equation`, `_kcat_forward`, `_dependent_param_exprs`, `parameters`).
 
 ### Canonical Step Form
-- The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `[E, S] ⇌ [ES]`, never `[ES] ⇌ [E, S]`
-- SS steps are NOT canonicalized (swapping kf↔kr would break analytical test formulas)
+- The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `[E, S] ⇌ [ES]`, never `[ES] ⇌ [E, S]`.
+- SS steps are NOT canonicalized (swapping kf↔kr would break analytical test formulas).
 - After canonicalization, all RE metabolite K params are binding Kd (displayed as `1/K`). Non-binding RE steps (pure isomerization) retain Ka convention.
-- `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed
+- `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed.
 
 ### Regulator representation
-- Regulators are `(name::Symbol, role::Symbol)` pairs in `EnzymeReaction` type parameter `R`
-- `RegulatorRole` hierarchy: `Allosteric`, `DeadEnd`, `UnconstrainedRegulator` (abstract: `RegulatorRole`)
-- `regulators(m)` returns a tuple of bare `Symbol` names for backward compatibility
-- `regulator_roles(rxn)` returns raw `(name, role)` pairs from `EnzymeReaction`
-- `@enzyme_reaction` DSL accepts `regulators:` (role=`:unknown`), `dead_end_inhibitors:` (`:dead_end`), `allosteric_regulators:` (`:allosteric`), `oligomeric_state:` (Int, default 1)
-- Plain `Symbol` regulators auto-normalize to `(name, :unknown)` in the `EnzymeReaction` constructor
-- Substrates/products are `(name, atoms)` tuples — access name via `s[1]`
+- Regulators are `(name::Symbol, role::Symbol)` pairs in `EnzymeReaction` type parameter `R` (kept for `@enzyme_reaction` declaration).
+- `regulators(rxn)` returns bare `Symbol` names; `regulator_roles(rxn)` returns `(name, role)` pairs.
+- `@enzyme_reaction` DSL accepts `regulators:` (role `:unknown`), `dead_end_inhibitors:` (`:dead_end`), `allosteric_regulators:` (`:allosteric`), `oligomeric_state:` (Int, default 1).
+- At the `EnzymeMechanism` level, regulators are bare Symbols (no role tags) — the role distinction is captured by the mechanism's structure (which forms the regulator binds to and which kinetic_group those steps belong to).
 
-### Dead-end SS/RE propagation
-- Dead-end substrate/product-binding edges (e.g., ER↔ESR for S-binding) inherit RE/SS status from their catalytic counterpart during construction in `_expand_dead_end`
-- Dead-end regulator-binding edges (E↔ER, ES↔ESR) remain always RE
+### Allosteric tag taxonomy (per kinetic group, per regulatory ligand)
+- `:OnlyR` — symbol exists in R-state only; T-state zeros it.
+- `:OnlyT` — symbol exists in T-state only; R-state zeros it.
+- `:EqualRT` — single shared symbol for both states (K_R = K_T).
+- `:NonequalRT` (default) — independent R and T symbols (K_R, K_T separately).
+- DSL: catalytic-step tags via `:: Tag` annotation in `site(:catalytic, N): begin steps: … end`. Regulator tags via `name::Tag` in `allosteric_regulators:`.
 
-### Dead-end parameter equivalence constraints
-- `_expand_equivalence_constraints` groups steps by `step_metabolite()` and RE/SS status; groups with 2+ steps binding the same metabolite can be constrained to share parameters
-- This adds constrained variants where K_S_dead_end = K_S_catalytic (fewer params: R doesn't affect S-binding)
+### Mirror / dead-end kinetic-group sharing
+- The mechanism-enumeration generator assigns dead-end mirror steps the same `kinetic_group::Int` as their catalytic counterpart. Mirror propagation is implicit in the kinetic-group atomicity: when a group's RE→SS conversion fires, every member converts together.
 
 ### Catalytic topology constraints
 - `_catalytic_topologies(reaction)` generates biochemically plausible catalytic
@@ -266,29 +264,28 @@ julia --project -e 'using Pkg; Pkg.test()'
 
 ### Mechanism enumeration building blocks
 - Three composable functions, no monolithic pipeline. Caller owns the loop and cache.
-- `init_mechanisms(reaction)` → `Vector{MechanismSpec}` at minimum param count (n_substrates + n_products + 3). Enumerates catalytic topologies × dead-end subsets (competition-filtered), 1 SS step, all K's constrained equal per metabolite.
-- `expand_mechanisms(specs, reaction)` → `Dict{Int, Vector{AbstractMechanismSpec}}` keyed by estimated param count. Applies +1 moves (RE→SS, remove constraint, add dead-end regulator, add allosteric regulator, remove TR equiv) and +2 move (allosteric conversion).
-- `dedup!(cache)` → canonicalizes specs (sorted steps/constraints) and removes structural duplicates
-- `MechanismSpec` has 4 fields: `reaction, steps::Vector{StepSpec}, param_constraints::Vector{ParamConstraint}, param_count::Int`
-- `AllostericMechanismSpec` has 10 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, tr_equiv_metabolites, tr_equiv_cat_steps, r_only_metabolites, t_only_metabolites, r_only_cat_steps, param_count`
-- `param_count` is an upper-bound estimate during enumeration; true count comes from `length(parameters(m))` after compilation
-- `oligomeric_state` from `EnzymeReaction` sets `catalytic_n` and all regulator site multiplicities (not enumerated)
-- `EnzymeMechanism(spec::MechanismSpec)` and `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` are type constructors (replace old `compile_mechanism`)
-- Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor
-- T/R equivalence: each metabolite can be `tr_equiv` (K_T=K_R), `r_only` (absent from T-state), `t_only` (absent from R-state), or `both` (independent K_T, K_R). Each non-binding SS step can be `tr_equiv`, `r_only`, or `both`.
-- r_only/t_only params are eliminated from the parameter list (unidentifiable — zeroed in the rate equation polynomial). Haldane is irrelevant when a state can't complete the catalytic cycle.
-- Allosteric conversion is +1 param (just L). Two differentiation modes: K-type (≥1 substrate + ≥1 product r_only, T can't catalyze) and V-type (all catalytic steps r_only, kf_T=kr_T=0). Only r_only variants — T is the inactive conformation.
-- `AllostericMechanismSpec` has 10 fields (9 original + `param_count::Int`). `param_count` is set by construction (+1 per move), not computed from structure.
+- `init_mechanisms(reaction)` → `Vector{MechanismSpec}` at minimum param count. Enumerates catalytic topologies × dead-end subsets (competition-filtered), 1 SS step. Same-metabolite + RE/SS catalytic-cycle binding steps share a kinetic_group; dead-end mirror steps inherit their catalytic counterpart's kinetic_group at generation time.
+- `expand_mechanisms(specs, reaction)` → `Dict{Int, Vector{AbstractMechanismSpec}}` keyed by estimated param count. Applies expansion moves: RE→SS (atomic per group), split kinetic group, add dead-end regulator, add allosteric regulator, change group/ligand tag, allosteric conversion.
+- `dedup!(cache)` → canonicalizes specs (sorted steps; renumbered kinetic_groups by first-occurrence) and removes structural duplicates.
+- `StepSpec` has 4 fields: `reactants::Vector{Symbol}, products::Vector{Symbol}, is_equilibrium::Bool, kinetic_group::Int`. Steps with the same `kinetic_group` share kinetic parameters.
+- `MechanismSpec` has 3 fields: `reaction, steps::Vector{StepSpec}, param_count::Int`. `ParamConstraint` is gone — kinetic groups encode shared parameters.
+- `AllostericMechanismSpec` has 7 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, group_tags::Dict{Int,Symbol}, reg_ligand_tags::Dict{Symbol,Symbol}, param_count::Int`. Tags stored only for non-default entries.
+- `param_count` is an upper-bound estimate during enumeration; true count comes from `length(parameters(m))` after compilation. Counts kinetic GROUPS (not steps): `length(groups_re) + 2 * length(groups_ss) - n_thermo + 2`.
+- `oligomeric_state` from `EnzymeReaction` sets `catalytic_n` and all regulator site multiplicities (not enumerated).
+- `EnzymeMechanism(spec::MechanismSpec)` and `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` are the type constructors.
+- Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor.
+- Tag taxonomy (per kinetic group, per regulatory ligand): `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT` (default). `:OnlyR` / `:OnlyT` symbols are zeroed in the opposite state's polynomial; `:NonequalRT` symbols are renamed to T-suffixed counterparts in the T-state poly; `:EqualRT` symbols pass through unchanged.
+- Allosteric conversion is +1 param (just L). Per-kinetic-group tag enumeration replaces the old K-type/V-type hardcoded subsets. Iso-only groups (no metabolite) cannot be `:OnlyT` (R-inactive iso is just a relabel).
 
 ## Source Layout
 
-- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `AllostericEnzymeMechanism` structs; `EnzymeMechanism` and `AllostericEnzymeMechanism` accessors; `regulator_roles()`; `RateEquationMode` hierarchy
-- `src/dsl.jl` — `@enzyme_reaction` (supports `substrates:`, `products:`, `regulators:`, `dead_end_inhibitors:`, `allosteric_regulators:`, `oligomeric_state:` labels; multi-atom bracket syntax `A[C3H3O3]` and `A[C,N]`) and `@enzyme_mechanism` macros (handles both `EnzymeMechanism` and `AllostericEnzymeMechanism` DSL)
-- `src/sym_poly_for_rate_eq_derivation.jl` — Symbolic polynomial algebra (`Poly` type); `_rename_poly_T`, `_count_allosteric_rate_monomials` for MWC identifiability
-- `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; kcat computation (`_is_ss_rate_constant`, `_kcat_components`, `_kcat_forward`) and `rescale_parameter_values`; AllostericEnzymeMechanism MWC rate equation assembly (`_build_allosteric_rate_body`, `rate_equation_string`, `structural_identifiability_deficit`)
-- `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints, dependent parameter elimination, `_build_rate_body` for `@generated rate_equation`
-- `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl
-- `src/mechanism_enumeration.jl` — Building blocks for mechanism enumeration: `init_mechanisms`, `expand_mechanisms`, `dedup!`, `EnzymeMechanism(spec)`, `AllostericEnzymeMechanism(spec)` constructors, expansion moves (`_expand_re_to_ss`, `_expand_remove_constraint`, `_expand_add_dead_end_regulator`, `_expand_to_allosteric`, `_expand_add_allosteric_regulator`, `_expand_remove_tr_equiv`), helpers (`_rewrap_allosteric`, `_canonicalize!`, `_dedup_key`)
+- `src/types.jl` — `EnzymeReaction`, `EnzymeMechanism`, `AllostericEnzymeMechanism` structs; accessors (`substrates`, `products`, `regulators`, `metabolites`, `reactions`, `equilibrium_steps`, `kinetic_group`, `kinetic_groups`, `steps_in_group`, `enzyme_forms`, `n_states`, `n_steps`, `stoich_matrix`, `enzyme_row_range`, `metabolite_row_range`, `catalytic_mechanism`, `catalytic_multiplicity`, `group_tag`, `step_tag`, `regulatory_sites`, `regulatory_site_ligands`, `regulatory_site_multiplicity`, `regulatory_ligand_tag`, `allosteric_regulators`, `catalytic_inhibitors`); 2-arg `EnzymeMechanism(metabolites, reactions)` constructor with rank-based stoichiometric validation; 3-arg `AllostericEnzymeMechanism(cm, cat_sites, reg_sites)` constructor with tag validation; `regulator_roles()`; `RateEquationMode` hierarchy.
+- `src/dsl.jl` — `@enzyme_reaction` (supports atom brackets), `@enzyme_mechanism` (flat grammar: top-level `substrates:`/`products:`/`regulators:` with bare Symbols, parenthesized step-groups for shared kinetic_group), `@allosteric_mechanism` (catalytic site with `:: Tag` per step or step-group, regulatory sites with tagged ligands).
+- `src/sym_poly_for_rate_eq_derivation.jl` — Symbolic polynomial algebra (`POLY`/`FactoredSigma`/`FactoredPoly`/`DenomTerm`); `_rename_symbols`, `_zero_symbols_in_poly` for MWC tag-driven substitution.
+- `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; identifiability checks; kcat computation (`_is_ss_rate_constant`, `_kcat_components`, `_kcat_forward`); `rescale_parameter_values`; AllostericEnzymeMechanism MWC rate equation assembly (`_build_allosteric_rate_body`, `_count_allosteric_rate_monomials`, `rate_equation_string`, `structural_identifiability_deficit`); helpers `_onlyT_syms`, `_onlyR_syms`, `_T_rename`, `_build_kinetic_rename_map`, `_build_dep_assignments`.
+- `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints; `_dependent_param_exprs` builds the kinetic-group merge map up front and applies column merging before Gaussian elimination (no `csub` log-space coefficient tracking).
+- `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl.
+- `src/mechanism_enumeration.jl` — Building blocks: `init_mechanisms`, `expand_mechanisms`, `dedup!`, `EnzymeMechanism(spec::MechanismSpec)`, `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` constructors, unified expansion moves (`_expand_re_to_ss`, `_expand_remove_constraint` aka `_expand_split_kinetic_group`, `_expand_add_dead_end_regulator`, `_expand_to_allosteric`, `_expand_add_allosteric_regulator`, `_expand_remove_tr_equiv` aka `_expand_change_group_tag`) — each is a single method parametric over spec type via `_steps`/`_with_steps` accessors. Mirror propagation is implicit in kinetic-group atomicity.
 
 ## Vmax Normalization (kcat factoring) — IMPLEMENTED
 
