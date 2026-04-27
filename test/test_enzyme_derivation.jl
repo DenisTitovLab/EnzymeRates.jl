@@ -984,15 +984,15 @@ end
 # `mechanism_definitions_for_test_enzyme_derivation.jl`.
 @testset "HK rate equation matches analytical form" begin
     concs = (Glucose=1.0, ATP=2.0, G6P=0.01, ADP=0.5, Pi=1.0)
-    # Param names use the kinetic-group representative-step convention:
-    #   K1 = Glucose binding K (group 1, rep step 1)
-    #   K3 = ATP binding K (group 2, rep step 3)
-    #   k5f = catalysis SS rate (group 3, rep step 5)
-    #   K6 = G6P release K (group 4, rep step 6)
-    #   K8 = ADP release K (group 5, rep step 8)
-    #   K10, K11 = dead-end E_ATP_G6P, E_ADP_G6P binding K
-    params = (K1=0.1, K3=0.05, k5f=10.0, K6=0.5, K8=0.2,
-              K10=0.3, K11=0.4,
+    # Param names follow the kinetic-group representative-step convention:
+    #   K1  = Glucose binding (group 1, rep step 1)
+    #   K4  = ATP binding (group 2, rep step 4)
+    #   k6f = catalysis SS rate (group 3, rep step 6)
+    #   K7  = G6P at catalytic site (group 4, rep step 7)
+    #   K10 = ADP release (group 5, rep step 10)
+    #   K12 = G6P at INHIBITORY site (group 6, rep step 12) — single K
+    #         for all three E_G6Pi-form bindings.
+    params = (K1=0.1, K4=0.05, k6f=10.0, K7=0.5, K10=0.2, K12=0.3,
               K_Pi_reg1=1.0, K_G6P_T_reg1=0.01,
               L=10.0, Keq=2000.0, E_total=1.0)
     p_an = merge(params, (Et=params.E_total,))

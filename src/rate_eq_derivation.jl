@@ -756,6 +756,41 @@ function _is_ss_rate_constant(sym::Symbol)
     length(s) > 1 && s[1] == 'k' && isdigit(s[2])
 end
 
+"""Group `num` and `den` POLYs by metabolite monomial pattern.
+Returns `(num_groups, den_groups)` where each value is a POLY of k-monomials
+sharing the same met-monomial. Reverse (negative-coefficient) terms are dropped
+from the numerator. Used by `_kcat_components` and `_kcat_forward` to compare
+saturating metabolite patterns across R/T states."""
+function _kcat_groups_from_polys(num::POLY, den::POLY)
+    function split_mono(mono::MONO)
+        k_mono = MONO()
+        met_mono = MONO()
+        for (s, e) in mono
+            if is_k_parameter(s) || s == :Keq
+                push!(k_mono, s => e)
+            elseif s != :E_total
+                push!(met_mono, s => e)
+            end
+        end
+        sort!(k_mono; by=first), sort!(met_mono; by=first)
+    end
+
+    num_groups = Dict{MONO, POLY}()
+    for (mono, coeff) in num
+        coeff > 0 || continue
+        k_part, met_part = split_mono(mono)
+        p = get!(num_groups, met_part, POLY())
+        p[k_part] = get(p, k_part, Rational{Int}(0)) + coeff
+    end
+    den_groups = Dict{MONO, POLY}()
+    for (mono, coeff) in den
+        k_part, met_part = split_mono(mono)
+        p = get!(den_groups, met_part, POLY())
+        p[k_part] = get(p, k_part, Rational{Int}(0)) + coeff
+    end
+    num_groups, den_groups
+end
+
 """
 Compute kcat candidate components from the rate equation polynomial structure.
 Returns `Vector{Tuple{Any, Any}}` of (num_k_expr, den_k_expr) pairs.
@@ -773,37 +808,7 @@ function _kcat_components(M::Type{<:EnzymeMechanism})
     num_fs, denom_terms = _raw_symbolic_rate_polys(M)
     num = _expand_factored_sigma(num_fs)
     den = _expand_to_poly(denom_terms)
-
-    # Split monomial into (k_part, met_part)
-    function split_mono(mono::MONO)
-        k_mono = MONO()
-        met_mono = MONO()
-        for (s, e) in mono
-            if is_k_parameter(s) || s == :Keq
-                push!(k_mono, s => e)
-            elseif s != :E_total
-                push!(met_mono, s => e)
-            end
-        end
-        sort!(k_mono; by=first), sort!(met_mono; by=first)
-    end
-
-    # Group forward numerator (positive coefficients) by metabolite pattern
-    num_groups = Dict{MONO, POLY}()
-    for (mono, coeff) in num
-        coeff > 0 || continue
-        k_part, met_part = split_mono(mono)
-        p = get!(num_groups, met_part, POLY())
-        p[k_part] = get(p, k_part, Rational{Int}(0)) + coeff
-    end
-
-    # Group denominator by metabolite pattern
-    den_groups = Dict{MONO, POLY}()
-    for (mono, coeff) in den
-        k_part, met_part = split_mono(mono)
-        p = get!(den_groups, met_part, POLY())
-        p[k_part] = get(p, k_part, Rational{Int}(0)) + coeff
-    end
+    num_groups, den_groups = _kcat_groups_from_polys(num, den)
 
     # Build kcat candidates: for each forward numerator metabolite group
     # with a matching denominator group, create (num_k_expr, den_k_expr)
@@ -877,16 +882,59 @@ corners and return the max.
     M_type = AllostericEnzymeMechanism{CM,CS,RS}
     m = M_type()
     CatN = catalytic_multiplicity(m)
-    # Get kcat components from catalytic mechanism (single component)
-    components = _kcat_components(CM)
-    @assert length(components) == 1 "Catalytic mechanism should have exactly 1 kcat component"
-    raw_num_k, raw_den_k = components[1]
+
+    # Build R-state and T-state polynomials separately so the saturating
+    # metabolite pattern can be matched across conformations. T-state zeros
+    # `:OnlyR` k symbols at the polynomial level — patterns that only exist
+    # via an `:OnlyR` step (e.g. an `:OnlyR` substrate-binding K) drop out
+    # of T-state, so their `(num_k_T, den_k_T)` are 0 and the T-state
+    # contribution at saturation vanishes.
+    num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
+    t_only_syms = _onlyT_syms(m)
+    r_only_syms = _onlyR_syms(m)
+    rename_T = _T_rename(m)
+    num_R_poly = _zero_symbols_in_poly(_expand_factored_sigma(num_fs), t_only_syms)
+    den_R_poly = _zero_symbols_in_poly(_expand_to_poly(denom_terms), t_only_syms)
+    num_T_poly = _rename_symbols(
+        _zero_symbols_in_poly(_expand_factored_sigma(num_fs), r_only_syms),
+        rename_T)
+    den_T_poly = _rename_symbols(
+        _zero_symbols_in_poly(_expand_to_poly(denom_terms), r_only_syms),
+        rename_T)
+    num_R_groups, den_R_groups = _kcat_groups_from_polys(num_R_poly, den_R_poly)
+    num_T_groups, den_T_groups = _kcat_groups_from_polys(num_T_poly, den_T_poly)
+
+    # Choose the saturating R-state met pattern (single component for
+    # mechanisms exercised here; assert keeps that constraint visible).
+    r_keys = sort!([k for k in keys(num_R_groups) if haskey(den_R_groups, k)])
+    @assert length(r_keys) == 1 "Catalytic mechanism should have exactly 1 kcat component"
+    met_key = r_keys[1]
+    empty_set = Set{Symbol}()
+    raw_num_k_R = _poly_to_expr(num_R_groups[met_key], empty_set, empty_set)
+    raw_den_k_R = _poly_to_expr(den_R_groups[met_key], empty_set, empty_set)
 
     # Apply Kd inversion: raw polys use Ka convention, params use Kd
-    binding_Ks = Set(_binding_K_symbols(CM))
-    kd_subs = Dict(K => :(inv($K)) for K in binding_Ks)
-    num_k_R_expr = substitute_params_expr(raw_num_k, kd_subs)
-    den_k_R_expr = substitute_params_expr(raw_den_k, kd_subs)
+    binding_Ks_R = Set(_binding_K_symbols(CM))
+    binding_Ks_T = Set(get(rename_T, K, K) for K in binding_Ks_R)
+    num_k_R_expr = substitute_params_expr(
+        raw_num_k_R, Dict(K => :(inv($K)) for K in binding_Ks_R))
+    den_k_R_expr = substitute_params_expr(
+        raw_den_k_R, Dict(K => :(inv($K)) for K in binding_Ks_R))
+
+    # T-state at the same metabolite pattern. Missing → set 0 (the saturating
+    # pattern is unreachable in T-state, so T contributes neither flux nor
+    # enzyme mass at saturation along that pattern).
+    num_T_p = get(num_T_groups, met_key, nothing)
+    den_T_p = get(den_T_groups, met_key, nothing)
+    raw_num_k_T = num_T_p === nothing ? 0 :
+        _poly_to_expr(num_T_p, empty_set, empty_set)
+    raw_den_k_T = den_T_p === nothing ? 0 :
+        _poly_to_expr(den_T_p, empty_set, empty_set)
+    num_k_T_expr = num_T_p === nothing ? 0 :
+        substitute_params_expr(raw_num_k_T, Dict(K => :(inv($K)) for K in binding_Ks_T))
+    den_k_T_expr = den_T_p === nothing ? 0 :
+        substitute_params_expr(raw_den_k_T, Dict(K => :(inv($K)) for K in binding_Ks_T))
+    t_pattern_dead = den_T_p === nothing
 
     # Build dependent param assignments for R-state
     r_assignments, t_assignments_ =
@@ -902,24 +950,23 @@ corners and return the max.
         :($(num_k_R_expr) * $(den_k_R_expr)^$(CatN - 1))
     B_R = :($(den_k_R_expr)^$(CatN))
 
-    if t_state_dead
-        # T-state can't catalyze: A_T = 0, B_T = 1
+    # T-state catalytic A/B. `A_T` is zero whenever the catalytic cycle is
+    # broken; `B_T` additionally drops to 0 if the saturating pattern is
+    # absent in T-state (its mass is lower-order in subs and vanishes
+    # relative to R-state at saturation).
+    if t_pattern_dead
         A_T = 0
-        B_T = 1
+        B_T = 0
     else
-        # Build T-state expressions for catalytic subunit via the
-        # `:NonequalRT` / `:OnlyT` rename map (`:EqualRT` passes through).
-        rename_T = _T_rename(m)
-        num_k_T_expr = substitute_params_expr(num_k_R_expr, rename_T)
-        den_k_T_expr = substitute_params_expr(den_k_R_expr, rename_T)
-        A_T = CatN == 1 ? num_k_T_expr :
-            :($(num_k_T_expr) * $(den_k_T_expr)^$(CatN - 1))
+        A_T = t_state_dead ? 0 :
+              CatN == 1 ? num_k_T_expr :
+                          :($(num_k_T_expr) * $(den_k_T_expr)^$(CatN - 1))
         B_T = :($(den_k_T_expr)^$(CatN))
     end
 
     # Skip T-state dep-assignments when T-state is dead (they may reference
     # zero-valued params and cause Inf via 1/K substitutions).
-    t_assignments = t_state_dead ? Expr[] : t_assignments_
+    t_assignments = (t_state_dead || t_pattern_dead) ? Expr[] : t_assignments_
 
     if isempty(RS)
         # No regulatory sites: single kcat value

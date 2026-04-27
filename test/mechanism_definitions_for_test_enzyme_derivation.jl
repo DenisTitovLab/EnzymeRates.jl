@@ -1962,11 +1962,23 @@ function build_mechanism_test_specs()
     end
 
     # ── Hexokinase hand-verified mechanism ──────────────────────────────────
-    # Reaction: Glucose + ATP ⇌ G6P + ADP, 2 catalytic subunits, 2 conformations.
-    # G6P appears in three independent contributions: catalytic product (via
-    # Haldane reverse), catalytic dead-end inhibitor (binds E_ATP and E_ADP),
-    # and allosteric regulator (:OnlyT). ATP binding is :OnlyR — T-state
-    # can't bind ATP, so the cycle is broken and N_cat_T = 0.
+    #
+    # G6P has THREE distinct binding sites on HK:
+    #
+    #   1. Catalytic site (glucose pocket): G6P competes with Glucose, but
+    #      binds together with ATP at the nucleotide pocket. This is the
+    #      product-release equilibrium — group 4 (K7).
+    #
+    #   2. Inhibitory site (= nucleotide pocket): G6P competes with ATP/ADP
+    #      at the same pocket, but can co-bind with Glucose or with G6P at
+    #      the catalytic site — group 6 (K12). G6P here EXCLUDES ATP/ADP at
+    #      the same site, so there are no E_ATP_G6Pi or E_ADP_G6Pi forms.
+    #
+    #   3. Allosteric site: G6P competes with Pi at a separate regulatory
+    #      site — site(:regulatory, 2) with G6P::OnlyT and Pi::EqualRT.
+    #
+    # ATP binding (group 2) is :OnlyR — T-state can't bind ATP, so the
+    # catalytic cycle is broken and N_cat_T = 0.
     let
         m = @allosteric_mechanism begin
             substrates: Glucose, ATP
@@ -1976,13 +1988,29 @@ function build_mechanism_test_specs()
 
             site(:catalytic, 2): begin
                 steps: begin
-                    ([E, Glucose] ⇌ [E_Glc], [E_ATP, Glucose] ⇌ [E_Glc_ATP]) :: EqualRT
-                    ([E, ATP] ⇌ [E_ATP], [E_Glc, ATP] ⇌ [E_Glc_ATP])         :: OnlyR
-                    [E_Glc_ATP] <--> [E_G6P_ADP]                              :: EqualRT
-                    ([E_G6P_ADP] ⇌ [E_ADP, G6P], [E_G6P] ⇌ [E, G6P])         :: EqualRT
-                    ([E_G6P_ADP] ⇌ [E_G6P, ADP], [E_ADP] ⇌ [E, ADP])         :: EqualRT
-                    [E_ATP, G6P] ⇌ [E_ATP_G6P]                                :: EqualRT
-                    [E_ADP, G6P] ⇌ [E_ADP_G6P]                                :: EqualRT
+                    # Group 1 (Glucose binding at catalytic site, EqualRT)
+                    ([E, Glucose] ⇌ [E_Glc],
+                     [E_ATP, Glucose] ⇌ [E_Glc_ATP],
+                     [E_G6Pi, Glucose] ⇌ [E_Glc_G6Pi])    :: EqualRT
+                    # Group 2 (ATP binding at nucleotide pocket, OnlyR —
+                    # T-state can't bind ATP)
+                    ([E, ATP] ⇌ [E_ATP],
+                     [E_Glc, ATP] ⇌ [E_Glc_ATP])           :: OnlyR
+                    # Group 3 (catalysis SS, EqualRT)
+                    [E_Glc_ATP] <--> [E_G6P_ADP]            :: EqualRT
+                    # Group 4 (G6P binding/release at catalytic site, EqualRT)
+                    ([E_G6P_ADP] ⇌ [E_ADP, G6P],
+                     [E_G6P] ⇌ [E, G6P],
+                     [E_G6P_G6Pi] ⇌ [E_G6Pi, G6P])         :: EqualRT
+                    # Group 5 (ADP release, EqualRT)
+                    ([E_G6P_ADP] ⇌ [E_G6P, ADP],
+                     [E_ADP] ⇌ [E, ADP])                   :: EqualRT
+                    # Group 6 (G6P binding at INHIBITORY site, EqualRT) —
+                    # G6P at site 2 competes with ATP/ADP, can co-bind with
+                    # Glucose at site 1 or G6P at site 1.
+                    ([E, G6P] ⇌ [E_G6Pi],
+                     [E_Glc, G6P] ⇌ [E_Glc_G6Pi],
+                     [E_G6P, G6P] ⇌ [E_G6P_G6Pi])          :: EqualRT
                 end
             end
 
@@ -1991,21 +2019,45 @@ function build_mechanism_test_specs()
             end
         end
 
+        # Param naming follows kinetic-group representative-step indices:
+        #   K1  (Glucose binding, group 1 rep step 1)
+        #   K4  (ATP binding, group 2 rep step 4)
+        #   k6f (catalysis, group 3 rep step 6)
+        #   K7  (G6P at catalytic site, group 4 rep step 7)
+        #   K10 (ADP release, group 5 rep step 10)
+        #   K12 (G6P at inhibitory site, group 6 rep step 12) — single K
+        #        for all three E_G6Pi-form bindings.
         function hk_rate_analytical(params, concs)
-            (; K1, K3, k5f, K6, K8, K10, K11,
+            (; K1, K4, k6f, K7, K10, K12,
                K_Pi_reg1, K_G6P_T_reg1,
                L, Keq, Et) = params
             (; Glucose, ATP, G6P, ADP, Pi) = concs
-            k5r = k5f * K6 * K8 / (Keq * K1 * K3)
+            k6r = k6f * K7 * K10 / (Keq * K1 * K4)
 
-            Q_cat_R = 1 + Glucose/K1 + ATP/K3 + Glucose*ATP/(K1*K3) +
-                      G6P/K6 + ADP/K8 + ADP*G6P/(K6*K8) +
-                      ATP*G6P/(K10*K3) + ADP*G6P/(K11*K8)
-            Q_cat_T = 1 + Glucose/K1 + G6P/K6 + ADP/K8 + ADP*G6P/(K6*K8) +
-                      ADP*G6P/(K11*K8)
+            # R-state catalytic partition function (10 enzyme forms).
+            Q_cat_R = 1 +
+                      Glucose / K1 +
+                      ATP / K4 +
+                      Glucose * ATP / (K1 * K4) +
+                      G6P * ADP / (K7 * K10) +
+                      G6P / K7 +
+                      ADP / K10 +
+                      G6P / K12 +
+                      Glucose * G6P / (K1 * K12) +
+                      G6P^2 / (K7 * K12)
+            # T-state: ATP group :OnlyR → zero ATP terms.
+            Q_cat_T = 1 +
+                      Glucose / K1 +
+                      G6P * ADP / (K7 * K10) +
+                      G6P / K7 +
+                      ADP / K10 +
+                      G6P / K12 +
+                      Glucose * G6P / (K1 * K12) +
+                      G6P^2 / (K7 * K12)
 
             # N_cat_T = 0: T-state cycle is broken (ATP binding :OnlyR).
-            N_cat_R = k5f * Glucose * ATP / (K1 * K3) - k5r * G6P * ADP / (K6 * K8)
+            N_cat_R = k6f * Glucose * ATP / (K1 * K4) -
+                      k6r * G6P * ADP / (K7 * K10)
             N_cat_T = 0.0
 
             Q_reg1_R = 1 + Pi / K_Pi_reg1
@@ -2022,16 +2074,18 @@ function build_mechanism_test_specs()
             name="HK",
             mechanism=m,
             metabolite_names=[:Glucose, :ATP, :G6P, :ADP, :Pi],
-            expected_n_states=9,
-            expected_n_steps=11,
+            expected_n_states=10,    # 7 catalytic-cycle + 3 G6Pi dead-end
+            expected_n_steps=14,     # 3+2+1+3+2+3
             expected_n_metabolites=5,
-            # 8 deps: 1 Haldane (k5r) + 7 :EqualRT-mirror constraints
-            # (K1_T=K1, k5f_T=k5f, k5r_T=k5r, K6_T=K6, K8_T=K8, K10_T=K10,
-            # K11_T=K11, K_Pi_T_reg1=K_Pi_reg1).
-            expected_n_haldane=8,
+            # 7 deps: 1 Haldane (k6r) + 6 :EqualRT-mirror constraints
+            # (K1_T, k6f_T, k6r_T, K7_T, K10_T, K12_T, K_Pi_T_reg1).
+            # The merged group 6 contributes ONE mirror constraint
+            # (K12_T=K12) — the OLD design with two dead-end groups had
+            # two (K10_T, K11_T).
+            expected_n_haldane=7,
             expected_n_wegscheider=0,
-            expected_n_independent_params=10,
-            expected_identifiability_deficit=-153,
+            expected_n_independent_params=9,
+            expected_identifiability_deficit=-178,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=hk_rate_analytical,
