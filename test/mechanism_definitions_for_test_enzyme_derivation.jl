@@ -1996,3 +1996,106 @@ if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
         return E_total * 4.0 * num / Z
     end
 end
+
+# ── Hexokinase hand-verified mechanism ──────────────────────────────────────
+#
+# Reaction: Glucose + ATP ⇌ G6P + ADP, 2 catalytic subunits, 2 conformations.
+# G6P appears in three independent contributions: catalytic-cycle product
+# (Haldane reverse), catalytic dead-end inhibitor (binds E_ATP and E_ADP),
+# and allosteric regulator (:OnlyT).
+#
+# Catalytic site (×2 subunits, R/T conformations) — random Bi-Bi with shared K
+# per kinetic group plus dead-end G6P binding to E_ATP and E_ADP forms.
+# Seven kinetic groups:
+#   Group 1 (Glucose binding, EqualRT): [E,Glc] ⇌ [E_Glc], [E_ATP,Glc] ⇌ [E_Glc_ATP]
+#   Group 2 (ATP binding, OnlyR):       [E,ATP] ⇌ [E_ATP], [E_Glc,ATP] ⇌ [E_Glc_ATP]
+#   Group 3 (catalysis, EqualRT):       [E_Glc_ATP] <--> [E_G6P_ADP]
+#   Group 4 (G6P release, EqualRT)
+#   Group 5 (ADP release, EqualRT)
+#   Group 6 (E_ATP_G6P dead-end, EqualRT)
+#   Group 7 (E_ADP_G6P dead-end, EqualRT)
+#
+# ATP-binding group is :OnlyR so the T-state cannot bind ATP and therefore
+# cannot complete the catalytic cycle (N_T forward = 0). This makes the
+# allosteric G6P :OnlyT inhibition observable; otherwise an all-:EqualRT
+# catalytic with single-reg-site n_reg=cat_n cancels the allosteric
+# contribution exactly.
+#
+# Allosteric regulators (2 reg sites, multiplicity 2):
+#   Site 1 (explicit): G6P (OnlyT), Pi (EqualRT)
+#
+# Independent parameters returned by `parameters(hk_mechanism)`:
+#   Catalytic R-state Kd: K1 (Glucose), K3 (ATP), K6 (G6P), K8 (ADP),
+#                         K10 (E_ATP_G6P dead-end), K11 (E_ADP_G6P dead-end)
+#   Catalytic SS rate:    k5f (k5r is Haldane-derived)
+#   Reg site Kd:          K_Pi_reg1, K_G6P_T_reg1
+#   Conformational eq:    L
+#   Plus: Keq, E_total
+if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
+    hk_mechanism = @allosteric_mechanism begin
+        substrates: Glucose, ATP
+        products:   G6P, ADP
+        allosteric_regulators: G6P::OnlyT, Pi::EqualRT
+        catalytic_inhibitors:  G6P
+
+        site(:catalytic, 2): begin
+            steps: begin
+                ([E, Glucose] ⇌ [E_Glc], [E_ATP, Glucose] ⇌ [E_Glc_ATP]) :: EqualRT
+                ([E, ATP] ⇌ [E_ATP], [E_Glc, ATP] ⇌ [E_Glc_ATP])         :: OnlyR
+                [E_Glc_ATP] <--> [E_G6P_ADP]                              :: EqualRT
+                ([E_G6P_ADP] ⇌ [E_ADP, G6P], [E_G6P] ⇌ [E, G6P])         :: EqualRT
+                ([E_G6P_ADP] ⇌ [E_G6P, ADP], [E_ADP] ⇌ [E, ADP])         :: EqualRT
+                [E_ATP, G6P] ⇌ [E_ATP_G6P]                                :: EqualRT
+                [E_ADP, G6P] ⇌ [E_ADP_G6P]                                :: EqualRT
+            end
+        end
+
+        site(:regulatory, 2): begin
+            ligands: G6P, Pi
+        end
+    end
+
+    # Hand-derived analytical rate equation following the MWC formula:
+    #   rate = E_total * cat_n * (N_R * Q_cat_R^(cat_n-1) * Q_reg_R^n_reg
+    #                           + L * N_T * Q_cat_T^(cat_n-1) * Q_reg_T^n_reg)
+    #          / (Q_cat_R^cat_n * Q_reg_R^n_reg + L * Q_cat_T^cat_n * Q_reg_T^n_reg)
+    function hk_rate_analytical(params, concs)
+        (; K1, K3, k5f, K6, K8, K10, K11,
+           K_Pi_reg1, K_G6P_T_reg1,
+           L, Keq, E_total) = params
+        (; Glucose, ATP, G6P, ADP, Pi) = concs
+
+        # Haldane: Glucose + ATP ⇌ G6P + ADP
+        # Keq = (k5f / k5r) * (K6 * K8) / (K1 * K3)
+        k5r = k5f * K6 * K8 / (Keq * K1 * K3)
+
+        # Catalytic R-state subunit partition (9 enzyme forms incl. dead-ends)
+        Q_cat_R = 1 + Glucose/K1 + ATP/K3 + Glucose*ATP/(K1*K3) +
+                  G6P/K6 + ADP/K8 + ADP*G6P/(K6*K8) +
+                  ATP*G6P/(K10*K3) + ADP*G6P/(K11*K8)
+        # Catalytic T-state: ATP group (:OnlyR) zeroes out → no ATP, no
+        # E_Glc_ATP, no E_ATP_G6P dead-end (precursor E_ATP absent in T)
+        Q_cat_T = 1 + Glucose/K1 + G6P/K6 + ADP/K8 + ADP*G6P/(K6*K8) +
+                  ADP*G6P/(K11*K8)
+
+        # Catalytic flux numerators (single SS step; T-state forward zeros
+        # because ATP is absent in T-state, so E_Glc_ATP can't form)
+        N_cat_R = k5f * Glucose * ATP / (K1 * K3) - k5r * G6P * ADP / (K6 * K8)
+        N_cat_T = -k5r * G6P * ADP / (K6 * K8)
+
+        # Reg-site partition functions
+        # Site 1: G6P OnlyT (T only), Pi EqualRT (both states)
+        Q_reg1_R = 1 + Pi / K_Pi_reg1
+        Q_reg1_T = 1 + Pi / K_Pi_reg1 + G6P / K_G6P_T_reg1
+
+        # MWC assembly (cat_n = 2, reg site multiplicity = 2)
+        Q_R = Q_cat_R^2 * Q_reg1_R^2
+        Q_T = Q_cat_T^2 * Q_reg1_T^2
+        Z = Q_R + L * Q_T
+
+        num = N_cat_R * Q_cat_R * Q_reg1_R^2 +
+              L * N_cat_T * Q_cat_T * Q_reg1_T^2
+
+        return E_total * 2.0 * num / Z
+    end
+end
