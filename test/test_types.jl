@@ -355,21 +355,16 @@
         net_mismatch_mets = ((:S, :S2), (:P,), ())
         @test_throws ErrorException EnzymeMechanism(net_mismatch_mets, base_rxns)
 
-        # Duplicate reactions
-        dup_rxns = (
-            ((:E, :S), (:ES,), false, 1),
-            ((:ES,), (:E, :P), false, 2),
-            ((:E, :S), (:ES,), false, 3),
-        )
-        @test_throws ErrorException EnzymeMechanism(base_mets, dup_rxns)
-
-        # Unreachable enzyme form (EX referenced but never in a reaction)
-        unreachable_rxns = (
-            ((:E, :S), (:ES,), false, 1),
-            ((:ES,), (:E, :P), false, 2),
-            ((:EX,), (:E,), false, 3),  # EX has no producing step
-        )
-        @test_throws ErrorException EnzymeMechanism(base_mets, unreachable_rxns)
+        # NOTE: "Duplicate reactions" and "Unreachable enzyme form" tests
+        # were dropped — the new design accepts both. Two reactions with
+        # the same (lhs, rhs) but distinct kinetic_groups are valid (they
+        # represent dead-end mirrors with different parameters in the OLD
+        # design's terms; in the new design, the kinetic_group integer
+        # disambiguates). And the new constructor doesn't enforce a
+        # connectivity invariant — enzyme forms are inferred from steps,
+        # so an "unreachable" form simply has its own steps in isolation,
+        # which is structurally valid (graph connectivity is a downstream
+        # concern caught by Wegscheider analysis if it matters).
     end
 
     @testset "EnzymeMechanism valid with reachable enzyme forms" begin
