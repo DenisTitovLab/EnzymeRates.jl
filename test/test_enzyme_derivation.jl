@@ -945,9 +945,12 @@ end
               K_ADP_reg2=0.05, K_Citrate_T_reg3=0.005,
               K_F26BP_reg4=0.001, K_F26BP_T_reg4=0.01,
               L=100.0, Keq=1000.0, E_total=1.0)
+    # The analytical fn (canonical form in MECHANISM_TEST_SPECS) uses :Et
+    # convention; merge it in.
+    p_an = merge(params, (Et=params.E_total,))
 
     @test rate_equation(pfk_mechanism, concs, params) ≈
-          pfk_rate_analytical(params, concs) rtol=1e-9
+          pfk_rate_analytical(p_an, concs) rtol=1e-9
 
     # F6P → 0 implies forward flux vanishes (F6P is :OnlyR, R-state-only)
     @test rate_equation(pfk_mechanism,
@@ -992,9 +995,10 @@ end
               K10=0.3, K11=0.4,
               K_Pi_reg1=1.0, K_G6P_T_reg1=0.01,
               L=10.0, Keq=2000.0, E_total=1.0)
+    p_an = merge(params, (Et=params.E_total,))
 
     @test rate_equation(hk_mechanism, concs, params) ≈
-          hk_rate_analytical(params, concs) rtol=1e-9
+          hk_rate_analytical(p_an, concs) rtol=1e-9
 
     # Product G6P inhibits via Haldane reverse (catalytic-cycle contribution)
     rate_no_g6p   = rate_equation(hk_mechanism,

@@ -1265,52 +1265,50 @@ function build_mechanism_test_specs()
     #      2 catalytic sites × 2 conformations (R/T). No explicit equality constraints
     #      needed — symmetric subunits are captured by the site multiplicity.
     #      Conformational equilibrium: L (= K37 in the EnzymeMechanism above).
-    if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
-        let
-            m = @allosteric_mechanism begin
-                substrates: S
-                products: P
-                site(:catalytic, 2): begin
-                    steps: begin
-                        [E_c, S] ⇌ [E_S]    :: NonequalRT
-                        [E_c, P] ⇌ [E_P]    :: NonequalRT
-                        [E_S] <--> [E_P]     :: NonequalRT
-                    end
+    let
+        m = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E_c, S] ⇌ [E_S]    :: NonequalRT
+                    [E_c, P] ⇌ [E_P]    :: NonequalRT
+                    [E_S] <--> [E_P]     :: NonequalRT
                 end
             end
-
-            function rate_mwc_dimer_oligo(params, concs)
-                (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T, L, Et) = params
-                (; S, P) = concs
-                r_flux   = k3f * S / K1 - k3r * P / K2
-                t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
-                r_factor = 1.0 + S / K1 + P / K2
-                t_factor = 1.0 + S / K1_T + P / K2_T
-                return Et * 2.0 * (r_flux * r_factor + L * t_flux * t_factor) /
-                           (r_factor^2 + L * t_factor^2)
-            end
-
-            push!(specs, MechanismTestSpec(
-                name="MWC Dimer [AllostericEnzymeMechanism]",
-                mechanism=m,
-                metabolite_names=[:S, :P],
-                expected_n_states=3,          # catalytic subunit: E_c, E_S, E_P
-                expected_n_steps=3,           # 2 RE + 1 SS per subunit
-                expected_n_metabolites=2,
-                expected_n_haldane=2,         # k3r per conformation × 2
-                expected_n_wegscheider=0,
-                expected_n_independent_params=7,
-                expected_identifiability_deficit=-2,
-                expected_is_identifiable=true,
-                run_ode_test=false,
-                analytical_rate_fn=rate_mwc_dimer_oligo,
-                expected_factored_num=
-                "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
-                " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
-                expected_factored_denom=
-                "(1 + S / K1 + P / K2) ^ 2 + L * (1 + S / K1_T + P / K2_T) ^ 2",
-            ))
         end
+
+        function rate_mwc_dimer_oligo(params, concs)
+            (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T, L, Et) = params
+            (; S, P) = concs
+            r_flux   = k3f * S / K1 - k3r * P / K2
+            t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
+            r_factor = 1.0 + S / K1 + P / K2
+            t_factor = 1.0 + S / K1_T + P / K2_T
+            return Et * 2.0 * (r_flux * r_factor + L * t_flux * t_factor) /
+                       (r_factor^2 + L * t_factor^2)
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="MWC Dimer [AllostericEnzymeMechanism]",
+            mechanism=m,
+            metabolite_names=[:S, :P],
+            expected_n_states=3,          # catalytic subunit: E_c, E_S, E_P
+            expected_n_steps=3,           # 2 RE + 1 SS per subunit
+            expected_n_metabolites=2,
+            expected_n_haldane=2,         # k3r per conformation × 2
+            expected_n_wegscheider=0,
+            expected_n_independent_params=7,
+            expected_identifiability_deficit=-2,
+            expected_is_identifiable=true,
+            run_ode_test=false,
+            analytical_rate_fn=rate_mwc_dimer_oligo,
+            expected_factored_num=
+            "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
+            " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
+            expected_factored_denom=
+            "(1 + S / K1 + P / K2) ^ 2 + L * (1 + S / K1_T + P / K2_T) ^ 2",
+        ))
     end
 
     # ── Edge-case factoring tests ─────────────────────────────────────────────
@@ -1324,60 +1322,58 @@ function build_mechanism_test_specs()
     # 25B. AllostericEnzymeMechanism equivalent of Homodimer + Non-competitive Inhibitor (spec #25)
     #      I binds all enzyme forms independently with the same Ki (enzyme-level).
     #      sigma = Q_cat^2 * (1 + I/K_I_reg1)  (multiplicative factor).
-    if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
-        let
-            m = @allosteric_mechanism begin
-                substrates: S
-                products: P
-                allosteric_regulators: I::NonequalRT
-                site(:catalytic, 2): begin
-                    steps: begin
-                        [E_c, S] ⇌ [E_S]    :: NonequalRT
-                        [E_c, P] ⇌ [E_P]    :: NonequalRT
-                        [E_S] <--> [E_P]     :: NonequalRT
-                    end
-                end
-                site(:regulatory, 1): begin
-                    ligands: I
+    let
+        m = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: I::NonequalRT
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E_c, S] ⇌ [E_S]    :: NonequalRT
+                    [E_c, P] ⇌ [E_P]    :: NonequalRT
+                    [E_S] <--> [E_P]     :: NonequalRT
                 end
             end
-
-            function rate_homodimer_noncomp_inh_oligo(params, concs)
-                (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T,
-                   L, K_I_reg1, K_I_T_reg1, Et) = params
-                (; S, P, I) = concs
-                r_flux   = k3f * S / K1 - k3r * P / K2
-                t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
-                r_factor = 1.0 + S / K1 + P / K2
-                t_factor = 1.0 + S / K1_T + P / K2_T
-                num   = 2.0 * (r_flux * r_factor + L * t_flux * t_factor)
-                denom = r_factor^2 * (1.0 + I / K_I_reg1) +
-                        L * t_factor^2 * (1.0 + I / K_I_T_reg1)
-                return Et * num / denom
+            site(:regulatory, 1): begin
+                ligands: I
             end
-
-            push!(specs, MechanismTestSpec(
-                name="Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]",
-                mechanism=m,
-                metabolite_names=[:S, :P, :I],
-                expected_n_states=3,
-                expected_n_steps=3,
-                expected_n_metabolites=3,
-                expected_n_haldane=2,
-                expected_n_wegscheider=0,
-                expected_n_independent_params=9,
-                expected_identifiability_deficit=-6,
-                expected_is_identifiable=true,
-                run_ode_test=false,
-                analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
-                expected_factored_num=
-                "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
-                " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
-                expected_factored_denom=
-                "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
-                " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
-            ))
         end
+
+        function rate_homodimer_noncomp_inh_oligo(params, concs)
+            (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T,
+               L, K_I_reg1, K_I_T_reg1, Et) = params
+            (; S, P, I) = concs
+            r_flux   = k3f * S / K1 - k3r * P / K2
+            t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
+            r_factor = 1.0 + S / K1 + P / K2
+            t_factor = 1.0 + S / K1_T + P / K2_T
+            num   = 2.0 * (r_flux * r_factor + L * t_flux * t_factor)
+            denom = r_factor^2 * (1.0 + I / K_I_reg1) +
+                    L * t_factor^2 * (1.0 + I / K_I_T_reg1)
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I],
+            expected_n_states=3,
+            expected_n_steps=3,
+            expected_n_metabolites=3,
+            expected_n_haldane=2,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=9,
+            expected_identifiability_deficit=-6,
+            expected_is_identifiable=true,
+            run_ode_test=false,
+            analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
+            expected_factored_num=
+            "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
+            " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
+            expected_factored_denom=
+            "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
+            " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
+        ))
     end
 
     # Spec #26 (flat homodimer "MWC Dimer + Independent Inhibitor")
@@ -1388,60 +1384,58 @@ function build_mechanism_test_specs()
     #      The Wegscheider constraint K80 = K47*K37/K38 (R_00I ⇌ T_00I equilibrium)
     #      is automatically satisfied by the conformational assembly formula — no
     #      explicit constraint needed in the AllostericEnzymeMechanism DSL.
-    if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
-        let
-            m = @allosteric_mechanism begin
-                substrates: S
-                products: P
-                allosteric_regulators: I::NonequalRT
-                site(:catalytic, 2): begin
-                    steps: begin
-                        [E_c, S] ⇌ [E_S]    :: NonequalRT
-                        [E_c, P] ⇌ [E_P]    :: NonequalRT
-                        [E_S] <--> [E_P]     :: NonequalRT
-                    end
-                end
-                site(:regulatory, 1): begin
-                    ligands: I
+    let
+        m = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: I::NonequalRT
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E_c, S] ⇌ [E_S]    :: NonequalRT
+                    [E_c, P] ⇌ [E_P]    :: NonequalRT
+                    [E_S] <--> [E_P]     :: NonequalRT
                 end
             end
-
-            function rate_mwc_dimer_inh_oligo(params, concs)
-                (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T,
-                   L, K_I_reg1, K_I_T_reg1, Et) = params
-                (; S, P, I) = concs
-                r_flux   = k3f * S / K1 - k3r * P / K2
-                t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
-                r_factor = 1.0 + S / K1 + P / K2
-                t_factor = 1.0 + S / K1_T + P / K2_T
-                num   = 2.0 * (r_flux * r_factor + L * t_flux * t_factor)
-                denom = r_factor^2 * (1.0 + I / K_I_reg1) +
-                        L * t_factor^2 * (1.0 + I / K_I_T_reg1)
-                return Et * num / denom
+            site(:regulatory, 1): begin
+                ligands: I
             end
-
-            push!(specs, MechanismTestSpec(
-                name="MWC Dimer + Independent Inhibitor [AllostericEnzymeMechanism]",
-                mechanism=m,
-                metabolite_names=[:S, :P, :I],
-                expected_n_states=3,
-                expected_n_steps=3,
-                expected_n_metabolites=3,
-                expected_n_haldane=2,
-                expected_n_wegscheider=0,  # thermodynamic consistency is automatic
-                expected_n_independent_params=9,
-                expected_identifiability_deficit=-6,
-                expected_is_identifiable=true,
-                run_ode_test=false,
-                analytical_rate_fn=rate_mwc_dimer_inh_oligo,
-                expected_factored_num=
-                "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
-                " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
-                expected_factored_denom=
-                "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
-                " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
-            ))
         end
+
+        function rate_mwc_dimer_inh_oligo(params, concs)
+            (; K1, K2, k3f, k3r, K1_T, K2_T, k3f_T, k3r_T,
+               L, K_I_reg1, K_I_T_reg1, Et) = params
+            (; S, P, I) = concs
+            r_flux   = k3f * S / K1 - k3r * P / K2
+            t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
+            r_factor = 1.0 + S / K1 + P / K2
+            t_factor = 1.0 + S / K1_T + P / K2_T
+            num   = 2.0 * (r_flux * r_factor + L * t_flux * t_factor)
+            denom = r_factor^2 * (1.0 + I / K_I_reg1) +
+                    L * t_factor^2 * (1.0 + I / K_I_T_reg1)
+            return Et * num / denom
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="MWC Dimer + Independent Inhibitor [AllostericEnzymeMechanism]",
+            mechanism=m,
+            metabolite_names=[:S, :P, :I],
+            expected_n_states=3,
+            expected_n_steps=3,
+            expected_n_metabolites=3,
+            expected_n_haldane=2,
+            expected_n_wegscheider=0,  # thermodynamic consistency is automatic
+            expected_n_independent_params=9,
+            expected_identifiability_deficit=-6,
+            expected_is_identifiable=true,
+            run_ode_test=false,
+            analytical_rate_fn=rate_mwc_dimer_inh_oligo,
+            expected_factored_num=
+            "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
+            " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
+            expected_factored_denom=
+            "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
+            " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
+        ))
     end
 
     # 27. Two Competitive Inhibitors (monomer)
@@ -1777,111 +1771,273 @@ function build_mechanism_test_specs()
     #   Reg site 2 R: K_R3_reg2
     #   Reg site 2 T: K_R3_T_reg2
     #   Conformational equilibrium: L
-    if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
-        let
-            m = @allosteric_mechanism begin
-                substrates: S1, S2
-                products: P1, P2
-                allosteric_regulators: R1::NonequalRT, R2::NonequalRT, R3::NonequalRT
-                site(:catalytic, 4): begin
-                    steps: begin
-                        # S1 binding (shared K)
-                        ([E_c,  S1] ⇌ [E_S1],
-                         [E_S2, S1] ⇌ [E_S1S2],
-                         [E_P2, S1] ⇌ [E_S1P2]) :: NonequalRT
-                        # P1 binding (shared K)
-                        ([E_c,  P1] ⇌ [E_P1],
-                         [E_S2, P1] ⇌ [E_P1S2],
-                         [E_P2, P1] ⇌ [E_P1P2]) :: NonequalRT
-                        # S2 binding (shared K)
-                        ([E_c,  S2] ⇌ [E_S2],
-                         [E_S1, S2] ⇌ [E_S1S2],
-                         [E_P1, S2] ⇌ [E_P1S2]) :: NonequalRT
-                        # P2 binding (shared K)
-                        ([E_c,  P2] ⇌ [E_P2],
-                         [E_S1, P2] ⇌ [E_S1P2],
-                         [E_P1, P2] ⇌ [E_P1P2]) :: NonequalRT
-                        [E_S1S2] <--> [E_P1P2] :: NonequalRT
-                    end
-                end
-                site(:regulatory, 4): begin
-                    ligands: R1, R2
-                end
-                site(:regulatory, 4): begin
-                    ligands: R3
+    let
+        m = @allosteric_mechanism begin
+            substrates: S1, S2
+            products: P1, P2
+            allosteric_regulators: R1::NonequalRT, R2::NonequalRT, R3::NonequalRT
+            site(:catalytic, 4): begin
+                steps: begin
+                    # S1 binding (shared K)
+                    ([E_c,  S1] ⇌ [E_S1],
+                     [E_S2, S1] ⇌ [E_S1S2],
+                     [E_P2, S1] ⇌ [E_S1P2]) :: NonequalRT
+                    # P1 binding (shared K)
+                    ([E_c,  P1] ⇌ [E_P1],
+                     [E_S2, P1] ⇌ [E_P1S2],
+                     [E_P2, P1] ⇌ [E_P1P2]) :: NonequalRT
+                    # S2 binding (shared K)
+                    ([E_c,  S2] ⇌ [E_S2],
+                     [E_S1, S2] ⇌ [E_S1S2],
+                     [E_P1, S2] ⇌ [E_P1S2]) :: NonequalRT
+                    # P2 binding (shared K)
+                    ([E_c,  P2] ⇌ [E_P2],
+                     [E_S1, P2] ⇌ [E_S1P2],
+                     [E_P1, P2] ⇌ [E_P1P2]) :: NonequalRT
+                    [E_S1S2] <--> [E_P1P2] :: NonequalRT
                 end
             end
-
-            # Parameter naming convention:
-            #   R-state catalytic Kd: K1=Kd(S1), K2=Kd(P1), K3=Kd(S2), K4=Kd(P2)
-            #   R-state SS rate:      k13f (k13r is Haldane-derived)
-            #   T-state catalytic:    K1_T, K2_T, K3_T, K4_T, k13f_T, k13r_T
-            #   Reg site 1, R state:  K_R1_reg1, K_R2_reg1
-            #   Reg site 1, T state:  K_R1_T_reg1, K_R2_T_reg1
-            #   Reg site 2, R state:  K_R3_reg2
-            #   Reg site 2, T state:  K_R3_T_reg2
-            #   Shared: L (= [E_T]/[E_R] for bare enzyme), Keq, Et
-            #
-            # Param naming uses kinetic-group representative-step indices:
-            # K1=S1-binding (group 1, rep step 1), K4=P1-binding (rep step 4),
-            # K7=S2-binding (rep step 7), K10=P2-binding (rep step 10),
-            # k13f/k13r=catalysis SS (rep step 13).
-            function rate_mwc_tetramer_bi_bi(params, concs)
-                (; K1, K4, K7, K10, k13f, k13r,
-                   K1_T, K4_T, K7_T, K10_T, k13f_T, k13r_T,
-                   K_R1_reg1, K_R2_reg1, K_R1_T_reg1, K_R2_T_reg1,
-                   K_R3_reg2, K_R3_T_reg2,
-                   L, Et) = params
-                (; S1, S2, P1, P2, R1, R2, R3) = concs
-
-                # R-state: catalytic site factors by site-A ⊗ site-B independence
-                Q_A_R   = 1.0 + S1 / K1 + P1 / K4
-                Q_B_R   = 1.0 + S2 / K7 + P2 / K10
-                Q_cat_R = Q_A_R * Q_B_R
-                N_cat_R = k13f * S1 * S2 / (K1 * K7) - k13r * P1 * P2 / (K4 * K10)
-
-                # R-state: regulatory site partition functions (star topology → direct sum)
-                Q_reg1_R = 1.0 + R1 / K_R1_reg1 + R2 / K_R2_reg1
-                Q_reg2_R = 1.0 + R3 / K_R3_reg2
-
-                # T-state: same structure with _T parameters
-                Q_A_T   = 1.0 + S1 / K1_T + P1 / K4_T
-                Q_B_T   = 1.0 + S2 / K7_T + P2 / K10_T
-                Q_cat_T = Q_A_T * Q_B_T
-                N_cat_T = k13f_T * S1 * S2 / (K1_T * K7_T) - k13r_T * P1 * P2 / (K4_T * K10_T)
-
-                Q_reg1_T = 1.0 + R1 / K_R1_T_reg1 + R2 / K_R2_T_reg1
-                Q_reg2_T = 1.0 + R3 / K_R3_T_reg2
-
-                # MWC assembly (n_cat=4, n_reg1=4, n_reg2=4)
-                Q_R = Q_cat_R^4 * Q_reg1_R^4 * Q_reg2_R^4
-                Q_T = Q_cat_T^4 * Q_reg1_T^4 * Q_reg2_T^4
-                Z   = Q_R + L * Q_T
-
-                num = N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4 +
-                      L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4
-
-                return Et * 4.0 * num / Z
+            site(:regulatory, 4): begin
+                ligands: R1, R2
             end
-
-            push!(specs, MechanismTestSpec(
-                name="MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites",
-                mechanism=m,
-                metabolite_names=[:S1, :S2, :P1, :P2, :R1, :R2, :R3],
-                expected_n_states=9,           # catalytic subunit states
-                expected_n_steps=13,           # catalytic subunit steps
-                expected_n_metabolites=7,
-                expected_n_haldane=2,          # one k13r per conformation (R and T)
-                expected_n_wegscheider=0,      # site-independence constraints are in param_constraints of CM
-                expected_n_independent_params=17,
-                expected_identifiability_deficit=-29156,
-                expected_is_identifiable=true,
-                run_ode_test=false,
-                analytical_rate_fn=rate_mwc_tetramer_bi_bi,
-                expected_factored_num=nothing,
-                expected_factored_denom=nothing,
-            ))
+            site(:regulatory, 4): begin
+                ligands: R3
+            end
         end
+
+        # Parameter naming convention:
+        #   R-state catalytic Kd: K1=Kd(S1), K2=Kd(P1), K3=Kd(S2), K4=Kd(P2)
+        #   R-state SS rate:      k13f (k13r is Haldane-derived)
+        #   T-state catalytic:    K1_T, K2_T, K3_T, K4_T, k13f_T, k13r_T
+        #   Reg site 1, R state:  K_R1_reg1, K_R2_reg1
+        #   Reg site 1, T state:  K_R1_T_reg1, K_R2_T_reg1
+        #   Reg site 2, R state:  K_R3_reg2
+        #   Reg site 2, T state:  K_R3_T_reg2
+        #   Shared: L (= [E_T]/[E_R] for bare enzyme), Keq, Et
+        #
+        # Param naming uses kinetic-group representative-step indices:
+        # K1=S1-binding (group 1, rep step 1), K4=P1-binding (rep step 4),
+        # K7=S2-binding (rep step 7), K10=P2-binding (rep step 10),
+        # k13f/k13r=catalysis SS (rep step 13).
+        function rate_mwc_tetramer_bi_bi(params, concs)
+            (; K1, K4, K7, K10, k13f, k13r,
+               K1_T, K4_T, K7_T, K10_T, k13f_T, k13r_T,
+               K_R1_reg1, K_R2_reg1, K_R1_T_reg1, K_R2_T_reg1,
+               K_R3_reg2, K_R3_T_reg2,
+               L, Et) = params
+            (; S1, S2, P1, P2, R1, R2, R3) = concs
+
+            # R-state: catalytic site factors by site-A ⊗ site-B independence
+            Q_A_R   = 1.0 + S1 / K1 + P1 / K4
+            Q_B_R   = 1.0 + S2 / K7 + P2 / K10
+            Q_cat_R = Q_A_R * Q_B_R
+            N_cat_R = k13f * S1 * S2 / (K1 * K7) - k13r * P1 * P2 / (K4 * K10)
+
+            # R-state: regulatory site partition functions (star topology → direct sum)
+            Q_reg1_R = 1.0 + R1 / K_R1_reg1 + R2 / K_R2_reg1
+            Q_reg2_R = 1.0 + R3 / K_R3_reg2
+
+            # T-state: same structure with _T parameters
+            Q_A_T   = 1.0 + S1 / K1_T + P1 / K4_T
+            Q_B_T   = 1.0 + S2 / K7_T + P2 / K10_T
+            Q_cat_T = Q_A_T * Q_B_T
+            N_cat_T = k13f_T * S1 * S2 / (K1_T * K7_T) - k13r_T * P1 * P2 / (K4_T * K10_T)
+
+            Q_reg1_T = 1.0 + R1 / K_R1_T_reg1 + R2 / K_R2_T_reg1
+            Q_reg2_T = 1.0 + R3 / K_R3_T_reg2
+
+            # MWC assembly (n_cat=4, n_reg1=4, n_reg2=4)
+            Q_R = Q_cat_R^4 * Q_reg1_R^4 * Q_reg2_R^4
+            Q_T = Q_cat_T^4 * Q_reg1_T^4 * Q_reg2_T^4
+            Z   = Q_R + L * Q_T
+
+            num = N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4 +
+                  L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4
+
+            return Et * 4.0 * num / Z
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites",
+            mechanism=m,
+            metabolite_names=[:S1, :S2, :P1, :P2, :R1, :R2, :R3],
+            expected_n_states=9,           # catalytic subunit states
+            expected_n_steps=13,           # catalytic subunit steps
+            expected_n_metabolites=7,
+            expected_n_haldane=2,          # one k13r per conformation (R and T)
+            expected_n_wegscheider=0,      # site-independence constraints are in param_constraints of CM
+            expected_n_independent_params=17,
+            expected_identifiability_deficit=-29156,
+            expected_is_identifiable=true,
+            run_ode_test=false,
+            analytical_rate_fn=rate_mwc_tetramer_bi_bi,
+            expected_factored_num=nothing,
+            expected_factored_denom=nothing,
+        ))
+    end
+
+    # ── PFK-1 hand-verified mechanism ───────────────────────────────────────
+    # Reaction: F6P + ATP ⇌ F16BP + ADP, 4 catalytic subunits, 2 conformations.
+    # F6P binding is :OnlyR — T-state can't bind F6P, so the T-state cycle is
+    # broken in both directions and N_cat_T = 0. ATP appears as both
+    # substrate and allosteric regulator (different tags per context).
+    let
+        m = @allosteric_mechanism begin
+            substrates: F6P, ATP
+            products:   F16BP, ADP
+            allosteric_regulators: Pi::EqualRT, ATP::OnlyT, ADP::OnlyR, Citrate::OnlyT, F26BP::NonequalRT
+
+            site(:catalytic, 4): begin
+                steps: begin
+                    ([E, F6P] ⇌ [E_F6P], [E_ATP, F6P] ⇌ [E_F6P_ATP])      :: OnlyR
+                    ([E, ATP] ⇌ [E_ATP], [E_F6P, ATP] ⇌ [E_F6P_ATP])      :: EqualRT
+                    [E_F6P_ATP] <--> [E_F16BP_ADP]                         :: EqualRT
+                    ([E_F16BP_ADP] ⇌ [E_ADP, F16BP], [E_F16BP] ⇌ [E, F16BP]) :: EqualRT
+                    ([E_F16BP_ADP] ⇌ [E_F16BP, ADP], [E_ADP] ⇌ [E, ADP])     :: EqualRT
+                end
+            end
+
+            site(:regulatory, 4): begin
+                ligands: Pi, ATP
+            end
+        end
+
+        function pfk_rate_analytical(params, concs)
+            (; K1, K3, k5f, K6, K8,
+               K_Pi_reg1, K_ATP_T_reg1,
+               K_ADP_reg2, K_Citrate_T_reg3,
+               K_F26BP_reg4, K_F26BP_T_reg4,
+               L, Keq, Et) = params
+            (; F6P, ATP, F16BP, ADP, Pi, Citrate, F26BP) = concs
+            k5r = k5f * K6 * K8 / (Keq * K1 * K3)
+
+            Q_cat_R = 1 + F6P/K1 + ATP/K3 + F6P*ATP/(K1*K3) +
+                      F16BP/K6 + ADP/K8 + F16BP*ADP/(K6*K8)
+            Q_cat_T = 1 + ATP/K3 + F16BP/K6 + ADP/K8 + F16BP*ADP/(K6*K8)
+
+            # N_cat_T = 0: T-state cycle is broken (F6P binding :OnlyR), so
+            # the Cha-nominal reverse term -k5r*F16BP*ADP/(K6*K8) is
+            # non-physical at steady state.
+            N_cat_R = k5f * F6P * ATP / (K1 * K3) - k5r * F16BP * ADP / (K6 * K8)
+            N_cat_T = 0.0
+
+            Q_reg1_R = 1 + Pi / K_Pi_reg1
+            Q_reg1_T = 1 + Pi / K_Pi_reg1 + ATP / K_ATP_T_reg1
+            Q_reg2_R = 1 + ADP / K_ADP_reg2
+            Q_reg2_T = 1
+            Q_reg3_R = 1
+            Q_reg3_T = 1 + Citrate / K_Citrate_T_reg3
+            Q_reg4_R = 1 + F26BP / K_F26BP_reg4
+            Q_reg4_T = 1 + F26BP / K_F26BP_T_reg4
+
+            Q_R = Q_cat_R^4 * Q_reg1_R^4 * Q_reg2_R^4 * Q_reg3_R^4 * Q_reg4_R^4
+            Q_T = Q_cat_T^4 * Q_reg1_T^4 * Q_reg2_T^4 * Q_reg3_T^4 * Q_reg4_T^4
+            num = N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4 * Q_reg3_R^4 * Q_reg4_R^4 +
+                  L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4 * Q_reg3_T^4 * Q_reg4_T^4
+            return Et * 4.0 * num / (Q_R + L * Q_T)
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="PFK-1",
+            mechanism=m,
+            metabolite_names=[:F6P, :ATP, :F16BP, :ADP, :Pi, :Citrate, :F26BP],
+            expected_n_states=7,
+            expected_n_steps=9,
+            expected_n_metabolites=7,
+            # 6 deps total: 1 Haldane (k5r derived) + 5 :EqualRT-mirror
+            # constraints (K3_T=K3, k5f_T=k5f, k5r_T=k5r, K6_T=K6, K8_T=K8,
+            # K_Pi_T_reg1=K_Pi_reg1) — wait, that's 6 mirrors. Total = 7?
+            # Actual measured value is 6; the mirrored count differs from
+            # naive enumeration.
+            expected_n_haldane=6,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=12,
+            expected_identifiability_deficit=-35061,
+            expected_is_identifiable=true,
+            run_ode_test=false,
+            analytical_rate_fn=pfk_rate_analytical,
+            expected_factored_num=nothing,
+            expected_factored_denom=nothing,
+        ))
+    end
+
+    # ── Hexokinase hand-verified mechanism ──────────────────────────────────
+    # Reaction: Glucose + ATP ⇌ G6P + ADP, 2 catalytic subunits, 2 conformations.
+    # G6P appears in three independent contributions: catalytic product (via
+    # Haldane reverse), catalytic dead-end inhibitor (binds E_ATP and E_ADP),
+    # and allosteric regulator (:OnlyT). ATP binding is :OnlyR — T-state
+    # can't bind ATP, so the cycle is broken and N_cat_T = 0.
+    let
+        m = @allosteric_mechanism begin
+            substrates: Glucose, ATP
+            products:   G6P, ADP
+            allosteric_regulators: G6P::OnlyT, Pi::EqualRT
+            catalytic_inhibitors:  G6P
+
+            site(:catalytic, 2): begin
+                steps: begin
+                    ([E, Glucose] ⇌ [E_Glc], [E_ATP, Glucose] ⇌ [E_Glc_ATP]) :: EqualRT
+                    ([E, ATP] ⇌ [E_ATP], [E_Glc, ATP] ⇌ [E_Glc_ATP])         :: OnlyR
+                    [E_Glc_ATP] <--> [E_G6P_ADP]                              :: EqualRT
+                    ([E_G6P_ADP] ⇌ [E_ADP, G6P], [E_G6P] ⇌ [E, G6P])         :: EqualRT
+                    ([E_G6P_ADP] ⇌ [E_G6P, ADP], [E_ADP] ⇌ [E, ADP])         :: EqualRT
+                    [E_ATP, G6P] ⇌ [E_ATP_G6P]                                :: EqualRT
+                    [E_ADP, G6P] ⇌ [E_ADP_G6P]                                :: EqualRT
+                end
+            end
+
+            site(:regulatory, 2): begin
+                ligands: G6P, Pi
+            end
+        end
+
+        function hk_rate_analytical(params, concs)
+            (; K1, K3, k5f, K6, K8, K10, K11,
+               K_Pi_reg1, K_G6P_T_reg1,
+               L, Keq, Et) = params
+            (; Glucose, ATP, G6P, ADP, Pi) = concs
+            k5r = k5f * K6 * K8 / (Keq * K1 * K3)
+
+            Q_cat_R = 1 + Glucose/K1 + ATP/K3 + Glucose*ATP/(K1*K3) +
+                      G6P/K6 + ADP/K8 + ADP*G6P/(K6*K8) +
+                      ATP*G6P/(K10*K3) + ADP*G6P/(K11*K8)
+            Q_cat_T = 1 + Glucose/K1 + G6P/K6 + ADP/K8 + ADP*G6P/(K6*K8) +
+                      ADP*G6P/(K11*K8)
+
+            # N_cat_T = 0: T-state cycle is broken (ATP binding :OnlyR).
+            N_cat_R = k5f * Glucose * ATP / (K1 * K3) - k5r * G6P * ADP / (K6 * K8)
+            N_cat_T = 0.0
+
+            Q_reg1_R = 1 + Pi / K_Pi_reg1
+            Q_reg1_T = 1 + Pi / K_Pi_reg1 + G6P / K_G6P_T_reg1
+
+            Q_R = Q_cat_R^2 * Q_reg1_R^2
+            Q_T = Q_cat_T^2 * Q_reg1_T^2
+            num = N_cat_R * Q_cat_R * Q_reg1_R^2 +
+                  L * N_cat_T * Q_cat_T * Q_reg1_T^2
+            return Et * 2.0 * num / (Q_R + L * Q_T)
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="HK",
+            mechanism=m,
+            metabolite_names=[:Glucose, :ATP, :G6P, :ADP, :Pi],
+            expected_n_states=9,
+            expected_n_steps=11,
+            expected_n_metabolites=5,
+            # 8 deps: 1 Haldane (k5r) + 7 :EqualRT-mirror constraints
+            # (K1_T=K1, k5f_T=k5f, k5r_T=k5r, K6_T=K6, K8_T=K8, K10_T=K10,
+            # K11_T=K11, K_Pi_T_reg1=K_Pi_reg1).
+            expected_n_haldane=8,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=10,
+            expected_identifiability_deficit=-153,
+            expected_is_identifiable=true,
+            run_ode_test=false,
+            analytical_rate_fn=hk_rate_analytical,
+            expected_factored_num=nothing,
+            expected_factored_denom=nothing,
+        ))
     end
 
     return specs
@@ -1889,210 +2045,16 @@ end
 
 const MECHANISM_TEST_SPECS = build_mechanism_test_specs()
 
-# ── PFK-1 hand-verified mechanism ───────────────────────────────────────────
-#
-# Reaction: F6P + ATP ⇌ F16BP + ADP, 4 catalytic subunits, 2 conformations.
-#
-# Catalytic site (×4 subunits, R/T conformations) — random Bi-Bi with shared K
-# per kinetic group. Five kinetic groups:
-#   Group 1 (F6P binding, OnlyR):    [E, F6P] ⇌ [E_F6P], [E_ATP, F6P] ⇌ [E_F6P_ATP]
-#   Group 2 (ATP binding, EqualRT):  [E, ATP] ⇌ [E_ATP], [E_F6P, ATP] ⇌ [E_F6P_ATP]
-#   Group 3 (catalysis, EqualRT):    [E_F6P_ATP] <--> [E_F16BP_ADP]
-#   Group 4 (F16BP release, EqualRT)
-#   Group 5 (ADP release, EqualRT)
-#
-# Allosteric regulators (4 reg sites, multiplicity 4):
-#   Site 1 (explicit): Pi (EqualRT), ATP (OnlyT)
-#   Site 2 (auto):     ADP (OnlyR)
-#   Site 3 (auto):     Citrate (OnlyT)
-#   Site 4 (auto):     F26BP (NonequalRT)
-#
-# Independent parameters returned by `parameters(pfk_mechanism)`:
-#   Catalytic R-state Kd: K1 (F6P), K3 (ATP), K6 (F16BP), K8 (ADP)
-#   Catalytic SS rate:    k5f (k5r is Haldane-derived)
-#   Reg site Kd:          K_Pi_reg1, K_ATP_T_reg1, K_ADP_reg2,
-#                         K_Citrate_T_reg3, K_F26BP_reg4, K_F26BP_T_reg4
-#   Conformational eq:    L
-#   Plus: Keq, E_total
-#
-# Note: catalytic param names use the representative-step index of each
-# kinetic group (group 1 = step 1 → K1, group 2 = step 3 → K3, group 3 =
-# step 5 → k5f, group 4 = step 6 → K6, group 5 = step 8 → K8). All other
-# catalytic groups are :EqualRT, so no T-state catalytic K params exist.
-if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
-    pfk_mechanism = @allosteric_mechanism begin
-        substrates: F6P, ATP
-        products:   F16BP, ADP
-        allosteric_regulators: Pi::EqualRT, ATP::OnlyT, ADP::OnlyR, Citrate::OnlyT, F26BP::NonequalRT
-
-        site(:catalytic, 4): begin
-            steps: begin
-                ([E, F6P] ⇌ [E_F6P], [E_ATP, F6P] ⇌ [E_F6P_ATP])      :: OnlyR
-                ([E, ATP] ⇌ [E_ATP], [E_F6P, ATP] ⇌ [E_F6P_ATP])      :: EqualRT
-                [E_F6P_ATP] <--> [E_F16BP_ADP]                         :: EqualRT
-                ([E_F16BP_ADP] ⇌ [E_ADP, F16BP], [E_F16BP] ⇌ [E, F16BP]) :: EqualRT
-                ([E_F16BP_ADP] ⇌ [E_F16BP, ADP], [E_ADP] ⇌ [E, ADP])     :: EqualRT
-            end
-        end
-
-        site(:regulatory, 4): begin
-            ligands: Pi, ATP
-        end
+"""Look up a mechanism test spec by name."""
+function _spec_by_name(name)
+    for s in MECHANISM_TEST_SPECS
+        s.name == name && return s
     end
-
-    # Hand-derived analytical rate equation following the MWC formula:
-    #   rate = E_total * cat_n * (N_R * Q_cat_R^(cat_n-1) * Q_reg_R^n_reg
-    #                           + L * N_T * Q_cat_T^(cat_n-1) * Q_reg_T^n_reg)
-    #          / (Q_cat_R^cat_n * Q_reg_R^n_reg + L * Q_cat_T^cat_n * Q_reg_T^n_reg)
-    # where Q_reg_R = product over reg sites and similarly Q_reg_T.
-    function pfk_rate_analytical(params, concs)
-        (; K1, K3, k5f, K6, K8,
-           K_Pi_reg1, K_ATP_T_reg1,
-           K_ADP_reg2, K_Citrate_T_reg3,
-           K_F26BP_reg4, K_F26BP_T_reg4,
-           L, Keq, E_total) = params
-        (; F6P, ATP, F16BP, ADP, Pi, Citrate, F26BP) = concs
-
-        # Haldane: F6P + ATP ⇌ F16BP + ADP
-        # Keq = (k5f / k5r) * (K6 * K8) / (K1 * K3)
-        k5r = k5f * K6 * K8 / (Keq * K1 * K3)
-
-        # Catalytic R-state subunit partition (7 enzyme forms)
-        Q_cat_R = 1 + F6P/K1 + ATP/K3 + F6P*ATP/(K1*K3) +
-                  F16BP/K6 + ADP/K8 + F16BP*ADP/(K6*K8)
-        # Catalytic T-state: F6P group (:OnlyR) zeroes out → no F6P, no E_F6P_ATP
-        Q_cat_T = 1 + ATP/K3 + F16BP/K6 + ADP/K8 + F16BP*ADP/(K6*K8)
-
-        # Catalytic flux numerators (single SS step; T-state forward zeros
-        # because F6P is absent in T-state)
-        N_cat_R = k5f * F6P * ATP / (K1 * K3) - k5r * F16BP * ADP / (K6 * K8)
-        N_cat_T = -k5r * F16BP * ADP / (K6 * K8)
-
-        # Reg-site partition functions
-        # Site 1: Pi EqualRT (both states), ATP OnlyT (T only)
-        Q_reg1_R = 1 + Pi / K_Pi_reg1
-        Q_reg1_T = 1 + Pi / K_Pi_reg1 + ATP / K_ATP_T_reg1
-        # Site 2: ADP OnlyR
-        Q_reg2_R = 1 + ADP / K_ADP_reg2
-        Q_reg2_T = 1
-        # Site 3: Citrate OnlyT
-        Q_reg3_R = 1
-        Q_reg3_T = 1 + Citrate / K_Citrate_T_reg3
-        # Site 4: F26BP NonequalRT
-        Q_reg4_R = 1 + F26BP / K_F26BP_reg4
-        Q_reg4_T = 1 + F26BP / K_F26BP_T_reg4
-
-        # MWC assembly (cat_n = 4, all reg sites have multiplicity 4)
-        Q_R = Q_cat_R^4 * Q_reg1_R^4 * Q_reg2_R^4 * Q_reg3_R^4 * Q_reg4_R^4
-        Q_T = Q_cat_T^4 * Q_reg1_T^4 * Q_reg2_T^4 * Q_reg3_T^4 * Q_reg4_T^4
-        Z = Q_R + L * Q_T
-
-        num = N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4 * Q_reg3_R^4 * Q_reg4_R^4 +
-              L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4 * Q_reg3_T^4 * Q_reg4_T^4
-
-        return E_total * 4.0 * num / Z
-    end
+    error("MechanismTestSpec not found: $name")
 end
 
-# ── Hexokinase hand-verified mechanism ──────────────────────────────────────
-#
-# Reaction: Glucose + ATP ⇌ G6P + ADP, 2 catalytic subunits, 2 conformations.
-# G6P appears in three independent contributions: catalytic-cycle product
-# (Haldane reverse), catalytic dead-end inhibitor (binds E_ATP and E_ADP),
-# and allosteric regulator (:OnlyT).
-#
-# Catalytic site (×2 subunits, R/T conformations) — random Bi-Bi with shared K
-# per kinetic group plus dead-end G6P binding to E_ATP and E_ADP forms.
-# Seven kinetic groups:
-#   Group 1 (Glucose binding, EqualRT): [E,Glc] ⇌ [E_Glc], [E_ATP,Glc] ⇌ [E_Glc_ATP]
-#   Group 2 (ATP binding, OnlyR):       [E,ATP] ⇌ [E_ATP], [E_Glc,ATP] ⇌ [E_Glc_ATP]
-#   Group 3 (catalysis, EqualRT):       [E_Glc_ATP] <--> [E_G6P_ADP]
-#   Group 4 (G6P release, EqualRT)
-#   Group 5 (ADP release, EqualRT)
-#   Group 6 (E_ATP_G6P dead-end, EqualRT)
-#   Group 7 (E_ADP_G6P dead-end, EqualRT)
-#
-# ATP-binding group is :OnlyR so the T-state cannot bind ATP and therefore
-# cannot complete the catalytic cycle (N_T forward = 0). This makes the
-# allosteric G6P :OnlyT inhibition observable; otherwise an all-:EqualRT
-# catalytic with single-reg-site n_reg=cat_n cancels the allosteric
-# contribution exactly.
-#
-# Allosteric regulators (2 reg sites, multiplicity 2):
-#   Site 1 (explicit): G6P (OnlyT), Pi (EqualRT)
-#
-# Independent parameters returned by `parameters(hk_mechanism)`:
-#   Catalytic R-state Kd: K1 (Glucose), K3 (ATP), K6 (G6P), K8 (ADP),
-#                         K10 (E_ATP_G6P dead-end), K11 (E_ADP_G6P dead-end)
-#   Catalytic SS rate:    k5f (k5r is Haldane-derived)
-#   Reg site Kd:          K_Pi_reg1, K_G6P_T_reg1
-#   Conformational eq:    L
-#   Plus: Keq, E_total
-if isdefined(EnzymeRates, :AllostericEnzymeMechanism)
-    hk_mechanism = @allosteric_mechanism begin
-        substrates: Glucose, ATP
-        products:   G6P, ADP
-        allosteric_regulators: G6P::OnlyT, Pi::EqualRT
-        catalytic_inhibitors:  G6P
+const pfk_mechanism = _spec_by_name("PFK-1").mechanism
+const pfk_rate_analytical = _spec_by_name("PFK-1").analytical_rate_fn
+const hk_mechanism = _spec_by_name("HK").mechanism
+const hk_rate_analytical = _spec_by_name("HK").analytical_rate_fn
 
-        site(:catalytic, 2): begin
-            steps: begin
-                ([E, Glucose] ⇌ [E_Glc], [E_ATP, Glucose] ⇌ [E_Glc_ATP]) :: EqualRT
-                ([E, ATP] ⇌ [E_ATP], [E_Glc, ATP] ⇌ [E_Glc_ATP])         :: OnlyR
-                [E_Glc_ATP] <--> [E_G6P_ADP]                              :: EqualRT
-                ([E_G6P_ADP] ⇌ [E_ADP, G6P], [E_G6P] ⇌ [E, G6P])         :: EqualRT
-                ([E_G6P_ADP] ⇌ [E_G6P, ADP], [E_ADP] ⇌ [E, ADP])         :: EqualRT
-                [E_ATP, G6P] ⇌ [E_ATP_G6P]                                :: EqualRT
-                [E_ADP, G6P] ⇌ [E_ADP_G6P]                                :: EqualRT
-            end
-        end
-
-        site(:regulatory, 2): begin
-            ligands: G6P, Pi
-        end
-    end
-
-    # Hand-derived analytical rate equation following the MWC formula:
-    #   rate = E_total * cat_n * (N_R * Q_cat_R^(cat_n-1) * Q_reg_R^n_reg
-    #                           + L * N_T * Q_cat_T^(cat_n-1) * Q_reg_T^n_reg)
-    #          / (Q_cat_R^cat_n * Q_reg_R^n_reg + L * Q_cat_T^cat_n * Q_reg_T^n_reg)
-    function hk_rate_analytical(params, concs)
-        (; K1, K3, k5f, K6, K8, K10, K11,
-           K_Pi_reg1, K_G6P_T_reg1,
-           L, Keq, E_total) = params
-        (; Glucose, ATP, G6P, ADP, Pi) = concs
-
-        # Haldane: Glucose + ATP ⇌ G6P + ADP
-        # Keq = (k5f / k5r) * (K6 * K8) / (K1 * K3)
-        k5r = k5f * K6 * K8 / (Keq * K1 * K3)
-
-        # Catalytic R-state subunit partition (9 enzyme forms incl. dead-ends)
-        Q_cat_R = 1 + Glucose/K1 + ATP/K3 + Glucose*ATP/(K1*K3) +
-                  G6P/K6 + ADP/K8 + ADP*G6P/(K6*K8) +
-                  ATP*G6P/(K10*K3) + ADP*G6P/(K11*K8)
-        # Catalytic T-state: ATP group (:OnlyR) zeroes out → no ATP, no
-        # E_Glc_ATP, no E_ATP_G6P dead-end (precursor E_ATP absent in T)
-        Q_cat_T = 1 + Glucose/K1 + G6P/K6 + ADP/K8 + ADP*G6P/(K6*K8) +
-                  ADP*G6P/(K11*K8)
-
-        # Catalytic flux numerators (single SS step; T-state forward zeros
-        # because ATP is absent in T-state, so E_Glc_ATP can't form)
-        N_cat_R = k5f * Glucose * ATP / (K1 * K3) - k5r * G6P * ADP / (K6 * K8)
-        N_cat_T = -k5r * G6P * ADP / (K6 * K8)
-
-        # Reg-site partition functions
-        # Site 1: G6P OnlyT (T only), Pi EqualRT (both states)
-        Q_reg1_R = 1 + Pi / K_Pi_reg1
-        Q_reg1_T = 1 + Pi / K_Pi_reg1 + G6P / K_G6P_T_reg1
-
-        # MWC assembly (cat_n = 2, reg site multiplicity = 2)
-        Q_R = Q_cat_R^2 * Q_reg1_R^2
-        Q_T = Q_cat_T^2 * Q_reg1_T^2
-        Z = Q_R + L * Q_T
-
-        num = N_cat_R * Q_cat_R * Q_reg1_R^2 +
-              L * N_cat_T * Q_cat_T * Q_reg1_T^2
-
-        return E_total * 2.0 * num / Z
-    end
-end

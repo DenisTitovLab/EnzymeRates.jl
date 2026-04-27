@@ -895,22 +895,7 @@ corners and return the max.
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq)
 
-    # T-state flux is zero at saturating substrates if any substrate-binding
-    # kinetic group OR any non-binding catalytic group is `:OnlyR`.
-    cm_inst = CM()
-    enz_set = Set(enzyme_forms(cm_inst))
-    sub_set = Set(substrates(cm_inst))
-    rxns_cat = reactions(cm_inst)
-    t_state_dead = false
-    for g in kinetic_groups(cm_inst)
-        group_tag(m, g) == :OnlyR || continue
-        rep = first(steps_in_group(cm_inst, g))
-        _, mets_lhs = _split_reaction_side(rxns_cat[rep][1], enz_set)
-        if isempty(mets_lhs) || any(met in sub_set for met in mets_lhs)
-            t_state_dead = true
-            break
-        end
-    end
+    t_state_dead = _t_state_dead(m)
 
     # A_c = num_k_c * den_k_c^(CatN-1), B_c = den_k_c^CatN
     A_R = CatN == 1 ? num_k_R_expr :
@@ -979,7 +964,7 @@ corners and return the max.
                     end
                     if tag != :OnlyR
                         K_T = _reg_param_name(
-                            lig, site_idx, tag == :NonequalRT)
+                            lig, site_idx, tag in (:NonequalRT, :OnlyT))
                         push!(sat_terms_T, :(inv($K_T)))
                     end
                 end
@@ -997,18 +982,21 @@ corners and return the max.
                 push!(W_T_factors, _power_expr(q_T, n_reg))
             end
         end
-        # Build kcat at this corner
-        if isempty(W_R_factors)
+        # Build kcat at this corner. Empty W_R_factors / W_T_factors mean
+        # no saturating regulator at that conformation — they default to 1.
+        if isempty(W_R_factors) && isempty(W_T_factors)
             # Zero regulators corner
             kcat_expr = :($(CatN) * ($(A_R) + L * $(A_T)) /
                           ($(B_R) + L * $(B_T)))
         else
-            W_R = length(W_R_factors) == 1 ?
-                W_R_factors[1] :
-                _nest_binary(:*, W_R_factors)
-            W_T = length(W_T_factors) == 1 ?
-                W_T_factors[1] :
-                _nest_binary(:*, W_T_factors)
+            W_R = isempty(W_R_factors) ? 1 :
+                length(W_R_factors) == 1 ?
+                    W_R_factors[1] :
+                    _nest_binary(:*, W_R_factors)
+            W_T = isempty(W_T_factors) ? 1 :
+                length(W_T_factors) == 1 ?
+                    W_T_factors[1] :
+                    _nest_binary(:*, W_T_factors)
             kcat_expr = :($(CatN) *
                 ($(A_R) * $(W_R) + L * $(A_T) * $(W_T)) /
                 ($(B_R) * $(W_R) + L * $(B_T) * $(W_T)))
@@ -1091,6 +1079,30 @@ function _onlyT_syms(m::AllostericEnzymeMechanism)
         for s in _group_param_symbols(cm, rep); push!(syms, s); end
     end
     syms
+end
+
+"""
+The T-state catalytic cycle cannot close — and therefore both forward
+and reverse net flux vanish — when any `:OnlyR` kinetic group's
+representative step either has no metabolite (an iso step) or binds a
+substrate. Both cases break a step the cycle traverses; binding
+equilibrium for the rest forces N_T = 0 in steady state. Used by both
+`rate_equation` (via `_allosteric_num_den_exprs`) and `_kcat_forward`.
+"""
+function _t_state_dead(m::AllostericEnzymeMechanism)
+    cm = catalytic_mechanism(m)
+    enz_set = Set(enzyme_forms(cm))
+    sub_set = Set(substrates(cm))
+    rxns = reactions(cm)
+    for g in kinetic_groups(cm)
+        group_tag(m, g) == :OnlyR || continue
+        rep = first(steps_in_group(cm, g))
+        _, mets_lhs = _split_reaction_side(rxns[rep][1], enz_set)
+        if isempty(mets_lhs) || any(met in sub_set for met in mets_lhs)
+            return true
+        end
+    end
+    false
 end
 
 """Catalytic-cycle parameter symbols zeroed in the T-state (`:OnlyR` groups)."""
@@ -1382,6 +1394,9 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     # Zero `:OnlyR` symbols at POLY level, then rename `:NonequalRT` / `:OnlyT`
     # symbols to T-suffixed counterparts. `:EqualRT` symbols pass through
     # unchanged (R-state binding) and resolve through dep-param assignments.
+    # When the T-state cycle is broken, force N_T = 0: the Cha framework
+    # otherwise produces a non-physical reverse flux from products that
+    # have nowhere to go.
     if isempty(r_only_syms)
         N_T = substitute_params_expr(
             _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r),
@@ -1396,7 +1411,8 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         den_t_poly = _rename_symbols(
             _zero_symbols_in_poly(_expand_to_poly(denom_terms), r_only_syms),
             rename_T)
-        N_T = _poly_to_expr(num_t_poly, cat_params, cat_mets, binding_Ks_t)
+        N_T = _t_state_dead(m) ? 0 :
+              _poly_to_expr(num_t_poly, cat_params, cat_mets, binding_Ks_t)
         Q_T = _poly_to_expr(den_t_poly, cat_params, cat_mets, binding_Ks_t)
     end
 
