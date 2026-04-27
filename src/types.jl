@@ -366,23 +366,45 @@ function Base.show(
 ) where {Mets, Rxns}
     _, _, regs = Mets
     enz_set = Set(enzyme_forms(m))
-
-    # Linear mechanism iff each enzyme form appears at most once on either side.
-    lhs_counts = Dict{Symbol,Int}()
-    rhs_counts = Dict{Symbol,Int}()
-    for (lhs, rhs, _, _) in Rxns
-        for s in lhs; s in enz_set && (lhs_counts[s] = get(lhs_counts, s, 0) + 1); end
-        for s in rhs; s in enz_set && (rhs_counts[s] = get(rhs_counts, s, 0) + 1); end
-    end
-    is_linear = all(v <= 1 for v in values(lhs_counts)) &&
-                all(v <= 1 for v in values(rhs_counts))
     _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
+
+    # Walk the steps in source order. Each step shares one enzyme form with
+    # the previous step's "outgoing" form; the other side is the new
+    # outgoing form. If any step has no shared form, the mechanism is
+    # branched and we fall back to multi-line rendering. RE binding
+    # canonicalization may put a step's "outgoing" side on the LHS — we
+    # detect that case and emit the LHS instead of the RHS.
+    chain_segments = String[]
+    chain_arrows = String[]
+    is_linear = !isempty(Rxns)
+    current = nothing
+    for (i, (lhs, rhs, is_eq, _)) in enumerate(Rxns)
+        e_l = first(s for s in lhs if s in enz_set)
+        e_r = first(s for s in rhs if s in enz_set)
+        if i == 1
+            push!(chain_segments, join(lhs, " + "))
+            push!(chain_arrows, _arrow(is_eq))
+            push!(chain_segments, join(rhs, " + "))
+            current = e_r
+        elseif current == e_l
+            push!(chain_arrows, _arrow(is_eq))
+            push!(chain_segments, join(rhs, " + "))
+            current = e_r
+        elseif current == e_r
+            push!(chain_arrows, _arrow(is_eq))
+            push!(chain_segments, join(lhs, " + "))
+            current = e_l
+        else
+            is_linear = false
+            break
+        end
+    end
 
     if is_linear
         print(io, "EnzymeMechanism: ")
-        for (i, (lhs, rhs, is_eq, _)) in enumerate(Rxns)
-            i == 1 && print(io, join(lhs, " + "))
-            print(io, _arrow(is_eq), join(rhs, " + "))
+        print(io, chain_segments[1])
+        for k in 2:length(chain_segments)
+            print(io, chain_arrows[k-1], chain_segments[k])
         end
     else
         print(io, "EnzymeMechanism (", length(Rxns), " steps, ",
@@ -564,9 +586,6 @@ function group_tag(::AllostericEnzymeMechanism{CM, CS, RS}, g::Int) where {CM, C
     end
     :NonequalRT
 end
-
-step_tag(m::AllostericEnzymeMechanism, idx::Int) =
-    group_tag(m, kinetic_group(catalytic_mechanism(m), idx))
 
 substrates(m::AllostericEnzymeMechanism)         = substrates(catalytic_mechanism(m))
 products(m::AllostericEnzymeMechanism)           = products(catalytic_mechanism(m))

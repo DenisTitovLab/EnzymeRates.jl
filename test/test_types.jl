@@ -295,6 +295,60 @@
         @test startswith(s, "EnzymeMechanism (7 steps, 6 enzyme forms):")
         @test contains(s, "E + A <--> EA")
         @test contains(s, "EQ <--> E + Q")
+
+        # Linear chain with canonical RE binding: chain-walk renders the
+        # release step in reverse so the chain stays linear.
+        m_re = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                [E, S] ⇌ [ES]
+                [ES] <--> [EP]
+                [EP] ⇌ [E, P]
+            end
+        end
+        @test sprint(show, m_re) ==
+            "EnzymeMechanism: E + S ⇌ ES <--> EP ⇌ E + P"
+
+        # Mechanism with regulators: appended at end.
+        m_reg = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            regulators: I
+            steps: begin
+                [E, S] <--> [ES]
+                [ES] <--> [E, P]
+                [E, I] <--> [EI]
+            end
+        end
+        @test contains(sprint(show, m_reg), "| regulators: I")
+
+        # EnzymeReaction with oligomeric_state > 1.
+        rxn_oligo = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+            oligomeric_state: 4
+        end
+        @test sprint(show, rxn_oligo) ==
+            "EnzymeReaction: S ⇌ P | oligomeric_state: 4"
+
+        # AllostericEnzymeMechanism (smoke).
+        m_allo = @allosteric_mechanism begin
+            substrates: F6P
+            products:   F16BP
+            allosteric_regulators: I::OnlyT
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E, F6P] ⇌ [E_F6P]   :: EqualRT
+                    [E_F6P] <--> [E_F16BP] :: EqualRT
+                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                end
+            end
+        end
+        s_allo = sprint(show, m_allo)
+        @test contains(s_allo, "AllostericEnzymeMechanism (cat_n=2")
+        @test contains(s_allo, "reg sites")
+        @test contains(s_allo, "I::OnlyT")
     end
 
     @testset "EnzymeMechanism different orderings produce valid mechanisms" begin
@@ -374,5 +428,64 @@
         )
         m = EnzymeMechanism(mets, rxns)
         @test m isa EnzymeMechanism
+    end
+
+    @testset "Kinetic-group validator error paths" begin
+        mets = ((:S, :A), (:P,), ())
+
+        # Group binding different metabolites → error
+        @test_throws ErrorException EnzymeMechanism(mets, (
+            ((:E, :S), (:ES,), true, 1),
+            ((:E, :A), (:EA,), true, 1),     # group 1 also binds A
+            ((:EA,), (:E, :P), false, 2),
+        ))
+
+        # Group mixing RE and SS → error
+        @test_throws ErrorException EnzymeMechanism(((:S,), (:P,), ()), (
+            ((:E, :S), (:ES,), true, 1),     # RE
+            ((:E, :S), (:ES,), false, 1),    # SS — same group as RE step
+            ((:ES,), (:E, :P), true, 2),
+        ))
+    end
+
+    @testset "Connectivity validator: orphan enzyme form → error" begin
+        # Two disjoint subgraphs: E↔ES (catalytic) and EX↔EY (orphan).
+        @test_throws ErrorException EnzymeMechanism(((:S,), (:P,), ()), (
+            ((:E, :S), (:ES,), true, 1),
+            ((:ES,), (:E, :P), true, 2),
+            ((:EX,), (:EY,), false, 3),
+            ((:EY,), (:EX,), false, 4),
+        ))
+    end
+
+    @testset "AllostericEnzymeMechanism constructor validators" begin
+        cm = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                [E, S] ⇌ [ES]
+                [ES] <--> [EP]
+                [EP] ⇌ [E, P]
+            end
+        end
+        # group_tag references non-existent kinetic_group → error
+        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, ((99, :OnlyR),)), ())
+
+        # Invalid tag value → error
+        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, ((1, :NotATag),)), ())
+
+        # Reg site with no ligands → error
+        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, ()), (((), 2, ()),))
+
+        # Reg site with all-:EqualRT ligands → error (cancels identically)
+        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, ()), (((:I, :J), 2, ((:I, :EqualRT), (:J, :EqualRT))),))
+
+        # Invalid reg-site ligand tag → error
+        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, ()), (((:I,), 2, ((:I, :NotATag),)),))
     end
 end

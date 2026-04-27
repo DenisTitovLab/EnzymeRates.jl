@@ -1360,6 +1360,10 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     t_only_syms = _onlyT_syms(m)
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
+    # T-state binding K set: renamed counterparts of R-state binding K's
+    # (`:NonequalRT` / `:OnlyT` groups get T-suffixed; `:EqualRT` groups
+    # pass through unchanged).
+    binding_Ks_t = Set(get(rename_T, K, K) for K in binding_Ks_r)
 
     # R-state catalytic Exprs.
     # Use factored form when no `:OnlyT` zeroing is needed (preserves nice
@@ -1392,8 +1396,8 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         den_t_poly = _rename_symbols(
             _zero_symbols_in_poly(_expand_to_poly(denom_terms), r_only_syms),
             rename_T)
-        N_T = _poly_to_expr(num_t_poly, cat_params, cat_mets, binding_Ks_r)
-        Q_T = _poly_to_expr(den_t_poly, cat_params, cat_mets, binding_Ks_r)
+        N_T = _poly_to_expr(num_t_poly, cat_params, cat_mets, binding_Ks_t)
+        Q_T = _poly_to_expr(den_t_poly, cat_params, cat_mets, binding_Ks_t)
     end
 
     reg_Q_R = Any[_reg_site_expr(m, i, false) for i in eachindex(RS)]
