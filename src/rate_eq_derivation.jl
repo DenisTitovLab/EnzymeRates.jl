@@ -343,12 +343,6 @@ function _haldane_equality_substitutions(dep_exprs)
     subs
 end
 
-function _haldane_equality_substitutions(
-    M::Type{<:EnzymeMechanism},
-)
-    dep_exprs, _ = _dependent_param_exprs(M)
-    _haldane_equality_substitutions(dep_exprs)
-end
 
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
 
