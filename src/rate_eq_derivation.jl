@@ -1258,7 +1258,8 @@ function _reg_site_expr(m::AllostericEnzymeMechanism, site_idx::Int, T_state::Bo
         else
             tag == :OnlyT && continue
         end
-        K_sym = _reg_param_name(lig, site_idx, T_state && tag == :NonequalRT)
+        use_T_name = T_state && tag in (:NonequalRT, :OnlyT)
+        K_sym = _reg_param_name(lig, site_idx, use_T_name)
         push!(terms, :($(lig) / $K_sym))
     end
     _nest_binary(:+, terms)
