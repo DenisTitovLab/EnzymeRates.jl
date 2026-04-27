@@ -299,182 +299,94 @@
     end
 
     @testset "EnzymeMechanism different orderings produce valid mechanisms" begin
-        species = (
-            ((:S, ((:C, 1),)),),
-            ((:P, ((:C, 1),)),),
-            (),
-            ((:E, ()), (:ES, ((:C, 1),))),
-        )
-        # Normal order
+        mets = ((:S,), (:P,), ())
         rxns1 = (
-            ((:E, :S), (:ES,)),
-            ((:ES,), (:E, :P)),
+            ((:E, :S), (:ES,), false, 1),
+            ((:ES,), (:E, :P), false, 2),
         )
-        # Reversed reaction order
         rxns2 = (
-            ((:ES,), (:E, :P)),
-            ((:E, :S), (:ES,)),
+            ((:ES,), (:E, :P), false, 1),
+            ((:E, :S), (:ES,), false, 2),
         )
-        m1 = EnzymeMechanism(species, rxns1, (false, false))
-        m2 = EnzymeMechanism(species, rxns2, (false, false))
+        m1 = EnzymeMechanism(mets, rxns1)
+        m2 = EnzymeMechanism(mets, rxns2)
         @test m1 isa EnzymeMechanism
         @test m2 isa EnzymeMechanism
     end
 
     @testset "EnzymeMechanism error cases" begin
-        base_species = (
-            ((:S, ((:C, 1),)),),
-            ((:P, ((:C, 1),)),),
-            (),
-            ((:E, ()), (:ES, ((:C, 1),))),
+        base_mets = ((:S,), (:P,), ())
+        base_rxns = (
+            ((:E, :S), (:ES,), false, 1),
+            ((:ES,), (:E, :P), false, 2),
         )
-        base_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
 
         # Empty reactions tuple
-        @test_throws ErrorException EnzymeMechanism(base_species, (), ())
+        @test_throws ErrorException EnzymeMechanism(base_mets, ())
 
-        # Duplicate substrate names in species
-        dup_subs_species = (
-            ((:S, ((:C, 1),)), (:S, ((:C, 1),))),
-            ((:P, ((:C, 1),)),),
-            (),
-            ((:E, ()), (:ES, ((:C, 1),))),
+        # Duplicate substrate names in metabolites
+        @test_throws ErrorException EnzymeMechanism(
+            ((:S, :S), (:P,), ()), base_rxns)
+
+        # Reaction with zero enzymes on LHS (only metabolite)
+        no_enz_rxns = (
+            ((:S,), (:ES,), false, 1),
+            ((:ES,), (:E, :P), false, 2),
         )
-        @test_throws ErrorException EnzymeMechanism(
-            dup_subs_species, base_rxns,
-            (false, false))
-
-        # No free enzyme form (all enzymes have atoms)
-        no_free_species = (
-            ((:S, ((:C, 1),)),),
-            ((:P, ((:C, 1),)),),
-            (),
-            ((:E, ((:X, 1),)), (:ES, ((:C, 1), (:X, 1)))),
-        )
-        @test_throws ErrorException EnzymeMechanism(
-            no_free_species, base_rxns,
-            (false, false))
-
-        # Reaction with zero enzymes on LHS
-        no_enz_rxns = (((:S,), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(
-            base_species, no_enz_rxns,
-            (false, false))
+        @test_throws ErrorException EnzymeMechanism(base_mets, no_enz_rxns)
 
         # Reaction with two metabolites on one side
-        two_met_species = (
-            ((:S1, ((:C, 1),)), (:S2, ((:H, 1),))),
-            ((:P, ((:C, 1), (:H, 1))),),
-            (),
-            ((:E, ()), (:ES, ((:C, 1), (:H, 1)))),
+        two_met_mets = ((:S1, :S2), (:P,), ())
+        two_met_rxns = (
+            ((:E, :S1, :S2), (:ES,), false, 1),
+            ((:ES,), (:E, :P), false, 2),
         )
-        two_met_rxns = (((:E, :S1, :S2), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(
-            two_met_species, two_met_rxns,
-            (false, false))
+        @test_throws ErrorException EnzymeMechanism(two_met_mets, two_met_rxns)
 
-        # Unknown species in reaction
-        unknown_rxns = (((:E, :X), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(
-            base_species, unknown_rxns,
-            (false, false))
-
-        # Atomic conservation failure
-        bad_atom_species = (
-            ((:S, ((:C, 1),)),),
-            ((:P, ((:C, 2),)),),  # different atoms than S
-            (),
-            ((:E, ()), (:ES, ((:C, 1),))),
+        # Unknown metabolite in reaction
+        unknown_rxns = (
+            ((:E, :X), (:ES,), false, 1),
+            ((:ES,), (:E, :P), false, 2),
         )
-        bad_atom_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(
-            bad_atom_species, bad_atom_rxns,
-            (false, false))
+        @test_throws ErrorException EnzymeMechanism(base_mets, unknown_rxns)
 
-        # Net stoichiometry mismatch (substrate consumed but not produced)
-        net_mismatch_species = (
-            ((:S, ((:C, 1),)), (:S2, ((:H, 1),))),
-            ((:P, ((:C, 1),)),),
-            (),
-            ((:E, ()), (:ES, ((:C, 1),))),
-        )
-        net_mismatch_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(
-            net_mismatch_species,
-            net_mismatch_rxns, (false, false))
-
-        # Species defined as both enzyme and metabolite
-        overlap_species = (
-            ((:E, ((:C, 1),)),),  # E is also an enzyme
-            ((:P, ((:C, 1),)),),
-            (),
-            ((:E, ()), (:ES, ((:C, 1),))),
-        )
-        @test_throws ErrorException EnzymeMechanism(
-            overlap_species, base_rxns,
-            (false, false))
+        # Net stoichiometry mismatch (substrate consumed but never produced)
+        # (Substrate listed but doesn't appear in any step.)
+        net_mismatch_mets = ((:S, :S2), (:P,), ())
+        @test_throws ErrorException EnzymeMechanism(net_mismatch_mets, base_rxns)
 
         # Duplicate reactions
-        dup_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)), ((:E, :S), (:ES,)))
-        @test_throws ErrorException EnzymeMechanism(
-            base_species, dup_rxns,
-            (false, false, false))
-
-        # Unreachable enzyme form
-        unreachable_species = (
-            ((:S, ((:C, 1),)),),
-            ((:P, ((:C, 1),)),),
-            (),
-            ((:E, ()), (:ES, ((:C, 1),)), (:EX, ((:H, 1),))),
+        dup_rxns = (
+            ((:E, :S), (:ES,), false, 1),
+            ((:ES,), (:E, :P), false, 2),
+            ((:E, :S), (:ES,), false, 3),
         )
-        unreachable_rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        @test_throws ErrorException EnzymeMechanism(
-            unreachable_species,
-            unreachable_rxns, (false, false))
+        @test_throws ErrorException EnzymeMechanism(base_mets, dup_rxns)
+
+        # Unreachable enzyme form (EX referenced but never in a reaction)
+        unreachable_rxns = (
+            ((:E, :S), (:ES,), false, 1),
+            ((:ES,), (:E, :P), false, 2),
+            ((:EX,), (:E,), false, 3),  # EX has no producing step
+        )
+        @test_throws ErrorException EnzymeMechanism(base_mets, unreachable_rxns)
     end
 
     @testset "EnzymeMechanism valid with reachable enzyme forms" begin
-        species = (
-            ((:S, ((:C, 1),)),),
-            ((:P, ((:C, 1),)),),
-            (),
-            ((:E, ()), (:ES, ((:C, 1),))),
+        mets = ((:S,), (:P,), ())
+        rxns = (
+            ((:E, :S), (:ES,), false, 1),
+            ((:ES,), (:E, :P), false, 2),
         )
-        rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-        m = EnzymeMechanism(species, rxns, (false, false))
+        m = EnzymeMechanism(mets, rxns)
         @test m isa EnzymeMechanism
     end
 
-    @testset "Constraint constructor validation errors" begin
-        species = (
-            ((:A, ((:C, 1),)),),
-            ((:P, ((:C, 1),)),),
-            (),
-            ((:E, ()), (:EA, ((:C, 1),)), (:EP, ((:C, 1),))),
-        )
-        rxns = (((:E, :A), (:EA,)), ((:EA,), (:EP,)), ((:EP,), (:E, :P)))
-        eq = (false, false, false)
-
-        # Invalid target
-        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
-            ((:K99, 1, ((:k1f, 1),)),))
-
-        # Self-reference
-        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
-            ((:k3r, 1, ((:k3r, 1),)),))
-
-        # Duplicate target
-        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
-            ((:k3r, 1, ((:k1r, 1),)), (:k3r, 1, ((:k2r, 1),))))
-
-        # Invalid replacement symbol
-        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
-            ((:k3r, 1, ((:K99, 1),)),))
-
-        # Zero coefficient
-        @test_throws ErrorException EnzymeMechanism(species, rxns, eq,
-            ((:k3r, 0, ((:k1r, 1),)),))
-    end
+    # The "Constraint constructor validation errors" testset was deleted —
+    # it tested the OLD 4-arg `EnzymeMechanism(species, rxns, eq, constraints)`
+    # constructor's `param_constraints`-symbol validators (Invalid target,
+    # Self-reference, Duplicate target, Invalid replacement, Zero coefficient).
+    # The new design has no symbol-level constraints; kinetic groups are Ints.
 
     # TODO: Phase 3 — testsets below use cross-metabolite constraints
     # (`K2 = K1` between A-binding and B-binding, `k3r = k1r` between
