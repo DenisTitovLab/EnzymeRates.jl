@@ -924,16 +924,15 @@ corners and return the max.
     # T-state at the same metabolite pattern. Missing → set 0 (the saturating
     # pattern is unreachable in T-state, so T contributes neither flux nor
     # enzyme mass at saturation along that pattern).
+    kd_subs_T = Dict(K => :(inv($K)) for K in binding_Ks_T)
     num_T_p = get(num_T_groups, met_key, nothing)
     den_T_p = get(den_T_groups, met_key, nothing)
-    raw_num_k_T = num_T_p === nothing ? 0 :
-        _poly_to_expr(num_T_p, empty_set, empty_set)
-    raw_den_k_T = den_T_p === nothing ? 0 :
-        _poly_to_expr(den_T_p, empty_set, empty_set)
     num_k_T_expr = num_T_p === nothing ? 0 :
-        substitute_params_expr(raw_num_k_T, Dict(K => :(inv($K)) for K in binding_Ks_T))
+        substitute_params_expr(
+            _poly_to_expr(num_T_p, empty_set, empty_set), kd_subs_T)
     den_k_T_expr = den_T_p === nothing ? 0 :
-        substitute_params_expr(raw_den_k_T, Dict(K => :(inv($K)) for K in binding_Ks_T))
+        substitute_params_expr(
+            _poly_to_expr(den_T_p, empty_set, empty_set), kd_subs_T)
     t_pattern_dead = den_T_p === nothing
 
     # Build dependent param assignments for R-state
