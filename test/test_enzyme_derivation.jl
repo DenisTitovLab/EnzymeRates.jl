@@ -1130,3 +1130,82 @@ end
     rate_weak   = rate_equation(hk_mechanism, concs, params_weak)
     @test rate_strong < rate_weak
 end
+
+# ── Single-feature edge cases ─────────────────────────────────────────────
+@testset "Allosteric edge cases" begin
+    # OnlyT substrate: S binds only in T-state, so all forward catalysis
+    # happens through T. As K_S_T → ∞ (no T-state binding), rate vanishes.
+    onlyT_sub = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]   :: OnlyT
+                [ES] <--> [EP]  :: EqualRT
+                [EP] ⇌ [E, P]   :: EqualRT
+            end
+        end
+    end
+    concs = (S=1.0, P=0.001)
+    base_params = (k2f=10.0, K3=0.5, L=10.0, Keq=1000.0, E_total=1.0)
+    rate_strong = rate_equation(onlyT_sub, concs, merge(base_params, (K1_T=0.01,)))
+    rate_weak   = rate_equation(onlyT_sub, concs, merge(base_params, (K1_T=1e6,)))
+    @test rate_strong > 1.0
+    @test rate_weak < 1e-3
+    @test rate_weak / rate_strong < 1e-5
+
+    # V-type only: all bindings :EqualRT but catalysis :OnlyR. T-state binds
+    # substrate normally but cannot catalyze (k_T = 0), so N_T = 0. As L → ∞
+    # (T-state dominant) the rate vanishes.
+    vtype = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]   :: EqualRT
+                [ES] <--> [EP]  :: OnlyR
+                [EP] ⇌ [E, P]   :: EqualRT
+            end
+        end
+    end
+    vparams = (K1=0.1, k2f=10.0, K3=0.5, Keq=1000.0, E_total=1.0)
+    rate_R = rate_equation(vtype, concs, merge(vparams, (L=0.0,)))
+    rate_T = rate_equation(vtype, concs, merge(vparams, (L=1e10,)))
+    @test rate_R > 1.0
+    @test rate_T < 1e-6
+    # T-state numerator literally zero: rate ∝ 1/(1+L) at large L
+    @test rate_T * 1e10 < 100.0    # bounded as L grows
+
+    # Single-ligand :EqualRT reg site cancels identically → constructor error
+    @test_throws Exception eval(:(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: I::EqualRT
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]  :: EqualRT
+                [ES] <--> [EP] :: EqualRT
+                [EP] ⇌ [E, P]  :: EqualRT
+            end
+        end
+    end))
+
+    # Stoichiometric infeasibility: Q listed as product but never appears
+    # in any reaction step → constructor rejects.
+    @test_throws ErrorException EnzymeRates.EnzymeMechanism(
+        ((:S,), (:P, :Q), ()),
+        (((:E, :S), (:ES,), true, 1),
+         ((:ES,), (:EP,), false, 2),
+         ((:EP,), (:E, :P), true, 3)),
+    )
+
+    # Same-kinetics group across different metabolites: group 1 contains both
+    # an S-binding and an A-binding step → constructor rejects.
+    @test_throws ErrorException EnzymeRates.EnzymeMechanism(
+        ((:S, :A), (:P,), ()),
+        (((:E, :S), (:ES,), true, 1),
+         ((:E, :A), (:EA,), true, 1),
+         ((:EA,), (:E,), false, 2),
+         ((:EA,), (:E, :P), true, 3)),
+    )
+end
