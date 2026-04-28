@@ -1469,9 +1469,8 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         factors = Any[N]
         CatN > 1 && push!(factors, _power_expr(Q, CatN - 1))
         for i in eachindex(RS)
-            n_reg = regulatory_site_multiplicity(m, i)
-            n_reg == CatN || continue
-            push!(factors, _power_expr(reg_Qs[i], n_reg))
+            push!(factors, _power_expr(reg_Qs[i],
+                                       regulatory_site_multiplicity(m, i)))
         end
         _nest_binary(:*, factors)
     end
