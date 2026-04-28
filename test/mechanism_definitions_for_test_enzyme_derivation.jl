@@ -2187,6 +2187,91 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # ── m_all: NonequalRT coverage on substrate + catalysis + product ───────
+    # Two-substrate two-product reaction with explicit :NonequalRT on
+    # S1 binding (group 1), catalysis (group 3), and P1 release (group 4),
+    # and a 2-ligand mixed-state reg site (R1::NonequalRT + R2::EqualRT).
+    # Catalysis is :NonequalRT — combined with :NonequalRT substrate, the
+    # framework generates independent R-state and T-state Haldanes; with
+    # :EqualRT catalysis the T-state Haldane is missed (see Task 11 / PK
+    # for the analogous lesson).
+    let
+        m = @allosteric_mechanism begin
+            substrates: S1, S2
+            products:   P1, P2
+            allosteric_regulators: R1::NonequalRT, R2::EqualRT
+
+            site(:catalytic, 2): begin
+                steps: begin
+                    ([E, S1] ⇌ [E_S1],
+                     [E_S2, S1] ⇌ [E_S1_S2])      :: NonequalRT
+                    ([E, S2] ⇌ [E_S2],
+                     [E_S1, S2] ⇌ [E_S1_S2])      :: EqualRT
+                    [E_S1_S2] <--> [E_P1_P2]      :: NonequalRT
+                    ([E_P1_P2] ⇌ [E_P2, P1],
+                     [E_P1] ⇌ [E, P1])             :: NonequalRT
+                    ([E_P1_P2] ⇌ [E_P1, P2],
+                     [E_P2] ⇌ [E, P2])             :: EqualRT
+                end
+            end
+
+            site(:regulatory, 2): begin
+                ligands: R1, R2
+            end
+        end
+
+        # Param mapping (kinetic-group representative-step convention):
+        #   K1, K1_T : S1 binding (group 1, NonequalRT)
+        #   K3       : S2 binding (group 2, EqualRT)
+        #   k5f, k5f_T : catalysis SS (group 3, NonequalRT)
+        #   K6, K6_T : P1 release (group 4, NonequalRT)
+        #   K8       : P2 release (group 5, EqualRT)
+        function m_all_rate_analytical(params, concs)
+            (; K1, K1_T, K3, k5f, k5f_T, K6, K6_T, K8,
+               K_R1_reg1, K_R1_T_reg1, K_R2_reg1,
+               L, Keq, Et) = params
+            (; S1, S2, P1, P2, R1, R2) = concs
+
+            k5r   = k5f   * K6   * K8 / (Keq * K1   * K3)
+            k5r_T = k5f_T * K6_T * K8 / (Keq * K1_T * K3)
+
+            Q_cat_R = 1 + S1/K1   + S2/K3 + S1*S2/(K1   * K3) +
+                      P1/K6   + P2/K8 + P1*P2/(K6   * K8)
+            Q_cat_T = 1 + S1/K1_T + S2/K3 + S1*S2/(K1_T * K3) +
+                      P1/K6_T + P2/K8 + P1*P2/(K6_T * K8)
+
+            N_R = k5f   * S1 * S2 / (K1   * K3) - k5r   * P1 * P2 / (K6   * K8)
+            N_T = k5f_T * S1 * S2 / (K1_T * K3) - k5r_T * P1 * P2 / (K6_T * K8)
+
+            Q_reg1_R = 1 + R1/K_R1_reg1   + R2/K_R2_reg1
+            Q_reg1_T = 1 + R1/K_R1_T_reg1 + R2/K_R2_reg1
+
+            num = N_R * Q_cat_R   * Q_reg1_R^2 + L * N_T * Q_cat_T   * Q_reg1_T^2
+            den = Q_cat_R^2 * Q_reg1_R^2       + L *      Q_cat_T^2 * Q_reg1_T^2
+
+            return Et * 2.0 * num / den
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="m_all",
+            mechanism=m,
+            metabolite_names=[:S1, :S2, :P1, :P2, :R1, :R2],
+            expected_n_states=7,
+            expected_n_steps=9,
+            expected_n_metabolites=6,
+            expected_n_haldane=5,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=12,
+            expected_identifiability_deficit=-220,
+            expected_is_identifiable=true,
+            run_ode_test=false,
+            analytical_rate_fn=m_all_rate_analytical,
+            analytical_kcat_fn=nothing,      # cat is :NonequalRT → kcat L-dependent
+            expected_factored_num=nothing,
+            expected_factored_denom=nothing,
+        ))
+    end
+
     return specs
 end
 
