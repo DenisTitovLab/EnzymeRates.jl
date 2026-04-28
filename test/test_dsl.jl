@@ -85,6 +85,33 @@
                 end
             end
         end))
+
+        # Reject untagged allosteric regulator
+        @test_throws Exception eval(:(@allosteric_mechanism begin
+            substrates: F6P
+            products:   F16BP
+            allosteric_regulators: I, J::OnlyT
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E, F6P] ⇌ [E_F6P] :: EqualRT
+                    [E_F6P] <--> [E_F16BP] :: EqualRT
+                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                end
+            end
+        end))
+
+        # Reject parenthesized step group without ::AlloState
+        @test_throws Exception eval(:(@allosteric_mechanism begin
+            substrates: S, A
+            products:   P
+            site(:catalytic, 2): begin
+                steps: begin
+                    ([E, S] ⇌ [ES], [E_A, S] ⇌ [ES_A])
+                    [ES_A] <--> [EP]   :: EqualRT
+                    [EP] ⇌ [E, P]      :: EqualRT
+                end
+            end
+        end))
     end
 
     @testset "@enzyme_reaction" begin
