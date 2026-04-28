@@ -1477,10 +1477,17 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
 
     num_R = make_num_term(N_R, Q_R, reg_Q_R)
     den_R = make_den_term(Q_R, reg_Q_R)
-    num_T = make_num_term(N_T, Q_T, reg_Q_T)
     den_T = make_den_term(Q_T, reg_Q_T)
 
-    :($(CatN) * ($(num_R) + L * $(num_T))), :($(den_R) + L * $(den_T))
+    if _t_state_dead(m)
+        # T-state cycle broken: N_T = 0, so drop the L*num_T term
+        # entirely (skip dead numerator branch). Q_T still contributes
+        # to denominator as enzyme mass.
+        :($(CatN) * $(num_R)), :($(den_R) + L * $(den_T))
+    else
+        num_T = make_num_term(N_T, Q_T, reg_Q_T)
+        :($(CatN) * ($(num_R) + L * $(num_T))), :($(den_R) + L * $(den_T))
+    end
 end
 
 """Build the MWC rate equation body as an Expr block."""
@@ -1488,7 +1495,11 @@ function _build_allosteric_rate_body(M_type::Type{<:AllostericEnzymeMechanism})
     full_num, full_den = _allosteric_num_den_exprs(M_type)
     rate_expr = :(E_total * ($full_num) / ($full_den))
 
-    r_assignments, t_assignments = _build_dep_assignments(M_type, K -> :(inv($K)))
+    r_assignments, t_assignments_ = _build_dep_assignments(M_type, K -> :(inv($K)))
+    # When the T-state cycle is broken, t_assignments (T-state Haldanes
+    # and :EqualRT catalytic mirrors K_T = K) become dead code — they're
+    # only referenced from the L*num_T branch, which is now elided.
+    t_assignments = _t_state_dead(M_type()) ? Expr[] : t_assignments_
 
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq, :E_total)
@@ -1521,7 +1532,8 @@ function rate_equation_string(
     hw_params = (indep..., :Keq, :E_total)
     mets = metabolites(M())
 
-    r_assignments, t_assignments = _build_dep_assignments(M, K -> :(1 / $K))
+    r_assignments, t_assignments_ = _build_dep_assignments(M, K -> :(1 / $K))
+    t_assignments = _t_state_dead(M()) ? Expr[] : t_assignments_
     dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in r_assignments]
     t_dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in t_assignments]
 
