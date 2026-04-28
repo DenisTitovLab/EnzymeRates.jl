@@ -2272,6 +2272,73 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # ── m_OnlyR_prod: single product :OnlyR (T-state cycle dead) ────────────
+    # Tests broadened _t_state_dead detection for product-binding :OnlyR
+    # groups (Task 4). The T-state cycle is broken at product release;
+    # with t_state_dead = true, N_T is forced to 0 and the L*num_T branch
+    # is dropped. Analytical kcat = 2·k2f/(1+L) — L-dependent because
+    # the saturating R-state pattern (S only) IS reachable in T-state
+    # (Q_cat_T at sat S = S/K1, same as Q_cat_R), so B_T ≠ 0 and the
+    # 1/(1+L) factor appears.
+    let
+        m = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E, S] ⇌ [E_S]    :: EqualRT      # group 1, K1
+                    [E_S] <--> [E_P]  :: EqualRT      # group 2, k2f catalysis
+                    [E, P] ⇌ [E_P]    :: OnlyR        # group 3, K3 (P binding)
+                end
+            end
+        end
+
+        # Param mapping:
+        #   K1   : S binding (group 1, EqualRT)
+        #   k2f  : catalysis SS (group 2, EqualRT, k2r derived via Haldane)
+        #   K3   : P release (group 3, OnlyR)
+        function m_OnlyR_prod_rate_analytical(params, concs)
+            (; K1, k2f, K3, L, Keq, Et) = params
+            (; S, P) = concs
+
+            k2r = k2f * K3 / (Keq * K1)
+
+            Q_cat_R = 1 + S/K1 + P/K3
+            Q_cat_T = 1 + S/K1                    # P/K3 monomial dropped (OnlyR group 3)
+
+            N_R = k2f * S/K1 - k2r * P/K3
+            # N_T = 0 forced (t_state_dead via group 3 :OnlyR)
+
+            num = N_R * Q_cat_R                   # L*N_T*Q_cat_T term elided
+            den = Q_cat_R^2 + L * Q_cat_T^2
+
+            return Et * 2.0 * num / den
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="m_OnlyR_prod",
+            mechanism=m,
+            metabolite_names=[:S, :P],
+            expected_n_states=3,                  # E, E_S, E_P
+            expected_n_steps=3,
+            expected_n_metabolites=2,
+            expected_n_haldane=3,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=4,
+            expected_identifiability_deficit=-5,
+            expected_is_identifiable=true,
+            run_ode_test=false,
+            analytical_rate_fn=m_OnlyR_prod_rate_analytical,
+            # kcat at saturating S, zero P:
+            #   A_R = k2f/K1², B_R = 1/K1², B_T = 1/K1² (T-state pattern same as R)
+            #   kcat = catN · A_R / (B_R + L · B_T) = 2 · k2f / (1 + L)
+            analytical_kcat_fn = p -> 2 * p.k2f / (1 + p.L),
+            expected_factored_num=nothing,
+            expected_factored_denom=nothing,
+        ))
+    end
+
     return specs
 end
 
