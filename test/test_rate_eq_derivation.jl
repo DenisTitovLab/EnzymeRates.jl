@@ -1050,6 +1050,60 @@ end
     # T-state numerator literally zero: rate ∝ 1/(1+L) at large L
     @test rate_T * 1e10 < 100.0    # bounded as L grows
 
+    # :OnlyT on a substrate-binding catalytic group → constructor error
+    # (R-state convention: relabel so the active state is R, i.e. use :OnlyR).
+    @test_throws Exception eval(:(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]    :: OnlyT
+                [ES] <--> [EP]   :: EqualRT
+                [EP] ⇌ [E, P]    :: EqualRT
+            end
+        end
+    end))
+
+    # :OnlyT on a product-binding catalytic group → constructor error
+    @test_throws Exception eval(:(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]    :: EqualRT
+                [ES] <--> [EP]   :: EqualRT
+                [EP] ⇌ [E, P]    :: OnlyT
+            end
+        end
+    end))
+
+    # :OnlyT on the catalysis SS step → constructor error
+    @test_throws Exception eval(:(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]    :: EqualRT
+                [ES] <--> [EP]   :: OnlyT
+                [EP] ⇌ [E, P]    :: EqualRT
+            end
+        end
+    end))
+
+    # :OnlyR substrate + :OnlyT product → constructor error
+    # (subsumed by the single-:OnlyT cases above, but explicit confirms the rule.)
+    @test_throws Exception eval(:(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]    :: OnlyR
+                [ES] <--> [EP]   :: EqualRT
+                [EP] ⇌ [E, P]    :: OnlyT
+            end
+        end
+    end))
+
     # Single-ligand :EqualRT reg site cancels identically → constructor error
     @test_throws Exception eval(:(@allosteric_mechanism begin
         substrates: S
