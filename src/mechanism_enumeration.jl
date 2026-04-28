@@ -1785,8 +1785,7 @@ Convert a non-allosteric `MechanismSpec` to allosteric. Per-group
 tag enumeration: for each kinetic group, emit a variant where THAT
 group carries a non-`:NonequalRT` tag and ALL OTHER groups carry
 `:EqualRT` (the cheapest non-default tag). Tag choices:
-`{:OnlyR, :OnlyT, :EqualRT}`. Iso-only groups skip `:OnlyT`
-(forbidden by the `AllostericEnzymeMechanism` constructor).
+`{:OnlyR, :EqualRT}`.
 
 Cost: +1 (for `L`). Other tag deltas are zero relative to the
 all-`:EqualRT` baseline.
@@ -1807,9 +1806,7 @@ function _expand_to_allosteric(
 
     results = AllostericMechanismSpec[]
     for g in groups_sorted
-        _, iso_only = group_info[g]
-        for tag in (:OnlyR, :OnlyT, :EqualRT)
-            tag == :OnlyT && iso_only && continue
+        for tag in (:OnlyR, :EqualRT)
             new_tags = copy(base_tags)
             new_tags[g] = tag
             push!(results, AllostericMechanismSpec(

@@ -1593,8 +1593,8 @@ end
 end
 
 @testset "Allosteric conversion" begin
-    # Per-group tag enumeration: each kinetic group → one of
-    # `{:OnlyR, :OnlyT, :EqualRT}`; iso-only groups skip `:OnlyT`.
+    # Per-group tag enumeration: per R-state-active convention,
+    # each kinetic group → one of `{:OnlyR, :EqualRT}`.
     # No K-type/V-type hardcoded subsets.
 
     @testset "Uni-uni: per-group tag variants" begin
@@ -1603,9 +1603,10 @@ end
         result = EnzymeRates._expand_to_allosteric(
             spec, uni_uni_allo)
         # Uni-uni init has 3 singleton groups (S binding,
-        # P binding, iso). Iso group skips `:OnlyT`.
-        # 2 binding × 3 tags + 1 iso × 2 tags = 8
-        @test length(result) == 8
+        # P binding, iso). Per R-state-active convention,
+        # only `:OnlyR` and `:EqualRT` are enumerated.
+        # 2 binding × 2 tags + 1 iso × 2 tags = 6
+        @test length(result) == 6
         for r in result
             @test r isa AllostericMechanismSpec
             @test r.catalytic_n == 2
