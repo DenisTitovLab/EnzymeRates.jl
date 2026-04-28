@@ -509,10 +509,9 @@ end
 
 """
 Build the `RegSites` tuple expression. Each entry is
-`(ligand_tuple, multiplicity, lig_tags)` where `lig_tags` is a tuple of
-`(name::Symbol, tag::Symbol)` pairs storing only non-default tags
-(`:NonequalRT` is the default and is omitted). Ligands not assigned to
-any explicit `site(:regulatory, ...):` block become their own
+`(ligand_tuple, multiplicity, reg_allo_states)` where `reg_allo_states`
+is a dense `Tuple{Symbol...}` parallel to `ligands`. Ligands not assigned
+to any explicit `site(:regulatory, ...):` block become their own
 single-ligand site at multiplicity `cat_n`.
 """
 function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
@@ -542,38 +541,29 @@ function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
     entries = Expr[]
     for (mult, ligs) in sites
         ligs_tuple = Expr(:tuple, QuoteNode.(ligs)...)
-        lig_tag_pairs = Expr[]
-        for l in ligs
-            tag = tag_of[l]
-            tag == :NonequalRT && continue
-            push!(lig_tag_pairs,
-                  Expr(:tuple, QuoteNode(l), QuoteNode(tag)))
-        end
-        entry = Expr(:tuple,
-            ligs_tuple,
-            mult,
-            Expr(:tuple, lig_tag_pairs...),
-        )
+        states_tuple = Expr(:tuple, (QuoteNode(tag_of[l]) for l in ligs)...)
+        entry = Expr(:tuple, ligs_tuple, mult, states_tuple)
         push!(entries, entry)
     end
     Expr(:tuple, entries...)
 end
 
 """
-Build the `CatSites` expression `(multiplicity, group_tags)` for the
-macro. `group_tags` is a tuple of `(group_number, tag)` pairs storing
-only non-default tags (`:NonequalRT` is the default and is omitted).
+Build the `CatSites` expression `(multiplicity, cat_allo_states)` for
+the macro. `cat_allo_states` is a dense `Tuple{Symbol...}` with one
+entry per kinetic group in source order.
 """
 function _build_cat_sites_expr(cat_n, group_tags)
-    pairs = Expr[]
-    for (gnum, tag) in group_tags
+    for (_, tag) in group_tags
         tag in _ALLOSTERIC_REG_TAGS ||
             error("@allosteric_mechanism: catalytic step tag :$tag not in " *
                   "($(_format_tag_set(_ALLOSTERIC_REG_TAGS)))")
-        tag == :NonequalRT && continue
-        push!(pairs, Expr(:tuple, gnum, QuoteNode(tag)))
     end
-    Expr(:tuple, cat_n, Expr(:tuple, pairs...))
+    tag_of = Dict{Int,Symbol}(group_tags)
+    n_groups = isempty(group_tags) ? 0 : maximum(g for (g, _) in group_tags)
+    states_tuple = Expr(:tuple,
+        (QuoteNode(get(tag_of, g, :NonequalRT)) for g in 1:n_groups)...)
+    Expr(:tuple, cat_n, states_tuple)
 end
 
 """

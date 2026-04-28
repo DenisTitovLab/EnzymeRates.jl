@@ -102,14 +102,15 @@
                 [EP] ⇌ [E, P]
             end
         end
-        cat_sites = (2, ((2, :OnlyR),))
-        reg_sites = ((((:I,), 2, ((:I, :OnlyT),)),),)
+        # Dense format: (multiplicity, cat_allo_states) and (ligands, mult, reg_allo_states)
+        cat_sites = (2, (:NonequalRT, :OnlyR, :NonequalRT))
+        reg_sites = ((((:I,), 2, (:OnlyT,)),),)
         m = EnzymeRates.AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites[1]}()
 
         @test EnzymeRates.catalytic_mechanism(m) === cm
         @test EnzymeRates.catalytic_multiplicity(m) == 2
-        @test EnzymeRates.group_tag(m, 1) == :NonequalRT   # default
-        @test EnzymeRates.group_tag(m, 2) == :OnlyR
+        @test EnzymeRates.cat_allo_state(m, 1) == :NonequalRT
+        @test EnzymeRates.cat_allo_state(m, 2) == :OnlyR
         @test EnzymeRates.regulatory_sites(m) == reg_sites[1]
     end
 
@@ -126,12 +127,13 @@
 
         # Single-ligand :EqualRT reg site → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, ()), ((((:I,), 2, ((:I, :EqualRT),)),),)[1],
+            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)),
+            (((:I,), 2, (:EqualRT,)),),
         )
 
-        # Iso group :OnlyT → error
+        # Catalytic group :OnlyT → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, ((2, :OnlyT),)), (),
+            cm, (2, (:NonequalRT, :OnlyT, :NonequalRT)), (),
         )
 
         # Build via DSL
@@ -149,8 +151,8 @@
             end
         end
         @test EnzymeRates.catalytic_multiplicity(m) == 2
-        @test EnzymeRates.group_tag(m, 1) == :EqualRT
-        @test EnzymeRates.group_tag(m, 2) == :OnlyR
+        @test EnzymeRates.cat_allo_state(m, 1) == :EqualRT
+        @test EnzymeRates.cat_allo_state(m, 2) == :OnlyR
         @test EnzymeRates.allosteric_regulators(m) == ((:I, :OnlyT),)
     end
 
@@ -468,24 +470,26 @@
                 [EP] ⇌ [E, P]
             end
         end
-        # group_tag references non-existent kinetic_group → error
+        # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, ((99, :OnlyR),)), ())
+            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT, :OnlyR)), ())
 
-        # Invalid tag value → error
+        # Invalid allo state value → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, ((1, :NotATag),)), ())
+            cm, (2, (:NotAState, :NonequalRT, :NonequalRT)), ())
 
         # Reg site with no ligands → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, ()), (((), 2, ()),))
+            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)), (((), 2, ()),))
 
         # Reg site with all-:EqualRT ligands → error (cancels identically)
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, ()), (((:I, :J), 2, ((:I, :EqualRT), (:J, :EqualRT))),))
+            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)),
+            (((:I, :J), 2, (:EqualRT, :EqualRT)),))
 
-        # Invalid reg-site ligand tag → error
+        # Invalid reg-site ligand allo state → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, ()), (((:I,), 2, ((:I, :NotATag),)),))
+            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)),
+            (((:I,), 2, (:NotAState,)),))
     end
 end

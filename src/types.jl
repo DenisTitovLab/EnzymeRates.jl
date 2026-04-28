@@ -238,81 +238,75 @@ _pretty_reaction(subs, prods) =
 """
     AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites}
 
-Singleton type encoding a multi-subunit MWC allosteric enzyme.
+Multi-subunit MWC allosteric enzyme. `CatalyticMech` is an
+`EnzymeMechanism` describing one catalytic subunit's cycle.
 
-- `CatalyticMech`: an `EnzymeMechanism` type (single-subunit catalytic mech).
-- `CatSites`: `(multiplicity::Int, group_tags::Tuple{Pair{Int,Symbol}...})`.
-  Non-default-only storage; absent groups have tag `:NonequalRT`.
-- `RegSites`: tuple of entries `((ligands, multiplicity, ligand_tags),)`.
-  One entry per reg site.
+# Type parameters
+- `CatSites`: `(multiplicity::Int, cat_allo_states::Tuple{Symbol...})`.
+  `cat_allo_states[g]` is the allosteric state of catalytic kinetic
+  group `g` (1-indexed, dense — every group must have an entry).
+  Allowed values: `:EqualRT`, `:NonequalRT`, `:OnlyR`. `:OnlyT`
+  catalytic groups error during construction (R-state-active
+  convention).
+- `RegSites`: tuple of regulator-site entries
+  `(ligands::Tuple{Symbol...}, multiplicity::Int,
+   reg_allo_states::Tuple{Symbol...})` where `reg_allo_states` is
+  parallel to `ligands`. Allowed values: all four states
+  (`:EqualRT`, `:NonequalRT`, `:OnlyR`, `:OnlyT`).
+
+Constructor validates:
+- Catalytic state count matches kinetic-group count.
+- Regulator state tuple length matches ligand tuple length at each site.
+- No catalytic group has `:OnlyT` state.
+- At least one ligand at each reg site is non-`:EqualRT`.
 """
 struct AllostericEnzymeMechanism{
     CatalyticMech, CatSites, RegSites,
 } <: AbstractEnzymeMechanism end
 
-"""
-    AllostericEnzymeMechanism(cm, cat_sites, reg_sites)
-
-Build an `AllostericEnzymeMechanism` from a catalytic `EnzymeMechanism`,
-a `(multiplicity, group_tags)` pair, and a tuple of reg-site entries.
-
-`group_tags` and ligand-tag entries store only non-default tags; absent
-entries default to `:NonequalRT`. `group_tags` is sorted by group id for
-canonical type identity. Validates:
-  - tag values are one of `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`,
-  - `group_tags` reference existing kinetic groups,
-  - iso-only kinetic groups are not tagged `:OnlyT`,
-  - reg sites have at least one ligand and at least one non-`:EqualRT`
-    ligand (single-/all-`:EqualRT` reg sites cancel identically).
-"""
 function AllostericEnzymeMechanism(
-    cm::EnzymeMechanism,
-    cat_sites::Tuple{Int, <:Tuple},
-    reg_sites::Tuple,
+    cm::EnzymeMechanism, cat_sites::Tuple, reg_sites::Tuple,
 )
-    multiplicity, group_tags = cat_sites
-    valid_groups = Set(kinetic_groups(cm))
-    rxns = reactions(cm)
-    cat_mets = Set(metabolites(cm))
+    multiplicity, cat_allo_states = cat_sites
+    multiplicity isa Int && multiplicity ≥ 1 ||
+        error("Catalytic multiplicity must be a positive Int, got $multiplicity")
 
-    for (g, tag) in group_tags
-        g in valid_groups ||
-            error("group_tag references non-existent kinetic_group $g")
-        tag in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
-            error("Invalid group tag: $tag")
-        any_iso = false
-        for idx in steps_in_group(cm, g)
-            lhs, rhs, is_eq, _ = rxns[idx]
-            mets_in = any(s in cat_mets for s in (lhs..., rhs...))
-            if !is_eq && !mets_in
-                any_iso = true
-            end
-        end
-        any_iso && tag == :OnlyT &&
-            error("Iso group $g tagged :OnlyT is forbidden " *
-                  "(R-inactive is a relabel)")
+    n_groups = length(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
+    length(cat_allo_states) == n_groups ||
+        error("cat_allo_states length $(length(cat_allo_states)) does not " *
+              "match catalytic kinetic-group count $n_groups")
+    for (g, st) in enumerate(cat_allo_states)
+        st === :OnlyT &&
+            error("Catalytic kinetic group $g has state :OnlyT; the " *
+                  "R-state is the active state by convention. Relabel " *
+                  "your mechanism so the active state is R (use :OnlyR " *
+                  "instead).")
+        st in (:OnlyR, :EqualRT, :NonequalRT) ||
+            error("Catalytic kinetic group $g has unknown allo state $st; " *
+                  "must be one of (:OnlyR, :EqualRT, :NonequalRT)")
     end
 
     for (i, entry) in enumerate(reg_sites)
-        ligands, _, lig_tags = entry
-        isempty(ligands) && error("Reg site $i has no ligands")
-        tag_map = Dict(lig_tags)
-        for (lig, tag) in lig_tags
-            tag in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
-                error("Invalid reg-site tag $tag for ligand $lig")
+        ligands, n_reg, reg_allo_states = entry
+        ligands isa Tuple && all(l isa Symbol for l in ligands) ||
+            error("Reg site $i: ligands must be a Tuple of Symbol")
+        n_reg isa Int && n_reg ≥ 1 ||
+            error("Reg site $i: multiplicity must be a positive Int")
+        length(reg_allo_states) == length(ligands) ||
+            error("Reg site $i: reg_allo_states length $(length(reg_allo_states)) " *
+                  "does not match ligand count $(length(ligands))")
+        for (k, st) in enumerate(reg_allo_states)
+            st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
+                error("Reg site $i, ligand $(ligands[k]): unknown allo state $st")
         end
-        all_eq = all(get(tag_map, l, :NonequalRT) == :EqualRT for l in ligands)
-        all_eq &&
-            error("Reg site $i with all `:EqualRT` ligands cancels " *
-                  "identically (or single-ligand :EqualRT reg site); at " *
-                  "least one ligand must have a non-:EqualRT tag. " *
-                  "Ligands: $ligands")
+        # All-:EqualRT site cancels identically — error
+        all(st === :EqualRT for st in reg_allo_states) &&
+            error("Reg site $i: all ligands are :EqualRT, which produces " *
+                  "Q_reg_R == Q_reg_T — no allosteric effect. At least one " *
+                  "ligand must be :OnlyR, :OnlyT, or :NonequalRT.")
     end
 
-    sorted_tags = Tuple(sort(collect(group_tags); by=first))
-    cat_sites_canon = (multiplicity, sorted_tags)
-
-    AllostericEnzymeMechanism{typeof(cm), cat_sites_canon, reg_sites}()
+    AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites}()
 end
 
 # --- Rate equation mode types ---
@@ -580,11 +574,10 @@ metabolite_row_range(m::EnzymeMechanism) =
 catalytic_mechanism(::AllostericEnzymeMechanism{CM}) where {CM} = CM()
 catalytic_multiplicity(::AllostericEnzymeMechanism{CM, CS}) where {CM, CS} = CS[1]
 
-function group_tag(::AllostericEnzymeMechanism{CM, CS, RS}, g::Int) where {CM, CS, RS}
-    for (k, t) in CS[2]
-        k == g && return t
-    end
-    :NonequalRT
+"""Return the allosteric state of catalytic kinetic group `g`."""
+function cat_allo_state(::AllostericEnzymeMechanism{CM, CS, RS}, g::Int) where {CM, CS, RS}
+    _, states = CS
+    return states[g]
 end
 
 substrates(m::AllostericEnzymeMechanism)         = substrates(catalytic_mechanism(m))
@@ -633,10 +626,9 @@ end
 
 allosteric_regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
     result = Tuple{Symbol, Symbol}[]
-    for (ligands, _, lig_tags) in RS
-        tag_map = Dict(lig_tags)
-        for lig in ligands
-            push!(result, (lig, get(tag_map, lig, :NonequalRT)))
+    for (ligands, _, reg_allo_states) in RS
+        for (lig, st) in zip(ligands, reg_allo_states)
+            push!(result, (lig, st))
         end
     end
     Tuple(result)
@@ -657,9 +649,12 @@ regulatory_site_ligands(m::AllostericEnzymeMechanism, i::Int)     =
 regulatory_site_multiplicity(m::AllostericEnzymeMechanism, i::Int) =
     regulatory_sites(m)[i][2]
 
-function regulatory_ligand_tag(m::AllostericEnzymeMechanism, i::Int, lig::Symbol)
-    for (k, t) in regulatory_sites(m)[i][3]
-        k == lig && return t
-    end
-    :NonequalRT
+"""Return the allosteric state of regulator ligand `lig` at site `site_idx`."""
+function reg_allo_state(
+    ::AllostericEnzymeMechanism{CM, CS, RS}, site_idx::Int, lig::Symbol,
+) where {CM, CS, RS}
+    ligands, _, states = RS[site_idx]
+    idx = findfirst(==(lig), ligands)
+    idx === nothing && error("Ligand $lig not at regulatory site $site_idx")
+    return states[idx]
 end

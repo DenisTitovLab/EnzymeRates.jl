@@ -2015,20 +2015,18 @@ function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
     end
     cm = EnzymeMechanism(spec.base; exclude_regs=allo_set)
 
-    sorted_groups = sort(collect(spec.group_tags); by=first)
-    group_tags = Tuple((g, t) for (g, t) in sorted_groups)
-    cat_sites = (spec.catalytic_n, group_tags)
+    n_groups = length(unique(s.kinetic_group for s in spec.base.steps))
+    cat_states = ntuple(g -> get(spec.group_tags, g, :NonequalRT), n_groups)
 
-    reg_sites = Tuple(
-        (Tuple(group),
-         spec.allosteric_multiplicities[i],
-         Tuple((l, spec.reg_ligand_tags[l])
-               for l in group
-               if haskey(spec.reg_ligand_tags, l)))
-        for (i, group) in enumerate(spec.allosteric_reg_sites)
-    )
+    reg_sites = ntuple(length(spec.allosteric_reg_sites)) do i
+        ligs = Tuple(spec.allosteric_reg_sites[i])
+        mult = spec.allosteric_multiplicities[i]
+        lig_states = ntuple(k -> get(spec.reg_ligand_tags, ligs[k], :NonequalRT),
+                            length(ligs))
+        (ligs, mult, lig_states)
+    end
 
-    AllostericEnzymeMechanism(cm, cat_sites, reg_sites)
+    AllostericEnzymeMechanism(cm, (spec.catalytic_n, cat_states), reg_sites)
 end
 
 function _push_to_dict!(

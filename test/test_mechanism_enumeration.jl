@@ -166,8 +166,8 @@ end
         base_spec.param_count + 1)
 
     m_compiled = AllostericEnzymeMechanism(allo_spec)
-    @test EnzymeRates.group_tag(m_compiled, 1) == :EqualRT
-    @test EnzymeRates.group_tag(m_compiled, 2) == :OnlyR
+    @test EnzymeRates.cat_allo_state(m_compiled, 1) == :EqualRT
+    @test EnzymeRates.cat_allo_state(m_compiled, 2) == :OnlyR
 end
 
 @testset "Catalytic topologies" begin

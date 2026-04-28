@@ -1006,14 +1006,15 @@ end
 
 # ── Single-feature edge cases ─────────────────────────────────────────────
 @testset "Allosteric edge cases" begin
-    # OnlyT substrate: S binds only in T-state, so all forward catalysis
-    # happens through T. As K_S_T → ∞ (no T-state binding), rate vanishes.
-    onlyT_sub = @allosteric_mechanism begin
+    # OnlyR substrate: S binds only in R-state (R-state-active convention).
+    # T-state cycle is dead, so all forward catalysis happens through R.
+    # As K1 → ∞ (weaker R-state binding), rate vanishes.
+    onlyR_sub = @allosteric_mechanism begin
         substrates: S
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]   :: OnlyT
+                [E, S] ⇌ [ES]   :: OnlyR
                 [ES] <--> [EP]  :: EqualRT
                 [EP] ⇌ [E, P]   :: EqualRT
             end
@@ -1021,8 +1022,8 @@ end
     end
     concs = (S=1.0, P=0.001)
     base_params = (k2f=10.0, K3=0.5, L=10.0, Keq=1000.0, E_total=1.0)
-    rate_strong = rate_equation(onlyT_sub, concs, merge(base_params, (K1_T=0.01,)))
-    rate_weak   = rate_equation(onlyT_sub, concs, merge(base_params, (K1_T=1e6,)))
+    rate_strong = rate_equation(onlyR_sub, concs, merge(base_params, (K1=0.01,)))
+    rate_weak   = rate_equation(onlyR_sub, concs, merge(base_params, (K1=1e6,)))
     @test rate_strong > 1.0
     @test rate_weak < 1e-3
     @test rate_weak / rate_strong < 1e-5
@@ -1099,8 +1100,8 @@ end
     end
     m_mix = EnzymeRates.AllostericEnzymeMechanism(
         cm_mix,
-        (2, ((1, :NonequalRT), (2, :OnlyR))),
-        (((:I,), 2, ((:I, :OnlyT),)),),
+        (2, (:NonequalRT, :OnlyR, :NonequalRT)),
+        (((:I,), 2, (:OnlyT,)),),
     )
     p_mix = (K1=0.1, k2f=10.0, K3=0.5,
              K1_T=10.0, K3_T=10.0,

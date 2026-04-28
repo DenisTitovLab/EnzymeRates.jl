@@ -1003,7 +1003,7 @@ corners and return the max.
             sat_terms_T = Any[]
             for lig in ligs
                 if (mask >> lig_idx[lig]) & 1 == 1
-                    tag = regulatory_ligand_tag(m, site_idx, lig)
+                    tag = reg_allo_state(m, site_idx, lig)
                     if tag != :OnlyT
                         push!(sat_terms_R,
                               :(inv($(_reg_param_name(lig, site_idx, false)))))
@@ -1120,7 +1120,7 @@ function _onlyT_syms(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
     syms = Set{Symbol}()
     for g in kinetic_groups(cm)
-        group_tag(m, g) == :OnlyT || continue
+        cat_allo_state(m, g) == :OnlyT || continue
         rep = first(steps_in_group(cm, g))
         for s in _group_param_symbols(cm, rep); push!(syms, s); end
     end
@@ -1139,7 +1139,7 @@ both `rate_equation` (via `_allosteric_num_den_exprs`) and
 """
 function _t_state_dead(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
-    any(group_tag(m, g) == :OnlyR for g in kinetic_groups(cm))
+    any(cat_allo_state(m, g) == :OnlyR for g in kinetic_groups(cm))
 end
 
 """Catalytic-cycle parameter symbols zeroed in the T-state (`:OnlyR` groups)."""
@@ -1147,7 +1147,7 @@ function _onlyR_syms(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
     syms = Set{Symbol}()
     for g in kinetic_groups(cm)
-        group_tag(m, g) == :OnlyR || continue
+        cat_allo_state(m, g) == :OnlyR || continue
         rep = first(steps_in_group(cm, g))
         for s in _group_param_symbols(cm, rep); push!(syms, s); end
     end
@@ -1163,7 +1163,7 @@ function _T_rename(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
     rename = Dict{Symbol, Symbol}()
     for g in kinetic_groups(cm)
-        tag = group_tag(m, g)
+        tag = cat_allo_state(m, g)
         (tag == :NonequalRT || tag == :OnlyT) || continue
         rep = first(steps_in_group(cm, g))
         for s in _group_param_symbols(cm, rep)
@@ -1189,14 +1189,14 @@ function _binding_K_symbols(
     t_ks = Symbol[]
     for K in r_ks
         idx = parse(Int, string(K)[2:end])
-        tag = group_tag(m, kinetic_group(cm, idx))
+        tag = cat_allo_state(m, kinetic_group(cm, idx))
         tag == :NonequalRT && push!(t_ks, _rename_params_T(K))
     end
     reg_ks_r = Symbol[]
     reg_ks_t = Symbol[]
     for (i, entry) in enumerate(RS)
         for lig in entry[1]
-            tag = regulatory_ligand_tag(m, i, lig)
+            tag = reg_allo_state(m, i, lig)
             tag == :OnlyT || push!(reg_ks_r, _reg_param_name(lig, i, false))
             tag in (:NonequalRT, :OnlyT) &&
                 push!(reg_ks_t, _reg_param_name(lig, i, true))
@@ -1264,7 +1264,7 @@ function _dependent_param_exprs(
     reg_params_t_dep = Pair{Symbol, Symbol}[]
     for (i, entry) in enumerate(RS)
         for lig in entry[1]
-            tag = regulatory_ligand_tag(m, i, lig)
+            tag = reg_allo_state(m, i, lig)
             K_R = _reg_param_name(lig, i, false)
             K_T = _reg_param_name(lig, i, true)
             tag == :OnlyT || push!(reg_params_r, K_R)
@@ -1296,7 +1296,7 @@ in R-state). Uses the R-state K symbol when the ligand tag is `:EqualRT`."""
 function _reg_site_expr(m::AllostericEnzymeMechanism, site_idx::Int, T_state::Bool)
     terms = Any[1]
     for lig in regulatory_site_ligands(m, site_idx)
-        tag = regulatory_ligand_tag(m, site_idx, lig)
+        tag = reg_allo_state(m, site_idx, lig)
         if T_state
             tag == :OnlyR && continue
         else
@@ -1360,7 +1360,7 @@ function _build_dep_assignments(
     # `:EqualRT` reg params: K_T_reg = K_R_reg
     for i in eachindex(regulatory_sites(m))
         for lig in regulatory_site_ligands(m, i)
-            regulatory_ligand_tag(m, i, lig) == :EqualRT || continue
+            reg_allo_state(m, i, lig) == :EqualRT || continue
             push!(t_assignments,
                   Expr(:(=), _reg_param_name(lig, i, true),
                              _reg_param_name(lig, i, false)))
@@ -1589,7 +1589,7 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
     function reg_q_poly(i, T_state)
         ligs_filtered = Symbol[]
         for lig in regulatory_site_ligands(m, i)
-            tag = regulatory_ligand_tag(m, i, lig)
+            tag = reg_allo_state(m, i, lig)
             if T_state
                 tag == :OnlyR && continue
             else
