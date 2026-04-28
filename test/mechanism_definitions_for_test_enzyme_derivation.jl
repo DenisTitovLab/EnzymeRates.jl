@@ -2091,6 +2091,102 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # ── Pyruvate kinase (PK) hand-verified mechanism ──────────────────────────
+    # Reaction: PEP + ADP ⇌ Pyruvate + ATP, 4 catalytic subunits.
+    # PEP binding is :NonequalRT (independent K_R and K_T) so the T-state
+    # cycle is alive. Reg sites have MISMATCHED multiplicities:
+    #   ATP::OnlyT at mult 2
+    #   F16BP::OnlyR at mult 4 (matches catalytic mult)
+    # This exercises the symmetric all-reg-sites contribution to both
+    # numerator and denominator (after dropping the n_reg == CatN filter
+    # in Task 3).
+    let
+        m = @allosteric_mechanism begin
+            substrates: PEP, ADP
+            products:   Pyruvate, ATP
+            allosteric_regulators: ATP::OnlyT, F16BP::OnlyR
+
+            site(:catalytic, 4): begin
+                steps: begin
+                    ([E, PEP] ⇌ [E_PEP],
+                     [E_ADP, PEP] ⇌ [E_PEP_ADP])              :: NonequalRT
+                    ([E, ADP] ⇌ [E_ADP],
+                     [E_PEP, ADP] ⇌ [E_PEP_ADP])              :: EqualRT
+                    [E_PEP_ADP] <--> [E_Pyr_ATP]               :: NonequalRT
+                    ([E_Pyr_ATP] ⇌ [E_ATP, Pyruvate],
+                     [E_Pyr] ⇌ [E, Pyruvate])                  :: EqualRT
+                    ([E_Pyr_ATP] ⇌ [E_Pyr, ATP],
+                     [E_ATP] ⇌ [E, ATP])                       :: EqualRT
+                end
+            end
+
+            site(:regulatory, 2): begin
+                ligands: ATP
+            end
+            site(:regulatory, 4): begin
+                ligands: F16BP
+            end
+        end
+
+        # Param mapping (kinetic-group representative-step convention):
+        #   K1, K1_T    : PEP binding (group 1, NonequalRT)
+        #   K3          : ADP binding (group 2, EqualRT)
+        #   k5f, k5f_T  : catalysis SS (group 3, NonequalRT)
+        #   K6          : Pyruvate release (group 4, EqualRT)
+        #   K8          : ATP release (group 5, EqualRT)
+        function pk_rate_analytical(params, concs)
+            (; K1, K1_T, K3, k5f, k5f_T, K6, K8,
+               K_ATP_T_reg1, K_F16BP_reg2,
+               L, Keq, Et) = params
+            (; PEP, ADP, Pyruvate, ATP, F16BP) = concs
+
+            k5r   = k5f   * K6 * K8 / (Keq * K1   * K3)
+            k5r_T = k5f_T * K6 * K8 / (Keq * K1_T * K3)
+
+            Q_cat_R = 1 + PEP/K1   + ADP/K3 + PEP*ADP/(K1   * K3) +
+                      Pyruvate/K6  + ATP/K8 + Pyruvate*ATP/(K6 * K8)
+            Q_cat_T = 1 + PEP/K1_T + ADP/K3 + PEP*ADP/(K1_T * K3) +
+                      Pyruvate/K6  + ATP/K8 + Pyruvate*ATP/(K6 * K8)
+
+            N_R = k5f   * PEP * ADP / (K1   * K3) - k5r   * Pyruvate * ATP / (K6 * K8)
+            N_T = k5f_T * PEP * ADP / (K1_T * K3) - k5r_T * Pyruvate * ATP / (K6 * K8)
+
+            Q_reg1_R = 1                                     # ATP::OnlyT, no R term
+            Q_reg1_T = 1 + ATP / K_ATP_T_reg1
+            Q_reg2_R = 1 + F16BP / K_F16BP_reg2               # F16BP::OnlyR, no T term
+            Q_reg2_T = 1
+
+            num_R = N_R * Q_cat_R^3 * Q_reg1_R^2 * Q_reg2_R^4
+            num_T = N_T * Q_cat_T^3 * Q_reg1_T^2 * Q_reg2_T^4
+            den_R = Q_cat_R^4 * Q_reg1_R^2 * Q_reg2_R^4
+            den_T = Q_cat_T^4 * Q_reg1_T^2 * Q_reg2_T^4
+
+            return Et * 4.0 * (num_R + L * num_T) / (den_R + L * den_T)
+        end
+
+        push!(specs, MechanismTestSpec(
+            name="PK",
+            mechanism=m,
+            metabolite_names=[:PEP, :ADP, :Pyruvate, :ATP, :F16BP],
+            expected_n_states=7,           # E, E_PEP, E_ADP, E_PEP_ADP, E_Pyr_ATP, E_Pyr, E_ATP
+            expected_n_steps=9,
+            expected_n_metabolites=5,
+            # 5 deps: 2 Haldanes (k5r, k5r_T) + 3 :EqualRT-mirror constraints
+            # (K3_T, K6_T, K8_T). K1_T and k5f_T remain independent (:NonequalRT).
+            expected_n_haldane=5,
+            expected_n_wegscheider=0,
+            expected_n_independent_params=10,
+            expected_identifiability_deficit=-1443,
+            expected_is_identifiable=true,
+            run_ode_test=false,
+            analytical_rate_fn=pk_rate_analytical,
+            # kcat depends on L conformational equilibrium for :NonequalRT catalysis
+            analytical_kcat_fn=nothing,
+            expected_factored_num=nothing,
+            expected_factored_denom=nothing,
+        ))
+    end
+
     return specs
 end
 
