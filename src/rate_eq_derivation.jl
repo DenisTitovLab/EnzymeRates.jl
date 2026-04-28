@@ -1129,26 +1129,17 @@ end
 
 """
 The T-state catalytic cycle cannot close — and therefore both forward
-and reverse net flux vanish — when any `:OnlyR` kinetic group's
-representative step either has no metabolite (an iso step) or binds a
-substrate. Both cases break a step the cycle traverses; binding
-equilibrium for the rest forces N_T = 0 in steady state. Used by both
-`rate_equation` (via `_allosteric_num_den_exprs`) and `_kcat_forward`.
+and reverse net flux vanish — when any `:OnlyR` kinetic group is
+present. The Cha polynomial-zeroing approach kills only one half of
+the catalytic flux (forward for substrate-OnlyR, reverse for
+product-OnlyR), leaving the other half non-zero at chemical
+equilibrium. Forcing `N_T = 0` ensures Haldane consistency. Used by
+both `rate_equation` (via `_allosteric_num_den_exprs`) and
+`_kcat_forward`.
 """
 function _t_state_dead(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
-    enz_set = Set(enzyme_forms(cm))
-    sub_set = Set(substrates(cm))
-    rxns = reactions(cm)
-    for g in kinetic_groups(cm)
-        group_tag(m, g) == :OnlyR || continue
-        rep = first(steps_in_group(cm, g))
-        _, mets_lhs = _split_reaction_side(rxns[rep][1], enz_set)
-        if isempty(mets_lhs) || any(met in sub_set for met in mets_lhs)
-            return true
-        end
-    end
-    false
+    any(group_tag(m, g) == :OnlyR for g in kinetic_groups(cm))
 end
 
 """Catalytic-cycle parameter symbols zeroed in the T-state (`:OnlyR` groups)."""
