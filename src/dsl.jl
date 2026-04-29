@@ -329,6 +329,10 @@ function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
             end
         # Parenthesized-group-without-tag (plain)
         elseif arg isa Expr && arg.head == :tuple
+            allow_tag &&
+                error("@allosteric_mechanism: parenthesized step group " *
+                      "`$(arg)` is missing `:: <:OnlyR|:EqualRT|:NonequalRT>` " *
+                      "annotation. Add `:: <state>` after the closing paren.")
             next_group[] += 1
             gnum = next_group[]
             for step_expr in arg.args
@@ -345,6 +349,10 @@ function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
                     error("@enzyme_mechanism: tag annotation on `$original` " *
                           "is not allowed")
                 push!(tags, gnum => tag)
+            elseif allow_tag
+                error("@allosteric_mechanism: step `$(original)` is missing " *
+                      "`:: <:OnlyR|:EqualRT|:NonequalRT>` annotation. Add " *
+                      "`:: <state>` after the step expression.")
             end
             push!(rxns.args, _parse_single_step(arg, gnum))
         else
@@ -635,12 +643,7 @@ function _parse_allosteric_mechanism_body(block)
     rxns_expr, group_tags = _parse_steps_block_with_groups(
         cat_steps_block; allow_tag=true,
     )
-    tagged = Set{Int}(g for (g, _) in group_tags)
-    all_groups = Set{Int}(step.args[4] for step in rxns_expr.args)
-    untagged = sort(collect(setdiff(all_groups, tagged)))
-    isempty(untagged) ||
-        error("@allosteric_mechanism: catalytic step-group(s) $untagged " *
-              "missing a ::Tag annotation")
+    # Bare-step rejection now happens inside _parse_steps_block_with_groups.
 
     cm_mets_expr = Expr(:tuple,
         Expr(:tuple, QuoteNode.(subs_list)...),
