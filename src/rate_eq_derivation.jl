@@ -1488,6 +1488,8 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     reg_Q_R = Any[_reg_site_expr(m, i, false) for i in eachindex(RS)]
     reg_Q_T = Any[_reg_site_expr(m, i, true) for i in eachindex(RS)]
 
+    # Numerator: N × Q_cat^(CatN-1) × all reg-site factors at multiplicity.
+    # MUST mirror `num_poly_for_conf` in `_count_allosteric_rate_monomials`.
     function make_num_term(N, Q, reg_Qs)
         factors = Any[N]
         CatN > 1 && push!(factors, _power_expr(Q, CatN - 1))
@@ -1498,6 +1500,8 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         _nest_binary(:*, factors)
     end
 
+    # Denominator: Q_cat^CatN × all reg-site factors at multiplicity.
+    # MUST mirror `den_poly_for_conf` in `_count_allosteric_rate_monomials`.
     function make_den_term(Q, reg_Qs)
         factors = Any[_power_expr(Q, CatN)]
         for i in eachindex(RS)
@@ -1636,16 +1640,24 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
     reg_Q_R = POLY[reg_q_poly(i, false) for i in eachindex(RS)]
     reg_Q_T = POLY[reg_q_poly(i, true) for i in eachindex(RS)]
 
+    # Numerator: per-state catalytic flux × Q_cat^(CatN-1) × all reg-site
+    # factors at their multiplicity. MUST mirror `make_num_term` in
+    # `_allosteric_num_den_exprs` — they build the same polynomial in
+    # different representations. Drift between them produces
+    # inconsistent monomial counts vs the rate equation.
     function num_poly_for_conf(N_cat, Q_cat, reg_Qs, L_factor)
         n_term = poly_mul(N_cat, _poly_power(Q_cat, CatN - 1))
         for i in eachindex(RS)
             n_reg = regulatory_site_multiplicity(m, i)
-            n_reg == CatN || continue
             n_term = poly_mul(n_term, _poly_power(reg_Qs[i], n_reg))
         end
         L_factor === nothing ? n_term : poly_mul(poly_sym(L_factor), n_term)
     end
 
+    # Denominator: Q_cat^CatN × all reg-site factors at multiplicity.
+    # MUST mirror `make_den_term` in `_allosteric_num_den_exprs` — they
+    # build the same polynomial in different representations. Drift between
+    # them produces inconsistent monomial counts vs the rate equation.
     function den_poly_for_conf(Q_cat, reg_Qs, L_factor)
         d_term = _poly_power(Q_cat, CatN)
         for i in eachindex(RS)
@@ -1655,10 +1667,17 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
         L_factor === nothing ? d_term : poly_mul(poly_sym(L_factor), d_term)
     end
 
-    full_num = poly_add(
-        num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing),
-        num_poly_for_conf(N_cat_T, Q_cat_T, reg_Q_T, :L),
-    )
+    # Drop the L*N_T numerator branch when t_state_dead: it expands to
+    # L * 0 * polynomial, contributing zero to monomial count. MUST
+    # mirror `_allosteric_num_den_exprs` post-Task 5.
+    if _t_state_dead(m)
+        full_num = num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing)
+    else
+        full_num = poly_add(
+            num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing),
+            num_poly_for_conf(N_cat_T, Q_cat_T, reg_Q_T, :L),
+        )
+    end
     full_den = poly_add(
         den_poly_for_conf(Q_cat_R, reg_Q_R, nothing),
         den_poly_for_conf(Q_cat_T, reg_Q_T, :L),
