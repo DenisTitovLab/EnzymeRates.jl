@@ -2084,12 +2084,15 @@ function build_mechanism_test_specs()
     # ── Pyruvate kinase (PK) hand-verified mechanism ──────────────────────────
     # Reaction: PEP + ADP ⇌ Pyruvate + ATP, 4 catalytic subunits.
     # PEP binding is :NonequalRT (independent K_R and K_T) so the T-state
-    # cycle is alive. Reg sites have MISMATCHED multiplicities:
+    # cycle is alive. Catalysis (groups 2-5) are :EqualRT; k5r and k5r_T both
+    # derive from the shared k5f via per-state Haldanes (R-state uses K1, T-state
+    # uses K1_T). Reg sites have MISMATCHED multiplicities:
     #   ATP::OnlyT at mult 2
     #   F16BP::OnlyR at mult 4 (matches catalytic mult)
-    # This exercises the symmetric all-reg-sites contribution to both
-    # numerator and denominator (after dropping the n_reg == CatN filter
-    # in Task 3).
+    # This exercises the symmetric all-reg-sites contribution to both numerator
+    # and denominator.
+    # Independent parameters (9): K1, K1_T, K3, k5f, K6, K8,
+    # K_ATP_T_reg1, K_F16BP_reg2, L
     let
         m = @allosteric_mechanism begin
             substrates: PEP, ADP
@@ -2189,6 +2192,8 @@ function build_mechanism_test_specs()
     # framework generates independent R-state and T-state Haldanes; with
     # :EqualRT catalysis the T-state Haldane is missed (see Task 11 / PK
     # for the analogous lesson).
+    # Independent parameters (12): K1, K1_T, K3, k5f, k5f_T, K6, K6_T, K8,
+    # K_R1_reg1, K_R1_T_reg1, K_R2_reg1, L
     let
         m = @allosteric_mechanism begin
             substrates: S1, S2

@@ -240,8 +240,10 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `:OnlyR` — symbol exists in R-state only; T-state zeros it.
 - `:OnlyT` — symbol exists in T-state only; R-state zeros it. Catalytic groups cannot be `:OnlyT` (R-state-active convention).
 - `:EqualRT` — single shared symbol for both states (K_R = K_T).
-- `:NonequalRT` (default) — independent R and T symbols (K_R, K_T separately).
+- `:NonequalRT` — independent R and T symbols (K_R, K_T separately).
 - DSL: catalytic-step allosteric states via `:: AlloState` annotation in `site(:catalytic, N): begin steps: … end`. Regulator allosteric states via `name::AlloState` in `allosteric_regulators:`.
+- The `AllostericEnzymeMechanism` type-parameter storage is **dense** — every catalytic kinetic group has an explicit entry in `cat_allo_states`, every regulator ligand has an explicit entry in `reg_allo_states`. There is no defaulting.
+- The internal `AllostericMechanismSpec` (in `mechanism_enumeration.jl`) uses **sparse** Dict storage where absent entries are interpreted as `:NonequalRT` during the dense conversion in the `AllostericEnzymeMechanism(spec)` constructor. This is an enumeration internal — DSL and constructor users see only the dense form.
 
 ### Mirror / dead-end kinetic-group sharing
 - The mechanism-enumeration generator assigns dead-end mirror steps the same `kinetic_group::Int` as their catalytic counterpart. Mirror propagation is implicit in the kinetic-group atomicity: when a group's RE→SS conversion fires, every member converts together.

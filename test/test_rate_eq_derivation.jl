@@ -981,7 +981,9 @@ end
     rate_T = rate_equation(vtype, concs, merge(vparams, (L=1e10,)))
     @test rate_R > 1.0
     @test rate_T < 1e-6
-    # T-state numerator literally zero: rate ∝ 1/(1+L) at large L
+    # T-state numerator branch is elided when t_state_dead (any :OnlyR catalytic group);
+    # rate is E_total · catN · num_R / (Q_R^catN + L · Q_T^catN). At large L, the T-state
+    # enzyme mass dominates the denominator → rate ∝ 1/(1+L).
     @test rate_T * 1e10 < 100.0    # bounded as L grows
 
     # :OnlyT on a substrate-binding catalytic group → constructor error

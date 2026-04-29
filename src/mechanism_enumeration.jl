@@ -44,9 +44,15 @@ end
     AllostericMechanismSpec <: AbstractMechanismSpec
 
 Allosteric enzyme mechanism built from a base `MechanismSpec`. Each
-catalytic kinetic group and each regulator-site ligand carries a tag
-indicating its R/T-state relationship. Tags: `:OnlyR`, `:OnlyT`,
-`:EqualRT`, `:NonequalRT` (default for absent entries).
+catalytic kinetic group and each regulator-site ligand carries an
+allosteric state tag indicating its R/T-state relationship. Tags:
+`:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`.
+
+`group_tags` and `reg_ligand_tags` use sparse Dict storage internally,
+where absent entries default to `:NonequalRT`. When converted via
+`AllostericEnzymeMechanism(spec)`, the type parameters become dense —
+every catalytic kinetic group has an explicit `cat_allo_states` entry,
+every regulator ligand has an explicit `reg_allo_states` entry.
 
 `group_tags` maps `kinetic_group → tag` (only non-default entries).
 `reg_ligand_tags` maps `ligand → tag` (only non-default entries).

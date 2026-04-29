@@ -43,7 +43,7 @@
         end))
     end
 
-    @testset "@allosteric_mechanism (smoke)" begin
+    @testset "@allosteric_mechanism (parsing & validation)" begin
         m = @allosteric_mechanism begin
             substrates: F6P
             products:   F16BP

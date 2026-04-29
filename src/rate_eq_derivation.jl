@@ -1089,12 +1089,12 @@ end
 # MWC rate formula (per conformation c, summed over conformations).
 # Let cat_n = catalytic_multiplicity(m):
 #   num = cat_n * sum_c( L_c * N_cat_c * Q_cat_c^(cat_n - 1)
-#             * prod(Q_reg_i_c^n_reg_i for i with n_reg_i == cat_n) )
-#   den = sum_c( L_c * Q_cat_c^cat_n * prod(Q_reg_i_c^n_reg_i) )
+#             * prod(Q_reg_i_c^n_reg_i for all regulatory sites i) )
+#   den = sum_c( L_c * Q_cat_c^cat_n * prod(Q_reg_i_c^n_reg_i for all regulatory sites i) )
 #   v = E_total * num / den
 #
-# Regulatory sites with n_reg_i < cat_n appear only in the denominator.
-# Sites with n_reg_i == cat_n appear in both numerator and denominator.
+# Regulatory sites contribute to BOTH numerator and denominator at their
+# multiplicity, regardless of whether n_reg_i matches cat_n.
 # ═══════════════════════════════════════════════════════════════════
 
 # ─── Parameter naming ────────────────────────────────────────────
