@@ -73,10 +73,10 @@ function build_mechanism_test_specs()
             expected_n_states=2,
             expected_n_steps=2,
             expected_n_metabolites=2,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=3,
-            expected_identifiability_deficit=0,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> begin
                 num = p.k1f * p.k2f * c.S - p.k1r * p.k2r * c.P
@@ -117,10 +117,10 @@ function build_mechanism_test_specs()
             expected_n_states=3,
             expected_n_steps=3,
             expected_n_metabolites=2,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=2,
             expected_is_identifiable=false,
             analytical_rate_fn=(p, c) -> rate_uni_uni(merge(p, (Etotal=p.Et,)), c)
         ))
@@ -159,10 +159,10 @@ function build_mechanism_test_specs()
             expected_n_states=4,
             expected_n_steps=4,
             expected_n_metabolites=2,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=7,
-            expected_identifiability_deficit=3,
             expected_is_identifiable=false,
             analytical_rate_fn=(p, c) -> rate_iso_uni_uni(merge(p, (Etotal=p.Et,)), c)
         ))
@@ -202,10 +202,10 @@ function build_mechanism_test_specs()
             expected_n_states=3,
             expected_n_steps=3,
             expected_n_metabolites=3,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=-1,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_ordered_uni_bi(merge(p, (Etotal=p.Et,)), c)
         ))
@@ -252,10 +252,10 @@ function build_mechanism_test_specs()
             expected_n_states=4,
             expected_n_steps=4,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=7,
-            expected_identifiability_deficit=-4,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c),
             analytical_kcat_fn=p -> p.k3f * p.k4f / (p.k3f + p.k4f),
@@ -299,10 +299,10 @@ function build_mechanism_test_specs()
             expected_n_states=3,
             expected_n_steps=3,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=-4,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_theorell_chance_bi_bi(
@@ -349,10 +349,10 @@ function build_mechanism_test_specs()
             expected_n_states=4,
             expected_n_steps=4,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=7,
-            expected_identifiability_deficit=-1,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_ping_pong_bi_bi(
@@ -416,10 +416,10 @@ function build_mechanism_test_specs()
             expected_n_states=5,
             expected_n_steps=5,
             expected_n_metabolites=5,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
-            expected_identifiability_deficit=-9,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_ordered_ter_bi(merge(p, (Etotal=p.Et,)), c)
         ))
@@ -491,10 +491,10 @@ function build_mechanism_test_specs()
             expected_n_states=6,
             expected_n_steps=6,
             expected_n_metabolites=6,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=11,
-            expected_identifiability_deficit=-16,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_ordered_ter_ter(
@@ -551,10 +551,10 @@ function build_mechanism_test_specs()
             expected_n_states=5,
             expected_n_steps=5,
             expected_n_metabolites=5,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
-            expected_identifiability_deficit=-5,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_bi_uni_uni_uni_ping_pong_ter_bi(
@@ -584,10 +584,10 @@ function build_mechanism_test_specs()
             expected_n_states=6,
             expected_n_steps=7,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=1,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=1,
             expected_n_independent_params=12,
-            expected_identifiability_deficit=-16,
             expected_is_identifiable=true,
             analytical_rate_fn=nothing
         ))
@@ -652,10 +652,10 @@ function build_mechanism_test_specs()
             expected_n_states=6,
             expected_n_steps=6,
             expected_n_metabolites=6,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=11,
-            expected_identifiability_deficit=-11,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_bi_uni_uni_bi_ping_pong_ter_ter(
@@ -722,10 +722,10 @@ function build_mechanism_test_specs()
             expected_n_states=6,
             expected_n_steps=6,
             expected_n_metabolites=6,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=11,
-            expected_identifiability_deficit=-11,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_bi_bi_uni_uni_ping_pong_ter_ter(
@@ -785,10 +785,10 @@ function build_mechanism_test_specs()
             expected_n_states=6,
             expected_n_steps=6,
             expected_n_metabolites=6,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=11,
-            expected_identifiability_deficit=-6,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_hexa_uni_ping_pong(
@@ -827,10 +827,10 @@ function build_mechanism_test_specs()
             expected_n_states=2,
             expected_n_steps=2,
             expected_n_metabolites=2,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=2,
-            expected_identifiability_deficit=0,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_re_uni_uni(merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
@@ -874,10 +874,10 @@ function build_mechanism_test_specs()
             expected_n_states=4,
             expected_n_steps=4,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=-2,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_re_ordered_bi_bi(merge(p, (Et=p.Et,)), c)
         ))
@@ -907,10 +907,10 @@ function build_mechanism_test_specs()
             expected_n_states=6,
             expected_n_steps=7,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=1,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=1,
             expected_n_independent_params=10,
-            expected_identifiability_deficit=0,
             expected_is_identifiable=true,
             analytical_rate_fn=nothing
         ))
@@ -950,10 +950,10 @@ function build_mechanism_test_specs()
             expected_n_states=4,
             expected_n_steps=4,
             expected_n_metabolites=3,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_identifiability_deficit=0,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_competitive_inh(
                 merge(p, (Et=p.Et,)), c),
@@ -999,10 +999,10 @@ function build_mechanism_test_specs()
             expected_n_states=5,
             expected_n_steps=6,
             expected_n_metabolites=3,
-            expected_n_haldane=1,
-            expected_n_wegscheider=1,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=1,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_identifiability_deficit=-1,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_noncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
@@ -1045,10 +1045,10 @@ function build_mechanism_test_specs()
             expected_n_states=4,
             expected_n_steps=4,
             expected_n_metabolites=3,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_identifiability_deficit=0,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_uncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
@@ -1092,10 +1092,10 @@ function build_mechanism_test_specs()
             expected_n_states=4,
             expected_n_steps=4,
             expected_n_metabolites=3,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_identifiability_deficit=0,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_essential_activator(
                 merge(p, (Et=p.Et,)), c),
@@ -1151,10 +1151,10 @@ function build_mechanism_test_specs()
             expected_n_states=6,
             expected_n_steps=9,
             expected_n_metabolites=3,
-            expected_n_haldane=2,
-            expected_n_wegscheider=2,
+            expected_n_haldane_constraints=2,
+            expected_n_mirror_constraints=2,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=-3,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_nonessential_activator(
                 merge(p, (Et=p.Et,)), c),
@@ -1213,10 +1213,10 @@ function build_mechanism_test_specs()
             expected_n_states=7,
             expected_n_steps=10,
             expected_n_metabolites=4,
-            expected_n_haldane=2,
-            expected_n_wegscheider=2,
+            expected_n_haldane_constraints=2,
+            expected_n_mirror_constraints=2,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=6,
-            expected_identifiability_deficit=-3,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_activator_inhibitor(
@@ -1281,10 +1281,10 @@ function build_mechanism_test_specs()
             expected_n_states=3,          # catalytic subunit: E_c, E_S, E_P
             expected_n_steps=3,           # 2 RE + 1 SS per subunit
             expected_n_metabolites=2,
-            expected_n_haldane=2,         # k3r per conformation × 2
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=2,         # k3r per conformation × 2
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=7,
-            expected_identifiability_deficit=-2,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_oligo,
@@ -1346,10 +1346,10 @@ function build_mechanism_test_specs()
             expected_n_states=3,
             expected_n_steps=3,
             expected_n_metabolites=3,
-            expected_n_haldane=2,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=2,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
-            expected_identifiability_deficit=-6,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
@@ -1409,10 +1409,10 @@ function build_mechanism_test_specs()
             expected_n_states=3,
             expected_n_steps=3,
             expected_n_metabolites=3,
-            expected_n_haldane=2,
-            expected_n_wegscheider=0,  # thermodynamic consistency is automatic
+            expected_n_haldane_constraints=2,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,  # thermodynamic consistency is automatic
             expected_n_independent_params=9,
-            expected_identifiability_deficit=-6,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_inh_oligo,
@@ -1458,10 +1458,10 @@ function build_mechanism_test_specs()
             expected_n_states=5,
             expected_n_steps=5,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=0,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
@@ -1528,10 +1528,10 @@ function build_mechanism_test_specs()
             expected_n_states=12,
             expected_n_steps=21,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=-7,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
@@ -1584,10 +1584,10 @@ function build_mechanism_test_specs()
             expected_n_states=7,
             expected_n_steps=9,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=-2,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
@@ -1632,10 +1632,10 @@ function build_mechanism_test_specs()
             expected_n_states=5,
             expected_n_steps=5,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=0,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
@@ -1695,10 +1695,10 @@ function build_mechanism_test_specs()
             expected_n_states=9,
             expected_n_steps=13,
             expected_n_metabolites=4,
-            expected_n_haldane=1,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_identifiability_deficit=-4,
             expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
@@ -1851,10 +1851,10 @@ function build_mechanism_test_specs()
             expected_n_states=9,           # catalytic subunit states
             expected_n_steps=13,           # catalytic subunit steps
             expected_n_metabolites=7,
-            expected_n_haldane=2,          # one k13r per conformation (R and T)
-            expected_n_wegscheider=0,      # site-independence constraints are in param_constraints of CM
+            expected_n_haldane_constraints=2,          # one k13r per conformation (R and T)
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,      # site-independence constraints are in param_constraints of CM
             expected_n_independent_params=17,
-            expected_identifiability_deficit=-29156,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_tetramer_bi_bi,
@@ -1931,15 +1931,10 @@ function build_mechanism_test_specs()
             expected_n_states=7,
             expected_n_steps=9,
             expected_n_metabolites=7,
-            # 6 deps total: 1 Haldane (k5r derived) + 5 :EqualRT-mirror
-            # constraints (K3_T=K3, k5f_T=k5f, k5r_T=k5r, K6_T=K6, K8_T=K8,
-            # K_Pi_T_reg1=K_Pi_reg1) — wait, that's 6 mirrors. Total = 7?
-            # Actual measured value is 6; the mirrored count differs from
-            # naive enumeration.
-            expected_n_haldane=6,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=1,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=12,
-            expected_identifiability_deficit=-35061,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=pfk_rate_analytical,
@@ -2069,15 +2064,10 @@ function build_mechanism_test_specs()
             expected_n_states=10,    # 7 catalytic-cycle + 3 G6Pi dead-end
             expected_n_steps=14,     # 3+2+1+3+2+3
             expected_n_metabolites=5,
-            # 7 deps: 1 Haldane (k6r) + 6 :EqualRT-mirror constraints
-            # (K1_T, k6f_T, k6r_T, K7_T, K10_T, K12_T, K_Pi_T_reg1).
-            # The merged group 6 contributes ONE mirror constraint
-            # (K12_T=K12) — the OLD design with two dead-end groups had
-            # two (K10_T, K11_T).
-            expected_n_haldane=7,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=1,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
-            expected_identifiability_deficit=-178,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=hk_rate_analytical,
@@ -2171,12 +2161,10 @@ function build_mechanism_test_specs()
             expected_n_states=7,           # E, E_PEP, E_ADP, E_PEP_ADP, E_Pyr_ATP, E_Pyr, E_ATP
             expected_n_steps=9,
             expected_n_metabolites=5,
-            # 5 deps: 2 Haldanes (k5r, k5r_T) + 3 :EqualRT-mirror constraints
-            # (K3_T, K6_T, K8_T). K1_T and k5f_T remain independent (:NonequalRT).
-            expected_n_haldane=5,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=2,
+            expected_n_mirror_constraints=3,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=10,
-            expected_identifiability_deficit=-1443,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=pk_rate_analytical,
@@ -2259,10 +2247,10 @@ function build_mechanism_test_specs()
             expected_n_states=7,
             expected_n_steps=9,
             expected_n_metabolites=6,
-            expected_n_haldane=5,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=2,
+            expected_n_mirror_constraints=3,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=12,
-            expected_identifiability_deficit=-220,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=m_all_rate_analytical,
@@ -2323,10 +2311,10 @@ function build_mechanism_test_specs()
             expected_n_states=3,                  # E, E_S, E_P
             expected_n_steps=3,
             expected_n_metabolites=2,
-            expected_n_haldane=3,
-            expected_n_wegscheider=0,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_identifiability_deficit=-5,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=m_OnlyR_prod_rate_analytical,
