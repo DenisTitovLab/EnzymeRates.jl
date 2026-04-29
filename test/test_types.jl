@@ -492,4 +492,34 @@
             cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)),
             (((:I,), 2, (:NotAState,)),))
     end
+
+    @testset "Base.show displays all dense states" begin
+        m = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: I::NonequalRT, J::OnlyT
+            site(:catalytic, 2): begin
+                steps: begin
+                    [E, S] ⇌ [ES]    :: NonequalRT
+                    [ES] <--> [EP]   :: OnlyR
+                    [EP] ⇌ [E, P]   :: EqualRT
+                end
+            end
+        end
+        s = sprint(show, m)
+        # Every catalytic state appears in cat_allo_states line
+        cm_inner = EnzymeRates.catalytic_mechanism(m)
+        n_groups = length(unique(EnzymeRates.kinetic_group(cm_inner, i)
+                                 for i in 1:EnzymeRates.n_steps(cm_inner)))
+        for g in 1:n_groups
+            @test occursin(string(EnzymeRates.cat_allo_state(m, g)), s)
+        end
+        # No :NonequalRT ligand silently hidden from reg-site display
+        for (i, _) in enumerate(EnzymeRates.regulatory_sites(m))
+            for lig in EnzymeRates.regulatory_site_ligands(m, i)
+                state = EnzymeRates.reg_allo_state(m, i, lig)
+                @test occursin("$lig::$state", s)
+            end
+        end
+    end
 end

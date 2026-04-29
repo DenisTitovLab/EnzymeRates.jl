@@ -1132,4 +1132,20 @@ end
     P_eq = Keq_val * S_eq
     rate_eq = rate_equation(m_mixed, (S=S_eq, P=P_eq, I=0.5), p_eq)
     @test isapprox(rate_eq, 0.0; atol=1e-10)
+
+    # Empty ligand list at reg site → constructor error
+    cm_simple = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            [E, S] ⇌ [ES]
+            [ES] <--> [EP]
+            [EP] ⇌ [E, P]
+        end
+    end
+    @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+        cm_simple,
+        (2, (:NonequalRT, :EqualRT, :EqualRT)),
+        (((), 2, ()),),  # empty ligand tuple
+    )
 end

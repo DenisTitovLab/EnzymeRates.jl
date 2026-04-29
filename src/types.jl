@@ -272,6 +272,13 @@ function AllostericEnzymeMechanism(
         error("Catalytic multiplicity must be a positive Int, got $multiplicity")
 
     n_groups = length(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
+    # Validate kinetic_group numbers are 1..n_groups consecutive — the
+    # cat_allo_states tuple is indexed by group number, so non-consecutive
+    # numbering would cause OOB or wrong-state lookup at runtime.
+    observed_groups = sort!(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
+    observed_groups == collect(1:n_groups) ||
+        error("Catalytic mechanism kinetic_group numbers must be 1..n " *
+              "consecutive; got $observed_groups")
     length(cat_allo_states) == n_groups ||
         error("cat_allo_states length $(length(cat_allo_states)) does not " *
               "match catalytic kinetic-group count $n_groups")
@@ -290,6 +297,9 @@ function AllostericEnzymeMechanism(
         ligands, n_reg, reg_allo_states = entry
         ligands isa Tuple && all(l isa Symbol for l in ligands) ||
             error("Reg site $i: ligands must be a Tuple of Symbol")
+        length(ligands) >= 1 ||
+            error("Reg site $i: must have at least one ligand; got empty " *
+                  "ligand tuple")
         n_reg isa Int && n_reg ≥ 1 ||
             error("Reg site $i: multiplicity must be a positive Int")
         length(reg_allo_states) == length(ligands) ||
@@ -420,17 +430,19 @@ function Base.show(io::IO, m::AllostericEnzymeMechanism)
     if !isempty(rs)
         print(io, ", ", length(rs), " reg sites")
     end
-    print(io, "):\n  catalytic: ", cm)
+    n_groups = length(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
+    print(io, "):\n  cat_allo_states: [")
+    print(io, join((string(cat_allo_state(m, g)) for g in 1:n_groups), ", "))
+    print(io, "]\n  catalytic: ", cm)
     for (i, (ligands, mult, _)) in enumerate(rs)
         print(io, "\n  reg site $i (n=", mult, "): ",
               join(ligands, ", "))
         tagged = allosteric_regulators(m)
         site_ligs = Set(ligands)
-        site_tags = filter(p -> p[1] in site_ligs, collect(tagged))
-        non_default = filter(p -> p[2] != :NonequalRT, site_tags)
-        if !isempty(non_default)
+        site_state_pairs = filter(p -> p[1] in site_ligs, collect(tagged))
+        if !isempty(site_state_pairs)
             print(io, " [")
-            print(io, join(("$(n)::$(t)" for (n, t) in non_default), ", "))
+            print(io, join(("$(n)::$(t)" for (n, t) in site_state_pairs), ", "))
             print(io, "]")
         end
     end

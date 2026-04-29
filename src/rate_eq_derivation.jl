@@ -906,7 +906,13 @@ corners and return the max.
     # Choose the saturating R-state met pattern (single component for
     # mechanisms exercised here; assert keeps that constraint visible).
     r_keys = sort!([k for k in keys(num_R_groups) if haskey(den_R_groups, k)])
-    @assert length(r_keys) == 1 "Catalytic mechanism should have exactly 1 kcat component"
+    isempty(r_keys) &&
+        error("_kcat_forward: AllostericEnzymeMechanism produced no kcat " *
+              "components — saturating-substrate pattern not found in numerator")
+    length(r_keys) == 1 ||
+        error("_kcat_forward: AllostericEnzymeMechanism with multiple " *
+              "saturating-substrate kcat components ($(length(r_keys)) found) " *
+              "is not currently supported")
     met_key = r_keys[1]
     empty_set = Set{Symbol}()
     raw_num_k_R = _poly_to_expr(num_R_groups[met_key], empty_set, empty_set)
