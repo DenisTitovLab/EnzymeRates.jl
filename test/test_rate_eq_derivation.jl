@@ -1072,4 +1072,34 @@ end
     # Sanity: rate_equation_string emits Kd form for T-state K's.
     @test occursin("S / K1_T", rate_equation_string(m_mix))
     @test occursin("P / K3_T", rate_equation_string(m_mix))
+
+    # Regression: :NonequalRT substrate + :EqualRT catalysis must produce
+    # zero rate at chemical equilibrium. The framework derives a T-state
+    # Haldane (k2r_T) from the :EqualRT k2f because the dep expression
+    # for k2r references :NonequalRT K1, so _T_rename's dataflow pass
+    # synthesizes a T-name for k2r and substitutes it into N_T.
+    cm_mixed = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            [E, S] ⇌ [E_S]
+            [E_S] <--> [E_P]
+            [E, P] ⇌ [E_P]
+        end
+    end
+    m_mixed = EnzymeRates.AllostericEnzymeMechanism(
+        cm_mixed,
+        (2, (:NonequalRT, :EqualRT, :EqualRT)),
+        (((:I,), 2, (:NonequalRT,)),),
+    )
+    Keq_val = 5.0
+    p_eq = (K1=0.3, k2f=8.0, K3=0.7,
+            K1_T=2.5,
+            K_I_reg1=1.0, K_I_T_reg1=4.0,
+            L=2.0, Keq=Keq_val, E_total=1.0)
+    # At chemical equilibrium: P = Keq · S
+    S_eq = 1.5
+    P_eq = Keq_val * S_eq
+    rate_eq = rate_equation(m_mixed, (S=S_eq, P=P_eq, I=0.5), p_eq)
+    @test isapprox(rate_eq, 0.0; atol=1e-10)
 end

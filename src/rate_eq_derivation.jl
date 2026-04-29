@@ -1156,19 +1156,38 @@ end
 
 """
 R→T rename map for groups whose T-state symbol differs from their R-state
-symbol — `:NonequalRT` (independent K_R, K_T) and `:OnlyT` (T-state-only,
-no R-state counterpart so the T-state symbol takes the canonical _T suffix).
+symbol — `:NonequalRT` (independent K_R, K_T). Also adds synthesized dep-symbol
+mappings for any `:EqualRT`-tagged dep whose RHS expression references a
+`:NonequalRT` symbol, so T-state Haldane closures are preserved when catalysis
+is `:EqualRT` but a binding step is `:NonequalRT`.
 """
 function _T_rename(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
     rename = Dict{Symbol, Symbol}()
+    # First pass: catalytic-group params with :NonequalRT (independent K_R / K_T).
+    # :OnlyT catalytic groups are rejected at construction, so we don't
+    # need a branch for them.
     for g in kinetic_groups(cm)
-        tag = cat_allo_state(m, g)
-        (tag == :NonequalRT || tag == :OnlyT) || continue
+        cat_allo_state(m, g) == :NonequalRT || continue
         rep = first(steps_in_group(cm, g))
         for s in _group_param_symbols(cm, rep)
             rename[s] = _rename_params_T(s)
         end
+    end
+    # Second pass: derived dep symbols whose RHS references any T-renamed
+    # symbol need their own T-state name. After Gaussian elimination of
+    # the constraint matrix, dep RHSs reference only independent params
+    # (never other deps), so a single non-iterating pass suffices.
+    # Without this pass, a Haldane closure with :EqualRT catalysis whose
+    # formula references a :NonequalRT binding K would have its T-state
+    # value undefined at runtime — N_T uses the R-state value, breaking
+    # Haldane consistency at chemical equilibrium.
+    dep_R_all, _ = _dependent_param_exprs(typeof(cm))
+    renamed_set = Set{Symbol}(keys(rename))
+    for (k, v) in dep_R_all
+        haskey(rename, k) && continue
+        _expr_references_any(v, renamed_set) || continue
+        rename[k] = _rename_params_T(k)
     end
     rename
 end
@@ -1237,24 +1256,35 @@ function _dependent_param_exprs(
     rename_T = _T_rename(m)
     T_subs = Dict{Symbol, Symbol}(rename_T)
 
+    t_state_dead_flag = _t_state_dead(m)
+
     dep_T = Dict{Symbol, Union{Symbol, Expr}}()
     indep_T_list = Symbol[]
+
+    # Generate T-state dep entries for every R-state dep that has a
+    # T-state version per `rename_T`. After Step 1's extension, this
+    # includes both Case A (dep symbol's catalytic group is :NonequalRT —
+    # the symbol itself is in rename_T) and Case B (dep symbol is
+    # :EqualRT-tagged but its RHS references a :NonequalRT symbol — the
+    # extended rename_T still contains a synthesized mapping).
     for (k, v) in dep_R_all
         _expr_references_any(v, r_only_syms) && continue
-        t_k = get(rename_T, k, k)
-        # `:EqualRT` (k unchanged) is already in dep_R; skip duplicate.
-        t_k == k && continue
+        t_k = get(rename_T, k, nothing)
+        t_k === nothing && continue
         dep_T[t_k] = substitute_params_expr(v, T_subs)
     end
+
+    # When the T-state cycle is dead (any :OnlyR group), skip generating
+    # :EqualRT mirror entries (K1_T = K1, k5f_T = k5f, etc.). They're
+    # already elided from the rate equation body in
+    # _build_allosteric_rate_body, so producing them here only inflates
+    # length(dep_exprs).
     for p in indep_R_all
         p ∈ r_only_syms && continue
-        if !haskey(rename_T, p)
-            # `:EqualRT` independent: its T-state mirror equals the R-state
-            # symbol. Add p_T = p as a dep, do not duplicate as indep.
-            dep_T[_rename_params_T(p)] = p
-        else
-            # `:NonequalRT` and `:OnlyT` get a distinct T-state independent.
+        if haskey(rename_T, p)
             push!(indep_T_list, _rename_params_T(p))
+        elseif !t_state_dead_flag
+            dep_T[_rename_params_T(p)] = p
         end
     end
 
@@ -1367,12 +1397,14 @@ function _build_dep_assignments(
         end
     end
 
-    # T-state dependent param assignments
-    # Set to zero if expression references :OnlyR symbols.
-    # Skip `:EqualRT` keys (R-state assignment already covers them).
+    # Emit a T-state assignment for every dep that has a T-state name
+    # in rename_T. Step 1's extension to _T_rename includes both
+    # :NonequalRT-tagged dep symbols (Case A) and synthesized T-names
+    # for :EqualRT-tagged derived deps whose RHS references a
+    # :NonequalRT symbol (Case B). The unified lookup catches both.
     for (sym, expr_kd) in sorted_deps
-        t_sym = get(rename_T, sym, sym)
-        t_sym == sym && continue
+        t_sym = get(rename_T, sym, nothing)
+        t_sym === nothing && continue
         if _expr_references_any(expr_kd, r_only_syms)
             push!(t_assignments, Expr(:(=), t_sym, 0))
         else
