@@ -491,6 +491,19 @@
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
             cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)),
             (((:I,), 2, (:NotAState,)),))
+
+        # Non-consecutive kinetic_group numbers (1, 3 instead of 1, 2) → error
+        # The cat_allo_states tuple is indexed by group number, so a hole
+        # would cause OOB or wrong-state lookup at runtime.
+        bad_mets = ((:S,), (:P,), ())
+        bad_rxns = (
+            ((:E, :S),  (:ES,),    true,  1),
+            ((:ES,),    (:EP,),    false, 3),
+            ((:E, :P),  (:EP,),    true,  1),
+        )
+        cm_bad = EnzymeRates.EnzymeMechanism{bad_mets, bad_rxns}()
+        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+            cm_bad, (2, (:NonequalRT, :NonequalRT)), ())
     end
 
     @testset "Base.show displays all dense states" begin

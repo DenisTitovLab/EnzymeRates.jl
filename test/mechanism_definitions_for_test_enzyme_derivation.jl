@@ -2188,10 +2188,8 @@ function build_mechanism_test_specs()
     # Two-substrate two-product reaction with explicit :NonequalRT on
     # S1 binding (group 1), catalysis (group 3), and P1 release (group 4),
     # and a 2-ligand mixed-state reg site (R1::NonequalRT + R2::EqualRT).
-    # Catalysis is :NonequalRT — combined with :NonequalRT substrate, the
-    # framework generates independent R-state and T-state Haldanes; with
-    # :EqualRT catalysis the T-state Haldane is missed (see Task 11 / PK
-    # for the analogous lesson).
+    # Catalysis :NonequalRT combined with :NonequalRT substrate yields
+    # independent R-state and T-state Haldanes (one per state).
     # Independent parameters (12): K1, K1_T, K3, k5f, k5f_T, K6, K6_T, K8,
     # K_R1_reg1, K_R1_T_reg1, K_R2_reg1, L
     let
@@ -2272,13 +2270,12 @@ function build_mechanism_test_specs()
     end
 
     # ── m_OnlyR_prod: single product :OnlyR (T-state cycle dead) ────────────
-    # Tests broadened _t_state_dead detection for product-binding :OnlyR
-    # groups (Task 4). The T-state cycle is broken at product release;
-    # with t_state_dead = true, N_T is forced to 0 and the L*num_T branch
-    # is dropped. Analytical kcat = 2·k2f/(1+L) — L-dependent because
-    # the saturating R-state pattern (S only) IS reachable in T-state
-    # (Q_cat_T at sat S = S/K1, same as Q_cat_R), so B_T ≠ 0 and the
-    # 1/(1+L) factor appears.
+    # Exercises `_t_state_dead` detection for product-binding :OnlyR groups.
+    # The T-state cycle is broken at product release; with t_state_dead = true,
+    # N_T is forced to 0 and the L*num_T branch is dropped. Analytical
+    # kcat = 2·k2f/(1+L) — L-dependent because the saturating R-state
+    # pattern (S only) IS reachable in T-state (Q_cat_T at sat S = S/K1,
+    # same as Q_cat_R), so B_T ≠ 0 and the 1/(1+L) factor appears.
     let
         m = @allosteric_mechanism begin
             substrates: S

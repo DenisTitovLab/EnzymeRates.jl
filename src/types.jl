@@ -434,17 +434,12 @@ function Base.show(io::IO, m::AllostericEnzymeMechanism)
     print(io, "):\n  cat_allo_states: [")
     print(io, join((string(cat_allo_state(m, g)) for g in 1:n_groups), ", "))
     print(io, "]\n  catalytic: ", cm)
-    for (i, (ligands, mult, _)) in enumerate(rs)
+    for (i, (ligands, mult, reg_allo_states)) in enumerate(rs)
         print(io, "\n  reg site $i (n=", mult, "): ",
               join(ligands, ", "))
-        tagged = allosteric_regulators(m)
-        site_ligs = Set(ligands)
-        site_state_pairs = filter(p -> p[1] in site_ligs, collect(tagged))
-        if !isempty(site_state_pairs)
-            print(io, " [")
-            print(io, join(("$(n)::$(t)" for (n, t) in site_state_pairs), ", "))
-            print(io, "]")
-        end
+        print(io, " [")
+        print(io, join(("$(n)::$(t)" for (n, t) in zip(ligands, reg_allo_states)), ", "))
+        print(io, "]")
     end
 end
 

@@ -280,7 +280,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `oligomeric_state` from `EnzymeReaction` sets `catalytic_n` and all regulator site multiplicities (not enumerated).
 - `EnzymeMechanism(spec::MechanismSpec)` and `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` are the type constructors.
 - Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor.
-- Allosteric state taxonomy (per kinetic group, per regulatory ligand): `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT` (default). `:OnlyR` / `:OnlyT` symbols are zeroed in the opposite state's polynomial; `:NonequalRT` symbols are renamed to T-suffixed counterparts in the T-state poly; `:EqualRT` symbols pass through unchanged.
+- Allosteric state taxonomy (per kinetic group, per regulatory ligand): `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`. `:OnlyR` / `:OnlyT` symbols are zeroed in the opposite state's polynomial; `:NonequalRT` symbols are renamed to T-suffixed counterparts in the T-state poly; `:EqualRT` symbols pass through unchanged.
 - Allosteric conversion is +1 param (just L). Per-kinetic-group allosteric-state enumeration replaces the old K-type/V-type hardcoded subsets. Iso-only groups (no metabolite) cannot be `:OnlyT` (R-inactive iso is just a relabel).
 
 ## Source Layout

@@ -303,8 +303,8 @@ Parse the steps block. Each top-level expression is either:
   - `Expr(:call, ⇌|<-->, lhs, rhs)` — single untagged step (plain).
 
 With `allow_tag=false` (plain mechanism), reject any `::Tag` annotations and return
-just the rxns tuple-Expr. With `allow_tag=true` (allosteric, future Task 2.5),
-collect tags and return both.
+just the rxns tuple-Expr. With `allow_tag=true` (allosteric mechanism), collect
+tags and return both.
 """
 function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
     next_group = Ref(0)

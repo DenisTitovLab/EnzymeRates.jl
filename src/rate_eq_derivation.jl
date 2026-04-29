@@ -912,7 +912,7 @@ corners and return the max.
     length(r_keys) == 1 ||
         error("_kcat_forward: AllostericEnzymeMechanism with multiple " *
               "saturating-substrate kcat components ($(length(r_keys)) found) " *
-              "is not currently supported")
+              "is unsupported")
     met_key = r_keys[1]
     empty_set = Set{Symbol}()
     raw_num_k_R = _poly_to_expr(num_R_groups[met_key], empty_set, empty_set)
@@ -1632,7 +1632,8 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
 
     # Drop the L*N_T numerator branch when t_state_dead: it expands to
     # L * 0 * polynomial, contributing zero to monomial count. MUST
-    # mirror `_allosteric_num_den_exprs` post-Task 5.
+    # mirror `_allosteric_num_den_exprs` to keep monomial counts aligned
+    # with the rate-equation body.
     if _t_state_dead(m)
         full_num = num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing)
     else
