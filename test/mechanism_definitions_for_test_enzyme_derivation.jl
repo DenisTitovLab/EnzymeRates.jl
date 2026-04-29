@@ -2102,7 +2102,7 @@ function build_mechanism_test_specs()
                      [E_ADP, PEP] ⇌ [E_PEP_ADP])              :: NonequalRT
                     ([E, ADP] ⇌ [E_ADP],
                      [E_PEP, ADP] ⇌ [E_PEP_ADP])              :: EqualRT
-                    [E_PEP_ADP] <--> [E_Pyr_ATP]               :: NonequalRT
+                    [E_PEP_ADP] <--> [E_Pyr_ATP]               :: EqualRT
                     ([E_Pyr_ATP] ⇌ [E_ATP, Pyruvate],
                      [E_Pyr] ⇌ [E, Pyruvate])                  :: EqualRT
                     ([E_Pyr_ATP] ⇌ [E_Pyr, ATP],
@@ -2118,28 +2118,35 @@ function build_mechanism_test_specs()
             end
         end
 
-        # Param mapping (kinetic-group representative-step convention):
-        #   K1, K1_T    : PEP binding (group 1, NonequalRT)
-        #   K3          : ADP binding (group 2, EqualRT)
-        #   k5f, k5f_T  : catalysis SS (group 3, NonequalRT)
-        #   K6          : Pyruvate release (group 4, EqualRT)
-        #   K8          : ATP release (group 5, EqualRT)
+        # Param mapping:
+        #   K1, K1_T : PEP binding (group 1, NonequalRT)
+        #   K3       : ADP binding (group 2, EqualRT)
+        #   k5f      : catalysis SS forward rate (group 3, EqualRT)
+        #   K6       : Pyruvate release (group 4, EqualRT)
+        #   K8       : ATP release (group 5, EqualRT)
+        #
+        # k5r derives via R-state Haldane: k5r = k5f·K6·K8/(Keq·K1·K3).
+        # The framework auto-synthesizes k5r_T because k5r's RHS
+        # references K1 (a :NonequalRT symbol with T-rename K1_T):
+        #   k5r_T = k5f·K6·K8/(Keq·K1_T·K3).
+        # Both Haldanes share the forward k5f — at saturation, forward
+        # kcat = catN·k5f (shared between R and T).
         function pk_rate_analytical(params, concs)
-            (; K1, K1_T, K3, k5f, k5f_T, K6, K8,
+            (; K1, K1_T, K3, k5f, K6, K8,
                K_ATP_T_reg1, K_F16BP_reg2,
                L, Keq, Et) = params
             (; PEP, ADP, Pyruvate, ATP, F16BP) = concs
 
-            k5r   = k5f   * K6 * K8 / (Keq * K1   * K3)
-            k5r_T = k5f_T * K6 * K8 / (Keq * K1_T * K3)
+            k5r   = k5f * K6 * K8 / (Keq * K1   * K3)
+            k5r_T = k5f * K6 * K8 / (Keq * K1_T * K3)
 
             Q_cat_R = 1 + PEP/K1   + ADP/K3 + PEP*ADP/(K1   * K3) +
                       Pyruvate/K6  + ATP/K8 + Pyruvate*ATP/(K6 * K8)
             Q_cat_T = 1 + PEP/K1_T + ADP/K3 + PEP*ADP/(K1_T * K3) +
                       Pyruvate/K6  + ATP/K8 + Pyruvate*ATP/(K6 * K8)
 
-            N_R = k5f   * PEP * ADP / (K1   * K3) - k5r   * Pyruvate * ATP / (K6 * K8)
-            N_T = k5f_T * PEP * ADP / (K1_T * K3) - k5r_T * Pyruvate * ATP / (K6 * K8)
+            N_R = k5f * PEP * ADP / (K1   * K3) - k5r   * Pyruvate * ATP / (K6 * K8)
+            N_T = k5f * PEP * ADP / (K1_T * K3) - k5r_T * Pyruvate * ATP / (K6 * K8)
 
             Q_reg1_R = 1                                     # ATP::OnlyT, no R term
             Q_reg1_T = 1 + ATP / K_ATP_T_reg1
@@ -2162,14 +2169,13 @@ function build_mechanism_test_specs()
             expected_n_steps=9,
             expected_n_metabolites=5,
             expected_n_haldane_constraints=2,
-            expected_n_mirror_constraints=3,
+            expected_n_mirror_constraints=4,
             expected_n_wegscheider_constraints=0,
-            expected_n_independent_params=10,
+            expected_n_independent_params=9,
             expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=pk_rate_analytical,
-            # kcat depends on L conformational equilibrium for :NonequalRT catalysis
-            analytical_kcat_fn=nothing,
+            analytical_kcat_fn = p -> 4 * p.k5f,
             expected_factored_num=nothing,
             expected_factored_denom=nothing,
         ))
