@@ -890,11 +890,10 @@ corners and return the max.
     # of T-state, so their `(num_k_T, den_k_T)` are 0 and the T-state
     # contribution at saturation vanishes.
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
-    t_only_syms = _onlyT_syms(m)
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
-    num_R_poly = _zero_symbols_in_poly(_expand_factored_sigma(num_fs), t_only_syms)
-    den_R_poly = _zero_symbols_in_poly(_expand_to_poly(denom_terms), t_only_syms)
+    num_R_poly = _expand_factored_sigma(num_fs)
+    den_R_poly = _expand_to_poly(denom_terms)
     num_T_poly = _rename_symbols(
         _zero_symbols_in_poly(_expand_factored_sigma(num_fs), r_only_syms),
         rename_T)
@@ -1115,18 +1114,6 @@ function _group_param_symbols(cm::EnzymeMechanism, idx::Int)
         (Symbol("k$(rep)f"), Symbol("k$(rep)r"))
 end
 
-"""Catalytic-cycle parameter symbols zeroed in the R-state (`:OnlyT` groups)."""
-function _onlyT_syms(m::AllostericEnzymeMechanism)
-    cm = catalytic_mechanism(m)
-    syms = Set{Symbol}()
-    for g in kinetic_groups(cm)
-        cat_allo_state(m, g) == :OnlyT || continue
-        rep = first(steps_in_group(cm, g))
-        for s in _group_param_symbols(cm, rep); push!(syms, s); end
-    end
-    syms
-end
-
 """
 The T-state catalytic cycle cannot close — and therefore both forward
 and reverse net flux vanish — when any `:OnlyR` kinetic group is
@@ -1232,7 +1219,7 @@ end
 Return `(dep_exprs, indep_params)` for an AllostericEnzymeMechanism.
 R-state expressions come from `_dependent_param_exprs(CM)`; T-state entries
 copy R with `_T` rename, with per-group filtering (`:OnlyR` zeroed in T,
-`:OnlyT` zeroed in R, `:EqualRT` shares R symbol).
+`:EqualRT` shares R symbol).
 Adds reg site params and L to indep.
 """
 function _dependent_param_exprs(
@@ -1240,17 +1227,10 @@ function _dependent_param_exprs(
 ) where {CM,CS,RS}
     m = AllostericEnzymeMechanism{CM,CS,RS}()
     dep_R_all, indep_R_all = _dependent_param_exprs(CM)
-    t_only_syms = _onlyT_syms(m)
     r_only_syms = _onlyR_syms(m)
 
-    # Filter R-state: drop dep entries that reference :OnlyT symbols
-    # (those equal zero in R-state); drop :OnlyT independents.
-    dep_R = Dict{Symbol, Union{Symbol, Expr}}()
-    for (k, v) in dep_R_all
-        _expr_references_any(v, t_only_syms) && continue
-        dep_R[k] = v
-    end
-    indep_R = Symbol[p for p in indep_R_all if p ∉ t_only_syms]
+    dep_R = Dict{Symbol, Union{Symbol, Expr}}(dep_R_all)
+    indep_R = collect(indep_R_all)
 
     # Build T-state symbol substitution for non-`:EqualRT` groups
     rename_T = _T_rename(m)
@@ -1361,21 +1341,11 @@ function _build_dep_assignments(
     dep_R_kd = _apply_kd_inversion(dep_R, CM, inv_fn)
     sorted_deps = sort(collect(dep_R_kd); by=first)
 
-    t_only_syms = _onlyT_syms(m)
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
     T_subs = Dict{Symbol, Symbol}(rename_T)
 
-    # R-state dependent param assignments
-    # Set to zero if expression references :OnlyT symbols
-    r_assignments = Expr[]
-    for (sym, expr_kd) in sorted_deps
-        if _expr_references_any(expr_kd, t_only_syms)
-            push!(r_assignments, Expr(:(=), sym, 0))
-        else
-            push!(r_assignments, Expr(:(=), sym, expr_kd))
-        end
-    end
+    r_assignments = Expr[Expr(:(=), sym, expr_kd) for (sym, expr_kd) in sorted_deps]
 
     t_assignments = Expr[]
 
@@ -1438,29 +1408,17 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     cat_mets = Set{Symbol}(metabolites(CM()))
     binding_Ks_r = Set(_binding_K_symbols(CM))
 
-    t_only_syms = _onlyT_syms(m)
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
     # T-state binding K set: renamed counterparts of R-state binding K's
-    # (`:NonequalRT` / `:OnlyT` groups get T-suffixed; `:EqualRT` groups
-    # pass through unchanged).
+    # (`:NonequalRT` groups get T-suffixed; `:EqualRT` groups pass through unchanged).
     binding_Ks_t = Set(get(rename_T, K, K) for K in binding_Ks_r)
 
-    # R-state catalytic Exprs.
-    # Use factored form when no `:OnlyT` zeroing is needed (preserves nice
-    # display). Otherwise expand → zero → flat-poly Expr.
-    if isempty(t_only_syms)
-        N_R = _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r)
-        Q_R = _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r)
-    else
-        num_r_poly = _zero_symbols_in_poly(_expand_factored_sigma(num_fs), t_only_syms)
-        den_r_poly = _zero_symbols_in_poly(_expand_to_poly(denom_terms), t_only_syms)
-        N_R = _poly_to_expr(num_r_poly, cat_params, cat_mets, binding_Ks_r)
-        Q_R = _poly_to_expr(den_r_poly, cat_params, cat_mets, binding_Ks_r)
-    end
+    N_R = _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r)
+    Q_R = _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r)
 
     # T-state catalytic Exprs.
-    # Zero `:OnlyR` symbols at POLY level, then rename `:NonequalRT` / `:OnlyT`
+    # Zero `:OnlyR` symbols at POLY level, then rename `:NonequalRT`
     # symbols to T-suffixed counterparts. `:EqualRT` symbols pass through
     # unchanged (R-state binding) and resolve through dep-param assignments.
     # When the T-state cycle is broken, force N_T = 0: the Cha framework
@@ -1613,12 +1571,11 @@ function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechani
     N_cat_base = _expand_factored_sigma(num_fs)
     Q_cat_base = _expand_to_poly(denom_terms)
 
-    t_only_syms = _onlyT_syms(m)
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
 
-    N_cat_R = _zero_symbols_in_poly(N_cat_base, t_only_syms)
-    Q_cat_R = _zero_symbols_in_poly(Q_cat_base, t_only_syms)
+    N_cat_R = N_cat_base
+    Q_cat_R = Q_cat_base
     N_cat_T = _rename_symbols(_zero_symbols_in_poly(N_cat_base, r_only_syms), rename_T)
     Q_cat_T = _rename_symbols(_zero_symbols_in_poly(Q_cat_base, r_only_syms), rename_T)
 
