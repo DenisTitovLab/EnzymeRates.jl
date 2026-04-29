@@ -436,7 +436,7 @@ macro allosteric_mechanism(block)
     return esc(_parse_allosteric_mechanism_body(block))
 end
 
-const _ALLOSTERIC_REG_TAGS = Set([:OnlyR, :OnlyT, :EqualRT, :NonequalRT])
+const _ALLOSTERIC_REG_STATES = Set([:OnlyR, :OnlyT, :EqualRT, :NonequalRT])
 
 """
 Coerce labeled-line values to `(name, tag)` pairs. Each value must be
@@ -458,14 +458,14 @@ function _tagged_symbols_from_values(values, label, valid_tags)
                   "got $tag")
         tag in valid_tags ||
             error("@allosteric_mechanism `$label:`: tag :$tag not in " *
-                  "($(_format_tag_set(valid_tags)))")
+                  "($(_format_state_set(valid_tags)))")
         push!(pairs, name => tag)
     end
     pairs
 end
 
-"""Format a tag set as a sorted, comma-joined list for error messages."""
-_format_tag_set(tags) = join((":$t" for t in sort(collect(tags))), ", ")
+"""Format a state set as a sorted, comma-joined list for error messages."""
+_format_state_set(tags) = join((":$t" for t in sort(collect(tags))), ", ")
 
 """
 Extract the inner `steps:` block from a `site(:catalytic, N):` body.
@@ -563,9 +563,9 @@ entry per kinetic group in source order.
 """
 function _build_cat_sites_expr(cat_n, group_tags)
     for (_, tag) in group_tags
-        tag in _ALLOSTERIC_REG_TAGS ||
+        tag in _ALLOSTERIC_REG_STATES ||
             error("@allosteric_mechanism: catalytic step tag :$tag not in " *
-                  "($(_format_tag_set(_ALLOSTERIC_REG_TAGS)))")
+                  "($(_format_state_set(_ALLOSTERIC_REG_STATES)))")
     end
     tag_of = Dict{Int,Symbol}(group_tags)
     n_groups = isempty(group_tags) ? 0 : maximum(g for (g, _) in group_tags)
@@ -627,7 +627,7 @@ function _parse_allosteric_mechanism_body(block)
         elseif label == :allosteric_regulators
             append!(allo_regs,
                     _tagged_symbols_from_values(values, label,
-                                                _ALLOSTERIC_REG_TAGS))
+                                                _ALLOSTERIC_REG_STATES))
         else
             error("@allosteric_mechanism: unknown label `$label:`")
         end

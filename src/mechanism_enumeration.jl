@@ -1843,22 +1843,22 @@ function _group_info(steps::Vector{StepSpec})
 end
 
 """
-ΔP when a kinetic group's tag changes from `from` to `to`. Group cost:
+ΔP when a kinetic group's allo_state changes from `from` to `to`. Group cost:
 1 param for `:EqualRT`/`:OnlyR`/`:OnlyT`, 2 params for `:NonequalRT`.
 RE groups have 1 K-style param per "unit"; SS groups have 2 (kf + kr).
 """
-function _allo_tag_delta(from::Symbol, to::Symbol, is_re::Bool)
+function _allo_state_delta(from::Symbol, to::Symbol, is_re::Bool)
     cost = t -> (t == :NonequalRT ? 2 : 1)
     factor = is_re ? 1 : 2
     factor * (cost(to) - cost(from))
 end
 
 """
-ΔP when a regulatory ligand's tag changes from `from` to `to`. Each
+ΔP when a regulatory ligand's allo_state changes from `from` to `to`. Each
 ligand contributes 1 binding K per state — `:NonequalRT` has K_R + K_T
 (2 params), `:EqualRT`/`:OnlyR`/`:OnlyT` have 1.
 """
-function _allo_lig_tag_delta(from::Symbol, to::Symbol)
+function _allo_lig_state_delta(from::Symbol, to::Symbol)
     cost = t -> (t == :NonequalRT ? 2 : 1)
     cost(to) - cost(from)
 end
@@ -1924,7 +1924,7 @@ function _expand_add_allosteric_regulator(
                 # Cost: one K binding param at this site (+1) plus
                 # a per-tag delta vs the default `:EqualRT` "free"
                 # cost which already adds 1.
-                delta_cost = _allo_lig_tag_delta(:EqualRT, tag) + 1
+                delta_cost = _allo_lig_state_delta(:EqualRT, tag) + 1
 
                 push!(results, AllostericMechanismSpec(
                     spec.base, spec.catalytic_n,
@@ -1945,7 +1945,7 @@ function _expand_add_allosteric_regulator(
             new_lig_tags = copy(spec.reg_ligand_tags)
             push!(new_sites[site_idx], reg)
             new_lig_tags[reg] = :EqualRT
-            delta_cost = _allo_lig_tag_delta(:EqualRT, :EqualRT) + 1
+            delta_cost = _allo_lig_state_delta(:EqualRT, :EqualRT) + 1
             push!(results, AllostericMechanismSpec(
                 spec.base, spec.catalytic_n,
                 new_sites, new_mults,
@@ -1961,10 +1961,10 @@ _expand_add_allosteric_regulator(
 ) = AllostericMechanismSpec[]
 
 """
-    _expand_change_group_tag(spec, reaction)
+    _expand_change_allo_state(spec, reaction)
         → Vector{AllostericMechanismSpec}
 
-Change one tag from a "constrained" tag (`:EqualRT`, `:OnlyR`,
+Change one allo_state from a "constrained" allo_state (`:EqualRT`, `:OnlyR`,
 `:OnlyT`) to `:NonequalRT`, or remove an entry from the
 `group_tags`/`reg_ligand_tags` Dicts (Dict-absence defaults to
 `:NonequalRT` so the two operations are equivalent). Each variant
@@ -1974,7 +1974,7 @@ For an iso-only group already at `:OnlyR`, the `:OnlyT` direction
 is forbidden by the constructor — but the move only goes to
 `:NonequalRT` so this isn't a concern here.
 """
-function _expand_change_group_tag(
+function _expand_change_allo_state(
     spec::AllostericMechanismSpec,
     @nospecialize(reaction::EnzymeReaction),
 )
@@ -1985,7 +1985,7 @@ function _expand_change_group_tag(
     for (g, tag) in spec.group_tags
         haskey(group_info, g) || continue
         is_re, _ = group_info[g]
-        delta = _allo_tag_delta(tag, :NonequalRT, is_re)
+        delta = _allo_state_delta(tag, :NonequalRT, is_re)
         new_tags = copy(spec.group_tags)
         delete!(new_tags, g)
         push!(results, AllostericMechanismSpec(
@@ -1997,7 +1997,7 @@ function _expand_change_group_tag(
     end
 
     for (lig, tag) in spec.reg_ligand_tags
-        delta = _allo_lig_tag_delta(tag, :NonequalRT)
+        delta = _allo_lig_state_delta(tag, :NonequalRT)
         new_lig_tags = copy(spec.reg_ligand_tags)
         delete!(new_lig_tags, lig)
         push!(results, AllostericMechanismSpec(
@@ -2011,7 +2011,7 @@ function _expand_change_group_tag(
     results
 end
 
-_expand_change_group_tag(
+_expand_change_allo_state(
     ::MechanismSpec, @nospecialize(::EnzymeReaction),
 ) = AllostericMechanismSpec[]
 
@@ -2093,7 +2093,7 @@ function _add_expansions!(
             spec, reaction)
         _push_to_dict!(result, s)
     end
-    for s in _expand_change_group_tag(spec, reaction)
+    for s in _expand_change_allo_state(spec, reaction)
         _push_to_dict!(result, s)
     end
 end
