@@ -1906,6 +1906,7 @@ function _expand_add_allosteric_regulator(
     results = AllostericMechanismSpec[]
     for reg in new_regs
         n_sites = length(spec.allosteric_reg_sites)
+        # Enumerate non-:EqualRT states for any site (new or existing)
         for tag in (:OnlyR, :OnlyT, :NonequalRT)
             for site_idx in 0:n_sites
                 new_sites = deepcopy(spec.allosteric_reg_sites)
@@ -1931,6 +1932,25 @@ function _expand_add_allosteric_regulator(
                     copy(spec.group_tags), new_lig_tags,
                     spec.param_count + delta_cost))
             end
+        end
+        # Enumerate :EqualRT only for existing sites where at least one
+        # ligand is already non-:EqualRT (single-ligand or all-:EqualRT
+        # site cancels identically — constructor would reject).
+        for site_idx in 1:n_sites
+            existing_ligs = spec.allosteric_reg_sites[site_idx]
+            any(get(spec.reg_ligand_tags, l, :NonequalRT) != :EqualRT
+                for l in existing_ligs) || continue
+            new_sites = deepcopy(spec.allosteric_reg_sites)
+            new_mults = copy(spec.allosteric_multiplicities)
+            new_lig_tags = copy(spec.reg_ligand_tags)
+            push!(new_sites[site_idx], reg)
+            new_lig_tags[reg] = :EqualRT
+            delta_cost = _allo_lig_tag_delta(:EqualRT, :EqualRT) + 1
+            push!(results, AllostericMechanismSpec(
+                spec.base, spec.catalytic_n,
+                new_sites, new_mults,
+                copy(spec.group_tags), new_lig_tags,
+                spec.param_count + delta_cost))
         end
     end
     results

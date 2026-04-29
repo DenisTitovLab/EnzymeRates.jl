@@ -1687,9 +1687,33 @@ end
         with_r1 = first(r1_added)
         r2_added = EnzymeRates._expand_add_allosteric_regulator(
             with_r1, uni_uni_allo_2reg)
-        # R2: 3 tags × 2 site options
-        # (new site + R1's site) = 6
-        @test length(r2_added) == 6
+        # R2: 3 tags × 2 site options (new site + R1's site) = 6
+        # + :EqualRT at R1's non-:EqualRT site = 1
+        @test length(r2_added) == 7
+    end
+
+    @testset "EqualRT ligand reachable at existing reg site" begin
+        # Set up a spec with a single regulator at one site, non-:EqualRT.
+        # Then expand to add a SECOND regulator at the SAME site as :EqualRT.
+        # Verify a result spec exists with both ligands at site 1, the
+        # second tagged :EqualRT.
+        specs = EnzymeRates.init_mechanisms(uni_uni_allo_2reg)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(spec, uni_uni_allo_2reg)
+        allo = first(allo_specs)
+        # Add R1 first to get a seed with one non-:EqualRT ligand at site 1
+        with_r1 = EnzymeRates._expand_add_allosteric_regulator(
+            allo, uni_uni_allo_2reg)
+        seed = first(filter(s -> haskey(s.reg_ligand_tags, :R1) &&
+                                  s.reg_ligand_tags[:R1] == :OnlyR, with_r1))
+        # Now add R2 — verify one result has R2::EqualRT at the same site as R1
+        expanded = EnzymeRates._expand_add_allosteric_regulator(
+            seed, uni_uni_allo_2reg)
+        target = findfirst(expanded) do s
+            get(s.reg_ligand_tags, :R2, nothing) == :EqualRT &&
+                :R2 in s.allosteric_reg_sites[1]
+        end
+        @test target !== nothing
     end
 end
 
