@@ -1026,19 +1026,6 @@ end
         end
     end))
 
-    # :OnlyR substrate + :OnlyT product → constructor error
-    # (subsumed by the single-:OnlyT cases above, but explicit confirms the rule.)
-    @test_throws Exception eval(:(@allosteric_mechanism begin
-        substrates: S
-        products:   P
-        site(:catalytic, 2): begin
-            steps: begin
-                [E, S] ⇌ [ES]    :: OnlyR
-                [ES] <--> [EP]   :: EqualRT
-                [EP] ⇌ [E, P]    :: OnlyT
-            end
-        end
-    end))
 
     # Single-ligand :EqualRT reg site cancels identically → constructor error
     @test_throws Exception eval(:(@allosteric_mechanism begin
