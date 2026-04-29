@@ -23,12 +23,12 @@ Base.@kwdef struct MechanismTestSpec
     expected_n_metabolites::Int
 
     # Constraint expectations
-    expected_n_haldane::Int               # Usually 1
-    expected_n_wegscheider::Int           # 0 for linear, 1+ for branched
-    expected_n_independent_params::Int    # 2*n_steps - n_constraints
+    expected_n_haldane_constraints::Int       # RHS references Keq (catalytic-cycle closure)
+    expected_n_mirror_constraints::Int        # RHS is a single Symbol (allosteric :EqualRT rename)
+    expected_n_wegscheider_constraints::Int   # RHS Expr without Keq (multi-cycle futile-cycle closure)
+    expected_n_independent_params::Int        # 2*n_steps - n_constraints
 
     # Identifiability expectations
-    expected_identifiability_deficit::Int
     expected_is_identifiable::Bool
 
     # Test configuration (optional)
