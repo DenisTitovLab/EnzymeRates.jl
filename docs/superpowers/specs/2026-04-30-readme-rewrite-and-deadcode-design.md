@@ -266,6 +266,7 @@ Files to delete after a grep pass confirms nothing in `src/`, `test/`,
 | `PLAN_IMPLEMENTATION_PROMPT.md` | Repo-root planning artifact. |
 | `PLAN_RESS_DEDUP.md` | Planning artifact for a completed refactor. |
 | `ralph.sh` | Developer scratch script (agent runner); verify before deleting. |
+| `.ralph-logs/` | Empty log dir for `ralph.sh`; orphaned once the script is gone. Untracked but exists on disk. |
 | `scripts/verify_counts.py` | Topology-count verification used during the enumeration refactor; no longer referenced. Delete the empty `scripts/` directory if this is its only file. |
 
 Plus inline cleanup:
@@ -280,6 +281,11 @@ Files left alone in this phase:
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — historical
   specs and plans; preserved.
 - Anything in `src/` or `test/` — phase 2.
+- `test/outcmaes/` — runtime output from CMA-ES, already in `.gitignore`,
+  auto-regenerates each test run. Cosmetic to delete.
+- `.CondaPkg/` — local conda env built by `OptimizationPyCMA` test dep,
+  already in `.gitignore`. Deletion forces a multi-MB redownload with no
+  permanent benefit.
 
 ### Verification
 
