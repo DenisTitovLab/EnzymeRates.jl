@@ -120,3 +120,51 @@ result.params       # K1, k2f, K3 recover near true; K_A_reg1 and L are
                     # structural_identifiability_deficit(m)
 result.loss         # final loss value (~5% noise floor)
 ```
+
+## Recover the mechanism with `identify_rate_equation`
+
+If the mechanism is unknown — only the overall reaction and its
+regulators are — `identify_rate_equation` enumerates biochemically
+valid mechanisms, fits each to the data, and returns the simplest that
+generalizes (judged by leave-one-group-out cross-validation). The same
+chemistry from Section 2, declared as a *reaction*:
+
+```julia
+rxn = @enzyme_reaction begin
+    substrates: S
+    products:   P
+    regulators: A
+    oligomeric_state: 2
+end
+```
+
+`regulators: A` declares `A` with an unspecified role; the search
+enumerates dead-end-inhibitor and allosteric variants and selects
+between them on cross-validation score. (If you already know `A` is
+allosteric, declare it with `allosteric_regulators: A` instead and the
+search skips dead-end variants.)
+
+```julia
+prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+```
+
+The actual search runs `fit_rate_equation` on each candidate and is
+slow on a laptop (minutes); skip the next block if you just want to
+read along, or run it when you have time.
+
+```julia
+# README-SKIP-IN-TEST
+results = identify_rate_equation(prob;
+    optimizer=PyCMAOpt(),
+    max_param_count=10,
+    pmap_function=map,            # serial; pass `pmap` for distributed
+)
+results.best                       # the recovered mechanism
+rate_equation_string(results.best) # printed rate equation
+first(results.cv_results, 5)       # top rows of the CV-score DataFrame
+```
+
+`results.best` is the mechanism with minimum training loss at the
+parameter-count level whose CV score is lowest — i.e., the simplest
+mechanism that generalizes. For the synthetic data we generated, the
+recovered mechanism agrees with the one we used to generate it.
