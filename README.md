@@ -115,9 +115,10 @@ separately measured kcat.
 fp = FittingProblem(m, data; Keq=2.0)
 result = fit_rate_equation(fp, PyCMAOpt();
     n_restarts=3, maxtime=5.0, popsize=50)
-result.params       # K1, k2f, K3 recover near true; K_A_reg1 and L are
-                    # not jointly identifiable from rates alone — see
-                    # structural_identifiability_deficit(m)
+result.params       # K1, K3 recover near true; k2f is normalized so
+                    # kcat = 1.0 (its true value 5.0 is the kcat scale).
+                    # K_A_reg1 and L are not jointly identifiable from
+                    # rates alone — see structural_identifiability_deficit(m).
 result.loss         # final loss value (~5% noise floor)
 ```
 
