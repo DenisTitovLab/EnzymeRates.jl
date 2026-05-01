@@ -164,7 +164,11 @@ rate_equation_string(results.best) # printed rate equation
 first(results.cv_results, 5)       # top rows of the CV-score DataFrame
 ```
 
-`results.best` is the mechanism with minimum training loss at the
-parameter-count level whose CV score is lowest — i.e., the simplest
-mechanism that generalizes. For the synthetic data we generated, the
-recovered mechanism agrees with the one we used to generate it.
+`results.best` is the simplest mechanism that generalizes:
+`identify_rate_equation` first picks the parameter-count with the
+lowest CV score, then within that level picks the candidate with the
+lowest training loss. For the synthetic data we generated, the
+recovered mechanism reproduces the rate equation up to the
+unidentifiable parameters flagged earlier (`K_A_reg1`, `L`) — typically
+the simplest variant of the generating mechanism with non-identifiable
+parameters dropped.
