@@ -26,10 +26,11 @@ Pkg.add(url="https://github.com/DenisTitovLab/EnzymeRates.jl")
 ## Define a mechanism, derive its rate equation, fit data
 
 The running example is a uni-uni reaction `S ⇌ P` catalyzed by an MWC
-homodimer in which substrate, product, the catalytic interconversion,
-and an allosteric activator `A` all operate exclusively in the R
-conformation. The T conformation is catalytically silent — a textbook
-K-type allosteric activator.
+homodimer with V-type allosteric activation. Substrate and product
+bind both conformations with the same affinity (`:EqualRT`), but only
+the R conformation catalyzes (`:OnlyR`); an allosteric activator `A`
+binds R preferentially and shifts the population from the catalytically
+silent T toward R.
 
 ```julia
 using EnzymeRates
@@ -41,9 +42,9 @@ m = @allosteric_mechanism begin
 
     site(:catalytic, 2): begin
         steps: begin
-            [E, S] ⇌ [ES]      :: OnlyR
+            [E, S] ⇌ [ES]      :: EqualRT
             [ES] <--> [EP]     :: OnlyR
-            [EP] ⇌ [E, P]      :: OnlyR
+            [EP] ⇌ [E, P]      :: EqualRT
         end
     end
 end
@@ -52,9 +53,10 @@ end
 The two `⇌` steps mark binding events at rapid equilibrium (one
 binding constant `K` per step); the `<-->` step marks a steady-state
 catalytic interconversion (independent forward and reverse rate
-constants `kf`, `kr`). The `::OnlyR` annotation tells the framework
-that those steps fire only in the R conformation, so the T-state
-contribution to the rate equation is identically zero.
+constants `kf`, `kr`). The `::EqualRT` annotation says the
+corresponding K is shared between R and T conformations; `::OnlyR`
+says the catalytic step fires only in R; and the `A::OnlyR` regulator
+means the activator binds R only.
 
 `parameters(m)` lists the names the framework needs at evaluation
 time, `rate_equation_string(m)` prints the symbolic rate equation, and
@@ -76,23 +78,27 @@ using OptimizationPyCMA, Random
 Random.seed!(42)
 
 true_params = (
-    K1 = 1.0,         # S binding K (R-state)
-    k2f = 5.0,        # catalytic SS forward rate (R-state)
-    K3 = 0.5,         # P binding K (R-state)
-    K_A_reg1 = 2.0,   # activator binding K (R-state)
-    L = 0.1,          # conformational [T]/[R] for free enzyme
+    K1 = 1e-4,           # S binding K (shared R/T)
+    k2f = 100.0,         # catalytic SS forward rate (R only)
+    K3 = 1e-3,           # P binding K (shared R/T)
+    K_A_reg1 = 1e-5,     # activator binding K (R only)
+    L = 10000.0,         # conformational [T]/[R] for free enzyme
     Keq = 2.0,
     E_total = 1.0,
 )
 
+# Sample concentrations log-uniformly across 100x below to 100x above
+# each metabolite's K — the regime where the rate equation is informative.
+logu(K) = K * 10.0 ^ (rand() * 4 - 2)
+
 data_rows = NamedTuple[]
 for grp in 1:5
     for _ in 1:10
-        S = exp(randn() * 0.8)         # ~lognormal around 1
-        A = 0.05 + 5.0 * rand()        # uniform 0.05..5.05
-        P = rand() < 0.5 ? 0.05 : 0.5  # two product levels
+        S = logu(true_params.K1)
+        P = logu(true_params.K3)
+        A = logu(true_params.K_A_reg1)
         v_true = rate_equation(m, (S=S, P=P, A=A), true_params)
-        v_obs = v_true * exp(0.05 * randn())   # 5% log-normal noise
+        v_obs = v_true * exp(0.05 * randn())   # 5% multiplicative log-normal noise
         push!(data_rows, (group="G$grp", Rate=v_obs, S=S, P=P, A=A))
     end
 end
@@ -115,10 +121,9 @@ separately measured kcat.
 fp = FittingProblem(m, data; Keq=2.0)
 result = fit_rate_equation(fp, PyCMAOpt();
     n_restarts=3, maxtime=5.0, popsize=50)
-result.params       # K1, K3 recover near true; k2f is normalized so
-                    # kcat = 1.0 (its true value 5.0 is the kcat scale).
-                    # K_A_reg1 and L are not jointly identifiable from
-                    # rates alone — see structural_identifiability_deficit(m).
+result.params       # K1, K3, K_A_reg1, L recover near true.
+                    # k2f is normalized so kcat = 1.0 (its true
+                    # value 100.0 is the kcat scale).
 result.loss         # final loss value (~5% noise floor)
 ```
 
@@ -150,8 +155,9 @@ prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
 ```
 
 The actual search runs `fit_rate_equation` on each candidate and is
-slow on a laptop (minutes); skip the next block if you just want to
-read along, or run it when you have time.
+slow on a laptop (~1 hour on a single core with default settings;
+faster with `pmap` distributed across workers). Skip the next block
+if you just want to read along, or run it when you have time.
 
 ```julia
 # README-SKIP-IN-TEST
@@ -169,10 +175,7 @@ first(results.cv_results, 5)       # top rows of the CV-score DataFrame
 `identify_rate_equation` first picks the parameter-count with the
 lowest CV score, then within that level picks the candidate with the
 lowest training loss. For the synthetic data we generated, the
-recovered mechanism reproduces the rate equation up to the
-unidentifiable parameters flagged earlier (`K_A_reg1`, `L`) — typically
-the simplest variant of the generating mechanism with non-identifiable
-parameters dropped.
+recovered mechanism agrees with the one we used to generate it.
 
 ## How rate-equation derivation works
 
@@ -198,9 +201,7 @@ framework detects these cycles automatically (via the null space of the
 mechanism's enzyme-form incidence matrix), declares one rate constant per
 cycle as *dependent*, and computes it from the rest plus a user-supplied
 `Keq`. You fit the *independent* rate constants; dependent constants
-are derived. `structural_identifiability_deficit(m)` reports the deficit
-of the mechanism's parameter map: zero means every independent
-parameter can in principle be identified from the rate equation.
+are derived.
 
 ### Allostery: the MWC R/T model
 
