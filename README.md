@@ -227,3 +227,59 @@ L*(T-state polynomial)^n`, where `n` is the oligomeric state. The
 example mechanism above uses `:OnlyR` everywhere — the T-state
 contributions vanish and the printed rate equation simplifies
 accordingly.
+
+## How `identify_rate_equation` works
+
+### Enumeration as composable building blocks
+
+Mechanism enumeration is built from three small functions, not a
+monolithic pipeline:
+
+- `init_mechanisms(reaction)` produces the biochemically minimal
+  mechanisms for a reaction by combining catalytic topologies (orderings
+  of substrate binding, catalytic interconversion, and product release —
+  random-order, ordered, ping-pong) with subsets of dead-end inhibition
+  steps. Steps that bind the same metabolite share a kinetic group, so
+  the parameter count starts at the smallest physically meaningful
+  value.
+- `expand_mechanisms(specs, reaction)` applies a fixed set of
+  single-move expansions to each spec — converting an RE step to SS,
+  splitting a kinetic group, adding a dead-end regulator, becoming
+  allosteric, changing an allosteric state — and returns the expanded
+  candidates keyed by their estimated parameter count.
+- `dedup!(cache)` canonicalizes specs (sorted steps; renumbered kinetic
+  groups by first occurrence) and removes structural duplicates.
+
+The enumeration is grounded in chemical reasoning rather than blind
+combinatorics: a step is "elementary" only if it changes one binding
+site by one event with atom balance preserved, and only catalytic
+topologies that satisfy bounds on bound-metabolite count, isomerization
+size, and substrate participation are emitted.
+
+### Beam search across parameter counts
+
+`identify_rate_equation` walks parameter counts in ascending order:
+
+1. Fit all init mechanisms on the full data; record training loss.
+2. Keep the top fraction (beam width = `max(beam_fraction * n,
+   min_beam_width)`).
+3. Apply `expand_mechanisms` to surviving specs to produce candidates
+   at the next parameter-count level.
+4. `dedup!` and fit; rank by training loss.
+5. Repeat until no new candidates appear or `max_param_count` is
+   reached.
+
+The beam width balances coverage (more candidates explored) against
+runtime (every kept candidate gets a multi-restart fit).
+
+### Model selection by leave-one-group-out cross-validation
+
+After beam search, the top `n_cv_candidates` mechanisms per parameter
+count enter LOOCV. Each unique value of the `group` column defines one
+fold: the mechanism is fit on every group except one, then evaluated on
+the held-out group. The CV score is the mean held-out loss across
+folds. The "best" mechanism is the one with minimum training loss at
+the parameter count whose CV score is lowest — *the simplest mechanism
+that generalizes*. The `group` column reflects experimental batches
+that share an `E_total`; LOOCV respects this structure and gives an
+honest estimate of generalization to new conditions.
