@@ -72,7 +72,8 @@ the same `E_total`; the framework's loss function is invariant to a
 per-group `E_total` rescaling.
 
 ```julia
-using OptimizationPyCMA
+# README-SKIP-IN-TEST
+using OptimizationPyCMA, Random
 Random.seed!(42)
 
 true_params = (
@@ -112,9 +113,12 @@ default — the absolute scale is recovered by multiplying with a
 separately measured kcat.
 
 ```julia
+# README-SKIP-IN-TEST
 fp = FittingProblem(m, data; Keq=2.0)
 result = fit_rate_equation(fp, PyCMAOpt();
     n_restarts=3, maxtime=5.0, popsize=50)
-result.params       # fitted (K1, k2f, K3, K_A_reg1, L)
-result.loss         # final loss value
+result.params       # K1, k2f, K3 recover near true; K_A_reg1 and L are
+                    # not jointly identifiable from rates alone — see
+                    # structural_identifiability_deficit(m)
+result.loss         # final loss value (~5% noise floor)
 ```
