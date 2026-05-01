@@ -64,3 +64,57 @@ time, `rate_equation_string(m)` prints the symbolic rate equation, and
 parameters(m)
 rate_equation_string(m)
 ```
+
+We generate synthetic data by evaluating `rate_equation` on a grid of
+concentrations and adding multiplicative log-normal noise. Multiple
+`group` values represent independent experimental batches that share
+the same `E_total`; the framework's loss function is invariant to a
+per-group `E_total` rescaling.
+
+```julia
+using OptimizationPyCMA
+Random.seed!(42)
+
+true_params = (
+    K1 = 1.0,         # S binding K (R-state)
+    k2f = 5.0,        # catalytic SS forward rate (R-state)
+    K3 = 0.5,         # P binding K (R-state)
+    K_A_reg1 = 2.0,   # activator binding K (R-state)
+    L = 0.1,          # conformational [T]/[R] for free enzyme
+    Keq = 2.0,
+    E_total = 1.0,
+)
+
+data_rows = NamedTuple[]
+for grp in 1:5
+    for _ in 1:10
+        S = exp(randn() * 0.8)         # ~lognormal around 1
+        A = 0.05 + 5.0 * rand()        # uniform 0.05..5.05
+        P = rand() < 0.5 ? 0.05 : 0.5  # two product levels
+        v_true = rate_equation(m, (S=S, P=P, A=A), true_params)
+        v_obs = v_true * exp(0.05 * randn())   # 5% log-normal noise
+        push!(data_rows, (group="G$grp", Rate=v_obs, S=S, P=P, A=A))
+    end
+end
+data = (
+    group = [r.group for r in data_rows],
+    Rate  = [r.Rate  for r in data_rows],
+    S     = [r.S     for r in data_rows],
+    P     = [r.P     for r in data_rows],
+    A     = [r.A     for r in data_rows],
+)
+```
+
+The fit runs `fit_rate_equation` on a `FittingProblem`, using the PyCMA
+optimizer (multi-start CMA-ES) recommended for rate-equation fitting.
+Fitted rate constants are returned with kcat normalized to 1.0 by
+default — the absolute scale is recovered by multiplying with a
+separately measured kcat.
+
+```julia
+fp = FittingProblem(m, data; Keq=2.0)
+result = fit_rate_equation(fp, PyCMAOpt();
+    n_restarts=3, maxtime=5.0, popsize=50)
+result.params       # fitted (K1, k2f, K3, K_A_reg1, L)
+result.loss         # final loss value
+```
