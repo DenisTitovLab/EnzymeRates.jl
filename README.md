@@ -172,3 +172,57 @@ recovered mechanism reproduces the rate equation up to the
 unidentifiable parameters flagged earlier (`K_A_reg1`, `L`) — typically
 the simplest variant of the generating mechanism with non-identifiable
 parameters dropped.
+
+## How rate-equation derivation works
+
+### Steady-state vs rapid equilibrium
+
+`<-->` denotes a steady-state (QSSA) elementary step — both the forward
+and reverse rate constants enter the rate equation as independent
+parameters, and the King-Altman determinant assembles them into the
+denominator polynomial. `⇌` denotes a rapid-equilibrium step — only the
+binding constant `K` matters, because the framework collapses the
+forward and reverse rates into a single equilibrium relation. A typical
+mechanism mixes both, and the framework handles the mixed Cha-style
+derivation automatically. `parameters(m)` reflects this: each RE step
+contributes one `K`; each SS step contributes a forward `kf` and a
+reverse `kr`.
+
+### Haldane and Wegscheider relationships
+
+When the mechanism contains thermodynamic cycles — any closed loop of
+binding and catalytic steps — the rate constants around the cycle are
+constrained by the equilibrium constant of the overall reaction. The
+framework detects these cycles automatically (via the null space of the
+mechanism's stoichiometric matrix), declares one rate constant per
+cycle as *dependent*, and computes it from the rest plus a user-supplied
+`Keq`. You fit the *independent* rate constants; dependent constants
+are derived. `structural_identifiability_deficit(m)` reports the deficit
+of the mechanism's parameter map: zero means every independent
+parameter can in principle be identified from the rate equation.
+
+### Allostery: the MWC R/T model
+
+For multi-subunit enzymes, the framework uses the Monod-Wyman-Changeux
+two-state model: the enzyme exists in an active R conformation and an
+inactive T conformation, with `L = [T]/[R]` the conformational
+equilibrium for the bare enzyme and the same `L` propagating to all
+ligand-bound species. Each kinetic group (binding step, catalytic
+interconversion) and each regulatory ligand can independently be:
+
+- `:OnlyR` — the symbol exists in R only; T-state contributions are
+  zero. A `:OnlyR` activator binds R preferentially and shifts the
+  population toward R.
+- `:OnlyT` — symbol exists in T only. A `:OnlyT` regulator binds T
+  preferentially and shifts the population toward T (a typical
+  allosteric inhibitor).
+- `:EqualRT` — same `K` (or `kf`, `kr`) in both conformations. Useful
+  for ligands that bind without conformational preference.
+- `:NonequalRT` — independent R and T parameters (`K_R`, `K_T`).
+
+The full rate equation is then the sum of R-state and T-state numerator
+terms, weighted by the partition function `(R-state polynomial)^n +
+L*(T-state polynomial)^n`, where `n` is the oligomeric state. The
+example mechanism above uses `:OnlyR` everywhere — the T-state
+contributions vanish and the printed rate equation simplifies
+accordingly.
