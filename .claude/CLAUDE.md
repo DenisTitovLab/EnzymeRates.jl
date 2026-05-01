@@ -183,13 +183,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Package Goal
 
-EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given a reaction definition and experimental rate measurements at varying concentrations, the package enumerates all biochemically valid mechanisms, fits each to data, and selects the one with fewest parameters that adequately describes the data (cross-validation). See `SPEC.md` for the full API specification.
+EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given a reaction definition and experimental rate measurements at varying concentrations, the package enumerates all biochemically valid mechanisms, fits each to data, and selects the one with fewest parameters that adequately describes the data (cross-validation).
 
 **Primary use case**: `EnzymeReaction` + data → `IdentifyRateEquationProblem` → `identify_rate_equation()` → `IdentifyRateEquationResults`
 
 **Secondary use cases**: manually define mechanisms via `@enzyme_mechanism` and derive/fit rate equations.
 
-## API Design (see SPEC.md)
+## API Design
 
 - **19 exported symbols** (planned): 6 types, 2 macros, 2 constants (`Full`, `Reduced`), 9 functions. Currently 16 — `IdentifyRateEquationProblem`, `IdentifyRateEquationResults`, `identify_rate_equation` are pending implementation.
 - `compile_mechanism` is NOT exported (internal). Use `EnzymeMechanism(spec::MechanismSpec)` or `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` constructors instead.
