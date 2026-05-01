@@ -194,7 +194,7 @@ When the mechanism contains thermodynamic cycles — any closed loop of
 binding and catalytic steps — the rate constants around the cycle are
 constrained by the equilibrium constant of the overall reaction. The
 framework detects these cycles automatically (via the null space of the
-mechanism's stoichiometric matrix), declares one rate constant per
+mechanism's enzyme-form incidence matrix), declares one rate constant per
 cycle as *dependent*, and computes it from the rest plus a user-supplied
 `Keq`. You fit the *independent* rate constants; dependent constants
 are derived. `structural_identifiability_deficit(m)` reports the deficit
@@ -208,7 +208,8 @@ two-state model: the enzyme exists in an active R conformation and an
 inactive T conformation, with `L = [T]/[R]` the conformational
 equilibrium for the bare enzyme and the same `L` propagating to all
 ligand-bound species. Each kinetic group (binding step, catalytic
-interconversion) and each regulatory ligand can independently be:
+interconversion) can be `:OnlyR`, `:EqualRT`, or `:NonequalRT`; each
+regulatory ligand can additionally be `:OnlyT`. The four tags:
 
 - `:OnlyR` — the symbol exists in R only; T-state contributions are
   zero. A `:OnlyR` activator binds R preferentially and shifts the
