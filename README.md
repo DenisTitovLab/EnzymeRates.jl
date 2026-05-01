@@ -72,7 +72,6 @@ the same `E_total`; the framework's loss function is invariant to a
 per-group `E_total` rescaling.
 
 ```julia
-# README-SKIP-IN-TEST
 using OptimizationPyCMA, Random
 Random.seed!(42)
 
@@ -113,7 +112,6 @@ default — the absolute scale is recovered by multiplying with a
 separately measured kcat.
 
 ```julia
-# README-SKIP-IN-TEST
 fp = FittingProblem(m, data; Keq=2.0)
 result = fit_rate_equation(fp, PyCMAOpt();
     n_restarts=3, maxtime=5.0, popsize=50)
