@@ -2,3 +2,4 @@ Manifest.toml
 .DS_Store
 .CondaPkg/
 test/outcmaes/
+.claude/scheduled_tasks.lock

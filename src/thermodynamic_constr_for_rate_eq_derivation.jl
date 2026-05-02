@@ -11,15 +11,20 @@ the equilibrium constant Keq.
 
 # ─── Shared Helpers ──────────────────────────────────────────────
 
-"""Collect raw parameter symbols (K_i for RE, k_if/k_ir for SS) for each step."""
-function _raw_param_symbols(eq_steps)
+"""
+Collect raw parameter symbols (K_i for RE, k_if/k_ir for SS) for the
+representative step of each kinetic group, in step-order.
+"""
+function _raw_param_symbols(m::EnzymeMechanism)
+    eq = equilibrium_steps(m)
     ps = Symbol[]
-    for (i, re) in enumerate(eq_steps)
-        if re
-            push!(ps, Symbol("K$i"))
+    for g in kinetic_groups(m)
+        rep = first(steps_in_group(m, g))
+        if eq[rep]
+            push!(ps, Symbol("K$rep"))
         else
-            push!(ps, Symbol("k$(i)f"))
-            push!(ps, Symbol("k$(i)r"))
+            push!(ps, Symbol("k$(rep)f"))
+            push!(ps, Symbol("k$(rep)r"))
         end
     end
     ps
@@ -30,7 +35,7 @@ end
 function _enzyme_incidence_matrix(enz_names, enz_set, rxns)
     N = length(enz_names)
     B = zeros(Int, N, length(rxns))
-    for (j, (lhs, rhs)) in enumerate(rxns)
+    for (j, (lhs, rhs, _, _)) in enumerate(rxns)
         e_lhs, _ = _split_reaction_side(lhs, enz_set)
         e_rhs, _ = _split_reaction_side(rhs, enz_set)
         B[findfirst(==(e_lhs), enz_names), j] -= 1
@@ -41,8 +46,7 @@ end
 
 function _enzyme_incidence_matrix(M::Type{<:EnzymeMechanism})
     m = M()
-    enzs = enzyme_forms(m)
-    enz_names = Tuple(e[1] for e in enzs)
+    enz_names = enzyme_forms(m)
     _enzyme_incidence_matrix(
         enz_names, Set(enz_names), reactions(m),
     )
@@ -93,10 +97,10 @@ function _thermodynamic_constraints(
     nc = size(NS, 2)
     nc == 0 && return zeros(Int, 0, size(B, 2)), Int[]
     nu_net = zeros(Int, length(met_names))
-    for (name, _) in subs_species
+    for name in subs_species
         nu_net[findfirst(==(name), met_names)] -= 1
     end
-    for (name, _) in prods_species
+    for name in prods_species
         nu_net[findfirst(==(name), met_names)] += 1
     end
     C = NS'
@@ -109,11 +113,10 @@ end
 
 function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
     m = M()
-    enzs = enzyme_forms(m)
-    enz_names = Tuple(e[1] for e in enzs)
+    enz_names = enzyme_forms(m)
     _thermodynamic_constraints(
         enz_names, Set(enz_names), reactions(m),
-        stoich_matrix(m), collect(metabolites(m)),
+        stoich_matrix(m)[metabolite_row_range(m), :], collect(metabolites(m)),
         substrates(m), products(m),
     )
 end
@@ -146,135 +149,73 @@ function _classify_cycle(nu_cycle, nu_net, i)
     c !== nothing && denominator(c) == 1 ? Int(c) : error(err)
 end
 
-"""Add log-space contribution for a param, merging constrained params into replacements.
-When `param` is user-constrained (target = coeff * prod(src^exp)), its column is merged
-into the replacement columns and `log(coeff)` is tracked as a constant on the RHS.
-The constraint coefficient is stored as a Rational (Ka domain) to handle binding-to-binding
-inversion: Kd constraint K3=4K1 becomes Ka constraint K3=K1/4, stored as coeff=1//4."""
-function _add_log_contrib!(A, rhs_const, row, param, coeff, sym_col, csub)
-    if haskey(csub, param)
-        c, factors = csub[param]
-        # c is Rational{BigInt} (Ka-domain coefficient).
-        # log(c) = log(numerator) - log(denominator).
-        # LHS constant: coeff * log(c). Moving to RHS: subtract coeff * log(c).
-        p, q = Int(numerator(c)), Int(denominator(c))
-        if p != 1
-            rhs_const[row][p] = get(rhs_const[row], p, Rational{BigInt}(0)) - coeff
-        end
-        if q != 1
-            rhs_const[row][q] = get(rhs_const[row], q, Rational{BigInt}(0)) + coeff
-        end
-        for (src, exp) in factors
-            _add_log_contrib!(A, rhs_const, row, src, coeff * exp, sym_col, csub)
-        end
-    else
-        A[row, sym_col[param]] += coeff
-    end
-end
-
-"""Multiply an expression by the constant factor `prod(base^exp)` from `const_dict`."""
-function _apply_const_factor(expr, const_dict)
-    rational_part = Rational{BigInt}(1)
-    symbolic_parts = Tuple{Int, Rational{BigInt}}[]
-    for (base, exp) in const_dict
-        exp == 0 && continue
-        if denominator(exp) == 1
-            rational_part *= Rational{BigInt}(base) ^ Int(exp)
-        else
-            push!(symbolic_parts, (base, exp))
-        end
-    end
-    terms = Any[]
-    if rational_part != 1
-        if denominator(rational_part) == 1
-            push!(terms, Int(rational_part))
-        else
-            n, d = Int(numerator(rational_part)), Int(denominator(rational_part))
-            push!(terms, :($n // $d))
-        end
-    end
-    for (base, exp) in symbolic_parts
-        push!(terms, denominator(exp) == 1 ?
-            :($base ^ $(Int(exp))) : :($base ^ $(Float64(exp))))
-    end
-    isempty(terms) && return expr
-    const_expr = length(terms) == 1 ? terms[1] : Expr(:call, :*, terms...)
-    expr == 1 && return const_expr
-    Expr(:call, :*, const_expr, expr)
-end
-
 """
-    _dependent_param_exprs(C, rhs_coeffs, eq_steps, constraints,
-                           binding_Ks, rxns, enz_set, free_enz_set)
+    _dependent_param_exprs(M::Type{<:EnzymeMechanism}) → (dep_exprs, indep_params)
 
-Select dependent parameters and build substitution expressions.
-Returns `(dep_exprs, indep_params)` where constrained params are excluded from both.
-
-User constraints are merged into the Haldane/Wegscheider matrix via column merging,
-with `log(coeff)` tracked as constant contributions through Gaussian elimination.
-This preserves coupling between user constraints and thermodynamic constraints.
+Select dependent parameters and build substitution expressions for the
+Haldane / Wegscheider thermodynamic constraints. Steps in the same
+kinetic group share parameters: their cycle-incidence columns are merged
+into the representative step's column before Gaussian elimination, so
+`dep_exprs` and `indep_params` are keyed only on representatives.
 """
-function _dependent_param_exprs(
-    C, rhs_coeffs, eq_steps, constraints,
-    binding_Ks, rxns, enz_set, free_enz_set,
-)
+function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
+    m = M()
+    rxns = reactions(m)
+    eq_steps = equilibrium_steps(m)
+    enz_names = enzyme_forms(m)
+    enz_set = Set(enz_names)
+
+    # Free enzyme is any form that's never the RHS of a canonical RE binding
+    # step `[F, met...] ⇌ [F_bound]`. SS steps don't determine binding state
+    # (their direction isn't canonicalized). Used for pivot priority.
+    free_enz_set = Set{Symbol}(enz_names)
+    for (lhs, rhs, is_eq, _) in rxns
+        is_eq || continue
+        _, m_l = _split_reaction_side(lhs, enz_set)
+        e_r, m_r = _split_reaction_side(rhs, enz_set)
+        if !isempty(m_l) && isempty(m_r)
+            delete!(free_enz_set, e_r)
+        end
+    end
+
+    C, rhs_coeffs = _thermodynamic_constraints(M)
+    all_params = _raw_param_symbols(m)
     nc = size(C, 1)
     nsteps = size(C, 2)
-    all_raw = _raw_param_symbols(eq_steps)
-    constrained_set = Set(c[1] for c in constraints)
-    unconstrained = Symbol[p for p in all_raw if p ∉ constrained_set]
     nc == 0 && return (Dict{Symbol, Union{Symbol, Expr}}(),
-                       Tuple(unconstrained))
+                       Tuple(all_params))
 
-    # Build log-space substitution from user constraints in Ka domain.
-    # User constraints are in Kd domain; for binding-to-binding constraints,
-    # the coefficient inverts: Kd K3=4K1 → Ka K3=(1/4)K1.
-    # This matches _apply_param_constraints in sym_poly_for_rate_eq_derivation.jl.
-    csub = Dict{Symbol,
-        Tuple{Rational{BigInt},
-              Vector{Tuple{Symbol, Rational{BigInt}}}}}()
-    for (target, coeff, factors) in constraints
-        is_b2b = (target ∈ binding_Ks &&
-                  all(f -> f[1] ∈ binding_Ks, factors))
-        ka_coeff = (is_b2b ? Rational{BigInt}(1, coeff)
-                           : Rational{BigInt}(coeff))
-        csub[target] = (ka_coeff,
-            [(sym, Rational{BigInt}(exp))
-             for (sym, exp) in factors])
-    end
-
-    # Variable list excludes constrained params (merged into replacements)
-    all_params = unconstrained
     sym_col = Dict(p => i for (i, p) in enumerate(all_params))
     n_vars = length(all_params)
 
+    # Build per-step → representative-step alias map
+    rename = _build_kinetic_rename_map(m)
+
+    # Translate cycle-incidence columns into the merged-parameter A matrix.
+    # Non-representative steps' columns are folded into their representative
+    # via the rename map; this is mathematically equivalent to a kinetic-group
+    # equality constraint (K_idx = K_rep, k_idx_f = k_rep_f, ...).
     A = zeros(Rational{BigInt}, nc, n_vars)
     rhs = Rational{BigInt}.(rhs_coeffs)
-    # Track constant contributions: rhs_const[i][coeff_val] = exponent
-    # Effective RHS:
-    #   rhs[i]*log(Keq) + sum(exp*log(val) for (val,exp) in rhs_const[i])
-    rhs_const = [Dict{Int, Rational{BigInt}}() for _ in 1:nc]
-
     for i in 1:nc, j in 1:nsteps
         C[i, j] == 0 && continue
         if eq_steps[j]
-            _add_log_contrib!(
-                A, rhs_const, i, Symbol("K$j"),
-                Rational{BigInt}(C[i, j]), sym_col, csub)
+            sym = Symbol("K$j")
+            sym = get(rename, sym, sym)
+            A[i, sym_col[sym]] += C[i, j]
         else
-            _add_log_contrib!(
-                A, rhs_const, i, Symbol("k$(j)f"),
-                Rational{BigInt}(C[i, j]), sym_col, csub)
-            _add_log_contrib!(
-                A, rhs_const, i, Symbol("k$(j)r"),
-                Rational{BigInt}(-C[i, j]), sym_col, csub)
+            kf = Symbol("k$(j)f"); kr = Symbol("k$(j)r")
+            kf = get(rename, kf, kf); kr = get(rename, kr, kr)
+            A[i, sym_col[kf]] += C[i, j]
+            A[i, sym_col[kr]] -= C[i, j]
         end
     end
 
     # Pivot priority: internal isomerizations > metabolite steps
-    #                 > free-enzyme binding
+    #                 > free-enzyme binding. Inherits from the representative
+    #                 step (first in the kinetic group).
     priority = zeros(Int, n_vars)
-    for (j, (lhs, rhs_rxn)) in enumerate(rxns)
+    for (j, (lhs, rhs_rxn, _, _)) in enumerate(rxns)
         e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
         e_rhs, m_rhs = _split_reaction_side(rhs_rxn, enz_set)
         has_met = !isempty(m_lhs) || !isempty(m_rhs)
@@ -315,9 +256,7 @@ function _dependent_param_exprs(
             end
         end
         if best_col == 0
-            is_zero = (wrhs[i] == 0 &&
-                       all(e == 0 for (_, e) in rhs_const[i]))
-            is_zero && continue  # redundant constraint (0 = 0)
+            wrhs[i] == 0 && continue  # redundant constraint (0 = 0)
             error(
                 "Thermodynamically contradictory mechanism: " *
                 "constraint row $i reduces to " *
@@ -328,19 +267,11 @@ function _dependent_param_exprs(
         pv = wA[i, best_col]
         wA[i, :] ./= pv
         wrhs[i] /= pv
-        for (c, e) in rhs_const[i]
-            rhs_const[i][c] = e / pv
-        end
         for r in 1:nc
             if r != i && wA[r, best_col] != 0
                 f = wA[r, best_col]
                 wA[r, :] .-= f .* wA[i, :]
                 wrhs[r] -= f * wrhs[i]
-                for (c, e) in rhs_const[i]
-                    rhs_const[r][c] =
-                        get(rhs_const[r], c,
-                            Rational{BigInt}(0)) - f * e
-                end
             end
         end
     end
@@ -352,27 +283,10 @@ function _dependent_param_exprs(
             for c in 1:n_vars
             if c != pcol && wA[prow, c] != 0
         ]
-        base_expr = build_power_expr(wrhs[prow], factors)
-        dep_exprs[all_params[pcol]] =
-            _apply_const_factor(base_expr, rhs_const[prow])
+        dep_exprs[all_params[pcol]] = build_power_expr(wrhs[prow], factors)
     end
     dep_set = Set(keys(dep_exprs))
     return dep_exprs, Tuple(p for p in all_params if p ∉ dep_set)
-end
-
-function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
-    m = M()
-    enzs = enzyme_forms(m)
-    rxns = reactions(m)
-    eq_steps = equilibrium_steps(m)
-    enz_set = Set(e[1] for e in enzs)
-    free_enz_set = Set(e[1] for e in enzs if isempty(e[2]))
-    C, rhs_coeffs = _thermodynamic_constraints(M)
-    binding_Ks = Set(_binding_K_symbols(rxns, eq_steps, enz_set))
-    _dependent_param_exprs(
-        C, rhs_coeffs, eq_steps, param_constraints(m),
-        binding_Ks, rxns, enz_set, free_enz_set,
-    )
 end
 
 """Apply K→1/K inversion to Haldane dep_exprs.
@@ -392,11 +306,7 @@ function _apply_kd_inversion(dep_exprs, M::Type{<:EnzymeMechanism}, inv_fn)
 end
 
 function _constraint_expr_strings(M::Type{<:EnzymeMechanism})
-    m = M()
     lines = String[]
-    for (target, coeff, factors) in param_constraints(m)
-        push!(lines, _user_constraint_to_string(target, coeff, factors))
-    end
     dep_exprs, _ = _dependent_param_exprs(M)
     if !isempty(dep_exprs)
         dep_exprs = _apply_kd_inversion(dep_exprs, M, K -> :(1 / $K))
@@ -415,16 +325,11 @@ function _destructuring_expr(syms, source::Symbol)
 end
 
 """
-Collect sorted raw parameter symbols (k1f, k1r, K1, ...,
-E_total) for a mechanism, excluding constrained params.
+Collect raw parameter symbols (one K or k_f/k_r per kinetic group) plus
+`E_total`, in step order.
 """
 function _sorted_raw_param_symbols(M::Type{<:EnzymeMechanism})
-    m = M()
-    constrained = Set(c[1] for c in param_constraints(m))
-    raw = _raw_param_symbols(equilibrium_steps(m))
-    Tuple(
-        p for p in (raw..., :E_total) if p ∉ constrained
-    )
+    Tuple((_raw_param_symbols(M())..., :E_total))
 end
 
 """Full mode: destructure all params + concs, then raw expr."""

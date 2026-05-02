@@ -305,45 +305,32 @@ function substitute_params_expr(expr, subs::AbstractDict)
     end
 end
 
-# ─── Parameter constraint substitution in POLY ─────────────
+# ─── Symbol renaming in POLY ───────────────────────────────
 
 """
-Substitute `target` symbol in polynomial `p` with
-`coeff * prod(sym^exp for (sym,exp) in replacement)`.
+Rename symbols in a polynomial. `rename_map` is a `Dict{Symbol, Symbol}`;
+absent keys are left unchanged. Used to alias non-representative kinetic-group
+parameter symbols to their representative (e.g., `K2 → K1` when steps 1 and 2
+share a kinetic group).
 """
-function _substitute_sym_in_poly(p::POLY, target::Symbol, coeff, replacement)
+function _rename_symbols(p::POLY, rename_map::AbstractDict{Symbol, Symbol})
+    isempty(rename_map) && return p
     result = POLY()
     for (mono, val) in p
-        idx = findfirst(pair -> pair.first == target, mono)
-        if idx === nothing
-            result[mono] = get(result, mono, 0) + val
-        else
-            e = mono[idx].second
-            base = MONO([pair for (i, pair) in enumerate(mono) if i != idx])
-            repl = sort!(MONO([sym => exp * e for (sym, exp) in replacement]); by=first)
-            final = _mono_mul(base, repl)
-            result[final] = get(result, final, 0) + val * coeff^e
+        new_mono = sort!(
+            MONO([get(rename_map, s, s) => e for (s, e) in mono]);
+            by=first,
+        )
+        # Combine like-monomial entries by exponent merging
+        combined = Dict{Symbol, Int}()
+        for (s, e) in new_mono
+            combined[s] = get(combined, s, 0) + e
         end
+        filter!(p -> p.second != 0, combined)
+        canon = sort!(MONO(collect(combined)); by=first)
+        result[canon] = get(result, canon, 0) + val
     end
     filter!(p -> p.second != 0, result)
-end
-
-"""Apply all parameter constraints sequentially to a polynomial.
-When `binding_Ks` is provided, constraints between two binding K parameters
-use the reciprocal coefficient (1/c instead of c) to correct for the K→1/K
-inversion that happens later in the expression builder."""
-function _apply_param_constraints(
-    p::POLY, constraints;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-)
-    for (target, coeff, factors) in constraints
-        is_binding_to_binding = !isempty(binding_Ks) &&
-            target ∈ binding_Ks &&
-            all(f -> f[1] ∈ binding_Ks, factors)
-        c = is_binding_to_binding ? 1 // coeff : coeff
-        p = _substitute_sym_in_poly(p, target, c, factors)
-    end
-    p
 end
 
 # ─── Factored denominator types ──────────────────────────────
@@ -466,37 +453,26 @@ function to_rate_expr(
     :(E_total * ($num_expr) / ($den_expr))
 end
 
-# ─── Constraint application for factored types ────────────────
+# ─── Symbol renaming for factored types ───────────────────────
 
-function _apply_param_constraints(
-    fp::FactoredPoly, constraints;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-)
+function _rename_symbols(fp::FactoredPoly, rename_map::AbstractDict{Symbol, Symbol})
     FactoredPoly(
-        [_apply_param_constraints(f, constraints; binding_Ks) for f in fp.factors],
+        [_rename_symbols(f, rename_map) for f in fp.factors],
         copy(fp.exponents),
     )
 end
 
-function _apply_param_constraints(
-    fs::FactoredSigma, constraints;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-)
+function _rename_symbols(fs::FactoredSigma, rename_map::AbstractDict{Symbol, Symbol})
     FactoredSigma(
-        [_apply_param_constraints(c, constraints; binding_Ks)
-         for c in fs.coefficients],
-        [_apply_param_constraints(fp, constraints; binding_Ks)
-         for fp in fs.products],
+        [_rename_symbols(c, rename_map) for c in fs.coefficients],
+        [_rename_symbols(fp, rename_map) for fp in fs.products],
     )
 end
 
-function _apply_param_constraints(
-    dt::DenomTerm, constraints;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-)
+function _rename_symbols(dt::DenomTerm, rename_map::AbstractDict{Symbol, Symbol})
     DenomTerm(
-        _apply_param_constraints(dt.sigma, constraints; binding_Ks),
-        _apply_param_constraints(dt.cofactor, constraints; binding_Ks),
+        _rename_symbols(dt.sigma, rename_map),
+        _rename_symbols(dt.cofactor, rename_map),
     )
 end
 
@@ -561,28 +537,6 @@ end
 
 # ─── AllostericEnzymeMechanism POLY helpers ──────────────────────
 
-"""Rename all K/k symbols (not Keq) in a POLY with _T suffix."""
-function _rename_poly_T(p::POLY)
-    POLY(
-        sort!(MONO([
-            (is_k_parameter(s) && s != :Keq ? _rename_params_T(s) : s) => e
-            for (s, e) in mono
-        ]); by=first) => coeff
-        for (mono, coeff) in p
-    )
-end
-
-"""Remove monomials containing any of the given metabolites from a POLY."""
-function _zero_metabolites_in_poly(p::POLY, met_set)
-    isempty(met_set) && return p
-    result = POLY()
-    for (mono, coeff) in p
-        has_met = any(s ∈ met_set for (s, _) in mono)
-        has_met || (result[mono] = coeff)
-    end
-    result
-end
-
 """Remove monomials containing any of the given symbols from a POLY."""
 function _zero_symbols_in_poly(p::POLY, sym_set::Set{Symbol})
     isempty(sym_set) && return p
@@ -592,111 +546,4 @@ function _zero_symbols_in_poly(p::POLY, sym_set::Set{Symbol})
         has_sym || (result[mono] = coeff)
     end
     result
-end
-
-"""Get the set of k symbols (kNf, kNr) for r_only cat steps."""
-function _r_only_cat_step_k_syms(CM, r_only_cat_steps)
-    isempty(r_only_cat_steps) && return Set{Symbol}()
-    syms = Set{Symbol}()
-    for idx in r_only_cat_steps
-        push!(syms, Symbol("k$(idx)f"))
-        push!(syms, Symbol("k$(idx)r"))
-    end
-    syms
-end
-
-"""Access tr_equiv ligands from a RegSites entry (element 3)."""
-_rs_tr_equiv(entry) = length(entry) >= 3 ? entry[3] : ()
-"""Access r_only ligands from a RegSites entry (element 4)."""
-_rs_r_only(entry) = length(entry) >= 4 ? entry[4] : ()
-"""Access t_only ligands from a RegSites entry (element 5)."""
-_rs_t_only(entry) = length(entry) >= 5 ? entry[5] : ()
-
-"""
-Count distinct concentration monomials in the full allosteric rate numerator and
-denominator. Treats all K/k/L symbols as parameters (strips them from monomials).
-Returns `(n_num, n_denom)`.
-"""
-function _count_allosteric_rate_monomials(CM, CS, RS)
-    CatN = CS[2]
-    cat_r_only = length(CS) >= 5 ? CS[5] : ()
-    cat_t_only = length(CS) >= 6 ? CS[6] : ()
-    r_only_cat_steps = length(CS) >= 7 ? CS[7] : ()
-    num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
-    N_cat_base = _expand_factored_sigma(num_fs)
-    Q_cat_base = _expand_to_poly(denom_terms)
-
-    # R-state: filter out t_only metabolites
-    N_cat_R = _zero_metabolites_in_poly(N_cat_base, cat_t_only)
-    Q_cat_R = _zero_metabolites_in_poly(Q_cat_base, cat_t_only)
-
-    # Build reg site partition polynomials
-    # R-state: exclude t_only ligands
-    reg_Q_R = POLY[
-        let ligs_filtered = [lig for lig in entry[1]
-                             if lig ∉ _rs_t_only(entry)]
-            isempty(ligs_filtered) ? poly_one() :
-                reduce(poly_add, (poly_add(poly_one(), poly_sym(lig))
-                    for lig in ligs_filtered))
-        end
-        for entry in RS
-    ]
-
-    function num_poly_for_conf(N_cat, Q_cat, reg_Qs, L_factor)
-        n_term = poly_mul(N_cat, _poly_power(Q_cat, CatN - 1))
-        for (idx, entry) in enumerate(RS)
-            n_reg = entry[2]
-            n_reg == CatN || continue
-            n_term = poly_mul(n_term, _poly_power(reg_Qs[idx], n_reg))
-        end
-        L_factor === nothing ? n_term : poly_mul(poly_sym(L_factor), n_term)
-    end
-
-    function den_poly_for_conf(Q_cat, reg_Qs, L_factor)
-        d_term = _poly_power(Q_cat, CatN)
-        for (idx, entry) in enumerate(RS)
-            n_reg = entry[2]
-            d_term = poly_mul(d_term, _poly_power(reg_Qs[idx], n_reg))
-        end
-        L_factor === nothing ? d_term : poly_mul(poly_sym(L_factor), d_term)
-    end
-
-    full_num = num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing)
-    full_den = den_poly_for_conf(Q_cat_R, reg_Q_R, nothing)
-
-    # T-state: filter out r_only metabolites and r_only cat steps
-    N_cat_T = _zero_metabolites_in_poly(N_cat_base, cat_r_only)
-    Q_cat_T = _zero_metabolites_in_poly(Q_cat_base, cat_r_only)
-    if !isempty(r_only_cat_steps)
-        r_only_k_syms = _r_only_cat_step_k_syms(CM, r_only_cat_steps)
-        N_cat_T = _zero_symbols_in_poly(N_cat_T, r_only_k_syms)
-        Q_cat_T = _zero_symbols_in_poly(Q_cat_T, r_only_k_syms)
-    end
-    N_cat_T = _rename_poly_T(N_cat_T)
-    Q_cat_T = _rename_poly_T(Q_cat_T)
-
-    # T-state reg: exclude r_only ligands
-    reg_Q_T = POLY[
-        let ligs_filtered = [lig for lig in entry[1]
-                             if lig ∉ _rs_r_only(entry)]
-            isempty(ligs_filtered) ? poly_one() :
-                reduce(poly_add, (poly_add(poly_one(), poly_sym(lig))
-                    for lig in ligs_filtered))
-        end
-        for entry in RS
-    ]
-    reg_Q_T = POLY[_rename_poly_T(q) for q in reg_Q_T]
-
-    full_num = poly_add(full_num, num_poly_for_conf(N_cat_T, Q_cat_T, reg_Q_T, :L))
-    full_den = poly_add(full_den, den_poly_for_conf(Q_cat_T, reg_Q_T, :L))
-
-    # Count distinct concentration monomials (strip all k/K/L params)
-    conc_mono(mono) = sort!(MONO([
-        s => e for (s, e) in mono
-        if !is_k_parameter(s) && s != :E_total && s != :Keq && s != :L
-    ]); by=first)
-
-    n_num = length(unique(conc_mono(k) for (k, _) in full_num))
-    n_denom = length(unique(conc_mono(k) for (k, _) in full_den))
-    n_num, n_denom
 end

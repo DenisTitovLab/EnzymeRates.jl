@@ -4,11 +4,8 @@ using Tables
 
     # ── Helper: build a Uni-Uni mechanism ─────────────────────────────────────
     uni_uni = @enzyme_mechanism begin
-        species: begin
-            substrates: S[C]
-            products:   P[C]
-            enzymes:    E, ES[C]
-        end
+        substrates: S
+        products:   P
         steps: begin
             [E, S] <--> [ES]
             [ES] <--> [E, P]
@@ -256,11 +253,8 @@ using Tables
     @testset "Speed" begin
         # Build a larger mechanism: Ordered Bi-Bi
         ordered_bi_bi = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[N]
-                products:   P[C], Q[N]
-                enzymes:    E, EA[C], EABEPQ[CN], EQ[N]
-            end
+            substrates: A, B
+            products:   P, Q
             steps: begin
                 [E, A] <--> [EA]
                 [EA, B] <--> [EABEPQ]

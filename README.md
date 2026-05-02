@@ -3,462 +3,287 @@
 Identify the best enzyme rate equation from kinetic data.
 
 Given a reaction definition and experimental rate measurements at varying
-substrate, product, and regulator concentrations, EnzymeRates enumerates all
-biochemically valid mechanisms, fits each to the data, and selects the
-mechanism with the fewest parameters that adequately describes the data based
-on cross-validation.
+substrate, product, and regulator concentrations, EnzymeRates enumerates
+all biochemically valid mechanisms, fits each to the data, and selects
+the simplest mechanism that adequately describes the data based on
+leave-one-group-out cross-validation.
 
-```julia
-# Define the reaction
-rxn = @enzyme_reaction begin
-    substrates: A[C], B[N]
-    products:   P[C], Q[N]
-end
-
-# Construct the selection problem (enumerates all mechanisms)
-prob = IdentifyRateEquationProblem(rxn, data; Keq=5.0)  # not yet implemented
-
-# Identify the best rate equation
-results = identify_rate_equation(prob)  # not yet implemented
-
-# Inspect the winner
-rate_equation_string(results.best.mechanism)
-rate_equation(results.best.mechanism, concentrations, results.best.params)
-```
-
-In addition to automated model selection, the package can be used to:
-
-- Define enzyme mechanisms using a concise DSL and derive their QSSA rate
-  equations (compiled into zero-allocation numeric functions)
-- Fit a known mechanism's rate equation to kinetic data
-- Analyze structural identifiability of a mechanism
-- Enumerate all biochemically valid mechanisms for a given reaction
+The package has first-class support for MWC allostery and for mechanisms
+that mix steady-state and rapid-equilibrium elementary steps.
+Thermodynamic constraints (Haldane, Wegscheider) are derived
+automatically from the cycle structure of the mechanism, so users supply
+only the independent rate constants plus a measured equilibrium
+constant.
 
 ## Installation
 
 ```julia
+# README-SKIP-IN-TEST
 using Pkg
 Pkg.add(url="https://github.com/DenisTitovLab/EnzymeRates.jl")
 ```
 
-## Quick Start
+## Define a mechanism, derive its rate equation, fit data
+
+The running example is a uni-uni reaction `S ⇌ P` catalyzed by an MWC
+homodimer with V-type allosteric activation. Substrate and product
+bind both conformations with the same affinity (`:EqualRT`), but only
+the R conformation catalyzes (`:OnlyR`); an allosteric activator `A`
+binds R preferentially and shifts the population from the catalytically
+silent T toward R.
 
 ```julia
 using EnzymeRates
 
-# Define a reversible Uni-Uni mechanism
-m = @enzyme_mechanism begin
-    species: begin
-        substrates: S[C]
-        products:   P[C]
-        enzymes:    E, ES[C]
-    end
-    steps: begin
-        [E, S] <--> [ES]
-        [ES] <--> [E, P]
-    end
-end
+m = @allosteric_mechanism begin
+    substrates: S
+    products:   P
+    allosteric_regulators: A::OnlyR
 
-# Independent rate constants + Keq + E_total
-params = (k1f=3.2, k2f=2.5, k2r=1.1, Keq=5.0, E_total=1.0)
-concs = (S=0.7, P=0.3)
-
-# Compute rate: zero allocations, compiled at first call
-v = rate_equation(m, concs, params)
-
-# Human-readable equation
-rate_equation_string(m)
-```
-
-## Defining Mechanisms
-
-### `@enzyme_mechanism` macro
-
-`@enzyme_mechanism` requires explicit `species:` and `steps:` blocks.
-Species include substrates, products, regulators, and enzyme forms. Atoms
-use bracket syntax (`S[C6H12O6]`); multiple atoms are concatenated
-(`A[C2H3]` means 2 C and 3 H).
-
-Steps use `<-->` for steady-state or `⇌` for rapid-equilibrium:
-
-```julia
-m = @enzyme_mechanism begin
-    species: begin
-        substrates: S[C6H12O6]
-        products:   P[C6H12O6]
-        enzymes:    E, ES[C6H12O6]
-    end
-    steps: begin
-        [E, S] ⇌ [ES]          # rapid-equilibrium binding
-        [ES] <--> [E, P]        # steady-state catalysis
-    end
-end
-```
-
-An optional `constraints:` block can constrain rate parameters:
-
-```julia
-m = @enzyme_mechanism begin
-    species: begin
-        substrates: A[C], B[N]
-        products:   P[C], Q[N]
-        enzymes:    E, EA[C], EB[N], EAB[CN], EPQ[CN], EQ[N]
-    end
-    steps: begin
-        [E, A] <--> [EA]
-        [E, B] <--> [EB]
-        [EA, B] <--> [EAB]
-        [EB, A] <--> [EAB]
-        [EAB] <--> [EPQ]
-        [EPQ] <--> [EQ, P]
-        [EQ] <--> [E, Q]
-    end
-    constraints: begin
-        k4f = k3f           # same forward rate for A binding
-        k4r = k3r           # same reverse rate for A binding
-    end
-end
-```
-
-### Allosteric (multi-subunit) enzymes — `AllostericEnzymeMechanism`
-
-Multi-subunit allosteric enzymes following the Monod-Wyman-Changeux (MWC)
-model are defined with the same `@enzyme_mechanism` macro but with a
-different top-level structure. Instead of flat `species:` and `steps:` blocks,
-you provide a `metabolites:` list and `site(...)` blocks.
-
-```julia
-# MWC homodimer: 2 identical catalytic subunits, 2 conformations (R/T),
-# 1 enzyme-level regulatory site
-m = @enzyme_mechanism begin
-    metabolites: S[C], P[C], I[X]  # all metabolites (catalytic + regulatory)
-    site(:catalytic, 2): begin      # 2 identical catalytic subunits
-        species: begin
-            substrates: S[C]
-            products:   P[C]
-            enzymes:    E_c, E_S[C], E_P[C]
-        end
+    site(:catalytic, 2): begin
         steps: begin
-            [E_c, S] ⇌ [E_S]       # K1 (R-state), K1_T (T-state auto-generated)
-            [E_c, P] ⇌ [E_P]       # K2 (R-state), K2_T (T-state auto-generated)
-            [E_S] <--> [E_P]        # k3f, k3r via Haldane
+            [E, S] ⇌ [ES]      :: EqualRT
+            [ES] <--> [EP]     :: OnlyR
+            [EP] ⇌ [E, P]      :: EqualRT
         end
     end
-    site(:regulatory, 1): begin     # 1 enzyme-level regulatory site
-        ligands: I                  # metabolites binding this site
+end
+```
+
+The two `⇌` steps mark binding events at rapid equilibrium (one
+binding constant `K` per step); the `<-->` step marks a steady-state
+catalytic interconversion (independent forward and reverse rate
+constants `kf`, `kr`). The `::EqualRT` annotation says the
+corresponding K is shared between R and T conformations; `::OnlyR`
+says the catalytic step fires only in R; and the `A::OnlyR` regulator
+means the activator binds R only.
+
+`parameters(m)` lists the names the framework needs at evaluation
+time, `rate_equation_string(m)` prints the symbolic rate equation, and
+`rate_equation(m, concs, params)` evaluates the rate numerically:
+
+```julia
+parameters(m)
+rate_equation_string(m)
+```
+
+We generate synthetic data by evaluating `rate_equation` on a grid of
+concentrations and adding multiplicative log-normal noise. Multiple
+`group` values represent independent experimental batches that share
+the same `E_total`; the framework's loss function is invariant to a
+per-group `E_total` rescaling.
+
+```julia
+using OptimizationPyCMA, Random
+Random.seed!(42)
+
+true_params = (
+    K1 = 1e-4,           # S binding K (shared R/T)
+    k2f = 100.0,         # catalytic SS forward rate (R only)
+    K3 = 1e-3,           # P binding K (shared R/T)
+    K_A_reg1 = 1e-5,     # activator binding K (R only)
+    L = 10000.0,         # conformational [T]/[R] for free enzyme
+    Keq = 2.0,
+    E_total = 1.0,
+)
+
+# Sample concentrations log-uniformly across 100x below to 100x above
+# each metabolite's K — the regime where the rate equation is informative.
+logu(K) = K * 10.0 ^ (rand() * 4 - 2)
+
+data_rows = NamedTuple[]
+for grp in 1:5
+    for _ in 1:10
+        S = logu(true_params.K1)
+        P = logu(true_params.K3)
+        A = logu(true_params.K_A_reg1)
+        v_true = rate_equation(m, (S=S, P=P, A=A), true_params)
+        v_obs = v_true * exp(0.05 * randn())   # 5% multiplicative log-normal noise
+        push!(data_rows, (group="G$grp", Rate=v_obs, S=S, P=P, A=A))
     end
 end
-
-# Rate equation: v = E_total * 2 * (N_R*(1+S/K1+P/K2) + L*N_T*(1+S/K1_T+P/K2_T))
-#                              / ((1+S/K1+P/K2)^2 + L*(1+S/K1_T+P/K2_T)^2 * (1+I/K_I_reg1))
-params = parameters(m)  # (K1, K2, k3f, K1_T, K2_T, k3f_T, L, K_I_reg1, Keq, E_total)
+data = (
+    group = [r.group for r in data_rows],
+    Rate  = [r.Rate  for r in data_rows],
+    S     = [r.S     for r in data_rows],
+    P     = [r.P     for r in data_rows],
+    A     = [r.A     for r in data_rows],
+)
 ```
 
-Key DSL rules:
-
-- `metabolites:` is **required** (declares all metabolites; atoms used for atom-balance checks)
-- Always 2 conformations (R and T states). A conformational equilibrium constant `L`
-  ([T]/[R] for bare enzyme) is auto-generated, along with T-state parameters with `_T`
-  suffix (`K1_T`, `k3f_T`, etc.) and their Haldane constraints.
-- `site(:catalytic, N)` specifies N identical catalytic subunits. The inner block uses the
-  same `species:`/`steps:`/`constraints:` syntax as `@enzyme_mechanism` for `EnzymeMechanism`.
-- `site(:regulatory, n)` specifies a regulatory binding site present on n copies of the enzyme.
-  If `n == catalytic_n` (per-subunit), it appears in both numerator and denominator. If
-  `n < catalytic_n` (enzyme-level), it appears in the denominator only. Regulatory site
-  binding constants are named `K_{ligand}_reg{i}` (R-state) and `K_{ligand}_T_reg{i}` (T-state).
-
-The same API applies as for `EnzymeMechanism`:
+The fit runs `fit_rate_equation` on a `FittingProblem`, using the PyCMA
+optimizer (multi-start CMA-ES) recommended for rate-equation fitting.
+Fitted rate constants are returned with kcat normalized to 1.0 by
+default — the absolute scale is recovered by multiplying with a
+separately measured kcat.
 
 ```julia
-parameters(m)                 # independent params + Keq + E_total
-rate_equation(m, concs, params)
-rate_equation_string(m)
-structural_identifiability_deficit(m)
-n_states(m)                   # catalytic subunit states
-metabolites(m)                # all metabolite names
+fp = FittingProblem(m, data; Keq=2.0)
+result = fit_rate_equation(fp, PyCMAOpt();
+    n_restarts=3, maxtime=5.0, popsize=50)
+result.params       # K1, K3, K_A_reg1, L recover near true.
+                    # k2f is normalized so kcat = 1.0 (its true
+                    # value 100.0 is the kcat scale).
+result.loss         # final loss value (~5% noise floor)
 ```
 
-### `@enzyme_reaction` macro
+## Recover the mechanism with `identify_rate_equation`
 
-Define an overall reaction (substrates, products, optional regulators) without
-specifying the mechanism steps. Used as input for mechanism enumeration:
+If the mechanism is unknown — only the overall reaction and its
+regulators are — `identify_rate_equation` enumerates biochemically
+valid mechanisms, fits each to the data, and returns the simplest that
+generalizes (judged by leave-one-group-out cross-validation). The same
+chemistry from Section 2, declared as a *reaction*:
 
 ```julia
 rxn = @enzyme_reaction begin
-    substrates: A[C], B[N]
-    products:   P[C], Q[N]
-    regulators: I
+    substrates: S
+    products:   P
+    regulators: A
+    oligomeric_state: 2
 end
 ```
 
-### Programmatic construction
+`regulators: A` declares `A` with an unspecified role; the search
+enumerates dead-end-inhibitor and allosteric variants and selects
+between them on cross-validation score. (If you already know `A` is
+allosteric, declare it with `allosteric_regulators: A` instead and the
+search skips dead-end variants.)
 
 ```julia
-species = (
-    ((:S, ((:C, 1),)),),       # substrates
-    ((:P, ((:C, 1),)),),       # products
-    (),                        # regulators
-    ((:E, ()), (:ES, ((:C, 1),))),  # enzyme forms
+prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+```
+
+The actual search runs `fit_rate_equation` on each candidate and is
+slow on a laptop (~1 hour on a single core with default settings;
+faster with `pmap` distributed across workers). Skip the next block
+if you just want to read along, or run it when you have time.
+
+```julia
+# README-SKIP-IN-TEST
+results = identify_rate_equation(prob;
+    optimizer=PyCMAOpt(),
+    max_param_count=10,
+    pmap_function=map,            # serial; pass `pmap` for distributed
 )
-reactions = (
-    ((:E, :S), (:ES,)),
-    ((:ES,), (:E, :P)),
-)
-
-m = EnzymeMechanism(species, reactions)
+results.best                       # the recovered mechanism
+rate_equation_string(results.best) # printed rate equation
+first(results.cv_results, 5)       # top rows of the CV-score DataFrame
 ```
 
-## Rate Equations
+`results.best` is the simplest mechanism that generalizes:
+`identify_rate_equation` first picks the parameter-count with the
+lowest CV score, then within that level picks the candidate with the
+lowest training loss. For the synthetic data we generated, the
+recovered mechanism agrees with the one we used to generate it.
 
-`rate_equation(m, concs, params)` computes the steady-state rate (net
-consumption of the first substrate, normalized by its stoichiometric
-coefficient):
+## How rate-equation derivation works
 
-- `concs`: `NamedTuple` of metabolite concentrations (`S`, `P`, ...)
-- `params`: `NamedTuple` of independent rate constants (`k1f`, `k1r`, ...),
-  `Keq` (equilibrium constant), and `E_total` (total enzyme concentration).
-  Dependent rate constants (determined by Haldane/Wegscheider constraints)
-  are computed internally and should not be included.
+### Steady-state vs rapid equilibrium
 
-Use `parameters(m)` to get the list of required parameter names.
+`<-->` denotes a steady-state (QSSA) elementary step — both the forward
+and reverse rate constants enter the rate equation as independent
+parameters, and the King-Altman determinant assembles them into the
+denominator polynomial. `⇌` denotes a rapid-equilibrium step — only the
+binding constant `K` matters, because the framework collapses the
+forward and reverse rates into a single equilibrium relation. A typical
+mechanism mixes both, and the framework handles the mixed Cha-style
+derivation automatically. `parameters(m)` reflects this: each RE step
+contributes one `K`; each SS step contributes a forward `kf` and a
+reverse `kr`.
 
-## Mechanism Enumeration
+### Haldane and Wegscheider relationships
 
-Given an `EnzymeReaction`, `enumerate_mechanisms` generates all biochemically
-valid mechanisms as a lazy iterator of `MechanismSpec` instances. Each spec
-can be converted to an `EnzymeMechanism` via `EnzymeMechanism(spec)`.
+When the mechanism contains thermodynamic cycles — any closed loop of
+binding and catalytic steps — the rate constants around the cycle are
+constrained by the equilibrium constant of the overall reaction. The
+framework detects these cycles automatically (via the null space of the
+mechanism's enzyme-form incidence matrix), declares one rate constant per
+cycle as *dependent*, and computes it from the rest plus a user-supplied
+`Keq`. You fit the *independent* rate constants; dependent constants
+are derived.
 
-```julia
-rxn = @enzyme_reaction begin
-    substrates: A[C], B[N]
-    products:   P[C], Q[N]
-end
+### Allostery: the MWC R/T model
 
-# Lazy iterator over all valid mechanisms
-iter = enumerate_mechanisms(rxn)
-length(iter)  # total count (O(1), precomputed)
+For multi-subunit enzymes, the framework uses the Monod-Wyman-Changeux
+two-state model: the enzyme exists in an active R conformation and an
+inactive T conformation, with `L = [T]/[R]` the conformational
+equilibrium for the bare enzyme and the same `L` propagating to all
+ligand-bound species. Each kinetic group (binding step, catalytic
+interconversion) can be `:OnlyR`, `:EqualRT`, or `:NonequalRT`; each
+regulatory ligand can additionally be `:OnlyT`. The four tags:
 
-for spec in iter
-    m = EnzymeMechanism(spec)
-    # use m...
-end
-```
+- `:OnlyR` — the symbol exists in R only; T-state contributions are
+  zero. A `:OnlyR` activator binds R preferentially and shifts the
+  population toward R.
+- `:OnlyT` — symbol exists in T only. A `:OnlyT` regulator binds T
+  preferentially and shifts the population toward T (a typical
+  allosteric inhibitor).
+- `:EqualRT` — same `K` (or `kf`, `kr`) in both conformations. Useful
+  for ligands that bind without conformational preference.
+- `:NonequalRT` — independent R and T parameters (`K_R`, `K_T`).
 
-### Pipeline stages
+The full rate equation is then the sum of R-state and T-state numerator
+terms, weighted by the partition function `(R-state polynomial)^n +
+L*(T-state polynomial)^n`, where `n` is the oligomeric state. The
+example mechanism above uses `:OnlyR` everywhere — the T-state
+contributions vanish and the printed rate equation simplifies
+accordingly.
 
-The enumeration runs in 8 stages:
+## How `identify_rate_equation` works
 
-| Stage | Function | Description |
-|-------|----------|-------------|
-| **1** | `_catalytic_topologies` | Build catalytic topologies from enzyme forms and valid elementary steps. |
-| **2** | `_expand_ress_variants` | Enumerate RE/SS assignments for each step. |
-| **3** | `_expand_dead_end` | Add dead-end complexes for regulators and substrate/product inhibition. |
-| **4** | `_expand_equivalence_constraints` | Add parameter equivalence constraints for steps binding the same metabolite. |
-| **5** | `_deduplicate` | Remove duplicate `MechanismSpec`s. |
-| **6** | `_expand_allosteric` | Expand allosteric regulators into MWC `AllostericMechanismSpec`s. |
-| **7** | `_expand_tr_equivalence` | Enumerate T/R parameter equivalence variants. |
-| **8** | `_deduplicate_allosteric` | Remove duplicate `AllostericMechanismSpec`s. |
+### Enumeration as composable building blocks
 
-### Enzyme forms
+Mechanism enumeration is built from three small functions, not a
+monolithic pipeline:
 
-Each binding site on the enzyme is distinguishable. A site can be:
+- `init_mechanisms(reaction)` produces the biochemically minimal
+  mechanisms for a reaction by combining catalytic topologies (orderings
+  of substrate binding, catalytic interconversion, and product release —
+  random-order, ordered, ping-pong) with subsets of dead-end inhibition
+  steps. Steps that bind the same metabolite share a kinetic group, so
+  the parameter count starts at the smallest physically meaningful
+  value.
+- `expand_mechanisms(specs, reaction)` applies a fixed set of
+  single-move expansions to each spec — converting an RE step to SS,
+  splitting a kinetic group, adding a dead-end regulator, becoming
+  allosteric, changing an allosteric state — and returns the expanded
+  candidates keyed by their estimated parameter count.
+- `dedup!(cache)` canonicalizes specs (sorted steps; renumbered kinetic
+  groups by first occurrence) and removes structural duplicates.
 
-- **Empty**: the metabolite is not bound (`atoms = nothing`)
-- **Fully occupied**: the metabolite is fully bound (`atoms = full_atoms`)
-- **Residual** (ping-pong only): partial atom content remains after a product
-  has been released from the substrate site
+The enumeration is grounded in chemical reasoning rather than blind
+combinatorics: a step is "elementary" only if it changes one binding
+site by one event with atom balance preserved, and only catalytic
+topologies that satisfy bounds on bound-metabolite count, isomerization
+size, and substrate participation are emitted.
 
-For example, in a Bi-Bi ping-pong reaction `A[CX], B[N] → P[C], Q[NX]`:
+### Beam search across parameter counts
 
-| Form | A-site | B-site | P-site | Q-site | Description |
-|------|--------|--------|--------|--------|-------------|
-| `E` | — | — | — | — | Free enzyme |
-| `E_A` | `[C,X]` | — | — | — | A bound |
-| `E_A_B` | `[C,X]` | `[N]` | — | — | Both substrates bound (ternary complex) |
-| `E_X` | `[X]` | — | — | — | Free intermediate (residual from A after P released) |
-| `E_X_B` | `[X]` | `[N]` | — | — | Intermediate with B bound |
-| `E_X_P` | `[X]` | — | `[C]` | — | Intermediate before P release |
+`identify_rate_equation` walks parameter counts in ascending order:
 
-### Allowed elementary steps
+1. Fit all candidates at the smallest parameter count on the full
+   data; record training loss.
+2. Keep the top fraction by training loss (at least
+   `min_beam_width` candidates, or all of them if there are
+   fewer than that).
+3. Apply `expand_mechanisms` to surviving specs to produce candidates
+   at the next parameter-count level.
+4. `dedup!` and fit; rank by training loss.
+5. Repeat until no new candidates appear or `max_param_count` is
+   reached.
 
-An elementary step connects two enzyme forms that differ by exactly one event.
-The `edge_class` function classifies each valid transition:
+The beam width balances coverage (more candidates explored) against
+runtime (every kept candidate gets a multi-restart fit).
 
-| Step type | Rule | Example |
-|-----------|------|---------|
-| **Binding** | Exactly one site changes from empty to fully occupied. All other sites unchanged. | `E → E_A` (A binds) |
-| **Release** | Exactly one site changes from occupied (full or residual) to empty. All other sites unchanged. For residual sites, the released metabolite is identified by matching the residual atoms to a product's atom signature. | `E_A → E + A` (full release), `E_X → E` (residual release) |
-| **Isomerization** | Two or more core sites change simultaneously, with total atom balance preserved. Two sub-types: | |
-| — *Standard* | All substrate sites switch to products (or vice versa). Every core site must differ between the two forms. No substrate site may remain occupied. | `E_A_B → E_P_Q` |
-| — *Ping-pong* | A substrate site undergoes partial transformation (producing a residual). Non-differing substrate sites may remain occupied. Only total atom balance across all core sites is required. | `E_A → E_X_P` (A partially transforms, P appears) |
+### Model selection by leave-one-group-out cross-validation
 
-**Invalid transitions** (no elementary step exists):
-
-- Two or more sites change but atom balance is violated
-- A substrate site goes from one partial occupancy to another without a matching
-  product change
-- A regulatory or extra site changes simultaneously with a core site
-- A site changes from full to residual without a corresponding product appearance
-  (residual can only appear via isomerization)
-
-### Pure topology filter
-
-After combining individual cycles into multi-cycle topologies, a purity filter
-removes biochemically implausible hybrids. A topology must be either:
-
-- **Pure sequential**: no residual forms at all. The enzyme follows a standard
-  ternary-complex pathway where all substrates bind before products are released.
-- **Pure ping-pong**: has a free enzyme intermediate (a form carrying only
-  residual atoms with all other core sites empty) AND does **not** contain the
-  all-substrates-fully-bound form (ternary complex).
-
-Topologies that mix both patterns — e.g., having both a ternary complex and
-a residual intermediate, or having residuals without a free intermediate — are
-rejected. These hybrids are biochemically implausible because ping-pong enzymes
-by definition release the first product before the second substrate binds.
-
-### Ping-pong catalytic cycle example
-
-The classic Bi-Bi ping-pong mechanism (`A[CX], B[N] → P[C], Q[NX]`):
-
-```
-E + A ⇌ E_A ↔ E_X_P ⇌ E_X + P
-                         ↓
-                    E_X + B ⇌ E_X_B ↔ E_Q ⇌ E + Q
-```
-
-Key features:
-- `E_A ↔ E_X_P` is a ping-pong isomerization: A partially transforms, P appears
-  on the enzyme, residual X remains on the A-site
-- `E_X_P → E_X + P` releases the first product
-- `E_X` is the free intermediate (only residual X, everything else empty)
-- `E_X_B ↔ E_Q` is another isomerization: X and B combine to form Q
-- The ternary complex `E_A_B` never appears in this cycle
-
-## Querying a Mechanism
-
-Mechanisms are validated at construction (elementary-step structure, atomic
-conservation, regulator balance). There is no separate `validate` API.
-
-```julia
-substrates(m)              # substrates with stoichiometric multiplicity
-products(m)                # products with stoichiometric multiplicity
-regulators(m)              # regulators
-enzyme_forms(m)            # distinct enzyme states
-metabolites(m)             # distinct metabolite names as Symbols
-reactions(m)               # reaction steps as tuples of (lhs, rhs)
-n_states(m)                # number of enzyme states
-n_steps(m)                 # number of mechanism steps
-graph(m)                   # (SimpleDiGraph, enzyme_forms)
-stoich_matrix(m)           # metabolites x steps matrix
-parameters(m)              # independent k's + Keq + E_total (Reduced mode)
-parameters(m, Full)        # all 2N k's + E_total
-rate_equation_string(m)    # human-readable rate equation
-```
-
-## Identifiability
-
-```julia
-structural_identifiability_deficit(m)  # deficit (<=0 means identifiable)
-```
-
-## Parameter Fitting
-
-```julia
-fp = FittingProblem(m, data_table; Keq=5.0)
-result = fit_rate_equation(fp, optimizer; n_restarts=10, maxtime=60.0)
-```
-
-The data table must have columns `group` (identifies measurement groups sharing
-the same `E_total`), `Rate`, and one column per metabolite in `metabolites(m)`.
-Fitting operates in log-space on the independent rate constants from
-`parameters(m)` (excluding `Keq` and `E_total`). Cross-validation is
-leave-one-group-out.
-
-## Parameter Rescaling
-
-`rescale_parameter_values` normalizes steady-state rate constants so that
-kcat equals a target value (default 1.0), while leaving binding constants
-(K's), Keq, E_total, and other non-rate-constant parameters unchanged:
-
-```julia
-params = (k1f=3.2, k2f=2.5, k2r=1.1, Keq=5.0, E_total=1.0)
-normalized = rescale_parameter_values(m, params)
-# Now kcat(normalized) ≈ 1.0, all K's unchanged
-
-# Custom target:
-normalized_42 = rescale_parameter_values(m, params; kcat=42.0)
-```
-
-This separates scale (Vmax = kcat × E_total) from shape (binding constants,
-rate constant ratios). To recover true physical rate constants from an
-independently measured kcat:
-
-```julia
-# k_true = kcat_measured * k_normalized
-# (uniform scaling preserves all K's and k-ratios)
-```
-
-This works for all mechanism types — ordered, random-binding, and ping-pong
-— because King-Altman denominators have uniform k-degree, making
-v/(E_total × kcat) automatically scale-invariant.
-
-## API Reference
-
-### Types
-
-| Type | Description |
-|------|-------------|
-| `EnzymeReaction{S,P,R}` | Overall reaction specification (substrates, products, regulators encoded in type parameters). |
-| `EnzymeMechanism{Species,Reactions,EquilibriumSteps,ParamConstraints}` | Full mechanism with species, elementary steps, RE/SS flags, and parameter constraints encoded in type parameters. |
-| `AllostericEnzymeMechanism{Mets,CatalyticMech,CatSites,RegSites}` | Multi-subunit allosteric enzyme under the MWC model (always 2 conformations). `CatalyticMech` is the `EnzymeMechanism` of one subunit; `CatSites` is `(catalytic_mets, multiplicity, tr_equiv_mets)`; `RegSites` describes regulatory binding sites with TR equivalence info. |
-| `MechanismSpec` | Lightweight runtime description of a mechanism. Convert to `EnzymeMechanism` via `EnzymeMechanism(spec)`. |
-| `FittingProblem` | Wraps a mechanism + data table for parameter fitting. |
-
-### Macros
-
-| Macro | Description |
-|-------|-------------|
-| `@enzyme_reaction` | Create an `EnzymeReaction` from a DSL block. |
-| `@enzyme_mechanism` | Create an `EnzymeMechanism` from species + steps DSL blocks. |
-
-### Functions
-
-| Function | Description |
-|----------|-------------|
-| `rate_equation(m, concs, params)` | Compiled QSSA rate equation. Zero allocations. |
-| `rate_equation_string(m)` | Human-readable rate equation string. |
-| `parameters(m)` | Parameter names for the default (`Reduced`) mode. |
-| `parameters(m, Full)` | All raw rate constant names + `E_total`. |
-| `structural_identifiability_deficit(m)` | Identifiability deficit (non-positive = identifiable). |
-| `FittingProblem(m, table; Keq)` | Construct a fitting problem from mechanism + data. |
-| `fit_rate_equation(fp, optimizer; ...)` | Fit rate constants via multi-start optimization. |
-| `rescale_parameter_values(m, params; kcat=1.0)` | Rescale SS rate constants so kcat equals target. K's, Keq, E_total unchanged. |
-| `enumerate_mechanisms(rxn; max_forms)` | Lazy iterator over all valid mechanisms for a reaction. |
-| `substrates(m)` | Substrates (with stoichiometric multiplicity). |
-| `products(m)` | Products (with stoichiometric multiplicity). |
-| `regulators(m)` | Regulators. |
-| `enzyme_forms(m)` | Distinct enzyme states. |
-| `metabolites(m)` | Distinct metabolite names as a tuple of Symbols. |
-| `reactions(m)` | Reaction steps as `(lhs, rhs)` tuples. |
-| `n_states(m)` | Number of enzyme states. |
-| `n_steps(m)` | Number of mechanism steps. |
-| `graph(m)` | Enzyme-form connectivity graph. |
-| `stoich_matrix(m)` | Stoichiometry matrix (metabolites x steps). |
-
-## Known Limitations
-
-**`rate_equation` compilation for large mechanisms**: Because each
-`EnzymeMechanism` encodes its full structure in type parameters, calling
-`rate_equation` on a new mechanism triggers compile-time symbolic derivation
-via `@generated` functions. For mechanisms with many enzyme forms and steps
-(e.g., Bi-Bi reactions with multiple regulators), this compilation can be
-very slow, exhaust memory, or StackOverflow. Simple mechanisms (Uni-Uni,
-ordered Bi-Bi without regulators) compile in seconds; complex mechanisms with
-10+ enzyme forms may hit compiler limits.
-
-## Running Tests
-
-```julia
-] test EnzymeRates
-```
+After beam search, the top `n_cv_candidates` mechanisms per parameter
+count enter LOOCV. Each unique value of the `group` column defines one
+fold: the mechanism is fit on every group except one, then evaluated on
+the held-out group. The CV score is the mean held-out loss across
+folds. The "best" mechanism is the one with minimum training loss at
+the parameter count whose CV score is lowest — *the simplest mechanism
+that generalizes*. The `group` column reflects experimental batches
+that share an `E_total`; LOOCV respects this structure and gives an
+honest estimate of generalization to new conditions.

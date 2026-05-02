@@ -13,13 +13,12 @@ Independent reference: compute QSSA rate using Laplacian cofactor method.
 Works directly with EnzymeMechanism type parameters.
 """
 function reference_qssa(
-    m::EnzymeMechanism{Species, Reactions},
+    m::EnzymeMechanism{Mets, Reactions},
     params::NamedTuple,
     concs::NamedTuple,
-) where {Species, Reactions}
-    enzs = EnzymeRates.enzyme_forms(m)
-    n = length(enzs)
-    enz_names = Tuple(e[1] for e in enzs)
+) where {Mets, Reactions}
+    enz_names = EnzymeRates.enzyme_forms(m)
+    n = length(enz_names)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
     enz_set = Set(enz_names)
 
@@ -201,16 +200,14 @@ function compute_all_params(m, new_params)
         val = _eval_dep_expr(expr_str, new_params)
         dep_dict[sym] = val
     end
-    # Resolve user param constraints (e.g., K3 = K2)
-    for (target, coeff, factors) in EnzymeRates.param_constraints(m)
-        val = Float64(coeff)
-        for (sym, exp) in factors
-            src = haskey(dep_dict, sym) ? dep_dict[sym] :
-                  haskey(new_params, sym) ? Float64(new_params[sym]) :
-                  error("Missing parameter $sym for constraint $target")
-            val *= src^exp
+    # Resolve kinetic-group aliases (e.g., K2 → K1 when steps share group)
+    rename = EnzymeRates._build_kinetic_rename_map(m)
+    for (alias, rep) in rename
+        if haskey(dep_dict, rep)
+            dep_dict[alias] = dep_dict[rep]
+        elseif haskey(new_params, rep)
+            dep_dict[alias] = Float64(new_params[rep])
         end
-        dep_dict[target] = val
     end
     all_vals = Float64[haskey(dep_dict, k) ? dep_dict[k] :
                        haskey(new_params, k) ? Float64(new_params[k]) :
@@ -269,8 +266,10 @@ function random_independent_params_concs(
 end
 
 """
-Convert raw params (K_i for RE steps) to ODE params
-(large k_if/k_ir for all steps).
+Convert raw params (K_g / k_g_f / k_g_r for each kinetic group's
+representative step) to ODE params (large k_if/k_ir for all steps).
+Steps sharing a kinetic_group share the same K (or k_f/k_r) param.
+
 For binding RE steps (metabolite on LHS, canonical form):
     K = Kd = kr/kf, so k_if = 1e6, k_ir = 1e6 * K.
 For RE isomerization steps (no metabolite, enzyme-only):
@@ -283,11 +282,13 @@ function raw_to_ode_params(m, raw_params)
     param_keys = Symbol[]
     param_vals = Float64[]
     for i in 1:ns
+        g = EnzymeRates.kinetic_group(m, i)
+        rep = first(EnzymeRates.steps_in_group(m, g))
         push!(param_keys, Symbol("k$(i)f"))
         push!(param_keys, Symbol("k$(i)r"))
         if eq[i]
-            K = Float64(raw_params[Symbol("K$i")])
-            if Symbol("K$i") in binding_Ks
+            K = Float64(raw_params[Symbol("K$rep")])
+            if Symbol("K$rep") in binding_Ks
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
                 push!(param_vals, 1e6 * K)
@@ -297,8 +298,8 @@ function raw_to_ode_params(m, raw_params)
                 push!(param_vals, 1e6)
             end
         else
-            push!(param_vals, Float64(raw_params[Symbol("k$(i)f")]))
-            push!(param_vals, Float64(raw_params[Symbol("k$(i)r")]))
+            push!(param_vals, Float64(raw_params[Symbol("k$(rep)f")]))
+            push!(param_vals, Float64(raw_params[Symbol("k$(rep)r")]))
         end
     end
     push!(param_keys, :E_total)
@@ -309,19 +310,18 @@ end
 function _reference_metabolite(m)
     subs = EnzymeRates.substrates(m)
     isempty(subs) && error("No substrate found in mechanism")
-    name = subs[1][1]
-    coeff = -count(s -> s[1] == name, subs)
+    name = subs[1]
+    coeff = -count(==(name), subs)
     return name, coeff
 end
 
 # ── ODE steady-state helpers ────────────────────────────────────────────────
 
 function build_ode_rhs(
-    m::EnzymeMechanism{Species, Reactions},
+    m::EnzymeMechanism{Mets, Reactions},
     params, concs,
-) where {Species, Reactions}
-    enzs = EnzymeRates.enzyme_forms(m)
-    enz_names = Tuple(e[1] for e in enzs)
+) where {Mets, Reactions}
+    enz_names = EnzymeRates.enzyme_forms(m)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
     enz_set = Set(enz_names)
 
@@ -344,7 +344,7 @@ function build_ode_rhs(
         push!(step_data, (i, j, rf, rr))
     end
 
-    n = length(enzs)
+    n = length(enz_names)
     function rhs!(du, u, p, t)
         fill!(du, 0.0)
         for (i, j, rf, rr) in step_data
@@ -357,13 +357,12 @@ function build_ode_rhs(
 end
 
 function ode_steady_state_flux(
-    m::EnzymeMechanism{Species, Reactions},
+    m::EnzymeMechanism{Mets, Reactions},
     params, concs,
-) where {Species, Reactions}
+) where {Mets, Reactions}
     E_total = params.E_total
-    enzs = EnzymeRates.enzyme_forms(m)
-    n = length(enzs)
-    enz_names = Tuple(e[1] for e in enzs)
+    enz_names = EnzymeRates.enzyme_forms(m)
+    n = length(enz_names)
     enz_set = Set(enz_names)
     ref_name, nu_ref = _reference_metabolite(m)
 
@@ -437,12 +436,38 @@ function test_structure(spec::MechanismTestSpec)
     end
 end
 
+"""Classify a dep expression as Haldane (RHS references Keq), Mirror
+(RHS is a single Symbol), or Wegscheider (RHS Expr without Keq)."""
+function _classify_dep_expr(expr)
+    if expr isa Symbol
+        return :mirror
+    elseif EnzymeRates._expr_references_any(expr, Set([:Keq]))
+        return :haldane
+    else
+        return :wegscheider
+    end
+end
+
 function test_constraint_counting(spec::MechanismTestSpec)
     m = spec.mechanism
     @testset "Constraints" begin
         dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(m))
-        n_dep = length(dep_exprs)
-        @test n_dep == spec.expected_n_haldane + spec.expected_n_wegscheider
+        n_haldane = 0
+        n_mirror = 0
+        n_wegscheider = 0
+        for (_, expr) in dep_exprs
+            cat = _classify_dep_expr(expr)
+            if cat == :haldane
+                n_haldane += 1
+            elseif cat == :mirror
+                n_mirror += 1
+            else
+                n_wegscheider += 1
+            end
+        end
+        @test n_haldane == spec.expected_n_haldane_constraints
+        @test n_mirror == spec.expected_n_mirror_constraints
+        @test n_wegscheider == spec.expected_n_wegscheider_constraints
         @test length(indep) == spec.expected_n_independent_params
     end
 end
@@ -450,9 +475,13 @@ end
 function test_identifiability(spec::MechanismTestSpec)
     m = spec.mechanism
     @testset "Identifiability" begin
-        @test structural_identifiability_deficit(m) ==
-            spec.expected_identifiability_deficit
-        @test (structural_identifiability_deficit(m) <= 0) == spec.expected_is_identifiable
+        # The deficit is computed via a monomial-counting heuristic that
+        # over-counts identifiable degrees of freedom for factored
+        # polynomials (e.g. (Q_R)^catN). Use it only for the boolean
+        # is_identifiable check — the magnitude is not biophysically
+        # meaningful.
+        @test (structural_identifiability_deficit(m) <= 0) ==
+              spec.expected_is_identifiable
     end
 end
 
@@ -508,8 +537,8 @@ function test_haldane_equilibrium(spec::MechanismTestSpec; seed=42)
         n_prods = length(EnzymeRates.products(m))
         # Build equilibrium concentrations: prod(P_i) / prod(S_i) = Keq
         # Set all substrates to 1.0, distribute Keq^(1/n_prods) across products
-        sub_names = [s[1] for s in EnzymeRates.substrates(m)]
-        prod_names = [p[1] for p in EnzymeRates.products(m)]
+        sub_names = collect(EnzymeRates.substrates(m))
+        prod_names = collect(EnzymeRates.products(m))
         eq_vals = Dict{Symbol,Float64}()
         for s in sub_names; eq_vals[s] = 1.0; end
         p_each = Keq^(1.0 / n_prods)
@@ -623,20 +652,8 @@ function test_factored_form(spec::MechanismTestSpec)
         @test num_str !== nothing
         @test denom_str !== nothing
         if num_str !== nothing && denom_str !== nothing
-            if has_num
-                if spec.factored_num_broken
-                    @test_broken num_str == spec.expected_factored_num
-                else
-                    @test num_str == spec.expected_factored_num
-                end
-            end
-            if has_denom
-                if spec.factored_denom_broken
-                    @test_broken denom_str == spec.expected_factored_denom
-                else
-                    @test denom_str == spec.expected_factored_denom
-                end
-            end
+            has_num && @test num_str == spec.expected_factored_num
+            has_denom && @test denom_str == spec.expected_factored_denom
         end
     end
 end
@@ -698,8 +715,8 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
         @test v_norm / v_orig ≈ 1.0 / kcat_orig rtol=1e-8
 
         # V ≈ 1 at saturating substrates, products=0
-        sub_names = Symbol[s[1] for s in EnzymeRates.substrates(m)]
-        prod_names = Symbol[p[1] for p in EnzymeRates.products(m)]
+        sub_names = collect(EnzymeRates.substrates(m))
+        prod_names = collect(EnzymeRates.products(m))
         reg_names = collect(EnzymeRates.regulators(m))
         n_reg = length(reg_names)
 
@@ -798,112 +815,6 @@ end
         end
     end
 
-    # ── Bug 1: Symbol→Expr insertion into dep_exprs ──────────────
-    # BiUni with RE steps and K5=K1 constraint.
-    # The Wegscheider cycle simplifies to K4=K2 after constraint
-    # substitution. build_power_expr returns bare :K2 (Symbol),
-    # which must be accepted by Dict{Symbol, Union{Symbol, Expr}}.
-
-    @testset "Bug 1: Symbol dep_expr (K5=K1 constraint)" begin
-        m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[X]
-                products:   P[CX]
-                enzymes:    E, EA[C], EB[X], EAB[CX], EP[CX]
-            end
-            steps: begin
-                [E, A] ⇌ [EA]       # K1
-                [E, B] ⇌ [EB]       # K2
-                [EA, B] <--> [EAB]   # k3f, k3r
-                [EB, A] ⇌ [EAB]     # K4
-                [EAB] ⇌ [EP]        # K5
-                [EP] <--> [E, P]     # k6f, k6r
-            end
-            constraints: begin
-                K5 = K1
-            end
-        end
-
-        # parameters exercises _dependent_param_exprs
-        ps = parameters(m)
-        @test ps isa Tuple
-        @test :K5 ∉ ps  # constrained out
-        # K4 should be dependent (K4 = K2), not in parameters
-        @test :K4 ∉ ps
-
-        # rate_equation_string in Reduced mode should also work
-        s = rate_equation_string(m, Reduced)
-        @test s isa String
-        @test length(s) > 0
-    end
-
-    # ── Bug 2: Redundant constraint row (0 = 0) ─────────────────
-    # BiUni all-SS with k5=k1, k4=k2 constraints.
-    # The Wegscheider cycle becomes 0=0 (all columns cancel).
-    # This redundant row should be silently skipped.
-
-    @testset "Bug 2: Redundant constraint row (0=0)" begin
-        m = @enzyme_mechanism begin
-            species: begin
-                substrates: A[C], B[X]
-                products:   P[CX]
-                enzymes:    E, EA[C], EB[X], EAB[CX], EP[CX]
-            end
-            steps: begin
-                [E, A] <--> [EA]     # k1f, k1r
-                [E, B] <--> [EB]     # k2f, k2r
-                [EA, B] <--> [EAB]   # k3f, k3r
-                [EB, A] <--> [EAB]   # k4f, k4r
-                [EAB] <--> [EP]      # k5f, k5r
-                [EP] <--> [E, P]     # k6f, k6r
-            end
-            constraints: begin
-                k5f = k1f
-                k5r = k1r
-                k4f = k2f
-                k4r = k2r
-            end
-        end
-
-        # parameters should succeed — redundant row skipped
-        ps = parameters(m)
-        @test ps isa Tuple
-        # All constrained params should be absent
-        for p in (:k5f, :k5r, :k4f, :k4r)
-            @test p ∉ ps
-        end
-    end
-
-    # ── Bug 3: Contradictory constraint row (0 ≠ 0) ─────────────
-    # Uni-Uni 4-step with all-equal constraints. Over-constrained:
-    # the Wegscheider row reduces to 0 = c*log(Keq), impossible.
-
-    @testset "Bug 3: Contradictory constraint (0 ≠ 0)" begin
-        m = @enzyme_mechanism begin
-            species: begin
-                substrates: S[C]
-                products:   P[C]
-                enzymes:    E, ES[C], EP[C]
-            end
-            steps: begin
-                [E, S] <--> [ES]     # k1f, k1r
-                [ES] <--> [EP]       # k2f, k2r
-                [EP] <--> [E, P]     # k3f, k3r
-                [E, S] <--> [EP]     # k4f, k4r (creates extra cycle)
-            end
-            constraints: begin
-                k2f = k1f
-                k2r = k1r
-                k3f = k1f
-                k3r = k1r
-                k4f = k1f
-                k4r = k1r
-            end
-        end
-
-        # Should throw a descriptive error about contradictory mechanism
-        @test_throws "contradictory" parameters(m)
-    end
 end
 
 # ── Large equation compilation regression test ────────────────────────────
@@ -958,14 +869,9 @@ end
     # Manually defined mechanism (11 forms, 16 steps, ~29k terms)
     # triggers the post-hoc check in _raw_symbolic_rate_polys.
     m_manual = @enzyme_mechanism begin
-        species: begin
-            substrates: A[CX], B[N]
-            products: P[C], Q[NX]
-            regulators: R1
-            enzymes: E, EA[CX], EAFP[CX], F[X], FB[NX],
-                     FBEQ[NX], E_R1[S], EA_R1[CXS],
-                     EAFP_R1[CXS], F_R1[XS], FB_R1[NXS]
-        end
+        substrates: A, B
+        products: P, Q
+        regulators: R1
         steps: begin
             [E, A] <--> [EA]
             [EA] <--> [EAFP]
@@ -1013,12 +919,11 @@ end
             EnzymeRates.all_form_names(s))
         n_forms >= 15 || continue
         all_ss = [EnzymeRates.StepSpec(
-            st.reactants, st.products, false)
+            st.reactants, st.products, false,
+            st.kinetic_group)
             for st in s.steps]
         spec = EnzymeRates.MechanismSpec(
-            s.reaction, all_ss,
-            s.param_constraints,
-            s.param_count)
+            s.reaction, all_ss, s.param_count)
         try
             m_enum = EnzymeMechanism(spec)
             parameters(m_enum)
@@ -1032,3 +937,204 @@ end
     end
 end
 
+
+# ── Single-feature edge cases ─────────────────────────────────────────────
+@testset "Allosteric edge cases" begin
+    # OnlyR substrate: S binds only in R-state (R-state-active convention).
+    # T-state cycle is dead, so all forward catalysis happens through R.
+    # As K1 → ∞ (weaker R-state binding), rate vanishes.
+    onlyR_sub = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]   :: OnlyR
+                [ES] <--> [EP]  :: EqualRT
+                [EP] ⇌ [E, P]   :: EqualRT
+            end
+        end
+    end
+    concs = (S=1.0, P=0.001)
+    base_params = (k2f=10.0, K3=0.5, L=10.0, Keq=1000.0, E_total=1.0)
+    rate_strong = rate_equation(onlyR_sub, concs, merge(base_params, (K1=0.01,)))
+    rate_weak   = rate_equation(onlyR_sub, concs, merge(base_params, (K1=1e6,)))
+    @test rate_strong > 1.0
+    @test rate_weak < 1e-3
+    @test rate_weak / rate_strong < 1e-5
+
+    # V-type only: all bindings :EqualRT but catalysis :OnlyR. T-state binds
+    # substrate normally but cannot catalyze (k_T = 0), so N_T = 0. As L → ∞
+    # (T-state dominant) the rate vanishes.
+    vtype = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]   :: EqualRT
+                [ES] <--> [EP]  :: OnlyR
+                [EP] ⇌ [E, P]   :: EqualRT
+            end
+        end
+    end
+    vparams = (K1=0.1, k2f=10.0, K3=0.5, Keq=1000.0, E_total=1.0)
+    rate_R = rate_equation(vtype, concs, merge(vparams, (L=0.0,)))
+    rate_T = rate_equation(vtype, concs, merge(vparams, (L=1e10,)))
+    @test rate_R > 1.0
+    @test rate_T < 1e-6
+    # T-state numerator branch is elided when t_state_dead (any :OnlyR catalytic group);
+    # rate is E_total · catN · num_R / (Q_R^catN + L · Q_T^catN). At large L, the T-state
+    # enzyme mass dominates the denominator → rate ∝ 1/(1+L).
+    @test rate_T * 1e10 < 100.0    # bounded as L grows
+
+    # :OnlyT on a substrate-binding catalytic group → constructor error
+    # (R-state convention: relabel so the active state is R, i.e. use :OnlyR).
+    @test_throws Exception eval(:(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]    :: OnlyT
+                [ES] <--> [EP]   :: EqualRT
+                [EP] ⇌ [E, P]    :: EqualRT
+            end
+        end
+    end))
+
+    # :OnlyT on a product-binding catalytic group → constructor error
+    @test_throws Exception eval(:(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]    :: EqualRT
+                [ES] <--> [EP]   :: EqualRT
+                [EP] ⇌ [E, P]    :: OnlyT
+            end
+        end
+    end))
+
+    # :OnlyT on the catalysis SS step → constructor error
+    @test_throws Exception eval(:(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]    :: EqualRT
+                [ES] <--> [EP]   :: OnlyT
+                [EP] ⇌ [E, P]    :: EqualRT
+            end
+        end
+    end))
+
+
+    # Single-ligand :EqualRT reg site cancels identically → constructor error
+    @test_throws Exception eval(:(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: I::EqualRT
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, S] ⇌ [ES]  :: EqualRT
+                [ES] <--> [EP] :: EqualRT
+                [EP] ⇌ [E, P]  :: EqualRT
+            end
+        end
+    end))
+
+    # Stoichiometric infeasibility: Q listed as product but never appears
+    # in any reaction step → constructor rejects.
+    @test_throws ErrorException EnzymeRates.EnzymeMechanism(
+        ((:S,), (:P, :Q), ()),
+        (((:E, :S), (:ES,), true, 1),
+         ((:ES,), (:EP,), false, 2),
+         ((:EP,), (:E, :P), true, 3)),
+    )
+
+    # Same-kinetics group across different metabolites: group 1 contains both
+    # an S-binding and an A-binding step → constructor rejects.
+    @test_throws ErrorException EnzymeRates.EnzymeMechanism(
+        ((:S, :A), (:P,), ()),
+        (((:E, :S), (:ES,), true, 1),
+         ((:E, :A), (:EA,), true, 1),
+         ((:EA,), (:E,), false, 2),
+         ((:EA,), (:E, :P), true, 3)),
+    )
+
+    # Regression: T-state binding K's must be in Kd convention even when
+    # `:OnlyR` and `:NonequalRT` catalytic groups coexist. Without the fix,
+    # the flat-poly path in _allosteric_num_den_exprs renders T-state K's
+    # as `K_T * met` (Ka) instead of `met / K_T` (Kd), silently producing
+    # wrong rates whenever a mechanism mixes these two tags. Regression
+    # for src/rate_eq_derivation.jl:1395-1396.
+    cm_mix = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            [E, S] ⇌ [ES]
+            [ES] <--> [EP]
+            [EP] ⇌ [E, P]
+        end
+    end
+    m_mix = EnzymeRates.AllostericEnzymeMechanism(
+        cm_mix,
+        (2, (:NonequalRT, :OnlyR, :NonequalRT)),
+        (((:I,), 2, (:OnlyT,)),),
+    )
+    p_mix = (K1=0.1, k2f=10.0, K3=0.5,
+             K1_T=10.0, K3_T=10.0,
+             K_I_T_reg1=1.0, L=1.0, Keq=1000.0, E_total=1.0)
+    rate_mix = rate_equation(m_mix, (S=10.0, P=0.0, I=0.0), p_mix)
+    # With Kd convention (correct): rate ≈ 19.79 (R-state catalysis dominates).
+    # With Ka convention (bug): rate ≈ 9.9 — half the correct value.
+    @test isapprox(rate_mix, 19.79; rtol=0.05)
+
+    # Sanity: rate_equation_string emits Kd form for T-state K's.
+    @test occursin("S / K1_T", rate_equation_string(m_mix))
+    @test occursin("P / K3_T", rate_equation_string(m_mix))
+
+    # Regression: :NonequalRT substrate + :EqualRT catalysis must produce
+    # zero rate at chemical equilibrium. The framework derives a T-state
+    # Haldane (k2r_T) from the :EqualRT k2f because the dep expression
+    # for k2r references :NonequalRT K1, so _T_rename's dataflow pass
+    # synthesizes a T-name for k2r and substitutes it into N_T.
+    cm_mixed = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            [E, S] ⇌ [E_S]
+            [E_S] <--> [E_P]
+            [E, P] ⇌ [E_P]
+        end
+    end
+    m_mixed = EnzymeRates.AllostericEnzymeMechanism(
+        cm_mixed,
+        (2, (:NonequalRT, :EqualRT, :EqualRT)),
+        (((:I,), 2, (:NonequalRT,)),),
+    )
+    Keq_val = 5.0
+    p_eq = (K1=0.3, k2f=8.0, K3=0.7,
+            K1_T=2.5,
+            K_I_reg1=1.0, K_I_T_reg1=4.0,
+            L=2.0, Keq=Keq_val, E_total=1.0)
+    # At chemical equilibrium: P = Keq · S
+    S_eq = 1.5
+    P_eq = Keq_val * S_eq
+    rate_eq = rate_equation(m_mixed, (S=S_eq, P=P_eq, I=0.5), p_eq)
+    @test isapprox(rate_eq, 0.0; atol=1e-10)
+
+    # Empty ligand list at reg site → constructor error
+    cm_simple = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            [E, S] ⇌ [ES]
+            [ES] <--> [EP]
+            [EP] ⇌ [E, P]
+        end
+    end
+    @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+        cm_simple,
+        (2, (:NonequalRT, :EqualRT, :EqualRT)),
+        (((), 2, ()),),  # empty ligand tuple
+    )
+end

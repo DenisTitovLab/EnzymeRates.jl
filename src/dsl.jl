@@ -142,26 +142,6 @@ function _regulator_tuple_to_symbols(species_tuple::Expr)
     result
 end
 
-function _parse_species_block(block)
-    valid = Set([:substrates, :products, :regulators, :enzymes])
-    parsed = _parse_labeled_block(block, valid)
-
-    haskey(parsed, :substrates) || error("substrates not specified in species block")
-    haskey(parsed, :products) || error("products not specified in species block")
-    haskey(parsed, :enzymes) || error("enzymes not specified in species block")
-    subs = parsed[:substrates]
-    prods = parsed[:products]
-    regs = get(parsed, :regulators, nothing)
-    if regs === nothing
-        regs = Expr(:tuple)
-    else
-        regs = _regulator_tuple_to_symbols(regs)
-    end
-    enzs = parsed[:enzymes]
-
-    return Expr(:tuple, subs, prods, regs, enzs)
-end
-
 function _parse_step_side_symbols(expr)
     if expr isa Expr && expr.head == :vect
         syms = Expr(:tuple)
@@ -179,338 +159,501 @@ end
 
 """
     @enzyme_mechanism begin
-        species: begin
-            substrates: S[C]
-            products:   P[C]
-            regulators: I
-            enzymes:    E, ES[C]
-        end
+        substrates: S
+        products:   P
+        regulators: I
+
         steps: begin
-            [E, S] <--> [ES]
-            [ES] <--> [E, P]
+            ([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])    # parenthesized → shared kinetics
+            [ES, I] ⇌ [ESI]                      # dead-end
+            [ES]   <--> [EP]
+            [EP]   ⇌    [E, P]
         end
     end
 
-Create an `EnzymeMechanism` from explicit species and step definitions.
-Species atoms use chemical formula bracket syntax: `S[C6H12O6]`. Bare symbols
-(no brackets) are allowed when all metabolites omit atoms. Regulators are
-plain symbol names (no atoms).
-Steps use the `<-->` arrow.
+Build a plain (non-allosteric) `EnzymeMechanism`.
+- `substrates:`, `products:`, `regulators:` accept comma-separated bare symbols.
+  Atom brackets (e.g. `S[C]`) are rejected.
+- No `enzymes:` block (forms inferred from steps).
+- No `constraints:` block — same-kinetics groups are expressed via parenthesized
+  step-groups.
+- Allosteric-only constructs (`site(...)` / `::Tag` / `allosteric_regulators:` /
+  `catalytic_inhibitors:`) are rejected.
 """
-# Decompose a constraint RHS expression into (coeff::Int, factors_tuple_expr).
-# Handles: symbols, `a * b`, `a / b`, integer literals, and combinations.
-function _parse_constraint_rhs(expr)
-    factors = Dict{Symbol,Int}()
-    coeff = Ref(1)
-    _walk_rhs!(expr, factors, coeff, 1)
-    factors_expr = Expr(:tuple)
-    for (sym, exp) in factors
-        push!(factors_expr.args, Expr(:tuple, QuoteNode(sym), exp))
-    end
-    coeff[], factors_expr
-end
-
-function _walk_rhs!(expr, factors::Dict{Symbol,Int}, coeff::Ref{Int}, sign::Int)
-    if expr isa Symbol
-        factors[expr] = get(factors, expr, 0) + sign
-    elseif expr isa Integer
-        sign > 0 || error("Integer divisors not supported in constraints")
-        coeff[] *= expr
-    elseif expr isa Expr && expr.head == :call
-        op = expr.args[1]
-        if op == :*
-            for i in 2:length(expr.args)
-                _walk_rhs!(expr.args[i], factors, coeff, sign)
-            end
-        elseif op == :/
-            _walk_rhs!(expr.args[2], factors, coeff, sign)
-            _walk_rhs!(expr.args[3], factors, coeff, -sign)
-        else
-            error("Unsupported operator in constraint: $op")
-        end
-    else
-        error("Unsupported constraint expression: $expr")
-    end
-end
-
 macro enzyme_mechanism(block)
-    # Detect AllostericEnzymeMechanism syntax (metabolites: or site(...):)
+    _reject_allosteric_syntax!(block)
+    mets_expr, rxns_expr = _parse_plain_mechanism_body(block)
+    return esc(:(EnzymeMechanism($mets_expr, $rxns_expr)))
+end
+
+function _reject_allosteric_syntax!(block)
     for arg in block.args
         arg isa LineNumberNode && continue
-        if _is_allosteric_label(arg)
-            return esc(_parse_allosteric_mechanism(block))
+        label_expr = _line_label_expr(arg)
+        label_expr === nothing && continue
+        if label_expr isa Expr && label_expr.head == :call && label_expr.args[1] == :site
+            error("@enzyme_mechanism: `site(...)` belongs in @allosteric_mechanism")
         end
+        label_expr in (:allosteric_regulators, :catalytic_inhibitors) &&
+            error("@enzyme_mechanism: `$label_expr:` is allosteric-only; " *
+                  "use @allosteric_mechanism instead")
     end
-    return esc(_parse_enzyme_mechanism(block))
 end
 
-"""Return true if an @enzyme_mechanism block arg is part of allosteric syntax."""
-function _is_allosteric_label(arg)
-    # metabolites: ... (single or tuple form)
-    if arg isa Expr && arg.head == :tuple
-        inner = arg.args[1]
-        return inner isa Expr && inner.head == :call && inner.args[1] == :(:) &&
-               inner.args[2] == :metabolites
+"""
+Return the label of a line in the mechanism block, or `nothing` if not a
+labeled line. Handles both Julia parse shapes:
+  - `Expr(:call, :(:), label, value)` — single labeled value.
+  - `Expr(:tuple, Expr(:call, :(:), label, first), rest...)` — multi-element labeled.
+"""
+function _line_label_expr(arg)
+    if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
+        return arg.args[2]
+    elseif arg isa Expr && arg.head == :tuple && !isempty(arg.args)
+        first_arg = arg.args[1]
+        if first_arg isa Expr && first_arg.head == :call && first_arg.args[1] == :(:)
+            return first_arg.args[2]
+        end
     end
+    nothing
+end
+
+"""
+Parse a labeled-line, returning `(label, values_vector)`. `values_vector` is the
+list of args after the label, in source order. Each value is either a bare
+Symbol or an `Expr(:(::), name, tag)` (for tagged lists, allosteric only).
+"""
+function _parse_labeled_line(arg)
     if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
         label = arg.args[2]
-        return label == :metabolites ||
-               (label isa Expr && label.head == :call && label.args[1] == :site)
-    end
-    false
-end
-
-"""Parse the original EnzymeMechanism DSL (species:/steps:/constraints: blocks)."""
-function _parse_enzyme_mechanism(block)
-    species_block = nothing
-    steps_block = nothing
-    constraints_block = nothing
-
-    for arg in block.args
-        arg isa LineNumberNode && continue
-        if arg isa Expr && arg.head == :call && arg.args[1] == :(:)
-            label = arg.args[2]
-            value = arg.args[3]
-            if label == :species
-                species_block = value
-            elseif label == :steps
-                steps_block = value
-            elseif label == :constraints
-                constraints_block = value
-            else
-                error("Unknown @mechanism block label: $label")
-            end
-        else
-            error(
-                "Expected species: begin ... end, " *
-                "steps: begin ... end, and optional " *
-                "constraints: begin ... end blocks"
-            )
+        return label, [arg.args[3]]
+    elseif arg isa Expr && arg.head == :tuple && !isempty(arg.args)
+        first_arg = arg.args[1]
+        if first_arg isa Expr && first_arg.head == :call && first_arg.args[1] == :(:)
+            label = first_arg.args[2]
+            values = Any[first_arg.args[3]]
+            append!(values, arg.args[2:end])
+            return label, values
         end
     end
-
-    species_block === nothing && error("species block not specified")
-    steps_block === nothing && error("steps block not specified")
-
-    species_tuple = _parse_species_block(species_block)
-    reactions, eq_steps = _parse_steps_block(steps_block)
-
-    if constraints_block !== nothing
-        constraints = _parse_constraints_block(constraints_block)
-        return :(EnzymeMechanism($species_tuple, $reactions, $eq_steps, $constraints))
-    end
-    return :(EnzymeMechanism($species_tuple, $reactions, $eq_steps))
+    error("Expected `label: value` or `label: v1, v2, ...`; got $arg")
 end
 
-"""Parse steps: begin ... end into (reactions_expr, eq_steps_expr)."""
-function _parse_steps_block(steps_block)
-    reactions = Expr(:tuple)
-    eq_steps = Expr(:tuple)
+function _parse_plain_mechanism_body(block)
+    subs_list, prods_list, regs_list = Symbol[], Symbol[], Symbol[]
+    steps_block = nothing
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        if arg isa Expr && arg.head == :call && arg.args[1] == :(:) && arg.args[2] == :steps
+            steps_block = arg.args[3]
+            continue
+        end
+        label, values = _parse_labeled_line(arg)
+        if label == :substrates
+            append!(subs_list, _bare_symbols_from_values(values, label))
+        elseif label == :products
+            append!(prods_list, _bare_symbols_from_values(values, label))
+        elseif label == :regulators
+            append!(regs_list, _bare_symbols_from_values(values, label))
+        else
+            error("Unknown @enzyme_mechanism label: $label")
+        end
+    end
+    isempty(subs_list) && error("substrates: not specified")
+    isempty(prods_list) && error("products: not specified")
+    steps_block === nothing && error("steps: not specified")
+
+    rxns_expr = _parse_steps_block_with_groups(steps_block)
+    mets_expr = Expr(:tuple,
+        Expr(:tuple, QuoteNode.(subs_list)...),
+        Expr(:tuple, QuoteNode.(prods_list)...),
+        Expr(:tuple, QuoteNode.(regs_list)...),
+    )
+    mets_expr, rxns_expr
+end
+
+"""
+Coerce labeled-line values to bare Symbols. Reject atom brackets and tag
+annotations.
+"""
+function _bare_symbols_from_values(values, label)
+    syms = Symbol[]
+    for v in values
+        if v isa Symbol
+            push!(syms, v)
+        elseif v isa Expr && v.head == :ref
+            error("@enzyme_mechanism: atom bracket syntax `$v` is not allowed " *
+                  "at the mechanism level; declare atoms in @enzyme_reaction.")
+        elseif v isa Expr && v.head == :(::)
+            error("@enzyme_mechanism: tag annotation `$v` is not allowed; " *
+                  "tags are only valid in @allosteric_mechanism.")
+        else
+            error("@enzyme_mechanism `$label:` expects bare Symbol names; got $v")
+        end
+    end
+    syms
+end
+
+"""
+Parse the steps block. Each top-level expression is either:
+  - `Expr(:(::), Expr(:tuple, step1, step2, ...), Tag)` — parenthesized group with tag
+    (allosteric only).
+  - `Expr(:tuple, step1, step2, ...)` — parenthesized group with no tag (plain mech).
+  - `Expr(:call, ⇌|<-->, lhs, Expr(:(::), rhs, Tag))` — single tagged step (allosteric).
+  - `Expr(:call, ⇌|<-->, lhs, rhs)` — single untagged step (plain).
+
+With `allow_tag=false` (plain mechanism), reject any `::Tag` annotations and return
+just the rxns tuple-Expr. With `allow_tag=true` (allosteric mechanism), collect
+tags and return both.
+"""
+function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
+    next_group = Ref(0)
+    rxns = Expr(:tuple)
+    tags = Pair{Int, Symbol}[]
+
     for arg in steps_block.args
         arg isa LineNumberNode && continue
-        is_re = false
-        if arg isa Expr && arg.head == :call && arg.args[1] == :(<-->)
-            is_re = false
-        elseif arg isa Expr && arg.head == :call && arg.args[1] == :⇌
-            is_re = true
-        else
-            error("Expected [lhs] <--> [rhs] or [lhs] ⇌ [rhs], got $arg")
-        end
-        lhs = _parse_step_side_symbols(arg.args[2])
-        rhs = _parse_step_side_symbols(arg.args[3])
-        push!(reactions.args, Expr(:tuple, lhs, rhs))
-        push!(eq_steps.args, is_re)
-    end
-    reactions, eq_steps
-end
 
-"""Parse constraints: begin ... end into a constraints_expr tuple."""
-function _parse_constraints_block(constraints_block)
-    constraints = Expr(:tuple)
-    for arg in constraints_block.args
-        arg isa LineNumberNode && continue
-        # Handle semicolon-separated constraints: K5=K3; K6=K1 (parsed as tuple)
-        if arg isa Expr && arg.head == :tuple
-            for a in arg.args
-                a isa Expr && a.head == :(=) || continue
-                _push_constraint!(constraints, a)
+        # Parenthesized-group-with-tag (allosteric)
+        if arg isa Expr && arg.head == :(::) &&
+           arg.args[1] isa Expr && arg.args[1].head == :tuple
+            allow_tag ||
+                error("@enzyme_mechanism: tag annotation `$arg` is not allowed")
+            next_group[] += 1
+            gnum = next_group[]
+            tag = arg.args[2]
+            tag isa Symbol || error("Step-group tag must be a Symbol; got $tag")
+            push!(tags, gnum => tag)
+            for step_expr in arg.args[1].args
+                push!(rxns.args, _parse_single_step(step_expr, gnum))
             end
-        elseif arg isa Expr && arg.head == :(=)
-            _push_constraint!(constraints, arg)
-        else
-            error("Each constraint must be an assignment: target = rhs_expr, got $arg")
-        end
-    end
-    constraints
-end
-
-function _push_constraint!(constraints, arg)
-    target = arg.args[1]
-    target isa Symbol || error("Constraint target must be a symbol, got $target")
-    coeff, factors = _parse_constraint_rhs(arg.args[2])
-    push!(constraints.args, Expr(:tuple, QuoteNode(target), coeff, factors))
-end
-
-"""
-Parse the AllostericEnzymeMechanism DSL syntax.
-Handles: metabolites:, site(:catalytic, N):, site(:regulatory, N):
-"""
-function _parse_allosteric_mechanism(block)
-    met_names = nothing   # vector of Symbol (metabolite names only, no atoms)
-    catalytic_n = nothing
-    catalytic_block = nothing
-    reg_sites = Any[]     # vector of (ligand_syms, n_reg)
-
-    for arg in block.args
-        arg isa LineNumberNode && continue
-
-        if arg isa Expr && arg.head == :tuple
-            # metabolites: S[C], P[C] → Expr(:tuple, :(metabolites: S[C]), :(P[C]))
-            inner = arg.args[1]
-            if inner isa Expr && inner.head == :call && inner.args[1] == :(:) &&
-               inner.args[2] == :metabolites
-                met_names = [_met_sym(inner.args[3])]
-                for i in 2:length(arg.args)
-                    push!(met_names, _met_sym(arg.args[i]))
-                end
-            else
-                error("Unexpected tuple in @enzyme_mechanism: $arg")
-            end
-        elseif arg isa Expr && arg.head == :call && arg.args[1] == :(:)
-            label = arg.args[2]
-            value = arg.args[3]
-
-            if label == :metabolites
-                met_names = [_met_sym(value)]
-            elseif label isa Expr && label.head == :call && label.args[1] == :site
-                site_kind = label.args[2]   # QuoteNode(:catalytic) or QuoteNode(:regulatory)
-                site_n = label.args[3]      # integer literal
-                if site_kind == QuoteNode(:catalytic)
-                    catalytic_n = site_n
-                    catalytic_block = value
-                elseif site_kind == QuoteNode(:regulatory)
-                    ligs = _parse_reg_ligands_block(value)
-                    push!(reg_sites, (ligs, site_n))
-                else
-                    error("Unknown site kind: $site_kind")
-                end
-            else
-                error("Unknown @enzyme_mechanism block label: $label")
-            end
-        else
-            error("Unexpected expression in @enzyme_mechanism: $arg")
-        end
-    end
-
-    met_names === nothing && error("metabolites: block not specified")
-    catalytic_block === nothing && error("site(:catalytic, N): block not specified")
-
-    # Build metabolites type parameter tuple (just Symbol names, no atoms)
-    mets_tuple = Expr(:tuple, QuoteNode.(met_names)...)
-
-    # Parse catalytic site block: species:, steps:, constraints:
-    species_tuple, cat_steps_block, cat_constraints_block =
-        _parse_catalytic_block(catalytic_block)
-
-    # Parse reactions and eq_steps
-    reactions, eq_steps = _parse_steps_block(cat_steps_block)
-
-    # Build inner EnzymeMechanism expression
-    if cat_constraints_block !== nothing
-        constraints = _parse_constraints_block(cat_constraints_block)
-        cm_expr = :(EnzymeMechanism($species_tuple, $reactions, $eq_steps, $constraints))
-    else
-        cm_expr = :(EnzymeMechanism($species_tuple, $reactions, $eq_steps))
-    end
-
-    # Build RegSites type parameter tuple: ((ligand_syms...,), n_reg, (), (), ()) quintuples
-    reg_sites_elems = Any[]
-    for (ligs, n_reg) in reg_sites
-        ligs_tuple = Expr(:tuple, (QuoteNode(l) for l in ligs)...)
-        empty_tuple = Expr(:tuple)
-        push!(reg_sites_elems, Expr(:tuple, ligs_tuple, n_reg,
-            empty_tuple, empty_tuple, empty_tuple))
-    end
-    reg_sites_expr = Expr(:tuple, reg_sites_elems...)
-
-    # Build CatSites: (catalytic_metabolites, multiplicity,
-    #   tr_equiv_mets, tr_equiv_cat_steps,
-    #   r_only_mets, t_only_mets, r_only_cat_steps)
-    # catalytic_metabolites come from the inner EnzymeMechanism at runtime
-    cat_tr_equiv = Expr(:tuple)
-    cat_steps_tr = Expr(:tuple)
-    cat_r_only = Expr(:tuple)
-    cat_t_only = Expr(:tuple)
-    cat_r_only_steps = Expr(:tuple)
-    :(let _cm = $cm_expr
-        _cat_sites = (metabolites(_cm), $catalytic_n, $cat_tr_equiv,
-            $cat_steps_tr, $cat_r_only, $cat_t_only, $cat_r_only_steps)
-        AllostericEnzymeMechanism{$mets_tuple, typeof(_cm), _cat_sites, $reg_sites_expr}()
-    end)
-end
-
-"""Parse regulatory site block: begin ligands: L1, L2 end → vector of ligand symbols."""
-function _parse_reg_ligands_block(block)
-    ligs = Symbol[]
-    for arg in block.args
-        arg isa LineNumberNode && continue
-        if arg isa Expr && arg.head == :call && arg.args[1] == :(:) && arg.args[2] == :ligands
-            push!(ligs, arg.args[3])
+        # Parenthesized-group-without-tag (plain)
         elseif arg isa Expr && arg.head == :tuple
-            inner = arg.args[1]
-            if inner isa Expr && inner.head == :call && inner.args[1] == :(:) &&
-               inner.args[2] == :ligands
-                push!(ligs, inner.args[3])
-                for i in 2:length(arg.args)
-                    push!(ligs, arg.args[i])
-                end
-            else
-                error("Expected ligands: L1, L2, ... in regulatory site block, got $arg")
+            allow_tag &&
+                error("@allosteric_mechanism: parenthesized step group " *
+                      "`$(arg)` is missing `:: <:OnlyR|:EqualRT|:NonequalRT>` " *
+                      "annotation. Add `:: <state>` after the closing paren.")
+            next_group[] += 1
+            gnum = next_group[]
+            for step_expr in arg.args
+                push!(rxns.args, _parse_single_step(step_expr, gnum))
             end
+        # Single step (with or without tag)
+        elseif arg isa Expr && arg.head == :call
+            next_group[] += 1
+            gnum = next_group[]
+            original = string(arg)
+            tag = _peel_step_tag!(arg)
+            if tag !== nothing
+                allow_tag ||
+                    error("@enzyme_mechanism: tag annotation on `$original` " *
+                          "is not allowed")
+                push!(tags, gnum => tag)
+            elseif allow_tag
+                error("@allosteric_mechanism: step `$(original)` is missing " *
+                      "`:: <:OnlyR|:EqualRT|:NonequalRT>` annotation. Add " *
+                      "`:: <state>` after the step expression.")
+            end
+            push!(rxns.args, _parse_single_step(arg, gnum))
         else
-            error("Expected ligands: in regulatory site block, got $arg")
+            error("Expected step or step-group; got $arg")
         end
     end
-    ligs
-end
 
-"""Extract the metabolite Symbol from a raw DSL expression (Symbol or S[C] ref)."""
-function _met_sym(expr)
-    expr isa Symbol && return expr
-    expr isa Expr && expr.head == :ref && return expr.args[1]
-    error("Cannot extract metabolite name from: $expr")
+    if allow_tag
+        return rxns, tags
+    else
+        return rxns
+    end
 end
 
 """
-Parse catalytic site block.
-Returns (species_tuple_expr, steps_block, constraints_block_or_nothing).
-The species_tuple_expr is produced by `_parse_species_block` and contains
-(subs, prods, regs, enzymes) sub-expressions for the inner EnzymeMechanism.
+If the step Expr has a `::Tag` attached to its RHS arg, remove the wrapper and
+return the tag Symbol. Otherwise return `nothing`. Mutates `step_expr.args[3]`.
+
+Single tagged step parses as:
+  Expr(:call, op, Expr(:vect, lhs_syms...), Expr(:(::), Expr(:vect, rhs_syms...), Tag))
 """
-function _parse_catalytic_block(block)
-    species_expr = nothing
+function _peel_step_tag!(step_expr)
+    rhs = step_expr.args[3]
+    if rhs isa Expr && rhs.head == :(::)
+        tag = rhs.args[2]
+        tag isa Symbol || error("Step tag must be a Symbol; got $tag")
+        step_expr.args[3] = rhs.args[1]
+        return tag
+    end
+    nothing
+end
+
+"""
+Parse a single (already-de-tagged) step `[lhs] ⇌ [rhs]` or `[lhs] <--> [rhs]`.
+Returns the 4-tuple Expr `(lhs_syms, rhs_syms, is_eq, kinetic_group)`.
+"""
+function _parse_single_step(expr, gnum::Int)
+    expr isa Expr && expr.head == :call ||
+        error("Expected [lhs] ⇌ [rhs] or [lhs] <--> [rhs]; got $expr")
+    op = expr.args[1]
+    is_eq = op == :⇌
+    is_eq || op == :(<-->) ||
+        error("Expected ⇌ or <--> step operator; got $op")
+    lhs = _parse_step_side_symbols(expr.args[2])
+    rhs = _parse_step_side_symbols(expr.args[3])
+    Expr(:tuple, lhs, rhs, is_eq, gnum)
+end
+
+"""
+    @allosteric_mechanism begin
+        substrates: F6P
+        products:   F16BP
+        allosteric_regulators: I::OnlyT
+
+        site(:catalytic, 2): begin
+            steps: begin
+                [E, F6P] ⇌ [E_F6P]    :: EqualRT
+                [E_F6P] <--> [E_F16BP] :: EqualRT
+                [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+            end
+        end
+
+        site(:regulatory, 2): begin
+            ligands: A, I
+        end
+    end
+
+Build an `AllostericEnzymeMechanism` (MWC, two conformations).
+- `substrates:`, `products:`, `catalytic_inhibitors:` accept comma-separated
+  bare symbols.
+- `allosteric_regulators:` requires `name::Tag` per entry, where Tag is one of
+  `OnlyR`, `OnlyT`, `EqualRT`, `NonequalRT`.
+- `site(:catalytic, N): begin steps: ... end` is required (exactly once); each
+  step or step-group must carry a `::Tag` from the same set.
+- `site(:regulatory, N): begin ligands: A, I end` blocks group competing
+  ligands into a single regulatory site (optional, multiple allowed). Ligands
+  not listed in any `site(:regulatory, ...):` block default to a per-ligand
+  site at multiplicity `N` (the catalytic multiplicity).
+"""
+macro allosteric_mechanism(block)
+    return esc(_parse_allosteric_mechanism_body(block))
+end
+
+const _ALLOSTERIC_REG_STATES = Set([:OnlyR, :OnlyT, :EqualRT, :NonequalRT])
+
+"""
+Coerce labeled-line values to `(name, tag)` pairs. Each value must be
+`Expr(:(::), name, tag)`; bare symbols are rejected. Used for
+`allosteric_regulators:` and similar tagged lists.
+"""
+function _tagged_symbols_from_values(values, label, valid_tags)
+    pairs = Pair{Symbol,Symbol}[]
+    for v in values
+        v isa Expr && v.head == :(::) ||
+            error("@allosteric_mechanism `$label:` requires per-entry " *
+                  "::Tag annotations (e.g., I::OnlyT); got $v")
+        name, tag = v.args[1], v.args[2]
+        name isa Symbol ||
+            error("@allosteric_mechanism `$label:`: expected Symbol name " *
+                  "in `name::Tag`; got $name")
+        tag isa Symbol ||
+            error("@allosteric_mechanism `$label:`: tag must be a Symbol; " *
+                  "got $tag")
+        tag in valid_tags ||
+            error("@allosteric_mechanism `$label:`: tag :$tag not in " *
+                  "($(_format_state_set(valid_tags)))")
+        push!(pairs, name => tag)
+    end
+    pairs
+end
+
+"""Format a state set as a sorted, comma-joined list for error messages."""
+_format_state_set(tags) = join((":$t" for t in sort(collect(tags))), ", ")
+
+"""
+Extract the inner `steps:` block from a `site(:catalytic, N):` body.
+The body is `begin steps: <block> end`; reject any other label.
+"""
+function _extract_steps_block(value)
+    value isa Expr && value.head == :block ||
+        error("@allosteric_mechanism: site(:catalytic, ...) body must be " *
+              "a `begin ... end` block; got $value")
     steps_block = nothing
-    constraints_block = nothing
+    for arg in value.args
+        arg isa LineNumberNode && continue
+        if arg isa Expr && arg.head == :call && arg.args[1] == :(:) &&
+           arg.args[2] == :steps
+            steps_block === nothing ||
+                error("@allosteric_mechanism: multiple `steps:` blocks " *
+                      "inside site(:catalytic, ...)")
+            steps_block = arg.args[3]
+        else
+            error("@allosteric_mechanism: site(:catalytic, ...) body " *
+                  "expects `steps:`; got $arg")
+        end
+    end
+    steps_block === nothing &&
+        error("@allosteric_mechanism: site(:catalytic, ...) requires " *
+              "a `steps:` block")
+    steps_block
+end
+
+"""
+Parse the body of a `site(:regulatory, N): begin ligands: A, B end` block.
+Returns the ligand symbol vector.
+"""
+function _parse_regulatory_site_inner(value)
+    value isa Expr && value.head == :block ||
+        error("@allosteric_mechanism: site(:regulatory, ...) body must be " *
+              "a `begin ... end` block; got $value")
+    ligands = Symbol[]
+    for arg in value.args
+        arg isa LineNumberNode && continue
+        label, values = _parse_labeled_line(arg)
+        label == :ligands ||
+            error("@allosteric_mechanism: site(:regulatory, ...) body " *
+                  "expects `ligands:`; got `$label`")
+        append!(ligands, _bare_symbols_from_values(values, label))
+    end
+    ligands
+end
+
+"""
+Build the `RegSites` tuple expression. Each entry is
+`(ligand_tuple, multiplicity, reg_allo_states)` where `reg_allo_states`
+is a dense `Tuple{Symbol...}` parallel to `ligands`. Ligands not assigned
+to any explicit `site(:regulatory, ...):` block become their own
+single-ligand site at multiplicity `cat_n`.
+"""
+function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
+    tag_of = Dict{Symbol,Symbol}(allo_regs)
+    explicit = Set{Symbol}()
+    for (_, ligs) in reg_site_specs
+        for l in ligs
+            l in explicit && error("@allosteric_mechanism: ligand $l " *
+                                   "appears in multiple regulatory sites")
+            haskey(tag_of, l) ||
+                error("@allosteric_mechanism: ligand $l in " *
+                      "site(:regulatory, ...) is not declared in " *
+                      "`allosteric_regulators:`")
+            push!(explicit, l)
+        end
+    end
+
+    sites = Tuple{Any,Vector{Symbol}}[]
+    for (mult, ligs) in reg_site_specs
+        push!(sites, (mult, ligs))
+    end
+    for (name, _) in allo_regs
+        name in explicit && continue
+        push!(sites, (cat_n, [name]))
+    end
+
+    entries = Expr[]
+    for (mult, ligs) in sites
+        ligs_tuple = Expr(:tuple, QuoteNode.(ligs)...)
+        states_tuple = Expr(:tuple, (QuoteNode(tag_of[l]) for l in ligs)...)
+        entry = Expr(:tuple, ligs_tuple, mult, states_tuple)
+        push!(entries, entry)
+    end
+    Expr(:tuple, entries...)
+end
+
+"""
+Build the `CatSites` expression `(multiplicity, cat_allo_states)` for
+the macro. `cat_allo_states` is a dense `Tuple{Symbol...}` with one
+entry per kinetic group in source order.
+"""
+function _build_cat_sites_expr(cat_n, group_tags)
+    for (_, tag) in group_tags
+        tag in _ALLOSTERIC_REG_STATES ||
+            error("@allosteric_mechanism: catalytic step tag :$tag not in " *
+                  "($(_format_state_set(_ALLOSTERIC_REG_STATES)))")
+    end
+    tag_of = Dict{Int,Symbol}(group_tags)
+    n_groups = isempty(group_tags) ? 0 : maximum(g for (g, _) in group_tags)
+    states_tuple = Expr(:tuple,
+        (QuoteNode(get(tag_of, g, :NonequalRT)) for g in 1:n_groups)...)
+    Expr(:tuple, cat_n, states_tuple)
+end
+
+"""
+Detect a `site(KIND, N): begin ... end` line. Returns `(kind::Symbol, n_expr,
+body)` or `nothing` if `arg` isn't a site line.
+"""
+function _match_site_line(arg)
+    arg isa Expr && arg.head == :call && arg.args[1] == :(:) || return nothing
+    label, value = arg.args[2], arg.args[3]
+    label isa Expr && label.head == :call && label.args[1] == :site ||
+        return nothing
+    site_kind = label.args[2]
+    site_kind isa QuoteNode ||
+        error("@allosteric_mechanism: site kind must be a Symbol literal; " *
+              "got $site_kind")
+    (site_kind.value, label.args[3], value)
+end
+
+function _parse_allosteric_mechanism_body(block)
+    subs_list, prods_list, cat_inhibitors = Symbol[], Symbol[], Symbol[]
+    allo_regs = Pair{Symbol,Symbol}[]
+    cat_n = nothing
+    cat_steps_block = nothing
+    reg_site_specs = Tuple{Any,Vector{Symbol}}[]
 
     for arg in block.args
         arg isa LineNumberNode && continue
-        arg isa Expr && arg.head == :call && arg.args[1] == :(:) ||
-            error("Unexpected expression in catalytic site block: $arg")
-        label = arg.args[2]
-        value = arg.args[3]
-        if label == :species
-            species_expr = _parse_species_block(value)
-        elseif label == :steps
-            steps_block = value
-        elseif label == :constraints
-            constraints_block = value
+        site = _match_site_line(arg)
+        if site !== nothing
+            kind, n_expr, body = site
+            if kind == :catalytic
+                cat_n === nothing ||
+                    error("@allosteric_mechanism: multiple " *
+                          "site(:catalytic, ...) blocks")
+                cat_n = n_expr
+                cat_steps_block = _extract_steps_block(body)
+            elseif kind == :regulatory
+                push!(reg_site_specs,
+                      (n_expr, _parse_regulatory_site_inner(body)))
+            else
+                error("@allosteric_mechanism: unknown site kind :$kind")
+            end
+            continue
+        end
+        label, values = _parse_labeled_line(arg)
+        if label == :substrates
+            append!(subs_list, _bare_symbols_from_values(values, label))
+        elseif label == :products
+            append!(prods_list, _bare_symbols_from_values(values, label))
+        elseif label == :catalytic_inhibitors
+            append!(cat_inhibitors,
+                    _bare_symbols_from_values(values, label))
+        elseif label == :allosteric_regulators
+            append!(allo_regs,
+                    _tagged_symbols_from_values(values, label,
+                                                _ALLOSTERIC_REG_STATES))
         else
-            error("Unknown label in catalytic site block: $label")
+            error("@allosteric_mechanism: unknown label `$label:`")
         end
     end
 
-    species_expr === nothing && error("species: not specified in catalytic site block")
-    steps_block === nothing && error("steps: not specified in catalytic site block")
+    isempty(subs_list) &&
+        error("@allosteric_mechanism: substrates: not specified")
+    isempty(prods_list) &&
+        error("@allosteric_mechanism: products: not specified")
+    cat_n === nothing &&
+        error("@allosteric_mechanism: site(:catalytic, N): is required")
 
-    species_expr, steps_block, constraints_block
+    rxns_expr, group_tags = _parse_steps_block_with_groups(
+        cat_steps_block; allow_tag=true,
+    )
+    # Bare-step rejection now happens inside _parse_steps_block_with_groups.
+
+    cm_mets_expr = Expr(:tuple,
+        Expr(:tuple, QuoteNode.(subs_list)...),
+        Expr(:tuple, QuoteNode.(prods_list)...),
+        Expr(:tuple, QuoteNode.(cat_inhibitors)...),
+    )
+    cm_expr = :(EnzymeMechanism($cm_mets_expr, $rxns_expr))
+
+    cat_sites_expr = _build_cat_sites_expr(cat_n, group_tags)
+    reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
+
+    :(AllostericEnzymeMechanism($cm_expr, $cat_sites_expr, $reg_sites_expr))
 end

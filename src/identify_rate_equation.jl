@@ -286,7 +286,7 @@ function _beam_search(
                  row=_build_result_row(m, fit),
                  ok=true)
             catch e
-                @warn(
+                @debug(
                     "Mechanism compilation/" *
                     "fitting failed",
                     exception=(
@@ -403,7 +403,7 @@ function _loocv(
             push!(scores, test_loss)
         end
     catch e
-        @warn("LOOCV failed",
+        @debug("LOOCV failed",
             exception=(e, catch_backtrace()))
         return Inf
     end

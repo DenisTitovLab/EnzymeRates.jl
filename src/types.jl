@@ -1,4 +1,4 @@
-using Graphs
+using LinearAlgebra: rank
 
 """Sort species tuples alphabetically by name (first element)."""
 _sort_species(t::Tuple) = Tuple(sort(collect(t); by=s -> s[1]))
@@ -13,18 +13,6 @@ Singleton type encoding an enzyme reaction specification in type parameters.
 - `OligomericState`: number of subunits (Int, default 1).
 """
 struct EnzymeReaction{Substrates, Products, Regulators, OligomericState} end
-
-"""Regulator role in mechanism enumeration."""
-abstract type RegulatorRole end
-
-"""Allosteric regulator: participates in MWC allosteric regulation."""
-struct Allosteric <: RegulatorRole end
-
-"""Dead-end inhibitor: creates dead-end complexes only."""
-struct DeadEnd <: RegulatorRole end
-
-"""Unconstrained: try all roles (allosteric + dead-end)."""
-struct UnconstrainedRegulator <: RegulatorRole end
 
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_state::Int=1)
     isempty(subs) && error("Substrates must not be empty")
@@ -59,253 +47,277 @@ end
 abstract type AbstractEnzymeMechanism end
 
 """
-    EnzymeMechanism{Species,Reactions,EquilibriumSteps}
+    EnzymeMechanism{Metabolites, Reactions}
 
-Singleton type encoding an enzyme mechanism in type parameters.
+Singleton type encoding an enzyme mechanism.
 
-- `Species`: `(substrates, products, regulators, enzyme_species)`
-  where each entry is a tuple of
-  `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
-- `Reactions`: tuple of `(lhs, rhs)` where each side is a
-  tuple of species `Symbol`s.
-- `EquilibriumSteps`: tuple of `Bool` indicating which steps
-  are rapid-equilibrium (`true`) vs steady-state (`false`).
+- `Metabolites`: 3-tuple `(substrates::Tuple{Symbol,...}, products::Tuple{Symbol,...},
+  regulators::Tuple{Symbol,...})`. Plain symbol names — no atom content stored.
+- `Reactions`: tuple of 4-tuples `(lhs_syms, rhs_syms, is_eq::Bool,
+  kinetic_group::Int)`. Steps with identical `kinetic_group` share kinetic
+  parameters (one `K` for RE groups, one `k_f` and one `k_r` for SS groups).
 """
-struct EnzymeMechanism{
-    Species, Reactions, EquilibriumSteps, ParamConstraints,
-} <: AbstractEnzymeMechanism end
-
-"""Count enzymes, metabolites, atoms, and metabolite names on one side of a reaction."""
-function _count_side(side, enzyme_set, enzyme_atoms, met_atoms, step_idx)
-    n_enz, n_met, atoms, mets = 0, 0, Dict{Symbol,Int}(), Symbol[]
-    for s in side
-        if s in enzyme_set
-            n_enz += 1
-            for (a, c) in enzyme_atoms[s]
-                atoms[a] = get(atoms, a, 0) + c
-            end
-        elseif haskey(met_atoms, s)
-            n_met += 1
-            push!(mets, s)
-            for (a, c) in met_atoms[s]
-                atoms[a] = get(atoms, a, 0) + c
-            end
-        else
-            error("Reaction $(step_idx) uses unknown species $(s)")
-        end
-    end
-    (n_enz, n_met, atoms, mets)
-end
+struct EnzymeMechanism{Metabolites, Reactions} <: AbstractEnzymeMechanism end
 
 """
-    EnzymeMechanism(species, reactions, eq_steps, [constraints])
+    EnzymeMechanism(metabolites, reactions) → EnzymeMechanism
 
-Construct an `EnzymeMechanism` from explicit species, reaction tuples, equilibrium step
-flags, and optional parameter constraints.
-
-Each constraint is a tuple
-`(target::Symbol, coeff::Int, factors::Tuple{...})`.
+Construct an `EnzymeMechanism` from explicit metabolite 3-tuple and
+reaction 4-tuples. Step order is preserved (no canonicalization).
+Validates structure, enzyme-form connectivity, kinetic-group
+composition rules, and stoichiometric feasibility.
 """
-function EnzymeMechanism(species::Tuple, reactions::Tuple, eq_steps::Tuple{Vararg{Bool}},
-                         constraints::Tuple=())
-    length(eq_steps) == length(reactions) ||
-        error("eq_steps length must match reactions length")
-    all(eq_steps) && !isempty(eq_steps) && error(
-        "At least one steady-state step is required " *
-        "(not all steps can be rapid-equilibrium)",
-    )
+function EnzymeMechanism(
+    mets::Tuple{Tuple{Vararg{Symbol}}, Tuple{Vararg{Symbol}}, Tuple{Vararg{Symbol}}},
+    rxns::Tuple,
+)
+    subs, prods, regs = mets
 
-    length(species) == 4 ||
-        error("species must be " *
-              "(substrates, products, regulators, enzymes)")
-    subs, prods, regs, enzs = species
+    # Sort each species list alphabetically (canonical Metabolites parameter).
+    # Step order is preserved per spec §4.1.2.
+    subs = Tuple(sort(collect(subs)))
+    prods = Tuple(sort(collect(prods)))
+    regs = Tuple(sort(collect(regs)))
+    mets = (subs, prods, regs)
 
-    for (label, group) in (("substrate", subs), ("product", prods))
-        names = [name for (name, _) in group]
-        length(names) != length(Set(names)) && error("Duplicate $label names")
+    isempty(rxns) && error("Reactions tuple must not be empty")
+    all(step[3] for step in rxns) &&
+        error("At least one SS step required (not all steps can be RE)")
+
+    # Build metabolite set
+    met_set = Set{Symbol}()
+    for group in (subs, prods, regs)
+        for name in group; push!(met_set, name); end
     end
-    reg_names = collect(regs)
-    length(reg_names) != length(Set(reg_names)) && error("Duplicate regulator names")
 
-    met_atoms = Dict{Symbol,Dict{Symbol,Int}}()
-    for (name, atoms) in Iterators.flatten((subs, prods))
-        d = Dict{Symbol,Int}(a => c for (a, c) in atoms)
-        if haskey(met_atoms, name)
-            met_atoms[name] == d || error("Inconsistent atoms for metabolite $name")
-        else
-            met_atoms[name] = d
+    # Validate each step shape
+    for (i, step) in enumerate(rxns)
+        length(step) == 4 ||
+            error("Step $i must be (lhs, rhs, is_eq, kinetic_group); got $step")
+        lhs, rhs, is_eq, gnum = step
+        is_eq isa Bool || error("Step $i is_eq must be Bool")
+        gnum isa Int || error("Step $i kinetic_group must be Int")
+        n_enz_lhs = count(s -> s ∉ met_set, lhs)
+        n_enz_rhs = count(s -> s ∉ met_set, rhs)
+        n_enz_lhs == 1 ||
+            error("Step $i LHS must contain exactly one enzyme form; got $lhs")
+        n_enz_rhs == 1 ||
+            error("Step $i RHS must contain exactly one enzyme form; got $rhs")
+        n_met_lhs = count(s -> s ∈ met_set, lhs)
+        n_met_rhs = count(s -> s ∈ met_set, rhs)
+        n_met_lhs <= 1 || error("Step $i LHS has more than one metabolite")
+        n_met_rhs <= 1 || error("Step $i RHS has more than one metabolite")
+    end
+
+    # Canonicalize RE step direction (metabolite on LHS for binding steps).
+    rxns = ntuple(length(rxns)) do i
+        (lhs, rhs, is_eq, gnum) = rxns[i]
+        if !is_eq
+            return (lhs, rhs, is_eq, gnum)
         end
-    end
-    for name in regs
-        # Don't overwrite existing atom dict (e.g., a metabolite
-        # that also appears as a regulator)
-        haskey(met_atoms, name) || (met_atoms[name] = Dict{Symbol,Int}())
-    end
-
-    enzyme_atoms = Dict{Symbol,Dict{Symbol,Int}}()
-    for (name, atoms) in enzs
-        haskey(enzyme_atoms, name) && error("Duplicate enzyme species $name")
-        enzyme_atoms[name] = Dict{Symbol,Int}(a => c for (a, c) in atoms)
-    end
-    isempty(enzyme_atoms) && error("No enzyme species defined")
-    for name in keys(enzyme_atoms)
-        haskey(met_atoms, name) && error(
-            "Species $name defined as both " *
-            "enzyme and metabolite",
-        )
-    end
-    free_enzymes = [name for (name, atoms) in enzs if isempty(atoms)]
-    isempty(free_enzymes) && error("No free enzyme form (enzyme with empty atoms) defined")
-
-    n_with = count(s -> !isempty(s[2]), Iterators.flatten((subs, prods)))
-    n_total = length(subs) + length(prods)
-    0 < n_with < n_total && error(
-        "All metabolites must either have atoms " *
-        "or all lack atoms; found a mix",
-    )
-    skip_atom_checks = n_with == 0
-
-    expected = Dict{Symbol,Int}()
-    for (name, _) in subs; expected[name] = get(expected, name, 0) - 1; end
-    for (name, _) in prods; expected[name] = get(expected, name, 0) + 1; end
-    for name in regs; expected[name] = get(expected, name, 0); end
-
-    isempty(reactions) && error("Reactions tuple must not be empty")
-    enzyme_set = Set(keys(enzyme_atoms))
-    reg_set = Set(regs)
-
-    # Canonical step form for RE steps: normalize direction so metabolite
-    # binding steps have metabolite on LHS (→ binding Kd convention).
-    # SS steps are left unchanged (kf/kr have no automatic inversion).
-    reactions = ntuple(length(reactions)) do i
-        lhs, rhs = reactions[i]
-        if !eq_steps[i]
-            return (lhs, rhs)
-        end
-        rhs_has_met = any(haskey(met_atoms, s) for s in rhs)
-        lhs_has_met = any(haskey(met_atoms, s) for s in lhs)
+        rhs_has_met = any(s in met_set for s in rhs)
+        lhs_has_met = any(s in met_set for s in lhs)
         if rhs_has_met && !lhs_has_met
-            (rhs, lhs)
+            (rhs, lhs, is_eq, gnum)
         else
-            (lhs, rhs)
+            (lhs, rhs, is_eq, gnum)
         end
     end
 
-    net = Dict{Symbol,Int}()
-    for (i, (lhs, rhs)) in enumerate(reactions)
-        lhs_enz, lhs_mets, lhs_atoms, lhs_met_names =
-            _count_side(lhs, enzyme_set, enzyme_atoms,
-                        met_atoms, i)
-        rhs_enz, rhs_mets, rhs_atoms, rhs_met_names =
-            _count_side(rhs, enzyme_set, enzyme_atoms,
-                        met_atoms, i)
-        for s in lhs_met_names; net[s] = get(net, s, 0) - 1; end
-        for s in rhs_met_names; net[s] = get(net, s, 0) + 1; end
-        lhs_enz == 1 || error("Reaction $i lhs must contain exactly one enzyme form")
-        rhs_enz == 1 || error("Reaction $i rhs must contain exactly one enzyme form")
-        lhs_mets <= 1 || error("Reaction $i lhs has more than one metabolite")
-        rhs_mets <= 1 || error("Reaction $i rhs has more than one metabolite")
-        step_has_reg = any(s ∈ reg_set for s in lhs) ||
-                      any(s ∈ reg_set for s in rhs)
-        if !skip_atom_checks && !step_has_reg
-            filter!(p -> p.second != 0, lhs_atoms)
-            filter!(p -> p.second != 0, rhs_atoms)
-            lhs_atoms == rhs_atoms || error("Atomic conservation failed at step $i")
-        end
+    # Each substrate / product must appear in some step. Regulators are
+    # optional bindings (a spec may list them before any expansion move
+    # has added their dead-end or allosteric binding steps).
+    appears = Set{Symbol}()
+    for (lhs, rhs, _, _) in rxns
+        for s in lhs; push!(appears, s); end
+        for s in rhs; push!(appears, s); end
+    end
+    for name in vcat(collect(subs), collect(prods))
+        name in appears ||
+            error("Listed metabolite $name does not appear in any reaction step")
     end
 
-    # Net stoichiometry validation: cycle steps give k× the reaction, but dead-end
-    # binding steps add extra consumption that may shift or cancel net contributions.
-    # We require: each substrate/product appears in at least one reaction,
-    # and no unexpected metabolites appear.
-    for (name, coeff) in expected
-        if coeff != 0
-            label = coeff < 0 ? "Substrate" : "Product"
-            haskey(net, name) || error(
-                "$label $name does not appear " *
-                "in any reaction",
-            )
-        end
-    end
-    for (name, _) in net
-        haskey(expected, name) || error("Metabolite $name not in species tuple")
-    end
+    # Kinetic-group composition rules
+    _validate_kinetic_groups(rxns, met_set)
 
-    length(reactions) != length(Set(reactions)) && error("Duplicate reactions")
+    # Build the singleton type and run remaining checks via accessors
+    m = EnzymeMechanism{mets, rxns}()
 
-    # Enzyme reachability check
-    reached = Set{Symbol}([first(free_enzymes)])
-    for _ in reactions, (lhs, rhs) in reactions
-        e_l = first(s for s in lhs if s in enzyme_set)
-        e_r = first(s for s in rhs if s in enzyme_set)
-        e_l ∈ reached && push!(reached, e_r)
-        e_r ∈ reached && push!(reached, e_l)
-    end
-    for name in keys(enzyme_atoms)
-        name ∈ reached || error("Enzyme form $name is not reachable from free enzyme")
-    end
+    # Enzyme-form graph weakly connected
+    _validate_enzyme_connectivity(m)
 
-    # Validate constraints
-    if !isempty(constraints)
-        valid = Set{Symbol}()
-        for (i, re) in enumerate(eq_steps)
-            if re
-                push!(valid, Symbol("K$i"))
-            else
-                push!(valid, Symbol("k$(i)f"))
-                push!(valid, Symbol("k$(i)r"))
-            end
-        end
-        targets = Symbol[]
-        for (target, coeff, factors) in constraints
-            target ∈ valid || error(
-                "Constraint target $target is not a " *
-                "valid parameter of this mechanism",
-            )
-            coeff > 0 || error(
-                "Constraint coefficient must be " *
-                "positive, got $coeff for $target",
-            )
-            push!(targets, target)
-            for (sym, _) in factors
-                sym ∈ valid || error(
-                    "Constraint replacement symbol " *
-                    "$sym is not a valid parameter " *
-                    "of this mechanism",
-                )
-                sym == target && error(
-                    "Self-referencing constraint: " *
-                    "$target = ... $target ...",
-                )
-            end
-        end
-        dup = findfirst(
-            t -> count(==(t), targets) > 1, targets,
-        )
-        dup !== nothing && error(
-            "Duplicate constraint target: " *
-            "$(targets[dup])",
-        )
-    end
+    # Stoichiometric feasibility (rank check)
+    _validate_stoichiometry(m)
 
-    EnzymeMechanism{species, reactions, eq_steps, constraints}()
+    m
 end
 
 """
-    AllostericEnzymeMechanism{Metabolites, CatalyticMech, CatSites, RegSites}
+Validate kinetic-group composition: 2+ groups must be all RE binding
+or all SS binding (same metabolite); iso steps must be singletons.
+"""
+function _validate_kinetic_groups(rxns, met_set)
+    groups = Dict{Int, Vector{Int}}()
+    for (i, step) in enumerate(rxns)
+        push!(get!(groups, step[4], Int[]), i)
+    end
+    for (g, idxs) in groups
+        length(idxs) == 1 && continue
+        kinds = map(idxs) do i
+            lhs, rhs, is_eq, _ = rxns[i]
+            mets_in = [s for s in lhs if s in met_set]
+            mets_out = [s for s in rhs if s in met_set]
+            isempty(mets_in) && isempty(mets_out) &&
+                error("Iso step (no metabolite) at index $i must be a " *
+                      "singleton kinetic group; found in group $g of size $(length(idxs))")
+            length(mets_in) == 1 ||
+                error("Step $i has $(length(mets_in)) metabolites on LHS; expected 1")
+            (is_eq, mets_in[1])
+        end
+        first_kind = kinds[1]
+        for (i, k) in zip(idxs[2:end], kinds[2:end])
+            k[1] == first_kind[1] ||
+                error("Kinetic group $g contains both RE and SS binding steps")
+            k[2] == first_kind[2] ||
+                error("Kinetic group $g binds different metabolites: " *
+                      "$(first_kind[2]) and $(k[2])")
+        end
+    end
+end
 
-Singleton type for allosteric enzymes (MWC model, always 2 conformations).
+"""Verify the enzyme-form graph is weakly connected."""
+function _validate_enzyme_connectivity(m::EnzymeMechanism)
+    enz = enzyme_forms(m)
+    isempty(enz) && error("Mechanism has no enzyme forms")
+    name_set = Set(enz)
+    adj = Dict(n => Set{Symbol}() for n in enz)
+    for (lhs, rhs, _, _) in reactions(m)
+        e_l = first(s for s in lhs if s in name_set)
+        e_r = first(s for s in rhs if s in name_set)
+        push!(adj[e_l], e_r)
+        push!(adj[e_r], e_l)
+    end
+    visited = Set{Symbol}()
+    queue = [first(enz)]
+    while !isempty(queue)
+        cur = popfirst!(queue)
+        cur in visited && continue
+        push!(visited, cur)
+        for n in adj[cur]; n in visited || push!(queue, n); end
+    end
+    visited == name_set ||
+        error("Enzyme-form graph not connected; orphan forms: " *
+              "$(setdiff(name_set, visited))")
+end
 
-- `Metabolites`: tuple of `Symbol` names from `metabolites:` block
-- `CatalyticMech`: `EnzymeMechanism` type for one catalytic subunit
-- `CatSites`: `(catalytic_metabolites, multiplicity, tr_equiv_mets,
-  tr_equiv_cat_steps, r_only_mets, t_only_mets, r_only_cat_steps)`
-- `RegSites`: tuple of `((ligand_syms...,), multiplicity, tr_equiv_ligands,
-  r_only_ligands, t_only_ligands)` quintuples
+"""
+Stoichiometric feasibility via `r ∈ col(S)` rank test on the full
+stoichiometry matrix. The target vector r has 0 on enzyme rows and
+on regulator rows, and ±count(M in subs/prods) on substrate/product rows.
+"""
+function _validate_stoichiometry(m::EnzymeMechanism)
+    S = stoich_matrix(m)
+    species = (enzyme_forms(m)..., metabolites(m)...)
+    sp_idx = Dict(s => i for (i, s) in enumerate(species))
+    r = zeros(Int, length(species))
+    for s in substrates(m); r[sp_idx[s]] -= 1; end
+    for p in products(m);   r[sp_idx[p]] += 1; end
+
+    rs = Rational.(S)
+    rr = Rational.(r)
+    rank(rs) == rank(hcat(rs, rr)) ||
+        error("Mechanism stoichiometry does not match the declared net reaction. " *
+              "Check substrate / product multiplicities and that regulators " *
+              "have net zero change. Declared: " *
+              "$(_pretty_reaction(substrates(m), products(m)))")
+end
+
+_pretty_reaction(subs, prods) =
+    "$(join(string.(subs), " + ")) → $(join(string.(prods), " + "))"
+
+"""
+    AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites}
+
+Multi-subunit MWC allosteric enzyme. `CatalyticMech` is an
+`EnzymeMechanism` describing one catalytic subunit's cycle.
+
+# Type parameters
+- `CatSites`: `(multiplicity::Int, cat_allo_states::Tuple{Symbol...})`.
+  `cat_allo_states[g]` is the allosteric state of catalytic kinetic
+  group `g` (1-indexed, dense — every group must have an entry).
+  Allowed values: `:EqualRT`, `:NonequalRT`, `:OnlyR`. `:OnlyT`
+  catalytic groups error during construction (R-state-active
+  convention).
+- `RegSites`: tuple of regulator-site entries
+  `(ligands::Tuple{Symbol...}, multiplicity::Int,
+   reg_allo_states::Tuple{Symbol...})` where `reg_allo_states` is
+  parallel to `ligands`. Allowed values: all four states
+  (`:EqualRT`, `:NonequalRT`, `:OnlyR`, `:OnlyT`).
+
+Constructor validates:
+- Catalytic state count matches kinetic-group count.
+- Regulator state tuple length matches ligand tuple length at each site.
+- No catalytic group has `:OnlyT` state.
+- At least one ligand at each reg site is non-`:EqualRT`.
 """
 struct AllostericEnzymeMechanism{
-    Metabolites, CatalyticMech, CatSites, RegSites,
+    CatalyticMech, CatSites, RegSites,
 } <: AbstractEnzymeMechanism end
+
+function AllostericEnzymeMechanism(
+    cm::EnzymeMechanism, cat_sites::Tuple, reg_sites::Tuple,
+)
+    multiplicity, cat_allo_states = cat_sites
+    multiplicity isa Int && multiplicity ≥ 1 ||
+        error("Catalytic multiplicity must be a positive Int, got $multiplicity")
+
+    n_groups = length(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
+    # Validate kinetic_group numbers are 1..n_groups consecutive — the
+    # cat_allo_states tuple is indexed by group number, so non-consecutive
+    # numbering would cause OOB or wrong-state lookup at runtime.
+    observed_groups = sort!(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
+    observed_groups == collect(1:n_groups) ||
+        error("Catalytic mechanism kinetic_group numbers must be 1..n " *
+              "consecutive; got $observed_groups")
+    length(cat_allo_states) == n_groups ||
+        error("cat_allo_states length $(length(cat_allo_states)) does not " *
+              "match catalytic kinetic-group count $n_groups")
+    for (g, st) in enumerate(cat_allo_states)
+        st === :OnlyT &&
+            error("Catalytic kinetic group $g has state :OnlyT; the " *
+                  "R-state is the active state by convention. Relabel " *
+                  "your mechanism so the active state is R (use :OnlyR " *
+                  "instead).")
+        st in (:OnlyR, :EqualRT, :NonequalRT) ||
+            error("Catalytic kinetic group $g has unknown allo state $st; " *
+                  "must be one of (:OnlyR, :EqualRT, :NonequalRT)")
+    end
+
+    for (i, entry) in enumerate(reg_sites)
+        ligands, n_reg, reg_allo_states = entry
+        ligands isa Tuple && all(l isa Symbol for l in ligands) ||
+            error("Reg site $i: ligands must be a Tuple of Symbol")
+        length(ligands) >= 1 ||
+            error("Reg site $i: must have at least one ligand; got empty " *
+                  "ligand tuple")
+        n_reg isa Int && n_reg ≥ 1 ||
+            error("Reg site $i: multiplicity must be a positive Int")
+        length(reg_allo_states) == length(ligands) ||
+            error("Reg site $i: reg_allo_states length $(length(reg_allo_states)) " *
+                  "does not match ligand count $(length(ligands))")
+        for (k, st) in enumerate(reg_allo_states)
+            st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
+                error("Reg site $i, ligand $(ligands[k]): unknown allo state $st")
+        end
+        # All-:EqualRT site cancels identically — error
+        all(st === :EqualRT for st in reg_allo_states) &&
+            error("Reg site $i: all ligands are :EqualRT, which produces " *
+                  "Q_reg_R == Q_reg_T — no allosteric effect. At least one " *
+                  "ligand must be :OnlyR, :OnlyT, or :NonequalRT.")
+    end
+
+    AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites}()
+end
 
 # --- Rate equation mode types ---
 
@@ -354,90 +366,95 @@ function Base.show(io::IO, ::EnzymeReaction{S,P,R,N}) where {S,P,R,N}
 end
 
 function Base.show(
-    io::IO,
-    m::EnzymeMechanism{Species, Reactions, EqSteps, PC},
-) where {Species, Reactions, EqSteps, PC}
-    subs, prods, regs, enzs = Species
-    enz_names = Set(e[1] for e in enzs)
-
-    # Check if mechanism is linear (each enzyme form appears on LHS and RHS at most once)
-    lhs_counts = Dict{Symbol,Int}()
-    rhs_counts = Dict{Symbol,Int}()
-    for (lhs, rhs) in Reactions
-        for s in lhs; s in enz_names && (lhs_counts[s] = get(lhs_counts, s, 0) + 1); end
-        for s in rhs; s in enz_names && (rhs_counts[s] = get(rhs_counts, s, 0) + 1); end
-    end
-    is_linear = (all(v <= 1 for v in values(lhs_counts)) &&
-                  all(v <= 1 for v in values(rhs_counts)))
-
+    io::IO, m::EnzymeMechanism{Mets, Rxns},
+) where {Mets, Rxns}
+    _, _, regs = Mets
+    enz_set = Set(enzyme_forms(m))
     _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
 
-    if is_linear
-        # Compact chain: E + S ⇌ ES <--> E + P
-        parts = String[]
-        arrows = String[]
-        for (i, (lhs, rhs)) in enumerate(Reactions)
-            if i == 1
-                push!(parts, join(lhs, " + "))
-            end
-            push!(arrows, _arrow(EqSteps[i]))
-            push!(parts, join(rhs, " + "))
+    # Walk the steps in source order. Each step shares one enzyme form with
+    # the previous step's "outgoing" form; the other side is the new
+    # outgoing form. If any step has no shared form, the mechanism is
+    # branched and we fall back to multi-line rendering. RE binding
+    # canonicalization may put a step's "outgoing" side on the LHS — we
+    # detect that case and emit the LHS instead of the RHS.
+    chain_segments = String[]
+    chain_arrows = String[]
+    is_linear = !isempty(Rxns)
+    current = nothing
+    for (i, (lhs, rhs, is_eq, _)) in enumerate(Rxns)
+        e_l = first(s for s in lhs if s in enz_set)
+        e_r = first(s for s in rhs if s in enz_set)
+        if i == 1
+            push!(chain_segments, join(lhs, " + "))
+            push!(chain_arrows, _arrow(is_eq))
+            push!(chain_segments, join(rhs, " + "))
+            current = e_r
+        elseif current == e_l
+            push!(chain_arrows, _arrow(is_eq))
+            push!(chain_segments, join(rhs, " + "))
+            current = e_r
+        elseif current == e_r
+            push!(chain_arrows, _arrow(is_eq))
+            push!(chain_segments, join(lhs, " + "))
+            current = e_l
+        else
+            is_linear = false
+            break
         end
+    end
+
+    if is_linear
         print(io, "EnzymeMechanism: ")
-        for (i, part) in enumerate(parts)
-            i > 1 && print(io, arrows[i-1])
-            print(io, part)
+        print(io, chain_segments[1])
+        for k in 2:length(chain_segments)
+            print(io, chain_arrows[k-1], chain_segments[k])
         end
     else
-        # Multi-line for branched mechanisms
-        n = length(Reactions)
-        ne = length(enzs)
-        print(io, "EnzymeMechanism (", n, " steps, ", ne, " enzyme forms):")
-        for (i, (lhs, rhs)) in enumerate(Reactions)
-            print(io, "\n  ", join(lhs, " + "), _arrow(EqSteps[i]), join(rhs, " + "))
+        print(io, "EnzymeMechanism (", length(Rxns), " steps, ",
+              length(enz_set), " enzyme forms):")
+        for (lhs, rhs, is_eq, _) in Rxns
+            print(io, "\n  ", join(lhs, " + "), _arrow(is_eq),
+                      join(rhs, " + "))
         end
     end
     if !isempty(regs)
-        regs_str = join([string(r) for r in regs], ", ")
-        print(io, " | regulators: ", regs_str)
-    end
-    if !isempty(PC)
-        cstrs = [
-            _user_constraint_to_string(target, coeff, factors)
-            for (target, coeff, factors) in PC
-        ]
-        print(io, " | constraints: ", join(cstrs, ", "))
+        print(io, " | regulators: ", join(regs, ", "))
     end
 end
 
-"""Format a user constraint as a string: target = rhs."""
-function _user_constraint_to_string(target::Symbol, coeff::Int, factors)
-    parts = String[]
-    coeff != 1 && push!(parts, string(coeff))
-    for (sym, exp) in factors
-        if exp == 1
-            push!(parts, string(sym))
-        elseif exp == -1
-            push!(parts, "1 / $sym")
-        else
-            push!(parts, "$sym^$exp")
-        end
+function Base.show(io::IO, m::AllostericEnzymeMechanism)
+    cm = catalytic_mechanism(m)
+    print(io, "AllostericEnzymeMechanism (cat_n=", catalytic_multiplicity(m))
+    rs = regulatory_sites(m)
+    if !isempty(rs)
+        print(io, ", ", length(rs), " reg sites")
     end
-    "$target = $(isempty(parts) ? string(coeff) : join(parts, " * "))"
+    n_groups = length(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
+    print(io, "):\n  cat_allo_states: [")
+    print(io, join((string(cat_allo_state(m, g)) for g in 1:n_groups), ", "))
+    print(io, "]\n  catalytic: ", cm)
+    for (i, (ligands, mult, reg_allo_states)) in enumerate(rs)
+        print(io, "\n  reg site $i (n=", mult, "): ",
+              join(ligands, ", "))
+        print(io, " [")
+        print(io, join(("$(n)::$(t)" for (n, t) in zip(ligands, reg_allo_states)), ", "))
+        print(io, "]")
+    end
 end
 
 # ─── Accessors ─────────────────────────────────────────────────
 
-"""Return substrates (with stoichiometric multiplicity)."""
-substrates(::EnzymeMechanism{Species}) where {Species} = Species[1]
+"""Return substrates as a tuple of `Symbol` names."""
+substrates(::EnzymeMechanism{M}) where {M} = M[1]
 substrates(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = S
 
-"""Return products (with stoichiometric multiplicity)."""
-products(::EnzymeMechanism{Species}) where {Species} = Species[2]
+"""Return products as a tuple of `Symbol` names."""
+products(::EnzymeMechanism{M}) where {M} = M[2]
 products(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = P
 
-"""Return regulators."""
-regulators(::EnzymeMechanism{Species}) where {Species} = Species[3]
+"""Return regulators as a tuple of `Symbol` names."""
+regulators(::EnzymeMechanism{M}) where {M} = M[3]
 regulators(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} =
     Tuple(r[1] for r in R)
 
@@ -447,128 +464,204 @@ regulator_roles(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = R
 """Return oligomeric state (number of subunits)."""
 oligomeric_state(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = N
 
-"""Return all enzyme forms as a tuple of (name, atoms)."""
-enzyme_forms(::EnzymeMechanism{Species}) where {Species} = Species[4]
-
-"""Compile-time helper: collect unique metabolites from Species type parameter."""
-function _unique_metabolites(Species)
-    subs, prods, regs = Species[1:3]
-    seen = Set{Symbol}()
-    mets = Tuple{Symbol,Any}[]
-    for group in (subs, prods)
-        for (name, atoms) in group
-            if name ∉ seen
-                push!(seen, name)
-                push!(mets, (name, atoms))
-            end
-        end
-    end
-    for name in regs
-        if name ∉ seen
-            push!(seen, name)
-            push!(mets, (name, ()))
-        end
-    end
-    return mets
-end
-
 """
     metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}
 
-Return distinct metabolite names as a tuple of Symbols.
+Return distinct metabolite names (substrates ∪ products ∪ regulators) as a tuple
+of `Symbol`s in declaration order, deduplicated.
 """
-@generated function metabolites(::EnzymeMechanism{Species}) where {Species}
-    mets = _unique_metabolites(Species)
-    Tuple(m[1] for m in mets)
+@generated function metabolites(::EnzymeMechanism{M}) where {M}
+    seen = Set{Symbol}()
+    names = Symbol[]
+    for group in M
+        for name in group
+            if name ∉ seen
+                push!(seen, name)
+                push!(names, name)
+            end
+        end
+    end
+    Tuple(names)
+end
+
+"""Return the reactions tuple `((lhs, rhs, is_eq, kinetic_group), ...)`."""
+reactions(::EnzymeMechanism{M, R}) where {M, R} = R
+
+"""Return the equilibrium-step flags (`true` = rapid-equilibrium, `false` = steady-state)."""
+@generated function equilibrium_steps(::EnzymeMechanism{M, R}) where {M, R}
+    Tuple(step[3] for step in R)
+end
+
+"""Number of steps in the mechanism."""
+n_steps(::EnzymeMechanism{M, R}) where {M, R} = length(R)
+
+"""Kinetic group of step `idx`."""
+kinetic_group(::EnzymeMechanism{M, R}, idx::Int) where {M, R} = R[idx][4]
+
+"""Sorted tuple of distinct kinetic group ids."""
+@generated function kinetic_groups(::EnzymeMechanism{M, R}) where {M, R}
+    Tuple(sort(unique(step[4] for step in R)))
+end
+
+"""Indices of steps belonging to kinetic group `G`."""
+@generated function steps_in_group(
+    ::EnzymeMechanism{M, R}, ::Val{G},
+) where {M, R, G}
+    Tuple(i for (i, step) in enumerate(R) if step[4] == G)
+end
+steps_in_group(m::EnzymeMechanism, g::Int) = steps_in_group(m, Val(g))
+
+"""
+    enzyme_forms(m::EnzymeMechanism) → Tuple{Symbol,...}
+
+Return distinct enzyme-form names (any symbol appearing in a step that is not a
+metabolite) as a tuple of `Symbol`s in step-order, deduplicated.
+"""
+@generated function enzyme_forms(::EnzymeMechanism{M, R}) where {M, R}
+    met_names = Set{Symbol}()
+    for group in M; for name in group; push!(met_names, name); end; end
+    seen = Set{Symbol}()
+    forms = Symbol[]
+    for (lhs, rhs, _, _) in R
+        for s in lhs; s ∉ met_names && s ∉ seen && (push!(seen, s); push!(forms, s)); end
+        for s in rhs; s ∉ met_names && s ∉ seen && (push!(seen, s); push!(forms, s)); end
+    end
+    Tuple(forms)
 end
 
 """Number of distinct enzyme states."""
-n_states(::EnzymeMechanism{Species}) where {Species} = length(Species[4])
-
-"""Number of steps in the mechanism."""
-function n_steps(
-    ::EnzymeMechanism{Species, Reactions},
-) where {Species, Reactions}
-    length(Reactions)
-end
-
-"""Return the reactions tuple directly."""
-reactions(::EnzymeMechanism{Species, R}) where {Species, R} = R
-
-"""Return the equilibrium steps tuple (true = rapid-equilibrium, false = steady-state)."""
-equilibrium_steps(::EnzymeMechanism{Sp, Rx, Eq}) where {Sp, Rx, Eq} = Eq
-
-"""Return the parameter constraints tuple."""
-param_constraints(::EnzymeMechanism{Sp, Rx, Eq, PC}) where {Sp, Rx, Eq, PC} = PC
+n_states(m::EnzymeMechanism) = length(enzyme_forms(m))
 
 """
-Build a directed graph of enzyme-form connectivity.
-Returns (graph, enzyme_forms_tuple).
+    stoich_matrix(m::EnzymeMechanism) → Matrix{Int}
+
+Full stoichiometry matrix. Rows are species in the order
+`(enzyme_forms..., metabolites...)` (use `enzyme_row_range(m)` and
+`metabolite_row_range(m)` to slice). Columns are step indices.
+Positive = produced; negative = consumed in the forward direction.
+
+Enzyme-row columns sum to zero by construction (each step has one
+enzyme on each side).
 """
-@generated function graph(::EnzymeMechanism{Species, Reactions}) where {Species, Reactions}
-    enzs = Species[4]
-    enz_names = Tuple(e[1] for e in enzs)
-    name_to_idx = Dict(n => i for (i, n) in enumerate(enz_names))
-    enz_set = Set(enz_names)
-    g = SimpleDiGraph(length(enzs))
-    for (lhs, rhs) in Reactions
-        e_lhs = first(s for s in lhs if s in enz_set)
-        e_rhs = first(s for s in rhs if s in enz_set)
-        add_edge!(g, name_to_idx[e_lhs], name_to_idx[e_rhs])
-        add_edge!(g, name_to_idx[e_rhs], name_to_idx[e_lhs])
+@generated function stoich_matrix(::EnzymeMechanism{M, R}) where {M, R}
+    met_names_set = Set{Symbol}()
+    for group in M; for name in group; push!(met_names_set, name); end; end
+
+    seen = Set{Symbol}()
+    enz = Symbol[]
+    for (lhs, rhs, _, _) in R
+        for s in lhs; s ∉ met_names_set && s ∉ seen && (push!(seen, s); push!(enz, s)); end
+        for s in rhs; s ∉ met_names_set && s ∉ seen && (push!(seen, s); push!(enz, s)); end
     end
-    return g, enzs
-end
 
-"""
-Stoichiometry matrix: rows = metabolites, columns = steps.
-Positive = produced, negative = consumed.
-"""
-@generated function stoich_matrix(
-    ::EnzymeMechanism{Species, Reactions, EqSteps},
-) where {Species, Reactions, EqSteps}
-    mets = _unique_metabolites(Species)
-    met_idx = Dict(m[1] => i for (i, m) in enumerate(mets))
-    enz_names = Set(e[1] for e in Species[4])
-    S = zeros(Int, length(mets), length(Reactions))
-    for (step_j, (lhs, rhs)) in enumerate(Reactions)
-        for s in lhs
-            s in enz_names && continue
-            S[met_idx[s], step_j] -= 1
-        end
-        for s in rhs
-            s in enz_names && continue
-            S[met_idx[s], step_j] += 1
+    met_seen = Set{Symbol}()
+    mets = Symbol[]
+    for group in M
+        for name in group
+            name ∉ met_seen && (push!(met_seen, name); push!(mets, name))
         end
     end
-    return S
+
+    species = [enz; mets]
+    sp_idx = Dict(s => i for (i, s) in enumerate(species))
+    S = zeros(Int, length(species), length(R))
+    for (j, (lhs, rhs, _, _)) in enumerate(R)
+        for s in lhs; S[sp_idx[s], j] -= 1; end
+        for s in rhs; S[sp_idx[s], j] += 1; end
+    end
+    S
 end
+
+enzyme_row_range(m::EnzymeMechanism) = 1:n_states(m)
+metabolite_row_range(m::EnzymeMechanism) =
+    (n_states(m) + 1):(n_states(m) + length(metabolites(m)))
 
 # ─── AllostericEnzymeMechanism Accessors ────────────────────────
 
-"""Delegate structural accessors to the CatalyticMech singleton."""
-n_states(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    n_states(CM())
-n_steps(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    n_steps(CM())
-equilibrium_steps(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    equilibrium_steps(CM())
-substrates(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    substrates(CM())
-products(::AllostericEnzymeMechanism{M,CM,CS,RS}) where {M,CM,CS,RS} =
-    products(CM())
-@generated function regulators(
-    ::AllostericEnzymeMechanism{M,CM,CS,RS},
-) where {M,CM,CS,RS}
-    ligs = Symbol[]
+catalytic_mechanism(::AllostericEnzymeMechanism{CM}) where {CM} = CM()
+catalytic_multiplicity(::AllostericEnzymeMechanism{CM, CS}) where {CM, CS} = CS[1]
+
+"""Return the allosteric state of catalytic kinetic group `g`."""
+function cat_allo_state(::AllostericEnzymeMechanism{CM, CS, RS}, g::Int) where {CM, CS, RS}
+    _, states = CS
+    return states[g]
+end
+
+substrates(m::AllostericEnzymeMechanism)         = substrates(catalytic_mechanism(m))
+products(m::AllostericEnzymeMechanism)           = products(catalytic_mechanism(m))
+reactions(m::AllostericEnzymeMechanism)          = reactions(catalytic_mechanism(m))
+equilibrium_steps(m::AllostericEnzymeMechanism)  = equilibrium_steps(catalytic_mechanism(m))
+n_steps(m::AllostericEnzymeMechanism)            = n_steps(catalytic_mechanism(m))
+enzyme_forms(m::AllostericEnzymeMechanism)       = enzyme_forms(catalytic_mechanism(m))
+n_states(m::AllostericEnzymeMechanism)           = n_states(catalytic_mechanism(m))
+kinetic_group(m::AllostericEnzymeMechanism, i::Int) =
+    kinetic_group(catalytic_mechanism(m), i)
+kinetic_groups(m::AllostericEnzymeMechanism)     = kinetic_groups(catalytic_mechanism(m))
+steps_in_group(m::AllostericEnzymeMechanism, g)  =
+    steps_in_group(catalytic_mechanism(m), g)
+stoich_matrix(m::AllostericEnzymeMechanism)      = stoich_matrix(catalytic_mechanism(m))
+enzyme_row_range(m::AllostericEnzymeMechanism)   = enzyme_row_range(catalytic_mechanism(m))
+metabolite_row_range(m::AllostericEnzymeMechanism) =
+    metabolite_row_range(catalytic_mechanism(m))
+
+# Returns ONLY reg-site ligands, NOT a union with catalytic_mechanism's
+# regulators. Downstream rate-equation code reads `regulators(m)` to find
+# dead-end binding K's; including allosteric-only ligands would cause it
+# to look up nonexistent K names.
+regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    syms = Symbol[]
+    seen = Set{Symbol}()
     for entry in RS
         for lig in entry[1]
-            lig in ligs || push!(ligs, lig)
+            lig in seen || (push!(seen, lig); push!(syms, lig))
         end
     end
-    Tuple(ligs)
+    Tuple(syms)
 end
-param_constraints(::AllostericEnzymeMechanism) = ()
 
-"""Return all metabolite names (catalytic + regulatory) from the Metabolites type param."""
-metabolites(::AllostericEnzymeMechanism{Mets,CM,CS,RS}) where {Mets,CM,CS,RS} = Mets
+metabolites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    cat_mets = metabolites(CM())
+    extra = Symbol[]
+    seen = Set{Symbol}(cat_mets)
+    for entry in RS
+        for lig in entry[1]
+            lig in seen || (push!(seen, lig); push!(extra, lig))
+        end
+    end
+    (cat_mets..., extra...)
+end
+
+allosteric_regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    result = Tuple{Symbol, Symbol}[]
+    for (ligands, _, reg_allo_states) in RS
+        for (lig, st) in zip(ligands, reg_allo_states)
+            push!(result, (lig, st))
+        end
+    end
+    Tuple(result)
+end
+
+catalytic_inhibitors(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
+    rs_names = Set{Symbol}()
+    for (ligs, _, _) in RS
+        for l in ligs; push!(rs_names, l); end
+    end
+    cat_regs = regulators(CM())
+    Tuple(r for r in cat_regs if r ∉ rs_names)
+end
+
+regulatory_sites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = RS
+regulatory_site_ligands(m::AllostericEnzymeMechanism, i::Int)     =
+    regulatory_sites(m)[i][1]
+regulatory_site_multiplicity(m::AllostericEnzymeMechanism, i::Int) =
+    regulatory_sites(m)[i][2]
+
+"""Return the allosteric state of regulator ligand `lig` at site `site_idx`."""
+function reg_allo_state(
+    ::AllostericEnzymeMechanism{CM, CS, RS}, site_idx::Int, lig::Symbol,
+) where {CM, CS, RS}
+    ligands, _, states = RS[site_idx]
+    idx = findfirst(==(lig), ligands)
+    idx === nothing && error("Ligand $lig not at regulatory site $site_idx")
+    return states[idx]
+end

@@ -1,12 +1,12 @@
 @testset "Accessor performance" begin
-    species = (
-        ((:S, ((:C, 1),)),),
-        ((:P, ((:C, 1),)),),
-        (),
-        ((:E, ()), (:ES, ((:C, 1),))),
-    )
-    rxns = (((:E, :S), (:ES,)), ((:ES,), (:E, :P)))
-    m = EnzymeMechanism(species, rxns, (false, false))
+    m = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            [E, S] <--> [ES]
+            [ES] <--> [E, P]
+        end
+    end
 
     # Warmup - use qualified names for internal functions
     EnzymeRates.substrates(m)
@@ -18,7 +18,7 @@
     EnzymeRates.n_steps(m)
     parameters(m)
     metabolites(m)
-    EnzymeRates.graph(m); EnzymeRates.stoich_matrix(m); EnzymeRates.equilibrium_steps(m)
+    EnzymeRates.stoich_matrix(m); EnzymeRates.equilibrium_steps(m)
 
     # Use minimum of multiple timing runs to avoid GC noise
     function best_ns_per_call(f, arg; n=10_000, trials=5)
@@ -73,11 +73,6 @@
     @testset "metabolites: zero-alloc and <100ns" begin
         @test (@allocated metabolites(m)) == 0
         @test best_ns_per_call(metabolites, m) < 100e-9
-    end
-
-    @testset "graph: zero-alloc and <100ns" begin
-        @test (@allocated EnzymeRates.graph(m)) == 0
-        @test best_ns_per_call(EnzymeRates.graph, m) < 100e-9
     end
 
     @testset "stoich_matrix: zero-alloc and <100ns" begin

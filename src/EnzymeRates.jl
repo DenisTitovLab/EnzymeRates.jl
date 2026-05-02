@@ -6,7 +6,7 @@ export FittingProblem
 export IdentifyRateEquationProblem, IdentifyRateEquationResults
 
 # DSL
-export @enzyme_reaction, @enzyme_mechanism
+export @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 
 # Rate equation modes
 export Full, Reduced

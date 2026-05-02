@@ -19,23 +19,26 @@ using OptimizationPyCMA
         regulators: R
     end
 
-    # Build the constrained allosteric mechanism
-    # from a MechanismSpec (DSL doesn't support
-    # r_only/t_only annotations directly)
+    # Build the constrained allosteric mechanism: K-type
+    # allosteric with S, P only in R-state (`:OnlyR` group
+    # tags) and R only in T-state (`:OnlyT` ligand tag).
     _init = EnzymeRates.init_mechanisms(test_rxn)
     _base_spec = _init[1]
+    # Find S-binding and P-binding kinetic groups by their
+    # metabolite (single-step groups in init).
+    _g_s = first(s.kinetic_group for s in _base_spec.steps
+                 if EnzymeRates.step_metabolite(s) === :S)
+    _g_p = first(s.kinetic_group for s in _base_spec.steps
+                 if EnzymeRates.step_metabolite(s) === :P)
     _allo_spec =
         EnzymeRates.AllostericMechanismSpec(
             _base_spec,
-            1,            # catalytic_n
-            [[:R]],       # reg sites
-            [1],          # multiplicities
-            Symbol[],     # tr_equiv_metabolites
-            Int[],        # tr_equiv_cat_steps
-            [:S, :P],     # r_only_metabolites
-            [:R],         # t_only_metabolites
-            Int[],        # r_only_cat_steps
-            8)            # param_count
+            1,                # catalytic_n
+            [[:R]],           # reg sites
+            [1],              # multiplicities
+            Dict(_g_s => :OnlyR, _g_p => :OnlyR),
+            Dict(:R => :OnlyT),
+            8)                # param_count
     test_mechanism =
         EnzymeRates.AllostericEnzymeMechanism(
             _allo_spec)
