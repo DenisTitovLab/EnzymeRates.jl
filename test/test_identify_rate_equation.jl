@@ -394,3 +394,80 @@ end
     @test EnzymeRates._canonical_rate_eq_hash(m_a) ==
           EnzymeRates._canonical_rate_eq_hash(m_b)
 end
+
+@testset "identify_rate_equation: end-to-end CSV invariants" begin
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    Keq = 2.0
+    n_pts_per_group = 8
+    n_groups = 3
+    A_vals = repeat([0.1, 0.5, 1.0, 2.0], n_groups * 2)
+    B_vals = repeat([0.2, 0.5, 1.0, 1.5], n_groups * 2)
+    P_vals = repeat([0.05, 0.1, 0.2, 0.4], n_groups * 2)
+    Q_vals = repeat([0.05, 0.1, 0.15, 0.3], n_groups * 2)
+    K_A, K_B, K_P, K_Q = 0.5, 0.3, 0.4, 0.6
+    kf = 1.0; kr = kf / Keq
+    Rates = @. (kf * (A_vals * B_vals) / (K_A * K_B) -
+                kr * (P_vals * Q_vals) / (K_P * K_Q)) /
+               ((1 + A_vals/K_A + P_vals/K_P) *
+                (1 + B_vals/K_B + Q_vals/K_Q))
+    data = (
+        group = repeat(1:n_groups, inner=n_pts_per_group),
+        Rate = Rates, A = A_vals, B = B_vals,
+        P = P_vals, Q = Q_vals,
+    )
+    prob_e2e = IdentifyRateEquationProblem(rxn, data; Keq=Keq)
+    mktempdir() do tmp
+        result_e2e = identify_rate_equation(
+            prob_e2e;
+            min_beam_width = 5,
+            loss_rel_threshold = 5.0,
+            loss_abs_threshold = 0.01,
+            max_param_count = 6,
+            optimizer = PyCMAOpt(),
+            save_dir = tmp,
+            pmap_function = map,
+            n_restarts = 1, maxtime = 2.0,
+        )
+        # 1. Filenames use the new estimate-level naming.
+        files = filter(f -> endswith(f, ".csv"),
+                       readdir(tmp))
+        @test !isempty(files)
+        for fname in files
+            @test startswith(fname, "params_estimate_")
+        end
+        # 2. eq_hash column exists and is well-formed.
+        for fname in files
+            df_file = CSV.read(joinpath(tmp, fname), DataFrame)
+            @test "eq_hash" in names(df_file)
+            @test all(.!ismissing.(df_file.eq_hash))
+            @test all(length.(df_file.eq_hash) .== 16)
+        end
+        # 3. Cross-level inheritance chain: rows with non-missing
+        #    fit_inherited_from_estimate must point to a level
+        #    whose CSV contains a row with the same eq_hash.
+        all_rows_by_level = Dict{Int, DataFrame}()
+        for fname in files
+            est = parse(Int, replace(fname,
+                "params_estimate_" => "", ".csv" => ""))
+            all_rows_by_level[est] = CSV.read(
+                joinpath(tmp, fname), DataFrame)
+        end
+        for (_, df_lvl) in all_rows_by_level
+            for row in eachrow(df_lvl)
+                ismissing(row.fit_inherited_from_estimate) &&
+                    continue
+                src = row.fit_inherited_from_estimate
+                @test haskey(all_rows_by_level, src)
+                @test row.eq_hash in
+                    all_rows_by_level[src].eq_hash
+            end
+        end
+        # 4. result_e2e.best is a real mechanism.
+        @test result_e2e.best isa AbstractEnzymeMechanism
+        # 5. result_e2e.cv_results is non-empty.
+        @test nrow(result_e2e.cv_results) >= 1
+    end
+end
