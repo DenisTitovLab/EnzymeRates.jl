@@ -177,7 +177,7 @@ both sides if the example is purely structural).
 
 In `test_dsl.jl` and/or `test_types.jl`:
 
-- `EnzymeReaction((:S => ()), (:P => ((:C, 1),)), …)` errors —
+- `EnzymeReaction(((:S, ()),), ((:P, ((:C, 1),)),))` errors —
   substrate has no atoms.
 - `EnzymeReaction(…)` errors when LHS has `(C, 6)` and RHS has
   `(C, 5)`.

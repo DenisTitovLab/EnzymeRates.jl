@@ -30,15 +30,14 @@
 
 | File | Phase | Change |
 |---|---|---|
-| `src/mechanism_enumeration.jl` | A, C | rename `param_count` → `n_fit_params_estimate`; drop `+2` from estimate; derive regulators from steps in `EnzymeMechanism(spec)` and allosteric path |
-| `src/types.jl` | B, C, D | add atom mandatoriness + balance check in `EnzymeReaction`; tighten regulator validation in `EnzymeMechanism(mets, rxns)`; refactor `Base.show(io, ::AllostericEnzymeMechanism)` |
-| `src/identify_rate_equation.jl` | E, F, G | bucket save by actual `length(fitted_params(m))`; new beam threshold rule; persistent rate-equation hash cache + four-stage processing; new CSV columns; LOOCV per unique hash |
-| `src/rate_eq_derivation.jl` | G (new helper) | optionally expose a canonical-hash helper if `rate_equation_string` text isn't sufficient (decided per Task G.1 investigation) |
+| `src/mechanism_enumeration.jl` | A, C | rename `param_count` → `n_fit_params_estimate`; drop `+2` from BOTH estimate formulas (lines 841 & 1434); lower `floor_pc` from `+3` to `+1`; derive regulators from steps in `EnzymeMechanism(spec)` and allosteric path |
+| `src/types.jl` | B, C, D | add atom mandatoriness + balance check in `EnzymeReaction`; tighten regulator validation in `EnzymeMechanism(mets, rxns)`; refactor `Base.show(io, ::AllostericEnzymeMechanism)` to inline `:: Tag` per step / step-group |
+| `src/identify_rate_equation.jl` | E, F, G | rename saved CSV files to `params_estimate_<pc>.csv`; new beam threshold rule (`loss_rel_threshold`, `loss_abs_threshold`, lowered `min_beam_width=50`); token-driven canonical rate-equation hash; persistent cross-level fit cache; two-stage processing with worker-side recompile; new CSV columns (`eq_hash`, `fit_inherited_from_estimate`); LOOCV dedups by hash within each `n_params` bucket |
 | `test/test_mechanism_enumeration.jl` | A, C | new estimate semantic tests; init does not carry unbound regulators |
-| `test/test_types.jl` | B, C, D | atom-balance + atom-mandatory failure tests; strict regulator constructor failure test; `repr` allosteric display tests |
-| `test/test_dsl.jl` | B | atom-validation tests at the macro/constructor seam |
-| `test/test_identify_rate_equation.jl` | E, F, G | filename bucketing test; beam threshold tests; canonical-hash tests; cross-level cache tests; end-to-end LDH regression |
-| `README.md` | B | migrate `S` / `P` bare-symbol example to declared atoms |
+| `test/test_types.jl` | B, C, D | atom-balance + atom-mandatory failure tests; strict regulator constructor failure test; `repr` allosteric display tests including the multi-step parens-grouping branch |
+| `test/test_dsl.jl` | B | atom-validation tests at the macro/constructor seam (only if any `@enzyme_reaction` examples in this file remain bare-symbol after migration) |
+| `test/test_identify_rate_equation.jl` | E, F, G | filename rename test; beam threshold tests; canonical-hash test; end-to-end CSV-invariants regression with real optimizer |
+| `README.md` | B | migrate any bare-symbol `@enzyme_reaction` example (NOT `@enzyme_mechanism` / `@allosteric_mechanism` blocks — those forbid atom brackets) |
 | `CLAUDE.md` | A | update note about `param_count` → `n_fit_params_estimate` |
 
 No new source files are created. New test additions go into existing test files in dedicated `@testset` blocks.
@@ -122,29 +121,48 @@ end
 
 In the same file: rename `_param_count(spec)` → `_n_fit_params_estimate(spec)` and `_param_count_from_steps(steps)` → `_n_fit_params_estimate_from_steps(steps)`. Update all bodies that read or write the field via these helpers.
 
-- [ ] **Step 4: Replace remaining `.param_count` usages in src/**
+- [ ] **Step 4: Replace remaining `param_count` usages in src/**
+
+Use a word-boundary grep so bare-identifier uses (local variable
+references, positional argument names, comments) are also caught:
 
 ```bash
-grep -rn "\.param_count\|param_count =\|param_count::" /home/denis.linux/.julia/dev/EnzymeRates/src/
+grep -rn "\bparam_count\b" /home/denis.linux/.julia/dev/EnzymeRates/src/
 ```
 
-Replace each `spec.param_count` / `.param_count` with `.n_fit_params_estimate`. Replace each `param_count = …` assignment in struct constructors and named-tuple builders. Confirm no `.param_count` remains:
+Replace each occurrence of `param_count` with `n_fit_params_estimate`,
+including: `spec.param_count` field access, `param_count = …`
+assignments, local variable declarations like
+`param_count = n_re + 2 * n_ss - n_thermo`, positional uses inside
+constructor calls (`MechanismSpec(rxn, tagged, param_count)`), and
+any inline comments. Confirm clean:
 
 ```bash
-grep -rn "\.param_count" /home/denis.linux/.julia/dev/EnzymeRates/src/
+grep -rn "\bparam_count\b" /home/denis.linux/.julia/dev/EnzymeRates/src/
 ```
 
 Expected: empty output.
 
-- [ ] **Step 5: Replace `.param_count` references in tests**
+- [ ] **Step 5: Replace `param_count` references in tests (including comments)**
 
 ```bash
-grep -rn "\.param_count\|param_count =" /home/denis.linux/.julia/dev/EnzymeRates/test/
+grep -rn "\bparam_count\b" /home/denis.linux/.julia/dev/EnzymeRates/test/
 ```
 
 Replace each. Specific known sites:
 - `test/test_mechanism_enumeration.jl:17` and `:100` (the `enumerate_all` helper).
-- `test/test_identify_rate_equation.jl:41` (the `8` is the constructor's `param_count` positional arg — see Step 6).
+- `test/test_identify_rate_equation.jl:41` (the `8) # param_count` line —
+  the value is a positional argument to `AllostericMechanismSpec`; the
+  inline comment `# param_count` must be updated to
+  `# n_fit_params_estimate`).
+
+Confirm clean:
+
+```bash
+grep -rn "\bparam_count\b" /home/denis.linux/.julia/dev/EnzymeRates/test/
+```
+
+Expected: empty output.
 
 - [ ] **Step 6: Update `MechanismSpec` / `AllostericMechanismSpec` constructor call sites**
 
@@ -168,32 +186,83 @@ Expected:
 
 If a test fails for any reason other than A.1's value-check, fix the missed `.param_count` reference.
 
-### Task A.3: Drop `+2` from the estimate formula
+### Task A.3: Drop `+2` from BOTH estimate formulas and lower `floor_pc`
+
+There are TWO `+ 2` occurrences in `src/mechanism_enumeration.jl`,
+plus a `floor_pc` constant whose value depends on the convention.
+All three must change in lock-step.
 
 **Files:**
-- Modify: `src/mechanism_enumeration.jl` line 841
+- Modify: `src/mechanism_enumeration.jl` lines 841, 1374, 1434
 
-- [ ] **Step 1: Change the formula**
+- [ ] **Step 1: Change the per-step formula in `init_mechanisms`**
 
-In `init_mechanisms`, find the single occurrence of `n_re + 2 * n_ss - n_thermo + 2`:
+Around line 841, replace:
 
-```bash
-grep -n "n_re + 2 \* n_ss - n_thermo" /home/denis.linux/.julia/dev/EnzymeRates/src/mechanism_enumeration.jl
+```julia
+param_count = n_re + 2 * n_ss -
+    n_thermo + 2
 ```
 
-Replace `+ 2` at the end with nothing:
+with (after Phase A.2's rename):
 
 ```julia
 n_fit_params_estimate = n_re + 2 * n_ss - n_thermo
 ```
 
-- [ ] **Step 2: Run tests**
+- [ ] **Step 2: Change the per-kinetic-group formula in `_param_count_from_steps`**
+
+This is at line 1422-1436 of the SAME file. After the Phase A.2
+rename it is now `_n_fit_params_estimate_from_steps(steps)`. Drop
+the trailing `+ 2`:
+
+```julia
+function _n_fit_params_estimate_from_steps(steps::Vector{StepSpec})
+    groups_re = Set{Int}()
+    groups_ss = Set{Int}()
+    for s in steps
+        if s.is_equilibrium
+            push!(groups_re, s.kinetic_group)
+        else
+            push!(groups_ss, s.kinetic_group)
+        end
+    end
+    n_forms = length(all_form_names(steps))
+    n_thermo = length(steps) - n_forms + 1
+    length(groups_re) + 2 * length(groups_ss) - n_thermo
+end
+```
+
+This is the helper called from `_apply_equivalence_grouping` at
+line 1411 — its return value is what actually gets stamped onto the
+spec at the end of `init_mechanisms`. Without changing it, the
+A.1 regression test still fails.
+
+- [ ] **Step 3: Lower `floor_pc` from `+3` to `+1`**
+
+At line 1374 in `init_mechanisms`:
+
+```julia
+floor_pc = n_s + n_p + 1
+```
+
+The original `+3` decomposes as `+1` (one SS rate constant) `+1`
+(Keq) `+1` (E_total). Under the new convention (no Keq, no
+E_total), only the `+1` for the SS rate constant remains.
+
+- [ ] **Step 4: Run the full test suite**
 
 ```
 julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
 ```
 
 Expected: A.1 now passes. Whole suite green.
+
+If A.1 still fails, the most likely cause is that `floor_pc` is
+still clamping the count too high for the small `uni_uni_rxn`
+fixture (n_s = n_p = 1 → floor_pc = 3 under new rule; the actual
+fitted_params count is also 3 = K1, K2, k3f). They should agree.
+Print both values from the test if the assertion fails to debug.
 
 ### Task A.4: Update CLAUDE.md note
 
@@ -238,13 +307,24 @@ EOF
 - Modify: `README.md`
 - Audit (likely no changes needed): `test/*.jl`
 
-- [ ] **Step 1: Find every `@enzyme_reaction` body in repo**
+- [ ] **Step 1: Find every bare-symbol `@enzyme_reaction` block**
+
+The grep below is the source of truth. **Only `@enzyme_reaction`
+blocks need migration** — `@enzyme_mechanism` and
+`@allosteric_mechanism` DSLs forbid atom brackets (per
+`dsl.jl:285-289`), so any bare symbols in those blocks are
+correct and must NOT be touched.
 
 ```bash
-grep -rA 5 "@enzyme_reaction begin" /home/denis.linux/.julia/dev/EnzymeRates/test/ /home/denis.linux/.julia/dev/EnzymeRates/README.md /home/denis.linux/.julia/dev/EnzymeRates/src/
+grep -rA 6 "@enzyme_reaction begin" /home/denis.linux/.julia/dev/EnzymeRates/test/ /home/denis.linux/.julia/dev/EnzymeRates/README.md /home/denis.linux/.julia/dev/EnzymeRates/src/
 ```
 
-For each, inspect the `substrates:` and `products:` lines. Any bare-symbol species (e.g., `substrates: S` with no `[…]`) must be migrated.
+For each match, inspect the `substrates:` and `products:` lines
+INSIDE THE `@enzyme_reaction` BLOCK only. Any bare-symbol species
+(e.g., `substrates: S` with no `[…]`) must be migrated to declare
+atoms (e.g., `S[C]` is fine for illustrative examples — pick
+plausible biochemistry where one is implied, otherwise placeholder
+`[C]` is acceptable).
 
 - [ ] **Step 2: Migrate `README.md`**
 
@@ -616,35 +696,32 @@ EOF
 end
 
 @testset "AllostericEnzymeMechanism display: shared kinetic group" begin
-    # Construct an allosteric mechanism with two RE steps in one
-    # kinetic group (e.g. binding S to E and binding S to E_P) and
-    # confirm they render together with one ::Tag.
-    # ... build a manually-constructed AllostericMechanismSpec
-    # whose base mechanism has two RE steps in kinetic_group=1 ...
-    # (Construction details inline so the engineer doesn't have to
-    # reverse-engineer them.)
-
-    base_rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-    end
-    # 4-step mechanism: (E,S)→E_S g1, (E_P,S)→E_PS g1 (shared K),
-    # (E_S)→(E_P) SS g2, (E,P)→E_P g3.  Net: S binds → ES, ES→EP, EP→E + P.
-    # Use the 2-arg EnzymeMechanism constructor directly.
+    # Construct a base mechanism where TWO RE steps share
+    # kinetic_group=1 — both bind metabolite :S to different forms.
+    # The display must render them together as
+    #   ([E, S] ⇌ [E_S], [E_P, S] ⇌ [E_PS]) :: Tag
     cm = EnzymeMechanism(
         ((:S,), (:P,), ()),
-        (((:E, :S), (:E_S,), true, 1),
-         ((:E_S,), (:E_P,), false, 2),
-         ((:E_P,), (:E, :P), true, 3)))
-    # Pretend it's a 2-mer allosteric for the display test.
+        (((:E, :S),    (:E_S,),  true,  1),  # first :S binding, group 1
+         ((:E_P, :S),  (:E_PS,), true,  1),  # second :S binding, group 1
+         ((:E_S,),     (:E_P,),  false, 2),  # SS catalytic, group 2
+         ((:E_P,),     (:E, :P), true,  3))) # P release, group 3
+    # 2-mer allosteric, all kinetic groups :EqualRT
     am = EnzymeRates.AllostericEnzymeMechanism(
         cm, (2, (:EqualRT, :EqualRT, :EqualRT)), ())
     s = repr(am)
-    @test occursin("(", s)        # parens grouping or a non-grouped step
-    # If the mechanism truly has multi-step groups, this would also
-    # exercise the parenthesized-group branch; for this single-step-
-    # per-group case, just confirm rendering is multi-line and tagged.
+
+    # The parenthesized-group branch must execute: look for the
+    # exact "(...) :: EqualRT" shape with a comma-separated body.
+    paren_group_match = match(
+        r"\([^()]*,[^()]*\) :: EqualRT", s)
+    @test paren_group_match !== nothing
+    # And the single-step lines for groups 2 and 3 should also
+    # appear with their own ":: EqualRT" tags.
+    @test occursin("[E_S] <--> [E_P] :: EqualRT", s)
     @test occursin(":: EqualRT", s)
+    # The deprecated summary line must NOT appear.
+    @test !occursin("cat_allo_states:", s)
 end
 ```
 
@@ -766,46 +843,42 @@ EOF
 
 ---
 
-## Phase E — `identify_rate_equation` file naming bucketing (Issues #3, #4)
+## Phase E — `identify_rate_equation` filename rename (Issues #3, #4)
 
-### Task E.1: Add failing test
+The original plan tried to bucket save files by actual
+`length(fitted_params(m))`. That introduced a class of CSV-append
+edge cases (different column sets, header rewriting, eq_hash
+duplication across levels). The simpler answer: keep one file per
+estimate-level (the existing behavior) but rename it so the
+filename clearly says "this is an estimate, not the actual count."
+The row's `n_params` column already shows the actual count; users
+sort and filter from there.
+
+### Task E.1: Add failing test for the new filename pattern
 
 **Files:**
 - Modify: `test/test_identify_rate_equation.jl`
 
-- [ ] **Step 1: Add a testset that exercises `_save_level_csv` via `_beam_search`**
+- [ ] **Step 1: Add a testset asserting the new filename**
 
-A focused unit test on `_save_level_csv` is cleaner than an end-to-end run. Append:
+Append:
 
 ```julia
-@testset "save_level_csv groups by actual n_params" begin
+@testset "save_level_csv uses estimate-level filename" begin
     mktempdir() do tmp
-        # Two mock rows with different actual n_params, sharing the
-        # same enumeration-level pc.
-        rows = [
-            (n_params=3, loss=1.0,
-             mechanism_type="m1", rate_equation="eq1",
-             fitted_param_names=(:K1, :K2, :k3f),
-             fitted_param_values=(1.0, 2.0, 3.0)),
-            (n_params=4, loss=1.5,
-             mechanism_type="m2", rate_equation="eq2",
-             fitted_param_names=(:K1, :K2, :K3, :k4f),
-             fitted_param_values=(1.0, 2.0, 3.0, 4.0)),
-        ]
-        # Group by actual n_params and call save once per bucket.
-        for n in unique(r.n_params for r in rows)
-            EnzymeRates._save_level_csv(
-                tmp, [r for r in rows if r.n_params == n], n)
-        end
-        @test isfile(joinpath(tmp, "params_3.csv"))
-        @test isfile(joinpath(tmp, "params_4.csv"))
-        # No params_5.csv from any estimate-level
+        rows = [(n_params=3, loss=1.0,
+                 mechanism_type="m1", rate_equation="eq1",
+                 fitted_param_names=(:K1, :K2, :k3f),
+                 fitted_param_values=(1.0, 2.0, 3.0))]
+        # Caller passes the estimate-level pc (e.g., 5) — could
+        # diverge from the row's actual n_params=3 due to Haldane
+        # reduction. Filename must reflect the estimate.
+        EnzymeRates._save_level_csv(tmp, rows, 5)
+        @test isfile(joinpath(tmp, "params_estimate_5.csv"))
         @test !isfile(joinpath(tmp, "params_5.csv"))
-        # Each file's sole row has matching n_params
-        df3 = CSV.read(joinpath(tmp, "params_3.csv"), DataFrame)
-        df4 = CSV.read(joinpath(tmp, "params_4.csv"), DataFrame)
-        @test all(df3.n_params .== 3)
-        @test all(df4.n_params .== 4)
+        df = CSV.read(joinpath(tmp, "params_estimate_5.csv"),
+                      DataFrame)
+        @test df.n_params == [3]   # actual count, not the estimate
     end
 end
 ```
@@ -816,44 +889,45 @@ end
 julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
 ```
 
-Expected: test passes IF `_save_level_csv` already accepts arbitrary param_count, but the *behavior* of `_beam_search` to group by actual is missing — so add a complementary integration test next.
+Expected: file is found at `params_5.csv` (old name), so the
+`isfile(joinpath(tmp, "params_estimate_5.csv"))` assertion fails.
 
-(If both files are produced by the test above, this confirms `_save_level_csv` itself is fine; the bug is upstream — `_beam_search` always passes the level estimate. The Phase E.2 implementation moves the grouping into `_beam_search`.)
-
-### Task E.2: Group results by actual `n_params` inside `_beam_search`
+### Task E.2: Rename the saved-file path
 
 **Files:**
-- Modify: `src/identify_rate_equation.jl` lines 308-313
+- Modify: `src/identify_rate_equation.jl` lines 233-241
 
-- [ ] **Step 1: Replace the single-call save with grouped saves**
+- [ ] **Step 1: Update `_save_level_csv` filename**
 
-Find:
-
-```julia
-# Save CSV for this param count
-if save_dir !== nothing
-    _save_level_csv(
-        save_dir,
-        [r.row for r in results], pc)
-end
-```
-
-Replace with:
+Replace lines 237-238:
 
 ```julia
-# Save CSVs grouped by actual n_params (which may differ from
-# the enumeration estimate `pc` due to Haldane reduction).
-if save_dir !== nothing
-    actual_groups = Dict{Int,Vector{NamedTuple}}()
-    for r in results
-        push!(get!(actual_groups, r.row.n_params, NamedTuple[]),
-              r.row)
-    end
-    for (np, rows) in actual_groups
-        _save_level_csv(save_dir, rows, np)
-    end
-end
+path = joinpath(
+    save_dir, "params_$(param_count).csv")
 ```
+
+with:
+
+```julia
+path = joinpath(
+    save_dir, "params_estimate_$(param_count).csv")
+```
+
+Update the docstring just above to clarify:
+
+```julia
+"""
+Save results for one beam level to a CSV file. The filename
+encodes the level's `n_fit_params_estimate`; the actual `n_params`
+of each row may be smaller (Haldane reduction collapses some
+declared kinetic groups). Users wanting one file per actual
+`n_params` value can post-process by reading and re-grouping.
+"""
+```
+
+The function's positional argument name should also be renamed
+from `param_count` to `n_fit_params_estimate` for consistency
+with the rest of the codebase after Phase A's rename.
 
 - [ ] **Step 2: Run tests**
 
@@ -868,11 +942,12 @@ Expected: E.1 passes; full suite green.
 ```bash
 git add src/identify_rate_equation.jl test/test_identify_rate_equation.jl
 git commit -m "$(cat <<'EOF'
-Group beam-search saves by actual n_params, not the estimate-level
+Rename beam-search saves to params_estimate_<pc>.csv
 
-Files are now named after the row's n_params column (the actual
-length(fitted_params(m))). One file → one param count, no Haldane-
-induced mixing.
+Filename now signals that the integer is the enumeration estimate,
+not the actual fitted-param count. The n_params column inside each
+row remains the actual count from length(fitted_params(m)). Users
+can post-process to bucket by actual count if desired.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -1087,9 +1162,41 @@ EOF
 
 ---
 
-## Phase G — Post-compile rate-equation hash dedup with cross-level cache (Issue #6)
+## Phase G — Post-compile rate-equation hash dedup with persistent cache (Issue #6)
 
-This is the largest phase. It implements the persistent hash cache, four-stage per-level processing, three new CSV columns, and LOOCV per unique hash.
+This phase adds a global cache keyed by canonical rate-equation hash
+that persists across beam levels. Specs whose compiled rate
+equations share a hash with any previously-seen mechanism reuse the
+prior fit; only new hashes pay the optimizer cost.
+
+Key design decisions (refined from spec deviations during plan
+review):
+
+- **Canonical hash uses Julia's built-in `hash(::String)::UInt64`,
+  not SHA.** No new Project.toml dep; collision probability is
+  negligible at our scale (~10⁻¹² over 10⁴ mechanisms).
+- **Canonicalization is token-driven via `parameters(m, Reduced)`,
+  not regex.** The param list is the source of truth; we walk
+  `parameters(m)` to discover every name (`K1`, `K1_T`, `kf_T`,
+  `K_R_reg1`, `L`, etc.) and rename each by first appearance in
+  the body. Avoids the regex-misses-allosteric-params class of
+  bugs.
+- **One row per spec member, not per hash group.** All members of
+  a hash group share the cached `(loss, params, eq_hash)` values;
+  the `eq_hash` column lets users post-hoc dedup. No 1:1
+  spec-to-row mapping is broken; `_cv_model_selection`'s
+  indexing logic is unchanged.
+- **Two stages with worker-side recompile.** Stage 1 returns
+  `(spec, eq_hash, eq_hash_short, n_actual)` — *no* mechanism
+  object. Stage 2 receives the spec, recompiles it on the worker,
+  and fits. This pays a 2× compile cost on new-hash specs but
+  guarantees `EnzymeMechanism{...}` singleton types never travel
+  between workers.
+- **No unit tests of cache mechanics.** A single end-to-end test
+  using a real optimizer covers cache + integration. Removed the
+  earlier G.3 unit-test scaffolding, which was either tautological
+  or required `MockOptimizer` plumbing that doesn't satisfy
+  `Optimization.solve`'s dispatch interface.
 
 ### Task G.1: Implement and test the canonical rate-equation hash
 
@@ -1103,100 +1210,120 @@ Append to `test/test_identify_rate_equation.jl`:
 
 ```julia
 @testset "canonical rate-equation hash" begin
-    # Two strings differing only in k{N}f index should hash equal
-    s1 = "k10r = (1 / Keq) * (1 / K1) * k10f\n" *
-         "v = (k10f * S - k10r * P) / (1 + S/K1)"
-    s2 = "k11r = (1 / Keq) * (1 / K1) * k11f\n" *
-         "v = (k11f * S - k11r * P) / (1 + S/K1)"
-    @test EnzymeRates._canonical_rate_eq_hash(s1) ==
-          EnzymeRates._canonical_rate_eq_hash(s2)
+    # Build two mechanisms whose rate equations are isomorphic up
+    # to parameter-name renumbering — same form set, same SS step,
+    # different step ordering so rep-step indices differ.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+    end
 
-    # Two strings with K names in different first-appearance order
-    s3 = "v = (kf * S - kr * P) / (1 + S/K1 + P/K2)"
-    s4 = "v = (kf * S - kr * P) / (1 + P/K1 + S/K2)"
-    # These should hash DIFFERENTLY because the canonicalizer renames
-    # by first appearance and the structures differ.
-    @test EnzymeRates._canonical_rate_eq_hash(s3) !=
-          EnzymeRates._canonical_rate_eq_hash(s4)
+    init = EnzymeRates.init_mechanisms(rxn)
+    base = first(init)
+    m_a = EnzymeRates.EnzymeMechanism(base)
 
-    # Hash is deterministic (same input → same hash)
-    @test EnzymeRates._canonical_rate_eq_hash(s1) ==
-          EnzymeRates._canonical_rate_eq_hash(s1)
+    # Reorder steps so the SS step lands at a different index;
+    # the rate equation should canonicalize to the same hash.
+    rxns = collect(EnzymeRates.reactions(m_a))
+    swapped = (rxns[2], rxns[1], rxns[3:end]...)
+    m_b = EnzymeMechanism(((:S,), (:P,), ()), swapped)
 
-    # Returns (full::Vector{UInt8} of length 32, short::String of 8 hex)
-    h_full, h_short = EnzymeRates._canonical_rate_eq_hash_pair(s1)
-    @test length(h_full) == 32
-    @test length(h_short) == 8
+    h_a = EnzymeRates._canonical_rate_eq_hash(m_a)
+    h_b = EnzymeRates._canonical_rate_eq_hash(m_b)
+    @test h_a == h_b
+
+    # Determinism.
+    @test EnzymeRates._canonical_rate_eq_hash(m_a) == h_a
+
+    # Pair returns (UInt64, 16-char hex String).
+    h_full, h_short = EnzymeRates._canonical_rate_eq_hash_pair(m_a)
+    @test h_full == h_a
+    @test length(h_short) == 16
     @test all(c -> c in "0123456789abcdef", h_short)
 end
 ```
 
-- [ ] **Step 2: Run; confirm failure (function undefined)**
+- [ ] **Step 2: Run; confirm failure**
 
-- [ ] **Step 3: Implement the canonicalizer**
+```
+julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
+```
 
-Add `using SHA` at the top of `src/identify_rate_equation.jl` (alongside the other `using` lines). Add helpers:
+Expected: `MethodError` / `UndefVarError` for `_canonical_rate_eq_hash`.
+
+- [ ] **Step 3: Implement the canonicalizer (token-driven via `parameters(m)`)**
+
+Add to `src/identify_rate_equation.jl`:
 
 ```julia
-"""Canonicalize a rate-equation source string into a stable form
-for hashing. Drops `(; … ) = params` / `= concs` destructure lines,
-renames `k{N}f → kf_1, kf_2, …`, `k{N}r → kr_1, kr_2, …`, and
-`K{N} → K_1, K_2, …` in first-appearance order, normalizes
-whitespace."""
-function _canonicalize_rate_eq(text::AbstractString)
-    # 1. Strip destructure lines
-    lines = split(text, '\n')
-    body = String[]
-    for ln in lines
-        s = strip(ln)
-        startswith(s, "(;") && occursin("= params", s) && continue
-        startswith(s, "(;") && occursin("= concs", s)  && continue
-        push!(body, ln)
+"""
+Build a canonical text representation of a mechanism's rate
+equation, suitable for hashing.
+
+Strategy: walk `parameters(m, Reduced)` to discover every
+parameter symbol, scan the rate-equation body to find each
+parameter's first-appearance position, then rename them as
+`p_1, p_2, …` in first-appearance order. `Keq`, `E_total`, and
+metabolite names are NOT renamed.
+
+This works for monomeric AND allosteric mechanisms because
+`parameters(m)` returns the full param list including T-state
+suffixes (`K1_T`, `kf_T`, `kr_T`), regulator-site names
+(`K_R_reg1`, `K_R_T_reg2`), and the allosteric coupling `L`.
+Future param shapes are auto-handled.
+"""
+function _canonicalize_rate_eq(m::AbstractEnzymeMechanism)
+    body = rate_equation_string(m)
+
+    # Strip the destructure lines `(; ... ) = params`/`= concs`.
+    body = join(
+        filter(
+            ln -> !occursin(
+                r"^\s*\(; .* = (params|concs)$", ln),
+            split(body, '\n')),
+        '\n')
+
+    # Discover all parameter names; exclude the never-renamed set.
+    skip = (:Keq, :E_total)
+    pnames = String[String(p) for p in parameters(m, Reduced)
+                    if p ∉ skip]
+
+    # Find each name's first-appearance position via word-boundary
+    # regex.
+    first_pos = Dict{String,Int}()
+    for name in pnames
+        rx = Regex("\\b" * name * "\\b")
+        m_pos = match(rx, body)
+        first_pos[name] = m_pos === nothing ? typemax(Int) :
+            m_pos.offset
     end
-    text2 = join(body, "\n")
 
-    # 2. Rename in first-appearance order. Walk through the text
-    # left-to-right, replacing each match with its canonical name.
-    # Three independent counters: kf, kr, K.
-    out = IOBuffer()
-    name_map = Dict{String,String}()
-    kf_n = Ref(0); kr_n = Ref(0); K_n = Ref(0)
+    # Order by first appearance; tie-break by name for determinism.
+    ordered = sort(pnames; by=name -> (first_pos[name], name))
+    name_map = Dict(name => "p_$i"
+                    for (i, name) in enumerate(ordered))
 
-    function canon_for(token::AbstractString)
-        if haskey(name_map, token); return name_map[token]; end
-        new = if startswith(token, "k") && endswith(token, "f")
-            kf_n[] += 1; "kf_$(kf_n[])"
-        elseif startswith(token, "k") && endswith(token, "r")
-            kr_n[] += 1; "kr_$(kr_n[])"
-        elseif startswith(token, "K")
-            K_n[] += 1; "K_$(K_n[])"
-        else
-            error("unexpected token: $token")
-        end
-        name_map[token] = new
-        new
+    # Apply substitutions; longest first to prevent prefix
+    # collisions (e.g. rename `K1_T` before `K1`).
+    for name in sort(pnames; by=length, rev=true)
+        body = replace(body,
+            Regex("\\b" * name * "\\b") => name_map[name])
     end
 
-    # Match patterns: k\d+f, k\d+r, K\d+ (but NOT Keq).
-    # A single regex over the body string with replacement function:
-    pattern = r"(k\d+f|k\d+r|K\d+)(?!eq)"
-    text3 = replace(text2, pattern => canon_for)
-
-    # 3. Whitespace normalize
-    text4 = replace(text3, r"\s+" => " ")
-    strip(text4)
+    strip(replace(body, r"\s+" => " "))
 end
 
-"""Return SHA-256 bytes of the canonicalized rate equation."""
-function _canonical_rate_eq_hash(text::AbstractString)
-    SHA.sha256(codeunits(_canonicalize_rate_eq(text)))
+"""Hash a mechanism's canonicalized rate equation. Returns
+`UInt64` from Julia's built-in `hash`. Adequate for our scale
+(~10⁻¹² collision probability over 10⁴ mechanisms)."""
+function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
+    hash(_canonicalize_rate_eq(m))
 end
 
-"""Return (32-byte full hash, 8-char short hex) pair."""
-function _canonical_rate_eq_hash_pair(text::AbstractString)
-    h = _canonical_rate_eq_hash(text)
-    short = bytes2hex(h)[1:8]
-    (h, short)
+"""Return `(UInt64 hash, 16-char hex display string)`."""
+function _canonical_rate_eq_hash_pair(m::AbstractEnzymeMechanism)
+    h = _canonical_rate_eq_hash(m)
+    (h, string(h, base=16, pad=16))
 end
 ```
 
@@ -1204,45 +1331,33 @@ end
 
 Expected: pass.
 
-### Task G.2: Add the persistent fit cache and four-stage processing
+### Task G.2: Persistent fit cache + two-stage processing with worker recompile
 
 **Files:**
 - Modify: `src/identify_rate_equation.jl` `_beam_search` body
 
-- [ ] **Step 1: Add a `FitResult` struct (internal)**
+- [ ] **Step 1: Add the cached-result struct**
 
 Insert near the top of `src/identify_rate_equation.jl`:
 
 ```julia
-"""Cached fit result keyed by canonical rate-equation hash. The
-`first_seen_estimate` field is the `n_fit_params_estimate` of the
-*level* (the beam-search pc loop iteration) at which this hash was
-first fit; the `first_seen_n_actual` is `length(fitted_params(m))`
-at that fit. Both are useful diagnostics: the gap between them
-indicates Haldane reduction, and the gap between this level's
-estimate and `first_seen_estimate` indicates cross-level cache
-reuse."""
+"""Cached fit result keyed by canonical rate-equation hash.
+- `first_seen_estimate`: the beam-search level (the `pc` loop
+  iteration value, equal to `n_fit_params_estimate`) at which
+  this hash's fit was first performed.
+- `first_seen_n_actual`: `length(fitted_params(m))` at first fit.
+- `first_seen_eq_hash`: 16-char hex display string of the hash.
+"""
 struct _CachedFitResult
     loss::Float64
     params::NamedTuple
     first_seen_estimate::Int
     first_seen_n_actual::Int
-    first_seen_eq_hash::String   # 8-char short hex
+    first_seen_eq_hash::String
 end
 ```
 
-**Spec deviation note:** the spec's tentative
-`first_seen_n_params` field is renamed here to
-`first_seen_estimate` because the previous name was degenerate
-with the row's own `n_params` (any two specs with the same
-canonical hash compile to mechanisms with the same actual
-`n_params`, so the column would always be either `missing` or
-equal to `n_params`). Tracking the estimate-level instead
-captures the actually-useful diagnostic Denis described in
-brainstorming: "this equation was already fit during a previous
-round and now it comes back."
-
-- [ ] **Step 2: Refactor `_beam_search` to four-stage processing**
+- [ ] **Step 2: Refactor `_beam_search` to two-stage processing**
 
 Replace the body of `_beam_search` (current lines 243-344) with:
 
@@ -1253,10 +1368,10 @@ function _beam_search(
     max_param_count, save_dir, pmap_function,
     optimizer, kwargs...
 )
-    # Persistent cross-level cache (full 32-byte hash → cached result)
-    fit_cache = Dict{Vector{UInt8}, _CachedFitResult}()
+    # Persistent cross-level cache keyed by canonical hash.
+    fit_cache = Dict{UInt64, _CachedFitResult}()
 
-    # Build initial cache by enumeration estimate
+    # Initialize cache by enumeration estimate level
     cache = Dict{Int,Vector{AbstractMechanismSpec}}()
     for spec in init_mechanisms(prob.reaction)
         push!(get!(cache, spec.n_fit_params_estimate,
@@ -1276,16 +1391,20 @@ function _beam_search(
         level = pop!(cache, pc, AbstractMechanismSpec[])
         isempty(level) && (isempty(cache) ? break : continue)
 
-        # ── Stage 1: parallel compile + hash ───────────
+        # ── Stage 1 (parallel): compile + hash. Return spec +
+        #    hash + n_actual; the mechanism object stays on the
+        #    worker that compiled it. ─────────────────────────
         compiled = pmap_function(level) do spec
             try
                 m = compile_mechanism(spec)
                 eq_text = rate_equation_string(m)
-                h_full, h_short = _canonical_rate_eq_hash_pair(eq_text)
+                h_full, h_short = _canonical_rate_eq_hash_pair(m)
                 n_actual = length(fitted_params(m))
-                (spec=spec, mechanism=m, eq_text=eq_text,
+                mech_type_str = string(typeof(m))
+                (spec=spec, eq_text=eq_text,
                  h_full=h_full, h_short=h_short,
-                 n_actual=n_actual, ok=true)
+                 n_actual=n_actual,
+                 mech_type_str=mech_type_str, ok=true)
             catch e
                 @debug("Mechanism compilation failed",
                        exception=(e, catch_backtrace()))
@@ -1295,105 +1414,93 @@ function _beam_search(
         filter!(c -> c.ok, compiled)
         isempty(compiled) && continue
 
-        # ── Stage 2: bucket by full hash within level ──
-        by_hash = Dict{Vector{UInt8},Vector{NamedTuple}}()
+        # Snapshot which hashes are NEW vs already cached.
+        new_hashes = Set{UInt64}()
         for c in compiled
-            push!(get!(by_hash, c.h_full, NamedTuple[]), c)
+            haskey(fit_cache, c.h_full) && continue
+            push!(new_hashes, c.h_full)
         end
 
-        # ── Stage 3: identify NEW hashes; fit reps in parallel ─
-        new_hashes = [h for h in keys(by_hash) if !haskey(fit_cache, h)]
-        new_reps = [first(by_hash[h]) for h in new_hashes]
-        new_results = pmap_function(new_reps) do rep
+        # Pick one rep spec per new hash (first-encountered).
+        reps_by_hash = Dict{UInt64, NamedTuple}()
+        for c in compiled
+            c.h_full in new_hashes || continue
+            haskey(reps_by_hash, c.h_full) && continue
+            reps_by_hash[c.h_full] = c
+        end
+
+        # ── Stage 2 (parallel): worker-side recompile + fit. ──
+        # Recompile on the worker so the singleton type never
+        # crosses worker boundaries between stages.
+        rep_results = pmap_function(
+            collect(values(reps_by_hash))
+        ) do rep
             try
-                fp = FittingProblem(rep.mechanism, prob.data;
-                                    Keq=prob.Keq)
-                fit = fit_rate_equation(fp, optimizer; kwargs...)
+                m = compile_mechanism(rep.spec)  # recompile
+                fp = FittingProblem(m, prob.data; Keq=prob.Keq)
+                fit = fit_rate_equation(
+                    fp, optimizer; kwargs...)
                 (h_full=rep.h_full, h_short=rep.h_short,
                  n_actual=rep.n_actual,
                  loss=fit.loss, params=fit.params, ok=true)
             catch e
-                @debug("Fit failed",
+                @debug("Rep fit failed",
                        exception=(e, catch_backtrace()))
                 (h_full=rep.h_full, ok=false)
             end
         end
-        for r in new_results
+
+        # Fold new fits into the cache.
+        for r in rep_results
             r.ok || continue
             fit_cache[r.h_full] = _CachedFitResult(
                 r.loss, r.params, pc, r.n_actual, r.h_short)
         end
 
-        # ── Stage 4: build rows (one per hash group) ──
-        # Snapshot which hashes were fit at this level vs inherited.
-        new_hashes_set = Set(new_hashes)
-        ordered_hashes = collect(keys(by_hash))
+        # ── Stage 3 (master): build ONE row per spec member. ──
+        # Members of the same hash group share (loss, params,
+        # eq_hash); users can post-hoc dedup via eq_hash.
         level_rows = NamedTuple[]
-        level_specs = AbstractMechanismSpec[]   # ALL members for expand
-        for h_full in ordered_hashes
-            members = by_hash[h_full]
-            haskey(fit_cache, h_full) || continue   # fit failed
-            cached = fit_cache[h_full]
-            rep = first(members)
-            is_inherited = !(h_full in new_hashes_set)
+        level_specs = AbstractMechanismSpec[]
+        for c in compiled
+            haskey(fit_cache, c.h_full) || continue
+            cached = fit_cache[c.h_full]
+            is_inherited = !(c.h_full in new_hashes)
             row = (
-                n_params = rep.n_actual,
+                n_params = c.n_actual,
                 loss = cached.loss,
-                mechanism_type = _mechanism_type_string(rep.mechanism),
-                rate_equation = rep.eq_text,
+                mechanism_type = c.mech_type_str,
+                rate_equation = c.eq_text,
                 fitted_param_names = collect(keys(cached.params)),
-                fitted_param_values = Tuple(values(cached.params)),
+                fitted_param_values =
+                    Tuple(values(cached.params)),
                 eq_hash = cached.first_seen_eq_hash,
-                n_equivalent = length(members),
                 fit_inherited_from_estimate =
-                    is_inherited ? cached.first_seen_estimate : missing,
+                    is_inherited ? cached.first_seen_estimate :
+                                   missing,
             )
             push!(level_rows, row)
-            for c in members
-                push!(level_specs, c.spec)
-            end
+            push!(level_specs, c.spec)
         end
 
         append!(all_specs, level_specs)
         append!(all_rows,  level_rows)
 
-        # Save CSV grouped by actual n_params
+        # Save CSV for this estimate-level.
         if save_dir !== nothing
-            actual_groups = Dict{Int,Vector{NamedTuple}}()
-            for row in level_rows
-                push!(get!(actual_groups, row.n_params, NamedTuple[]),
-                      row)
-            end
-            for (np, rows) in actual_groups
-                _save_level_csv(save_dir, rows, np)
-            end
+            _save_level_csv(save_dir, level_rows, pc)
         end
 
-        # ── Beam selection: include all spec members of qualifying
-        #     hash groups so RE→SS expansion variants are preserved ─
+        # Beam selection (same _select_beam logic as Phase F).
         sel = _select_beam(
             [r.loss for r in level_rows];
             loss_rel_threshold=loss_rel_threshold,
             loss_abs_threshold=loss_abs_threshold,
             min_beam_width=min_beam_width)
-        selected_hashes = Set{Vector{UInt8}}()
-        # Each level_row corresponds to one hash group; map sel
-        # indices back to the hash groups.
-        ordered_hashes = collect(keys(by_hash))
-        # Need same ordering for level_rows and ordered_hashes:
-        # rebuild together to be safe.
-        # (See implementation note below if reordering is risky.)
-        for i in sel
-            push!(selected_hashes, ordered_hashes[i])
-        end
-        beam_specs = AbstractMechanismSpec[]
-        for h in selected_hashes
-            for c in by_hash[h]
-                push!(beam_specs, c.spec)
-            end
-        end
+        beam_specs = level_specs[sel]
 
-        # ── Expand all beam specs ───────────
+        # Expand all beam specs (each spec is structurally
+        # distinct; expansion preserves RE→SS coverage).
         new_cache = expand_mechanisms(beam_specs, prob.reaction)
         for (target_pc, specs) in new_cache
             target_pc > max_param_count && continue
@@ -1409,27 +1516,7 @@ function _beam_search(
 end
 ```
 
-**Implementation note** (to leave as a comment in the code): the
-`level_rows` and `ordered_hashes` MUST be built from a single pass
-over the same data so their indices align. The Stage 4 loop above
-builds them in `by_hash`'s iteration order; capture that ordering
-once into a local vector and reuse it both for row-building and for
-selected-hash mapping. Refactor the Stage 4 loop to:
-
-```julia
-ordered_hashes = collect(keys(by_hash))
-level_rows = Vector{NamedTuple}(undef, length(ordered_hashes))
-for (idx, h_full) in enumerate(ordered_hashes)
-    members = by_hash[h_full]
-    ...   # build the row as above
-    level_rows[idx] = row
-end
-```
-
-so that `ordered_hashes[i]` and `level_rows[i]` always refer to the
-same hash group.
-
-- [ ] **Step 3: Update `_rows_to_dataframe` to surface the new columns**
+- [ ] **Step 3: Update `_rows_to_dataframe` for the new columns**
 
 Replace `_rows_to_dataframe` (lines 196-228) with:
 
@@ -1438,7 +1525,9 @@ function _rows_to_dataframe(rows)
     isempty(rows) && return DataFrame()
     all_pnames = Set{Symbol}()
     for row in rows
-        for p in row.fitted_param_names; push!(all_pnames, p); end
+        for p in row.fitted_param_names
+            push!(all_pnames, p)
+        end
     end
     sorted_pnames = sort(collect(all_pnames))
 
@@ -1448,7 +1537,6 @@ function _rows_to_dataframe(rows)
         mechanism_type = [r.mechanism_type for r in rows],
         rate_equation = [r.rate_equation for r in rows],
         eq_hash = [r.eq_hash for r in rows],
-        n_equivalent = [r.n_equivalent for r in rows],
         fit_inherited_from_estimate = [
             r.fit_inherited_from_estimate for r in rows],
     )
@@ -1465,154 +1553,10 @@ function _rows_to_dataframe(rows)
 end
 ```
 
-### Task G.3: Add tests for cache behavior
+- [ ] **Step 4: Dedup LOOCV by `eq_hash` within each `n_params` bucket**
 
-**Files:**
-- Modify: `test/test_identify_rate_equation.jl`
-
-- [ ] **Step 1: Add cross-level cache regression test (concrete)**
-
-The cleanest fixture exercises the cache directly using two
-mechanism specs that compile to the same rate equation. Two
-specs from the LDH `params_7.csv` 9-member duplicate group provide
-known same-hash specs at *different* enumeration estimate levels.
-
-Append to `test/test_identify_rate_equation.jl`:
-
-```julia
-@testset "fit cache: cross-level reuse" begin
-    # Two synthetic mechanism specs whose compiled rate equations
-    # canonically hash equal. We build small fake compiled objects
-    # by stubbing rate_equation_string output; the test exercises
-    # _beam_search's cache mechanics, NOT the full pipeline.
-    #
-    # Strategy: monkey-patch fit_rate_equation via a recording
-    # wrapper while testing _beam_search end-to-end on a small
-    # reaction that produces known Pattern-A duplicates.
-
-    # Use the bi_bi reaction (4 metabolites) with simple synthetic
-    # data — enough to drive several enumeration levels and
-    # exercise cross-level cache hits via Haldane collapse.
-    rxn = @enzyme_reaction begin
-        substrates: A[C], B[N]
-        products: P[C], Q[N]
-    end
-
-    # Synthetic data tight enough that fits converge quickly:
-    Keq = 1.0
-    data = (
-        group = repeat(1:3, inner=4),
-        Rate  = repeat([1.0, 2.0, 3.0, 4.0], 3),
-        A = repeat([0.1, 0.5, 1.0, 2.0], 3),
-        B = repeat([0.5, 0.5, 0.5, 0.5], 3),
-        P = repeat([0.1, 0.1, 0.1, 0.1], 3),
-        Q = repeat([0.1, 0.1, 0.1, 0.1], 3),
-    )
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=Keq)
-
-    # Recording optimizer: counts fit calls.
-    fit_calls = Ref(0)
-    orig_fit = EnzymeRates.fit_rate_equation
-    # Replace EnzymeRates.fit_rate_equation in a test-local override.
-    # Use a closure passed into _beam_search as a function-typed
-    # kwarg. (Adjust _beam_search to accept `fit_function` if not
-    # already there — see implementation note below.)
-    function counting_fit(fp, opt; kwargs...)
-        fit_calls[] += 1
-        orig_fit(fp, opt; kwargs...)
-    end
-
-    # Run beam search with a tiny budget so it terminates fast.
-    specs, df = EnzymeRates._beam_search(
-        prob;
-        min_beam_width = 5,
-        loss_rel_threshold = 100.0,    # accept everything
-        loss_abs_threshold = 0.0,
-        max_param_count = 6,
-        save_dir = nothing,
-        pmap_function = map,
-        optimizer = MockOptimizer(),   # see fixture below
-        fit_function = counting_fit,
-        n_restarts = 1, maxtime = 1.0,
-    )
-
-    # The number of fits performed must equal the number of
-    # distinct eq_hash values across all rows — never more.
-    @test fit_calls[] == length(unique(df.eq_hash))
-
-    # If any row's fit was inherited, the column shows the
-    # originating estimate level.
-    inherited = filter(
-        r -> !ismissing(r.fit_inherited_from_estimate),
-        eachrow(df))
-    if !isempty(inherited)
-        @test all(r.fit_inherited_from_estimate < r.n_params + 5
-                  for r in inherited)
-        # Sanity: inherited estimate is < or = the row's own
-        # current iteration's pc, which is bounded by max_param_count.
-    end
-end
-```
-
-**Implementation note** for the engineer: `_beam_search` must
-accept a `fit_function` kwarg (default `fit_rate_equation`) so
-tests can inject a recording wrapper. If you didn't add this in
-G.2, add it now: thread `fit_function` through, defaulting to
-`fit_rate_equation`. Replace the `fit_rate_equation(fp, optimizer;
-kwargs...)` call in Stage 3 with `fit_function(fp, optimizer;
-kwargs...)`.
-
-Also: define a tiny `MockOptimizer` placeholder somewhere in the
-test setup that returns fixed parameters quickly. Or — if the real
-optimizer is fast enough on this 4-metabolite reaction with
-`maxtime=1.0` — use a real one (e.g.
-`Optimization.OptimizationOptimizers.Adam()`), preferring
-correctness over fixture complexity.
-
-- [ ] **Step 2: Add within-level no-inheritance test**
-
-```julia
-@testset "fit cache: within-level rows show missing inheritance" begin
-    # Within a single beam level, all rows are first-fit at that
-    # level (regardless of how many specs share each hash). So
-    # fit_inherited_from_estimate should be `missing` for every
-    # row in the LOWEST level's CSV/df chunk.
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-    end
-    data = (
-        group = repeat(1:2, inner=3),
-        Rate  = repeat([1.0, 2.0, 3.0], 2),
-        S = repeat([0.1, 0.5, 1.0], 2),
-        P = repeat([0.1, 0.1, 0.1], 2),
-    )
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=1.0)
-    specs, df = EnzymeRates._beam_search(
-        prob;
-        min_beam_width = 5,
-        loss_rel_threshold = 100.0,
-        loss_abs_threshold = 0.0,
-        max_param_count = 4,
-        save_dir = nothing,
-        pmap_function = map,
-        optimizer = MockOptimizer(),
-        n_restarts = 1, maxtime = 1.0,
-    )
-    # Find the smallest n_params present in df:
-    !isempty(df) || return
-    smallest_np = minimum(df.n_params)
-    first_level_rows = filter(r -> r.n_params == smallest_np,
-                              eachrow(df))
-    @test all(ismissing(r.fit_inherited_from_estimate)
-              for r in first_level_rows)
-end
-```
-
-- [ ] **Step 3: Add LOOCV-per-unique-hash dedup test**
-
-In `_cv_model_selection`, dedup candidates by `eq_hash` within each
-`n_params` bucket. Add an inline filter:
+Replace the candidate-selection loop in `_cv_model_selection`
+(current lines 431-440):
 
 ```julia
 candidate_indices = Int[]
@@ -1628,46 +1572,21 @@ for gdf in groupby(df_indexed, :n_params)
 end
 ```
 
-Add a regression test that constructs a small DataFrame with
-duplicate `eq_hash` values within an `n_params` bucket and asserts
-the deduper drops them:
+Update the `n_cv_candidates` docstring line in
+`identify_rate_equation` to clarify: *"top N **unique-rate-equation**
+candidates per param count"* — same number of LOOCV runs as
+before, but each run is on a distinct equation.
 
-```julia
-@testset "_cv_model_selection dedups by eq_hash within n_params" begin
-    df = DataFrame(
-        n_params = [3, 3, 3, 4],
-        loss = [1.0, 1.5, 1.2, 0.5],
-        eq_hash = ["aaa", "aaa", "bbb", "ccc"],
-        # other columns omitted from this dedup unit test
-    )
-    df_indexed = copy(df)
-    df_indexed.spec_idx = 1:nrow(df_indexed)
-
-    candidate_indices = Int[]
-    for gdf in groupby(df_indexed, :n_params)
-        seen_hashes = Set{String}()
-        sorted = sort(gdf, :loss)
-        for row in eachrow(sorted)
-            row.eq_hash in seen_hashes && continue
-            push!(seen_hashes, row.eq_hash)
-            push!(candidate_indices, row.spec_idx)
-            length(seen_hashes) >= 5 && break
-        end
-    end
-    # 4 rows total → 3 unique hashes after dedup (aaa, bbb, ccc):
-    @test length(candidate_indices) == 3
-    # First-occurrence of "aaa" wins by lowest loss in its group:
-    @test 1 in candidate_indices
-    @test !(2 in candidate_indices)   # second "aaa" dropped
-end
-```
-
-### Task G.4: End-to-end LDH regression
+### Task G.3: End-to-end regression test (real optimizer)
 
 **Files:**
 - Modify: `test/test_identify_rate_equation.jl`
 
-- [ ] **Step 1: Add an end-to-end small-bi-bi regression**
+The single test for Phase G covers cache + integration end-to-end
+using the real optimizer already imported in this file
+(`OptimizationPyCMA.PyCMAOpt()`).
+
+- [ ] **Step 1: Add the regression test**
 
 ```julia
 @testset "identify_rate_equation: end-to-end CSV invariants" begin
@@ -1675,7 +1594,6 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    # Synthetic data from a known random-binding mechanism:
     Keq = 2.0
     n_pts_per_group = 8
     n_groups = 3
@@ -1683,8 +1601,8 @@ end
     B_vals = repeat([0.5, 0.5, 0.5, 0.5], n_groups * 2)
     P_vals = repeat([0.05, 0.05, 0.05, 0.05], n_groups * 2)
     Q_vals = repeat([0.05, 0.05, 0.05, 0.05], n_groups * 2)
-    Rates  = @. (A_vals * B_vals) /
-                ((1 + A_vals/0.5) * (1 + B_vals/0.3))
+    Rates = @. (A_vals * B_vals) /
+               ((1 + A_vals/0.5) * (1 + B_vals/0.3))
     data = (
         group = repeat(1:n_groups, inner=n_pts_per_group),
         Rate = Rates, A = A_vals, B = B_vals,
@@ -1698,59 +1616,80 @@ end
             loss_rel_threshold = 5.0,
             loss_abs_threshold = 0.01,
             max_param_count = 6,
-            optimizer = MockOptimizer(),
+            optimizer = OptimizationPyCMA.PyCMAOpt(),
             save_dir = tmp,
             pmap_function = map,
             n_restarts = 1, maxtime = 2.0,
         )
-        # 1. Every saved file's name matches the n_params column.
-        all_hashes = String[]
-        for fname in readdir(tmp)
-            endswith(fname, ".csv") || continue
-            np = parse(Int,
-                replace(fname, "params_" => "", ".csv" => ""))
-            df_file = CSV.read(joinpath(tmp, fname), DataFrame)
-            @test all(df_file.n_params .== np)
-            # 2. eq_hash is unique within each file.
-            @test length(unique(df_file.eq_hash)) ==
-                  nrow(df_file)
-            append!(all_hashes, df_file.eq_hash)
+        # 1. Filenames use the new estimate-level naming.
+        files = filter(f -> endswith(f, ".csv"),
+                       readdir(tmp))
+        @test !isempty(files)
+        for fname in files
+            @test startswith(fname, "params_estimate_")
         end
-        # 3. eq_hash is unique across all files (cross-level cache).
-        @test length(unique(all_hashes)) == length(all_hashes)
-        # 4. result has a best mechanism.
+        # 2. eq_hash column exists and is well-formed.
+        for fname in files
+            df_file = CSV.read(joinpath(tmp, fname), DataFrame)
+            @test "eq_hash" in names(df_file)
+            @test all(.!ismissing.(df_file.eq_hash))
+            @test all(length.(df_file.eq_hash) .== 16)
+        end
+        # 3. Cross-level inheritance chain: any row whose
+        #    fit_inherited_from_estimate is not missing must
+        #    point to a level whose CSV contains a row with the
+        #    same eq_hash.
+        all_rows_by_level = Dict{Int, DataFrame}()
+        for fname in files
+            est = parse(Int, replace(fname,
+                "params_estimate_" => "", ".csv" => ""))
+            all_rows_by_level[est] = CSV.read(
+                joinpath(tmp, fname), DataFrame)
+        end
+        for (est, df_lvl) in all_rows_by_level
+            for row in eachrow(df_lvl)
+                ismissing(row.fit_inherited_from_estimate) &&
+                    continue
+                src = row.fit_inherited_from_estimate
+                @test haskey(all_rows_by_level, src)
+                @test row.eq_hash in
+                    all_rows_by_level[src].eq_hash
+            end
+        end
+        # 4. result.best is a real mechanism.
         @test result.best isa AbstractEnzymeMechanism
+        # 5. result.cv_results is non-empty.
+        @test nrow(result.cv_results) >= 1
     end
 end
 ```
 
-The `MockOptimizer` referenced here is the same shared fixture
-introduced in G.3 step 1; if you haven't added it, add it once
-near the top of the test file:
+- [ ] **Step 2: Run; confirm pass**
 
-```julia
-struct MockOptimizer end
+```
+julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
 ```
 
-…and use a real Optimization.jl optimizer if a stub doesn't
-satisfy the `fit_rate_equation` interface. If a stub IS workable,
-implement it as a one-step "return the initial point" solver that
-makes loss reproducible across runs.
+Expected: green. If `maxtime=2.0` proves flaky in CI, raise to
+`5.0` — accept the cost.
 
-### Task G.5: Commit Phase G
+### Task G.4: Commit Phase G
 
 ```bash
 git add src/identify_rate_equation.jl test/test_identify_rate_equation.jl
 git commit -m "$(cat <<'EOF'
 Add persistent rate-equation hash cache for fit dedup
 
-A canonical SHA-256 of each compiled rate equation (with
-parameter-name normalization) keys a Dict that survives across all
-beam levels. Specs that share a hash with any prior level reuse
-the cached fit; new hashes get fitted in parallel via pmap.
+A canonical Julia hash of each mechanism's rate equation (built
+token-by-token from parameters(m, Reduced) so allosteric T-state
+and regulator params are covered) keys a Dict that survives across
+all beam levels. Specs whose hash hits the cache reuse the prior
+fit; new hashes are recompiled worker-side and fitted.
 
-CSV gains eq_hash, n_equivalent, and fit_inherited_from_estimate
-columns. _cv_model_selection dedups by hash within n_params buckets.
+CSV gains eq_hash and fit_inherited_from_estimate columns. One row
+per spec member; users dedup post-hoc via the eq_hash column.
+_cv_model_selection picks top-N unique-hash candidates per
+n_params bucket.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -1767,7 +1706,7 @@ EOF
 julia --project -e 'using Pkg; Pkg.activate("."); Pkg.test()'
 ```
 
-Expected: all tests pass. Aqua + JET checks green. No `@test_skip` should remain — all Phase G regression tests have concrete bodies and run as part of the suite.
+Expected: all tests pass. Aqua + JET checks green. No `@test_skip` markers anywhere. The Phase G end-to-end test runs the real optimizer (`PyCMAOpt`) with `maxtime=2.0`; if CI is slow, raise to `maxtime=5.0`.
 
 - [ ] **Run the README example**
 
@@ -1794,7 +1733,7 @@ Confirm:
 
 ## Notes for the engineer
 
-- **`_select_beam` indexing:** the ordering of `level_rows` and the per-hash group lookup in beam selection MUST agree. Use a single explicit `ordered_hashes = collect(keys(by_hash))` reference and index into it once — do not rely on Julia's `Dict` iteration order being stable across two separate `for (h, …) in by_hash` loops.
-- **Pattern A test fixture:** the simplest known Pattern-A duplicate is two specs for a bi-bi reaction whose RE-edge subsets differ but share the same form set + kinetic-group structure. The 9-member group in the LDH `params_7.csv` analysis is a real example; pick any two of those mechanism types, parse them into `MechanismSpec`s, and use them as the test fixture. The `mechanism_type` strings are quoted in the spec doc's brainstorming notes if you need to copy them verbatim.
-- **`SHA` import:** ensure `using SHA` is at module top; `SHA` is a Julia stdlib (no Project.toml change required).
+- **Worker-side recompile in Phase G Stage 2:** the Stage 2 closure receives the spec, not a master-compiled mechanism. It calls `compile_mechanism(rep.spec)` again on the worker before constructing the `FittingProblem`. This is intentional: `EnzymeMechanism{...}` is a singleton type instantiated per worker, and `Distributed.pmap` has no worker affinity between separate pmap calls — shipping a mechanism object across worker boundaries fails with a deserialization error. Stage 1's compile is for hashing only; the result is discarded before Stage 2.
+- **Token-driven canonicalizer in Phase G:** `_canonicalize_rate_eq` walks `parameters(m, Reduced)` to discover every parameter symbol the mechanism uses. This catches monomeric (`K1`, `kf_3`), allosteric (`K1_T`, `kf_T`), regulator-site (`K_R_reg1`, `K_R_T_reg1`), and the allosteric coupling (`L`) automatically. Adding a future parameter shape requires no code change here as long as it appears in `parameters(m)`.
+- **No `SHA` dependency:** the canonical hash uses Julia's built-in `hash(::String)::UInt64`. Don't add `using SHA` — Aqua will flag it as a missing/stale dep.
 - **Backwards compatibility:** none required. This is internal-version cleanup, not a public-API deprecation. Removing `beam_fraction` raises `MethodError`; that is intended.
