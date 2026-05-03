@@ -226,7 +226,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `@generated` functions used for compile-time computation (`stoich_matrix`, `rate_equation`, `_kcat_forward`, `_dependent_param_exprs`, `parameters`).
 
 ### Canonical Step Form
-- The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `[E, S] ⇌ [ES]`, never `[ES] ⇌ [E, S]`.
+- The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `E + S ⇌ ES`, never `ES ⇌ E + S`.
 - SS steps are NOT canonicalized (swapping kf↔kr would break analytical test formulas).
 - After canonicalization, all RE metabolite K params are binding Kd (displayed as `1/K`). Non-binding RE steps (pure isomerization) retain Ka convention.
 - `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed.

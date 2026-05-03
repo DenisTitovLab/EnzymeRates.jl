@@ -89,11 +89,14 @@ end
   this hash's fit was first performed.
 - `first_seen_n_actual`: `length(fitted_params(m))` at first fit.
 - `first_seen_eq_hash`: 16-char hex display string of the hash.
+- `canon_to_rep`: pre-inverted `canonical_token => rep_orig_key`
+  map, computed once at cache-insert. Spec members of the same
+  hash group reuse this; avoids O(N) re-inversion per spec.
 """
 struct _CachedFitResult
     loss::Float64
     params::NamedTuple
-    rep_name_map::Dict{String,String}
+    canon_to_rep::Dict{String,String}
     first_seen_estimate::Int
     first_seen_n_actual::Int
     first_seen_eq_hash::String
@@ -183,10 +186,6 @@ function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
     (canonical, name_map)
 end
 
-function _canonicalize_rate_eq(m::AbstractEnzymeMechanism)
-    first(_canonicalize_rate_eq_with_map(m))
-end
-
 """
 Return `(UInt64 hash, 16-char hex display string, name_map)`.
 The single source for canonical hashing — both `_hash` and
@@ -226,25 +225,25 @@ applies the canonical position bijection
 (rep_fitted_key → canonical_token → spec_fitted_key) to relabel
 values without changing them.
 
-`rep_name_map` and `spec_name_map` are
-`orig_string => canonical_token` Dicts produced by the
-canonicalizer over `parameters(m, Full)`. They include BOTH
-independent and dependent parameter names. We restrict the
-projection to FITTED (independent) keys only — `cached_params` is
-keyed by `fitted_params(rep_m)`, which doesn't contain dep names.
-Iterating `keys(spec_name_map)` directly would cause `KeyError`
-for any dep name (e.g., `:k10r`, `:K1_T` for `:EqualRT` mirrors).
+`canon_to_rep` is the pre-inverted `canonical_token => rep_orig_key`
+map (computed once at cache-insert from the rep's name_map).
+`spec_name_map` is the spec's `orig_string => canonical_token` Dict
+produced by the canonicalizer over `parameters(m, Full)`. They
+include BOTH independent and dependent parameter names. We
+restrict the projection to FITTED (independent) keys only —
+`cached_params` is keyed by `fitted_params(rep_m)`, which doesn't
+contain dep names. Iterating `keys(spec_name_map)` directly would
+cause `KeyError` for any dep name (e.g., `:k10r`, `:K1_T` for
+`:EqualRT` mirrors).
 
 The return is a NamedTuple keyed by `fitted_params(spec_m)`.
 """
 function _project_cached_params(
     cached_params::NamedTuple,
-    rep_name_map::Dict{String,String},
+    canon_to_rep::Dict{String,String},
     spec_name_map::Dict{String,String},
     spec_fitted_keys::Tuple{Vararg{Symbol}},
 )
-    canon_to_rep = Dict(v => k for (k, v) in rep_name_map)
-
     # Defensive lookup: a fitted key may not appear in the body
     # (e.g., a structurally-unidentifiable ghost param on a
     # zeroed `:NonequalRT` path), in which case `spec_name_map`
@@ -557,8 +556,9 @@ function _beam_search(
 
         for r in rep_results
             r.ok || continue
+            canon_to_rep = Dict(v => k for (k, v) in r.name_map)
             fit_cache[r.h_full] = _CachedFitResult(
-                r.loss, r.params, r.name_map,
+                r.loss, r.params, canon_to_rep,
                 pc, r.n_actual, r.h_short)
         end
 
@@ -573,7 +573,7 @@ function _beam_search(
             cached = fit_cache[c.h_full]
             is_inherited = !(c.h_full in new_hashes)
             spec_params = _project_cached_params(
-                cached.params, cached.rep_name_map,
+                cached.params, cached.canon_to_rep,
                 c.name_map, c.fitted_keys)
             row = (
                 n_params = c.n_actual,
@@ -595,7 +595,7 @@ function _beam_search(
         append!(all_specs, level_specs)
         append!(all_rows,  level_rows)
 
-        if save_dir !== nothing
+        if save_dir !== nothing && !isempty(level_rows)
             _save_level_csv(save_dir, level_rows, pc)
         end
 
@@ -730,6 +730,16 @@ function _cv_model_selection(
     cv_df = copy(candidate_rows)
     cv_df.cv_score = collect(cv_scores)
     cv_df.spec_idx = candidate_indices
+
+    # Surface a hard error when every LOOCV fold failed —
+    # otherwise `argmin([Inf, Inf, ...])` silently returns 1
+    # and the user gets a meaningless "best" mechanism.
+    all(!isfinite, cv_df.cv_score) && error(
+        "All LOOCV scores are non-finite — every fold's fit " *
+        "failed. The pipeline cannot select a best mechanism. " *
+        "Inspect optimizer settings (n_restarts, maxtime), " *
+        "data quality, or compile failures (run with " *
+        "ENV[\"JULIA_DEBUG\"] = \"EnzymeRates\").")
 
     # Best param count by CV score
     best_cv_per_pc = combine(
