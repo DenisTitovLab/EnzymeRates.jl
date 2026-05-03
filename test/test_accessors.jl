@@ -85,3 +85,48 @@
         @test best_ns_per_call(EnzymeRates.equilibrium_steps, m) < 100e-9
     end
 end
+
+@testset "parameters API symmetry" begin
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products:   P[C], Q[N]
+    end
+    m_mono = first(EnzymeRates.init_mechanisms(rxn)) |>
+             EnzymeRates.EnzymeMechanism
+    full_mono = parameters(m_mono, Full)
+    reduced_mono = parameters(m_mono, Reduced)
+    @test :E_total in full_mono
+    @test :E_total in reduced_mono
+    @test :Keq in reduced_mono
+    @test :Keq ∉ full_mono
+    @test length(full_mono) >= length(reduced_mono)
+
+    rxn_allo = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    init = EnzymeRates.init_mechanisms(rxn_allo)
+    base = first(init)
+    g_s = first(s.kinetic_group for s in base.steps
+                if EnzymeRates.step_metabolite(s) === :S)
+    g_p = first(s.kinetic_group for s in base.steps
+                if EnzymeRates.step_metabolite(s) === :P)
+    spec = EnzymeRates.AllostericMechanismSpec(
+        base, 2, [[:R]], [2],
+        Dict(g_s => :NonequalRT, g_p => :NonequalRT),
+        Dict(:R => :NonequalRT),
+        base.n_fit_params_estimate + 5)
+    m_allo = EnzymeRates.AllostericEnzymeMechanism(spec)
+    full_allo = parameters(m_allo, Full)
+    reduced_allo = parameters(m_allo, Reduced)
+    @test :L in full_allo
+    @test :E_total in full_allo
+    @test :Keq ∉ full_allo
+    @test any(occursin("_T", string(p)) for p in full_allo)
+    @test any(occursin("_reg", string(p)) for p in full_allo)
+    @test :L in reduced_allo
+    @test :Keq in reduced_allo
+    @test :E_total in reduced_allo
+end
