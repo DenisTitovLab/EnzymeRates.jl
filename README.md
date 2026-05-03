@@ -137,8 +137,8 @@ chemistry from Section 2, declared as a *reaction*:
 
 ```julia
 rxn = @enzyme_reaction begin
-    substrates: S
-    products:   P
+    substrates: S[C]
+    products:   P[C]
     regulators: A
     oligomeric_state: 2
 end
