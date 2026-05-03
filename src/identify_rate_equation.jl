@@ -228,16 +228,21 @@ function _rows_to_dataframe(rows)
 end
 
 """
-Save results for one beam level to a CSV file.
+Save results for one beam level to a CSV file. The filename
+encodes the level's `n_fit_params_estimate`; the actual `n_params`
+of each row may be smaller (Haldane reduction collapses some
+declared kinetic groups). Users wanting one file per actual
+`n_params` value can post-process by reading and re-grouping.
 """
 function _save_level_csv(
-    save_dir::String, rows, n_fit_params::Int
+    save_dir::String, rows, n_fit_params_estimate::Int
 )
     isdir(save_dir) || mkpath(save_dir)
     path = joinpath(
-        save_dir, "params_$(n_fit_params).csv")
+        save_dir,
+        "params_estimate_$(n_fit_params_estimate).csv")
     df = _rows_to_dataframe(rows)
-    CSV.write(path, df; append=isfile(path))
+    CSV.write(path, df)
 end
 
 function _beam_search(

@@ -272,3 +272,21 @@ using OptimizationPyCMA
     end
 
 end
+
+@testset "save_level_csv uses estimate-level filename" begin
+    mktempdir() do tmp
+        rows = [(n_params=3, loss=1.0,
+                 mechanism_type="m1", rate_equation="eq1",
+                 fitted_param_names=(:K1, :K2, :k3f),
+                 fitted_param_values=(1.0, 2.0, 3.0))]
+        # Caller passes the estimate-level pc (e.g., 5) — could
+        # diverge from the row's actual n_params=3 due to Haldane
+        # reduction. Filename must reflect the estimate.
+        EnzymeRates._save_level_csv(tmp, rows, 5)
+        @test isfile(joinpath(tmp, "params_estimate_5.csv"))
+        @test !isfile(joinpath(tmp, "params_5.csv"))
+        df = CSV.read(joinpath(tmp, "params_estimate_5.csv"),
+                      DataFrame)
+        @test df.n_params == [3]
+    end
+end
