@@ -431,28 +431,67 @@ coverage of these RE→SS variants.
 
 So: dedup *fitting*, keep all specs for *expansion*.
 
-### Implementation
+### Implementation — global rate-equation hash cache
 
-In `_beam_search` (`identify_rate_equation.jl:243-…`):
+The cache is **persistent across all beam levels** so that a spec at
+a higher param-count level whose Haldane-reduced rate equation
+matches one fit at an earlier level reuses the prior fit instead of
+duplicating it. This catches Pattern B (Haldane collapse to a
+previously seen equation) for free, in addition to Pattern A
+within-level duplicates.
 
-1. Compile every spec at the level — pay the compile cost; CLAUDE.md
-   notes compilation is the slow step but in observed LDH runs it
-   was ~1 second per mechanism, dominated by the fit.
-2. Compute a canonical rate-equation hash for each compiled
-   mechanism (see hashing rules below). Group specs by hash.
-3. Pick the first spec in each hash group as representative. Fit
-   only the representative.
-4. Copy the `(loss, params)` from the representative onto every
-   member's row.
-5. CSV: write **one row per hash group** with two new columns:
-   - `eq_hash::String` — first 8 hex characters of the canonical
-     hash.
-   - `n_equivalent::Int` — the hash-group size.
-6. **Pass all specs (every member, not only representatives) to
-   `expand_mechanisms`** so downstream RE→SS expansion can
-   differentiate them.
-7. In `_cv_model_selection`, dedup candidates by `eq_hash` before
-   running LOOCV — once per unique equation.
+The cache lives in `_beam_search` outside the level loop:
+
+    fit_cache = Dict{
+        UInt256,                    # full SHA-256 of canonical text
+        @NamedTuple{
+            loss::Float64,
+            params::NamedTuple,
+            first_seen_n_params::Int,
+            first_seen_eq_hash::String,  # 8-char display hash
+        }
+    }()
+
+Per-level processing in four stages — keep parallelism by batching
+compile and fit separately:
+
+1. **Compile + hash all specs at this level (parallel via
+   `pmap_function`).** Each task returns
+   `(spec, mechanism, eq_hash_full::UInt256, eq_hash_short::String,
+   n_actual::Int)`.
+2. **Bucket specs by `eq_hash_full` within the level.** Serial,
+   cheap.
+3. **Identify hashes that are NEW relative to `fit_cache`.** Fit
+   one representative per new hash in parallel via `pmap_function`.
+   Insert each result into `fit_cache`.
+4. **Build CSV rows — one row per (within-level) hash group.**
+   Columns:
+   - existing: `n_params, loss, mechanism_type, rate_equation,
+     fitted_param_names, fitted_param_values`.
+   - new: `eq_hash::String` (8-char), `n_equivalent::Int`
+     (within-level group size),
+     `fit_inherited_from_n_params::Union{Int, Missing}` (`missing`
+     if first-fit at this level; the originating `n_params`
+     otherwise — diagnostic for Pattern B / Haldane collapse).
+
+5. **Pass all specs (every member of every hash group, both newly
+   fit and inherited) to `expand_mechanisms`.** Structure matters
+   for downstream RE→SS expansion regardless of fit-cache hits.
+
+6. In `_cv_model_selection`, dedup candidates by `eq_hash_full`
+   globally — within each `n_params` bucket, run LOOCV once per
+   unique hash, since identical rate equations give identical CV
+   scores.
+
+### Why not pure serial iteration?
+
+Denis's original phrasing was "iteratively when a particular
+mechanism is about to be fit, check if the same mechanism was
+already fit." A pure serial loop would lose `pmap` parallelism for
+fits — the dominant cost. The four-stage batch above preserves the
+"check cache before fitting" semantics while keeping fits
+parallelizable: hashes are deduplicated before the parallel fit
+launches, so no two workers ever fit the same equation.
 
 ### Canonical rate-equation hash
 
@@ -500,8 +539,22 @@ In `test_identify_rate_equation.jl`:
   - Every spec from every hash group is forwarded to
     `expand_mechanisms` (use a recording mock for
     `expand_mechanisms`).
-  - The saved CSV has one row per hash with `eq_hash` and
-    `n_equivalent` populated.
+  - The saved CSV has one row per hash with `eq_hash`,
+    `n_equivalent`, and `fit_inherited_from_n_params` populated.
+- **Cross-level cache regression (the new test for Denis's
+  refinement):** construct two specs at different beam levels (i.e.,
+  different `n_fit_params_estimate`) that compile to the same
+  canonical rate-equation hash. Run `_beam_search` and assert:
+  - Only one fit is performed across the two levels (use a
+    recording wrapper around `fit_rate_equation`).
+  - The level-2 row has
+    `fit_inherited_from_n_params == <level-1 n_params>`; the
+    level-1 row has `missing` in that column.
+  - The global cache survives the level transition (no per-level
+    reset).
+- **Within-level no-inheritance test:** two specs at the same level
+  with the same hash both have `fit_inherited_from_n_params ==
+  missing` (first-fit at this level, neither inherits).
 - LOOCV regression: candidate count entering LOOCV equals the count
   of distinct `eq_hash` among top-N-by-loss-per-`n_params`.
 
@@ -518,6 +571,10 @@ time budget) and asserts:
   every row.
 - The canonical hash is unique within each saved file (no duplicate
   rate equations leak through).
+- The canonical hash is unique **across all saved files combined**
+  in the sense that any hash appearing in level-N also appears in
+  exactly one earlier level (when present at all) — i.e., the
+  cross-level cache is enforcing global dedup.
 - `n_equivalent` summed across all rows in a file ≥ the row count
   (hash-group multiplicities are recorded).
 - Beam threshold honoured: in a contrived run with deliberately
