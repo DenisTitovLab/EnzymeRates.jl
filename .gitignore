@@ -3,3 +3,7 @@ Manifest.toml
 .CondaPkg/
 test/outcmaes/
 .claude/scheduled_tasks.lock
+
+# Workspace artifacts
+test/Project.toml
+2026-05-02_identify_ldh_results/
