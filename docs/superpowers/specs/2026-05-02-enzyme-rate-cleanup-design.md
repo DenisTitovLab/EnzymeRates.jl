@@ -251,21 +251,59 @@ reasons:
 - The estimate over-counts when Haldane reduction eliminates more
   parameters than the formula assumes.
 
-**Fix:** bucket save files and the `n_params` column by the same
-quantity — `length(fitted_params(m))` — i.e., the count of
-independent rate constants the optimizer actually iterates over,
-excluding `Keq` and `E_total`. The filename becomes
-`params_$(actual_n_params).csv`.
+**Fix has two parts:**
 
-Implementation:
+**Part A — rename and re-define `param_count` so its semantics
+match the row's `n_params` column.**
+
+The field `param_count` on `MechanismSpec` and
+`AllostericMechanismSpec` is renamed to `n_fit_params_estimate`. Its
+value drops the `+2` for `Keq` and `E_total`, so the estimate is the
+predicted count of *independent rate constants only*, the same
+quantity reported in the row's `n_params` column post-fit. The
+formula in `init_mechanisms` (`mechanism_enumeration.jl:841`) becomes
+
+    n_fit_params_estimate = n_re + 2 * n_ss - n_thermo
+
+instead of the current
+
+    param_count = n_re + 2 * n_ss - n_thermo + 2
+
+Every reference to `.param_count` in `mechanism_enumeration.jl`
+(~70 occurrences across src + tests) and the helper
+`_param_count(spec)` / `_param_count_from_steps(steps)` are
+renamed accordingly: `_n_fit_params_estimate(spec)`,
+`_n_fit_params_estimate_from_steps(steps)`. Internal cache
+keys and dictionary types
+(`Dict{Int, Vector{AbstractMechanismSpec}}`) keep their `Int`
+type — they're still bucketing by the renamed field's value.
+
+The `expand_mechanisms` function and every `_expand_*` move that
+adds to the count keeps its delta arithmetic — the deltas are
+relative to the renamed field and don't change. A move that
+previously bumped `param_count` by `+1` still bumps
+`n_fit_params_estimate` by `+1`.
+
+CLAUDE.md note about `param_count` being upper-bound is updated to
+reference the new name and to clarify that it estimates fit
+parameters only (matching the final `n_params` column convention).
+
+**Part B — bucket save files by *actual*
+`length(fitted_params(m))`.**
+
+The estimate-vs-actual gap remains (Haldane reduction can still
+collapse declared groups), so file naming continues to be by actual
+count, not by the estimate. This naturally fixes #4:
 
 - After the per-spec compilation+fit, group results by
-  `r.row.n_params` (which already comes from `fitted_params(m)`).
+  `r.row.n_params` (which comes from `fitted_params(m)`).
 - For each group, call `_save_level_csv` with that group's rows and
   that param count.
 
-This naturally fixes #4 — every file contains rows of one param
-count.
+The result: filename `params_3.csv` contains rows where every
+`n_params == 3`, where `3` matches both the saved column AND the
+estimate semantics declared at enumeration time (modulo Haldane
+reduction collapsing it lower).
 
 The kcat-induced redundant fit direction (one degree of optimizer
 freedom is degenerate due to per-group centering) is **not**
@@ -301,6 +339,22 @@ Drop the `beam_fraction` keyword. New keyword arguments on
 `min_beam_width::Int = 200` is kept (default unchanged).
 
 ### Tests (TDD)
+
+In `test_mechanism_enumeration.jl`:
+
+- For a small reaction, compute `init_mechanisms(reaction)` and
+  assert every spec's `n_fit_params_estimate` equals
+  `length(fitted_params(EnzymeMechanism(spec)))` for the simplest
+  cases (where Haldane reduction does not collapse the declared
+  groups further).
+- Construct a spec where Haldane is known to collapse one group;
+  assert `n_fit_params_estimate ≥ length(fitted_params(m))` (upper
+  bound holds) and that the gap matches the expected number of
+  collapsed groups.
+- For an expanded spec (`expand_mechanisms` output), assert the
+  expansion's delta on `n_fit_params_estimate` matches the move's
+  documented `+1` / `+2` / etc. — same delta arithmetic as before
+  the rename.
 
 In `test_identify_rate_equation.jl`:
 
@@ -458,7 +512,13 @@ time budget) and asserts:
   `EnzymeReaction`; strict regulator check in `EnzymeMechanism`;
   `Base.show` refactor for `AllostericEnzymeMechanism`.
 - `src/mechanism_enumeration.jl` — derive regulators from steps in
-  `EnzymeMechanism(spec)` and `AllostericEnzymeMechanism(spec)`.
+  `EnzymeMechanism(spec)` and `AllostericEnzymeMechanism(spec)`;
+  rename `param_count` field on `MechanismSpec` and
+  `AllostericMechanismSpec` to `n_fit_params_estimate` and drop the
+  `+2` for `Keq` + `E_total` from the formula in `init_mechanisms`;
+  rename helpers (`_param_count` → `_n_fit_params_estimate`, etc.)
+  and update all expansion-move delta arithmetic to use the new
+  field name (deltas themselves unchanged).
 - `src/identify_rate_equation.jl` — new beam selection rule, drop
   `beam_fraction`, add `loss_mult_threshold` /
   `loss_add_threshold`; bucket-by-actual-`n_params` save logic;
