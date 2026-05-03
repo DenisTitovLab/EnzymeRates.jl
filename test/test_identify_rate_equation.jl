@@ -168,12 +168,16 @@ using OptimizationPyCMA
             rate_equation = "v = ...",
             fitted_param_names = (:a, :b),
             fitted_param_values = (1.0, 2.0),
+            eq_hash = "0123456789abcdef",
+            fit_inherited_from_estimate = missing,
         )]
         df = EnzymeRates._rows_to_dataframe(
             rows)
         @test nrow(df) == 1
         @test "a" in names(df)
         @test "b" in names(df)
+        @test "eq_hash" in names(df)
+        @test "fit_inherited_from_estimate" in names(df)
 
         # Empty rows
         df2 = EnzymeRates._rows_to_dataframe(
@@ -276,7 +280,9 @@ end
         rows = [(n_params=3, loss=1.0,
                  mechanism_type="m1", rate_equation="eq1",
                  fitted_param_names=(:K1, :K2, :k3f),
-                 fitted_param_values=(1.0, 2.0, 3.0))]
+                 fitted_param_values=(1.0, 2.0, 3.0),
+                 eq_hash="0123456789abcdef",
+                 fit_inherited_from_estimate=missing)]
         # Caller passes the estimate-level pc (e.g., 5) — could
         # diverge from the row's actual n_params=3 due to Haldane
         # reduction. Filename must reflect the estimate.

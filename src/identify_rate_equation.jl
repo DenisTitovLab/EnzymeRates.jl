@@ -83,6 +83,43 @@ struct IdentifyRateEquationResults
     cv_results::DataFrame
 end
 
+"""Cached fit result keyed by canonical rate-equation hash.
+- `first_seen_estimate`: the beam-search level (the `pc` loop
+  iteration value, equal to `n_fit_params_estimate`) at which
+  this hash's fit was first performed.
+- `first_seen_n_actual`: `length(fitted_params(m))` at first fit.
+- `first_seen_eq_hash`: 16-char hex display string of the hash.
+"""
+struct _CachedFitResult
+    loss::Float64
+    params::NamedTuple
+    rep_name_map::Dict{String,String}
+    first_seen_estimate::Int
+    first_seen_n_actual::Int
+    first_seen_eq_hash::String
+end
+
+"""Stage 1 result: uniform per-spec record so the `pmap` return
+is concretely-typed. `S` parameter pins the spec field to a
+concrete subtype; field access on `c.spec` is type-stable. On
+failure, every non-spec field has a sentinel value and `ok=false`."""
+struct _Stage1Result{S<:AbstractMechanismSpec}
+    spec::S
+    eq_text::String
+    h_full::UInt64
+    h_short::String
+    n_actual::Int
+    mech_type_str::String
+    name_map::Dict{String,String}
+    ok::Bool
+end
+
+"""Empty-failure sentinel. Returns `_Stage1Result{typeof(spec)}`."""
+_Stage1Failure(spec::S) where {S<:AbstractMechanismSpec} =
+    _Stage1Result{S}(
+        spec, "", zero(UInt64), "", 0, "",
+        Dict{String,String}(), false)
+
 """
 Build the canonical text + name_map. Internal helper exposed
 to `_canonical_rate_eq_hash_data` so callers can also retrieve
@@ -235,8 +272,8 @@ and data using beam search.
   (forwarded to `Optimization.solve`)
 - `verbose::Int = -9`: optimizer verbosity
   (forwarded to `Optimization.solve`)
-- `n_cv_candidates::Int = 5`: LOOCV top N per
-  param count
+- `n_cv_candidates::Int = 5`: LOOCV top N
+  **unique-rate-equation** candidates per param count
 - `save_dir`: directory for per-level CSV files
 - `pmap_function::Function = pmap`: parallelism
   function (Distributed.pmap by default)
@@ -338,7 +375,6 @@ alignment with the specs vector.
 """
 function _rows_to_dataframe(rows)
     isempty(rows) && return DataFrame()
-
     all_pnames = Set{Symbol}()
     for row in rows
         for p in row.fitted_param_names
@@ -350,24 +386,22 @@ function _rows_to_dataframe(rows)
     df = DataFrame(
         n_params = [r.n_params for r in rows],
         loss = [r.loss for r in rows],
-        mechanism_type = [
-            r.mechanism_type for r in rows],
-        rate_equation = [
-            r.rate_equation for r in rows],
+        mechanism_type = [r.mechanism_type for r in rows],
+        rate_equation = [r.rate_equation for r in rows],
+        eq_hash = [r.eq_hash for r in rows],
+        fit_inherited_from_estimate = [
+            r.fit_inherited_from_estimate for r in rows],
     )
     for pn in sorted_pnames
         df[!, pn] = [
             pn in r.fitted_param_names ?
                 r.fitted_param_values[
-                    findfirst(
-                        ==(pn),
-                        r.fitted_param_names)
-                ] : missing
+                    findfirst(==(pn), r.fitted_param_names)] :
+                missing
             for r in rows
         ]
     end
-
-    return df
+    df
 end
 
 """
@@ -421,95 +455,142 @@ end
 
 function _beam_search(
     prob::IdentifyRateEquationProblem;
-    min_beam_width, loss_rel_threshold,
-    loss_abs_threshold, max_param_count,
-    save_dir, pmap_function,
+    min_beam_width, loss_rel_threshold, loss_abs_threshold,
+    max_param_count, save_dir, pmap_function,
     optimizer, kwargs...
 )
-    # Initialize cache by param count
-    cache = Dict{
-        Int,Vector{AbstractMechanismSpec}
-    }()
+    # Persistent cross-level cache keyed by canonical hash.
+    fit_cache = Dict{UInt64, _CachedFitResult}()
+
+    cache = Dict{Int,Vector{AbstractMechanismSpec}}()
     for spec in init_mechanisms(prob.reaction)
-        push!(
-            get!(cache, spec.n_fit_params_estimate,
-                AbstractMechanismSpec[]),
-            spec)
+        push!(get!(cache, spec.n_fit_params_estimate,
+                   AbstractMechanismSpec[]),
+              spec)
     end
     dedup!(cache)
 
     all_specs = AbstractMechanismSpec[]
-    all_rows = NamedTuple[]
+    all_rows  = NamedTuple[]
 
     isempty(cache) && return (
-        all_specs,
-        _rows_to_dataframe(all_rows))
+        all_specs, _rows_to_dataframe(all_rows))
 
     min_pc = minimum(keys(cache))
     for pc in min_pc:max_param_count
-        level = pop!(
-            cache, pc,
-            AbstractMechanismSpec[])
-        isempty(level) &&
-            (isempty(cache) ? break : continue)
+        level = pop!(cache, pc, AbstractMechanismSpec[])
+        isempty(level) && (isempty(cache) ? break : continue)
 
-        # Fit all specs at this level in parallel
-        results = pmap_function(level) do spec
+        # ── Stage 1 (parallel): compile + hash ──
+        compiled = pmap_function(level) do spec
             try
                 m = compile_mechanism(spec)
-                fp = FittingProblem(
-                    m, prob.data;
-                    Keq=prob.Keq)
-                fit = fit_rate_equation(
-                    fp, optimizer; kwargs...)
-                (spec=spec,
-                 row=_build_result_row(m, fit),
-                 ok=true)
+                eq_text = rate_equation_string(m)
+                h_full, h_short, name_map =
+                    _canonical_rate_eq_hash_data(m)
+                n_actual = length(fitted_params(m))
+                mech_type_str = string(typeof(m))
+                _Stage1Result(spec, eq_text, h_full, h_short,
+                              n_actual, mech_type_str, name_map,
+                              true)
             catch e
-                @debug(
-                    "Mechanism compilation/" *
-                    "fitting failed",
-                    exception=(
-                        e, catch_backtrace()))
-                (spec=spec,
-                 row=nothing, ok=false)
+                @debug("Mechanism compilation failed",
+                       exception=(e, catch_backtrace()))
+                _Stage1Failure(spec)
             end
         end
-        filter!(r -> r.ok, results)
-        isempty(results) && continue
+        filter!(c -> c.ok, compiled)
+        isempty(compiled) && continue
 
-        append!(
-            all_specs,
-            [r.spec for r in results])
-        append!(
-            all_rows,
-            [r.row for r in results])
-
-        # Save CSV for this param count
-        if save_dir !== nothing
-            _save_level_csv(
-                save_dir,
-                [r.row for r in results], pc)
+        new_hashes = Set{UInt64}()
+        for c in compiled
+            haskey(fit_cache, c.h_full) && continue
+            push!(new_hashes, c.h_full)
         end
 
-        # Beam select within this level
+        reps_by_hash = Dict{UInt64, _Stage1Result}()
+        for c in compiled
+            c.h_full in new_hashes || continue
+            haskey(reps_by_hash, c.h_full) && continue
+            reps_by_hash[c.h_full] = c
+        end
+
+        # ── Stage 2 (parallel): worker-side recompile + fit ──
+        rep_results = pmap_function(
+            collect(values(reps_by_hash))
+        ) do rep
+            try
+                m = compile_mechanism(rep.spec)
+                fp = FittingProblem(m, prob.data; Keq=prob.Keq)
+                fit = fit_rate_equation(
+                    fp, optimizer; kwargs...)
+                (h_full=rep.h_full, h_short=rep.h_short,
+                 n_actual=rep.n_actual,
+                 name_map=rep.name_map,
+                 loss=fit.loss, params=fit.params, ok=true)
+            catch e
+                @debug("Rep fit failed",
+                       exception=(e, catch_backtrace()))
+                (h_full=rep.h_full, ok=false)
+            end
+        end
+
+        for r in rep_results
+            r.ok || continue
+            fit_cache[r.h_full] = _CachedFitResult(
+                r.loss, r.params, r.name_map,
+                pc, r.n_actual, r.h_short)
+        end
+
+        # ── Stage 3 (master): build ONE row per spec member ──
+        level_rows = NamedTuple[]
+        level_specs = AbstractMechanismSpec[]
+        for c in compiled
+            haskey(fit_cache, c.h_full) || continue
+            cached = fit_cache[c.h_full]
+            is_inherited = !(c.h_full in new_hashes)
+            spec_m = compile_mechanism(c.spec)
+            spec_fitted_keys = fitted_params(spec_m)
+            spec_params = _project_cached_params(
+                cached.params, cached.rep_name_map,
+                c.name_map, spec_fitted_keys)
+            row = (
+                n_params = c.n_actual,
+                loss = cached.loss,
+                mechanism_type = c.mech_type_str,
+                rate_equation = c.eq_text,
+                fitted_param_names = collect(keys(spec_params)),
+                fitted_param_values =
+                    Tuple(values(spec_params)),
+                eq_hash = cached.first_seen_eq_hash,
+                fit_inherited_from_estimate =
+                    is_inherited ? cached.first_seen_estimate :
+                                   missing,
+            )
+            push!(level_rows, row)
+            push!(level_specs, c.spec)
+        end
+
+        append!(all_specs, level_specs)
+        append!(all_rows,  level_rows)
+
+        if save_dir !== nothing
+            _save_level_csv(save_dir, level_rows, pc)
+        end
+
         sel = _select_beam(
-            [r.row.loss for r in results];
+            [r.loss for r in level_rows];
             loss_rel_threshold=loss_rel_threshold,
             loss_abs_threshold=loss_abs_threshold,
             min_beam_width=min_beam_width)
-        beam_specs = [results[i].spec for i in sel]
+        beam_specs = level_specs[sel]
 
-        # Expand beam to next levels
-        new_cache = expand_mechanisms(
-            beam_specs, prob.reaction)
+        new_cache = expand_mechanisms(beam_specs, prob.reaction)
         for (target_pc, specs) in new_cache
-            target_pc > max_param_count &&
-                continue
-            append!(
-                get!(cache, target_pc,
-                    AbstractMechanismSpec[]),
-                specs)
+            target_pc > max_param_count && continue
+            append!(get!(cache, target_pc,
+                         AbstractMechanismSpec[]),
+                    specs)
         end
         dedup!(cache)
     end
@@ -601,16 +682,15 @@ function _cv_model_selection(
     df_indexed = copy(df)
     df_indexed.spec_idx = 1:nrow(df_indexed)
 
-    # Group by n_params, take top n_cv_candidates
-    # by loss
     candidate_indices = Int[]
     for gdf in groupby(df_indexed, :n_params)
+        seen_hashes = Set{String}()
         sorted = sort(gdf, :loss)
-        n_take = min(
-            n_cv_candidates, nrow(sorted))
-        for i in 1:n_take
-            push!(candidate_indices,
-                sorted[i, :spec_idx])
+        for row in eachrow(sorted)
+            row.eq_hash in seen_hashes && continue
+            push!(seen_hashes, row.eq_hash)
+            push!(candidate_indices, row.spec_idx)
+            length(seen_hashes) >= n_cv_candidates && break
         end
     end
 
