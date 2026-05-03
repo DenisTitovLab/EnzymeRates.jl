@@ -244,9 +244,27 @@ function _project_cached_params(
     spec_fitted_keys::Tuple{Vararg{Symbol}},
 )
     canon_to_rep = Dict(v => k for (k, v) in rep_name_map)
+
+    # Defensive lookup: a fitted key may not appear in the body
+    # (e.g., a structurally-unidentifiable ghost param on a
+    # zeroed `:NonequalRT` path), in which case `spec_name_map`
+    # has no entry. Fall back to the spec key itself in cached_params
+    # if both maps lack the canonical token; if even that misses,
+    # use NaN as a sentinel that downstream loss/CV will surface.
+    function _proj(k::Symbol)
+        s = String(k)
+        canon = get(spec_name_map, s, nothing)
+        if canon !== nothing && haskey(canon_to_rep, canon)
+            rep_key = Symbol(canon_to_rep[canon])
+            haskey(cached_params, rep_key) &&
+                return cached_params[rep_key]
+        end
+        haskey(cached_params, k) && return cached_params[k]
+        return NaN
+    end
+
     NamedTuple{spec_fitted_keys}(
-        Tuple(cached_params[Symbol(canon_to_rep[spec_name_map[String(k)]])]
-              for k in spec_fitted_keys))
+        Tuple(_proj(k) for k in spec_fitted_keys))
 end
 
 """
