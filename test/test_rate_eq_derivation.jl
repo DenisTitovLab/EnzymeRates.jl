@@ -1138,3 +1138,31 @@ end
         (((), 2, ()),),  # empty ligand tuple
     )
 end
+
+@testset "rate_equation_string allosteric byte-identical fixture" begin
+    rxn_allo = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    init = EnzymeRates.init_mechanisms(rxn_allo)
+    base = first(init)
+    g_s = first(s.kinetic_group for s in base.steps
+                if EnzymeRates.step_metabolite(s) === :S)
+    g_p = first(s.kinetic_group for s in base.steps
+                if EnzymeRates.step_metabolite(s) === :P)
+    spec = EnzymeRates.AllostericMechanismSpec(
+        base, 2, [[:R]], [2],
+        Dict(g_s => :NonequalRT, g_p => :NonequalRT),
+        Dict(:R => :NonequalRT),
+        base.n_fit_params_estimate + 5)
+    m_allo = EnzymeRates.AllostericEnzymeMechanism(spec)
+    actual = rate_equation_string(m_allo)
+    expected = raw"""(; K1, K2, k3f, K1_T, K2_T, k3f_T, K_R_reg1, K_R_T_reg1, L, Keq, E_total) = params
+(; S, P, R) = concs
+k3r = (1 / Keq) * (1 / (1 / K1)) * (1 / K2) * k3f
+k3r_T = (1 / Keq) * (1 / (1 / K1_T)) * (1 / K2_T) * k3f_T
+v = E_total * (2 * ((k3f * S / K2 - k3r * P / K1) * (1 + P / K1 + S / K2) * (1 + R / K_R_reg1) ^ 2 + L * (k3f_T * S / K2_T - k3r_T * P / K1_T) * (1 + P / K1_T + S / K2_T) * (1 + R / K_R_T_reg1) ^ 2)) / ((1 + P / K1 + S / K2) ^ 2 * (1 + R / K_R_reg1) ^ 2 + L * (1 + P / K1_T + S / K2_T) ^ 2 * (1 + R / K_R_T_reg1) ^ 2)"""
+    @test actual == expected
+end
