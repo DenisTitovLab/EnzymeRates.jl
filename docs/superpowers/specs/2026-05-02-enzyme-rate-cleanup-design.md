@@ -336,7 +336,10 @@ Drop the `beam_fraction` keyword. New keyword arguments on
 - `loss_rel_threshold::Float64 = 2.0`
 - `loss_abs_threshold::Float64 = 0.01`
 
-`min_beam_width::Int = 200` is kept (default unchanged).
+`min_beam_width::Int = 50` (default lowered from 200 — with the
+loss-threshold rule now doing most of the trimming, a smaller floor
+is appropriate; the previous 200 floor existed because rank was the
+only mechanism for capping beam size).
 
 The naming follows the convention used by ODE solvers and
 optimization-error tolerances (`reltol`/`abstol`,
