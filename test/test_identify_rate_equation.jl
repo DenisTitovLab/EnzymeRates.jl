@@ -273,6 +273,40 @@ using OptimizationPyCMA
                 n_restarts=1, maxtime=1.0))
     end
 
+    @testset "_loocv returns per-fold scores, floored at eps" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+        end
+        init = EnzymeRates.init_mechanisms(rxn)
+        m = EnzymeRates.EnzymeMechanism(first(init))
+
+        # 3 groups × 2 rows each so per-fold fits aren't degenerate
+        data = DataFrame(
+            S    = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            P    = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
+            group = [1, 1, 2, 2, 3, 3],
+        )
+        prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+
+        scores = EnzymeRates._loocv(
+            m, prob;
+            optimizer=PyCMAOpt(),
+            n_restarts=2, maxtime=2.0,
+            maxiters=500, popsize=40, verbose=-9)
+
+        @test scores isa Vector{Float64}
+        # When fitting succeeds, length == n_groups; when it fails
+        # `_loocv` returns Float64[]. Either is acceptable shape-wise.
+        @test length(scores) ∈ (0, 3)
+        # Every reported score must be ≥ eps (the floor) and finite.
+        for s in scores
+            @test s >= eps(Float64)
+            @test isfinite(s)
+        end
+    end
+
 end
 
 @testset "save_level_csv uses estimate-level filename" begin

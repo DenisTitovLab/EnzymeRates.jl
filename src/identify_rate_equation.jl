@@ -643,9 +643,12 @@ end
 """
     _loocv(mechanism, prob; optimizer, kwargs...)
 
-Leave-one-group-out cross-validation. `optimizer`
-is extracted explicitly because `fit_rate_equation`
-takes it as a positional argument.
+Leave-one-group-out cross-validation. Returns `Vector{Float64}`
+of per-fold test losses (one per held-out group). Each score is
+floored at `eps(Float64)` so `log(score)` is finite — the
+selection rules in `_select_best_n_params` operate in log space.
+On any internal failure (compile error, fit failure, etc.),
+returns an empty `Float64[]`.
 """
 function _loocv(
     mechanism::AbstractEnzymeMechanism,
@@ -677,16 +680,25 @@ function _loocv(
             test_loss = _evaluate_loss(
                 mechanism, test_data,
                 fit.params, prob.Keq)
-            push!(scores, test_loss)
+            # Treat NaN or Inf as a fold-failure and abort the
+            # entire LOOCV. `max(NaN, eps) === NaN` (NaN is not
+            # ordered), so a non-finite test_loss would otherwise
+            # bypass the floor and silently corrupt downstream
+            # `cv_score = mean(v)` and `argmin(...)` selection.
+            isfinite(test_loss) || return Float64[]
+            # Floor at eps so log(score) is finite. The centered-
+            # residuals loss can be exactly 0 (e.g. single-row
+            # held-out group, or all residuals equal post-centering).
+            push!(scores,
+                  max(test_loss, eps(Float64)))
         end
     catch e
         @debug("LOOCV failed",
             exception=(e, catch_backtrace()))
-        return Inf
+        return Float64[]
     end
 
-    result = mean(scores)
-    return isfinite(result) ? result : Inf
+    scores
 end
 
 function _cv_model_selection(
@@ -718,17 +730,27 @@ function _cv_model_selection(
     candidate_specs = specs[candidate_indices]
     candidate_rows = df[candidate_indices, :]
 
-    # LOOCV each candidate in parallel
-    cv_scores = pmap_function(
+    # LOOCV each candidate in parallel — each result is the
+    # candidate's Vector{Float64} of per-fold scores (or empty
+    # on failure).
+    fold_scores_per_candidate = pmap_function(
         candidate_specs
     ) do spec
         m = compile_mechanism(spec)
         _loocv(m, prob; optimizer, kwargs...)
     end
 
-    # Build CV results DataFrame
+    # Build CV results DataFrame. `cv_score` holds the mean
+    # (used for sorting/display). `cv_fold_scores` holds the
+    # raw per-fold vector — INTERNAL only; dropped before
+    # returning to the user (see end of this function) so
+    # `IdentifyRateEquationResults.cv_results` stays
+    # CSV-serialisable.
     cv_df = copy(candidate_rows)
-    cv_df.cv_score = collect(cv_scores)
+    cv_df.cv_fold_scores =
+        collect(fold_scores_per_candidate)
+    cv_df.cv_score = [isempty(v) ? Inf : mean(v)
+                      for v in cv_df.cv_fold_scores]
     cv_df.spec_idx = candidate_indices
 
     # Surface a hard error when every LOOCV fold failed —
