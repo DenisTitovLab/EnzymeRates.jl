@@ -69,6 +69,49 @@ dedup (decided against — see §5).
 
 ---
 
+## 0. Macro step-side syntax migration (`[E, S]` → `E + S`)
+
+### Motivation
+
+Both `@enzyme_mechanism` and `@allosteric_mechanism` currently accept
+step sides as bracketed Julia vector literals: `[E, S] ⇌ [ES]`. The
+existing `Base.show` for non-allosteric mechanisms emits the same
+content as `+`-separated: `E + S ⇌ ES`. Issue #2's Phase D refactor
+of the allosteric `Base.show` follows the macro's bracketed form
+in earlier drafts, but the resulting output is inconsistent with the
+non-allosteric convention. Standardizing on `+`-separated species
+across both macro inputs and all `Base.show` outputs is the
+preferred direction (per Denis): "brackets are weird."
+
+### Behavior change
+
+`_parse_step_side_symbols` in `src/dsl.jl` accepts:
+
+- A bare `Symbol` for single-symbol sides (e.g., `ES`).
+- A `+`-call expression `Expr(:call, :+, syms...)` for multi-symbol
+  sides (e.g., `E + S`, `E + S + ATP`).
+
+Reject the previous bracketed `Expr(:vect, …)` form. Per CLAUDE.md
+rule against backward-compat without explicit permission, this is a
+hard cutover; calling-site migration is part of this spec.
+
+### Migration scope
+
+Every `@enzyme_mechanism` and `@allosteric_mechanism` block in the
+codebase must be migrated:
+
+- `[A, B] ⇌ [AB]` → `A + B ⇌ AB`
+- `[ES]` (single-element side) → `ES`
+- `<-->` and `⇌` arrows continue to work (only the side syntax
+  changes).
+
+The grep `grep -rE '\[[A-Za-z_].*\] *(⇌|<-->) *\[' test/ README.md
+src/` enumerates every line needing migration. Atom annotations on
+species (`S[C2H4]` in `@enzyme_reaction`) are unaffected — that's
+species-level, not step-side.
+
+---
+
 ## 1. Strict regulator validation (Issue #1)
 
 ### Behavior change
@@ -88,6 +131,16 @@ reaction step.
 
 **New rule:** every name in `mets[3]` must appear in some step. If
 not, error with a message naming the offending regulator(s).
+
+**Public-API note:** this tightens the public 2-arg
+`EnzymeMechanism(mets, rxns)` constructor as well as the spec→type
+path. Existing user code that listed a regulator in `mets[3]`
+without binding it (e.g., declaring intent before adding steps)
+will now hit `ErrorException`. This is a deliberate API change —
+the spec's primary goal is "every regulator in the type must bind
+in some step," and a permissive public constructor would defeat
+that. Affected callers must either (a) drop the unbound regulator
+from `mets[3]`, or (b) add a step that binds it.
 
 ### Spec → type path
 
@@ -200,13 +253,16 @@ implementation in `types.jl:426-444`:
 - For the catalytic mechanism, force multi-line display (do not use
   the chain shortcut even if the topology is linear).
 - Group steps that share a `kinetic_group` and emit them with a
-  single tag using the `@allosteric_mechanism` macro syntax:
+  single tag using the `@allosteric_mechanism` macro syntax. The
+  format uses `+`-separated species (matching how the macro accepts
+  input post-Phase 0 — see §0 below — and matching the existing
+  non-allosteric `Base.show` convention):
   - Single-step group:
-    `  [E, S] ⇌ [E_S] :: EqualRT`
+    `  E + S ⇌ E_S :: EqualRT`
   - Multi-step group:
-    `  ([E, S] ⇌ [E_S], [E_P, S] ⇌ [E_PS]) :: EqualRT`
+    `  (E + S ⇌ E_S, E_P + S ⇌ E_PS) :: EqualRT`
   - SS step in own group:
-    `  [E_S] <--> [E_P] :: OnlyR`
+    `  E_S <--> E_P :: OnlyR`
 - Regulator-site rendering (existing `name::Tag` per ligand) is
   unchanged.
 
@@ -216,7 +272,8 @@ Add `_format_allo_step_groups(cm::EnzymeMechanism, m::AllostericEnzymeMechanism)
 
 1. Collect kinetic groups in their first-appearance order.
 2. For each group, gather all steps with that group, render each
-   step body (`[lhs] ⇌ [rhs]` / `[lhs] <--> [rhs]`).
+   step body via `join(lhs, " + ") <arrow> join(rhs, " + ")`
+   (consistent with `types.jl:417`).
 3. If the group has one step → emit `body :: Tag`.
 4. If multiple → emit `(body1, body2, …) :: Tag`.
 

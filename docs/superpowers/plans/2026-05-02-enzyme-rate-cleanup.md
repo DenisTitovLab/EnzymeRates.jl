@@ -30,6 +30,7 @@
 
 | File | Phase | Change |
 |---|---|---|
+| `src/dsl.jl` | 0 | switch `_parse_step_side_symbols` from `Expr(:vect, …)` to bare-`Symbol` / `Expr(:call, :+, …)` form (`E + S` instead of `[E, S]`) |
 | `src/mechanism_enumeration.jl` | A, C | rename `param_count` → `n_fit_params_estimate`; drop `+2` from THREE estimate formulas (lines 841, 1247-1248, 1434) — line 1247-1248 replaced with a call to the shared `_n_fit_params_estimate_from_steps` helper; lower `floor_pc` from `+3` to `+1`; derive regulators from steps in `EnzymeMechanism(spec)` and allosteric path |
 | `src/types.jl` | B, C, D | add atom mandatoriness + balance check in `EnzymeReaction`; tighten regulator validation in `EnzymeMechanism(mets, rxns)`; refactor `Base.show(io, ::AllostericEnzymeMechanism)` to inline `:: Tag` per step / step-group |
 | `src/rate_eq_derivation.jl` | G | drop the generic `parameters(::M, ::ReducedMode) where {M <: _AnyMechanism}` fallback; add four explicit methods — `(::EnzymeMechanism, ::FullMode)` already exists, plus explicit `(::EnzymeMechanism, ::ReducedMode)`, NEW `(::AllostericEnzymeMechanism, ::FullMode)`, and explicit `(::AllostericEnzymeMechanism, ::ReducedMode)` |
@@ -42,6 +43,153 @@
 | `CLAUDE.md` | A | update note about `param_count` → `n_fit_params_estimate` |
 
 No new source files are created. New test additions go into existing test files in dedicated `@testset` blocks.
+
+---
+
+## Phase 0 — Migrate macro step-side syntax from `[E, S]` to `E + S`
+
+Both `@enzyme_mechanism` and `@allosteric_mechanism` currently
+accept step sides as bracketed Julia vector literals
+(`[E, S] ⇌ [ES]`). Per spec §0, switch the parser to accept
+`+`-separated species (matching how `Base.show` already displays
+them). This phase MUST run before all others because changing the
+parser breaks every existing macro usage; the parser change and
+all callsite migration commit atomically.
+
+### Task 0.1: Add a failing test for the new parser
+
+**Files:**
+- Modify: `test/test_dsl.jl`
+
+- [ ] **Step 1: Add testset in `test/test_dsl.jl`**
+
+```julia
+@testset "@enzyme_mechanism: + step-side syntax" begin
+    # New form: + separator, no brackets.
+    m = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            E + S <--> ES
+            ES <--> E + P
+        end
+    end
+    @test m isa EnzymeMechanism
+    @test EnzymeRates.n_steps(m) == 2
+    @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
+end
+```
+
+- [ ] **Step 2: Run; confirm failure**
+
+```
+julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
+```
+
+Expected: `_parse_step_side_symbols` rejects `Expr(:call, :+, ...)`
+because the existing parser only accepts `Expr(:vect, ...)`.
+
+### Task 0.2: Switch `_parse_step_side_symbols` to `+` form
+
+**Files:**
+- Modify: `src/dsl.jl` lines 145-158
+
+- [ ] **Step 1: Replace the parser**
+
+Replace the existing `_parse_step_side_symbols` with:
+
+```julia
+function _parse_step_side_symbols(expr)
+    if expr isa Symbol
+        # Single-symbol side: bare symbol, e.g. `ES`.
+        return Expr(:tuple, QuoteNode(expr))
+    elseif expr isa Expr && expr.head == :call &&
+           expr.args[1] == :+
+        # Multi-symbol side: `E + S` parses as Expr(:call, :+, …);
+        # `E + S + ATP` parses as a single multi-arg `+` call.
+        syms = Expr(:tuple)
+        for a in expr.args[2:end]
+            a isa Symbol || error(
+                "Step sides must contain only symbols (no atoms or " *
+                "expressions); define atoms in the species block. Got " *
+                "$a in step side")
+            push!(syms.args, QuoteNode(a))
+        end
+        return syms
+    end
+    error("Expected `Sym` or `Sym + Sym + …` on each side of " *
+          "<--> or ⇌; got $expr")
+end
+```
+
+Update the `@enzyme_mechanism` and `@allosteric_mechanism`
+docstring examples to reflect the new syntax.
+
+### Task 0.3: Migrate every macro callsite
+
+**Files:**
+- Modify: `test/test_dsl.jl`, `test/test_mechanism_enumeration.jl`,
+  `test/test_rate_eq_derivation.jl`, `test/test_types.jl`,
+  `test/test_accessors.jl`, `test/test_fitting.jl`,
+  `test/test_identify_rate_equation.jl`, `test/test_readme_runs.jl`,
+  `test/mechanism_definitions_for_test_enzyme_derivation.jl`,
+  `README.md`.
+
+- [ ] **Step 1: Enumerate every line needing migration**
+
+```bash
+grep -rEn '\[[A-Za-z_].*\] *(⇌|<-->) *\[' \
+    /home/denis.linux/.julia/dev/EnzymeRates/test/ \
+    /home/denis.linux/.julia/dev/EnzymeRates/README.md \
+    /home/denis.linux/.julia/dev/EnzymeRates/src/dsl.jl
+```
+
+- [ ] **Step 2: Migrate each match**
+
+For each line, transform:
+- `[A, B, C, …] ⇌ [X, Y, …]` → `A + B + C + … ⇌ X + Y + …`
+- `[A, B] <--> [X]` → `A + B <--> X`
+- Single-element `[ES]` (one symbol in brackets) → `ES`
+
+Atom annotations on species inside `@enzyme_reaction` blocks
+(`S[C2H4]`, `ATP[C10H16N5O13P3]`) are NOT step sides and must NOT
+be touched.
+
+- [ ] **Step 3: Run tests**
+
+```
+julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
+```
+
+Expected: 0.1's test passes; the migrated existing tests pass.
+Whole suite green.
+
+- [ ] **Step 4: Confirm no `[…] ⇌ […]` patterns remain**
+
+```bash
+grep -rEn '\[[A-Za-z_].*\] *(⇌|<-->) *\[' \
+    /home/denis.linux/.julia/dev/EnzymeRates/test/ \
+    /home/denis.linux/.julia/dev/EnzymeRates/README.md
+```
+
+Expected: empty output.
+
+### Task 0.4: Commit Phase 0
+
+```bash
+git add src/dsl.jl test/ README.md
+git commit -m "$(cat <<'EOF'
+Migrate macro step-side syntax from [E, S] to E + S
+
+@enzyme_mechanism and @allosteric_mechanism now accept step sides
+as +-separated species (E + S ⇌ ES) instead of bracketed vector
+literals ([E, S] ⇌ [ES]). Matches the existing Base.show output
+convention. Hard cutover: bracket form is rejected.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
 
 ---
 
@@ -76,54 +224,13 @@ In `test/test_mechanism_enumeration.jl`, after the existing constants block (aro
     n_actual = length(EnzymeRates.fitted_params(m))
     @test spec.n_fit_params_estimate == n_actual
 end
-
-@testset "n_fit_params_estimate upper-bound for dead-end mirrors" begin
-    # `uni_uni_with_reg` has a dead-end inhibitor :I that creates
-    # mirror cycles. The plan lowers `floor_pc` from `+3` to `+1`;
-    # this test guards the upper-bound invariant
-    #   spec.n_fit_params_estimate >= length(fitted_params(m))
-    # for every spec produced by init AND its expansions through
-    # several rounds.
-    cache = Dict{Int,Vector{EnzymeRates.AbstractMechanismSpec}}()
-    for spec in EnzymeRates.init_mechanisms(uni_uni_with_reg)
-        push!(get!(cache, spec.n_fit_params_estimate,
-                   EnzymeRates.AbstractMechanismSpec[]),
-              spec)
-    end
-    EnzymeRates.dedup!(cache)
-
-    for round in 1:2
-        new_specs = EnzymeRates.AbstractMechanismSpec[]
-        for (_, specs) in cache
-            for s in specs
-                push!(new_specs, s)
-            end
-        end
-        for spec in new_specs
-            try
-                m = EnzymeRates.EnzymeMechanism(spec)
-                @test spec.n_fit_params_estimate >=
-                    length(EnzymeRates.fitted_params(m))
-            catch e
-                # Compilation may fail for some expansion paths;
-                # only test specs that compile.
-                @debug("compile failed in upper-bound test",
-                       exception=(e, catch_backtrace()))
-            end
-        end
-        # Expand once for the second round.
-        expanded = EnzymeRates.expand_mechanisms(
-            new_specs, uni_uni_with_reg)
-        empty!(cache)
-        for (pc, specs) in expanded
-            append!(get!(cache, pc,
-                         EnzymeRates.AbstractMechanismSpec[]),
-                    specs)
-        end
-        EnzymeRates.dedup!(cache)
-    end
-end
 ```
+
+(The "upper-bound for dead-end mirrors" testset is added in Phase
+A.3, AFTER the formula change + floor lowering have landed. Adding
+it earlier would crash testset setup at the gating run because the
+field access happens at the testset's top level — outside any
+`@test`'s exception handling.)
 
 - [ ] **Step 2: Run the test to confirm it fails**
 
@@ -325,11 +432,19 @@ push!(result, MechanismSpec(
     spec.reaction, new_steps, pc))
 ```
 
-The local `groups_re`, `groups_ss`, `n_forms`, `n_thermo`
-calculations above the replaced block become unnecessary if
-they were only used by this formula — verify and delete them
-if so. (If they're used for other purposes in the same function,
-leave the surrounding calculations alone.)
+**Delete** the four lines immediately above the replaced block:
+
+```julia
+n_forms = length(
+    all_form_names(new_steps))
+n_thermo = length(new_steps) - n_forms + 1
+```
+
+…plus the `groups_re` / `groups_ss` Set-construction loop
+preceding them. These locals are used SOLELY by the replaced
+formula in `_expand_substrate_product_dead_ends` (verified by
+reading lines 1230-1250 of `src/mechanism_enumeration.jl`); no
+other code in the function references them.
 
 - [ ] **Step 3: Lower `floor_pc` from `+3` to `+1`**
 
@@ -343,13 +458,72 @@ The original `+3` decomposes as `+1` (one SS rate constant) `+1`
 (Keq) `+1` (E_total). Under the new convention (no Keq, no
 E_total), only the `+1` for the SS rate constant remains.
 
-- [ ] **Step 4: Run the full test suite**
+- [ ] **Step 4: Add the upper-bound regression testset**
+
+Append to `test/test_mechanism_enumeration.jl`:
+
+```julia
+@testset "n_fit_params_estimate upper-bound for dead-end mirrors" begin
+    # `uni_uni_with_reg` has a dead-end inhibitor :I that creates
+    # mirror cycles. Phase A.3 lowers `floor_pc` from `+3` to `+1`;
+    # this test guards the upper-bound invariant
+    #   spec.n_fit_params_estimate >= length(fitted_params(m))
+    # for every spec produced by init AND its expansions through
+    # several rounds.
+    cache = Dict{Int,Vector{EnzymeRates.AbstractMechanismSpec}}()
+    for spec in EnzymeRates.init_mechanisms(uni_uni_with_reg)
+        push!(get!(cache, spec.n_fit_params_estimate,
+                   EnzymeRates.AbstractMechanismSpec[]),
+              spec)
+    end
+    EnzymeRates.dedup!(cache)
+
+    for round in 1:2
+        new_specs = EnzymeRates.AbstractMechanismSpec[]
+        for (_, specs) in cache
+            for s in specs
+                push!(new_specs, s)
+            end
+        end
+        for spec in new_specs
+            try
+                m = EnzymeRates.EnzymeMechanism(spec)
+                @test spec.n_fit_params_estimate >=
+                    length(EnzymeRates.fitted_params(m))
+            catch e
+                # Compilation may fail for some expansion paths;
+                # only test specs that compile.
+                @debug("compile failed in upper-bound test",
+                       exception=(e, catch_backtrace()))
+            end
+        end
+        # Expand once for the second round.
+        expanded = EnzymeRates.expand_mechanisms(
+            new_specs, uni_uni_with_reg)
+        empty!(cache)
+        for (pc, specs) in expanded
+            append!(get!(cache, pc,
+                         EnzymeRates.AbstractMechanismSpec[]),
+                    specs)
+        end
+        EnzymeRates.dedup!(cache)
+    end
+end
+```
+
+This testset cannot run before A.2 (renames the field) AND A.3
+steps 1-3 (formula change + floor lowering) — all of which must
+already be in place. Hence Step 4 (adding the testset) comes after
+Steps 1-3.
+
+- [ ] **Step 5: Run the full test suite**
 
 ```
 julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
 ```
 
-Expected: A.1 now passes. Whole suite green.
+Expected: A.1 now passes; new upper-bound testset passes; whole
+suite green.
 
 If A.1 still fails, the most likely cause is that `floor_pc` is
 still clamping the count too high for the small `uni_uni_rxn`
@@ -567,7 +741,8 @@ Insert above the existing `EnzymeReaction(...)` constructor:
 ```julia
 """Sum element counts across a tuple of `(name, atoms)` pairs.
 Returns a Dict{Symbol,Int}. Errors if any species's atoms tuple
-is empty (atoms are mandatory)."""
+is empty (atoms are mandatory) or if any per-atom count is not a
+positive Int."""
 function _sum_atoms(species::Tuple, side::String)
     totals = Dict{Symbol,Int}()
     for (name, atoms) in species
@@ -577,6 +752,10 @@ function _sum_atoms(species::Tuple, side::String)
             "@enzyme_reaction or pass non-empty atom tuples to the " *
             "constructor).")
         for (elem, count) in atoms
+            count isa Integer && count > 0 || error(
+                "EnzymeReaction: $side metabolite $name has " *
+                "non-positive atom count for element $elem ($count); " *
+                "atom counts must be positive integers.")
             totals[elem] = get(totals, elem, 0) + count
         end
     end
@@ -1123,6 +1302,24 @@ EOF
         min_beam_width=1)
     # threshold = 2.0*1e-6 + 0.01 = 0.010002 -> indices 1, 2
     @test sort(sel) == [1, 2]
+
+    # All-Inf: no qualifying mechanisms (filtered out).
+    sel = EnzymeRates._select_beam(
+        [Inf, Inf, Inf];
+        loss_rel_threshold=2.0,
+        loss_abs_threshold=0.01,
+        min_beam_width=5)
+    @test isempty(sel)
+
+    # NaN dropped; finite losses scored normally.
+    sel = EnzymeRates._select_beam(
+        [1.0, NaN, 2.0];
+        loss_rel_threshold=2.5,
+        loss_abs_threshold=0.0,
+        min_beam_width=1)
+    # finite indices = [1, 3], best=1.0, cutoff=2.5,
+    # both losses (1.0, 2.0) qualify. NaN dropped.
+    @test sort(sel) == [1, 3]
 end
 ```
 
@@ -1149,6 +1346,10 @@ Return indices into `losses` for mechanisms that qualify for the
 beam at this level. A mechanism qualifies if either:
   • its loss ≤ loss_rel_threshold * best_loss + loss_abs_threshold,
   • OR its rank (1-indexed by ascending loss) ≤ min_beam_width.
+
+Mechanisms with non-finite losses (`Inf`, `NaN`) are excluded
+unconditionally — they represent failed or non-converging fits
+that should not propagate to the next level.
 """
 function _select_beam(
     losses::AbstractVector{<:Real};
@@ -1156,8 +1357,12 @@ function _select_beam(
     loss_abs_threshold::Float64,
     min_beam_width::Int,
 )
-    isempty(losses) && return Int[]
-    perm = sortperm(losses)
+    # Filter to finite losses only; non-finite are dropped.
+    finite_idx = [i for i in eachindex(losses) if isfinite(losses[i])]
+    isempty(finite_idx) && return Int[]
+
+    # Sort the finite indices by loss.
+    perm = sort(finite_idx; by=i -> losses[i])
     best = losses[perm[1]]
     cutoff = loss_rel_threshold * best + loss_abs_threshold
     selected = Int[]
@@ -1247,13 +1452,15 @@ threshold would collapse the beam to the single best mechanism.
 
 Drop the `beam_fraction` line.
 
-- [ ] **Step 5: Update existing test call sites that pass `beam_fraction`**
+- [ ] **Step 5: Update existing test call sites and src docstring that mention `beam_fraction`**
 
 Phase F removes the `beam_fraction` kwarg. Existing tests that
-pass it will fail with `MethodError`. Find them:
+pass it will fail with `MethodError`. The src docstring at
+`src/identify_rate_equation.jl:95` also references it. Find every
+mention:
 
 ```bash
-grep -rn "beam_fraction" /home/denis.linux/.julia/dev/EnzymeRates/test/
+grep -rn "beam_fraction" /home/denis.linux/.julia/dev/EnzymeRates/src/ /home/denis.linux/.julia/dev/EnzymeRates/test/
 ```
 
 Known sites at the time of writing:
@@ -1266,10 +1473,11 @@ Known sites at the time of writing:
   `save_dir non-empty check` testset's second invocation. Same
   fix: drop `beam_fraction=0.1`.
 
-Confirm clean:
+Confirm clean (excluding doc/ which contains the spec/plan
+themselves describing the removal):
 
 ```bash
-grep -rn "beam_fraction" /home/denis.linux/.julia/dev/EnzymeRates/
+grep -rn "beam_fraction" /home/denis.linux/.julia/dev/EnzymeRates/src/ /home/denis.linux/.julia/dev/EnzymeRates/test/
 ```
 
 Expected: empty output.
@@ -1457,31 +1665,37 @@ end
 ) where {M <: AllostericEnzymeMechanism}
     m = M()
     cm = catalytic_mechanism(m)
-    catalytic_params = collect(_raw_param_symbols(cm))
+    # Iterate kinetic_groups in canonical sorted order (already
+    # sorted by `kinetic_groups` itself) so the output is
+    # deterministic across processes.
+    catalytic_params = Symbol[]
+    for g in kinetic_groups(cm)
+        rep = first(steps_in_group(cm, g))
+        for s in _group_param_symbols(cm, rep)
+            push!(catalytic_params, s)
+        end
+    end
 
-    # T-state catalytic params: every value in _T_rename(m) that
-    # is not already in catalytic_params.
-    t_rename = _T_rename(m)
-    t_state_params = Symbol[v for v in values(t_rename)
-                            if v ∉ catalytic_params]
+    # T-state catalytic params and reg-site T-names: enumerated by
+    # the same shared helper that `_build_dep_assignments` uses, so
+    # the body's emitted T-names exactly match the rename set.
+    t_state_params = _all_t_state_names(m)
 
-    # Regulatory-site params: per site, per ligand, R and/or T
-    # depending on the ligand's allo state.
+    # Regulatory-site R-state K's: per site, per ligand, in
+    # declaration order.
     rs = regulatory_sites(m)
-    reg_params = Symbol[]
+    reg_R_params = Symbol[]
     for (i, entry) in enumerate(rs)
         ligands = entry[1]
         tags = entry[3]
         for (lig, tag) in zip(ligands, tags)
             tag != :OnlyT &&
-                push!(reg_params, _reg_param_name(lig, i, false))
-            tag in (:NonequalRT, :OnlyT) &&
-                push!(reg_params, _reg_param_name(lig, i, true))
+                push!(reg_R_params, _reg_param_name(lig, i, false))
         end
     end
 
     Tuple((catalytic_params..., t_state_params...,
-           reg_params..., :L, :E_total))
+           reg_R_params..., :L, :E_total))
 end
 
 @generated function parameters(
@@ -1491,6 +1705,81 @@ end
     (indep..., :Keq, :E_total)
 end
 ```
+
+- [ ] **Step 3b: Add the `_all_t_state_names` helper**
+
+This helper is the single source of truth for "which T-suffixed
+names appear in the body's constraint LHSes." Both
+`_build_dep_assignments` and `parameters(m, Full)` use it, so
+they're guaranteed consistent.
+
+Add to `src/rate_eq_derivation.jl` (near `_T_rename`):
+
+```julia
+"""
+All `_T`-suffixed parameter names that the rate-equation body
+emits as constraint LHSes for an allosteric mechanism. Used by
+both `_build_dep_assignments` (which writes those constraint
+lines) and `parameters(m, Full)` (which the canonicalizer uses
+as its rename source).
+
+Iterates kinetic groups in sorted order and reg sites/ligands in
+declaration order so output is deterministic.
+"""
+function _all_t_state_names(m::AllostericEnzymeMechanism)
+    cm = catalytic_mechanism(m)
+    names = Symbol[]
+    if !_t_state_dead(m)
+        # Catalytic groups: every group except :OnlyR has a T
+        # mirror line in the body (`:EqualRT` → K_T = K, etc.).
+        for g in kinetic_groups(cm)
+            cat_allo_state(m, g) == :OnlyR && continue
+            rep = first(steps_in_group(cm, g))
+            for s in _group_param_symbols(cm, rep)
+                push!(names, _rename_params_T(s))
+            end
+        end
+        # Derived deps whose RHS references any :NonequalRT
+        # symbol — same logic as `_T_rename`'s second pass.
+        nonequalrt_set = Set{Symbol}()
+        for g in kinetic_groups(cm)
+            cat_allo_state(m, g) == :NonequalRT || continue
+            rep = first(steps_in_group(cm, g))
+            for s in _group_param_symbols(cm, rep)
+                push!(nonequalrt_set, s)
+            end
+        end
+        if !isempty(nonequalrt_set)
+            dep_R_all, _ = _dependent_param_exprs(typeof(cm))
+            for (k, v) in dep_R_all
+                k in nonequalrt_set && continue
+                _expr_references_any(v, nonequalrt_set) || continue
+                push!(names, _rename_params_T(k))
+            end
+        end
+        # Reg-site T-names: every ligand except :OnlyR has a T
+        # form.
+        for (i, entry) in enumerate(regulatory_sites(m))
+            ligands = entry[1]
+            tags = entry[3]
+            for (lig, tag) in zip(ligands, tags)
+                tag == :OnlyR && continue
+                push!(names, _reg_param_name(lig, i, true))
+            end
+        end
+    end
+    names
+end
+```
+
+Then refactor `_build_dep_assignments` (around lines 1340-1393)
+to derive its T-name iteration from this helper instead of
+`_T_rename(m)` values directly. The behavioral output of
+`_build_dep_assignments` must be unchanged — only the source of
+the T-name list changes. Add a regression test that confirms the
+string output of `rate_equation_string(allo_m, Reduced)` for a
+known allosteric mechanism is byte-identical before and after
+the refactor (use a small `:NonequalRT` mechanism fixture).
 
 - [ ] **Step 4: Run G.0 tests**
 
@@ -1612,7 +1901,11 @@ differently.
 includes T-state names, regulator-site names, and the
 allosteric coupling `L` automatically.
 """
-function _canonicalize_rate_eq(m::AbstractEnzymeMechanism)
+"""Build the canonical text + name_map. Internal helper exposed
+to `_canonical_rate_eq_hash_data` so callers can also retrieve
+the name_map (needed by Stage 1 to project cached params across
+specs in the same hash group)."""
+function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
     body = rate_equation_string(m)
 
     # Strip ONLY the destructure header lines
@@ -1657,7 +1950,12 @@ function _canonicalize_rate_eq(m::AbstractEnzymeMechanism)
             Regex("\\b" * name * "\\b") => name_map[name])
     end
 
-    strip(replace(body, r"\s+" => " "))
+    canonical = strip(replace(body, r"\s+" => " "))
+    (canonical, name_map)
+end
+
+function _canonicalize_rate_eq(m::AbstractEnzymeMechanism)
+    first(_canonicalize_rate_eq_with_map(m))
 end
 
 """Hash a mechanism's canonicalized rate equation. Returns
@@ -1671,6 +1969,38 @@ end
 function _canonical_rate_eq_hash_pair(m::AbstractEnzymeMechanism)
     h = _canonical_rate_eq_hash(m)
     (h, string(h, base=16, pad=16))
+end
+
+"""Return `(UInt64 hash, 16-char hex display string, name_map)`.
+Used by Stage 1 of `_beam_search` to keep the rename mapping for
+later per-spec param projection."""
+function _canonical_rate_eq_hash_data(m::AbstractEnzymeMechanism)
+    canonical, name_map = _canonicalize_rate_eq_with_map(m)
+    h = hash(canonical)
+    (h, string(h, base=16, pad=16), name_map)
+end
+
+"""Project cached params (keyed by rep spec's symbols) onto a
+target spec's own fitted-param keys, preserving canonical-position
+values. Two specs in the same hash group have isomorphic rate
+equations modulo parameter renaming; this function applies the
+canonical position bijection (rep_key → canonical_token →
+spec_key) to relabel the values without changing them.
+
+Both `rep_name_map` and `spec_name_map` are
+`orig_string => canonical_token` Dicts produced by the
+canonicalizer. The return is a NamedTuple keyed by the spec's
+own symbols."""
+function _project_cached_params(
+    cached_params::NamedTuple,
+    rep_name_map::Dict{String,String},
+    spec_name_map::Dict{String,String},
+)
+    canon_to_rep = Dict(v => k for (k, v) in rep_name_map)
+    spec_keys = Tuple(Symbol(k) for k in keys(spec_name_map))
+    NamedTuple{spec_keys}(
+        Tuple(cached_params[Symbol(canon_to_rep[spec_name_map[String(k)]])]
+              for k in spec_keys))
 end
 ```
 
@@ -1698,10 +2028,32 @@ Insert near the top of `src/identify_rate_equation.jl`:
 struct _CachedFitResult
     loss::Float64
     params::NamedTuple
+    rep_name_map::Dict{String,String}  # rep spec's canonical map
     first_seen_estimate::Int
     first_seen_n_actual::Int
     first_seen_eq_hash::String
 end
+
+"""Stage 1 result: uniform NamedTuple-replacement struct so the
+`pmap` return is concretely-typed `Vector{_Stage1Result}` rather
+than `Vector{Any}`. On failure, every field has a sentinel value
+and `ok=false`; callers must check `ok` before using other fields."""
+struct _Stage1Result
+    spec::AbstractMechanismSpec
+    eq_text::String
+    h_full::UInt64
+    h_short::String
+    n_actual::Int
+    mech_type_str::String
+    name_map::Dict{String,String}
+    ok::Bool
+end
+
+"""Empty-failure sentinel constructor — every non-`spec` field
+takes a zero/empty default."""
+_Stage1Failure(spec) = _Stage1Result(
+    spec, "", zero(UInt64), "", 0, "",
+    Dict{String,String}(), false)
 ```
 
 - [ ] **Step 2: Refactor `_beam_search` to two-stage processing**
@@ -1738,24 +2090,25 @@ function _beam_search(
         level = pop!(cache, pc, AbstractMechanismSpec[])
         isempty(level) && (isempty(cache) ? break : continue)
 
-        # ── Stage 1 (parallel): compile + hash. Return spec +
-        #    hash + n_actual; the mechanism object stays on the
+        # ── Stage 1 (parallel): compile + hash. Return concrete
+        #    `_Stage1Result` so `Vector{_Stage1Result}` is
+        #    type-stable. The mechanism object stays on the
         #    worker that compiled it. ─────────────────────────
         compiled = pmap_function(level) do spec
             try
                 m = compile_mechanism(spec)
                 eq_text = rate_equation_string(m)
-                h_full, h_short = _canonical_rate_eq_hash_pair(m)
+                h_full, h_short, name_map =
+                    _canonical_rate_eq_hash_data(m)
                 n_actual = length(fitted_params(m))
                 mech_type_str = string(typeof(m))
-                (spec=spec, eq_text=eq_text,
-                 h_full=h_full, h_short=h_short,
-                 n_actual=n_actual,
-                 mech_type_str=mech_type_str, ok=true)
+                _Stage1Result(spec, eq_text, h_full, h_short,
+                              n_actual, mech_type_str, name_map,
+                              true)
             catch e
                 @debug("Mechanism compilation failed",
                        exception=(e, catch_backtrace()))
-                (spec=spec, ok=false)
+                _Stage1Failure(spec)
             end
         end
         filter!(c -> c.ok, compiled)
@@ -1768,8 +2121,8 @@ function _beam_search(
             push!(new_hashes, c.h_full)
         end
 
-        # Pick one rep spec per new hash (first-encountered).
-        reps_by_hash = Dict{UInt64, NamedTuple}()
+        # Pick one rep per new hash (first-encountered).
+        reps_by_hash = Dict{UInt64, _Stage1Result}()
         for c in compiled
             c.h_full in new_hashes || continue
             haskey(reps_by_hash, c.h_full) && continue
@@ -1778,7 +2131,8 @@ function _beam_search(
 
         # ── Stage 2 (parallel): worker-side recompile + fit. ──
         # Recompile on the worker so the singleton type never
-        # crosses worker boundaries between stages.
+        # crosses worker boundaries between stages. Carry rep's
+        # name_map back through the result so the cache stores it.
         rep_results = pmap_function(
             collect(values(reps_by_hash))
         ) do rep
@@ -1789,6 +2143,7 @@ function _beam_search(
                     fp, optimizer; kwargs...)
                 (h_full=rep.h_full, h_short=rep.h_short,
                  n_actual=rep.n_actual,
+                 name_map=rep.name_map,
                  loss=fit.loss, params=fit.params, ok=true)
             catch e
                 @debug("Rep fit failed",
@@ -1801,26 +2156,33 @@ function _beam_search(
         for r in rep_results
             r.ok || continue
             fit_cache[r.h_full] = _CachedFitResult(
-                r.loss, r.params, pc, r.n_actual, r.h_short)
+                r.loss, r.params, r.name_map,
+                pc, r.n_actual, r.h_short)
         end
 
         # ── Stage 3 (master): build ONE row per spec member. ──
-        # Members of the same hash group share (loss, params,
-        # eq_hash); users can post-hoc dedup via eq_hash.
+        # Members of the same hash group share the cached (loss,
+        # params), but each member's row reports ITS OWN
+        # fitted_param NAMES (re-keyed via canonical-position
+        # alignment from rep's keys to spec's keys). Values
+        # transfer because canonical equivalence preserves
+        # per-canonical-position values across renamings.
         level_rows = NamedTuple[]
         level_specs = AbstractMechanismSpec[]
         for c in compiled
             haskey(fit_cache, c.h_full) || continue
             cached = fit_cache[c.h_full]
             is_inherited = !(c.h_full in new_hashes)
+            spec_params = _project_cached_params(
+                cached.params, cached.rep_name_map, c.name_map)
             row = (
                 n_params = c.n_actual,
                 loss = cached.loss,
                 mechanism_type = c.mech_type_str,
                 rate_equation = c.eq_text,
-                fitted_param_names = collect(keys(cached.params)),
+                fitted_param_names = collect(keys(spec_params)),
                 fitted_param_values =
-                    Tuple(values(cached.params)),
+                    Tuple(values(spec_params)),
                 eq_hash = cached.first_seen_eq_hash,
                 fit_inherited_from_estimate =
                     is_inherited ? cached.first_seen_estimate :
@@ -1900,21 +2262,26 @@ function _rows_to_dataframe(rows)
 end
 ```
 
-- [ ] **Step 3b: Update existing `_rows_to_dataframe` test fixture to new schema**
+- [ ] **Step 3b: Update existing test fixtures to the new schema**
 
-The existing testset at `test/test_identify_rate_equation.jl`
-(around lines 163-182) uses the old NamedTuple schema (no
-`eq_hash`, no `fit_inherited_from_estimate`). After Step 3 the
-DataFrame builder accesses these fields and the test will fail.
-
-Find:
+After Step 3 the `_rows_to_dataframe` body accesses `r.eq_hash`
+and `r.fit_inherited_from_estimate`. EVERY row NamedTuple
+fixture in `test/test_identify_rate_equation.jl` that drives
+`_rows_to_dataframe` or `_save_level_csv` must include the new
+keys. Find them:
 
 ```bash
-grep -n "_rows_to_dataframe" /home/denis.linux/.julia/dev/EnzymeRates/test/test_identify_rate_equation.jl
+grep -n "_rows_to_dataframe\|_save_level_csv" /home/denis.linux/.julia/dev/EnzymeRates/test/test_identify_rate_equation.jl
 ```
 
-Update each row NamedTuple in the test fixture to include the new
-keys, e.g.:
+Update each fixture. Specifically:
+- The existing testset at lines 163-182 (`_rows_to_dataframe`'s
+  pre-Phase-G test).
+- The Phase E.1 testset added earlier in this plan
+  (`save_level_csv uses estimate-level filename` — its row
+  NamedTuple lacks the new keys).
+
+Add the new keys to every fixture row:
 
 ```julia
 (n_params=3, loss=1.0,
@@ -1973,12 +2340,18 @@ using the real optimizer already imported in this file
     Keq = 2.0
     n_pts_per_group = 8
     n_groups = 3
+    # Vary all four metabolites so neither direction is degenerate.
     A_vals = repeat([0.1, 0.5, 1.0, 2.0], n_groups * 2)
-    B_vals = repeat([0.5, 0.5, 0.5, 0.5], n_groups * 2)
-    P_vals = repeat([0.05, 0.05, 0.05, 0.05], n_groups * 2)
-    Q_vals = repeat([0.05, 0.05, 0.05, 0.05], n_groups * 2)
-    Rates = @. (A_vals * B_vals) /
-               ((1 + A_vals/0.5) * (1 + B_vals/0.3))
+    B_vals = repeat([0.2, 0.5, 1.0, 1.5], n_groups * 2)
+    P_vals = repeat([0.05, 0.1,  0.2, 0.4], n_groups * 2)
+    Q_vals = repeat([0.05, 0.1,  0.15, 0.3], n_groups * 2)
+    # Random-binding bi-bi rate with reverse term to engage Keq.
+    K_A, K_B, K_P, K_Q = 0.5, 0.3, 0.4, 0.6
+    kf, kr = 1.0, kf / Keq
+    Rates = @. (kf * (A_vals * B_vals) / (K_A * K_B) -
+                kr * (P_vals * Q_vals) / (K_P * K_Q)) /
+               ((1 + A_vals/K_A + P_vals/K_P) *
+                (1 + B_vals/K_B + Q_vals/K_Q))
     data = (
         group = repeat(1:n_groups, inner=n_pts_per_group),
         Rate = Rates, A = A_vals, B = B_vals,
