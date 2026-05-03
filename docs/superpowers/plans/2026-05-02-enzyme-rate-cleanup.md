@@ -164,12 +164,18 @@ julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
 Expected: 0.1's test passes; the migrated existing tests pass.
 Whole suite green.
 
-- [ ] **Step 4: Confirm no `[…] ⇌ […]` patterns remain**
+- [ ] **Step 4: Confirm no `[…] ⇌ […]` patterns remain (including in src/dsl.jl docstrings)**
+
+`src/dsl.jl` contains macro examples in docstrings around lines
+167-170 and 412-414 — these are user-facing API documentation and
+must be migrated too. Include `src/dsl.jl` in the verification
+grep:
 
 ```bash
 grep -rEn '\[[A-Za-z_].*\] *(⇌|<-->) *\[' \
     /home/denis.linux/.julia/dev/EnzymeRates/test/ \
-    /home/denis.linux/.julia/dev/EnzymeRates/README.md
+    /home/denis.linux/.julia/dev/EnzymeRates/README.md \
+    /home/denis.linux/.julia/dev/EnzymeRates/src/dsl.jl
 ```
 
 Expected: empty output.
@@ -602,58 +608,67 @@ EOF
 
 ## Phase B — Atom mandatory + balance check in `@enzyme_reaction` (Issue #7)
 
-### Task B.1: Audit & migrate any bare-symbol reactions
+### Task B.1: Audit & migrate every bare-symbol `@enzyme_reaction`
 
-**Files:**
-- Modify: `README.md`
-- Audit (likely no changes needed): `test/*.jl`
+The codebase has many bare-symbol `@enzyme_reaction` blocks
+across test files and the README. Phase B.3's atom-mandatory
+check will turn all of them red unless they're migrated first.
+Don't assume "likely no changes needed" — drive the migration
+from grep output.
 
-- [ ] **Step 1: Find every bare-symbol `@enzyme_reaction` block**
+**Files:** every file the grep hits (typically `README.md`,
+`test/test_dsl.jl`, `test/test_types.jl`, `test/test_accessors.jl`,
+`test/test_fitting.jl`, `test/test_identify_rate_equation.jl`,
+`test/test_rate_eq_derivation.jl`,
+`test/test_mechanism_enumeration.jl`).
 
-The grep below is the source of truth. **Only `@enzyme_reaction`
-blocks need migration** — `@enzyme_mechanism` and
-`@allosteric_mechanism` DSLs forbid atom brackets (per
-`dsl.jl:285-289`), so any bare symbols in those blocks are
-correct and must NOT be touched.
+- [ ] **Step 1: Enumerate every bare-symbol `@enzyme_reaction` callsite**
 
 ```bash
-grep -rA 6 "@enzyme_reaction begin" /home/denis.linux/.julia/dev/EnzymeRates/test/ /home/denis.linux/.julia/dev/EnzymeRates/README.md /home/denis.linux/.julia/dev/EnzymeRates/src/
+grep -rA 8 "@enzyme_reaction begin" \
+    /home/denis.linux/.julia/dev/EnzymeRates/test/ \
+    /home/denis.linux/.julia/dev/EnzymeRates/README.md \
+    /home/denis.linux/.julia/dev/EnzymeRates/src/
 ```
 
 For each match, inspect the `substrates:` and `products:` lines
 INSIDE THE `@enzyme_reaction` BLOCK only. Any bare-symbol species
 (e.g., `substrates: S` with no `[…]`) must be migrated to declare
-atoms (e.g., `S[C]` is fine for illustrative examples — pick
-plausible biochemistry where one is implied, otherwise placeholder
-`[C]` is acceptable).
+atoms.
 
-- [ ] **Step 2: Migrate `README.md`**
+**Important:** `@enzyme_mechanism` and `@allosteric_mechanism`
+DSLs forbid atom brackets (per `dsl.jl:285-289`), so any bare
+symbols in those macro blocks are correct and must NOT be touched.
 
-Open `README.md` and replace the bare-symbol example. Use placeholder atoms `[C]` on each side (the example is illustrative, not biochemically meaningful):
+- [ ] **Step 2: Migrate every bare-symbol substrate/product**
 
-Find:
+For each callsite found in Step 1, replace bare symbols with
+atom-annotated forms. Examples:
 
-```julia
-rxn = @enzyme_reaction begin
-    substrates: S
-    products:   P
-    regulators: A
-    oligomeric_state: 2
+- `substrates: S` → `substrates: S[C]`
+- `substrates: A, B` → `substrates: A[C], B[N]`
+- `products: P` → `products: P[C]`
+- `regulators: I` (no atoms expected for regulators) — leave alone
+
+For illustrative tests where the chemistry doesn't map to a real
+reaction, use simple placeholder atoms (e.g., `[C]` on each side
+for uni-uni, `[C], [N]` for bi-bi) so atom totals balance per
+element. For tests that ALREADY have meaningful atoms (e.g.,
+`pyruvate_carboxylase_rxn` in `test/test_mechanism_enumeration.jl`),
+leave them alone.
+
+- [ ] **Step 3: Confirm clean**
+
+```bash
+grep -rA 8 "@enzyme_reaction begin" \
+    /home/denis.linux/.julia/dev/EnzymeRates/test/ \
+    /home/denis.linux/.julia/dev/EnzymeRates/README.md
 ```
 
-Replace with:
+Visually scan: every `substrates:` and `products:` line should
+have at least one `[…]` annotation per species.
 
-```julia
-rxn = @enzyme_reaction begin
-    substrates: S[C]
-    products:   P[C]
-    regulators: A
-    oligomeric_state: 2
-```
-
-Apply the same migration to every other bare-symbol example in the README.
-
-- [ ] **Step 3: Run tests; commit migration as a stand-alone commit**
+- [ ] **Step 4: Run tests; commit migration as a stand-alone commit**
 
 ```
 julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
@@ -662,12 +677,13 @@ julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
 Expected: green (atoms are accepted; mandatoriness not yet enforced).
 
 ```bash
-git add README.md
+git add README.md test/
 git commit -m "$(cat <<'EOF'
-Migrate README @enzyme_reaction examples to declared atoms
+Migrate all bare-symbol @enzyme_reaction blocks to declared atoms
 
-Pre-step for the upcoming atom-mandatory enforcement. Examples now
-use [C] placeholder atoms; behavior unchanged.
+Pre-step for the upcoming atom-mandatory enforcement. Test fixtures
+and README examples now use atom annotations on every substrate
+and product. Behavior unchanged at this commit.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -752,10 +768,11 @@ function _sum_atoms(species::Tuple, side::String)
             "@enzyme_reaction or pass non-empty atom tuples to the " *
             "constructor).")
         for (elem, count) in atoms
-            count isa Integer && count > 0 || error(
+            count isa Integer && !(count isa Bool) && count > 0 ||
+                error(
                 "EnzymeReaction: $side metabolite $name has " *
                 "non-positive atom count for element $elem ($count); " *
-                "atom counts must be positive integers.")
+                "atom counts must be positive integers (not Bool).")
             totals[elem] = get(totals, elem, 0) + count
         end
     end
@@ -1019,12 +1036,16 @@ end
 
     # The parenthesized-group branch must execute: look for the
     # exact "(...) :: EqualRT" shape with a comma-separated body.
+    # After Phase 0, species inside step bodies are joined with
+    # " + " (no brackets); the multi-step group is wrapped in
+    # parens with comma separators between steps.
     paren_group_match = match(
         r"\([^()]*,[^()]*\) :: EqualRT", s)
     @test paren_group_match !== nothing
-    # And the single-step lines for groups 2 and 3 should also
-    # appear with their own ":: EqualRT" tags.
-    @test occursin("[E_S] <--> [E_P] :: EqualRT", s)
+    # The single-step lines for groups 2 and 3 should also appear
+    # with their own ":: EqualRT" tags. Format: "lhs <arrow> rhs"
+    # where lhs/rhs are " + "-joined (no brackets).
+    @test occursin("E_S <--> E_P :: EqualRT", s)
     @test occursin(":: EqualRT", s)
     # The deprecated summary line must NOT appear.
     @test !occursin("cat_allo_states:", s)
@@ -1231,9 +1252,15 @@ declared kinetic groups). Users wanting one file per actual
 """
 ```
 
-The function's positional argument name should also be renamed
-from `param_count` to `n_fit_params_estimate` for consistency
-with the rest of the codebase after Phase A's rename.
+The function's positional argument name was renamed from
+`param_count` to `n_fit_params_estimate` by Phase A.2's grep; no
+additional rename here.
+
+Also drop the now-redundant `append=isfile(path)` branch in
+`CSV.write`. Each level invokes `_save_level_csv` exactly once
+per `pc` (one save → one file → one header); `append` is dead
+code. Replace `CSV.write(path, df; append=isfile(path))` with
+`CSV.write(path, df)`.
 
 - [ ] **Step 2: Run tests**
 
@@ -1433,9 +1460,13 @@ specs, df = _beam_search(prob;
 
 Update `_beam_search`'s signature to accept the same kwargs. Drop `beam_fraction` from both functions.
 
-- [ ] **Step 4: Update the docstring**
+- [ ] **Step 4: Update the docstring (including `src/identify_rate_equation.jl:95`)**
 
-Replace the existing keyword-argument documentation block in the `identify_rate_equation` docstring with one that describes the new kwargs. Insert after the `min_beam_width` line:
+The existing `identify_rate_equation` docstring at
+`src/identify_rate_equation.jl:95` lists `beam_fraction::Float64 = 0.1`.
+Drop that line. Replace the surrounding keyword-argument
+documentation block with the new kwargs. Insert after the
+`min_beam_width` line:
 
 ```
 - `loss_rel_threshold::Float64 = 2.0`: relative tolerance.
@@ -1567,11 +1598,13 @@ behavior is exercised):
 
 ```julia
 @testset "parameters API symmetry" begin
-    # Monomeric: Full and Reduced both work (Full already exists,
-    # Reduced previously fell through generic _AnyMechanism).
+    # Monomeric: use bi-bi so Full strictly contains more raw
+    # symbols than Reduced (uni-uni's Full and Reduced have the
+    # same length after Haldane elimination so the > check is
+    # trivially equal there).
     rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products:   P[C]
+        substrates: A[C], B[N]
+        products:   P[C], Q[N]
     end
     m_mono = first(EnzymeRates.init_mechanisms(rxn)) |>
              EnzymeRates.EnzymeMechanism
@@ -1581,7 +1614,7 @@ behavior is exercised):
     @test :E_total in reduced_mono
     @test :Keq in reduced_mono
     @test :Keq ∉ full_mono           # Full has all k's + E_total only
-    @test length(full_mono) >= length(reduced_mono)
+    @test length(full_mono) > length(reduced_mono)
 
     # Allosteric: NEW Full method must exist.
     rxn_allo = @enzyme_reaction begin
@@ -1776,10 +1809,24 @@ Then refactor `_build_dep_assignments` (around lines 1340-1393)
 to derive its T-name iteration from this helper instead of
 `_T_rename(m)` values directly. The behavioral output of
 `_build_dep_assignments` must be unchanged — only the source of
-the T-name list changes. Add a regression test that confirms the
-string output of `rate_equation_string(allo_m, Reduced)` for a
-known allosteric mechanism is byte-identical before and after
-the refactor (use a small `:NonequalRT` mechanism fixture).
+the T-name list changes.
+
+**Capture-fixture-first protocol:**
+
+The "byte-identical before/after" regression must capture the
+"before" output as a string fixture BEFORE the refactor, then
+assert against it after:
+
+1. **Pre-refactor commit:** with the existing
+   `_build_dep_assignments`, run `rate_equation_string(allo_m, Reduced)`
+   for a small `:NonequalRT` allosteric fixture in a Julia REPL.
+   Copy the resulting string verbatim into a test fixture (multi-line
+   string in `test/test_rate_eq_derivation.jl` or similar). Add a
+   testset that asserts equality against this fixture string. Run
+   the test suite — the assertion must pass against the unrefactored
+   code. Commit this fixture.
+2. **Refactor commit:** apply the helper-extraction. Run the same
+   test — it must still pass (output is byte-identical).
 
 - [ ] **Step 4: Run G.0 tests**
 
@@ -1958,49 +2005,61 @@ function _canonicalize_rate_eq(m::AbstractEnzymeMechanism)
     first(_canonicalize_rate_eq_with_map(m))
 end
 
-"""Hash a mechanism's canonicalized rate equation. Returns
-`UInt64` from Julia's built-in `hash`. Adequate for our scale
-(~10⁻¹² collision probability over 10⁴ mechanisms)."""
-function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
-    hash(_canonicalize_rate_eq(m))
-end
-
-"""Return `(UInt64 hash, 16-char hex display string)`."""
-function _canonical_rate_eq_hash_pair(m::AbstractEnzymeMechanism)
-    h = _canonical_rate_eq_hash(m)
-    (h, string(h, base=16, pad=16))
-end
-
 """Return `(UInt64 hash, 16-char hex display string, name_map)`.
-Used by Stage 1 of `_beam_search` to keep the rename mapping for
-later per-spec param projection."""
+The single source for canonical hashing — both `_hash` and
+`_hash_pair` delegate here so the canonicalizer runs once. Used
+by Stage 1 of `_beam_search` to keep the rename mapping for later
+per-spec param projection.
+
+Hash collision probability over 10⁴ mechanisms is ~10⁻¹² with
+Julia's built-in `hash(::String)::UInt64`."""
 function _canonical_rate_eq_hash_data(m::AbstractEnzymeMechanism)
     canonical, name_map = _canonicalize_rate_eq_with_map(m)
     h = hash(canonical)
     (h, string(h, base=16, pad=16), name_map)
 end
 
-"""Project cached params (keyed by rep spec's symbols) onto a
-target spec's own fitted-param keys, preserving canonical-position
-values. Two specs in the same hash group have isomorphic rate
-equations modulo parameter renaming; this function applies the
-canonical position bijection (rep_key → canonical_token →
-spec_key) to relabel the values without changing them.
+"""Hash a mechanism's canonicalized rate equation. Returns the
+`UInt64` hash."""
+function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
+    first(_canonical_rate_eq_hash_data(m))
+end
 
-Both `rep_name_map` and `spec_name_map` are
+"""Return `(UInt64 hash, 16-char hex display string)`."""
+function _canonical_rate_eq_hash_pair(m::AbstractEnzymeMechanism)
+    h, hex, _ = _canonical_rate_eq_hash_data(m)
+    (h, hex)
+end
+
+"""Project cached params (keyed by rep spec's `fitted_params`
+symbols) onto a target spec's own `fitted_params` keys, preserving
+canonical-position values. Two specs in the same hash group have
+isomorphic rate equations modulo parameter renaming; this function
+applies the canonical position bijection
+(rep_fitted_key → canonical_token → spec_fitted_key) to relabel
+values without changing them.
+
+`rep_name_map` and `spec_name_map` are
 `orig_string => canonical_token` Dicts produced by the
-canonicalizer. The return is a NamedTuple keyed by the spec's
-own symbols."""
+canonicalizer over `parameters(m, Full)`. They include BOTH
+independent and dependent parameter names (everything that appears
+in the body). We restrict the projection to the FITTED (independent)
+keys only — `cached_params` is keyed by `fitted_params(rep_m)`,
+which doesn't contain dep names. Iterating `keys(spec_name_map)`
+directly would cause `KeyError` for any dep name (e.g., `:k10r`,
+`:K1_T` for `:EqualRT` mirrors).
+
+The return is a NamedTuple keyed by `fitted_params(spec_m)`."""
 function _project_cached_params(
     cached_params::NamedTuple,
     rep_name_map::Dict{String,String},
     spec_name_map::Dict{String,String},
+    spec_fitted_keys::Tuple{Vararg{Symbol}},
 )
     canon_to_rep = Dict(v => k for (k, v) in rep_name_map)
-    spec_keys = Tuple(Symbol(k) for k in keys(spec_name_map))
-    NamedTuple{spec_keys}(
+    NamedTuple{spec_fitted_keys}(
         Tuple(cached_params[Symbol(canon_to_rep[spec_name_map[String(k)]])]
-              for k in spec_keys))
+              for k in spec_fitted_keys))
 end
 ```
 
@@ -2034,12 +2093,14 @@ struct _CachedFitResult
     first_seen_eq_hash::String
 end
 
-"""Stage 1 result: uniform NamedTuple-replacement struct so the
-`pmap` return is concretely-typed `Vector{_Stage1Result}` rather
-than `Vector{Any}`. On failure, every field has a sentinel value
+"""Stage 1 result: uniform per-spec record so the `pmap` return is
+concretely-typed `Vector{_Stage1Result{<:AbstractMechanismSpec}}`
+rather than `Vector{Any}`. The `S` parameter pins the spec field
+to a concrete subtype per element; field access on `c.spec` is
+type-stable. On failure, every non-spec field has a sentinel value
 and `ok=false`; callers must check `ok` before using other fields."""
-struct _Stage1Result
-    spec::AbstractMechanismSpec
+struct _Stage1Result{S<:AbstractMechanismSpec}
+    spec::S
     eq_text::String
     h_full::UInt64
     h_short::String
@@ -2050,10 +2111,11 @@ struct _Stage1Result
 end
 
 """Empty-failure sentinel constructor — every non-`spec` field
-takes a zero/empty default."""
-_Stage1Failure(spec) = _Stage1Result(
-    spec, "", zero(UInt64), "", 0, "",
-    Dict{String,String}(), false)
+takes a zero/empty default. Returns `_Stage1Result{typeof(spec)}`."""
+_Stage1Failure(spec::S) where {S<:AbstractMechanismSpec} =
+    _Stage1Result{S}(
+        spec, "", zero(UInt64), "", 0, "",
+        Dict{String,String}(), false)
 ```
 
 - [ ] **Step 2: Refactor `_beam_search` to two-stage processing**
@@ -2173,8 +2235,14 @@ function _beam_search(
             haskey(fit_cache, c.h_full) || continue
             cached = fit_cache[c.h_full]
             is_inherited = !(c.h_full in new_hashes)
+            # Recompile the spec on master once to extract its
+            # fitted_params keys for projection. Cached cost is
+            # acceptable since spec set is small per level.
+            spec_m = compile_mechanism(c.spec)
+            spec_fitted_keys = fitted_params(spec_m)
             spec_params = _project_cached_params(
-                cached.params, cached.rep_name_map, c.name_map)
+                cached.params, cached.rep_name_map,
+                c.name_map, spec_fitted_keys)
             row = (
                 n_params = c.n_actual,
                 loss = cached.loss,

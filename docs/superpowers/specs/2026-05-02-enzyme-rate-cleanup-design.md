@@ -345,22 +345,33 @@ CLAUDE.md note about `param_count` being upper-bound is updated to
 reference the new name and to clarify that it estimates fit
 parameters only (matching the final `n_params` column convention).
 
-**Part B — bucket save files by *actual*
-`length(fitted_params(m))`.**
+**Part B — rename saved file path to signal "this is the
+estimate, not the actual count."**
 
-The estimate-vs-actual gap remains (Haldane reduction can still
-collapse declared groups), so file naming continues to be by actual
-count, not by the estimate. This naturally fixes #4:
+Earlier drafts proposed bucketing save files by the actual
+`length(fitted_params(m))` so each `params_<n>.csv` file would
+contain only rows with one `n_params` value. That introduced a
+class of CSV-append edge cases (different column sets, header
+rewriting, eq_hash duplication across levels). The simpler answer
+adopted here: keep one file per estimate-level (one save call
+per `pc`) but rename the file so the filename clearly says
+"this is an estimate":
 
-- After the per-spec compilation+fit, group results by
-  `r.row.n_params` (which comes from `fitted_params(m)`).
-- For each group, call `_save_level_csv` with that group's rows and
-  that param count.
+    params_<pc>.csv  →  params_estimate_<pc>.csv
 
-The result: filename `params_3.csv` contains rows where every
-`n_params == 3`, where `3` matches both the saved column AND the
-estimate semantics declared at enumeration time (modulo Haldane
-reduction collapsing it lower).
+The row's `n_params` column inside continues to be the actual
+post-Haldane count. Users wanting one file per actual
+`n_params` value post-process by reading and re-grouping (the
+`n_params` column makes this trivial).
+
+**Issue #4 deferral note:** the original Issue #4 stated "a single
+saved file contains rows with several different actual `n_params`
+values." That mixing remains under Part B's rename-only fix —
+Haldane reduction can collapse different estimate levels' specs
+to different actual counts within the same file. The filename's
+`_estimate_` suffix flags this as expected, not a bug. A future
+spec may revisit full bucketing-by-actual if the post-process
+ergonomics prove insufficient.
 
 The kcat-induced redundant fit direction (one degree of optimizer
 freedom is degenerate due to per-group centering) is **not**
