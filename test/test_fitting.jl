@@ -7,8 +7,8 @@ using Tables
         substrates: S
         products:   P
         steps: begin
-            [E, S] <--> [ES]
-            [ES] <--> [E, P]
+            E + S <--> ES
+            ES <--> E + P
         end
     end
 
@@ -256,10 +256,10 @@ using Tables
             substrates: A, B
             products:   P, Q
             steps: begin
-                [E, A] <--> [EA]
-                [EA, B] <--> [EABEPQ]
-                [EABEPQ] <--> [EQ, P]
-                [EQ] <--> [E, Q]
+                E + A <--> EA
+                EA + B <--> EABEPQ
+                EABEPQ <--> EQ + P
+                EQ <--> E + Q
             end
         end
 

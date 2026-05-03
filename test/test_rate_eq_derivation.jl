@@ -873,22 +873,22 @@ end
         products: P, Q
         regulators: R1
         steps: begin
-            [E, A] <--> [EA]
-            [EA] <--> [EAFP]
-            [EAFP] <--> [F, P]
-            [F, B] <--> [FB]
-            [FB] <--> [FBEQ]
-            [FBEQ] <--> [E, Q]
-            [E, R1] <--> [E_R1]
-            [EA, R1] <--> [EA_R1]
-            [EAFP, R1] <--> [EAFP_R1]
-            [F, R1] <--> [F_R1]
-            [FB, R1] <--> [FB_R1]
-            [E_R1, A] <--> [EA_R1]
-            [EA_R1] <--> [EAFP_R1]
-            [EAFP_R1] <--> [F_R1, P]
-            [F_R1, B] <--> [FB_R1]
-            [FB_R1] <--> [E_R1, Q]
+            E + A <--> EA
+            EA <--> EAFP
+            EAFP <--> F + P
+            F + B <--> FB
+            FB <--> FBEQ
+            FBEQ <--> E + Q
+            E + R1 <--> E_R1
+            EA + R1 <--> EA_R1
+            EAFP + R1 <--> EAFP_R1
+            F + R1 <--> F_R1
+            FB + R1 <--> FB_R1
+            E_R1 + A <--> EA_R1
+            EA_R1 <--> EAFP_R1
+            EAFP_R1 <--> F_R1 + P
+            F_R1 + B <--> FB_R1
+            FB_R1 <--> E_R1 + Q
         end
     end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
@@ -948,9 +948,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]   :: OnlyR
-                [ES] <--> [EP]  :: EqualRT
-                [EP] ⇌ [E, P]   :: EqualRT
+                E + S ⇌ ES   :: OnlyR
+                ES <--> EP  :: EqualRT
+                EP ⇌ E + P   :: EqualRT
             end
         end
     end
@@ -970,9 +970,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]   :: EqualRT
-                [ES] <--> [EP]  :: OnlyR
-                [EP] ⇌ [E, P]   :: EqualRT
+                E + S ⇌ ES   :: EqualRT
+                ES <--> EP  :: OnlyR
+                EP ⇌ E + P   :: EqualRT
             end
         end
     end
@@ -993,9 +993,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]    :: OnlyT
-                [ES] <--> [EP]   :: EqualRT
-                [EP] ⇌ [E, P]    :: EqualRT
+                E + S ⇌ ES    :: OnlyT
+                ES <--> EP   :: EqualRT
+                EP ⇌ E + P    :: EqualRT
             end
         end
     end))
@@ -1006,9 +1006,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]    :: EqualRT
-                [ES] <--> [EP]   :: EqualRT
-                [EP] ⇌ [E, P]    :: OnlyT
+                E + S ⇌ ES    :: EqualRT
+                ES <--> EP   :: EqualRT
+                EP ⇌ E + P    :: OnlyT
             end
         end
     end))
@@ -1019,9 +1019,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]    :: EqualRT
-                [ES] <--> [EP]   :: OnlyT
-                [EP] ⇌ [E, P]    :: EqualRT
+                E + S ⇌ ES    :: EqualRT
+                ES <--> EP   :: OnlyT
+                EP ⇌ E + P    :: EqualRT
             end
         end
     end))
@@ -1034,9 +1034,9 @@ end
         allosteric_regulators: I::EqualRT
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]  :: EqualRT
-                [ES] <--> [EP] :: EqualRT
-                [EP] ⇌ [E, P]  :: EqualRT
+                E + S ⇌ ES  :: EqualRT
+                ES <--> EP :: EqualRT
+                EP ⇌ E + P  :: EqualRT
             end
         end
     end))
@@ -1070,9 +1070,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            [E, S] ⇌ [ES]
-            [ES] <--> [EP]
-            [EP] ⇌ [E, P]
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     m_mix = EnzymeRates.AllostericEnzymeMechanism(
@@ -1101,9 +1101,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
-            [E, P] ⇌ [E_P]
+            E + S ⇌ E_S
+            E_S <--> E_P
+            E + P ⇌ E_P
         end
     end
     m_mixed = EnzymeRates.AllostericEnzymeMechanism(
@@ -1127,9 +1127,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            [E, S] ⇌ [ES]
-            [ES] <--> [EP]
-            [EP] ⇌ [E, P]
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(

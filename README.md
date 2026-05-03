@@ -42,9 +42,9 @@ m = @allosteric_mechanism begin
 
     site(:catalytic, 2): begin
         steps: begin
-            [E, S] ⇌ [ES]      :: EqualRT
-            [ES] <--> [EP]     :: OnlyR
-            [EP] ⇌ [E, P]      :: EqualRT
+            E + S ⇌ ES      :: EqualRT
+            ES <--> EP     :: OnlyR
+            EP ⇌ E + P      :: EqualRT
         end
     end
 end

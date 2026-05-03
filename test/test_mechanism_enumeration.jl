@@ -180,9 +180,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec_rt = mechanism_spec_from_mechanism(
@@ -480,7 +480,7 @@ end
             by_metabolite = Dict{Symbol, Vector{EnzymeRates.StepSpec}}()
             for step in spec.steps
                 step.is_equilibrium || continue
-                # Binding step has form [F, met] ⇌ [F_bound]
+                # Binding step has form F + met ⇌ F_bound
                 length(step.reactants) == 2 || continue
                 met = step.reactants[2]
                 push!(get!(by_metabolite, met,
@@ -511,9 +511,9 @@ end
                 substrates: S
                 products: P
                 steps: begin
-                    [E, P] ⇌ [E_P]
-                    [E, S] ⇌ [E_S]
-                    [E_S] <--> [E_P]
+                    E + P ⇌ E_P
+                    E + S ⇌ E_S
+                    E_S <--> E_P
                 end
             end
             spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -536,15 +536,15 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    [E, A] ⇌ [E_A]
-                    [E_B, A] ⇌ [E_A_B]
-                    [E, B] ⇌ [E_B]
-                    [E_A, B] ⇌ [E_A_B]
-                    [E, P] ⇌ [E_P]
-                    [E_P, Q] ⇌ [E_P_Q]
-                    [E, Q] ⇌ [E_Q]
-                    [E_Q, P] ⇌ [E_P_Q]
-                    [E_A_B] <--> [E_P_Q]
+                    E + A ⇌ E_A
+                    E_B + A ⇌ E_A_B
+                    E + B ⇌ E_B
+                    E_A + B ⇌ E_A_B
+                    E + P ⇌ E_P
+                    E_P + Q ⇌ E_P_Q
+                    E + Q ⇌ E_Q
+                    E_Q + P ⇌ E_P_Q
+                    E_A_B <--> E_P_Q
                 end
             end
             spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
@@ -566,10 +566,10 @@ end
                 substrates: S
                 products: P, Q
                 steps: begin
-                    [E, Q] ⇌ [E_Q]
-                    [E_Q, P] ⇌ [E_P_Q]
-                    [E, S] ⇌ [E_S]
-                    [E_S] <--> [E_P_Q]
+                    E + Q ⇌ E_Q
+                    E_Q + P ⇌ E_P_Q
+                    E + S ⇌ E_S
+                    E_S <--> E_P_Q
                 end
             end
             spec = mechanism_spec_from_mechanism(m, uni_bi_rxn)
@@ -589,12 +589,12 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    [E, A] ⇌ [E_A]
-                    [Estar, B] ⇌ [Estar_B]
-                    [E, Q] ⇌ [E_Q]
-                    [Estar, P] ⇌ [Estar_A_P]
-                    [E_A] <--> [Estar_A_P]
-                    [Estar_B] ⇌ [E_Q]
+                    E + A ⇌ E_A
+                    Estar + B ⇌ Estar_B
+                    E + Q ⇌ E_Q
+                    Estar + P ⇌ Estar_A_P
+                    E_A <--> Estar_A_P
+                    Estar_B ⇌ E_Q
                 end
             end
             spec = mechanism_spec_from_mechanism(
@@ -673,15 +673,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         spec_bb = mechanism_spec_from_mechanism(
@@ -870,9 +870,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -889,9 +889,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] <--> [E_P]
-                [E, S] <--> [E_S]
-                [E_S] <--> [E_P]
+                E + P <--> E_P
+                E + S <--> E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -909,9 +909,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] <--> [E_P]
-                [E, S] <--> [E_S]
-                [E_S] <--> [E_P]
+                E + P <--> E_P
+                E + S <--> E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -989,9 +989,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -1061,9 +1061,9 @@ end
         substrates: S
         products: P
         steps: begin
-            [E, P] ⇌ [E_P]
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
         end
     end
     spec_uu = mechanism_spec_from_mechanism(
@@ -1078,15 +1078,15 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            [E, A] ⇌ [E_A]
-            [E_B, A] ⇌ [E_A_B]
-            [E, B] ⇌ [E_B]
-            [E_A, B] ⇌ [E_A_B]
-            [E, P] ⇌ [E_P]
-            [E_P, Q] ⇌ [E_P_Q]
-            [E, Q] ⇌ [E_Q]
-            [E_Q, P] ⇌ [E_P_Q]
-            [E_A_B] <--> [E_P_Q]
+            E + A ⇌ E_A
+            E_B + A ⇌ E_A_B
+            E + B ⇌ E_B
+            E_A + B ⇌ E_A_B
+            E + P ⇌ E_P
+            E_P + Q ⇌ E_P_Q
+            E + Q ⇌ E_Q
+            E_Q + P ⇌ E_P_Q
+            E_A_B <--> E_P_Q
         end
     end
     spec_bb = mechanism_spec_from_mechanism(
@@ -1116,9 +1116,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = _spec_with_rxn(
@@ -1141,9 +1141,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(
@@ -1159,9 +1159,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = _spec_with_rxn(
@@ -1179,9 +1179,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = _spec_with_rxn(
@@ -1197,15 +1197,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         bi_bi_with_reg = @enzyme_reaction begin
@@ -1234,15 +1234,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         bi_bi_with_reg = @enzyme_reaction begin
@@ -1273,9 +1273,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         rxn_ij = @enzyme_reaction begin
@@ -1309,15 +1309,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         rxn_i = @enzyme_reaction begin
@@ -1341,9 +1341,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         # Allosteric-only regulator → no dead-end
@@ -1388,12 +1388,12 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [Estar, B] ⇌ [Estar_B]
-                [E, Q] ⇌ [E_Q]
-                [Estar, P] ⇌ [Estar_A_P]
-                [E_A] <--> [Estar_A_P]
-                [Estar_B] ⇌ [E_Q]
+                E + A ⇌ E_A
+                Estar + B ⇌ Estar_B
+                E + Q ⇌ E_Q
+                Estar + P ⇌ Estar_A_P
+                E_A <--> Estar_A_P
+                Estar_B ⇌ E_Q
             end
         end
         rxn_pp_i = @enzyme_reaction begin
@@ -1417,11 +1417,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_A, B] ⇌ [E_A_B]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_A + B ⇌ E_A_B
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         rxn_seq = @enzyme_reaction begin
@@ -1453,15 +1453,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         bb_with_reg = @enzyme_reaction begin
@@ -1484,15 +1484,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         rxn_2i = @enzyme_reaction begin
@@ -1554,9 +1554,9 @@ end
         substrates: S
         products: P
         steps: begin
-            [E, P] ⇌ [E_P]
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
         end
     end
     rxn2 = @enzyme_reaction begin
@@ -2160,9 +2160,9 @@ end
         substrates: S
         products: P
         steps: begin
-            [E, P] ⇌ [E_P]
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
         end
     end
     spec = mechanism_spec_from_mechanism(m_uu, uni_uni_allo)
@@ -2189,15 +2189,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         bi_bi_allo_rxn = @enzyme_reaction begin

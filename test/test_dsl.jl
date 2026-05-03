@@ -1,4 +1,19 @@
 @testset "DSL" begin
+    @testset "@enzyme_mechanism: + step-side syntax" begin
+        # New form: + separator, no brackets.
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S <--> ES
+                ES <--> E + P
+            end
+        end
+        @test m isa EnzymeMechanism
+        @test EnzymeRates.n_steps(m) == 2
+        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
+    end
+
     @testset "@enzyme_mechanism (new grammar)" begin
         m = @enzyme_mechanism begin
             substrates: S
@@ -6,10 +21,10 @@
             regulators: I
 
             steps: begin
-                ([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])
-                [ES, I] ⇌ [ESI]
-                [ES]   <--> [EP]
-                [EP]   ⇌    [E, P]
+                (E + S ⇌ ES, EP + S ⇌ EPS)
+                ES + I ⇌ ESI
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         @test EnzymeRates.substrates(m) == (:S,)
@@ -23,9 +38,9 @@
             substrates: S[C]
             products:   P
             steps: begin
-                [E, S] ⇌ [ES]
-                [ES] <--> [EP]
-                [EP] ⇌ [E, P]
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end))
 
@@ -35,9 +50,9 @@
             products:   P
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, S] ⇌ [ES]
-                    [ES] <--> [EP]
-                    [EP] ⇌ [E, P]
+                    E + S ⇌ ES
+                    ES <--> EP
+                    EP ⇌ E + P
                 end
             end
         end))
@@ -51,9 +66,9 @@
 
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, F6P] ⇌ [E_F6P]    :: EqualRT
-                    [E_F6P] <--> [E_F16BP] :: EqualRT
-                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                    E + F6P ⇌ E_F6P    :: EqualRT
+                    E_F6P <--> E_F16BP :: EqualRT
+                    E_F16BP ⇌ E + F16BP :: EqualRT
                 end
             end
         end
@@ -66,9 +81,9 @@
             products:   F16BP
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, F6P] ⇌ [E_F6P] :: EqualRT
-                    [E_F6P] <--> [E_F16BP]
-                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                    E + F6P ⇌ E_F6P :: EqualRT
+                    E_F6P <--> E_F16BP
+                    E_F16BP ⇌ E + F16BP :: EqualRT
                 end
             end
         end))
@@ -79,9 +94,9 @@
             products:   F16BP
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, F6P] ⇌ [E_F6P] :: EqualRT
-                    [E_F6P] <--> [E_F16BP] :: OnlyT
-                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                    E + F6P ⇌ E_F6P :: EqualRT
+                    E_F6P <--> E_F16BP :: OnlyT
+                    E_F16BP ⇌ E + F16BP :: EqualRT
                 end
             end
         end))
@@ -93,9 +108,9 @@
             allosteric_regulators: I, J::OnlyT
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, F6P] ⇌ [E_F6P] :: EqualRT
-                    [E_F6P] <--> [E_F16BP] :: EqualRT
-                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                    E + F6P ⇌ E_F6P :: EqualRT
+                    E_F6P <--> E_F16BP :: EqualRT
+                    E_F16BP ⇌ E + F16BP :: EqualRT
                 end
             end
         end))
@@ -106,9 +121,9 @@
             products:   P
             site(:catalytic, 2): begin
                 steps: begin
-                    ([E, S] ⇌ [ES], [E_A, S] ⇌ [ES_A])
-                    [ES_A] <--> [EP]   :: EqualRT
-                    [EP] ⇌ [E, P]      :: EqualRT
+                    (E + S ⇌ ES, E_A + S ⇌ ES_A)
+                    ES_A <--> EP   :: EqualRT
+                    EP ⇌ E + P      :: EqualRT
                 end
             end
         end))
@@ -197,8 +212,8 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] <--> [ES]
-                [ES] <--> [E, P]
+                E + S <--> ES
+                ES <--> E + P
             end
         end
         @test m isa EnzymeMechanism
@@ -218,12 +233,12 @@
             substrates: A, B
             products:   P, Q
             steps: begin
-                [E, A] <--> [EA]
-                [EA] <--> [FP]
-                [FP] <--> [F, P]
-                [F, B] <--> [FB]
-                [FB] <--> [EQ]
-                [EQ] <--> [E, Q]
+                E + A <--> EA
+                EA <--> FP
+                FP <--> F + P
+                F + B <--> FB
+                FB <--> EQ
+                EQ <--> E + Q
             end
         end
         @test EnzymeRates.n_states(m2) == 6
@@ -234,7 +249,7 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S, P] <--> [ESP]
+                E + S + P <--> ESP
             end
         end
 
@@ -251,9 +266,9 @@
             products:   P
             regulators: I
             steps: begin
-                [E, S] <--> [ES]
-                [ES] <--> [E, P]
-                [E, I] <--> [EI]
+                E + S <--> ES
+                ES <--> E + P
+                E + I <--> EI
             end
         end
         @test m isa EnzymeMechanism
@@ -265,8 +280,8 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] <--> [ES]
-                [ES] <--> [E, P]
+                E + S <--> ES
+                ES <--> E + P
             end
         end
         @test m isa EnzymeMechanism
@@ -279,12 +294,12 @@
             substrates: A, B
             products:   P, Q
             steps: begin
-                ([E, A] ⇌ [EA], [EB, A] ⇌ [EAB])
-                [E, B] ⇌ [EB]
-                [EA, B] ⇌ [EAB]
-                [EAB] <--> [EPQ]
-                [EPQ] ⇌ [EQ, P]
-                [EQ] ⇌ [E, Q]
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                E + B ⇌ EB
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EPQ ⇌ EQ + P
+                EQ ⇌ E + Q
             end
         end
         @test m isa EnzymeMechanism

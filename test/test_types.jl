@@ -97,9 +97,9 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] ⇌ [ES]
-                [ES] <--> [EP]
-                [EP] ⇌ [E, P]
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         # Dense format: (multiplicity, cat_allo_states) and (ligands, mult, reg_allo_states)
@@ -119,9 +119,9 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] ⇌ [ES]
-                [ES] <--> [EP]
-                [EP] ⇌ [E, P]
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
 
@@ -144,9 +144,9 @@
 
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, S] ⇌ [ES]    :: EqualRT
-                    [ES] <--> [EP]    :: OnlyR
-                    [EP] ⇌ [E, P]    :: EqualRT
+                    E + S ⇌ ES    :: EqualRT
+                    ES <--> EP    :: OnlyR
+                    EP ⇌ E + P    :: EqualRT
                 end
             end
         end
@@ -272,8 +272,8 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] <--> [ES]
-                [ES] <--> [E, P]
+                E + S <--> ES
+                ES <--> E + P
             end
         end
         @test sprint(show, m) ==
@@ -284,13 +284,13 @@
             substrates: A, B
             products:   P, Q
             steps: begin
-                [E, A] <--> [EA]
-                [E, B] <--> [EB]
-                [EA, B] <--> [EAB]
-                [EB, A] <--> [EAB]
-                [EAB] <--> [EPQ]
-                [EPQ] <--> [EQ, P]
-                [EQ] <--> [E, Q]
+                E + A <--> EA
+                E + B <--> EB
+                EA + B <--> EAB
+                EB + A <--> EAB
+                EAB <--> EPQ
+                EPQ <--> EQ + P
+                EQ <--> E + Q
             end
         end
         s = sprint(show, m_b)
@@ -304,9 +304,9 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] ⇌ [ES]
-                [ES] <--> [EP]
-                [EP] ⇌ [E, P]
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         @test sprint(show, m_re) ==
@@ -318,9 +318,9 @@
             products:   P
             regulators: I
             steps: begin
-                [E, S] <--> [ES]
-                [ES] <--> [E, P]
-                [E, I] <--> [EI]
+                E + S <--> ES
+                ES <--> E + P
+                E + I <--> EI
             end
         end
         @test contains(sprint(show, m_reg), "| regulators: I")
@@ -341,9 +341,9 @@
             allosteric_regulators: I::OnlyT
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, F6P] ⇌ [E_F6P]   :: EqualRT
-                    [E_F6P] <--> [E_F16BP] :: EqualRT
-                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                    E + F6P ⇌ E_F6P   :: EqualRT
+                    E_F6P <--> E_F16BP :: EqualRT
+                    E_F16BP ⇌ E + F16BP :: EqualRT
                 end
             end
         end
@@ -465,9 +465,9 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] ⇌ [ES]
-                [ES] <--> [EP]
-                [EP] ⇌ [E, P]
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
@@ -513,9 +513,9 @@
             allosteric_regulators: I::NonequalRT, J::OnlyT
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, S] ⇌ [ES]    :: NonequalRT
-                    [ES] <--> [EP]   :: OnlyR
-                    [EP] ⇌ [E, P]   :: EqualRT
+                    E + S ⇌ ES    :: NonequalRT
+                    ES <--> EP   :: OnlyR
+                    EP ⇌ E + P   :: EqualRT
                 end
             end
         end
