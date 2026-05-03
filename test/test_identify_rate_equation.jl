@@ -38,7 +38,7 @@ using OptimizationPyCMA
             [1],              # multiplicities
             Dict(_g_s => :OnlyR, _g_p => :OnlyR),
             Dict(:R => :OnlyT),
-            8)                # param_count
+            8)                # n_fit_params_estimate
     test_mechanism =
         EnzymeRates.AllostericEnzymeMechanism(
             _allo_spec)

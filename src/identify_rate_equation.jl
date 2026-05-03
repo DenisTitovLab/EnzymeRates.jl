@@ -231,11 +231,11 @@ end
 Save results for one beam level to a CSV file.
 """
 function _save_level_csv(
-    save_dir::String, rows, param_count::Int
+    save_dir::String, rows, n_fit_params::Int
 )
     isdir(save_dir) || mkpath(save_dir)
     path = joinpath(
-        save_dir, "params_$(param_count).csv")
+        save_dir, "params_$(n_fit_params).csv")
     df = _rows_to_dataframe(rows)
     CSV.write(path, df; append=isfile(path))
 end
@@ -252,7 +252,7 @@ function _beam_search(
     }()
     for spec in init_mechanisms(prob.reaction)
         push!(
-            get!(cache, spec.param_count,
+            get!(cache, spec.n_fit_params_estimate,
                 AbstractMechanismSpec[]),
             spec)
     end

@@ -923,7 +923,7 @@ end
             st.kinetic_group)
             for st in s.steps]
         spec = EnzymeRates.MechanismSpec(
-            s.reaction, all_ss, s.param_count)
+            s.reaction, all_ss, s.n_fit_params_estimate)
         try
             m_enum = EnzymeMechanism(spec)
             parameters(m_enum)
