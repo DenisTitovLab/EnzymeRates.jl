@@ -590,4 +590,56 @@
              ((:E_P,), (:E, :P), true, 3))
         ) isa EnzymeRates.EnzymeMechanism
     end
+
+    @testset "AllostericEnzymeMechanism display format" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+        init = EnzymeRates.init_mechanisms(rxn)
+        base = first(init)
+        g_s = first(s.kinetic_group for s in base.steps
+                    if EnzymeRates.step_metabolite(s) === :S)
+        g_p = first(s.kinetic_group for s in base.steps
+                    if EnzymeRates.step_metabolite(s) === :P)
+        spec = EnzymeRates.AllostericMechanismSpec(
+            base, 2, [[:R]], [2],
+            Dict(g_s => :EqualRT, g_p => :EqualRT),
+            Dict(:R => :OnlyT),
+            base.n_fit_params_estimate + 1)
+        m = EnzymeRates.AllostericEnzymeMechanism(spec)
+        s = repr(m)
+
+        # Old summary line gone:
+        @test !occursin("cat_allo_states:", s)
+        # Inline ::Tag annotations on each step or step group:
+        @test occursin(":: EqualRT", s)
+        # Multi-line catalytic display (no chain shortcut):
+        n_steps_re = count(c -> c == '\n', s)
+        @test n_steps_re >= 3   # header + ≥3 step lines
+    end
+
+    @testset "AllostericEnzymeMechanism display: shared kinetic group" begin
+        cm = EnzymeMechanism(
+            ((:S,), (:P,), ()),
+            (((:E, :S),    (:E_S,),  true,  1),
+             ((:E_P, :S),  (:E_PS,), true,  1),
+             ((:E_S,),     (:E_P,),  false, 2),
+             ((:E_P,),     (:E, :P), true,  3)))
+        am = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:EqualRT, :EqualRT, :EqualRT)), ())
+        s = repr(am)
+
+        # The parenthesized-group branch must execute: look for the
+        # exact "(...) :: EqualRT" shape with a comma-separated body.
+        paren_group_match = match(
+            r"\([^()]*,[^()]*\) :: EqualRT", s)
+        @test paren_group_match !== nothing
+        # Format: lhs/rhs joined with " + " (no brackets).
+        @test occursin("E_S <--> E_P :: EqualRT", s)
+        @test occursin(":: EqualRT", s)
+        @test !occursin("cat_allo_states:", s)
+    end
 end

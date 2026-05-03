@@ -457,22 +457,65 @@ function Base.show(
     end
 end
 
+"""Render the catalytic mechanism's steps as multi-line text,
+grouping steps that share a kinetic_group with parens and a single
+`:: Tag` annotation. Mirrors `@allosteric_mechanism` macro syntax."""
+function _format_allo_step_groups(
+    io::IO, cm::EnzymeMechanism,
+    m::AllostericEnzymeMechanism,
+)
+    rxns = reactions(cm)
+    _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
+
+    groups_seen = Int[]
+    group_to_step_idxs = Dict{Int,Vector{Int}}()
+    for (i, step) in enumerate(rxns)
+        g = step[4]
+        if !haskey(group_to_step_idxs, g)
+            push!(groups_seen, g)
+            group_to_step_idxs[g] = Int[]
+        end
+        push!(group_to_step_idxs[g], i)
+    end
+
+    for g in groups_seen
+        idxs = group_to_step_idxs[g]
+        tag = cat_allo_state(m, g)
+        if length(idxs) == 1
+            (lhs, rhs, is_eq, _) = rxns[idxs[1]]
+            print(io, "\n  ", join(lhs, " + "),
+                  _arrow(is_eq), join(rhs, " + "),
+                  " :: ", tag)
+        else
+            print(io, "\n  (")
+            for (k, i) in enumerate(idxs)
+                k > 1 && print(io, ", ")
+                (lhs, rhs, is_eq, _) = rxns[i]
+                print(io, join(lhs, " + "),
+                      _arrow(is_eq), join(rhs, " + "))
+            end
+            print(io, ") :: ", tag)
+        end
+    end
+end
+
 function Base.show(io::IO, m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
-    print(io, "AllostericEnzymeMechanism (cat_n=", catalytic_multiplicity(m))
+    print(io, "AllostericEnzymeMechanism (cat_n=",
+          catalytic_multiplicity(m))
     rs = regulatory_sites(m)
     if !isempty(rs)
         print(io, ", ", length(rs), " reg sites")
     end
-    n_groups = length(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
-    print(io, "):\n  cat_allo_states: [")
-    print(io, join((string(cat_allo_state(m, g)) for g in 1:n_groups), ", "))
-    print(io, "]\n  catalytic: ", cm)
+    print(io, "):")
+    _format_allo_step_groups(io, cm, m)
     for (i, (ligands, mult, reg_allo_states)) in enumerate(rs)
         print(io, "\n  reg site $i (n=", mult, "): ",
               join(ligands, ", "))
         print(io, " [")
-        print(io, join(("$(n)::$(t)" for (n, t) in zip(ligands, reg_allo_states)), ", "))
+        print(io, join(("$(n)::$(t)"
+                        for (n, t) in zip(ligands, reg_allo_states)),
+                       ", "))
         print(io, "]")
     end
 end
