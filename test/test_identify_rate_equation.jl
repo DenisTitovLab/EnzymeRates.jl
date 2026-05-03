@@ -327,3 +327,64 @@ end
         min_beam_width=1)
     @test sort(sel) == [1, 3]
 end
+
+@testset "canonical rate-equation hash: basic" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+    end
+
+    init = EnzymeRates.init_mechanisms(rxn)
+    base = first(init)
+    m_a = EnzymeRates.EnzymeMechanism(base)
+
+    h_a = EnzymeRates._canonical_rate_eq_hash(m_a)
+    # Determinism: same mechanism produces same hash across calls.
+    @test EnzymeRates._canonical_rate_eq_hash(m_a) == h_a
+
+    h_full, h_short = EnzymeRates._canonical_rate_eq_hash_pair(m_a)
+    @test h_full == h_a
+    @test length(h_short) == 16
+    @test all(c -> c in "0123456789abcdef", h_short)
+
+    # Two distinct mechanisms (different form sets) hash differently.
+    init_specs = EnzymeRates.init_mechanisms(rxn)
+    if length(init_specs) >= 2
+        m_other = EnzymeRates.EnzymeMechanism(init_specs[2])
+        @test EnzymeRates._canonical_rate_eq_hash(m_other) !=
+              EnzymeRates._canonical_rate_eq_hash(m_a)
+    end
+end
+
+@testset "canonical hash collapses Pattern-A LDH duplicates" begin
+    m_a = EnzymeMechanism(
+        ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
+        (((:E, :Lactate), (:E_Lactate,), true, 1),
+         ((:E, :NAD), (:E_NAD,), true, 2),
+         ((:E, :NADH), (:E_NADH,), true, 3),
+         ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
+         ((:E_Lactate, :NAD), (:E_Lactate_NAD,), true, 2),
+         ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
+         ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
+         ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
+         ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
+         ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
+         ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+
+    m_b = EnzymeMechanism(
+        ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
+        (((:E, :Lactate), (:E_Lactate,), true, 1),
+         ((:E, :NAD), (:E_NAD,), true, 2),
+         ((:E, :NADH), (:E_NADH,), true, 3),
+         ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
+         ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
+         ((:E_NAD, :Lactate), (:E_Lactate_NAD,), true, 1),
+         ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
+         ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
+         ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
+         ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
+         ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+
+    @test EnzymeRates._canonical_rate_eq_hash(m_a) ==
+          EnzymeRates._canonical_rate_eq_hash(m_b)
+end

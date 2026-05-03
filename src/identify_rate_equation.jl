@@ -84,6 +84,134 @@ struct IdentifyRateEquationResults
 end
 
 """
+Build the canonical text + name_map. Internal helper exposed
+to `_canonical_rate_eq_hash_data` so callers can also retrieve
+the name_map (needed by Stage 1 to project cached params across
+specs in the same hash group).
+
+Strategy: walk `parameters(m, Full)` to discover every parameter
+symbol the mechanism could mention (including dependents that
+appear in the v-line and on constraint LHSes), scan the
+rate-equation body to find each parameter's first-appearance
+position, then rename them as `p_1, p_2, …` in first-appearance
+order. `:E_total` is in `Full` but is excluded from renaming;
+`:Keq` and metabolite names are not in `Full` and aren't renamed.
+The constraint lines are KEPT in the body — they encode
+parameterization, so two mechanisms with the same v-line but
+different choice of which parameter is dependent must hash
+differently.
+
+`parameters(m, Full)` is defined for both `EnzymeMechanism` and
+`AllostericEnzymeMechanism` (Phase G.0). Allosteric coverage
+includes T-state names, regulator-site names, and the allosteric
+coupling `L` automatically.
+"""
+function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
+    body = rate_equation_string(m)
+
+    # Strip ONLY the destructure header lines.
+    body = join(
+        filter(
+            ln -> !occursin(
+                r"^\s*\(; .* = (params|concs)$", ln),
+            split(body, '\n')),
+        '\n')
+
+    skip = (:E_total,)
+    pnames = String[String(p) for p in parameters(m, Full)
+                    if p ∉ skip]
+
+    first_pos = Dict{String,Int}()
+    for name in pnames
+        rx = Regex("\\b" * name * "\\b")
+        m_pos = match(rx, body)
+        m_pos === nothing && continue
+        first_pos[name] = m_pos.offset
+    end
+    appearing = collect(keys(first_pos))
+
+    ordered = sort(appearing; by=name -> (first_pos[name], name))
+    name_map = Dict(name => "p_$i"
+                    for (i, name) in enumerate(ordered))
+
+    # Substitute longest first to prevent prefix collisions
+    # (e.g., rename `K1_T` before `K1`).
+    for name in sort(appearing; by=length, rev=true)
+        body = replace(body,
+            Regex("\\b" * name * "\\b") => name_map[name])
+    end
+
+    canonical = strip(replace(body, r"\s+" => " "))
+    (canonical, name_map)
+end
+
+function _canonicalize_rate_eq(m::AbstractEnzymeMechanism)
+    first(_canonicalize_rate_eq_with_map(m))
+end
+
+"""
+Return `(UInt64 hash, 16-char hex display string, name_map)`.
+The single source for canonical hashing — both `_hash` and
+`_hash_pair` delegate here so the canonicalizer runs once. Used
+by Stage 1 of `_beam_search` to keep the rename mapping for later
+per-spec param projection.
+
+Hash collision probability over 10⁴ mechanisms is ~10⁻¹² with
+Julia's built-in `hash(::String)::UInt64`.
+"""
+function _canonical_rate_eq_hash_data(m::AbstractEnzymeMechanism)
+    canonical, name_map = _canonicalize_rate_eq_with_map(m)
+    h = hash(canonical)
+    (h, string(h, base=16, pad=16), name_map)
+end
+
+"""
+Hash a mechanism's canonicalized rate equation. Returns the
+`UInt64` hash.
+"""
+function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
+    first(_canonical_rate_eq_hash_data(m))
+end
+
+"""Return `(UInt64 hash, 16-char hex display string)`."""
+function _canonical_rate_eq_hash_pair(m::AbstractEnzymeMechanism)
+    h, hex, _ = _canonical_rate_eq_hash_data(m)
+    (h, hex)
+end
+
+"""
+Project cached params (keyed by rep spec's `fitted_params`
+symbols) onto a target spec's own `fitted_params` keys, preserving
+canonical-position values. Two specs in the same hash group have
+isomorphic rate equations modulo parameter renaming; this function
+applies the canonical position bijection
+(rep_fitted_key → canonical_token → spec_fitted_key) to relabel
+values without changing them.
+
+`rep_name_map` and `spec_name_map` are
+`orig_string => canonical_token` Dicts produced by the
+canonicalizer over `parameters(m, Full)`. They include BOTH
+independent and dependent parameter names. We restrict the
+projection to FITTED (independent) keys only — `cached_params` is
+keyed by `fitted_params(rep_m)`, which doesn't contain dep names.
+Iterating `keys(spec_name_map)` directly would cause `KeyError`
+for any dep name (e.g., `:k10r`, `:K1_T` for `:EqualRT` mirrors).
+
+The return is a NamedTuple keyed by `fitted_params(spec_m)`.
+"""
+function _project_cached_params(
+    cached_params::NamedTuple,
+    rep_name_map::Dict{String,String},
+    spec_name_map::Dict{String,String},
+    spec_fitted_keys::Tuple{Vararg{Symbol}},
+)
+    canon_to_rep = Dict(v => k for (k, v) in rep_name_map)
+    NamedTuple{spec_fitted_keys}(
+        Tuple(cached_params[Symbol(canon_to_rep[spec_name_map[String(k)]])]
+              for k in spec_fitted_keys))
+end
+
+"""
     identify_rate_equation(prob; kwargs...)
 
 Find the best rate equation for the given reaction
