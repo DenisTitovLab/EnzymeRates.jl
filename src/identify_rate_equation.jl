@@ -92,16 +92,10 @@ and data using beam search.
 # Keyword Arguments
 - `min_beam_width::Int = 50`: minimum mechanisms
   to keep per level
-- `loss_rel_threshold::Float64 = 2.0`: relative tolerance.
-- `loss_abs_threshold::Float64 = 0.01`: absolute tolerance.
-
-A mechanism qualifies for the next-level beam if EITHER:
-  • its loss ≤ loss_rel_threshold * best_loss + loss_abs_threshold,
-  • OR its rank by loss (ascending) ≤ min_beam_width.
-
-The additive term protects against best_loss approaching zero
-(simulated / very-low-loss data) where a purely multiplicative
-threshold would collapse the beam to the single best mechanism.
+- `loss_rel_threshold::Float64 = 2.0`: relative tolerance
+  for beam selection (see "Beam selection" below)
+- `loss_abs_threshold::Float64 = 0.01`: absolute tolerance
+  for beam selection
 - `max_param_count::Int = 20`: stop expanding beyond
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `PyCMAOpt()` from OptimizationPyCMAES.
@@ -120,6 +114,16 @@ threshold would collapse the beam to the single best mechanism.
   function (Distributed.pmap by default)
 - Extra kwargs are forwarded to `fit_rate_equation`
   and then to `Optimization.solve`.
+
+# Beam selection
+
+A mechanism qualifies for the next-level beam if either:
+- its loss ≤ `loss_rel_threshold * best_loss + loss_abs_threshold`,
+- OR its rank by loss (ascending) ≤ `min_beam_width`.
+
+The additive term protects against `best_loss` approaching zero
+(simulated / very-low-loss data) where a purely multiplicative
+threshold would collapse the beam to the single best mechanism.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
