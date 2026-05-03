@@ -2163,6 +2163,41 @@ end
                  contains(string(p), "r_T"), params)
         @test isempty(t_k_params)
     end
+
+    @testset "t_state_dead with :NonequalRT: K_T in body must be in parameters(Full)" begin
+        # K-type allosteric uni-uni: catalytic step is :OnlyR (so
+        # `_t_state_dead == true`), but binding steps are :NonequalRT.
+        # Bug B.4/A.1: `_all_t_state_names` returns empty when
+        # `_t_state_dead == true`, so K1_T/K2_T leak unrenamed into
+        # the canonical hash string → cache miss for structurally-
+        # equivalent specs whose rep-step indices differ.
+        m = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E_c + S ⇌ E_S    :: NonequalRT
+                    E_c + P ⇌ E_P    :: NonequalRT
+                    E_S <--> E_P     :: OnlyR
+                end
+            end
+        end
+        @test EnzymeRates._t_state_dead(m)
+        params_full = parameters(m, Full)
+        # K1_T and K2_T are referenced in `den_T` of the body
+        # (the binding partition function for :NonequalRT groups
+        # is built regardless of `t_state_dead` since `den_T`
+        # always appears in the denominator).
+        @test :K1_T in params_full
+        @test :K2_T in params_full
+
+        # Canonicalizer invariant: every parameter token in the
+        # body must be renamed away. After canonicalization, no
+        # raw `_T` suffixed names should survive.
+        canon, _ = EnzymeRates._canonicalize_rate_eq_with_map(m)
+        @test !occursin(r"\bK\d+_T\b", canon)
+        @test !occursin(r"\bk\d+[fr]_T\b", canon)
+    end
 end
 
 @testset "Metabolite overlap: substrate as dead-end inhibitor" begin

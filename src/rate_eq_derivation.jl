@@ -1249,14 +1249,26 @@ declaration order so output is deterministic.
 function _all_t_state_names(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
     names = Symbol[]
-    if !_t_state_dead(m)
-        for g in kinetic_groups(cm)
-            cat_allo_state(m, g) == :OnlyR && continue
-            rep = first(steps_in_group(cm, g))
-            for s in _group_param_symbols(cm, rep)
-                push!(names, _rename_params_T(s))
-            end
+    t_dead = _t_state_dead(m)
+    # Catalytic group T-state symbols. When `t_dead`, only
+    # `:NonequalRT` groups contribute to the body (their K_T appears
+    # in `den_T`); `:EqualRT` groups use the R-state name in `den_T`,
+    # and their K_T constraint mirror is elided. When NOT dead, all
+    # non-`:OnlyR` groups contribute (via `num_T` and constraint
+    # mirrors).
+    for g in kinetic_groups(cm)
+        tag = cat_allo_state(m, g)
+        tag == :OnlyR && continue
+        t_dead && tag != :NonequalRT && continue
+        rep = first(steps_in_group(cm, g))
+        for s in _group_param_symbols(cm, rep)
+            push!(names, _rename_params_T(s))
         end
+    end
+    # Synthesized `:EqualRT`-references-`:NonequalRT` dep mirrors
+    # appear ONLY as constraint LHSes (in `t_assignments`), which
+    # are elided when `t_dead`. Skip in that case.
+    if !t_dead
         nonequalrt_set = Set{Symbol}()
         for g in kinetic_groups(cm)
             cat_allo_state(m, g) == :NonequalRT || continue
@@ -1276,13 +1288,18 @@ function _all_t_state_names(m::AllostericEnzymeMechanism)
                 push!(names, _rename_params_T(k))
             end
         end
-        for (i, entry) in enumerate(regulatory_sites(m))
-            ligands = entry[1]
-            tags = entry[3]
-            for (lig, tag) in zip(ligands, tags)
-                tag == :OnlyR && continue
-                push!(names, _reg_param_name(lig, i, true))
-            end
+    end
+    # Regulator T-state K names. Per `_reg_site_expr`, body uses
+    # K_T name when `tag in (:NonequalRT, :OnlyT)`. `:EqualRT`
+    # ligands use the R-state name in body (their K_T constraint
+    # mirror is elided when t_dead and irrelevant when alive).
+    for (i, entry) in enumerate(regulatory_sites(m))
+        ligands = entry[1]
+        tags = entry[3]
+        for (lig, tag) in zip(ligands, tags)
+            tag == :OnlyR && continue
+            t_dead && tag == :EqualRT && continue
+            push!(names, _reg_param_name(lig, i, true))
         end
     end
     names
