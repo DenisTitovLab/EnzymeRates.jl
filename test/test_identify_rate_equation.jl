@@ -187,7 +187,6 @@ using OptimizationPyCMA
     save_dir = mktempdir()
     results = identify_rate_equation(prob;
         min_beam_width=200,
-        beam_fraction=0.1,
         max_param_count=8,
         n_cv_candidates=3,
         save_dir=save_dir,
@@ -262,7 +261,6 @@ using OptimizationPyCMA
             ErrorException,
             identify_rate_equation(prob;
                 min_beam_width=200,
-                beam_fraction=0.1,
                 max_param_count=8,
                 n_cv_candidates=3,
                 save_dir=save_dir,
@@ -289,4 +287,43 @@ end
                       DataFrame)
         @test df.n_params == [3]
     end
+end
+
+@testset "beam selection: loss thresholds + min_beam_width floor" begin
+    losses = [1.0, 1.5, 2.5, 5.0, 10.0]
+    sel = EnzymeRates._select_beam(
+        losses;
+        loss_rel_threshold=2.0,
+        loss_abs_threshold=0.0,
+        min_beam_width=1)
+    @test sort(sel) == [1, 2]
+
+    sel = EnzymeRates._select_beam(
+        losses;
+        loss_rel_threshold=2.0,
+        loss_abs_threshold=0.0,
+        min_beam_width=4)
+    @test sort(sel) == [1, 2, 3, 4]
+
+    losses_small = [1e-6, 0.005, 0.05]
+    sel = EnzymeRates._select_beam(
+        losses_small;
+        loss_rel_threshold=2.0,
+        loss_abs_threshold=0.01,
+        min_beam_width=1)
+    @test sort(sel) == [1, 2]
+
+    sel = EnzymeRates._select_beam(
+        [Inf, Inf, Inf];
+        loss_rel_threshold=2.0,
+        loss_abs_threshold=0.01,
+        min_beam_width=5)
+    @test isempty(sel)
+
+    sel = EnzymeRates._select_beam(
+        [1.0, NaN, 2.0];
+        loss_rel_threshold=2.5,
+        loss_abs_threshold=0.0,
+        min_beam_width=1)
+    @test sort(sel) == [1, 3]
 end

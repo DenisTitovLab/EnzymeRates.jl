@@ -90,9 +90,18 @@ Find the best rate equation for the given reaction
 and data using beam search.
 
 # Keyword Arguments
-- `min_beam_width::Int = 200`: minimum mechanisms
+- `min_beam_width::Int = 50`: minimum mechanisms
   to keep per level
-- `beam_fraction::Float64 = 0.1`: fraction to keep
+- `loss_rel_threshold::Float64 = 2.0`: relative tolerance.
+- `loss_abs_threshold::Float64 = 0.01`: absolute tolerance.
+
+A mechanism qualifies for the next-level beam if EITHER:
+  • its loss ≤ loss_rel_threshold * best_loss + loss_abs_threshold,
+  • OR its rank by loss (ascending) ≤ min_beam_width.
+
+The additive term protects against best_loss approaching zero
+(simulated / very-low-loss data) where a purely multiplicative
+threshold would collapse the beam to the single best mechanism.
 - `max_param_count::Int = 20`: stop expanding beyond
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `PyCMAOpt()` from OptimizationPyCMAES.
@@ -115,8 +124,9 @@ and data using beam search.
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
     # Beam search
-    min_beam_width::Int = 200,
-    beam_fraction::Float64 = 0.1,
+    min_beam_width::Int = 50,
+    loss_rel_threshold::Float64 = 2.0,
+    loss_abs_threshold::Float64 = 0.01,
     max_param_count::Int = 20,
     # Fitting
     optimizer,
@@ -149,7 +159,8 @@ function identify_rate_equation(
     end
 
     specs, df = _beam_search(prob;
-        min_beam_width, beam_fraction,
+        min_beam_width, loss_rel_threshold,
+        loss_abs_threshold,
         max_param_count, save_dir,
         pmap_function, optimizer,
         fitting_kwargs...)
@@ -245,10 +256,42 @@ function _save_level_csv(
     CSV.write(path, df)
 end
 
+"""
+Return indices into `losses` for mechanisms that qualify for the
+beam at this level. A mechanism qualifies if either:
+  • its loss ≤ loss_rel_threshold * best_loss + loss_abs_threshold,
+  • OR its rank (1-indexed by ascending loss) ≤ min_beam_width.
+
+Mechanisms with non-finite losses (`Inf`, `NaN`) are excluded
+unconditionally — they represent failed or non-converging fits
+that should not propagate to the next level.
+"""
+function _select_beam(
+    losses::AbstractVector{<:Real};
+    loss_rel_threshold::Float64,
+    loss_abs_threshold::Float64,
+    min_beam_width::Int,
+)
+    finite_idx = [i for i in eachindex(losses) if isfinite(losses[i])]
+    isempty(finite_idx) && return Int[]
+
+    perm = sort(finite_idx; by=i -> losses[i])
+    best = losses[perm[1]]
+    cutoff = loss_rel_threshold * best + loss_abs_threshold
+    selected = Int[]
+    for (rank, idx) in enumerate(perm)
+        if losses[idx] <= cutoff || rank <= min_beam_width
+            push!(selected, idx)
+        end
+    end
+    selected
+end
+
 function _beam_search(
     prob::IdentifyRateEquationProblem;
-    min_beam_width, beam_fraction,
-    max_param_count, save_dir, pmap_function,
+    min_beam_width, loss_rel_threshold,
+    loss_abs_threshold, max_param_count,
+    save_dir, pmap_function,
     optimizer, kwargs...
 )
     # Initialize cache by param count
@@ -318,17 +361,12 @@ function _beam_search(
         end
 
         # Beam select within this level
-        perm = sortperm(
-            [r.row.loss for r in results])
-        beam_size = max(
-            ceil(Int,
-                beam_fraction *
-                length(results)),
-            min_beam_width)
-        beam_size = min(
-            beam_size, length(results))
-        beam_specs = [results[perm[i]].spec
-                      for i in 1:beam_size]
+        sel = _select_beam(
+            [r.row.loss for r in results];
+            loss_rel_threshold=loss_rel_threshold,
+            loss_abs_threshold=loss_abs_threshold,
+            min_beam_width=min_beam_width)
+        beam_specs = [results[i].spec for i in sel]
 
         # Expand beam to next levels
         new_cache = expand_mechanisms(
