@@ -111,6 +111,7 @@ struct _Stage1Result{S<:AbstractMechanismSpec}
     n_actual::Int
     mech_type_str::String
     name_map::Dict{String,String}
+    fitted_keys::Tuple{Vararg{Symbol}}
     ok::Bool
 end
 
@@ -118,7 +119,7 @@ end
 _Stage1Failure(spec::S) where {S<:AbstractMechanismSpec} =
     _Stage1Result{S}(
         spec, "", zero(UInt64), "", 0, "",
-        Dict{String,String}(), false)
+        Dict{String,String}(), (), false)
 
 """
 Build the canonical text + name_map. Internal helper exposed
@@ -488,11 +489,12 @@ function _beam_search(
                 eq_text = rate_equation_string(m)
                 h_full, h_short, name_map =
                     _canonical_rate_eq_hash_data(m)
-                n_actual = length(fitted_params(m))
+                fkeys = fitted_params(m)
+                n_actual = length(fkeys)
                 mech_type_str = string(typeof(m))
                 _Stage1Result(spec, eq_text, h_full, h_short,
                               n_actual, mech_type_str, name_map,
-                              true)
+                              fkeys, true)
             catch e
                 @debug("Mechanism compilation failed",
                        exception=(e, catch_backtrace()))
@@ -543,23 +545,24 @@ function _beam_search(
         end
 
         # ── Stage 3 (master): build ONE row per spec member ──
+        # Use Stage 1's captured `fitted_keys` (computed once on
+        # the worker that compiled) instead of recompiling on
+        # master — saves a serial compile per spec.
         level_rows = NamedTuple[]
         level_specs = AbstractMechanismSpec[]
         for c in compiled
             haskey(fit_cache, c.h_full) || continue
             cached = fit_cache[c.h_full]
             is_inherited = !(c.h_full in new_hashes)
-            spec_m = compile_mechanism(c.spec)
-            spec_fitted_keys = fitted_params(spec_m)
             spec_params = _project_cached_params(
                 cached.params, cached.rep_name_map,
-                c.name_map, spec_fitted_keys)
+                c.name_map, c.fitted_keys)
             row = (
                 n_params = c.n_actual,
                 loss = cached.loss,
                 mechanism_type = c.mech_type_str,
                 rate_equation = c.eq_text,
-                fitted_param_names = collect(keys(spec_params)),
+                fitted_param_names = c.fitted_keys,
                 fitted_param_values =
                     Tuple(values(spec_params)),
                 eq_hash = cached.first_seen_eq_hash,
