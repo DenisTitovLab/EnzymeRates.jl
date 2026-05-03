@@ -326,17 +326,34 @@ with a loss-threshold rule:
 - Compute `best_loss = minimum(loss_i)` over results that
   successfully fit.
 - Mechanisms qualify for the beam if
-  `loss ≤ loss_mult_threshold * best_loss + loss_add_threshold`.
+  `loss ≤ loss_rel_threshold * best_loss + loss_abs_threshold`.
 - Floor: always keep at least `min_beam_width` mechanisms (sorted by
   loss ascending; fill from the bottom of the sorted list).
 
 Drop the `beam_fraction` keyword. New keyword arguments on
 `identify_rate_equation`:
 
-- `loss_mult_threshold::Float64 = 2.0`
-- `loss_add_threshold::Float64 = 0.01`
+- `loss_rel_threshold::Float64 = 2.0`
+- `loss_abs_threshold::Float64 = 0.01`
 
 `min_beam_width::Int = 200` is kept (default unchanged).
+
+The naming follows the convention used by ODE solvers and
+optimization-error tolerances (`reltol`/`abstol`,
+`rel_tol`/`abs_tol`) so the meaning is recognizable without
+re-reading the docs.
+
+The `identify_rate_equation` docstring must explicitly include the
+selection formula:
+
+    A mechanism qualifies for the next-level beam if either:
+      • its loss ≤ loss_rel_threshold * best_loss + loss_abs_threshold,
+      • OR its rank by loss is ≤ min_beam_width (the floor).
+
+with a one-line note explaining why the additive term exists (so
+that simulated / very-low-loss data, where best_loss can approach 0,
+still admits structurally similar mechanisms within
+`loss_abs_threshold` rather than collapsing to the single best).
 
 ### Tests (TDD)
 
@@ -363,10 +380,10 @@ In `test_identify_rate_equation.jl`:
   matches the actual count, not the estimate. (Use a tempdir.)
 - Save two specs whose actual `n_params` differs but whose estimate
   is the same; assert they land in different files.
-- Beam selection with `loss_mult_threshold=2.0`,
-  `loss_add_threshold=0.0`: a result with `loss = 2.5*best` is
+- Beam selection with `loss_rel_threshold=2.0`,
+  `loss_abs_threshold=0.0`: a result with `loss = 2.5*best` is
   excluded; one with `loss = 1.9*best` is included.
-- Beam selection with `loss_add_threshold=0.01`: when `best_loss` is
+- Beam selection with `loss_abs_threshold=0.01`: when `best_loss` is
   near zero (e.g. `1e-6`), a result with `loss = 0.005` is included
   even though it's 5000× the best (additive term saves it).
 - `min_beam_width=5` floor: with only 3 results, all 3 are kept
@@ -520,8 +537,8 @@ time budget) and asserts:
   and update all expansion-move delta arithmetic to use the new
   field name (deltas themselves unchanged).
 - `src/identify_rate_equation.jl` — new beam selection rule, drop
-  `beam_fraction`, add `loss_mult_threshold` /
-  `loss_add_threshold`; bucket-by-actual-`n_params` save logic;
+  `beam_fraction`, add `loss_rel_threshold` /
+  `loss_abs_threshold`; bucket-by-actual-`n_params` save logic;
   post-compile hash dedup; LOOCV per unique hash.
 - `src/dsl.jl` — no behavior change (atom mandatoriness lives in the
   runtime constructor); update inline doctests/examples that became
