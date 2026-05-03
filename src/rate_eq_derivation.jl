@@ -9,8 +9,20 @@ const _AnyMechanism = AbstractEnzymeMechanism
 Return the parameter names required for the given mode as a tuple of Symbols.
 
 # Modes
-- `Reduced` (default): independent k's + Keq + E_total
-- `Full`: all 2N k's + E_total (EnzymeMechanism only)
+- `Reduced` (default): independent k's + Keq + E_total. The set of
+  symbols the user supplies to evaluate the Haldane-reduced rate
+  equation. Returned for both `EnzymeMechanism` and
+  `AllostericEnzymeMechanism`.
+- `Full`: all raw rate-constant symbols + E_total. For
+  `EnzymeMechanism` this is "all 2N k's + E_total." For
+  `AllostericEnzymeMechanism` it composes the catalytic raw
+  symbols + every `_T`-suffixed mirror the body emits as a
+  constraint LHS (via `_all_t_state_names`) + reg-site R-state
+  K's (skipping `:OnlyT` ligands) + `:L` + `:E_total`. The
+  allosteric Full mode is used as a name source by Phase G's
+  rate-equation canonicalizer; no `rate_equation` method is
+  defined for `(::AllostericEnzymeMechanism, ::FullMode)`, so
+  this mode is for canonicalization, not runtime evaluation.
 """
 function parameters end
 
@@ -1255,7 +1267,10 @@ function _all_t_state_names(m::AllostericEnzymeMechanism)
         end
         if !isempty(nonequalrt_set)
             dep_R_all, _ = _dependent_param_exprs(typeof(cm))
-            for (k, v) in dep_R_all
+            # Sort dep entries by key Symbol so order is stable
+            # across Julia versions / Dict implementations —
+            # canonicalization downstream depends on stable order.
+            for (k, v) in sort(collect(dep_R_all); by=first)
                 k in nonequalrt_set && continue
                 _expr_references_any(v, nonequalrt_set) || continue
                 push!(names, _rename_params_T(k))
@@ -1389,8 +1404,8 @@ function _dependent_param_exprs(
     return merged_dep, merged_indep
 end
 
-# parameters and fitted_params for AllostericEnzymeMechanism are handled
-# by the unified _AnyMechanism methods at the top of this file.
+# `parameters` and `fitted_params` for `AllostericEnzymeMechanism`
+# dispatch on explicit per-type methods at the top of this file.
 
 # ─── Rate body building helpers ───────────────────────────────────
 
