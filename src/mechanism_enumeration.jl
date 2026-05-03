@@ -1557,13 +1557,39 @@ function _expand_split_kinetic_group(spec::AbstractMechanismSpec)
                 old.is_equilibrium, new_g)
             delta = _split_group_delta(
                 spec, g, old.is_equilibrium)
-            push!(results, _with_steps(
-                spec, new_steps,
-                _n_fit_params_estimate(spec) + delta))
+            new_pc = _n_fit_params_estimate(spec) + delta
+            push!(results,
+                _split_with_steps(
+                    spec, new_steps, new_pc, g, new_g))
         end
         next_g += 1
     end
     results
+end
+
+# Like `_with_steps` but inherits the parent group's allosteric
+# tag onto the freshly-created split group. Splitting is a
+# parameter-relaxation move: the new group must share R/T-state
+# semantics with the parent it was carved out of.
+_split_with_steps(
+    spec::MechanismSpec, new_steps, new_pc, _g, _new_g,
+) = _with_steps(spec, new_steps, new_pc)
+
+function _split_with_steps(
+    spec::AllostericMechanismSpec, new_steps, new_pc,
+    g::Int, new_g::Int,
+)
+    new_tags = copy(spec.group_tags)
+    new_tags[new_g] = get(new_tags, g, :NonequalRT)
+    AllostericMechanismSpec(
+        MechanismSpec(spec.base.reaction, new_steps, new_pc),
+        spec.catalytic_n,
+        deepcopy(spec.allosteric_reg_sites),
+        copy(spec.allosteric_multiplicities),
+        new_tags,
+        copy(spec.reg_ligand_tags),
+        new_pc,
+    )
 end
 
 """

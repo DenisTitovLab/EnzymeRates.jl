@@ -91,6 +91,31 @@ const pyruvate_dehydrogenase_rxn = @enzyme_reaction begin
     products: AcCoA[C23H38N7O17P3S], NADH[C21H29N7O14P2], CO2[CO2]
 end
 
+"""Post-condition every spec must satisfy after expansion moves
+that should preserve explicit tagging. Catches the broad class of
+"expansion move forgot to update a parallel data structure" bugs.
+
+Currently asserts:
+- For AllostericMechanismSpec: every kinetic group used in steps
+  has an explicit entry in `group_tags` (no silent default to
+  `:NonequalRT`).
+
+Applies to all `_expand_*` moves EXCEPT `_expand_change_allo_state`,
+which intentionally `delete!`s entries to relax tags back to
+`:NonequalRT` via sparse-storage default.
+"""
+function _assert_spec_invariants(spec::MechanismSpec)
+    @test spec.n_fit_params_estimate >= 0
+end
+
+function _assert_spec_invariants(spec::AllostericMechanismSpec)
+    @test spec.n_fit_params_estimate >= 0
+    used_groups = Set(s.kinetic_group for s in spec.base.steps)
+    for g in used_groups
+        @test haskey(spec.group_tags, g)
+    end
+end
+
 @testset "n_fit_params_estimate semantics" begin
     # Simple uni-uni: 2 RE binding steps + 1 SS catalytic step.
     # 3 forms (E, E_S, E_P), 3 steps → n_thermo = 3 - 3 + 1 = 1.
@@ -119,14 +144,9 @@ end
     cap = 30
     init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
     for spec in init_specs[1:min(cap, end)]
-        try
-            m = EnzymeRates.EnzymeMechanism(spec)
-            @test spec.n_fit_params_estimate >=
-                length(EnzymeRates.fitted_params(m))
-        catch e
-            @debug("compile failed in upper-bound test (init)",
-                   exception=(e, catch_backtrace()))
-        end
+        m = EnzymeRates.compile_mechanism(spec)
+        @test spec.n_fit_params_estimate >=
+            length(EnzymeRates.fitted_params(m))
     end
     expanded = EnzymeRates.expand_mechanisms(
         init_specs, uni_uni_with_reg)
@@ -135,14 +155,9 @@ end
         append!(expanded_specs, specs)
     end
     for spec in expanded_specs[1:min(cap, end)]
-        try
-            m = EnzymeRates.EnzymeMechanism(spec)
-            @test spec.n_fit_params_estimate >=
-                length(EnzymeRates.fitted_params(m))
-        catch e
-            @debug("compile failed in upper-bound test (expanded)",
-                   exception=(e, catch_backtrace()))
-        end
+        m = EnzymeRates.compile_mechanism(spec)
+        @test spec.n_fit_params_estimate >=
+            length(EnzymeRates.fitted_params(m))
     end
 end
 
@@ -1665,6 +1680,7 @@ end
         # 2 binding × 2 tags + 1 iso × 2 tags = 6
         @test length(result) == 6
         for r in result
+            _assert_spec_invariants(r)
             @test r isa AllostericMechanismSpec
             @test r.catalytic_n == 2
         end
@@ -1719,6 +1735,9 @@ end
         # R not yet added: 3 tags × 1 site option
         # (new site only, no existing reg sites) = 3
         @test length(result) == 3
+        for r in result
+            _assert_spec_invariants(r)
+        end
     end
 
     @testset "Non-allosteric → yields nothing" begin
@@ -1792,6 +1811,11 @@ end
         result = EnzymeRates._expand_change_allo_state(
             allo, uni_uni_allo)
         @test length(result) == n_tagged
+        # Note: this move INTENTIONALLY uses `delete!` on
+        # group_tags/reg_ligand_tags so missing entries fall back
+        # to the `:NonequalRT` sparse-storage default. The
+        # `haskey`-based universal invariant in
+        # `_assert_spec_invariants` does not apply here.
     end
 
     @testset "Fully relaxed → yields nothing" begin
@@ -2237,6 +2261,7 @@ end
         result = EnzymeRates._expand_re_to_ss(allo)
         @test !isempty(result)
         for r in result
+            _assert_spec_invariants(r)
             @test r isa EnzymeRates.AllostericMechanismSpec
             @test r.catalytic_n == allo.catalytic_n
             @test r.allosteric_reg_sites ==
@@ -2281,15 +2306,36 @@ end
         bb_allo = first(
             EnzymeRates._expand_to_allosteric(
                 bb_spec_c, bi_bi_allo_rxn))
-        # Splitting one of the multi-step kinetic groups in the
-        # allosteric base must produce results.
+        # Splitting a multi-step kinetic group in the allosteric
+        # base must produce results AND the new group must inherit
+        # the parent group's allosteric tag (split is a parameter-
+        # relaxation move; it must not change R/T-state semantics).
         result = EnzymeRates._expand_split_kinetic_group(bb_allo)
         @test !isempty(result)
+        pre_groups = Set(s.kinetic_group for s in bb_allo.base.steps)
         for r in result
-            @test r isa
-                EnzymeRates.AllostericMechanismSpec
+            _assert_spec_invariants(r)
+            @test r isa EnzymeRates.AllostericMechanismSpec
             @test r.catalytic_n == bb_allo.catalytic_n
-            @test r.group_tags == bb_allo.group_tags
+            post_groups =
+                Set(s.kinetic_group for s in r.base.steps)
+            new_groups = setdiff(post_groups, pre_groups)
+            @test length(new_groups) == 1
+            new_g = first(new_groups)
+            # Identify the parent group: the only pre-group whose
+            # step count dropped.
+            pre_counts = Dict(g => count(
+                    s -> s.kinetic_group == g, bb_allo.base.steps)
+                for g in pre_groups)
+            post_counts = Dict(g => count(
+                    s -> s.kinetic_group == g, r.base.steps)
+                for g in pre_groups)
+            old_g = only(g for g in pre_groups
+                if post_counts[g] < pre_counts[g])
+            @test r.group_tags[new_g] == bb_allo.group_tags[old_g]
+            for g in pre_groups
+                @test r.group_tags[g] == bb_allo.group_tags[g]
+            end
         end
     end
 
@@ -2310,6 +2356,7 @@ end
                 allo_i, rxn)
         @test !isempty(result)
         for r in result
+            _assert_spec_invariants(r)
             @test r isa
                 EnzymeRates.AllostericMechanismSpec
             @test r.catalytic_n == allo_i.catalytic_n
