@@ -30,9 +30,10 @@
 
 | File | Phase | Change |
 |---|---|---|
-| `src/mechanism_enumeration.jl` | A, C | rename `param_count` → `n_fit_params_estimate`; drop `+2` from BOTH estimate formulas (lines 841 & 1434); lower `floor_pc` from `+3` to `+1`; derive regulators from steps in `EnzymeMechanism(spec)` and allosteric path |
+| `src/mechanism_enumeration.jl` | A, C | rename `param_count` → `n_fit_params_estimate`; drop `+2` from THREE estimate formulas (lines 841, 1247-1248, 1434) — line 1247-1248 replaced with a call to the shared `_n_fit_params_estimate_from_steps` helper; lower `floor_pc` from `+3` to `+1`; derive regulators from steps in `EnzymeMechanism(spec)` and allosteric path |
 | `src/types.jl` | B, C, D | add atom mandatoriness + balance check in `EnzymeReaction`; tighten regulator validation in `EnzymeMechanism(mets, rxns)`; refactor `Base.show(io, ::AllostericEnzymeMechanism)` to inline `:: Tag` per step / step-group |
-| `src/identify_rate_equation.jl` | E, F, G | rename saved CSV files to `params_estimate_<pc>.csv`; new beam threshold rule (`loss_rel_threshold`, `loss_abs_threshold`, lowered `min_beam_width=50`); token-driven canonical rate-equation hash; persistent cross-level fit cache; two-stage processing with worker-side recompile; new CSV columns (`eq_hash`, `fit_inherited_from_estimate`); LOOCV dedups by hash within each `n_params` bucket |
+| `src/rate_eq_derivation.jl` | G | drop the generic `parameters(::M, ::ReducedMode) where {M <: _AnyMechanism}` fallback; add four explicit methods — `(::EnzymeMechanism, ::FullMode)` already exists, plus explicit `(::EnzymeMechanism, ::ReducedMode)`, NEW `(::AllostericEnzymeMechanism, ::FullMode)`, and explicit `(::AllostericEnzymeMechanism, ::ReducedMode)` |
+| `src/identify_rate_equation.jl` | E, F, G | rename saved CSV files to `params_estimate_<pc>.csv`; new beam threshold rule (`loss_rel_threshold`, `loss_abs_threshold`, lowered `min_beam_width=50`); canonicalizer driven by `parameters(m, Full)`; persistent cross-level fit cache; two-stage processing with worker-side recompile; new CSV columns (`eq_hash`, `fit_inherited_from_estimate`); LOOCV dedups by hash within each `n_params` bucket |
 | `test/test_mechanism_enumeration.jl` | A, C | new estimate semantic tests; init does not carry unbound regulators |
 | `test/test_types.jl` | B, C, D | atom-balance + atom-mandatory failure tests; strict regulator constructor failure test; `repr` allosteric display tests including the multi-step parens-grouping branch |
 | `test/test_dsl.jl` | B | atom-validation tests at the macro/constructor seam (only if any `@enzyme_reaction` examples in this file remain bare-symbol after migration) |
@@ -59,20 +60,68 @@ In `test/test_mechanism_enumeration.jl`, after the existing constants block (aro
 
 ```julia
 @testset "n_fit_params_estimate semantics" begin
-    # Simple uni-uni: 2 RE binding steps + 1 SS catalytic step
-    # = 1 RE group (S binds, K1) + 1 RE group (P binds, K2)
-    # + 1 SS group (kf, kr) + 0 thermo constraints (single SS).
-    # Estimate = n_re_groups + 2*n_ss_groups - n_thermo
-    #          = 2 + 2*1 - 0 = 4   (was 6 with old +2 formula)
+    # Simple uni-uni: 2 RE binding steps + 1 SS catalytic step.
+    # 3 forms (E, E_S, E_P), 3 steps → n_thermo = 3 - 3 + 1 = 1.
+    # New formula: n_re_groups + 2*n_ss_groups - n_thermo
+    #            = 2 + 2 - 1 = 3
+    # (Old formula gave 5 because of the +2 for Keq+E_total.)
+    # length(fitted_params(m)) for uni-uni = 3 (K1, K2, k3f).
     init_specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
     @test !isempty(init_specs)
     spec = first(init_specs)
     # New field name (the rename):
     @test hasfield(typeof(spec), :n_fit_params_estimate)
-    # New value (formula without +2 for Keq+E_total):
+    # New value (no +2 for Keq+E_total):
     m = EnzymeRates.EnzymeMechanism(spec)
     n_actual = length(EnzymeRates.fitted_params(m))
     @test spec.n_fit_params_estimate == n_actual
+end
+
+@testset "n_fit_params_estimate upper-bound for dead-end mirrors" begin
+    # `uni_uni_with_reg` has a dead-end inhibitor :I that creates
+    # mirror cycles. The plan lowers `floor_pc` from `+3` to `+1`;
+    # this test guards the upper-bound invariant
+    #   spec.n_fit_params_estimate >= length(fitted_params(m))
+    # for every spec produced by init AND its expansions through
+    # several rounds.
+    cache = Dict{Int,Vector{EnzymeRates.AbstractMechanismSpec}}()
+    for spec in EnzymeRates.init_mechanisms(uni_uni_with_reg)
+        push!(get!(cache, spec.n_fit_params_estimate,
+                   EnzymeRates.AbstractMechanismSpec[]),
+              spec)
+    end
+    EnzymeRates.dedup!(cache)
+
+    for round in 1:2
+        new_specs = EnzymeRates.AbstractMechanismSpec[]
+        for (_, specs) in cache
+            for s in specs
+                push!(new_specs, s)
+            end
+        end
+        for spec in new_specs
+            try
+                m = EnzymeRates.EnzymeMechanism(spec)
+                @test spec.n_fit_params_estimate >=
+                    length(EnzymeRates.fitted_params(m))
+            catch e
+                # Compilation may fail for some expansion paths;
+                # only test specs that compile.
+                @debug("compile failed in upper-bound test",
+                       exception=(e, catch_backtrace()))
+            end
+        end
+        # Expand once for the second round.
+        expanded = EnzymeRates.expand_mechanisms(
+            new_specs, uni_uni_with_reg)
+        empty!(cache)
+        for (pc, specs) in expanded
+            append!(get!(cache, pc,
+                         EnzymeRates.AbstractMechanismSpec[]),
+                    specs)
+        end
+        EnzymeRates.dedup!(cache)
+    end
 end
 ```
 
@@ -87,7 +136,7 @@ Expected: failure inside the `n_fit_params_estimate semantics` testset — eithe
 ### Task A.2: Mechanical rename across src
 
 **Files:**
-- Modify: `src/mechanism_enumeration.jl` (~70 references)
+- Modify: `src/mechanism_enumeration.jl` (multiple references — let `grep` enumerate)
 
 - [ ] **Step 1: Rename the field on `MechanismSpec`**
 
@@ -149,12 +198,25 @@ Expected: empty output.
 grep -rn "\bparam_count\b" /home/denis.linux/.julia/dev/EnzymeRates/test/
 ```
 
-Replace each. Specific known sites:
-- `test/test_mechanism_enumeration.jl:17` and `:100` (the `enumerate_all` helper).
-- `test/test_identify_rate_equation.jl:41` (the `8) # param_count` line —
-  the value is a positional argument to `AllostericMechanismSpec`; the
-  inline comment `# param_count` must be updated to
-  `# n_fit_params_estimate`).
+Replace each. Specific known sites at the time of writing:
+- `test/test_mechanism_enumeration.jl:17` and `:100` (the
+  `enumerate_all` helper). **Also** at line 17, change
+  `length(parameters(m))` to
+  `length(EnzymeRates.fitted_params(m))` — the helper currently
+  computes `indep + 2` (Keq and E_total), but after Phase A the
+  field's semantic is "indep only" (no +2). Without this change,
+  every spec built via this helper carries a +2-too-high
+  estimate, breaking downstream invariants.
+- `test/test_identify_rate_equation.jl:41` (the `8) # param_count`
+  line — the value is a positional argument to
+  `AllostericMechanismSpec`; the inline comment `# param_count`
+  must be updated to `# n_fit_params_estimate`).
+- `test/test_rate_eq_derivation.jl:926`:
+  `MechanismSpec(s.reaction, all_ss, s.param_count)` — rename
+  `s.param_count` → `s.n_fit_params_estimate`.
+
+The grep is the source of truth — fix every occurrence it finds,
+not just this list.
 
 Confirm clean:
 
@@ -186,14 +248,14 @@ Expected:
 
 If a test fails for any reason other than A.1's value-check, fix the missed `.param_count` reference.
 
-### Task A.3: Drop `+2` from BOTH estimate formulas and lower `floor_pc`
+### Task A.3: Drop `+2` from THREE estimate formulas and lower `floor_pc`
 
-There are TWO `+ 2` occurrences in `src/mechanism_enumeration.jl`,
+There are THREE `+ 2` occurrences in `src/mechanism_enumeration.jl`,
 plus a `floor_pc` constant whose value depends on the convention.
-All three must change in lock-step.
+All four must change in lock-step.
 
 **Files:**
-- Modify: `src/mechanism_enumeration.jl` lines 841, 1374, 1434
+- Modify: `src/mechanism_enumeration.jl` lines 841, 1248, 1374, 1434
 
 - [ ] **Step 1: Change the per-step formula in `init_mechanisms`**
 
@@ -238,6 +300,37 @@ line 1411 — its return value is what actually gets stamped onto the
 spec at the end of `init_mechanisms`. Without changing it, the
 A.1 regression test still fails.
 
+- [ ] **Step 2b: Replace the duplicate inline formula at line 1247-1248**
+
+In `_expand_substrate_product_dead_ends` (around line 1244-1248):
+
+```julia
+n_forms = length(
+    all_form_names(new_steps))
+n_thermo = length(new_steps) - n_forms + 1
+pc = length(groups_re) +
+     2 * length(groups_ss) - n_thermo + 2
+
+push!(result, MechanismSpec(
+    spec.reaction, new_steps, pc))
+```
+
+Replace with a call to the helper from Step 2 — this both fixes
+the third `+ 2` and removes the duplicated inline math:
+
+```julia
+pc = _n_fit_params_estimate_from_steps(new_steps)
+
+push!(result, MechanismSpec(
+    spec.reaction, new_steps, pc))
+```
+
+The local `groups_re`, `groups_ss`, `n_forms`, `n_thermo`
+calculations above the replaced block become unnecessary if
+they were only used by this formula — verify and delete them
+if so. (If they're used for other purposes in the same function,
+leave the surrounding calculations alone.)
+
 - [ ] **Step 3: Lower `floor_pc` from `+3` to `+1`**
 
 At line 1374 in `init_mechanisms`:
@@ -264,18 +357,52 @@ fixture (n_s = n_p = 1 → floor_pc = 3 under new rule; the actual
 fitted_params count is also 3 = K1, K2, k3f). They should agree.
 Print both values from the test if the assertion fails to debug.
 
-### Task A.4: Update CLAUDE.md note
+### Task A.4: Update every CLAUDE.md `param_count` reference
 
 **Files:**
 - Modify: `.claude/CLAUDE.md`
 
-- [ ] **Step 1: Find and update the param_count note**
+- [ ] **Step 1: Enumerate all references**
 
 ```bash
 grep -n "param_count" /home/denis.linux/.julia/dev/EnzymeRates/.claude/CLAUDE.md
 ```
 
-Replace mentions of `param_count` with `n_fit_params_estimate`. Update the formula description: from "`length(groups_re) + 2 * length(groups_ss) - n_thermo + 2`" to "`length(groups_re) + 2 * length(groups_ss) - n_thermo`" with a clarifying parenthetical "(estimate of independent rate-constant count, excluding `Keq` and `E_total` which are not fitted)".
+- [ ] **Step 2: Update every match**
+
+There are five categories of references to fix:
+
+1. **Struct field documentation** (`MechanismSpec has 3 fields:
+   ... param_count::Int` and the AllostericMechanismSpec
+   counterpart): rename the field to `n_fit_params_estimate`.
+2. **Upper-bound estimate description** (`param_count is an
+   upper-bound estimate during enumeration; true count comes from
+   length(parameters(m)) after compilation. Counts kinetic GROUPS
+   ...`): rename to `n_fit_params_estimate`. Update the formula
+   from `length(groups_re) + 2 * length(groups_ss) - n_thermo + 2`
+   to `length(groups_re) + 2 * length(groups_ss) - n_thermo`.
+   Add a clarifying parenthetical: "(estimate of independent
+   rate-constant count, excluding `Keq` and `E_total` which are
+   not fitted)."
+3. **Future-fix mention** (`identify_rate_equation should order
+   candidates by param_count_estimate (ascending)`): rename to
+   `n_fit_params_estimate`.
+4. **Invariant statement** (`Param count verified as
+   length(parameters(m)) <= param_count`): rename param_count and
+   change `length(parameters(m))` to `length(fitted_params(m))`
+   so the invariant matches the new convention exactly. Final
+   text: `Estimate verified as
+   length(fitted_params(m)) <= n_fit_params_estimate`.
+5. **Any other `param_count` mention** the grep finds: rename
+   consistently.
+
+Confirm clean:
+
+```bash
+grep -n "param_count" /home/denis.linux/.julia/dev/EnzymeRates/.claude/CLAUDE.md
+```
+
+Expected: empty output.
 
 ### Task A.5: Commit Phase A
 
@@ -999,22 +1126,7 @@ EOF
 end
 ```
 
-- [ ] **Step 2: Add a test that the kwargs are wired into `identify_rate_equation`**
-
-```julia
-@testset "identify_rate_equation accepts loss thresholds" begin
-    # Just check the kwargs exist at the public-API level.
-    # Inspect the method signature.
-    methods_list = methods(identify_rate_equation)
-    @test !isempty(methods_list)
-    # Smoke-test: small problem with explicit thresholds doesn't
-    # error during kwarg binding.
-    # (Use the test_rxn / test_mechanism set up earlier in this
-    # file to avoid duplicating setup.)
-end
-```
-
-- [ ] **Step 3: Run; confirm failure**
+- [ ] **Step 2: Run; confirm failure**
 
 ```
 julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
@@ -1135,7 +1247,34 @@ threshold would collapse the beam to the single best mechanism.
 
 Drop the `beam_fraction` line.
 
-- [ ] **Step 5: Run tests**
+- [ ] **Step 5: Update existing test call sites that pass `beam_fraction`**
+
+Phase F removes the `beam_fraction` kwarg. Existing tests that
+pass it will fail with `MethodError`. Find them:
+
+```bash
+grep -rn "beam_fraction" /home/denis.linux/.julia/dev/EnzymeRates/test/
+```
+
+Known sites at the time of writing:
+- `test/test_identify_rate_equation.jl:188-197` — the main
+  `identify_rate_equation(prob; ...)` invocation. Drop the
+  `beam_fraction=0.1` line; optionally add explicit
+  `loss_rel_threshold=2.0` and `loss_abs_threshold=0.01` if you
+  want the test to assert specific threshold behavior.
+- `test/test_identify_rate_equation.jl:263-271` — the
+  `save_dir non-empty check` testset's second invocation. Same
+  fix: drop `beam_fraction=0.1`.
+
+Confirm clean:
+
+```bash
+grep -rn "beam_fraction" /home/denis.linux/.julia/dev/EnzymeRates/
+```
+
+Expected: empty output.
+
+- [ ] **Step 6: Run tests**
 
 ```
 julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
@@ -1169,18 +1308,25 @@ that persists across beam levels. Specs whose compiled rate
 equations share a hash with any previously-seen mechanism reuse the
 prior fit; only new hashes pay the optimizer cost.
 
-Key design decisions (refined from spec deviations during plan
-review):
+Key design decisions (refined across two review passes):
 
 - **Canonical hash uses Julia's built-in `hash(::String)::UInt64`,
   not SHA.** No new Project.toml dep; collision probability is
   negligible at our scale (~10⁻¹² over 10⁴ mechanisms).
-- **Canonicalization is token-driven via `parameters(m, Reduced)`,
-  not regex.** The param list is the source of truth; we walk
-  `parameters(m)` to discover every name (`K1`, `K1_T`, `kf_T`,
-  `K_R_reg1`, `L`, etc.) and rename each by first appearance in
-  the body. Avoids the regex-misses-allosteric-params class of
-  bugs.
+- **Canonicalization is token-driven via `parameters(m, Full)`,
+  not regex and not `Reduced`.** `Reduced` returns only
+  *independent* params, but the rate-equation body emitted by
+  `rate_equation_string(m, Reduced)` contains BOTH independent
+  AND dependent (Haldane-eliminated) params — the v-line uses
+  `_raw_param_symbols(m)` (full list), and the constraint lines
+  list dependents on the LHS. Walking `Reduced` would miss
+  every dependent name, defeating dedup. `Full` returns the
+  complete set.
+- **`parameters(m, Full)` is extended to `AllostericEnzymeMechanism`**
+  in this phase — see Task G.0. The current generic
+  `parameters(::M, ::ReducedMode) where {M <: _AnyMechanism}`
+  fallback is replaced with explicit per-type methods so the
+  API is symmetric across both mechanism types and both modes.
 - **One row per spec member, not per hash group.** All members of
   a hash group share the cached `(loss, params, eq_hash)` values;
   the `eq_hash` column lets users post-hoc dedup. No 1:1
@@ -1193,10 +1339,162 @@ review):
   guarantees `EnzymeMechanism{...}` singleton types never travel
   between workers.
 - **No unit tests of cache mechanics.** A single end-to-end test
-  using a real optimizer covers cache + integration. Removed the
-  earlier G.3 unit-test scaffolding, which was either tautological
-  or required `MockOptimizer` plumbing that doesn't satisfy
-  `Optimization.solve`'s dispatch interface.
+  using a real optimizer covers cache + integration. The Pattern-A
+  LDH duplicate hash-equality test (Task G.1 step 1, second
+  testset) provides deterministic regression coverage for the
+  canonicalizer; the end-to-end test (Task G.3) asserts the
+  cache fired at least once via the
+  `fit_inherited_from_estimate` column.
+
+### Task G.0: Mirror the `parameters` API across both mechanism types
+
+**Files:**
+- Modify: `src/rate_eq_derivation.jl` lines 17-32
+- Modify: `test/test_accessors.jl` (or `test/test_rate_eq_derivation.jl`)
+
+- [ ] **Step 1: Add failing tests for the new methods**
+
+Append to `test/test_accessors.jl` (or wherever `parameters`
+behavior is exercised):
+
+```julia
+@testset "parameters API symmetry" begin
+    # Monomeric: Full and Reduced both work (Full already exists,
+    # Reduced previously fell through generic _AnyMechanism).
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+    end
+    m_mono = first(EnzymeRates.init_mechanisms(rxn)) |>
+             EnzymeRates.EnzymeMechanism
+    full_mono = parameters(m_mono, Full)
+    reduced_mono = parameters(m_mono, Reduced)
+    @test :E_total in full_mono
+    @test :E_total in reduced_mono
+    @test :Keq in reduced_mono
+    @test :Keq ∉ full_mono           # Full has all k's + E_total only
+    @test length(full_mono) >= length(reduced_mono)
+
+    # Allosteric: NEW Full method must exist.
+    rxn_allo = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    init = EnzymeRates.init_mechanisms(rxn_allo)
+    base = first(init)
+    g_s = first(s.kinetic_group for s in base.steps
+                if EnzymeRates.step_metabolite(s) === :S)
+    g_p = first(s.kinetic_group for s in base.steps
+                if EnzymeRates.step_metabolite(s) === :P)
+    spec = EnzymeRates.AllostericMechanismSpec(
+        base, 2, [[:R]], [2],
+        Dict(g_s => :NonequalRT, g_p => :NonequalRT),
+        Dict(:R => :NonequalRT),
+        base.n_fit_params_estimate + 5)
+    m_allo = EnzymeRates.AllostericEnzymeMechanism(spec)
+    full_allo = parameters(m_allo, Full)
+    reduced_allo = parameters(m_allo, Reduced)
+    # Full must include T-state names, reg-site names, L, and E_total.
+    @test :L in full_allo
+    @test :E_total in full_allo
+    @test :Keq ∉ full_allo
+    @test any(occursin("_T", string(p)) for p in full_allo)
+    @test any(occursin("_reg", string(p)) for p in full_allo)
+    # Reduced for allosteric still works (was inherited via _AnyMechanism;
+    # now explicit).
+    @test :L in reduced_allo
+    @test :Keq in reduced_allo
+    @test :E_total in reduced_allo
+end
+```
+
+- [ ] **Step 2: Run; confirm failure**
+
+```
+julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
+```
+
+Expected: `parameters(allo_m, Full)` raises `MethodError` (no
+allosteric Full method).
+
+- [ ] **Step 3: Refactor the four `parameters` methods**
+
+In `src/rate_eq_derivation.jl` around lines 17-32, replace:
+
+```julia
+parameters(m::_AnyMechanism) = parameters(m, Reduced)
+
+@generated function parameters(::M, ::FullMode) where {M <: EnzymeMechanism}
+    Tuple((_raw_param_symbols(M())..., :E_total))
+end
+
+@generated function parameters(::M, ::ReducedMode) where {M <: _AnyMechanism}
+    _, indep = _dependent_param_exprs(M)
+    (indep..., :Keq, :E_total)
+end
+```
+
+with four explicit methods:
+
+```julia
+parameters(m::_AnyMechanism) = parameters(m, Reduced)
+
+# ── EnzymeMechanism ───────────────────────────────────────────
+@generated function parameters(::M, ::FullMode) where {M <: EnzymeMechanism}
+    Tuple((_raw_param_symbols(M())..., :E_total))
+end
+
+@generated function parameters(::M, ::ReducedMode) where {M <: EnzymeMechanism}
+    _, indep = _dependent_param_exprs(M)
+    (indep..., :Keq, :E_total)
+end
+
+# ── AllostericEnzymeMechanism ────────────────────────────────
+@generated function parameters(
+    ::M, ::FullMode,
+) where {M <: AllostericEnzymeMechanism}
+    m = M()
+    cm = catalytic_mechanism(m)
+    catalytic_params = collect(_raw_param_symbols(cm))
+
+    # T-state catalytic params: every value in _T_rename(m) that
+    # is not already in catalytic_params.
+    t_rename = _T_rename(m)
+    t_state_params = Symbol[v for v in values(t_rename)
+                            if v ∉ catalytic_params]
+
+    # Regulatory-site params: per site, per ligand, R and/or T
+    # depending on the ligand's allo state.
+    rs = regulatory_sites(m)
+    reg_params = Symbol[]
+    for (i, entry) in enumerate(rs)
+        ligands = entry[1]
+        tags = entry[3]
+        for (lig, tag) in zip(ligands, tags)
+            tag != :OnlyT &&
+                push!(reg_params, _reg_param_name(lig, i, false))
+            tag in (:NonequalRT, :OnlyT) &&
+                push!(reg_params, _reg_param_name(lig, i, true))
+        end
+    end
+
+    Tuple((catalytic_params..., t_state_params...,
+           reg_params..., :L, :E_total))
+end
+
+@generated function parameters(
+    ::M, ::ReducedMode,
+) where {M <: AllostericEnzymeMechanism}
+    _, indep = _dependent_param_exprs(M)
+    (indep..., :Keq, :E_total)
+end
+```
+
+- [ ] **Step 4: Run G.0 tests**
+
+Expected: pass.
 
 ### Task G.1: Implement and test the canonical rate-equation hash
 
@@ -1209,10 +1507,9 @@ review):
 Append to `test/test_identify_rate_equation.jl`:
 
 ```julia
-@testset "canonical rate-equation hash" begin
-    # Build two mechanisms whose rate equations are isomorphic up
-    # to parameter-name renumbering — same form set, same SS step,
-    # different step ordering so rep-step indices differ.
+@testset "canonical rate-equation hash: basic" begin
+    # Two mechanisms isomorphic up to step reordering; their
+    # canonical hashes must match.
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products:   P[C]
@@ -1241,6 +1538,44 @@ Append to `test/test_identify_rate_equation.jl`:
     @test length(h_short) == 16
     @test all(c -> c in "0123456789abcdef", h_short)
 end
+
+@testset "canonical hash collapses Pattern-A LDH duplicates" begin
+    # Two structurally distinct mechanisms from the LDH
+    # params_7.csv 9-member duplicate group (Pattern A) — same
+    # form set, same kinetic groups, different RE edge subsets.
+    # Both must canonicalize to the same hash; this is the core
+    # regression for the cross-level dedup that motivated Phase G.
+    m_a = EnzymeMechanism(
+        ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
+        (((:E, :Lactate), (:E_Lactate,), true, 1),
+         ((:E, :NAD), (:E_NAD,), true, 2),
+         ((:E, :NADH), (:E_NADH,), true, 3),
+         ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
+         ((:E_Lactate, :NAD), (:E_Lactate_NAD,), true, 2),
+         ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
+         ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
+         ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
+         ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
+         ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
+         ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+
+    m_b = EnzymeMechanism(
+        ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
+        (((:E, :Lactate), (:E_Lactate,), true, 1),
+         ((:E, :NAD), (:E_NAD,), true, 2),
+         ((:E, :NADH), (:E_NADH,), true, 3),
+         ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
+         ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
+         ((:E_NAD, :Lactate), (:E_Lactate_NAD,), true, 1),
+         ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
+         ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
+         ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
+         ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
+         ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+
+    @test EnzymeRates._canonical_rate_eq_hash(m_a) ==
+          EnzymeRates._canonical_rate_eq_hash(m_b)
+end
 ```
 
 - [ ] **Step 2: Run; confirm failure**
@@ -1251,7 +1586,7 @@ julia --project -e 'using Pkg; Pkg.activate("."); include("test/runtests.jl")'
 
 Expected: `MethodError` / `UndefVarError` for `_canonical_rate_eq_hash`.
 
-- [ ] **Step 3: Implement the canonicalizer (token-driven via `parameters(m)`)**
+- [ ] **Step 3: Implement the canonicalizer (driven by `parameters(m, Full)`)**
 
 Add to `src/identify_rate_equation.jl`:
 
@@ -1260,22 +1595,29 @@ Add to `src/identify_rate_equation.jl`:
 Build a canonical text representation of a mechanism's rate
 equation, suitable for hashing.
 
-Strategy: walk `parameters(m, Reduced)` to discover every
-parameter symbol, scan the rate-equation body to find each
-parameter's first-appearance position, then rename them as
-`p_1, p_2, …` in first-appearance order. `Keq`, `E_total`, and
-metabolite names are NOT renamed.
+Strategy: walk `parameters(m, Full)` to discover every parameter
+symbol the mechanism could mention (including dependents that
+appear in the v-line and on constraint LHSes), scan the
+rate-equation body to find each parameter's first-appearance
+position, then rename them as `p_1, p_2, …` in first-appearance
+order. `:E_total` is in `Full` but is excluded from renaming;
+`:Keq` and metabolite names are not in `Full` and aren't
+renamed. The constraint lines are KEPT in the body — they
+encode parameterization, so two mechanisms with the same v-line
+but different choice of which parameter is dependent must hash
+differently.
 
-This works for monomeric AND allosteric mechanisms because
-`parameters(m)` returns the full param list including T-state
-suffixes (`K1_T`, `kf_T`, `kr_T`), regulator-site names
-(`K_R_reg1`, `K_R_T_reg2`), and the allosteric coupling `L`.
-Future param shapes are auto-handled.
+`parameters(m, Full)` is defined for both `EnzymeMechanism` and
+`AllostericEnzymeMechanism` (see Task G.0). Allosteric coverage
+includes T-state names, regulator-site names, and the
+allosteric coupling `L` automatically.
 """
 function _canonicalize_rate_eq(m::AbstractEnzymeMechanism)
     body = rate_equation_string(m)
 
-    # Strip the destructure lines `(; ... ) = params`/`= concs`.
+    # Strip ONLY the destructure header lines
+    # `(; ... ) = params` / `(; ... ) = concs`.
+    # Keep constraint lines (`k10r = ...`) and the v-line.
     body = join(
         filter(
             ln -> !occursin(
@@ -1283,29 +1625,34 @@ function _canonicalize_rate_eq(m::AbstractEnzymeMechanism)
             split(body, '\n')),
         '\n')
 
-    # Discover all parameter names; exclude the never-renamed set.
-    skip = (:Keq, :E_total)
-    pnames = String[String(p) for p in parameters(m, Reduced)
+    # Discover all parameter names from `parameters(m, Full)`.
+    # Exclude the never-renamed set (`:E_total` is always there;
+    # `:Keq` and metabolite names are not in Full).
+    skip = (:E_total,)
+    pnames = String[String(p) for p in parameters(m, Full)
                     if p ∉ skip]
 
     # Find each name's first-appearance position via word-boundary
-    # regex.
+    # regex; names that don't appear at all are dropped from the
+    # rename map (so they don't claim a `p_N` slot and shift the
+    # numbering of names that DO appear).
     first_pos = Dict{String,Int}()
     for name in pnames
         rx = Regex("\\b" * name * "\\b")
         m_pos = match(rx, body)
-        first_pos[name] = m_pos === nothing ? typemax(Int) :
-            m_pos.offset
+        m_pos === nothing && continue
+        first_pos[name] = m_pos.offset
     end
+    appearing = collect(keys(first_pos))
 
     # Order by first appearance; tie-break by name for determinism.
-    ordered = sort(pnames; by=name -> (first_pos[name], name))
+    ordered = sort(appearing; by=name -> (first_pos[name], name))
     name_map = Dict(name => "p_$i"
                     for (i, name) in enumerate(ordered))
 
     # Apply substitutions; longest first to prevent prefix
     # collisions (e.g. rename `K1_T` before `K1`).
-    for name in sort(pnames; by=length, rev=true)
+    for name in sort(appearing; by=length, rev=true)
         body = replace(body,
             Regex("\\b" * name * "\\b") => name_map[name])
     end
@@ -1553,6 +1900,35 @@ function _rows_to_dataframe(rows)
 end
 ```
 
+- [ ] **Step 3b: Update existing `_rows_to_dataframe` test fixture to new schema**
+
+The existing testset at `test/test_identify_rate_equation.jl`
+(around lines 163-182) uses the old NamedTuple schema (no
+`eq_hash`, no `fit_inherited_from_estimate`). After Step 3 the
+DataFrame builder accesses these fields and the test will fail.
+
+Find:
+
+```bash
+grep -n "_rows_to_dataframe" /home/denis.linux/.julia/dev/EnzymeRates/test/test_identify_rate_equation.jl
+```
+
+Update each row NamedTuple in the test fixture to include the new
+keys, e.g.:
+
+```julia
+(n_params=3, loss=1.0,
+ mechanism_type="m1", rate_equation="eq1",
+ fitted_param_names=(:K1, :K2, :k3f),
+ fitted_param_values=(1.0, 2.0, 3.0),
+ eq_hash="0123456789abcdef",
+ fit_inherited_from_estimate=missing)
+```
+
+Add per-test assertions for the new columns where it makes sense
+(e.g., `@test "eq_hash" in names(df)` and
+`@test "fit_inherited_from_estimate" in names(df)`).
+
 - [ ] **Step 4: Dedup LOOCV by `eq_hash` within each `n_params` bucket**
 
 Replace the candidate-selection loop in `_cv_model_selection`
@@ -1656,9 +2032,22 @@ using the real optimizer already imported in this file
                     all_rows_by_level[src].eq_hash
             end
         end
-        # 4. result.best is a real mechanism.
+        # 4. The cache fired at least once: at least one row has
+        #    a non-missing fit_inherited_from_estimate (cross-level
+        #    Pattern-B reuse). With max_param_count=6 on bi-bi this
+        #    should reliably trigger; if it proves flaky, raise
+        #    max_param_count or expand the synthetic data.
+        any_inherited = false
+        for (_, df_lvl) in all_rows_by_level
+            if any(.!ismissing.(df_lvl.fit_inherited_from_estimate))
+                any_inherited = true
+                break
+            end
+        end
+        @test any_inherited
+        # 5. result.best is a real mechanism.
         @test result.best isa AbstractEnzymeMechanism
-        # 5. result.cv_results is non-empty.
+        # 6. result.cv_results is non-empty.
         @test nrow(result.cv_results) >= 1
     end
 end
@@ -1680,11 +2069,16 @@ git add src/identify_rate_equation.jl test/test_identify_rate_equation.jl
 git commit -m "$(cat <<'EOF'
 Add persistent rate-equation hash cache for fit dedup
 
-A canonical Julia hash of each mechanism's rate equation (built
-token-by-token from parameters(m, Reduced) so allosteric T-state
-and regulator params are covered) keys a Dict that survives across
-all beam levels. Specs whose hash hits the cache reuse the prior
-fit; new hashes are recompiled worker-side and fitted.
+Mirror parameters(m) across both EnzymeMechanism and
+AllostericEnzymeMechanism for both Full and Reduced modes (drop
+the generic _AnyMechanism fallback; add an explicit allosteric
+Full method covering T-state, regulator-site, and L params).
+
+A canonical Julia hash of each mechanism's rate equation (driven
+by parameters(m, Full) so dependents in the v-line and constraint
+LHSes are renamed too) keys a Dict that survives across all beam
+levels. Specs whose hash hits the cache reuse the prior fit; new
+hashes are recompiled worker-side and fitted.
 
 CSV gains eq_hash and fit_inherited_from_estimate columns. One row
 per spec member; users dedup post-hoc via the eq_hash column.
@@ -1734,6 +2128,6 @@ Confirm:
 ## Notes for the engineer
 
 - **Worker-side recompile in Phase G Stage 2:** the Stage 2 closure receives the spec, not a master-compiled mechanism. It calls `compile_mechanism(rep.spec)` again on the worker before constructing the `FittingProblem`. This is intentional: `EnzymeMechanism{...}` is a singleton type instantiated per worker, and `Distributed.pmap` has no worker affinity between separate pmap calls — shipping a mechanism object across worker boundaries fails with a deserialization error. Stage 1's compile is for hashing only; the result is discarded before Stage 2.
-- **Token-driven canonicalizer in Phase G:** `_canonicalize_rate_eq` walks `parameters(m, Reduced)` to discover every parameter symbol the mechanism uses. This catches monomeric (`K1`, `kf_3`), allosteric (`K1_T`, `kf_T`), regulator-site (`K_R_reg1`, `K_R_T_reg1`), and the allosteric coupling (`L`) automatically. Adding a future parameter shape requires no code change here as long as it appears in `parameters(m)`.
+- **Canonicalizer in Phase G is driven by `parameters(m, Full)`** — NOT `Reduced`. `Reduced` returns only independent params; the rate-equation body emitted by `rate_equation_string(m, Reduced)` contains BOTH independent and dependent (Haldane-eliminated) params (via `_raw_param_symbols` in the v-line and dep-symbol LHS in constraint lines). Walking `Reduced` would miss every dependent name and break dedup. Phase G.0 extends `parameters(m, Full)` to `AllostericEnzymeMechanism` so allosteric T-state, regulator-site, and `L` params are covered.
 - **No `SHA` dependency:** the canonical hash uses Julia's built-in `hash(::String)::UInt64`. Don't add `using SHA` — Aqua will flag it as a missing/stale dep.
 - **Backwards compatibility:** none required. This is internal-version cleanup, not a public-API deprecation. Removing `beam_fraction` raises `MethodError`; that is intended.
