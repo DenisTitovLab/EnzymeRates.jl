@@ -565,4 +565,29 @@
             ((:P, ((:C, 6),)), (:Q, ((:N, 1),)))
         ) isa EnzymeReaction
     end
+
+    @testset "EnzymeMechanism: strict regulator binding" begin
+        # Regulator :A listed but never bound in any step -> error
+        @test_throws ErrorException EnzymeRates.EnzymeMechanism(
+            ((:S,), (:P,), (:A,)),
+            (((:E, :S), (:E_S,), true, 1),
+             ((:E_S,), (:E_P,), false, 2),
+             ((:E_P,), (:E, :P), true, 3))
+        )
+        # All regulators bound -> ok
+        @test EnzymeRates.EnzymeMechanism(
+            ((:S,), (:P,), (:A,)),
+            (((:E, :S), (:E_S,), true, 1),
+             ((:E_S, :A), (:E_S_A,), true, 4),
+             ((:E_S,), (:E_P,), false, 2),
+             ((:E_P,), (:E, :P), true, 3))
+        ) isa EnzymeRates.EnzymeMechanism
+        # No regulators -> ok
+        @test EnzymeRates.EnzymeMechanism(
+            ((:S,), (:P,), ()),
+            (((:E, :S), (:E_S,), true, 1),
+             ((:E_S,), (:E_P,), false, 2),
+             ((:E_P,), (:E, :P), true, 3))
+        ) isa EnzymeRates.EnzymeMechanism
+    end
 end

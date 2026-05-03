@@ -1283,7 +1283,16 @@ function EnzymeMechanism(
         name for (name, role) in regulator_roles(rxn)
         if role === :allosteric)
     union!(auto_exclude, exclude_regs)
-    regs = Tuple(r for r in regulators(rxn) if r ∉ auto_exclude)
+    # Build the set of names actually appearing on any step (after
+    # stripping the __reg suffix used by enumeration internals).
+    appears_in_steps = Set{Symbol}()
+    for s in spec.steps
+        for sym in Iterators.flatten((s.reactants, s.products))
+            push!(appears_in_steps, _strip_reg_suffix(sym))
+        end
+    end
+    regs = Tuple(r for r in regulators(rxn)
+                 if r ∉ auto_exclude && r ∈ appears_in_steps)
     met_set = Set{Symbol}()
     for g in (subs, prods, regs); for n in g; push!(met_set, n); end; end
 

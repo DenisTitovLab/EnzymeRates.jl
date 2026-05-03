@@ -2343,4 +2343,27 @@ end
     end
 end
 
+@testset "init_mechanisms drops unbound regulators from spec→type" begin
+    init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+    @test !isempty(init_specs)
+    for spec in init_specs
+        m = EnzymeRates.EnzymeMechanism(spec)
+        @test :I ∉ EnzymeRates.regulators(m)
+    end
+
+    expanded = EnzymeRates.expand_mechanisms(init_specs, uni_uni_with_reg)
+    found_with_reg = false
+    for (_, specs) in expanded
+        for spec in specs
+            m = EnzymeRates.EnzymeMechanism(spec)
+            if :I in EnzymeRates.regulators(m)
+                found_with_reg = true
+                break
+            end
+        end
+        found_with_reg && break
+    end
+    @test found_with_reg
+end
+
 end # top-level testset
