@@ -535,4 +535,34 @@
             end
         end
     end
+
+    @testset "EnzymeReaction: atom mandatory" begin
+        @test_throws ErrorException EnzymeReaction(
+            ((:S, ()),),
+            ((:P, ((:C, 1),)),)
+        )
+        @test_throws ErrorException EnzymeReaction(
+            ((:S, ((:C, 1),)),),
+            ((:P, ()),)
+        )
+        @test EnzymeReaction(
+            ((:S, ((:C, 1),)),),
+            ((:P, ((:C, 1),)),)
+        ) isa EnzymeReaction
+    end
+
+    @testset "EnzymeReaction: atom balance" begin
+        @test_throws ErrorException EnzymeReaction(
+            ((:S, ((:C, 6),)),),
+            ((:P, ((:C, 5),)),)
+        )
+        @test_throws ErrorException EnzymeReaction(
+            ((:S, ((:C, 6), (:H, 12))),),
+            ((:P, ((:C, 6),)),)
+        )
+        @test EnzymeReaction(
+            ((:A, ((:C, 6),)), (:B, ((:N, 1),))),
+            ((:P, ((:C, 6),)), (:Q, ((:N, 1),)))
+        ) isa EnzymeReaction
+    end
 end

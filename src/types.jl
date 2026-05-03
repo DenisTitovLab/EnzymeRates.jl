@@ -14,6 +14,30 @@ Singleton type encoding an enzyme reaction specification in type parameters.
 """
 struct EnzymeReaction{Substrates, Products, Regulators, OligomericState} end
 
+"""Sum element counts across a tuple of `(name, atoms)` pairs.
+Returns a Dict{Symbol,Int}. Errors if any species's atoms tuple
+is empty (atoms are mandatory) or if any per-atom count is not a
+positive Int."""
+function _sum_atoms(species::Tuple, side::String)
+    totals = Dict{Symbol,Int}()
+    for (name, atoms) in species
+        isempty(atoms) && error(
+            "EnzymeReaction: $side metabolite $name has no declared " *
+            "atoms; atoms are mandatory (use `[C…]` bracket syntax in " *
+            "@enzyme_reaction or pass non-empty atom tuples to the " *
+            "constructor).")
+        for (elem, count) in atoms
+            count isa Integer && !(count isa Bool) && count > 0 ||
+                error(
+                "EnzymeReaction: $side metabolite $name has " *
+                "non-positive atom count for element $elem ($count); " *
+                "atom counts must be positive integers (not Bool).")
+            totals[elem] = get(totals, elem, 0) + count
+        end
+    end
+    totals
+end
+
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_state::Int=1)
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
@@ -23,6 +47,17 @@ function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_st
         error("Duplicate substrate names")
     length(prods_names) != length(Set(prods_names)) &&
         error("Duplicate product names")
+    sub_atoms = _sum_atoms(subs, "substrate")
+    prod_atoms = _sum_atoms(prods, "product")
+    all_elems = union(keys(sub_atoms), keys(prod_atoms))
+    for elem in all_elems
+        s_count = get(sub_atoms, elem, 0)
+        p_count = get(prod_atoms, elem, 0)
+        s_count == p_count || error(
+            "EnzymeReaction: atom imbalance — element $elem appears " *
+            "$s_count time(s) on substrate side and $p_count time(s) " *
+            "on product side. Declared atoms must balance.")
+    end
     # Normalize regulators to (name, role) pairs
     normalized_regs = if isempty(regs)
         regs

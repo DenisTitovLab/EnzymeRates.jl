@@ -90,10 +90,11 @@ end
         oligomeric_state: 4
     end
 
-Create an `EnzymeReaction` from a DSL block. Species atoms use chemical
-formula bracket syntax: `S[C6H12O6]`. Bare symbols (no brackets) are allowed
-when all metabolites omit atoms. Regulators are plain symbol names.
-`oligomeric_state` is an optional integer (defaults to 1).
+Create an `EnzymeReaction` from a DSL block. Every substrate and product
+must declare atoms using chemical formula bracket syntax: `S[C6H12O6]`.
+Element totals must balance between substrates and products. Regulators
+are plain symbol names (no atoms). `oligomeric_state` is an optional
+integer (defaults to 1).
 
 Multi-species lines use comma separation:
     substrates: S[C6H12O6], ATP[C10H16N5O13P3]
