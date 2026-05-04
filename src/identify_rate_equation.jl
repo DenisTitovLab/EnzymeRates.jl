@@ -749,6 +749,67 @@ function _find_best_n_params_1se(cv_df::DataFrame)
     minimum(candidates)
 end
 
+"""
+    _find_best_n_params_wilcoxon(cv_df, p_threshold) → Int
+
+Wilcoxon signed-rank rule on log-transformed per-fold LOOCV
+scores. For each `n_params` bucket strictly below the argmin
+representative bucket, runs a paired signed-rank test comparing
+that bucket's representative per-fold log-losses to the best
+bucket's representative log-losses. Returns the smallest
+`n_params` whose `pvalue > p_threshold` (NOT significantly
+worse). Returns `n_min` if no smaller bucket qualifies.
+
+`p_threshold = 0.4` is the parsimony-permissive default
+matching `DataDrivenEnzymeRateEqs.jl`. Lower thresholds (e.g.
+0.05) require stronger evidence to accept simpler models.
+
+Pairing semantics: the i-th element of each bucket's per-fold
+score vector corresponds to the same held-out group, so
+pairing `losses_smaller[i]` with `losses_at_min[i]` is
+meaningful. Per-bucket representatives (lowest cv_score row)
+ensure both vectors come from a single mechanism.
+
+Skips comparisons where fold-counts differ between the two
+representatives.
+"""
+function _find_best_n_params_wilcoxon(
+    cv_df::DataFrame, p_threshold::Float64,
+)
+    valid = filter(row -> !isempty(row.cv_fold_scores), cv_df)
+    isempty(valid) && error(
+        "no finite LOOCV scores in cv_df")
+    sorted = sort(valid, [:n_params, :cv_score])
+    reps = combine(groupby(sorted, :n_params), first)
+
+    log_means = Dict{Int, Float64}()
+    log_scores = Dict{Int, Vector{Float64}}()
+    for row in eachrow(reps)
+        ls = log.(row.cv_fold_scores)
+        log_means[row.n_params] = mean(ls)
+        log_scores[row.n_params] = ls
+    end
+    n_min = argmin(n -> log_means[n], keys(log_means))
+    losses_at_min = log_scores[n_min]
+    n_folds = length(losses_at_min)
+
+    smaller_ns = sort([n for n in keys(log_means) if n < n_min])
+    for n in smaller_ns
+        losses = log_scores[n]
+        length(losses) == n_folds || continue
+        try
+            p = pvalue(ExactSignedRankTest(
+                losses, losses_at_min))
+            p > p_threshold && return n
+        catch e
+            @debug("Wilcoxon test failed for n_params=$n",
+                   exception=(e, catch_backtrace()))
+            continue
+        end
+    end
+    n_min
+end
+
 function _cv_model_selection(
     specs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;

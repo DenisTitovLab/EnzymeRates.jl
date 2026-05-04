@@ -537,3 +537,61 @@ end
     @test EnzymeRates._find_best_n_params_1se(cv_df5) == 5
 end
 
+@testset "_find_best_n_params_wilcoxon" begin
+    # Case 1: bucket-3 has mixed-sign small log-loss diffs vs
+    # bucket-7 → high p-value → Wilcoxon picks 3.
+    # Both samples have 6 paired observations; diffs ≈
+    # [+0.005, -0.002, -0.005, +0.005, +0.002, -0.005] →
+    # verified p_value = 1.0 (well above 0.4).
+    cv_df = DataFrame(
+        n_params       = [3, 5, 7],
+        cv_score       = [0.124, 1.125, 0.125],
+        cv_fold_scores = [
+            exp.([0.105, 0.108, 0.115, 0.135, 0.142, 0.145]),
+            exp.([1.10, 1.11, 1.12, 1.13, 1.14, 1.15]),
+            exp.([0.10, 0.11, 0.12, 0.13, 0.14, 0.15]),
+        ],
+    )
+    @test EnzymeRates._find_best_n_params_wilcoxon(
+        cv_df, 0.4) == 3
+
+    # Case 2: bucket-3 is significantly worse (large uniform
+    # offset). Diffs are all +1.0 (six positive ranks) →
+    # p_value = 0.03125 < 0.4 → Wilcoxon falls through, returns
+    # n_min = 5.
+    cv_df2 = DataFrame(
+        n_params       = [3, 5],
+        cv_score       = [1.125, 0.125],
+        cv_fold_scores = [
+            exp.([1.10, 1.11, 1.12, 1.13, 1.14, 1.15]),
+            exp.([0.10, 0.11, 0.12, 0.13, 0.14, 0.15]),
+        ],
+    )
+    @test EnzymeRates._find_best_n_params_wilcoxon(
+        cv_df2, 0.4) == 5
+
+    # Case 3: single bucket → returns it.
+    cv_df3 = DataFrame(
+        n_params       = [4],
+        cv_score       = [0.15],
+        cv_fold_scores = [exp.([0.1, 0.2, 0.15])],
+    )
+    @test EnzymeRates._find_best_n_params_wilcoxon(
+        cv_df3, 0.4) == 4
+
+    # Case 4: multiple rows per bucket — representative used.
+    # Bucket-3 row-A is worse; row-B is the rep with diffs ≈
+    # mixed-sign small → p>0.4 → returns 3.
+    cv_df4 = DataFrame(
+        n_params       = [3, 3, 7],
+        cv_score       = [1.125, 0.124, 0.125],
+        cv_fold_scores = [
+            exp.([1.10, 1.11, 1.12, 1.13, 1.14, 1.15]),
+            exp.([0.105, 0.108, 0.115, 0.135, 0.142, 0.145]),
+            exp.([0.10, 0.11, 0.12, 0.13, 0.14, 0.15]),
+        ],
+    )
+    @test EnzymeRates._find_best_n_params_wilcoxon(
+        cv_df4, 0.4) == 3
+end
+
