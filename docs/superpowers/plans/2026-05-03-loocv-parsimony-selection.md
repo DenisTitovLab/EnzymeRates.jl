@@ -30,17 +30,26 @@ No new files. Each helper goes inside `identify_rate_equation.jl` next to `_cv_m
 
 ## Verification convention
 
-Each task's red/green steps run a single REPL invocation that includes the test file directly, capturing the relevant testset output:
+`OptimizationPyCMA` is in `Project.toml`'s `[extras]` (test-only deps). It's NOT loadable from a bare `julia --project -e 'using OptimizationPyCMA'`. The test file `test/test_identify_rate_equation.jl` loads it at line 8, so you must run tests via `Pkg.test()` which sets up the test environment with extras merged in.
+
+Use this command for every red/green verification:
 
 ```bash
-julia --project -e 'using Test, EnzymeRates, DataFrames, OptimizationPyCMA
-include("test/mechanism_definitions_for_test_enzyme_derivation.jl")
-include("test/test_identify_rate_equation.jl")' 2>&1 | tail -50
+julia --project -e 'using Pkg; Pkg.test()' 2>&1 | tail -50
 ```
 
-The `OptimizationPyCMA` import is required because `test/test_identify_rate_equation.jl:8` does `using OptimizationPyCMA`. If the package isn't in your global env, run `Pkg.add("OptimizationPyCMA")` once first. (`Pkg.test` would handle this automatically but takes ~2× longer due to recompilation.)
+It runs the FULL test suite (~2-3 min cold). Use the testset output at the tail to identify your specific test's pass/fail status. This is slower than focused testing but is the only reliable way to load `OptimizationPyCMA`.
 
-After every task's commit, also run `Pkg.test()` once to ensure nothing else regressed.
+If you need a faster iteration loop for tests that DON'T need PyCMA (the synthetic helper unit tests in Tasks 3, 4, 5, 7), you can use:
+
+```bash
+julia --project -e 'using Test, EnzymeRates, DataFrames, Statistics
+# Define a focused @testset inline here, or paste fixture code.
+# E.g., test the synthetic _find_best_n_params_1se cases directly.
+' 2>&1 | tail -30
+```
+
+This works for the helper-only tests because they don't depend on PyCMA. But the full integration tests (Tasks 1, 6) MUST go through `Pkg.test()`.
 
 ---
 

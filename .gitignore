@@ -2,6 +2,7 @@ Manifest.toml
 .DS_Store
 .CondaPkg/
 test/outcmaes/
+outcmaes/
 .claude/scheduled_tasks.lock
 
 # Workspace artifacts
