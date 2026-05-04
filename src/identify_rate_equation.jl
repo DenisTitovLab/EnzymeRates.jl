@@ -701,6 +701,54 @@ function _loocv(
     scores
 end
 
+"""
+    _find_best_n_params_1se(cv_df) → Int
+
+1-SE rule on log-transformed per-fold LOOCV scores. For each
+`n_params` bucket, picks a single representative row (lowest
+`cv_score` = lowest mean fold-loss) and uses ONLY that row's
+`cv_fold_scores`. This preserves the fold-pairing relied on by
+`_find_best_n_params_wilcoxon` and avoids deflating SE by
+mixing fits from independent mechanisms.
+
+Returns the smallest `n_params` whose representative mean
+log-loss is within one standard error of the bucket with the
+lowest representative mean log-loss. Standard error is
+`std(log_losses_at_min) / sqrt(n_folds)`.
+
+If `n_folds == 1` for the best bucket (SE undefined), returns
+`n_min` (no widening possible).
+
+Drops rows whose `cv_fold_scores` is empty (LOOCV-failure rows)
+before grouping. Errors if no valid bucket remains.
+"""
+function _find_best_n_params_1se(cv_df::DataFrame)
+    # Drop failed rows
+    valid = filter(row -> !isempty(row.cv_fold_scores), cv_df)
+    isempty(valid) && error(
+        "no finite LOOCV scores in cv_df")
+    # Per-bucket representative = row with lowest cv_score
+    sorted = sort(valid, [:n_params, :cv_score])
+    reps = combine(groupby(sorted, :n_params), first)
+    # Compute log-mean per representative
+    log_means = Dict{Int, Float64}()
+    log_scores = Dict{Int, Vector{Float64}}()
+    for row in eachrow(reps)
+        ls = log.(row.cv_fold_scores)
+        log_means[row.n_params] = mean(ls)
+        log_scores[row.n_params] = ls
+    end
+    n_min = argmin(n -> log_means[n], keys(log_means))
+    losses_at_min = log_scores[n_min]
+    n_folds = length(losses_at_min)
+    n_folds == 1 && return n_min
+    se = std(losses_at_min) / sqrt(n_folds)
+    threshold = log_means[n_min] + se
+    candidates = [n for n in keys(log_means)
+                  if n <= n_min && log_means[n] <= threshold]
+    minimum(candidates)
+end
+
 function _cv_model_selection(
     specs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;

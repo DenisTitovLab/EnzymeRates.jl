@@ -342,18 +342,17 @@ Append a new top-level testset (sibling of `@testset "identify_rate_equation"`) 
     @test EnzymeRates._find_best_n_params_1se(cv_df3) == 4
 
     # Case 4: multiple rows per bucket — representative is the
-    # row with lowest cv_score. Bucket-3 row-A has mean 0.135,
-    # row-B has mean 0.115 (the rep). Bucket-7 rep has mean
-    # 0.110. Rep-bucket-3 mean (0.115) is within 1 SE
-    # (≈0.00645) of rep-bucket-7 mean (0.110)? gap=0.005 ≤
-    # 0.00645 ✓ → returns 3.
+    # row with lowest cv_score. Bucket-3 row-A has log-mean
+    # 0.135, row-B has log-mean 0.115 (the rep). Bucket-7 rep
+    # has log-mean 0.110, std≈0.01826, SE≈0.00913 → threshold
+    # 0.11913. Rep-bucket-3 mean 0.115 ≤ 0.11913 ✓ → returns 3.
     cv_df4 = DataFrame(
         n_params       = [3, 3, 7],
         cv_score       = [0.135, 0.115, 0.110],
         cv_fold_scores = [
             exp.([0.13, 0.135, 0.14, 0.135]),  # row-A worse
             exp.([0.11, 0.12, 0.115, 0.115]),  # row-B rep
-            exp.([0.105, 0.115, 0.110, 0.110]),  # rep
+            exp.([0.09, 0.13, 0.10, 0.12]),    # rep, wider spread
         ],
     )
     @test EnzymeRates._find_best_n_params_1se(cv_df4) == 3

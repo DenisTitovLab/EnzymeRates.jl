@@ -476,3 +476,64 @@ end
           EnzymeRates._canonical_rate_eq_hash(m_b)
 end
 
+@testset "_find_best_n_params_1se" begin
+    # Case 1: 3 buckets, bucket-7 best, bucket-5 within 1 SE,
+    # bucket-3 way outside.
+    # bucket-7: mean=0.115, std≈0.01291, SE≈0.00645
+    # threshold ≈ 0.12145
+    # bucket-5 mean = 0.1165 (within); bucket-3 mean = 0.5375 (out)
+    cv_df = DataFrame(
+        n_params       = [3, 5, 7],
+        cv_score       = [0.5375, 0.1165, 0.115],
+        cv_fold_scores = [
+            exp.([0.50, 0.55, 0.52, 0.58]),
+            exp.([0.115, 0.117, 0.118, 0.116]),
+            exp.([0.10, 0.12, 0.11, 0.13]),
+        ],
+    )
+    @test EnzymeRates._find_best_n_params_1se(cv_df) == 5
+
+    # Case 2: simpler bucket within 1 SE of best — pick simpler.
+    cv_df2 = DataFrame(
+        n_params       = [3, 5],
+        cv_score       = [0.115, 0.115],
+        cv_fold_scores = [
+            exp.([0.10, 0.12, 0.11, 0.13]),
+            exp.([0.10, 0.12, 0.11, 0.13]),
+        ],
+    )
+    @test EnzymeRates._find_best_n_params_1se(cv_df2) == 3
+
+    # Case 3: single bucket → returns it.
+    cv_df3 = DataFrame(
+        n_params       = [4],
+        cv_score       = [0.15],
+        cv_fold_scores = [exp.([0.1, 0.2, 0.15])],
+    )
+    @test EnzymeRates._find_best_n_params_1se(cv_df3) == 4
+
+    # Case 4: multiple rows per bucket — representative is the
+    # row with lowest cv_score. Bucket-3 row-A has log-mean
+    # 0.135, row-B has log-mean 0.115 (the rep). Bucket-7 rep
+    # has log-mean 0.110, std≈0.01826, SE≈0.00913 → threshold
+    # 0.11913. Rep-bucket-3 mean 0.115 ≤ 0.11913 ✓ → returns 3.
+    cv_df4 = DataFrame(
+        n_params       = [3, 3, 7],
+        cv_score       = [0.135, 0.115, 0.110],
+        cv_fold_scores = [
+            exp.([0.13, 0.135, 0.14, 0.135]),  # row-A worse
+            exp.([0.11, 0.12, 0.115, 0.115]),  # row-B rep
+            exp.([0.09, 0.13, 0.10, 0.12]),    # rep, wider spread
+        ],
+    )
+    @test EnzymeRates._find_best_n_params_1se(cv_df4) == 3
+
+    # Case 5: single-fold bucket → SE undefined → returns n_min.
+    cv_df5 = DataFrame(
+        n_params       = [3, 5],
+        cv_score       = [0.5, 0.1],
+        cv_fold_scores = [exp.([0.5]), exp.([0.1])],
+    )
+    @test EnzymeRates._find_best_n_params_1se(cv_df5) == 5
+end
+
