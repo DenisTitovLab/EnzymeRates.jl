@@ -148,7 +148,10 @@ includes T-state names, regulator-site names, and the allosteric
 coupling `L` automatically.
 """
 function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
-    body = rate_equation_string(m)
+    raw_body = rate_equation_string(m)
+    raw_body === nothing && error(
+        "rate_equation_string returned nothing for $(typeof(m))")
+    body = String(raw_body)
 
     # Strip ONLY the destructure header lines.
     body = join(
