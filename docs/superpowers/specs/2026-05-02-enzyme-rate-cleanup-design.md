@@ -542,6 +542,22 @@ compile and fit separately:
      if first-fit at this level; the originating `n_params`
      otherwise — diagnostic for Pattern B / Haldane collapse).
 
+   **Implementation deviations** (locked in during plan execution
+   and confirmed by reviewers):
+   - **One row per spec, not per hash group.** Each spec member
+     gets its own row with `eq_hash` + `fit_inherited_from_estimate`
+     (the level identifier, not actual `n_params`); `n_equivalent`
+     is therefore omitted (the within-level group size is just
+     the count of rows sharing an `eq_hash`).
+   - **16-char hex `UInt64` hash, not 8-char SHA-256.** Native
+     `hash(::String)::UInt64` collision probability is ~10⁻¹² over
+     10⁴ mechanisms (acceptable for this use case) and avoids the
+     SHA-256 dependency.
+   - The column is named `fit_inherited_from_estimate` (the level
+     id) rather than `fit_inherited_from_n_params` (the actual
+     count) because the per-level CSV filename already encodes
+     the level estimate, making cross-level lookup trivial.
+
 5. **Pass all specs (every member of every hash group, both newly
    fit and inherited) to `expand_mechanisms`.** Structure matters
    for downstream RE→SS expansion regardless of fit-cache hits.

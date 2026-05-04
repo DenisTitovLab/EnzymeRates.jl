@@ -103,11 +103,12 @@ struct _CachedFitResult
 end
 
 """Stage 1 result: uniform per-spec record so the `pmap` return
-is concretely-typed. `S` parameter pins the spec field to a
-concrete subtype; field access on `c.spec` is type-stable. On
+is concretely-typed. The `spec` field is `AbstractMechanismSpec`
+(level vectors mix MechanismSpec and AllostericMechanismSpec, so
+we can't tighten the type without splitting the pipeline). On
 failure, every non-spec field has a sentinel value and `ok=false`."""
-struct _Stage1Result{S<:AbstractMechanismSpec}
-    spec::S
+struct _Stage1Result
+    spec::AbstractMechanismSpec
     eq_text::String
     h_full::UInt64
     h_short::String
@@ -118,9 +119,9 @@ struct _Stage1Result{S<:AbstractMechanismSpec}
     ok::Bool
 end
 
-"""Empty-failure sentinel. Returns `_Stage1Result{typeof(spec)}`."""
-_Stage1Failure(spec::S) where {S<:AbstractMechanismSpec} =
-    _Stage1Result{S}(
+"""Empty-failure sentinel."""
+_Stage1Failure(spec::AbstractMechanismSpec) =
+    _Stage1Result(
         spec, "", zero(UInt64), "", 0, "",
         Dict{String,String}(), (), false)
 
@@ -211,12 +212,6 @@ Hash a mechanism's canonicalized rate equation. Returns the
 """
 function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
     first(_canonical_rate_eq_hash_data(m))
-end
-
-"""Return `(UInt64 hash, 16-char hex display string)`."""
-function _canonical_rate_eq_hash_pair(m::AbstractEnzymeMechanism)
-    h, hex, _ = _canonical_rate_eq_hash_data(m)
-    (h, hex)
 end
 
 """
@@ -386,34 +381,6 @@ function identify_rate_equation(
 end
 
 """
-Build a result row NamedTuple from a fitted mechanism.
-"""
-function _build_result_row(mechanism, fit_result)
-    pnames = fitted_params(mechanism)
-    return (
-        n_params = length(pnames),
-        loss = fit_result.loss,
-        mechanism_type = _mechanism_type_string(
-            mechanism),
-        rate_equation = rate_equation_string(
-            mechanism),
-        fitted_param_names = pnames,
-        fitted_param_values = Tuple(
-            fit_result.params[p]
-            for p in pnames),
-    )
-end
-
-"""
-Convert a mechanism to an eval-able type string.
-"""
-function _mechanism_type_string(
-    m::AbstractEnzymeMechanism
-)
-    return string(typeof(m))
-end
-
-"""
 Convert result row NamedTuples to a DataFrame.
 Row order is preserved (no sorting) to maintain
 alignment with the specs vector.
@@ -495,7 +462,10 @@ function _select_beam(
             push!(selected, idx)
         end
     end
-    selected
+    # Return indices in original (input) order so callers don't
+    # rely on the by-loss sort order, which is a side-effect of
+    # the rank computation rather than part of the contract.
+    sort!(selected)
 end
 
 function _beam_search(
@@ -648,10 +618,13 @@ function _beam_search(
 end
 
 """
-Subset a columnar NamedTuple by a boolean mask.
+Subset a columnar NamedTuple by a boolean mask, returning views
+to avoid per-fold copying. Called G times per LOOCV; copying
+every column ×2 (train/test) ×G grew O(G·N·ncols).
 """
 function _subset_data(data::NamedTuple, mask)
-    return map(col -> col[mask], data)
+    idx = findall(mask)
+    return map(col -> view(col, idx), data)
 end
 
 """
@@ -729,43 +702,52 @@ function _loocv(
 end
 
 """
+Per-bucket setup shared by `_find_best_n_params_1se` and
+`_find_best_n_params_wilcoxon`. Drops LOOCV-failure rows,
+selects one representative row per `n_params` bucket (lowest
+`cv_score` = lowest log-mean fold-loss), and builds two
+parallel Dicts keyed by `n_params`:
+
+- `log_means[n]` = `mean(log.(rep.cv_fold_scores))`. Recomputed
+  from raw fold scores rather than read from `cv_score` so the
+  helpers stay self-consistent if cv_score ever drifts from
+  log-mean (e.g. test fixtures).
+- `log_scores[n]` = `log.(rep.cv_fold_scores)`, used by Wilcoxon's
+  paired signed-rank test and by 1-SE's standard error.
+
+Also returns `n_min`, the bucket with the lowest log-mean.
+Errors if no valid bucket remains. Per-bucket representatives
+preserve the fold-pairing the Wilcoxon test relies on.
+"""
+function _per_bucket_log_stats(cv_df::DataFrame)
+    valid = filter(
+        row -> !isempty(row.cv_fold_scores), cv_df)
+    isempty(valid) && error(
+        "no finite LOOCV scores in cv_df")
+    sorted = sort(valid, [:n_params, :cv_score])
+    reps = combine(groupby(sorted, :n_params), first)
+    log_scores = Dict(row.n_params => log.(row.cv_fold_scores)
+                      for row in eachrow(reps))
+    log_means = Dict(n => mean(ls)
+                     for (n, ls) in log_scores)
+    n_min = argmin(n -> log_means[n], keys(log_means))
+    (log_means, log_scores, n_min)
+end
+
+"""
     _find_best_n_params_1se(cv_df) → Int
 
-1-SE rule on log-transformed per-fold LOOCV scores. For each
-`n_params` bucket, picks a single representative row (lowest
-`cv_score` = lowest mean fold-loss) and uses ONLY that row's
-`cv_fold_scores`. This preserves the fold-pairing relied on by
-`_find_best_n_params_wilcoxon` and avoids deflating SE by
-mixing fits from independent mechanisms.
-
-Returns the smallest `n_params` whose representative mean
-log-loss is within one standard error of the bucket with the
-lowest representative mean log-loss. Standard error is
-`std(log_losses_at_min) / sqrt(n_folds)`.
+1-SE rule on log-transformed per-fold LOOCV scores. Returns the
+smallest `n_params` whose representative log-mean is within one
+standard error of the bucket with the lowest representative
+log-mean. Standard error is `std(log_losses_at_min) / sqrt(n_folds)`.
 
 If `n_folds == 1` for the best bucket (SE undefined), returns
 `n_min` (no widening possible).
-
-Drops rows whose `cv_fold_scores` is empty (LOOCV-failure rows)
-before grouping. Errors if no valid bucket remains.
 """
 function _find_best_n_params_1se(cv_df::DataFrame)
-    # Drop failed rows
-    valid = filter(row -> !isempty(row.cv_fold_scores), cv_df)
-    isempty(valid) && error(
-        "no finite LOOCV scores in cv_df")
-    # Per-bucket representative = row with lowest cv_score
-    sorted = sort(valid, [:n_params, :cv_score])
-    reps = combine(groupby(sorted, :n_params), first)
-    # Compute log-mean per representative
-    log_means = Dict{Int, Float64}()
-    log_scores = Dict{Int, Vector{Float64}}()
-    for row in eachrow(reps)
-        ls = log.(row.cv_fold_scores)
-        log_means[row.n_params] = mean(ls)
-        log_scores[row.n_params] = ls
-    end
-    n_min = argmin(n -> log_means[n], keys(log_means))
+    log_means, log_scores, n_min =
+        _per_bucket_log_stats(cv_df)
     losses_at_min = log_scores[n_min]
     n_folds = length(losses_at_min)
     n_folds == 1 && return n_min
@@ -780,47 +762,31 @@ end
     _find_best_n_params_wilcoxon(cv_df, p_threshold) → Int
 
 Wilcoxon signed-rank rule on log-transformed per-fold LOOCV
-scores. For each `n_params` bucket strictly below the argmin
-representative bucket, runs a paired signed-rank test comparing
-that bucket's representative per-fold log-losses to the best
-bucket's representative log-losses. Returns the smallest
+scores. For each `n_params` bucket strictly below `n_min`, runs
+a paired signed-rank test comparing that bucket's representative
+per-fold log-losses to the best bucket's. Returns the smallest
 `n_params` whose `pvalue > p_threshold` (NOT significantly
 worse). Returns `n_min` if no smaller bucket qualifies.
 
-`p_threshold = 0.4` is the parsimony-permissive default
-matching `DataDrivenEnzymeRateEqs.jl`. Lower thresholds (e.g.
-0.05) require stronger evidence to accept simpler models.
+`p_threshold = 0.4` is the parsimony-permissive default matching
+`DataDrivenEnzymeRateEqs.jl`. Lower thresholds (e.g. 0.05)
+require stronger evidence to accept simpler models.
 
 Pairing semantics: the i-th element of each bucket's per-fold
 score vector corresponds to the same held-out group, so
-pairing `losses_smaller[i]` with `losses_at_min[i]` is
-meaningful. Per-bucket representatives (lowest cv_score row)
-ensure both vectors come from a single mechanism.
-
-Skips comparisons where fold-counts differ between the two
-representatives.
+`pair(losses_smaller[i], losses_at_min[i])` is meaningful.
+Per-bucket representatives ensure both vectors come from a
+single mechanism. Skips comparisons where fold-counts differ.
 """
 function _find_best_n_params_wilcoxon(
     cv_df::DataFrame, p_threshold::Float64,
 )
-    valid = filter(row -> !isempty(row.cv_fold_scores), cv_df)
-    isempty(valid) && error(
-        "no finite LOOCV scores in cv_df")
-    sorted = sort(valid, [:n_params, :cv_score])
-    reps = combine(groupby(sorted, :n_params), first)
-
-    log_means = Dict{Int, Float64}()
-    log_scores = Dict{Int, Vector{Float64}}()
-    for row in eachrow(reps)
-        ls = log.(row.cv_fold_scores)
-        log_means[row.n_params] = mean(ls)
-        log_scores[row.n_params] = ls
-    end
-    n_min = argmin(n -> log_means[n], keys(log_means))
+    log_means, log_scores, n_min =
+        _per_bucket_log_stats(cv_df)
     losses_at_min = log_scores[n_min]
     n_folds = length(losses_at_min)
-
-    smaller_ns = sort([n for n in keys(log_means) if n < n_min])
+    smaller_ns = sort([n for n in keys(log_means)
+                       if n < n_min])
     for n in smaller_ns
         losses = log_scores[n]
         length(losses) == n_folds || continue
@@ -896,16 +862,18 @@ function _cv_model_selection(
         _loocv(m, prob; optimizer, kwargs...)
     end
 
-    # Build CV results DataFrame. `cv_score` holds the mean
-    # (used for sorting/display). `cv_fold_scores` holds the
-    # raw per-fold vector — INTERNAL only; dropped before
-    # returning to the user (see end of this function) so
+    # Build CV results DataFrame. `cv_score` holds the LOG-mean
+    # of fold losses (the metric the 1-SE and Wilcoxon rules
+    # operate on); using log-space everywhere avoids the
+    # arithmetic-vs-log mismatch in rep selection.
+    # `cv_fold_scores` holds the raw per-fold vector — INTERNAL
+    # only; dropped before returning to the user so
     # `IdentifyRateEquationResults.cv_results` stays
     # CSV-serialisable.
     cv_df = copy(candidate_rows)
     cv_df.cv_fold_scores =
         collect(fold_scores_per_candidate)
-    cv_df.cv_score = [isempty(v) ? Inf : mean(v)
+    cv_df.cv_score = [isempty(v) ? Inf : mean(log.(v))
                       for v in cv_df.cv_fold_scores]
     cv_df.spec_idx = candidate_indices
 
