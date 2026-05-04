@@ -873,22 +873,22 @@ end
         products: P, Q
         regulators: R1
         steps: begin
-            [E, A] <--> [EA]
-            [EA] <--> [EAFP]
-            [EAFP] <--> [F, P]
-            [F, B] <--> [FB]
-            [FB] <--> [FBEQ]
-            [FBEQ] <--> [E, Q]
-            [E, R1] <--> [E_R1]
-            [EA, R1] <--> [EA_R1]
-            [EAFP, R1] <--> [EAFP_R1]
-            [F, R1] <--> [F_R1]
-            [FB, R1] <--> [FB_R1]
-            [E_R1, A] <--> [EA_R1]
-            [EA_R1] <--> [EAFP_R1]
-            [EAFP_R1] <--> [F_R1, P]
-            [F_R1, B] <--> [FB_R1]
-            [FB_R1] <--> [E_R1, Q]
+            E + A <--> EA
+            EA <--> EAFP
+            EAFP <--> F + P
+            F + B <--> FB
+            FB <--> FBEQ
+            FBEQ <--> E + Q
+            E + R1 <--> E_R1
+            EA + R1 <--> EA_R1
+            EAFP + R1 <--> EAFP_R1
+            F + R1 <--> F_R1
+            FB + R1 <--> FB_R1
+            E_R1 + A <--> EA_R1
+            EA_R1 <--> EAFP_R1
+            EAFP_R1 <--> F_R1 + P
+            F_R1 + B <--> FB_R1
+            FB_R1 <--> E_R1 + Q
         end
     end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
@@ -923,7 +923,7 @@ end
             st.kinetic_group)
             for st in s.steps]
         spec = EnzymeRates.MechanismSpec(
-            s.reaction, all_ss, s.param_count)
+            s.reaction, all_ss, s.n_fit_params_estimate)
         try
             m_enum = EnzymeMechanism(spec)
             parameters(m_enum)
@@ -948,9 +948,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]   :: OnlyR
-                [ES] <--> [EP]  :: EqualRT
-                [EP] ⇌ [E, P]   :: EqualRT
+                E + S ⇌ ES   :: OnlyR
+                ES <--> EP  :: EqualRT
+                EP ⇌ E + P   :: EqualRT
             end
         end
     end
@@ -970,9 +970,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]   :: EqualRT
-                [ES] <--> [EP]  :: OnlyR
-                [EP] ⇌ [E, P]   :: EqualRT
+                E + S ⇌ ES   :: EqualRT
+                ES <--> EP  :: OnlyR
+                EP ⇌ E + P   :: EqualRT
             end
         end
     end
@@ -993,9 +993,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]    :: OnlyT
-                [ES] <--> [EP]   :: EqualRT
-                [EP] ⇌ [E, P]    :: EqualRT
+                E + S ⇌ ES    :: OnlyT
+                ES <--> EP   :: EqualRT
+                EP ⇌ E + P    :: EqualRT
             end
         end
     end))
@@ -1006,9 +1006,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]    :: EqualRT
-                [ES] <--> [EP]   :: EqualRT
-                [EP] ⇌ [E, P]    :: OnlyT
+                E + S ⇌ ES    :: EqualRT
+                ES <--> EP   :: EqualRT
+                EP ⇌ E + P    :: OnlyT
             end
         end
     end))
@@ -1019,9 +1019,9 @@ end
         products:   P
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]    :: EqualRT
-                [ES] <--> [EP]   :: OnlyT
-                [EP] ⇌ [E, P]    :: EqualRT
+                E + S ⇌ ES    :: EqualRT
+                ES <--> EP   :: OnlyT
+                EP ⇌ E + P    :: EqualRT
             end
         end
     end))
@@ -1034,9 +1034,9 @@ end
         allosteric_regulators: I::EqualRT
         site(:catalytic, 2): begin
             steps: begin
-                [E, S] ⇌ [ES]  :: EqualRT
-                [ES] <--> [EP] :: EqualRT
-                [EP] ⇌ [E, P]  :: EqualRT
+                E + S ⇌ ES  :: EqualRT
+                ES <--> EP :: EqualRT
+                EP ⇌ E + P  :: EqualRT
             end
         end
     end))
@@ -1070,9 +1070,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            [E, S] ⇌ [ES]
-            [ES] <--> [EP]
-            [EP] ⇌ [E, P]
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     m_mix = EnzymeRates.AllostericEnzymeMechanism(
@@ -1101,9 +1101,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
-            [E, P] ⇌ [E_P]
+            E + S ⇌ E_S
+            E_S <--> E_P
+            E + P ⇌ E_P
         end
     end
     m_mixed = EnzymeRates.AllostericEnzymeMechanism(
@@ -1127,9 +1127,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            [E, S] ⇌ [ES]
-            [ES] <--> [EP]
-            [EP] ⇌ [E, P]
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
@@ -1137,4 +1137,32 @@ end
         (2, (:NonequalRT, :EqualRT, :EqualRT)),
         (((), 2, ()),),  # empty ligand tuple
     )
+end
+
+@testset "rate_equation_string allosteric byte-identical fixture" begin
+    rxn_allo = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    init = EnzymeRates.init_mechanisms(rxn_allo)
+    base = first(init)
+    g_s = first(s.kinetic_group for s in base.steps
+                if EnzymeRates.step_metabolite(s) === :S)
+    g_p = first(s.kinetic_group for s in base.steps
+                if EnzymeRates.step_metabolite(s) === :P)
+    spec = EnzymeRates.AllostericMechanismSpec(
+        base, 2, [[:R]], [2],
+        Dict(g_s => :NonequalRT, g_p => :NonequalRT),
+        Dict(:R => :NonequalRT),
+        base.n_fit_params_estimate + 5)
+    m_allo = EnzymeRates.AllostericEnzymeMechanism(spec)
+    actual = rate_equation_string(m_allo)
+    expected = raw"""(; K1, K2, k3f, K1_T, K2_T, k3f_T, K_R_reg1, K_R_T_reg1, L, Keq, E_total) = params
+(; S, P, R) = concs
+k3r = (1 / Keq) * (1 / (1 / K1)) * (1 / K2) * k3f
+k3r_T = (1 / Keq) * (1 / (1 / K1_T)) * (1 / K2_T) * k3f_T
+v = E_total * (2 * ((k3f * S / K2 - k3r * P / K1) * (1 + P / K1 + S / K2) * (1 + R / K_R_reg1) ^ 2 + L * (k3f_T * S / K2_T - k3r_T * P / K1_T) * (1 + P / K1_T + S / K2_T) * (1 + R / K_R_T_reg1) ^ 2)) / ((1 + P / K1 + S / K2) ^ 2 * (1 + R / K_R_reg1) ^ 2 + L * (1 + P / K1_T + S / K2_T) ^ 2 * (1 + R / K_R_T_reg1) ^ 2)"""
+    @test actual == expected
 end

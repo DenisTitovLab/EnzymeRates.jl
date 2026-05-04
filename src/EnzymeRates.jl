@@ -24,6 +24,7 @@ export identify_rate_equation
 using Tables
 using Optimization
 using Distributed
+using HypothesisTests: ExactSignedRankTest, pvalue
 
 include("types.jl")
 include("dsl.jl")

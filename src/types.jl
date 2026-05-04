@@ -14,6 +14,30 @@ Singleton type encoding an enzyme reaction specification in type parameters.
 """
 struct EnzymeReaction{Substrates, Products, Regulators, OligomericState} end
 
+"""Sum element counts across a tuple of `(name, atoms)` pairs.
+Returns a Dict{Symbol,Int}. Errors if any species's atoms tuple
+is empty (atoms are mandatory) or if any per-atom count is not a
+positive Int."""
+function _sum_atoms(species::Tuple, side::String)
+    totals = Dict{Symbol,Int}()
+    for (name, atoms) in species
+        isempty(atoms) && error(
+            "EnzymeReaction: $side metabolite $name has no declared " *
+            "atoms; atoms are mandatory (use `[C…]` bracket syntax in " *
+            "@enzyme_reaction or pass non-empty atom tuples to the " *
+            "constructor).")
+        for (elem, count) in atoms
+            count isa Integer && !(count isa Bool) && count > 0 ||
+                error(
+                "EnzymeReaction: $side metabolite $name has " *
+                "non-positive atom count for element $elem ($count); " *
+                "atom counts must be positive integers (not Bool).")
+            totals[elem] = get(totals, elem, 0) + count
+        end
+    end
+    totals
+end
+
 function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_state::Int=1)
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
@@ -23,6 +47,17 @@ function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_st
         error("Duplicate substrate names")
     length(prods_names) != length(Set(prods_names)) &&
         error("Duplicate product names")
+    sub_atoms = _sum_atoms(subs, "substrate")
+    prod_atoms = _sum_atoms(prods, "product")
+    all_elems = union(keys(sub_atoms), keys(prod_atoms))
+    for elem in all_elems
+        s_count = get(sub_atoms, elem, 0)
+        p_count = get(prod_atoms, elem, 0)
+        s_count == p_count || error(
+            "EnzymeReaction: atom imbalance — element $elem appears " *
+            "$s_count time(s) on substrate side and $p_count time(s) " *
+            "on product side. Declared atoms must balance.")
+    end
     # Normalize regulators to (name, role) pairs
     normalized_regs = if isempty(regs)
         regs
@@ -124,17 +159,16 @@ function EnzymeMechanism(
         end
     end
 
-    # Each substrate / product must appear in some step. Regulators are
-    # optional bindings (a spec may list them before any expansion move
-    # has added their dead-end or allosteric binding steps).
+    # Every substrate, product, AND regulator must appear in some step.
     appears = Set{Symbol}()
     for (lhs, rhs, _, _) in rxns
         for s in lhs; push!(appears, s); end
         for s in rhs; push!(appears, s); end
     end
-    for name in vcat(collect(subs), collect(prods))
+    for name in vcat(collect(subs), collect(prods), collect(regs))
         name in appears ||
-            error("Listed metabolite $name does not appear in any reaction step")
+            error("Listed metabolite or regulator $name does not " *
+                  "appear in any reaction step")
     end
 
     # Kinetic-group composition rules
@@ -423,22 +457,65 @@ function Base.show(
     end
 end
 
+"""Render the catalytic mechanism's steps as multi-line text,
+grouping steps that share a kinetic_group with parens and a single
+`:: Tag` annotation. Mirrors `@allosteric_mechanism` macro syntax."""
+function _format_allo_step_groups(
+    io::IO, cm::EnzymeMechanism,
+    m::AllostericEnzymeMechanism,
+)
+    rxns = reactions(cm)
+    _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
+
+    groups_seen = Int[]
+    group_to_step_idxs = Dict{Int,Vector{Int}}()
+    for (i, step) in enumerate(rxns)
+        g = step[4]
+        if !haskey(group_to_step_idxs, g)
+            push!(groups_seen, g)
+            group_to_step_idxs[g] = Int[]
+        end
+        push!(group_to_step_idxs[g], i)
+    end
+
+    for g in groups_seen
+        idxs = group_to_step_idxs[g]
+        tag = cat_allo_state(m, g)
+        if length(idxs) == 1
+            (lhs, rhs, is_eq, _) = rxns[idxs[1]]
+            print(io, "\n  ", join(lhs, " + "),
+                  _arrow(is_eq), join(rhs, " + "),
+                  " :: ", tag)
+        else
+            print(io, "\n  (")
+            for (k, i) in enumerate(idxs)
+                k > 1 && print(io, ", ")
+                (lhs, rhs, is_eq, _) = rxns[i]
+                print(io, join(lhs, " + "),
+                      _arrow(is_eq), join(rhs, " + "))
+            end
+            print(io, ") :: ", tag)
+        end
+    end
+end
+
 function Base.show(io::IO, m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
-    print(io, "AllostericEnzymeMechanism (cat_n=", catalytic_multiplicity(m))
+    print(io, "AllostericEnzymeMechanism (cat_n=",
+          catalytic_multiplicity(m))
     rs = regulatory_sites(m)
     if !isempty(rs)
         print(io, ", ", length(rs), " reg sites")
     end
-    n_groups = length(unique(kinetic_group(cm, i) for i in 1:n_steps(cm)))
-    print(io, "):\n  cat_allo_states: [")
-    print(io, join((string(cat_allo_state(m, g)) for g in 1:n_groups), ", "))
-    print(io, "]\n  catalytic: ", cm)
+    print(io, "):")
+    _format_allo_step_groups(io, cm, m)
     for (i, (ligands, mult, reg_allo_states)) in enumerate(rs)
         print(io, "\n  reg site $i (n=", mult, "): ",
               join(ligands, ", "))
         print(io, " [")
-        print(io, join(("$(n)::$(t)" for (n, t) in zip(ligands, reg_allo_states)), ", "))
+        print(io, join(("$(n)::$(t)"
+                        for (n, t) in zip(ligands, reg_allo_states)),
+                       ", "))
         print(io, "]")
     end
 end

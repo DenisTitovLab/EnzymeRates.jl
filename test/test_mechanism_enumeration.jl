@@ -14,7 +14,9 @@ function mechanism_spec_from_mechanism(
         push!(steps, StepSpec(
             collect(lhs), collect(rhs), is_eq, gnum))
     end
-    MechanismSpec(rxn, steps, length(parameters(m)))
+    MechanismSpec(
+        rxn, steps,
+        length(EnzymeRates.fitted_params(m)))
 end
 
 const uni_uni_rxn = @enzyme_reaction begin
@@ -89,6 +91,76 @@ const pyruvate_dehydrogenase_rxn = @enzyme_reaction begin
     products: AcCoA[C23H38N7O17P3S], NADH[C21H29N7O14P2], CO2[CO2]
 end
 
+"""Post-condition every spec must satisfy after expansion moves
+that should preserve explicit tagging. Catches the broad class of
+"expansion move forgot to update a parallel data structure" bugs.
+
+Currently asserts:
+- For AllostericMechanismSpec: every kinetic group used in steps
+  has an explicit entry in `group_tags` (no silent default to
+  `:NonequalRT`).
+
+Applies to all `_expand_*` moves EXCEPT `_expand_change_allo_state`,
+which intentionally `delete!`s entries to relax tags back to
+`:NonequalRT` via sparse-storage default.
+"""
+function _assert_spec_invariants(spec::MechanismSpec)
+    @test spec.n_fit_params_estimate >= 0
+end
+
+function _assert_spec_invariants(spec::AllostericMechanismSpec)
+    @test spec.n_fit_params_estimate >= 0
+    used_groups = Set(s.kinetic_group for s in spec.base.steps)
+    for g in used_groups
+        @test haskey(spec.group_tags, g)
+    end
+end
+
+@testset "n_fit_params_estimate semantics" begin
+    # Simple uni-uni: 2 RE binding steps + 1 SS catalytic step.
+    # 3 forms (E, E_S, E_P), 3 steps → n_thermo = 3 - 3 + 1 = 1.
+    # New formula: n_re_groups + 2*n_ss_groups - n_thermo
+    #            = 2 + 2 - 1 = 3
+    # (Old formula gave 5 because of the +2 for Keq+E_total.)
+    # length(fitted_params(m)) for uni-uni = 3 (K1, K2, k3f).
+    init_specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
+    @test !isempty(init_specs)
+    spec = first(init_specs)
+    @test hasfield(typeof(spec), :n_fit_params_estimate)
+    m = EnzymeRates.EnzymeMechanism(spec)
+    n_actual = length(EnzymeRates.fitted_params(m))
+    @test spec.n_fit_params_estimate == n_actual
+end
+
+@testset "n_fit_params_estimate upper-bound for dead-end mirrors" begin
+    # Guards the upper-bound invariant
+    #   spec.n_fit_params_estimate >= length(fitted_params(m))
+    # for init mechanisms and one round of expansion of
+    # `uni_uni_with_reg` (which has a dead-end inhibitor :I that
+    # creates mirror cycles). To cap @generated compile cost,
+    # cap the number of compiled specs per round at 30 — that's
+    # enough to exercise dead-end-mirror cases without triggering
+    # the explosion of compile-times for the full expansion fan-out.
+    cap = 30
+    init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+    for spec in init_specs[1:min(cap, end)]
+        m = EnzymeRates.compile_mechanism(spec)
+        @test spec.n_fit_params_estimate >=
+            length(EnzymeRates.fitted_params(m))
+    end
+    expanded = EnzymeRates.expand_mechanisms(
+        init_specs, uni_uni_with_reg)
+    expanded_specs = EnzymeRates.AbstractMechanismSpec[]
+    for (_, specs) in expanded
+        append!(expanded_specs, specs)
+    end
+    for spec in expanded_specs[1:min(cap, end)]
+        m = EnzymeRates.compile_mechanism(spec)
+        @test spec.n_fit_params_estimate >=
+            length(EnzymeRates.fitted_params(m))
+    end
+end
+
 """Collect all mechanisms by running the full enumeration loop."""
 function enumerate_all(
     @nospecialize(reaction::EnzymeReaction);
@@ -97,7 +169,7 @@ function enumerate_all(
 
     init_specs = EnzymeRates.init_mechanisms(reaction)
     for spec in init_specs
-        push!(get!(cache, spec.param_count,
+        push!(get!(cache, spec.n_fit_params_estimate,
             EnzymeRates.AbstractMechanismSpec[]), spec)
     end
     EnzymeRates.dedup!(cache)
@@ -163,7 +235,7 @@ end
         Vector{Symbol}[], Int[],
         Dict(1 => :EqualRT, 2 => :OnlyR),
         Dict{Symbol, Symbol}(),
-        base_spec.param_count + 1)
+        base_spec.n_fit_params_estimate + 1)
 
     m_compiled = AllostericEnzymeMechanism(allo_spec)
     @test EnzymeRates.cat_allo_state(m_compiled, 1) == :EqualRT
@@ -180,9 +252,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec_rt = mechanism_spec_from_mechanism(
@@ -444,9 +516,9 @@ end
             (bi_bi_pp_rxn, 2, 2),
         ]
             specs = EnzymeRates.init_mechanisms(rxn)
-            min_pc = n_s + n_p + 3
+            min_pc = n_s + n_p + 1
             for s in specs
-                @test s.param_count >= min_pc
+                @test s.n_fit_params_estimate >= min_pc
             end
         end
     end
@@ -480,7 +552,7 @@ end
             by_metabolite = Dict{Symbol, Vector{EnzymeRates.StepSpec}}()
             for step in spec.steps
                 step.is_equilibrium || continue
-                # Binding step has form [F, met] ⇌ [F_bound]
+                # Binding step has form F + met ⇌ F_bound
                 length(step.reactants) == 2 || continue
                 met = step.reactants[2]
                 push!(get!(by_metabolite, met,
@@ -511,9 +583,9 @@ end
                 substrates: S
                 products: P
                 steps: begin
-                    [E, P] ⇌ [E_P]
-                    [E, S] ⇌ [E_S]
-                    [E_S] <--> [E_P]
+                    E + P ⇌ E_P
+                    E + S ⇌ E_S
+                    E_S <--> E_P
                 end
             end
             spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -536,15 +608,15 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    [E, A] ⇌ [E_A]
-                    [E_B, A] ⇌ [E_A_B]
-                    [E, B] ⇌ [E_B]
-                    [E_A, B] ⇌ [E_A_B]
-                    [E, P] ⇌ [E_P]
-                    [E_P, Q] ⇌ [E_P_Q]
-                    [E, Q] ⇌ [E_Q]
-                    [E_Q, P] ⇌ [E_P_Q]
-                    [E_A_B] <--> [E_P_Q]
+                    E + A ⇌ E_A
+                    E_B + A ⇌ E_A_B
+                    E + B ⇌ E_B
+                    E_A + B ⇌ E_A_B
+                    E + P ⇌ E_P
+                    E_P + Q ⇌ E_P_Q
+                    E + Q ⇌ E_Q
+                    E_Q + P ⇌ E_P_Q
+                    E_A_B <--> E_P_Q
                 end
             end
             spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
@@ -566,10 +638,10 @@ end
                 substrates: S
                 products: P, Q
                 steps: begin
-                    [E, Q] ⇌ [E_Q]
-                    [E_Q, P] ⇌ [E_P_Q]
-                    [E, S] ⇌ [E_S]
-                    [E_S] <--> [E_P_Q]
+                    E + Q ⇌ E_Q
+                    E_Q + P ⇌ E_P_Q
+                    E + S ⇌ E_S
+                    E_S <--> E_P_Q
                 end
             end
             spec = mechanism_spec_from_mechanism(m, uni_bi_rxn)
@@ -589,12 +661,12 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    [E, A] ⇌ [E_A]
-                    [Estar, B] ⇌ [Estar_B]
-                    [E, Q] ⇌ [E_Q]
-                    [Estar, P] ⇌ [Estar_A_P]
-                    [E_A] <--> [Estar_A_P]
-                    [Estar_B] ⇌ [E_Q]
+                    E + A ⇌ E_A
+                    Estar + B ⇌ Estar_B
+                    E + Q ⇌ E_Q
+                    Estar + P ⇌ Estar_A_P
+                    E_A <--> Estar_A_P
+                    Estar_B ⇌ E_Q
                 end
             end
             spec = mechanism_spec_from_mechanism(
@@ -673,15 +745,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         spec_bb = mechanism_spec_from_mechanism(
@@ -748,12 +820,12 @@ end
                 @test length(result) > 0
                 @test length(result) <= 265
                 for spec in result
-                    # Verify param_count set correctly
-                    @test spec.param_count >=
+                    # Verify n_fit_params_estimate set correctly
+                    @test spec.n_fit_params_estimate >=
                         length(EnzymeRates.substrates(
                             ter_ter_rxn)) +
                         length(EnzymeRates.products(
-                            ter_ter_rxn)) + 3
+                            ter_ter_rxn)) + 1
                 end
             end
         end
@@ -856,8 +928,8 @@ end
                 for spec in first(specs, 5)
                     m = EnzymeMechanism(spec)
                     @test m isa EnzymeMechanism
-                    @test length(parameters(m)) <=
-                        spec.param_count
+                    @test length(EnzymeRates.fitted_params(m)) <=
+                        spec.n_fit_params_estimate
                 end
             end
         end
@@ -870,9 +942,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -880,7 +952,7 @@ end
         result = EnzymeRates._expand_re_to_ss(spec)
         @test length(result) == 2
         for r in result
-            @test r.param_count == spec.param_count + 1
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
     end
 
@@ -889,9 +961,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] <--> [E_P]
-                [E, S] <--> [E_S]
-                [E_S] <--> [E_P]
+                E + P <--> E_P
+                E + S <--> E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -909,9 +981,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] <--> [E_P]
-                [E, S] <--> [E_S]
-                [E_S] <--> [E_P]
+                E + P <--> E_P
+                E + S <--> E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -922,7 +994,7 @@ end
             dead_end_inhibitors: I
         end
         spec_with_rxn = MechanismSpec(rxn_i, spec.steps,
-            spec.param_count)
+            spec.n_fit_params_estimate)
         de_specs = EnzymeRates._expand_add_dead_end_regulator(
             spec_with_rxn, rxn_i)
         multi_form = filter(de_specs) do s
@@ -955,7 +1027,7 @@ end
             result = EnzymeRates._expand_re_to_ss(spec)
             @test length(result) == n_re_groups
             for r in result
-                @test r.param_count == spec.param_count + 1
+                @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
             end
         end
     end
@@ -980,7 +1052,7 @@ end
         result = EnzymeRates._expand_split_kinetic_group(spec)
         @test length(result) == 8
         for r in result
-            @test r.param_count == spec.param_count + 1
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
     end
 
@@ -989,9 +1061,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
@@ -1020,7 +1092,7 @@ end
         result = EnzymeRates._expand_split_kinetic_group(ss_spec)
         # Each result has delta of 1 (RE split) or 2 (SS split).
         for r in result
-            delta = r.param_count - ss_spec.param_count
+            delta = r.n_fit_params_estimate - ss_spec.n_fit_params_estimate
             @test delta == 1 || delta == 2
         end
     end
@@ -1061,9 +1133,9 @@ end
         substrates: S
         products: P
         steps: begin
-            [E, P] ⇌ [E_P]
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
         end
     end
     spec_uu = mechanism_spec_from_mechanism(
@@ -1078,15 +1150,15 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            [E, A] ⇌ [E_A]
-            [E_B, A] ⇌ [E_A_B]
-            [E, B] ⇌ [E_B]
-            [E_A, B] ⇌ [E_A_B]
-            [E, P] ⇌ [E_P]
-            [E_P, Q] ⇌ [E_P_Q]
-            [E, Q] ⇌ [E_Q]
-            [E_Q, P] ⇌ [E_P_Q]
-            [E_A_B] <--> [E_P_Q]
+            E + A ⇌ E_A
+            E_B + A ⇌ E_A_B
+            E + B ⇌ E_B
+            E_A + B ⇌ E_A_B
+            E + P ⇌ E_P
+            E_P + Q ⇌ E_P_Q
+            E + Q ⇌ E_Q
+            E_Q + P ⇌ E_P_Q
+            E_A_B <--> E_P_Q
         end
     end
     spec_bb = mechanism_spec_from_mechanism(
@@ -1108,7 +1180,7 @@ end
         spec = mechanism_spec_from_mechanism(
             m, rxn_base)
         @test EnzymeMechanism(spec) === m
-        MechanismSpec(rxn_target, spec.steps, spec.param_count)
+        MechanismSpec(rxn_target, spec.steps, spec.n_fit_params_estimate)
     end
 
     @testset "Uni-uni + new regulator" begin
@@ -1116,9 +1188,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = _spec_with_rxn(
@@ -1132,7 +1204,7 @@ end
         # 1 eligible form → 2^1 - 1 = 1 variant
         @test length(result) == 1
         for r in result
-            @test r.param_count == spec.param_count + 1
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
     end
 
@@ -1141,9 +1213,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = mechanism_spec_from_mechanism(
@@ -1159,9 +1231,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = _spec_with_rxn(
@@ -1179,9 +1251,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         spec = _spec_with_rxn(
@@ -1197,15 +1269,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         bi_bi_with_reg = @enzyme_reaction begin
@@ -1234,15 +1306,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         bi_bi_with_reg = @enzyme_reaction begin
@@ -1273,9 +1345,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         rxn_ij = @enzyme_reaction begin
@@ -1309,15 +1381,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         rxn_i = @enzyme_reaction begin
@@ -1341,9 +1413,9 @@ end
             substrates: S
             products: P
             steps: begin
-                [E, P] ⇌ [E_P]
-                [E, S] ⇌ [E_S]
-                [E_S] <--> [E_P]
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
             end
         end
         # Allosteric-only regulator → no dead-end
@@ -1388,12 +1460,12 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [Estar, B] ⇌ [Estar_B]
-                [E, Q] ⇌ [E_Q]
-                [Estar, P] ⇌ [Estar_A_P]
-                [E_A] <--> [Estar_A_P]
-                [Estar_B] ⇌ [E_Q]
+                E + A ⇌ E_A
+                Estar + B ⇌ Estar_B
+                E + Q ⇌ E_Q
+                Estar + P ⇌ Estar_A_P
+                E_A <--> Estar_A_P
+                Estar_B ⇌ E_Q
             end
         end
         rxn_pp_i = @enzyme_reaction begin
@@ -1417,11 +1489,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_A, B] ⇌ [E_A_B]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_A + B ⇌ E_A_B
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         rxn_seq = @enzyme_reaction begin
@@ -1444,7 +1516,7 @@ end
         #         ({A,B},{Q}), ({A,B},{P,Q})
         @test length(result) == 4
         for r in result
-            @test r.param_count == spec.param_count + 1
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
     end
 
@@ -1453,15 +1525,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         bb_with_reg = @enzyme_reaction begin
@@ -1484,15 +1556,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         rxn_2i = @enzyme_reaction begin
@@ -1554,9 +1626,9 @@ end
         substrates: S
         products: P
         steps: begin
-            [E, P] ⇌ [E_P]
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
         end
     end
     rxn2 = @enzyme_reaction begin
@@ -1567,7 +1639,7 @@ end
     base = mechanism_spec_from_mechanism(
         m, uni_uni_rxn)
     @test EnzymeMechanism(base) === m
-    spec = MechanismSpec(rxn2, base.steps, base.param_count)
+    spec = MechanismSpec(rxn2, base.steps, base.n_fit_params_estimate)
     # Add I first
     i_specs = EnzymeRates._expand_add_dead_end_regulator(
         spec, rxn2)
@@ -1608,6 +1680,7 @@ end
         # 2 binding × 2 tags + 1 iso × 2 tags = 6
         @test length(result) == 6
         for r in result
+            _assert_spec_invariants(r)
             @test r isa AllostericMechanismSpec
             @test r.catalytic_n == 2
         end
@@ -1662,6 +1735,9 @@ end
         # R not yet added: 3 tags × 1 site option
         # (new site only, no existing reg sites) = 3
         @test length(result) == 3
+        for r in result
+            _assert_spec_invariants(r)
+        end
     end
 
     @testset "Non-allosteric → yields nothing" begin
@@ -1735,6 +1811,11 @@ end
         result = EnzymeRates._expand_change_allo_state(
             allo, uni_uni_allo)
         @test length(result) == n_tagged
+        # Note: this move INTENTIONALLY uses `delete!` on
+        # group_tags/reg_ligand_tags so missing entries fall back
+        # to the `:NonequalRT` sparse-storage default. The
+        # `haskey`-based universal invariant in
+        # `_assert_spec_invariants` does not apply here.
     end
 
     @testset "Fully relaxed → yields nothing" begin
@@ -1781,7 +1862,7 @@ end
             r -> haskey(r.reg_ligand_tags, :R), reg_specs)
         @test !isempty(tagged)
         tr_spec = first(tagged)
-        pc_before = tr_spec.param_count
+        pc_before = tr_spec.n_fit_params_estimate
         result = EnzymeRates._expand_change_allo_state(
             tr_spec, rxn_r)
         # The variant that drops :R from reg_ligand_tags
@@ -1792,7 +1873,7 @@ end
         # (one K_R_T appears) when going from non-`:NonequalRT`
         # to `:NonequalRT`.
         for r in r_removal
-            @test r.param_count == pc_before + 1
+            @test r.n_fit_params_estimate == pc_before + 1
         end
     end
 end
@@ -1818,7 +1899,7 @@ end
 
     @testset "Different mechanisms preserved" begin
         specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        pc = first(specs).param_count
+        pc = first(specs).n_fit_params_estimate
         cache = Dict(pc => AbstractMechanismSpec[specs...])
         EnzymeRates.dedup!(cache)
         @test length(cache[pc]) >= 1
@@ -1827,7 +1908,7 @@ end
 
     @testset "Idempotent" begin
         specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        pc = first(specs).param_count
+        pc = first(specs).n_fit_params_estimate
         cache = Dict(pc => AbstractMechanismSpec[specs...])
         EnzymeRates.dedup!(cache)
         n1 = length(cache[pc])
@@ -1842,13 +1923,13 @@ end
             base, 2,
             [[:A], [:B]], [2, 2],
             Dict{Int, Symbol}(), Dict{Symbol, Symbol}(),
-            base.param_count + 2)
+            base.n_fit_params_estimate + 2)
         spec_ba = AllostericMechanismSpec(
             base, 2,
             [[:B], [:A]], [2, 2],
             Dict{Int, Symbol}(), Dict{Symbol, Symbol}(),
-            base.param_count + 2)
-        pc = spec_ab.param_count
+            base.n_fit_params_estimate + 2)
+        pc = spec_ab.n_fit_params_estimate
         cache = Dict(pc => EnzymeRates.AbstractMechanismSpec[spec_ab, spec_ba])
         EnzymeRates.dedup!(cache)
         @test length(cache[pc]) == 1
@@ -1862,7 +1943,7 @@ end
             specs, uni_uni_rxn)
         @test result isa Dict{Int,
             Vector{AbstractMechanismSpec}}
-        base_pc = first(specs).param_count
+        base_pc = first(specs).n_fit_params_estimate
         @test haskey(result, base_pc + 1)
     end
 
@@ -1870,7 +1951,7 @@ end
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         result = EnzymeRates.expand_mechanisms(
             specs, uni_uni_allo)
-        base_pc = first(specs).param_count
+        base_pc = first(specs).n_fit_params_estimate
         has_allo = any(
             any(s isa AllostericMechanismSpec
                 for s in ss)
@@ -1880,10 +1961,10 @@ end
 
     @testset "No self-expansion to same param count" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
-        base_pc = first(specs).param_count
+        base_pc = first(specs).n_fit_params_estimate
         result = EnzymeRates.expand_mechanisms(
             specs, uni_uni_rxn)
-        # All results should have param_count > base
+        # All results should have n_fit_params_estimate > base
         for (pc, _) in result
             @test pc > base_pc
         end
@@ -1948,12 +2029,13 @@ end
             for spec in specs
                 if spec isa EnzymeRates.MechanismSpec
                     m = EnzymeMechanism(spec)
-                    @test length(parameters(m)) <= pc
+                    @test length(EnzymeRates.fitted_params(m)) <= pc
                 elseif spec isa EnzymeRates.AllostericMechanismSpec
                     allo_count += 1
                     allo_count > 3 && continue
                     m = AllostericEnzymeMechanism(spec)
-                    @test length(parameters(m)) <= spec.param_count
+                    @test length(EnzymeRates.fitted_params(m)) <=
+                        spec.n_fit_params_estimate
                 end
             end
         end
@@ -1962,7 +2044,7 @@ end
     @testset "Bi-bi full enumeration" begin
         # Sample-based: with full per-group tag enumeration,
         # bi-bi at pc=10 has ~190k specs. Test the upper-bound
-        # invariant on a sample of each param_count bucket.
+        # invariant on a sample of each n_fit_params_estimate bucket.
         results = enumerate_all(bi_bi_rxn; max_params=8)
         @test !isempty(results)
         allo_count = 0
@@ -1971,12 +2053,13 @@ end
             for spec in sample
                 if spec isa EnzymeRates.MechanismSpec
                     m = EnzymeMechanism(spec)
-                    @test length(parameters(m)) <= pc
+                    @test length(EnzymeRates.fitted_params(m)) <= pc
                 elseif spec isa EnzymeRates.AllostericMechanismSpec
                     allo_count += 1
                     allo_count > 3 && continue
                     m = AllostericEnzymeMechanism(spec)
-                    @test length(parameters(m)) <= spec.param_count
+                    @test length(EnzymeRates.fitted_params(m)) <=
+                        spec.n_fit_params_estimate
                 end
             end
         end
@@ -2001,12 +2084,13 @@ end
             for spec in sample
                 if spec isa EnzymeRates.MechanismSpec
                     m = EnzymeMechanism(spec)
-                    @test length(parameters(m)) <= pc
+                    @test length(EnzymeRates.fitted_params(m)) <= pc
                 elseif spec isa EnzymeRates.AllostericMechanismSpec
                     allo_count += 1
                     allo_count > 3 && continue
                     m = AllostericEnzymeMechanism(spec)
-                    @test length(parameters(m)) <= spec.param_count
+                    @test length(EnzymeRates.fitted_params(m)) <=
+                        spec.n_fit_params_estimate
                 end
             end
         end
@@ -2053,7 +2137,8 @@ end
         end)
         m = AllostericEnzymeMechanism(only_r)
         params = parameters(m)
-        @test length(params) == only_r.param_count
+        @test length(EnzymeRates.fitted_params(m)) ==
+            only_r.n_fit_params_estimate
         t_params = filter(
             p -> endswith(string(p), "_T"), params)
         @test isempty(t_params)
@@ -2071,11 +2156,47 @@ end
         end)
         m = AllostericEnzymeMechanism(only_r_iso)
         params = parameters(m)
-        @test length(params) == only_r_iso.param_count
+        @test length(EnzymeRates.fitted_params(m)) ==
+            only_r_iso.n_fit_params_estimate
         t_k_params = filter(
             p -> contains(string(p), "f_T") ||
                  contains(string(p), "r_T"), params)
         @test isempty(t_k_params)
+    end
+
+    @testset "t_state_dead with :NonequalRT: K_T in body must be in parameters(Full)" begin
+        # K-type allosteric uni-uni: catalytic step is :OnlyR (so
+        # `_t_state_dead == true`), but binding steps are :NonequalRT.
+        # Bug B.4/A.1: `_all_t_state_names` returns empty when
+        # `_t_state_dead == true`, so K1_T/K2_T leak unrenamed into
+        # the canonical hash string → cache miss for structurally-
+        # equivalent specs whose rep-step indices differ.
+        m = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E_c + S ⇌ E_S    :: NonequalRT
+                    E_c + P ⇌ E_P    :: NonequalRT
+                    E_S <--> E_P     :: OnlyR
+                end
+            end
+        end
+        @test EnzymeRates._t_state_dead(m)
+        params_full = parameters(m, Full)
+        # K1_T and K2_T are referenced in `den_T` of the body
+        # (the binding partition function for :NonequalRT groups
+        # is built regardless of `t_state_dead` since `den_T`
+        # always appears in the denominator).
+        @test :K1_T in params_full
+        @test :K2_T in params_full
+
+        # Canonicalizer invariant: every parameter token in the
+        # body must be renamed away. After canonicalization, no
+        # raw `_T` suffixed names should survive.
+        canon, _ = EnzymeRates._canonicalize_rate_eq_with_map(m)
+        @test !occursin(r"\bK\d+_T\b", canon)
+        @test !occursin(r"\bk\d+[fr]_T\b", canon)
     end
 end
 
@@ -2160,9 +2281,9 @@ end
         substrates: S
         products: P
         steps: begin
-            [E, P] ⇌ [E_P]
-            [E, S] ⇌ [E_S]
-            [E_S] <--> [E_P]
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
         end
     end
     spec = mechanism_spec_from_mechanism(m_uu, uni_uni_allo)
@@ -2175,12 +2296,13 @@ end
         result = EnzymeRates._expand_re_to_ss(allo)
         @test !isempty(result)
         for r in result
+            _assert_spec_invariants(r)
             @test r isa EnzymeRates.AllostericMechanismSpec
             @test r.catalytic_n == allo.catalytic_n
             @test r.allosteric_reg_sites ==
                 allo.allosteric_reg_sites
             @test r.group_tags == allo.group_tags
-            @test r.param_count > allo.param_count
+            @test r.n_fit_params_estimate > allo.n_fit_params_estimate
         end
     end
 
@@ -2189,15 +2311,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                [E, A] ⇌ [E_A]
-                [E_B, A] ⇌ [E_A_B]
-                [E, B] ⇌ [E_B]
-                [E_A, B] ⇌ [E_A_B]
-                [E, P] ⇌ [E_P]
-                [E_P, Q] ⇌ [E_P_Q]
-                [E, Q] ⇌ [E_Q]
-                [E_Q, P] ⇌ [E_P_Q]
-                [E_A_B] <--> [E_P_Q]
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
             end
         end
         bi_bi_allo_rxn = @enzyme_reaction begin
@@ -2219,15 +2341,36 @@ end
         bb_allo = first(
             EnzymeRates._expand_to_allosteric(
                 bb_spec_c, bi_bi_allo_rxn))
-        # Splitting one of the multi-step kinetic groups in the
-        # allosteric base must produce results.
+        # Splitting a multi-step kinetic group in the allosteric
+        # base must produce results AND the new group must inherit
+        # the parent group's allosteric tag (split is a parameter-
+        # relaxation move; it must not change R/T-state semantics).
         result = EnzymeRates._expand_split_kinetic_group(bb_allo)
         @test !isempty(result)
+        pre_groups = Set(s.kinetic_group for s in bb_allo.base.steps)
         for r in result
-            @test r isa
-                EnzymeRates.AllostericMechanismSpec
+            _assert_spec_invariants(r)
+            @test r isa EnzymeRates.AllostericMechanismSpec
             @test r.catalytic_n == bb_allo.catalytic_n
-            @test r.group_tags == bb_allo.group_tags
+            post_groups =
+                Set(s.kinetic_group for s in r.base.steps)
+            new_groups = setdiff(post_groups, pre_groups)
+            @test length(new_groups) == 1
+            new_g = first(new_groups)
+            # Identify the parent group: the only pre-group whose
+            # step count dropped.
+            pre_counts = Dict(g => count(
+                    s -> s.kinetic_group == g, bb_allo.base.steps)
+                for g in pre_groups)
+            post_counts = Dict(g => count(
+                    s -> s.kinetic_group == g, r.base.steps)
+                for g in pre_groups)
+            old_g = only(g for g in pre_groups
+                if post_counts[g] < pre_counts[g])
+            @test r.group_tags[new_g] == bb_allo.group_tags[old_g]
+            for g in pre_groups
+                @test r.group_tags[g] == bb_allo.group_tags[g]
+            end
         end
     end
 
@@ -2248,6 +2391,7 @@ end
                 allo_i, rxn)
         @test !isempty(result)
         for r in result
+            _assert_spec_invariants(r)
             @test r isa
                 EnzymeRates.AllostericMechanismSpec
             @test r.catalytic_n == allo_i.catalytic_n
@@ -2279,6 +2423,29 @@ end
         end
         @test n_iso >= 2
     end
+end
+
+@testset "init_mechanisms drops unbound regulators from spec→type" begin
+    init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+    @test !isempty(init_specs)
+    for spec in init_specs
+        m = EnzymeRates.EnzymeMechanism(spec)
+        @test :I ∉ EnzymeRates.regulators(m)
+    end
+
+    expanded = EnzymeRates.expand_mechanisms(init_specs, uni_uni_with_reg)
+    found_with_reg = false
+    for (_, specs) in expanded
+        for spec in specs
+            m = EnzymeRates.EnzymeMechanism(spec)
+            if :I in EnzymeRates.regulators(m)
+                found_with_reg = true
+                break
+            end
+        end
+        found_with_reg && break
+    end
+    @test found_with_reg
 end
 
 end # top-level testset

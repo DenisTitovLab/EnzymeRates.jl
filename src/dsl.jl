@@ -90,10 +90,11 @@ end
         oligomeric_state: 4
     end
 
-Create an `EnzymeReaction` from a DSL block. Species atoms use chemical
-formula bracket syntax: `S[C6H12O6]`. Bare symbols (no brackets) are allowed
-when all metabolites omit atoms. Regulators are plain symbol names.
-`oligomeric_state` is an optional integer (defaults to 1).
+Create an `EnzymeReaction` from a DSL block. Every substrate and product
+must declare atoms using chemical formula bracket syntax: `S[C6H12O6]`.
+Element totals must balance between substrates and products. Regulators
+are plain symbol names (no atoms). `oligomeric_state` is an optional
+integer (defaults to 1).
 
 Multi-species lines use comma separation:
     substrates: S[C6H12O6], ATP[C10H16N5O13P3]
@@ -143,18 +144,25 @@ function _regulator_tuple_to_symbols(species_tuple::Expr)
 end
 
 function _parse_step_side_symbols(expr)
-    if expr isa Expr && expr.head == :vect
+    if expr isa Symbol
+        # Single-symbol side: bare symbol, e.g. `ES`.
+        return Expr(:tuple, QuoteNode(expr))
+    elseif expr isa Expr && expr.head == :call &&
+           expr.args[1] == :+
+        # Multi-symbol side: `E + S` parses as Expr(:call, :+, …);
+        # `E + S + ATP` parses as a single multi-arg `+` call.
         syms = Expr(:tuple)
-        for a in expr.args
+        for a in expr.args[2:end]
             a isa Symbol || error(
-                "Step sides must be symbols; " *
-                "define atoms in species block"
-            )
+                "Step sides must contain only symbols (no atoms or " *
+                "expressions); define atoms in the species block. Got " *
+                "$a in step side")
             push!(syms.args, QuoteNode(a))
         end
         return syms
     end
-    error("Expected [...] on each side of <-->, got $expr")
+    error("Expected `Sym` or `Sym + Sym + …` on each side of " *
+          "<--> or ⇌; got $expr")
 end
 
 """
@@ -164,10 +172,10 @@ end
         regulators: I
 
         steps: begin
-            ([E, S] ⇌ [ES], [EP, S] ⇌ [EPS])    # parenthesized → shared kinetics
-            [ES, I] ⇌ [ESI]                      # dead-end
-            [ES]   <--> [EP]
-            [EP]   ⇌    [E, P]
+            (E + S ⇌ ES, EP + S ⇌ EPS)    # parenthesized → shared kinetics
+            ES + I ⇌ ESI                   # dead-end
+            ES    <--> EP
+            EP    ⇌    E + P
         end
     end
 
@@ -371,8 +379,11 @@ end
 If the step Expr has a `::Tag` attached to its RHS arg, remove the wrapper and
 return the tag Symbol. Otherwise return `nothing`. Mutates `step_expr.args[3]`.
 
-Single tagged step parses as:
-  Expr(:call, op, Expr(:vect, lhs_syms...), Expr(:(::), Expr(:vect, rhs_syms...), Tag))
+Two RHS shapes carry a tag:
+  - `Sym :: Tag` parses as `Expr(:(::), Sym, Tag)`.
+  - `S1 + S2 + … + LastSym :: Tag` parses as
+    `Expr(:call, :+, S1, …, Expr(:(::), LastSym, Tag))` because `::` binds
+    tighter than `+`. We peel the inner `::` and put `LastSym` back in place.
 """
 function _peel_step_tag!(step_expr)
     rhs = step_expr.args[3]
@@ -381,17 +392,26 @@ function _peel_step_tag!(step_expr)
         tag isa Symbol || error("Step tag must be a Symbol; got $tag")
         step_expr.args[3] = rhs.args[1]
         return tag
+    elseif rhs isa Expr && rhs.head == :call && rhs.args[1] == :+
+        last = rhs.args[end]
+        if last isa Expr && last.head == :(::)
+            tag = last.args[2]
+            tag isa Symbol || error("Step tag must be a Symbol; got $tag")
+            rhs.args[end] = last.args[1]
+            return tag
+        end
     end
     nothing
 end
 
 """
-Parse a single (already-de-tagged) step `[lhs] ⇌ [rhs]` or `[lhs] <--> [rhs]`.
-Returns the 4-tuple Expr `(lhs_syms, rhs_syms, is_eq, kinetic_group)`.
+Parse a single (already-de-tagged) step `lhs ⇌ rhs` or `lhs <--> rhs`, where
+each side is either a bare Symbol or `Sym + Sym + …`. Returns the 4-tuple
+Expr `(lhs_syms, rhs_syms, is_eq, kinetic_group)`.
 """
 function _parse_single_step(expr, gnum::Int)
     expr isa Expr && expr.head == :call ||
-        error("Expected [lhs] ⇌ [rhs] or [lhs] <--> [rhs]; got $expr")
+        error("Expected lhs ⇌ rhs or lhs <--> rhs; got $expr")
     op = expr.args[1]
     is_eq = op == :⇌
     is_eq || op == :(<-->) ||
@@ -409,9 +429,9 @@ end
 
         site(:catalytic, 2): begin
             steps: begin
-                [E, F6P] ⇌ [E_F6P]    :: EqualRT
-                [E_F6P] <--> [E_F16BP] :: EqualRT
-                [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                E + F6P ⇌ E_F6P       :: EqualRT
+                E_F6P <--> E_F16BP    :: EqualRT
+                E_F16BP ⇌ E + F16BP   :: EqualRT
             end
         end
 

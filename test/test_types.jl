@@ -97,9 +97,9 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] ⇌ [ES]
-                [ES] <--> [EP]
-                [EP] ⇌ [E, P]
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         # Dense format: (multiplicity, cat_allo_states) and (ligands, mult, reg_allo_states)
@@ -119,9 +119,9 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] ⇌ [ES]
-                [ES] <--> [EP]
-                [EP] ⇌ [E, P]
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
 
@@ -144,9 +144,9 @@
 
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, S] ⇌ [ES]    :: EqualRT
-                    [ES] <--> [EP]    :: OnlyR
-                    [EP] ⇌ [E, P]    :: EqualRT
+                    E + S ⇌ ES    :: EqualRT
+                    ES <--> EP    :: OnlyR
+                    EP ⇌ E + P    :: EqualRT
                 end
             end
         end
@@ -272,8 +272,8 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] <--> [ES]
-                [ES] <--> [E, P]
+                E + S <--> ES
+                ES <--> E + P
             end
         end
         @test sprint(show, m) ==
@@ -284,13 +284,13 @@
             substrates: A, B
             products:   P, Q
             steps: begin
-                [E, A] <--> [EA]
-                [E, B] <--> [EB]
-                [EA, B] <--> [EAB]
-                [EB, A] <--> [EAB]
-                [EAB] <--> [EPQ]
-                [EPQ] <--> [EQ, P]
-                [EQ] <--> [E, Q]
+                E + A <--> EA
+                E + B <--> EB
+                EA + B <--> EAB
+                EB + A <--> EAB
+                EAB <--> EPQ
+                EPQ <--> EQ + P
+                EQ <--> E + Q
             end
         end
         s = sprint(show, m_b)
@@ -304,9 +304,9 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] ⇌ [ES]
-                [ES] <--> [EP]
-                [EP] ⇌ [E, P]
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         @test sprint(show, m_re) ==
@@ -318,9 +318,9 @@
             products:   P
             regulators: I
             steps: begin
-                [E, S] <--> [ES]
-                [ES] <--> [E, P]
-                [E, I] <--> [EI]
+                E + S <--> ES
+                ES <--> E + P
+                E + I <--> EI
             end
         end
         @test contains(sprint(show, m_reg), "| regulators: I")
@@ -341,9 +341,9 @@
             allosteric_regulators: I::OnlyT
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, F6P] ⇌ [E_F6P]   :: EqualRT
-                    [E_F6P] <--> [E_F16BP] :: EqualRT
-                    [E_F16BP] ⇌ [E, F16BP] :: EqualRT
+                    E + F6P ⇌ E_F6P   :: EqualRT
+                    E_F6P <--> E_F16BP :: EqualRT
+                    E_F16BP ⇌ E + F16BP :: EqualRT
                 end
             end
         end
@@ -465,9 +465,9 @@
             substrates: S
             products:   P
             steps: begin
-                [E, S] ⇌ [ES]
-                [ES] <--> [EP]
-                [EP] ⇌ [E, P]
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
@@ -513,9 +513,9 @@
             allosteric_regulators: I::NonequalRT, J::OnlyT
             site(:catalytic, 2): begin
                 steps: begin
-                    [E, S] ⇌ [ES]    :: NonequalRT
-                    [ES] <--> [EP]   :: OnlyR
-                    [EP] ⇌ [E, P]   :: EqualRT
+                    E + S ⇌ ES    :: NonequalRT
+                    ES <--> EP   :: OnlyR
+                    EP ⇌ E + P   :: EqualRT
                 end
             end
         end
@@ -534,5 +534,112 @@
                 @test occursin("$lig::$state", s)
             end
         end
+    end
+
+    @testset "EnzymeReaction: atom mandatory" begin
+        @test_throws ErrorException EnzymeReaction(
+            ((:S, ()),),
+            ((:P, ((:C, 1),)),)
+        )
+        @test_throws ErrorException EnzymeReaction(
+            ((:S, ((:C, 1),)),),
+            ((:P, ()),)
+        )
+        @test EnzymeReaction(
+            ((:S, ((:C, 1),)),),
+            ((:P, ((:C, 1),)),)
+        ) isa EnzymeReaction
+    end
+
+    @testset "EnzymeReaction: atom balance" begin
+        @test_throws ErrorException EnzymeReaction(
+            ((:S, ((:C, 6),)),),
+            ((:P, ((:C, 5),)),)
+        )
+        @test_throws ErrorException EnzymeReaction(
+            ((:S, ((:C, 6), (:H, 12))),),
+            ((:P, ((:C, 6),)),)
+        )
+        @test EnzymeReaction(
+            ((:A, ((:C, 6),)), (:B, ((:N, 1),))),
+            ((:P, ((:C, 6),)), (:Q, ((:N, 1),)))
+        ) isa EnzymeReaction
+    end
+
+    @testset "EnzymeMechanism: strict regulator binding" begin
+        # Regulator :A listed but never bound in any step -> error
+        @test_throws ErrorException EnzymeRates.EnzymeMechanism(
+            ((:S,), (:P,), (:A,)),
+            (((:E, :S), (:E_S,), true, 1),
+             ((:E_S,), (:E_P,), false, 2),
+             ((:E_P,), (:E, :P), true, 3))
+        )
+        # All regulators bound -> ok
+        @test EnzymeRates.EnzymeMechanism(
+            ((:S,), (:P,), (:A,)),
+            (((:E, :S), (:E_S,), true, 1),
+             ((:E_S, :A), (:E_S_A,), true, 4),
+             ((:E_S,), (:E_P,), false, 2),
+             ((:E_P,), (:E, :P), true, 3))
+        ) isa EnzymeRates.EnzymeMechanism
+        # No regulators -> ok
+        @test EnzymeRates.EnzymeMechanism(
+            ((:S,), (:P,), ()),
+            (((:E, :S), (:E_S,), true, 1),
+             ((:E_S,), (:E_P,), false, 2),
+             ((:E_P,), (:E, :P), true, 3))
+        ) isa EnzymeRates.EnzymeMechanism
+    end
+
+    @testset "AllostericEnzymeMechanism display format" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+        init = EnzymeRates.init_mechanisms(rxn)
+        base = first(init)
+        g_s = first(s.kinetic_group for s in base.steps
+                    if EnzymeRates.step_metabolite(s) === :S)
+        g_p = first(s.kinetic_group for s in base.steps
+                    if EnzymeRates.step_metabolite(s) === :P)
+        spec = EnzymeRates.AllostericMechanismSpec(
+            base, 2, [[:R]], [2],
+            Dict(g_s => :EqualRT, g_p => :EqualRT),
+            Dict(:R => :OnlyT),
+            base.n_fit_params_estimate + 1)
+        m = EnzymeRates.AllostericEnzymeMechanism(spec)
+        s = repr(m)
+
+        # Old summary line gone:
+        @test !occursin("cat_allo_states:", s)
+        # Inline ::Tag annotations on each step or step group:
+        @test occursin(":: EqualRT", s)
+        # Multi-line catalytic display (no chain shortcut):
+        n_steps_re = count(c -> c == '\n', s)
+        @test n_steps_re >= 3   # header + ≥3 step lines
+    end
+
+    @testset "AllostericEnzymeMechanism display: shared kinetic group" begin
+        cm = EnzymeMechanism(
+            ((:S,), (:P,), ()),
+            (((:E, :S),    (:E_S,),  true,  1),
+             ((:E_P, :S),  (:E_PS,), true,  1),
+             ((:E_S,),     (:E_P,),  false, 2),
+             ((:E_P,),     (:E, :P), true,  3)))
+        am = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:EqualRT, :EqualRT, :EqualRT)), ())
+        s = repr(am)
+
+        # The parenthesized-group branch must execute: look for the
+        # exact "(...) :: EqualRT" shape with a comma-separated body.
+        paren_group_match = match(
+            r"\([^()]*,[^()]*\) :: EqualRT", s)
+        @test paren_group_match !== nothing
+        # Format: lhs/rhs joined with " + " (no brackets).
+        @test occursin("E_S <--> E_P :: EqualRT", s)
+        @test occursin(":: EqualRT", s)
+        @test !occursin("cat_allo_states:", s)
     end
 end

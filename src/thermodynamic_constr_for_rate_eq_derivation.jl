@@ -166,7 +166,7 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     enz_set = Set(enz_names)
 
     # Free enzyme is any form that's never the RHS of a canonical RE binding
-    # step `[F, met...] ⇌ [F_bound]`. SS steps don't determine binding state
+    # step `F + met... ⇌ F_bound`. SS steps don't determine binding state
     # (their direction isn't canonicalized). Used for pivot priority.
     free_enz_set = Set{Symbol}(enz_names)
     for (lhs, rhs, is_eq, _) in rxns

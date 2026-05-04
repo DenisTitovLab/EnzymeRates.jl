@@ -114,8 +114,9 @@ When asked to do something, just do it - including obvious follow-up actions nee
 
 ## Testing
 
-- ALL TEST FAILURES ARE YOUR RESPONSIBILITY, even if they're not your fault. The Broken Windows theory is real.
+- ALL TEST FAILURES ARE YOUR RESPONSIBILITY, even if they're not your fault. The Broken Windows theory is real. 
 - Never delete a test because it's failing. Instead, raise the issue with Denis. 
+- The only thing worse than a failing test is a reduction in test coverage. 
 - Tests MUST comprehensively cover ALL functionality. 
 - YOU MUST NEVER write tests that "test" mocked behavior. If you notice tests that test mocked behavior instead of real logic, you MUST stop and warn Denis about them.
 - YOU MUST NEVER implement mocks in end to end tests. We always use real data and real APIs.
@@ -225,7 +226,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 - `@generated` functions used for compile-time computation (`stoich_matrix`, `rate_equation`, `_kcat_forward`, `_dependent_param_exprs`, `parameters`).
 
 ### Canonical Step Form
-- The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `[E, S] ⇌ [ES]`, never `[ES] ⇌ [E, S]`.
+- The `EnzymeMechanism` constructor normalizes RE steps so metabolite is always on LHS (binding direction): `E + S ⇌ ES`, never `ES ⇌ E + S`.
 - SS steps are NOT canonicalized (swapping kf↔kr would break analytical test formulas).
 - After canonicalization, all RE metabolite K params are binding Kd (displayed as `1/K`). Non-binding RE steps (pure isomerization) retain Ka convention.
 - `_binding_K_symbols` relies on this invariant: checks only for metabolite on LHS, no RHS check needed.
@@ -271,12 +272,12 @@ julia --project -e 'using Pkg; Pkg.test()'
 ### Mechanism enumeration building blocks
 - Three composable functions, no monolithic pipeline. Caller owns the loop and cache.
 - `init_mechanisms(reaction)` → `Vector{MechanismSpec}` at minimum param count. Enumerates catalytic topologies × dead-end subsets (competition-filtered), 1 SS step. Same-metabolite + RE/SS catalytic-cycle binding steps share a kinetic_group; dead-end mirror steps inherit their catalytic counterpart's kinetic_group at generation time.
-- `expand_mechanisms(specs, reaction)` → `Dict{Int, Vector{AbstractMechanismSpec}}` keyed by estimated param count. Applies expansion moves: RE→SS (atomic per group), split kinetic group, add dead-end regulator, add allosteric regulator, change group/ligand allosteric state, allosteric conversion.
+- `expand_mechanisms(specs, reaction)` → `Dict{Int, Vector{AbstractMechanismSpec}}` keyed by `n_fit_params_estimate`. Applies expansion moves: RE→SS (atomic per group), split kinetic group, add dead-end regulator, add allosteric regulator, change group/ligand allosteric state, allosteric conversion.
 - `dedup!(cache)` → canonicalizes specs (sorted steps; renumbered kinetic_groups by first-occurrence) and removes structural duplicates.
 - `StepSpec` has 4 fields: `reactants::Vector{Symbol}, products::Vector{Symbol}, is_equilibrium::Bool, kinetic_group::Int`. Steps with the same `kinetic_group` share kinetic parameters.
-- `MechanismSpec` has 3 fields: `reaction, steps::Vector{StepSpec}, param_count::Int`. `ParamConstraint` is gone — kinetic groups encode shared parameters.
-- `AllostericMechanismSpec` has 7 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, group_tags::Dict{Int,Symbol}, reg_ligand_tags::Dict{Symbol,Symbol}, param_count::Int`. Internal sparse storage — only non-default entries stored; default is `:NonequalRT`. Converted to dense type parameters in `AllostericEnzymeMechanism(spec)`.
-- `param_count` is an upper-bound estimate during enumeration; true count comes from `length(parameters(m))` after compilation. Counts kinetic GROUPS (not steps): `length(groups_re) + 2 * length(groups_ss) - n_thermo + 2`.
+- `MechanismSpec` has 3 fields: `reaction, steps::Vector{StepSpec}, n_fit_params_estimate::Int`. `ParamConstraint` is gone — kinetic groups encode shared parameters.
+- `AllostericMechanismSpec` has 7 fields: `base::MechanismSpec, catalytic_n, allosteric_reg_sites, allosteric_multiplicities, group_tags::Dict{Int,Symbol}, reg_ligand_tags::Dict{Symbol,Symbol}, n_fit_params_estimate::Int`. Internal sparse storage — only non-default entries stored; default is `:NonequalRT`. Converted to dense type parameters in `AllostericEnzymeMechanism(spec)`.
+- `n_fit_params_estimate` is an upper-bound estimate during enumeration; true count comes from `length(fitted_params(m))` after compilation. Counts kinetic GROUPS (not steps): `length(groups_re) + 2 * length(groups_ss) - n_thermo` (estimate of independent rate-constant count, excluding `Keq` and `E_total` which are not fitted).
 - `oligomeric_state` from `EnzymeReaction` sets `catalytic_n` and all regulator site multiplicities (not enumerated).
 - `EnzymeMechanism(spec::MechanismSpec)` and `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` are the type constructors.
 - Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor.
@@ -314,13 +315,13 @@ julia --project -e 'using Pkg; Pkg.test()'
 - For mechanisms with many enzyme forms/steps, compilation can be extremely slow, exhaust memory, or StackOverflow
 - This is inherent to the type-parameter-based architecture: each unique `EnzymeMechanism` type triggers full symbolic derivation at compile time
 - Workaround in tests: only the simplest mechanisms (first 10 by form count) are tested with `rate_equation`; larger mechanisms are tested only for enumeration correctness
-- Future fix: `identify_rate_equation` should order candidates by `param_count_estimate` (ascending) and skip mechanisms that exceed a time/memory budget
+- Future fix: `identify_rate_equation` should order candidates by `n_fit_params_estimate` (ascending) and skip mechanisms that exceed a time/memory budget
 
 ## Testing
 
 - Tests include Aqua (quality) and JET (static analysis)
 - Don't leave profiling deps (SnoopCompile) in Project.toml — Aqua stale deps check will fail
 - `test/mechanism_definitions_for_test_enzyme_derivation.jl` defines shared mechanisms used by multiple test files — must be included before those tests
-- New mechanism enumeration tests (`test/test_mechanism_enumeration.jl`): unit tests per expansion move using `@enzyme_mechanism` definitions, integration tests via `enumerate_all` helper loop. Param count verified as `length(parameters(m)) <= param_count` (upper-bound estimate).
+- New mechanism enumeration tests (`test/test_mechanism_enumeration.jl`): unit tests per expansion move using `@enzyme_mechanism` definitions, integration tests via `enumerate_all` helper loop. Estimate verified as `length(fitted_params(m)) <= n_fit_params_estimate` (upper-bound estimate).
 - `MechanismTestSpec` has optional `analytical_kcat_fn` field for per-mechanism kcat formula validation
 - kcat/rescaling tests (scale invariance, rate proportionality, V≈1, custom target) run for ALL mechanism specs in the main `run_all_tests` loop — not in a separate file

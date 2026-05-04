@@ -37,7 +37,7 @@ Same-group steps share kinetic parameters.
 struct MechanismSpec <: AbstractMechanismSpec
     reaction::Any
     steps::Vector{StepSpec}
-    param_count::Int
+    n_fit_params_estimate::Int
 end
 
 """
@@ -64,7 +64,7 @@ struct AllostericMechanismSpec <: AbstractMechanismSpec
     allosteric_multiplicities::Vector{Int}
     group_tags::Dict{Int, Symbol}
     reg_ligand_tags::Dict{Symbol, Symbol}
-    param_count::Int
+    n_fit_params_estimate::Int
 end
 
 # ─── StepSpec Helpers ──────────────────────────────────────────
@@ -838,11 +838,11 @@ function _catalytic_topologies(
                 n_re = count(s -> s.is_equilibrium, tagged)
                 n_ss = n_steps - n_re
                 n_thermo = n_cycles
-                param_count = n_re + 2 * n_ss -
-                    n_thermo + 2
+                n_fit_params_estimate = n_re + 2 * n_ss -
+                    n_thermo
 
                 push!(result, MechanismSpec(
-                    reaction, tagged, param_count
+                    reaction, tagged, n_fit_params_estimate
                 ))
             end
         end
@@ -1231,21 +1231,7 @@ function _expand_substrate_product_dead_ends(
                 end
             end
 
-            # Compute param_count by counting kinetic groups
-            groups_re = Set{Int}()
-            groups_ss = Set{Int}()
-            for s in new_steps
-                if s.is_equilibrium
-                    push!(groups_re, s.kinetic_group)
-                else
-                    push!(groups_ss, s.kinetic_group)
-                end
-            end
-            n_forms = length(
-                all_form_names(new_steps))
-            n_thermo = length(new_steps) - n_forms + 1
-            pc = length(groups_re) +
-                 2 * length(groups_ss) - n_thermo + 2
+            pc = _n_fit_params_estimate_from_steps(new_steps)
 
             push!(result, MechanismSpec(
                 spec.reaction, new_steps, pc))
@@ -1297,7 +1283,16 @@ function EnzymeMechanism(
         name for (name, role) in regulator_roles(rxn)
         if role === :allosteric)
     union!(auto_exclude, exclude_regs)
-    regs = Tuple(r for r in regulators(rxn) if r ∉ auto_exclude)
+    # Build the set of names actually appearing on any step (after
+    # stripping the __reg suffix used by enumeration internals).
+    appears_in_steps = Set{Symbol}()
+    for s in spec.steps
+        for sym in Iterators.flatten((s.reactants, s.products))
+            push!(appears_in_steps, _strip_reg_suffix(sym))
+        end
+    end
+    regs = Tuple(r for r in regulators(rxn)
+                 if r ∉ auto_exclude && r ∈ appears_in_steps)
     met_set = Set{Symbol}()
     for g in (subs, prods, regs); for n in g; push!(met_set, n); end; end
 
@@ -1371,7 +1366,7 @@ function init_mechanisms(
 
     n_s = length(substrates(reaction))
     n_p = length(products(reaction))
-    floor_pc = n_s + n_p + 3
+    floor_pc = n_s + n_p + 1
 
     result = MechanismSpec[]
     for spec in expanded
@@ -1408,18 +1403,20 @@ function _apply_equivalence_grouping(
             push!(new_steps, s)
         end
     end
-    pc = max(_param_count_from_steps(new_steps), floor_pc)
+    pc = max(
+        _n_fit_params_estimate_from_steps(new_steps),
+        floor_pc)
     MechanismSpec(spec.reaction, new_steps, pc)
 end
 
 """
-Compute parameter count from a step list, counting kinetic groups
-rather than individual steps. This is exact for mechanisms whose
-cycles all impose independent Wegscheider constraints; dead-end
+Compute parameter-count estimate from a step list, counting kinetic
+groups rather than individual steps. This is exact for mechanisms
+whose cycles all impose independent Wegscheider constraints; dead-end
 mirror cycles add 0 effective constraints, so this formula can
 underestimate — callers should floor to a safe lower bound.
 """
-function _param_count_from_steps(steps::Vector{StepSpec})
+function _n_fit_params_estimate_from_steps(steps::Vector{StepSpec})
     groups_re = Set{Int}()
     groups_ss = Set{Int}()
     for s in steps
@@ -1431,8 +1428,7 @@ function _param_count_from_steps(steps::Vector{StepSpec})
     end
     n_forms = length(all_form_names(steps))
     n_thermo = length(steps) - n_forms + 1
-    length(groups_re) + 2 * length(groups_ss) -
-        n_thermo + 2
+    length(groups_re) + 2 * length(groups_ss) - n_thermo
 end
 
 """
@@ -1469,10 +1465,10 @@ end
 _steps(s::MechanismSpec) = s.steps
 _steps(s::AllostericMechanismSpec) = s.base.steps
 
-_param_count(s::AbstractMechanismSpec) = s.param_count
+_n_fit_params_estimate(s::AbstractMechanismSpec) = s.n_fit_params_estimate
 
 """
-Return a copy of `spec` with its steps replaced and param_count updated.
+Return a copy of `spec` with its steps replaced and estimate updated.
 For `AllostericMechanismSpec`, all allosteric-side state is preserved.
 """
 _with_steps(spec::MechanismSpec, new_steps, new_pc) =
@@ -1516,7 +1512,8 @@ function _expand_re_to_ss(spec::AbstractMechanismSpec)
         end
         delta = _re_to_ss_delta(spec, g)
         push!(results, _with_steps(
-            spec, new_steps, _param_count(spec) + delta))
+            spec, new_steps,
+            _n_fit_params_estimate(spec) + delta))
     end
     results
 end
@@ -1536,8 +1533,8 @@ _re_to_ss_delta(spec::AllostericMechanismSpec, g::Int) =
 
 For each kinetic group with 2+ members, split one step out into a
 fresh group. Each split adds +1 (RE plain or RE cheap-tag) up to
-+4 (SS `:NonequalRT`) to `param_count`, doubling for SS and
-again for `:NonequalRT` (T-state).
++4 (SS `:NonequalRT`) to `n_fit_params_estimate`, doubling for SS
+and again for `:NonequalRT` (T-state).
 """
 function _expand_split_kinetic_group(spec::AbstractMechanismSpec)
     results = typeof(spec)[]
@@ -1560,12 +1557,39 @@ function _expand_split_kinetic_group(spec::AbstractMechanismSpec)
                 old.is_equilibrium, new_g)
             delta = _split_group_delta(
                 spec, g, old.is_equilibrium)
-            push!(results, _with_steps(
-                spec, new_steps, _param_count(spec) + delta))
+            new_pc = _n_fit_params_estimate(spec) + delta
+            push!(results,
+                _split_with_steps(
+                    spec, new_steps, new_pc, g, new_g))
         end
         next_g += 1
     end
     results
+end
+
+# Like `_with_steps` but inherits the parent group's allosteric
+# tag onto the freshly-created split group. Splitting is a
+# parameter-relaxation move: the new group must share R/T-state
+# semantics with the parent it was carved out of.
+_split_with_steps(
+    spec::MechanismSpec, new_steps, new_pc, _g, _new_g,
+) = _with_steps(spec, new_steps, new_pc)
+
+function _split_with_steps(
+    spec::AllostericMechanismSpec, new_steps, new_pc,
+    g::Int, new_g::Int,
+)
+    new_tags = copy(spec.group_tags)
+    new_tags[new_g] = get(new_tags, g, :NonequalRT)
+    AllostericMechanismSpec(
+        MechanismSpec(spec.base.reaction, new_steps, new_pc),
+        spec.catalytic_n,
+        deepcopy(spec.allosteric_reg_sites),
+        copy(spec.allosteric_multiplicities),
+        new_tags,
+        copy(spec.reg_ligand_tags),
+        new_pc,
+    )
 end
 
 """
@@ -1596,7 +1620,7 @@ bound by any competing metabolite. Mirror steps inherit their
 catalytic counterpart's `kinetic_group`. All new binding steps for a
 single regulator share one new kinetic group (one K_R parameter).
 
-Each variant adds +1 to `param_count`.
+Each variant adds +1 to `n_fit_params_estimate`.
 """
 function _expand_add_dead_end_regulator(
     spec::AbstractMechanismSpec,
@@ -1766,7 +1790,9 @@ the new group `:EqualRT` so it's one shared K (no extra T-state),
 keeping the allosteric move at +1.
 """
 _dead_end_with_steps(spec::MechanismSpec, new_steps, _new_g) =
-    MechanismSpec(spec.reaction, new_steps, spec.param_count + 1)
+    MechanismSpec(
+        spec.reaction, new_steps,
+        spec.n_fit_params_estimate + 1)
 
 function _dead_end_with_steps(
     spec::AllostericMechanismSpec, new_steps, new_g::Int,
@@ -1775,12 +1801,12 @@ function _dead_end_with_steps(
     new_tags[new_g] = :EqualRT
     AllostericMechanismSpec(
         MechanismSpec(spec.base.reaction, new_steps,
-            spec.param_count + 1),
+            spec.n_fit_params_estimate + 1),
         spec.catalytic_n,
         deepcopy(spec.allosteric_reg_sites),
         copy(spec.allosteric_multiplicities),
         new_tags, copy(spec.reg_ligand_tags),
-        spec.param_count + 1)
+        spec.n_fit_params_estimate + 1)
 end
 
 """
@@ -1801,7 +1827,7 @@ function _expand_to_allosteric(
     @nospecialize(reaction::EnzymeReaction),
 )
     cn = oligomeric_state(reaction)
-    base_pc = spec.param_count
+    base_pc = spec.n_fit_params_estimate
 
     group_info = _group_info(spec.steps)
     groups_sorted = sort!(collect(keys(group_info)))
@@ -1936,7 +1962,7 @@ function _expand_add_allosteric_regulator(
                     spec.base, spec.catalytic_n,
                     new_sites, new_mults,
                     copy(spec.group_tags), new_lig_tags,
-                    spec.param_count + delta_cost))
+                    spec.n_fit_params_estimate + delta_cost))
             end
         end
         # Enumerate :EqualRT only for existing sites where at least one
@@ -1956,7 +1982,7 @@ function _expand_add_allosteric_regulator(
                 spec.base, spec.catalytic_n,
                 new_sites, new_mults,
                 copy(spec.group_tags), new_lig_tags,
-                spec.param_count + delta_cost))
+                spec.n_fit_params_estimate + delta_cost))
         end
     end
     results
@@ -1999,7 +2025,7 @@ function _expand_change_allo_state(
             deepcopy(spec.allosteric_reg_sites),
             copy(spec.allosteric_multiplicities),
             new_tags, copy(spec.reg_ligand_tags),
-            spec.param_count + delta))
+            spec.n_fit_params_estimate + delta))
     end
 
     for (lig, tag) in spec.reg_ligand_tags
@@ -2011,7 +2037,7 @@ function _expand_change_allo_state(
             deepcopy(spec.allosteric_reg_sites),
             copy(spec.allosteric_multiplicities),
             copy(spec.group_tags), new_lig_tags,
-            spec.param_count + delta))
+            spec.n_fit_params_estimate + delta))
     end
 
     results
@@ -2058,7 +2084,7 @@ end
 function _push_to_dict!(
     result::Dict{Int, Vector{AbstractMechanismSpec}},
     spec::AbstractMechanismSpec)
-    push!(get!(result, spec.param_count,
+    push!(get!(result, spec.n_fit_params_estimate,
         AbstractMechanismSpec[]), spec)
 end
 
@@ -2066,7 +2092,7 @@ end
     expand_mechanisms(specs, reaction) → Dict{Int, Vector{AbstractMechanismSpec}}
 
 Apply all +1 and +2 expansion moves. Results grouped
-by target param_count.
+by target n_fit_params_estimate.
 """
 function expand_mechanisms(
     specs::Vector{<:AbstractMechanismSpec},
@@ -2186,7 +2212,7 @@ end
 """
     dedup!(cache) → cache
 
-Remove structural duplicates from each param_count bucket
+Remove structural duplicates from each n_fit_params_estimate bucket
 via canonical form comparison.
 """
 function dedup!(

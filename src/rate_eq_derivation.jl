@@ -9,18 +9,69 @@ const _AnyMechanism = AbstractEnzymeMechanism
 Return the parameter names required for the given mode as a tuple of Symbols.
 
 # Modes
-- `Reduced` (default): independent k's + Keq + E_total
-- `Full`: all 2N k's + E_total (EnzymeMechanism only)
+- `Reduced` (default): independent k's + Keq + E_total. The set of
+  symbols the user supplies to evaluate the Haldane-reduced rate
+  equation. Returned for both `EnzymeMechanism` and
+  `AllostericEnzymeMechanism`.
+- `Full`: all raw rate-constant symbols + E_total. For
+  `EnzymeMechanism` this is "all 2N k's + E_total." For
+  `AllostericEnzymeMechanism` it composes the catalytic raw
+  symbols + every `_T`-suffixed mirror the body emits as a
+  constraint LHS (via `_all_t_state_names`) + reg-site R-state
+  K's (skipping `:OnlyT` ligands) + `:L` + `:E_total`. The
+  allosteric Full mode is used as a name source by Phase G's
+  rate-equation canonicalizer; no `rate_equation` method is
+  defined for `(::AllostericEnzymeMechanism, ::FullMode)`, so
+  this mode is for canonicalization, not runtime evaluation.
 """
 function parameters end
 
 parameters(m::_AnyMechanism) = parameters(m, Reduced)
 
+# ── EnzymeMechanism ───────────────────────────────────────────
 @generated function parameters(::M, ::FullMode) where {M <: EnzymeMechanism}
     Tuple((_raw_param_symbols(M())..., :E_total))
 end
 
-@generated function parameters(::M, ::ReducedMode) where {M <: _AnyMechanism}
+@generated function parameters(::M, ::ReducedMode) where {M <: EnzymeMechanism}
+    _, indep = _dependent_param_exprs(M)
+    (indep..., :Keq, :E_total)
+end
+
+# ── AllostericEnzymeMechanism ────────────────────────────────
+@generated function parameters(
+    ::M, ::FullMode,
+) where {M <: AllostericEnzymeMechanism}
+    m = M()
+    cm = catalytic_mechanism(m)
+    catalytic_params = Symbol[]
+    for g in kinetic_groups(cm)
+        rep = first(steps_in_group(cm, g))
+        for s in _group_param_symbols(cm, rep)
+            push!(catalytic_params, s)
+        end
+    end
+
+    t_state_params = _all_t_state_names(m)
+
+    rs = regulatory_sites(m)
+    reg_R_params = Symbol[]
+    for (i, entry) in enumerate(rs)
+        ligands = entry[1]
+        tags = entry[3]
+        for (lig, tag) in zip(ligands, tags)
+            tag != :OnlyT &&
+                push!(reg_R_params, _reg_param_name(lig, i, false))
+        end
+    end
+
+    Tuple((catalytic_params..., t_state_params...,
+           reg_R_params..., :L, :E_total))
+end
+
+@generated function parameters(
+    ::M, ::ReducedMode,
+) where {M <: AllostericEnzymeMechanism}
     _, indep = _dependent_param_exprs(M)
     (indep..., :Keq, :E_total)
 end
@@ -1185,6 +1236,75 @@ function _T_rename(m::AllostericEnzymeMechanism)
     rename
 end
 
+"""
+All `_T`-suffixed parameter names that the rate-equation body
+emits as constraint LHSes for an allosteric mechanism. Used by
+both `_build_dep_assignments` (which writes those constraint
+lines) and `parameters(m, Full)` (which the canonicalizer uses
+as its rename source).
+
+Iterates kinetic groups in sorted order and reg sites/ligands in
+declaration order so output is deterministic.
+"""
+function _all_t_state_names(m::AllostericEnzymeMechanism)
+    cm = catalytic_mechanism(m)
+    names = Symbol[]
+    t_dead = _t_state_dead(m)
+    # Catalytic group T-state symbols. When `t_dead`, only
+    # `:NonequalRT` groups contribute to the body (their K_T appears
+    # in `den_T`); `:EqualRT` groups use the R-state name in `den_T`,
+    # and their K_T constraint mirror is elided. When NOT dead, all
+    # non-`:OnlyR` groups contribute (via `num_T` and constraint
+    # mirrors).
+    for g in kinetic_groups(cm)
+        tag = cat_allo_state(m, g)
+        tag == :OnlyR && continue
+        t_dead && tag != :NonequalRT && continue
+        rep = first(steps_in_group(cm, g))
+        for s in _group_param_symbols(cm, rep)
+            push!(names, _rename_params_T(s))
+        end
+    end
+    # Synthesized `:EqualRT`-references-`:NonequalRT` dep mirrors
+    # appear ONLY as constraint LHSes (in `t_assignments`), which
+    # are elided when `t_dead`. Skip in that case.
+    if !t_dead
+        nonequalrt_set = Set{Symbol}()
+        for g in kinetic_groups(cm)
+            cat_allo_state(m, g) == :NonequalRT || continue
+            rep = first(steps_in_group(cm, g))
+            for s in _group_param_symbols(cm, rep)
+                push!(nonequalrt_set, s)
+            end
+        end
+        if !isempty(nonequalrt_set)
+            dep_R_all, _ = _dependent_param_exprs(typeof(cm))
+            # Sort dep entries by key Symbol so order is stable
+            # across Julia versions / Dict implementations —
+            # canonicalization downstream depends on stable order.
+            for (k, v) in sort(collect(dep_R_all); by=first)
+                k in nonequalrt_set && continue
+                _expr_references_any(v, nonequalrt_set) || continue
+                push!(names, _rename_params_T(k))
+            end
+        end
+    end
+    # Regulator T-state K names. Per `_reg_site_expr`, body uses
+    # K_T name when `tag in (:NonequalRT, :OnlyT)`. `:EqualRT`
+    # ligands use the R-state name in body (their K_T constraint
+    # mirror is elided when t_dead and irrelevant when alive).
+    for (i, entry) in enumerate(regulatory_sites(m))
+        ligands = entry[1]
+        tags = entry[3]
+        for (lig, tag) in zip(ligands, tags)
+            tag == :OnlyR && continue
+            t_dead && tag == :EqualRT && continue
+            push!(names, _reg_param_name(lig, i, true))
+        end
+    end
+    names
+end
+
 # ─── Binding K symbols ───────────────────────────────────────────
 
 """
@@ -1301,8 +1421,8 @@ function _dependent_param_exprs(
     return merged_dep, merged_indep
 end
 
-# parameters and fitted_params for AllostericEnzymeMechanism are handled
-# by the unified _AnyMechanism methods at the top of this file.
+# `parameters` and `fitted_params` for `AllostericEnzymeMechanism`
+# dispatch on explicit per-type methods at the top of this file.
 
 # ─── Rate body building helpers ───────────────────────────────────
 
@@ -1350,6 +1470,7 @@ function _build_dep_assignments(
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
     T_subs = Dict{Symbol, Symbol}(rename_T)
+    t_names_set = Set(_all_t_state_names(m))
 
     r_assignments = Expr[Expr(:(=), sym, expr_kd) for (sym, expr_kd) in sorted_deps]
 
@@ -1373,14 +1494,13 @@ function _build_dep_assignments(
         end
     end
 
-    # Emit a T-state assignment for every dep that has a T-state name
-    # in rename_T. Step 1's extension to _T_rename includes both
-    # :NonequalRT-tagged dep symbols (Case A) and synthesized T-names
-    # for :EqualRT-tagged derived deps whose RHS references a
-    # :NonequalRT symbol (Case B). The unified lookup catches both.
+    # Emit a T-state assignment for every dep with a T-state name in
+    # `_all_t_state_names`. The helper covers both :NonequalRT-tagged
+    # dep symbols (Case A) and synthesized T-names for :EqualRT-tagged
+    # derived deps whose RHS references a :NonequalRT symbol (Case B).
     for (sym, expr_kd) in sorted_deps
-        t_sym = get(rename_T, sym, nothing)
-        t_sym === nothing && continue
+        t_sym = _rename_params_T(sym)
+        t_sym in t_names_set || continue
         if _expr_references_any(expr_kd, r_only_syms)
             push!(t_assignments, Expr(:(=), t_sym, 0))
         else

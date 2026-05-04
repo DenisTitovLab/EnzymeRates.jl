@@ -42,9 +42,9 @@ m = @allosteric_mechanism begin
 
     site(:catalytic, 2): begin
         steps: begin
-            [E, S] ⇌ [ES]      :: EqualRT
-            [ES] <--> [EP]     :: OnlyR
-            [EP] ⇌ [E, P]      :: EqualRT
+            E + S ⇌ ES      :: EqualRT
+            ES <--> EP     :: OnlyR
+            EP ⇌ E + P      :: EqualRT
         end
     end
 end
@@ -137,8 +137,8 @@ chemistry from Section 2, declared as a *reaction*:
 
 ```julia
 rxn = @enzyme_reaction begin
-    substrates: S
-    products:   P
+    substrates: S[C]
+    products:   P[C]
     regulators: A
     oligomeric_state: 2
 end
@@ -264,9 +264,10 @@ size, and substrate participation are emitted.
 
 1. Fit all candidates at the smallest parameter count on the full
    data; record training loss.
-2. Keep the top fraction by training loss (at least
-   `min_beam_width` candidates, or all of them if there are
-   fewer than that).
+2. Keep every candidate whose loss is within
+   `loss_rel_threshold * best_loss + loss_abs_threshold`,
+   or always at least the top `min_beam_width` by loss
+   (whichever set is larger).
 3. Apply `expand_mechanisms` to surviving specs to produce candidates
    at the next parameter-count level.
 4. `dedup!` and fit; rank by training loss.
