@@ -595,3 +595,30 @@ end
         cv_df4, 0.4) == 3
 end
 
+@testset "_select_best_n_params" begin
+    # Wilcoxon picks 3 (mixed-sign diffs, p>0.4); 1-SE picks
+    # 7 (bucket-5 mean is far above bucket-7 mean + SE because
+    # bucket-5 has high uniform offset). min = 3.
+    cv_df = DataFrame(
+        n_params       = [3, 5, 7],
+        cv_score       = [0.124, 1.125, 0.125],
+        cv_fold_scores = [
+            exp.([0.105, 0.108, 0.115, 0.135, 0.142, 0.145]),
+            exp.([1.10, 1.11, 1.12, 1.13, 1.14, 1.15]),
+            exp.([0.10, 0.11, 0.12, 0.13, 0.14, 0.15]),
+        ],
+    )
+    @test EnzymeRates._select_best_n_params(cv_df, 0.4) == 3
+
+    # Both methods agree: bucket-3 == bucket-5 → simpler.
+    cv_df2 = DataFrame(
+        n_params       = [3, 5],
+        cv_score       = [0.115, 0.115],
+        cv_fold_scores = [
+            exp.([0.10, 0.12, 0.11, 0.13]),
+            exp.([0.10, 0.12, 0.11, 0.13]),
+        ],
+    )
+    @test EnzymeRates._select_best_n_params(cv_df2, 0.4) == 3
+end
+

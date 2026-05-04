@@ -810,6 +810,26 @@ function _find_best_n_params_wilcoxon(
     n_min
 end
 
+"""
+    _select_best_n_params(cv_df, p_threshold) → Int
+
+Parsimony-aware model selection. Returns the more parsimonious
+of the 1-SE rule and the Wilcoxon signed-rank rule. Both
+operate on log-transformed per-fold LOOCV scores via per-bucket
+representative selection (lowest cv_score row in each bucket).
+
+Replaces strict-`argmin` over CV means: tiny CV improvements
+from added parameters no longer justify the complexity bump.
+"""
+function _select_best_n_params(
+    cv_df::DataFrame, p_threshold::Float64,
+)
+    n_se = _find_best_n_params_1se(cv_df)
+    n_wx = _find_best_n_params_wilcoxon(
+        cv_df, p_threshold)
+    min(n_se, n_wx)
+end
+
 function _cv_model_selection(
     specs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
