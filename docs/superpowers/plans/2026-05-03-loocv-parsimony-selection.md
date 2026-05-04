@@ -918,15 +918,16 @@ Append to `test/test_identify_rate_equation.jl`:
     @test EnzymeRates._find_best_n_params_1se(
         cv_df_partial) == 3
 
-    # Wilcoxon length-mismatch: smaller bucket has 4 folds,
-    # n_min has 6 → length check skips smaller bucket → returns
-    # n_min.
+    # Wilcoxon length-mismatch: smaller bucket-3 has 4 folds,
+    # n_min bucket-7 has 6 (bucket-7 has the lower log-mean,
+    # so it's n_min). Length check skips bucket-3 → returns
+    # n_min = 7.
     cv_df_mismatch = DataFrame(
         n_params       = [3, 7],
-        cv_score       = [0.124, 0.125],
+        cv_score       = [0.116, 0.113],
         cv_fold_scores = [
-            exp.([0.105, 0.108, 0.115, 0.135]),       # 4 folds
-            exp.([0.10, 0.11, 0.12, 0.13, 0.14, 0.15]),  # 6
+            exp.([0.105, 0.108, 0.115, 0.135]),                # 4 folds
+            exp.([0.10, 0.105, 0.11, 0.115, 0.12, 0.125]),     # 6 folds
         ],
     )
     @test EnzymeRates._find_best_n_params_wilcoxon(

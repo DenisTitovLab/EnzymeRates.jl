@@ -622,3 +622,61 @@ end
     @test EnzymeRates._select_best_n_params(cv_df2, 0.4) == 3
 end
 
+@testset "selection helpers: edge cases" begin
+    # All rows have empty fold-scores → error.
+    cv_df_empty = DataFrame(
+        n_params       = [3, 5],
+        cv_score       = [Inf, Inf],
+        cv_fold_scores = [Float64[], Float64[]],
+    )
+    @test_throws ErrorException EnzymeRates._find_best_n_params_1se(
+        cv_df_empty)
+    @test_throws ErrorException EnzymeRates._find_best_n_params_wilcoxon(
+        cv_df_empty, 0.4)
+    @test_throws ErrorException EnzymeRates._select_best_n_params(
+        cv_df_empty, 0.4)
+
+    # Mixed: bucket-3 has one failed row, bucket-5 has a valid
+    # row. Bucket-3 dropped → only bucket-5 remains → returns 5.
+    cv_df_mixed = DataFrame(
+        n_params       = [3, 5],
+        cv_score       = [Inf, 0.115],
+        cv_fold_scores = [Float64[],
+                          exp.([0.10, 0.12, 0.11, 0.13])],
+    )
+    @test EnzymeRates._find_best_n_params_1se(
+        cv_df_mixed) == 5
+    @test EnzymeRates._find_best_n_params_wilcoxon(
+        cv_df_mixed, 0.4) == 5
+    @test EnzymeRates._select_best_n_params(
+        cv_df_mixed, 0.4) == 5
+
+    # Bucket-3 has TWO rows: one failed, one valid. The valid
+    # row is the rep. Bucket should be retained → returns 3
+    # via 1-SE (rep means equal).
+    cv_df_partial = DataFrame(
+        n_params       = [3, 3, 5],
+        cv_score       = [Inf, 0.115, 0.115],
+        cv_fold_scores = [Float64[],
+                          exp.([0.10, 0.12, 0.11, 0.13]),
+                          exp.([0.10, 0.12, 0.11, 0.13])],
+    )
+    @test EnzymeRates._find_best_n_params_1se(
+        cv_df_partial) == 3
+
+    # Wilcoxon length-mismatch: smaller bucket-3 has 4 folds,
+    # n_min bucket-7 has 6 (bucket-7 has the lower log-mean,
+    # so it's n_min). Length check skips bucket-3 → returns
+    # n_min = 7.
+    cv_df_mismatch = DataFrame(
+        n_params       = [3, 7],
+        cv_score       = [0.116, 0.113],
+        cv_fold_scores = [
+            exp.([0.105, 0.108, 0.115, 0.135]),                # 4 folds
+            exp.([0.10, 0.105, 0.11, 0.115, 0.12, 0.125]),     # 6 folds
+        ],
+    )
+    @test EnzymeRates._find_best_n_params_wilcoxon(
+        cv_df_mismatch, 0.4) == 7
+end
+
