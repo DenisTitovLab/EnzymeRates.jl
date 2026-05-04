@@ -292,6 +292,11 @@ and data using beam search.
   (forwarded to `Optimization.solve`)
 - `n_cv_candidates::Int = 5`: LOOCV top N
   **unique-rate-equation** candidates per param count
+- `p_value_threshold::Float64 = 0.4`: parsimony threshold for
+  the Wilcoxon signed-rank test in model selection. Smaller
+  values demand stronger evidence to accept simpler models.
+  Default 0.4 matches DataDrivenEnzymeRateEqs.jl convention
+  (parsimony-permissive).
 - `save_dir`: directory for per-level CSV files
 - `pmap_function::Function = pmap`: parallelism
   function (Distributed.pmap by default)
@@ -307,6 +312,24 @@ A mechanism qualifies for the next-level beam if either:
 The additive term protects against `best_loss` approaching zero
 (simulated / very-low-loss data) where a purely multiplicative
 threshold would collapse the beam to the single best mechanism.
+
+# Model selection (LOOCV)
+
+The best `n_params` is chosen by the more parsimonious of two
+methods, both operating on log of per-fold LOOCV scores:
+
+1. **1-SE rule**: smallest `n_params` whose representative
+   bucket-mean log-loss is within one standard error of the
+   lowest representative bucket-mean log-loss.
+2. **Wilcoxon signed-rank test**: smallest `n_params` whose
+   representative per-fold log-losses are NOT statistically
+   significantly worse than the best bucket
+   (`pvalue > p_value_threshold`).
+
+Per-bucket representative = the row with the lowest mean
+fold-loss in that `n_params` bucket. Final pick is
+`min(n_1se, n_wilcoxon)`. Within the chosen `n_params`, the
+mechanism with lowest training loss wins.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
@@ -324,6 +347,7 @@ function identify_rate_equation(
     verbose::Int = -9,
     # Model selection
     n_cv_candidates::Int = 5,
+    p_value_threshold::Float64 = 0.4,
     # Output & parallelism
     save_dir::Union{Nothing,String} = nothing,
     pmap_function::Function = pmap,
@@ -354,8 +378,8 @@ function identify_rate_equation(
 
     return _cv_model_selection(
         specs, df, prob;
-        n_cv_candidates, pmap_function,
-        optimizer, fitting_kwargs...)
+        n_cv_candidates, p_value_threshold,
+        pmap_function, optimizer, fitting_kwargs...)
 end
 
 """
@@ -834,7 +858,7 @@ function _cv_model_selection(
     specs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
     n_cv_candidates, pmap_function,
-    optimizer, kwargs...
+    optimizer, p_value_threshold, kwargs...
 )
     # specs[i] corresponds to df[i, :] (same append
     # order in _beam_search, df is NOT sorted)
@@ -892,13 +916,11 @@ function _cv_model_selection(
         "data quality, or compile failures (run with " *
         "ENV[\"JULIA_DEBUG\"] = \"EnzymeRates\").")
 
-    # Best param count by CV score
-    best_cv_per_pc = combine(
-        groupby(cv_df, :n_params),
-        :cv_score => minimum => :best_cv)
-    best_pc_row = best_cv_per_pc[
-        argmin(best_cv_per_pc.best_cv), :]
-    best_param_count = best_pc_row.n_params
+    # Parsimony-aware selection: 1-SE rule + Wilcoxon
+    # signed-rank test, both in log-loss space; take the more
+    # parsimonious answer.
+    best_param_count = _select_best_n_params(
+        cv_df, p_value_threshold)
 
     # Best mechanism = lowest loss at that
     # param count
@@ -910,7 +932,10 @@ function _cv_model_selection(
     best_mechanism = compile_mechanism(
         specs[best_idx])
 
-    select!(cv_df, Not(:spec_idx))
+    # Drop internal columns so user-facing cv_results stays
+    # CSV-serialisable. cv_fold_scores is a Vector column —
+    # CSV.write would stringify each cell.
+    select!(cv_df, Not([:spec_idx, :cv_fold_scores]))
     return IdentifyRateEquationResults(
         best_mechanism, cv_df)
 end
