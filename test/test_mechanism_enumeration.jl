@@ -1674,11 +1674,10 @@ end
         spec = first(specs)
         result = EnzymeRates._expand_to_allosteric(
             spec, uni_uni_allo)
-        # Uni-uni init has 3 singleton groups (S binding,
-        # P binding, iso). Per R-state-active convention,
-        # only `:OnlyR` and `:EqualRT` are enumerated.
-        # 2 binding × 2 tags + 1 iso × 2 tags = 6
-        @test length(result) == 6
+        # Uni-uni init has 3 singleton groups (S binding, P binding, iso).
+        # _expand_to_allosteric emits the all-:EqualRT baseline once plus
+        # one :OnlyR variant per group: 1 + 3 = 4.
+        @test length(result) == 4
         for r in result
             _assert_spec_invariants(r)
             @test r isa AllostericMechanismSpec

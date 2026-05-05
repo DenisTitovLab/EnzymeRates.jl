@@ -1813,11 +1813,10 @@ end
     _expand_to_allosteric(spec, reaction)
         → Vector{AllostericMechanismSpec}
 
-Convert a non-allosteric `MechanismSpec` to allosteric. Per-group
-tag enumeration: for each kinetic group, emit a variant where THAT
-group carries a non-`:NonequalRT` tag and ALL OTHER groups carry
-`:EqualRT` (the cheapest non-default tag). Tag choices:
-`{:OnlyR, :EqualRT}`.
+Convert a non-allosteric `MechanismSpec` to allosteric. Emits the
+all-`:EqualRT` baseline plus one variant per kinetic group with that
+group set to `:OnlyR`. Total: `n_groups + 1` specs (each unique under
+sparse-Dict equality).
 
 Cost: +1 (for `L`). Other tag deltas are zero relative to the
 all-`:EqualRT` baseline.
@@ -1832,21 +1831,23 @@ function _expand_to_allosteric(
     group_info = _group_info(spec.steps)
     groups_sorted = sort!(collect(keys(group_info)))
 
-    # Default tag for "untouched" groups in this enumeration is
-    # :EqualRT — the cheapest reasonable value.
+    # All-:EqualRT baseline: cheapest non-default tag everywhere.
     base_tags = Dict{Int, Symbol}(g => :EqualRT for g in groups_sorted)
 
     results = AllostericMechanismSpec[]
+    push!(results, AllostericMechanismSpec(
+        spec, cn,
+        Vector{Symbol}[], Int[],
+        copy(base_tags), Dict{Symbol, Symbol}(),
+        base_pc + 1))
     for g in groups_sorted
-        for tag in (:OnlyR, :EqualRT)
-            new_tags = copy(base_tags)
-            new_tags[g] = tag
-            push!(results, AllostericMechanismSpec(
-                spec, cn,
-                Vector{Symbol}[], Int[],
-                new_tags, Dict{Symbol, Symbol}(),
-                base_pc + 1))
-        end
+        new_tags = copy(base_tags)
+        new_tags[g] = :OnlyR
+        push!(results, AllostericMechanismSpec(
+            spec, cn,
+            Vector{Symbol}[], Int[],
+            new_tags, Dict{Symbol, Symbol}(),
+            base_pc + 1))
     end
     results
 end
