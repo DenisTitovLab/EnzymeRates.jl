@@ -4,10 +4,32 @@
 using EnzymeRates: StepSpec, MechanismSpec, AllostericMechanismSpec,
     AbstractMechanismSpec
 
-# Helper: convert EnzymeMechanism → MechanismSpec
-function mechanism_spec_from_mechanism(
+# Helper: convert EnzymeMechanism → MechanismSpec.
+# `m` and `rxn` are dual inputs: `m` carries the catalytic structure,
+# `rxn` carries the reaction-level metadata (atoms, declared regulators).
+# Validates internally that they're consistent: substrates and products
+# names must match exactly; m's regulators must be a subset of rxn's
+# declared regulators (allowing the hybrid case where the mechanism
+# doesn't yet bind every declared regulator).
+function mechanism_spec_from_mechanism_and_rxn(
     m::EnzymeMechanism,
     @nospecialize(rxn::EnzymeReaction))
+    m_subs = Set(EnzymeRates.substrates(m))
+    rxn_subs = Set(s[1] for s in EnzymeRates.substrates(rxn))
+    m_subs == rxn_subs ||
+        error("mechanism_spec_from_mechanism_and_rxn: substrate names " *
+              "disagree — m=$m_subs, rxn=$rxn_subs")
+    m_prods = Set(EnzymeRates.products(m))
+    rxn_prods = Set(p[1] for p in EnzymeRates.products(rxn))
+    m_prods == rxn_prods ||
+        error("mechanism_spec_from_mechanism_and_rxn: product names " *
+              "disagree — m=$m_prods, rxn=$rxn_prods")
+    m_regs = Set(EnzymeRates.regulators(m))
+    rxn_regs = Set(EnzymeRates.regulators(rxn))
+    m_regs ⊆ rxn_regs ||
+        error("mechanism_spec_from_mechanism_and_rxn: m has regulators " *
+              "$(setdiff(m_regs, rxn_regs)) not declared in rxn")
+
     rxns = EnzymeRates.reactions(m)
     steps = StepSpec[]
     for (lhs, rhs, is_eq, gnum) in rxns
@@ -264,7 +286,7 @@ end
                 E_S <--> E_P
             end
         end
-        spec_rt = mechanism_spec_from_mechanism(
+        spec_rt = mechanism_spec_from_mechanism_and_rxn(
             m_uu, uni_uni_rxn)
         @test EnzymeMechanism(spec_rt) === m_uu
         @test EnzymeMechanism(topos[1]) === m_uu
@@ -595,8 +617,7 @@ end
                     E_S <--> E_P
                 end
             end
-            spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
-            @test EnzymeMechanism(spec) === m
+            spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [spec], uni_uni_rxn)
@@ -626,8 +647,7 @@ end
                     E_A_B <--> E_P_Q
                 end
             end
-            spec = mechanism_spec_from_mechanism(m, bi_bi_rxn)
-            @test EnzymeMechanism(spec) === m
+            spec = mechanism_spec_from_mechanism_and_rxn(m, bi_bi_rxn)
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [spec], bi_bi_rxn)
@@ -651,8 +671,7 @@ end
                     E_S <--> E_P_Q
                 end
             end
-            spec = mechanism_spec_from_mechanism(m, uni_bi_rxn)
-            @test EnzymeMechanism(spec) === m
+            spec = mechanism_spec_from_mechanism_and_rxn(m, uni_bi_rxn)
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [spec], uni_bi_rxn)
@@ -676,9 +695,8 @@ end
                     Estar_B ⇌ E_Q
                 end
             end
-            spec = mechanism_spec_from_mechanism(
+            spec = mechanism_spec_from_mechanism_and_rxn(
                 m, bi_bi_pp_rxn)
-            @test EnzymeMechanism(spec) === m
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [spec], bi_bi_pp_rxn)
@@ -763,7 +781,7 @@ end
                 E_A_B <--> E_P_Q
             end
         end
-        spec_bb = mechanism_spec_from_mechanism(
+        spec_bb = mechanism_spec_from_mechanism_and_rxn(
             m_bb, bi_bi_rxn)
 
         @testset "Bi-bi random: 7 variants (was 16)" begin
@@ -954,8 +972,7 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
-        @test EnzymeMechanism(spec) === m
+        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
         result = EnzymeRates._expand_re_to_ss(spec)
         @test length(result) == 2
         for r in result
@@ -973,8 +990,7 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
-        @test EnzymeMechanism(spec) === m
+        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
         result = EnzymeRates._expand_re_to_ss(spec)
         @test isempty(result)
     end
@@ -993,8 +1009,7 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
-        @test EnzymeMechanism(spec) === m
+        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
         rxn_i = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -1073,8 +1088,7 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m, uni_uni_rxn)
-        @test EnzymeMechanism(spec) === m
+        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
         # Every group has exactly 1 step → no split possible
         result = EnzymeRates._expand_split_kinetic_group(spec)
         @test isempty(result)
@@ -1145,7 +1159,7 @@ end
             E_S <--> E_P
         end
     end
-    spec_uu = mechanism_spec_from_mechanism(
+    spec_uu = mechanism_spec_from_mechanism_and_rxn(
         m_uu, uni_uni_rxn)
     @test EnzymeRates._forms_with_binding_step(
         spec_uu.steps, :S) == Set([:E])
@@ -1168,7 +1182,7 @@ end
             E_A_B <--> E_P_Q
         end
     end
-    spec_bb = mechanism_spec_from_mechanism(
+    spec_bb = mechanism_spec_from_mechanism_and_rxn(
         m_bb, bi_bi_rxn)
     @test EnzymeRates._forms_with_binding_step(
         spec_bb.steps, :B) == Set([:E, :E_A])
@@ -1181,14 +1195,6 @@ end
 end
 
 @testset "Add dead-end regulator" begin
-    # Helper: build MechanismSpec from @enzyme_mechanism
-    # with a different reaction (e.g. one with regulators)
-    function _spec_with_rxn(m, rxn_base, rxn_target)
-        spec = mechanism_spec_from_mechanism(
-            m, rxn_base)
-        @test EnzymeMechanism(spec) === m
-        MechanismSpec(rxn_target, spec.steps, spec.n_fit_params_estimate)
-    end
 
     @testset "Uni-uni + new regulator" begin
         m = @enzyme_mechanism begin
@@ -1200,8 +1206,7 @@ end
                 E_S <--> E_P
             end
         end
-        spec = _spec_with_rxn(
-            m, uni_uni_rxn, uni_uni_with_reg)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_with_reg)
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, uni_uni_with_reg)
         # Uni-uni: sub_names={S}, prod_names={P}
@@ -1225,9 +1230,8 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(
+        spec = mechanism_spec_from_mechanism_and_rxn(
             m, uni_uni_rxn)
-        @test EnzymeMechanism(spec) === m
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, uni_uni_rxn)
         @test isempty(result)
@@ -1243,8 +1247,7 @@ end
                 E_S <--> E_P
             end
         end
-        spec = _spec_with_rxn(
-            m, uni_uni_rxn, uni_uni_with_reg)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_with_reg)
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, uni_uni_with_reg)
         for r in result
@@ -1263,8 +1266,7 @@ end
                 E_S <--> E_P
             end
         end
-        spec = _spec_with_rxn(
-            m, uni_uni_rxn, uni_uni_with_reg)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_with_reg)
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, uni_uni_with_reg;
             exclude_regs=Set([:I]))
@@ -1292,8 +1294,7 @@ end
             products: P[C], Q[N]
             dead_end_inhibitors: I
         end
-        spec = _spec_with_rxn(
-            m, bi_bi_rxn, bi_bi_with_reg)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, bi_bi_with_reg)
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, bi_bi_with_reg)
         # Find a variant with multiple eligible forms
@@ -1329,8 +1330,7 @@ end
             products: P[C], Q[N]
             dead_end_inhibitors: I
         end
-        spec = _spec_with_rxn(
-            m, bi_bi_rxn, bi_bi_with_reg)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, bi_bi_with_reg)
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, bi_bi_with_reg)
         for r in result
@@ -1362,7 +1362,7 @@ end
             products: P[C]
             dead_end_inhibitors: I, J
         end
-        spec = _spec_with_rxn(m, uni_uni_rxn, rxn_ij)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_ij)
         # Add I
         i_specs =
             EnzymeRates._expand_add_dead_end_regulator(
@@ -1404,7 +1404,7 @@ end
             products: P[C], Q[N]
             dead_end_inhibitors: I
         end
-        spec = _spec_with_rxn(m, bi_bi_rxn, rxn_i)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_i)
         result =
             EnzymeRates._expand_add_dead_end_regulator(
                 spec, rxn_i)
@@ -1432,8 +1432,7 @@ end
             allosteric_regulators: R
             oligomeric_state: 2
         end
-        spec = _spec_with_rxn(
-            m, uni_uni_rxn, rxn_allo_only)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_allo_only)
         allo = first(EnzymeRates._expand_to_allosteric(
             spec, rxn_allo_only))
         result =
@@ -1449,8 +1448,7 @@ end
             allosteric_regulators: R
             oligomeric_state: 2
         end
-        spec_m = _spec_with_rxn(
-            m, uni_uni_rxn, rxn_mixed)
+        spec_m = mechanism_spec_from_mechanism_and_rxn(m, rxn_mixed)
         allo_m = first(EnzymeRates._expand_to_allosteric(
             spec_m, rxn_mixed))
         result_m =
@@ -1480,8 +1478,7 @@ end
             products: P[C], Q[NX]
             dead_end_inhibitors: I
         end
-        spec = _spec_with_rxn(
-            m, bi_bi_pp_rxn, rxn_pp_i)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_pp_i)
         result =
             EnzymeRates._expand_add_dead_end_regulator(
                 spec, rxn_pp_i)
@@ -1508,7 +1505,7 @@ end
             products: P[C], Q[N]
             dead_end_inhibitors: I
         end
-        spec = _spec_with_rxn(m, bi_bi_rxn, rxn_seq)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_seq)
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, rxn_seq)
         # Sequential bi-bi: binding step sources:
@@ -1548,8 +1545,7 @@ end
             products: P[C], Q[N]
             dead_end_inhibitors: I
         end
-        spec = _spec_with_rxn(
-            m, bi_bi_rxn, bb_with_reg)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, bb_with_reg)
         result = EnzymeRates._expand_add_dead_end_regulator(
             spec, bb_with_reg)
         @test length(result) == 9
@@ -1579,7 +1575,7 @@ end
             products: P[C], Q[N]
             dead_end_inhibitors: I1, I2
         end
-        spec = _spec_with_rxn(m, bi_bi_rxn, rxn_2i)
+        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_2i)
         # Adds both eligible regs (I1 + I2): 9 each
         result1 =
             EnzymeRates._expand_add_dead_end_regulator(
@@ -1643,10 +1639,7 @@ end
         products: P[C]
         dead_end_inhibitors: I, J
     end
-    base = mechanism_spec_from_mechanism(
-        m, uni_uni_rxn)
-    @test EnzymeMechanism(base) === m
-    spec = MechanismSpec(rxn2, base.steps, base.n_fit_params_estimate)
+    spec = mechanism_spec_from_mechanism_and_rxn(m, rxn2)
     # Add I first
     i_specs = EnzymeRates._expand_add_dead_end_regulator(
         spec, rxn2)
@@ -2297,8 +2290,7 @@ end
             E_S <--> E_P
         end
     end
-    spec = mechanism_spec_from_mechanism(m_uu, uni_uni_allo)
-    @test EnzymeMechanism(spec) === m_uu
+    spec = mechanism_spec_from_mechanism_and_rxn(m_uu, uni_uni_allo)
     allo_specs = EnzymeRates._expand_to_allosteric(
         spec, uni_uni_allo)
     allo = first(allo_specs)
@@ -2392,7 +2384,7 @@ end
             dead_end_inhibitors: I
             oligomeric_state: 2
         end
-        spec_i = mechanism_spec_from_mechanism(
+        spec_i = mechanism_spec_from_mechanism_and_rxn(
             m_uu, rxn)
         allo_i = first(
             EnzymeRates._expand_to_allosteric(
