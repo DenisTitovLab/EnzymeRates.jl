@@ -60,6 +60,7 @@ The test command is slow (cold precompilation each invocation per CLAUDE.md). Ru
 - `mechanism_spec_from_mechanism` (existing) and `allosteric_spec_from_mechanism` (Task 1 adds it) round-trip a compiled mechanism back to a spec. Both round-trips must be validated at every call site via `=== m_seed`.
 - Compiled `EnzymeMechanism` / `AllostericEnzymeMechanism` are singleton types; `===` and `==` are equivalent. Step ORDER and `kinetic_group` numbering are part of type identity. So when writing expected-mechanism literals for equivalence-style assertions, the step order and grouping in the literal must match what the move produces.
 - `_expand_re_to_ss`, `_expand_split_kinetic_group`, and other moves preserve step order from the input spec; they do NOT canonicalize. `dedup!` is the only function that canonicalizes.
+- Helper-seeded specs have `n_fit_params_estimate == length(fitted_params(m))` (the *exact* fitted count), while init-seeded specs have `n_fit_params_estimate >= length(fitted_params(m))` (an *upper-bound estimate* that can be strictly larger when mirror cycles exist). Move-delta assertions (`r.n_fit_params_estimate == spec.n_fit_params_estimate + delta`) are correct under either baseline because deltas are baseline-independent — each move computes delta from tag / RE-vs-SS / multi-vs-singleton properties of the affected group. The upper-bound invariant is exercised separately in Task 4 (`init_mechanisms` testset, init-seeded); helper-seeded specs satisfy it trivially via equality.
 
 ---
 

@@ -68,6 +68,19 @@ Storage is dense in both `AllostericMechanismSpec` and the compiled
 `AllostericEnzymeMechanism`, so the round-trip is straightforward
 pass-through with no filtering.
 
+**Note on `n_fit_params_estimate` semantics:** the helper sets the field to
+`length(fitted_params(m))` — the *exact* fitted-param count for the
+compiled mechanism. By contrast, `init_mechanisms` sets it to an
+*upper-bound estimate* (via `_apply_equivalence_grouping`) that can be
+strictly greater than the actual count when mirror cycles exist. This
+asymmetry is benign for the rewrite because all per-move delta assertions
+(`r.n_fit_params_estimate == spec.n_fit_params_estimate + delta`) are
+baseline-independent — every move computes its delta from tag/RE-vs-SS
+properties of the affected group, not from the baseline value. The
+upper-bound invariant `n_fit_params_estimate >= length(fitted_params(m))`
+is exercised separately under §4 (`init_mechanisms` testset, init-seeded);
+helper-seeded specs satisfy it trivially via equality.
+
 **Round-trip validation pattern at every allosteric call site:**
 
 ```julia
