@@ -203,14 +203,16 @@ end
 
 **Seed battery per move** (refined when each commit is written):
 
-| Move | Plain seeds | Allosteric seeds | Overlap seeds | Stoich-2 seeds | Negative seeds |
-|---|---|---|---|---|---|
-| `_expand_re_to_ss` | uni-uni, bi-bi (random), ping-pong | `:EqualRT`/`:OnlyR`/`:NonequalRT` group flavors | substrate-as-dead-end-I | 2A↔P+Q | all-SS |
-| `_expand_split_kinetic_group` | bi-bi size-2 groups, bi-bi after RE→SS | bi-bi allo `:EqualRT`/`:NonequalRT` parent | — | 2A↔P+Q (size-2 group) | all-singleton groups |
-| `_expand_add_dead_end_regulator` | uni-uni+I, bi-bi+I, ping-pong+I, sequential bi-bi+I, two-inh chain | uni-uni allo+I, mixed allo+dead-end | substrate-as-I, product-as-I | 2A+B↔P+Q with I | no regs, allo-only reg |
-| `_expand_to_allosteric` | uni-uni, bi-bi, ping-pong | n/a | — | 2A↔P+Q | already-allosteric |
-| `_expand_add_allosteric_regulator` | n/a | one-reg, two-reg-same-site, two-reg-different-sites, existing `:EqualRT` site | substrate-as-allo-reg, product-as-allo-reg | 2A↔P+Q with allo R | non-allosteric, all regs added |
-| `_expand_change_allo_state` | n/a | one tagged, multiple tagged, fully relaxed | substrate-as-allo-reg (its ligand tag removable) | — | non-allosteric, fully `:NonequalRT` |
+| Move | Plain seeds | Allosteric seeds | Overlap seeds | Negative seeds |
+|---|---|---|---|---|
+| `_expand_re_to_ss` | uni-uni, bi-bi (random), ping-pong | `:EqualRT`/`:OnlyR`/`:NonequalRT` group flavors | substrate-as-dead-end-I | all-SS |
+| `_expand_split_kinetic_group` | bi-bi size-2 groups, bi-bi after RE→SS | bi-bi allo `:EqualRT`/`:NonequalRT` parent | — | all-singleton groups |
+| `_expand_add_dead_end_regulator` | uni-uni+I, bi-bi+I, ping-pong+I, sequential bi-bi+I, two-inh chain | uni-uni allo+I, mixed allo+dead-end | substrate-as-I, product-as-I | no regs, allo-only reg |
+| `_expand_to_allosteric` | uni-uni, bi-bi, ping-pong | n/a | — | already-allosteric |
+| `_expand_add_allosteric_regulator` | n/a | one-reg, two-reg-same-site, two-reg-different-sites, existing `:EqualRT` site | substrate-as-allo-reg, product-as-allo-reg | non-allosteric, all regs added |
+| `_expand_change_allo_state` | n/a | one tagged, multiple tagged, fully relaxed | substrate-as-allo-reg (its ligand tag removable) | non-allosteric, fully `:NonequalRT` |
+
+**Stoichiometry-2 (out of scope):** the `EnzymeReaction` constructor (`src/types.jl:46-49`) errors on duplicate substrate or product names, and the macros pass through to that constructor. Reactions like `2 ADP ↔ ATP + AMP` cannot be expressed in the current API. Adding stoichiometric-coefficient support is a separate scope item; this rewrite tests only the reaction shapes the existing API supports.
 
 **Naming convention:**
 
@@ -301,10 +303,6 @@ moving; they're not core to the brittleness fix.
   - 3-4 cases via `@allosteric_mechanism`: K-type uni-uni, K-type bi-bi, with
     two reg sites, with `:NonequalRT` regulator. Each asserts
     `AllostericEnzymeMechanism(allosteric_spec_from_mechanism(m, rxn)) === m`.
-- Verify `@enzyme_reaction` syntax for stoichiometry-2 metabolites (e.g.,
-  adenylate kinase: 2 ADP ↔ ATP + AMP). Read the macro source, smoke-test.
-  **If not supported, stop and surface it** — separate scope decision before
-  proceeding with stoich-2 seeds.
 
 **Sequenced rewrite (one commit per section):**
 
@@ -312,8 +310,7 @@ moving; they're not core to the brittleness fix.
    changes. Light commit.
 
 2. **Section 2 — init/compile**: rewrite `init_mechanisms` testset to use
-   literal seeds; add a dedicated `compile_mechanism` round-trip testset; add
-   stoich-2 case if supported.
+   literal seeds; add a dedicated `compile_mechanism` round-trip testset.
 
 3. **Section 3a — `_expand_re_to_ss`**: full rewrite. Acts as the
    **template-validation commit** — if the test pattern has problems, find
@@ -359,7 +356,6 @@ moving; they're not core to the brittleness fix.
   the file. Each triggers `@generated` derivation. Likely tolerable but worth
   measuring after section 3a — if compile time blows up, fall back to
   property-style assertions for some seeds.
-- **Stoich-2 support**: unknown until verified in pre-work.
 - **`==` on compiled mechanisms**: equivalence-style tests rely on
   `Set(compile_mechanism.(results)) == Set(expected)`. Compiled mechanisms
   are singleton types so `===` works directly; `==` falls back to `===` by
@@ -443,8 +439,6 @@ two are inseparable.
 - **Equivalence-set mismatches** — code produces extras / drops a variant.
   The new equivalence-style assertions are far stronger than the existing
   count-only checks.
-- **Stoichiometry-2 seeds** — the existing test file has zero coverage;
-  almost any move could have an unconsidered case.
 - **Metabolite-overlap seeds in the polymorphic moves** — existing overlap
   tests only cover `_expand_add_dead_end_regulator` and
   `_expand_add_allosteric_regulator`. Splitting / RE→SS /

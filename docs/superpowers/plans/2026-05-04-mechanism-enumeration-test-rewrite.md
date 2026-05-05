@@ -252,80 +252,9 @@ EOF
 
 ---
 
-## Task 2: Verify stoichiometry-2 syntax in `@enzyme_reaction`
+## Task 2: Section 1 — reorganize support-function tests in pipeline order
 
-**Goal:** Determine whether `@enzyme_reaction begin substrates: A[X], A[X]; products: P[XX] end` (or some other syntax) is currently accepted, so that the seed battery's stoich-2 cases (table in design §3) can either be written or surfaced as a separate scope item.
-
-- [ ] **Step 2.1: Read the EnzymeReaction constructor and atom-balance validator**
-
-Read: `/home/denis.linux/.julia/dev/EnzymeRates/src/types.jl` lines 1-90 to understand how substrate/product tuples are stored and validated.
-
-Pay attention to:
-- Whether `subs::Tuple` of `(name, atoms)` pairs allows duplicate names.
-- Whether atom balance is checked per-name (allowing duplicates) or in aggregate.
-
-- [ ] **Step 2.2: Smoke-test stoich-2 syntax**
-
-Create a temporary test file `/tmp/stoich2_check.jl`:
-
-```julia
-using EnzymeRates
-
-# Adenylate kinase shape: 2 ADP ⇌ ATP + AMP
-rxn = try
-    @enzyme_reaction begin
-        substrates: ADP[C10H15N5O10P2], ADP[C10H15N5O10P2]
-        products: ATP[C10H16N5O13P3], AMP[C10H14N5O7P]
-    end
-catch e
-    println("Direct duplicate failed: ", e)
-    nothing
-end
-
-println("rxn = ", rxn)
-println("substrates(rxn) = ", EnzymeRates.substrates(rxn))
-```
-
-Run:
-
-```bash
-julia --project=/home/denis.linux/.julia/dev/EnzymeRates /tmp/stoich2_check.jl
-```
-
-Three possible outcomes:
-
-1. **Works as-is**: stoich-2 seeds proceed in subsequent tasks.
-2. **Atom-balance error**: the macro accepts the duplicate but `_validate_stoichiometry` rejects. May need a different shape — e.g., 2A+B↔P+Q with distinct atoms. Adjust the seed-battery stoich-2 cases.
-3. **Macro-level error**: the duplicate is rejected at parse. Stoich-2 seeds become a separate, follow-up scope item.
-
-- [ ] **Step 2.3: Surface result to Denis**
-
-Report concisely:
-
-```
-Stoich-2 syntax check: <outcome>
-- Tested: 2 ADP ⇌ ATP + AMP
-- Result: <works / atom-balance fails / macro rejects>
-- Recommendation: <proceed with stoich-2 seeds / use 2A+B↔P+Q shape / defer stoich-2 to follow-up>
-```
-
-If outcome is "macro rejects", PAUSE and ask Denis whether to:
-- defer stoich-2 seeds to a follow-up PR (drop the column from the seed-battery for this rewrite), or
-- extend the macro as part of this work (architectural decision — discuss before doing).
-
-If outcome is "works" or "alternative shape works", proceed with the chosen shape across all subsequent tasks.
-
-- [ ] **Step 2.4: Delete the smoke-test file**
-
-```bash
-rm /tmp/stoich2_check.jl
-```
-
-No commit — this task only produces a finding.
-
----
-
-## Task 3: Section 1 — reorganize support-function tests in pipeline order
+**Note on stoichiometry-2:** the `EnzymeReaction` constructor at `src/types.jl:46-49` errors on duplicate substrate or product names, and the macros pass through to that constructor. Reactions like `2 ADP ↔ ATP + AMP` cannot be expressed in the current API. Adding stoichiometric-coefficient support is out of scope for this rewrite. No stoich-2 seeds appear in any task below.
 
 **Files:**
 - Modify: `test/test_mechanism_enumeration.jl`
@@ -344,7 +273,7 @@ Source line ranges of testsets to move (verify before each move):
 | `Dead-end filtering by competition` (sub-testsets that test `_substrate_product_dead_end_opportunities`) | 741–921 (need to split: `_substrate_product_dead_end_opportunities` portions) |
 | `Dead-end substrate/product expansion` (testset for `_expand_substrate_product_dead_ends`) | 576–683 |
 
-- [ ] **Step 3.1: Insert the section header at the top of the test scope**
+- [ ] **Step 2.1: Insert the section header at the top of the test scope**
 
 Locate `@testset "Mechanism Enumeration" begin` (around line 196). Add immediately after:
 
@@ -354,7 +283,7 @@ Locate `@testset "Mechanism Enumeration" begin` (around line 196). Add immediate
 # ═══════════════════════════════════════════════════════════════════════
 ```
 
-- [ ] **Step 3.2: Move testsets in pipeline order**
+- [ ] **Step 2.2: Move testsets in pipeline order**
 
 Cut and paste the following testsets into the new section, in this order. Within each cut/paste, verify the original line range matches before moving. Preserve all assertions verbatim.
 
@@ -380,7 +309,7 @@ end
 end
 ```
 
-- [ ] **Step 3.3: Run tests**
+- [ ] **Step 2.3: Run tests**
 
 Run: `julia --project -e 'using Pkg; Pkg.test()'`
 
@@ -388,7 +317,7 @@ Expected: PASS (no assertion changes; reorganization only).
 
 If FAIL, the rearrangement broke a `const` reference or testset boundary. The most common cause: the cut-paste lost a `const <reaction>_rxn = @enzyme_reaction …` definition. Move it back to the infrastructure section (`─── 0. Test infrastructure ───`).
 
-- [ ] **Step 3.4: Commit**
+- [ ] **Step 2.4: Commit**
 
 ```bash
 git add test/test_mechanism_enumeration.jl
@@ -668,39 +597,11 @@ Delete lines 509–937 (the `init_mechanisms` testset block) and replace with:
 end
 ```
 
-- [ ] **Step 4.4: If stoichiometry-2 was confirmed in Task 2, add a stoich-2 init testset**
-
-If Task 2 confirmed stoich-2 syntax, add inside `@testset "init_mechanisms"`:
-
-```julia
-@testset "Stoich-2: 2A↔P+Q init produces compileable mechanisms" begin
-    rxn = @enzyme_reaction begin
-        substrates: A[<atoms>], A[<atoms>]
-        products: P[<atoms>], Q[<atoms>]
-    end
-    specs = EnzymeRates.init_mechanisms(rxn)
-    @test !isempty(specs)
-    # Verify each compiles and the upper-bound invariant holds.
-    for spec in first(specs, 3)
-        m = EnzymeMechanism(spec)
-        @test m isa EnzymeMechanism
-        @test length(EnzymeRates.fitted_params(m)) <=
-            spec.n_fit_params_estimate
-    end
-end
-```
-
-Replace `<atoms>` with the atom labels confirmed in Task 2.
-
-If Task 2 deferred stoich-2, skip this step.
-
-- [ ] **Step 4.5: Run tests and commit**
+- [ ] **Step 4.4: Run tests and commit**
 
 Run: `julia --project -e 'using Pkg; Pkg.test()'`
 
-Expected: PASS (assertion content unchanged; reorganization only with the stoich-2 addition).
-
-If FAIL on stoich-2 init: bug uncovered. Surface per design §6 protocol — this is exactly the kind of "untested input class fails" the rewrite is meant to expose.
+Expected: PASS (assertion content unchanged; reorganization only).
 
 ```bash
 git add test/test_mechanism_enumeration.jl
@@ -1149,13 +1050,6 @@ Drop in below the section 3 header:
         end
     end
 
-    @testset "Stoich-2 (if Task 2 confirmed)" begin
-        # If Task 2 confirmed stoichiometry-2 syntax, add a 2A↔P+Q seed.
-        # Otherwise mark as @test_skip with a comment pointing to the
-        # Task 2 finding. The skip is permitted ONLY for reasons documented
-        # at Task 2 time; do not @test_skip to dodge a real failure.
-        # <fill in based on Task 2 outcome>
-    end
 end
 ```
 
