@@ -831,14 +831,10 @@ Drop in below the section 3 header:
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E_A
-                 E_B + A ⇌ E_A_B)
-                (E + B ⇌ E_B
-                 E_A + B ⇌ E_A_B)
-                (E + P ⇌ E_P
-                 E_P + Q ⇌ E_P_Q)
-                (E + Q ⇌ E_Q
-                 E_Q + P ⇌ E_P_Q)
+                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
                 E_A_B <--> E_P_Q
             end
         end
@@ -1118,14 +1114,10 @@ Insert below `_expand_re_to_ss`:
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E_A
-                 E_B + A ⇌ E_A_B)
-                (E + B ⇌ E_B
-                 E_A + B ⇌ E_A_B)
-                (E + P ⇌ E_P
-                 E_P + Q ⇌ E_P_Q)
-                (E + Q ⇌ E_Q
-                 E_Q + P ⇌ E_P_Q)
+                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
                 E_A_B <--> E_P_Q
             end
         end
@@ -1188,22 +1180,22 @@ Insert below `_expand_re_to_ss`:
     end
 
     @testset "MechanismSpec — mixed RE/SS group sizes: deltas differ" begin
-        # SEED: bi-bi where one multi-step group is now SS (after a prior
-        # RE→SS conversion). Splitting an RE group adds +1; splitting an
-        # SS group adds +2 (kf and kr both split into a fresh group).
+        # SEED: bi-bi random where the A-binding kinetic group has been
+        # converted to SS (size-2 group, both steps SS) and the B-binding
+        # kinetic group is RE (size-2 group, both steps RE). The remaining
+        # P-binding (size-2, RE), Q-binding (size-2, RE), and iso (singleton,
+        # SS) groups are unchanged. Total: 9 steps, 5 kinetic groups.
+        # Splitting an RE multi-step group adds +1 (one new K). Splitting
+        # an SS multi-step group adds +2 (one new kf AND one new kr).
         m_seed = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A <--> E_A          # SS group
-                 E_B + A <--> E_A_B)
-                (E + B ⇌ E_B
-                 E_A + B ⇌ E_A_B)
-                E + P ⇌ E_P
-                E + Q ⇌ E_Q
+                (E + A <--> E_A, E_B + A <--> E_A_B)
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+                (E + P ⇌ E_P, E_P + Q ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_Q + P ⇌ E_P_Q)
                 E_A_B <--> E_P_Q
-                E_P + Q ⇌ E_P_Q
-                E_Q + P ⇌ E_P_Q
             end
         end
         spec = mechanism_spec_from_mechanism(m_seed, bi_bi_rxn)
@@ -1211,15 +1203,17 @@ Insert below `_expand_re_to_ss`:
 
         result = EnzymeRates._expand_split_kinetic_group(spec)
 
-        # 1. count: 2 multi-step groups (A-binding SS×2, B-binding RE×2).
-        # Each can split per member → 2 × 2 = 4 variants.
-        @test length(result) == 4
+        # 1. count: 4 multi-step groups (A SS×2, B RE×2, P RE×2, Q RE×2).
+        # Each can split per member → 4 × 2 = 8 variants.
+        @test length(result) == 8
 
-        # 2. Δ params: +1 if RE-group split, +2 if SS-group split.
+        # 2. Δ params: split on an RE group → +1 (one new K). Split on an
+        # SS group → +2 (one new kf + one new kr). The seed has 1 SS multi-
+        # step group (A) and 3 RE multi-step groups (B, P, Q). Per-member
+        # splits give 2 SS splits at +2 each and 6 RE splits at +1 each.
         deltas = sort([r.n_fit_params_estimate -
                        spec.n_fit_params_estimate for r in result])
-        # 2 SS splits (+2 each) + 2 RE splits (+1 each) = [1, 1, 2, 2]
-        @test deltas == [1, 1, 2, 2]
+        @test deltas == [1, 1, 1, 1, 1, 1, 2, 2]
 
         # 3. compilability
         for r in result
@@ -1243,10 +1237,8 @@ Insert below `_expand_re_to_ss`:
             products: P, Q
             site(:catalytic, 2): begin
                 steps: begin
-                    (E + A ⇌ E_A
-                     E_B + A ⇌ E_A_B)        :: NonequalRT
-                    (E + B ⇌ E_B
-                     E_A + B ⇌ E_A_B)        :: EqualRT
+                    (E + A ⇌ E_A, E_B + A ⇌ E_A_B)        :: NonequalRT
+                    (E + B ⇌ E_B, E_A + B ⇌ E_A_B)        :: EqualRT
                     E + P ⇌ E_P             :: EqualRT
                     E_P + Q ⇌ E_P_Q         :: EqualRT
                     E + Q ⇌ E_Q             :: EqualRT
@@ -1501,14 +1493,10 @@ For seeds 5–11, the engineer follows the SAME `@testset` structure shown in se
 m_seed = @enzyme_mechanism begin
     substrates: A, B; products: P, Q
     steps: begin
-        (E + A ⇌ E_A
-         E_B + A ⇌ E_A_B)
-        (E + B ⇌ E_B
-         E_A + B ⇌ E_A_B)
-        (E + P ⇌ E_P
-         E_P + Q ⇌ E_P_Q)
-        (E + Q ⇌ E_Q
-         E_Q + P ⇌ E_P_Q)
+        (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
+        (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+        (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+        (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
         E_A_B <--> E_P_Q
     end
 end
