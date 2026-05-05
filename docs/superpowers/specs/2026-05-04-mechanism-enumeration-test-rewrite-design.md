@@ -1,0 +1,409 @@
+# Mechanism enumeration test rewrite — design
+
+## 1. Overview
+
+Target file: `test/test_mechanism_enumeration.jl` (~2451 lines).
+
+What this rewrite delivers:
+
+- Every spec-consuming testset seeds from a literal `@enzyme_mechanism` or
+  `@allosteric_mechanism` block. No `init_mechanisms |> first`, no
+  `first(filter(specs) do …)`, no implicit "whatever variant comes out first"
+  picks.
+- Every per-move testset follows a fixed 7-item checklist (count, Δ params,
+  compilability, structural change, preservation, negative case, plus
+  cross-type for the polymorphic moves).
+- The file is reorganized into pipeline-execution order: support functions →
+  initialization → base-spec moves → allosteric moves → composition →
+  integration.
+- Equivalence-style structural assertions (`Set(compile_mechanism.(results))
+  == Set(<expected mechanism literals>)`) for moves with ≤6 outputs OR where
+  existing comments enumerate the expected results. Property-style for larger
+  fan-outs.
+
+What this rewrite does NOT do:
+
+- Add new public API.
+- Change `src/` (except for bugs uncovered during the rewrite — see §6).
+- Add new pipeline behavior.
+
+The only test-infrastructure addition is one helper, `allosteric_spec_from_mechanism`,
+living alongside the existing `mechanism_spec_from_mechanism` at the top of the
+test file. No new files.
+
+## 2. Test infrastructure
+
+Two helpers at the top of `test_mechanism_enumeration.jl`:
+
+**Existing — keep:**
+
+```julia
+mechanism_spec_from_mechanism(m::EnzymeMechanism, rxn) → MechanismSpec
+```
+
+Round-trips a compiled `EnzymeMechanism` (built via `@enzyme_mechanism`) back
+to a `MechanismSpec`. Validated at every call site via `EnzymeMechanism(spec) === m`.
+
+**New — add:**
+
+```julia
+allosteric_spec_from_mechanism(m::AllostericEnzymeMechanism, rxn)
+    → AllostericMechanismSpec
+```
+
+Symmetric round-trip helper. Implementation:
+
+1. Build base `MechanismSpec` from `catalytic_mechanism(m)` via the existing
+   helper.
+2. Extract `catalytic_n` from `catalytic_multiplicity(m)`.
+3. Extract `group_tags::Dict{Int,Symbol}` by iterating kinetic groups and
+   reading `cat_allo_state(m, g)`. **Drop `:NonequalRT` entries** — sparse
+   storage default.
+4. Extract reg sites by iterating `regulatory_site_ligands(m, i)` /
+   `regulatory_site_multiplicity(m, i)` / `reg_allo_state(m, i, lig)`. **Drop
+   `:NonequalRT` ligand tags.**
+5. Set `n_fit_params_estimate = length(fitted_params(m))`.
+
+The sparse-drop step is critical: if a user writes `E_S <--> E_P :: NonequalRT`
+in the macro, the compiled mech has dense `:NonequalRT` storage, but the spec
+must use sparse `Dict()` storage so it round-trips to the same compiled mech
+and matches what `_expand_*` moves produce.
+
+**Round-trip validation pattern at every allosteric call site:**
+
+```julia
+m_allo = @allosteric_mechanism begin … end
+spec = allosteric_spec_from_mechanism(m_allo, rxn)
+@test AllostericEnzymeMechanism(spec) === m_allo  # round-trip lossless
+```
+
+The `===` check catches drift between the macro's dense storage, the spec's
+sparse storage, and the compiler.
+
+## 3. Standard test checklist
+
+Every per-move testset follows this template. Items 1–6 are mandatory; item 7
+applies only to the three polymorphic moves (`_expand_re_to_ss`,
+`_expand_split_kinetic_group`, `_expand_add_dead_end_regulator`).
+
+```julia
+@testset "_expand_<move>" begin
+
+    @testset "<move>: <seed description>" begin
+        # SEED — literal @enzyme_mechanism or @allosteric_mechanism
+        m_seed = @enzyme_mechanism begin … end
+        spec = mechanism_spec_from_mechanism(m_seed, rxn)
+        @test EnzymeMechanism(spec) === m_seed       # round-trip lossless
+
+        # MOVE
+        result = EnzymeRates._expand_<move>(spec, …)
+
+        # 1. count
+        @test length(result) == N
+
+        # 2. Δ params
+        for r in result
+            @test r.n_fit_params_estimate ==
+                spec.n_fit_params_estimate + EXPECTED_DELTA
+        end
+
+        # 3. compilability — no-throw and correct return type
+        for r in result
+            @test compile_mechanism(r) isa
+                Union{EnzymeMechanism, AllostericEnzymeMechanism}
+        end
+
+        # 4. structural change
+        if N <= 6 || expected_listed_inline
+            # EQUIVALENCE-STYLE — expected mechanisms via DSL macros
+            expected = Set([
+                @enzyme_mechanism begin … end,    # variant 1
+                @enzyme_mechanism begin … end,    # variant 2
+                …
+            ])
+            @test Set(compile_mechanism(r) for r in result) == expected
+        else
+            # PROPERTY-STYLE — assert what changed
+            for r in result
+                @test <property of the move>
+            end
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.reaction === spec.reaction
+            # for allosteric: tags on non-target groups equal; reg sites equal
+            # for plain: kinetic_group of untouched steps equal
+        end
+    end
+
+    # 6. negative cases — each its own @testset
+    @testset "<move>: <negative seed> → empty" begin
+        m_no_op = @enzyme_mechanism begin … end
+        spec = mechanism_spec_from_mechanism(m_no_op, rxn)
+        @test isempty(EnzymeRates._expand_<move>(spec, …))
+    end
+
+    # 7. cross-type — polymorphic moves only
+    @testset "<move>: AllostericMechanismSpec — <case>" begin
+        m_seed = @allosteric_mechanism begin … end
+        spec = allosteric_spec_from_mechanism(m_seed, rxn)
+        @test AllostericEnzymeMechanism(spec) === m_seed
+        # full checklist again, plus tag-inheritance assertions
+    end
+end
+```
+
+**Cross-type tag-inheritance assertions:**
+
+- `_expand_re_to_ss` on allosteric: converted group keeps its tag; Δ = +1 for
+  cheap tags, +2 for `:NonequalRT`.
+- `_expand_split_kinetic_group` on allosteric: new group inherits parent's
+  tag.
+- `_expand_add_dead_end_regulator` on allosteric: new binding-step group is
+  auto-tagged `:EqualRT`; allosteric ligands are excluded from
+  `eligible_regs`.
+
+**Seed battery per move** (refined when each commit is written):
+
+| Move | Plain seeds | Allosteric seeds | Overlap seeds | Stoich-2 seeds | Negative seeds |
+|---|---|---|---|---|---|
+| `_expand_re_to_ss` | uni-uni, bi-bi (random), ping-pong | `:EqualRT`/`:OnlyR`/`:NonequalRT` group flavors | substrate-as-dead-end-I | 2A↔P+Q | all-SS |
+| `_expand_split_kinetic_group` | bi-bi size-2 groups, bi-bi after RE→SS | bi-bi allo `:EqualRT`/`:NonequalRT` parent | — | 2A↔P+Q (size-2 group) | all-singleton groups |
+| `_expand_add_dead_end_regulator` | uni-uni+I, bi-bi+I, ping-pong+I, sequential bi-bi+I, two-inh chain | uni-uni allo+I, mixed allo+dead-end | substrate-as-I, product-as-I | 2A+B↔P+Q with I | no regs, allo-only reg |
+| `_expand_to_allosteric` | uni-uni, bi-bi, ping-pong | n/a | — | 2A↔P+Q | already-allosteric |
+| `_expand_add_allosteric_regulator` | n/a | one-reg, two-reg-same-site, two-reg-different-sites, existing `:EqualRT` site | substrate-as-allo-reg, product-as-allo-reg | 2A↔P+Q with allo R | non-allosteric, all regs added |
+| `_expand_change_allo_state` | n/a | one tagged, multiple tagged, fully relaxed | substrate-as-allo-reg (its ligand tag removable) | — | non-allosteric, fully `:NonequalRT` |
+
+**Naming convention:**
+
+```julia
+@testset "_expand_re_to_ss" begin
+    @testset "MechanismSpec — uni-uni: 2 RE binding groups → 2 variants" begin … end
+    @testset "MechanismSpec — all SS → empty" begin … end
+    @testset "AllostericMechanismSpec — :EqualRT group: Δ=+1" begin … end
+    @testset "AllostericMechanismSpec — :NonequalRT group: Δ=+2" begin … end
+end
+```
+
+## 4. File structure (pipeline order)
+
+```
+test_mechanism_enumeration.jl
+│
+├── ─── 0. Test infrastructure ──────────────────────────────────
+│   ├── mechanism_spec_from_mechanism(m, rxn)         (existing)
+│   ├── allosteric_spec_from_mechanism(m, rxn)        (NEW)
+│   └── shared @enzyme_reaction defs
+│
+├── ─── 1. Support functions (no spec input) ───────────────────
+│   ├── _catalytic_topologies
+│   ├── _competition_patterns
+│   ├── _inhibitor_competition_patterns
+│   ├── _forms_with_binding_step
+│   ├── _substrate_product_dead_end_opportunities
+│   └── _expand_substrate_product_dead_ends
+│
+├── ─── 2. Initialization ──────────────────────────────────────
+│   ├── compile_mechanism / EnzymeMechanism constructors
+│   └── init_mechanisms
+│
+├── ─── 3. Base-spec expansion moves (polymorphic) ─────────────
+│   ├── _expand_re_to_ss
+│   ├── _expand_split_kinetic_group
+│   └── _expand_add_dead_end_regulator
+│
+├── ─── 4. Allosteric expansion moves ──────────────────────────
+│   ├── _expand_to_allosteric
+│   ├── _expand_add_allosteric_regulator
+│   └── _expand_change_allo_state
+│
+├── ─── 5. Composition ─────────────────────────────────────────
+│   ├── dedup!
+│   └── expand_mechanisms
+│
+└── ─── 6. Integration ─────────────────────────────────────────
+    └── enumerate_all
+```
+
+Sections 1 → 6 monotonically reflect pipeline depth: support fns are called
+by init; init is consumed by base moves; allosteric moves run after base
+moves; composition wraps moves; integration covers end-to-end.
+
+**Rewrite intensity per section:**
+
+- Sections **3, 4** — full rewrite (literal seeds + 7-item checklist + seed
+  battery).
+- Section **2** — moderate rewrite (literal seeds where they replace
+  `init_mechanisms |> first`).
+- Sections **1, 5, 6** — light touch (reorganize into pipeline order;
+  assertions mostly preserved).
+
+**What's absorbed / moved out:**
+
+| Existing testset (line) | Disposition |
+|---|---|
+| "AllostericEnzymeMechanism TR equivalence" (217) | Move to `test_types.jl` — accessor test, not enumeration |
+| "test reaction atom balance" (198) | Move to `test_dsl.jl` — `@enzyme_reaction` macro test |
+| "Tagged groups exclude T-state params" (2120) | Move to `test_rate_eq_derivation.jl` — `parameters(m)`/canonicalizer test |
+| "Metabolite overlap: substrate as dead-end inhibitor" (2203) | Absorbed into per-move overlap seeds |
+| "Metabolite overlap: substrate as allosteric regulator" (2233) | Absorbed into per-move overlap seeds |
+| "Base-level moves on allosteric specs" (2279) | Absorbed into cross-type sub-testsets within polymorphic-move testsets |
+| "C6 iso size limit blocks 4x4" (2408) | Folded into `_catalytic_topologies` testset |
+| "init_mechanisms drops unbound regulators" (2428) | Folded into `init_mechanisms` testset |
+
+The "move out of file" rows are flagged for confirmation per-row before
+moving; they're not core to the brittleness fix.
+
+## 5. Execution plan
+
+**Pre-work (one commit):**
+
+- Add `allosteric_spec_from_mechanism(m, rxn)` helper at the top of the file
+  with a round-trip-validation testset:
+  - 3-4 cases via `@allosteric_mechanism`: K-type uni-uni, K-type bi-bi, with
+    two reg sites, with `:NonequalRT` regulator. Each asserts
+    `AllostericEnzymeMechanism(allosteric_spec_from_mechanism(m, rxn)) === m`.
+- Verify `@enzyme_reaction` syntax for stoichiometry-2 metabolites (e.g.,
+  adenylate kinase: 2 ADP ↔ ATP + AMP). Read the macro source, smoke-test.
+  **If not supported, stop and surface it** — separate scope decision before
+  proceeding with stoich-2 seeds.
+
+**Sequenced rewrite (one commit per section):**
+
+1. **Section 1 — support functions**: pure reorganization. No assertion
+   changes. Light commit.
+
+2. **Section 2 — init/compile**: rewrite `init_mechanisms` testset to use
+   literal seeds; add a dedicated `compile_mechanism` round-trip testset; add
+   stoich-2 case if supported.
+
+3. **Section 3a — `_expand_re_to_ss`**: full rewrite. Acts as the
+   **template-validation commit** — if the test pattern has problems, find
+   them here on the simplest move.
+
+4. **Section 3b — `_expand_split_kinetic_group`**: same template applied.
+
+5. **Section 3c — `_expand_add_dead_end_regulator`**: same template; absorbs
+   "Regulator dummy naming stability" testset and the substrate-as-dead-end
+   overlap testset.
+
+6. **Section 4a — `_expand_to_allosteric`**: rewrite with literal seeds.
+
+7. **Section 4b — `_expand_add_allosteric_regulator`**: rewrite; absorbs
+   substrate-as-allosteric-regulator overlap testset.
+
+8. **Section 4c — `_expand_change_allo_state`**: rewrite.
+
+9. **Section 5 — composition**: replace `init_mechanisms |> first` patterns
+   in `expand_mechanisms` tests with literal seeds; preserve `dedup!` tests
+   as-is.
+
+10. **Section 6 — integration**: keep as-is or with minimal cleanup.
+
+11. **Final cleanup commit (optional, per-row confirmation):** move three
+    testsets out of this file:
+    - `AllostericEnzymeMechanism TR equivalence` → `test_types.jl`
+    - `test reaction atom balance` → `test_dsl.jl`
+    - `Tagged groups exclude T-state params` → `test_rate_eq_derivation.jl`
+
+**Per-commit verification protocol:**
+
+- Run `julia --project -e 'using Pkg; Pkg.test()'` to confirm green before
+  commit.
+- Show diff of which existing testsets the new commit absorbs/replaces, so
+  coverage regressions are visible at review.
+- Each commit message names the move being rewritten and the pre-rewrite
+  testsets it absorbs.
+
+**Risk register:**
+
+- **Compilation cost**: ~30–50 literal `@(allosteric_)mechanism` seeds across
+  the file. Each triggers `@generated` derivation. Likely tolerable but worth
+  measuring after section 3a — if compile time blows up, fall back to
+  property-style assertions for some seeds.
+- **Stoich-2 support**: unknown until verified in pre-work.
+- **`==` on compiled mechanisms**: equivalence-style tests rely on
+  `Set(compile_mechanism.(results)) == Set(expected)`. Compiled mechanisms
+  are singleton types so `===` works directly; `==` falls back to `===` by
+  default. Already implicitly used by existing round-trip assertions.
+- **Coverage drop**: per-commit diff review is the safety net.
+
+## 6. Bug-handling protocol
+
+When a new test fails, the test does NOT get modified to match buggy
+behavior. The test is paused, the bug is surfaced, the production code in
+`src/` gets fixed, and the test runs green.
+
+**Protocol on failure:**
+
+1. **Stop the rewrite of the current move.** Don't keep adding tests on top
+   of an unaddressed failure.
+
+2. **Diagnose via the systematic-debugging discipline in CLAUDE.md** (Phase
+   1: read the error; Phase 2: compare working vs broken; Phase 3: form one
+   hypothesis, test minimally).
+
+3. **Surface the failure with a structured report:**
+   - The test that fails (file:line + assertion)
+   - The seed mechanism (literal `@(allosteric_)mechanism` block)
+   - Expected output vs actual output (counts, Δ params, equivalence-set
+     diff)
+   - Hypothesis: is the expectation wrong, or the code wrong? Why?
+   - If unambiguous: state which side is wrong and propose the fix.
+   - If unclear: stop and ask.
+
+4. **Decide who's wrong, by category:**
+   - **Test expectation wrong** → fix the test. Document why I got it wrong
+     in the commit message.
+   - **Code wrong** → fix `src/`, NOT the test.
+   - **Routine/clear fix** → just fix it, separate commit.
+   - **Architectural / unclear** → stop and discuss with Denis before
+     changing code.
+
+5. **What's forbidden, regardless of pressure to keep moving:**
+   - `@test_broken` to make a known-failing assertion stop blocking.
+   - `@test_skip` to disable a test.
+   - Weakening an assertion to dodge a count mismatch.
+   - Removing the assertion entirely and not replacing it.
+   - Commenting the test out.
+   - Changing the seed to one that happens to avoid the bug.
+   - Any "TODO: revisit later" without a tracked issue.
+
+   If any of these is genuinely the right answer, that's an architectural
+   decision per rule 4 — pause and discuss, don't unilaterally do it.
+
+**Commit ordering when a bug is found:**
+
+```
+A. fix: <one-line bug summary> (uncovered by <move> test rewrite)
+   - src/ change
+   - existing tests still pass
+   - new test that exercises the bug NOT yet committed
+B. test: rewrite <move> tests with literal seeds + checklist
+   - test/ changes only
+   - now green because of A
+```
+
+Both commits land green at HEAD. Reverting B leaves A as a standalone bug
+fix. Reverting A only would re-fail B's new tests.
+
+**Bug ledger:** as bugs are uncovered during the rewrite, maintain a running
+list in conversation so we can scan for patterns across moves — e.g., if
+three moves all forget to update `group_tags`, that's a systemic issue worth
+a single broader fix.
+
+**Most likely bug surfaces:**
+
+- **Equivalence-set mismatches** — code produces extras / drops a variant.
+  The new equivalence-style assertions are far stronger than the existing
+  count-only checks.
+- **Stoichiometry-2 seeds** — the existing test file has zero coverage;
+  almost any move could have an unconsidered case.
+- **Metabolite-overlap seeds in the polymorphic moves** — existing overlap
+  tests only cover `_expand_add_dead_end_regulator` and
+  `_expand_add_allosteric_regulator`. Splitting / RE→SS /
+  `_expand_change_allo_state` aren't currently exercised with overlapping
+  names.
+- **Cross-type tag-inheritance in moves 4–6** — split tag inheritance is
+  partial today; RE→SS tag preservation isn't asserted at all.
