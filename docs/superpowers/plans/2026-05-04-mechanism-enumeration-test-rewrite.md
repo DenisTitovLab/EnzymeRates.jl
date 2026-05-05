@@ -2334,14 +2334,14 @@ After completing all tasks, run a final self-review:
 
 - [ ] **Independent-derivation rule:** every count, delta, and equivalence-set entry across Tasks 5–10 has a derivation comment explaining WHY the prediction is what it is (not just "the code returned this number"). Spot-check 3–5 random testsets.
 
-- [ ] **No `init_mechanisms |> first` in spec-consuming testsets:** grep the rewritten file:
+- [ ] **No `init_mechanisms |> first` brittleness in spec-consuming testsets:** grep for the anti-pattern directly:
 
   ```bash
-  grep -n "init_mechanisms" test/test_mechanism_enumeration.jl | \
-      grep -v "init_mechanisms\""    # filter out the testset header
+  grep -nE "init_mechanisms\(.*\)[[:space:]]*\|>[[:space:]]*first|first\(EnzymeRates\.init_mechanisms\(|first\(filter\(.*init_mechanisms" \
+      test/test_mechanism_enumeration.jl
   ```
 
-  Acceptable remaining uses: inside `@testset "init_mechanisms"` itself, inside `@testset "expand_mechanisms"` for input batteries, and inside the integration tests. NOT acceptable: any base-spec or allosteric move test using `init_mechanisms |> first` for the SEED.
+  Expected: empty output (or matches only inside `@testset "init_mechanisms"`, `@testset "expand_mechanisms"` input batteries, or integration tests where this pattern is intentional). Any match in a per-move spec-consuming testset is a brittleness regression — fix by replacing with a literal `@enzyme_mechanism`/`@allosteric_mechanism` seed plus the renamed `*_from_mechanism_and_rxn` helper.
 
 - [ ] **Compilability check:** every per-move test asserts `compile_mechanism(r) isa <Type>` for at least one r in result.
 
