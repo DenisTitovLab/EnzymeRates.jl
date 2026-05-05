@@ -1148,13 +1148,11 @@ end
     end
     init = EnzymeRates.init_mechanisms(rxn_allo)
     base = first(init)
-    g_s = first(s.kinetic_group for s in base.steps
-                if EnzymeRates.step_metabolite(s) === :S)
-    g_p = first(s.kinetic_group for s in base.steps
-                if EnzymeRates.step_metabolite(s) === :P)
+    used_groups = sort!(collect(
+        Set(s.kinetic_group for s in base.steps)))
     spec = EnzymeRates.AllostericMechanismSpec(
         base, 2, [[:R]], [2],
-        Dict(g_s => :NonequalRT, g_p => :NonequalRT),
+        Dict(g => :NonequalRT for g in used_groups),
         Dict(:R => :NonequalRT),
         base.n_fit_params_estimate + 5)
     m_allo = EnzymeRates.AllostericEnzymeMechanism(spec)

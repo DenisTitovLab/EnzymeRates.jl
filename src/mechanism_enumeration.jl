@@ -48,14 +48,15 @@ catalytic kinetic group and each regulator-site ligand carries an
 allosteric state tag indicating its R/T-state relationship. Tags:
 `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`.
 
-`group_tags` and `reg_ligand_tags` use sparse Dict storage internally,
-where absent entries default to `:NonequalRT`. When converted via
-`AllostericEnzymeMechanism(spec)`, the type parameters become dense —
-every catalytic kinetic group has an explicit `cat_allo_states` entry,
-every regulator ligand has an explicit `reg_allo_states` entry.
+`group_tags` and `reg_ligand_tags` use **dense** Dict storage — every
+kinetic group present in `base.steps` has an explicit entry in
+`group_tags`, and every ligand listed in `allosteric_reg_sites` has an
+explicit entry in `reg_ligand_tags`. The default tag for newly
+constructed specs is `:NonequalRT`, but it is stored explicitly rather
+than implied by Dict absence. The constructor validates this density.
 
-`group_tags` maps `kinetic_group → tag` (only non-default entries).
-`reg_ligand_tags` maps `ligand → tag` (only non-default entries).
+`group_tags` maps `kinetic_group → tag`.
+`reg_ligand_tags` maps `ligand → tag`.
 """
 struct AllostericMechanismSpec <: AbstractMechanismSpec
     base::MechanismSpec
@@ -65,6 +66,35 @@ struct AllostericMechanismSpec <: AbstractMechanismSpec
     group_tags::Dict{Int, Symbol}
     reg_ligand_tags::Dict{Symbol, Symbol}
     n_fit_params_estimate::Int
+
+    function AllostericMechanismSpec(
+        base::MechanismSpec,
+        catalytic_n::Int,
+        allosteric_reg_sites::Vector{Vector{Symbol}},
+        allosteric_multiplicities::Vector{Int},
+        group_tags::Dict{Int, Symbol},
+        reg_ligand_tags::Dict{Symbol, Symbol},
+        n_fit_params_estimate::Int,
+    )
+        used_groups = Set(s.kinetic_group for s in base.steps)
+        for g in used_groups
+            haskey(group_tags, g) || error(
+                "AllostericMechanismSpec: kinetic_group $g present " *
+                "in base.steps but missing from group_tags " *
+                "(dense storage required).")
+        end
+        for site in allosteric_reg_sites
+            for lig in site
+                haskey(reg_ligand_tags, lig) || error(
+                    "AllostericMechanismSpec: ligand $lig listed in " *
+                    "allosteric_reg_sites but missing from " *
+                    "reg_ligand_tags (dense storage required).")
+            end
+        end
+        new(base, catalytic_n, allosteric_reg_sites,
+            allosteric_multiplicities, group_tags,
+            reg_ligand_tags, n_fit_params_estimate)
+    end
 end
 
 # ─── StepSpec Helpers ──────────────────────────────────────────
@@ -1526,7 +1556,7 @@ into kf_T, kr_T).
 """
 _re_to_ss_delta(::MechanismSpec, ::Int) = 1
 _re_to_ss_delta(spec::AllostericMechanismSpec, g::Int) =
-    get(spec.group_tags, g, :NonequalRT) == :NonequalRT ? 2 : 1
+    spec.group_tags[g] == :NonequalRT ? 2 : 1
 
 """
     _expand_split_kinetic_group(spec) → Vector{typeof(spec)}
@@ -1580,7 +1610,7 @@ function _split_with_steps(
     g::Int, new_g::Int,
 )
     new_tags = copy(spec.group_tags)
-    new_tags[new_g] = get(new_tags, g, :NonequalRT)
+    new_tags[new_g] = new_tags[g]
     AllostericMechanismSpec(
         MechanismSpec(spec.base.reaction, new_steps, new_pc),
         spec.catalytic_n,
@@ -1604,7 +1634,7 @@ function _split_group_delta(
     spec::AllostericMechanismSpec, g::Int, is_re::Bool,
 )
     base = is_re ? 1 : 2
-    tag = get(spec.group_tags, g, :NonequalRT)
+    tag = spec.group_tags[g]
     tag == :NonequalRT ? 2 * base : base
 end
 
@@ -1815,8 +1845,7 @@ end
 
 Convert a non-allosteric `MechanismSpec` to allosteric. Emits the
 all-`:EqualRT` baseline plus one variant per kinetic group with that
-group set to `:OnlyR`. Total: `n_groups + 1` specs (each unique under
-sparse-Dict equality).
+group set to `:OnlyR`. Total: `n_groups + 1` specs.
 
 Cost: +1 (for `L`). Other tag deltas are zero relative to the
 all-`:EqualRT` baseline.
@@ -1971,7 +2000,7 @@ function _expand_add_allosteric_regulator(
         # site cancels identically — constructor would reject).
         for site_idx in 1:n_sites
             existing_ligs = spec.allosteric_reg_sites[site_idx]
-            any(get(spec.reg_ligand_tags, l, :NonequalRT) != :EqualRT
+            any(spec.reg_ligand_tags[l] != :EqualRT
                 for l in existing_ligs) || continue
             new_sites = deepcopy(spec.allosteric_reg_sites)
             new_mults = copy(spec.allosteric_multiplicities)
@@ -1997,11 +2026,10 @@ _expand_add_allosteric_regulator(
     _expand_change_allo_state(spec, reaction)
         → Vector{AllostericMechanismSpec}
 
-Change one allo_state from a "constrained" allo_state (`:EqualRT`, `:OnlyR`,
-`:OnlyT`) to `:NonequalRT`, or remove an entry from the
-`group_tags`/`reg_ligand_tags` Dicts (Dict-absence defaults to
-`:NonequalRT` so the two operations are equivalent). Each variant
-adds the corresponding param delta.
+Relax one allo_state from a "constrained" tag (`:EqualRT`, `:OnlyR`,
+`:OnlyT`) to `:NonequalRT`. Tags already at `:NonequalRT` are skipped
+(no relaxation possible). Each variant adds the corresponding param
+delta.
 
 For an iso-only group already at `:OnlyR`, the `:OnlyT` direction
 is forbidden by the constructor — but the move only goes to
@@ -2016,11 +2044,12 @@ function _expand_change_allo_state(
     results = AllostericMechanismSpec[]
 
     for (g, tag) in spec.group_tags
+        tag == :NonequalRT && continue
         haskey(group_info, g) || continue
         is_re, _ = group_info[g]
         delta = _allo_state_delta(tag, :NonequalRT, is_re)
         new_tags = copy(spec.group_tags)
-        delete!(new_tags, g)
+        new_tags[g] = :NonequalRT
         push!(results, AllostericMechanismSpec(
             spec.base, spec.catalytic_n,
             deepcopy(spec.allosteric_reg_sites),
@@ -2030,9 +2059,10 @@ function _expand_change_allo_state(
     end
 
     for (lig, tag) in spec.reg_ligand_tags
+        tag == :NonequalRT && continue
         delta = _allo_lig_state_delta(tag, :NonequalRT)
         new_lig_tags = copy(spec.reg_ligand_tags)
-        delete!(new_lig_tags, lig)
+        new_lig_tags[lig] = :NonequalRT
         push!(results, AllostericMechanismSpec(
             spec.base, spec.catalytic_n,
             deepcopy(spec.allosteric_reg_sites),
@@ -2069,12 +2099,12 @@ function AllostericEnzymeMechanism(spec::AllostericMechanismSpec)
     cm = EnzymeMechanism(spec.base; exclude_regs=allo_set)
 
     n_groups = length(unique(s.kinetic_group for s in spec.base.steps))
-    cat_states = ntuple(g -> get(spec.group_tags, g, :NonequalRT), n_groups)
+    cat_states = ntuple(g -> spec.group_tags[g], n_groups)
 
     reg_sites = ntuple(length(spec.allosteric_reg_sites)) do i
         ligs = Tuple(spec.allosteric_reg_sites[i])
         mult = spec.allosteric_multiplicities[i]
-        lig_states = ntuple(k -> get(spec.reg_ligand_tags, ligs[k], :NonequalRT),
+        lig_states = ntuple(k -> spec.reg_ligand_tags[ligs[k]],
                             length(ligs))
         (ligs, mult, lig_states)
     end

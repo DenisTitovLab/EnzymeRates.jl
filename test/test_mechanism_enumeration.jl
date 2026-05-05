@@ -91,18 +91,19 @@ const pyruvate_dehydrogenase_rxn = @enzyme_reaction begin
     products: AcCoA[C23H38N7O17P3S], NADH[C21H29N7O14P2], CO2[CO2]
 end
 
-"""Post-condition every spec must satisfy after expansion moves
-that should preserve explicit tagging. Catches the broad class of
-"expansion move forgot to update a parallel data structure" bugs.
+"""Post-condition every spec must satisfy after any expansion move.
+Catches the broad class of "expansion move forgot to update a
+parallel data structure" bugs.
 
-Currently asserts:
-- For AllostericMechanismSpec: every kinetic group used in steps
-  has an explicit entry in `group_tags` (no silent default to
-  `:NonequalRT`).
+For AllostericMechanismSpec, asserts the dense-storage invariants:
+- every kinetic group used in `base.steps` has an explicit entry in
+  `group_tags`,
+- every ligand listed in `allosteric_reg_sites` has an explicit
+  entry in `reg_ligand_tags`.
 
-Applies to all `_expand_*` moves EXCEPT `_expand_change_allo_state`,
-which intentionally `delete!`s entries to relax tags back to
-`:NonequalRT` via sparse-storage default.
+Universal invariant — holds after every `_expand_*` move's output,
+including `_expand_change_allo_state` (which now writes
+`:NonequalRT` explicitly rather than `delete!`ing).
 """
 function _assert_spec_invariants(spec::MechanismSpec)
     @test spec.n_fit_params_estimate >= 0
@@ -113,6 +114,11 @@ function _assert_spec_invariants(spec::AllostericMechanismSpec)
     used_groups = Set(s.kinetic_group for s in spec.base.steps)
     for g in used_groups
         @test haskey(spec.group_tags, g)
+    end
+    for site in spec.allosteric_reg_sites
+        for lig in site
+            @test haskey(spec.reg_ligand_tags, lig)
+        end
     end
 end
 
@@ -230,10 +236,11 @@ end
 
     # S binding (group 1) is `:EqualRT` (K_T_S = K_R_S),
     # P binding (group 2) is `:OnlyR` (absent from T-state).
+    # Iso (group 3) is `:NonequalRT` (default).
     allo_spec = AllostericMechanismSpec(
         base_spec, 2,
         Vector{Symbol}[], Int[],
-        Dict(1 => :EqualRT, 2 => :OnlyR),
+        Dict(1 => :EqualRT, 2 => :OnlyR, 3 => :NonequalRT),
         Dict{Symbol, Symbol}(),
         base_spec.n_fit_params_estimate + 1)
 
@@ -1793,28 +1800,26 @@ end
 end
 
 @testset "Remove TR equivalence" begin
-    # `_expand_change_allo_state` changes one allo_state from a constrained
-    # value (`:OnlyR`/`:OnlyT`/`:EqualRT`) to `:NonequalRT` (default).
-    # Group allo_states live in `spec.group_tags::Dict{Int, Symbol}`; ligand
-    # allo_states in `spec.reg_ligand_tags::Dict{Symbol, Symbol}`. Removing
-    # one entry returns to default (`:NonequalRT`).
+    # `_expand_change_allo_state` relaxes one allo_state from a
+    # constrained value (`:OnlyR`/`:OnlyT`/`:EqualRT`) to
+    # `:NonequalRT`. Group allo_states live in
+    # `spec.group_tags::Dict{Int, Symbol}`; ligand allo_states in
+    # `spec.reg_ligand_tags::Dict{Symbol, Symbol}`. Both Dicts are
+    # dense — entries already at `:NonequalRT` are skipped (no
+    # further relaxation possible).
 
-    @testset "Each tagged group contributes one removal" begin
+    @testset "Each constrained tag contributes one relaxation" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         spec = first(specs)
         allo_specs = EnzymeRates._expand_to_allosteric(
             spec, uni_uni_allo)
         allo = first(allo_specs)
-        n_tagged = length(allo.group_tags) +
-                   length(allo.reg_ligand_tags)
+        n_constrained =
+            count(t -> t != :NonequalRT, values(allo.group_tags)) +
+            count(t -> t != :NonequalRT, values(allo.reg_ligand_tags))
         result = EnzymeRates._expand_change_allo_state(
             allo, uni_uni_allo)
-        @test length(result) == n_tagged
-        # Note: this move INTENTIONALLY uses `delete!` on
-        # group_tags/reg_ligand_tags so missing entries fall back
-        # to the `:NonequalRT` sparse-storage default. The
-        # `haskey`-based universal invariant in
-        # `_assert_spec_invariants` does not apply here.
+        @test length(result) == n_constrained
     end
 
     @testset "Fully relaxed → yields nothing" begin
@@ -1856,17 +1861,18 @@ end
         allo = first(allo_specs)
         reg_specs = EnzymeRates._expand_add_allosteric_regulator(
             allo, rxn_r)
-        # Find a reg-spec where R is tagged (any non-default tag)
+        # Find a reg-spec where R has a constrained (non-:NonequalRT) tag
         tagged = filter(
-            r -> haskey(r.reg_ligand_tags, :R), reg_specs)
+            r -> get(r.reg_ligand_tags, :R, :NonequalRT) != :NonequalRT,
+            reg_specs)
         @test !isempty(tagged)
         tr_spec = first(tagged)
         pc_before = tr_spec.n_fit_params_estimate
         result = EnzymeRates._expand_change_allo_state(
             tr_spec, rxn_r)
-        # The variant that drops :R from reg_ligand_tags
+        # The variant that relaxes :R to :NonequalRT
         r_removal = filter(
-            r -> !haskey(r.reg_ligand_tags, :R), result)
+            r -> r.reg_ligand_tags[:R] == :NonequalRT, result)
         @test !isempty(r_removal)
         # delta depends on R's previous tag — should be +1
         # (one K_R_T appears) when going from non-`:NonequalRT`
@@ -1918,15 +1924,21 @@ end
     @testset "Allosteric dedup: site order" begin
         specs = EnzymeRates.init_mechanisms(uni_uni_allo)
         base = first(specs)
+        used_groups = sort!(collect(
+            Set(s.kinetic_group for s in base.steps)))
+        group_tags = Dict{Int, Symbol}(
+            g => :NonequalRT for g in used_groups)
+        lig_tags = Dict{Symbol, Symbol}(
+            :A => :NonequalRT, :B => :NonequalRT)
         spec_ab = AllostericMechanismSpec(
             base, 2,
             [[:A], [:B]], [2, 2],
-            Dict{Int, Symbol}(), Dict{Symbol, Symbol}(),
+            copy(group_tags), copy(lig_tags),
             base.n_fit_params_estimate + 2)
         spec_ba = AllostericMechanismSpec(
             base, 2,
             [[:B], [:A]], [2, 2],
-            Dict{Int, Symbol}(), Dict{Symbol, Symbol}(),
+            copy(group_tags), copy(lig_tags),
             base.n_fit_params_estimate + 2)
         pc = spec_ab.n_fit_params_estimate
         cache = Dict(pc => EnzymeRates.AbstractMechanismSpec[spec_ab, spec_ba])
@@ -2264,14 +2276,14 @@ end
     end
 
     # TR equiv removal: S as catalytic met has its own group
-    # tag, S as regulator has its own ligand tag. Each tag
-    # entry is removable independently.
+    # tag, S as regulator has its own ligand tag. Each constrained
+    # entry is relaxable independently.
     tr_spec = first(filter(
-        r -> haskey(r.reg_ligand_tags, :S), reg_specs))
+        r -> r.reg_ligand_tags[:S] != :NonequalRT, reg_specs))
     result = EnzymeRates._expand_change_allo_state(
         tr_spec, rxn_allo_overlap)
-    # At least: 1 ligand-tag removal for :S; plus any
-    # group-tag removals from the catalytic side.
+    # At least: 1 ligand-tag relaxation for :S; plus any
+    # group-tag relaxations from the catalytic side.
     @test !isempty(result)
 end
 
