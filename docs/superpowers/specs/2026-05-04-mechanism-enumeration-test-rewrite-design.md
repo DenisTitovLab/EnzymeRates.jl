@@ -27,31 +27,42 @@ What this rewrite does NOT do:
 - Change `src/` (except for bugs uncovered during the rewrite — see §6).
 - Add new pipeline behavior.
 
-The only test-infrastructure addition is one helper, `allosteric_spec_from_mechanism`,
-living alongside the existing `mechanism_spec_from_mechanism` at the top of the
+The only test-infrastructure addition is one helper, `allosteric_spec_from_mechanism_and_rxn`,
+living alongside the existing `mechanism_spec_from_mechanism_and_rxn` at the top of the
 test file. No new files.
 
 ## 2. Test infrastructure
 
 Two helpers at the top of `test_mechanism_enumeration.jl`:
 
-**Existing — keep:**
+**Existing — keep (renamed):**
 
 ```julia
-mechanism_spec_from_mechanism(m::EnzymeMechanism, rxn) → MechanismSpec
+mechanism_spec_from_mechanism_and_rxn(m::EnzymeMechanism, rxn) → MechanismSpec
 ```
 
-Round-trips a compiled `EnzymeMechanism` (built via `@enzyme_mechanism`) back
-to a `MechanismSpec`. Validated at every call site via `EnzymeMechanism(spec) === m`.
+Builds a `MechanismSpec` from a compiled `EnzymeMechanism` (built via
+`@enzyme_mechanism`) and a reaction. The helper takes BOTH inputs because
+`EnzymeMechanism` carries no reaction-level metadata (atoms, regulator
+declarations) — the reaction is a separate dual input. The helper validates
+internally that they're consistent: substrates and products names must match
+exactly; the mechanism's regulators must be a subset of the reaction's
+declared regulators (so the test can seed a mechanism that doesn't yet bind
+every declared regulator). Throws a descriptive error otherwise.
+
+Per-call-site `EnzymeMechanism(spec) === m_seed` round-trip assertions are
+NOT required — the helper validates internally. Round-trip equality is
+asserted in a single dedicated testset (Task 1).
 
 **New — add:**
 
 ```julia
-allosteric_spec_from_mechanism(m::AllostericEnzymeMechanism, rxn)
+allosteric_spec_from_mechanism_and_rxn(m::AllostericEnzymeMechanism, rxn)
     → AllostericMechanismSpec
 ```
 
-Symmetric round-trip helper. Implementation:
+Symmetric helper. Same internal-consistency rules plus
+`oligomeric_state(rxn) == catalytic_multiplicity(m)`. Implementation:
 
 1. Build base `MechanismSpec` from `catalytic_mechanism(m)` via the existing
    helper.
@@ -81,15 +92,19 @@ upper-bound invariant `n_fit_params_estimate >= length(fitted_params(m))`
 is exercised separately under §4 (`init_mechanisms` testset, init-seeded);
 helper-seeded specs satisfy it trivially via equality.
 
-**Round-trip validation pattern at every allosteric call site:**
+**Round-trip validation pattern (Task 1's dedicated testset only):**
 
 ```julia
 m_allo = @allosteric_mechanism begin … end
-spec = allosteric_spec_from_mechanism(m_allo, rxn)
+spec = allosteric_spec_from_mechanism_and_rxn(m_allo, rxn)
 @test AllostericEnzymeMechanism(spec) === m_allo  # round-trip lossless
 ```
 
 The `===` check catches drift between the macro, the spec, and the compiler.
+This assertion is NOT replicated at every call site — the helper's internal
+consistency check covers the dual-input mismatch case, and the round-trip
+equality lives in a single dedicated testset where it IS the thing being
+tested.
 
 ## 3. Standard test checklist
 
@@ -132,8 +147,9 @@ What this rule rules out:
     @testset "<move>: <seed description>" begin
         # SEED — literal @enzyme_mechanism or @allosteric_mechanism
         m_seed = @enzyme_mechanism begin … end
-        spec = mechanism_spec_from_mechanism(m_seed, rxn)
-        @test EnzymeMechanism(spec) === m_seed       # round-trip lossless
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
+        # Helper validates seed/rxn consistency internally; no per-call-site
+        # round-trip assertion needed.
 
         # MOVE
         result = EnzymeRates._expand_<move>(spec, …)
@@ -188,15 +204,14 @@ What this rule rules out:
     # 6. negative cases — each its own @testset
     @testset "<move>: <negative seed> → empty" begin
         m_no_op = @enzyme_mechanism begin … end
-        spec = mechanism_spec_from_mechanism(m_no_op, rxn)
+        spec = mechanism_spec_from_mechanism_and_rxn(m_no_op, rxn)
         @test isempty(EnzymeRates._expand_<move>(spec, …))
     end
 
     # 7. cross-type — polymorphic moves only
     @testset "<move>: AllostericMechanismSpec — <case>" begin
         m_seed = @allosteric_mechanism begin … end
-        spec = allosteric_spec_from_mechanism(m_seed, rxn)
-        @test AllostericEnzymeMechanism(spec) === m_seed
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn)
         # full checklist again, plus tag-inheritance assertions
     end
 end
@@ -242,8 +257,8 @@ end
 test_mechanism_enumeration.jl
 │
 ├── ─── 0. Test infrastructure ──────────────────────────────────
-│   ├── mechanism_spec_from_mechanism(m, rxn)         (existing)
-│   ├── allosteric_spec_from_mechanism(m, rxn)        (NEW)
+│   ├── mechanism_spec_from_mechanism_and_rxn(m, rxn)         (existing)
+│   ├── allosteric_spec_from_mechanism_and_rxn(m, rxn)        (NEW)
 │   └── shared @enzyme_reaction defs
 │
 ├── ─── 1. Support functions (no spec input) ───────────────────
@@ -309,11 +324,11 @@ moving; they're not core to the brittleness fix.
 
 **Pre-work (one commit):**
 
-- Add `allosteric_spec_from_mechanism(m, rxn)` helper at the top of the file
-  with a round-trip-validation testset:
+- Add `allosteric_spec_from_mechanism_and_rxn(m, rxn)` helper at the top of
+  the file with a round-trip-validation testset:
   - 3-4 cases via `@allosteric_mechanism`: K-type uni-uni, K-type bi-bi, with
     two reg sites, with `:NonequalRT` regulator. Each asserts
-    `AllostericEnzymeMechanism(allosteric_spec_from_mechanism(m, rxn)) === m`.
+    `AllostericEnzymeMechanism(allosteric_spec_from_mechanism_and_rxn(m, rxn)) === m`.
 
 **Sequenced rewrite (one commit per section):**
 

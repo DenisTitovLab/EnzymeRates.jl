@@ -4,7 +4,7 @@
 
 **Goal:** Rewrite `test/test_mechanism_enumeration.jl` in pipeline-execution order, replacing brittle `init_mechanisms |> first` patterns with literal `@enzyme_mechanism` / `@allosteric_mechanism` seeds, and applying a 7-item per-move checklist with independent-derivation comments for every count, delta, and equivalence-set entry.
 
-**Architecture:** Test-only refactor. The single new piece of code is `allosteric_spec_from_mechanism(m, rxn)`, a round-trip helper symmetric to the existing `mechanism_spec_from_mechanism`, lives at the top of the test file. The file is reorganized into 7 sections (0 infrastructure → 6 integration) reflecting pipeline depth. No `src/` changes are planned; if a test surfaces a bug, follow the bug-handling protocol in §6 of the design (`docs/superpowers/specs/2026-05-04-mechanism-enumeration-test-rewrite-design.md`).
+**Architecture:** Test-only refactor. The single new piece of code is `allosteric_spec_from_mechanism_and_rxn(m, rxn)`, a helper symmetric to the existing `mechanism_spec_from_mechanism_and_rxn`, lives at the top of the test file. Both helpers validate seed/rxn consistency internally; round-trip equality is asserted in a single Task 1 testset, not at every call site. The file is reorganized into 7 sections (0 infrastructure → 6 integration) reflecting pipeline depth. No `src/` changes are planned; if a test surfaces a bug, follow the bug-handling protocol in §6 of the design (`docs/superpowers/specs/2026-05-04-mechanism-enumeration-test-rewrite-design.md`).
 
 **Tech Stack:** Julia 1.x, Test stdlib, `EnzymeRates.jl` package's enumeration pipeline (`src/mechanism_enumeration.jl`).
 
@@ -57,34 +57,62 @@ The test command is slow (cold precompilation each invocation per CLAUDE.md). Ru
 - `@enzyme_mechanism` step arrows: `⇌` = RE (equilibrium), `<-->` = SS (steady state).
 - `@enzyme_mechanism` kinetic_group assignment: each top-level step gets a fresh `kinetic_group` integer in source order (1, 2, 3, …). A parenthesized step group `(stepA; stepB)` shares one group.
 - `@allosteric_mechanism` requires per-step or per-step-group `:: <Tag>` annotations within `site(:catalytic, N)`. Allowed tags: `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`. Allosteric regulators require `name::Tag` per entry.
-- `mechanism_spec_from_mechanism` (existing) and `allosteric_spec_from_mechanism` (Task 1 adds it) round-trip a compiled mechanism back to a spec. Both round-trips must be validated at every call site via `=== m_seed`.
+- `mechanism_spec_from_mechanism_and_rxn` (existing) and `allosteric_spec_from_mechanism_and_rxn` (Task 1 adds it) build a spec from a compiled mechanism and a reaction. Both helpers validate seed/rxn consistency internally (substrates and products names must match exactly; mechanism's regulators must be a subset of reaction's declared regulators). Per-call-site `=== m_seed` round-trip assertions are NOT required — Task 1's dedicated round-trip testset is the one place that asserts round-trip equality.
 - Compiled `EnzymeMechanism` / `AllostericEnzymeMechanism` are singleton types; `===` and `==` are equivalent. Step ORDER and `kinetic_group` numbering are part of type identity. So when writing expected-mechanism literals for equivalence-style assertions, the step order and grouping in the literal must match what the move produces.
 - `_expand_re_to_ss`, `_expand_split_kinetic_group`, and other moves preserve step order from the input spec; they do NOT canonicalize. `dedup!` is the only function that canonicalizes.
 - Helper-seeded specs have `n_fit_params_estimate == length(fitted_params(m))` (the *exact* fitted count), while init-seeded specs have `n_fit_params_estimate >= length(fitted_params(m))` (an *upper-bound estimate* that can be strictly larger when mirror cycles exist). Move-delta assertions (`r.n_fit_params_estimate == spec.n_fit_params_estimate + delta`) are correct under either baseline because deltas are baseline-independent — each move computes delta from tag / RE-vs-SS / multi-vs-singleton properties of the affected group. The upper-bound invariant is exercised separately in Task 4 (`init_mechanisms` testset, init-seeded); helper-seeded specs satisfy it trivially via equality.
 
 ---
 
-## Task 1: Add `allosteric_spec_from_mechanism` helper
+## Task 1: Add `allosteric_spec_from_mechanism_and_rxn` helper
 
 **Files:**
-- Modify: `test/test_mechanism_enumeration.jl` (add helper near top, just below the existing `mechanism_spec_from_mechanism` at line 8)
+- Modify: `test/test_mechanism_enumeration.jl` (add helper near top, just below the existing `mechanism_spec_from_mechanism_and_rxn` at line 8)
 
 **Pre-existing tests this absorbs:** none. Pure addition.
 
 - [ ] **Step 1.1: Add the helper function**
 
-Add after the existing `mechanism_spec_from_mechanism` definition (line 20):
+Add after the existing `mechanism_spec_from_mechanism_and_rxn` definition:
 
 ```julia
-# Helper: round-trip a compiled AllostericEnzymeMechanism back to an
-# AllostericMechanismSpec. Symmetric to mechanism_spec_from_mechanism.
-# AllostericMechanismSpec uses dense Dict storage — every kinetic group and
-# every regulator ligand has an explicit entry, so this is a pure pass-through.
-function allosteric_spec_from_mechanism(
+# Helper: build an AllostericMechanismSpec from a compiled
+# AllostericEnzymeMechanism and a reaction. Symmetric to
+# mechanism_spec_from_mechanism_and_rxn — `m` carries the catalytic
+# structure and tags; `rxn` carries reaction-level metadata. The helper
+# validates internally that they're consistent: substrate/product names
+# match exactly; m's regulators (catalytic + allosteric) are a subset of
+# rxn's declared regulators; oligomeric_state(rxn) ==
+# catalytic_multiplicity(m). AllostericMechanismSpec uses dense Dict
+# storage — every kinetic group and every regulator ligand has an
+# explicit entry, so the spec build itself is a pure pass-through.
+function allosteric_spec_from_mechanism_and_rxn(
     m::AllostericEnzymeMechanism,
     @nospecialize(rxn::EnzymeReaction))
     cm = EnzymeRates.catalytic_mechanism(m)
-    base_spec = mechanism_spec_from_mechanism(cm, rxn)
+    m_subs = Set(EnzymeRates.substrates(m))
+    rxn_subs = Set(s[1] for s in EnzymeRates.substrates(rxn))
+    m_subs == rxn_subs ||
+        error("allosteric_spec_from_mechanism_and_rxn: substrate names " *
+              "disagree — m=$m_subs, rxn=$rxn_subs")
+    m_prods = Set(EnzymeRates.products(m))
+    rxn_prods = Set(p[1] for p in EnzymeRates.products(rxn))
+    m_prods == rxn_prods ||
+        error("allosteric_spec_from_mechanism_and_rxn: product names " *
+              "disagree — m=$m_prods, rxn=$rxn_prods")
+    # Allosteric m: regulators(m) returns allosteric-only;
+    # regulators(catalytic_mechanism(m)) returns catalytic-side dead-ends.
+    m_regs = Set(EnzymeRates.regulators(cm)) ∪ Set(EnzymeRates.regulators(m))
+    rxn_regs = Set(EnzymeRates.regulators(rxn))
+    m_regs ⊆ rxn_regs ||
+        error("allosteric_spec_from_mechanism_and_rxn: m has regulators " *
+              "$(setdiff(m_regs, rxn_regs)) not declared in rxn")
+    EnzymeRates.oligomeric_state(rxn) == EnzymeRates.catalytic_multiplicity(m) ||
+        error("allosteric_spec_from_mechanism_and_rxn: oligomeric_state " *
+              "disagrees — m=$(EnzymeRates.catalytic_multiplicity(m)), " *
+              "rxn=$(EnzymeRates.oligomeric_state(rxn))")
+
+    base_spec = mechanism_spec_from_mechanism_and_rxn(cm, rxn)
 
     cat_n = EnzymeRates.catalytic_multiplicity(m)
 
@@ -132,7 +160,7 @@ If neither exists, look at `AllostericEnzymeMechanism{CM,CS,RS}` — `RS` is the
 Add immediately after the helper:
 
 ```julia
-@testset "allosteric_spec_from_mechanism round-trip" begin
+@testset "allosteric_spec_from_mechanism_and_rxn round-trip" begin
     # K-type uni-uni: catalytic 2-mer, all bindings :EqualRT, iso :EqualRT,
     # no regulators. Round-trip must be lossless: spec → AllostericEnzymeMechanism
     # rebuilds to the same singleton type as the macro produced.
@@ -152,7 +180,7 @@ Add immediately after the helper:
         products: P[C]
         oligomeric_state: 2
     end
-    spec1 = allosteric_spec_from_mechanism(m1, rxn1)
+    spec1 = allosteric_spec_from_mechanism_and_rxn(m1, rxn1)
     @test AllostericEnzymeMechanism(spec1) === m1
 
     # Mixed group tags: one :OnlyR, one :EqualRT, one :NonequalRT.
@@ -168,7 +196,7 @@ Add immediately after the helper:
             end
         end
     end
-    spec2 = allosteric_spec_from_mechanism(m2, rxn1)
+    spec2 = allosteric_spec_from_mechanism_and_rxn(m2, rxn1)
     @test AllostericEnzymeMechanism(spec2) === m2
     @test spec2.group_tags == Dict(1 => :OnlyR, 2 => :EqualRT, 3 => :NonequalRT)
 
@@ -191,7 +219,7 @@ Add immediately after the helper:
             end
         end
     end
-    spec3 = allosteric_spec_from_mechanism(m3, rxn3)
+    spec3 = allosteric_spec_from_mechanism_and_rxn(m3, rxn3)
     @test AllostericEnzymeMechanism(spec3) === m3
     @test spec3.reg_ligand_tags == Dict(:R => :OnlyT)
 
@@ -218,7 +246,7 @@ Add immediately after the helper:
             ligands: R1, R2
         end
     end
-    spec4 = allosteric_spec_from_mechanism(m4, rxn4)
+    spec4 = allosteric_spec_from_mechanism_and_rxn(m4, rxn4)
     @test AllostericEnzymeMechanism(spec4) === m4
     @test spec4.reg_ligand_tags == Dict(:R1 => :OnlyR, :R2 => :NonequalRT)
 end
@@ -235,9 +263,9 @@ Expected: PASS. If a `===` round-trip fails, the helper has a bug — investigat
 ```bash
 git add test/test_mechanism_enumeration.jl
 git commit -m "$(cat <<'EOF'
-test: add allosteric_spec_from_mechanism round-trip helper
+test: add allosteric_spec_from_mechanism_and_rxn round-trip helper
 
-Symmetric to the existing mechanism_spec_from_mechanism. Round-trips a
+Symmetric to the existing mechanism_spec_from_mechanism_and_rxn. Round-trips a
 compiled AllostericEnzymeMechanism back to an AllostericMechanismSpec
 with dense Dict storage (every kinetic group and regulator ligand has an
 explicit entry). Validates the round-trip across four shapes via ===
@@ -364,7 +392,7 @@ After the close of section 1, add:
 # ─── compile_mechanism / EnzymeMechanism round-trip ────────────────────
 @testset "compile_mechanism round-trip" begin
     # Round-trip lossless invariant: for any mechanism built via the DSL,
-    # mechanism_spec_from_mechanism ∘ EnzymeMechanism (== compile_mechanism)
+    # mechanism_spec_from_mechanism_and_rxn ∘ EnzymeMechanism (== compile_mechanism)
     # returns the same singleton type. Validates the helper AND the
     # constructor's bidirectional consistency. Same idea for the allosteric
     # round-trip (covered by the dedicated testset added in Task 1).
@@ -379,7 +407,7 @@ After the close of section 1, add:
             E_S <--> E_P
         end
     end
-    spec_uu = mechanism_spec_from_mechanism(m_uu, uni_uni_rxn)
+    spec_uu = mechanism_spec_from_mechanism_and_rxn(m_uu, uni_uni_rxn)
     @test EnzymeMechanism(spec_uu) === m_uu
 
     # bi-bi sequential
@@ -394,7 +422,7 @@ After the close of section 1, add:
             E_A_B <--> E_P_Q
         end
     end
-    spec_seq = mechanism_spec_from_mechanism(m_seq, bi_bi_rxn)
+    spec_seq = mechanism_spec_from_mechanism_and_rxn(m_seq, bi_bi_rxn)
     @test EnzymeMechanism(spec_seq) === m_seq
 
     # bi-bi ping-pong
@@ -410,7 +438,7 @@ After the close of section 1, add:
             Estar_B ⇌ E_Q
         end
     end
-    spec_pp = mechanism_spec_from_mechanism(m_pp, bi_bi_pp_rxn)
+    spec_pp = mechanism_spec_from_mechanism_and_rxn(m_pp, bi_bi_pp_rxn)
     @test EnzymeMechanism(spec_pp) === m_pp
 
     # uni-uni with dead-end inhibitor (regulator strip in the round-trip)
@@ -425,7 +453,7 @@ After the close of section 1, add:
             E + I ⇌ E_I
         end
     end
-    spec_uu_i = mechanism_spec_from_mechanism(m_uu_i, uni_uni_with_reg)
+    spec_uu_i = mechanism_spec_from_mechanism_and_rxn(m_uu_i, uni_uni_with_reg)
     @test EnzymeMechanism(spec_uu_i) === m_uu_i
 end
 ```
@@ -664,8 +692,7 @@ Drop in below the section 3 header:
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, uni_uni_rxn)
-        @test EnzymeMechanism(spec) === m_seed
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
 
         result = EnzymeRates._expand_re_to_ss(spec)
 
@@ -743,8 +770,7 @@ Drop in below the section 3 header:
                 E_A_B <--> E_P_Q
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, bi_bi_rxn)
-        @test EnzymeMechanism(spec) === m_seed
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_rxn)
 
         result = EnzymeRates._expand_re_to_ss(spec)
 
@@ -838,8 +864,7 @@ Drop in below the section 3 header:
                 E_A_B <--> E_P_Q
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, bi_bi_rxn)
-        @test EnzymeMechanism(spec) === m_seed
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_rxn)
 
         result = EnzymeRates._expand_re_to_ss(spec)
 
@@ -890,8 +915,7 @@ Drop in below the section 3 header:
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, uni_uni_rxn)
-        @test EnzymeMechanism(spec) === m_seed
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
         @test isempty(EnzymeRates._expand_re_to_ss(spec))
     end
 
@@ -911,8 +935,7 @@ Drop in below the section 3 header:
                 end
             end
         end
-        spec = allosteric_spec_from_mechanism(m_seed, uni_uni_allo)
-        @test AllostericEnzymeMechanism(spec) === m_seed
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
 
         result = EnzymeRates._expand_re_to_ss(spec)
 
@@ -968,8 +991,7 @@ Drop in below the section 3 header:
                 end
             end
         end
-        spec = allosteric_spec_from_mechanism(m_seed, uni_uni_allo)
-        @test AllostericEnzymeMechanism(spec) === m_seed
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
 
         result = EnzymeRates._expand_re_to_ss(spec)
 
@@ -1121,8 +1143,7 @@ Insert below `_expand_re_to_ss`:
                 E_A_B <--> E_P_Q
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, bi_bi_rxn)
-        @test EnzymeMechanism(spec) === m_seed
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_rxn)
 
         result = EnzymeRates._expand_split_kinetic_group(spec)
 
@@ -1174,8 +1195,7 @@ Insert below `_expand_re_to_ss`:
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, uni_uni_rxn)
-        @test EnzymeMechanism(spec) === m_seed
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
         @test isempty(EnzymeRates._expand_split_kinetic_group(spec))
     end
 
@@ -1198,8 +1218,7 @@ Insert below `_expand_re_to_ss`:
                 E_A_B <--> E_P_Q
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, bi_bi_rxn)
-        @test EnzymeMechanism(spec) === m_seed
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_rxn)
 
         result = EnzymeRates._expand_split_kinetic_group(spec)
 
@@ -1252,8 +1271,7 @@ Insert below `_expand_re_to_ss`:
             products: P[C], Q[N]
             oligomeric_state: 2
         end
-        spec = allosteric_spec_from_mechanism(m_seed, bi_bi_allo_rxn)
-        @test AllostericEnzymeMechanism(spec) === m_seed
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, bi_bi_allo_rxn)
 
         result = EnzymeRates._expand_split_kinetic_group(spec)
 
@@ -1384,11 +1402,11 @@ For each seed, write the same six-item checklist. For brevity in the plan, here 
             products: P[C]
             dead_end_inhibitors: I
         end
-        spec = MechanismSpec(rxn,
-            mechanism_spec_from_mechanism(m_seed, uni_uni_rxn).steps,
-            mechanism_spec_from_mechanism(m_seed, uni_uni_rxn).n_fit_params_estimate)
-        # Round-trip on the catalytic side (excluding the unbound :I)
-        @test EnzymeMechanism(spec) === m_seed
+        # Hybrid: m_seed has no regulators yet, but rxn declares :I as a
+        # dead-end inhibitor. The helper allows m's regulators to be a
+        # subset of rxn's, so this constructs a spec attached to the
+        # full rxn directly.
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
 
         result = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
 
@@ -1438,8 +1456,7 @@ For each seed, write the same six-item checklist. For brevity in the plan, here 
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, uni_uni_rxn)
-        @test EnzymeMechanism(spec) === m_seed
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
         @test isempty(EnzymeRates._expand_add_dead_end_regulator(spec, uni_uni_rxn))
     end
 
@@ -1469,8 +1486,7 @@ For each seed, write the same six-item checklist. For brevity in the plan, here 
             products: P[C], Q[N]
             dead_end_inhibitors: I
         end
-        base = mechanism_spec_from_mechanism(m_seed, bi_bi_rxn)
-        spec = MechanismSpec(rxn, base.steps, base.n_fit_params_estimate)
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
         result = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
 
         @test length(result) == 4
@@ -1667,8 +1683,7 @@ After the close of section 3, add:
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, uni_uni_allo)
-        @test EnzymeMechanism(spec) === m_seed
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
 
         result = EnzymeRates._expand_to_allosteric(spec, uni_uni_allo)
 
@@ -1753,7 +1768,7 @@ After the close of section 3, add:
                 end
             end
         end
-        spec = allosteric_spec_from_mechanism(m_seed, uni_uni_allo)
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
         @test isempty(EnzymeRates._expand_to_allosteric(spec, uni_uni_allo))
     end
 
@@ -1774,7 +1789,7 @@ After the close of section 3, add:
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism(m_seed, rxn4)
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn4)
         result = EnzymeRates._expand_to_allosteric(spec, rxn4)
         @test !isempty(result)
         for r in result
@@ -1801,7 +1816,7 @@ After the close of section 3, add:
             products: P[C], Q[N]
             oligomeric_state: 2
         end
-        spec = mechanism_spec_from_mechanism(m_seed, bi_bi_allo_rxn)
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_allo_rxn)
         result = EnzymeRates._expand_to_allosteric(spec, bi_bi_allo_rxn)
         @test length(result) == 6
         for r in result
@@ -1861,8 +1876,7 @@ Each sub-testset follows the Task 5 template: literal seed, round-trip validatio
                 end
             end
         end
-        spec = allosteric_spec_from_mechanism(m_seed, uni_uni_allo_reg)
-        @test AllostericEnzymeMechanism(spec) === m_seed
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
 
         result = EnzymeRates._expand_add_allosteric_regulator(
             spec, uni_uni_allo_reg)
@@ -1940,7 +1954,7 @@ end
 
 **Seed 2 — Non-allosteric MechanismSpec → empty (negative):**
 
-Plain `MechanismSpec` (uni-uni init, mechanism_spec_from_mechanism with `uni_uni_allo_reg`) → `_expand_add_allosteric_regulator` returns empty. The function specializes on `AllostericMechanismSpec`; non-allosteric input dispatches to the empty fallback.
+Plain `MechanismSpec` (uni-uni init, mechanism_spec_from_mechanism_and_rxn with `uni_uni_allo_reg`) → `_expand_add_allosteric_regulator` returns empty. The function specializes on `AllostericMechanismSpec`; non-allosteric input dispatches to the empty fallback.
 
 **Seed 3 — Two regulators with site options (count = 7):**
 
@@ -2012,8 +2026,7 @@ The first seed below is in full as the in-task template; subsequent seeds list t
                 end
             end
         end
-        spec = allosteric_spec_from_mechanism(m_seed, uni_uni_allo)
-        @test AllostericEnzymeMechanism(spec) === m_seed
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
 
         result = EnzymeRates._expand_change_allo_state(spec, uni_uni_allo)
 
@@ -2082,7 +2095,7 @@ regulators — no eligible entries → empty result.
             end
         end
     end
-    spec = allosteric_spec_from_mechanism(m_seed, uni_uni_allo)
+    spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
     # All group_tags == :NonequalRT, no reg_ligand_tags → no eligible
     # entries → empty result.
     @test isempty(EnzymeRates._expand_change_allo_state(spec, uni_uni_allo))
@@ -2156,7 +2169,7 @@ No changes to assertions.
 
 - [ ] **Step 11.3: Rewrite `expand_mechanisms` testset to use literal seeds**
 
-For each existing sub-testset (`Returns dict keyed by param count`, `Allosteric expansion included`, `No self-expansion to same param count`, `Allosteric rewrap preserves structure`, `Dead-end excludes allosteric regs`), replace `EnzymeRates.init_mechanisms(rxn) |> first` with a literal `@enzyme_mechanism` seed + `mechanism_spec_from_mechanism` round-trip. Keep the assertions intact.
+For each existing sub-testset (`Returns dict keyed by param count`, `Allosteric expansion included`, `No self-expansion to same param count`, `Allosteric rewrap preserves structure`, `Dead-end excludes allosteric regs`), replace `EnzymeRates.init_mechanisms(rxn) |> first` with a literal `@enzyme_mechanism` seed + `mechanism_spec_from_mechanism_and_rxn` round-trip. Keep the assertions intact.
 
 - [ ] **Step 11.4: Run tests; commit**
 
