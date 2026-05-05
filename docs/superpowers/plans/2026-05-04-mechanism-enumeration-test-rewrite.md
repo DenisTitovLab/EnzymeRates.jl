@@ -77,8 +77,8 @@ Add after the existing `mechanism_spec_from_mechanism` definition (line 20):
 ```julia
 # Helper: round-trip a compiled AllostericEnzymeMechanism back to an
 # AllostericMechanismSpec. Symmetric to mechanism_spec_from_mechanism.
-# Tags equal to :NonequalRT are dropped from the Dicts because
-# AllostericMechanismSpec uses sparse storage where Dict-absent ≡ :NonequalRT.
+# AllostericMechanismSpec uses dense Dict storage — every kinetic group and
+# every regulator ligand has an explicit entry, so this is a pure pass-through.
 function allosteric_spec_from_mechanism(
     m::AllostericEnzymeMechanism,
     @nospecialize(rxn::EnzymeReaction))
@@ -90,8 +90,7 @@ function allosteric_spec_from_mechanism(
     n_groups = length(unique(s.kinetic_group for s in base_spec.steps))
     group_tags = Dict{Int, Symbol}()
     for g in 1:n_groups
-        tag = EnzymeRates.cat_allo_state(m, g)
-        tag == :NonequalRT || (group_tags[g] = tag)
+        group_tags[g] = EnzymeRates.cat_allo_state(m, g)
     end
 
     n_reg_sites = length(EnzymeRates.regulatory_sites(m))
@@ -104,8 +103,7 @@ function allosteric_spec_from_mechanism(
         push!(multiplicities,
             EnzymeRates.regulatory_site_multiplicity(m, i))
         for lig in ligs
-            tag = EnzymeRates.reg_allo_state(m, i, lig)
-            tag == :NonequalRT || (reg_ligand_tags[lig] = tag)
+            reg_ligand_tags[lig] = EnzymeRates.reg_allo_state(m, i, lig)
         end
     end
 
@@ -157,8 +155,7 @@ Add immediately after the helper:
     @test AllostericEnzymeMechanism(spec1) === m1
 
     # Mixed group tags: one :OnlyR, one :EqualRT, one :NonequalRT.
-    # The :NonequalRT entry must NOT appear in the resulting spec's group_tags
-    # Dict (sparse-storage default). Round-trip via the dense compiler restores it.
+    # Dense storage: every group has an explicit entry in group_tags.
     m2 = @allosteric_mechanism begin
         substrates: S
         products: P
@@ -172,7 +169,7 @@ Add immediately after the helper:
     end
     spec2 = allosteric_spec_from_mechanism(m2, rxn1)
     @test AllostericEnzymeMechanism(spec2) === m2
-    @test spec2.group_tags == Dict(1 => :OnlyR, 2 => :EqualRT)  # :NonequalRT dropped
+    @test spec2.group_tags == Dict(1 => :OnlyR, 2 => :EqualRT, 3 => :NonequalRT)
 
     # With one allosteric regulator at its own site, tag :OnlyT.
     rxn3 = @enzyme_reaction begin
@@ -198,7 +195,7 @@ Add immediately after the helper:
     @test spec3.reg_ligand_tags == Dict(:R => :OnlyT)
 
     # Two regulators at the same site, one :OnlyR, one :NonequalRT.
-    # The :NonequalRT entry must drop from reg_ligand_tags.
+    # Dense storage: both ligands appear in reg_ligand_tags.
     rxn4 = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -222,7 +219,7 @@ Add immediately after the helper:
     end
     spec4 = allosteric_spec_from_mechanism(m4, rxn4)
     @test AllostericEnzymeMechanism(spec4) === m4
-    @test spec4.reg_ligand_tags == Dict(:R1 => :OnlyR)
+    @test spec4.reg_ligand_tags == Dict(:R1 => :OnlyR, :R2 => :NonequalRT)
 end
 ```
 
@@ -241,8 +238,9 @@ test: add allosteric_spec_from_mechanism round-trip helper
 
 Symmetric to the existing mechanism_spec_from_mechanism. Round-trips a
 compiled AllostericEnzymeMechanism back to an AllostericMechanismSpec
-with sparse Dict storage (:NonequalRT entries dropped). Validates the
-round-trip across four shapes via === assertions.
+with dense Dict storage (every kinetic group and regulator ligand has an
+explicit entry). Validates the round-trip across four shapes via ===
+assertions.
 
 Required for upcoming per-move tests that need to seed AllostericMechanismSpec
 inputs from @allosteric_mechanism literals.
@@ -2011,10 +2009,10 @@ The first seed below is in full as the in-task template; subsequent seeds list t
 # ─── _expand_change_allo_state ─────────────────────────────────────────
 @testset "_expand_change_allo_state" begin
 
-    @testset "Allosteric uni-uni all-:EqualRT: 3 group-tag removals" begin
+    @testset "Allosteric uni-uni all-:EqualRT: 3 group-tag relaxations" begin
         # SEED: uni-uni allosteric with all 3 groups tagged :EqualRT.
-        # Each tagged group entry contributes ONE removal variant
-        # (delete the entry, sparse default → :NonequalRT).
+        # Each non-:NonequalRT entry contributes ONE relaxation variant
+        # (flip its value to :NonequalRT in the dense Dict).
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
             site(:catalytic, 2): begin
@@ -2030,8 +2028,9 @@ The first seed below is in full as the in-task template; subsequent seeds list t
 
         result = EnzymeRates._expand_change_allo_state(spec, uni_uni_allo)
 
-        # 1. count: 3 group_tags entries (one per group, all :EqualRT) +
-        # 0 reg_ligand_tags entries (no regulators) → 3 removal variants.
+        # 1. count: 3 group_tags entries non-:NonequalRT (one per group,
+        # all :EqualRT) + 0 reg_ligand_tags entries (no regulators) →
+        # 3 relaxation variants.
         @test length(result) == 3
 
         # 2. Δ params: each removal converts :EqualRT → :NonequalRT.
@@ -2050,11 +2049,13 @@ The first seed below is in full as the in-task template; subsequent seeds list t
             @test compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 4. property-style: in each result, exactly one group's tag entry
-        # is removed from group_tags Dict (Dict-absent ≡ :NonequalRT).
+        # 4. property-style: in each result, exactly one group's tag flipped
+        # from non-:NonequalRT to :NonequalRT (relaxation move).
         for r in result
-            removed = setdiff(keys(spec.group_tags), keys(r.group_tags))
-            @test length(removed) == 1
+            relaxed = [g for g in keys(spec.group_tags)
+                       if spec.group_tags[g] != :NonequalRT &&
+                          r.group_tags[g] == :NonequalRT]
+            @test length(relaxed) == 1
         end
 
         # 5. preservation: catalytic_n, reg sites, base.reaction unchanged.
@@ -2073,16 +2074,30 @@ end
 
 **Seed 2 — Fully relaxed → empty (negative):**
 
-Construct a spec whose `group_tags` Dict is empty (every group is implicitly :NonequalRT). One way: take the result of seed 1, repeatedly apply `_expand_change_allo_state` and pick the first each time, until result is empty. Then assert empty.
+Under dense storage, "fully relaxed" means every group_tag is `:NonequalRT`
+and every reg_ligand_tag is `:NonequalRT`. Construct the seed directly via
+`@allosteric_mechanism` with every step `:: NonequalRT` and no allosteric
+regulators — no eligible entries → empty result.
 
 ```julia
-fully_relaxed = allo
-while true
-    r = EnzymeRates._expand_change_allo_state(fully_relaxed, uni_uni_allo)
-    isempty(r) && break
-    fully_relaxed = first(r)
+@testset "Fully relaxed → empty (negative)" begin
+    # SEED: every group_tag and reg_ligand_tag is :NonequalRT.
+    m_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        site(:catalytic, 2): begin
+            steps: begin
+                E + P ⇌ E_P    :: NonequalRT
+                E + S ⇌ E_S    :: NonequalRT
+                E_S <--> E_P   :: NonequalRT
+            end
+        end
+    end
+    spec = allosteric_spec_from_mechanism(m_seed, uni_uni_allo)
+    # All group_tags == :NonequalRT, no reg_ligand_tags → no eligible
+    # entries → empty result.
+    @test isempty(EnzymeRates._expand_change_allo_state(spec, uni_uni_allo))
 end
-@test isempty(EnzymeRates._expand_change_allo_state(fully_relaxed, uni_uni_allo))
 ```
 
 **Seed 3 — MechanismSpec → empty:**

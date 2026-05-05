@@ -56,18 +56,17 @@ Symmetric round-trip helper. Implementation:
 1. Build base `MechanismSpec` from `catalytic_mechanism(m)` via the existing
    helper.
 2. Extract `catalytic_n` from `catalytic_multiplicity(m)`.
-3. Extract `group_tags::Dict{Int,Symbol}` by iterating kinetic groups and
-   reading `cat_allo_state(m, g)`. **Drop `:NonequalRT` entries** — sparse
-   storage default.
+3. Extract `group_tags::Dict{Int,Symbol}` by iterating kinetic groups (1 to
+   n_groups) and reading `cat_allo_state(m, g)` for each. All entries —
+   including `:NonequalRT` — are stored explicitly (dense storage).
 4. Extract reg sites by iterating `regulatory_site_ligands(m, i)` /
-   `regulatory_site_multiplicity(m, i)` / `reg_allo_state(m, i, lig)`. **Drop
-   `:NonequalRT` ligand tags.**
+   `regulatory_site_multiplicity(m, i)` / `reg_allo_state(m, i, lig)`. Every
+   ligand tag is stored explicitly (dense storage).
 5. Set `n_fit_params_estimate = length(fitted_params(m))`.
 
-The sparse-drop step is critical: if a user writes `E_S <--> E_P :: NonequalRT`
-in the macro, the compiled mech has dense `:NonequalRT` storage, but the spec
-must use sparse `Dict()` storage so it round-trips to the same compiled mech
-and matches what `_expand_*` moves produce.
+Storage is dense in both `AllostericMechanismSpec` and the compiled
+`AllostericEnzymeMechanism`, so the round-trip is straightforward
+pass-through with no filtering.
 
 **Round-trip validation pattern at every allosteric call site:**
 
@@ -77,8 +76,7 @@ spec = allosteric_spec_from_mechanism(m_allo, rxn)
 @test AllostericEnzymeMechanism(spec) === m_allo  # round-trip lossless
 ```
 
-The `===` check catches drift between the macro's dense storage, the spec's
-sparse storage, and the compiler.
+The `===` check catches drift between the macro, the spec, and the compiler.
 
 ## 3. Standard test checklist
 
