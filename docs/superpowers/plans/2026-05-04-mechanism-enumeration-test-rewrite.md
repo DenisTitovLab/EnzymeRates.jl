@@ -975,6 +975,68 @@ Drop in below the section 3 header:
         end
     end
 
+    @testset "AllostericMechanismSpec — :OnlyR group: Δ=+1" begin
+        # SEED: uni-uni allosteric with one group :OnlyR (the S-binding
+        # group, group 2), others :EqualRT. The S-binding step is
+        # non-functional in the T-state by construction. After RE→SS
+        # converts the :OnlyR group, the new (kf, kr) pair lives in the
+        # R-state only; T-state contributes no kf_T/kr_T because the
+        # group is :OnlyR.
+        # Δ derivation: _re_to_ss_delta returns 1 when the group's tag is
+        # NOT :NonequalRT. :OnlyR is a "cheap tag" → Δ = +1, same as
+        # :EqualRT. (CLAUDE.md: catalytic groups cannot be :OnlyT.)
+        m_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P       :: EqualRT
+                    E + S ⇌ E_S       :: OnlyR
+                    E_S <--> E_P      :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
+
+        result = EnzymeRates._expand_re_to_ss(spec)
+
+        # 1. count: 2 all-RE groups (P-binding :EqualRT, S-binding :OnlyR);
+        # iso group is SS so excluded. → 2 variants.
+        @test length(result) == 2
+
+        # 2. Δ params: both groups carry "cheap" tags (:EqualRT, :OnlyR).
+        # Per `_re_to_ss_delta`, +1 for any non-:NonequalRT tag.
+        for r in result
+            @test r.n_fit_params_estimate ==
+                spec.n_fit_params_estimate + 1
+        end
+
+        # 3. compilability
+        for r in result
+            @test compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+
+        # 4. property-style: exactly one group flipped to SS; ALL group_tags
+        # preserved including the converted group's :OnlyR (move MUST NOT
+        # change R/T-state semantics).
+        for r in result
+            n_newly_ss = count(zip(spec.base.steps, r.base.steps)) do (s_old, s_new)
+                s_old.is_equilibrium && !s_new.is_equilibrium
+            end
+            @test n_newly_ss == 1
+            @test r.group_tags == spec.group_tags
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.catalytic_n == spec.catalytic_n
+            @test r.allosteric_reg_sites == spec.allosteric_reg_sites
+            @test r.allosteric_multiplicities == spec.allosteric_multiplicities
+            @test r.reg_ligand_tags == spec.reg_ligand_tags
+            @test r.base.reaction === spec.base.reaction
+        end
+    end
+
     @testset "AllostericMechanismSpec — :NonequalRT group: Δ=+2" begin
         # SEED: uni-uni with one :NonequalRT group, others :EqualRT.
         # When RE→SS converts the :NonequalRT group, BOTH the R-state K
