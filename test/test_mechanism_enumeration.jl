@@ -81,9 +81,8 @@ function allosteric_spec_from_mechanism_and_rxn(
 
     cat_n = EnzymeRates.catalytic_multiplicity(m)
 
-    n_groups = length(unique(s.kinetic_group for s in base_spec.steps))
     group_tags = Dict{Int, Symbol}()
-    for g in 1:n_groups
+    for g in EnzymeRates.kinetic_groups(EnzymeRates.catalytic_mechanism(m))
         group_tags[g] = EnzymeRates.cat_allo_state(m, g)
     end
 
@@ -196,6 +195,8 @@ end
     spec4 = allosteric_spec_from_mechanism_and_rxn(m4, rxn4)
     @test AllostericEnzymeMechanism(spec4) === m4
     @test spec4.reg_ligand_tags == Dict(:R1 => :OnlyR, :R2 => :NonequalRT)
+    @test spec4.allosteric_multiplicities == [2]
+    @test spec4.allosteric_reg_sites == [[:R1, :R2]]
 end
 
 const uni_uni_rxn = @enzyme_reaction begin
