@@ -1669,7 +1669,7 @@ After the close of section 3, add:
 # ─── _expand_to_allosteric ─────────────────────────────────────────────
 @testset "_expand_to_allosteric" begin
 
-    @testset "MechanismSpec — uni-uni: 6 variants (equivalence-style)" begin
+    @testset "MechanismSpec — uni-uni: 4 variants (equivalence-style)" begin
         # SEED: uni-uni init, 3 singleton kinetic groups.
         m_seed = @enzyme_mechanism begin
             substrates: S
@@ -1685,10 +1685,9 @@ After the close of section 3, add:
 
         result = EnzymeRates._expand_to_allosteric(spec, uni_uni_allo)
 
-        # 1. count: per R-state-active convention, _expand_to_allosteric
-        # enumerates per-group tag flavors {:OnlyR, :EqualRT}. With 3
-        # singleton groups: 3 × 2 = 6 variants.
-        @test length(result) == 6
+        # 1. count: _expand_to_allosteric emits the all-:EqualRT baseline
+        # once plus one :OnlyR variant per kinetic group. 3 groups → 1 + 3 = 4.
+        @test length(result) == 4
 
         # 2. Δ params: +1 per variant (just L, the conformation equilibrium).
         # All other tag deltas are zero relative to the all-:EqualRT baseline.
@@ -1702,64 +1701,50 @@ After the close of section 3, add:
             @test r.catalytic_n == 2
         end
 
-        # 4. equivalence-style (N=6 ≤ 6).
-        # 6 expected mechanisms = 3 groups × 2 tag flavors. For each group,
-        # one variant tags THAT group {:OnlyR | :EqualRT} with all OTHER
-        # groups tagged :EqualRT.
-        expected_mechs = Set([
-            # Group 1 (E+P, RE) :OnlyR; others :EqualRT
-            (@allosteric_mechanism begin
-                substrates: S; products: P
-                site(:catalytic, 2): begin
-                    steps: begin
-                        E + P ⇌ E_P    :: OnlyR
-                        E + S ⇌ E_S    :: EqualRT
-                        E_S <--> E_P   :: EqualRT
-                    end
+        # 4. equivalence-style (N=4 ≤ 6). 4 expected mechanisms:
+        # all-:EqualRT baseline + one :OnlyR variant per group.
+        v_baseline = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
                 end
-            end),
-            # Group 1 :EqualRT; others :EqualRT (entire mech all-:EqualRT)
-            (@allosteric_mechanism begin
-                substrates: S; products: P
-                site(:catalytic, 2): begin
-                    steps: begin
-                        E + P ⇌ E_P    :: EqualRT
-                        E + S ⇌ E_S    :: EqualRT
-                        E_S <--> E_P   :: EqualRT
-                    end
+            end
+        end
+        v_g1_OnlyR = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: OnlyR
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
                 end
-            end),
-            # Group 2 (E+S) :OnlyR
-            (@allosteric_mechanism begin
-                substrates: S; products: P
-                site(:catalytic, 2): begin
-                    steps: begin
-                        E + P ⇌ E_P    :: EqualRT
-                        E + S ⇌ E_S    :: OnlyR
-                        E_S <--> E_P   :: EqualRT
-                    end
+            end
+        end
+        v_g2_OnlyR = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: OnlyR
+                    E_S <--> E_P   :: EqualRT
                 end
-            end),
-            # Group 3 (iso) :OnlyR
-            (@allosteric_mechanism begin
-                substrates: S; products: P
-                site(:catalytic, 2): begin
-                    steps: begin
-                        E + P ⇌ E_P    :: EqualRT
-                        E + S ⇌ E_S    :: EqualRT
-                        E_S <--> E_P   :: OnlyR
-                    end
+            end
+        end
+        v_g3_OnlyR = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: OnlyR
                 end
-            end),
-            # Note: 3 of the 6 enumerations produce the same all-:EqualRT
-            # mechanism — these collapse on compile but the spec layer
-            # produces them as distinct `_expand_to_allosteric` outputs
-            # (one per group). After compile-and-Set, duplicates collapse.
-        ])
-        # Because three of the variants produce the same compiled mechanism
-        # (the all-:EqualRT one), the compiled-set has only 4 elements.
-        @test Set(compile_mechanism(r) for r in result) == expected_mechs
-        # The pre-compile spec count is still 6 (assertion 1 above).
+            end
+        end
+        @test Set(compile_mechanism(r) for r in result) ==
+            Set([v_baseline, v_g1_OnlyR, v_g2_OnlyR, v_g3_OnlyR])
 
         # 5. preservation
         for r in result
@@ -1810,8 +1795,9 @@ After the close of section 3, add:
         end
     end
 
-    @testset "Bi-bi sequential: 5 groups → 10 variants" begin
-        # 5 singleton groups × 2 tags = 10 variants.
+    @testset "Bi-bi sequential: 5 groups → 6 variants" begin
+        # _expand_to_allosteric emits 1 baseline + 1 :OnlyR per group.
+        # 5 groups → 1 + 5 = 6 variants.
         m_seed = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -1830,7 +1816,7 @@ After the close of section 3, add:
         end
         spec = mechanism_spec_from_mechanism(m_seed, bi_bi_allo_rxn)
         result = EnzymeRates._expand_to_allosteric(spec, bi_bi_allo_rxn)
-        @test length(result) == 10
+        @test length(result) == 6
         for r in result
             @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
             @test compile_mechanism(r) isa AllostericEnzymeMechanism
@@ -1848,9 +1834,8 @@ git commit -m "$(cat <<'EOF'
 test(to_allosteric): rewrite with literal seeds; equivalence-style for uni-uni
 
 Replaces the existing Allosteric conversion testset (1667-1723). 4 seeds:
-uni-uni equivalence (6 spec variants → 4 unique compiled mechanisms),
-already-allosteric (negative), oligomeric_state propagation, bi-bi
-sequential (10 variants).
+uni-uni equivalence (4 variants), already-allosteric (negative),
+oligomeric_state propagation, bi-bi sequential (6 variants).
 EOF
 )"
 ```
