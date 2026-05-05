@@ -41,6 +41,163 @@ function mechanism_spec_from_mechanism_and_rxn(
         length(EnzymeRates.fitted_params(m)))
 end
 
+# Helper: build an AllostericMechanismSpec from a compiled
+# AllostericEnzymeMechanism and a reaction. Symmetric to
+# mechanism_spec_from_mechanism_and_rxn — `m` carries the catalytic
+# structure and tags; `rxn` carries reaction-level metadata. The helper
+# validates internally that they're consistent: substrate/product names
+# match exactly; m's regulators (catalytic + allosteric) are a subset of
+# rxn's declared regulators; oligomeric_state(rxn) ==
+# catalytic_multiplicity(m). AllostericMechanismSpec uses dense Dict
+# storage — every kinetic group and every regulator ligand has an
+# explicit entry, so the spec build itself is a pure pass-through.
+function allosteric_spec_from_mechanism_and_rxn(
+    m::AllostericEnzymeMechanism,
+    @nospecialize(rxn::EnzymeReaction))
+    cm = EnzymeRates.catalytic_mechanism(m)
+    m_subs = Set(EnzymeRates.substrates(m))
+    rxn_subs = Set(s[1] for s in EnzymeRates.substrates(rxn))
+    m_subs == rxn_subs ||
+        error("allosteric_spec_from_mechanism_and_rxn: substrate names " *
+              "disagree — m=$m_subs, rxn=$rxn_subs")
+    m_prods = Set(EnzymeRates.products(m))
+    rxn_prods = Set(p[1] for p in EnzymeRates.products(rxn))
+    m_prods == rxn_prods ||
+        error("allosteric_spec_from_mechanism_and_rxn: product names " *
+              "disagree — m=$m_prods, rxn=$rxn_prods")
+    # Allosteric m: regulators(m) returns allosteric-only;
+    # regulators(catalytic_mechanism(m)) returns catalytic-side dead-ends.
+    m_regs = Set(EnzymeRates.regulators(cm)) ∪ Set(EnzymeRates.regulators(m))
+    rxn_regs = Set(EnzymeRates.regulators(rxn))
+    m_regs ⊆ rxn_regs ||
+        error("allosteric_spec_from_mechanism_and_rxn: m has regulators " *
+              "$(setdiff(m_regs, rxn_regs)) not declared in rxn")
+    EnzymeRates.oligomeric_state(rxn) == EnzymeRates.catalytic_multiplicity(m) ||
+        error("allosteric_spec_from_mechanism_and_rxn: oligomeric_state " *
+              "disagrees — m=$(EnzymeRates.catalytic_multiplicity(m)), " *
+              "rxn=$(EnzymeRates.oligomeric_state(rxn))")
+
+    base_spec = mechanism_spec_from_mechanism_and_rxn(cm, rxn)
+
+    cat_n = EnzymeRates.catalytic_multiplicity(m)
+
+    n_groups = length(unique(s.kinetic_group for s in base_spec.steps))
+    group_tags = Dict{Int, Symbol}()
+    for g in 1:n_groups
+        group_tags[g] = EnzymeRates.cat_allo_state(m, g)
+    end
+
+    n_reg_sites = length(EnzymeRates.regulatory_sites(m))
+    reg_sites = Vector{Symbol}[]
+    multiplicities = Int[]
+    reg_ligand_tags = Dict{Symbol, Symbol}()
+    for i in 1:n_reg_sites
+        ligs = collect(EnzymeRates.regulatory_site_ligands(m, i))
+        push!(reg_sites, ligs)
+        push!(multiplicities,
+            EnzymeRates.regulatory_site_multiplicity(m, i))
+        for lig in ligs
+            reg_ligand_tags[lig] = EnzymeRates.reg_allo_state(m, i, lig)
+        end
+    end
+
+    AllostericMechanismSpec(
+        base_spec, cat_n, reg_sites, multiplicities,
+        group_tags, reg_ligand_tags,
+        length(EnzymeRates.fitted_params(m)))
+end
+
+@testset "allosteric_spec_from_mechanism_and_rxn round-trip" begin
+    # K-type uni-uni: catalytic 2-mer, all bindings :EqualRT, iso :EqualRT,
+    # no regulators. Round-trip must be lossless: spec → AllostericEnzymeMechanism
+    # rebuilds to the same singleton type as the macro produced.
+    m1 = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        site(:catalytic, 2): begin
+            steps: begin
+                E + S ⇌ E_S       :: EqualRT
+                E + P ⇌ E_P       :: EqualRT
+                E_S <--> E_P      :: EqualRT
+            end
+        end
+    end
+    rxn1 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    spec1 = allosteric_spec_from_mechanism_and_rxn(m1, rxn1)
+    @test AllostericEnzymeMechanism(spec1) === m1
+
+    # Mixed group tags: one :OnlyR, one :EqualRT, one :NonequalRT.
+    # Dense storage: every group has an explicit entry in group_tags.
+    m2 = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        site(:catalytic, 2): begin
+            steps: begin
+                E + S ⇌ E_S       :: OnlyR
+                E + P ⇌ E_P       :: EqualRT
+                E_S <--> E_P      :: NonequalRT
+            end
+        end
+    end
+    spec2 = allosteric_spec_from_mechanism_and_rxn(m2, rxn1)
+    @test AllostericEnzymeMechanism(spec2) === m2
+    @test spec2.group_tags == Dict(1 => :OnlyR, 2 => :EqualRT, 3 => :NonequalRT)
+
+    # With one allosteric regulator at its own site, tag :OnlyT.
+    rxn3 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    m3 = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R::OnlyT
+        site(:catalytic, 2): begin
+            steps: begin
+                E + S ⇌ E_S       :: EqualRT
+                E + P ⇌ E_P       :: EqualRT
+                E_S <--> E_P      :: EqualRT
+            end
+        end
+    end
+    spec3 = allosteric_spec_from_mechanism_and_rxn(m3, rxn3)
+    @test AllostericEnzymeMechanism(spec3) === m3
+    @test spec3.reg_ligand_tags == Dict(:R => :OnlyT)
+
+    # Two regulators at the same site, one :OnlyR, one :NonequalRT.
+    # Dense storage: both ligands appear in reg_ligand_tags.
+    rxn4 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R1, R2
+        oligomeric_state: 2
+    end
+    m4 = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R1::OnlyR, R2::NonequalRT
+        site(:catalytic, 2): begin
+            steps: begin
+                E + S ⇌ E_S       :: EqualRT
+                E + P ⇌ E_P       :: EqualRT
+                E_S <--> E_P      :: EqualRT
+            end
+        end
+        site(:regulatory, 2): begin
+            ligands: R1, R2
+        end
+    end
+    spec4 = allosteric_spec_from_mechanism_and_rxn(m4, rxn4)
+    @test AllostericEnzymeMechanism(spec4) === m4
+    @test spec4.reg_ligand_tags == Dict(:R1 => :OnlyR, :R2 => :NonequalRT)
+end
+
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
     products: P[C]
