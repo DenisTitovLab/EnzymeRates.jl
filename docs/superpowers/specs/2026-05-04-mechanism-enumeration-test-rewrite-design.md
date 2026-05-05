@@ -166,10 +166,16 @@ What this rule rules out:
                 spec.n_fit_params_estimate + EXPECTED_DELTA
         end
 
-        # 3. compilability — no-throw and correct return type
-        for r in result
-            @test compile_mechanism(r) isa
-                Union{EnzymeMechanism, AllostericEnzymeMechanism}
+        # 3. compilability — REQUIRED only when item 4 is property-style.
+        # When item 4 is equivalence-style, the
+        # `Set(compile_mechanism(r) for r in result) == expected` call
+        # already invokes compile_mechanism per `r`, so a separate item-3
+        # loop just doubles the @generated compile cost.
+        if !equivalence_style
+            for r in result
+                @test compile_mechanism(r) isa
+                    Union{EnzymeMechanism, AllostericEnzymeMechanism}
+            end
         end
 
         # 4. structural change

@@ -698,10 +698,7 @@ Drop in below the section 3 header:
                 spec.n_fit_params_estimate + 1
         end
 
-        # 3. compilability
-        for r in result
-            @test compile_mechanism(r) isa EnzymeMechanism
-        end
+        # 3. compilability — implicit in item 4's equivalence-style call.
 
         # 4. structural change — equivalence-style (N=2 ≤ 6).
         # Variant A: P-binding flipped to SS (group 1 RE→SS).
@@ -772,10 +769,7 @@ Drop in below the section 3 header:
                 spec.n_fit_params_estimate + 1
         end
 
-        # 3. compilability
-        for r in result
-            @test compile_mechanism(r) isa EnzymeMechanism
-        end
+        # 3. compilability — implicit in item 4's equivalence-style call.
 
         # 4. structural change — N=4 ≤ 6 → equivalence-style.
         # Each variant flips exactly one of the four RE binding groups.
@@ -1472,10 +1466,7 @@ For each seed, write the same six-item checklist. For brevity in the plan, here 
             @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
 
-        # 3. compilability
-        for r in result
-            @test compile_mechanism(r) isa EnzymeMechanism
-        end
+        # 3. compilability — implicit in item 4's equivalence-style call.
 
         # 4. equivalence-style (N=1).
         # Expected: same uni-uni catalytic + a new RE binding step E + I__reg ⇌ E_I.
@@ -1747,11 +1738,7 @@ After the close of section 3, add:
             @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
 
-        # 3. compilability — every variant must build to AllostericEnzymeMechanism.
-        for r in result
-            @test compile_mechanism(r) isa AllostericEnzymeMechanism
-            @test r.catalytic_n == 2
-        end
+        # 3. compilability — implicit in item 4's equivalence-style call.
 
         # 4. equivalence-style (N=4 ≤ 6). 4 expected mechanisms:
         # all-:EqualRT baseline + one :OnlyR variant per group.
@@ -1801,6 +1788,7 @@ After the close of section 3, add:
         # 5. preservation
         for r in result
             @test r.base === spec || r.base == spec
+            @test r.catalytic_n == 2
         end
     end
 
@@ -1946,10 +1934,7 @@ Each sub-testset follows the Task 5 template: literal seed, round-trip validatio
                        spec.n_fit_params_estimate for r in result])
         @test deltas == [1, 1, 2]
 
-        # 3. compilability
-        for r in result
-            @test compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
+        # 3. compilability — implicit in item 4's equivalence-style call.
 
         # 4. equivalence-style (N=3 ≤ 6).
         v_onlyR = @allosteric_mechanism begin
