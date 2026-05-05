@@ -143,19 +143,7 @@ function allosteric_spec_from_mechanism_and_rxn(
 end
 ```
 
-- [ ] **Step 1.2: Verify `regulatory_sites` accessor exists, or use the right one**
-
-Run:
-
-```bash
-grep -n "^regulatory_sites\b\|function regulatory_sites" /home/denis.linux/.julia/dev/EnzymeRates/src/types.jl
-```
-
-Expected: a definition shows up. If the accessor is named differently (e.g., `n_regulatory_sites`), update the `n_reg_sites = …` line in the helper to use the correct API. Names to check as fallbacks: `n_reg_sites(m)`, `regulatory_sites(m)` returning a tuple to take `length` of.
-
-If neither exists, look at `AllostericEnzymeMechanism{CM,CS,RS}` — `RS` is the type-parameter tuple of reg sites. Use `length(RS)` via parametric dispatch in the helper, or extract `RS` via `typeof(m).parameters[3]`.
-
-- [ ] **Step 1.3: Add round-trip validation testset for the helper**
+- [ ] **Step 1.2: Add round-trip validation testset for the helper**
 
 Add immediately after the helper:
 
@@ -252,13 +240,13 @@ Add immediately after the helper:
 end
 ```
 
-- [ ] **Step 1.4: Run tests and fix any helper issues**
+- [ ] **Step 1.3: Run tests and fix any helper issues**
 
 Run: `julia --project -e 'using Pkg; Pkg.test()'`
 
-Expected: PASS. If a `===` round-trip fails, the helper has a bug — investigate the affected field (group_tags ordering, reg sites order, etc). If an accessor isn't found, fix per Step 1.2.
+Expected: PASS. If a `===` round-trip fails, the helper has a bug — investigate the affected field (group_tags ordering, reg sites order, etc).
 
-- [ ] **Step 1.5: Commit**
+- [ ] **Step 1.4: Commit**
 
 ```bash
 git add test/test_mechanism_enumeration.jl
