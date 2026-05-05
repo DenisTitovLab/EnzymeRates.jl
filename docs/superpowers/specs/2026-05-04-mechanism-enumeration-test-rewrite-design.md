@@ -385,9 +385,12 @@ moving; they're not core to the brittleness fix.
 **Risk register:**
 
 - **Compilation cost**: ~30–50 literal `@(allosteric_)mechanism` seeds across
-  the file. Each triggers `@generated` derivation. Likely tolerable but worth
-  measuring after section 3a — if compile time blows up, fall back to
-  property-style assertions for some seeds.
+  the file. Each triggers `@generated` derivation. Plan Task 5 (the
+  template-validating commit for `_expand_re_to_ss`) measures suite-time
+  before vs after applying its equivalence-style seeds. Decision rule: ratio
+  ≤ 1.3× → proceed unchanged through Tasks 6–10; 1.3×–1.5× → flag and
+  consider selective property-style fallback; > 1.5× → stop, surface, drop
+  equivalence-style for the costlier seeds.
 - **`==` on compiled mechanisms**: equivalence-style tests rely on
   `Set(compile_mechanism.(results)) == Set(expected)`. Compiled mechanisms
   are singleton types so `===` works directly; `==` falls back to `===` by

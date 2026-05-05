@@ -1114,11 +1114,42 @@ Drop in below the section 3 header:
 end
 ```
 
-- [ ] **Step 5.4: Run tests**
+- [ ] **Step 5.4: Run tests, with timing**
 
-Run: `julia --project -e 'using Pkg; Pkg.test()'`
+Time the test run before AND after Step 5.3's edits. Task 5 is the
+template-validating commit — if equivalence-style assertions cause
+@generated compile blowup, it'll surface here on the simplest move,
+before that pattern is replicated across Tasks 6–10.
 
-Expected: PASS. If FAIL on a count, delta, or equivalence-set assertion, **stop and follow the bug-handling protocol** in design §6:
+Before applying Step 5.3 (i.e., on the parent commit):
+
+```bash
+cd /home/denis.linux/.julia/dev/EnzymeRates
+time julia --project -e 'using Pkg; Pkg.test()' 2>&1 | tail -3
+# Record: <time-before>
+```
+
+After applying Step 5.3:
+
+```bash
+time julia --project -e 'using Pkg; Pkg.test()' 2>&1 | tail -3
+# Record: <time-after>
+```
+
+Expected: PASS. Compute `ratio = time-after / time-before`.
+
+- **ratio ≤ 1.3×** — proceed to Step 5.5. Equivalence-style is sustainable;
+  carry the pattern through Tasks 6–10.
+- **1.3× < ratio ≤ 1.5×** — proceed to Step 5.5 BUT flag the trend to
+  Denis. He may want to fall back to property-style for selected seeds
+  in Tasks 6–10.
+- **ratio > 1.5×** — STOP. Surface to Denis with the timing data before
+  Step 5.5. Likely action: drop equivalence-style for the larger N=4–6
+  cases and switch them to property-style (assert the move's structural
+  contract per `r` rather than enumerating expected mechanisms).
+
+If FAIL on a count, delta, or equivalence-set assertion, **stop and follow
+the bug-handling protocol** in design §6:
 
 1. Diagnose: read the assertion, the seed, the actual output. Form ONE hypothesis (test wrong vs code wrong).
 2. Surface to Denis with the structured report (file:line, seed, expected vs actual, hypothesis).
