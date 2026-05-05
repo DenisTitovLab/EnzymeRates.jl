@@ -86,6 +86,35 @@ Every per-move testset follows this template. Items 1–6 are mandatory; item 7
 applies only to the three polymorphic moves (`_expand_re_to_ss`,
 `_expand_split_kinetic_group`, `_expand_add_dead_end_regulator`).
 
+**The independent-derivation rule (non-negotiable).** Every numerical or
+structural prediction in a test — the count `N` (item 1), the
+`EXPECTED_DELTA` (item 2), the contents of the equivalence set (item 4) —
+MUST be accompanied by a comment that derives the predicted value from
+**independent reasoning about the seed mechanism and the move's
+specification**, not from observing what the code produces. Just running the
+code, seeing 9 outputs, and writing `@test length(result) == 9` codifies
+whatever the code does — including any bugs — and turns the test into a
+regression-snapshot rather than a correctness check.
+
+Concretely, every count and delta needs a comment of the form
+"<seed-property-1>; <seed-property-2>; therefore <prediction>". Example for
+uni-uni RE→SS: `# 3 singleton groups: S-binding (RE), P-binding (RE),`
+`# iso (SS). RE→SS fires on each all-RE group atomically. 2 RE groups → 2`
+`# variants. Δ = +1 per variant (1 RE param K becomes (kf, kr) = 2 SS`
+`# params, net +1 over the kinetic-group count).` For equivalence-style
+tests, the listed expected mechanism literals are the derivation — but each
+seed-and-move pair still needs a one-line comment explaining why the list
+contains exactly those mechanisms and no others (e.g., "S-group can flip
+to SS, P-group can flip to SS, iso group is already SS so excluded").
+
+What this rule rules out:
+
+- "code produces 9 outputs, so I'll write `@test length(result) == 9`".
+- Listing expected mechanism literals by copy-pasting compile output.
+- Comments that describe what the code does ("returns 2 variants") rather
+  than why those variants are the right answer ("RE→SS fires per all-RE
+  group; uni-uni has 2 such groups").
+
 ```julia
 @testset "_expand_<move>" begin
 
@@ -98,10 +127,13 @@ applies only to the three polymorphic moves (`_expand_re_to_ss`,
         # MOVE
         result = EnzymeRates._expand_<move>(spec, …)
 
-        # 1. count
+        # 1. count — derivation REQUIRED, independent of code output
+        # <seed-property-1>; <seed-property-2>; therefore N variants because <reason>.
         @test length(result) == N
 
-        # 2. Δ params
+        # 2. Δ params — derivation REQUIRED, independent of code output
+        # <reason this move adds EXPECTED_DELTA params: e.g., "RE→SS adds
+        # 1 net param per kinetic group: 1 K → (kf, kr)">.
         for r in result
             @test r.n_fit_params_estimate ==
                 spec.n_fit_params_estimate + EXPECTED_DELTA
@@ -115,15 +147,20 @@ applies only to the three polymorphic moves (`_expand_re_to_ss`,
 
         # 4. structural change
         if N <= 6 || expected_listed_inline
-            # EQUIVALENCE-STYLE — expected mechanisms via DSL macros
+            # EQUIVALENCE-STYLE — expected mechanisms via DSL macros.
+            # Derivation comment REQUIRED: explain why this list is
+            # complete and exclusive given the seed and move spec.
+            # E.g., "S-group can flip to SS (variant 1), P-group can flip
+            # to SS (variant 2), iso group is already SS so excluded".
             expected = Set([
-                @enzyme_mechanism begin … end,    # variant 1
-                @enzyme_mechanism begin … end,    # variant 2
+                @enzyme_mechanism begin … end,    # variant 1: <derivation>
+                @enzyme_mechanism begin … end,    # variant 2: <derivation>
                 …
             ])
             @test Set(compile_mechanism(r) for r in result) == expected
         else
-            # PROPERTY-STYLE — assert what changed
+            # PROPERTY-STYLE — assert what changed.
+            # Derivation comment REQUIRED on the property itself.
             for r in result
                 @test <property of the move>
             end
@@ -392,6 +429,14 @@ fix. Reverting A only would re-fail B's new tests.
 list in conversation so we can scan for patterns across moves — e.g., if
 three moves all forget to update `group_tags`, that's a systemic issue worth
 a single broader fix.
+
+**The independent-derivation rule (§3) is what makes bugs visible.** If
+the count `N` is reasoned about from the seed and move spec independently
+of the code output, a discrepancy between expected and actual surfaces a
+bug. If the count is just "what the code returned when I ran it", the
+test silently codifies whatever behavior — including bugs — exists today.
+This rule is the precondition for the bug-handling protocol to work; the
+two are inseparable.
 
 **Most likely bug surfaces:**
 
