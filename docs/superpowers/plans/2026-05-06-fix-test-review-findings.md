@@ -445,11 +445,18 @@ EOF
 
 **Findings addressed:** #8 (`:OnlyT` never tested as input).
 
-- [ ] **Step 4.1: Add `:OnlyT` group seed to `_expand_re_to_ss`**
+- [ ] **Step 4.1: ~~Add `:OnlyT` group seed to `_expand_re_to_ss`~~ — NOT IMPLEMENTABLE**
 
-Locate the `_expand_re_to_ss` testset (around line 1568). After the `:OnlyR group: Δ=+1` sub-testset, add:
+**Finding (Task 4 implementer):** The plan's claim that `:OnlyT` is forbidden only for iso-only catalytic groups but allowed for binding groups is WRONG. Per `src/types.jl:320-322` and CLAUDE.md's R-state-active convention, `:OnlyT` is forbidden for ALL catalytic groups. There is no valid `:OnlyT` catalytic binding group to seed into `_expand_re_to_ss`.
+
+The R-state-active convention IS already enforced by the `AllostericEnzymeMechanism` constructor's validation. Any attempted `:OnlyT` catalytic-step macro use throws `Catalytic kinetic group N has state :OnlyT; the R-state is the active state by convention.`
+
+**Decision:** skip Step 4.1. The catalytic-group tag coverage is `:OnlyR`/`:EqualRT`/`:NonequalRT` only (already tested). `:OnlyT` is exclusively a regulator-ligand tag, which IS tested in 4.2 and 4.3.
+
+The original code-block below is preserved for reference but should not be implemented:
 
 ```julia
+# (Original plan content was here but is incorrect — see Finding above.)
 @testset "AllostericMechanismSpec — :OnlyT group: Δ=+1" begin
     # SEED: uni-uni allosteric with one binding group :OnlyT (active only
     # in T-state; absent in R-state). :OnlyT is forbidden for catalytic-
