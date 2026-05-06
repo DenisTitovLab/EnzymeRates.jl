@@ -1796,31 +1796,67 @@ end
 
 end
 
-@testset "Split kinetic group" begin
-    @testset "Multi-step groups: one split per group member" begin
-        # Pick a sequential bi-bi spec with exactly 4 RE multi-step
-        # groups of size 2 (4 binding pairs, A/B/P/Q sharing one
-        # group each). Splitting each member yields 2 results per
-        # group → 8 total (before dedup).
-        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        spec = first(filter(specs) do s
-            counts = Dict{Int, Int}()
-            for st in s.steps
-                counts[st.kinetic_group] =
-                    get(counts, st.kinetic_group, 0) + 1
+# ─── _expand_split_kinetic_group ───────────────────────────────────────
+@testset "_expand_split_kinetic_group" begin
+
+    @testset "MechanismSpec — bi-bi: 4 multi-step groups → 8 splits" begin
+        # SEED: bi-bi random with 4 multi-step kinetic groups (A, B, P, Q
+        # each with 2 binding steps shared via parens). Iso is singleton.
+        m_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
+                E_A_B <--> E_P_Q
             end
-            multi = filter(((_, n),) -> n >= 2, counts)
-            length(multi) == 4 && all(n == 2 for (_, n) in multi)
-        end)
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_rxn)
+
         result = EnzymeRates._expand_split_kinetic_group(spec)
+
+        # 1. count: split picks one step out of a multi-step group into
+        # a fresh group. 4 groups × 2 steps each → 4 × 2 = 8 split variants.
         @test length(result) == 8
+
+        # 2. Δ params: each split adds +1 (RE plain, no allosteric).
+        # The new group inherits is_equilibrium=true; one extra K param.
         for r in result
-            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+            @test r.n_fit_params_estimate ==
+                spec.n_fit_params_estimate + 1
+        end
+
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+        end
+
+        # 4. property-style (N=8 > 6): the result has exactly one new
+        # kinetic_group integer (max+1) and exactly one step now belongs
+        # to it. The remaining group has size n_old - 1.
+        for r in result
+            old_groups = Set(s.kinetic_group for s in spec.steps)
+            new_groups = Set(s.kinetic_group for s in r.steps)
+            extra = setdiff(new_groups, old_groups)
+            @test length(extra) == 1
+            new_g = first(extra)
+            n_in_new = count(s.kinetic_group == new_g for s in r.steps)
+            @test n_in_new == 1
+        end
+
+        # 5. preservation: reaction unchanged; total step count unchanged.
+        for r in result
+            @test r.reaction === spec.reaction
+            @test length(r.steps) == length(spec.steps)
         end
     end
 
-    @testset "No multi-step groups → yields nothing" begin
-        m = @enzyme_mechanism begin
+    @testset "MechanismSpec — all singleton groups: empty (negative)" begin
+        # SEED: uni-uni init, every kinetic group is a singleton (size 1).
+        # Splitting requires a multi-step group → no eligible group → empty.
+        m_seed = @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -1829,33 +1865,128 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
-        # Every group has exactly 1 step → no split possible
-        result = EnzymeRates._expand_split_kinetic_group(spec)
-        @test isempty(result)
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
+        @test isempty(EnzymeRates._expand_split_kinetic_group(spec))
     end
 
-    @testset "Mixed RE/SS group: split delta differs" begin
-        # Take a bi-bi init mechanism, RE→SS one of its multi-step
-        # groups (now SS). Splitting any RE group gives +1, splitting
-        # the SS group gives +2.
-        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        spec = first(filter(specs) do s
-            counts = Dict{Int, Int}()
-            for st in s.steps
-                counts[st.kinetic_group] =
-                    get(counts, st.kinetic_group, 0) + 1
+    @testset "MechanismSpec — mixed RE/SS group sizes: deltas differ" begin
+        # SEED: bi-bi random where the A-binding kinetic group has been
+        # converted to SS (size-2 group, both steps SS) and the B-binding
+        # kinetic group is RE (size-2 group, both steps RE). The remaining
+        # P-binding (size-2, RE), Q-binding (size-2, RE), and iso (singleton,
+        # SS) groups are unchanged. Total: 9 steps, 5 kinetic groups.
+        # Splitting an RE multi-step group adds +1 (one new K). Splitting
+        # an SS multi-step group adds +2 (one new kf AND one new kr).
+        m_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A <--> E_A, E_B + A <--> E_A_B)
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
+                E_A_B <--> E_P_Q
             end
-            length(filter(((_, n),) -> n >= 2, counts)) >= 1
-        end)
-        ss_specs = EnzymeRates._expand_re_to_ss(spec)
-        @test !isempty(ss_specs)
-        ss_spec = first(ss_specs)
-        result = EnzymeRates._expand_split_kinetic_group(ss_spec)
-        # Each result has delta of 1 (RE split) or 2 (SS split).
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_rxn)
+
+        result = EnzymeRates._expand_split_kinetic_group(spec)
+
+        # 1. count: 4 multi-step groups (A SS×2, B RE×2, P RE×2, Q RE×2).
+        # Each can split per member → 4 × 2 = 8 variants.
+        @test length(result) == 8
+
+        # 2. Δ params: split on an RE group → +1 (one new K). Split on an
+        # SS group → +2 (one new kf + one new kr). The seed has 1 SS multi-
+        # step group (A) and 3 RE multi-step groups (B, P, Q). Per-member
+        # splits give 2 SS splits at +2 each and 6 RE splits at +1 each.
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test deltas == [1, 1, 1, 1, 1, 1, 2, 2]
+
+        # 3. compilability
         for r in result
-            delta = r.n_fit_params_estimate - ss_spec.n_fit_params_estimate
-            @test delta == 1 || delta == 2
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.reaction === spec.reaction
+            @test length(r.steps) == length(spec.steps)
+        end
+    end
+
+    @testset "AllostericMechanismSpec — split inherits parent's tag" begin
+        # SEED: bi-bi allosteric where one multi-step group is :NonequalRT
+        # and another is :EqualRT. Split must produce results where the
+        # NEW group inherits the parent's tag — splitting is a parameter-
+        # relaxation move and MUST NOT change R/T-state semantics.
+        m_seed = @allosteric_mechanism begin
+            substrates: A, B
+            products: P, Q
+            site(:catalytic, 2): begin
+                steps: begin
+                    (E + A ⇌ E_A, E_B + A ⇌ E_A_B)        :: NonequalRT
+                    (E + B ⇌ E_B, E_A + B ⇌ E_A_B)        :: EqualRT
+                    E + P ⇌ E_P             :: EqualRT
+                    E_P + Q ⇌ E_P_Q         :: EqualRT
+                    E + Q ⇌ E_Q             :: EqualRT
+                    E_Q + P ⇌ E_P_Q         :: EqualRT
+                    E_A_B <--> E_P_Q        :: EqualRT
+                end
+            end
+        end
+        bi_bi_allo_rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            oligomeric_state: 2
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, bi_bi_allo_rxn)
+
+        result = EnzymeRates._expand_split_kinetic_group(spec)
+
+        # 1. count: 2 multi-step groups × 2 members each = 4 variants.
+        @test length(result) == 4
+
+        # 2. Δ params: depends on tag and is_equilibrium of parent group.
+        # :NonequalRT RE split: +2 (base 1 × 2 for NonequalRT factor).
+        # :EqualRT RE split: +1.
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test deltas == [1, 1, 2, 2]
+
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+
+        # 4. property-style: the new group's tag equals its parent group's tag.
+        pre_groups = Set(s.kinetic_group for s in spec.base.steps)
+        for r in result
+            post_groups = Set(s.kinetic_group for s in r.base.steps)
+            new_groups = setdiff(post_groups, pre_groups)
+            @test length(new_groups) == 1
+            new_g = first(new_groups)
+            # Identify parent: the only pre-group whose count dropped.
+            pre_counts = Dict(g => count(s -> s.kinetic_group == g,
+                                         spec.base.steps)
+                              for g in pre_groups)
+            post_counts = Dict(g => count(s -> s.kinetic_group == g,
+                                          r.base.steps)
+                               for g in pre_groups)
+            old_g = only(g for g in pre_groups
+                         if post_counts[g] < pre_counts[g])
+            @test r.group_tags[new_g] == spec.group_tags[old_g]
+            for g in pre_groups
+                @test r.group_tags[g] == spec.group_tags[g]
+            end
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.catalytic_n == spec.catalytic_n
+            @test r.allosteric_reg_sites == spec.allosteric_reg_sites
+            @test r.reg_ligand_tags == spec.reg_ligand_tags
         end
     end
 end
@@ -2972,74 +3103,6 @@ end
                 allo.allosteric_reg_sites
             @test r.group_tags == allo.group_tags
             @test r.n_fit_params_estimate > allo.n_fit_params_estimate
-        end
-    end
-
-    @testset "Remove constraint on allosteric" begin
-        m_bb = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E_A
-                E_B + A ⇌ E_A_B
-                E + B ⇌ E_B
-                E_A + B ⇌ E_A_B
-                E + P ⇌ E_P
-                E_P + Q ⇌ E_P_Q
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
-            end
-        end
-        bi_bi_allo_rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            oligomeric_state: 2
-        end
-        # Use init_mechanisms to get a bi-bi spec with multi-step
-        # kinetic groups (same-metabolite RE bindings collapsed).
-        bb_specs = EnzymeRates.init_mechanisms(bi_bi_allo_rxn)
-        bb_spec_c = first(filter(bb_specs) do s
-            counts = Dict{Int, Int}()
-            for st in s.steps
-                counts[st.kinetic_group] =
-                    get(counts, st.kinetic_group, 0) + 1
-            end
-            any(((_, n),) -> n >= 2, counts)
-        end)
-        bb_allo = first(
-            EnzymeRates._expand_to_allosteric(
-                bb_spec_c, bi_bi_allo_rxn))
-        # Splitting a multi-step kinetic group in the allosteric
-        # base must produce results AND the new group must inherit
-        # the parent group's allosteric tag (split is a parameter-
-        # relaxation move; it must not change R/T-state semantics).
-        result = EnzymeRates._expand_split_kinetic_group(bb_allo)
-        @test !isempty(result)
-        pre_groups = Set(s.kinetic_group for s in bb_allo.base.steps)
-        for r in result
-            _assert_spec_invariants(r)
-            @test r isa EnzymeRates.AllostericMechanismSpec
-            @test r.catalytic_n == bb_allo.catalytic_n
-            post_groups =
-                Set(s.kinetic_group for s in r.base.steps)
-            new_groups = setdiff(post_groups, pre_groups)
-            @test length(new_groups) == 1
-            new_g = first(new_groups)
-            # Identify the parent group: the only pre-group whose
-            # step count dropped.
-            pre_counts = Dict(g => count(
-                    s -> s.kinetic_group == g, bb_allo.base.steps)
-                for g in pre_groups)
-            post_counts = Dict(g => count(
-                    s -> s.kinetic_group == g, r.base.steps)
-                for g in pre_groups)
-            old_g = only(g for g in pre_groups
-                if post_counts[g] < pre_counts[g])
-            @test r.group_tags[new_g] == bb_allo.group_tags[old_g]
-            for g in pre_groups
-                @test r.group_tags[g] == bb_allo.group_tags[g]
-            end
         end
     end
 

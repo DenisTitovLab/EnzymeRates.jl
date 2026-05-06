@@ -1288,8 +1288,8 @@ Insert below `_expand_re_to_ss`:
             steps: begin
                 (E + A <--> E_A, E_B + A <--> E_A_B)
                 (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
-                (E + P ⇌ E_P, E_P + Q ⇌ E_P_Q)
-                (E + Q ⇌ E_Q, E_Q + P ⇌ E_P_Q)
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
                 E_A_B <--> E_P_Q
             end
         end
