@@ -3401,6 +3401,12 @@ end
     end
 end
 
+# ═══════════════════════════════════════════════════════════════════════
+# Testsets covering downstream concerns (canonicalization parameter-naming;
+# move-on-allosteric polymorphism). Adjacent to enumeration but tests
+# rate-equation-derivation and AllostericEnzymeMechanism integration.
+# ═══════════════════════════════════════════════════════════════════════
+
 @testset "Tagged groups exclude T-state params" begin
     specs = EnzymeRates.init_mechanisms(uni_uni_allo)
     spec = first(specs)
