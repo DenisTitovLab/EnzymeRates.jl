@@ -1120,6 +1120,18 @@ end
         # E-side + Estar_B_P, Estar_B_Q from
         # Estar-side), competition-filtered
         @test length(result) == 7
+
+        # Assert that some result variants contain Estar-prefixed dead-end
+        # forms (proving the Estar branch of _dead_end_form_name is reached).
+        seed_forms = EnzymeRates.all_form_names(spec)
+        new_estar_forms = Set{Symbol}()
+        for r in result
+            new_forms = setdiff(EnzymeRates.all_form_names(r), seed_forms)
+            for f in new_forms
+                startswith(string(f), "Estar_") && push!(new_estar_forms, f)
+            end
+        end
+        @test !isempty(new_estar_forms)
     end
 
     @testset "Dead-end filtering by competition" begin
@@ -1508,6 +1520,22 @@ end
             found_with_reg && break
         end
         @test found_with_reg
+    end
+
+    @testset "Substrate-as-product overlap (racemase shape)" begin
+        # A substrate racemase has differently-named substrate/product
+        # (e.g., L-Ala → D-Ala) but the same atomic composition. Init
+        # mechanisms must compile correctly.
+        rxn = @enzyme_reaction begin
+            substrates: L_Ala[CHN]
+            products: D_Ala[CHN]
+        end
+        specs = EnzymeRates.init_mechanisms(rxn)
+        @test !isempty(specs)
+        for spec in first(specs, min(3, length(specs)))
+            m = EnzymeMechanism(spec)
+            @test m isa EnzymeMechanism
+        end
     end
 end
 
@@ -4034,10 +4062,43 @@ end
                      for pc in keys(post_dedup_counts))
         @test shrank
     end
+
+    @testset "Empty input" begin
+        # dedup! on empty cache is a no-op (and cleans up empty buckets).
+        cache = Dict{Int, Vector{EnzymeRates.AbstractMechanismSpec}}()
+        EnzymeRates.dedup!(cache)
+        @test isempty(cache)
+    end
+
+    @testset "Non-contiguous kinetic_group IDs collapse via canonicalization" begin
+        # Two specs with the same step shape but different kinetic_group
+        # integer values (different subsets of the integers) should collapse
+        # to one after dedup!. This exercises _canonicalize!'s renumbering
+        # path with non-contiguous input IDs.
+        spec_a = MechanismSpec(uni_uni_rxn,
+            [StepSpec([:E, :S], [:E_S], true, 5),
+             StepSpec([:E, :P], [:E_P], true, 9),
+             StepSpec([:E_S], [:E_P], false, 14)],
+            3)
+        spec_b = MechanismSpec(uni_uni_rxn,
+            [StepSpec([:E, :S], [:E_S], true, 2),
+             StepSpec([:E, :P], [:E_P], true, 6),
+             StepSpec([:E_S], [:E_P], false, 11)],
+            3)
+        cache = Dict(3 => EnzymeRates.AbstractMechanismSpec[spec_a, spec_b])
+        EnzymeRates.dedup!(cache)
+        @test length(cache[3]) == 1
+    end
 end
 
 # ─── expand_mechanisms ─────────────────────────────────────────────────
 @testset "expand_mechanisms" begin
+    @testset "Empty input" begin
+        # expand_mechanisms with empty input returns empty Dict.
+        @test isempty(EnzymeRates.expand_mechanisms(
+            EnzymeRates.AbstractMechanismSpec[], uni_uni_rxn))
+    end
+
     @testset "Returns dict keyed by param count" begin
         # SEED: uni-uni RE-only, 3 singleton kinetic groups → base_pc = 3.
         m_seed = @enzyme_mechanism begin
