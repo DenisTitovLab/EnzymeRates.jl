@@ -2575,59 +2575,160 @@ end
     end
 end
 
-@testset "Allosteric conversion" begin
-    # Per-group tag enumeration: per R-state-active convention,
-    # each kinetic group → one of `{:OnlyR, :EqualRT}`.
-    # No K-type/V-type hardcoded subsets.
+# ═══════════════════════════════════════════════════════════════════════
+# 4. Allosteric expansion moves (AllostericMechanismSpec only)
+# ═══════════════════════════════════════════════════════════════════════
 
-    @testset "Uni-uni: per-group tag variants" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        result = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        # Uni-uni init has 3 singleton groups (S binding, P binding, iso).
-        # _expand_to_allosteric emits the all-:EqualRT baseline once plus
-        # one :OnlyR variant per group: 1 + 3 = 4.
+# ─── _expand_to_allosteric ─────────────────────────────────────────────
+@testset "_expand_to_allosteric" begin
+
+    @testset "MechanismSpec — uni-uni: 4 variants (equivalence-style)" begin
+        # SEED: uni-uni init, 3 singleton kinetic groups.
+        m_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
+
+        result = EnzymeRates._expand_to_allosteric(spec, uni_uni_allo)
+
+        # 1. count: _expand_to_allosteric emits the all-:EqualRT baseline
+        # once plus one :OnlyR variant per kinetic group. 3 groups → 1 + 3 = 4.
         @test length(result) == 4
+
+        # 2. Δ params: +1 per variant (just L, the conformation equilibrium).
+        # All other tag deltas are zero relative to the all-:EqualRT baseline.
         for r in result
-            _assert_spec_invariants(r)
-            @test r isa AllostericMechanismSpec
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+        end
+
+        # 3. compilability — implicit in item 4's equivalence-style call.
+
+        # 4. equivalence-style (N=4 ≤ 6). 4 expected mechanisms:
+        # all-:EqualRT baseline + one :OnlyR variant per group.
+        v_baseline = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        v_g1_OnlyR = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: OnlyR
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        v_g2_OnlyR = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: OnlyR
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        v_g3_OnlyR = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: OnlyR
+                end
+            end
+        end
+        @test Set(EnzymeRates.compile_mechanism(r) for r in result) ==
+            Set([v_baseline, v_g1_OnlyR, v_g2_OnlyR, v_g3_OnlyR])
+
+        # 5. preservation
+        for r in result
+            @test r.base === spec || r.base == spec
             @test r.catalytic_n == 2
         end
     end
 
-    @testset "All compile" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        result = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        for r in result
-            m = AllostericEnzymeMechanism(r)
-            @test m isa AllostericEnzymeMechanism
+    @testset "AllostericMechanismSpec → empty (negative)" begin
+        # Already-allosteric specs cannot be re-converted. The
+        # _expand_to_allosteric specialization on AllostericMechanismSpec
+        # returns an empty vector.
+        m_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
         end
-    end
-
-    @testset "Already allosteric → empty" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        allo = first(EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo))
-        @test isempty(EnzymeRates._expand_to_allosteric(
-            allo, uni_uni_allo))
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
+        @test isempty(EnzymeRates._expand_to_allosteric(spec, uni_uni_allo))
     end
 
     @testset "oligomeric_state from reaction" begin
+        # The catalytic_n of the result is taken from the reaction's
+        # oligomeric_state, not hardcoded to 2.
         rxn4 = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             oligomeric_state: 4
         end
-        specs = EnzymeRates.init_mechanisms(rxn4)
-        spec = first(specs)
-        result = EnzymeRates._expand_to_allosteric(
-            spec, rxn4)
+        m_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn4)
+        result = EnzymeRates._expand_to_allosteric(spec, rxn4)
+        @test !isempty(result)
         for r in result
             @test r.catalytic_n == 4
+        end
+    end
+
+    @testset "Bi-bi sequential: 5 groups → 6 variants" begin
+        # _expand_to_allosteric emits 1 baseline + 1 :OnlyR per group.
+        # 5 groups → 1 + 5 = 6 variants.
+        m_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E_A
+                E_A + B ⇌ E_A_B
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
+            end
+        end
+        bi_bi_allo_rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            oligomeric_state: 2
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_allo_rxn)
+        result = EnzymeRates._expand_to_allosteric(spec, bi_bi_allo_rxn)
+        @test length(result) == 6
+        for r in result
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
     end
 end
