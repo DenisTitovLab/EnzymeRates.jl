@@ -2733,75 +2733,262 @@ end
     end
 end
 
-@testset "Add allosteric regulator" begin
-    @testset "Add regulator to allosteric spec" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo_reg)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo_reg)
-        @test !isempty(allo_specs)
-        allo = first(allo_specs)
+# ─── _expand_add_allosteric_regulator ──────────────────────────────────
+@testset "_expand_add_allosteric_regulator" begin
+
+    @testset "Allosteric uni-uni + first allo regulator R: 3 variants" begin
+        # SEED: uni-uni allosteric, all groups :EqualRT, no allosteric
+        # regulator added yet.
+        m_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
+
         result = EnzymeRates._expand_add_allosteric_regulator(
-            allo, uni_uni_allo_reg)
-        # R not yet added: 3 tags × 1 site option
-        # (new site only, no existing reg sites) = 3
+            spec, uni_uni_allo_reg)
+
+        # 1. count: R is the only un-added allosteric regulator. There
+        # are 0 existing reg sites. The move enumerates non-:EqualRT
+        # tags {:OnlyR, :OnlyT, :NonequalRT} × site options (new site
+        # only, since 0 existing): 3 × 1 = 3 variants. The :EqualRT
+        # branch is gated to "existing site with at least one non-:EqualRT
+        # ligand" → not applicable here (no existing sites). → 3.
         @test length(result) == 3
+
+        # 2. Δ params: cost of new R-binding K (+1) plus per-tag delta vs
+        # :EqualRT base. :OnlyR/:OnlyT cheap → +1 total. :NonequalRT → +2
+        # (K_R + K_T). So deltas across the 3 variants: [1, 1, 2].
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test deltas == [1, 1, 2]
+
+        # 3. compilability — implicit in item 4's equivalence-style call.
+
+        # 4. equivalence-style (N=3 ≤ 6).
+        v_onlyR = @allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R::OnlyR
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        v_onlyT = @allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R::OnlyT
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        v_neq = @allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R::NonequalRT
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        @test Set(EnzymeRates.compile_mechanism(r) for r in result) ==
+            Set([v_onlyR, v_onlyT, v_neq])
+
+        # 5. preservation
         for r in result
-            _assert_spec_invariants(r)
+            @test r.catalytic_n == spec.catalytic_n
+            @test r.group_tags == spec.group_tags
+            @test r.base.reaction === spec.base.reaction
         end
     end
 
-    @testset "Non-allosteric → yields nothing" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo_reg)
-        spec = first(specs)
+    @testset "Non-allosteric MechanismSpec → empty (negative)" begin
+        # MechanismSpec is not an allosteric spec. The move specializes on
+        # AllostericMechanismSpec; a plain MechanismSpec dispatches to the
+        # fallback that returns an empty vector.
+        m_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
+
         result = EnzymeRates._expand_add_allosteric_regulator(
             spec, uni_uni_allo_reg)
+
+        # 1. count: 0 — non-allosteric input → empty fallback.
         @test isempty(result)
+
+        # 2. Δ params: not applicable (empty result).
+
+        # 4. structural change: not applicable (empty result).
+
+        # 5. preservation: not applicable (empty result).
     end
 
-    @testset "Second regulator with site options" begin
-        specs = EnzymeRates.init_mechanisms(
-            uni_uni_allo_2reg)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
+    @testset "Two regulators with site options: count = 7" begin
+        # SEED: allosteric uni-uni with R1 already added as :OnlyR.
+        # R2 is un-added; existing site has one non-:EqualRT ligand (R1).
+        m_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R1::OnlyR
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_2reg)
+
+        result = EnzymeRates._expand_add_allosteric_regulator(
             spec, uni_uni_allo_2reg)
-        allo = first(allo_specs)
-        # Add R1 first
-        r1_added = EnzymeRates._expand_add_allosteric_regulator(
-            allo, uni_uni_allo_2reg)
-        @test !isempty(r1_added)
-        # Now add R2 to one with R1
-        with_r1 = first(r1_added)
-        r2_added = EnzymeRates._expand_add_allosteric_regulator(
-            with_r1, uni_uni_allo_2reg)
-        # R2: 3 tags × 2 site options (new site + R1's site) = 6
-        # + :EqualRT at R1's non-:EqualRT site = 1
-        @test length(r2_added) == 7
+
+        # 1. count: 3 non-:EqualRT tag flavors {:OnlyR, :OnlyT, :NonequalRT}
+        # × 2 site options (new site OR R1's existing site) = 6.
+        # Plus 1 variant for :EqualRT at R1's (non-:EqualRT) existing
+        # site — gated on existing site having a non-:EqualRT ligand (R1
+        # qualifies). → 6 + 1 = 7.
+        @test length(result) == 7
+
+        # 2. Δ params: new K_R2 binding (+1 for :OnlyR/:OnlyT, +2 for
+        # :NonequalRT). When added to an existing site the binding K is
+        # shared with that site's other ligands (no extra site factor).
+        # :EqualRT at existing site: +1 (one shared symbol). Deltas span
+        # {1, 2} across the 7 variants; at least one is 1 and one is 2.
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test 1 in deltas
+        @test 2 in deltas
+        @test all(d -> d >= 1, deltas)
+
+        # 4. structural: every result has R2 in allosteric_reg_sites.
+        for r in result
+            has_r2 = any(:R2 in site for site in r.allosteric_reg_sites)
+            @test has_r2
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.catalytic_n == spec.catalytic_n
+            @test r.group_tags == spec.group_tags
+            @test r.base.reaction === spec.base.reaction
+        end
     end
 
     @testset "EqualRT ligand reachable at existing reg site" begin
-        # Set up a spec with a single regulator at one site, non-:EqualRT.
-        # Then expand to add a SECOND regulator at the SAME site as :EqualRT.
-        # Verify a result spec exists with both ligands at site 1, the
-        # second tagged :EqualRT.
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo_2reg)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(spec, uni_uni_allo_2reg)
-        allo = first(allo_specs)
-        # Add R1 first to get a seed with one non-:EqualRT ligand at site 1
-        with_r1 = EnzymeRates._expand_add_allosteric_regulator(
-            allo, uni_uni_allo_2reg)
-        seed = first(filter(s -> haskey(s.reg_ligand_tags, :R1) &&
-                                  s.reg_ligand_tags[:R1] == :OnlyR, with_r1))
-        # Now add R2 — verify one result has R2::EqualRT at the same site as R1
-        expanded = EnzymeRates._expand_add_allosteric_regulator(
-            seed, uni_uni_allo_2reg)
-        target = findfirst(expanded) do s
+        # SEED: same as seed 3 — R1 is :OnlyR at site 1. Adding R2 must
+        # produce at least one variant where R2 is :EqualRT at site 1
+        # (same site as R1). The :EqualRT branch fires only when the
+        # existing site has a non-:EqualRT ligand.
+        m_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R1::OnlyR
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_2reg)
+
+        result = EnzymeRates._expand_add_allosteric_regulator(
+            spec, uni_uni_allo_2reg)
+
+        # 1. count: 7 (same derivation as seed 3).
+        @test length(result) == 7
+
+        # 4. structural: at least one result has R2::EqualRT at site 1
+        # (the same site where R1 lives).
+        target = findfirst(result) do s
             get(s.reg_ligand_tags, :R2, nothing) == :EqualRT &&
                 :R2 in s.allosteric_reg_sites[1]
         end
         @test target !== nothing
+
+        # 5. preservation
+        for r in result
+            @test r.catalytic_n == spec.catalytic_n
+            @test r.group_tags == spec.group_tags
+            @test r.base.reaction === spec.base.reaction
+        end
     end
+
+    @testset "Substrate-as-allosteric-regulator overlap" begin
+        # SEED: allosteric uni-uni where S is both substrate and allosteric
+        # regulator. Reaction declares S in allosteric_regulators.
+        rxn_allo_overlap = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: S
+            oligomeric_state: 2
+        end
+        m_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn_allo_overlap)
+
+        result = EnzymeRates._expand_add_allosteric_regulator(
+            spec, rxn_allo_overlap)
+
+        # 1. count: S is the only un-added allosteric regulator. 0 existing
+        # reg sites → 3 non-:EqualRT tags × 1 site option = 3. No :EqualRT
+        # branch (no existing sites). → 3.
+        @test length(result) == 3
+
+        # 2. Δ params: same as seed 1 — [1, 1, 2].
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test deltas == [1, 1, 2]
+
+        # 4. structural: S appears in allosteric_reg_sites of every result.
+        # S retains its catalytic role in the base spec (substrates of rxn).
+        for r in result
+            has_s = any(:S in site for site in r.allosteric_reg_sites)
+            @test has_s
+        end
+
+        # 4b. compilability (explicit since dual-role is unusual).
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.catalytic_n == spec.catalytic_n
+            @test r.group_tags == spec.group_tags
+            @test r.base.reaction === spec.base.reaction
+        end
+    end
+
 end
 
 @testset "Remove TR equivalence" begin
@@ -3214,52 +3401,6 @@ end
         @test !occursin(r"\bK\d+_T\b", canon)
         @test !occursin(r"\bk\d+[fr]_T\b", canon)
     end
-end
-
-@testset "Metabolite overlap: substrate as allosteric regulator" begin
-    rxn_allo_overlap = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        allosteric_regulators: S
-        oligomeric_state: 2
-    end
-    specs = EnzymeRates.init_mechanisms(rxn_allo_overlap)
-    @test !isempty(specs)
-    spec = first(specs)
-
-    # Allosteric conversion works
-    allo_specs = EnzymeRates._expand_to_allosteric(
-        spec, rxn_allo_overlap)
-    @test !isempty(allo_specs)
-
-    # Add S as allosteric regulator
-    allo = first(allo_specs)
-    reg_specs = EnzymeRates._expand_add_allosteric_regulator(
-        allo, rxn_allo_overlap)
-    @test !isempty(reg_specs)
-
-    # S appears in allosteric_reg_sites
-    for r in reg_specs
-        has_s = any(:S in site for site in r.allosteric_reg_sites)
-        @test has_s
-    end
-
-    # All compile correctly
-    for r in reg_specs
-        m = AllostericEnzymeMechanism(r)
-        @test m isa AllostericEnzymeMechanism
-    end
-
-    # TR equiv removal: S as catalytic met has its own group
-    # tag, S as regulator has its own ligand tag. Each constrained
-    # entry is relaxable independently.
-    tr_spec = first(filter(
-        r -> r.reg_ligand_tags[:S] != :NonequalRT, reg_specs))
-    result = EnzymeRates._expand_change_allo_state(
-        tr_spec, rxn_allo_overlap)
-    # At least: 1 ligand-tag relaxation for :S; plus any
-    # group-tag relaxations from the catalytic side.
-    @test !isempty(result)
 end
 
 @testset "Base-level moves on allosteric specs" begin
