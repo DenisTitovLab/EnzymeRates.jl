@@ -3861,12 +3861,23 @@ end
     end
 
     @testset "Different mechanisms preserved" begin
+        # Dedup should NOT over-collapse: every surviving spec compiles
+        # to a distinct EnzymeMechanism (no two compile-equivalent
+        # specs survive). Note: comparing pre-dedup vs post-dedup
+        # compiled outputs is unsound because canonicalization changes
+        # step ordering, which changes the EnzymeMechanism singleton's
+        # `Reactions` type parameter. So we just verify the post-dedup
+        # invariant: surviving specs are pairwise compile-distinct.
         specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
         pc = first(specs).n_fit_params_estimate
         cache = Dict(pc => AbstractMechanismSpec[specs...])
         EnzymeRates.dedup!(cache)
-        @test length(cache[pc]) >= 1
-        @test length(cache[pc]) <= length(specs)
+        compiled_set = Set(EnzymeRates.compile_mechanism(s) for s in cache[pc])
+        @test length(cache[pc]) == length(compiled_set)
+        # And dedup didn't over-collapse all specs to one entry — the
+        # bucket still has multiple distinct mechanisms (bi-bi has many
+        # init topologies, all distinct).
+        @test length(cache[pc]) >= 2
     end
 
     @testset "Idempotent" begin
@@ -3904,37 +3915,21 @@ end
         @test length(cache[pc]) == 1
     end
 
-    @testset "Inter-move overlap collapses via dedup!" begin
-        # Two different expansion paths from the same seed can produce the
-        # same target spec. Verify dedup! collapses such duplicates after
-        # canonicalization.
-        m_seed = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
-            end
-        end
-        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
-
-        # Path 1: RE→SS on the S-binding group.
-        re_to_ss_results = EnzymeRates._expand_re_to_ss(spec)
-        # Path 2: split the iso group (no-op since it's singleton, so empty)
-        # plus another move that produces a structurally identical result.
-        # In practice, expand_mechanisms calls all moves on the same spec
-        # and dedup! collapses inter-move overlaps. Verify by running
-        # expand_mechanisms and checking that the result count is no larger
-        # than the union of unique compiled mechanisms.
-        expanded = EnzymeRates.expand_mechanisms([spec], uni_uni_rxn)
+    @testset "Inter-move overlap: dedup actually fires" begin
+        # Run expand_mechanisms on a bi-bi init seed, then dedup!. Assert
+        # that at least one param-count bucket has post-dedup count <
+        # pre-dedup count — proving dedup actually collapsed something
+        # (i.e., two different expansion paths produced equivalent specs).
+        init_specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        expanded = EnzymeRates.expand_mechanisms(init_specs, bi_bi_rxn)
+        pre_dedup_counts = Dict(pc => length(specs) for (pc, specs) in expanded)
         EnzymeRates.dedup!(expanded)
-        for (pc, specs) in expanded
-            compiled = Set(EnzymeRates.compile_mechanism(s) for s in specs)
-            # After dedup, compiled count should equal spec count
-            # (no duplicates surviving).
-            @test length(compiled) == length(specs)
-        end
+        post_dedup_counts = Dict(pc => length(specs) for (pc, specs) in expanded)
+        # post_dedup keys ⊆ pre_dedup keys (dedup only deletes empty buckets).
+        # At least one shared bucket should have shrunk.
+        shrank = any(get(pre_dedup_counts, pc, 0) > post_dedup_counts[pc]
+                     for pc in keys(post_dedup_counts))
+        @test shrank
     end
 end
 
