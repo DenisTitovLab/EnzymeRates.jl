@@ -381,55 +381,12 @@ end
 
 @testset "Mechanism Enumeration" begin
 
-@testset "test reaction atom balance" begin
-    for rxn in [pyruvate_carboxylase_rxn,
-                pyruvate_dehydrogenase_rxn]
-        sub_atoms = Dict{Symbol,Int}()
-        for (_, atoms) in EnzymeRates.substrates(rxn)
-            for (a, c) in atoms
-                sub_atoms[a] = get(sub_atoms, a, 0) + c
-            end
-        end
-        prod_atoms = Dict{Symbol,Int}()
-        for (_, atoms) in EnzymeRates.products(rxn)
-            for (a, c) in atoms
-                prod_atoms[a] = get(prod_atoms, a, 0) + c
-            end
-        end
-        @test sub_atoms == prod_atoms
-    end
-end
+# ═══════════════════════════════════════════════════════════════════════
+# 1. Support functions (no spec input)
+# ═══════════════════════════════════════════════════════════════════════
 
-@testset "AllostericEnzymeMechanism TR equivalence" begin
-    base_rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-    end
-    # Steps with kinetic_group: 1 = S binding (RE),
-    # 2 = P binding (RE), 3 = iso (SS).
-    base_steps = [
-        StepSpec([:E, :S], [:E_S], true, 1),
-        StepSpec([:E, :P], [:E_P], true, 2),
-        StepSpec([:E_S], [:E_P], false, 3),
-    ]
-    base_spec = MechanismSpec(base_rxn, base_steps, 3)
-
-    # S binding (group 1) is `:EqualRT` (K_T_S = K_R_S),
-    # P binding (group 2) is `:OnlyR` (absent from T-state).
-    # Iso (group 3) is `:NonequalRT` (default).
-    allo_spec = AllostericMechanismSpec(
-        base_spec, 2,
-        Vector{Symbol}[], Int[],
-        Dict(1 => :EqualRT, 2 => :OnlyR, 3 => :NonequalRT),
-        Dict{Symbol, Symbol}(),
-        base_spec.n_fit_params_estimate + 1)
-
-    m_compiled = AllostericEnzymeMechanism(allo_spec)
-    @test EnzymeRates.cat_allo_state(m_compiled, 1) == :EqualRT
-    @test EnzymeRates.cat_allo_state(m_compiled, 2) == :OnlyR
-end
-
-@testset "Catalytic topologies" begin
+# ─── _catalytic_topologies ──────────────────────────────────────────────
+@testset "_catalytic_topologies" begin
 
     @testset "Uni-Uni" begin
         topos = EnzymeRates._catalytic_topologies(uni_uni_rxn)
@@ -691,6 +648,407 @@ end
         @test seq_count == 169
         @test pp_count == 165
     end
+
+    @testset "quad-quad: C6 forces ping-pong" begin
+        # Quad-quad reaction: 4 subs, 4 prods
+        # With C6 (iso ≤ 3×3), 4→4 sequential iso is blocked
+        # All topologies must use ping-pong (at least 2 iso steps)
+        quad_rxn = @enzyme_reaction begin
+            substrates: A[C], B[N], D[X], F[Y]
+            products: P[C], Q[N], R[X], S[Y]
+        end
+        topos = EnzymeRates._catalytic_topologies(quad_rxn)
+        @test length(topos) > 0
+        # Every topology must have ≥ 2 iso steps (no 4→4)
+        for spec in topos
+            n_iso = count(spec.steps) do s
+                length(s.reactants) == 1 &&
+                    length(s.products) == 1
+            end
+            @test n_iso >= 2
+        end
+    end
+
+end
+
+# ─── _competition_patterns ──────────────────────────────────────────────
+@testset "_competition_patterns" begin
+    # Uni-uni: 1×1, only 1 pattern (single edge)
+    pats_11 = EnzymeRates._competition_patterns(
+        Set([:S]), Set([:P]))
+    @test length(pats_11) == 1
+    @test pats_11[1] == Set([(:S, :P)])
+
+    # Uni-bi: 1×2, S competes with both P and Q
+    pats_12 = EnzymeRates._competition_patterns(
+        Set([:S]), Set([:P, :Q]))
+    @test length(pats_12) == 1
+    @test pats_12[1] == Set([(:S, :P), (:S, :Q)])
+
+    # Bi-uni: symmetric
+    pats_21 = EnzymeRates._competition_patterns(
+        Set([:A, :B]), Set([:P]))
+    @test length(pats_21) == 1
+    @test pats_21[1] == Set([(:A, :P), (:B, :P)])
+
+    # Bi-bi: 7 patterns
+    pats_22 = EnzymeRates._competition_patterns(
+        Set([:A, :B]), Set([:P, :Q]))
+    @test length(pats_22) == 7
+    # Every pattern covers all vertices
+    for pat in pats_22
+        for s in [:A, :B]
+            @test any(
+                p -> (s, p) in pat, [:P, :Q])
+        end
+        for p in [:P, :Q]
+            @test any(
+                s -> (s, p) in pat, [:A, :B])
+        end
+    end
+    # Invalid: {A↔P, B↔P} leaves Q uncovered
+    @test Set([(:A, :P), (:B, :P)]) ∉ pats_22
+
+    # Ter-ter: 265 patterns
+    pats_33 = EnzymeRates._competition_patterns(
+        Set([:A, :B, :C]),
+        Set([:P, :Q, :R]))
+    @test length(pats_33) == 265
+    for pat in pats_33
+        for s in [:A, :B, :C]
+            @test any(
+                p -> (s, p) in pat,
+                [:P, :Q, :R])
+        end
+        for p in [:P, :Q, :R]
+            @test any(
+                s -> (s, p) in pat,
+                [:A, :B, :C])
+        end
+    end
+end
+
+# ─── _inhibitor_competition_patterns ────────────────────────────────────
+@testset "_inhibitor_competition_patterns" begin
+    # Uni-uni, no existing inhibitors
+    pats = EnzymeRates._inhibitor_competition_patterns(
+        Set([:S]), Set([:P]), Symbol[])
+    @test length(pats) == 1
+    @test pats[1] == (Set([:S]), Set([:P]), Set{Symbol}())
+
+    # Bi-bi, no existing inhibitors: 3×3 = 9
+    pats_bb = EnzymeRates._inhibitor_competition_patterns(
+        Set([:A, :B]), Set([:P, :Q]), Symbol[])
+    @test length(pats_bb) == 9
+
+    # Ter-ter, no existing inhibitors: 7×7 = 49
+    pats_tt = EnzymeRates._inhibitor_competition_patterns(
+        Set([:A, :B, :C]), Set([:P, :Q, :R]), Symbol[])
+    @test length(pats_tt) == 49
+
+    # Bi-bi, 1 existing inhibitor: 9 × 2 = 18
+    pats_1i = EnzymeRates._inhibitor_competition_patterns(
+        Set([:A, :B]), Set([:P, :Q]), [:I1__reg])
+    @test length(pats_1i) == 18
+
+    # Bi-bi, 2 existing inhibitors: 9 × 4 = 36
+    pats_2i = EnzymeRates._inhibitor_competition_patterns(
+        Set([:A, :B]), Set([:P, :Q]),
+        [:I1__reg, :I2__reg])
+    @test length(pats_2i) == 36
+end
+
+# ─── _forms_with_binding_step ───────────────────────────────────────────
+@testset "_forms_with_binding_step" begin
+    # Uni-uni: S binds to E, P binds to E
+    m_uu = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
+        end
+    end
+    spec_uu = mechanism_spec_from_mechanism_and_rxn(
+        m_uu, uni_uni_rxn)
+    @test EnzymeRates._forms_with_binding_step(
+        spec_uu.steps, :S) == Set([:E])
+    @test EnzymeRates._forms_with_binding_step(
+        spec_uu.steps, :P) == Set([:E])
+
+    # Bi-bi random: B binds to E and E_A
+    m_bb = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E_A
+            E_B + A ⇌ E_A_B
+            E + B ⇌ E_B
+            E_A + B ⇌ E_A_B
+            E + P ⇌ E_P
+            E_P + Q ⇌ E_P_Q
+            E + Q ⇌ E_Q
+            E_Q + P ⇌ E_P_Q
+            E_A_B <--> E_P_Q
+        end
+    end
+    spec_bb = mechanism_spec_from_mechanism_and_rxn(
+        m_bb, bi_bi_rxn)
+    @test EnzymeRates._forms_with_binding_step(
+        spec_bb.steps, :B) == Set([:E, :E_A])
+    @test EnzymeRates._forms_with_binding_step(
+        spec_bb.steps, :A) == Set([:E, :E_B])
+    @test EnzymeRates._forms_with_binding_step(
+        spec_bb.steps, :P) == Set([:E, :E_Q])
+    @test EnzymeRates._forms_with_binding_step(
+        spec_bb.steps, :Q) == Set([:E, :E_P])
+end
+
+# ─── _substrate_product_dead_end_opportunities ──────────────────────────
+@testset "_substrate_product_dead_end_opportunities" begin
+    # Random ter-ter topology has 27 possible
+    # dead-end forms. With diagonal competition
+    # {A↔P, B↔Q, D↔R}:
+    #   1S+1P: 6 allowed, 3 forbidden (the 3
+    #     diagonal pairs A-P, B-Q, D-R)
+    #   2S+1P: 3 allowed (E_A_B_R, E_A_D_Q,
+    #     E_B_D_P), 6 forbidden
+    #   1S+2P: 3 allowed (E_A_Q_R, E_B_P_R,
+    #     E_D_P_Q), 6 forbidden
+    #   Total: 12 allowed out of 27
+    topos = EnzymeRates._catalytic_topologies(
+        ter_ter_rxn)
+    # Pick a sequential topo with most forms
+    _, idx = findmax(
+        length(EnzymeRates.all_form_names(t))
+        for t in topos)
+    random_topo = topos[idx]
+    bound =
+        EnzymeRates._bound_metabolites_at_forms(
+            random_topo, ter_ter_rxn)
+    sub_names = Set([:A, :B, :D])
+    prod_names = Set([:P, :Q, :R])
+    cat_forms =
+        EnzymeRates.all_form_names(random_topo)
+    _sp_de_opps =
+        EnzymeRates._substrate_product_dead_end_opportunities
+    de_opps = _sp_de_opps(
+        bound, cat_forms,
+        sub_names, prod_names)
+    # Group dead-end forms
+    de_forms = Dict{Symbol,
+        Vector{Tuple{Symbol, Symbol}}}()
+    for (f, m) in de_opps
+        de_name =
+            EnzymeRates._dead_end_form_name(
+                f, bound[f], m)
+        push!(get!(de_forms, de_name,
+            Tuple{Symbol, Symbol}[]), (f, m))
+    end
+    de_form_names =
+        sort(collect(keys(de_forms)))
+    @test length(de_form_names) == 27
+
+    # Build de_bound mapping
+    de_bound = Dict{Symbol, Set{Symbol}}()
+    for de_name in de_form_names
+        f, m = first(de_forms[de_name])
+        de_bound[de_name] = union(
+            bound[f], Set([m]))
+    end
+
+    # Apply diagonal competition filter
+    diagonal =
+        Set([(:A, :P), (:B, :Q), (:D, :R)])
+    allowed = Symbol[]
+    for de_name in de_form_names
+        mets = de_bound[de_name]
+        de_subs = intersect(mets, sub_names)
+        de_prods =
+            intersect(mets, prod_names)
+        has_conflict = any(
+            (s, p) in diagonal
+            for s in de_subs
+            for p in de_prods)
+        has_conflict ||
+            push!(allowed, de_name)
+    end
+    @test length(allowed) == 12
+
+    # Verify specific allowed forms
+    @test :E_A_Q in allowed   # 1S+1P
+    @test :E_A_R in allowed
+    @test :E_B_P in allowed
+    @test :E_B_R in allowed
+    @test :E_D_P in allowed
+    @test :E_D_Q in allowed
+    @test :E_A_B_R in allowed # 2S+1P
+    @test :E_A_D_Q in allowed
+    @test :E_B_D_P in allowed
+    @test :E_A_Q_R in allowed # 1S+2P
+    @test :E_B_P_R in allowed
+    @test :E_D_P_Q in allowed
+
+    # Verify specific forbidden forms
+    @test :E_A_P ∉ allowed    # A↔P diagonal
+    @test :E_B_Q ∉ allowed    # B↔Q diagonal
+    @test :E_D_R ∉ allowed    # D↔R diagonal
+end
+
+# ─── _expand_substrate_product_dead_ends ────────────────────────────────
+@testset "_expand_substrate_product_dead_ends" begin
+
+    @testset "Uni-Uni: no dead-end forms" begin
+        # 3 forms: E, E_S[C], E_P[C]. E_S has all subs,
+        # E_P has all prods. No mixed dead-end possible.
+        # → 0 dead-end forms, 1 variant (bare topology)
+        m = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
+        result =
+            EnzymeRates._expand_substrate_product_dead_ends(
+                [spec], uni_uni_rxn)
+        @test length(result) == 1
+    end
+
+    @testset "Bi-Bi random: 4 dead-end forms" begin
+        # 7 forms: E, E_A, E_B, E_A_B, E_P, E_Q, E_P_Q
+        # Eligible dead-end forms (mixed sub+prod binding):
+        #   E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
+        #   E_B: +P→E_B_P(mixed✓), +Q→E_B_Q(mixed✓)
+        #   E_P: +A→E_A_P(same), +B→E_B_P(same)
+        #   E_Q: +A→E_A_Q(same), +B→E_B_Q(same)
+        # 4 unique dead-end forms → 2^4 = 16 variants
+        m = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E_A
+                E_B + A ⇌ E_A_B
+                E + B ⇌ E_B
+                E_A + B ⇌ E_A_B
+                E + P ⇌ E_P
+                E_P + Q ⇌ E_P_Q
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m, bi_bi_rxn)
+        result =
+            EnzymeRates._expand_substrate_product_dead_ends(
+                [spec], bi_bi_rxn)
+        # 4 unique dead-end forms, 7 competition patterns,
+        # all 7 produce distinct dead-end sets → 7 variants
+        @test length(result) == 7
+    end
+
+    @testset "Uni-Bi ordered: no dead-end forms" begin
+        # 4 forms: E, E_S, E_P_Q, E_Q
+        # E+P→E_P: single-product → rejected (need mixed)
+        # E_Q+S→E_S_Q: has all subs → rejected
+        # → 0 dead-end forms, 1 variant
+        m = @enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            steps: begin
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E + S ⇌ E_S
+                E_S <--> E_P_Q
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_bi_rxn)
+        result =
+            EnzymeRates._expand_substrate_product_dead_ends(
+                [spec], uni_bi_rxn)
+        @test length(result) == 1
+    end
+
+    @testset "Bi-Bi Ping-Pong: 3 dead-end forms" begin
+        # Forms: E, E_A, Estar, Estar_A_P, Estar_B, E_Q
+        # E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
+        # E_Q: +B→E_B_Q(mixed✓)
+        # 3 dead-end forms → 2^3 = 8 variants
+        m = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E_A
+                Estar + B ⇌ Estar_B
+                E + Q ⇌ E_Q
+                Estar + P ⇌ Estar_A_P
+                E_A <--> Estar_A_P
+                Estar_B ⇌ E_Q
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(
+            m, bi_bi_pp_rxn)
+        result =
+            EnzymeRates._expand_substrate_product_dead_ends(
+                [spec], bi_bi_pp_rxn)
+        # 5 dead-end forms (E_A_P, E_A_Q, E_B_Q from
+        # E-side + Estar_B_P, Estar_B_Q from
+        # Estar-side), competition-filtered
+        @test length(result) == 7
+    end
+
+end
+
+@testset "test reaction atom balance" begin
+    for rxn in [pyruvate_carboxylase_rxn,
+                pyruvate_dehydrogenase_rxn]
+        sub_atoms = Dict{Symbol,Int}()
+        for (_, atoms) in EnzymeRates.substrates(rxn)
+            for (a, c) in atoms
+                sub_atoms[a] = get(sub_atoms, a, 0) + c
+            end
+        end
+        prod_atoms = Dict{Symbol,Int}()
+        for (_, atoms) in EnzymeRates.products(rxn)
+            for (a, c) in atoms
+                prod_atoms[a] = get(prod_atoms, a, 0) + c
+            end
+        end
+        @test sub_atoms == prod_atoms
+    end
+end
+
+@testset "AllostericEnzymeMechanism TR equivalence" begin
+    base_rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    # Steps with kinetic_group: 1 = S binding (RE),
+    # 2 = P binding (RE), 3 = iso (SS).
+    base_steps = [
+        StepSpec([:E, :S], [:E_S], true, 1),
+        StepSpec([:E, :P], [:E_P], true, 2),
+        StepSpec([:E_S], [:E_P], false, 3),
+    ]
+    base_spec = MechanismSpec(base_rxn, base_steps, 3)
+
+    # S binding (group 1) is `:EqualRT` (K_T_S = K_R_S),
+    # P binding (group 2) is `:OnlyR` (absent from T-state).
+    # Iso (group 3) is `:NonequalRT` (default).
+    allo_spec = AllostericMechanismSpec(
+        base_spec, 2,
+        Vector{Symbol}[], Int[],
+        Dict(1 => :EqualRT, 2 => :OnlyR, 3 => :NonequalRT),
+        Dict{Symbol, Symbol}(),
+        base_spec.n_fit_params_estimate + 1)
+
+    m_compiled = AllostericEnzymeMechanism(allo_spec)
+    @test EnzymeRates.cat_allo_state(m_compiled, 1) == :EqualRT
+    @test EnzymeRates.cat_allo_state(m_compiled, 2) == :OnlyR
 end
 
 @testset "init_mechanisms" begin
@@ -758,167 +1116,6 @@ end
         specs = EnzymeRates.init_mechanisms(
             uni_uni_rxn)
         @test length(specs) == 1
-    end
-
-    @testset "Dead-end substrate/product expansion" begin
-
-        @testset "Uni-Uni: no dead-end forms" begin
-            # 3 forms: E, E_S[C], E_P[C]. E_S has all subs,
-            # E_P has all prods. No mixed dead-end possible.
-            # → 0 dead-end forms, 1 variant (bare topology)
-            m = @enzyme_mechanism begin
-                substrates: S
-                products: P
-                steps: begin
-                    E + P ⇌ E_P
-                    E + S ⇌ E_S
-                    E_S <--> E_P
-                end
-            end
-            spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
-            result =
-                EnzymeRates._expand_substrate_product_dead_ends(
-                    [spec], uni_uni_rxn)
-            @test length(result) == 1
-        end
-
-        @testset "Bi-Bi random: 4 dead-end forms" begin
-            # 7 forms: E, E_A, E_B, E_A_B, E_P, E_Q, E_P_Q
-            # Eligible dead-end forms (mixed sub+prod binding):
-            #   E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
-            #   E_B: +P→E_B_P(mixed✓), +Q→E_B_Q(mixed✓)
-            #   E_P: +A→E_A_P(same), +B→E_B_P(same)
-            #   E_Q: +A→E_A_Q(same), +B→E_B_Q(same)
-            # 4 unique dead-end forms → 2^4 = 16 variants
-            m = @enzyme_mechanism begin
-                substrates: A, B
-                products: P, Q
-                steps: begin
-                    E + A ⇌ E_A
-                    E_B + A ⇌ E_A_B
-                    E + B ⇌ E_B
-                    E_A + B ⇌ E_A_B
-                    E + P ⇌ E_P
-                    E_P + Q ⇌ E_P_Q
-                    E + Q ⇌ E_Q
-                    E_Q + P ⇌ E_P_Q
-                    E_A_B <--> E_P_Q
-                end
-            end
-            spec = mechanism_spec_from_mechanism_and_rxn(m, bi_bi_rxn)
-            result =
-                EnzymeRates._expand_substrate_product_dead_ends(
-                    [spec], bi_bi_rxn)
-            # 4 unique dead-end forms, 7 competition patterns,
-            # all 7 produce distinct dead-end sets → 7 variants
-            @test length(result) == 7
-        end
-
-        @testset "Uni-Bi ordered: no dead-end forms" begin
-            # 4 forms: E, E_S, E_P_Q, E_Q
-            # E+P→E_P: single-product → rejected (need mixed)
-            # E_Q+S→E_S_Q: has all subs → rejected
-            # → 0 dead-end forms, 1 variant
-            m = @enzyme_mechanism begin
-                substrates: S
-                products: P, Q
-                steps: begin
-                    E + Q ⇌ E_Q
-                    E_Q + P ⇌ E_P_Q
-                    E + S ⇌ E_S
-                    E_S <--> E_P_Q
-                end
-            end
-            spec = mechanism_spec_from_mechanism_and_rxn(m, uni_bi_rxn)
-            result =
-                EnzymeRates._expand_substrate_product_dead_ends(
-                    [spec], uni_bi_rxn)
-            @test length(result) == 1
-        end
-
-        @testset "Bi-Bi Ping-Pong: 3 dead-end forms" begin
-            # Forms: E, E_A, Estar, Estar_A_P, Estar_B, E_Q
-            # E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
-            # E_Q: +B→E_B_Q(mixed✓)
-            # 3 dead-end forms → 2^3 = 8 variants
-            m = @enzyme_mechanism begin
-                substrates: A, B
-                products: P, Q
-                steps: begin
-                    E + A ⇌ E_A
-                    Estar + B ⇌ Estar_B
-                    E + Q ⇌ E_Q
-                    Estar + P ⇌ Estar_A_P
-                    E_A <--> Estar_A_P
-                    Estar_B ⇌ E_Q
-                end
-            end
-            spec = mechanism_spec_from_mechanism_and_rxn(
-                m, bi_bi_pp_rxn)
-            result =
-                EnzymeRates._expand_substrate_product_dead_ends(
-                    [spec], bi_bi_pp_rxn)
-            # 5 dead-end forms (E_A_P, E_A_Q, E_B_Q from
-            # E-side + Estar_B_P, Estar_B_Q from
-            # Estar-side), competition-filtered
-            @test length(result) == 7
-        end
-    end
-
-    @testset "Competition patterns" begin
-        # Uni-uni: 1×1, only 1 pattern (single edge)
-        pats_11 = EnzymeRates._competition_patterns(
-            Set([:S]), Set([:P]))
-        @test length(pats_11) == 1
-        @test pats_11[1] == Set([(:S, :P)])
-
-        # Uni-bi: 1×2, S competes with both P and Q
-        pats_12 = EnzymeRates._competition_patterns(
-            Set([:S]), Set([:P, :Q]))
-        @test length(pats_12) == 1
-        @test pats_12[1] == Set([(:S, :P), (:S, :Q)])
-
-        # Bi-uni: symmetric
-        pats_21 = EnzymeRates._competition_patterns(
-            Set([:A, :B]), Set([:P]))
-        @test length(pats_21) == 1
-        @test pats_21[1] == Set([(:A, :P), (:B, :P)])
-
-        # Bi-bi: 7 patterns
-        pats_22 = EnzymeRates._competition_patterns(
-            Set([:A, :B]), Set([:P, :Q]))
-        @test length(pats_22) == 7
-        # Every pattern covers all vertices
-        for pat in pats_22
-            for s in [:A, :B]
-                @test any(
-                    p -> (s, p) in pat, [:P, :Q])
-            end
-            for p in [:P, :Q]
-                @test any(
-                    s -> (s, p) in pat, [:A, :B])
-            end
-        end
-        # Invalid: {A↔P, B↔P} leaves Q uncovered
-        @test Set([(:A, :P), (:B, :P)]) ∉ pats_22
-
-        # Ter-ter: 265 patterns
-        pats_33 = EnzymeRates._competition_patterns(
-            Set([:A, :B, :C]),
-            Set([:P, :Q, :R]))
-        @test length(pats_33) == 265
-        for pat in pats_33
-            for s in [:A, :B, :C]
-                @test any(
-                    p -> (s, p) in pat,
-                    [:P, :Q, :R])
-            end
-            for p in [:P, :Q, :R]
-                @test any(
-                    s -> (s, p) in pat,
-                    [:A, :B, :C])
-            end
-        end
     end
 
     @testset "Dead-end filtering by competition" begin
@@ -1011,96 +1208,6 @@ end
                             ter_ter_rxn)) + 1
                 end
             end
-        end
-
-        @testset "Ter-ter diagonal: 12 of 27 allowed" begin
-            # Random ter-ter topology has 27 possible
-            # dead-end forms. With diagonal competition
-            # {A↔P, B↔Q, D↔R}:
-            #   1S+1P: 6 allowed, 3 forbidden (the 3
-            #     diagonal pairs A-P, B-Q, D-R)
-            #   2S+1P: 3 allowed (E_A_B_R, E_A_D_Q,
-            #     E_B_D_P), 6 forbidden
-            #   1S+2P: 3 allowed (E_A_Q_R, E_B_P_R,
-            #     E_D_P_Q), 6 forbidden
-            #   Total: 12 allowed out of 27
-            topos = EnzymeRates._catalytic_topologies(
-                ter_ter_rxn)
-            # Pick a sequential topo with most forms
-            _, idx = findmax(
-                length(EnzymeRates.all_form_names(t))
-                for t in topos)
-            random_topo = topos[idx]
-            bound =
-                EnzymeRates._bound_metabolites_at_forms(
-                    random_topo, ter_ter_rxn)
-            sub_names = Set([:A, :B, :D])
-            prod_names = Set([:P, :Q, :R])
-            cat_forms =
-                EnzymeRates.all_form_names(random_topo)
-            _sp_de_opps =
-                EnzymeRates._substrate_product_dead_end_opportunities
-            de_opps = _sp_de_opps(
-                bound, cat_forms,
-                sub_names, prod_names)
-            # Group dead-end forms
-            de_forms = Dict{Symbol,
-                Vector{Tuple{Symbol, Symbol}}}()
-            for (f, m) in de_opps
-                de_name =
-                    EnzymeRates._dead_end_form_name(
-                        f, bound[f], m)
-                push!(get!(de_forms, de_name,
-                    Tuple{Symbol, Symbol}[]), (f, m))
-            end
-            de_form_names =
-                sort(collect(keys(de_forms)))
-            @test length(de_form_names) == 27
-
-            # Build de_bound mapping
-            de_bound = Dict{Symbol, Set{Symbol}}()
-            for de_name in de_form_names
-                f, m = first(de_forms[de_name])
-                de_bound[de_name] = union(
-                    bound[f], Set([m]))
-            end
-
-            # Apply diagonal competition filter
-            diagonal =
-                Set([(:A, :P), (:B, :Q), (:D, :R)])
-            allowed = Symbol[]
-            for de_name in de_form_names
-                mets = de_bound[de_name]
-                de_subs = intersect(mets, sub_names)
-                de_prods =
-                    intersect(mets, prod_names)
-                has_conflict = any(
-                    (s, p) in diagonal
-                    for s in de_subs
-                    for p in de_prods)
-                has_conflict ||
-                    push!(allowed, de_name)
-            end
-            @test length(allowed) == 12
-
-            # Verify specific allowed forms
-            @test :E_A_Q in allowed   # 1S+1P
-            @test :E_A_R in allowed
-            @test :E_B_P in allowed
-            @test :E_B_R in allowed
-            @test :E_D_P in allowed
-            @test :E_D_Q in allowed
-            @test :E_A_B_R in allowed # 2S+1P
-            @test :E_A_D_Q in allowed
-            @test :E_B_D_P in allowed
-            @test :E_A_Q_R in allowed # 1S+2P
-            @test :E_B_P_R in allowed
-            @test :E_D_P_Q in allowed
-
-            # Verify specific forbidden forms
-            @test :E_A_P ∉ allowed    # A↔P diagonal
-            @test :E_B_Q ∉ allowed    # B↔Q diagonal
-            @test :E_D_R ∉ allowed    # D↔R diagonal
         end
 
         @testset "Round-trip: competition-filtered specs compile" begin
@@ -1275,81 +1382,6 @@ end
             @test delta == 1 || delta == 2
         end
     end
-end
-
-@testset "Inhibitor competition patterns" begin
-    # Uni-uni, no existing inhibitors
-    pats = EnzymeRates._inhibitor_competition_patterns(
-        Set([:S]), Set([:P]), Symbol[])
-    @test length(pats) == 1
-    @test pats[1] == (Set([:S]), Set([:P]), Set{Symbol}())
-
-    # Bi-bi, no existing inhibitors: 3×3 = 9
-    pats_bb = EnzymeRates._inhibitor_competition_patterns(
-        Set([:A, :B]), Set([:P, :Q]), Symbol[])
-    @test length(pats_bb) == 9
-
-    # Ter-ter, no existing inhibitors: 7×7 = 49
-    pats_tt = EnzymeRates._inhibitor_competition_patterns(
-        Set([:A, :B, :C]), Set([:P, :Q, :R]), Symbol[])
-    @test length(pats_tt) == 49
-
-    # Bi-bi, 1 existing inhibitor: 9 × 2 = 18
-    pats_1i = EnzymeRates._inhibitor_competition_patterns(
-        Set([:A, :B]), Set([:P, :Q]), [:I1__reg])
-    @test length(pats_1i) == 18
-
-    # Bi-bi, 2 existing inhibitors: 9 × 4 = 36
-    pats_2i = EnzymeRates._inhibitor_competition_patterns(
-        Set([:A, :B]), Set([:P, :Q]),
-        [:I1__reg, :I2__reg])
-    @test length(pats_2i) == 36
-end
-
-@testset "Forms with binding step" begin
-    # Uni-uni: S binds to E, P binds to E
-    m_uu = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + P ⇌ E_P
-            E + S ⇌ E_S
-            E_S <--> E_P
-        end
-    end
-    spec_uu = mechanism_spec_from_mechanism_and_rxn(
-        m_uu, uni_uni_rxn)
-    @test EnzymeRates._forms_with_binding_step(
-        spec_uu.steps, :S) == Set([:E])
-    @test EnzymeRates._forms_with_binding_step(
-        spec_uu.steps, :P) == Set([:E])
-
-    # Bi-bi random: B binds to E and E_A
-    m_bb = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A ⇌ E_A
-            E_B + A ⇌ E_A_B
-            E + B ⇌ E_B
-            E_A + B ⇌ E_A_B
-            E + P ⇌ E_P
-            E_P + Q ⇌ E_P_Q
-            E + Q ⇌ E_Q
-            E_Q + P ⇌ E_P_Q
-            E_A_B <--> E_P_Q
-        end
-    end
-    spec_bb = mechanism_spec_from_mechanism_and_rxn(
-        m_bb, bi_bi_rxn)
-    @test EnzymeRates._forms_with_binding_step(
-        spec_bb.steps, :B) == Set([:E, :E_A])
-    @test EnzymeRates._forms_with_binding_step(
-        spec_bb.steps, :A) == Set([:E, :E_B])
-    @test EnzymeRates._forms_with_binding_step(
-        spec_bb.steps, :P) == Set([:E, :E_Q])
-    @test EnzymeRates._forms_with_binding_step(
-        spec_bb.steps, :Q) == Set([:E, :E_P])
 end
 
 @testset "Add dead-end regulator" begin
@@ -2563,26 +2595,6 @@ end
                 @test r.group_tags[g] == t
             end
         end
-    end
-end
-
-@testset "C6 iso size limit blocks 4x4" begin
-    # Quad-quad reaction: 4 subs, 4 prods
-    # With C6 (iso ≤ 3×3), 4→4 sequential iso is blocked
-    # All topologies must use ping-pong (at least 2 iso steps)
-    quad_rxn = @enzyme_reaction begin
-        substrates: A[C], B[N], D[X], F[Y]
-        products: P[C], Q[N], R[X], S[Y]
-    end
-    topos = EnzymeRates._catalytic_topologies(quad_rxn)
-    @test length(topos) > 0
-    # Every topology must have ≥ 2 iso steps (no 4→4)
-    for spec in topos
-        n_iso = count(spec.steps) do s
-            length(s.reactants) == 1 &&
-                length(s.products) == 1
-        end
-        @test n_iso >= 2
     end
 end
 
