@@ -106,6 +106,117 @@ function allosteric_spec_from_mechanism_and_rxn(
         length(EnzymeRates.fitted_params(m)))
 end
 
+@testset "AllostericMechanismSpec constructor density validation" begin
+    # The constructor rejects sparse Dicts: every kinetic group used in
+    # base.steps must have a group_tags entry; every ligand listed in
+    # allosteric_reg_sites must have a reg_ligand_tags entry. This guards
+    # the dense-storage invariant that both spec and compiled mechanism
+    # use throughout the pipeline.
+    rxn_uu = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    base = MechanismSpec(rxn_uu,
+        [StepSpec([:E, :P], [:E_P], true, 1),
+         StepSpec([:E, :S], [:E_S], true, 2),
+         StepSpec([:E_S], [:E_P], false, 3)],
+        3)
+
+    # Missing group_tags entry (group 3 omitted).
+    @test_throws ErrorException AllostericMechanismSpec(
+        base, 2,
+        Vector{Symbol}[], Int[],
+        Dict(1 => :EqualRT, 2 => :EqualRT),  # group 3 missing
+        Dict{Symbol, Symbol}(),
+        4)
+
+    # Missing reg_ligand_tags entry (ligand R declared in reg_sites but
+    # not in reg_ligand_tags).
+    @test_throws ErrorException AllostericMechanismSpec(
+        base, 2,
+        Vector{Symbol}[[:R]], Int[2],
+        Dict(1 => :EqualRT, 2 => :EqualRT, 3 => :EqualRT),
+        Dict{Symbol, Symbol}(),  # :R missing
+        4)
+
+    # Both Dicts complete → constructor succeeds.
+    valid = AllostericMechanismSpec(
+        base, 2,
+        Vector{Symbol}[[:R]], Int[2],
+        Dict(1 => :EqualRT, 2 => :EqualRT, 3 => :EqualRT),
+        Dict(:R => :EqualRT),
+        4)
+    @test valid isa AllostericMechanismSpec
+end
+
+@testset "spec-from-mechanism helpers reject inconsistent inputs" begin
+    # Both helpers validate that mechanism and reaction agree on
+    # substrates/products/regulators (and oligomeric_state for the
+    # allosteric variant). Mismatches throw ErrorException at the helper
+    # level, before any spec is constructed.
+
+    m_uu = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
+        end
+    end
+
+    # Substrate name mismatch
+    rxn_wrong_sub = @enzyme_reaction begin
+        substrates: X[C]   # not :S
+        products: P[C]
+    end
+    @test_throws ErrorException mechanism_spec_from_mechanism_and_rxn(m_uu, rxn_wrong_sub)
+
+    # Product name mismatch
+    rxn_wrong_prod = @enzyme_reaction begin
+        substrates: S[C]
+        products: Y[C]   # not :P
+    end
+    @test_throws ErrorException mechanism_spec_from_mechanism_and_rxn(m_uu, rxn_wrong_prod)
+
+    # Regulator subset rule: m_with_I has :I bound; rxn lacks :I → reject.
+    m_with_I = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        regulators: I
+        steps: begin
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
+            E + I ⇌ E_I
+        end
+    end
+    rxn_no_I = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    @test_throws ErrorException mechanism_spec_from_mechanism_and_rxn(m_with_I, rxn_no_I)
+
+    # Allosteric helper: oligomeric_state mismatch
+    m_allo_2 = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        site(:catalytic, 2): begin
+            steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
+            end
+        end
+    end
+    rxn_oligo_4 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 4   # mismatch — m_allo_2 has catalytic_n=2
+    end
+    @test_throws ErrorException allosteric_spec_from_mechanism_and_rxn(m_allo_2, rxn_oligo_4)
+end
+
 @testset "allosteric_spec_from_mechanism_and_rxn round-trip" begin
     # K-type uni-uni: catalytic 2-mer, all bindings :EqualRT, iso :EqualRT,
     # no regulators. Round-trip must be lossless: spec → AllostericEnzymeMechanism
