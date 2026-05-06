@@ -738,7 +738,7 @@ Drop in below the section 3 header:
         end
     end
 
-    @testset "MechanismSpec — bi-bi sequential: 2 RE binding groups → 2 variants" begin
+    @testset "MechanismSpec — bi-bi sequential: 4 RE binding groups → 4 variants" begin
         # SEED: bi-bi sequential. 2 binding groups (one for A, one for B
         # via parens to share kinetic group; same for P, Q). But here
         # we use the simplest sequential bi-bi where each metabolite has

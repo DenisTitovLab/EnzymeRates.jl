@@ -1393,7 +1393,10 @@ end
         # in their original RE/SS state with the same kinetic_group.
         for r in result
             @test r.reaction === spec.reaction
-            # Exactly one step is now SS-with-metabolite that was RE in seed.
+            # The seed has only singleton kinetic groups, so flipping a
+            # group means flipping exactly its one step. (For multi-step
+            # groups the per-step count would equal the group's size; see
+            # the bi-bi multi-step testset for atomic-flip property check.)
             n_newly_ss = count(zip(spec.steps, r.steps)) do (s_old, s_new)
                 s_old.is_equilibrium && !s_new.is_equilibrium &&
                     s_old.kinetic_group == s_new.kinetic_group
@@ -1402,7 +1405,7 @@ end
         end
     end
 
-    @testset "MechanismSpec — bi-bi sequential: 2 RE binding groups → 2 variants" begin
+    @testset "MechanismSpec — bi-bi sequential: 4 RE binding groups → 4 variants" begin
         # SEED: bi-bi sequential. 2 binding groups (one for A, one for B
         # via parens to share kinetic group; same for P, Q). But here
         # we use the simplest sequential bi-bi where each metabolite has
@@ -1768,6 +1771,22 @@ end
         for r in result
             @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         end
+
+        # 4. property-style: each variant flips exactly one RE step from
+        # is_equilibrium=true to false. Across the 3 variants, the
+        # flipped step's kinetic_group covers 3 distinct values (one per
+        # RE group: substrate-S binding, product-P binding, dead-end
+        # S__reg binding). This proves the move treats the substrate-
+        # name and inhibitor-dummy-name kinetic groups as independent.
+        flipped_groups = Int[]
+        for r in result
+            flipped = [s_new.kinetic_group
+                for (s_old, s_new) in zip(spec.steps, r.steps)
+                if s_old.is_equilibrium && !s_new.is_equilibrium]
+            @test length(flipped) == 1
+            push!(flipped_groups, only(flipped))
+        end
+        @test length(unique(flipped_groups)) == 3
 
         # 5. preservation: reaction === spec.reaction.
         for r in result
