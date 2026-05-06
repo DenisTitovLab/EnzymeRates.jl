@@ -723,7 +723,7 @@ Drop in below the section 3 header:
             end
         end
         expected = Set([v_p_flipped, v_s_flipped])
-        @test Set(compile_mechanism(r) for r in result) == expected
+        @test Set(EnzymeRates.compile_mechanism(r) for r in result) == expected
 
         # 5. preservation: reaction unchanged; non-flipped steps remain
         # in their original RE/SS state with the same kinetic_group.
@@ -814,7 +814,7 @@ Drop in below the section 3 header:
             end
         end
         expected = Set([v_a, v_b, v_q, v_p])
-        @test Set(compile_mechanism(r) for r in result) == expected
+        @test Set(EnzymeRates.compile_mechanism(r) for r in result) == expected
 
         # 5. preservation: each result has exactly one step's is_equilibrium
         # flipped from true to false, with kinetic_group preserved.
@@ -862,7 +862,7 @@ Drop in below the section 3 header:
 
         # 3. compilability
         for r in result
-            @test compile_mechanism(r) isa EnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         end
 
         # 4. property-style check: in each variant, exactly one kinetic
@@ -933,7 +933,7 @@ Drop in below the section 3 header:
 
         # 3. compilability — must produce AllostericEnzymeMechanism.
         for r in result
-            @test compile_mechanism(r) isa AllostericEnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
         # 4. property-style: exactly one group now SS; all group_tags
@@ -995,7 +995,7 @@ Drop in below the section 3 header:
 
         # 3. compilability
         for r in result
-            @test compile_mechanism(r) isa AllostericEnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
         # 4. property-style: exactly one group flipped to SS; ALL group_tags
@@ -1051,7 +1051,7 @@ Drop in below the section 3 header:
 
         # 3. compilability
         for r in result
-            @test compile_mechanism(r) isa AllostericEnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
         # 4. property-style: exactly one RE group flipped per variant; tag
@@ -1102,7 +1102,7 @@ Drop in below the section 3 header:
 
         # 3. compilability
         for r in result
-            @test compile_mechanism(r) isa EnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         end
 
         # 5. preservation: reaction === spec.reaction.
@@ -1235,7 +1235,7 @@ Insert below `_expand_re_to_ss`:
 
         # 3. compilability
         for r in result
-            @test compile_mechanism(r) isa EnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         end
 
         # 4. property-style (N=8 > 6): the result has exactly one new
@@ -1311,7 +1311,7 @@ Insert below `_expand_re_to_ss`:
 
         # 3. compilability
         for r in result
-            @test compile_mechanism(r) isa EnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         end
 
         # 5. preservation
@@ -1362,7 +1362,7 @@ Insert below `_expand_re_to_ss`:
 
         # 3. compilability
         for r in result
-            @test compile_mechanism(r) isa AllostericEnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
         # 4. property-style: the new group's tag equals its parent group's tag.
@@ -1512,7 +1512,7 @@ For each seed, write the same six-item checklist. For brevity in the plan, here 
                 E + I ⇌ E_I
             end
         end
-        @test compile_mechanism(first(result)) === expected
+        @test EnzymeRates.compile_mechanism(first(result)) === expected
 
         # 5. preservation
         @test first(result).reaction === spec.reaction
@@ -1564,7 +1564,7 @@ For each seed, write the same six-item checklist. For brevity in the plan, here 
         @test length(result) == 4
         for r in result
             @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
-            @test compile_mechanism(r) isa EnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
             @test r.reaction === spec.reaction
         end
     end
@@ -1813,7 +1813,7 @@ After the close of section 3, add:
                 end
             end
         end
-        @test Set(compile_mechanism(r) for r in result) ==
+        @test Set(EnzymeRates.compile_mechanism(r) for r in result) ==
             Set([v_baseline, v_g1_OnlyR, v_g2_OnlyR, v_g3_OnlyR])
 
         # 5. preservation
@@ -1890,7 +1890,7 @@ After the close of section 3, add:
         @test length(result) == 6
         for r in result
             @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
-            @test compile_mechanism(r) isa AllostericEnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
     end
 end
@@ -2001,7 +2001,7 @@ Each sub-testset follows the Task 5 template: literal seed, round-trip validatio
                 end
             end
         end
-        @test Set(compile_mechanism(r) for r in result) ==
+        @test Set(EnzymeRates.compile_mechanism(r) for r in result) ==
             Set([v_onlyR, v_onlyT, v_neq])
 
         # 5. preservation
@@ -2114,7 +2114,7 @@ The first seed below is in full as the in-task template; subsequent seeds list t
 
         # 3. compilability
         for r in result
-            @test compile_mechanism(r) isa AllostericEnzymeMechanism
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
         # 4. property-style: in each result, exactly one group's tag flipped
