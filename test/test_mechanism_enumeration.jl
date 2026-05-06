@@ -302,50 +302,6 @@ function _assert_spec_invariants(spec::AllostericMechanismSpec)
     end
 end
 
-@testset "n_fit_params_estimate semantics" begin
-    # Simple uni-uni: 2 RE binding steps + 1 SS catalytic step.
-    # 3 forms (E, E_S, E_P), 3 steps → n_thermo = 3 - 3 + 1 = 1.
-    # New formula: n_re_groups + 2*n_ss_groups - n_thermo
-    #            = 2 + 2 - 1 = 3
-    # (Old formula gave 5 because of the +2 for Keq+E_total.)
-    # length(fitted_params(m)) for uni-uni = 3 (K1, K2, k3f).
-    init_specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
-    @test !isempty(init_specs)
-    spec = first(init_specs)
-    @test hasfield(typeof(spec), :n_fit_params_estimate)
-    m = EnzymeRates.EnzymeMechanism(spec)
-    n_actual = length(EnzymeRates.fitted_params(m))
-    @test spec.n_fit_params_estimate == n_actual
-end
-
-@testset "n_fit_params_estimate upper-bound for dead-end mirrors" begin
-    # Guards the upper-bound invariant
-    #   spec.n_fit_params_estimate >= length(fitted_params(m))
-    # for init mechanisms and one round of expansion of
-    # `uni_uni_with_reg` (which has a dead-end inhibitor :I that
-    # creates mirror cycles). To cap @generated compile cost,
-    # cap the number of compiled specs per round at 30 — that's
-    # enough to exercise dead-end-mirror cases without triggering
-    # the explosion of compile-times for the full expansion fan-out.
-    cap = 30
-    init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
-    for spec in init_specs[1:min(cap, end)]
-        m = EnzymeRates.compile_mechanism(spec)
-        @test spec.n_fit_params_estimate >=
-            length(EnzymeRates.fitted_params(m))
-    end
-    expanded = EnzymeRates.expand_mechanisms(
-        init_specs, uni_uni_with_reg)
-    expanded_specs = EnzymeRates.AbstractMechanismSpec[]
-    for (_, specs) in expanded
-        append!(expanded_specs, specs)
-    end
-    for spec in expanded_specs[1:min(cap, end)]
-        m = EnzymeRates.compile_mechanism(spec)
-        @test spec.n_fit_params_estimate >=
-            length(EnzymeRates.fitted_params(m))
-    end
-end
 
 """Collect all mechanisms by running the full enumeration loop."""
 function enumerate_all(
@@ -1055,9 +1011,89 @@ end
     @test EnzymeRates.cat_allo_state(m_compiled, 2) == :OnlyR
 end
 
+# ═══════════════════════════════════════════════════════════════════════
+# 2. Initialization (compile_mechanism + init_mechanisms)
+# ═══════════════════════════════════════════════════════════════════════
+
+# ─── compile_mechanism / EnzymeMechanism round-trip ────────────────────
+@testset "compile_mechanism round-trip" begin
+    # Round-trip lossless invariant: for any mechanism built via the DSL,
+    # mechanism_spec_from_mechanism_and_rxn ∘ EnzymeMechanism (== compile_mechanism)
+    # returns the same singleton type. Validates the helper AND the
+    # constructor's bidirectional consistency. Same idea for the allosteric
+    # round-trip (covered by the dedicated testset added in Task 1).
+
+    # uni-uni
+    m_uu = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
+        end
+    end
+    spec_uu = mechanism_spec_from_mechanism_and_rxn(m_uu, uni_uni_rxn)
+    @test EnzymeMechanism(spec_uu) === m_uu
+
+    # bi-bi sequential
+    m_seq = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E_A
+            E_A + B ⇌ E_A_B
+            E + Q ⇌ E_Q
+            E_Q + P ⇌ E_P_Q
+            E_A_B <--> E_P_Q
+        end
+    end
+    spec_seq = mechanism_spec_from_mechanism_and_rxn(m_seq, bi_bi_rxn)
+    @test EnzymeMechanism(spec_seq) === m_seq
+
+    # bi-bi ping-pong
+    m_pp = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E_A
+            Estar + B ⇌ Estar_B
+            E + Q ⇌ E_Q
+            Estar + P ⇌ Estar_A_P
+            E_A <--> Estar_A_P
+            Estar_B ⇌ E_Q
+        end
+    end
+    spec_pp = mechanism_spec_from_mechanism_and_rxn(m_pp, bi_bi_pp_rxn)
+    @test EnzymeMechanism(spec_pp) === m_pp
+
+    # uni-uni with dead-end inhibitor (regulator strip in the round-trip)
+    m_uu_i = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        regulators: I
+        steps: begin
+            E + P ⇌ E_P
+            E + S ⇌ E_S
+            E_S <--> E_P
+            E + I ⇌ E_I
+        end
+    end
+    spec_uu_i = mechanism_spec_from_mechanism_and_rxn(m_uu_i, uni_uni_with_reg)
+    @test EnzymeMechanism(spec_uu_i) === m_uu_i
+end
+
+# ─── init_mechanisms ───────────────────────────────────────────────────
 @testset "init_mechanisms" begin
 
-    @testset "Param count invariant" begin
+    @testset "min param count floor: subs + prods + 1" begin
+        # Floor invariant: n_fit_params_estimate ≥ n_subs + n_prods + 1.
+        # Derivation: every init mechanism has 1 SS step (the iso) plus
+        # n_subs RE binding groups for substrates and n_prods for products.
+        # The kinetic-group count = n_subs + n_prods (RE) + 1 (SS), and
+        # n_thermo subtracts off based on cycle counts. The minimum after
+        # subtractions equals exactly n_subs + n_prods + 1 for the simplest
+        # topology with no dead-ends.
         for (rxn, n_s, n_p) in [
             (uni_uni_rxn, 1, 1),
             (uni_bi_rxn, 1, 2),
@@ -1072,23 +1108,65 @@ end
         end
     end
 
-    @testset "All have exactly 1 SS step" begin
+    @testset "n_fit_params_estimate matches fitted_params for uni-uni init" begin
+        # Uni-uni: 3 forms (E, E_S, E_P), 3 steps. n_thermo = 3 - 3 + 1 = 1
+        # (one independent thermodynamic constraint = Keq).
+        # Formula: n_re_groups + 2*n_ss_groups - n_thermo = 2 + 2 - 1 = 3.
+        # length(fitted_params(m)) for uni-uni init = 3 (K1, K2, k3f).
+        # Estimate must equal actual on the simplest case.
+        init_specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
+        @test !isempty(init_specs)
+        spec = first(init_specs)
+        m = EnzymeRates.compile_mechanism(spec)
+        n_actual = length(EnzymeRates.fitted_params(m))
+        @test spec.n_fit_params_estimate == n_actual
+    end
+
+    @testset "n_fit_params_estimate upper-bound for dead-end mirrors" begin
+        # When dead-end mirror cycles exist, the formula can underestimate
+        # the true thermodynamic-constraint count, so the floor in
+        # _apply_equivalence_grouping ensures pc ≥ n_subs + n_prods + 1.
+        # This guards the upper-bound invariant: estimate ≥ actual.
+        # Cap compiled specs to keep @generated cost bounded.
+        cap = 30
+        init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+        for spec in init_specs[1:min(cap, end)]
+            m = EnzymeRates.compile_mechanism(spec)
+            @test spec.n_fit_params_estimate >=
+                length(EnzymeRates.fitted_params(m))
+        end
+        expanded = EnzymeRates.expand_mechanisms(
+            init_specs, uni_uni_with_reg)
+        expanded_specs = EnzymeRates.AbstractMechanismSpec[]
+        for (_, specs) in expanded
+            append!(expanded_specs, specs)
+        end
+        for spec in expanded_specs[1:min(cap, end)]
+            m = EnzymeRates.compile_mechanism(spec)
+            @test spec.n_fit_params_estimate >=
+                length(EnzymeRates.fitted_params(m))
+        end
+    end
+
+    @testset "exactly 1 SS step per init spec" begin
+        # init_mechanisms produces minimum-parameter mechanisms — exactly
+        # one isomerization step, which is SS by construction. Subsequent
+        # RE→SS expansions add more SS steps; init never does.
         for rxn in [uni_uni_rxn, uni_bi_rxn,
                     bi_bi_rxn, bi_bi_pp_rxn]
             specs = EnzymeRates.init_mechanisms(rxn)
             for s in specs
-                @test count(
-                    !st.is_equilibrium
-                    for st in s.steps) == 1
+                @test count(!st.is_equilibrium for st in s.steps) == 1
             end
         end
     end
 
-    @testset "Mirror steps share kinetic_group with catalytic" begin
-        # When a regulator binds the same metabolite via dead-end edges,
-        # those mirror steps must share the kinetic_group of the catalytic
-        # binding step. (Mirror propagation is implicit in the new design;
-        # this test is a guardrail.)
+    @testset "Same-metabolite RE bindings share kinetic_group" begin
+        # _apply_equivalence_grouping collapses all RE binding steps for
+        # the same metabolite into one kinetic group (one shared K).
+        # For uni-uni + dead-end inhibitor, the inhibitor's mirror cycles
+        # mean :I binds at multiple forms — these mirror bindings must
+        # share a single kinetic_group (one K_I).
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
@@ -1097,18 +1175,15 @@ end
         specs = EnzymeRates.init_mechanisms(rxn)
         @test !isempty(specs)
         for spec in specs
-            # Group the steps by the metabolite they bind
             by_metabolite = Dict{Symbol, Vector{EnzymeRates.StepSpec}}()
             for step in spec.steps
                 step.is_equilibrium || continue
-                # Binding step has form F + met ⇌ F_bound
                 length(step.reactants) == 2 || continue
                 met = step.reactants[2]
                 push!(get!(by_metabolite, met,
                            EnzymeRates.StepSpec[]), step)
             end
-            # All same-metabolite RE binding steps must share kinetic_group
-            for (met, steps) in by_metabolite
+            for (_met, steps) in by_metabolite
                 length(steps) >= 2 || continue
                 groups = Set(s.kinetic_group for s in steps)
                 @test length(groups) == 1
@@ -1116,117 +1191,55 @@ end
         end
     end
 
-    @testset "Uni-Uni: no dead-end forms" begin
-        specs = EnzymeRates.init_mechanisms(
-            uni_uni_rxn)
+    @testset "Uni-uni: exactly 1 init mechanism" begin
+        # Uni-uni topology: 1 catalytic topology × 1 dead-end variant
+        # (none possible — see test_expand_substrate_product_dead_ends
+        # uni-uni case). Hence init produces exactly 1 spec.
+        specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
         @test length(specs) == 1
     end
 
-    @testset "Dead-end filtering by competition" begin
-
-        # Shared bi-bi random mechanism for multiple tests
-        m_bb = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E_A
-                E_B + A ⇌ E_A_B
-                E + B ⇌ E_B
-                E_A + B ⇌ E_A_B
-                E + P ⇌ E_P
-                E_P + Q ⇌ E_P_Q
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
+    @testset "Init compiles for all small reactions" begin
+        # Every init spec must compile to a valid EnzymeMechanism, and
+        # the actual fitted-param count must respect the upper-bound
+        # invariant. Tests first 5 specs per reaction to cap @generated cost.
+        for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
+            specs = EnzymeRates.init_mechanisms(rxn)
+            for spec in first(specs, 5)
+                m = EnzymeMechanism(spec)
+                @test m isa EnzymeMechanism
+                @test length(EnzymeRates.fitted_params(m)) <=
+                    spec.n_fit_params_estimate
             end
         end
-        spec_bb = mechanism_spec_from_mechanism_and_rxn(
-            m_bb, bi_bi_rxn)
+    end
 
-        @testset "Bi-bi random: 7 variants (was 16)" begin
-            # 4 dead-end forms × 7 competition patterns.
-            # Each pattern yields a distinct dead-end set:
-            #   {A↔P,B↔Q}: {E_A_Q,E_B_P}
-            #   {A↔Q,B↔P}: {E_A_P,E_B_Q}
-            #   {A↔P,A↔Q,B↔P}: {E_B_Q}
-            #   {A↔P,A↔Q,B↔Q}: {E_B_P}
-            #   {A↔P,B↔P,B↔Q}: {E_A_Q}
-            #   {A↔Q,B↔P,B↔Q}: {E_A_P}
-            #   {A↔P,A↔Q,B↔P,B↔Q}: {} (no dead-ends)
-            # All 7 sets are distinct → 7 variants after dedup
-            result =
-                EnzymeRates._expand_substrate_product_dead_ends(
-                    [spec_bb], bi_bi_rxn)
-            @test length(result) == 7
+    @testset "Drops unbound regulators from spec→type" begin
+        # init_mechanisms produces specs without dead-end regulators bound.
+        # When compiled to EnzymeMechanism, the regulator must NOT appear
+        # in the regulators tuple — only the catalytic mechanism is built.
+        # After expand_mechanisms adds the dead-end regulator, it should
+        # appear.
+        init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+        @test !isempty(init_specs)
+        for spec in init_specs
+            m = EnzymeRates.EnzymeMechanism(spec)
+            @test :I ∉ EnzymeRates.regulators(m)
         end
 
-        @testset "Bi-bi random: complete competition → bare topology" begin
-            result =
-                EnzymeRates._expand_substrate_product_dead_ends(
-                    [spec_bb], bi_bi_rxn)
-            # Complete pattern {A↔P,A↔Q,B↔P,B↔Q} forbids
-            # all dead-end forms → 1 variant has no dead-end
-            # steps (same step count as original)
-            bare = filter(
-                r -> length(r.steps) == length(spec_bb.steps),
-                result)
-            @test length(bare) == 1
-        end
-
-        @testset "Bi-bi random: diagonal has exactly 2 dead-end forms" begin
-            result =
-                EnzymeRates._expand_substrate_product_dead_ends(
-                    [spec_bb], bi_bi_rxn)
-            # Diagonal patterns {A↔P,B↔Q} and {A↔Q,B↔P}
-            # each allow exactly 2 dead-end forms.
-            two_de = filter(result) do r
-                de_forms = setdiff(
-                    EnzymeRates.all_form_names(r),
-                    EnzymeRates.all_form_names(spec_bb))
-                length(de_forms) == 2
-            end
-            @test length(two_de) == 2  # diagonal + anti-diagonal
-        end
-
-        @testset "Ter-ter per-topology (OOM on full init)" begin
-            # Test that competition filtering works
-            # on representative ter-ter topologies.
-            topos = EnzymeRates._catalytic_topologies(
-                ter_ter_rxn)
-            @test length(topos) == 283
-            # Test first (random, most forms) and last topology
-            for topo in [topos[1], topos[end]]
-                result =
-                    EnzymeRates._expand_substrate_product_dead_ends(
-                        [topo], ter_ter_rxn)
-                # Competition patterns reduce 2^27 to
-                # ≤265 variants per topology
-                @test length(result) > 0
-                @test length(result) <= 265
-                for spec in result
-                    # Verify n_fit_params_estimate set correctly
-                    @test spec.n_fit_params_estimate >=
-                        length(EnzymeRates.substrates(
-                            ter_ter_rxn)) +
-                        length(EnzymeRates.products(
-                            ter_ter_rxn)) + 1
+        expanded = EnzymeRates.expand_mechanisms(init_specs, uni_uni_with_reg)
+        found_with_reg = false
+        for (_, specs) in expanded
+            for spec in specs
+                m = EnzymeRates.EnzymeMechanism(spec)
+                if :I in EnzymeRates.regulators(m)
+                    found_with_reg = true
+                    break
                 end
             end
+            found_with_reg && break
         end
-
-        @testset "Round-trip: competition-filtered specs compile" begin
-            for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
-                specs =
-                    EnzymeRates.init_mechanisms(rxn)
-                # Test first 5 specs (compilation can be slow)
-                for spec in first(specs, 5)
-                    m = EnzymeMechanism(spec)
-                    @test m isa EnzymeMechanism
-                    @test length(EnzymeRates.fitted_params(m)) <=
-                        spec.n_fit_params_estimate
-                end
-            end
-        end
+        @test found_with_reg
     end
 end
 
@@ -2600,29 +2613,6 @@ end
             end
         end
     end
-end
-
-@testset "init_mechanisms drops unbound regulators from spec→type" begin
-    init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
-    @test !isempty(init_specs)
-    for spec in init_specs
-        m = EnzymeRates.EnzymeMechanism(spec)
-        @test :I ∉ EnzymeRates.regulators(m)
-    end
-
-    expanded = EnzymeRates.expand_mechanisms(init_specs, uni_uni_with_reg)
-    found_with_reg = false
-    for (_, specs) in expanded
-        for spec in specs
-            m = EnzymeRates.EnzymeMechanism(spec)
-            if :I in EnzymeRates.regulators(m)
-                found_with_reg = true
-                break
-            end
-        end
-        found_with_reg && break
-    end
-    @test found_with_reg
 end
 
 end # top-level testset
