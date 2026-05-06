@@ -2991,88 +2991,126 @@ end
 
 end
 
-@testset "Remove TR equivalence" begin
-    # `_expand_change_allo_state` relaxes one allo_state from a
-    # constrained value (`:OnlyR`/`:OnlyT`/`:EqualRT`) to
-    # `:NonequalRT`. Group allo_states live in
-    # `spec.group_tags::Dict{Int, Symbol}`; ligand allo_states in
-    # `spec.reg_ligand_tags::Dict{Symbol, Symbol}`. Both Dicts are
-    # dense — entries already at `:NonequalRT` are skipped (no
-    # further relaxation possible).
+# ─── _expand_change_allo_state ─────────────────────────────────────────
+@testset "_expand_change_allo_state" begin
 
-    @testset "Each constrained tag contributes one relaxation" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        allo = first(allo_specs)
-        n_constrained =
-            count(t -> t != :NonequalRT, values(allo.group_tags)) +
-            count(t -> t != :NonequalRT, values(allo.reg_ligand_tags))
-        result = EnzymeRates._expand_change_allo_state(
-            allo, uni_uni_allo)
-        @test length(result) == n_constrained
-    end
-
-    @testset "Fully relaxed → yields nothing" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        allo = first(allo_specs)
-        fully_relaxed = allo
-        while true
-            r = EnzymeRates._expand_change_allo_state(
-                fully_relaxed, uni_uni_allo)
-            isempty(r) && break
-            fully_relaxed = first(r)
+    @testset "Allosteric uni-uni all-:EqualRT: 3 group-tag relaxations" begin
+        # SEED: uni-uni allosteric with all 3 groups tagged :EqualRT.
+        # Each non-:NonequalRT entry contributes ONE relaxation variant
+        # (flip its value to :NonequalRT in the dense Dict).
+        m_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
         end
-        @test isempty(
-            EnzymeRates._expand_change_allo_state(
-                fully_relaxed, uni_uni_allo))
-    end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
 
-    @testset "MechanismSpec → yields nothing" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        result = EnzymeRates._expand_change_allo_state(
-            spec, uni_uni_allo)
-        @test isempty(result)
-    end
+        result = EnzymeRates._expand_change_allo_state(spec, uni_uni_allo)
 
-    @testset "TR equiv removal delta for allosteric regulators" begin
-        rxn_r = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R
-            oligomeric_state: 2
+        # 1. count: 3 group_tags entries non-:NonequalRT (one per group,
+        # all :EqualRT) + 0 reg_ligand_tags entries (no regulators) →
+        # 3 relaxation variants.
+        @test length(result) == 3
+
+        # 2. Δ params: each removal converts :EqualRT → :NonequalRT.
+        # _allo_state_delta(:EqualRT, :NonequalRT, is_re):
+        #   For RE (is_re=true): factor 1 × (cost(NonequalRT) - cost(EqualRT))
+        #   = 1 × (2 - 1) = +1.
+        # For SS iso group (is_re=false): factor 2 × (2 - 1) = +2.
+        # Two RE binding groups → +1 each (2 variants). One SS iso group →
+        # +2 (1 variant). Deltas: [1, 1, 2].
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test deltas == [1, 1, 2]
+
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
-        specs = EnzymeRates.init_mechanisms(rxn_r)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(spec, rxn_r)
-        allo = first(allo_specs)
-        reg_specs = EnzymeRates._expand_add_allosteric_regulator(
-            allo, rxn_r)
-        # Find a reg-spec where R has a constrained (non-:NonequalRT) tag
-        tagged = filter(
-            r -> get(r.reg_ligand_tags, :R, :NonequalRT) != :NonequalRT,
-            reg_specs)
-        @test !isempty(tagged)
-        tr_spec = first(tagged)
-        pc_before = tr_spec.n_fit_params_estimate
-        result = EnzymeRates._expand_change_allo_state(
-            tr_spec, rxn_r)
-        # The variant that relaxes :R to :NonequalRT
+
+        # 4. property-style: in each result, exactly one group's tag flipped
+        # from non-:NonequalRT to :NonequalRT (relaxation move).
+        for r in result
+            relaxed = [g for g in keys(spec.group_tags)
+                       if spec.group_tags[g] != :NonequalRT &&
+                          r.group_tags[g] == :NonequalRT]
+            @test length(relaxed) == 1
+        end
+
+        # 5. preservation: catalytic_n, reg sites, base.reaction unchanged.
+        for r in result
+            @test r.catalytic_n == spec.catalytic_n
+            @test r.allosteric_reg_sites == spec.allosteric_reg_sites
+            @test r.base.reaction === spec.base.reaction
+        end
+    end
+
+    @testset "Fully relaxed → empty (negative)" begin
+        # SEED: every group_tag and reg_ligand_tag is :NonequalRT.
+        m_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: NonequalRT
+                    E + S ⇌ E_S    :: NonequalRT
+                    E_S <--> E_P   :: NonequalRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
+        # All group_tags == :NonequalRT, no reg_ligand_tags → no eligible
+        # entries → empty result.
+        @test isempty(EnzymeRates._expand_change_allo_state(spec, uni_uni_allo))
+    end
+
+    @testset "MechanismSpec → empty" begin
+        # Plain MechanismSpec (no allosteric conversion) dispatches to the
+        # MechanismSpec specialization which returns empty.
+        spec = first(EnzymeRates.init_mechanisms(uni_uni_allo))
+        @test isempty(EnzymeRates._expand_change_allo_state(spec, uni_uni_allo))
+    end
+
+    @testset "Allosteric regulator tag removal delta" begin
+        # SEED: uni-uni allosteric with one regulator R tagged :OnlyR.
+        # Move yields 3 group-tag relaxations + 1 reg-ligand-tag relaxation
+        # = 4 variants total.
+        m_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R::OnlyR
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
+
+        result = EnzymeRates._expand_change_allo_state(spec, uni_uni_allo_reg)
+
+        # 1. count: 3 group-tag relaxations + 1 reg-ligand-tag relaxation = 4.
+        @test length(result) == 4
+
+        # 2. filter for the reg-ligand-removal variant (R flips to :NonequalRT).
         r_removal = filter(
-            r -> r.reg_ligand_tags[:R] == :NonequalRT, result)
-        @test !isempty(r_removal)
-        # delta depends on R's previous tag — should be +1
-        # (one K_R_T appears) when going from non-`:NonequalRT`
-        # to `:NonequalRT`.
-        for r in r_removal
-            @test r.n_fit_params_estimate == pc_before + 1
-        end
+            r -> get(r.reg_ligand_tags, :R, :NonequalRT) == :NonequalRT &&
+                 r.group_tags == spec.group_tags,
+            result)
+        @test length(r_removal) == 1
+
+        # 3. delta for :OnlyR → :NonequalRT: cost(:NonequalRT) - cost(:OnlyR)
+        # = 2 - 1 = +1.
+        @test only(r_removal).n_fit_params_estimate ==
+              spec.n_fit_params_estimate + 1
     end
+
 end
 
 @testset "Dedup" begin
