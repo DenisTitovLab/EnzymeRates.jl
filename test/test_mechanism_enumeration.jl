@@ -1990,6 +1990,9 @@ end
         for r in result
             @test r.catalytic_n == spec.catalytic_n
             @test r.allosteric_reg_sites == spec.allosteric_reg_sites
+            @test r.allosteric_multiplicities == spec.allosteric_multiplicities
+            @test r.reg_ligand_tags == spec.reg_ligand_tags
+            @test r.base.reaction === spec.base.reaction
         end
     end
 
@@ -3657,7 +3660,16 @@ end
     @testset "MechanismSpec → empty" begin
         # Plain MechanismSpec (no allosteric conversion) dispatches to the
         # MechanismSpec specialization which returns empty.
-        spec = first(EnzymeRates.init_mechanisms(uni_uni_allo))
+        m_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
         result = EnzymeRates._expand_change_allo_state(spec, uni_uni_allo)
         @test isempty(result)
         @test result isa Vector{AllostericMechanismSpec}
@@ -3890,6 +3902,39 @@ end
         cache = Dict(pc => EnzymeRates.AbstractMechanismSpec[spec_ab, spec_ba])
         EnzymeRates.dedup!(cache)
         @test length(cache[pc]) == 1
+    end
+
+    @testset "Inter-move overlap collapses via dedup!" begin
+        # Two different expansion paths from the same seed can produce the
+        # same target spec. Verify dedup! collapses such duplicates after
+        # canonicalization.
+        m_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
+
+        # Path 1: RE→SS on the S-binding group.
+        re_to_ss_results = EnzymeRates._expand_re_to_ss(spec)
+        # Path 2: split the iso group (no-op since it's singleton, so empty)
+        # plus another move that produces a structurally identical result.
+        # In practice, expand_mechanisms calls all moves on the same spec
+        # and dedup! collapses inter-move overlaps. Verify by running
+        # expand_mechanisms and checking that the result count is no larger
+        # than the union of unique compiled mechanisms.
+        expanded = EnzymeRates.expand_mechanisms([spec], uni_uni_rxn)
+        EnzymeRates.dedup!(expanded)
+        for (pc, specs) in expanded
+            compiled = Set(EnzymeRates.compile_mechanism(s) for s in specs)
+            # After dedup, compiled count should equal spec count
+            # (no duplicates surviving).
+            @test length(compiled) == length(specs)
+        end
     end
 end
 
