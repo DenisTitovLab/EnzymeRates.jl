@@ -2042,7 +2042,10 @@ end
         # 3. compilability — implicit in item 4's equivalence-style call.
 
         # 4. equivalence-style (N=1).
-        # Expected: same uni-uni catalytic + a new RE binding step E + I__reg ⇌ E_I.
+        # Expected: same uni-uni catalytic + a new I-binding RE step.
+        # (The spec's step uses the :I__reg dummy form name; compile_mechanism
+        # strips the __reg suffix, so the compiled mechanism has bare :I and
+        # :E_I — which is what the @enzyme_mechanism literal below produces.)
         expected = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -2075,10 +2078,12 @@ end
             spec, uni_uni_rxn))
     end
 
-    @testset "Already-bound I excluded via exclude_regs (negative)" begin
+    @testset "exclude_regs kwarg suppresses regulator addition (negative)" begin
         # SEED: uni-uni with no regulators yet; rxn declares I as dead-end.
-        # Calling the move with exclude_regs=Set([:I]) prevents I from being
-        # added — eligible_regs becomes empty → result is empty.
+        # The exclude_regs kwarg short-circuits the move regardless of
+        # whether I is already bound: passing exclude_regs=Set([:I]) makes
+        # eligible_regs empty → result is empty. (Used by the beam-search
+        # caller to prevent re-adding regulators it just removed.)
         m_seed = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -2308,6 +2313,13 @@ end
             for sym in j_syms
                 @test !occursin(r"__reg\d", string(sym))
             end
+
+            # Adding J must NOT remove I-binding steps from the spec.
+            i_syms = [sym for st in s.steps
+                      for sym in Iterators.flatten(
+                          (st.reactants, st.products))
+                      if contains(string(sym), "I__reg")]
+            @test !isempty(i_syms)
         end
     end
 
