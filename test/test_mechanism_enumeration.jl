@@ -3720,10 +3720,13 @@ end
         end
         spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
         result = EnzymeRates.expand_mechanisms([spec], uni_uni_allo)
-        has_allo = any(
-            any(s isa AllostericMechanismSpec for s in ss)
-            for (_, ss) in result)
-        @test has_allo
+        allo_count = sum(count(s -> s isa AllostericMechanismSpec, ss)
+                         for (_, ss) in result)
+        # _expand_to_allosteric on a uni-uni seed with 3 kinetic groups
+        # produces n_groups+1=4 allosteric variants (one per group +
+        # one for L-only). Other moves do not produce allosteric output
+        # from a plain MechanismSpec, so at least 4 exist.
+        @test allo_count >= 4
     end
 
     @testset "No self-expansion to same param count" begin
@@ -3762,10 +3765,17 @@ end
         end
         allo = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
         result = EnzymeRates.expand_mechanisms([allo], uni_uni_allo)
-        has_rewrapped = any(
-            any(s isa AllostericMechanismSpec for s in ss)
-            for (_, ss) in result)
-        @test has_rewrapped
+        allo_results = filter(s -> s isa AllostericMechanismSpec,
+                              vcat([ss for (_, ss) in result]...))
+        @test !isempty(allo_results)
+        # Every rewrapped allosteric result must preserve the input's
+        # catalytic_n and base.reaction — base.steps may differ
+        # (a base move may have changed them) but the allosteric-side
+        # metadata is preserved.
+        for r in allo_results
+            @test r.catalytic_n == allo.catalytic_n
+            @test r.base.reaction === allo.base.reaction
+        end
     end
 
     @testset "Dead-end excludes allosteric regs" begin
@@ -3902,6 +3912,12 @@ end
     @testset "Multiple levels populated" begin
         results = enumerate_all(uni_uni_rxn; max_params=8)
         @test length(results) >= 2  # At least 2 param count levels
+
+        # Param-count buckets must form a near-contiguous range.
+        # The maximum single-move delta is 4 (SS :NonequalRT split),
+        # so consecutive bucket keys can be separated by at most 4.
+        pcs = sort(collect(keys(results)))
+        @test all(pcs[i+1] - pcs[i] <= 4 for i in 1:length(pcs)-1)
     end
 end
 
