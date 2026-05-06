@@ -2163,6 +2163,67 @@ end
             @test r.reg_ligand_tags == spec.reg_ligand_tags
         end
     end
+
+    @testset "AllostericMechanismSpec — SS multi-step :NonequalRT split: Δ=+4" begin
+        # SEED: bi-bi allosteric where one multi-step group is BOTH SS AND
+        # :NonequalRT. _split_group_delta returns 4 for this case (factor 2
+        # for SS × factor 2 for :NonequalRT R/T-state pair).
+        m_seed = @allosteric_mechanism begin
+            substrates: A, B
+            products: P, Q
+            site(:catalytic, 2): begin
+                steps: begin
+                    (E + A <--> E_A, E_B + A <--> E_A_B)        :: NonequalRT
+                    (E + B ⇌ E_B, E_A + B ⇌ E_A_B)             :: EqualRT
+                    (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)             :: EqualRT
+                    (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)             :: EqualRT
+                    E_A_B <--> E_P_Q                            :: EqualRT
+                end
+            end
+        end
+        bi_bi_allo_rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            oligomeric_state: 2
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, bi_bi_allo_rxn)
+
+        result = EnzymeRates._expand_split_kinetic_group(spec)
+
+        # 1. count: 4 multi-step groups (A-binding SS×2 :NonequalRT,
+        # B-binding RE×2 :EqualRT, P-binding RE×2 :EqualRT, Q-binding RE×2 :EqualRT).
+        # 4 × 2 members = 8 variants.
+        @test length(result) == 8
+
+        # 2. Δ params:
+        # - SS × :NonequalRT split: factor 2 (SS) × factor 2 (NonequalRT) = +4
+        #   → 2 variants × +4
+        # - RE × :EqualRT split: factor 1 × factor 1 = +1
+        #   → 6 variants × +1
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test deltas == [1, 1, 1, 1, 1, 1, 4, 4]
+
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+
+        # 4. tag inheritance: split's new group inherits parent's tag.
+        pre_groups = Set(s.kinetic_group for s in spec.base.steps)
+        for r in result
+            post_groups = Set(s.kinetic_group for s in r.base.steps)
+            new_g = only(setdiff(post_groups, pre_groups))
+            # find the parent group
+            pre_counts = Dict(g => count(s -> s.kinetic_group == g, spec.base.steps)
+                              for g in pre_groups)
+            post_counts = Dict(g => count(s -> s.kinetic_group == g, r.base.steps)
+                               for g in pre_groups)
+            old_g = only(g for g in pre_groups
+                         if post_counts[g] < pre_counts[g])
+            @test r.group_tags[new_g] == spec.group_tags[old_g]
+        end
+    end
 end
 
 # ─── _expand_add_dead_end_regulator ────────────────────────────────────
