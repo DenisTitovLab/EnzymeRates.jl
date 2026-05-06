@@ -1717,6 +1717,31 @@ end
         end
     end
 
+    @testset "MechanismSpec — ter-ter sequential" begin
+        # SEED: ter-ter sequential ordered. 6 RE binding steps + 1 SS iso = 7 groups.
+        # _expand_re_to_ss fires per RE group → 6 variants.
+        m_seed = @enzyme_mechanism begin
+            substrates: A, B, D
+            products: P, Q, R
+            steps: begin
+                E + A ⇌ E_A
+                E_A + B ⇌ E_A_B
+                E_A_B + D ⇌ E_A_B_D
+                E + R ⇌ E_R
+                E_R + Q ⇌ E_Q_R
+                E_Q_R + P ⇌ E_P_Q_R
+                E_A_B_D <--> E_P_Q_R
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, ter_ter_rxn)
+        result = EnzymeRates._expand_re_to_ss(spec)
+        @test length(result) == 6
+        for r in result
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+        end
+    end
+
     @testset "MechanismSpec — all-SS catalytic seed: empty (negative)" begin
         # When every catalytic step is already SS, _expand_re_to_ss has no
         # all-RE group to fire on → empty result.
@@ -1956,6 +1981,38 @@ end
         # 5. preservation: reaction === spec.reaction.
         for r in result
             @test r.reaction === spec.reaction
+        end
+    end
+
+    @testset "AllostericMechanismSpec — substrate-as-dead-end-I overlap" begin
+        # Allosteric counterpart of the substrate-as-I overlap test; verifies
+        # that the move correctly handles the overlap when the spec is
+        # AllostericMechanismSpec (cross-type).
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: S
+            oligomeric_state: 2
+        end
+        init_specs = EnzymeRates.init_mechanisms(rxn)
+        seed_spec = first(init_specs)
+        de_specs = EnzymeRates._expand_add_dead_end_regulator(seed_spec, rxn)
+        @test !isempty(de_specs)
+        plain_spec = first(de_specs)
+        # Convert to allosteric
+        allo_specs = EnzymeRates._expand_to_allosteric(plain_spec, rxn)
+        @test !isempty(allo_specs)
+        spec = first(allo_specs)
+
+        result = EnzymeRates._expand_re_to_ss(spec)
+        # Same count derivation as the plain-spec overlap test: 3 RE groups
+        # (substrate-S binding, product-P binding, dead-end-S__reg binding) → 3 variants.
+        @test length(result) == 3
+
+        for r in result
+            @test r isa AllostericMechanismSpec
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
     end
 
@@ -3613,6 +3670,87 @@ end
         # R tag flipped to :NonequalRT.
         n_r_relaxed = count(r -> r.reg_ligand_tags[:R] == :NonequalRT, result)
         @test n_r_relaxed == 1
+    end
+
+    @testset "Multiple regulator ligands at independent tags" begin
+        # SEED: allosteric uni-uni with two regulators R1::OnlyR, R2::OnlyT.
+        # Move should produce a relaxation variant for EACH non-:NonequalRT
+        # entry: 3 group-tag (all :EqualRT) + 2 reg-ligand-tag (R1, R2) = 5 variants.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R1, R2
+            oligomeric_state: 2
+        end
+        m_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: R1::OnlyR, R2::OnlyT
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P       :: EqualRT
+                    E + S ⇌ E_S       :: EqualRT
+                    E_S <--> E_P      :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn)
+        result = EnzymeRates._expand_change_allo_state(spec, rxn)
+
+        # 1. count: 3 group_tags + 2 reg_ligand_tags = 5 variants.
+        @test length(result) == 5
+
+        # 2. Δ params: 3 group relaxations ([1, 1, 2]) + 2 ligand relaxations
+        # (R1 :OnlyR → :NonequalRT = +1; R2 :OnlyT → :NonequalRT = +1) → [1, 1, 1, 1, 2].
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test deltas == [1, 1, 1, 1, 2]
+
+        # 3. property: exactly one variant has each ligand independently relaxed.
+        n_r1_relaxed_only = count(r -> r.reg_ligand_tags[:R1] == :NonequalRT &&
+                                        r.reg_ligand_tags[:R2] == :OnlyT, result)
+        n_r2_relaxed_only = count(r -> r.reg_ligand_tags[:R1] == :OnlyR &&
+                                        r.reg_ligand_tags[:R2] == :NonequalRT, result)
+        @test n_r1_relaxed_only == 1
+        @test n_r2_relaxed_only == 1
+    end
+
+    @testset "Non-default site multiplicity (catalytic_n=4, reg site multiplicity=2)" begin
+        # SEED: catalytic 4-mer with regulator at multiplicity-2 site (less than catalytic_n).
+        # _expand_change_allo_state and other allo moves should preserve site
+        # multiplicities independently of catalytic_n.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R
+            oligomeric_state: 4
+        end
+        m_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: R::OnlyR
+            site(:catalytic, 4): begin
+                steps: begin
+                    E + P ⇌ E_P       :: EqualRT
+                    E + S ⇌ E_S       :: EqualRT
+                    E_S <--> E_P      :: EqualRT
+                end
+            end
+            site(:regulatory, 2): begin
+                ligands: R
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn)
+        @test spec.catalytic_n == 4
+        @test spec.allosteric_multiplicities == [2]
+
+        # _expand_change_allo_state should preserve multiplicities.
+        result = EnzymeRates._expand_change_allo_state(spec, rxn)
+        @test !isempty(result)
+        for r in result
+            @test r.catalytic_n == 4
+            @test r.allosteric_multiplicities == [2]
+        end
     end
 
 end
