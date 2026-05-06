@@ -1575,11 +1575,10 @@ function _expand_split_kinetic_group(spec::AbstractMechanismSpec)
     end
     used = isempty(steps) ? 0 :
         maximum(s.kinetic_group for s in steps)
-    next_g = used + 1
+    new_g = used + 1
     for (g, idxs) in groups
         length(idxs) >= 2 || continue
         for split_idx in idxs
-            new_g = next_g
             new_steps = copy(steps)
             old = steps[split_idx]
             new_steps[split_idx] = StepSpec(
@@ -1592,7 +1591,6 @@ function _expand_split_kinetic_group(spec::AbstractMechanismSpec)
                 _split_with_steps(
                     spec, new_steps, new_pc, g, new_g))
         end
-        next_g += 1
     end
     results
 end
