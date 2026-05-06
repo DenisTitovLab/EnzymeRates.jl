@@ -3091,6 +3091,50 @@ end
         end
     end
 
+    @testset "Adding :EqualRT R2 at site with :OnlyT R1" begin
+        # SEED: allosteric uni-uni with R1::OnlyT already present at site 1.
+        # Adding R2 should enumerate non-:EqualRT tags (×2 sites: new + existing) +
+        # :EqualRT at existing site (because R1 is non-:EqualRT, the
+        # :EqualRT-at-existing branch fires). Total: 3×2 + 1 = 7 variants.
+        m_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: R1::OnlyT
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P       :: EqualRT
+                    E + S ⇌ E_S       :: EqualRT
+                    E_S <--> E_P      :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_2reg)
+
+        result = EnzymeRates._expand_add_allosteric_regulator(spec, uni_uni_allo_2reg)
+
+        # 1. count: 3 non-:EqualRT tags × 2 site options + 1 :EqualRT-at-existing
+        # = 7 variants.
+        @test length(result) == 7
+
+        # 2. Δ params: same multiset as the analogous :OnlyR seed
+        # (5 ones + 2 twos = [1,1,1,1,1,2,2]).
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test deltas == [1, 1, 1, 1, 1, 2, 2]
+
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+
+        # 4. property-style: at least one variant has R2 :EqualRT at site 1
+        # (the EqualRT-at-existing branch, gated on R1 being non-:EqualRT).
+        has_eq_at_site1 = any(result) do r
+            :R2 in r.allosteric_reg_sites[1] && r.reg_ligand_tags[:R2] == :EqualRT
+        end
+        @test has_eq_at_site1
+    end
+
     @testset "Substrate-as-allosteric-regulator overlap" begin
         # SEED: allosteric uni-uni where S is both substrate and allosteric
         # regulator. Reaction declares S in allosteric_regulators.
@@ -3267,6 +3311,49 @@ end
         # = 2 - 1 = +1.
         @test only(r_removal).n_fit_params_estimate ==
               spec.n_fit_params_estimate + 1
+    end
+
+    @testset ":OnlyT regulator-ligand relaxation" begin
+        # SEED: uni-uni allosteric with one regulator R tagged :OnlyT.
+        # _expand_change_allo_state should produce variants for each
+        # non-:NonequalRT entry, including the :OnlyT ligand. Δ for the
+        # ligand-relaxation variant: cost(:NonequalRT) - cost(:OnlyT) = +1.
+        m_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: R::OnlyT
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P       :: EqualRT
+                    E + S ⇌ E_S       :: EqualRT
+                    E_S <--> E_P      :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
+
+        result = EnzymeRates._expand_change_allo_state(spec, uni_uni_allo_reg)
+
+        # 1. count: 3 group_tags entries (all :EqualRT) + 1 reg_ligand_tags
+        # entry (:OnlyT) → 4 variants.
+        @test length(result) == 4
+
+        # 2. Δ params: 2 RE-binding-group EqualRT relaxations (+1 each),
+        # 1 SS-iso EqualRT relaxation (+2), 1 reg-ligand :OnlyT relaxation
+        # (cost(:NonequalRT) - cost(:OnlyT) = 2 - 1 = +1). Sorted: [1, 1, 1, 2].
+        deltas = sort([r.n_fit_params_estimate -
+                       spec.n_fit_params_estimate for r in result])
+        @test deltas == [1, 1, 1, 2]
+
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+
+        # 4. property-style: exactly one ligand-relaxation variant has the
+        # R tag flipped to :NonequalRT.
+        n_r_relaxed = count(r -> r.reg_ligand_tags[:R] == :NonequalRT, result)
+        @test n_r_relaxed == 1
     end
 
 end
