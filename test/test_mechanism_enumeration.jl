@@ -803,12 +803,10 @@ end
     end
 
     @testset "Asymmetric: 2 × 3" begin
-        # 2 substrates × 3 products. Counts are derivable from the inclusion-
-        # exclusion formula; the actual count is covered by the source's
-        # generation logic. Just verify it produces non-empty results and
-        # all patterns cover all metabolites.
+        # 2 substrates × 3 products. Bipartite-cover count on K(2,3)
+        # by inclusion-exclusion = 25.
         pats = EnzymeRates._competition_patterns(Set([:A, :B]), Set([:P, :Q, :R]))
-        @test !isempty(pats)
+        @test length(pats) == 25
         for pat in pats
             for s in [:A, :B]
                 @test any((s, p) in pat for p in [:P, :Q, :R])
@@ -820,8 +818,9 @@ end
     end
 
     @testset "Asymmetric: 3 × 2" begin
+        # By symmetry with 2 × 3, count is also 25.
         pats = EnzymeRates._competition_patterns(Set([:A, :B, :D]), Set([:P, :Q]))
-        @test !isempty(pats)
+        @test length(pats) == 25
         for pat in pats
             for s in [:A, :B, :D]
                 @test any((s, p) in pat for p in [:P, :Q])
