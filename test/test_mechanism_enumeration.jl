@@ -1779,6 +1779,19 @@ end
             @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         end
 
+        # 4. property-style: each variant flips exactly one RE step from
+        # is_equilibrium=true to false. The flipped step's kinetic_group
+        # differs across the 5 variants (one per RE group).
+        flipped_groups = Int[]
+        for r in result
+            flipped = [s_new.kinetic_group
+                for (s_old, s_new) in zip(spec.steps, r.steps)
+                if s_old.is_equilibrium && !s_new.is_equilibrium]
+            @test length(flipped) == 1
+            push!(flipped_groups, only(flipped))
+        end
+        @test length(unique(flipped_groups)) == 5
+
         # 5. preservation
         for r in result
             @test r.reaction === spec.reaction
@@ -2350,6 +2363,15 @@ end
             old_g = only(g for g in pre_groups
                          if post_counts[g] < pre_counts[g])
             @test r.group_tags[new_g] == spec.group_tags[old_g]
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.catalytic_n == spec.catalytic_n
+            @test r.allosteric_reg_sites == spec.allosteric_reg_sites
+            @test r.allosteric_multiplicities == spec.allosteric_multiplicities
+            @test r.reg_ligand_tags == spec.reg_ligand_tags
+            @test r.base.reaction === spec.base.reaction
         end
     end
 end
