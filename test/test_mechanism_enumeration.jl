@@ -3113,6 +3113,11 @@ end
 
 end
 
+# ═══════════════════════════════════════════════════════════════════════
+# 5. Composition (dedup!, expand_mechanisms)
+# ═══════════════════════════════════════════════════════════════════════
+
+# ─── dedup! ────────────────────────────────────────────────────────────
 @testset "Dedup" begin
     @testset "Same mechanism, different step order" begin
         spec1 = MechanismSpec(
@@ -3177,80 +3182,113 @@ end
     end
 end
 
+# ─── expand_mechanisms ─────────────────────────────────────────────────
 @testset "expand_mechanisms" begin
     @testset "Returns dict keyed by param count" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
-        result = EnzymeRates.expand_mechanisms(
-            specs, uni_uni_rxn)
-        @test result isa Dict{Int,
-            Vector{AbstractMechanismSpec}}
-        base_pc = first(specs).n_fit_params_estimate
+        # SEED: uni-uni RE-only, 3 singleton kinetic groups → base_pc = 3.
+        m_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
+        base_pc = spec.n_fit_params_estimate
+        result = EnzymeRates.expand_mechanisms([spec], uni_uni_rxn)
+        @test result isa Dict{Int, Vector{AbstractMechanismSpec}}
         @test haskey(result, base_pc + 1)
     end
 
     @testset "Allosteric expansion included" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        result = EnzymeRates.expand_mechanisms(
-            specs, uni_uni_allo)
-        base_pc = first(specs).n_fit_params_estimate
+        # SEED: uni-uni RE-only attached to an oligomeric reaction.
+        # expand_mechanisms must include allosteric variants in its output.
+        m_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
+        result = EnzymeRates.expand_mechanisms([spec], uni_uni_allo)
         has_allo = any(
-            any(s isa AllostericMechanismSpec
-                for s in ss)
+            any(s isa AllostericMechanismSpec for s in ss)
             for (_, ss) in result)
         @test has_allo
     end
 
     @testset "No self-expansion to same param count" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
-        base_pc = first(specs).n_fit_params_estimate
-        result = EnzymeRates.expand_mechanisms(
-            specs, uni_uni_rxn)
-        # All results should have n_fit_params_estimate > base
+        # SEED: uni-uni RE-only, base_pc = 3.
+        # All keys in the result dict must be strictly greater than base_pc.
+        m_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
+        base_pc = spec.n_fit_params_estimate
+        result = EnzymeRates.expand_mechanisms([spec], uni_uni_rxn)
         for (pc, _) in result
             @test pc > base_pc
         end
     end
 
     @testset "Allosteric rewrap preserves structure" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo)
-        allo = first(allo_specs)
-        result = EnzymeRates.expand_mechanisms(
-            [allo], uni_uni_allo)
-        # Should have expansions from base moves (RE→SS)
-        # rewrapped as AllostericMechanismSpec
+        # SEED: all-:EqualRT allosteric uni-uni. Passing this to
+        # expand_mechanisms must produce AllostericMechanismSpec expansions
+        # (RE→SS rewrapped as allosteric, etc.).
+        m_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        allo = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
+        result = EnzymeRates.expand_mechanisms([allo], uni_uni_allo)
         has_rewrapped = any(
-            any(s isa AllostericMechanismSpec
-                for s in ss)
+            any(s isa AllostericMechanismSpec for s in ss)
             for (_, ss) in result)
         @test has_rewrapped
     end
 
     @testset "Dead-end excludes allosteric regs" begin
-        specs = EnzymeRates.init_mechanisms(
-            uni_uni_allo_reg)
-        spec = first(specs)
-        allo_specs = EnzymeRates._expand_to_allosteric(
-            spec, uni_uni_allo_reg)
-        allo = first(allo_specs)
-        # Add R as allosteric regulator
-        with_reg = first(
-            EnzymeRates._expand_add_allosteric_regulator(
-                allo, uni_uni_allo_reg))
-        result = EnzymeRates.expand_mechanisms(
-            [with_reg], uni_uni_allo_reg)
-        # R should NOT appear as dead-end in any expansion
+        # SEED: allosteric uni-uni with R already added as an allosteric
+        # regulator (:OnlyR). expand_mechanisms must never add R as a
+        # dead-end inhibitor (R__reg must not appear in any expansion).
+        m_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R::OnlyR
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        with_reg = allosteric_spec_from_mechanism_and_rxn(
+            m_seed, uni_uni_allo_reg)
+        result = EnzymeRates.expand_mechanisms([with_reg], uni_uni_allo_reg)
         for (_, ss) in result
             for s in ss
-                base = s isa AllostericMechanismSpec ?
-                    s.base : s
+                base = s isa AllostericMechanismSpec ? s.base : s
                 for step in base.steps
                     for sym in Iterators.flatten(
                             (step.reactants, step.products))
-                        @test !contains(
-                            string(sym), "R__reg")
+                        @test !contains(string(sym), "R__reg")
                     end
                 end
             end
