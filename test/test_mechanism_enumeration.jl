@@ -2000,10 +2000,12 @@ end
     end
 end
 
-@testset "Add dead-end regulator" begin
+# ─── _expand_add_dead_end_regulator ────────────────────────────────────
+@testset "_expand_add_dead_end_regulator" begin
 
-    @testset "Uni-uni + new regulator" begin
-        m = @enzyme_mechanism begin
+    @testset "Uni-uni + I: 1 variant (equivalence-style)" begin
+        # SEED: uni-uni init, no regulators bound yet.
+        m_seed = @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -2012,22 +2014,54 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_with_reg)
-        result = EnzymeRates._expand_add_dead_end_regulator(
-            spec, uni_uni_with_reg)
-        # Uni-uni: sub_names={S}, prod_names={P}
-        # E: bound={} → eligible
-        # E_S: bound={S} → all subs → NOT eligible
-        # E_P: bound={P} → all prods → NOT eligible
-        # 1 eligible form → 2^1 - 1 = 1 variant
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+        end
+        # Hybrid: m_seed has no regulators yet, but rxn declares :I as a
+        # dead-end inhibitor. The helper allows m's regulators to be a
+        # subset of rxn's, so this constructs a spec attached to the
+        # full rxn directly.
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
+
+        result = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
+
+        # 1. count: eligible forms for I-binding = forms NOT bound by all subs
+        # AND NOT bound by all prods. E is the only eligible form (E_S has
+        # all subs → ineligible; E_P has all prods → ineligible). Inhibitor
+        # competition patterns for uni-uni: 1 (S × P × no-existing-inh = 1).
+        # → 1 form set → 1 variant.
         @test length(result) == 1
+
+        # 2. Δ params: +1 (one new K_I parameter for the dead-end binding group).
         for r in result
             @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
+
+        # 3. compilability — implicit in item 4's equivalence-style call.
+
+        # 4. equivalence-style (N=1).
+        # Expected: same uni-uni catalytic + a new RE binding step E + I__reg ⇌ E_I.
+        expected = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            regulators: I
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+                E + I ⇌ E_I
+            end
+        end
+        @test EnzymeRates.compile_mechanism(first(result)) === expected
+
+        # 5. preservation
+        @test first(result).reaction === spec.reaction
     end
 
-    @testset "No regulators → yields nothing" begin
-        m = @enzyme_mechanism begin
+    @testset "Uni-uni no regulators → empty (negative)" begin
+        m_seed = @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -2036,15 +2070,16 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(
-            m, uni_uni_rxn)
-        result = EnzymeRates._expand_add_dead_end_regulator(
-            spec, uni_uni_rxn)
-        @test isempty(result)
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
+        @test isempty(EnzymeRates._expand_add_dead_end_regulator(
+            spec, uni_uni_rxn))
     end
 
-    @testset "All results compile" begin
-        m = @enzyme_mechanism begin
+    @testset "Already-bound I excluded via exclude_regs (negative)" begin
+        # SEED: uni-uni with no regulators yet; rxn declares I as dead-end.
+        # Calling the move with exclude_regs=Set([:I]) prevents I from being
+        # added — eligible_regs becomes empty → result is empty.
+        m_seed = @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -2053,221 +2088,131 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_with_reg)
-        result = EnzymeRates._expand_add_dead_end_regulator(
-            spec, uni_uni_with_reg)
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_with_reg)
+        @test isempty(EnzymeRates._expand_add_dead_end_regulator(
+            spec, uni_uni_with_reg; exclude_regs=Set([:I])))
+    end
+
+    @testset "Sequential bi-bi + I: 4 distinct form sets" begin
+        # SEED: bi-bi sequential. Eligible forms: E, E_A, E_Q.
+        # Inhibitor competition patterns enumerate which subs/prods I
+        # competes with; combined with which forms have a binding step
+        # for those mets, produces exactly 4 distinct form sets:
+        #   {E, E_Q}: ({A},{P}), ({A,B},{P})
+        #   {E, E_A}: ({B},{Q}), ({B},{P,Q})
+        #   {E_A, E_Q}: ({B},{P})
+        #   {E}:      ({A},{Q}), ({A},{P,Q}), ({A,B},{Q}), ({A,B},{P,Q})
+        # → 4 unique form sets after dedup.
+        m_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E_A
+                E_A + B ⇌ E_A_B
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
+            end
+        end
+        rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            dead_end_inhibitors: I
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
+        result = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
+
+        # 1. count
+        @test length(result) == 4
+
+        # 2. Δ params
         for r in result
-            compiled = EnzymeMechanism(r)
-            @test compiled isa EnzymeMechanism
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
-    end
 
-    @testset "exclude_regs works" begin
-        m = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
-            end
-        end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_with_reg)
-        result = EnzymeRates._expand_add_dead_end_regulator(
-            spec, uni_uni_with_reg;
-            exclude_regs=Set([:I]))
-        @test isempty(result)
-    end
-
-    @testset "Mirror steps created" begin
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E_A
-                E_B + A ⇌ E_A_B
-                E + B ⇌ E_B
-                E_A + B ⇌ E_A_B
-                E + P ⇌ E_P
-                E_P + Q ⇌ E_P_Q
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
-            end
-        end
-        bi_bi_with_reg = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            dead_end_inhibitors: I
-        end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, bi_bi_with_reg)
-        result = EnzymeRates._expand_add_dead_end_regulator(
-            spec, bi_bi_with_reg)
-        # Find a variant with multiple eligible forms
-        multi_form = filter(
-            r -> length(r.steps) >
-                length(spec.steps) + 2,
-            result)
-        if !isempty(multi_form)
-            r = first(multi_form)
-            @test length(r.steps) >
-                length(spec.steps) + 2
-        end
-    end
-
-    @testset "Same regulator binding steps share kinetic group" begin
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E_A
-                E_B + A ⇌ E_A_B
-                E + B ⇌ E_B
-                E_A + B ⇌ E_A_B
-                E + P ⇌ E_P
-                E_P + Q ⇌ E_P_Q
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
-            end
-        end
-        bi_bi_with_reg = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            dead_end_inhibitors: I
-        end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, bi_bi_with_reg)
-        result = EnzymeRates._expand_add_dead_end_regulator(
-            spec, bi_bi_with_reg)
+        # 3. compilability
         for r in result
-            reg_binding_steps = filter(
-                s -> length(s.reactants) == 2 &&
-                    contains(string(s.reactants[2]),
-                        "__reg"),
-                r.steps)
-            if length(reg_binding_steps) >= 2
-                groups = unique(
-                    s.kinetic_group for s in reg_binding_steps)
-                @test length(groups) == 1
-            end
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+        end
+
+        # 4. property-style — each variant adds at least one I__reg binding
+        # step; all I__reg binding steps in a single variant share the same
+        # new kinetic_group.
+        for r in result
+            i_binding_groups = unique(
+                s.kinetic_group for s in r.steps
+                if length(s.reactants) == 2 &&
+                    contains(string(s.reactants[2]), "I__reg"))
+            @test length(i_binding_groups) == 1
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.reaction === spec.reaction
         end
     end
 
-    @testset "Two regulators: both bound" begin
-        m = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
-            end
-        end
-        rxn_ij = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: I, J
-        end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_ij)
-        # Add I
-        i_specs =
-            EnzymeRates._expand_add_dead_end_regulator(
-                spec, rxn_ij)
-        with_i = first(i_specs)
-        # Add J to mechanism that already has I
-        j_specs =
-            EnzymeRates._expand_add_dead_end_regulator(
-                with_i, rxn_ij)
-        @test !isempty(j_specs)
-        for s in j_specs
-            has_j = any(
-                contains(string(sym), "J__reg")
-                for st in s.steps
-                for sym in Iterators.flatten(
-                    (st.reactants, st.products)))
-            @test has_j
-        end
-    end
-
-    @testset "Bi-bi: exact dead-end regulator count" begin
-        m = @enzyme_mechanism begin
+    @testset "Bi-bi random + I: 9 variants (property-style)" begin
+        # SEED: bi-bi random. Eligible forms = E, E_A, E_B, E_P, E_Q (E_A_B
+        # has all subs → ineligible; E_P_Q has all prods → ineligible).
+        # Inhibitor competition patterns: 9 (3 sub subsets × 3 prod subsets,
+        # no existing inhibitors). Each pattern produces a distinct active-
+        # form set after dedup → exactly 9 variants.
+        m_seed = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                E_B + A ⇌ E_A_B
-                E + B ⇌ E_B
-                E_A + B ⇌ E_A_B
-                E + P ⇌ E_P
-                E_P + Q ⇌ E_P_Q
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
+                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
                 E_A_B <--> E_P_Q
             end
         end
-        rxn_i = @enzyme_reaction begin
+        rxn = @enzyme_reaction begin
             substrates: A[C], B[N]
             products: P[C], Q[N]
             dead_end_inhibitors: I
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_i)
-        result =
-            EnzymeRates._expand_add_dead_end_regulator(
-                spec, rxn_i)
-        # E_A_B has all subs → ineligible
-        # E_P_Q has all prods → ineligible
-        # 5 eligible forms, 9 inhibitor patterns
-        # (3 sub subsets × 3 prod subsets) → 9
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
+        result = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
+
+        # 1. count
         @test length(result) == 9
-    end
 
-    @testset "Dead-end reg on allosteric spec" begin
-        m = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
-            end
+        # 2. Δ params
+        for r in result
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
-        # Allosteric-only regulator → no dead-end
-        rxn_allo_only = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R
-            oligomeric_state: 2
-        end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_allo_only)
-        allo = first(EnzymeRates._expand_to_allosteric(
-            spec, rxn_allo_only))
-        result =
-            EnzymeRates._expand_add_dead_end_regulator(
-                allo, rxn_allo_only)
-        @test isempty(result)
 
-        # Mixed: I is dead-end, R is allosteric
-        rxn_mixed = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: I
-            allosteric_regulators: R
-            oligomeric_state: 2
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         end
-        spec_m = mechanism_spec_from_mechanism_and_rxn(m, rxn_mixed)
-        allo_m = first(EnzymeRates._expand_to_allosteric(
-            spec_m, rxn_mixed))
-        result_m =
-            EnzymeRates._expand_add_dead_end_regulator(
-                allo_m, rxn_mixed)
-        @test !isempty(result_m)
-        for r in result_m
-            @test r isa AllostericMechanismSpec
+
+        # 4. property-style: each variant has at least one I__reg binding
+        # step; all I__reg binding steps in a single variant share the same
+        # kinetic_group (one K_I, not multiple).
+        for r in result
+            i_binding_groups = unique(
+                s.kinetic_group for s in r.steps
+                if length(s.reactants) == 2 &&
+                    contains(string(s.reactants[2]), "I__reg"))
+            @test length(i_binding_groups) == 1
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.reaction === spec.reaction
         end
     end
 
-    @testset "Ping-pong: exact dead-end count" begin
-        m = @enzyme_mechanism begin
+    @testset "Bi-bi PP + I: 3 variants" begin
+        # SEED: bi-bi ping-pong. Forms: E, E_A, Estar, Estar_A_P, Estar_B,
+        # E_Q. Estar_A_P has all prods → ineligible. Estar_B has all subs
+        # → ineligible. Eligible: E, E_A, Estar, E_Q (4 forms). Inhibitor
+        # competition patterns × dedup → 3 unique form sets.
+        m_seed = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -2279,144 +2224,149 @@ end
                 Estar_B ⇌ E_Q
             end
         end
-        rxn_pp_i = @enzyme_reaction begin
+        rxn = @enzyme_reaction begin
             substrates: A[CX], B[N]
             products: P[C], Q[NX]
             dead_end_inhibitors: I
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_pp_i)
-        result =
-            EnzymeRates._expand_add_dead_end_regulator(
-                spec, rxn_pp_i)
-        # Estar_A_P has all prods → ineligible
-        # Estar_B has all subs → ineligible
-        # 4 eligible, 9 patterns → 3 unique form sets
-        @test length(result) == 3
-    end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
+        result = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
 
-    @testset "Topology-aware: sequential bi-bi" begin
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E_A
-                E_A + B ⇌ E_A_B
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
-            end
-        end
-        rxn_seq = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            dead_end_inhibitors: I
-        end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_seq)
-        result = EnzymeRates._expand_add_dead_end_regulator(
-            spec, rxn_seq)
-        # Sequential bi-bi: binding step sources:
-        #   A: from E    B: from E_A
-        #   P: from E_Q  Q: from E
-        # Eligible forms: E, E_A, E_Q
-        # 9 inhibitor patterns → 4 unique form sets:
-        #   {E,E_Q}: ({A},{P}), ({A,B},{P})
-        #   {E,E_A}: ({B},{Q}), ({B},{P,Q})
-        #   {E_A,E_Q}: ({B},{P})
-        #   {E}: ({A},{Q}), ({A},{P,Q}),
-        #         ({A,B},{Q}), ({A,B},{P,Q})
-        @test length(result) == 4
+        # 1. count
+        @test length(result) == 3
+
+        # 2. Δ params
         for r in result
             @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
         end
+
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+        end
+
+        # 4. property-style (N=3, but mechanisms differ in atom-bracket
+        # placement — equivalence at the EnzymeMechanism level is
+        # cumbersome). Each variant adds one new kinetic_group used only
+        # by the I__reg binding steps.
+        for r in result
+            i_binding_groups = unique(
+                s.kinetic_group for s in r.steps
+                if length(s.reactants) == 2 &&
+                    contains(string(s.reactants[2]), "I__reg"))
+            @test length(i_binding_groups) == 1
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.reaction === spec.reaction
+        end
     end
 
-    @testset "Bi-bi random: 9 inhibitor variants" begin
-        m = @enzyme_mechanism begin
+    @testset "Two regulators chain: J__reg dummy naming has no numeric suffix" begin
+        # SEED: uni-uni with rxn declaring two dead-end inhibitors I, J.
+        # Step A: add I via the move.
+        # Step B: pick a variant with I bound, call the move again to add J.
+        # Property: J's dummy symbol is exactly :J__reg (no numeric suffix
+        # like :J__reg2). Catches the regulator-naming-stability regression.
+        m_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I, J
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
+
+        # Step A: 2 eligible regs (I, J), 1 form each → 2 variants total.
+        i_or_j_specs = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
+        with_i = first(filter(i_or_j_specs) do s
+            any(contains(string(sym), "I__reg")
+                for st in s.steps
+                for sym in Iterators.flatten(
+                    (st.reactants, st.products)))
+        end)
+
+        # Step B
+        j_specs = EnzymeRates._expand_add_dead_end_regulator(with_i, rxn)
+        @test !isempty(j_specs)
+
+        # Property: J__reg with no numeric suffix.
+        for s in j_specs
+            j_syms = [sym for st in s.steps
+                      for sym in Iterators.flatten(
+                          (st.reactants, st.products))
+                      if contains(string(sym), "J__reg")]
+            @test !isempty(j_syms)
+            for sym in j_syms
+                @test !occursin(r"__reg\d", string(sym))
+            end
+        end
+    end
+
+    @testset "Two regulators competition: 17 variants (property-style)" begin
+        # SEED: bi-bi random with rxn declaring I1, I2 as dead-end inhibitors.
+        # Step A: add both regs in one call → 9 + 9 = 18 variants.
+        # Step B: pick variant where I1 binds at multiple forms; call the
+        # move again to add I2. Inhibitor competition patterns with one
+        # existing inhibitor: 9 × 2 = 18 raw patterns, but I2's active-form
+        # set deduplication after intersection with eligible forms yields
+        # 17 unique form sets → 17 variants.
+        m_seed = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                E_B + A ⇌ E_A_B
-                E + B ⇌ E_B
-                E_A + B ⇌ E_A_B
-                E + P ⇌ E_P
-                E_P + Q ⇌ E_P_Q
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
+                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
                 E_A_B <--> E_P_Q
             end
         end
-        bb_with_reg = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            dead_end_inhibitors: I
-        end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, bb_with_reg)
-        result = EnzymeRates._expand_add_dead_end_regulator(
-            spec, bb_with_reg)
-        @test length(result) == 9
-    end
-
-    @testset "Two inhibitors: compete vs not" begin
-        # Use bi-bi random: I1 binds to multiple forms,
-        # creating mirror steps. When adding I2, compete
-        # vs not-compete with I1 produces different forms.
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E_A
-                E_B + A ⇌ E_A_B
-                E + B ⇌ E_B
-                E_A + B ⇌ E_A_B
-                E + P ⇌ E_P
-                E_P + Q ⇌ E_P_Q
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
-            end
-        end
-        rxn_2i = @enzyme_reaction begin
+        rxn = @enzyme_reaction begin
             substrates: A[C], B[N]
             products: P[C], Q[N]
             dead_end_inhibitors: I1, I2
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, rxn_2i)
-        # Adds both eligible regs (I1 + I2): 9 each
-        result1 =
-            EnzymeRates._expand_add_dead_end_regulator(
-                spec, rxn_2i)
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
+
+        # Step A
+        result1 = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
         @test length(result1) == 18
-        # Pick variant where I1 binds to multiple forms
+
+        # Pick variant where I1 binds at multiple forms.
         multi = filter(result1) do r
             inh_forms = filter(
                 f -> contains(string(f), "I1__reg"),
-                collect(
-                    EnzymeRates.all_form_names(r)))
+                collect(EnzymeRates.all_form_names(r)))
             length(inh_forms) >= 2
         end
         @test !isempty(multi)
         spec_i1 = first(multi)
-        # Add I2 to spec that already has I1
-        result2 =
-            EnzymeRates._expand_add_dead_end_regulator(
-                spec_i1, rxn_2i)
-        # With I1 present, competition patterns produce
-        # more I2 variants than the base 9.
+
+        # Step B: add I2 to a spec that already has I1.
+        result2 = EnzymeRates._expand_add_dead_end_regulator(spec_i1, rxn)
         @test length(result2) == 17
-        # Not-competing variant: I2 coexists with I1
+
+        # Property: at least one variant has I1 + I2 coexisting on the same
+        # form (non-competing pattern), and at least one has I2 forms that
+        # never coexist with I1 (fully-competing pattern).
         has_coexist = any(result2) do r
             any(
                 f -> contains(string(f), "I1__reg") &&
                      contains(string(f), "I2__reg"),
-                collect(
-                    EnzymeRates.all_form_names(r)))
+                collect(EnzymeRates.all_form_names(r)))
         end
         @test has_coexist
-        # Competing variant: I2 forms but no coexistence
         has_compete = any(result2) do r
-            forms = collect(
-                EnzymeRates.all_form_names(r))
+            forms = collect(EnzymeRates.all_form_names(r))
             has_i2 = any(
                 f -> contains(string(f), "I2__reg"),
                 forms)
@@ -2426,46 +2376,189 @@ end
                 forms)
             has_i2 && no_coexist
         end
-        @test has_compete  # competing variant exists
+        @test has_compete
     end
-end
 
-@testset "Regulator dummy naming stability" begin
-    m = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + P ⇌ E_P
-            E + S ⇌ E_S
-            E_S <--> E_P
+    @testset "Substrate-as-dead-end-inhibitor overlap (S used as both)" begin
+        # SEED: uni-uni where :S is both a substrate AND declared as a
+        # dead-end inhibitor. The move treats the substrate-:S binding step
+        # and the inhibitor-:S__reg binding step as independent — the dummy
+        # :S__reg is what enters the new dead-end binding step.
+        rxn_overlap = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: S
+        end
+        # Init from rxn_overlap (1 catalytic topology for uni-uni).
+        init_specs = EnzymeRates.init_mechanisms(rxn_overlap)
+        @test length(init_specs) == 1
+        spec = first(init_specs)
+
+        result = EnzymeRates._expand_add_dead_end_regulator(spec, rxn_overlap)
+
+        # 1. count: eligible forms = E (the form not bound by all subs and
+        # not bound by all prods). Inhibitor competition patterns for uni-
+        # uni with no existing inhibitors: 1. → 1 variant.
+        @test length(result) == 1
+
+        # 2. Δ params
+        for r in result
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+        end
+
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+        end
+
+        # 4. property-style: variant introduces an :S__reg-named binding
+        # step (proves the substrate-:S vs inhibitor-:S__reg distinction
+        # is preserved by the move's dummy-symbol rewriting).
+        for r in result
+            reg_syms = [sym for st in r.steps
+                        for sym in Iterators.flatten(
+                            (st.reactants, st.products))
+                        if contains(string(sym), "S__reg")]
+            @test !isempty(reg_syms)
+            # Exactly one new kinetic group introduced (the S__reg binding).
+            new_groups = setdiff(
+                Set(s.kinetic_group for s in r.steps),
+                Set(s.kinetic_group for s in spec.steps))
+            @test length(new_groups) == 1
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.reaction === spec.reaction
         end
     end
-    rxn2 = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        dead_end_inhibitors: I, J
+
+    @testset "AllostericMechanismSpec input: dead-end binding tagged :EqualRT" begin
+        # SEED: uni-uni allosteric (catalytic_n=2) with mixed regs in rxn:
+        # :I dead-end, :R allosteric. The move must (a) exclude :R from
+        # eligible_regs (allosteric ligand), (b) tag the new dead-end
+        # binding kinetic group :EqualRT.
+        m_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn)
+
+        result = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
+
+        # 1. count: same as plain uni-uni + I (1 eligible form E),
+        # because :R is excluded as allosteric.
+        @test length(result) == 1
+
+        # 2. Δ params: +1 (EqualRT gives a single shared K parameter).
+        for r in result
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+        end
+
+        # 3. compilability — assert via item 4 plus type check below.
+        for r in result
+            _assert_spec_invariants(r)
+            @test r isa AllostericMechanismSpec
+            @test EnzymeRates.compile_mechanism(r) isa
+                AllostericEnzymeMechanism
+        end
+
+        # 4. property-style: exactly one new kinetic group, tagged :EqualRT.
+        for r in result
+            new_groups = setdiff(
+                Set(s.kinetic_group for s in r.base.steps),
+                Set(s.kinetic_group for s in spec.base.steps))
+            @test length(new_groups) == 1
+            new_g = first(new_groups)
+            @test r.group_tags[new_g] == :EqualRT
+            # Pre-existing group tags must be unchanged.
+            for (g, t) in spec.group_tags
+                @test r.group_tags[g] == t
+            end
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.catalytic_n == spec.catalytic_n
+            @test r.allosteric_reg_sites == spec.allosteric_reg_sites
+            @test r.reg_ligand_tags == spec.reg_ligand_tags
+        end
     end
-    spec = mechanism_spec_from_mechanism_and_rxn(m, rxn2)
-    # Add I first
-    i_specs = EnzymeRates._expand_add_dead_end_regulator(
-        spec, rxn2)
-    with_i = first(filter(i_specs) do s
-        any(contains(string(sym), "I__reg")
-            for st in s.steps
-            for sym in Iterators.flatten(
-                (st.reactants, st.products)))
-    end)
-    # Now add J to a mechanism that already has I
-    j_specs = EnzymeRates._expand_add_dead_end_regulator(
-        with_i, rxn2)
-    # J should use J__reg (no numeric suffix)
-    for s in j_specs
-        j_syms = [sym for st in s.steps
-            for sym in Iterators.flatten(
-                (st.reactants, st.products))
-            if contains(string(sym), "J__reg")]
-        for sym in j_syms
-            @test !contains(string(sym), r"__reg\d")
+
+    @testset "Allosteric-only regulator → empty (negative)" begin
+        # SEED: uni-uni allosteric with rxn declaring only :R as an
+        # allosteric regulator (no dead-end inhibitors). All declared
+        # regulators are allosteric ligands → eligible_regs is empty
+        # → result is empty.
+        m_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E + P ⇌ E_P    :: EqualRT
+                    E + S ⇌ E_S    :: EqualRT
+                    E_S <--> E_P   :: EqualRT
+                end
+            end
+        end
+        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
+        @test isempty(EnzymeRates._expand_add_dead_end_regulator(
+            spec, uni_uni_allo_reg))
+    end
+
+    @testset "Plain MechanismSpec: I__reg bindings share one kinetic group" begin
+        # SEED: bi-bi random + I. Variants where I binds at multiple forms
+        # MUST keep all I__reg binding steps in a single shared kinetic
+        # group (one K_I parameter, not one per form). This is invariant
+        # across all variants.
+        m_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
+                E_A_B <--> E_P_Q
+            end
+        end
+        rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            dead_end_inhibitors: I
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn)
+        result = EnzymeRates._expand_add_dead_end_regulator(spec, rxn)
+
+        # Pick variants with at least 2 I__reg binding steps (multi-form
+        # inhibitor binding).
+        multi = filter(result) do r
+            count(r.steps) do s
+                length(s.reactants) == 2 &&
+                    contains(string(s.reactants[2]), "I__reg")
+            end >= 2
+        end
+        @test !isempty(multi)
+        for r in multi
+            i_binding_groups = unique(
+                s.kinetic_group for s in r.steps
+                if length(s.reactants) == 2 &&
+                    contains(string(s.reactants[2]), "I__reg"))
+            @test length(i_binding_groups) == 1
         end
     end
 end
@@ -3010,36 +3103,6 @@ end
     end
 end
 
-@testset "Metabolite overlap: substrate as dead-end inhibitor" begin
-    rxn_overlap = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        dead_end_inhibitors: S
-    end
-    specs = EnzymeRates.init_mechanisms(rxn_overlap)
-    @test !isempty(specs)
-
-    spec = first(specs)
-    de_specs = EnzymeRates._expand_add_dead_end_regulator(
-        spec, rxn_overlap)
-    @test !isempty(de_specs)
-
-    # S-as-regulator uses __reg suffix
-    for s in de_specs
-        reg_syms = [sym for st in s.steps
-            for sym in Iterators.flatten(
-                (st.reactants, st.products))
-            if contains(string(sym), "S__reg")]
-        @test !isempty(reg_syms)
-    end
-
-    # All compile correctly
-    for s in de_specs
-        m = EnzymeMechanism(s)
-        @test m isa EnzymeMechanism
-    end
-end
-
 @testset "Metabolite overlap: substrate as allosteric regulator" begin
     rxn_allo_overlap = @enzyme_reaction begin
         substrates: S[C]
@@ -3115,35 +3178,6 @@ end
         end
     end
 
-    @testset "Add dead-end reg on allosteric" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: I
-            oligomeric_state: 2
-        end
-        spec_i = mechanism_spec_from_mechanism_and_rxn(
-            m_uu, rxn)
-        allo_i = first(
-            EnzymeRates._expand_to_allosteric(
-                spec_i, rxn))
-        result =
-            EnzymeRates._expand_add_dead_end_regulator(
-                allo_i, rxn)
-        @test !isempty(result)
-        for r in result
-            _assert_spec_invariants(r)
-            @test r isa
-                EnzymeRates.AllostericMechanismSpec
-            @test r.catalytic_n == allo_i.catalytic_n
-            # Dead-end's new binding-step group is tagged
-            # `:EqualRT` (cheapest), so r.group_tags is
-            # allo_i.group_tags plus one new entry.
-            for (g, t) in allo_i.group_tags
-                @test r.group_tags[g] == t
-            end
-        end
-    end
 end
 
 end # top-level testset
