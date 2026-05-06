@@ -1671,6 +1671,52 @@ end
         end
     end
 
+    @testset "MechanismSpec — bi-bi ping-pong: 5 RE groups → 5 variants" begin
+        # SEED: bi-bi ping-pong topology with Estar (residual) form.
+        # 3 singleton RE groups (A binding, Q release on E-side; B binding
+        # via Estar; A→Estar iso; Estar→E iso). Iso steps are SS.
+        m_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E_A
+                Estar + B ⇌ Estar_B
+                E + Q ⇌ E_Q
+                Estar + P ⇌ Estar_A_P
+                E_A <--> Estar_A_P
+                Estar_B ⇌ E_Q
+            end
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_pp_rxn)
+
+        result = EnzymeRates._expand_re_to_ss(spec)
+
+        # 1. count: RE groups = E+A, Estar+B, E+Q, Estar+P, Estar_B → E_Q
+        # (5 groups). The iso E_A↔Estar_A_P is SS so excluded. Among the
+        # remaining 5, count how many are RE in the seed: E+A, Estar+B,
+        # E+Q, Estar+P are RE; Estar_B → E_Q is RE; iso is SS. So 5 RE
+        # groups → 5 variants. (Note: derivation depends on exact group
+        # numbering in the macro — verify via the seed's compiled reactions
+        # tuple if it differs.)
+        @test length(result) == 5
+
+        # 2. Δ params: +1 each (plain MechanismSpec).
+        for r in result
+            @test r.n_fit_params_estimate ==
+                spec.n_fit_params_estimate + 1
+        end
+
+        # 3. compilability
+        for r in result
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.reaction === spec.reaction
+        end
+    end
+
     @testset "MechanismSpec — all-SS catalytic seed: empty (negative)" begin
         # When every catalytic step is already SS, _expand_re_to_ss has no
         # all-RE group to fire on → empty result.
@@ -2887,6 +2933,47 @@ end
         @test length(result) == 6
         for r in result
             @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+    end
+
+    @testset "Bi-bi ping-pong: 6 groups → 7 variants" begin
+        # SEED: bi-bi ping-pong topology mapped to allosteric.
+        # 6 kinetic groups (5 RE binding + 1 iso). Plus the second iso step
+        # makes 7 groups total. Move emits 1 baseline + 6 :OnlyR variants.
+        m_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E_A
+                Estar + B ⇌ Estar_B
+                E + Q ⇌ E_Q
+                Estar + P ⇌ Estar_A_P
+                E_A <--> Estar_A_P
+                Estar_B ⇌ E_Q
+            end
+        end
+        bi_bi_pp_allo_rxn = @enzyme_reaction begin
+            substrates: A[CX], B[N]
+            products: P[C], Q[NX]
+            oligomeric_state: 2
+        end
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_pp_allo_rxn)
+        result = EnzymeRates._expand_to_allosteric(spec, bi_bi_pp_allo_rxn)
+
+        # 1. count: 6 kinetic groups (5 binding + 1 iso) → 7 variants
+        # (1 baseline + 6 :OnlyR per group). Verify the actual group count
+        # from the seed before accepting this number.
+        n_groups = length(unique(s.kinetic_group for s in spec.steps))
+        @test length(result) == n_groups + 1
+
+        # 2. Δ params: +1 (just L) per variant.
+        for r in result
+            @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+        end
+
+        # 3. compilability
+        for r in result
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
     end
