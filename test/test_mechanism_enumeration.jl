@@ -1909,6 +1909,15 @@ end
             @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         end
 
+        # 4. property-style: each result introduces exactly one new
+        # kinetic group (max-id + 1) with exactly one step in it.
+        old_max = maximum(s.kinetic_group for s in spec.steps)
+        for r in result
+            new_max = maximum(s.kinetic_group for s in r.steps)
+            @test new_max == old_max + 1
+            @test count(s -> s.kinetic_group == new_max, r.steps) == 1
+        end
+
         # 5. preservation
         for r in result
             @test r.reaction === spec.reaction
