@@ -801,6 +801,36 @@ end
                 [:A, :B, :C])
         end
     end
+
+    @testset "Asymmetric: 2 × 3" begin
+        # 2 substrates × 3 products. Counts are derivable from the inclusion-
+        # exclusion formula; the actual count is covered by the source's
+        # generation logic. Just verify it produces non-empty results and
+        # all patterns cover all metabolites.
+        pats = EnzymeRates._competition_patterns(Set([:A, :B]), Set([:P, :Q, :R]))
+        @test !isempty(pats)
+        for pat in pats
+            for s in [:A, :B]
+                @test any((s, p) in pat for p in [:P, :Q, :R])
+            end
+            for p in [:P, :Q, :R]
+                @test any((s, p) in pat for s in [:A, :B])
+            end
+        end
+    end
+
+    @testset "Asymmetric: 3 × 2" begin
+        pats = EnzymeRates._competition_patterns(Set([:A, :B, :D]), Set([:P, :Q]))
+        @test !isempty(pats)
+        for pat in pats
+            for s in [:A, :B, :D]
+                @test any((s, p) in pat for p in [:P, :Q])
+            end
+            for p in [:P, :Q]
+                @test any((s, p) in pat for s in [:A, :B, :D])
+            end
+        end
+    end
 end
 
 # ─── _inhibitor_competition_patterns ────────────────────────────────────
@@ -831,6 +861,15 @@ end
         Set([:A, :B]), Set([:P, :Q]),
         [:I1__reg, :I2__reg])
     @test length(pats_2i) == 36
+
+    @testset "Bi-bi with 3 existing inhibitors: 9 × 8 = 72" begin
+        # 3 existing inhibitors → 2^3 = 8 inhibitor-competition combinations.
+        # Combined with 9 base patterns → 9 × 8 = 72 variants.
+        pats = EnzymeRates._inhibitor_competition_patterns(
+            Set([:A, :B]), Set([:P, :Q]),
+            [:I1__reg, :I2__reg, :I3__reg])
+        @test length(pats) == 72
+    end
 end
 
 # ─── _forms_with_binding_step ───────────────────────────────────────────
