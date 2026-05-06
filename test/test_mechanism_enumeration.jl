@@ -992,7 +992,15 @@ end
         #   E_B: +P→E_B_P(mixed✓), +Q→E_B_Q(mixed✓)
         #   E_P: +A→E_A_P(same), +B→E_B_P(same)
         #   E_Q: +A→E_A_Q(same), +B→E_B_Q(same)
-        # 4 unique dead-end forms → 2^4 = 16 variants
+        # 4 unique mixed-substrate-product forms across competition patterns.
+        # Competition patterns for bi-bi (2 subs × 2 prods): 7 patterns
+        # (the count from _competition_patterns(2, 2)). Each pattern produces
+        # a distinct dead-end-form set:
+        #   {A↔P, B↔Q}: forbids E_A_P, E_B_Q → emits {E_A_Q, E_B_P}
+        #   {A↔Q, B↔P}: forbids E_A_Q, E_B_P → emits {E_A_P, E_B_Q}
+        #   ... (one set per pattern, all distinct)
+        #   {A↔P, A↔Q, B↔P, B↔Q}: forbids all → emits {} (bare topology)
+        # All 7 sets are distinct → 7 variants after dedup.
         m = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -1039,11 +1047,11 @@ end
         @test length(result) == 1
     end
 
-    @testset "Bi-Bi Ping-Pong: 3 dead-end forms" begin
+    @testset "Bi-Bi Ping-Pong: 5 dead-end forms → 7 variants" begin
         # Forms: E, E_A, Estar, Estar_A_P, Estar_B, E_Q
-        # E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
-        # E_Q: +B→E_B_Q(mixed✓)
-        # 3 dead-end forms → 2^3 = 8 variants
+        # 5 dead-end forms total (E-side: E_A_P, E_A_Q, E_B_Q; Estar-side:
+        # Estar_B_P, Estar_B_Q). 7 competition patterns; each yields a
+        # distinct dead-end-form set after dedup → 7 variants.
         m = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -3016,16 +3024,18 @@ end
         # qualifies). → 6 + 1 = 7.
         @test length(result) == 7
 
-        # 2. Δ params: new K_R2 binding (+1 for :OnlyR/:OnlyT, +2 for
-        # :NonequalRT). When added to an existing site the binding K is
-        # shared with that site's other ligands (no extra site factor).
-        # :EqualRT at existing site: +1 (one shared symbol). Deltas span
-        # {1, 2} across the 7 variants; at least one is 1 and one is 2.
+        # 2. Δ params: derivation from _expand_add_allosteric_regulator
+        # source. delta_cost = _allo_lig_state_delta(:EqualRT, tag) + 1.
+        # Non-:EqualRT branch (3 tags × 2 sites = 6 variants):
+        #   :OnlyR (cost 1): (1-1) + 1 = +1 → 2 variants × +1
+        #   :OnlyT (cost 1): (1-1) + 1 = +1 → 2 variants × +1
+        #   :NonequalRT (cost 2): (2-1) + 1 = +2 → 2 variants × +2
+        # :EqualRT-at-existing branch (1 variant; gated on R1 ≠ :EqualRT):
+        #   :EqualRT (cost 1): (1-1) + 1 = +1 → 1 variant × +1
+        # Sorted multiset: 5 ones + 2 twos = [1, 1, 1, 1, 1, 2, 2].
         deltas = sort([r.n_fit_params_estimate -
                        spec.n_fit_params_estimate for r in result])
-        @test 1 in deltas
-        @test 2 in deltas
-        @test all(d -> d >= 1, deltas)
+        @test deltas == [1, 1, 1, 1, 1, 2, 2]
 
         # 4. structural: every result has R2 in allosteric_reg_sites.
         for r in result
