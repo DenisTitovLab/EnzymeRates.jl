@@ -1861,9 +1861,16 @@ function _expand_to_allosteric(
     # All-:EqualRT baseline: cheapest non-default tag everywhere.
     base_tags = Dict{Int, Symbol}(g => :EqualRT for g in groups_sorted)
 
+    # Each emitted variant gets its OWN base MechanismSpec wrapping a
+    # copied steps vector. Sharing `spec` across variants would let
+    # later in-place mutation (e.g. _canonicalize! during dedup!) on one
+    # variant's base corrupt the shared steps and desynchronize the
+    # other variants' group_tags from their now-renumbered groups.
+    fresh_base() = MechanismSpec(spec.reaction, copy(spec.steps), base_pc)
+
     results = AllostericMechanismSpec[]
     push!(results, AllostericMechanismSpec(
-        spec, cn,
+        fresh_base(), cn,
         Vector{Symbol}[], Int[],
         copy(base_tags), Dict{Symbol, Symbol}(),
         base_pc + 1))
@@ -1871,7 +1878,7 @@ function _expand_to_allosteric(
         new_tags = copy(base_tags)
         new_tags[g] = :OnlyR
         push!(results, AllostericMechanismSpec(
-            spec, cn,
+            fresh_base(), cn,
             Vector{Symbol}[], Int[],
             new_tags, Dict{Symbol, Symbol}(),
             base_pc + 1))
@@ -1987,7 +1994,9 @@ function _expand_add_allosteric_regulator(
                 delta_cost = _allo_lig_state_delta(:EqualRT, tag) + 1
 
                 push!(results, AllostericMechanismSpec(
-                    spec.base, spec.catalytic_n,
+                    MechanismSpec(spec.base.reaction, copy(spec.base.steps),
+                                  spec.base.n_fit_params_estimate),
+                    spec.catalytic_n,
                     new_sites, new_mults,
                     copy(spec.group_tags), new_lig_tags,
                     spec.n_fit_params_estimate + delta_cost))
@@ -2049,7 +2058,9 @@ function _expand_change_allo_state(
         new_tags = copy(spec.group_tags)
         new_tags[g] = :NonequalRT
         push!(results, AllostericMechanismSpec(
-            spec.base, spec.catalytic_n,
+            MechanismSpec(spec.base.reaction, copy(spec.base.steps),
+                          spec.base.n_fit_params_estimate),
+            spec.catalytic_n,
             deepcopy(spec.allosteric_reg_sites),
             copy(spec.allosteric_multiplicities),
             new_tags, copy(spec.reg_ligand_tags),
@@ -2062,7 +2073,9 @@ function _expand_change_allo_state(
         new_lig_tags = copy(spec.reg_ligand_tags)
         new_lig_tags[lig] = :NonequalRT
         push!(results, AllostericMechanismSpec(
-            spec.base, spec.catalytic_n,
+            MechanismSpec(spec.base.reaction, copy(spec.base.steps),
+                          spec.base.n_fit_params_estimate),
+            spec.catalytic_n,
             deepcopy(spec.allosteric_reg_sites),
             copy(spec.allosteric_multiplicities),
             copy(spec.group_tags), new_lig_tags,
