@@ -302,7 +302,6 @@ function _assert_spec_invariants(spec::AllostericMechanismSpec)
     end
 end
 
-
 """Collect all mechanisms by running the full enumeration loop."""
 function enumerate_all(
     @nospecialize(reaction::EnzymeReaction);
@@ -978,22 +977,11 @@ end
         spec_bb = mechanism_spec_from_mechanism_and_rxn(
             m_bb, bi_bi_rxn)
 
-        @testset "Bi-bi random: 7 variants (was 16)" begin
-            # 4 dead-end forms × 7 competition patterns.
-            # Each pattern yields a distinct dead-end set:
-            #   {A↔P,B↔Q}: {E_A_Q,E_B_P}
-            #   {A↔Q,B↔P}: {E_A_P,E_B_Q}
-            #   {A↔P,A↔Q,B↔P}: {E_B_Q}
-            #   {A↔P,A↔Q,B↔Q}: {E_B_P}
-            #   {A↔P,B↔P,B↔Q}: {E_A_Q}
-            #   {A↔Q,B↔P,B↔Q}: {E_A_P}
-            #   {A↔P,A↔Q,B↔P,B↔Q}: {} (no dead-ends)
-            # All 7 sets are distinct → 7 variants after dedup
-            result =
-                EnzymeRates._expand_substrate_product_dead_ends(
-                    [spec_bb], bi_bi_rxn)
-            @test length(result) == 7
-        end
+        # Note: the variant count assertion (length == 7) is covered by
+        # the "Bi-Bi random: 4 dead-end forms" sub-testset higher in this
+        # same parent testset. The sub-testsets below probe the SHAPE of
+        # those 7 variants — which forms appear in each, and which
+        # patterns produce empty/full dead-end sets.
 
         @testset "Bi-bi random: complete competition → bare topology" begin
             result =
@@ -1053,7 +1041,8 @@ end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
-# Out-of-scope testsets pending move to other test files (see plan Task 13)
+# Testsets covering non-enumeration features (atom balance from
+# @enzyme_reaction; AllostericEnzymeMechanism accessor identity)
 # ═══════════════════════════════════════════════════════════════════════
 
 @testset "test reaction atom balance" begin
@@ -1113,8 +1102,7 @@ end
     # Round-trip lossless invariant: for any mechanism built via the DSL,
     # mechanism_spec_from_mechanism_and_rxn ∘ EnzymeMechanism (== compile_mechanism)
     # returns the same singleton type. Validates the helper AND the
-    # constructor's bidirectional consistency. Same idea for the allosteric
-    # round-trip (covered by the dedicated testset added in Task 1).
+    # constructor's bidirectional consistency.
 
     # uni-uni
     m_uu = @enzyme_mechanism begin
@@ -1249,7 +1237,7 @@ end
                     bi_bi_rxn, bi_bi_pp_rxn]
             specs = EnzymeRates.init_mechanisms(rxn)
             for s in specs
-                @test count(!st.is_equilibrium for st in s.steps) == 1
+                @test count(st -> !st.is_equilibrium, s.steps) == 1
             end
         end
     end
