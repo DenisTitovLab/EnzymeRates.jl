@@ -398,6 +398,15 @@ including `_expand_change_allo_state` (which now writes
 """
 function _assert_spec_invariants(spec::MechanismSpec)
     @test spec.n_fit_params_estimate >= 0
+    # Structural invariants every valid MechanismSpec should satisfy:
+    for s in spec.steps
+        @test !isempty(s.reactants)
+        @test !isempty(s.products)
+        @test s.kinetic_group >= 1
+        # The "from form" (first reactant) should differ from the
+        # "to form" (first product) — a step without form change is degenerate.
+        @test s.reactants[1] != s.products[1]
+    end
 end
 
 function _assert_spec_invariants(spec::AllostericMechanismSpec)
@@ -1281,6 +1290,30 @@ end
     end
     spec_uu_i = mechanism_spec_from_mechanism_and_rxn(m_uu_i, uni_uni_with_reg)
     @test EnzymeMechanism(spec_uu_i) === m_uu_i
+
+    # Dispatch: compile_mechanism dispatches correctly to the right type-specific
+    # constructor. Verify by comparing to the explicit constructor.
+    @test EnzymeRates.compile_mechanism(spec_uu) === EnzymeMechanism(spec_uu)
+    @test EnzymeRates.compile_mechanism(spec_seq) === EnzymeMechanism(spec_seq)
+
+    # Also verify dispatch for AllostericMechanismSpec via a small allosteric
+    # seed (this overlaps with the dedicated allosteric round-trip testset
+    # but is part of the dispatch contract).
+    m_allo_dispatch = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        site(:catalytic, 2): begin
+            steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
+            end
+        end
+    end
+    spec_allo_dispatch = allosteric_spec_from_mechanism_and_rxn(
+        m_allo_dispatch, uni_uni_allo)
+    @test EnzymeRates.compile_mechanism(spec_allo_dispatch) ===
+        AllostericEnzymeMechanism(spec_allo_dispatch)
 end
 
 # ─── init_mechanisms ───────────────────────────────────────────────────
@@ -1364,16 +1397,11 @@ end
     @testset "Same-metabolite RE bindings share kinetic_group" begin
         # _apply_equivalence_grouping collapses all RE binding steps for
         # the same metabolite into one kinetic group (one shared K).
-        # For uni-uni + dead-end inhibitor, the inhibitor's mirror cycles
-        # mean :I binds at multiple forms — these mirror bindings must
-        # share a single kinetic_group (one K_I).
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products:   P[C]
-            dead_end_inhibitors: I
-        end
-        specs = EnzymeRates.init_mechanisms(rxn)
+        # For bi-bi, metabolites like :B appear in multiple binding steps
+        # (e.g. E+B⇌E_B and E_A+B⇌E_A_B) — these must share one kinetic_group.
+        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
         @test !isempty(specs)
+        n_assertions_fired = 0
         for spec in specs
             by_metabolite = Dict{Symbol, Vector{EnzymeRates.StepSpec}}()
             for step in spec.steps
@@ -1387,8 +1415,10 @@ end
                 length(steps) >= 2 || continue
                 groups = Set(s.kinetic_group for s in steps)
                 @test length(groups) == 1
+                n_assertions_fired += 1
             end
         end
+        @test n_assertions_fired >= 1   # at least one multi-binding case existed
     end
 
     @testset "Uni-uni: exactly 1 init mechanism" begin
