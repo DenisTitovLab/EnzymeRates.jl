@@ -3296,6 +3296,11 @@ end
     end
 end
 
+# ═══════════════════════════════════════════════════════════════════════
+# 6. Integration (enumerate_all)
+# ═══════════════════════════════════════════════════════════════════════
+
+# ─── enumerate_all ─────────────────────────────────────────────────────
 @testset "Integration" begin
     @testset "Uni-uni full enumeration" begin
         results = enumerate_all(uni_uni_rxn; max_params=8)
