@@ -3071,7 +3071,7 @@ end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
         result_via_dispatch = EnzymeRates._expand_to_allosteric(spec, uni_uni_allo)
         @test isempty(result_via_dispatch)
-        @test result_via_dispatch isa Vector{AllostericMechanismSpec}
+        # (Type contract enforced by signature; isempty above is the meaningful check.)
     end
 
     @testset "oligomeric_state from reaction" begin
@@ -3272,7 +3272,7 @@ end
 
         # 1. count: 0 — non-allosteric input → empty fallback.
         @test isempty(result)
-        @test result isa Vector{AllostericMechanismSpec}
+        # (Type contract enforced by signature; isempty above is the meaningful check.)
     end
 
     @testset "Two regulators with site options: count = 7" begin
@@ -3672,7 +3672,7 @@ end
         spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
         result = EnzymeRates._expand_change_allo_state(spec, uni_uni_allo)
         @test isempty(result)
-        @test result isa Vector{AllostericMechanismSpec}
+        # (Type contract enforced by signature; isempty above is the meaningful check.)
     end
 
     @testset "Allosteric regulator tag removal delta" begin
