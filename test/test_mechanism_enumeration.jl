@@ -1003,6 +1003,10 @@ end
 
 end
 
+# ═══════════════════════════════════════════════════════════════════════
+# Out-of-scope testsets pending move to other test files (see plan Task 13)
+# ═══════════════════════════════════════════════════════════════════════
+
 @testset "test reaction atom balance" begin
     for rxn in [pyruvate_carboxylase_rxn,
                 pyruvate_dehydrogenase_rxn]
