@@ -2079,11 +2079,15 @@ end
     end
 
     @testset "exclude_regs kwarg suppresses regulator addition (negative)" begin
-        # SEED: uni-uni with no regulators yet; rxn declares I as dead-end.
-        # The exclude_regs kwarg short-circuits the move regardless of
-        # whether I is already bound: passing exclude_regs=Set([:I]) makes
-        # eligible_regs empty → result is empty. (Used by the beam-search
-        # caller to prevent re-adding regulators it just removed.)
+        # SEED: uni-uni with two dead-end inhibitors I and J available.
+        # Compares baseline (no kwarg) to filtered (exclude_regs=Set([:I]))
+        # and verifies :I appears in baseline results but is absent when
+        # excluded. Passing exclude_regs=Set([:I,:J]) yields empty.
+        rxn_ij = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I, J
+        end
         m_seed = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -2093,9 +2097,39 @@ end
                 E_S <--> E_P
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_with_reg)
+        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, rxn_ij)
+
+        # Without exclude_regs: 2 eligible regs × 1 form pattern → 2 variants.
+        # Property: both I and J appear across the result set.
+        baseline = EnzymeRates._expand_add_dead_end_regulator(spec, rxn_ij)
+        @test length(baseline) == 2
+        has_i_baseline = any(any(contains(string(sym), "I__reg")
+                                 for st in s.steps
+                                 for sym in Iterators.flatten((st.reactants, st.products)))
+                             for s in baseline)
+        has_j_baseline = any(any(contains(string(sym), "J__reg")
+                                 for st in s.steps
+                                 for sym in Iterators.flatten((st.reactants, st.products)))
+                             for s in baseline)
+        @test has_i_baseline && has_j_baseline
+
+        # With exclude_regs=Set([:I]): only J is eligible → 1 variant, only J in result.
+        excluded = EnzymeRates._expand_add_dead_end_regulator(spec, rxn_ij; exclude_regs=Set([:I]))
+        @test length(excluded) == 1
+        has_i_excluded = any(any(contains(string(sym), "I__reg")
+                                 for st in s.steps
+                                 for sym in Iterators.flatten((st.reactants, st.products)))
+                             for s in excluded)
+        @test !has_i_excluded
+        has_j_excluded = any(any(contains(string(sym), "J__reg")
+                                 for st in s.steps
+                                 for sym in Iterators.flatten((st.reactants, st.products)))
+                             for s in excluded)
+        @test has_j_excluded
+
+        # With exclude_regs=Set([:I, :J]): no eligible regs → empty.
         @test isempty(EnzymeRates._expand_add_dead_end_regulator(
-            spec, uni_uni_with_reg; exclude_regs=Set([:I])))
+            spec, rxn_ij; exclude_regs=Set([:I, :J])))
     end
 
     @testset "Sequential bi-bi + I: 4 distinct form sets" begin
@@ -2654,9 +2688,13 @@ end
         @test Set(EnzymeRates.compile_mechanism(r) for r in result) ==
             Set([v_baseline, v_g1_OnlyR, v_g2_OnlyR, v_g3_OnlyR])
 
-        # 5. preservation
+        # 5. preservation: base spec's reaction and step content unchanged
+        # (the move only attaches allosteric tags; the catalytic mechanism is
+        # carried through unmodified).
         for r in result
-            @test r.base === spec || r.base == spec
+            @test r.base.reaction === spec.reaction
+            @test r.base.steps == spec.steps
+            @test r.base.n_fit_params_estimate == spec.n_fit_params_estimate
             @test r.catalytic_n == 2
         end
     end
@@ -2676,7 +2714,9 @@ end
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
-        @test isempty(EnzymeRates._expand_to_allosteric(spec, uni_uni_allo))
+        result_via_dispatch = EnzymeRates._expand_to_allosteric(spec, uni_uni_allo)
+        @test isempty(result_via_dispatch)
+        @test result_via_dispatch isa Vector{AllostericMechanismSpec}
     end
 
     @testset "oligomeric_state from reaction" begin
@@ -2836,12 +2876,7 @@ end
 
         # 1. count: 0 — non-allosteric input → empty fallback.
         @test isempty(result)
-
-        # 2. Δ params: not applicable (empty result).
-
-        # 4. structural change: not applicable (empty result).
-
-        # 5. preservation: not applicable (empty result).
+        @test result isa Vector{AllostericMechanismSpec}
     end
 
     @testset "Two regulators with site options: count = 7" begin
@@ -3073,7 +3108,9 @@ end
         # Plain MechanismSpec (no allosteric conversion) dispatches to the
         # MechanismSpec specialization which returns empty.
         spec = first(EnzymeRates.init_mechanisms(uni_uni_allo))
-        @test isempty(EnzymeRates._expand_change_allo_state(spec, uni_uni_allo))
+        result = EnzymeRates._expand_change_allo_state(spec, uni_uni_allo)
+        @test isempty(result)
+        @test result isa Vector{AllostericMechanismSpec}
     end
 
     @testset "Allosteric regulator tag removal delta" begin
