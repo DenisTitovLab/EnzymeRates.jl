@@ -3839,6 +3839,88 @@ end
 # 5. Composition (dedup!, expand_mechanisms)
 # ═══════════════════════════════════════════════════════════════════════
 
+# ─── _canonicalize! ────────────────────────────────────────────────────
+@testset "_canonicalize!" begin
+    # Test 1: kinetic-group renumbering preserves equivalence.
+    # Build two specs differing only by kinetic_group integer values; after
+    # _canonicalize!, both should have the same renumbering.
+    spec_a = MechanismSpec(uni_uni_rxn,
+        [StepSpec([:E, :S], [:E_S], true, 5),
+         StepSpec([:E, :P], [:E_P], true, 7),
+         StepSpec([:E_S], [:E_P], false, 12)],
+        3)
+    spec_b = MechanismSpec(uni_uni_rxn,
+        [StepSpec([:E, :S], [:E_S], true, 1),
+         StepSpec([:E, :P], [:E_P], true, 2),
+         StepSpec([:E_S], [:E_P], false, 3)],
+        3)
+    EnzymeRates._canonicalize!(spec_a)
+    EnzymeRates._canonicalize!(spec_b)
+    @test EnzymeRates._dedup_key(spec_a) == EnzymeRates._dedup_key(spec_b)
+    # Both should have IDs {1, 2, 3} after canonicalization
+    @test Set(s.kinetic_group for s in spec_a.steps) == Set([1, 2, 3])
+
+    # Test 2: AllostericMechanismSpec — site permutation with DISTINCT
+    # multiplicities. The canonicalizer must permute multiplicities
+    # alongside reg_sites; an off-by-one would collapse spec_c and spec_d
+    # incorrectly.
+    base_c = MechanismSpec(uni_uni_rxn,
+        [StepSpec([:E, :S], [:E_S], true, 1),
+         StepSpec([:E, :P], [:E_P], true, 2),
+         StepSpec([:E_S], [:E_P], false, 3)],
+        3)
+    base_d = MechanismSpec(uni_uni_rxn,
+        [StepSpec([:E, :S], [:E_S], true, 1),
+         StepSpec([:E, :P], [:E_P], true, 2),
+         StepSpec([:E_S], [:E_P], false, 3)],
+        3)
+    spec_c = AllostericMechanismSpec(
+        base_c, 2,
+        Vector{Symbol}[[:R1], [:R2]], Int[2, 4],
+        Dict(1 => :EqualRT, 2 => :EqualRT, 3 => :EqualRT),
+        Dict(:R1 => :OnlyR, :R2 => :OnlyT),
+        4)
+    spec_d = AllostericMechanismSpec(
+        base_d, 2,
+        Vector{Symbol}[[:R2], [:R1]], Int[4, 2],   # sites swapped, multiplicities follow
+        Dict(1 => :EqualRT, 2 => :EqualRT, 3 => :EqualRT),
+        Dict(:R1 => :OnlyR, :R2 => :OnlyT),
+        4)
+    EnzymeRates._canonicalize!(spec_c)
+    EnzymeRates._canonicalize!(spec_d)
+    @test EnzymeRates._dedup_key(spec_c) == EnzymeRates._dedup_key(spec_d)
+    # After canonicalization, sites should be sorted alphabetically;
+    # multiplicities should follow.
+    @test spec_c.allosteric_reg_sites == [[:R1], [:R2]]
+    @test spec_c.allosteric_multiplicities == [2, 4]
+end
+
+# ─── _dedup_key ────────────────────────────────────────────────────────
+@testset "_dedup_key" begin
+    # Same content → same key.
+    base = MechanismSpec(uni_uni_rxn,
+        [StepSpec([:E, :S], [:E_S], true, 1),
+         StepSpec([:E, :P], [:E_P], true, 2),
+         StepSpec([:E_S], [:E_P], false, 3)],
+        3)
+    @test EnzymeRates._dedup_key(base) == EnzymeRates._dedup_key(base)
+
+    # AllostericMechanismSpec: differing multiplicities → different keys.
+    spec1 = AllostericMechanismSpec(
+        base, 2,
+        Vector{Symbol}[[:R]], Int[2],
+        Dict(1 => :EqualRT, 2 => :EqualRT, 3 => :EqualRT),
+        Dict(:R => :OnlyR),
+        4)
+    spec2 = AllostericMechanismSpec(
+        base, 2,
+        Vector{Symbol}[[:R]], Int[4],   # different multiplicity
+        Dict(1 => :EqualRT, 2 => :EqualRT, 3 => :EqualRT),
+        Dict(:R => :OnlyR),
+        4)
+    @test EnzymeRates._dedup_key(spec1) != EnzymeRates._dedup_key(spec2)
+end
+
 # ─── dedup! ────────────────────────────────────────────────────────────
 @testset "Dedup" begin
     @testset "Same mechanism, different step order" begin
