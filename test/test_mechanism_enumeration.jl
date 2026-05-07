@@ -4,13 +4,26 @@
 using EnzymeRates: StepSpec, MechanismSpec, AllostericMechanismSpec,
     AbstractMechanismSpec
 
-# Helper: convert EnzymeMechanism → MechanismSpec.
-# `m` and `rxn` are dual inputs: `m` carries the catalytic structure,
-# `rxn` carries the reaction-level metadata (atoms, declared regulators).
-# Validates internally that they're consistent: substrates and products
-# names must match exactly; m's regulators must be a subset of rxn's
-# declared regulators (allowing the hybrid case where the mechanism
-# doesn't yet bind every declared regulator).
+"""
+    mechanism_spec_from_mechanism_and_rxn(m::EnzymeMechanism, rxn::EnzymeReaction)
+        → MechanismSpec
+
+Build a `MechanismSpec` from a compiled `EnzymeMechanism` and a
+reaction. `m` carries the catalytic structure (steps, kinetic groups);
+`rxn` carries reaction-level metadata (atom counts, declared regulators)
+that `EnzymeMechanism` does not store. The two inputs are validated
+internally for consistency before the spec is built:
+
+- `substrates(m)` and `substrates(rxn)` names must match exactly.
+- `products(m)` and `products(rxn)` names must match exactly.
+- `regulators(m)` must be a subset of `regulators(rxn)`. The subset
+  rule allows hybrid construction where the mechanism does not yet
+  bind every regulator declared in the reaction (e.g., the seed for
+  `_expand_add_dead_end_regulator` tests).
+
+Throws `ErrorException` on any inconsistency, with a descriptive
+message identifying the disagreement.
+"""
 function mechanism_spec_from_mechanism_and_rxn(
     m::EnzymeMechanism,
     @nospecialize(rxn::EnzymeReaction))
@@ -41,16 +54,33 @@ function mechanism_spec_from_mechanism_and_rxn(
         length(EnzymeRates.fitted_params(m)))
 end
 
-# Helper: build an AllostericMechanismSpec from a compiled
-# AllostericEnzymeMechanism and a reaction. Symmetric to
-# mechanism_spec_from_mechanism_and_rxn — `m` carries the catalytic
-# structure and tags; `rxn` carries reaction-level metadata. The helper
-# validates internally that they're consistent: substrate/product names
-# match exactly; m's regulators (catalytic + allosteric) are a subset of
-# rxn's declared regulators; oligomeric_state(rxn) ==
-# catalytic_multiplicity(m). AllostericMechanismSpec uses dense Dict
-# storage — every kinetic group and every regulator ligand has an
-# explicit entry, so the spec build itself is a pure pass-through.
+"""
+    allosteric_spec_from_mechanism_and_rxn(m::AllostericEnzymeMechanism,
+                                           rxn::EnzymeReaction)
+        → AllostericMechanismSpec
+
+Build an `AllostericMechanismSpec` from a compiled
+`AllostericEnzymeMechanism` and a reaction. Symmetric to
+`mechanism_spec_from_mechanism_and_rxn`: `m` carries the catalytic
+structure and the R/T-state tags; `rxn` carries reaction-level metadata
+that the compiled mechanism does not store. Validated internally for
+consistency before the spec is built:
+
+- `substrates(m)` and `substrates(rxn)` names must match exactly.
+- `products(m)` and `products(rxn)` names must match exactly.
+- The union of catalytic regulators (`regulators(catalytic_mechanism(m))`)
+  and allosteric regulators (`regulators(m)`) must be a subset of
+  `regulators(rxn)`.
+- `oligomeric_state(rxn) == catalytic_multiplicity(m)`.
+
+`AllostericMechanismSpec` uses dense Dict storage — every kinetic group
+and every regulator ligand has an explicit `group_tags` /
+`reg_ligand_tags` entry — so the spec build itself is a pure
+pass-through (no `:NonequalRT` filtering).
+
+Throws `ErrorException` on any inconsistency, with a descriptive
+message identifying the disagreement.
+"""
 function allosteric_spec_from_mechanism_and_rxn(
     m::AllostericEnzymeMechanism,
     @nospecialize(rxn::EnzymeReaction))

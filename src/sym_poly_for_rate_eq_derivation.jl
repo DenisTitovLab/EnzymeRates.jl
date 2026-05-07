@@ -250,7 +250,15 @@ function is_k_parameter(sym::Symbol)
     startswith(s, "k") || (startswith(s, "K") && length(s) > 1 && isdigit(s[2]))
 end
 
-# Build power expression for constraint substitution: Keq^a * prod(k_i^exp_i)
+"""
+    build_power_expr(keq_exp::Rational, factors)
+
+Build a power-product expression for thermodynamic-constraint
+substitution of the form `Keq^keq_exp * prod(k_i^exp_i)` from
+`factors`, an iterable of `(k_i, exp_i)` pairs. Used by the
+constraint solver to materialize the Keq×rate-constant power product
+that replaces a dependent rate constant.
+"""
 function build_power_expr(keq_exp::Rational, factors)
     function _pa(sym, exp)
         if exp == 1
