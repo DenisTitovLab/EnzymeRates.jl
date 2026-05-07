@@ -1537,6 +1537,28 @@ end
             @test m isa EnzymeMechanism
         end
     end
+
+    @testset "_apply_equivalence_grouping floor activates for mirror cycles" begin
+        # Per src/mechanism_enumeration.jl, the floor
+        # pc = max(formula, n_subs + n_prods + 1) fires when mirror cycles
+        # cause the formula to underestimate. We verify that for bi-bi with
+        # a dead-end inhibitor I, at least one init spec has pc EQUAL to
+        # the floor (proving the floor was the binding constraint).
+        rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            dead_end_inhibitors: I
+        end
+        specs = EnzymeRates.init_mechanisms(rxn)
+        floor_pc = 2 + 2 + 1   # n_subs + n_prods + 1
+        # All init specs must have pc >= floor.
+        for spec in specs
+            @test spec.n_fit_params_estimate >= floor_pc
+        end
+        # At least one spec should have pc EQUAL to floor (proving the floor
+        # was the binding constraint, not the formula).
+        @test any(spec.n_fit_params_estimate == floor_pc for spec in specs)
+    end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3298,7 +3320,37 @@ end
             @test r.catalytic_n == spec.catalytic_n
             @test r.group_tags == spec.group_tags
             @test r.base.reaction === spec.base.reaction
+            # new-site multiplicity contract: when site_idx=0 (new site),
+            # the move sets multiplicity to spec.catalytic_n.
+            @test r.allosteric_multiplicities[end] == spec.catalytic_n
         end
+    end
+
+    @testset "existing_de exclusion prevents adding bound dead-end as allo regulator" begin
+        # SEED: uni-uni with rxn declaring I as :unknown role. First add I
+        # as a dead-end; then convert to allosteric; then call
+        # _expand_add_allosteric_regulator. The move must exclude :I (already
+        # bound as dead-end) → with only :I declared, result is empty.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            regulators: I    # :unknown role
+            oligomeric_state: 2
+        end
+        init_specs = EnzymeRates.init_mechanisms(rxn)
+        seed_spec = first(init_specs)
+        # Add I as dead-end
+        de_specs = EnzymeRates._expand_add_dead_end_regulator(seed_spec, rxn)
+        @test !isempty(de_specs)
+        plain_with_i = first(de_specs)
+        # Convert to allosteric
+        allo_specs = EnzymeRates._expand_to_allosteric(plain_with_i, rxn)
+        @test !isempty(allo_specs)
+        spec = first(allo_specs)
+        # Now call _expand_add_allosteric_regulator — :I is in existing_de,
+        # so it's excluded. With no other declared regs, result is empty.
+        result = EnzymeRates._expand_add_allosteric_regulator(spec, rxn)
+        @test isempty(result)
     end
 
     @testset "Non-allosteric MechanismSpec → empty (negative)" begin
