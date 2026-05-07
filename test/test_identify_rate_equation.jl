@@ -30,13 +30,19 @@ using OptimizationPyCMA
                  if EnzymeRates.step_metabolite(s) === :S)
     _g_p = first(s.kinetic_group for s in _base_spec.steps
                  if EnzymeRates.step_metabolite(s) === :P)
+    _used_groups = sort!(collect(
+        Set(s.kinetic_group for s in _base_spec.steps)))
+    _group_tags = Dict{Int,Symbol}(
+        g => :NonequalRT for g in _used_groups)
+    _group_tags[_g_s] = :OnlyR
+    _group_tags[_g_p] = :OnlyR
     _allo_spec =
         EnzymeRates.AllostericMechanismSpec(
             _base_spec,
             1,                # catalytic_n
             [[:R]],           # reg sites
             [1],              # multiplicities
-            Dict(_g_s => :OnlyR, _g_p => :OnlyR),
+            _group_tags,
             Dict(:R => :OnlyT),
             8)                # n_fit_params_estimate
     test_mechanism =
