@@ -68,6 +68,11 @@ Fall through to `n_min` if none pass.
 - `se_paired == 0` (paired diffs all equal): `mean_diff ≤ 0` accepts; `> 0`
   rejects. Permutation p degenerates to 1.0 if all diffs are 0; otherwise to
   1/2ⁿ if all are equal-sign.
+- Single-bucket `cv_df` (only one `n_params` value): no smaller buckets to
+  consider; return that bucket as both `n_min` and `best_n` with empty
+  comparisons.
+- Tie in `mean(log_scores)` across buckets: break ties by smallest `n_params`
+  (parsimony). Without this rule, `argmin` over a `Dict` is order-dependent.
 
 ## Permutation Test
 
@@ -110,15 +115,17 @@ Replace the four current selection helpers with two:
 
 ```julia
 # Pr(perm_mean ≥ observed_mean) under sign-flip null.
-# Exact when length(diffs) ≤ 20; Monte Carlo (10⁶) otherwise.
+# Exact when length(diffs) ≤ exact_threshold; Monte Carlo otherwise.
+# kwargs default to (20, 10⁶, default_rng()); exposed for tests.
 _onesided_permutation_p(diffs::Vector{Float64};
+                        exact_threshold::Int = 20,
+                        mc_samples::Int = 10^6,
                         rng = Random.default_rng()) → Float64
 
 # Single-pass: rep-per-bucket selection, paired diagnostics, AND-combiner policy.
 # Returns a NamedTuple with:
 #   best_n::Int                        — selected n_params
 #   n_min::Int                         — bucket with lowest mean log-fold-loss
-#   bucket_fold_scores::Dict{Int,Vector{Float64}}  — rep's raw fold scores per bucket
 #   diagnostics::Dict{Int,@NamedTuple{
 #       mean_log_loss_diff::Float64,
 #       se_paired::Float64,
@@ -134,10 +141,16 @@ struct is not introduced; the diagnostics Dict's value type is a NamedTuple.
 
 `_cv_model_selection` consumes the NamedTuple and:
 1. Picks the actual best mechanism (lowest training `loss`) within `best_n`.
-2. Populates the diagnostic columns on `cv_df` from the diagnostics Dict
-   (every row in a bucket gets the same values).
+2. Stamps the diagnostic columns on `cv_df` from the diagnostics Dict.
+   *Diagnostics describe the bucket's representative*, so every row in the
+   same `n_params` bucket gets the same values regardless of its own fold
+   scores. Non-rep rows therefore see `mean_log_loss_diff` that does not
+   match `cv_score[row] − cv_score[n_min_rep]`. This is intentional — the
+   selection rule operates on the rep, and surfacing the rep's diagnostic
+   uniformly across the bucket is the simplest faithful representation.
 3. Flattens raw per-fold scores into `cv_fold_<group_label>` columns from the
-   internal Vector field (using the same group ordering as `unique(prob.data.group)`).
+   working `cv_fold_scores` Vector field on `cv_df` (using the same group
+   ordering as `unique(prob.data.group)`).
 4. Drops the working `cv_fold_scores` Vector field and `spec_idx` from the
    user-facing DataFrame.
 
@@ -187,6 +200,9 @@ Coverage:
 - Paired diffs all equal (se_paired = 0): `mean_diff ≤ 0` accepts, `> 0` rejects.
 - Single-fold (n_folds = 1): returns `n_min` immediately, no comparisons.
 - Multi-row bucket: rep is the row with lowest `cv_score`.
+- Single-bucket cv_df: returns the bucket as both `n_min` and `best_n`.
+- Tie in mean log-fold-loss: `n_min` resolves to the smallest `n_params`.
+- Larger-than-best bucket: diagnostics populated, never selected.
 
 ### 2. `_onesided_permutation_p: exact vs Monte Carlo`
 
@@ -195,6 +211,8 @@ mode by passing `exact_threshold = 0` to force MC, with a seeded RNG and 10⁶
 samples; assert agreement within `5/√(10⁶) ≈ 0.005`. Trivial cases:
 - All positive diffs → p = 1/2ⁿ exactly.
 - All zero diffs → p = 1.0.
+- MC determinism: two calls with `MersenneTwister(seed)` produce bit-identical
+  output (proves the `rng` kwarg is threaded all the way through).
 
 ### 3. `_select_best_n_params: AND-combiner truth table`
 
@@ -216,6 +234,13 @@ other three.
 - Assert the n_min bucket's rows have all three == 0.0.
 - Assert per-fold columns named `cv_fold_<group>` exist and align with
   `unique(prob.data.group)`.
+- CSV roundtrip: `CSV.write(buf, results.cv_results)` → `CSV.read(buf,
+  DataFrame)` preserves all columns including `missing` cells. Acceptance
+  criterion #7 ("CSV-serializable, no Vector columns") needs an actual test.
+- Exotic group labels: separate small fixture with `group = ["a=b", "c,d"]`
+  passed through `_cv_model_selection`'s column-flattening step. Verify the
+  resulting columns survive `CSV.write` → `CSV.read` round-trip with
+  bracketed access.
 
 `_loocv returns per-fold scores` testset is unchanged.
 

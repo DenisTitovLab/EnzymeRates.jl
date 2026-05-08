@@ -88,6 +88,17 @@ Append to `test/test_identify_rate_equation.jl` (just below the existing `_selec
         rng = MersenneTwister(42),
     )
     @test abs(p_exact - p_mc) < 0.01
+
+    # Determinism: a seeded RNG must produce bit-identical output
+    # across runs. This proves the `rng` kwarg threads through both
+    # the exact (no-op) and MC paths.
+    p1 = EnzymeRates._onesided_permutation_p(
+        diffs; exact_threshold = 0, mc_samples = 10^4,
+        rng = MersenneTwister(7))
+    p2 = EnzymeRates._onesided_permutation_p(
+        diffs; exact_threshold = 0, mc_samples = 10^4,
+        rng = MersenneTwister(7))
+    @test p1 == p2
 end
 ```
 
@@ -237,12 +248,16 @@ Append to `test/test_identify_rate_equation.jl`. The old testsets at lines 521�
     res = EnzymeRates._select_best_n_params(cv_df)
     @test res.n_min == 7
     @test res.best_n == 7
+    # n_min self-comparison: hardcoded literal zeros, so === holds
+    # regardless of FP noise in the input fold scores.
     @test res.diagnostics[7] ===
           (mean_log_loss_diff=0.0, se_paired=0.0,
            permutation_p=0.0)
     d5 = res.diagnostics[5]
     @test d5.mean_log_loss_diff ≈ 0.5
-    @test d5.se_paired ≈ 0.0
+    # FP roundoff through exp/log makes std(diffs) ≈ 1e-17, not 0.0
+    # exactly. `≈ 0.0` at default tolerance fails — use atol.
+    @test isapprox(d5.se_paired, 0.0; atol = 1e-10)
 
     # Mixed-sign small diffs: n=7 best, n=5 paired diffs
     # = [0.0, 0.0, 0.03, -0.01]. mean = 0.005, std ≈ 0.01732,
@@ -290,6 +305,61 @@ Append to `test/test_identify_rate_equation.jl`. The old testsets at lines 521�
         cv_fold_scores = [exp.([0.5]), exp.([0.1])],
     )
     @test EnzymeRates._select_best_n_params(cv_df4).best_n == 5
+
+    # Single-bucket cv_df: only one n_params value → return it as both
+    # n_min and best_n. Diagnostics has exactly one entry, all zeros.
+    cv_df_single = DataFrame(
+        n_params       = [4],
+        cv_score       = [0.15],
+        loss           = [0.0],
+        cv_fold_scores = [exp.([0.1, 0.2, 0.15, 0.12])],
+    )
+    res_single = EnzymeRates._select_best_n_params(cv_df_single)
+    @test res_single.n_min == 4
+    @test res_single.best_n == 4
+    @test length(res_single.diagnostics) == 1
+    @test res_single.diagnostics[4].mean_log_loss_diff == 0.0
+
+    # Tie in mean log-fold-loss across buckets: n_min resolves to
+    # smallest n_params (parsimony tiebreak). Both buckets have
+    # identical fold scores → identical log-means → tie.
+    cv_df_tie = DataFrame(
+        n_params       = [3, 5, 7],
+        cv_score       = [0.115, 0.115, 0.115],
+        loss           = [0.0, 0.0, 0.0],
+        cv_fold_scores = [
+            exp.([0.10, 0.12, 0.11, 0.13]),
+            exp.([0.10, 0.12, 0.11, 0.13]),
+            exp.([0.10, 0.12, 0.11, 0.13]),
+        ],
+    )
+    @test EnzymeRates._select_best_n_params(cv_df_tie).n_min == 3
+
+    # Larger-than-best bucket: n_min is the middle bucket. Both the
+    # smaller (n=3) and larger (n=7) buckets get diagnostics, but only
+    # the smaller can be selected (loop is over `smaller_ns`).
+    # Construct: n=5 has lowest log-mean. n=3 has uniform +0.5 offset
+    # (FF — both gates fail). n=7 has uniform +0.3 offset (would also
+    # fail every gate, but the loop never visits it).
+    cv_df_three = DataFrame(
+        n_params       = [3, 5, 7],
+        cv_score       = [0.6, 0.1, 0.4],
+        loss           = [0.0, 0.0, 0.0],
+        cv_fold_scores = [
+            exp.([0.6, 0.6, 0.6, 0.6, 0.6, 0.6]),
+            exp.([0.1, 0.1, 0.1, 0.1, 0.1, 0.1]),
+            exp.([0.4, 0.4, 0.4, 0.4, 0.4, 0.4]),
+        ],
+    )
+    res_three = EnzymeRates._select_best_n_params(cv_df_three)
+    @test res_three.n_min == 5
+    @test res_three.best_n == 5
+    # Larger bucket has populated diagnostics with positive mean_diff.
+    @test haskey(res_three.diagnostics, 7)
+    @test res_three.diagnostics[7].mean_log_loss_diff ≈ 0.3
+    # Smaller bucket also has populated diagnostics (rejected by gates).
+    @test haskey(res_three.diagnostics, 3)
+    @test res_three.diagnostics[3].mean_log_loss_diff ≈ 0.5
 end
 
 @testset "_select_best_n_params: AND-combiner truth table" begin
@@ -443,26 +513,31 @@ on log-transformed per-fold LOOCV scores. Returns:
 
   best_n::Int                — selected `n_params`
   n_min::Int                 — bucket with lowest mean log-fold-loss
-  bucket_fold_scores::Dict   — rep's raw eps-floored fold scores per bucket
   diagnostics::Dict{Int, NamedTuple{(:mean_log_loss_diff, :se_paired,
                                      :permutation_p)}}
                               — `n_min` bucket has all three = 0.0
 
 Per-bucket representative = the row with the lowest `cv_score` in that
-`n_params` bucket. For each smaller bucket, computes paired diffs vs the
-rep of `n_min`'s log-folds, then accepts iff BOTH:
+`n_params` bucket. For each non-`n_min` bucket, computes paired diffs vs
+the rep of `n_min`'s log-folds. The simpler bucket is accepted iff BOTH:
 
   mean(diffs) ≤ se_threshold * std(diffs)/sqrt(n_folds)   (paired 1-SE)
   permutation_p > perm_p_threshold                         (perm test)
 
 Iterates smaller buckets in ascending `n_params`; returns the first that
-passes. Falls through to `n_min` if none pass.
+passes. Falls through to `n_min` if none pass. Larger-than-`n_min` buckets
+have diagnostics computed but are never selected.
+
+Tiebreak: when two buckets tie on `mean(log_scores)`, `n_min` resolves to
+the smallest `n_params` (parsimony).
 
 Errors if:
   * no bucket has any non-empty `cv_fold_scores` row;
   * any bucket's fold-score length differs from `n_min`'s.
 
-When `n_folds_min == 1`, returns `n_min` immediately (SE undefined).
+When `n_folds_min == 1`, returns `n_min` immediately (SE undefined). When
+the input has only one `n_params` value, returns it as both `n_min` and
+`best_n` with empty smaller/larger comparisons.
 """
 function _select_best_n_params(
     cv_df::DataFrame;
@@ -475,13 +550,13 @@ function _select_best_n_params(
     sorted = sort(valid, [:n_params, :cv_score])
     reps = combine(groupby(sorted, :n_params), first)
 
-    bucket_fold_scores = Dict(
-        row.n_params => collect(row.cv_fold_scores)
+    log_scores = Dict(
+        row.n_params => log.(row.cv_fold_scores)
         for row in eachrow(reps))
-    log_scores = Dict(n => log.(v)
-                      for (n, v) in bucket_fold_scores)
     log_means = Dict(n => mean(ls) for (n, ls) in log_scores)
-    n_min = argmin(n -> log_means[n], keys(log_means))
+    # Tie-break on log-mean by smallest n_params (parsimony). Without
+    # this, argmin over Dict keys is iteration-order-dependent.
+    n_min = argmin(n -> (log_means[n], n), keys(log_means))
     n_folds_min = length(log_scores[n_min])
 
     DiagT = NamedTuple{
@@ -530,7 +605,6 @@ function _select_best_n_params(
     return (
         best_n = best_n,
         n_min = n_min,
-        bucket_fold_scores = bucket_fold_scores,
         diagnostics = diagnostics,
     )
 end
@@ -789,6 +863,51 @@ In `test/test_identify_rate_equation.jl`, find the `results structure` testset (
             @test Symbol("cv_fold_$g") in
                 propertynames(results.cv_results)
         end
+
+        # CSV-roundtrip: spec acceptance criterion #7 says cv_results
+        # is CSV-serializable. Verify by writing and re-reading; check
+        # column-name preservation and that diagnostic-column values
+        # round-trip (within FP tolerance).
+        buf = IOBuffer()
+        CSV.write(buf, results.cv_results)
+        seekstart(buf)
+        roundtrip = CSV.read(buf, DataFrame)
+        for col in (:n_params, :loss, :cv_score,
+                    :mean_log_loss_diff, :se_paired,
+                    :permutation_p)
+            @test col in propertynames(roundtrip)
+        end
+        @test nrow(roundtrip) == nrow(results.cv_results)
+```
+
+Then, as a separate top-level testset (NOT inside `results structure`), add a small standalone test for exotic group labels. This validates the column-naming contract the column-flattening step relies on, without rebuilding the whole `_cv_model_selection` fixture:
+
+```julia
+@testset "cv_results: exotic group labels survive CSV roundtrip" begin
+    # The column-flattening step in _cv_model_selection does:
+    #   col = Symbol("cv_fold_$g")
+    #   cv_df[!, col] = [v[i] for v in cv_df.cv_fold_scores]
+    # Exotic group labels (containing =, ,, spaces) must produce
+    # valid Symbol column names that survive CSV.write/CSV.read.
+    df = DataFrame(n_params = [3, 5])
+    exotic_groups = ["a=b", "c,d", "x y"]
+    fold_scores = [[0.1, 0.2, 0.3], [0.05, 0.1, 0.15]]
+    for (i, g) in enumerate(exotic_groups)
+        col = Symbol("cv_fold_$g")
+        df[!, col] = [v[i] for v in fold_scores]
+    end
+    @test Symbol("cv_fold_a=b") in propertynames(df)
+    @test Symbol("cv_fold_c,d") in propertynames(df)
+    @test Symbol("cv_fold_x y") in propertynames(df)
+
+    buf = IOBuffer()
+    CSV.write(buf, df)
+    seekstart(buf)
+    roundtrip = CSV.read(buf, DataFrame)
+    @test "cv_fold_a=b" in names(roundtrip)
+    @test "cv_fold_c,d" in names(roundtrip)
+    @test "cv_fold_x y" in names(roundtrip)
+end
 ```
 
 - [ ] **Step 2.9: Run all tests**
@@ -894,7 +1013,7 @@ After all three tasks:
 
 1. `src/identify_rate_equation.jl`'s selection block (`_loocv` through end of `_cv_model_selection`) is approximately 180 lines (down from 270).
 2. `_find_best_n_params_1se`, `_find_best_n_params_wilcoxon`, `_per_bucket_log_stats` no longer exist in source or tests.
-3. `_select_best_n_params(cv_df; se_threshold, perm_p_threshold)` returns a NamedTuple with `best_n`, `n_min`, `bucket_fold_scores`, `diagnostics`.
+3. `_select_best_n_params(cv_df; se_threshold, perm_p_threshold)` returns a NamedTuple with `best_n`, `n_min`, `diagnostics`.
 4. `_onesided_permutation_p(diffs; ...)` returns a Float64 in [0, 1]; switches between exact and Monte Carlo at `length(diffs) == 20`.
 5. `identify_rate_equation` accepts `se_threshold::Float64 = 1.0` and `perm_p_threshold::Float64 = 0.16`; rejects `p_value_threshold` (no shim).
 6. `IdentifyRateEquationResults.cv_results` includes columns `mean_log_loss_diff`, `se_paired`, `permutation_p` and per-fold columns `cv_fold_<group_label>` for each unique held-out group; the `n_min` bucket has 0.0 in all three diagnostic columns.
