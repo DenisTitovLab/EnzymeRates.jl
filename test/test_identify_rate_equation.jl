@@ -268,8 +268,7 @@ using OptimizationPyCMA
 
         # CSV-roundtrip: spec acceptance criterion #7 says cv_results
         # is CSV-serializable. Verify by writing and re-reading; check
-        # column-name preservation and that diagnostic-column values
-        # round-trip (within FP tolerance).
+        # column-name preservation and row count.
         buf = IOBuffer()
         CSV.write(buf, results.cv_results)
         seekstart(buf)
@@ -810,8 +809,9 @@ end
     @test_throws ErrorException EnzymeRates._select_best_n_params(
         cv_df_empty)
 
-    # Length mismatch between buckets → error (was silent skip in
-    # the old Wilcoxon path; we now surface it).
+    # Length mismatch between buckets → error. Fold-count must be
+    # uniform across buckets because pairs (same held-out group →
+    # same fold index) are required for the paired diffs.
     cv_df_mismatch = DataFrame(
         n_params       = [3, 7],
         cv_score       = [0.116, 0.113],
