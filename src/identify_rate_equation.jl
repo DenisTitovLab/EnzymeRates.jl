@@ -828,10 +828,10 @@ function _select_best_n_params(
     n_min = argmin(n -> (log_means[n], n), keys(log_means))
     n_folds_min = length(log_scores[n_min])
 
-    DiagT = NamedTuple{
-        (:mean_log_loss_diff, :se_paired, :permutation_p),
-        Tuple{Float64, Float64, Float64}}
-    diagnostics = Dict{Int, DiagT}()
+    diagnostics = Dict{Int, @NamedTuple{
+        mean_log_loss_diff::Float64,
+        se_paired::Float64,
+        permutation_p::Float64}}()
     diagnostics[n_min] = (
         mean_log_loss_diff = 0.0,
         se_paired = 0.0,
@@ -839,9 +839,9 @@ function _select_best_n_params(
     )
 
     smaller_ns = sort([n for n in keys(log_means) if n < n_min])
-    larger_ns  = sort([n for n in keys(log_means) if n > n_min])
 
-    for n in vcat(smaller_ns, larger_ns)
+    for n in keys(log_means)
+        n == n_min && continue
         ls = log_scores[n]
         length(ls) == n_folds_min || error(
             "fold-count mismatch for n_params=$n: " *
