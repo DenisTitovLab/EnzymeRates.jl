@@ -602,6 +602,23 @@ end
         diffs; exact_threshold = 0, mc_samples = 10^4,
         rng = MersenneTwister(7))
     @test p1 == p2
+
+    # Regression: 20-fold all-positive equal-spaced diffs. Only the
+    # identity permutation reproduces observed; all sign-flipped
+    # variants give smaller s. Correct p = 1/2^20. The bug was that
+    # `mean(diffs)` (pairwise sum) produced an observed value 1 ULP
+    # larger than the loop's sequential sum, dropping the identity
+    # from the count and returning 0.0 instead.
+    long_diffs = collect(0.1:0.1:2.0)   # n=20, all positive
+    @test EnzymeRates._onesided_permutation_p(long_diffs) ==
+          1 / 2^20
+
+    # Also verify n=16: the smallest n that triggers Julia's pairwise
+    # path. With these inputs the pairwise/sequential sums happen to
+    # agree, so this case passes pre-fix too — included to lock in the
+    # boundary.
+    @test EnzymeRates._onesided_permutation_p(
+        collect(0.1:0.1:1.6)) == 1 / 2^16
 end
 
 @testset "_select_best_n_params: paired SE math" begin

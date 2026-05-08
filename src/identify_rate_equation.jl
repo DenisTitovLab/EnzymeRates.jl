@@ -735,7 +735,17 @@ function _onesided_permutation_p(
 )
     n = length(diffs)
     n == 0 && error("_onesided_permutation_p: empty diffs vector")
-    observed = mean(diffs)
+    # Compute `observed` with the same sequential reduction as the inner
+    # permutation loop, so the identity permutation reproduces it
+    # bit-identically and `s/n >= observed` always counts it. Using
+    # `mean(diffs)` here would invoke pairwise summation for n ≥ 16,
+    # which differs from the loop at 1 ULP and can drop the identity
+    # from the count.
+    observed_sum = 0.0
+    for i in 1:n
+        observed_sum += diffs[i]
+    end
+    observed = observed_sum / n
 
     if n <= exact_threshold
         total = 1 << n   # 2^n
