@@ -290,11 +290,15 @@ and data using beam search.
   (forwarded to `Optimization.solve`)
 - `n_cv_candidates::Int = 5`: LOOCV top N
   **unique-rate-equation** candidates per param count
-- `p_value_threshold::Float64 = 0.4`: parsimony threshold for
-  the Wilcoxon signed-rank test in model selection. Smaller
-  values demand stronger evidence to accept simpler models.
-  Default 0.4 matches DataDrivenEnzymeRateEqs.jl convention
-  (parsimony-permissive).
+- `se_threshold::Float64 = 1.0`: paired 1-SE multiplier for
+  model selection. Simpler-model bucket accepted iff its mean
+  paired log-loss difference vs the best bucket is `≤
+  se_threshold * std(diffs)/sqrt(n_folds)`. Default 1.0 is the
+  textbook "1-SE rule".
+- `perm_p_threshold::Float64 = 0.16`: minimum one-sided
+  permutation p-value for model selection. Simpler-model
+  bucket accepted iff `p > perm_p_threshold` under the
+  sign-flip null. Default 0.16 matches paired 1-SE empirically.
 - `save_dir`: directory for per-level CSV files
 - `pmap_function::Function = pmap`: parallelism
   function (Distributed.pmap by default)
@@ -313,21 +317,25 @@ threshold would collapse the beam to the single best mechanism.
 
 # Model selection (LOOCV)
 
-The best `n_params` is chosen by the more parsimonious of two
-methods, both operating on log of per-fold LOOCV scores:
+For each `n_params` bucket below `n_min` (lowest mean
+log-fold-loss) the rule computes paired log-loss differences
+between the bucket's representative and `n_min`'s, then
+accepts the simpler bucket iff BOTH:
 
-1. **1-SE rule**: smallest `n_params` whose representative
-   bucket-mean log-loss is within one standard error of the
-   lowest representative bucket-mean log-loss.
-2. **Wilcoxon signed-rank test**: smallest `n_params` whose
-   representative per-fold log-losses are NOT statistically
-   significantly worse than the best bucket
-   (`pvalue > p_value_threshold`).
+1. **Paired 1-SE rule**: `mean(diffs) ≤ se_threshold *
+   std(diffs)/sqrt(n_folds)`.
+2. **One-sided permutation test**:
+   `permutation_p > perm_p_threshold`, where p is computed by
+   exact enumeration when `n_folds ≤ 20` and Monte Carlo
+   (10⁶ samples) otherwise.
 
-Per-bucket representative = the row with the lowest mean
-fold-loss in that `n_params` bucket. Final pick is
-`min(n_1se, n_wilcoxon)`. Within the chosen `n_params`, the
-mechanism with lowest training loss wins.
+Returns the smallest passing `n_params`; falls through to
+`n_min` if none pass. Within the chosen bucket the mechanism
+with lowest training loss wins. Per-bucket representative =
+the row with the lowest `cv_score` in that bucket. Diagnostic
+columns `mean_log_loss_diff`, `se_paired`, `permutation_p`
+are surfaced in `cv_results`; the `n_min` bucket has 0.0 in
+all three.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
@@ -345,7 +353,8 @@ function identify_rate_equation(
     verbose::Int = -9,
     # Model selection
     n_cv_candidates::Int = 5,
-    p_value_threshold::Float64 = 0.4,
+    se_threshold::Float64 = 1.0,
+    perm_p_threshold::Float64 = 0.16,
     # Output & parallelism
     save_dir::Union{Nothing,String} = nothing,
     pmap_function::Function = pmap,
@@ -376,7 +385,7 @@ function identify_rate_equation(
 
     return _cv_model_selection(
         specs, df, prob;
-        n_cv_candidates, p_value_threshold,
+        n_cv_candidates, se_threshold, perm_p_threshold,
         pmap_function, optimizer, fitting_kwargs...)
 end
 
@@ -754,143 +763,131 @@ function _onesided_permutation_p(
 end
 
 """
-Per-bucket setup shared by `_find_best_n_params_1se` and
-`_find_best_n_params_wilcoxon`. Drops LOOCV-failure rows,
-selects one representative row per `n_params` bucket (lowest
-`cv_score` = lowest log-mean fold-loss), and builds two
-parallel Dicts keyed by `n_params`:
+    _select_best_n_params(cv_df; se_threshold=1.0,
+                          perm_p_threshold=0.16) → NamedTuple
 
-- `log_means[n]` = `mean(log.(rep.cv_fold_scores))`. Recomputed
-  from raw fold scores rather than read from `cv_score` so the
-  helpers stay self-consistent if cv_score ever drifts from
-  log-mean (e.g. test fixtures).
-- `log_scores[n]` = `log.(rep.cv_fold_scores)`, used by Wilcoxon's
-  paired signed-rank test and by 1-SE's standard error.
+Paired 1-SE rule AND-combined with a one-sided sign-flip permutation test
+on log-transformed per-fold LOOCV scores. Returns:
 
-Also returns `n_min`, the bucket with the lowest log-mean.
-Errors if no valid bucket remains. Per-bucket representatives
-preserve the fold-pairing the Wilcoxon test relies on.
+  best_n::Int                — selected `n_params`
+  n_min::Int                 — bucket with lowest mean log-fold-loss
+  diagnostics::Dict{Int, NamedTuple{(:mean_log_loss_diff, :se_paired,
+                                     :permutation_p)}}
+                              — `n_min` bucket has all three = 0.0
+
+Per-bucket representative = the row with the lowest `cv_score` in that
+`n_params` bucket. For each non-`n_min` bucket, computes paired diffs vs
+the rep of `n_min`'s log-folds. The simpler bucket is accepted iff BOTH:
+
+  mean(diffs) ≤ se_threshold * std(diffs)/sqrt(n_folds)   (paired 1-SE)
+  permutation_p > perm_p_threshold                         (perm test)
+
+Iterates smaller buckets in ascending `n_params`; returns the first that
+passes. Falls through to `n_min` if none pass. Larger-than-`n_min` buckets
+have diagnostics computed but are never selected.
+
+Tiebreak: when two buckets tie on `mean(log_scores)`, `n_min` resolves to
+the smallest `n_params` (parsimony).
+
+Errors if:
+  * no bucket has any non-empty `cv_fold_scores` row;
+  * any bucket's fold-score length differs from `n_min`'s.
+
+When `n_folds_min == 1`, returns `n_min` immediately (SE undefined). When
+the input has only one `n_params` value, returns it as both `n_min` and
+`best_n` with empty smaller/larger comparisons.
 """
-function _per_bucket_log_stats(cv_df::DataFrame)
-    valid = filter(
-        row -> !isempty(row.cv_fold_scores), cv_df)
+function _select_best_n_params(
+    cv_df::DataFrame;
+    se_threshold::Float64 = 1.0,
+    perm_p_threshold::Float64 = 0.16,
+)
+    valid = filter(row -> !isempty(row.cv_fold_scores), cv_df)
     isempty(valid) && error(
         "no finite LOOCV scores in cv_df")
     sorted = sort(valid, [:n_params, :cv_score])
     reps = combine(groupby(sorted, :n_params), first)
-    log_scores = Dict(row.n_params => log.(row.cv_fold_scores)
-                      for row in eachrow(reps))
-    log_means = Dict(n => mean(ls)
-                     for (n, ls) in log_scores)
-    n_min = argmin(n -> log_means[n], keys(log_means))
-    (log_means, log_scores, n_min)
-end
 
-"""
-    _find_best_n_params_1se(cv_df) → Int
+    log_scores = Dict(
+        row.n_params => log.(row.cv_fold_scores)
+        for row in eachrow(reps))
+    log_means = Dict(n => mean(ls) for (n, ls) in log_scores)
+    # Tie-break on log-mean by smallest n_params (parsimony). Without
+    # this, argmin over Dict keys is iteration-order-dependent.
+    n_min = argmin(n -> (log_means[n], n), keys(log_means))
+    n_folds_min = length(log_scores[n_min])
 
-1-SE rule on log-transformed per-fold LOOCV scores. Returns the
-smallest `n_params` whose representative log-mean is within one
-standard error of the bucket with the lowest representative
-log-mean. Standard error is `std(log_losses_at_min) / sqrt(n_folds)`.
+    DiagT = NamedTuple{
+        (:mean_log_loss_diff, :se_paired, :permutation_p),
+        Tuple{Float64, Float64, Float64}}
+    diagnostics = Dict{Int, DiagT}()
+    diagnostics[n_min] = (
+        mean_log_loss_diff = 0.0,
+        se_paired = 0.0,
+        permutation_p = 0.0,
+    )
 
-If `n_folds == 1` for the best bucket (SE undefined), returns
-`n_min` (no widening possible).
-"""
-function _find_best_n_params_1se(cv_df::DataFrame)
-    log_means, log_scores, n_min =
-        _per_bucket_log_stats(cv_df)
-    losses_at_min = log_scores[n_min]
-    n_folds = length(losses_at_min)
-    n_folds == 1 && return n_min
-    se = std(losses_at_min) / sqrt(n_folds)
-    threshold = log_means[n_min] + se
-    candidates = [n for n in keys(log_means)
-                  if n <= n_min && log_means[n] <= threshold]
-    minimum(candidates)
-end
+    smaller_ns = sort([n for n in keys(log_means) if n < n_min])
+    larger_ns  = sort([n for n in keys(log_means) if n > n_min])
 
-"""
-    _find_best_n_params_wilcoxon(cv_df, p_threshold) → Int
+    for n in vcat(smaller_ns, larger_ns)
+        ls = log_scores[n]
+        length(ls) == n_folds_min || error(
+            "fold-count mismatch for n_params=$n: " *
+            "got $(length(ls)), expected $n_folds_min " *
+            "(n_min=$n_min)")
+        diffs = ls .- log_scores[n_min]
+        md  = mean(diffs)
+        sep = n_folds_min == 1 ? 0.0 :
+              std(diffs) / sqrt(n_folds_min)
+        p   = _onesided_permutation_p(diffs)
+        diagnostics[n] = (
+            mean_log_loss_diff = md,
+            se_paired = sep,
+            permutation_p = p,
+        )
+    end
 
-Wilcoxon signed-rank rule on log-transformed per-fold LOOCV
-scores. For each `n_params` bucket strictly below `n_min`, runs
-a paired signed-rank test comparing that bucket's representative
-per-fold log-losses to the best bucket's. Returns the smallest
-`n_params` whose `pvalue > p_threshold` (NOT significantly
-worse). Returns `n_min` if no smaller bucket qualifies.
-
-`p_threshold = 0.4` is the parsimony-permissive default matching
-`DataDrivenEnzymeRateEqs.jl`. Lower thresholds (e.g. 0.05)
-require stronger evidence to accept simpler models.
-
-Pairing semantics: the i-th element of each bucket's per-fold
-score vector corresponds to the same held-out group, so
-`pair(losses_smaller[i], losses_at_min[i])` is meaningful.
-Per-bucket representatives ensure both vectors come from a
-single mechanism. Skips comparisons where fold-counts differ.
-"""
-function _find_best_n_params_wilcoxon(
-    cv_df::DataFrame, p_threshold::Float64,
-)
-    log_means, log_scores, n_min =
-        _per_bucket_log_stats(cv_df)
-    losses_at_min = log_scores[n_min]
-    n_folds = length(losses_at_min)
-    smaller_ns = sort([n for n in keys(log_means)
-                       if n < n_min])
-    for n in smaller_ns
-        losses = log_scores[n]
-        length(losses) == n_folds || continue
-        try
-            p = pvalue(ExactSignedRankTest(
-                losses, losses_at_min))
-            p > p_threshold && return n
-        catch e
-            @debug("Wilcoxon test failed for n_params=$n",
-                   exception=(e, catch_backtrace()))
-            continue
+    best_n = n_min
+    if n_folds_min > 1
+        for n in smaller_ns
+            d = diagnostics[n]
+            if d.mean_log_loss_diff <= se_threshold * d.se_paired &&
+               d.permutation_p > perm_p_threshold
+                best_n = n
+                break
+            end
         end
     end
-    n_min
-end
 
-"""
-    _select_best_n_params(cv_df, p_threshold) → Int
-
-Parsimony-aware model selection. Returns the more parsimonious
-of the 1-SE rule and the Wilcoxon signed-rank rule. Both
-operate on log-transformed per-fold LOOCV scores via per-bucket
-representative selection (lowest cv_score row in each bucket).
-
-Replaces strict-`argmin` over CV means: tiny CV improvements
-from added parameters no longer justify the complexity bump.
-"""
-function _select_best_n_params(
-    cv_df::DataFrame, p_threshold::Float64,
-)
-    n_se = _find_best_n_params_1se(cv_df)
-    n_wx = _find_best_n_params_wilcoxon(
-        cv_df, p_threshold)
-    min(n_se, n_wx)
+    return (
+        best_n = best_n,
+        n_min = n_min,
+        diagnostics = diagnostics,
+    )
 end
 
 function _cv_model_selection(
     specs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
-    n_cv_candidates, pmap_function,
-    optimizer, p_value_threshold, kwargs...
+    n_cv_candidates, pmap_function, optimizer,
+    se_threshold::Float64,
+    perm_p_threshold::Float64,
+    kwargs...
 )
-    # specs[i] corresponds to df[i, :] (same append
-    # order in _beam_search, df is NOT sorted)
     isempty(specs) && error(
         "No mechanisms were successfully " *
         "fitted during beam search")
-    df_indexed = copy(df)
-    df_indexed.spec_idx = 1:nrow(df_indexed)
 
+    # Pick top n_cv_candidates per (n_params, eq_hash) bucket.
     candidate_indices = Int[]
-    for gdf in groupby(df_indexed, :n_params)
+    df_idx = DataFrame(
+        spec_idx = 1:nrow(df),
+        n_params = df.n_params,
+        loss = df.loss,
+        eq_hash = df.eq_hash,
+    )
+    for gdf in groupby(df_idx, :n_params)
         seen_hashes = Set{String}()
         sorted = sort(gdf, :loss)
         for row in eachrow(sorted)
@@ -904,9 +901,6 @@ function _cv_model_selection(
     candidate_specs = specs[candidate_indices]
     candidate_rows = df[candidate_indices, :]
 
-    # LOOCV each candidate in parallel — each result is the
-    # candidate's Vector{Float64} of per-fold scores (or empty
-    # on failure).
     fold_scores_per_candidate = pmap_function(
         candidate_specs
     ) do spec
@@ -914,24 +908,11 @@ function _cv_model_selection(
         _loocv(m, prob; optimizer, kwargs...)
     end
 
-    # Build CV results DataFrame. `cv_score` holds the LOG-mean
-    # of fold losses (the metric the 1-SE and Wilcoxon rules
-    # operate on); using log-space everywhere avoids the
-    # arithmetic-vs-log mismatch in rep selection.
-    # `cv_fold_scores` holds the raw per-fold vector — INTERNAL
-    # only; dropped before returning to the user so
-    # `IdentifyRateEquationResults.cv_results` stays
-    # CSV-serialisable.
     cv_df = copy(candidate_rows)
-    cv_df.cv_fold_scores =
-        collect(fold_scores_per_candidate)
+    cv_df.cv_fold_scores = collect(fold_scores_per_candidate)
     cv_df.cv_score = [isempty(v) ? Inf : mean(log.(v))
                       for v in cv_df.cv_fold_scores]
-    cv_df.spec_idx = candidate_indices
 
-    # Surface a hard error when every LOOCV fold failed —
-    # otherwise `argmin([Inf, Inf, ...])` silently returns 1
-    # and the user gets a meaningless "best" mechanism.
     all(!isfinite, cv_df.cv_score) && error(
         "All LOOCV scores are non-finite — every fold's fit " *
         "failed. The pipeline cannot select a best mechanism. " *
@@ -939,26 +920,51 @@ function _cv_model_selection(
         "data quality, or compile failures (run with " *
         "ENV[\"JULIA_DEBUG\"] = \"EnzymeRates\").")
 
-    # Parsimony-aware selection: 1-SE rule + Wilcoxon
-    # signed-rank test, both in log-loss space; take the more
-    # parsimonious answer.
-    best_param_count = _select_best_n_params(
-        cv_df, p_value_threshold)
+    sel = _select_best_n_params(
+        cv_df;
+        se_threshold = se_threshold,
+        perm_p_threshold = perm_p_threshold,
+    )
 
-    # Best mechanism = lowest loss at that
-    # param count
-    at_best_pc = filter(
-        row -> row.n_params == best_param_count,
-        cv_df)
-    sort!(at_best_pc, :loss)
-    best_idx = at_best_pc[1, :spec_idx]
-    best_mechanism = compile_mechanism(
-        specs[best_idx])
+    # Best mechanism = lowest training `loss` within sel.best_n.
+    at_best_pc_idx = findall(==(sel.best_n), cv_df.n_params)
+    isempty(at_best_pc_idx) && error(
+        "internal: best_n=$(sel.best_n) has no rows in cv_df")
+    sort_perm = sortperm(cv_df.loss[at_best_pc_idx])
+    best_row_idx = at_best_pc_idx[sort_perm[1]]
+    best_spec = candidate_specs[best_row_idx]
+    best_mechanism = compile_mechanism(best_spec)
 
-    # Drop internal columns so user-facing cv_results stays
-    # CSV-serialisable. cv_fold_scores is a Vector column —
-    # CSV.write would stringify each cell.
-    select!(cv_df, Not([:spec_idx, :cv_fold_scores]))
-    return IdentifyRateEquationResults(
-        best_mechanism, cv_df)
+    # Populate diagnostic columns. A bucket may be absent from
+    # diagnostics only if every row in it had empty fold scores.
+    cv_df.mean_log_loss_diff = [
+        haskey(sel.diagnostics, n) ?
+            sel.diagnostics[n].mean_log_loss_diff : missing
+        for n in cv_df.n_params
+    ]
+    cv_df.se_paired = [
+        haskey(sel.diagnostics, n) ?
+            sel.diagnostics[n].se_paired : missing
+        for n in cv_df.n_params
+    ]
+    cv_df.permutation_p = [
+        haskey(sel.diagnostics, n) ?
+            sel.diagnostics[n].permutation_p : missing
+        for n in cv_df.n_params
+    ]
+
+    # Flatten per-fold scores into one column per held-out group.
+    # Group order matches `_loocv`'s iteration over
+    # `unique(prob.data.group)`.
+    groups = unique(prob.data.group)
+    for (i, g) in enumerate(groups)
+        col = Symbol("cv_fold_$g")
+        cv_df[!, col] = [
+            isempty(v) ? missing : v[i]
+            for v in cv_df.cv_fold_scores
+        ]
+    end
+
+    select!(cv_df, Not(:cv_fold_scores))
+    return IdentifyRateEquationResults(best_mechanism, cv_df)
 end
