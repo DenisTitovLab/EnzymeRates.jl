@@ -793,9 +793,10 @@ Errors if:
   * no bucket has any non-empty `cv_fold_scores` row;
   * any bucket's fold-score length differs from `n_min`'s.
 
-When `n_folds_min == 1`, returns `n_min` immediately (SE undefined). When
-the input has only one `n_params` value, returns it as both `n_min` and
-`best_n` with empty smaller/larger comparisons.
+When `n_folds_min == 1` the SE is undefined; the selection loop is
+skipped and `n_min` is returned. Diagnostics are still populated with
+`se_paired = 0.0`. When the input has only one `n_params` value, returns
+it as both `n_min` and `best_n` with empty smaller/larger comparisons.
 """
 function _select_best_n_params(
     cv_df::DataFrame;
@@ -937,21 +938,13 @@ function _cv_model_selection(
 
     # Populate diagnostic columns. A bucket may be absent from
     # diagnostics only if every row in it had empty fold scores.
-    cv_df.mean_log_loss_diff = [
-        haskey(sel.diagnostics, n) ?
-            sel.diagnostics[n].mean_log_loss_diff : missing
-        for n in cv_df.n_params
-    ]
-    cv_df.se_paired = [
-        haskey(sel.diagnostics, n) ?
-            sel.diagnostics[n].se_paired : missing
-        for n in cv_df.n_params
-    ]
-    cv_df.permutation_p = [
-        haskey(sel.diagnostics, n) ?
-            sel.diagnostics[n].permutation_p : missing
-        for n in cv_df.n_params
-    ]
+    for fld in (:mean_log_loss_diff, :se_paired, :permutation_p)
+        cv_df[!, fld] = [
+            haskey(sel.diagnostics, n) ?
+                sel.diagnostics[n][fld] : missing
+            for n in cv_df.n_params
+        ]
+    end
 
     # Flatten per-fold scores into one column per held-out group.
     # Group order matches `_loocv`'s iteration over
