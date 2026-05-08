@@ -702,6 +702,58 @@ function _loocv(
 end
 
 """
+    _onesided_permutation_p(diffs; exact_threshold=20,
+                             mc_samples=10^6,
+                             rng=Random.default_rng()) → Float64
+
+One-sided p-value `Pr(perm_mean ≥ observed)` for paired-difference vector
+`diffs` under the sign-flip null. Exact enumeration of `2^n` sign patterns
+when `length(diffs) ≤ exact_threshold` (default 20 → up to ~10^6 perms);
+Monte Carlo with `mc_samples` random sign-flips otherwise.
+
+Both default branches do ~10^6 inner iterations. The `exact_threshold` and
+`mc_samples` kwargs are exposed primarily for tests (forcing the MC branch
+on small fixtures and using seeded RNGs).
+
+Errors on empty `diffs` (caller's invariant: a bucket comparison always has
+at least one fold).
+"""
+function _onesided_permutation_p(
+    diffs::Vector{Float64};
+    exact_threshold::Int = 20,
+    mc_samples::Int = 10^6,
+    rng = Random.default_rng(),
+)
+    n = length(diffs)
+    n == 0 && error("_onesided_permutation_p: empty diffs vector")
+    observed = mean(diffs)
+
+    if n <= exact_threshold
+        total = 1 << n   # 2^n
+        count_ge = 0
+        for mask in 0:(total - 1)
+            s = 0.0
+            @inbounds for i in 1:n
+                bit = (mask >> (i - 1)) & 1
+                s += bit == 1 ? -diffs[i] : diffs[i]
+            end
+            count_ge += (s / n >= observed)
+        end
+        return count_ge / total
+    else
+        count_ge = 0
+        @inbounds for _ in 1:mc_samples
+            s = 0.0
+            for i in 1:n
+                s += rand(rng, Bool) ? -diffs[i] : diffs[i]
+            end
+            count_ge += (s / n >= observed)
+        end
+        return count_ge / mc_samples
+    end
+end
+
+"""
 Per-bucket setup shared by `_find_best_n_params_1se` and
 `_find_best_n_params_wilcoxon`. Drops LOOCV-failure rows,
 selects one representative row per `n_params` bucket (lowest

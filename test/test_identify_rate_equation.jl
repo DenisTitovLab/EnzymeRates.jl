@@ -4,6 +4,7 @@
 
 using DataFrames
 using CSV
+using Random
 using Statistics
 using OptimizationPyCMA
 
@@ -720,5 +721,51 @@ end
     )
     @test EnzymeRates._find_best_n_params_wilcoxon(
         cv_df_mismatch, 0.4) == 7
+end
+
+@testset "_onesided_permutation_p" begin
+    # All-zero diffs: every sign flip yields perm_mean = observed = 0,
+    # so count_ge = 2^n. p = 1.0.
+    @test EnzymeRates._onesided_permutation_p(
+        [0.0, 0.0, 0.0]) == 1.0
+
+    # All-positive equal diffs: only the identity permutation matches
+    # observed; every flipped variant gives a smaller mean.
+    # p = 1/2^4 = 0.0625.
+    @test EnzymeRates._onesided_permutation_p(
+        [1.0, 1.0, 1.0, 1.0]) ≈ 1/16
+
+    # All-negative diffs: observed = -1, all flips ≥ -1 → count_ge = 2^n.
+    # p = 1.0.
+    @test EnzymeRates._onesided_permutation_p(
+        [-1.0, -1.0, -1.0]) == 1.0
+
+    # Mixed-sign 8-fold fixture: 256 exact perms, p strictly in (0, 1).
+    diffs = [0.10, -0.05, 0.08, -0.02,
+             0.06, -0.04, 0.03, -0.01]
+    p_exact = EnzymeRates._onesided_permutation_p(diffs)
+    @test 0 < p_exact < 1
+
+    # Force Monte Carlo path (exact_threshold=0) on the same diffs;
+    # results must agree within sampling SE. With 10^6 samples and
+    # p ≈ 0.5, SE on count_ge/N is √(0.25/10^6) ≈ 5e-4.
+    p_mc = EnzymeRates._onesided_permutation_p(
+        diffs;
+        exact_threshold = 0,
+        mc_samples = 10^6,
+        rng = MersenneTwister(42),
+    )
+    @test abs(p_exact - p_mc) < 0.01
+
+    # Determinism: a seeded RNG must produce bit-identical output
+    # across runs. This proves the `rng` kwarg threads through both
+    # the exact (no-op) and MC paths.
+    p1 = EnzymeRates._onesided_permutation_p(
+        diffs; exact_threshold = 0, mc_samples = 10^4,
+        rng = MersenneTwister(7))
+    p2 = EnzymeRates._onesided_permutation_p(
+        diffs; exact_threshold = 0, mc_samples = 10^4,
+        rng = MersenneTwister(7))
+    @test p1 == p2
 end
 
