@@ -122,9 +122,10 @@ in Step 2 and avoids constraining the future redesign.
   line.
 - `rate_eq_derivation.jl:780–800` — `structural_identifiability_deficit`
   for `EnzymeMechanism` (~20 lines including docstring).
-- `rate_eq_derivation.jl:1672–1712` —
+- `rate_eq_derivation.jl:1672–1779` (file end) —
   `structural_identifiability_deficit` for `AllostericEnzymeMechanism` and
-  `_count_allosteric_rate_monomials` (~40 lines).
+  `_count_allosteric_rate_monomials` (~110 lines combined; the latter
+  function alone runs 1690–1778).
 - `identify_rate_equation.jl:246` — reword the comment explaining the
   defensive `_proj` lookup to drop the "structurally-unidentifiable ghost
   param" framing. The defensive behavior itself (fallback when a fitted
@@ -144,10 +145,11 @@ in Step 2 and avoids constraining the future redesign.
 - `test/mechanism_definitions_for_test_enzyme_derivation.jl:32` —
   `expected_is_identifiable::Bool` field on `MechanismTestSpec`. Remove
   the field.
-- `test/mechanism_definitions_for_test_enzyme_derivation.jl` — 42
+- `test/mechanism_definitions_for_test_enzyme_derivation.jl` — 37
   occurrences of `expected_is_identifiable=true` /
   `expected_is_identifiable=false` across the fixture definitions.
-  Remove each line.
+  Remove each line. (`grep -c` reports 38 total when counting the
+  field declaration as well.)
 
 **CLAUDE.md:**
 
