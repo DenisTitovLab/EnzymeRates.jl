@@ -41,18 +41,26 @@ projects results to all members), so the cost of cross-hash duplication is
 2. **Reduce code volume** in the rate-equation derivation pipeline. Code
    simplification is a co-equal objective with the dedup fix; comments and
    docstrings don't count toward the line-reduction goal. Estimated net
-   reduction is ~225 lines across `rate_eq_derivation.jl`,
+   reduction is ~700 body lines across `rate_eq_derivation.jl`,
    `sym_poly_for_rate_eq_derivation.jl`,
-   `thermodynamic_constr_for_rate_eq_derivation.jl`, plus ~15 lines added in
+   `thermodynamic_constr_for_rate_eq_derivation.jl`,
+   `test/test_sym_poly.jl`,
+   `test/mechanism_definitions_for_test_enzyme_derivation.jl`, and
+   `test/test_rate_eq_derivation.jl`, plus ~15 lines added in
    `identify_rate_equation.jl` for the canonicalizer.
 3. **Improve user-facing rate-equation transparency** by labeling derived
    constraints under three section headers: `# User defined constraints:`,
    `# Wegscheider constraints:`, `# Haldane constraints:`.
+4. **Remove the parameter-identifiability code.** The current
+   `structural_identifiability_deficit` implementation is not correct for
+   the use cases that matter and will be redesigned later. Remove it now
+   so that future work isn't constrained by the existing shape, and so
+   the polynomial-expansion helpers it depends on can be removed too.
 
 ## Methodology
 
 **TDD is required throughout this work, not optional.** For each of the
-three commits, the order is:
+four commits, the order is:
 
 1. Write or update tests that capture the post-change behavior (new dedup
    tests; updated rate-equation-string fixtures with the expanded /
@@ -84,17 +92,86 @@ changes.
 
 ## Architecture
 
-Three independent code changes, organized as three commits in one PR:
+Four code changes, organized as four commits in one PR:
 
 | # | Source | Change |
 |---|--------|--------|
+| 0 | — | Remove parameter-identifiability code (`structural_identifiability_deficit`, `_count_allosteric_rate_monomials`, the `expected_is_identifiable` test fixtures, the export, and the file-header references). Independent of the dedup fix; lands first because it unblocks the larger expansion-helper deletion in Commit 2. |
 | 1 | **B** | Build polynomials directly with K_d. Eliminate the Ka↔Kd inversion layer. |
-| 2 | **A** | Always emit the expanded polynomial. Drop algebraic factoring (allosteric retains the structurally-required MWC outer factoring; inner conformation polynomials expand). |
+| 2 | **A** | Always emit the expanded polynomial. Drop algebraic factoring (allosteric retains the structurally-required MWC outer factoring; inner conformation polynomials expand). With identifiability code already gone, the polynomial-expansion helpers (`_expand_factored_*`, `_expand_to_poly`, `_estimate_expanded_term_count`) become unreachable and are deleted, along with the `FactoredPoly` / `FactoredSigma` / `DenomTerm` types and the entire `test/test_sym_poly.jl` file (299 lines, exclusively tests these types). |
 | 3 | **C** | Polynomial-level absorption of single-symbol Wegscheider RE ties into the kinetic-group rename map. Section-labeled output. eq_hash canonicalizer normalizes single-symbol equality lines across sections. |
 
 `EnzymeMechanism` and `AllostericEnzymeMechanism` types and their type
 parameters are **unchanged**. Spec-level `_canonicalize!` and `_dedup_key`
 in `mechanism_enumeration.jl` are **unchanged**.
+
+## Step 0 — Remove parameter-identifiability code
+
+`structural_identifiability_deficit` is being removed in full. The current
+implementation over-counts identifiable degrees of freedom for factored
+forms and is acknowledged in test code as not biophysically meaningful at
+its current shape (`test/test_rate_eq_derivation.jl:479–481`). It will be
+redesigned later; removing it now unblocks the polynomial-helper deletions
+in Step 2 and avoids constraining the future redesign.
+
+### What goes away
+
+**Source code (`src/`):**
+
+- `EnzymeRates.jl:16` — drop the `export structural_identifiability_deficit`
+  line.
+- `rate_eq_derivation.jl:780–800` — `structural_identifiability_deficit`
+  for `EnzymeMechanism` (~20 lines including docstring).
+- `rate_eq_derivation.jl:1672–1712` —
+  `structural_identifiability_deficit` for `AllostericEnzymeMechanism` and
+  `_count_allosteric_rate_monomials` (~40 lines).
+- `identify_rate_equation.jl:246` — reword the comment explaining the
+  defensive `_proj` lookup to drop the "structurally-unidentifiable ghost
+  param" framing. The defensive behavior itself (fallback when a fitted
+  key isn't in the body) stays — it's still needed for `:NonequalRT`
+  zeroed paths.
+
+**Tests:**
+
+- `test/test_rate_eq_derivation.jl:475–484` — `test_identifiability`
+  helper function. Remove.
+- `test/test_rate_eq_derivation.jl:751` — call-site to
+  `test_identifiability(spec)`. Remove.
+- `test/test_rate_eq_derivation.jl:2` — file-header comment lists
+  "identifiability" as one of the validated aspects. Drop the word.
+- `test/test_identify_rate_equation.jl:54` — comment reads "5
+  identifiable params + 1 ghost". Reword to drop "identifiable".
+- `test/mechanism_definitions_for_test_enzyme_derivation.jl:32` —
+  `expected_is_identifiable::Bool` field on `MechanismTestSpec`. Remove
+  the field.
+- `test/mechanism_definitions_for_test_enzyme_derivation.jl` — 42
+  occurrences of `expected_is_identifiable=true` /
+  `expected_is_identifiable=false` across the fixture definitions.
+  Remove each line.
+
+**CLAUDE.md:**
+
+- `.claude/CLAUDE.md:291` — bullet describing
+  `src/rate_eq_derivation.jl` mentions "identifiability checks" and
+  `_count_allosteric_rate_monomials` and `structural_identifiability_deficit`.
+  Update bullet to drop those references.
+
+### Why this lands first
+
+The expansion helpers `_expand_factored_sigma`, `_expand_to_poly`,
+`_expand_factored_poly`, and `_estimate_expanded_term_count` have callers
+in three places after the rest of the cleanup:
+
+1. `_kcat_components` and `_kcat_forward` (allosteric branch) — but Step 2
+   makes `_raw_symbolic_rate_polys` return flat POLYs, eliminating these
+   call sites.
+2. `_allosteric_num_den_exprs` — same: Step 2 hands it flat POLYs.
+3. `structural_identifiability_deficit` and `_count_allosteric_rate_monomials`
+   — only removable if identifiability is removed.
+
+Without Step 0, the helpers stay alive solely to support the broken
+identifiability path, and Step 2 can't delete them. Putting Step 0 first
+means Step 2 can eliminate the entire factored-poly type family cleanly.
 
 ## Step 1 — Kd-by-construction
 
@@ -190,14 +267,22 @@ POLYs.
   `unfactored_denom_term`. The `_rename_symbols` overloads for these types.
 - `_estimate_expanded_term_count` and the `check_benefit` flag.
 - `to_rate_expr`'s `Union{POLY, FactoredSigma}` branch.
+- `_expand_factored_sigma`, `_expand_to_poly`, `_expand_factored_poly`
+  in `sym_poly_for_rate_eq_derivation.jl`. Confirmed unreachable after
+  Step 0 removes their identifiability callers and Step 2 makes
+  `_raw_symbolic_rate_polys` return flat POLYs.
+- `test/test_sym_poly.jl` — entire file (299 lines). Tests
+  `FactoredPoly` / `FactoredSigma` / `DenomTerm` construction and the
+  `_expand_*` helpers exclusively. With those types and helpers gone,
+  there's nothing left to test.
 
 ### Code that stays
 
-- `_expand_factored_sigma`, `_expand_to_poly`, `_expand_factored_poly` if any
-  callers remain after the cleanup; otherwise inlined or deleted.
 - `MAX_RATE_EQUATION_TERMS = 5000` cap. Already enforced by `sym_det`.
 - `_poly_to_expr` and `_expr_to_string`. Former simplified (no
   `inverted_params` parameter).
+- `_zero_symbols_in_poly` — still used by allosteric T-state polynomial
+  construction on flat POLYs.
 
 ### `_rate_v_line` shrinks to ~4 lines
 
@@ -222,9 +307,20 @@ Returns `(num::POLY, denom::POLY)` instead of
 ### Allosteric path
 
 `_allosteric_num_den_exprs` (`rate_eq_derivation.jl:1526`): N_R, Q_R, N_T,
-Q_T are converted to Expr via `_poly_to_expr` directly. The MWC outer
-assembly (`make_num_term`, `make_den_term`, the `(N_R + L*N_T)` sum) is
-untouched.
+Q_T come directly as flat POLYs from `_raw_symbolic_rate_polys(CM)` and
+are converted to Expr via `_poly_to_expr`. No `_expand_*` calls. The MWC
+outer assembly (`make_num_term`, `make_den_term`, the `(N_R + L*N_T)`
+sum) is untouched.
+
+### `_kcat_components` and allosteric `_kcat_forward`
+
+Both consume the now-flat POLY return from `_raw_symbolic_rate_polys`
+directly. The current `num = _expand_factored_sigma(num_fs)` /
+`den = _expand_to_poly(denom_terms)` lines collapse to using `num` and
+`den` from the destructured return. Allosteric `_kcat_forward`
+(`rate_eq_derivation.jl:929`) similarly drops the expansion calls — the
+T-state POLY construction via `_zero_symbols_in_poly` and `_rename_symbols`
+applies directly to the flat POLY.
 
 ## Step 3 — Polynomial-level Wegscheider absorption + section labels
 
@@ -493,14 +589,22 @@ equivalence check (will pass — math is unchanged).
 
 | File | Lines removed | Lines added | Net |
 |---|---|---|---|
-| `sym_poly_for_rate_eq_derivation.jl` | ~110 | ~5 | ≈ −105 |
-| `rate_eq_derivation.jl` | ~140 | ~25 | ≈ −115 |
-| `thermodynamic_constr_for_rate_eq_derivation.jl` | ~25 | ~5 | ≈ −20 |
-| `identify_rate_equation.jl` | 0 | ~15 | ≈ +15 |
-| **Total** | **~275** | **~50** | **≈ −225** |
+| `src/sym_poly_for_rate_eq_derivation.jl` | ~150 (FactoredPoly/Sigma/DenomTerm types and rename overloads, _factored_*_to_expr, _expand_factored_*, _expand_to_poly, _estimate_expanded_term_count, inverted_params parameter) | ~5 | ≈ −145 |
+| `src/rate_eq_derivation.jl` | ~200 (_factor_poly, _try_algebraic_factor_sigma, _try_poly_power, _haldane_equality_substitutions, structural_identifiability_deficit ×2, _count_allosteric_rate_monomials, _binding_K_symbols non-allosteric usage, inv_set threading, kcat inv($K) substitutions) | ~25 (Pass 2 of _build_kinetic_rename_map, _dependent_param_exprs_kernel extraction, sectioned rate_equation_string, ANNOTATION_SUBSTITUTED constant) | ≈ −175 |
+| `src/thermodynamic_constr_for_rate_eq_derivation.jl` | ~25 (_apply_kd_inversion + callers, inv_fn plumbing) | ~5 (binding-K sign-flip in A-matrix) | ≈ −20 |
+| `src/EnzymeRates.jl` | 1 (export of structural_identifiability_deficit) | 0 | ≈ −1 |
+| `src/identify_rate_equation.jl` | 0 | ~15 (canonicalizer block normalization + section-header strip) | ≈ +15 |
+| `test/test_sym_poly.jl` | 299 (entire file) | 0 | ≈ −299 |
+| `test/test_rate_eq_derivation.jl` | ~12 (test_identifiability helper + caller) | ~30 (eq_hash dedup tests) | ≈ +18 |
+| `test/mechanism_definitions_for_test_enzyme_derivation.jl` | ~45 (expected_is_identifiable field + 42 occurrences) | 0 | ≈ −45 |
+| `test/test_eq_hash_dedup.jl` (new) | 0 | ~50 | ≈ +50 |
+| `test/test_dedup_csv_replay.jl` (new) | 0 | ~25 | ≈ +25 |
+| **Total** | **~732** | **~155** | **≈ −577** |
 
 Comments and docstrings don't count toward the reduction. The number above
-is body-line delta only, measured against current `git HEAD`.
+is body-line delta only, measured against current `git HEAD`. Per-file
+estimates have ±20% uncertainty until the implementation lands; the
+order-of-magnitude reduction is the binding commitment.
 
 ## Risks
 
@@ -530,23 +634,35 @@ is body-line delta only, measured against current `git HEAD`.
 
 ## PR plan
 
-Three commits in dependency order, single PR:
+Four commits in dependency order, single PR:
 
-1. **Commit 1 — Kd-by-construction.** `_compute_alpha` flip; sign-flip in
+1. **Commit 0 — Remove identifiability code.** Drop `structural_identifiability_deficit`
+   (both methods), `_count_allosteric_rate_monomials`, the export, the
+   `expected_is_identifiable` field and 42 fixture occurrences,
+   `test_identifiability` helper and caller, the file-header reference,
+   the `:54` ghost-param comment, and the CLAUDE.md bullet entry. The
+   `_proj` defensive-lookup comment in `identify_rate_equation.jl` gets
+   reworded to drop the "structurally-unidentifiable" framing. Pure
+   deletion; tests must remain green after this commit (existing test
+   suite minus the removed helper).
+
+2. **Commit 1 — Kd-by-construction.** `_compute_alpha` flip; sign-flip in
    A-matrix; drop `_apply_kd_inversion`, `inverted_params` threading,
    `inv_set` plumbing, `inv` substitutions in `_kcat_forward`. Update
    Source-B fixture expectations first; Source-B TDD tests turn green.
 
-2. **Commit 2 — Always-expanded.** Drop `_factor_poly` family;
-   `_factored_*_to_expr`; `FactoredPoly`/`FactoredSigma`/`DenomTerm`;
-   `_estimate_expanded_term_count`; `_haldane_equality_substitutions`.
-   Simplify `_rate_v_line`, `_raw_symbolic_rate_polys`. Update allosteric
-   inner-polynomial emission. Update the 20 factored-form fixtures (hand
-   expansion) and the byte-identical allosteric fixture (regenerate from
-   the new code, after numerical-equivalence verification). Source-A TDD
-   tests turn green.
+3. **Commit 2 — Always-expanded + helper deletion.** Drop `_factor_poly`
+   family; `_factored_*_to_expr`; `FactoredPoly`/`FactoredSigma`/`DenomTerm`;
+   `_estimate_expanded_term_count`; `_haldane_equality_substitutions`;
+   `_expand_factored_*` and `_expand_to_poly`; the entire
+   `test/test_sym_poly.jl` file. Simplify `_rate_v_line`,
+   `_raw_symbolic_rate_polys`. Update allosteric inner-polynomial emission
+   to consume flat POLYs directly. Update the 20 factored-form fixtures
+   (hand expansion) and the byte-identical allosteric fixture (regenerate
+   from the new code after numerical-equivalence verification). Source-A
+   TDD tests turn green.
 
-3. **Commit 3 — Section labels + Wegscheider absorption + canonicalizer
+4. **Commit 3 — Section labels + Wegscheider absorption + canonicalizer
    normalization.** Extract `_dependent_param_exprs_kernel`; Pass 2 of
    `_build_kinetic_rename_map`; sectioned `rate_equation_string`;
    `(substituted into v)` annotation; canonicalizer single-symbol-equality
