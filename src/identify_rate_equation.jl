@@ -144,9 +144,9 @@ different choice of which parameter is dependent must hash
 differently.
 
 `parameters(m, Full)` is defined for both `EnzymeMechanism` and
-`AllostericEnzymeMechanism` (Phase G.0). Allosteric coverage
-includes T-state names, regulator-site names, and the allosteric
-coupling `L` automatically.
+`AllostericEnzymeMechanism`. Allosteric coverage includes T-state
+names, regulator-site names, and the allosteric coupling `L`
+automatically.
 """
 function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
     raw_body = rate_equation_string(m)
@@ -243,11 +243,11 @@ function _project_cached_params(
     spec_fitted_keys::Tuple{Vararg{Symbol}},
 )
     # Defensive lookup: a fitted key may not appear in the body
-    # (e.g., a structurally-unidentifiable ghost param on a
-    # zeroed `:NonequalRT` path), in which case `spec_name_map`
-    # has no entry. Fall back to the spec key itself in cached_params
-    # if both maps lack the canonical token; if even that misses,
-    # use NaN as a sentinel that downstream loss/CV will surface.
+    # (e.g., a parameter on a zeroed `:NonequalRT` path), in which
+    # case `spec_name_map` has no entry. Fall back to the spec key
+    # itself in cached_params if both maps lack the canonical token;
+    # if even that misses, use NaN as a sentinel that downstream
+    # loss/CV will surface.
     function _proj(k::Symbol)
         s = String(k)
         canon = get(spec_name_map, s, nothing)

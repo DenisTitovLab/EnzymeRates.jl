@@ -28,9 +28,6 @@ Base.@kwdef struct MechanismTestSpec
     expected_n_wegscheider_constraints::Int   # RHS Expr without Keq (multi-cycle futile-cycle closure)
     expected_n_independent_params::Int        # 2*n_steps - n_constraints
 
-    # Identifiability expectations
-    expected_is_identifiable::Bool
-
     # Test configuration (optional)
     run_ode_test::Bool = true
     reference_rtol::Float64 = 1e-8
@@ -77,7 +74,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=3,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> begin
                 num = p.k1f * p.k2f * c.S - p.k1r * p.k2r * c.P
                 denom = p.k1r + p.k2f + p.k1f * c.S + p.k2r * c.P
@@ -121,7 +117,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=false,
             analytical_rate_fn=(p, c) -> rate_uni_uni(merge(p, (Etotal=p.Et,)), c)
         ))
     end
@@ -163,7 +158,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=7,
-            expected_is_identifiable=false,
             analytical_rate_fn=(p, c) -> rate_iso_uni_uni(merge(p, (Etotal=p.Et,)), c)
         ))
     end
@@ -206,7 +200,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_ordered_uni_bi(merge(p, (Etotal=p.Et,)), c)
         ))
     end
@@ -256,7 +249,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=7,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c),
             analytical_kcat_fn=p -> p.k3f * p.k4f / (p.k3f + p.k4f),
         ))
@@ -303,7 +295,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_theorell_chance_bi_bi(
                     merge(p, (Etotal=p.Et,)), c),
@@ -353,7 +344,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=7,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_ping_pong_bi_bi(
                     merge(p, (Etotal=p.Et,)), c),
@@ -420,7 +410,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_ordered_ter_bi(merge(p, (Etotal=p.Et,)), c)
         ))
     end
@@ -495,7 +484,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=11,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_ordered_ter_ter(
                     merge(p, (Etotal=p.Et,)), c)
@@ -555,7 +543,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_bi_uni_uni_uni_ping_pong_ter_bi(
                     merge(p, (Etotal=p.Et,)), c)
@@ -588,7 +575,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=1,
             expected_n_independent_params=12,
-            expected_is_identifiable=true,
             analytical_rate_fn=nothing
         ))
     end
@@ -656,7 +642,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=11,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_bi_uni_uni_bi_ping_pong_ter_ter(
                     merge(p, (Etotal=p.Et,)), c)
@@ -726,7 +711,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=11,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_bi_bi_uni_uni_ping_pong_ter_ter(
                     merge(p, (Etotal=p.Et,)), c)
@@ -789,7 +773,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=11,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_hexa_uni_ping_pong(
                     merge(p, (Etotal=p.Et,)), c)
@@ -831,7 +814,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=2,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_re_uni_uni(merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
         ))
@@ -878,7 +860,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_re_ordered_bi_bi(merge(p, (Et=p.Et,)), c)
         ))
     end
@@ -911,7 +892,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=1,
             expected_n_independent_params=10,
-            expected_is_identifiable=true,
             analytical_rate_fn=nothing
         ))
     end
@@ -954,7 +934,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_competitive_inh(
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
@@ -1003,7 +982,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=1,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_noncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
             expected_factored_num=
@@ -1049,7 +1027,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_uncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
             expected_factored_num=
@@ -1096,7 +1073,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_essential_activator(
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
@@ -1155,7 +1131,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=2,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) -> rate_nonessential_activator(
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> max(p.k2f, p.k5f),
@@ -1217,7 +1192,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=2,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=6,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_activator_inhibitor(
                     merge(p, (Et=p.Et,)), c),
@@ -1285,7 +1259,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=7,
-            expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_oligo,
             expected_factored_num=
@@ -1350,7 +1323,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
-            expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
             expected_factored_num=
@@ -1413,7 +1385,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,  # thermodynamic consistency is automatic
             expected_n_independent_params=9,
-            expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_inh_oligo,
             expected_factored_num=
@@ -1462,7 +1433,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
@@ -1532,7 +1502,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
@@ -1588,7 +1557,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
@@ -1636,7 +1604,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
@@ -1699,7 +1666,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
-            expected_is_identifiable=true,
             analytical_rate_fn=(p, c) ->
                 rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
@@ -1855,7 +1821,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,      # site-independence constraints are in param_constraints of CM
             expected_n_independent_params=17,
-            expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_tetramer_bi_bi,
             expected_factored_num=nothing,
@@ -1935,7 +1900,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=1,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=12,
-            expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=pfk_rate_analytical,
             # F6P binding (group 3) is :OnlyR → the Glucose·ATP saturating
@@ -2068,7 +2032,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=1,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
-            expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=hk_rate_analytical,
             # ATP binding (group 2) is :OnlyR → the Glucose·ATP saturating
@@ -2175,7 +2138,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=4,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
-            expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=pk_rate_analytical,
             analytical_kcat_fn = p -> 4 * p.k5f,
@@ -2260,7 +2222,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=3,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=12,
-            expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=m_all_rate_analytical,
             analytical_kcat_fn=nothing,      # cat is :NonequalRT → kcat L-dependent
@@ -2323,7 +2284,6 @@ function build_mechanism_test_specs()
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
-            expected_is_identifiable=true,
             run_ode_test=false,
             analytical_rate_fn=m_OnlyR_prod_rate_analytical,
             # kcat at saturating S, zero P:

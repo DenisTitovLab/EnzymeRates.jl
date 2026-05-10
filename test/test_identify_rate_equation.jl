@@ -51,7 +51,7 @@ using OptimizationPyCMA
             _allo_spec)
 
     Keq_val = 2.0
-    # 5 identifiable params + 1 ghost (k3f_T)
+    # 5 fitted params + 1 zeroed-path param (k3f_T)
     true_params = (
         K1 = 1.0, K2 = 0.5, k3f = 5.0,
         k3f_T = 1.0, K_R_T_reg1 = 2.0, L = 0.1,

@@ -19,10 +19,11 @@ Return the parameter names required for the given mode as a tuple of Symbols.
   symbols + every `_T`-suffixed mirror the body emits as a
   constraint LHS (via `_all_t_state_names`) + reg-site R-state
   K's (skipping `:OnlyT` ligands) + `:L` + `:E_total`. The
-  allosteric Full mode is used as a name source by Phase G's
-  rate-equation canonicalizer; no `rate_equation` method is
-  defined for `(::AllostericEnzymeMechanism, ::FullMode)`, so
-  this mode is for canonicalization, not runtime evaluation.
+  allosteric Full mode is used as a name source by the
+  rate-equation canonicalizer in `identify_rate_equation`; no
+  `rate_equation` method is defined for
+  `(::AllostericEnzymeMechanism, ::FullMode)`, so this mode is for
+  canonicalization, not runtime evaluation.
 """
 function parameters end
 
@@ -775,28 +776,6 @@ function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
           "(; $(join(metabolites(M()), ", "))) = concs",
           _constraint_expr_strings(M)...,
           _rate_v_line(M)], "\n")
-end
-
-# ─── Structural Identifiability ───────────────────────────────
-
-"""
-    structural_identifiability_deficit(m::EnzymeMechanism) → Int
-
-Number of excess parameters beyond what is structurally identifiable from kinetic data.
-"""
-@generated function structural_identifiability_deficit(::M) where {M <: EnzymeMechanism}
-    _, indep = _dependent_param_exprs(M)
-    n_k = length(indep)
-    num_fs, denom_terms = _raw_symbolic_rate_polys(M)
-    num = _expand_factored_sigma(num_fs)
-    den = _expand_to_poly(denom_terms)
-    mm(mono) = sort([
-        s => e for (s, e) in mono
-        if !is_k_parameter(s) && s != :E_total && s != :Keq
-    ])
-    n_num = length(unique(mm(k) for (k, _) in num))
-    n_denom = length(unique(mm(k) for (k, _) in den))
-    n_k - (n_num - 1) - (n_denom - 1)
 end
 
 # ─── kcat Computation Helpers ──────────────────────────────────
@@ -1573,7 +1552,6 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     reg_Q_T = Any[_reg_site_expr(m, i, true) for i in eachindex(RS)]
 
     # Numerator: N × Q_cat^(CatN-1) × all reg-site factors at multiplicity.
-    # MUST mirror `num_poly_for_conf` in `_count_allosteric_rate_monomials`.
     function make_num_term(N, Q, reg_Qs)
         factors = Any[N]
         CatN > 1 && push!(factors, _power_expr(Q, CatN - 1))
@@ -1585,7 +1563,6 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     end
 
     # Denominator: Q_cat^CatN × all reg-site factors at multiplicity.
-    # MUST mirror `den_poly_for_conf` in `_count_allosteric_rate_monomials`.
     function make_den_term(Q, reg_Qs)
         factors = Any[_power_expr(Q, CatN)]
         for i in eachindex(RS)
@@ -1667,113 +1644,5 @@ function rate_equation_string(
         t_dep_lines...,
         v_line,
     ], "\n")
-end
-
-# ─── Structural Identifiability ───────────────────────────────────
-
-@generated function structural_identifiability_deficit(
-    ::AllostericEnzymeMechanism{CM,CS,RS},
-) where {CM,CS,RS}
-    M = AllostericEnzymeMechanism{CM,CS,RS}
-    _, indep = _dependent_param_exprs(M)
-    n_k = length(indep)
-    n_num, n_denom = _count_allosteric_rate_monomials(M)
-    n_k - (n_num - 1) - (n_denom - 1)
-end
-
-"""
-Count distinct concentration monomials in the full allosteric rate numerator
-and denominator. Builds R/T catalytic and reg-site polys via the same POLY-level
-substitutions used by `rate_equation`, then strips parameter symbols and counts.
-Returns `(n_num, n_denom)`.
-"""
-function _count_allosteric_rate_monomials(M_type::Type{<:AllostericEnzymeMechanism})
-    m = M_type()
-    CM = typeof(catalytic_mechanism(m))
-    CatN = catalytic_multiplicity(m)
-    RS = regulatory_sites(m)
-
-    num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
-    N_cat_base = _expand_factored_sigma(num_fs)
-    Q_cat_base = _expand_to_poly(denom_terms)
-
-    r_only_syms = _onlyR_syms(m)
-    rename_T = _T_rename(m)
-
-    N_cat_R = N_cat_base
-    Q_cat_R = Q_cat_base
-    N_cat_T = _rename_symbols(_zero_symbols_in_poly(N_cat_base, r_only_syms), rename_T)
-    Q_cat_T = _rename_symbols(_zero_symbols_in_poly(Q_cat_base, r_only_syms), rename_T)
-
-    function reg_q_poly(i, T_state)
-        ligs_filtered = Symbol[]
-        for lig in regulatory_site_ligands(m, i)
-            tag = reg_allo_state(m, i, lig)
-            if T_state
-                tag == :OnlyR && continue
-            else
-                tag == :OnlyT && continue
-            end
-            push!(ligs_filtered, lig)
-        end
-        isempty(ligs_filtered) ? poly_one() :
-            reduce(poly_add, (poly_add(poly_one(), poly_sym(lig))
-                              for lig in ligs_filtered))
-    end
-    reg_Q_R = POLY[reg_q_poly(i, false) for i in eachindex(RS)]
-    reg_Q_T = POLY[reg_q_poly(i, true) for i in eachindex(RS)]
-
-    # Numerator: per-state catalytic flux × Q_cat^(CatN-1) × all reg-site
-    # factors at their multiplicity. MUST mirror `make_num_term` in
-    # `_allosteric_num_den_exprs` — they build the same polynomial in
-    # different representations. Drift between them produces
-    # inconsistent monomial counts vs the rate equation.
-    function num_poly_for_conf(N_cat, Q_cat, reg_Qs, L_factor)
-        n_term = poly_mul(N_cat, _poly_power(Q_cat, CatN - 1))
-        for i in eachindex(RS)
-            n_reg = regulatory_site_multiplicity(m, i)
-            n_term = poly_mul(n_term, _poly_power(reg_Qs[i], n_reg))
-        end
-        L_factor === nothing ? n_term : poly_mul(poly_sym(L_factor), n_term)
-    end
-
-    # Denominator: Q_cat^CatN × all reg-site factors at multiplicity.
-    # MUST mirror `make_den_term` in `_allosteric_num_den_exprs` — they
-    # build the same polynomial in different representations. Drift between
-    # them produces inconsistent monomial counts vs the rate equation.
-    function den_poly_for_conf(Q_cat, reg_Qs, L_factor)
-        d_term = _poly_power(Q_cat, CatN)
-        for i in eachindex(RS)
-            d_term = poly_mul(d_term, _poly_power(reg_Qs[i],
-                                       regulatory_site_multiplicity(m, i)))
-        end
-        L_factor === nothing ? d_term : poly_mul(poly_sym(L_factor), d_term)
-    end
-
-    # Drop the L*N_T numerator branch when t_state_dead: it expands to
-    # L * 0 * polynomial, contributing zero to monomial count. MUST
-    # mirror `_allosteric_num_den_exprs` to keep monomial counts aligned
-    # with the rate-equation body.
-    if _t_state_dead(m)
-        full_num = num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing)
-    else
-        full_num = poly_add(
-            num_poly_for_conf(N_cat_R, Q_cat_R, reg_Q_R, nothing),
-            num_poly_for_conf(N_cat_T, Q_cat_T, reg_Q_T, :L),
-        )
-    end
-    full_den = poly_add(
-        den_poly_for_conf(Q_cat_R, reg_Q_R, nothing),
-        den_poly_for_conf(Q_cat_T, reg_Q_T, :L),
-    )
-
-    conc_mono(mono) = sort!(MONO([
-        s => e for (s, e) in mono
-        if !is_k_parameter(s) && s != :E_total && s != :Keq && s != :L
-    ]); by=first)
-
-    n_num = length(unique(conc_mono(k) for (k, _) in full_num))
-    n_denom = length(unique(conc_mono(k) for (k, _) in full_den))
-    n_num, n_denom
 end
 

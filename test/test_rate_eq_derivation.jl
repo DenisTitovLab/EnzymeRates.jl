@@ -1,5 +1,5 @@
 # Tests for enzyme rate equation derivation
-# Validates structure, constraints, identifiability,
+# Validates structure, constraints,
 # and correctness of derived rate equations
 
 using OrdinaryDiffEqFIRK
@@ -472,19 +472,6 @@ function test_constraint_counting(spec::MechanismTestSpec)
     end
 end
 
-function test_identifiability(spec::MechanismTestSpec)
-    m = spec.mechanism
-    @testset "Identifiability" begin
-        # The deficit is computed via a monomial-counting heuristic that
-        # over-counts identifiable degrees of freedom for factored
-        # polynomials (e.g. (Q_R)^catN). Use it only for the boolean
-        # is_identifiable check — the magnitude is not biophysically
-        # meaningful.
-        @test (structural_identifiability_deficit(m) <= 0) ==
-              spec.expected_is_identifiable
-    end
-end
-
 function test_reference_qssa(spec::MechanismTestSpec; n_trials=20, seed=42)
     m = spec.mechanism
     # Reference QSSA only works for all-SS mechanisms
@@ -748,7 +735,6 @@ function run_all_tests(spec::MechanismTestSpec)
     @testset "$(spec.name)" begin
         test_structure(spec)
         test_constraint_counting(spec)
-        test_identifiability(spec)
         test_reference_qssa(spec)
         test_analytical_rate(spec)      # Only runs if analytical_rate_fn provided
         test_haldane_equilibrium(spec)
