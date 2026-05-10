@@ -987,7 +987,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom=
-            "P / K3 + (1 + S / K1) * (1 + R / K4)",
+            "1 + S / K1 + P / K3 + R / K4 + R * S / (K1 * K4)",
         ))
     end
 
@@ -1032,7 +1032,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom=
-            "1 + P / K3 + (S / K1) * (1 + R / K4)",
+            "1 + S / K1 + P / K3 + R * S / (K1 * K4)",
         ))
     end
 
@@ -1135,9 +1135,9 @@ function build_mechanism_test_specs()
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> max(p.k2f, p.k5f),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3 + (R / K7) * (k5f * S / K1 - k5r * P / K3)",
+            "k2f * S / K1 + k5f * R * S / (K1 * K7) - (k2r * P / K3 + k5r * P * R / (K3 * K7))",
             expected_factored_denom=
-            "(1 + S / K1 + P / K3) * (1 + R / K7)",
+            "1 + S / K1 + P / K3 + R / K7 + R * S / (K1 * K7) + P * R / (K3 * K7)",
         ))
     end
 
@@ -1198,9 +1198,9 @@ function build_mechanism_test_specs()
             # Denom has both multiplicative (activator) and additive
             # (inhibitor) structure
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3 + (A / K7) * (k5f * S / K1 - k5r * P / K3)",
+            "k2f * S / K1 + k5f * A * S / (K1 * K7) - (k2r * P / K3 + k5r * A * P / (K3 * K7))",
             expected_factored_denom=
-            "I / K10 + (1 + S / K1 + P / K3) * (1 + A / K7)",
+            "1 + A / K7 + I / K10 + S / K1 + P / K3 + A * S / (K1 * K7) + A * P / (K3 * K7)",
         ))
     end
 
@@ -1507,7 +1507,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k5f * S / K1 - k5r * P / K6",
             expected_factored_denom=
-            "(1 + S / K1 + P / K6) * (1 + I1 / K10) * (1 + I2 / K16)",
+            "1 + I1 / K10 + I2 / K16 + S / K1 + P / K6 + I1 * I2 / (K10 * K16) + I1 * S / (K1 * K10) + I1 * P / (K10 * K6) + I2 * S / (K1 * K16) + I2 * P / (K16 * K6) + I1 * I2 * S / (K1 * K10 * K16) + I1 * I2 * P / (K10 * K16 * K6)",
         ))
     end
 
@@ -1562,7 +1562,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k3f * S / K1 - k3r * P / K4",
             expected_factored_denom=
-            "I2 / K9 + (1 + S / K1 + P / K4) * (1 + I1 / K6)",
+            "1 + I1 / K6 + I2 / K9 + S / K1 + P / K4 + I1 * S / (K1 * K6) + I1 * P / (K4 * K6)",
         ))
     end
 
@@ -1609,7 +1609,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k2f * S / K1 - k2r * P / K3",
             expected_factored_denom=
-            "1 + I2 / K5 + P / K3 + (S / K1) * (1 + I1 / K4)",
+            "1 + I2 / K5 + S / K1 + P / K3 + I1 * S / (K1 * K4)",
         ))
     end
 
@@ -1671,7 +1671,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k4f * S / K1 - k4r * P / K5",
             expected_factored_denom=
-            "(1 + I1 / K8 + I2 / K11) * (1 + S / K1 + P / K5)",
+            "1 + I1 / K8 + I2 / K11 + S / K1 + P / K5 + I1 * S / (K1 * K8) + I1 * P / (K5 * K8) + I2 * S / (K1 * K11) + I2 * P / (K11 * K5)",
         ))
     end
 

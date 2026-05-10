@@ -195,6 +195,17 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     # Non-representative steps' columns are folded into their representative
     # via the rename map; this is mathematically equivalent to a kinetic-group
     # equality constraint (K_idx = K_rep, k_idx_f = k_rep_f, ...).
+    #
+    # Binding K's are Kd in the polynomial; cycle products use 1/Kd, so
+    # binding-K column entries get a sign flip on top of the cycle incidence.
+    binding_K_set = Set{Symbol}()
+    for (j, (lhs, _, _, _)) in enumerate(rxns)
+        eq_steps[j] || continue
+        any(s ∉ enz_set for s in lhs) || continue
+        sym = Symbol("K$j")
+        push!(binding_K_set, get(rename, sym, sym))
+    end
+
     A = zeros(Rational{BigInt}, nc, n_vars)
     rhs = Rational{BigInt}.(rhs_coeffs)
     for i in 1:nc, j in 1:nsteps
@@ -202,7 +213,8 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
         if eq_steps[j]
             sym = Symbol("K$j")
             sym = get(rename, sym, sym)
-            A[i, sym_col[sym]] += C[i, j]
+            sign_factor = sym in binding_K_set ? -1 : 1
+            A[i, sym_col[sym]] += sign_factor * C[i, j]
         else
             kf = Symbol("k$(j)f"); kr = Symbol("k$(j)r")
             kf = get(rename, kf, kf); kr = get(rename, kr, kr)
@@ -289,30 +301,11 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     return dep_exprs, Tuple(p for p in all_params if p ∉ dep_set)
 end
 
-"""Apply K→1/K inversion to Haldane dep_exprs.
-When a dependent param is itself a binding K, its RHS is wrapped in `inv_fn`
-to compensate for the implicit LHS inversion (Ka→Kd)."""
-function _apply_kd_inversion(dep_exprs, M::Type{<:EnzymeMechanism}, inv_fn)
-    binding_Ks = Set(_binding_K_symbols(M))
-    isempty(binding_Ks) && return dep_exprs
-    inv_subs = Dict(K => inv_fn(K) for K in binding_Ks)
-    Dict(
-        k => begin
-            rhs = substitute_params_expr(v, inv_subs)
-            k in binding_Ks ? inv_fn(rhs) : rhs
-        end
-        for (k, v) in dep_exprs
-    )
-end
-
 function _constraint_expr_strings(M::Type{<:EnzymeMechanism})
     lines = String[]
     dep_exprs, _ = _dependent_param_exprs(M)
-    if !isempty(dep_exprs)
-        dep_exprs = _apply_kd_inversion(dep_exprs, M, K -> :(1 / $K))
-        for (sym, expr) in sort(collect(dep_exprs); by=p -> string(p[1]))
-            push!(lines, "$sym = $(string(expr))")
-        end
+    for (sym, expr) in sort(collect(dep_exprs); by=p -> string(p[1]))
+        push!(lines, "$sym = $(string(expr))")
     end
     lines
 end
@@ -345,7 +338,6 @@ end
 function _build_rate_body(M, ::Type{ReducedMode})
     expr, _, conc_syms = _raw_rate_expr_and_symbols(M)
     dep_exprs, indep = _dependent_param_exprs(M)
-    dep_exprs = _apply_kd_inversion(dep_exprs, M, K -> :(inv($K)))
     hw_params = (indep..., :Keq, :E_total)
     assignments = [Expr(:(=), sym, dep_exprs[sym])
                    for (sym, _) in sort(collect(dep_exprs); by=first)]

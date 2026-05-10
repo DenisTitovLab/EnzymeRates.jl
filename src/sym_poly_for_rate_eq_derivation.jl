@@ -146,7 +146,11 @@ function sym_det(M::Matrix{POLY}, n::Int)
     result
 end
 
-# Convert POLY to a Julia Expr for @generated function bodies (bare symbols)
+# Convert POLY to a Julia Expr for @generated function bodies (bare symbols).
+# `inverted_params` is retained as an optional parameter for the surviving
+# allosteric-branch callers (`_factored_sigma_to_expr`, etc.) and the 4-arg
+# `_poly_to_expr` overload that wraps a POLY as `FactoredSigma`. Commit 2
+# rewrites those callers to consume flat POLYs and drops `inverted_params`.
 function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol},
                        inverted_params::Set{Symbol}=Set{Symbol}())
     isempty(p) && return 0
@@ -376,7 +380,7 @@ function _factored_poly_to_expr(
     fp::FactoredPoly,
     param_syms::Set{Symbol},
     conc_syms::Set{Symbol},
-    inverted_params::Set{Symbol},
+    inverted_params::Set{Symbol}=Set{Symbol}(),
 )
     # Sort factors: monomials (1 term) first, then by term count descending
     order = sortperm(
@@ -401,7 +405,7 @@ function _factored_sigma_to_expr(
     fs::FactoredSigma,
     param_syms::Set{Symbol},
     conc_syms::Set{Symbol},
-    inverted_params::Set{Symbol},
+    inverted_params::Set{Symbol}=Set{Symbol}(),
 )
     terms = map(fs.coefficients, fs.products) do coeff, fp
         fp_expr = _factored_poly_to_expr(
@@ -425,7 +429,7 @@ function _denom_terms_to_expr(
     dts::Vector{DenomTerm},
     param_syms::Set{Symbol},
     conc_syms::Set{Symbol},
-    inverted_params::Set{Symbol},
+    inverted_params::Set{Symbol}=Set{Symbol}(),
 )
     exprs = map(dts) do dt
         s = _factored_sigma_to_expr(

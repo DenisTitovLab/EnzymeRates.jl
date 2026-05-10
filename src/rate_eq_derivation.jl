@@ -166,13 +166,28 @@ function _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
                 i_f = findfirst(==(e_l), enz_names)
                 j_f = findfirst(==(e_r), enz_names)
                 K = poly_sym(Symbol("K$idx"))
+                # iso = both sides have no metabolite (pure isomerization)
+                is_iso = isempty(m_l) && isempty(m_r)
                 if i_f == cur && j_f ∉ visited
-                    alpha_num[j_f] = poly_mul(poly_mul(alpha_num[cur], K), mp(m_l))
-                    alpha_den[j_f] = poly_mul(alpha_den[cur], mp(m_r))
+                    if is_iso
+                        # iso: K (Ka) in alpha_num for the more-isomerized form
+                        alpha_num[j_f] = poly_mul(alpha_num[cur], K)
+                        alpha_den[j_f] = alpha_den[cur]
+                    else
+                        # binding step: Kd in alpha_den (Kd convention)
+                        alpha_num[j_f] = poly_mul(alpha_num[cur], mp(m_l))
+                        alpha_den[j_f] = poly_mul(poly_mul(alpha_den[cur], K), mp(m_r))
+                    end
                     push!(visited, j_f); push!(queue, j_f)
                 elseif j_f == cur && i_f ∉ visited
-                    alpha_num[i_f] = poly_mul(alpha_num[cur], mp(m_r))
-                    alpha_den[i_f] = poly_mul(poly_mul(alpha_den[cur], K), mp(m_l))
+                    if is_iso
+                        alpha_num[i_f] = alpha_num[cur]
+                        alpha_den[i_f] = poly_mul(alpha_den[cur], K)
+                    else
+                        # backward binding: Kd into alpha_num, m_l (the bound met) into alpha_den
+                        alpha_num[i_f] = poly_mul(alpha_num[cur], K)
+                        alpha_den[i_f] = poly_mul(alpha_den[cur], mp(m_l))
+                    end
                     push!(visited, i_f); push!(queue, i_f)
                 end
             end
@@ -705,8 +720,7 @@ function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
     m = M()
     param_syms = Set{Symbol}(_raw_param_symbols(m))
     conc_syms = Set{Symbol}(metabolites(m))
-    inv_set = Set(_binding_K_symbols(M))
-    expr = to_rate_expr(num, denom_terms, param_syms, conc_syms, inv_set)
+    expr = to_rate_expr(num, denom_terms, param_syms, conc_syms)
     all_params = _sorted_raw_param_symbols(M)
     return expr, all_params, metabolites(m)
 end
@@ -753,13 +767,8 @@ function _rate_v_line(M::Type{<:EnzymeMechanism})
     m = M()
     ps = Set{Symbol}(_raw_param_symbols(m))
     cs = Set{Symbol}(metabolites(m))
-    inv = Set(_binding_K_symbols(M))
-    num_str = _expr_to_string(
-        _factored_sigma_to_expr(num_fs, ps, cs, inv),
-    )
-    den_str = _expr_to_string(
-        _denom_terms_to_expr(denom_terms, ps, cs, inv),
-    )
+    num_str = _expr_to_string(_factored_sigma_to_expr(num_fs, ps, cs))
+    den_str = _expr_to_string(_denom_terms_to_expr(denom_terms, ps, cs))
     "v = E_total * ($num_str) / ($den_str)"
 end
 
@@ -871,19 +880,10 @@ then evaluates max(nk/dk) at runtime parameter values.
 ) where {M <: EnzymeMechanism}
     components = _kcat_components(M)
     dep_exprs, indep = _dependent_param_exprs(M)
-    dep_exprs = _apply_kd_inversion(dep_exprs, M, K -> :(inv($K)))
     hw_params = (indep..., :Keq)
     assignments = [Expr(:(=), sym, dep_exprs[sym])
                    for (sym, _) in sort(collect(dep_exprs); by=first)]
-    # Apply Kd inversion to component expressions: raw polys use Ka,
-    # but params store Kd for binding K's
-    binding_Ks = Set(_binding_K_symbols(M))
-    kd_subs = Dict(K => :(inv($K)) for K in binding_Ks)
-    candidates = [
-        :($(substitute_params_expr(nk, kd_subs)) /
-          $(substitute_params_expr(dk, kd_subs)))
-        for (nk, dk) in components
-    ]
+    candidates = [:($nk / $dk) for (nk, dk) in components]
     result = length(candidates) == 1 ?
         candidates[1] : Expr(:call, :max, candidates...)
     Expr(:block,
@@ -945,34 +945,23 @@ corners and return the max.
               "is unsupported")
     met_key = r_keys[1]
     empty_set = Set{Symbol}()
-    raw_num_k_R = _poly_to_expr(num_R_groups[met_key], empty_set, empty_set)
-    raw_den_k_R = _poly_to_expr(den_R_groups[met_key], empty_set, empty_set)
-
-    # Apply Kd inversion: raw polys use Ka convention, params use Kd
-    binding_Ks_R = Set(_binding_K_symbols(CM))
-    binding_Ks_T = Set(get(rename_T, K, K) for K in binding_Ks_R)
-    num_k_R_expr = substitute_params_expr(
-        raw_num_k_R, Dict(K => :(inv($K)) for K in binding_Ks_R))
-    den_k_R_expr = substitute_params_expr(
-        raw_den_k_R, Dict(K => :(inv($K)) for K in binding_Ks_R))
+    num_k_R_expr = _poly_to_expr(num_R_groups[met_key], empty_set, empty_set)
+    den_k_R_expr = _poly_to_expr(den_R_groups[met_key], empty_set, empty_set)
 
     # T-state at the same metabolite pattern. Missing → set 0 (the saturating
     # pattern is unreachable in T-state, so T contributes neither flux nor
     # enzyme mass at saturation along that pattern).
-    kd_subs_T = Dict(K => :(inv($K)) for K in binding_Ks_T)
     num_T_p = get(num_T_groups, met_key, nothing)
     den_T_p = get(den_T_groups, met_key, nothing)
     num_k_T_expr = num_T_p === nothing ? 0 :
-        substitute_params_expr(
-            _poly_to_expr(num_T_p, empty_set, empty_set), kd_subs_T)
+        _poly_to_expr(num_T_p, empty_set, empty_set)
     den_k_T_expr = den_T_p === nothing ? 0 :
-        substitute_params_expr(
-            _poly_to_expr(den_T_p, empty_set, empty_set), kd_subs_T)
+        _poly_to_expr(den_T_p, empty_set, empty_set)
     t_pattern_dead = den_T_p === nothing
 
     # Build dependent param assignments for R-state
     r_assignments, t_assignments_ =
-        _build_dep_assignments(M_type, K -> :(inv($K)))
+        _build_dep_assignments(M_type)
 
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq)
@@ -1437,14 +1426,13 @@ Returns `(r_assignments::Vector{Expr}, t_assignments::Vector{Expr})`.
 Shared by `_build_allosteric_rate_body` and `rate_equation_string`.
 """
 function _build_dep_assignments(
-    M_type::Type{<:AllostericEnzymeMechanism}, inv_fn,
+    M_type::Type{<:AllostericEnzymeMechanism},
 )
     m = M_type()
     CM = typeof(catalytic_mechanism(m))
 
     dep_R, indep_R = _dependent_param_exprs(CM)
-    dep_R_kd = _apply_kd_inversion(dep_R, CM, inv_fn)
-    sorted_deps = sort(collect(dep_R_kd); by=first)
+    sorted_deps = sort(collect(dep_R); by=first)
 
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
@@ -1511,16 +1499,12 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
     cat_params = Set{Symbol}(_raw_param_symbols(CM()))
     cat_mets = Set{Symbol}(metabolites(CM()))
-    binding_Ks_r = Set(_binding_K_symbols(CM))
 
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
-    # T-state binding K set: renamed counterparts of R-state binding K's
-    # (`:NonequalRT` groups get T-suffixed; `:EqualRT` groups pass through unchanged).
-    binding_Ks_t = Set(get(rename_T, K, K) for K in binding_Ks_r)
 
-    N_R = _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r)
-    Q_R = _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r)
+    N_R = _factored_sigma_to_expr(num_fs, cat_params, cat_mets)
+    Q_R = _denom_terms_to_expr(denom_terms, cat_params, cat_mets)
 
     # T-state catalytic Exprs.
     # Zero `:OnlyR` symbols at POLY level, then rename `:NonequalRT`
@@ -1531,10 +1515,10 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     # have nowhere to go.
     if isempty(r_only_syms)
         N_T = substitute_params_expr(
-            _factored_sigma_to_expr(num_fs, cat_params, cat_mets, binding_Ks_r),
+            _factored_sigma_to_expr(num_fs, cat_params, cat_mets),
             rename_T)
         Q_T = substitute_params_expr(
-            _denom_terms_to_expr(denom_terms, cat_params, cat_mets, binding_Ks_r),
+            _denom_terms_to_expr(denom_terms, cat_params, cat_mets),
             rename_T)
     else
         num_t_poly = _rename_symbols(
@@ -1544,8 +1528,8 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
             _zero_symbols_in_poly(_expand_to_poly(denom_terms), r_only_syms),
             rename_T)
         N_T = _t_state_dead(m) ? 0 :
-              _poly_to_expr(num_t_poly, cat_params, cat_mets, binding_Ks_t)
-        Q_T = _poly_to_expr(den_t_poly, cat_params, cat_mets, binding_Ks_t)
+              _poly_to_expr(num_t_poly, cat_params, cat_mets)
+        Q_T = _poly_to_expr(den_t_poly, cat_params, cat_mets)
     end
 
     reg_Q_R = Any[_reg_site_expr(m, i, false) for i in eachindex(RS)]
@@ -1592,7 +1576,7 @@ function _build_allosteric_rate_body(M_type::Type{<:AllostericEnzymeMechanism})
     full_num, full_den = _allosteric_num_den_exprs(M_type)
     rate_expr = :(E_total * ($full_num) / ($full_den))
 
-    r_assignments, t_assignments_ = _build_dep_assignments(M_type, K -> :(inv($K)))
+    r_assignments, t_assignments_ = _build_dep_assignments(M_type)
     # When the T-state cycle is broken, t_assignments (T-state Haldanes
     # and :EqualRT catalytic mirrors K_T = K) become dead code — they're
     # only referenced from the L*num_T branch, which is now elided.
@@ -1629,7 +1613,7 @@ function rate_equation_string(
     hw_params = (indep..., :Keq, :E_total)
     mets = metabolites(M())
 
-    r_assignments, t_assignments_ = _build_dep_assignments(M, K -> :(1 / $K))
+    r_assignments, t_assignments_ = _build_dep_assignments(M)
     t_assignments = _t_state_dead(M()) ? Expr[] : t_assignments_
     dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in r_assignments]
     t_dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in t_assignments]

@@ -133,24 +133,9 @@ end
 """
 Get dependent parameter expressions from mechanism using internal API.
 Returns vector of (symbol, expression_string) pairs.
-Applies K→1/K substitution for binding RE steps (Kd convention).
 """
 function _get_dependent_params(m)
     dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
-    binding_Ks = EnzymeRates._binding_K_symbols(typeof(m))
-    if !isempty(binding_Ks)
-        binding_set = Set(binding_Ks)
-        inv_subs = Dict(K => :(1 / $K) for K in binding_Ks)
-        dep_exprs = Dict(
-            k => begin
-                rhs = EnzymeRates.substitute_params_expr(v, inv_subs)
-                # When dependent param is itself a binding K, wrap in 1/()
-                # to compensate for implicit LHS Ka→Kd inversion
-                k in binding_set ? :(1 / $rhs) : rhs
-            end
-            for (k, v) in dep_exprs
-        )
-    end
     pairs = Tuple{Symbol, String}[]
     for (sym, expr) in sort(collect(dep_exprs); by=first)
         push!(pairs, (sym, string(expr)))
@@ -1145,8 +1130,8 @@ end
     actual = rate_equation_string(m_allo)
     expected = raw"""(; K1, K2, k3f, K1_T, K2_T, k3f_T, K_R_reg1, K_R_T_reg1, L, Keq, E_total) = params
 (; S, P, R) = concs
-k3r = (1 / Keq) * (1 / (1 / K1)) * (1 / K2) * k3f
-k3r_T = (1 / Keq) * (1 / (1 / K1_T)) * (1 / K2_T) * k3f_T
+k3r = (1 / Keq) * K1 * (1 / K2) * k3f
+k3r_T = (1 / Keq) * K1_T * (1 / K2_T) * k3f_T
 v = E_total * (2 * ((k3f * S / K2 - k3r * P / K1) * (1 + P / K1 + S / K2) * (1 + R / K_R_reg1) ^ 2 + L * (k3f_T * S / K2_T - k3r_T * P / K1_T) * (1 + P / K1_T + S / K2_T) * (1 + R / K_R_T_reg1) ^ 2)) / ((1 + P / K1 + S / K2) ^ 2 * (1 + R / K_R_reg1) ^ 2 + L * (1 + P / K1_T + S / K2_T) ^ 2 * (1 + R / K_R_T_reg1) ^ 2)"""
     @test actual == expected
 end
