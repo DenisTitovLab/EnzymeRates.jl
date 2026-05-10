@@ -41,7 +41,7 @@ projects results to all members), so the cost of cross-hash duplication is
 2. **Reduce code volume** in the rate-equation derivation pipeline. Code
    simplification is a co-equal objective with the dedup fix; comments and
    docstrings don't count toward the line-reduction goal. Estimated net
-   reduction is ~700 body lines across `rate_eq_derivation.jl`,
+   reduction is ~640 body lines across `rate_eq_derivation.jl`,
    `sym_poly_for_rate_eq_derivation.jl`,
    `thermodynamic_constr_for_rate_eq_derivation.jl`,
    `test/test_sym_poly.jl`,
@@ -155,6 +155,16 @@ in Step 2 and avoids constraining the future redesign.
   `src/rate_eq_derivation.jl` mentions "identifiability checks" and
   `_count_allosteric_rate_monomials` and `structural_identifiability_deficit`.
   Update bullet to drop those references.
+
+**Stale "Phase G" planning-phase doc references:**
+
+- `src/identify_rate_equation.jl:147` — docstring for
+  `_canonicalize_rate_eq_with_map` says "(Phase G.0)". Drop the parenthetical.
+- `src/rate_eq_derivation.jl:22` — docstring for `parameters` mentions
+  "Phase G's rate-equation canonicalizer". Reword to drop the phase label.
+
+These reference an old planning phase that no longer exists; the
+descriptions stay relevant once the phase tag is dropped.
 
 ### Why this lands first
 
@@ -271,6 +281,13 @@ POLYs.
   in `sym_poly_for_rate_eq_derivation.jl`. Confirmed unreachable after
   Step 0 removes their identifiability callers and Step 2 makes
   `_raw_symbolic_rate_polys` return flat POLYs.
+- `_poly_power` (`sym_poly_for_rate_eq_derivation.jl:48`). All four
+  callers are gone after Step 0 + Step 2:
+  `_count_allosteric_rate_monomials` (Step 0), `_try_poly_power` and
+  `_expand_factored_poly` (Step 2). Confirmed unreachable.
+- `_try_poly_exact_div` (`sym_poly_for_rate_eq_derivation.jl:69–116`).
+  Only caller is `_try_algebraic_factor_sigma` (Step 2 deletion). ~50
+  lines of polynomial exact-division logic become unreachable.
 - `test/test_sym_poly.jl` — entire file (299 lines). Tests
   `FactoredPoly` / `FactoredSigma` / `DenomTerm` construction and the
   `_expand_*` helpers exclusively. With those types and helpers gone,
@@ -589,7 +606,7 @@ equivalence check (will pass — math is unchanged).
 
 | File | Lines removed | Lines added | Net |
 |---|---|---|---|
-| `src/sym_poly_for_rate_eq_derivation.jl` | ~150 (FactoredPoly/Sigma/DenomTerm types and rename overloads, _factored_*_to_expr, _expand_factored_*, _expand_to_poly, _estimate_expanded_term_count, inverted_params parameter) | ~5 | ≈ −145 |
+| `src/sym_poly_for_rate_eq_derivation.jl` | ~210 (FactoredPoly/Sigma/DenomTerm types and rename overloads, _factored_*_to_expr, _expand_factored_*, _expand_to_poly, _estimate_expanded_term_count, _poly_power, _try_poly_exact_div, inverted_params parameter) | ~5 | ≈ −205 |
 | `src/rate_eq_derivation.jl` | ~200 (_factor_poly, _try_algebraic_factor_sigma, _try_poly_power, _haldane_equality_substitutions, structural_identifiability_deficit ×2, _count_allosteric_rate_monomials, _binding_K_symbols non-allosteric usage, inv_set threading, kcat inv($K) substitutions) | ~25 (Pass 2 of _build_kinetic_rename_map, _dependent_param_exprs_kernel extraction, sectioned rate_equation_string, ANNOTATION_SUBSTITUTED constant) | ≈ −175 |
 | `src/thermodynamic_constr_for_rate_eq_derivation.jl` | ~25 (_apply_kd_inversion + callers, inv_fn plumbing) | ~5 (binding-K sign-flip in A-matrix) | ≈ −20 |
 | `src/EnzymeRates.jl` | 1 (export of structural_identifiability_deficit) | 0 | ≈ −1 |
@@ -599,7 +616,7 @@ equivalence check (will pass — math is unchanged).
 | `test/mechanism_definitions_for_test_enzyme_derivation.jl` | ~45 (expected_is_identifiable field + 42 occurrences) | 0 | ≈ −45 |
 | `test/test_eq_hash_dedup.jl` (new) | 0 | ~50 | ≈ +50 |
 | `test/test_dedup_csv_replay.jl` (new) | 0 | ~25 | ≈ +25 |
-| **Total** | **~732** | **~155** | **≈ −577** |
+| **Total** | **~792** | **~155** | **≈ −637** |
 
 Comments and docstrings don't count toward the reduction. The number above
 is body-line delta only, measured against current `git HEAD`. Per-file
@@ -654,7 +671,8 @@ Four commits in dependency order, single PR:
 3. **Commit 2 — Always-expanded + helper deletion.** Drop `_factor_poly`
    family; `_factored_*_to_expr`; `FactoredPoly`/`FactoredSigma`/`DenomTerm`;
    `_estimate_expanded_term_count`; `_haldane_equality_substitutions`;
-   `_expand_factored_*` and `_expand_to_poly`; the entire
+   `_expand_factored_*` and `_expand_to_poly`; `_poly_power` and
+   `_try_poly_exact_div` (now unreachable after the above); the entire
    `test/test_sym_poly.jl` file. Simplify `_rate_v_line`,
    `_raw_symbolic_rate_polys`. Update allosteric inner-polynomial emission
    to consume flat POLYs directly. Update the 20 factored-form fixtures
