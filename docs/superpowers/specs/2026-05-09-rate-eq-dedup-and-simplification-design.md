@@ -41,7 +41,7 @@ projects results to all members), so the cost of cross-hash duplication is
 2. **Reduce code volume** in the rate-equation derivation pipeline. Code
    simplification is a co-equal objective with the dedup fix; comments and
    docstrings don't count toward the line-reduction goal. Estimated net
-   reduction is ~640 body lines across `rate_eq_derivation.jl`,
+   reduction is ~770 body lines across `rate_eq_derivation.jl`,
    `sym_poly_for_rate_eq_derivation.jl`,
    `thermodynamic_constr_for_rate_eq_derivation.jl`,
    `test/test_sym_poly.jl`,
@@ -472,22 +472,16 @@ const _CV = CSV.read(joinpath(@__DIR__, "..", "dedup_investigation",
 _mech(row_idx) = eval(Meta.parse(_CV[row_idx, :mechanism_type]))()
 
 @testset "eq_hash dedup" begin
-    @testset "Source A: factoring variants" begin
-        # Mech 2 vs Mech 1 (rows 27 vs 22): denominator factored differently.
-        @test _canonical_rate_eq_hash(_mech(27)) ==
-              _canonical_rate_eq_hash(_mech(22))
-    end
+    # Sanity: row indices match the investigation's eq_hashes.
+    @test _CV[22, :eq_hash] == "831e36af"
+    @test _CV[27, :eq_hash] == "9c7141ac"
+    @test _CV[31, :eq_hash] == "89f33d51"
+    @test _CV[36, :eq_hash] == "b362dd75"
 
-    @testset "Source B: Ka↔Kd inversion artifact" begin
-        # Mech 1 vs Mech 3 (rows 22 vs 31): both define K8, only Mech 1 uses it.
-        @test _canonical_rate_eq_hash(_mech(22)) ==
-              _canonical_rate_eq_hash(_mech(31))
-        # Mech 2 vs Mech 4 (rows 27 vs 36): Mech 4 has dead K12 = 1/(1/K2).
-        @test _canonical_rate_eq_hash(_mech(27)) ==
-              _canonical_rate_eq_hash(_mech(36))
-    end
-
-    @testset "Source C: split-with-tie ≡ pre-merged" begin
+    # Joint cluster collapse — does not isolate which source caused
+    # the collapse. The CSV-replay test (Task 3.9) is the orthogonal
+    # source-validation across all sources jointly.
+    @testset "LDH n=7 cluster collapses to one hash" begin
         for j in (27, 31, 36)
             @test _canonical_rate_eq_hash(_mech(22)) ==
                   _canonical_rate_eq_hash(_mech(j))
@@ -618,7 +612,13 @@ equivalence check (will pass — math is unchanged).
 | `test/mechanism_definitions_for_test_enzyme_derivation.jl` | ~45 (expected_is_identifiable field + 42 occurrences) | 0 | ≈ −45 |
 | `test/test_eq_hash_dedup.jl` (new) | 0 | ~50 | ≈ +50 |
 | `test/test_dedup_csv_replay.jl` (new) | 0 | ~25 | ≈ +25 |
-| **Total** | **~792** | **~155** | **≈ −637** |
+| **Total** | **~922** | **~155** | **≈ −767** |
+
+(Updated to include items added during 2nd-round review: inlined
+`_kcat_components` and `_rate_v_line`, deleted `_constraint_expr_strings`,
+deleted both `_binding_K_symbols` overloads, inlined `_classify_cycle`
+into `_thermodynamic_constraints`, plus the existing 2-arg-overload
+inlines.)
 
 Comments and docstrings don't count toward the reduction. The number above
 is body-line delta only, measured against current `git HEAD`. Per-file

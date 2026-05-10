@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Collapse three sources of rate-equation `eq_hash` duplication (factoring variants, Ka↔Kd inversion, split-with-tie ≡ pre-merged) and simplify the derivation pipeline by ~640 net body lines, while preserving all rate-equation correctness.
+**Goal:** Collapse three sources of rate-equation `eq_hash` duplication (factoring variants, Ka↔Kd inversion, split-with-tie ≡ pre-merged) and simplify the derivation pipeline by ~770 net body lines, while preserving all rate-equation correctness.
 
 **Architecture:** Four sequential commits in one PR. Commit 0 removes the parameter-identifiability code (independent prep). Commit 1 makes polynomial construction use Kd directly (Source B). Commit 2 always emits expanded polynomials and deletes the entire algebraic-factoring family + types + tests (Source A). Commit 3 absorbs single-symbol Wegscheider RE ties into the kinetic-group rename map and adds section-labeled output + canonicalizer normalization (Source C).
 
@@ -373,23 +373,14 @@ else
         @test _CV[31, :eq_hash] == "89f33d51"
         @test _CV[36, :eq_hash] == "b362dd75"
 
-        @testset "Source A: factoring variants of same polynomial" begin
-            # Mech 2 vs Mech 1 (rows 27 vs 22): denominator factored differently.
-            @test _canonical_rate_eq_hash(_mech(27)) ==
-                  _canonical_rate_eq_hash(_mech(22))
-        end
-
-        @testset "Source B: Ka↔Kd inversion artifact" begin
-            # Mech 1 vs Mech 3 (rows 22 vs 31): both define K8, only Mech 1 uses it.
-            @test _canonical_rate_eq_hash(_mech(22)) ==
-                  _canonical_rate_eq_hash(_mech(31))
-            # Mech 2 vs Mech 4 (rows 27 vs 36): Mech 4 has dead K12 = 1/(1/K2).
-            @test _canonical_rate_eq_hash(_mech(27)) ==
-                  _canonical_rate_eq_hash(_mech(36))
-        end
-
-        @testset "Source C: split-with-tie ≡ pre-merged" begin
-            # All four cluster into one canonical equation.
+        # The 4-mechanism cluster collapse is a JOINT test: it asserts the
+        # whole cluster shares one hash after all three sources are fixed.
+        # It does NOT isolate which source caused the collapse — fixing
+        # any single source could collapse pairs that also differ by other
+        # sources. The CSV-replay test (Task 3.9) is the orthogonal source-
+        # validation: if eq_hash count == distinct-loss count holds across
+        # n=5..8, all three sources are fixed.
+        @testset "LDH n=7 cluster collapses to one hash" begin
             for j in (27, 31, 36)
                 @test _canonical_rate_eq_hash(_mech(22)) ==
                       _canonical_rate_eq_hash(_mech(j))
@@ -410,6 +401,16 @@ else
     end
 end
 ```
+
+**Note on per-source isolation**: ideally each source would have a
+mechanism pair that ONLY differs by that source. Constructing such pairs
+synthetically is complex; the CSV-replay test (Task 3.9) covers all
+sources jointly across hundreds of mechanisms per `n_params` bucket, so
+it's the load-bearing dedup correctness check. The cluster test above
+acts as a fast smoke test using a known LDH cluster; it doesn't need to
+turn green incrementally per commit (it can stay red until Commit 3
+finishes, and then it should turn fully green together with the
+section-label test).
 
 - [ ] **Step 2: Add include line to `test/runtests.jl`.**
 
@@ -482,9 +483,10 @@ correct for the use cases that matter and will be redesigned later.
 Removing it now unblocks the polynomial-helper deletions in the
 following commits and avoids constraining the redesign.
 
-Adds test/test_eq_hash_dedup.jl with TDD tests for Sources A, B, C of
-eq_hash duplication. The Source-A/B/C testsets are intentionally red at
-this commit and turn green over the following three commits.
+Adds test/test_eq_hash_dedup.jl with the LDH n=7 cluster collapse and
+section-label tests. Both are intentionally red at this commit and turn
+green at the end of Commit 3 (after all three source fixes land
+together).
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -956,9 +958,9 @@ In `src/sym_poly_for_rate_eq_derivation.jl` around lines 375, 400, 424, 451 — 
 
 Easier alternative: change the default argument value from `Set{Symbol}()` to nothing-meaningful and stop passing from callers. They go away in Commit 2 anyway. Pick whichever keeps the package compiling.
 
-- [ ] **Step 3: Drop `_poly_to_expr` overload at `rate_eq_derivation.jl:1516`.**
+- [ ] **Step 3: Leave the 4-arg `_poly_to_expr` overload at `rate_eq_derivation.jl:1516` alone in this commit.**
 
-Around line 1516 there's a small overload:
+Around line 1516 there's an overload:
 
 ```julia
 function _poly_to_expr(p::POLY, param_syms, conc_syms, inv_set)
@@ -967,7 +969,7 @@ function _poly_to_expr(p::POLY, param_syms, conc_syms, inv_set)
 end
 ```
 
-This is the four-arg version that wraps a POLY as FactoredSigma. After Step 2 it's gone anyway, but for now: remove the `inv_set` parameter or delete the overload entirely (since the three-arg `_poly_to_expr` in `sym_poly_for_rate_eq_derivation.jl` covers POLY directly).
+This wraps a POLY as `FactoredSigma`. **Do not delete it in Commit 1** — its caller (`_allosteric_num_den_exprs` at lines 1568–1569) still passes `binding_Ks_t` as `inv_set` until Task 2.9 (Commit 2) rewrites that function to consume flat POLYs. Deleting the 4-arg overload here would break the package mid-commit. Just stop the new code in Step 1 from depending on `inverted_params`; the legacy 4-arg overload survives the commit window. Commit 2 (Task 2.10 — `FactoredPoly`/`FactoredSigma`/`DenomTerm` removal) deletes this 4-arg overload along with the `FactoredSigma` type itself.
 
 ### Task 1.7: Drop `_binding_K_symbols` non-allosteric callers and `inv_set` plumbing
 
@@ -1057,33 +1059,22 @@ If any non-allosteric, non-factor-poly caller of `_binding_K_symbols` remains, y
 **Files:**
 - Modify: `src/rate_eq_derivation.jl:973–991`
 
-- [ ] **Step 1: Delete the substitute_params_expr block.**
+- [ ] **Step 1: Delete the R-state and T-state substitute_params_expr blocks.**
 
-Around line 973:
+Around lines 973–991, the current code has TWO blocks: an R-state block computing `num_k_R_expr`/`den_k_R_expr`, and a T-state block immediately below computing `num_k_T_expr`/`den_k_T_expr` (the T-state block uses `binding_Ks_T = Set(get(rename_T, K, K) for K in binding_Ks_R)` and `kd_subs_T = Dict(K => :(inv($K)) for K in binding_Ks_T)`).
 
-```julia
-    # Apply Kd inversion: raw polys use Ka convention, params use Kd
-    binding_Ks_R = Set(_binding_K_symbols(CM))
-    binding_Ks_T = Set(get(rename_T, K, K) for K in binding_Ks_R)
-    num_k_R_expr = substitute_params_expr(
-        raw_num_k_R, Dict(K => :(inv($K)) for K in binding_Ks_R))
-    den_k_R_expr = substitute_params_expr(
-        raw_den_k_R, Dict(K => :(inv($K)) for K in binding_Ks_R))
-```
-
-(and the corresponding T-state block immediately below it)
-
-Replace with direct use:
+Delete BOTH blocks entirely, replacing with direct use of the raw expressions:
 
 ```julia
     num_k_R_expr = raw_num_k_R
     den_k_R_expr = raw_den_k_R
-    # T-state expressions also use raw forms now
+    num_k_T_expr = raw_num_k_T  # if a corresponding raw_num_k_T exists; else inline
+    den_k_T_expr = raw_den_k_T
 ```
 
-(and similarly drop the T-state substitution wrapping). The polynomial is already in Kd form after Task 1.3 + 1.4.
+Verify by grep that no `kd_subs_R`, `kd_subs_T`, `binding_Ks_R`, `binding_Ks_T` references remain in this function. The polynomial is already in Kd form after Task 1.3 + 1.4, so no further substitution is needed.
 
-### Task 1.9: Run dedup tests; confirm Source-B turns green
+### Task 1.9: Run dedup tests; confirm sanity passes
 
 - [ ] **Step 1: In REPL, re-include the dedup test file.**
 
@@ -1092,13 +1083,11 @@ include("test/test_eq_hash_dedup.jl")
 ```
 
 Expected:
-- Sanity tests: green.
-- **Source A: still RED** (factoring variants haven't been collapsed yet).
-- **Source B: GREEN** ← this commit's target.
-- **Source C: still RED** (split-with-tie not absorbed yet).
-- Section labels: still RED.
+- Sanity tests: green (4 row-index hash matches).
+- LDH cluster collapse: still red (multi-source; needs Commit 3).
+- Section labels: still red (no section headers yet).
 
-If Source B is still red, the polynomial-construction or Haldane sign-flip is wrong. Diff a Source-B mechanism's `rate_equation_string` output against what you predicted; investigate.
+The cluster test is intentionally joint and will only turn green at the end of Commit 3. The Source-B fix lands here, but its effect is only visible via the Pkg.test() pass on the previously-`1/(1/X)`-affected fixtures (Task 1.2's hand-updated expected strings should now match).
 
 ### Task 1.10: Run full test suite
 
@@ -1798,7 +1787,7 @@ The fixture's `expected` is byte-exact, but the same testset has a numerical-equ
 
 Update lines 1160–1164 of `test/test_rate_eq_derivation.jl` to embed the captured string verbatim.
 
-### Task 2.14: Run dedup tests; confirm Source A turns green
+### Task 2.14: Run dedup tests; cluster test may partially collapse
 
 - [ ] **Step 1: Run the dedup test file.**
 
@@ -1808,10 +1797,13 @@ include("test/test_eq_hash_dedup.jl")
 
 Expected:
 - Sanity: green.
-- Source A: **GREEN** ← this commit's target.
-- Source B: green (from Commit 1).
-- Source C: still RED.
-- Section labels: still RED.
+- LDH cluster collapse: partial — pairs that differ only by Sources A or B may collapse; pairs that differ by Source C still red.
+- Section labels: still red.
+
+Don't gate Commit 2 on the cluster test fully turning green; that requires Commit 3's Pass 2 absorption + canonicalizer block normalization. Gate this commit on:
+- The 20 hand-expanded factored-form fixtures (Task 2.1) match.
+- The byte-identical allosteric fixture (Task 2.13) matches.
+- All other Pkg.test() suites green.
 
 ### Task 2.15: Run full test suite
 
@@ -1824,6 +1816,40 @@ julia --project -e 'using Pkg; Pkg.test()'
 Expected: all tests pass except Source C and section-label tests in `test_eq_hash_dedup.jl`. The 20 hand-expanded fixtures should match. The byte-identical allosteric fixture should match (after Task 2.13).
 
 If a non-dedup test fails: most likely a fixture you missed, or the polynomial-renaming order differs in `_rename_symbols`. Investigate; do not bypass.
+
+### Task 2.13.5: Inline `_kcat_components` and `_rate_v_line`
+
+**Files:**
+- Modify: `src/rate_eq_derivation.jl` (around lines 750 and 858)
+
+After Commit 2 simplifies these to ~5 and ~4 lines respectively, both have a single caller and inlining clarifies the data flow.
+
+- [ ] **Step 1: Inline `_kcat_components` into `_kcat_forward` (EnzymeMechanism).**
+
+`_kcat_components(M)` after Task 2.7 is roughly 5 lines (`_raw_symbolic_rate_polys` + `_kcat_groups_from_polys` + group iteration). Move that body directly into `_kcat_forward(::M, params::NamedTuple) where {M<:EnzymeMechanism}` (around line 893). Delete the helper.
+
+- [ ] **Step 2: Inline `_rate_v_line` into `rate_equation_string` callers.**
+
+`_rate_v_line(M)` after Task 2.5 is the 4-line:
+
+```julia
+num, den = _raw_symbolic_rate_polys(M)
+m = M()
+ps = Set{Symbol}(_raw_param_symbols(m))
+cs = Set{Symbol}(metabolites(m))
+"v = E_total * ($(_expr_to_string(_poly_to_expr(num, ps, cs)))) / " *
+    "($(_expr_to_string(_poly_to_expr(den, ps, cs))))"
+```
+
+Two callers: `rate_equation_string(::M, ::FullMode)` and `rate_equation_string(::M, ::ReducedMode)`. Inline into both. Delete the helper.
+
+- [ ] **Step 3: Reload, run smoke test.**
+
+```julia
+include("test/test_rate_eq_derivation.jl")
+```
+
+Expected: all rate_equation_string and kcat tests pass unchanged.
 
 ### Task 2.15.5: Update CLAUDE.md line 290 (sym_poly bullet)
 
@@ -1948,12 +1974,12 @@ julia --project -e 'using EnzymeRates; m = EnzymeRates.Tests; nothing'
 
 The wrapper preserves the existing public interface; nothing else should break.
 
-### Task 3.1.5: Inline the 2-arg overloads of `_enzyme_incidence_matrix` and `_thermodynamic_constraints`
+### Task 3.1.5: Inline the 2-arg overloads of `_enzyme_incidence_matrix` and `_thermodynamic_constraints`, plus `_classify_cycle`
 
 **Files:**
-- Modify: `src/thermodynamic_constr_for_rate_eq_derivation.jl:35–122`
+- Modify: `src/thermodynamic_constr_for_rate_eq_derivation.jl:35–158`
 
-The current chain has 4 functions across 2 indirection layers. The 1-arg `_enzyme_incidence_matrix(M::Type)` overload (lines 47–53) has zero callers as currently written. The multi-arg `_enzyme_incidence_matrix` and `_thermodynamic_constraints` versions can be inlined into a single `_thermodynamic_constraints(M::Type)` function. Saves ~30 lines.
+The current chain has 5 functions across 3 indirection layers. The 1-arg `_enzyme_incidence_matrix(M::Type)` overload (lines 47–53) has zero callers as currently written. The multi-arg `_enzyme_incidence_matrix` and `_thermodynamic_constraints` versions can be inlined into a single `_thermodynamic_constraints(M::Type)` function. `_classify_cycle` (lines 124–158, ~25 lines) has a single caller (line 108) inside `_thermodynamic_constraints` and can be inlined as a closure. Total savings: ~55 lines.
 
 - [ ] **Step 1: Delete the 1-arg `_enzyme_incidence_matrix(M::Type)` overload.**
 
@@ -1979,12 +2005,15 @@ Around lines 35–45 (multi-arg `_enzyme_incidence_matrix`) and 91–112 (multi-
 
 Around lines 114–122. The 1-arg version becomes the single function; the multi-arg version goes away.
 
-After this Step the file has:
-- `_integer_nullspace` (one function, unchanged)
-- `_thermodynamic_constraints(M::Type{<:EnzymeMechanism})` (one function, ~50 lines, including inlined matrix construction)
-- `_classify_cycle` (one function, unchanged)
+- [ ] **Step 4: Inline `_classify_cycle` as a closure inside `_thermodynamic_constraints`.**
 
-- [ ] **Step 4: Reload, run a small mechanism test as a smoke check.**
+`_classify_cycle(nu_cycle, nu_net, i)` is called once at line 108. Extract its 25-line body as a `let`-binding or inner `function classify_cycle(...)` closure inside the parent. Delete the standalone function.
+
+After Step 4 the file has:
+- `_integer_nullspace` (one function, unchanged)
+- `_thermodynamic_constraints(M::Type{<:EnzymeMechanism})` (one function, ~75 lines, including inlined matrix construction and inlined cycle classification)
+
+- [ ] **Step 5: Reload, run a small mechanism test as a smoke check.**
 
 ```julia
 include("test/mechanism_definitions_for_test_enzyme_derivation.jl")
@@ -2028,12 +2057,6 @@ end
 With:
 
 ```julia
-"""Predicate: is this Symbol an RE binding K (i.e., `K{digits}` form)?"""
-function _is_re_K(sym::Symbol)
-    s = string(sym)
-    length(s) >= 2 && s[1] == 'K' && all(isdigit, s[2:end])
-end
-
 function _build_kinetic_rename_map(M::Type{<:EnzymeMechanism})
     m = M()
     rename = Dict{Symbol, Symbol}()
@@ -2055,11 +2078,27 @@ function _build_kinetic_rename_map(M::Type{<:EnzymeMechanism})
         end
     end
 
-    # Pass 2: single-symbol Wegscheider RE ties from raw dep_exprs (Pass 1 only)
+    # Build binding-K set (steps with metabolite on LHS, with rename
+    # applied) so Pass 2 only absorbs ties between two binding K's.
+    # Absorbing a binding-K-to-iso-K tie would produce inconsistent
+    # sign-flips in the A-matrix when the kernel runs with the full
+    # rename, since the binding-K column is sign-flipped but the iso-K
+    # column is not.
+    rxns = reactions(m)
+    enz_set = Set(enzyme_forms(m))
+    binding_set = Set{Symbol}()
+    for (idx, (lhs, _, _, _)) in enumerate(rxns)
+        eq[idx] || continue
+        any(s ∉ enz_set for s in lhs) || continue
+        sym = Symbol("K$idx")
+        push!(binding_set, get(rename, sym, sym))
+    end
+
+    # Pass 2: single-symbol Wegscheider RE ties between two binding K's
     dep_raw, _ = _dependent_param_exprs_kernel(M, rename)
     for (lhs, rhs) in dep_raw
         rhs isa Symbol || continue
-        _is_re_K(lhs) && _is_re_K(rhs) || continue
+        lhs in binding_set && rhs in binding_set || continue
         rename[lhs] = get(rename, rhs, rhs)
     end
 
@@ -2243,6 +2282,13 @@ function rate_equation_string(
         line = "$sym = $(_expr_to_string(expr))"
         push!(is_haldane ? hal_lines : weg_lines, line)
     end
+    # Re-sort each section lexicographically so the line ordering is
+    # deterministic regardless of whether the line came from R-state
+    # dep_R_raw (already sorted) or T-state t_assignments (appended in
+    # _build_dep_assignments iteration order). This is load-bearing for
+    # eq_hash dedup of allosteric Source-C clusters.
+    sort!(weg_lines)
+    sort!(hal_lines)
 
     full_num, full_den = _allosteric_num_den_exprs(M)
     v_line = "v = E_total * ($(_expr_to_string(full_num))) / ($(_expr_to_string(full_den)))"
@@ -2330,8 +2376,15 @@ With:
     is_section_header(ln) = occursin(r"^# .+ constraints:$", ln)
 
     # 2. Identify single-symbol equality lines (any section).
+    # Tighter pattern than \w+: only match true RE/SS rate-constant
+    # symbols (K{digits}, K{digits}_T, k{digits}f, k{digits}r,
+    # k{digits}f_T, k{digits}r_T). Loose \w+ would falsely match
+    # regulator-K-to-regulator-K patterns (K_R_reg2 = K_R_reg1) which
+    # don't pass through the absorption pipeline and shouldn't be
+    # block-normalized.
+    sym_pattern = "(?:K\\d+(?:_T)?|k\\d+[fr](?:_T)?)"
     is_single_eq(ln) = occursin(
-        Regex("^\\s*\\w+\\s*=\\s*\\w+\\s*" *
+        Regex("^\\s*$sym_pattern\\s*=\\s*$sym_pattern\\s*" *
               replace(ANNOTATION_SUBSTITUTED, "(" => "\\(", ")" => "\\)") *
               "\$"),
         ln)
@@ -2399,7 +2452,7 @@ include("test/test_rate_eq_derivation.jl")
 
 Expected: byte-exact fixture tests fail. (Source-A and Source-B are still green; only the section-label additions are new failures.)
 
-### Task 3.8: Run dedup tests; confirm Source C and section labels turn green
+### Task 3.8: Run dedup tests; cluster test fully collapses
 
 - [ ] **Step 1: Run.**
 
@@ -2409,12 +2462,49 @@ include("test/test_eq_hash_dedup.jl")
 
 Expected:
 - Sanity: green.
-- Source A: green.
-- Source B: green.
-- Source C: **GREEN** ← this commit's target.
-- Section labels: **GREEN** ← this commit's target.
+- LDH cluster collapse: **GREEN** ← all four members canonicalize to one hash.
+- Section labels: **GREEN**.
 
-If Source C is still red after Tasks 3.1–3.6: the canonicalizer's block-normalization regex isn't catching all single-symbol equalities. Diff a Source-C pair's canonical strings.
+If the cluster test is still red after Tasks 3.1–3.6:
+- Check the canonicalizer's tightened regex (`K\d+(?:_T)?` etc.) actually matches the lines emitted by the new sectioned `rate_equation_string`.
+- Check that Pass 2 absorption is restricted to binding-K-to-binding-K (not iso K's).
+- Diff the canonical strings of two non-collapsing rows to identify the residual pattern.
+
+If a multi-symbol Haldane closure with different pivot choices is still distinct between cluster members, that points to a Source-C variant the current Pass 2 doesn't catch — escalate before merging.
+
+### Task 3.7.5: Delete now-unreachable helpers
+
+After Task 3.3 inlines constraint emission into `rate_equation_string`, two helpers become unreachable:
+
+**Files:**
+- Modify: `src/thermodynamic_constr_for_rate_eq_derivation.jl`
+- Modify: `src/rate_eq_derivation.jl`
+
+- [ ] **Step 1: Delete `_constraint_expr_strings`.**
+
+The function at `src/thermodynamic_constr_for_rate_eq_derivation.jl:308–318` had its only caller at `rate_equation_string(::M, ::ReducedMode)` line 776, which Task 3.3 replaced with inline construction. Confirm via `grep -n "_constraint_expr_strings" src/`. Delete the function (~10 lines).
+
+- [ ] **Step 2: Audit and delete `_binding_K_symbols` if dead.**
+
+After Tasks 1.7, 1.8, 2.7, 2.8, 2.9, the allosteric-side callers of `_binding_K_symbols` (rate_eq_derivation.jl lines 901, 973, 1535, 1541) are gone. The non-allosteric overload at line 678 also has no remaining callers (Tasks 1.7 dropped it from `_raw_rate_expr_and_symbols` and `_rate_v_line`). The 2-overload chain (`_binding_K_symbols(EnzymeMechanism)` and `_binding_K_symbols(AllostericEnzymeMechanism)` at line 1315) becomes entirely unreachable.
+
+```bash
+grep -n "_binding_K_symbols" src/
+```
+
+If the only matches are the function definitions themselves, delete BOTH overloads:
+- Lines ~678–696 (EnzymeMechanism overload)
+- Lines ~1315–1321 (AllostericEnzymeMechanism overload)
+
+Saves ~30 lines.
+
+If grep shows ANY remaining caller, investigate before deleting.
+
+- [ ] **Step 3: Reload and verify smoke tests still pass.**
+
+```julia
+include("test/test_rate_eq_derivation.jl")
+```
 
 ### Task 3.9: Create CSV-replay test
 
@@ -2576,7 +2666,7 @@ Expected: a single hash value across all four rows of the cluster.
 git diff --stat main src/ test/
 ```
 
-Expected: net deletion of ~640 body lines (some + on tests for the dedup file, large − on src and the deleted test_sym_poly.jl).
+Expected: net deletion of ~770 body lines (some + on tests for the dedup file, large − on src and the deleted test_sym_poly.jl).
 
 ### Task F.2: Verify CLAUDE.md is up to date
 
