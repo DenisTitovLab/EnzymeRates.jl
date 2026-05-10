@@ -212,171 +212,6 @@ function _compute_alpha(enz_names, enz_set, rxns, eq_steps, groups)
     alpha_num, alpha_den, sigma_num, sigma_den
 end
 
-# ─── Algebraic Regulator Factoring ─────────────────────────────
-
-"""
-Try algebraic polynomial factoring on a sigma.
-Tries each metabolite present in sigma: splits terms by metabolite presence,
-divides the metabolite-containing terms by K*met, and checks whether
-the result cleanly divides sigma into `base * (... + K*met)`.
-`rename_map` aliases non-representative kinetic-group K symbols to their
-representative — used to find the canonical binding K for each metabolite.
-Returns a `FactoredSigma` or `nothing`.
-"""
-function _try_algebraic_factor_sigma(
-    sigma::POLY, rxns, eq_steps, enz_set, rename_map;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-)
-    # Classify symbols present in sigma
-    all_syms = Set(s for (mono, _) in sigma for (s, _) in mono)
-    K_syms = Set{Symbol}(
-        s for s in all_syms
-        if startswith(string(s), "K") && length(string(s)) > 1 &&
-           isdigit(string(s)[2])
-    )
-    met_syms = sort!(Symbol[
-        s for s in all_syms
-        if s ∉ K_syms && !startswith(string(s), "k") &&
-           s != :Keq && s != :E_total
-    ]; by=string)
-
-    # Try each metabolite, pick best factoring by score
-    best = nothing
-    best_score = (length(sigma), 0, 0)
-    for met in met_syms
-        # Find canonical binding K for this metabolite
-        K_R = nothing
-        for (idx, (lhs, rhs_rxn, _, _)) in enumerate(rxns)
-            eq_steps[idx] || continue
-            _, m_lhs = _split_reaction_side(lhs, enz_set)
-            _, m_rhs = _split_reaction_side(rhs_rxn, enz_set)
-            ((met ∈ m_lhs) ⊻ (met ∈ m_rhs)) || continue
-            K_R = Symbol("K$idx")
-            K_R = get(rename_map, K_R, K_R)
-            break
-        end
-        K_R === nothing && continue
-        K_R ∈ K_syms || continue
-
-        # Split sigma into terms with/without this metabolite
-        without_R, with_R = POLY(), POLY()
-        for (mono, coeff) in sigma
-            (any(s == met for (s, _) in mono) ? with_R : without_R)[mono] = coeff
-        end
-        isempty(with_R) && continue
-
-        # Divide each with_R term by K_R * met
-        K_R_met = _mono(K_R => 1, met => 1)
-        base_R = POLY()
-        valid = true
-        for (mono, coeff) in with_R
-            r_exp = 0; k_exp = 0
-            for (s, e) in mono
-                s == met && (r_exp = e)
-                s == K_R && (k_exp = e)
-            end
-            if r_exp < 1 || k_exp < 1; valid = false; break; end
-            base_R[_mono_div(mono, K_R_met)] = coeff
-        end
-        (!valid || base_R == poly_one()) && continue
-
-        # Check if base_R ⊆ without_R (subset means remainder factoring possible)
-        is_subset = all(
-            haskey(without_R, m) && without_R[m] == c for (m, c) in base_R
-        )
-
-        coeffs = POLY[]
-        products = FactoredPoly[]
-        remainder = is_subset ? poly_sub(without_R, base_R) : poly_zero()
-        unfactored_count = is_subset ? length(remainder) : length(without_R)
-        if is_subset
-            one_plus_KR = poly_add(
-                poly_one(), POLY(_mono(K_R => 1, met => 1) => 1),
-            )
-            # Try to absorb remainder: if remainder = q * base_R,
-            # then sigma = base_R * (q + 1 + K*met)
-            combined = one_plus_KR
-            absorbed = isempty(remainder)
-            if !absorbed
-                q = _try_poly_exact_div(remainder, base_R)
-                if q !== nothing
-                    combined = poly_add(one_plus_KR, q)
-                    absorbed = true
-                end
-            end
-            if absorbed
-                # Recurse on base_R for multi-site factoring
-                inner = _try_algebraic_factor_sigma(
-                    base_R, rxns, eq_steps, enz_set, rename_map;
-                    binding_Ks,
-                )
-                factors, exps = if inner !== nothing &&
-                       length(inner.coefficients) == 1 &&
-                       inner.coefficients[1] == poly_one()
-                    fp = inner.products[1]
-                    [fp.factors; combined], [fp.exponents; 1]
-                else
-                    [base_R, combined], [1, 1]
-                end
-                push!(coeffs, poly_one())
-                push!(products, FactoredPoly(factors, exps))
-                unfactored_count = 0
-                remainder = poly_zero()
-            else
-                push!(coeffs, remainder)
-                push!(products, FactoredPoly([poly_one()], [1]))
-                push!(coeffs, poly_one())
-                push!(products, FactoredPoly([base_R, one_plus_KR], [1, 1]))
-            end
-        else
-            K_R_met_poly = POLY(_mono(K_R => 1, met => 1) => Rational{Int}(1))
-            if !isempty(without_R)
-                push!(coeffs, without_R)
-                push!(products, FactoredPoly([poly_one()], [1]))
-            end
-            push!(coeffs, K_R_met_poly)
-            push!(products, FactoredPoly([base_R], [1]))
-        end
-        # Monomial shape overlap tiebreaker (ignoring rate constants)
-        _shape(m) = sort!([s => e for (s, e) in m if !startswith(string(s), "k")])
-        uf_poly = is_subset ? remainder : without_R
-        shapes_u = Set(_shape(m) for (m, _) in uf_poly)
-        shapes_b = Set(_shape(m) for (m, _) in base_R)
-        overlap = length(shapes_u ∩ shapes_b)
-        score = (unfactored_count, -length(base_R), -overlap)
-        if score < best_score
-            best = FactoredSigma(coeffs, products)
-            best_score = score
-        end
-    end
-    best
-end
-
-"""
-Try to express polynomial `p` as `Q^n` for some polynomial Q and integer n >= 2.
-Returns `FactoredSigma` with a single term `FactoredPoly([Q], [n])`, or `nothing`.
-"""
-function _try_poly_power(p::POLY)
-    length(p) < 3 && return nothing
-    get(p, MONO(), 0) == 1 || return nothing
-    max_e = maximum((e for (mono, _) in p for (_, e) in mono), init=0)
-    max_e < 2 && return nothing
-    for n in max_e:-1:2
-        root_terms = [mono for (mono, c) in p
-                      if !isempty(mono) && c == 1 &&
-                         all(e % n == 0 for (_, e) in mono)]
-        isempty(root_terms) && continue
-        Q = POLY(MONO() => Rational{Int}(1))
-        for mono in root_terms
-            Q[MONO([s => div(e, n) for (s, e) in mono])] = 1
-        end
-        if _poly_power(Q, n) == p
-            return FactoredSigma([poly_one()], [FactoredPoly([Q], [n])])
-        end
-    end
-    nothing
-end
-
 """Build rate poly for one SS step direction, clearing alpha denominators within group."""
 function _ss_contrib(k_poly, mets, i_form, alpha_num, alpha_den, group)
     r = isempty(mets) ? k_poly : poly_mul(k_poly, reduce(poly_mul, poly_sym.(mets)))
@@ -388,66 +223,14 @@ function _ss_contrib(k_poly, mets, i_form, alpha_num, alpha_den, group)
     r
 end
 
-"""
-Build substitution pairs merging Haldane-derived parameters that have
-identical expressions after user constraints. E.g., if k8r and k7r both
-resolve to `k7f / (K1 * Keq)`, returns `[:k8r => :k7r]`.
-"""
-function _haldane_equality_substitutions(dep_exprs)
-    length(dep_exprs) < 2 && return Pair{Symbol,Symbol}[]
-    # Sort by step number for stable canonical choice (lowest first)
-    _step_num(s) = let m = match(r"\d+", string(s))
-        m === nothing ? 0 :
-            something(tryparse(Int, m.match::SubString), 0)
-    end
-    sorted = sort(collect(dep_exprs); by=p -> _step_num(p[1]))
-    subs = Pair{Symbol,Symbol}[]
-    expr_to_canonical = Dict{Any,Symbol}()
-    for (sym, expr) in sorted
-        canon = get!(expr_to_canonical, expr, sym)
-        canon !== sym && push!(subs, sym => canon)
-    end
-    subs
-end
-
-
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
 
-"""
-Try to factor a polynomial: power detection → algebraic factoring → trivial wrap.
-When `check_benefit` is true, algebraic factoring is only used if it reduces
-the display term count compared to the unfactored polynomial.
-"""
-function _factor_poly(
-    p::POLY, rxns, eq_steps, enz_set, rename_map;
-    binding_Ks::Set{Symbol}=Set{Symbol}(),
-    check_benefit::Bool=false,
-)
-    result = _try_poly_power(p)
-    result !== nothing && return result
-    afs = _try_algebraic_factor_sigma(
-        p, rxns, eq_steps, enz_set, rename_map; binding_Ks,
-    )
-    if afs !== nothing && _expand_factored_sigma(afs) == p
-        if !check_benefit
-            return afs
-        end
-        n = sum(
-            (length(fp.factors) == 1 && fp.factors[1] == poly_one()) ?
-                length(c) : 1
-            for (c, fp) in zip(afs.coefficients, afs.products)
-        )
-        n < length(p) && return afs
-    end
-    FactoredSigma([poly_one()], [FactoredPoly([p], [1])])
-end
-
-"""Build raw numerator POLY and factored denominator terms for the rate equation.
+"""Build raw numerator and denominator POLYs for the rate equation.
 `rename_map` aliases non-representative kinetic-group parameter symbols to their
-representative (one K or k_f/k_r per group); `dep_exprs` is the Haldane solution."""
+representative (one K or k_f/k_r per group)."""
 function _raw_symbolic_rate_polys(
     subs_species, prods_species, enz_names, enz_set,
-    rxns, eq_steps, rename_map, dep_exprs,
+    rxns, eq_steps, rename_map,
 )
     groups, form_to_group = _compute_re_groups(
         enz_names, enz_set, rxns, eq_steps,
@@ -503,15 +286,9 @@ function _raw_symbolic_rate_polys(
             sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
-    # Factor sigma for each RE group
-    binding_Ks = Set{Symbol}(
-        Symbol("K$i")
-        for (i, (lhs, rhs, _, _)) in enumerate(rxns)
-        if eq_steps[i] && any(s ∉ enz_set for s in lhs) &&
-           all(s ∈ enz_set for s in rhs)
-    )
+    # Build flat denominator: sum over groups of sigma_g * D_g
     normalize = G == 1 && sigma_den[1] != poly_one()
-    denom_terms = DenomTerm[]
+    den = poly_zero()
     for g in 1:G
         raw_sigma = if normalize
             reduce(
@@ -523,13 +300,7 @@ function _raw_symbolic_rate_polys(
             sigma_num[g]
         end
         csigma = _rename_symbols(raw_sigma, rename_map)
-        push!(denom_terms, DenomTerm(
-            _factor_poly(
-                csigma, rxns, eq_steps, enz_set, rename_map;
-                binding_Ks,
-            ),
-            D[g],
-        ))
+        den = poly_add(den, poly_mul(csigma, D[g]))
     end
 
     # Numerator: net flux through SS steps
@@ -542,48 +313,14 @@ function _raw_symbolic_rate_polys(
 
     abs_nu = abs(nu_ref)
     if abs_nu != 1
-        for (i, dt) in enumerate(denom_terms)
-            denom_terms[i] = DenomTerm(
-                dt.sigma,
-                poly_mul(dt.cofactor, poly_const(abs_nu)),
-            )
-        end
+        den = poly_mul(den, poly_const(abs_nu))
     end
 
-    # Apply kinetic-group renaming (K2 → K1 etc.) to numerator
+    # Apply kinetic-group renaming (K2 → K1 etc.)
     num = _rename_symbols(num, rename_map)
-    denom_terms = [_rename_symbols(dt, rename_map) for dt in denom_terms]
+    den = _rename_symbols(den, rename_map)
 
-    # Merge Haldane-derived equal parameters (e.g., k8r→k7r when
-    # both resolve to the same thermodynamic expression)
-    haldane_subs = _haldane_equality_substitutions(dep_exprs)
-    if !isempty(haldane_subs)
-        hsub_map = Dict{Symbol, Symbol}(haldane_subs)
-        num = _rename_symbols(num, hsub_map)
-        denom_terms = [_rename_symbols(dt, hsub_map)
-                       for dt in denom_terms]
-    end
-
-    n_terms = (length(num) +
-               _estimate_expanded_term_count(denom_terms))
-    if n_terms > MAX_RATE_EQUATION_TERMS
-        error(
-            "Rate equation for this mechanism has " *
-            "$n_terms polynomial terms " *
-            "(limit: $MAX_RATE_EQUATION_TERMS). Equations " *
-            "this large take a very long time to compile " *
-            "and are unlikely to be practically useful " *
-            "for parameter fitting.",
-        )
-    end
-
-    # Factor numerator (only if it reduces display terms)
-    num_fs = _factor_poly(
-        num, rxns, eq_steps, enz_set, rename_map;
-        binding_Ks, check_benefit=true,
-    )
-
-    num_fs, denom_terms
+    num, den
 end
 
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
@@ -593,10 +330,9 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     rxns = reactions(m)
     eq_steps = equilibrium_steps(m)
     rename_map = _build_kinetic_rename_map(m)
-    dep_exprs, _ = _dependent_param_exprs(M)
     _raw_symbolic_rate_polys(
         substrates(m), products(m), enz_names, enz_set,
-        rxns, eq_steps, rename_map, dep_exprs,
+        rxns, eq_steps, rename_map,
     )
 end
 
@@ -716,11 +452,13 @@ Compute the raw rate expression (bare symbols) and sorted parameter/concentratio
 Returns `(expr, all_params, sorted_concs)`.
 """
 function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
-    num, denom_terms = _raw_symbolic_rate_polys(M)
+    num, den = _raw_symbolic_rate_polys(M)
     m = M()
     param_syms = Set{Symbol}(_raw_param_symbols(m))
     conc_syms = Set{Symbol}(metabolites(m))
-    expr = to_rate_expr(num, denom_terms, param_syms, conc_syms)
+    num_expr = _poly_to_expr(num, param_syms, conc_syms)
+    den_expr = _poly_to_expr(den, param_syms, conc_syms)
+    expr = :(E_total * ($num_expr) / ($den_expr))
     all_params = _sorted_raw_param_symbols(M)
     return expr, all_params, metabolites(m)
 end
@@ -763,13 +501,12 @@ rate_equation_string(m::_AnyMechanism) = rate_equation_string(m, Reduced)
 
 """Build the `v = E_total * (num) / (den)` line from the raw symbolic rate polys."""
 function _rate_v_line(M::Type{<:EnzymeMechanism})
-    num_fs, denom_terms = _raw_symbolic_rate_polys(M)
+    num, den = _raw_symbolic_rate_polys(M)
     m = M()
     ps = Set{Symbol}(_raw_param_symbols(m))
     cs = Set{Symbol}(metabolites(m))
-    num_str = _expr_to_string(_factored_sigma_to_expr(num_fs, ps, cs))
-    den_str = _expr_to_string(_denom_terms_to_expr(denom_terms, ps, cs))
-    "v = E_total * ($num_str) / ($den_str)"
+    "v = E_total * ($(_expr_to_string(_poly_to_expr(num, ps, cs)))) / " *
+        "($(_expr_to_string(_poly_to_expr(den, ps, cs))))"
 end
 
 function rate_equation_string(::M, ::FullMode) where {M<:EnzymeMechanism}
@@ -798,8 +535,8 @@ end
 """Group `num` and `den` POLYs by metabolite monomial pattern.
 Returns `(num_groups, den_groups)` where each value is a POLY of k-monomials
 sharing the same met-monomial. Reverse (negative-coefficient) terms are dropped
-from the numerator. Used by `_kcat_components` and `_kcat_forward` to compare
-saturating metabolite patterns across R/T states."""
+from the numerator. Used by `_kcat_forward` to compare saturating metabolite
+patterns across R/T states."""
 function _kcat_groups_from_polys(num::POLY, den::POLY)
     function split_mono(mono::MONO)
         k_mono = MONO()
@@ -831,22 +568,25 @@ function _kcat_groups_from_polys(num::POLY, den::POLY)
 end
 
 """
-Compute kcat candidate components from the rate equation polynomial structure.
-Returns `Vector{Tuple{Any, Any}}` of (num_k_expr, den_k_expr) pairs.
-kcat = max(nk/dk) over all candidates (evaluated at runtime).
+    _kcat_forward(m::EnzymeMechanism, params) → Float64
 
-Groups the expanded numerator (forward terms only, positive coefficients) and
-denominator by metabolite pattern. For each matching pair, builds k-only
-expressions. K's (equilibrium constants) cancel between num and den at
-matching metabolite levels.
+Compute kcat (forward) analytically from the polynomial structure.
+kcat is the maximum rate at saturating substrates, zero products,
+and E_total=1. For mechanisms with multiple catalytic paths
+(e.g., non-essential activator), returns the max over all paths.
+
+Groups the rate-equation numerator (forward terms only, positive coefficients)
+and denominator by metabolite pattern. For each matching pair, builds k-only
+(num_k_expr / den_k_expr) candidates and emits `max(nk/dk, ...)`. Equilibrium
+constants cancel between num and den at matching metabolite levels.
 
 Multiple candidates arise for mechanisms with alternative catalytic pathways
 (e.g., non-essential activator with/without activator bound).
 """
-function _kcat_components(M::Type{<:EnzymeMechanism})
-    num_fs, denom_terms = _raw_symbolic_rate_polys(M)
-    num = _expand_factored_sigma(num_fs)
-    den = _expand_to_poly(denom_terms)
+@generated function _kcat_forward(
+    ::M, params::NamedTuple,
+) where {M <: EnzymeMechanism}
+    num, den = _raw_symbolic_rate_polys(M)
     num_groups, den_groups = _kcat_groups_from_polys(num, den)
 
     # Build kcat candidates: for each forward numerator metabolite group
@@ -861,24 +601,6 @@ function _kcat_components(M::Type{<:EnzymeMechanism})
         push!(components, (num_expr, den_expr))
     end
 
-    components
-end
-
-"""
-    _kcat_forward(m::EnzymeMechanism, params) → Float64
-
-Compute kcat (forward) analytically from the polynomial structure.
-kcat is the maximum rate at saturating substrates, zero products,
-and E_total=1. For mechanisms with multiple catalytic paths
-(e.g., non-essential activator), returns the max over all paths.
-
-Uses `_kcat_components` to get (num_k_expr, den_k_expr) candidates,
-then evaluates max(nk/dk) at runtime parameter values.
-"""
-@generated function _kcat_forward(
-    ::M, params::NamedTuple,
-) where {M <: EnzymeMechanism}
-    components = _kcat_components(M)
     dep_exprs, indep = _dependent_param_exprs(M)
     hw_params = (indep..., :Keq)
     assignments = [Expr(:(=), sym, dep_exprs[sym])
@@ -919,16 +641,14 @@ corners and return the max.
     # via an `:OnlyR` step (e.g. an `:OnlyR` substrate-binding K) drop out
     # of T-state, so their `(num_k_T, den_k_T)` are 0 and the T-state
     # contribution at saturation vanishes.
-    num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
+    num_R_poly, den_R_poly = _raw_symbolic_rate_polys(CM)
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
-    num_R_poly = _expand_factored_sigma(num_fs)
-    den_R_poly = _expand_to_poly(denom_terms)
     num_T_poly = _rename_symbols(
-        _zero_symbols_in_poly(_expand_factored_sigma(num_fs), r_only_syms),
+        _zero_symbols_in_poly(num_R_poly, r_only_syms),
         rename_T)
     den_T_poly = _rename_symbols(
-        _zero_symbols_in_poly(_expand_to_poly(denom_terms), r_only_syms),
+        _zero_symbols_in_poly(den_R_poly, r_only_syms),
         rename_T)
     num_R_groups, den_R_groups = _kcat_groups_from_polys(num_R_poly, den_R_poly)
     num_T_groups, den_T_groups = _kcat_groups_from_polys(num_T_poly, den_T_poly)
@@ -1479,12 +1199,6 @@ function _build_dep_assignments(
     return r_assignments, t_assignments
 end
 
-"""Convert a flat POLY to an Expr using the standard parameter/concentration display."""
-function _poly_to_expr(p::POLY, param_syms, conc_syms, inv_set)
-    fs = FactoredSigma([poly_one()], [FactoredPoly([p], [1])])
-    _factored_sigma_to_expr(fs, param_syms, conc_syms, inv_set)
-end
-
 """
 Assemble the MWC numerator and denominator Exprs.
 Returns `(full_num, full_den)` where the numerator already includes the
@@ -1496,15 +1210,15 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     CatN = catalytic_multiplicity(m)
     RS = regulatory_sites(m)
 
-    num_fs, denom_terms = _raw_symbolic_rate_polys(CM)
+    num_R_poly, den_R_poly = _raw_symbolic_rate_polys(CM)
     cat_params = Set{Symbol}(_raw_param_symbols(CM()))
     cat_mets = Set{Symbol}(metabolites(CM()))
 
     r_only_syms = _onlyR_syms(m)
     rename_T = _T_rename(m)
 
-    N_R = _factored_sigma_to_expr(num_fs, cat_params, cat_mets)
-    Q_R = _denom_terms_to_expr(denom_terms, cat_params, cat_mets)
+    N_R = _poly_to_expr(num_R_poly, cat_params, cat_mets)
+    Q_R = _poly_to_expr(den_R_poly, cat_params, cat_mets)
 
     # T-state catalytic Exprs.
     # Zero `:OnlyR` symbols at POLY level, then rename `:NonequalRT`
@@ -1513,24 +1227,15 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     # When the T-state cycle is broken, force N_T = 0: the Cha framework
     # otherwise produces a non-physical reverse flux from products that
     # have nowhere to go.
-    if isempty(r_only_syms)
-        N_T = substitute_params_expr(
-            _factored_sigma_to_expr(num_fs, cat_params, cat_mets),
-            rename_T)
-        Q_T = substitute_params_expr(
-            _denom_terms_to_expr(denom_terms, cat_params, cat_mets),
-            rename_T)
-    else
-        num_t_poly = _rename_symbols(
-            _zero_symbols_in_poly(_expand_factored_sigma(num_fs), r_only_syms),
-            rename_T)
-        den_t_poly = _rename_symbols(
-            _zero_symbols_in_poly(_expand_to_poly(denom_terms), r_only_syms),
-            rename_T)
-        N_T = _t_state_dead(m) ? 0 :
-              _poly_to_expr(num_t_poly, cat_params, cat_mets)
-        Q_T = _poly_to_expr(den_t_poly, cat_params, cat_mets)
-    end
+    num_t_poly = _rename_symbols(
+        _zero_symbols_in_poly(num_R_poly, r_only_syms),
+        rename_T)
+    den_t_poly = _rename_symbols(
+        _zero_symbols_in_poly(den_R_poly, r_only_syms),
+        rename_T)
+    N_T = _t_state_dead(m) ? 0 :
+          _poly_to_expr(num_t_poly, cat_params, cat_mets)
+    Q_T = _poly_to_expr(den_t_poly, cat_params, cat_mets)
 
     reg_Q_R = Any[_reg_site_expr(m, i, false) for i in eachindex(RS)]
     reg_Q_T = Any[_reg_site_expr(m, i, true) for i in eachindex(RS)]

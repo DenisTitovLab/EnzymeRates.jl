@@ -1263,7 +1263,7 @@ function build_mechanism_test_specs()
             analytical_rate_fn=rate_mwc_dimer_oligo,
             expected_factored_num=
             "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
-            " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T))",
+            " + L * (S * k3f_T / K1_T - P * k3r_T / K2_T) * (1 + S / K1_T + P / K2_T))",
             expected_factored_denom=
             "(1 + S / K1 + P / K2) ^ 2 + L * (1 + S / K1_T + P / K2_T) ^ 2",
         ))
@@ -1327,7 +1327,7 @@ function build_mechanism_test_specs()
             analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
             expected_factored_num=
             "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2) * (1 + I / K_I_reg1)" *
-            " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T) * (1 + I / K_I_T_reg1))",
+            " + L * (S * k3f_T / K1_T - P * k3r_T / K2_T) * (1 + S / K1_T + P / K2_T) * (1 + I / K_I_T_reg1))",
             expected_factored_denom=
             "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
             " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
@@ -1389,7 +1389,7 @@ function build_mechanism_test_specs()
             analytical_rate_fn=rate_mwc_dimer_inh_oligo,
             expected_factored_num=
             "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2) * (1 + I / K_I_reg1)" *
-            " + L * (k3f_T * S / K1_T - k3r_T * P / K2_T) * (1 + S / K1_T + P / K2_T) * (1 + I / K_I_T_reg1))",
+            " + L * (S * k3f_T / K1_T - P * k3r_T / K2_T) * (1 + S / K1_T + P / K2_T) * (1 + I / K_I_T_reg1))",
             expected_factored_denom=
             "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
             " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
