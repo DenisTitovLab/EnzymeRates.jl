@@ -90,7 +90,7 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol})
         by=x -> (
             sum(e for (s,e) in x[1] if s ∉ param_syms; init=0),
             x[2] < 0,
-            Tuple(string(s) for (s, _) in x[1]),
+            Tuple((string(s), e) for (s, e) in x[1]),
         ),
     )
     for (mono, coeff) in sorted
