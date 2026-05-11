@@ -65,5 +65,21 @@ const _CSV_REPLAY_DIR = joinpath(@__DIR__, "..", "dedup_investigation")
                 @test isapprox(lo, hi; rtol=0.1)
             end
         end
+
+        # Same-hash → identical fitted_params. If hash-equivalent
+        # mechanisms expose different sets of fittable params, the
+        # fitter explores different dimension spaces for "the same"
+        # equation and produces inconsistent losses despite the
+        # canonicalizer being correct. This is the strict consistency
+        # check that catches the Pass-2-absorbed-symbol leak fixed in
+        # `_dependent_param_exprs`.
+        @testset "n=$n hash-equivalent mechanisms share fitted_params" begin
+            mechs_by_row = [eval(Meta.parse(row.mechanism_type))()
+                            for row in eachrow(df)]
+            df.fp = [EnzymeRates.fitted_params(m) for m in mechs_by_row]
+            for g in groupby(df, :canonical_hash)
+                @test length(unique(g.fp)) == 1
+            end
+        end
     end
 end

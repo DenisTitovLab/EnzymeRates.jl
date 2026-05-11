@@ -52,5 +52,18 @@ else
             @test occursin("# Wegscheider constraints:", s)
             @test occursin("(substituted into v)", s)
         end
+
+        # Hash-equivalent mechanisms must have identical fitted_params.
+        # If they don't, the fitter ends up exploring different dummy
+        # dimensions across "the same" equation, producing inconsistent
+        # fitted losses for what the canonicalizer correctly identifies
+        # as one equation. The 4-mechanism LDH cluster is the strict
+        # case: same hash + same fitted_params or the dedup is broken.
+        @testset "Hash-equivalent mechanisms have identical fitted_params" begin
+            fp = EnzymeRates.fitted_params(_mech(6))
+            for j in (7, 8, 9)
+                @test EnzymeRates.fitted_params(_mech(j)) == fp
+            end
+        end
     end
 end
