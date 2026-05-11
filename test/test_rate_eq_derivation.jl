@@ -749,6 +749,34 @@ end
 
 # ── Standalone kcat tests ──────────────────────────────────────────────────────
 
+@testset "rate_equation polynomial body uses 2-arg +/* calls" begin
+    # The fitter calls rate_equation millions of times per CV fold. The
+    # polynomial body emitted by _poly_to_expr (via _nest_binary) MUST
+    # have exactly 2 operands per +/* call so LLVM inlines the binary
+    # Float64 path; n-ary varargs above ~30 terms boxes the argument
+    # tuple and turns 100ns/0B into 1µs/2KB per call. See
+    # docs/superpowers/specs/2026-05-11-rate-eq-emission-perf-fix-design.md.
+    spec = only(s for s in MECHANISM_TEST_SPECS
+                if s.name == "Random-order Bi-Bi")
+    rate_expr, _, _ = EnzymeRates._raw_rate_expr_and_symbols(
+        typeof(spec.mechanism))
+    bad = Expr[]
+    function walk!(e)
+        if e isa Expr
+            if e.head == :call && !isempty(e.args) &&
+               e.args[1] isa Symbol && e.args[1] in (:+, :*) &&
+               length(e.args) != 3
+                push!(bad, e)
+            end
+            for a in e.args
+                walk!(a)
+            end
+        end
+    end
+    walk!(rate_expr)
+    @test isempty(bad)
+end
+
 @testset "_is_ss_rate_constant" begin
     for sym in (:k1f, :k2r, :k3f_T, :k10f)
         @test EnzymeRates._is_ss_rate_constant(sym)
