@@ -778,6 +778,20 @@ end
     @test isempty(bad)
 end
 
+@testset "rate_equation_string prints flat +/* sums (no nested parens)" begin
+    # _expr_to_string is precedence-aware and flattens nested +/* nodes
+    # transparently: balanced +(+(a,b), +(c,d)) prints as "a + b + c + d"
+    # with no added parens. If that flattening regresses, the printed
+    # output would gain nested parens but still evaluate correctly —
+    # easy to miss without an explicit guard. Witness count for
+    # Random-order Bi-Bi is 5 in Full mode (params destructure, concs
+    # destructure, num wrap, den wrap, one negatives wrap inside num).
+    spec = only(s for s in MECHANISM_TEST_SPECS
+                if s.name == "Random-order Bi-Bi")
+    s = rate_equation_string(spec.mechanism, EnzymeRates.Full)
+    @test count(==('('), s) <= 6
+end
+
 @testset "_is_ss_rate_constant" begin
     for sym in (:k1f, :k2r, :k3f_T, :k10f)
         @test EnzymeRates._is_ss_rate_constant(sym)
