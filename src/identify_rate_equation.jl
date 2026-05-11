@@ -219,8 +219,43 @@ function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
             Regex("\\b" * name * "\\b") => name_map[name])
     end
 
+    # Re-sort multiplicative factors within each monomial run so the
+    # text order matches the p_i ordering, not the original-symbol
+    # ordering used by _poly_to_expr. Two mechanisms whose canonical
+    # mapping pairs differ only by which raw step index (e.g., K9 vs
+    # K10) plays a given role will then render with their factors at
+    # matching positions. A "run" is a sequence of `<atom> * <atom>
+    # * ...` terms where each atom is a bare identifier or a
+    # `name ^ digits` power. The match stops at parens, +/-, or `/`.
+    factor_atom = "[A-Za-z_]\\w*(?:\\s*\\^\\s*\\d+)?"
+    run_re = Regex("$factor_atom(?:\\s*\\*\\s*$factor_atom)+")
+    body = replace(body, run_re => _sort_run_factors)
+
     canonical = strip(replace(body, r"\s+" => " "))
     (canonical, name_map)
+end
+
+"""
+Sort the `<atom> * <atom> * ...` factors of one multiplicative run.
+The full match is split on `\\s*\\*\\s*`, each factor is keyed by
+`(kind, p_index, exponent, lex_string)`, and the sorted factors are
+joined back with ` * `.
+"""
+function _sort_run_factors(run::AbstractString)
+    factors = split(strip(run), r"\s*\*\s*")
+    sort!(factors; by=_factor_sort_key)
+    join(factors, " * ")
+end
+
+"""Sort key for one factor of a multiplicative run."""
+function _factor_sort_key(f::AbstractString)
+    m = match(r"^p_(\d+)(?:\s*\^\s*(\d+))?$", f)
+    if m !== nothing
+        return (0, parse(Int, m.captures[1]),
+                m.captures[2] === nothing ? 1 : parse(Int, m.captures[2]),
+                "")
+    end
+    (1, 0, 0, String(f))
 end
 
 """
