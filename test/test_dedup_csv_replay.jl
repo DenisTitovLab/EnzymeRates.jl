@@ -1,5 +1,5 @@
-# ABOUTME: Replays params_estimate_{5,6,7,8}.csv through the new canonicalizer
-# ABOUTME: and asserts mechanisms with the same fitted loss collapse to one hash.
+# ABOUTME: Replays params_estimate_{5,6,7,8}.csv through the canonicalizer and
+# ABOUTME: asserts mechanisms with the same fitted loss collapse to one hash.
 
 using CSV, DataFrames, Test
 using EnzymeRates
@@ -16,11 +16,11 @@ const _CSV_REPLAY_DIR = joinpath(@__DIR__, "..", "dedup_investigation")
         end
         df = CSV.read(csv_path, DataFrame)
 
-        new_hashes = map(eachrow(df)) do row
+        canonical_hashes = map(eachrow(df)) do row
             m = eval(Meta.parse(row.mechanism_type))()
             _canonical_rate_eq_hash(m)
         end
-        df.new_hash = new_hashes
+        df.canonical_hash = canonical_hashes
 
         # Within-loss-group consistency. Mechanisms with the same fitted
         # loss (to 10 significant figures) must canonicalize to the same
@@ -34,7 +34,7 @@ const _CSV_REPLAY_DIR = joinpath(@__DIR__, "..", "dedup_investigation")
         # and hash separately. That is correct behavior.
         @testset "n=$n within-loss-group consistency" begin
             for g in groupby(df, :loss)
-                @test length(unique(g.new_hash)) == 1
+                @test length(unique(g.canonical_hash)) == 1
             end
         end
 
@@ -42,7 +42,7 @@ const _CSV_REPLAY_DIR = joinpath(@__DIR__, "..", "dedup_investigation")
         # single fitted-loss value (no algebraically-distinct equations
         # accidentally hash to the same value).
         @testset "n=$n within-hash-group consistency" begin
-            for g in groupby(df, :new_hash)
+            for g in groupby(df, :canonical_hash)
                 @test length(unique(round.(g.loss; sigdigits=10))) == 1
             end
         end
@@ -54,7 +54,7 @@ const _CSV_REPLAY_DIR = joinpath(@__DIR__, "..", "dedup_investigation")
         # Source-A/B/C duplicates exist in the file.
         @testset "n=$n hash count consistent with float-precision loss" begin
             n_loss_float = length(unique(df.loss))
-            n_hash = length(unique(df.new_hash))
+            n_hash = length(unique(df.canonical_hash))
             @test n_hash <= n_loss_float
         end
     end

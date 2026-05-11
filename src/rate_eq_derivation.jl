@@ -159,8 +159,10 @@ function _build_kinetic_rename_map(M::Type{<:EnzymeMechanism})
         lhs in binding_set && rhs in binding_set || continue
         target = get(rename, rhs, rhs)
         rename[lhs] = target
-        for (k, v) in rename
-            v == lhs && (rename[k] = target)
+        # Snapshot keys before mutating values so we don't iterate
+        # the Dict while writing to it.
+        for k in collect(keys(rename))
+            rename[k] == lhs && (rename[k] = target)
         end
     end
 
