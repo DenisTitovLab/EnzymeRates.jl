@@ -205,19 +205,22 @@ Adds a standalone test that walks the body of `_build_rate_body(typeof(m), Reduc
 
 - [ ] **Step 1a: Add the test.**
 
+Scope the walk to the rate expression returned by `_raw_rate_expr_and_symbols` — that is exactly what `_nest_binary` controls. The full `_build_rate_body(ReducedMode)` block also contains dep-expr assignments emitted by `build_power_expr` (a separate codepath, `src/sym_poly_for_rate_eq_derivation.jl:230`) which uses small flat n-ary `*` (7-10 args) — those are harmless at runtime (the perf sweep proves it: the n-ary inlining cliff is at ~30, not 10) and out of scope for this test.
+
 Insert this block immediately before line 754 (`@testset "_is_ss_rate_constant" begin`):
 
 ```julia
-@testset "rate_equation Expr is balanced binary (+/* calls have 2 args)" begin
-    # The fitter calls rate_equation millions of times per CV fold. Every
-    # +/* call node in the compiled body MUST have exactly 2 operands so
-    # LLVM inlines the binary Float64 path; n-ary varargs boxes the
-    # argument tuple and turns 100ns/0B into 1µs/2KB per call. See
+@testset "rate_equation polynomial body uses 2-arg +/* calls" begin
+    # The fitter calls rate_equation millions of times per CV fold. The
+    # polynomial body emitted by _poly_to_expr (via _nest_binary) MUST
+    # have exactly 2 operands per +/* call so LLVM inlines the binary
+    # Float64 path; n-ary varargs above ~30 terms boxes the argument
+    # tuple and turns 100ns/0B into 1µs/2KB per call. See
     # docs/superpowers/specs/2026-05-11-rate-eq-emission-perf-fix-design.md.
     spec = only(s for s in MECHANISM_TEST_SPECS
                 if s.name == "Random-order Bi-Bi")
-    body = EnzymeRates._build_rate_body(
-        typeof(spec.mechanism), EnzymeRates.ReducedMode)
+    rate_expr, _, _ = EnzymeRates._raw_rate_expr_and_symbols(
+        typeof(spec.mechanism))
     bad = Expr[]
     function walk!(e)
         if e isa Expr
@@ -231,7 +234,7 @@ Insert this block immediately before line 754 (`@testset "_is_ss_rate_constant" 
             end
         end
     end
-    walk!(body)
+    walk!(rate_expr)
     @test isempty(bad)
 end
 ```
