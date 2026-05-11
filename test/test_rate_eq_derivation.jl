@@ -768,8 +768,9 @@ end
                length(e.args) != 3
                 push!(bad, e)
             end
-            for a in e.args
-                walk!(a)
+            start = e.head == :call ? 2 : 1
+            for i in start:length(e.args)
+                walk!(e.args[i])
             end
         end
     end
