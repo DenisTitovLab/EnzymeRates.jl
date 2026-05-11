@@ -119,12 +119,16 @@ largest non-allosteric mechanism in `MECHANISM_TEST_SPECS` (currently
 Random-order Bi-Bi, 96 den terms — picked because it crosses the
 n-ary inlining cliff by the widest margin):
 
-a. **Expr-shape assertion.** Walk the body returned by
-   `_build_rate_body(typeof(m), ReducedMode)` and assert every
+a. **Expr-shape assertion.** Walk the rate expression returned by
+   `_raw_rate_expr_and_symbols(typeof(m))[1]` and assert every
    `Expr(:call, op, args…)` with `op ∈ (:+, :*)` has exactly two
-   non-head args. This is what prevents a future "simplification"
-   of `_nest_binary` back to flat n-ary from slipping through
-   unnoticed.
+   non-head args. This is exactly what `_nest_binary` controls,
+   and what prevents a future "simplification" back to flat n-ary
+   from slipping through unnoticed. Scope is narrowed to the rate
+   expression — not the dep-expr assignments built by
+   `build_power_expr` (a separate codepath using small flat n-ary
+   `*` of 7-10 args, which the perf sweep proves does not allocate
+   at runtime since the LLVM inlining cliff is at ~30 terms).
 
 b. **Flat-string assertion.** After the fix, the only parens in
    `rate_equation_string(m)` come from a small, fixed set of sources:

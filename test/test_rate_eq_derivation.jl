@@ -779,7 +779,8 @@ end
 end
 
 @testset "rate_equation_string prints flat +/* sums (no nested parens)" begin
-    # _expr_to_string is precedence-aware and flattens nested +/* nodes
+    # Orthogonal guard (NOT a perf-fix backstop): _expr_to_string is
+    # precedence-aware and flattens nested +/* nodes
     # transparently: balanced +(+(a,b), +(c,d)) prints as "a + b + c + d"
     # with no added parens. If that flattening regresses, the printed
     # output would gain nested parens but still evaluate correctly —
