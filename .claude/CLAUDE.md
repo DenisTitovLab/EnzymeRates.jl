@@ -324,3 +324,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 - New mechanism enumeration tests (`test/test_mechanism_enumeration.jl`): unit tests per expansion move using `@enzyme_mechanism` definitions, integration tests via `enumerate_all` helper loop. Estimate verified as `length(fitted_params(m)) <= n_fit_params_estimate` (upper-bound estimate).
 - `MechanismTestSpec` has optional `analytical_kcat_fn` field for per-mechanism kcat formula validation
 - kcat/rescaling tests (scale invariance, rate proportionality, V≈1, custom target) run for ALL mechanism specs in the main `run_all_tests` loop — not in a separate file
+
+### `rate_equation` runtime perf is non-negotiable
+
+`rate_equation` MUST be allocation-free and sub-100-ns per call for every mechanism in `MECHANISM_TEST_SPECS`. Enforced by `test_rate_equation_performance` in `test/test_rate_eq_derivation.jl` (`allocs == 0`, `t < 100e-9`) plus the Expr-shape and flat-string regression tests in the same file. The fitter evaluates `rate_equation` millions of times per cross-validation fold; any change that introduces allocations or microsecond-scale per-call time makes the package unusable in practice. If you find yourself considering a change that would force `rate_equation` to allocate or slow down, STOP and discuss with Denis first. This is one of the most important tests in the suite.
