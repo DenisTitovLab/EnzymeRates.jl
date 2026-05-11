@@ -120,9 +120,21 @@ function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol})
     return 0
 end
 
-"""Build flat n-ary expression: +(a, b, c, d). Single term returns unwrapped."""
+"""
+Build a balanced binary `+`/`*` tree so every emitted call has exactly two
+operands. Required for zero-allocation `rate_equation` runtime: Julia inlines
+binary `+(::Float64, ::Float64)` into fused scalar arithmetic, but falls back
+to a varargs path that boxes the operand tuple once the chain exceeds ~30
+terms. See `test_rate_equation_performance` for the contract this enforces.
+"""
 function _nest_binary(op::Symbol, terms::Vector{Any})
-    length(terms) == 1 ? terms[1] : Expr(:call, op, terms...)
+    n = length(terms)
+    n == 1 && return terms[1]
+    n == 2 && return Expr(:call, op, terms[1], terms[2])
+    mid = n >> 1
+    Expr(:call, op,
+        _nest_binary(op, terms[1:mid]),
+        _nest_binary(op, terms[mid+1:end]))
 end
 
 """Operator precedence for Expr→String conversion."""

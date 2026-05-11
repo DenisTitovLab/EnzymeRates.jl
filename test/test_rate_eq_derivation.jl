@@ -539,12 +539,8 @@ function test_performance(spec::MechanismTestSpec; seed=42)
         rng = Random.MersenneTwister(seed)
         params, concs, _ = random_independent_params_concs(m, met_names; rng=rng)
         allocs, t = test_rate_equation_performance(m, params, concs)
-        # Rate equations are flat polynomial sums (up to ~100 monomials for
-        # ter-ter mechanisms). Julia's optimizer sometimes spills these to
-        # the heap; the bounds keep evaluations fast enough for fitting
-        # loops while accommodating worst-case mechanisms.
-        @test allocs < 4 * 1024
-        @test t < 10e-6
+        @test allocs == 0
+        @test t < 100e-9
     end
 end
 
