@@ -138,10 +138,13 @@ rate-equation body to find each parameter's first-appearance
 position, then rename them as `p_1, p_2, …` in first-appearance
 order. `:E_total` is in `Full` but is excluded from renaming;
 `:Keq` and metabolite names are not in `Full` and aren't renamed.
-The constraint lines are KEPT in the body — they encode
-parameterization, so two mechanisms with the same v-line but
-different choice of which parameter is dependent must hash
-differently.
+
+Multi-symbol Wegscheider and Haldane closure lines are kept in
+the body — their LHS appears in v via a runtime substitution, so
+they encode real parameterization (two mechanisms with the same
+v-line but different dependent-parameter choice must hash
+differently). Single-symbol `(substituted into v)` ties are
+stripped because their LHS never appears in v.
 
 `parameters(m, Full)` is defined for both `EnzymeMechanism` and
 `AllostericEnzymeMechanism`. Allosteric coverage includes T-state
@@ -154,12 +157,42 @@ function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
         "rate_equation_string returned nothing for $(typeof(m))")
     body = String(raw_body)
 
-    # Strip ONLY the destructure header lines.
+    # Drop display-only lines so the eq_hash is invariant to the
+    # section a constraint was emitted under and to the per-spec
+    # choice of which absorbed symbol points at which representative:
+    # - Destructure header lines (no semantic content for hashing).
+    # - Section header lines like `# Wegscheider constraints:`.
+    # - Single-symbol equality lines carrying the
+    #   `(substituted into v)` annotation. Their LHS is folded into
+    #   the v polynomial via the kinetic-group rename map, so it
+    #   never appears in v itself; the line encodes only display
+    #   relabeling. Two mechanisms in the same Source-C cluster can
+    #   produce the same v under different relabeling structures
+    #   (e.g., {K10=K8, K8=K4} vs {K10=K4, K8=K4}); dropping these
+    #   lines makes both hash identically. Multi-symbol Wegscheider
+    #   and Haldane closures stay — their LHS appears in v via a
+    #   runtime substitution, so they're real parameterization info.
+    # The single-symbol-equality regex restricts to true RE/SS rate-
+    # constant symbols (K\d+, K\d+_T, k\d+f, k\d+r, k\d+f_T,
+    # k\d+r_T) so regulator-K-to-regulator-K lines (which don't flow
+    # through the polynomial-level absorption pipeline) aren't
+    # dropped.
+    raw_lines = split(body, '\n')
+
+    is_destructure(ln) = occursin(r"^\s*\(; .* = (params|concs)$", ln)
+    is_section_header(ln) = occursin(r"^# .+ constraints:$", ln)
+
+    sym_pattern = "(?:K\\d+(?:_T)?|k\\d+[fr](?:_T)?)"
+    annotation_escaped = replace(
+        ANNOTATION_SUBSTITUTED, "(" => "\\(", ")" => "\\)")
+    single_eq_re = Regex(
+        "^\\s*$sym_pattern\\s*=\\s*$sym_pattern$annotation_escaped\$")
+    is_single_eq(ln) = occursin(single_eq_re, ln)
+
     body = join(
-        filter(
-            ln -> !occursin(
-                r"^\s*\(; .* = (params|concs)$", ln),
-            split(body, '\n')),
+        [ln for ln in raw_lines
+         if !is_destructure(ln) && !is_section_header(ln) &&
+            !is_single_eq(ln)],
         '\n')
 
     skip = (:E_total,)

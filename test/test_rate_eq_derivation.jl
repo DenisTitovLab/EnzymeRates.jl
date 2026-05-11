@@ -263,7 +263,14 @@ For RE isomerization steps (no metabolite, enzyme-only):
 function raw_to_ode_params(m, raw_params)
     eq = EnzymeRates.equilibrium_steps(m)
     ns = EnzymeRates.n_steps(m)
-    binding_Ks = Set(EnzymeRates._binding_K_symbols(typeof(m)))
+    rxns = EnzymeRates.reactions(m)
+    enz_set = Set(EnzymeRates.enzyme_forms(m))
+    # A canonical RE binding step has a metabolite on LHS (canonical form
+    # invariant: all RE binding steps are written `E + S ⇌ ES`).
+    is_binding_step = Bool[
+        eq[i] && any(s ∉ enz_set for s in rxns[i][1])
+        for i in 1:ns
+    ]
     param_keys = Symbol[]
     param_vals = Float64[]
     for i in 1:ns
@@ -273,7 +280,7 @@ function raw_to_ode_params(m, raw_params)
         push!(param_keys, Symbol("k$(i)r"))
         if eq[i]
             K = Float64(raw_params[Symbol("K$rep")])
-            if Symbol("K$rep") in binding_Ks
+            if is_binding_step[i]
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
                 push!(param_vals, 1e6 * K)
@@ -1134,6 +1141,7 @@ end
     actual = rate_equation_string(m_allo)
     expected = raw"""(; K1, K2, k3f, K1_T, K2_T, k3f_T, K_R_reg1, K_R_T_reg1, L, Keq, E_total) = params
 (; S, P, R) = concs
+# Haldane constraints:
 k3r = (1 / Keq) * K1 * (1 / K2) * k3f
 k3r_T = (1 / Keq) * K1_T * (1 / K2_T) * k3f_T
 v = E_total * (2 * ((k3f * S / K2 - k3r * P / K1) * (1 + P / K1 + S / K2) * (1 + R / K_R_reg1) ^ 2 + L * (S * k3f_T / K2_T - P * k3r_T / K1_T) * (1 + P / K1_T + S / K2_T) * (1 + R / K_R_T_reg1) ^ 2)) / ((1 + P / K1 + S / K2) ^ 2 * (1 + R / K_R_reg1) ^ 2 + L * (1 + P / K1_T + S / K2_T) ^ 2 * (1 + R / K_R_T_reg1) ^ 2)"""

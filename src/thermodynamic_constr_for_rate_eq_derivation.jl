@@ -32,26 +32,6 @@ end
 
 # ─── Thermodynamic Constraint Infrastructure ─────────────────────
 
-function _enzyme_incidence_matrix(enz_names, enz_set, rxns)
-    N = length(enz_names)
-    B = zeros(Int, N, length(rxns))
-    for (j, (lhs, rhs, _, _)) in enumerate(rxns)
-        e_lhs, _ = _split_reaction_side(lhs, enz_set)
-        e_rhs, _ = _split_reaction_side(rhs, enz_set)
-        B[findfirst(==(e_lhs), enz_names), j] -= 1
-        B[findfirst(==(e_rhs), enz_names), j] += 1
-    end
-    return B
-end
-
-function _enzyme_incidence_matrix(M::Type{<:EnzymeMechanism})
-    m = M()
-    enz_names = enzyme_forms(m)
-    _enzyme_incidence_matrix(
-        enz_names, Set(enz_names), reactions(m),
-    )
-end
-
 function _integer_nullspace(A::Matrix{Int})
     m, n = size(A)
     R = Matrix{Rational{BigInt}}(A)
@@ -88,14 +68,32 @@ function _integer_nullspace(A::Matrix{Int})
     result
 end
 
-function _thermodynamic_constraints(
-    enz_names, enz_set, rxns, stoich_mat,
-    met_names, subs_species, prods_species,
-)
-    B = _enzyme_incidence_matrix(enz_names, enz_set, rxns)
+function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
+    m = M()
+    enz_names = enzyme_forms(m)
+    enz_set = Set(enz_names)
+    rxns = reactions(m)
+    stoich_mat = stoich_matrix(m)[metabolite_row_range(m), :]
+    met_names = collect(metabolites(m))
+    subs_species = substrates(m)
+    prods_species = products(m)
+
+    # Enzyme incidence matrix: rows = enzyme forms, cols = steps;
+    # entries are −1 / +1 depending on which side an enzyme form
+    # appears on.
+    N = length(enz_names)
+    B = zeros(Int, N, length(rxns))
+    for (j, (lhs, rhs, _, _)) in enumerate(rxns)
+        e_lhs, _ = _split_reaction_side(lhs, enz_set)
+        e_rhs, _ = _split_reaction_side(rhs, enz_set)
+        B[findfirst(==(e_lhs), enz_names), j] -= 1
+        B[findfirst(==(e_rhs), enz_names), j] += 1
+    end
+
     NS = _integer_nullspace(B)
     nc = size(NS, 2)
     nc == 0 && return zeros(Int, 0, size(B, 2)), Int[]
+
     nu_net = zeros(Int, length(met_names))
     for name in subs_species
         nu_net[findfirst(==(name), met_names)] -= 1
@@ -103,50 +101,42 @@ function _thermodynamic_constraints(
     for name in prods_species
         nu_net[findfirst(==(name), met_names)] += 1
     end
-    C = NS'
-    rhs_coeffs = [
-        _classify_cycle(stoich_mat * C[i, :], nu_net, i)
-        for i in 1:nc
-    ]
-    return C, rhs_coeffs
-end
 
-function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
-    m = M()
-    enz_names = enzyme_forms(m)
-    _thermodynamic_constraints(
-        enz_names, Set(enz_names), reactions(m),
-        stoich_matrix(m)[metabolite_row_range(m), :], collect(metabolites(m)),
-        substrates(m), products(m),
-    )
-end
-
-function _classify_cycle(nu_cycle, nu_net, i)
-    all(nu_cycle .== 0) && return 0
-    c = nothing
-    for j in eachindex(nu_cycle)
-        if nu_net[j] == 0
-            nu_cycle[j] != 0 && error(
-                "Cycle $i produces metabolite " *
-                "change not proportional to " *
-                "net reaction"
-            )
-        else
-            c_j = nu_cycle[j] // nu_net[j]
-            if c === nothing
-                c = c_j
-            elseif c_j != c
-                error(
+    # Classify each null-space cycle as Haldane (proportional to the
+    # net reaction → contributes log(Keq)) or Wegscheider (closed
+    # cycle, zero net change). Errors on cycles that touch metabolites
+    # but aren't proportional to the net reaction.
+    function classify_cycle(nu_cycle, i)
+        all(nu_cycle .== 0) && return 0
+        c = nothing
+        for j in eachindex(nu_cycle)
+            if nu_net[j] == 0
+                nu_cycle[j] != 0 && error(
                     "Cycle $i produces metabolite " *
                     "change not proportional to " *
                     "net reaction"
                 )
+            else
+                c_j = nu_cycle[j] // nu_net[j]
+                if c === nothing
+                    c = c_j
+                elseif c_j != c
+                    error(
+                        "Cycle $i produces metabolite " *
+                        "change not proportional to " *
+                        "net reaction"
+                    )
+                end
             end
         end
+        err = "Cycle $i produces metabolite change " *
+              "not proportional to net reaction"
+        c !== nothing && denominator(c) == 1 ? Int(c) : error(err)
     end
-    err = "Cycle $i produces metabolite change " *
-          "not proportional to net reaction"
-    c !== nothing && denominator(c) == 1 ? Int(c) : error(err)
+
+    C = NS'
+    rhs_coeffs = [classify_cycle(stoich_mat * C[i, :], i) for i in 1:nc]
+    return C, rhs_coeffs
 end
 
 """
@@ -157,8 +147,31 @@ Haldane / Wegscheider thermodynamic constraints. Steps in the same
 kinetic group share parameters: their cycle-incidence columns are merged
 into the representative step's column before Gaussian elimination, so
 `dep_exprs` and `indep_params` are keyed only on representatives.
+
+The wrapper calls `_build_kinetic_rename_map(M)` to obtain the full
+rename map (user-defined kinetic-group merges plus absorbed single-symbol
+Wegscheider RE ties) and forwards to `_dependent_param_exprs_kernel`.
 """
 function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
+    _dependent_param_exprs_kernel(M, _build_kinetic_rename_map(M))
+end
+
+"""
+Gaussian-elimination kernel underlying `_dependent_param_exprs`. Takes
+the rename map as a parameter so callers can supply either the
+user-defined kinetic-group rename (Pass 1 only) or the full rename map
+that also absorbs single-symbol Wegscheider RE ties (Pass 1 + Pass 2).
+
+Pass 2 of `_build_kinetic_rename_map` calls this kernel with the
+Pass-1-only rename to discover which single-symbol ties to absorb; the
+display path in `rate_equation_string` likewise calls it with the
+Pass-1-only rename to keep absorbed ties visible under the
+`# Wegscheider constraints:` section.
+"""
+function _dependent_param_exprs_kernel(
+    M::Type{<:EnzymeMechanism},
+    rename::AbstractDict{Symbol, Symbol},
+)
     m = M()
     rxns = reactions(m)
     eq_steps = equilibrium_steps(m)
@@ -187,9 +200,6 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
 
     sym_col = Dict(p => i for (i, p) in enumerate(all_params))
     n_vars = length(all_params)
-
-    # Build per-step → representative-step alias map
-    rename = _build_kinetic_rename_map(m)
 
     # Translate cycle-incidence columns into the merged-parameter A matrix.
     # Non-representative steps' columns are folded into their representative
@@ -299,15 +309,6 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     end
     dep_set = Set(keys(dep_exprs))
     return dep_exprs, Tuple(p for p in all_params if p ∉ dep_set)
-end
-
-function _constraint_expr_strings(M::Type{<:EnzymeMechanism})
-    lines = String[]
-    dep_exprs, _ = _dependent_param_exprs(M)
-    for (sym, expr) in sort(collect(dep_exprs); by=p -> string(p[1]))
-        push!(lines, "$sym = $(string(expr))")
-    end
-    lines
 end
 
 # ─── Preamble Building Helpers ───────────────────────────────────

@@ -3,6 +3,15 @@
 const _AnyMechanism = AbstractEnzymeMechanism
 
 """
+Suffix appended to single-symbol equality lines whose LHS got folded
+into the kinetic-group rename map. Both display sites (User defined
+kinetic-group merges and absorbed single-symbol Wegscheider ties) emit
+this exact string so the eq_hash canonicalizer in
+`identify_rate_equation.jl` can normalize them with a single regex.
+"""
+const ANNOTATION_SUBSTITUTED = "  (substituted into v)"
+
+"""
     parameters(m::EnzymeMechanism, [mode])
     parameters(m::AllostericEnzymeMechanism, [mode])
 
@@ -87,10 +96,32 @@ end
 Build a renaming map from non-representative step parameter symbols to the
 representative step's parameter symbols. Used to alias `K2` → `K1` (etc.) when
 steps 1 and 2 share a kinetic group.
+
+Two passes:
+
+1. **User-defined kinetic-group merges.** Steps inside a single
+   kinetic group share parameters; the rename collapses every
+   non-representative symbol to the representative.
+
+2. **Single-symbol Wegscheider RE ties.** Calls
+   `_dependent_param_exprs_kernel` with the Pass-1 rename to discover
+   binding-K-to-binding-K Wegscheider closures of the form `K_a = K_b`
+   (RHS is a bare Symbol). Both sides must be binding K's (RE step
+   with a metabolite on LHS, post-Pass-1 rename) — absorbing a
+   binding-K-to-iso-K tie would produce inconsistent sign-flips when
+   the kernel runs with the full rename, since the binding-K column
+   is sign-flipped (Kd convention) but the iso-K column is not.
+
+Pass 2 means the polynomial in `v` uses the representative symbol
+directly, so Source-C duplicates (split kinetic groups that
+Wegscheider ties back together) collapse at hash time.
 """
-function _build_kinetic_rename_map(m::EnzymeMechanism)
+function _build_kinetic_rename_map(M::Type{<:EnzymeMechanism})
+    m = M()
     rename = Dict{Symbol, Symbol}()
     eq = equilibrium_steps(m)
+
+    # Pass 1: user-defined kinetic-group merges.
     for g in kinetic_groups(m)
         idxs = steps_in_group(m, g)
         length(idxs) == 1 && continue
@@ -105,8 +136,38 @@ function _build_kinetic_rename_map(m::EnzymeMechanism)
             end
         end
     end
+
+    # Build the binding-K set under the Pass-1 rename so Pass 2 only
+    # absorbs ties between two binding K's.
+    rxns = reactions(m)
+    enz_set = Set(enzyme_forms(m))
+    binding_set = Set{Symbol}()
+    for (idx, (lhs, _, _, _)) in enumerate(rxns)
+        eq[idx] || continue
+        any(s ∉ enz_set for s in lhs) || continue
+        sym = Symbol("K$idx")
+        push!(binding_set, get(rename, sym, sym))
+    end
+
+    # Pass 2: single-symbol Wegscheider RE ties between two binding K's.
+    # Transitive closure: if K10 -> K8 was added in Pass 1 and Pass 2
+    # absorbs K8 -> K4, every existing entry pointing to K8 must
+    # advance to K4 so the rename is idempotent.
+    dep_raw, _ = _dependent_param_exprs_kernel(M, rename)
+    for (lhs, rhs) in dep_raw
+        rhs isa Symbol || continue
+        lhs in binding_set && rhs in binding_set || continue
+        target = get(rename, rhs, rhs)
+        rename[lhs] = target
+        for (k, v) in rename
+            v == lhs && (rename[k] = target)
+        end
+    end
+
     rename
 end
+
+_build_kinetic_rename_map(m::EnzymeMechanism) = _build_kinetic_rename_map(typeof(m))
 
 # ─── RE Group Helpers ───────────────────────────────────────
 
@@ -422,32 +483,6 @@ end
 # ─── Expr generation from POLY ──────────────────────────────
 
 """
-Identify K symbols for binding RE steps (where K should be Kd, not Ka).
-Canonical form invariant: all RE metabolite steps have metabolite on LHS,
-so a binding step is simply any RE step with a non-enzyme species on LHS.
-The returned symbols use kinetic-group representatives (one per RE binding group).
-"""
-function _binding_K_symbols(M::Type{<:EnzymeMechanism})
-    m = M()
-    rxns = reactions(m)
-    eq_steps = equilibrium_steps(m)
-    enz_set = Set(enzyme_forms(m))
-    rename_map = _build_kinetic_rename_map(m)
-    seen = Set{Symbol}()
-    syms = Symbol[]
-    for (i, (lhs, _, _, _)) in enumerate(rxns)
-        eq_steps[i] || continue
-        any(s ∉ enz_set for s in lhs) || continue
-        K = Symbol("K$i")
-        K = get(rename_map, K, K)
-        K in seen && continue
-        push!(seen, K)
-        push!(syms, K)
-    end
-    syms
-end
-
-"""
 Compute the raw rate expression (bare symbols) and sorted parameter/concentration symbols.
 Returns `(expr, all_params, sorted_concs)`.
 """
@@ -517,11 +552,57 @@ function rate_equation_string(::M, ::FullMode) where {M<:EnzymeMechanism}
 end
 
 function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
+    m = M()
     _, indep = _dependent_param_exprs(M)
-    join(["(; $(join((indep..., :Keq, :E_total), ", "))) = params",
-          "(; $(join(metabolites(M()), ", "))) = concs",
-          _constraint_expr_strings(M)...,
-          _rate_v_line(M)], "\n")
+
+    # User defined: equalities encoded in the kinetic-group structure of
+    # the EnzymeMechanism type. All such ties get folded into the rename
+    # map and substituted into v, so every line carries the annotation.
+    user_lines = String[]
+    eq = equilibrium_steps(m)
+    pass1_rename = Dict{Symbol, Symbol}()
+    for g in kinetic_groups(m)
+        idxs = steps_in_group(m, g)
+        length(idxs) == 1 && continue
+        rep = first(idxs)
+        for idx in idxs
+            idx == rep && continue
+            if eq[idx]
+                push!(user_lines, "K$idx = K$rep$ANNOTATION_SUBSTITUTED")
+                pass1_rename[Symbol("K$idx")] = Symbol("K$rep")
+            else
+                push!(user_lines, "k$(idx)f = k$(rep)f$ANNOTATION_SUBSTITUTED")
+                push!(user_lines, "k$(idx)r = k$(rep)r$ANNOTATION_SUBSTITUTED")
+                pass1_rename[Symbol("k$(idx)f")] = Symbol("k$(rep)f")
+                pass1_rename[Symbol("k$(idx)r")] = Symbol("k$(rep)r")
+            end
+        end
+    end
+
+    # Wegscheider/Haldane: raw dep_exprs from the Pass-1-only rename so
+    # absorbed single-symbol ties remain visible. Single-symbol entries
+    # get the substituted-into-v annotation; multi-symbol RHSes get
+    # runtime assignment in `_build_rate_body` (no annotation).
+    dep_raw, _ = _dependent_param_exprs_kernel(M, pass1_rename)
+    keq_set = Set([:Keq])
+    weg_lines, hal_lines = String[], String[]
+    for (sym, expr) in sort(collect(dep_raw); by=p -> string(p[1]))
+        is_haldane = _expr_references_any(expr, keq_set)
+        suffix = expr isa Symbol ? ANNOTATION_SUBSTITUTED : ""
+        line = "$sym = $(string(expr))$suffix"
+        push!(is_haldane ? hal_lines : weg_lines, line)
+    end
+
+    lines = ["(; $(join((indep..., :Keq, :E_total), ", "))) = params",
+             "(; $(join(metabolites(m), ", "))) = concs"]
+    isempty(user_lines) ||
+        (push!(lines, "# User defined constraints:"); append!(lines, user_lines))
+    isempty(weg_lines)  ||
+        (push!(lines, "# Wegscheider constraints:");  append!(lines, weg_lines))
+    isempty(hal_lines)  ||
+        (push!(lines, "# Haldane constraints:");      append!(lines, hal_lines))
+    push!(lines, _rate_v_line(M))
+    join(lines, "\n")
 end
 
 # ─── kcat Computation Helpers ──────────────────────────────────
@@ -993,38 +1074,6 @@ function _all_t_state_names(m::AllostericEnzymeMechanism)
     names
 end
 
-# ─── Binding K symbols ───────────────────────────────────────────
-
-"""
-Return all binding (Kd-convention) K symbols: R-state, T-state, and reg site params.
-Regulatory site K params are always Kd. `:EqualRT` and `:OnlyR` groups have no
-T-state K (they share the R-state symbol or are absent in T).
-"""
-function _binding_K_symbols(
-    ::Type{AllostericEnzymeMechanism{CM,CS,RS}},
-) where {CM,CS,RS}
-    m = AllostericEnzymeMechanism{CM,CS,RS}()
-    cm = catalytic_mechanism(m)
-    r_ks = Tuple(_binding_K_symbols(CM))
-    t_ks = Symbol[]
-    for K in r_ks
-        idx = parse(Int, string(K)[2:end])
-        tag = cat_allo_state(m, kinetic_group(cm, idx))
-        tag == :NonequalRT && push!(t_ks, _rename_params_T(K))
-    end
-    reg_ks_r = Symbol[]
-    reg_ks_t = Symbol[]
-    for (i, entry) in enumerate(RS)
-        for lig in entry[1]
-            tag = reg_allo_state(m, i, lig)
-            tag == :OnlyT || push!(reg_ks_r, _reg_param_name(lig, i, false))
-            tag in (:NonequalRT, :OnlyT) &&
-                push!(reg_ks_t, _reg_param_name(lig, i, true))
-        end
-    end
-    (r_ks..., t_ks..., reg_ks_r..., reg_ks_t...)
-end
-
 # ─── Dependent parameter expressions ─────────────────────────────
 
 """
@@ -1314,24 +1363,81 @@ function rate_equation_string(
     ::AllostericEnzymeMechanism{CM,CS,RS}, ::ReducedMode,
 ) where {CM,CS,RS}
     M = AllostericEnzymeMechanism{CM,CS,RS}
+    m = M()
+    cm = catalytic_mechanism(m)
+    CMT = typeof(cm)
     _, indep = _dependent_param_exprs(M)
     hw_params = (indep..., :Keq, :E_total)
-    mets = metabolites(M())
+    mets = metabolites(m)
 
-    r_assignments, t_assignments_ = _build_dep_assignments(M)
-    t_assignments = _t_state_dead(M()) ? Expr[] : t_assignments_
-    dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in r_assignments]
-    t_dep_lines = ["$(a.args[1]) = $(_expr_to_string(a.args[2]))" for a in t_assignments]
+    # User defined: catalytic-mechanism kinetic-group structure. All
+    # such ties are folded into the rename map and substituted into v.
+    user_lines = String[]
+    eq = equilibrium_steps(cm)
+    pass1_rename = Dict{Symbol, Symbol}()
+    for g in kinetic_groups(cm)
+        idxs = steps_in_group(cm, g)
+        length(idxs) == 1 && continue
+        rep = first(idxs)
+        for idx in idxs
+            idx == rep && continue
+            if eq[idx]
+                push!(user_lines, "K$idx = K$rep$ANNOTATION_SUBSTITUTED")
+                pass1_rename[Symbol("K$idx")] = Symbol("K$rep")
+            else
+                push!(user_lines, "k$(idx)f = k$(rep)f$ANNOTATION_SUBSTITUTED")
+                push!(user_lines, "k$(idx)r = k$(rep)r$ANNOTATION_SUBSTITUTED")
+                pass1_rename[Symbol("k$(idx)f")] = Symbol("k$(rep)f")
+                pass1_rename[Symbol("k$(idx)r")] = Symbol("k$(rep)r")
+            end
+        end
+    end
+
+    # R-state Wegscheider/Haldane: raw dep_exprs from the Pass-1-only
+    # rename keep absorbed single-symbol ties visible.
+    dep_R_raw, _ = _dependent_param_exprs_kernel(CMT, pass1_rename)
+    keq_set = Set([:Keq])
+    weg_lines, hal_lines = String[], String[]
+    for (sym, expr) in sort(collect(dep_R_raw); by=p -> string(p[1]))
+        is_haldane = _expr_references_any(expr, keq_set)
+        suffix = expr isa Symbol ? ANNOTATION_SUBSTITUTED : ""
+        line = "$sym = $(string(expr))$suffix"
+        push!(is_haldane ? hal_lines : weg_lines, line)
+    end
+
+    # T-state assignments — partitioned by Keq-reference predicate so
+    # they fold into the same two sections as R-state lines. Allosteric
+    # mechanisms thus use the same three-section structure as
+    # non-allosteric.
+    _, t_assignments_ = _build_dep_assignments(M)
+    t_assignments = _t_state_dead(m) ? Expr[] : t_assignments_
+    for a in t_assignments
+        sym = a.args[1]
+        expr = a.args[2]
+        is_haldane = _expr_references_any(expr, keq_set)
+        line = "$sym = $(_expr_to_string(expr))"
+        push!(is_haldane ? hal_lines : weg_lines, line)
+    end
+
+    # Sort each section lexicographically — load-bearing for eq_hash
+    # dedup of allosteric Source-C clusters, since T-state lines are
+    # appended in iteration order rather than the lexicographic R-state
+    # order.
+    sort!(weg_lines)
+    sort!(hal_lines)
 
     full_num, full_den = _allosteric_num_den_exprs(M)
     v_line = "v = E_total * ($(_expr_to_string(full_num))) / ($(_expr_to_string(full_den)))"
 
-    join([
-        "(; $(join(hw_params, ", "))) = params",
-        "(; $(join(mets, ", "))) = concs",
-        dep_lines...,
-        t_dep_lines...,
-        v_line,
-    ], "\n")
+    lines = ["(; $(join(hw_params, ", "))) = params",
+             "(; $(join(mets, ", "))) = concs"]
+    isempty(user_lines) ||
+        (push!(lines, "# User defined constraints:"); append!(lines, user_lines))
+    isempty(weg_lines)  ||
+        (push!(lines, "# Wegscheider constraints:");  append!(lines, weg_lines))
+    isempty(hal_lines)  ||
+        (push!(lines, "# Haldane constraints:");      append!(lines, hal_lines))
+    push!(lines, v_line)
+    join(lines, "\n")
 end
 
