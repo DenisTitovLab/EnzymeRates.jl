@@ -133,11 +133,13 @@ b. **Flat-string assertion.** After the fix, the only parens in
    wrap per polynomial that has negative monomials (≤ 2 for the
    num+den pair). That's a hard ceiling of 6 paren pairs (12 chars)
    for any non-allosteric mechanism. Assert
-   `count('(', rate_equation_string(m)) ≤ 8` on the witness
-   mechanism — strict enough that introducing one extra nested-`+`
-   paren pair fails the test. The exact ceiling for the chosen
-   witness will be locked in when the test is written; the principle
-   is "tight enough to fail on one extra paren."
+   `count('(', rate_equation_string(m, Full)) ≤ 6` on the
+   witness mechanism. The current count is 5 (2 destructurings + num
+   wrap + den wrap + one negatives wrap inside the numerator); the
+   cap is one above current, so any extra nested-`+` paren pair fails
+   the test. `Full` mode is the right witness because `Reduced` adds
+   dep-expr `1/(…)` divisor assignments (~13 parens) — structural
+   noise that would mask a flattening regression.
 
 ### 3. `.claude/CLAUDE.md`
 

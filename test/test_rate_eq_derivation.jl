@@ -786,6 +786,9 @@ end
     # easy to miss without an explicit guard. Witness count for
     # Random-order Bi-Bi is 5 in Full mode (params destructure, concs
     # destructure, num wrap, den wrap, one negatives wrap inside num).
+    # Full mode is the right witness here: Reduced mode adds dep-expr
+    # 1/(…) divisor assignments and lands at ~13 parens, which is
+    # structural noise that would mask a flattening regression.
     spec = only(s for s in MECHANISM_TEST_SPECS
                 if s.name == "Random-order Bi-Bi")
     s = rate_equation_string(spec.mechanism, EnzymeRates.Full)
