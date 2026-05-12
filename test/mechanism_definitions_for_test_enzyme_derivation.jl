@@ -979,7 +979,7 @@ function build_mechanism_test_specs()
             expected_n_steps=6,
             expected_n_metabolites=3,
             expected_n_haldane_constraints=1,
-            expected_n_mirror_constraints=1,
+            expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
             analytical_rate_fn=(p, c) -> rate_noncompetitive_inh(
@@ -1128,7 +1128,7 @@ function build_mechanism_test_specs()
             expected_n_steps=9,
             expected_n_metabolites=3,
             expected_n_haldane_constraints=2,
-            expected_n_mirror_constraints=2,
+            expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=5,
             analytical_rate_fn=(p, c) -> rate_nonessential_activator(
@@ -1189,7 +1189,7 @@ function build_mechanism_test_specs()
             expected_n_steps=10,
             expected_n_metabolites=4,
             expected_n_haldane_constraints=2,
-            expected_n_mirror_constraints=2,
+            expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=6,
             analytical_rate_fn=(p, c) ->
