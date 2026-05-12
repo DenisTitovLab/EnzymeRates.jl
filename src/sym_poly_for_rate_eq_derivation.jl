@@ -295,3 +295,28 @@ function _zero_symbols_in_poly(p::POLY, sym_set::Set{Symbol})
     end
     result
 end
+
+"""
+Set of symbols that survive the T-state masking applied by
+`_zero_symbols_in_poly(_, r_only_syms)`. A symbol `s` survives iff it
+appears in at least one monomial of `num_R ∪ den_R` that contains
+NO symbol from `r_only_syms` (those monomials are the ones that remain
+non-zero in the T-state polynomial).
+
+Used by the AllostericEnzymeMechanism dep-exprs filter to avoid declaring
+`:NonequalRT` T-state parameters that never appear in the rate equation
+body — a phantom-parameter case where `p` is only present in R-state
+monomials that get zeroed when constructing the T-state polynomial.
+"""
+function _t_state_surviving_syms(num_R::POLY, den_R::POLY, r_only_syms::Set{Symbol})
+    surviving = Set{Symbol}()
+    for poly in (num_R, den_R)
+        for mono in keys(poly)
+            any(s ∈ r_only_syms for (s, _) in mono) && continue
+            for (s, _) in mono
+                push!(surviving, s)
+            end
+        end
+    end
+    surviving
+end

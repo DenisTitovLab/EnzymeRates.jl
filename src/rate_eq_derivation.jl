@@ -1124,11 +1124,26 @@ function _dependent_param_exprs(
     # already elided from the rate equation body in
     # _build_allosteric_rate_body, so producing them here only inflates
     # length(dep_exprs).
+    #
+    # Additionally: even when t_state_dead_flag is false, a :NonequalRT
+    # symbol p can be "phantom" — declared as :NonequalRT but whose
+    # underlying p only appears in R-state monomials that ALSO contain a
+    # :OnlyR symbol. Those monomials get zeroed in the T-state polynomial
+    # (via _zero_symbols_in_poly), so p never survives the T-state
+    # masking and `_rename_params_T(p)` doesn't appear anywhere in the
+    # rate equation body. Adding it to indep would expose a fittable
+    # parameter that the optimizer searches over but that has no effect
+    # on the loss — pure dimension bloat. Filter against the set of
+    # symbols that actually survive into the T-state polynomial.
+    num_R, den_R = _raw_symbolic_rate_polys(CM)
+    t_state_survivors = _t_state_surviving_syms(num_R, den_R, r_only_syms)
     for p in indep_R_all
         p ∈ r_only_syms && continue
         if haskey(rename_T, p)
+            p ∈ t_state_survivors || continue
             push!(indep_T_list, _rename_params_T(p))
         elseif !t_state_dead_flag
+            p ∈ t_state_survivors || continue
             dep_T[_rename_params_T(p)] = p
         end
     end
