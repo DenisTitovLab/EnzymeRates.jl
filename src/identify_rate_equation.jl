@@ -348,7 +348,7 @@ and data using beam search.
 - `max_param_count::Int = 20`: stop expanding beyond
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `PyCMAOpt()` from OptimizationPyCMAES.
-- `n_restarts::Int = 10`: multi-start restarts per fit
+- `n_restarts::Int = 20`: multi-start restarts per fit
 - `maxtime::Real = 60.0`: max time per fit (seconds)
 - `maxiters::Int = 10_000_000`: max iterations per
   optimizer run (forwarded to `Optimization.solve`)
@@ -414,7 +414,7 @@ function identify_rate_equation(
     max_param_count::Int = 20,
     # Fitting
     optimizer,
-    n_restarts::Int = 10,
+    n_restarts::Int = 20,
     maxtime::Real = 60.0,
     maxiters::Int = 10_000_000,
     popsize::Int = 200,
