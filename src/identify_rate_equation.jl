@@ -251,8 +251,14 @@ end
 function _factor_sort_key(f::AbstractString)
     m = match(r"^p_(\d+)(?:\s*\^\s*(\d+))?$", f)
     if m !== nothing
-        return (0, parse(Int, m.captures[1]),
-                m.captures[2] === nothing ? 1 : parse(Int, m.captures[2]),
+        # captures[1] is `(\d+)` and the overall regex requires it to match,
+        # so it can never be Nothing here. Assert the type to help JET's
+        # type inference; without this JET flags `parse(Int, ::Nothing)` as
+        # a potential error on the Union{Nothing, SubString} type.
+        base = m.captures[1]::SubString{String}
+        exp = m.captures[2]
+        return (0, parse(Int, base),
+                exp === nothing ? 1 : parse(Int, exp::SubString{String}),
                 "")
     end
     (1, 0, 0, String(f))
