@@ -17,6 +17,7 @@ const TOP_K = 5                   # worst-spread buckets per n
 const N_RESTARTS = 10
 const MAXTIME = 600.0
 const LDH_KEQ = 20000.0
+const N_VALUES = (5, 6, 7, 8)
 const RESULT_CSV = joinpath(@__DIR__, "refit_results.csv")
 
 # --------------------------------------------------------------------------
@@ -24,7 +25,12 @@ const RESULT_CSV = joinpath(@__DIR__, "refit_results.csv")
 # --------------------------------------------------------------------------
 function load_ldh_data()
     raw = CSV.read(joinpath(@__DIR__, "LDH_data.csv"), DataFrame)
-    raw.group = string.(raw.Article, "/", raw.Fig)
+    # Underscore separator matches the convention used in Denis's original
+    # identify_rate_equation run on LDH (the one that produced
+    # params_estimate_*.csv). Cross-validation folds depend on this — using
+    # a different separator would change the leave-one-group-out partitions
+    # and invalidate the new-vs-old loss comparison.
+    raw.group = string.(raw.Article, "_", raw.Fig)
     select(raw, [:group, :Rate, :Pyruvate, :NADH, :Lactate, :NAD])
 end
 
@@ -71,6 +77,16 @@ function append_result!(results_df, row)
     CSV.write(RESULT_CSV, results_df)
 end
 
+"""
+Resume key is `(n_params, hash, mech_type)`. This assumes each
+mechanism_type string appears at most once per hash bucket per n —
+which is the common case (each row in `params_estimate_*.csv` has a
+unique `mech_type`). If two rows in a bucket happen to share a
+mechanism_type string with different `old_loss` values, only the first
+one is re-fit on resume; the duplicate is silently skipped. Acceptable
+for diagnostic use; would need a (mech_type, old_loss) compound key
+for production fidelity.
+"""
 function already_fit(results_df, n::Int, hash::String, mech_type::String)
     isempty(results_df) && return false
     any(
@@ -83,7 +99,7 @@ end
 # --------------------------------------------------------------------------
 # Fitting
 # --------------------------------------------------------------------------
-function refit_mech(m, data, _old_loss)
+function refit_mech(m, data)
     fp = FittingProblem(m, data; Keq=LDH_KEQ)
     t = @elapsed fit = fit_rate_equation(fp, PyCMAOpt(); n_restarts=N_RESTARTS, maxtime=MAXTIME)
     return fit.loss, t
@@ -94,7 +110,7 @@ end
 # --------------------------------------------------------------------------
 function print_summary(results)
     println("\n############ SUMMARY ############")
-    for n in (5, 6, 7, 8)
+    for n in N_VALUES
         sub = filter(r -> r.n_params == n, results)
         isempty(sub) && continue
         println("\nn=$n:")
@@ -140,7 +156,7 @@ function main()
     results = init_or_resume_results()
     println("Resuming with $(nrow(results)) prior results")
 
-    for n in (5, 6, 7, 8)
+    for n in N_VALUES
         println("\n############ n=$n ############")
         bad = find_bad_buckets(n)
         println("Top $(length(bad)) bad buckets at n=$n:")
@@ -166,7 +182,7 @@ function main()
                 )
                 t0 = time()
                 status, new_loss, fit_time = try
-                    nl, ft = refit_mech(row.mech, data, row.loss)
+                    nl, ft = refit_mech(row.mech, data)
                     ("ok", nl, ft)
                 catch e
                     msg = sprint(showerror, e)
