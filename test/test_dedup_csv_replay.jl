@@ -5,6 +5,31 @@ using CSV, DataFrames, Test
 using EnzymeRates
 using EnzymeRates: _canonical_rate_eq_hash
 
+"""
+Classify a `fitted_params` symbol into its canonical kind for
+shape-comparison within hash-equivalent mechanism buckets. The kind
+is invariant under rep-step renaming (e.g. `:k9f`, `:k10f`, `:k11f`
+all map to `:kf`); the underlying step-index is what varies across
+topologically-distinct-but-equation-equivalent mechanisms.
+"""
+function _fp_kind(s::Symbol)
+    str = string(s)
+    is_T = endswith(str, "_T")
+    base = is_T ? str[1:end-2] : str
+    kind = if startswith(base, "K") && length(base) > 1 && isdigit(base[2])
+        :K
+    elseif startswith(base, "k") && length(base) > 1 && isdigit(base[2])
+        endswith(base, "f") ? :kf : endswith(base, "r") ? :kr : :other
+    elseif s == :L
+        :L
+    elseif startswith(str, "K_")
+        :K_reg
+    else
+        :other
+    end
+    is_T ? Symbol(kind, :_T) : kind
+end
+
 const _CSV_REPLAY_DIR = joinpath(@__DIR__, "..", "dedup_investigation")
 
 @testset "CSV dedup replay" begin
@@ -66,19 +91,37 @@ const _CSV_REPLAY_DIR = joinpath(@__DIR__, "..", "dedup_investigation")
             end
         end
 
-        # Same-hash → identical fitted_params. If hash-equivalent
-        # mechanisms expose different sets of fittable params, the
-        # fitter explores different dimension spaces for "the same"
-        # equation and produces inconsistent losses despite the
-        # canonicalizer being correct. This is the strict consistency
-        # check that catches the Pass-2-absorbed-symbol leak fixed in
-        # `_dependent_param_exprs`.
-        @testset "n=$n hash-equivalent mechanisms share fitted_params" begin
+        # Same-hash → same fitted_params SHAPE (count + kind multiset).
+        # The strict assertion `length(unique(g.fp)) == 1` was originally
+        # written to catch the c8a3302 Pass-2-absorbed-symbol leak, which
+        # manifested as a fitted-params COUNT mismatch within a hash
+        # bucket. After c8a3302, counts within each hash bucket are
+        # consistent — but the NAMES vary because `parameters(m)` names
+        # each kinetic group after its representative step (the first
+        # source-order step in that group), and topologically-distinct-
+        # but-equation-equivalent mechanisms have different rep-step
+        # indices for the same group. Example: three mechs all hashing
+        # to the same canonical equation can expose
+        # `(:K1,:K2,:K3,:K4,:k9f)`, `(:K1,:K2,:K3,:K4,:k10f)`, and
+        # `(:K1,:K2,:K3,:K4,:k11f)` — same shape, different rep-step
+        # number. The fitter handles this via the param-projection logic
+        # in `identify_rate_equation.jl:286` (cached params get mapped
+        # onto each target spec's own `fitted_params` keys at fit time).
+        # We assert the invariants the canonicalizer DOES guarantee:
+        # same param count and same kind-multiset.
+        @testset "n=$n hash-equivalent mechanisms share fitted_params shape" begin
             mechs_by_row = [eval(Meta.parse(row.mechanism_type))()
                             for row in eachrow(df)]
             df.fp = [EnzymeRates.fitted_params(m) for m in mechs_by_row]
             for g in groupby(df, :canonical_hash)
-                @test length(unique(g.fp)) == 1
+                # 1. Same param count — catches the c8a3302 leak
+                #    regression (extra symbol slipping into indep).
+                @test length(unique(length.(g.fp))) == 1
+                # 2. Same multiset of param kinds — catches qualitative
+                #    mismatches (e.g. one mech exposing kNr while
+                #    another exposes only kNf for the same equation).
+                kinds = [sort(_fp_kind.(fp)) for fp in g.fp]
+                @test length(unique(kinds)) == 1
             end
         end
     end
