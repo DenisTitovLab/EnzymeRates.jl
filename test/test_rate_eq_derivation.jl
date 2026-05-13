@@ -1,5 +1,5 @@
 # Tests for enzyme rate equation derivation
-# Validates structure, constraints, identifiability,
+# Validates structure, constraints,
 # and correctness of derived rate equations
 
 using OrdinaryDiffEqFIRK
@@ -133,24 +133,9 @@ end
 """
 Get dependent parameter expressions from mechanism using internal API.
 Returns vector of (symbol, expression_string) pairs.
-Applies K→1/K substitution for binding RE steps (Kd convention).
 """
 function _get_dependent_params(m)
     dep_exprs, _ = EnzymeRates._dependent_param_exprs(typeof(m))
-    binding_Ks = EnzymeRates._binding_K_symbols(typeof(m))
-    if !isempty(binding_Ks)
-        binding_set = Set(binding_Ks)
-        inv_subs = Dict(K => :(1 / $K) for K in binding_Ks)
-        dep_exprs = Dict(
-            k => begin
-                rhs = EnzymeRates.substitute_params_expr(v, inv_subs)
-                # When dependent param is itself a binding K, wrap in 1/()
-                # to compensate for implicit LHS Ka→Kd inversion
-                k in binding_set ? :(1 / $rhs) : rhs
-            end
-            for (k, v) in dep_exprs
-        )
-    end
     pairs = Tuple{Symbol, String}[]
     for (sym, expr) in sort(collect(dep_exprs); by=first)
         push!(pairs, (sym, string(expr)))
@@ -278,7 +263,14 @@ For RE isomerization steps (no metabolite, enzyme-only):
 function raw_to_ode_params(m, raw_params)
     eq = EnzymeRates.equilibrium_steps(m)
     ns = EnzymeRates.n_steps(m)
-    binding_Ks = Set(EnzymeRates._binding_K_symbols(typeof(m)))
+    rxns = EnzymeRates.reactions(m)
+    enz_set = Set(EnzymeRates.enzyme_forms(m))
+    # A canonical RE binding step has a metabolite on LHS (canonical form
+    # invariant: all RE binding steps are written `E + S ⇌ ES`).
+    is_binding_step = Bool[
+        eq[i] && any(s ∉ enz_set for s in rxns[i][1])
+        for i in 1:ns
+    ]
     param_keys = Symbol[]
     param_vals = Float64[]
     for i in 1:ns
@@ -288,7 +280,7 @@ function raw_to_ode_params(m, raw_params)
         push!(param_keys, Symbol("k$(i)r"))
         if eq[i]
             K = Float64(raw_params[Symbol("K$rep")])
-            if Symbol("K$rep") in binding_Ks
+            if is_binding_step[i]
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
                 push!(param_vals, 1e6 * K)
@@ -469,19 +461,6 @@ function test_constraint_counting(spec::MechanismTestSpec)
         @test n_mirror == spec.expected_n_mirror_constraints
         @test n_wegscheider == spec.expected_n_wegscheider_constraints
         @test length(indep) == spec.expected_n_independent_params
-    end
-end
-
-function test_identifiability(spec::MechanismTestSpec)
-    m = spec.mechanism
-    @testset "Identifiability" begin
-        # The deficit is computed via a monomial-counting heuristic that
-        # over-counts identifiable degrees of freedom for factored
-        # polynomials (e.g. (Q_R)^catN). Use it only for the boolean
-        # is_identifiable check — the magnitude is not biophysically
-        # meaningful.
-        @test (structural_identifiability_deficit(m) <= 0) ==
-              spec.expected_is_identifiable
     end
 end
 
@@ -748,7 +727,6 @@ function run_all_tests(spec::MechanismTestSpec)
     @testset "$(spec.name)" begin
         test_structure(spec)
         test_constraint_counting(spec)
-        test_identifiability(spec)
         test_reference_qssa(spec)
         test_analytical_rate(spec)      # Only runs if analytical_rate_fn provided
         test_haldane_equilibrium(spec)
@@ -770,6 +748,53 @@ end
 end
 
 # ── Standalone kcat tests ──────────────────────────────────────────────────────
+
+@testset "rate_equation polynomial body uses 2-arg +/* calls" begin
+    # The fitter calls rate_equation millions of times per CV fold. The
+    # polynomial body emitted by _poly_to_expr (via _nest_binary) MUST
+    # have exactly 2 operands per +/* call so LLVM inlines the binary
+    # Float64 path; n-ary varargs above ~30 terms boxes the argument
+    # tuple and turns 100ns/0B into 1µs/2KB per call. See
+    # docs/superpowers/specs/2026-05-11-rate-eq-emission-perf-fix-design.md.
+    spec = only(s for s in MECHANISM_TEST_SPECS
+                if s.name == "Random-order Bi-Bi")
+    rate_expr, _, _ = EnzymeRates._raw_rate_expr_and_symbols(
+        typeof(spec.mechanism))
+    bad = Expr[]
+    function walk!(e)
+        if e isa Expr
+            if e.head == :call && !isempty(e.args) &&
+               e.args[1] isa Symbol && e.args[1] in (:+, :*) &&
+               length(e.args) != 3
+                push!(bad, e)
+            end
+            start = e.head == :call ? 2 : 1
+            for i in start:length(e.args)
+                walk!(e.args[i])
+            end
+        end
+    end
+    walk!(rate_expr)
+    @test isempty(bad)
+end
+
+@testset "rate_equation_string prints flat +/* sums (no nested parens)" begin
+    # Orthogonal guard (NOT a perf-fix backstop): _expr_to_string is
+    # precedence-aware and flattens nested +/* nodes
+    # transparently: balanced +(+(a,b), +(c,d)) prints as "a + b + c + d"
+    # with no added parens. If that flattening regresses, the printed
+    # output would gain nested parens but still evaluate correctly —
+    # easy to miss without an explicit guard. Witness count for
+    # Random-order Bi-Bi is 5 in Full mode (params destructure, concs
+    # destructure, num wrap, den wrap, one negatives wrap inside num).
+    # Full mode is the right witness here: Reduced mode adds dep-expr
+    # 1/(…) divisor assignments and lands at ~13 parens, which is
+    # structural noise that would mask a flattening regression.
+    spec = only(s for s in MECHANISM_TEST_SPECS
+                if s.name == "Random-order Bi-Bi")
+    s = rate_equation_string(spec.mechanism, EnzymeRates.Full)
+    @test count(==('('), s) <= 6
+end
 
 @testset "_is_ss_rate_constant" begin
     for sym in (:k1f, :k2r, :k3f_T, :k10f)
@@ -1159,8 +1184,9 @@ end
     actual = rate_equation_string(m_allo)
     expected = raw"""(; K1, K2, k3f, K1_T, K2_T, k3f_T, K_R_reg1, K_R_T_reg1, L, Keq, E_total) = params
 (; S, P, R) = concs
-k3r = (1 / Keq) * (1 / (1 / K1)) * (1 / K2) * k3f
-k3r_T = (1 / Keq) * (1 / (1 / K1_T)) * (1 / K2_T) * k3f_T
-v = E_total * (2 * ((k3f * S / K2 - k3r * P / K1) * (1 + P / K1 + S / K2) * (1 + R / K_R_reg1) ^ 2 + L * (k3f_T * S / K2_T - k3r_T * P / K1_T) * (1 + P / K1_T + S / K2_T) * (1 + R / K_R_T_reg1) ^ 2)) / ((1 + P / K1 + S / K2) ^ 2 * (1 + R / K_R_reg1) ^ 2 + L * (1 + P / K1_T + S / K2_T) ^ 2 * (1 + R / K_R_T_reg1) ^ 2)"""
+# Haldane constraints:
+k3r = (1 / Keq) * K1 * (1 / K2) * k3f
+k3r_T = (1 / Keq) * K1_T * (1 / K2_T) * k3f_T
+v = E_total * (2 * ((k3f * S / K2 - k3r * P / K1) * (1 + P / K1 + S / K2) * (1 + R / K_R_reg1) ^ 2 + L * (S * k3f_T / K2_T - P * k3r_T / K1_T) * (1 + P / K1_T + S / K2_T) * (1 + R / K_R_T_reg1) ^ 2)) / ((1 + P / K1 + S / K2) ^ 2 * (1 + R / K_R_reg1) ^ 2 + L * (1 + P / K1_T + S / K2_T) ^ 2 * (1 + R / K_R_T_reg1) ^ 2)"""
     @test actual == expected
 end

@@ -153,7 +153,7 @@ end
 
 """
     fit_rate_equation(fp::FittingProblem, optimizer;
-        n_restarts=10, maxtime=60.0,
+        n_restarts=20, maxtime=60.0,
         kcat=1.0,
         lb=fill(-15.0, length(fitted_params(fp.mechanism))),
         ub=fill(15.0, length(fitted_params(fp.mechanism))),
@@ -173,7 +173,7 @@ Returns a NamedTuple `(params, loss)` where:
 - `loss`: the best loss value achieved
 """
 function fit_rate_equation(fp::FittingProblem, optimizer;
-    n_restarts::Int=10,
+    n_restarts::Int=20,
     maxtime::Real=60.0,
     kcat::Union{Real,Nothing}=1.0,
     lb=fill(-15.0, length(fitted_params(fp.mechanism))),

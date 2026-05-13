@@ -13,7 +13,6 @@ export Full, Reduced
 
 # Core API
 export rate_equation, rate_equation_string, parameters, metabolites
-export structural_identifiability_deficit
 export rescale_parameter_values
 
 # Fitting & model selection

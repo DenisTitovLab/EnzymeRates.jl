@@ -126,95 +126,6 @@ _Stage1Failure(spec::AbstractMechanismSpec) =
         Dict{String,String}(), (), false)
 
 """
-Build the canonical text + name_map. Internal helper exposed
-to `_canonical_rate_eq_hash_data` so callers can also retrieve
-the name_map (needed by Stage 1 to project cached params across
-specs in the same hash group).
-
-Strategy: walk `parameters(m, Full)` to discover every parameter
-symbol the mechanism could mention (including dependents that
-appear in the v-line and on constraint LHSes), scan the
-rate-equation body to find each parameter's first-appearance
-position, then rename them as `p_1, p_2, …` in first-appearance
-order. `:E_total` is in `Full` but is excluded from renaming;
-`:Keq` and metabolite names are not in `Full` and aren't renamed.
-The constraint lines are KEPT in the body — they encode
-parameterization, so two mechanisms with the same v-line but
-different choice of which parameter is dependent must hash
-differently.
-
-`parameters(m, Full)` is defined for both `EnzymeMechanism` and
-`AllostericEnzymeMechanism` (Phase G.0). Allosteric coverage
-includes T-state names, regulator-site names, and the allosteric
-coupling `L` automatically.
-"""
-function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
-    raw_body = rate_equation_string(m)
-    raw_body === nothing && error(
-        "rate_equation_string returned nothing for $(typeof(m))")
-    body = String(raw_body)
-
-    # Strip ONLY the destructure header lines.
-    body = join(
-        filter(
-            ln -> !occursin(
-                r"^\s*\(; .* = (params|concs)$", ln),
-            split(body, '\n')),
-        '\n')
-
-    skip = (:E_total,)
-    pnames = String[String(p) for p in parameters(m, Full)
-                    if p ∉ skip]
-
-    first_pos = Dict{String,Int}()
-    for name in pnames
-        rx = Regex("\\b" * name * "\\b")
-        m_pos = match(rx, body)
-        m_pos === nothing && continue
-        first_pos[name] = m_pos.offset
-    end
-    appearing = collect(keys(first_pos))
-
-    ordered = sort(appearing; by=name -> (first_pos[name], name))
-    name_map = Dict(name => "p_$i"
-                    for (i, name) in enumerate(ordered))
-
-    # Substitute longest first to prevent prefix collisions
-    # (e.g., rename `K1_T` before `K1`).
-    for name in sort(appearing; by=length, rev=true)
-        body = replace(body,
-            Regex("\\b" * name * "\\b") => name_map[name])
-    end
-
-    canonical = strip(replace(body, r"\s+" => " "))
-    (canonical, name_map)
-end
-
-"""
-Return `(UInt64 hash, 16-char hex display string, name_map)`.
-The single source for canonical hashing — both `_hash` and
-`_hash_pair` delegate here so the canonicalizer runs once. Used
-by Stage 1 of `_beam_search` to keep the rename mapping for later
-per-spec param projection.
-
-Hash collision probability over 10⁴ mechanisms is ~10⁻¹² with
-Julia's built-in `hash(::String)::UInt64`.
-"""
-function _canonical_rate_eq_hash_data(m::AbstractEnzymeMechanism)
-    canonical, name_map = _canonicalize_rate_eq_with_map(m)
-    h = hash(canonical)
-    (h, string(h, base=16, pad=16), name_map)
-end
-
-"""
-Hash a mechanism's canonicalized rate equation. Returns the
-`UInt64` hash.
-"""
-function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
-    first(_canonical_rate_eq_hash_data(m))
-end
-
-"""
 Project cached params (keyed by rep spec's `fitted_params`
 symbols) onto a target spec's own `fitted_params` keys, preserving
 canonical-position values. Two specs in the same hash group have
@@ -243,11 +154,11 @@ function _project_cached_params(
     spec_fitted_keys::Tuple{Vararg{Symbol}},
 )
     # Defensive lookup: a fitted key may not appear in the body
-    # (e.g., a structurally-unidentifiable ghost param on a
-    # zeroed `:NonequalRT` path), in which case `spec_name_map`
-    # has no entry. Fall back to the spec key itself in cached_params
-    # if both maps lack the canonical token; if even that misses,
-    # use NaN as a sentinel that downstream loss/CV will surface.
+    # (e.g., a parameter on a zeroed `:NonequalRT` path), in which
+    # case `spec_name_map` has no entry. Fall back to the spec key
+    # itself in cached_params if both maps lack the canonical token;
+    # if even that misses, use NaN as a sentinel that downstream
+    # loss/CV will surface.
     function _proj(k::Symbol)
         s = String(k)
         canon = get(spec_name_map, s, nothing)
@@ -280,7 +191,7 @@ and data using beam search.
 - `max_param_count::Int = 20`: stop expanding beyond
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `PyCMAOpt()` from OptimizationPyCMAES.
-- `n_restarts::Int = 10`: multi-start restarts per fit
+- `n_restarts::Int = 20`: multi-start restarts per fit
 - `maxtime::Real = 60.0`: max time per fit (seconds)
 - `maxiters::Int = 10_000_000`: max iterations per
   optimizer run (forwarded to `Optimization.solve`)
@@ -346,7 +257,7 @@ function identify_rate_equation(
     max_param_count::Int = 20,
     # Fitting
     optimizer,
-    n_restarts::Int = 10,
+    n_restarts::Int = 20,
     maxtime::Real = 60.0,
     maxiters::Int = 10_000_000,
     popsize::Int = 200,
