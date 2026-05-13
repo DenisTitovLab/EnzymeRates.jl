@@ -4643,4 +4643,44 @@ end # top-level testset
         @test !occursin(r"\bK\d+\b", canon)
         @test !occursin(r"\bk\d+[fr]\b", canon)
     end
+
+    @testset "LDH Pattern-A: graph-distinct mechanisms with equivalent v hash equally" begin
+        # 11-step LDH mechanism. m_a and m_b differ in step ordering AND
+        # in which intermediate forms appear (m_a has Lactate-binding
+        # via E_NADH only; m_b adds a Lactate-binding via E_NAD path).
+        # After Pass 1 absorption their v polynomials are equivalent.
+        # 11 steps is the minimal known case for this property — smaller
+        # hand-tuned topologies tried in investigation did not exhibit
+        # the graph-distinct-but-v-equivalent pattern.
+        m_a = EnzymeMechanism(
+            ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
+            (((:E, :Lactate), (:E_Lactate,), true, 1),
+             ((:E, :NAD), (:E_NAD,), true, 2),
+             ((:E, :NADH), (:E_NADH,), true, 3),
+             ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
+             ((:E_Lactate, :NAD), (:E_Lactate_NAD,), true, 2),
+             ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
+             ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
+             ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
+             ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
+             ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
+             ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+
+        m_b = EnzymeMechanism(
+            ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
+            (((:E, :Lactate), (:E_Lactate,), true, 1),
+             ((:E, :NAD), (:E_NAD,), true, 2),
+             ((:E, :NADH), (:E_NADH,), true, 3),
+             ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
+             ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
+             ((:E_NAD, :Lactate), (:E_Lactate_NAD,), true, 1),
+             ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
+             ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
+             ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
+             ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
+             ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+
+        @test EnzymeRates._canonical_rate_eq_hash(m_a) ==
+              EnzymeRates._canonical_rate_eq_hash(m_b)
+    end
 end
