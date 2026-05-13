@@ -2268,3 +2268,168 @@ function dedup!(
     end
     cache
 end
+
+# ─── Rate-equation canonical hash ──────────────────────────────────────
+
+"""
+Build the canonical text + name_map. Internal helper exposed
+to `_canonical_rate_eq_hash_data` so callers can also retrieve
+the name_map (needed by Stage 1 to project cached params across
+specs in the same hash group).
+
+Strategy: walk `parameters(m, Full)` to discover every parameter
+symbol the mechanism could mention (including dependents that
+appear in the v-line and on constraint LHSes), scan the
+rate-equation body to find each parameter's first-appearance
+position, then rename them as `p_1, p_2, …` in first-appearance
+order. `:E_total` is in `Full` but is excluded from renaming;
+`:Keq` and metabolite names are not in `Full` and aren't renamed.
+
+Multi-symbol Wegscheider and Haldane closure lines are kept in
+the body — their LHS appears in v via a runtime substitution, so
+they encode real parameterization (two mechanisms with the same
+v-line but different dependent-parameter choice must hash
+differently). Single-symbol `(substituted into v)` ties are
+stripped because their LHS never appears in v.
+
+`parameters(m, Full)` is defined for both `EnzymeMechanism` and
+`AllostericEnzymeMechanism`. Allosteric coverage includes T-state
+names, regulator-site names, and the allosteric coupling `L`
+automatically.
+"""
+function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
+    raw_body = rate_equation_string(m)
+    raw_body === nothing && error(
+        "rate_equation_string returned nothing for $(typeof(m))")
+    body = String(raw_body)
+
+    # Drop display-only lines so the eq_hash is invariant to the
+    # section a constraint was emitted under and to the per-spec
+    # choice of which absorbed symbol points at which representative:
+    # - Destructure header lines (no semantic content for hashing).
+    # - Section header lines like `# Wegscheider constraints:`.
+    # - Single-symbol equality lines carrying the
+    #   `(substituted into v)` annotation. Their LHS is folded into
+    #   the v polynomial via the kinetic-group rename map, so it
+    #   never appears in v itself; the line encodes only display
+    #   relabeling. Two mechanisms in the same Source-C cluster can
+    #   produce the same v under different relabeling structures
+    #   (e.g., {K10=K8, K8=K4} vs {K10=K4, K8=K4}); dropping these
+    #   lines makes both hash identically. Multi-symbol Wegscheider
+    #   and Haldane closures stay — their LHS appears in v via a
+    #   runtime substitution, so they're real parameterization info.
+    # The single-symbol-equality regex restricts to true RE/SS rate-
+    # constant symbols (K\d+, K\d+_T, k\d+f, k\d+r, k\d+f_T,
+    # k\d+r_T) so regulator-K-to-regulator-K lines (which don't flow
+    # through the polynomial-level absorption pipeline) aren't
+    # dropped.
+    raw_lines = split(body, '\n')
+
+    is_destructure(ln) = occursin(r"^\s*\(; .* = (params|concs)$", ln)
+    is_section_header(ln) = occursin(r"^# .+ constraints:$", ln)
+
+    sym_pattern = "(?:K\\d+(?:_T)?|k\\d+[fr](?:_T)?)"
+    annotation_escaped = replace(
+        ANNOTATION_SUBSTITUTED, "(" => "\\(", ")" => "\\)")
+    single_eq_re = Regex(
+        "^\\s*$sym_pattern\\s*=\\s*$sym_pattern$annotation_escaped\$")
+    is_single_eq(ln) = occursin(single_eq_re, ln)
+
+    body = join(
+        [ln for ln in raw_lines
+         if !is_destructure(ln) && !is_section_header(ln) &&
+            !is_single_eq(ln)],
+        '\n')
+
+    skip = (:E_total,)
+    pnames = String[String(p) for p in parameters(m, Full)
+                    if p ∉ skip]
+
+    first_pos = Dict{String,Int}()
+    for name in pnames
+        rx = Regex("\\b" * name * "\\b")
+        m_pos = match(rx, body)
+        m_pos === nothing && continue
+        first_pos[name] = m_pos.offset
+    end
+    appearing = collect(keys(first_pos))
+
+    ordered = sort(appearing; by=name -> (first_pos[name], name))
+    name_map = Dict(name => "p_$i"
+                    for (i, name) in enumerate(ordered))
+
+    # Substitute longest first to prevent prefix collisions
+    # (e.g., rename `K1_T` before `K1`).
+    for name in sort(appearing; by=length, rev=true)
+        body = replace(body,
+            Regex("\\b" * name * "\\b") => name_map[name])
+    end
+
+    # Re-sort multiplicative factors within each monomial run so the
+    # text order matches the p_i ordering, not the original-symbol
+    # ordering used by _poly_to_expr. Two mechanisms whose canonical
+    # mapping pairs differ only by which raw step index (e.g., K9 vs
+    # K10) plays a given role will then render with their factors at
+    # matching positions. A "run" is a sequence of `<atom> * <atom>
+    # * ...` terms where each atom is a bare identifier or a
+    # `name ^ digits` power. The match stops at parens, +/-, or `/`.
+    factor_atom = "[A-Za-z_]\\w*(?:\\s*\\^\\s*\\d+)?"
+    run_re = Regex("$factor_atom(?:\\s*\\*\\s*$factor_atom)+")
+    body = replace(body, run_re => _sort_run_factors)
+
+    canonical = strip(replace(body, r"\s+" => " "))
+    (canonical, name_map)
+end
+
+"""
+Sort the `<atom> * <atom> * ...` factors of one multiplicative run.
+The full match is split on `\\s*\\*\\s*`, each factor is keyed by
+`(kind, p_index, exponent, lex_string)`, and the sorted factors are
+joined back with ` * `.
+"""
+function _sort_run_factors(run::AbstractString)
+    factors = split(strip(run), r"\s*\*\s*")
+    sort!(factors; by=_factor_sort_key)
+    join(factors, " * ")
+end
+
+"""Sort key for one factor of a multiplicative run."""
+function _factor_sort_key(f::AbstractString)
+    m = match(r"^p_(\d+)(?:\s*\^\s*(\d+))?$", f)
+    if m !== nothing
+        # captures[1] is `(\d+)` and the overall regex requires it to match,
+        # so it can never be Nothing here. Assert the type to help JET's
+        # type inference; without this JET flags `parse(Int, ::Nothing)` as
+        # a potential error on the Union{Nothing, SubString} type.
+        base = m.captures[1]::SubString{String}
+        exp = m.captures[2]
+        return (0, parse(Int, base),
+                exp === nothing ? 1 : parse(Int, exp::SubString{String}),
+                "")
+    end
+    (1, 0, 0, String(f))
+end
+
+"""
+Return `(UInt64 hash, 16-char hex display string, name_map)`.
+The single source for canonical hashing — both `_hash` and
+`_hash_pair` delegate here so the canonicalizer runs once. Used
+by Stage 1 of `_beam_search` to keep the rename mapping for later
+per-spec param projection.
+
+Hash collision probability over 10⁴ mechanisms is ~10⁻¹² with
+Julia's built-in `hash(::String)::UInt64`.
+"""
+function _canonical_rate_eq_hash_data(m::AbstractEnzymeMechanism)
+    canonical, name_map = _canonicalize_rate_eq_with_map(m)
+    h = hash(canonical)
+    (h, string(h, base=16, pad=16), name_map)
+end
+
+"""
+Hash a mechanism's canonicalized rate equation. Returns the
+`UInt64` hash.
+"""
+function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
+    first(_canonical_rate_eq_hash_data(m))
+end
