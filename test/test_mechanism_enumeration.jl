@@ -4562,4 +4562,62 @@ end # top-level testset
         @test EnzymeRates._sort_run_factors("S * p_1 * p_2") ==
               "p_1 * p_2 * S"
     end
+
+    @testset "Hash is deterministic across repeated calls" begin
+        m = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E_S
+                E_S <--> E_P
+                E + P ⇌ E_P
+            end
+        end
+        h1 = EnzymeRates._canonical_rate_eq_hash(m)
+        h2 = EnzymeRates._canonical_rate_eq_hash(m)
+        @test h1 == h2
+        @test h1 isa UInt64
+    end
+
+    @testset "Hash hex string is 16 lowercase hex chars" begin
+        m = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E_S
+                E_S <--> E_P
+                E + P ⇌ E_P
+            end
+        end
+        h_full, h_hex, name_map = EnzymeRates._canonical_rate_eq_hash_data(m)
+        @test h_full isa UInt64
+        @test length(h_hex) == 16
+        @test all(c -> c in "0123456789abcdef", h_hex)
+        @test name_map isa Dict{String, String}
+    end
+
+    @testset "Distinct mechanisms produce distinct hashes" begin
+        # Uni-uni vs ordered bi-uni: genuinely different v polynomials.
+        m_uu = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E_S
+                E_S <--> E_P
+                E + P ⇌ E_P
+            end
+        end
+        m_bu = @enzyme_mechanism begin
+            substrates: A, B
+            products: P
+            steps: begin
+                E + A ⇌ E_A
+                E_A + B ⇌ E_A_B
+                E_A_B <--> E_P
+                E + P ⇌ E_P
+            end
+        end
+        @test EnzymeRates._canonical_rate_eq_hash(m_uu) !=
+              EnzymeRates._canonical_rate_eq_hash(m_bu)
+    end
 end
