@@ -2273,9 +2273,9 @@ end
 
 """
 Build the canonical text + name_map. Internal helper exposed
-to `_canonical_rate_eq_hash_data` so callers can also retrieve
-the name_map (needed by Stage 1 to project cached params across
-specs in the same hash group).
+to `_canonical_rate_eq_hash_data` so callers that need to project
+cached parameters across hash-equivalent specs can also retrieve
+the name_map.
 
 Strategy: walk `parameters(m, Full)` to discover every parameter
 symbol the mechanism could mention (including dependents that
@@ -2412,10 +2412,9 @@ end
 
 """
 Return `(UInt64 hash, 16-char hex display string, name_map)`.
-The single source for canonical hashing — both `_hash` and
-`_hash_pair` delegate here so the canonicalizer runs once. Used
-by Stage 1 of `_beam_search` to keep the rename mapping for later
-per-spec param projection.
+The single entry point for canonical hashing; `_canonical_rate_eq_hash`
+delegates here so the canonicalizer runs once and callers that need the
+name_map can retrieve it without a second pass.
 
 Hash collision probability over 10⁴ mechanisms is ~10⁻¹² with
 Julia's built-in `hash(::String)::UInt64`.
