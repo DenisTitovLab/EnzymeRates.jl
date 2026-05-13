@@ -4698,4 +4698,35 @@ end # top-level testset
         @test !occursin(r"\bK\d+_T\b", canon)
         @test !occursin(r"\bk\d+[fr]_T\b", canon)
     end
+
+    @testset "rate_equation_string emits section labels" begin
+        # User-defined section emitted when a mechanism has shared
+        # kinetic_groups (reuses the Pass-1 exemplar from Task 4).
+        m_user = EnzymeMechanism(
+            ((:A, :B), (:P,), ()),
+            (((:E, :A), (:E_A,), true, 1),
+             ((:E_B, :A), (:E_A_B,), true, 1),
+             ((:E, :B), (:E_B,), true, 2),
+             ((:E_A, :B), (:E_A_B,), true, 2),
+             ((:E_A_B,), (:E_P,), false, 3),
+             ((:E, :P), (:E_P,), true, 4)))
+        s_user = rate_equation_string(m_user)
+        @test occursin("# User defined constraints:", s_user)
+
+        # Haldane section: any RE binding mechanism with Keq has it.
+        # Investigation confirmed that # Wegscheider constraints: is
+        # not emitted on minimal mechanisms; LDH Pattern-A (Task 5)
+        # is the indirect regression for that section's stripping.
+        m_hal = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E_S
+                E_S <--> E_P
+                E + P ⇌ E_P
+            end
+        end
+        s_hal = rate_equation_string(m_hal)
+        @test occursin("# Haldane constraints:", s_hal)
+    end
 end
