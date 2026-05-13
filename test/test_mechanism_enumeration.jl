@@ -4729,4 +4729,69 @@ end # top-level testset
         s_hal = rate_equation_string(m_hal)
         @test occursin("# Haldane constraints:", s_hal)
     end
+
+    @testset "Hash-equivalent mechanisms share fitted_params shape" begin
+        # LDH Pattern-A pair (same as Task 5). Hash-equivalent →
+        # fitted_params count and kind multiset must match.
+        m_a = EnzymeMechanism(
+            ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
+            (((:E, :Lactate), (:E_Lactate,), true, 1),
+             ((:E, :NAD), (:E_NAD,), true, 2),
+             ((:E, :NADH), (:E_NADH,), true, 3),
+             ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
+             ((:E_Lactate, :NAD), (:E_Lactate_NAD,), true, 2),
+             ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
+             ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
+             ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
+             ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
+             ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
+             ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+
+        m_b = EnzymeMechanism(
+            ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
+            (((:E, :Lactate), (:E_Lactate,), true, 1),
+             ((:E, :NAD), (:E_NAD,), true, 2),
+             ((:E, :NADH), (:E_NADH,), true, 3),
+             ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
+             ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
+             ((:E_NAD, :Lactate), (:E_Lactate_NAD,), true, 1),
+             ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
+             ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
+             ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
+             ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
+             ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+
+        # Sanity: hash-equivalent (verified in Task 5).
+        @test EnzymeRates._canonical_rate_eq_hash(m_a) ==
+              EnzymeRates._canonical_rate_eq_hash(m_b)
+
+        # _fp_kind classifies a fitted_params symbol into its canonical
+        # kind — invariant under rep-step renaming. `let` keeps the
+        # binding scope-local; `function _fp_kind ... end` here would
+        # leak the name to the file's module scope.
+        let
+            _fp_kind = function(s::Symbol)
+                str = string(s)
+                is_T = endswith(str, "_T")
+                base = is_T ? str[1:end-2] : str
+                kind = if startswith(base, "K") && length(base) > 1 && isdigit(base[2])
+                    :K
+                elseif startswith(base, "k") && length(base) > 1 && isdigit(base[2])
+                    endswith(base, "f") ? :kf : endswith(base, "r") ? :kr : :other
+                elseif s == :L
+                    :L
+                elseif startswith(str, "K_")
+                    :K_reg
+                else
+                    :other
+                end
+                is_T ? Symbol(kind, :_T) : kind
+            end
+
+            fp_a = EnzymeRates.fitted_params(m_a)
+            fp_b = EnzymeRates.fitted_params(m_b)
+            @test length(fp_a) == length(fp_b)
+            @test sort(_fp_kind.(fp_a)) == sort(_fp_kind.(fp_b))
+        end
+    end
 end
