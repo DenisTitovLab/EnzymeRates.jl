@@ -4535,3 +4535,11 @@ end
 end
 
 end # top-level testset
+
+# ═══════════════════════════════════════════════════════════════════════
+# Rate-equation canonical hash dedup
+# ═══════════════════════════════════════════════════════════════════════
+
+@testset "Rate-equation canonical hash dedup" begin
+    # Sub-tests added in subsequent tasks.
+end
