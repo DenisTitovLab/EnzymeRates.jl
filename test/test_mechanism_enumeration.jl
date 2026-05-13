@@ -4493,13 +4493,6 @@ end
         # always appears in the denominator).
         @test :K1_T in params_full
         @test :K2_T in params_full
-
-        # Canonicalizer invariant: every parameter token in the
-        # body must be renamed away. After canonicalization, no
-        # raw `_T` suffixed names should survive.
-        canon, _ = EnzymeRates._canonicalize_rate_eq_with_map(m)
-        @test !occursin(r"\bK\d+_T\b", canon)
-        @test !occursin(r"\bk\d+[fr]_T\b", canon)
     end
 end
 
@@ -4682,5 +4675,27 @@ end # top-level testset
 
         @test EnzymeRates._canonical_rate_eq_hash(m_a) ==
               EnzymeRates._canonical_rate_eq_hash(m_b)
+    end
+
+    @testset "Allosteric T-state K_i_T renamed away in canonical hash" begin
+        # K-type allosteric uni-uni: catalytic step is :OnlyR
+        # (`_t_state_dead == true`), but binding steps are :NonequalRT,
+        # so K1_T and K2_T live in `den_T` of the rate equation body.
+        # Canonicalizer invariant: every parameter token must rename
+        # away — no raw `_T` suffixed names survive.
+        m = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            site(:catalytic, 2): begin
+                steps: begin
+                    E_c + S ⇌ E_S    :: NonequalRT
+                    E_c + P ⇌ E_P    :: NonequalRT
+                    E_S <--> E_P     :: OnlyR
+                end
+            end
+        end
+        canon, _ = EnzymeRates._canonicalize_rate_eq_with_map(m)
+        @test !occursin(r"\bK\d+_T\b", canon)
+        @test !occursin(r"\bk\d+[fr]_T\b", canon)
     end
 end
