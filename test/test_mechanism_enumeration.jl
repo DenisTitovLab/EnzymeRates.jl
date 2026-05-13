@@ -4541,5 +4541,25 @@ end # top-level testset
 # ═══════════════════════════════════════════════════════════════════════
 
 @testset "Rate-equation canonical hash dedup" begin
-    # Sub-tests added in subsequent tasks.
+    @testset "_factor_sort_key sort order" begin
+        # p_i atoms sort numerically by index, not lexicographically.
+        @test EnzymeRates._factor_sort_key("p_1") <
+              EnzymeRates._factor_sort_key("p_2")
+        @test EnzymeRates._factor_sort_key("p_2") <
+              EnzymeRates._factor_sort_key("p_10")
+        # Non-p_i atoms (metabolite names, E_total) sort after p_i atoms.
+        @test EnzymeRates._factor_sort_key("p_99") <
+              EnzymeRates._factor_sort_key("E_total")
+    end
+
+    @testset "_sort_run_factors sort order" begin
+        @test EnzymeRates._sort_run_factors("p_3 * p_1 * p_2") ==
+              "p_1 * p_2 * p_3"
+        # Exponents preserved on their atom.
+        @test EnzymeRates._sort_run_factors("p_2 ^ 2 * p_1") ==
+              "p_1 * p_2 ^ 2"
+        # Non-p atoms sort to end.
+        @test EnzymeRates._sort_run_factors("S * p_1 * p_2") ==
+              "p_1 * p_2 * S"
+    end
 end
