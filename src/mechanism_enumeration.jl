@@ -2312,10 +2312,10 @@ function _canonicalize_rate_eq_with_map(m::AbstractEnzymeMechanism)
     #   `(substituted into v)` annotation. Their LHS is folded into
     #   the v polynomial via the kinetic-group rename map, so it
     #   never appears in v itself; the line encodes only display
-    #   relabeling. Two mechanisms in the same Source-C cluster can
-    #   produce the same v under different relabeling structures
-    #   (e.g., {K10=K8, K8=K4} vs {K10=K4, K8=K4}); dropping these
-    #   lines makes both hash identically. Multi-symbol Wegscheider
+    #   relabeling. Two hash-equivalent mechanisms can produce the
+    #   same v under different relabeling structures (e.g.,
+    #   {K10=K8, K8=K4} vs {K10=K4, K8=K4}); dropping these lines
+    #   makes both hash identically. Multi-symbol Wegscheider
     #   and Haldane closures stay — their LHS appears in v via a
     #   runtime substitution, so they're real parameterization info.
     # The single-symbol-equality regex restricts to true RE/SS rate-

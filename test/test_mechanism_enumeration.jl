@@ -4728,6 +4728,25 @@ end # top-level testset
         end
         s_hal = rate_equation_string(m_hal)
         @test occursin("# Haldane constraints:", s_hal)
+
+        # Wegscheider section: emitted when the thermodynamic constraint
+        # system produces cycle equalities. Random bi-bi with all-
+        # singleton kinetic_groups (no Pass-1 absorption) preserves the
+        # Wegscheider cycle relations and renders them as multi-symbol
+        # RHSes in this section.
+        m_weg = EnzymeMechanism(
+            ((:A, :B), (:P, :Q), ()),
+            (((:E, :A), (:E_A,), true, 1),
+             ((:E, :B), (:E_B,), true, 2),
+             ((:E_A, :B), (:E_A_B,), true, 3),
+             ((:E_B, :A), (:E_A_B,), true, 4),
+             ((:E_A_B,), (:E_P_Q,), false, 5),
+             ((:E_P, :Q), (:E_P_Q,), true, 6),
+             ((:E_Q, :P), (:E_P_Q,), true, 7),
+             ((:E, :P), (:E_P,), true, 8),
+             ((:E, :Q), (:E_Q,), true, 9)))
+        s_weg = rate_equation_string(m_weg)
+        @test occursin("# Wegscheider constraints:", s_weg)
     end
 
     @testset "Hash-equivalent mechanisms share fitted_params shape" begin
@@ -4790,6 +4809,16 @@ end # top-level testset
 
             fp_a = EnzymeRates.fitted_params(m_a)
             fp_b = EnzymeRates.fitted_params(m_b)
+            # Exact tuple equality is the load-bearing assertion: hash-
+            # equivalent mechanisms that expose different fitted_params
+            # symbols would cause the fitter to explore different
+            # parameter dimensions for "the same" equation. Verified
+            # for the LDH m_a/m_b pair: both produce
+            # (:K1, :K2, :K3, :K4, :k10f).
+            @test fp_a == fp_b
+            # Defense-in-depth: also verify shape invariants. These
+            # would catch a regression that changes the count or kind
+            # multiset even if exact equality somehow still held.
             @test length(fp_a) == length(fp_b)
             @test sort(_fp_kind.(fp_a)) == sort(_fp_kind.(fp_b))
         end
