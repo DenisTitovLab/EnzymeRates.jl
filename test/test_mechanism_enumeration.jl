@@ -4620,4 +4620,27 @@ end # top-level testset
         @test EnzymeRates._canonical_rate_eq_hash(m_uu) !=
               EnzymeRates._canonical_rate_eq_hash(m_bu)
     end
+
+    @testset "Pass-1 kinetic-group merge: User-defined section + canonical text invariant" begin
+        # Random bi-uni. Both A-binding steps share kg=1 (mirror), both
+        # B-binding steps share kg=2. Pass 1 absorbs K_mirror -> K_rep.
+        m = EnzymeMechanism(
+            ((:A, :B), (:P,), ()),
+            (((:E, :A), (:E_A,), true, 1),
+             ((:E_B, :A), (:E_A_B,), true, 1),
+             ((:E, :B), (:E_B,), true, 2),
+             ((:E_A, :B), (:E_A_B,), true, 2),
+             ((:E_A_B,), (:E_P,), false, 3),
+             ((:E, :P), (:E_P,), true, 4)))
+
+        s = rate_equation_string(m)
+        @test occursin("# User defined constraints:", s)
+        @test occursin("(substituted into v)", s)
+
+        # Canonical text invariant: no raw K_i / k_if / k_ir tokens
+        # survive — every parameter is renamed to p_i.
+        canon, _ = EnzymeRates._canonicalize_rate_eq_with_map(m)
+        @test !occursin(r"\bK\d+\b", canon)
+        @test !occursin(r"\bk\d+[fr]\b", canon)
+    end
 end
