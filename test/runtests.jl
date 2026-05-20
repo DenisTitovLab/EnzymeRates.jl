@@ -14,4 +14,5 @@ include("mechanism_definitions_for_test_enzyme_derivation.jl")
     include("test_identify_rate_equation.jl")
     include("test_readme_runs.jl")
     include("test_aqua_jet.jl")
+    include("test_compile_budget.jl")
 end

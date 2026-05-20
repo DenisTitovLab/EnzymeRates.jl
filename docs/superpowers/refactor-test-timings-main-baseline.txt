@@ -1,0 +1,12 @@
+# Per-test-file runtime report (informational)
+# Format: <test_file> <elapsed_seconds>
+test_accessors.jl FAIL
+test_aqua_jet.jl FAIL
+test_compile_budget.jl FAIL
+test_dsl.jl FAIL
+test_fitting.jl FAIL
+test_identify_rate_equation.jl FAIL
+test_mechanism_enumeration.jl FAIL
+test_rate_eq_derivation.jl FAIL
+test_readme_runs.jl 11.44
+test_types.jl FAIL
