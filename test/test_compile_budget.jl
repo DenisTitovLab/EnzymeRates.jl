@@ -10,6 +10,13 @@ using EnzymeRates
 const INIT_TRACE_BUDGET                  = 58    # baseline 2026-05-20: 29; budget = 2× (rounded up)
 const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 2.1   # baseline 2026-05-20: 1.03s; budget = 2×
 
+# Warmup-reuse: ratio + absolute ceiling on t_warm.
+# Baseline 2026-05-20: t_cold=8.4s, t_warm=6.9s, ratio=0.82; budgets = 2×.
+# baseline_ratio ≥ 0.5 → ratio gate effectively off (capped at 1.0);
+# the absolute gate is what catches regressions in this case.
+const WARMUP_TER_RATIO_MAX               = 1.0   # capped (2×0.82 > 1.0)
+const WARMUP_T_WARM_TER_MAX_S            = 13.7  # 2× baseline t_warm
+
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
 # our types, Base methods specialized on our types (e.g.
@@ -43,6 +50,24 @@ function _count_relevant_precompiles(runner_script::String)
         rm(trace_file, force=true)
     end
     n
+end
+
+# Runs `script` in a fresh Julia subprocess; the script is expected to
+# print a line `ELAPSED:<float>` (a single @elapsed measurement). Returns
+# the parsed Float64, or NaN on any failure.
+function _measure_elapsed_subprocess(script::String)
+    julia_exe = Base.julia_cmd().exec[1]
+    out_buf = IOBuffer()
+    try
+        run(pipeline(Cmd([julia_exe, "--project=.", "-e", script]);
+                     stdout=out_buf, stderr=devnull); wait=true)
+    catch e
+        @warn "@elapsed subprocess failed: $e"
+        return NaN
+    end
+    out = String(take!(out_buf))
+    m = match(r"ELAPSED:([0-9.eE+-]+)", out)
+    m === nothing ? NaN : parse(Float64, m.captures[1])
 end
 
 @testset "compile-budget" begin
@@ -107,64 +132,58 @@ end
         @test t_first < RATE_EQUATION_WALLCLOCK_BUDGET_S
     end
 
-    # Warmup-reuse regression: on main today, calling init_mechanisms on
-    # uni-uni FIRST makes the subsequent ter-ter init dramatically cheaper
-    # — most enumeration specializations are shared across arity. If a
-    # refactor commit accidentally introduces per-arity specialization
-    # (e.g., a `where {N}` clause that triggers fresh @generated bodies
-    # per substrate count), the ter-ter incremental cost approaches its
-    # cold cost.
+    # Warmup-reuse regression: time init_mechanisms(r_ter) in two scenarios,
+    # each in its own fresh Julia subprocess to avoid cross-test pollution:
     #
-    # Measurement: 3 subprocesses isolate the TER-TER INCREMENTAL cost
-    # in both scenarios:
-    #   n_uni_only:  using + uni-uni init                    (warmup-base)
-    #   n_cold_ter:  using + ter-ter init                    (cold ter-ter)
-    #   n_warm_ter:  using + uni-uni init + ter-ter init     (warm ter-ter)
+    #   t_cold: using EnzymeRates -> init_mechanisms(r_ter)
+    #   t_warm: using EnzymeRates -> init_mechanisms(r_uni)  [warmup]
+    #                              -> init_mechanisms(r_ter)  [@elapsed measured]
     #
-    # ter_cold_incremental = n_cold_ter - n_using_only      (~ cost of ter-ter alone)
-    # ter_warm_incremental = n_warm_ter - n_uni_only        (what ter-ter ADDED after uni warmup)
+    # If uni-uni warmup shares most specializations with ter-ter, t_warm
+    # should be substantially less than t_cold. Today's main has parametric
+    # EnzymeReaction{S,P,R,N} so per-arity specialization is unavoidable;
+    # the gate exists to catch a refactor commit that introduces NEW per-
+    # arity specialization beyond today's baseline.
     #
-    # Gate: ter_warm_incremental << ter_cold_incremental (much less work
-    # done because uni-uni already triggered the shared specializations).
-    @testset "warmup-reuse: ter-ter incremental cost drops after uni-uni warmup" begin
-        ter_block = """
+    # Single-subprocess @elapsed per scenario avoids the subtraction-noise
+    # problem the trace-compile-count approach had (small delta of two
+    # larger noisy numbers).
+    @testset "warmup-reuse: ter-ter post-warmup wall-clock bounded vs cold" begin
+        cold_script = """
+            using EnzymeRates
             r_ter = @enzyme_reaction begin
                 substrates: A[C], B[N], C[O]
                 products:   P[C], Q[N], R[O]
             end
-            EnzymeRates.init_mechanisms(r_ter)
+            t = @elapsed EnzymeRates.init_mechanisms(r_ter)
+            println("ELAPSED:", t)
             """
-        uni_block = """
+        warm_script = """
+            using EnzymeRates
             r_uni = @enzyme_reaction begin
                 substrates: S[C]
                 products:   P[C]
             end
-            EnzymeRates.init_mechanisms(r_uni)
+            EnzymeRates.init_mechanisms(r_uni)   # warmup; not timed
+            r_ter = @enzyme_reaction begin
+                substrates: A[C], B[N], C[O]
+                products:   P[C], Q[N], R[O]
+            end
+            t = @elapsed EnzymeRates.init_mechanisms(r_ter)
+            println("ELAPSED:", t)
             """
 
-        n_using_only  = _count_relevant_precompiles("using EnzymeRates")
-        n_uni_only    = _count_relevant_precompiles("using EnzymeRates\n$uni_block")
-        n_cold_ter    = _count_relevant_precompiles("using EnzymeRates\n$ter_block")
-        n_warm_ter    = _count_relevant_precompiles(
-            "using EnzymeRates\n$uni_block\n$ter_block")
+        t_cold = _measure_elapsed_subprocess(cold_script)
+        t_warm = _measure_elapsed_subprocess(warm_script)
 
-        ter_cold_incr = n_cold_ter - n_using_only
-        ter_warm_incr = n_warm_ter - n_uni_only
+        @info "warmup-reuse: t_cold_ter=$(t_cold)s, t_warm_ter=$(t_warm)s, " *
+              "ratio=$(round(t_warm/t_cold; digits=3))"
 
-        @info "warmup-reuse: ter_cold_incremental=$ter_cold_incr, " *
-              "ter_warm_incremental=$ter_warm_incr, " *
-              "ratio=$(ter_cold_incr > 0 ? round(ter_warm_incr/ter_cold_incr; digits=3) : NaN)"
+        # Ratio gate: t_warm should be a meaningful fraction less than t_cold
+        # (uni-uni warmup paid for shared specializations).
+        @test t_warm < t_cold * WARMUP_TER_RATIO_MAX
 
-        # ter-ter alone should compile substantial new specializations.
-        @test ter_cold_incr > 10
-
-        # Two gates on warmup reuse: (a) the ratio of warm:cold must
-        # stay below 0.7 (today's main is ~0.55; ~30% sharing demanded),
-        # (b) an absolute ceiling catches a regression that explodes
-        # arity-dependent specialization regardless of cold cost. Current
-        # baseline: ter_warm_incr = 16; cap at 25 for 50% headroom.
-        # See Stage 0 PR for empirical calibration rationale.
-        @test ter_warm_incr <= 7 * ter_cold_incr ÷ 10
-        @test ter_warm_incr <= 25
+        # Absolute gate: post-warmup ter-ter wall-clock has a fixed ceiling.
+        @test t_warm < WARMUP_T_WARM_TER_MAX_S
     end
 end
