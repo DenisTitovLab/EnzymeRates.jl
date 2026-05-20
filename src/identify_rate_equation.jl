@@ -517,7 +517,7 @@ function _beam_search(
         end
 
         sel = _select_beam(
-            [r.loss for r in level_rows];
+            Float64[r.loss for r in level_rows];
             loss_rel_threshold=loss_rel_threshold,
             loss_abs_threshold=loss_abs_threshold,
             min_beam_width=min_beam_width)
