@@ -648,4 +648,277 @@
         @test occursin(":: EqualRT", s)
         @test !occursin("cat_allo_states:", s)
     end
+
+    # ─── Concrete type hierarchy (spec §5.1–5.7) ──────────────────────
+
+    @testset "Metabolite hierarchy: Substrate / Product / Regulators" begin
+        s = EnzymeRates.Substrate(:ATP)
+        p = EnzymeRates.Product(:ADP)
+        a = EnzymeRates.AllostericRegulator(:cAMP)
+        i = EnzymeRates.CompetitiveInhibitor(:I)
+
+        @test s isa EnzymeRates.Substrate
+        @test s isa EnzymeRates.Reactant
+        @test s isa EnzymeRates.Metabolite
+        @test p isa EnzymeRates.Product
+        @test p isa EnzymeRates.Reactant
+        @test a isa EnzymeRates.AllostericRegulator
+        @test a isa EnzymeRates.Regulator
+        @test a isa EnzymeRates.Metabolite
+        @test i isa EnzymeRates.CompetitiveInhibitor
+        @test i isa EnzymeRates.Regulator
+
+        @test EnzymeRates.name(s) === :ATP
+        @test EnzymeRates.name(p) === :ADP
+        @test EnzymeRates.name(a) === :cAMP
+        @test EnzymeRates.name(i) === :I
+
+        @test EnzymeRates.Substrate(:X) == EnzymeRates.Substrate(:X)
+        @test EnzymeRates.Substrate(:X) != EnzymeRates.Substrate(:Y)
+        # Distinct subtypes with same name are NOT equal (struct identity matters).
+        @test EnzymeRates.Substrate(:X) != EnzymeRates.Product(:X)
+        @test hash(EnzymeRates.Substrate(:X)) == hash(EnzymeRates.Substrate(:X))
+    end
+
+    @testset "Residual: empty default + canonical ordering" begin
+        empty_r = EnzymeRates.Residual()
+        @test isempty(empty_r)
+        @test EnzymeRates.added(empty_r) == EnzymeRates.Substrate[]
+        @test EnzymeRates.subtracted(empty_r) == EnzymeRates.Product[]
+
+        r1 = EnzymeRates.Residual(
+            [EnzymeRates.Substrate(:B), EnzymeRates.Substrate(:A)],
+            [EnzymeRates.Product(:Q), EnzymeRates.Product(:P)],
+        )
+        r2 = EnzymeRates.Residual(
+            [EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:B)],
+            [EnzymeRates.Product(:P), EnzymeRates.Product(:Q)],
+        )
+        @test r1 == r2
+        @test hash(r1) == hash(r2)
+        @test !isempty(r1)
+        @test EnzymeRates.added(r1) ==
+              [EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:B)]
+        @test EnzymeRates.subtracted(r1) ==
+              [EnzymeRates.Product(:P), EnzymeRates.Product(:Q)]
+    end
+
+    @testset "Species: canonical bound ordering + accessors + name" begin
+        s1 = EnzymeRates.Species(
+            EnzymeRates.Metabolite[
+                EnzymeRates.Substrate(:B), EnzymeRates.Substrate(:A)],
+            :E,
+        )
+        s2 = EnzymeRates.Species(
+            EnzymeRates.Metabolite[
+                EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:B)],
+            :E,
+        )
+        @test s1 == s2
+        @test hash(s1) == hash(s2)
+        @test EnzymeRates.conformation(s1) === :E
+        @test EnzymeRates.residual(s1) == EnzymeRates.Residual()
+        @test !EnzymeRates.has_residual(s1)
+        @test EnzymeRates.bound(s1) ==
+              EnzymeRates.Metabolite[
+                  EnzymeRates.Substrate(:A), EnzymeRates.Substrate(:B)]
+
+        # Empty bound, :E conformation → :E
+        s_e = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        @test EnzymeRates.name(s_e) === :E
+
+        # Bound metabolites are appended in canonical order
+        s_es = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Substrate(:A),
+                                   EnzymeRates.Substrate(:B)],
+            :E,
+        )
+        @test EnzymeRates.name(s_es) === :E_A_B
+
+        # Estar conformation
+        s_estar = EnzymeRates.Species(EnzymeRates.Metabolite[], :Estar)
+        @test EnzymeRates.name(s_estar) === :Estar
+
+        # Three-arg constructor exposes residual
+        res = EnzymeRates.Residual(
+            [EnzymeRates.Substrate(:A)],
+            [EnzymeRates.Product(:P)],
+        )
+        s_res = EnzymeRates.Species(EnzymeRates.Metabolite[], :Estar, res)
+        @test EnzymeRates.has_residual(s_res)
+        @test EnzymeRates.residual(s_res) == res
+    end
+
+    @testset "RegulatorySite: validation + accessors" begin
+        lig_a = EnzymeRates.AllostericRegulator(:A)
+        lig_b = EnzymeRates.AllostericRegulator(:B)
+        site = EnzymeRates.RegulatorySite(
+            [lig_a, lig_b], 4, [:OnlyR, :NonequalRT],
+        )
+        @test EnzymeRates.ligands(site) == [lig_a, lig_b]
+        @test EnzymeRates.multiplicity(site) == 4
+        @test EnzymeRates.allo_states(site) == [:OnlyR, :NonequalRT]
+
+        # Mismatched ligand / allo_state length → error
+        @test_throws ErrorException EnzymeRates.RegulatorySite(
+            [lig_a, lig_b], 4, [:OnlyR])
+
+        # Multiplicity < 1 → error
+        @test_throws ErrorException EnzymeRates.RegulatorySite(
+            [lig_a], 0, [:OnlyR])
+
+        # Invalid allo state → error
+        @test_throws ErrorException EnzymeRates.RegulatorySite(
+            [lig_a], 1, [:NotAState])
+
+        # All four allowed states accepted
+        for st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT)
+            @test EnzymeRates.RegulatorySite([lig_a], 1, [st]) isa
+                  EnzymeRates.RegulatorySite
+        end
+
+        # Equality / hash
+        site2 = EnzymeRates.RegulatorySite(
+            [lig_a, lig_b], 4, [:OnlyR, :NonequalRT])
+        @test site == site2
+        @test hash(site) == hash(site2)
+        # Order-sensitive: ligand ordering is parallel to allo_states,
+        # so [A,B] / [OnlyR,NonequalRT] != [B,A] / [OnlyR,NonequalRT].
+        site_reordered = EnzymeRates.RegulatorySite(
+            [lig_b, lig_a], 4, [:OnlyR, :NonequalRT])
+        @test site != site_reordered
+    end
+
+    @testset "Step has no source_idx field — rep_idx comes from position" begin
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Product(:P)], :E)
+
+        s1 = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        s2 = EnzymeRates.Step(e_s, e_p, nothing, false)
+        s3 = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
+
+        @test fieldnames(EnzymeRates.Step) ==
+              (:from_species, :to_species, :bound_metabolite, :is_equilibrium)
+        @test !(:source_idx in fieldnames(EnzymeRates.Step))
+
+        @test EnzymeRates.from_species(s1) === e
+        @test EnzymeRates.to_species(s1) === e_s
+        @test EnzymeRates.bound_metabolite(s1) ==
+              EnzymeRates.Substrate(:S)
+        @test EnzymeRates.is_equilibrium(s1)
+        @test EnzymeRates.is_binding(s1)
+        @test !EnzymeRates.is_iso(s1)
+        @test EnzymeRates.direction(s1) === :binding
+
+        @test EnzymeRates.bound_metabolite(s2) === nothing
+        @test EnzymeRates.is_iso(s2)
+        @test !EnzymeRates.is_binding(s2)
+        @test EnzymeRates.direction(s2) === :iso
+
+        @test EnzymeRates.is_binding(s3)
+    end
+
+    @testset "Step canonicalizes binding direction" begin
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
+
+        # User authored release direction (E_S → E + S, metabolite on RHS).
+        # Constructor swaps to binding direction (E + S → E_S).
+        released = EnzymeRates.Step(e_s, e, EnzymeRates.Substrate(:S), true)
+        bound    = EnzymeRates.Step(e,   e_s, EnzymeRates.Substrate(:S), true)
+        @test released == bound
+        @test hash(released) == hash(bound)
+        @test EnzymeRates.from_species(released) === e
+        @test EnzymeRates.to_species(released) === e_s
+    end
+
+    @testset "Parameter family: step-bound, Kreg, mechanism-level" begin
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
+        step = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+
+        kd_none = EnzymeRates.Kd(step, :None)
+        kd_t    = EnzymeRates.Kd(step, :T)
+        @test kd_none isa EnzymeRates.Kd
+        @test kd_none isa EnzymeRates.Parameter
+        @test EnzymeRates.governing_step(kd_none) === step
+        @test !EnzymeRates.is_t_state(kd_none)
+        @test EnzymeRates.is_t_state(kd_t)
+        @test kd_none == EnzymeRates.Kd(step, :None)
+        @test kd_none != kd_t
+
+        for T in (EnzymeRates.Kiso, EnzymeRates.Kon, EnzymeRates.Koff,
+                  EnzymeRates.Kfor, EnzymeRates.Krev)
+            p = T(step, :None)
+            @test p isa EnzymeRates.Parameter
+            @test EnzymeRates.governing_step(p) === step
+            @test !EnzymeRates.is_t_state(p)
+            @test EnzymeRates.is_t_state(T(step, :T))
+        end
+
+        lig_a = EnzymeRates.AllostericRegulator(:A)
+        site = EnzymeRates.RegulatorySite([lig_a], 2, [:OnlyR])
+        kr = EnzymeRates.Kreg(site, lig_a, :R)
+        @test kr isa EnzymeRates.Parameter
+        @test EnzymeRates.is_t_state(EnzymeRates.Kreg(site, lig_a, :T))
+        @test !EnzymeRates.is_t_state(kr)
+        @test kr == EnzymeRates.Kreg(site, lig_a, :R)
+
+        # Mechanism-level scalars: singletons
+        @test EnzymeRates.Keq() == EnzymeRates.Keq()
+        @test EnzymeRates.Etot() == EnzymeRates.Etot()
+        @test EnzymeRates.Lallo() == EnzymeRates.Lallo()
+        @test EnzymeRates.Keq() isa EnzymeRates.Parameter
+        @test EnzymeRates.Etot() isa EnzymeRates.Parameter
+        @test EnzymeRates.Lallo() isa EnzymeRates.Parameter
+    end
+
+    @testset "ReactantAtoms canonicalizes atom ordering" begin
+        ra1 = EnzymeRates.ReactantAtoms(
+            EnzymeRates.Substrate(:ATP),
+            [:C => 10, :H => 16, :N => 5],
+        )
+        ra2 = EnzymeRates.ReactantAtoms(
+            EnzymeRates.Substrate(:ATP),
+            [:N => 5, :H => 16, :C => 10],
+        )
+        @test ra1 == ra2
+        @test hash(ra1) == hash(ra2)
+        @test EnzymeRates.metabolite(ra1) == EnzymeRates.Substrate(:ATP)
+        @test EnzymeRates.atoms(ra1) == [:C => 10, :H => 16, :N => 5]
+
+        # Distinct metabolite kinds: ATP-Substrate != ATP-Product
+        ra_p = EnzymeRates.ReactantAtoms(
+            EnzymeRates.Product(:ATP), [:C => 10, :H => 16, :N => 5])
+        @test ra1 != ra_p
+    end
+
+    @testset "RegulatorMults canonicalizes ordering + validates" begin
+        rm1 = EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:A), [4, 1, 2])
+        rm2 = EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:A), [1, 2, 4])
+        @test rm1 == rm2
+        @test hash(rm1) == hash(rm2)
+        @test EnzymeRates.regulator(rm1) ==
+              EnzymeRates.AllostericRegulator(:A)
+        @test EnzymeRates.allowed_multiplicities(rm1) == [1, 2, 4]
+
+        # Multiplicity < 1 → error
+        @test_throws Exception EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:A), [0, 1])
+        @test_throws Exception EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:A), [-1])
+
+        # CompetitiveInhibitor also accepted
+        rm_ci = EnzymeRates.RegulatorMults(
+            EnzymeRates.CompetitiveInhibitor(:I), [1])
+        @test EnzymeRates.regulator(rm_ci) ==
+              EnzymeRates.CompetitiveInhibitor(:I)
+    end
 end

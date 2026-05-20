@@ -1,5 +1,271 @@
 using LinearAlgebra: rank
 
+# ─── Concrete type hierarchy (spec §5.1–5.7) ──────────────────────────
+# These structs are the foundation of the concrete-types refactor.
+# They coexist with the existing parametric `EnzymeReaction{S,P,R,N}` /
+# `EnzymeMechanism{M,R}` until later commits rewire consumers.
+
+# §5.1 — Metabolite / Reactant / Regulator hierarchy.
+abstract type Metabolite end
+abstract type Reactant <: Metabolite end
+abstract type Regulator <: Metabolite end
+
+struct Substrate <: Reactant
+    name::Symbol
+end
+struct Product <: Reactant
+    name::Symbol
+end
+struct AllostericRegulator <: Regulator
+    name::Symbol
+end
+struct CompetitiveInhibitor <: Regulator
+    name::Symbol
+end
+
+name(s::Substrate)            = s.name
+name(p::Product)              = p.name
+name(a::AllostericRegulator)  = a.name
+name(c::CompetitiveInhibitor) = c.name
+
+# §5.2 — Residual: substrates added + products subtracted from the enzyme
+# (e.g., a covalent adduct after a ping-pong half-reaction). Empty
+# `Residual()` means no covalent residue.
+struct Residual
+    added::Vector{Substrate}
+    subtracted::Vector{Product}
+    function Residual(added::Vector{Substrate}, subtracted::Vector{Product})
+        new(sort(added; by=name), sort(subtracted; by=name))
+    end
+end
+Residual() = Residual(Substrate[], Product[])
+
+added(r::Residual)        = r.added
+subtracted(r::Residual)   = r.subtracted
+Base.isempty(r::Residual) = isempty(r.added) && isempty(r.subtracted)
+Base.:(==)(a::Residual, b::Residual) =
+    a.added == b.added && a.subtracted == b.subtracted
+Base.hash(r::Residual, h::UInt) =
+    hash(r.subtracted, hash(r.added, hash(:Residual, h)))
+
+# §5.3 — Species: an enzyme form. `bound` is sorted by name; the
+# rendered Symbol name reads `:E` / `:E_A_B` / `:Estar...` / `:E_A_B_res...`.
+struct Species
+    bound::Vector{Metabolite}
+    conformation::Symbol
+    residual::Residual
+    function Species(bound::Vector{<:Metabolite}, conformation::Symbol,
+                     residual::Residual)
+        new(sort(Vector{Metabolite}(bound); by=name), conformation, residual)
+    end
+end
+Species(bound, conformation::Symbol) = Species(bound, conformation, Residual())
+
+bound(s::Species)        = s.bound
+conformation(s::Species) = s.conformation
+residual(s::Species)     = s.residual
+has_residual(s::Species) = !isempty(s.residual)
+Base.:(==)(a::Species, b::Species) =
+    a.conformation == b.conformation && a.residual == b.residual &&
+    a.bound == b.bound
+Base.hash(s::Species, h::UInt) =
+    hash(s.bound, hash(s.conformation, hash(s.residual, hash(:Species, h))))
+
+# Render species name deterministically from fields:
+#   :<conformation>[_<bound1>_<bound2>...][_res[_+<added>...][_-<subtracted>...]]
+function name(s::Species)
+    parts = String[String(s.conformation)]
+    for m in s.bound
+        push!(parts, String(name(m)))
+    end
+    if has_residual(s)
+        push!(parts, "res")
+        for a in added(s.residual)
+            push!(parts, "+" * String(name(a)))
+        end
+        for r in subtracted(s.residual)
+            push!(parts, "-" * String(name(r)))
+        end
+    end
+    Symbol(join(parts, "_"))
+end
+
+# §5.5 — RegulatorySite: a binding site (possibly multimeric) for one or
+# more allosteric ligands. `ligands[i]` and `allo_states[i]` are parallel;
+# ordering is meaningful (canonicalize at the call site if needed).
+struct RegulatorySite
+    ligands::Vector{AllostericRegulator}
+    multiplicity::Int
+    allo_states::Vector{Symbol}
+    function RegulatorySite(ligands::Vector{AllostericRegulator},
+                            multiplicity::Int, allo_states::Vector{Symbol})
+        length(ligands) == length(allo_states) ||
+            error("RegulatorySite: length(ligands)=$(length(ligands)) " *
+                  "must equal length(allo_states)=$(length(allo_states))")
+        multiplicity ≥ 1 ||
+            error("RegulatorySite: multiplicity must be ≥ 1, got $multiplicity")
+        for st in allo_states
+            st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
+                error("RegulatorySite: allo state $st must be one of " *
+                      ":OnlyR, :OnlyT, :EqualRT, :NonequalRT")
+        end
+        new(ligands, multiplicity, allo_states)
+    end
+end
+
+ligands(s::RegulatorySite)      = s.ligands
+multiplicity(s::RegulatorySite) = s.multiplicity
+allo_states(s::RegulatorySite)  = s.allo_states
+Base.:(==)(a::RegulatorySite, b::RegulatorySite) =
+    a.ligands == b.ligands && a.multiplicity == b.multiplicity &&
+    a.allo_states == b.allo_states
+Base.hash(s::RegulatorySite, h::UInt) =
+    hash(s.allo_states, hash(s.multiplicity,
+        hash(s.ligands, hash(:RegulatorySite, h))))
+
+# §5.4 — Step: one elementary transition. Binding steps carry
+# `bound_metabolite`; iso steps carry `nothing`. Binding steps are
+# canonicalized to have the metabolite on the `from_species` side. Iso
+# steps are canonicalized by lexical species-name order.
+struct Step
+    from_species::Species
+    to_species::Species
+    bound_metabolite::Union{Metabolite,Nothing}
+    is_equilibrium::Bool
+    function Step(from_species::Species, to_species::Species,
+                  bound_metabolite::Union{Metabolite,Nothing},
+                  is_equilibrium::Bool)
+        if bound_metabolite !== nothing
+            # Canonical binding direction: metabolite is BOUND in
+            # to_species (and free, i.e., not in bound(from_species)),
+            # matching the existing "E + S ⇌ E_S" convention.
+            in_from = any(m -> m == bound_metabolite, bound(from_species))
+            in_to   = any(m -> m == bound_metabolite, bound(to_species))
+            if in_from && !in_to
+                from_species, to_species = to_species, from_species
+            end
+        else
+            # Iso step: deterministic direction via lexical species name.
+            if string(name(from_species)) > string(name(to_species))
+                from_species, to_species = to_species, from_species
+            end
+        end
+        new(from_species, to_species, bound_metabolite, is_equilibrium)
+    end
+end
+
+from_species(s::Step)     = s.from_species
+to_species(s::Step)       = s.to_species
+bound_metabolite(s::Step) = s.bound_metabolite
+is_equilibrium(s::Step)   = s.is_equilibrium
+is_binding(s::Step)       = s.bound_metabolite !== nothing
+is_iso(s::Step)           = s.bound_metabolite === nothing
+direction(s::Step)        = is_binding(s) ? :binding : :iso
+Base.:(==)(a::Step, b::Step) =
+    a.from_species == b.from_species && a.to_species == b.to_species &&
+    a.bound_metabolite == b.bound_metabolite &&
+    a.is_equilibrium == b.is_equilibrium
+Base.hash(s::Step, h::UInt) =
+    hash(s.is_equilibrium, hash(s.bound_metabolite,
+        hash(s.to_species, hash(s.from_species, hash(:Step, h)))))
+
+# §5.6 — Parameter family. `name(p::Parameter, m)` is the chokepoint for
+# rendered Symbol names; that lands in Commit 1.F.
+abstract type Parameter end
+
+# Step-bound RE parameters
+struct Kd   <: Parameter; step::Step; state::Symbol end
+struct Kiso <: Parameter; step::Step; state::Symbol end
+
+# Step-bound SS parameters
+struct Kon  <: Parameter; step::Step; state::Symbol end
+struct Koff <: Parameter; step::Step; state::Symbol end
+struct Kfor <: Parameter; step::Step; state::Symbol end
+struct Krev <: Parameter; step::Step; state::Symbol end
+
+# Regulator-site parameter: a single ligand at a single site can appear
+# in either the R or T branch of the polynomial.
+struct Kreg <: Parameter
+    site::RegulatorySite
+    ligand::AllostericRegulator
+    state::Symbol
+end
+
+# Mechanism-level scalars (singletons)
+struct Keq   <: Parameter end
+struct Etot  <: Parameter end
+struct Lallo <: Parameter end
+
+# Step-bound governance: only step-bound subtypes have a step. Kreg /
+# Keq / Etot / Lallo intentionally have no `governing_step` method.
+governing_step(p::Kd)   = p.step
+governing_step(p::Kiso) = p.step
+governing_step(p::Kon)  = p.step
+governing_step(p::Koff) = p.step
+governing_step(p::Kfor) = p.step
+governing_step(p::Krev) = p.step
+
+is_t_state(p::Kd)   = p.state === :T
+is_t_state(p::Kiso) = p.state === :T
+is_t_state(p::Kon)  = p.state === :T
+is_t_state(p::Koff) = p.state === :T
+is_t_state(p::Kfor) = p.state === :T
+is_t_state(p::Krev) = p.state === :T
+is_t_state(p::Kreg) = p.state === :T
+
+for T in (:Kd, :Kiso, :Kon, :Koff, :Kfor, :Krev)
+    @eval Base.:(==)(a::$T, b::$T) =
+        a.step == b.step && a.state === b.state
+    @eval Base.hash(p::$T, h::UInt) =
+        hash(p.state, hash(p.step, hash($(QuoteNode(T)), h)))
+end
+Base.:(==)(a::Kreg, b::Kreg) =
+    a.site == b.site && a.ligand == b.ligand && a.state === b.state
+Base.hash(p::Kreg, h::UInt) =
+    hash(p.state, hash(p.ligand, hash(p.site, hash(:Kreg, h))))
+
+# §5.7 — Per-reactant and per-regulator bundling structs. Canonical
+# ordering of atoms / multiplicities so two equivalent constructions
+# compare equal under `==` / `hash`.
+struct ReactantAtoms
+    metabolite::Reactant
+    atoms::Vector{Pair{Symbol,Int}}
+    function ReactantAtoms(metabolite::Reactant,
+                           atoms::Vector{<:Pair{Symbol,<:Integer}})
+        new(metabolite, sort(Vector{Pair{Symbol,Int}}(atoms); by=first))
+    end
+end
+
+metabolite(r::ReactantAtoms) = r.metabolite
+atoms(r::ReactantAtoms)      = r.atoms
+Base.:(==)(a::ReactantAtoms, b::ReactantAtoms) =
+    a.metabolite == b.metabolite && a.atoms == b.atoms
+Base.hash(r::ReactantAtoms, h::UInt) =
+    hash(r.atoms, hash(r.metabolite, hash(:ReactantAtoms, h)))
+
+struct RegulatorMults
+    regulator::Regulator
+    allowed_multiplicities::Vector{Int}
+    function RegulatorMults(regulator::Regulator,
+                            allowed_multiplicities::Vector{Int})
+        all(m -> m ≥ 1, allowed_multiplicities) ||
+            error("RegulatorMults: allowed_multiplicities must all be ≥ 1, " *
+                  "got $allowed_multiplicities")
+        new(regulator, sort(allowed_multiplicities))
+    end
+end
+
+regulator(r::RegulatorMults)              = r.regulator
+allowed_multiplicities(r::RegulatorMults) = r.allowed_multiplicities
+Base.:(==)(a::RegulatorMults, b::RegulatorMults) =
+    a.regulator == b.regulator &&
+    a.allowed_multiplicities == b.allowed_multiplicities
+Base.hash(r::RegulatorMults, h::UInt) =
+    hash(r.allowed_multiplicities,
+         hash(r.regulator, hash(:RegulatorMults, h)))
+
+# ─── Legacy parametric types (will be replaced in Commit 1.C+) ────────
+
 """Sort species tuples alphabetically by name (first element)."""
 _sort_species(t::Tuple) = Tuple(sort(collect(t); by=s -> s[1]))
 
