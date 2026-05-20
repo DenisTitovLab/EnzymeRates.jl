@@ -836,6 +836,17 @@
         @test EnzymeRates.to_species(released) === e_s
     end
 
+    @testset "Step canonicalizes iso direction" begin
+        e_s = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Product(:P)], :E)
+        fwd = EnzymeRates.Step(e_s, e_p, nothing, false)
+        rev = EnzymeRates.Step(e_p, e_s, nothing, false)
+        @test fwd == rev
+        @test hash(fwd) == hash(rev)
+    end
+
     @testset "Parameter family: step-bound, Kreg, mechanism-level" begin
         e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
         e_s = EnzymeRates.Species(

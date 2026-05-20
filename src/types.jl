@@ -1,9 +1,6 @@
 using LinearAlgebra: rank
 
 # ─── Concrete type hierarchy (spec §5.1–5.7) ──────────────────────────
-# These structs are the foundation of the concrete-types refactor.
-# They coexist with the existing parametric `EnzymeReaction{S,P,R,N}` /
-# `EnzymeMechanism{M,R}` until later commits rewire consumers.
 
 # §5.1 — Metabolite / Reactant / Regulator hierarchy.
 abstract type Metabolite end
@@ -73,6 +70,10 @@ Base.hash(s::Species, h::UInt) =
 
 # Render species name deterministically from fields:
 #   :<conformation>[_<bound1>_<bound2>...][_res[_+<added>...][_-<subtracted>...]]
+# Underscore is the field separator, so metabolite Symbols containing `_`
+# produce ambiguous output (Species([Substrate(:A_B)]) and
+# Species([Substrate(:A), Substrate(:B)]) both render :E_A_B). Domain
+# convention: metabolite Symbols must not contain `_`.
 function name(s::Species)
     parts = String[String(s.conformation)]
     for m in s.bound
@@ -145,7 +146,10 @@ struct Step
                 from_species, to_species = to_species, from_species
             end
         else
-            # Iso step: deterministic direction via lexical species name.
+            # Iso steps: deterministic direction by lex on name(from_species).
+            # Stronger ordering (substrate-then-product-content tiebreak) may
+            # be needed once consumers exist; today's invariant is determinism
+            # only.
             if string(name(from_species)) > string(name(to_species))
                 from_species, to_species = to_species, from_species
             end
@@ -169,8 +173,7 @@ Base.hash(s::Step, h::UInt) =
     hash(s.is_equilibrium, hash(s.bound_metabolite,
         hash(s.to_species, hash(s.from_species, hash(:Step, h)))))
 
-# §5.6 — Parameter family. `name(p::Parameter, m)` is the chokepoint for
-# rendered Symbol names; that lands in Commit 1.F.
+# §5.6 — Parameter family.
 abstract type Parameter end
 
 # Step-bound RE parameters
@@ -198,20 +201,11 @@ struct Lallo <: Parameter end
 
 # Step-bound governance: only step-bound subtypes have a step. Kreg /
 # Keq / Etot / Lallo intentionally have no `governing_step` method.
-governing_step(p::Kd)   = p.step
-governing_step(p::Kiso) = p.step
-governing_step(p::Kon)  = p.step
-governing_step(p::Koff) = p.step
-governing_step(p::Kfor) = p.step
-governing_step(p::Krev) = p.step
+const StepBoundParameter = Union{Kd, Kiso, Kon, Koff, Kfor, Krev}
+const StatefulParameter  = Union{Kd, Kiso, Kon, Koff, Kfor, Krev, Kreg}
 
-is_t_state(p::Kd)   = p.state === :T
-is_t_state(p::Kiso) = p.state === :T
-is_t_state(p::Kon)  = p.state === :T
-is_t_state(p::Koff) = p.state === :T
-is_t_state(p::Kfor) = p.state === :T
-is_t_state(p::Krev) = p.state === :T
-is_t_state(p::Kreg) = p.state === :T
+governing_step(p::StepBoundParameter) = p.step
+is_t_state(p::StatefulParameter)      = p.state === :T
 
 for T in (:Kd, :Kiso, :Kon, :Koff, :Kfor, :Krev)
     @eval Base.:(==)(a::$T, b::$T) =
@@ -264,7 +258,7 @@ Base.hash(r::RegulatorMults, h::UInt) =
     hash(r.allowed_multiplicities,
          hash(r.regulator, hash(:RegulatorMults, h)))
 
-# ─── Legacy parametric types (will be replaced in Commit 1.C+) ────────
+# ─── Parametric mechanism types ───────────────────────────────────────
 
 """Sort species tuples alphabetically by name (first element)."""
 _sort_species(t::Tuple) = Tuple(sort(collect(t); by=s -> s[1]))
