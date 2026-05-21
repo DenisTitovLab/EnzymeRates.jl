@@ -758,16 +758,14 @@ end
 
 """
 Build a `Mechanism` from the legacy `(metabolites_3tuple, rxns_4tuple)`
-Sig shape. Enzyme-form Symbols become conformation-only `Species` (empty
-`bound`, empty `Residual`) so `name(species)` round-trips to the
-original Symbol. The bound-metabolite side info is encoded by ordering:
-binding direction `from + met → to` places the metabolite in the
-to-species's bound list; release direction `from → to + met` places it
-in the from-species's bound list. For opaque symbol forms (where the
-mechanism-level Symbol does not encode bound metabolites), the metabolite
-goes in the bound list of the side opposite the free-met side in the
-original tuple, preserving direction info that the `_legacy_step_tuple`
-accessor needs to reconstruct the user's source-order shape.
+Sig shape. Each enzyme-form Symbol becomes a conformation-only `Species`
+with empty `bound` and empty `Residual`, so `name(species)` round-trips
+to the original opaque Symbol exactly (`:E`, `:ES`, `:EAB`, ...). The
+`bound_metabolite` field of `Step` carries the metabolite, while
+`from_species`/`to_species` are taken straight from the source
+`(lhs, rhs)` order. Because the metabolite is in neither bound list,
+`Step`'s binding-direction canonicalization no-ops and source-order
+direction is preserved verbatim.
 """
 function _mechanism_from_legacy_sig(Sig::Tuple)
     mets_sig, rxns_sig = Sig
@@ -810,20 +808,21 @@ function _mechanism_from_legacy_sig(Sig::Tuple)
         e_rhs = first(s for s in rhs if s ∉ met_set)
         m_lhs = Symbol[s for s in lhs if s ∈ met_set]
         m_rhs = Symbol[s for s in rhs if s ∈ met_set]
+        length(m_lhs) <= 1 ||
+            error("_mechanism_from_legacy_sig: step $src_pos has more than " *
+                  "one metabolite on LHS ($m_lhs); each Step must bind " *
+                  "exactly one metabolite")
+        length(m_rhs) <= 1 ||
+            error("_mechanism_from_legacy_sig: step $src_pos has more than " *
+                  "one metabolite on RHS ($m_rhs); each Step must bind " *
+                  "exactly one metabolite")
 
-        bound_met  = nothing
-        from_bound = Metabolite[]
-        to_bound   = Metabolite[]
-        if !isempty(m_lhs)
-            bound_met = metabolite_of(m_lhs[1])
-            push!(to_bound, bound_met)
-        elseif !isempty(m_rhs)
-            bound_met = metabolite_of(m_rhs[1])
-            push!(from_bound, bound_met)
-        end
+        bound_met = !isempty(m_lhs) ? metabolite_of(m_lhs[1]) :
+                    !isempty(m_rhs) ? metabolite_of(m_rhs[1]) :
+                    nothing
 
-        from = Species(from_bound, e_lhs, Residual())
-        to   = Species(to_bound,   e_rhs, Residual())
+        from = Species(Metabolite[], e_lhs, Residual())
+        to   = Species(Metabolite[], e_rhs, Residual())
         step = Step(from, to, bound_met, is_eq; source_idx = src_pos)
 
         if !haskey(groups, gnum)
