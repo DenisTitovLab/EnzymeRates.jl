@@ -39,8 +39,16 @@ function parameters end
 parameters(m::_AnyMechanism) = parameters(m, Reduced)
 
 # ── EnzymeMechanism ───────────────────────────────────────────
-@generated function parameters(::M, ::FullMode) where {M <: EnzymeMechanism}
-    Tuple((_raw_param_symbols(M())..., :E_total))
+@generated function parameters(
+    ::EnzymeMechanism{Sig}, ::FullMode,
+) where {Sig}
+    if _is_new_sig(Sig)
+        mech = _mechanism_from_sig(Sig)
+        params = _enumerate_parameters_full(mech)
+        names = Tuple(name(p, mech) for p in params)
+        return Tuple((names..., :E_total))
+    end
+    Tuple((_raw_param_symbols(EnzymeMechanism{Sig}())..., :E_total))
 end
 
 @generated function parameters(::M, ::ReducedMode) where {M <: EnzymeMechanism}

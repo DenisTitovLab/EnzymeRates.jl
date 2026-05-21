@@ -1662,3 +1662,30 @@ end
 name(::Keq,   _) = :Keq
 name(::Etot,  _) = :E_total
 name(::Lallo, _) = :L
+
+"""
+Enumerate every raw rate-constant Parameter for a non-allosteric
+mechanism, in kinetic-group order. Each kinetic group's representative
+step (the first step in the group) drives the emit: RE binding → `Kd`,
+RE iso → `Kiso`, SS binding → `Kon`+`Koff`, SS iso → `Kfor`+`Krev`. All
+parameters carry `state === :None` because non-allosteric mechanisms
+have no R/T branches.
+"""
+function _enumerate_parameters_full(m::Mechanism)
+    out = Parameter[]
+    for group in m.steps
+        rep = first(group)
+        if is_equilibrium(rep)
+            push!(out, is_binding(rep) ? Kd(rep, :None) : Kiso(rep, :None))
+        else
+            if is_binding(rep)
+                push!(out, Kon(rep, :None))
+                push!(out, Koff(rep, :None))
+            else
+                push!(out, Kfor(rep, :None))
+                push!(out, Krev(rep, :None))
+            end
+        end
+    end
+    out
+end
