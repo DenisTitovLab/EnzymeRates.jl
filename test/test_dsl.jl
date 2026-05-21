@@ -134,10 +134,14 @@
             substrates: S[C]
             products:   P[C]
         end
-        @test spec isa EnzymeReactionLegacy
-        @test EnzymeRates.substrates(spec) == ((:S, ((:C, 1),)),)
-        @test EnzymeRates.products(spec) == ((:P, ((:C, 1),)),)
-        @test EnzymeRates.regulators(spec) == ()
+        @test spec isa EnzymeReaction
+        @test EnzymeRates.substrates(spec) == [EnzymeRates.Substrate(:S)]
+        @test EnzymeRates.products(spec) == [EnzymeRates.Product(:P)]
+        @test EnzymeRates.reactants(spec)[1] == EnzymeRates.ReactantAtoms(
+            EnzymeRates.Product(:P), [:C => 1])
+        @test EnzymeRates.reactants(spec)[2] == EnzymeRates.ReactantAtoms(
+            EnzymeRates.Substrate(:S), [:C => 1])
+        @test EnzymeRates.regulators(spec) == EnzymeRates.RegulatorMults[]
 
         spec2 = @enzyme_reaction begin
             substrates: S[C6H12O6], ATP[C10H16N5O13P3]
@@ -147,7 +151,8 @@
         @test length(EnzymeRates.substrates(spec2)) == 2
         @test length(EnzymeRates.products(spec2)) == 2
         @test length(EnzymeRates.regulators(spec2)) == 1
-        @test EnzymeRates.regulators(spec2)[1] == :I
+        @test EnzymeRates.regulator(EnzymeRates.regulators(spec2)[1]) ==
+            EnzymeRates.CompetitiveInhibitor(:I)
     end
 
     @testset "multi-atom metabolites" begin
@@ -156,39 +161,55 @@
             products: P[C2,N], Q[H3,P]
         end
         subs = EnzymeRates.substrates(rxn)
-        @test subs[1] == (:A, ((:C, 2), (:H, 3)))
-        @test subs[2] == (:B, ((:N, 1), (:P, 1)))
+        @test subs[1] == EnzymeRates.Substrate(:A)
+        @test subs[2] == EnzymeRates.Substrate(:B)
+        ra = EnzymeRates.reactants(rxn)
+        ra_map = Dict(EnzymeRates.name(EnzymeRates.metabolite(r)) =>
+                          EnzymeRates.atoms(r) for r in ra)
+        @test ra_map[:A] == [:C => 2, :H => 3]
+        @test ra_map[:B] == [:N => 1, :P => 1]
         prods = EnzymeRates.products(rxn)
-        @test prods[1] == (:P, ((:C, 2), (:N, 1)))
-        @test prods[2] == (:Q, ((:H, 3), (:P, 1)))
+        @test prods[1] == EnzymeRates.Product(:P)
+        @test prods[2] == EnzymeRates.Product(:Q)
+        @test ra_map[:P] == [:C => 2, :N => 1]
+        @test ra_map[:Q] == [:H => 3, :P => 1]
     end
 
-    @testset "@enzyme_reaction regulator roles" begin
-        spec_roles = @enzyme_reaction begin
+    @testset "@enzyme_reaction regulator kinds" begin
+        # New grammar: dead_end_inhibitors:, competitive_inhibitors:, and
+        # plain regulators: all emit CompetitiveInhibitor entries.
+        # allosteric_regulators: emits AllostericRegulator and requires
+        # per-name multiplicities.
+        spec_kinds = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             dead_end_inhibitors: I
-            allosteric_regulators: A
+            allosteric_regulators: A(1)
             regulators: R
         end
-        @test spec_roles isa EnzymeReactionLegacy
-        @test Set(EnzymeRates.regulators(spec_roles)) == Set([:I, :A, :R])
-        roles = EnzymeRates.regulator_roles(spec_roles)
-        @test length(roles) == 3
-        role_dict = Dict(r[1] => r[2] for r in roles)
-        @test role_dict[:I] == :dead_end
-        @test role_dict[:A] == :allosteric
-        @test role_dict[:R] == :unknown
+        @test spec_kinds isa EnzymeReaction
+        regs = EnzymeRates.regulators(spec_kinds)
+        reg_by_name = Dict(EnzymeRates.name(EnzymeRates.regulator(rm)) => rm
+                           for rm in regs)
+        @test Set(keys(reg_by_name)) == Set([:I, :A, :R])
+        @test EnzymeRates.regulator(reg_by_name[:I]) ==
+            EnzymeRates.CompetitiveInhibitor(:I)
+        @test EnzymeRates.regulator(reg_by_name[:A]) ==
+            EnzymeRates.AllostericRegulator(:A)
+        @test EnzymeRates.regulator(reg_by_name[:R]) ==
+            EnzymeRates.CompetitiveInhibitor(:R)
 
-        # Backward compatibility: plain regulators
+        # Backward compatibility: plain regulators: maps to CompetitiveInhibitor.
         spec_plain = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             regulators: R1, R2
         end
-        roles_plain = EnzymeRates.regulator_roles(spec_plain)
-        @test all(r[2] == :unknown for r in roles_plain)
-        @test Set(r[1] for r in roles_plain) == Set([:R1, :R2])
+        regs_plain = EnzymeRates.regulators(spec_plain)
+        @test all(EnzymeRates.regulator(rm) isa EnzymeRates.CompetitiveInhibitor
+                  for rm in regs_plain)
+        @test Set(EnzymeRates.name(EnzymeRates.regulator(rm)) for rm in regs_plain) ==
+            Set([:R1, :R2])
     end
 
     @testset "@enzyme_reaction with oligomeric_state" begin
@@ -197,14 +218,22 @@
             products: P[C]
             oligomeric_state: 4
         end
-        @test EnzymeRates.oligomeric_state(rxn) == 4
+        @test EnzymeRates.allowed_catalytic_multiplicities(rxn) == [4]
 
         # Without oligomeric_state defaults to 1
         rxn2 = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
         end
-        @test EnzymeRates.oligomeric_state(rxn2) == 1
+        @test EnzymeRates.allowed_catalytic_multiplicities(rxn2) == [1]
+
+        # Explicit allowed_catalytic_multiplicities tuple
+        rxn3 = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allowed_catalytic_multiplicities: (1, 2, 4)
+        end
+        @test EnzymeRates.allowed_catalytic_multiplicities(rxn3) == [1, 2, 4]
     end
 
     @testset "@enzyme_mechanism" begin
@@ -258,7 +287,7 @@
             products:   P[C]
             regulators: I
         end
-        @test spec isa EnzymeReactionLegacy
+        @test spec isa EnzymeReaction
 
         # Dead-end inhibitor: valid mechanism (competitive inhibition)
         m = @enzyme_mechanism begin

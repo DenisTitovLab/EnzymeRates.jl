@@ -74,12 +74,15 @@ end
     # Trace-compile: init_mechanisms on a bi-bi reaction (non-trivial so
     # the gate is representative; uni-uni is too small to catch regressions).
     @testset "trace-compile: init_mechanisms (bi-bi)" begin
+        # Constructs EnzymeReactionLegacy directly so the init_mechanisms
+        # trace-compile gate measures only the enumeration pipeline,
+        # independent of DSL grammar changes.
         script = """
             using EnzymeRates
-            r = @enzyme_reaction begin
-                substrates: A[C], B[N]
-                products:   P[C], Q[N]
-            end
+            r = EnzymeRates.EnzymeReactionLegacy(
+                ((:A, ((:C, 1),)), (:B, ((:N, 1),))),
+                ((:P, ((:C, 1),)), (:Q, ((:N, 1),))),
+            )
             EnzymeRates.init_mechanisms(r)
             """
         n = _count_relevant_precompiles(script)
@@ -149,26 +152,29 @@ end
     # problem the trace-compile-count approach had (small delta of two
     # larger noisy numbers).
     @testset "warmup-reuse: ter-ter post-warmup wall-clock bounded vs cold" begin
+        # Constructs EnzymeReactionLegacy directly so the warmup-reuse
+        # gate measures only the enumeration pipeline, independent of
+        # DSL grammar changes.
         cold_script = """
             using EnzymeRates
-            r_ter = @enzyme_reaction begin
-                substrates: A[C], B[N], C[O]
-                products:   P[C], Q[N], R[O]
-            end
+            r_ter = EnzymeRates.EnzymeReactionLegacy(
+                ((:A, ((:C, 1),)), (:B, ((:N, 1),)), (:C, ((:O, 1),))),
+                ((:P, ((:C, 1),)), (:Q, ((:N, 1),)), (:R, ((:O, 1),))),
+            )
             t = @elapsed EnzymeRates.init_mechanisms(r_ter)
             println("ELAPSED:", t)
             """
         warm_script = """
             using EnzymeRates
-            r_uni = @enzyme_reaction begin
-                substrates: S[C]
-                products:   P[C]
-            end
+            r_uni = EnzymeRates.EnzymeReactionLegacy(
+                ((:S, ((:C, 1),)),),
+                ((:P, ((:C, 1),)),),
+            )
             EnzymeRates.init_mechanisms(r_uni)   # warmup; not timed
-            r_ter = @enzyme_reaction begin
-                substrates: A[C], B[N], C[O]
-                products:   P[C], Q[N], R[O]
-            end
+            r_ter = EnzymeRates.EnzymeReactionLegacy(
+                ((:A, ((:C, 1),)), (:B, ((:N, 1),)), (:C, ((:O, 1),))),
+                ((:P, ((:C, 1),)), (:Q, ((:N, 1),)), (:R, ((:O, 1),))),
+            )
             t = @elapsed EnzymeRates.init_mechanisms(r_ter)
             println("ELAPSED:", t)
             """

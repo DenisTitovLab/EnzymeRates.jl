@@ -1303,7 +1303,8 @@ function EnzymeMechanism(
     spec::MechanismSpec;
     exclude_regs::Set{Symbol}=Set{Symbol}(),
 )
-    rxn = spec.reaction
+    rxn = spec.reaction isa EnzymeReaction ?
+          _to_legacy_reaction(spec.reaction) : spec.reaction
     subs = Tuple(s[1] for s in substrates(rxn))
     prods = Tuple(p[1] for p in products(rxn))
     # Allosteric regulators belong on regulatory sites, not in the
@@ -2432,3 +2433,39 @@ Hash a mechanism's canonicalized rate equation. Returns the
 function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
     first(_canonical_rate_eq_hash_data(m))
 end
+
+# Adapters that accept the concrete EnzymeReaction by converting to
+# the parametric Legacy form. The enumeration primitives still dispatch
+# on EnzymeReactionLegacy; Stage 5 rewrites the primitives to consume
+# EnzymeReaction directly, retiring these forwarders.
+init_mechanisms(r::EnzymeReaction) = init_mechanisms(_to_legacy_reaction(r))
+
+_catalytic_topologies(r::EnzymeReaction) =
+    _catalytic_topologies(_to_legacy_reaction(r))
+
+_atoms_dict(r::EnzymeReaction, met::Symbol) =
+    _atoms_dict(_to_legacy_reaction(r), met)
+
+_bound_metabolites_at_forms(spec::MechanismSpec, r::EnzymeReaction) =
+    _bound_metabolites_at_forms(spec, _to_legacy_reaction(r))
+
+_expand_substrate_product_dead_ends(specs::Vector{MechanismSpec},
+                                    r::EnzymeReaction) =
+    _expand_substrate_product_dead_ends(specs, _to_legacy_reaction(r))
+
+_expand_add_dead_end_regulator(spec::AbstractMechanismSpec, r::EnzymeReaction;
+                               kwargs...) =
+    _expand_add_dead_end_regulator(spec, _to_legacy_reaction(r); kwargs...)
+
+_expand_to_allosteric(spec::AbstractMechanismSpec, r::EnzymeReaction) =
+    _expand_to_allosteric(spec, _to_legacy_reaction(r))
+
+_expand_add_allosteric_regulator(spec::AbstractMechanismSpec,
+                                 r::EnzymeReaction) =
+    _expand_add_allosteric_regulator(spec, _to_legacy_reaction(r))
+
+_expand_change_allo_state(spec::AbstractMechanismSpec, r::EnzymeReaction) =
+    _expand_change_allo_state(spec, _to_legacy_reaction(r))
+
+expand_mechanisms(specs::Vector{<:AbstractMechanismSpec}, r::EnzymeReaction) =
+    expand_mechanisms(specs, _to_legacy_reaction(r))

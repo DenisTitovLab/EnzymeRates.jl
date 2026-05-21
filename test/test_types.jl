@@ -346,7 +346,7 @@
         end
         @test contains(sprint(show, m_reg), "| regulators: I")
 
-        # EnzymeReactionLegacy with oligomeric_state > 1.
+        # EnzymeReaction with oligomeric_state > 1.
         rxn_oligo = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]

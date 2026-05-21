@@ -24,6 +24,10 @@ internally for consistency before the spec is built:
 Throws `ErrorException` on any inconsistency, with a descriptive
 message identifying the disagreement.
 """
+mechanism_spec_from_mechanism_and_rxn(m::EnzymeMechanism,
+                                      rxn::EnzymeReaction) =
+    mechanism_spec_from_mechanism_and_rxn(m, EnzymeRates._to_legacy_reaction(rxn))
+
 function mechanism_spec_from_mechanism_and_rxn(
     m::EnzymeMechanism,
     @nospecialize(rxn::EnzymeReactionLegacy))
@@ -81,6 +85,10 @@ pass-through (no `:NonequalRT` filtering).
 Throws `ErrorException` on any inconsistency, with a descriptive
 message identifying the disagreement.
 """
+allosteric_spec_from_mechanism_and_rxn(m::AllostericEnzymeMechanism,
+                                       rxn::EnzymeReaction) =
+    allosteric_spec_from_mechanism_and_rxn(m, EnzymeRates._to_legacy_reaction(rxn))
+
 function allosteric_spec_from_mechanism_and_rxn(
     m::AllostericEnzymeMechanism,
     @nospecialize(rxn::EnzymeReactionLegacy))
@@ -451,6 +459,9 @@ function _assert_spec_invariants(spec::AllostericMechanismSpec)
         end
     end
 end
+
+enumerate_all(reaction::EnzymeReaction; kwargs...) =
+    enumerate_all(EnzymeRates._to_legacy_reaction(reaction); kwargs...)
 
 """Collect all mechanisms by running the full enumeration loop."""
 function enumerate_all(
@@ -1257,15 +1268,12 @@ end
     for rxn in [pyruvate_carboxylase_rxn,
                 pyruvate_dehydrogenase_rxn]
         sub_atoms = Dict{Symbol,Int}()
-        for (_, atoms) in EnzymeRates.substrates(rxn)
-            for (a, c) in atoms
-                sub_atoms[a] = get(sub_atoms, a, 0) + c
-            end
-        end
         prod_atoms = Dict{Symbol,Int}()
-        for (_, atoms) in EnzymeRates.products(rxn)
-            for (a, c) in atoms
-                prod_atoms[a] = get(prod_atoms, a, 0) + c
+        for ra in EnzymeRates.reactants(rxn)
+            target = EnzymeRates.metabolite(ra) isa EnzymeRates.Substrate ?
+                     sub_atoms : prod_atoms
+            for (a, c) in EnzymeRates.atoms(ra)
+                target[a] = get(target, a, 0) + c
             end
         end
         @test sub_atoms == prod_atoms

@@ -1,10 +1,125 @@
 """
+    @enzyme_reaction begin
+        substrates: S[C6H12O6], ATP[C10H16N5O13P3]
+        products:   P[C6H13O9P]
+        competitive_inhibitors: I            # bare OK; mults default to catalytic
+        allosteric_regulators: A(1, 2, 4)    # per-reg mults required
+        allowed_catalytic_multiplicities: (1, 2, 4)
+        # or shorthand:
+        # oligomeric_state: 2
+    end
+
+Emit an `EnzymeReaction`.
+
+- `substrates:` / `products:` — comma-separated entries with required atom
+  brackets (`S[C6H12O6]`). Multi-atom forms like `[C2,N]` are allowed.
+- `competitive_inhibitors:` / `dead_end_inhibitors:` / `regulators:` —
+  `CompetitiveInhibitor` entries (catalytic-site binding). May be bare
+  `I` (multiplicities default to `allowed_catalytic_multiplicities`) or
+  `I(m1, m2, ...)` to override.
+- `allosteric_regulators:` — `AllostericRegulator` entries. Each entry
+  must declare per-regulator multiplicities as `A(m1, m2, ...)` or
+  a single value `A(m)`.
+- `allowed_catalytic_multiplicities:` — tuple of positive Ints (default `(1,)`).
+- `oligomeric_state: N` — shorthand for `allowed_catalytic_multiplicities: (N,)`.
+"""
+macro enzyme_reaction(block)
+    parsed = _parse_reaction_block(block)
+    reactants_expr  = _build_reactants_expr(parsed.subs, parsed.prods)
+    mults_expr      = _build_catalytic_mults_expr(parsed.mults)
+    regulators_expr = _build_regulators_expr(parsed.regs, parsed.mults)
+    return esc(:(EnzymeRates.EnzymeReaction(
+        $reactants_expr, $regulators_expr, $mults_expr,
+    )))
+end
+
+# Parse the @enzyme_reaction body. Returns a NamedTuple:
+#   subs  ::Vector{Tuple{Symbol, Expr}}  — (name, atoms-tuple-Expr)
+#   prods ::Vector{Tuple{Symbol, Expr}}
+#   regs  ::Vector{Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}}}
+#                                         — (name, kind, mults) where
+#                                           kind ∈ (:competitive, :allosteric)
+#                                           and mults is nothing if omitted.
+#   mults ::Union{Nothing, Vector{Int}}   — allowed catalytic multiplicities;
+#                                           nothing → default (1,).
+const _VALID_REACTION_LABELS = Set([
+    :substrates, :products,
+    :regulators, :dead_end_inhibitors, :competitive_inhibitors,
+    :allosteric_regulators,
+    :allowed_catalytic_multiplicities, :oligomeric_state,
+])
+
+function _parse_reaction_block(block)
+    block isa Expr && block.head === :block ||
+        error("@enzyme_reaction: expected a `begin ... end` block, got $block")
+    subs  = Tuple{Symbol, Expr}[]
+    prods = Tuple{Symbol, Expr}[]
+    regs  = Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}}[]
+    mults::Union{Nothing, Vector{Int}} = nothing
+
+    for arg in block.args
+        arg isa LineNumberNode && continue
+        label, values = _parse_labeled_line(arg)
+        label in _VALID_REACTION_LABELS ||
+            error("@enzyme_reaction: unknown label `$label:`. Valid labels: " *
+                  "$(sort(collect(_VALID_REACTION_LABELS))).")
+        if label === :substrates
+            append!(subs, _parse_atom_bracket_entries(values, label))
+        elseif label === :products
+            append!(prods, _parse_atom_bracket_entries(values, label))
+        elseif label === :regulators ||
+               label === :dead_end_inhibitors ||
+               label === :competitive_inhibitors
+            append!(regs, _parse_regulator_entries(values, :competitive))
+        elseif label === :allosteric_regulators
+            append!(regs, _parse_regulator_entries(values, :allosteric))
+        elseif label === :allowed_catalytic_multiplicities
+            mults = _parse_multiplicity_tuple(values, label)
+        elseif label === :oligomeric_state
+            mults === nothing ||
+                error("@enzyme_reaction: cannot specify both `oligomeric_state:` " *
+                      "and `allowed_catalytic_multiplicities:`.")
+            length(values) == 1 ||
+                error("@enzyme_reaction: `oligomeric_state:` takes a single Int.")
+            v = values[1]
+            v isa Integer && v >= 1 ||
+                error("@enzyme_reaction: `oligomeric_state:` must be a positive " *
+                      "Int, got $v.")
+            mults = Int[v]
+        end
+    end
+
+    isempty(subs)  && error("@enzyme_reaction: `substrates:` not specified.")
+    isempty(prods) && error("@enzyme_reaction: `products:` not specified.")
+    (; subs, prods, regs, mults)
+end
+
+# Parse `S[C6H12O6]` / `B[N, P]` entries. Returns Vector{Tuple{Symbol, Expr}}
+# where the Expr is a tuple of `(elem, count)` pairs.
+function _parse_atom_bracket_entries(values, label)
+    out = Tuple{Symbol, Expr}[]
+    for v in values
+        v isa Expr && v.head === :ref && v.args[1] isa Symbol ||
+            error("@enzyme_reaction `$label:`: expected `Sym[atoms]`; got $v.")
+        atoms_expr = Expr(:tuple)
+        for atom_arg in v.args[2:end]
+            parsed = _parse_chemical_formula(string(atom_arg))
+            for atom in parsed.args
+                push!(atoms_expr.args, atom)
+            end
+        end
+        push!(out, (v.args[1]::Symbol, atoms_expr))
+    end
+    out
+end
+
+"""
     _parse_chemical_formula(s::String)
 
-Parse a chemical formula string like `"C6H12O6"` into a tuple expression of
-`(element, count)` pairs. Elements are identified by an uppercase letter
-optionally followed by lowercase letters, then an optional integer count
-(defaults to 1).
+Parse a chemical formula string like `"C6H12O6"` into a tuple expression
+of `(element, count)` pairs. Elements are identified by an uppercase
+letter optionally followed by lowercase letters, then an optional
+integer count (defaults to 1).
 """
 function _parse_chemical_formula(s::String)
     atoms = Expr(:tuple)
@@ -20,127 +135,113 @@ function _parse_chemical_formula(s::String)
     atoms
 end
 
-function _parse_species_tuple_expr(expr)
-    if expr isa Symbol
-        atoms = Expr(:tuple)
-        return Expr(:tuple, QuoteNode(expr), atoms)
-    elseif expr isa Expr && expr.head == :ref
-        name = expr.args[1]
-        # Parse each ref arg individually and merge
-        # (handles A[C,N] where Julia parses as
-        # ref with args [:A, :C, :N]).
-        # Each arg is parsed as a chemical formula
-        # separately to avoid ambiguity (e.g.,
-        # A[CO2,H] must not become "CO2H" → cobalt).
-        atoms = Expr(:tuple)
-        for arg in expr.args[2:end]
-            parsed = _parse_chemical_formula(string(arg))
-            for atom in parsed.args
-                push!(atoms.args, atom)
+# Parse `R`, `R(1, 2)`, or `R(4)` entries. Bare `R` produces `nothing` mults
+# (filled by the macro from `allowed_catalytic_multiplicities` for competitive
+# entries; rejected at emit time for allosteric entries).
+function _parse_regulator_entries(values, kind::Symbol)
+    out = Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}}[]
+    for v in values
+        if v isa Symbol
+            push!(out, (v, kind, nothing))
+        elseif v isa Expr && v.head === :call && length(v.args) >= 2 &&
+               v.args[1] isa Symbol
+            name = v.args[1]::Symbol
+            ms = Int[]
+            for a in v.args[2:end]
+                a isa Integer && a >= 1 ||
+                    error("@enzyme_reaction: regulator $name multiplicity " *
+                          "must be a positive Int, got $a.")
+                push!(ms, Int(a))
             end
-        end
-        return Expr(:tuple, QuoteNode(name), atoms)
-    else
-        error("Cannot parse species definition: $expr")
-    end
-end
-
-function _parse_label_species_tuple(expr)
-    if expr isa Expr && expr.head == :call && expr.args[1] == :(:)
-        label = expr.args[2]
-        species = _parse_species_tuple_expr(expr.args[3])
-        return label, species
-    end
-    error("Expected label: species, got $expr")
-end
-
-function _parse_labeled_block(
-    block, valid_labels::Set{Symbol},
-    scalar_labels::Set{Symbol}=Set{Symbol}(),
-)
-    result = Dict{Symbol, Any}()
-    for arg in block.args
-        arg isa LineNumberNode && continue
-        if arg isa Expr && arg.head == :tuple
-            label, first_species = _parse_label_species_tuple(arg.args[1])
-            label in valid_labels || error("Unknown label: $label")
-            species_list = Expr(:tuple, first_species)
-            for j in 2:length(arg.args)
-                push!(species_list.args, _parse_species_tuple_expr(arg.args[j]))
-            end
-            result[label] = species_list
-        elseif arg isa Expr && arg.head == :call && arg.args[1] == :(:)
-            label = arg.args[2]
-            label in valid_labels || error("Unknown label: $label")
-            if label in scalar_labels
-                result[label] = arg.args[3]
-            else
-                result[label] = Expr(:tuple, _parse_species_tuple_expr(arg.args[3]))
-            end
-        end
-    end
-    result
-end
-
-"""
-    @enzyme_reaction begin
-        substrates: S[C]
-        products:   P[C]
-        regulators: I
-        oligomeric_state: 4
-    end
-
-Create an `EnzymeReactionLegacy` from a DSL block. Every substrate and product
-must declare atoms using chemical formula bracket syntax: `S[C6H12O6]`.
-Element totals must balance between substrates and products. Regulators
-are plain symbol names (no atoms). `oligomeric_state` is an optional
-integer (defaults to 1).
-
-Multi-species lines use comma separation:
-    substrates: S[C6H12O6], ATP[C10H16N5O13P3]
-    regulators: I, A
-"""
-macro enzyme_reaction(block)
-    parsed = _parse_labeled_block(block,
-        Set([:substrates, :products, :regulators,
-             :dead_end_inhibitors, :allosteric_regulators,
-             :oligomeric_state]),
-        Set([:oligomeric_state]))
-    haskey(parsed, :substrates) || error("substrates not specified")
-    haskey(parsed, :products) || error("products not specified")
-    subs = parsed[:substrates]
-    prods = parsed[:products]
-    regs = Expr(:tuple)
-    for (label, role_sym) in [
-        (:regulators, :unknown),
-        (:dead_end_inhibitors, :dead_end),
-        (:allosteric_regulators, :allosteric),
-    ]
-        if haskey(parsed, label)
-            syms = _regulator_tuple_to_symbols(parsed[label])
-            for s in syms.args
-                push!(regs.args,
-                    Expr(:tuple, s, QuoteNode(role_sym)))
-            end
-        end
-    end
-    oligo = haskey(parsed, :oligomeric_state) ? parsed[:oligomeric_state] : 1
-    return esc(:(EnzymeRates.EnzymeReactionLegacy($subs, $prods, $regs; oligomeric_state=$oligo)))
-end
-
-"""Convert a parsed species tuple for regulators into a plain Symbol tuple.
-Accepts both bare Symbols (:I) and bracket syntax (I[C5]) — extracts just the name."""
-function _regulator_tuple_to_symbols(species_tuple::Expr)
-    result = Expr(:tuple)
-    for arg in species_tuple.args
-        if arg isa Expr && arg.head == :tuple
-            # (QuoteNode(:I), atoms...) → QuoteNode(:I)
-            push!(result.args, arg.args[1])
+            push!(out, (name, kind, ms))
         else
-            push!(result.args, arg)
+            error("@enzyme_reaction: cannot parse regulator entry $v. " *
+                  "Use `R` or `R(1, 2)`.")
         end
     end
-    result
+    out
+end
+
+# Parse `(1, 2, 4)` or `4` into Vector{Int}.
+function _parse_multiplicity_tuple(values, label)
+    length(values) == 1 ||
+        error("@enzyme_reaction: `$label:` takes a single tuple, got $values.")
+    v = values[1]
+    if v isa Integer
+        v >= 1 || error("@enzyme_reaction: `$label:` entry must be a positive " *
+                        "Int, got $v.")
+        return Int[v]
+    elseif v isa Expr && v.head === :tuple
+        ms = Int[]
+        for a in v.args
+            a isa Integer && a >= 1 ||
+                error("@enzyme_reaction: `$label:` entry must be a positive " *
+                      "Int, got $a.")
+            push!(ms, Int(a))
+        end
+        return ms
+    end
+    error("@enzyme_reaction: `$label:` must be a tuple of positive Ints, got $v.")
+end
+
+# Build the reactants vector Expr: each entry is
+# `ReactantAtoms(<Substrate|Product>(:Name), [:elem => count, ...])`.
+function _build_reactants_expr(subs, prods)
+    entries = Expr[]
+    for (n, atoms) in subs
+        push!(entries, :(EnzymeRates.ReactantAtoms(
+            EnzymeRates.Substrate($(QuoteNode(n))),
+            $(_atoms_pairs_expr(atoms)),
+        )))
+    end
+    for (n, atoms) in prods
+        push!(entries, :(EnzymeRates.ReactantAtoms(
+            EnzymeRates.Product($(QuoteNode(n))),
+            $(_atoms_pairs_expr(atoms)),
+        )))
+    end
+    :([$(entries...)])
+end
+
+# Convert a `(elem, count)` tuple Expr into a `[Symbol => Int, ...]` Vector Expr.
+function _atoms_pairs_expr(atoms::Expr)
+    pairs = Expr[]
+    for atom in atoms.args
+        # atom is Expr(:tuple, QuoteNode(:C), 6)
+        elem_q = atom.args[1]
+        count  = atom.args[2]
+        push!(pairs, :($(elem_q) => $(count)))
+    end
+    :(Pair{Symbol,Int}[$(pairs...)])
+end
+
+# Build the regulators vector Expr: each entry is
+# `RegulatorMults(<CompetitiveInhibitor|AllostericRegulator>(:Name), [m1, m2, ...])`.
+# Bare entries (mults === nothing) inherit `default_mults` (the parsed
+# `allowed_catalytic_multiplicities` or its default of `[1]`).
+function _build_regulators_expr(regs, default_mults)
+    entries = Expr[]
+    default_mults_resolved = default_mults === nothing ? Int[1] : default_mults
+    for (name, kind, ms) in regs
+        subtype_expr = if kind === :allosteric
+            :(EnzymeRates.AllostericRegulator($(QuoteNode(name))))
+        elseif kind === :competitive
+            :(EnzymeRates.CompetitiveInhibitor($(QuoteNode(name))))
+        else
+            error("internal: unknown regulator kind $kind")
+        end
+        ms_resolved = ms === nothing ? default_mults_resolved : ms
+        ms_expr = :(Int[$(ms_resolved...)])
+        push!(entries, :(EnzymeRates.RegulatorMults(
+            $(subtype_expr), $(ms_expr),
+        )))
+    end
+    :(EnzymeRates.RegulatorMults[$(entries...)])
+end
+
+function _build_catalytic_mults_expr(mults)
+    mults === nothing && return :(Int[1])
+    :(Int[$(mults...)])
 end
 
 function _parse_step_side_symbols(expr)

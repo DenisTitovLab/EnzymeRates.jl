@@ -96,7 +96,7 @@ using OptimizationPyCMA
     @testset "construction" begin
         prob = IdentifyRateEquationProblem(
             test_rxn, test_data; Keq=Keq_val)
-        @test prob.reaction === test_rxn
+        @test prob.reaction == EnzymeRates._to_legacy_reaction(test_rxn)
         @test prob.Keq == Keq_val
         @test length(
             unique(prob.data.group)) == 5

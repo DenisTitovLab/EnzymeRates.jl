@@ -298,6 +298,24 @@ Base.hash(r::EnzymeReaction, h::UInt) =
          hash(r.regulators,
               hash(r.reactants, hash(:EnzymeReaction, h))))
 
+function Base.show(io::IO, r::EnzymeReaction)
+    subs_str  = join(String.(name.(substrates(r))), " + ")
+    prods_str = join(String.(name.(products(r))),   " + ")
+    print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
+    if !isempty(r.regulators)
+        regs_str = join(
+            (String(name(regulator(rm))) for rm in r.regulators), ", ")
+        print(io, " | regulators: ", regs_str)
+    end
+    mults = r.allowed_catalytic_multiplicities
+    if length(mults) == 1 && mults[1] > 1
+        print(io, " | oligomeric_state: ", mults[1])
+    elseif length(mults) > 1 || (length(mults) == 1 && mults[1] != 1)
+        print(io, " | allowed_catalytic_multiplicities: (",
+              join(mults, ", "), ")")
+    end
+end
+
 # §5.8 — Mechanism: groups elementary steps by kinetic group (outer
 # vector). All steps within a group share kinetic parameters.
 struct Mechanism
@@ -586,6 +604,36 @@ function EnzymeReactionLegacy(subs::Tuple, prods::Tuple, regs::Tuple=(); oligome
     prods = _sort_species(prods)
     sorted_regs = Tuple(sort(collect(normalized_regs); by=first))
     EnzymeReactionLegacy{subs, prods, sorted_regs, oligomeric_state}()
+end
+
+# Convert the concrete EnzymeReaction into its parametric Legacy form.
+# Used to feed EnzymeReaction values into call sites that still
+# dispatch on EnzymeReactionLegacy (init_mechanisms, expand_mechanisms,
+# IdentifyRateEquationProblem). Stage 5 / Stage 6 retire the consumers
+# of the Legacy form, after which this helper becomes dead code.
+function _to_legacy_reaction(r::EnzymeReaction)
+    subs = Tuple((name(metabolite(ra)),
+                  Tuple((e => c) for (e, c) in atoms(ra)))
+                 for ra in r.reactants if metabolite(ra) isa Substrate)
+    prods = Tuple((name(metabolite(ra)),
+                   Tuple((e => c) for (e, c) in atoms(ra)))
+                  for ra in r.reactants if metabolite(ra) isa Product)
+    # Legacy atoms shape is Tuple{Tuple{Symbol,Int}...} — convert
+    # the Pair tuples above to (Symbol, Int) tuples.
+    subs_t = Tuple((nm, Tuple((p.first, p.second) for p in at))
+                   for (nm, at) in subs)
+    prods_t = Tuple((nm, Tuple((p.first, p.second) for p in at))
+                    for (nm, at) in prods)
+    regs_t = Tuple((name(regulator(rm)),
+                    regulator(rm) isa AllostericRegulator ?
+                        :allosteric : :dead_end)
+                   for rm in r.regulators)
+    mults = r.allowed_catalytic_multiplicities
+    length(mults) == 1 ||
+        error("_to_legacy_reaction: EnzymeReactionLegacy supports a single " *
+              "oligomeric_state; got allowed_catalytic_multiplicities=$mults. " *
+              "Enumeration over multiple multiplicities is a Stage 5 capability.")
+    EnzymeReactionLegacy(subs_t, prods_t, regs_t; oligomeric_state=mults[1])
 end
 
 abstract type AbstractEnzymeMechanism end

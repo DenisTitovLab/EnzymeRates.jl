@@ -25,6 +25,9 @@ struct IdentifyRateEquationProblem{
     Keq::Float64
 end
 
+IdentifyRateEquationProblem(reaction::EnzymeReaction, table; Keq::Real) =
+    IdentifyRateEquationProblem(_to_legacy_reaction(reaction), table; Keq=Keq)
+
 function IdentifyRateEquationProblem(
     reaction::EnzymeReactionLegacy, table; Keq::Real
 )
