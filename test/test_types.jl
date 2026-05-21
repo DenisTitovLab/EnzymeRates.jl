@@ -1119,4 +1119,69 @@
             r, cat_steps, [:Bogus], 1,
             EnzymeRates.RegulatorySite[])
     end
+
+    @testset "_sig_of / _mechanism_from_sig roundtrip" begin
+        # Use real atom data to catch type-parameter validity issues.
+        # Pair{Symbol,Int} is NOT a valid type-parameter value; encoding
+        # must use Tuple{Symbol,Int} leaves.
+        r = EnzymeRates.EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:ATP),
+                                        [:C => 10, :H => 16, :N => 5,
+                                         :O => 13, :P => 3]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:ADP),
+                                        [:C => 10, :H => 15, :N => 5,
+                                         :O => 10, :P => 2])],
+            EnzymeRates.RegulatorMults[],
+            [1],
+        )
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:ATP)], :E)
+        e_p = EnzymeRates.Species([EnzymeRates.Product(:ADP)], :E)
+
+        m = EnzymeRates.Mechanism(r, [
+            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:ATP), true)],
+            [EnzymeRates.Step(e_s, e_p, nothing, false)],
+            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:ADP), true)],
+        ])
+
+        sig = EnzymeRates._sig_of(m)
+        @test sig isa Tuple
+
+        m_recon = EnzymeRates._mechanism_from_sig(sig)
+        @test m_recon == m   # roundtrip
+
+        # CRITICAL: sig MUST be usable as a type parameter. Throws TypeError
+        # if any leaf is invalid (Pair, Vector, DataType inside value-tuple).
+        em_type = EnzymeRates.EnzymeMechanism{sig}
+        @test em_type <: EnzymeRates.EnzymeMechanism
+        em_inst = em_type()
+        @test em_inst isa EnzymeRates.EnzymeMechanism
+
+        # Roundtrip through the type-parameter form preserves everything.
+        @test EnzymeRates.Mechanism(em_inst) == m
+    end
+
+    @testset "Mechanism <-> EnzymeMechanism converters" begin
+        r = EnzymeRates.EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
+            EnzymeRates.RegulatorMults[],
+            [1],
+        )
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+
+        m = EnzymeRates.Mechanism(r, [
+            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
+            [EnzymeRates.Step(e_s, e_p, nothing, false)],
+            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+        ])
+
+        em = EnzymeMechanism(m)
+        @test em isa EnzymeMechanism
+
+        m_back = EnzymeRates.Mechanism(em)
+        @test m_back == m
+    end
 end

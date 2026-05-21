@@ -387,6 +387,129 @@ Base.hash(m::AllostericMechanism, h::UInt) =
                         hash(m.reaction,
                              hash(:AllostericMechanism, h))))))
 
+# ─── Mechanism ↔ Sig (parametric ↔ non-parametric) conversion ──
+#
+# Every leaf in `sig` MUST be a valid Julia type-parameter value (isbits,
+# Symbol, type, or Tuple of those). `Pair{Symbol,Int}` is NOT valid as a
+# type parameter — encode pairs as `Tuple{Symbol,Int}`. Vectors are
+# NEVER valid — always wrap in `Tuple(...)`.
+#
+# One polymorphic `_to_sig` with a method per source type; the matching
+# `_*_from_sig` family reconstructs the corresponding type.
+# RegulatorySite + the allosteric converters are deferred to Stage 4 (the
+# AllostericEnzymeMechanism Sig-collapse constraint blocks a uniform
+# allosteric Sig today).
+
+_to_sig(s::Substrate)            = (:Substrate, s.name)
+_to_sig(p::Product)              = (:Product, p.name)
+_to_sig(r::AllostericRegulator)  = (:AllostericRegulator, r.name)
+_to_sig(c::CompetitiveInhibitor) = (:CompetitiveInhibitor, c.name)
+
+_to_sig(r::Residual) = (
+    Tuple(_to_sig(m) for m in r.added),
+    Tuple(_to_sig(m) for m in r.subtracted),
+)
+
+_to_sig(s::Species) = (
+    Tuple(_to_sig(m) for m in s.bound),
+    s.conformation,
+    _to_sig(s.residual),
+)
+
+_to_sig(s::Step) = (
+    _to_sig(s.from_species),
+    _to_sig(s.to_species),
+    s.bound_metabolite === nothing ? nothing : _to_sig(s.bound_metabolite),
+    s.is_equilibrium,
+)
+
+_to_sig(ra::ReactantAtoms) = (
+    _to_sig(ra.metabolite),
+    Tuple((p.first, p.second) for p in ra.atoms),   # Tuple{Symbol,Int}, NOT Pair
+)
+
+_to_sig(rm::RegulatorMults) = (
+    _to_sig(rm.regulator),
+    Tuple(rm.allowed_multiplicities),
+)
+
+_to_sig(r::EnzymeReaction) = (
+    Tuple(_to_sig(ra) for ra in r.reactants),
+    Tuple(_to_sig(rm) for rm in r.regulators),
+    Tuple(r.allowed_catalytic_multiplicities),
+)
+
+function _metabolite_from_sig(sig::Tuple{Symbol, Symbol})
+    kind, nm = sig
+    kind === :Substrate            ? Substrate(nm)            :
+    kind === :Product              ? Product(nm)              :
+    kind === :AllostericRegulator  ? AllostericRegulator(nm)  :
+    kind === :CompetitiveInhibitor ? CompetitiveInhibitor(nm) :
+    error("Unknown metabolite kind in sig: $kind")
+end
+
+function _residual_from_sig(sig::Tuple)
+    added_sig, sub_sig = sig
+    Residual(
+        Substrate[_metabolite_from_sig(t) for t in added_sig],
+        Product[_metabolite_from_sig(t)   for t in sub_sig],
+    )
+end
+
+function _species_from_sig(sig::Tuple)
+    bound_sig, conformation, residual_sig = sig
+    Species(
+        Metabolite[_metabolite_from_sig(t) for t in bound_sig],
+        conformation,
+        _residual_from_sig(residual_sig),
+    )
+end
+
+function _step_from_sig(sig::Tuple)
+    from_sig, to_sig, met_sig, is_eq = sig
+    met = met_sig === nothing ? nothing : _metabolite_from_sig(met_sig)
+    Step(_species_from_sig(from_sig), _species_from_sig(to_sig), met, is_eq)
+end
+
+function _reactant_atoms_from_sig(sig::Tuple)
+    met_sig, atoms_sig = sig
+    ReactantAtoms(
+        _metabolite_from_sig(met_sig)::Reactant,
+        Pair{Symbol,Int}[s => c for (s, c) in atoms_sig],
+    )
+end
+
+function _regulator_mults_from_sig(sig::Tuple)
+    reg_sig, mults_sig = sig
+    RegulatorMults(
+        _metabolite_from_sig(reg_sig)::Regulator,
+        Int[m for m in mults_sig],
+    )
+end
+
+function _reaction_from_sig(sig::Tuple)
+    reactants_sig, regulators_sig, mults_sig = sig
+    EnzymeReaction(
+        ReactantAtoms[_reactant_atoms_from_sig(t) for t in reactants_sig],
+        RegulatorMults[_regulator_mults_from_sig(t) for t in regulators_sig],
+        Int[m for m in mults_sig],
+    )
+end
+
+function _steps_from_sig(sig::Tuple)
+    Vector{Step}[Step[_step_from_sig(s) for s in group] for group in sig]
+end
+
+_sig_of(m::Mechanism) = (
+    _to_sig(m.reaction),
+    Tuple(Tuple(_to_sig(s) for s in g) for g in m.steps),
+)
+
+function _mechanism_from_sig(sig::Tuple)
+    reaction_sig, steps_sig = sig
+    Mechanism(_reaction_from_sig(reaction_sig), _steps_from_sig(steps_sig))
+end
+
 # ─── Parametric mechanism types ───────────────────────────────────────
 
 """Sort species tuples alphabetically by name (first element)."""
@@ -483,6 +606,13 @@ Singleton type encoding an enzyme mechanism. `Sig` is a 2-tuple
   parameters (one `K` for RE groups, one `k_f` and one `k_r` for SS groups).
 """
 struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
+
+# Boundary converters: non-parametric Mechanism ↔ parametric
+# EnzymeMechanism{Sig}. The Sig shape produced here
+# `(reaction_sig, steps_sig)` coexists with the legacy DSL Sig shape
+# `(metabolites_tuple, reactions_tuple)` during the staged refactor.
+EnzymeMechanism(m::Mechanism) = EnzymeMechanism{_sig_of(m)}()
+Mechanism(::EnzymeMechanism{Sig}) where {Sig} = _mechanism_from_sig(Sig)
 
 """
     EnzymeMechanism(metabolites, reactions) → EnzymeMechanism
