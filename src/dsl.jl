@@ -13,7 +13,7 @@ Emit an `EnzymeReaction`.
 
 - `substrates:` / `products:` — comma-separated entries with required atom
   brackets (`S[C6H12O6]`). Multi-atom forms like `[C2,N]` are allowed.
-- `competitive_inhibitors:` / `dead_end_inhibitors:` / `regulators:` —
+- `competitive_inhibitors:` / `dead_end_inhibitors:` —
   `CompetitiveInhibitor` entries (catalytic-site binding). May be bare
   `I` (multiplicities default to `allowed_catalytic_multiplicities`) or
   `I(m1, m2, ...)` to override.
@@ -44,7 +44,7 @@ end
 #                                           nothing → default (1,).
 const _VALID_REACTION_LABELS = Set([
     :substrates, :products,
-    :regulators, :dead_end_inhibitors, :competitive_inhibitors,
+    :dead_end_inhibitors, :competitive_inhibitors,
     :allosteric_regulators,
     :allowed_catalytic_multiplicities, :oligomeric_state,
 ])
@@ -67,8 +67,7 @@ function _parse_reaction_block(block)
             append!(subs, _parse_atom_bracket_entries(values, label))
         elseif label === :products
             append!(prods, _parse_atom_bracket_entries(values, label))
-        elseif label === :regulators ||
-               label === :dead_end_inhibitors ||
+        elseif label === :dead_end_inhibitors ||
                label === :competitive_inhibitors
             append!(regs, _parse_regulator_entries(values, :competitive))
         elseif label === :allosteric_regulators

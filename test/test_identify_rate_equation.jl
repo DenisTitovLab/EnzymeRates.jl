@@ -17,7 +17,7 @@ using OptimizationPyCMA
     test_rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
-        regulators: R
+        competitive_inhibitors: R
     end
 
     # Build the constrained allosteric mechanism: K-type

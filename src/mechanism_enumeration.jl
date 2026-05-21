@@ -2435,9 +2435,8 @@ function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
 end
 
 # Adapters that accept the concrete EnzymeReaction by converting to
-# the parametric Legacy form. The enumeration primitives still dispatch
-# on EnzymeReactionLegacy; Stage 5 rewrites the primitives to consume
-# EnzymeReaction directly, retiring these forwarders.
+# the parametric EnzymeReactionLegacy form. The enumeration primitives
+# below dispatch on EnzymeReactionLegacy.
 init_mechanisms(r::EnzymeReaction) = init_mechanisms(_to_legacy_reaction(r))
 
 _catalytic_topologies(r::EnzymeReaction) =

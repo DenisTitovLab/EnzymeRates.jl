@@ -146,7 +146,7 @@
         spec2 = @enzyme_reaction begin
             substrates: S[C6H12O6], ATP[C10H16N5O13P3]
             products:   G6P[C6H13O9P], ADP[C10H15N5O10P2]
-            regulators: I
+            competitive_inhibitors: I
         end
         @test length(EnzymeRates.substrates(spec2)) == 2
         @test length(EnzymeRates.products(spec2)) == 2
@@ -176,16 +176,15 @@
     end
 
     @testset "@enzyme_reaction regulator kinds" begin
-        # New grammar: dead_end_inhibitors:, competitive_inhibitors:, and
-        # plain regulators: all emit CompetitiveInhibitor entries.
-        # allosteric_regulators: emits AllostericRegulator and requires
-        # per-name multiplicities.
+        # dead_end_inhibitors: and competitive_inhibitors: both emit
+        # CompetitiveInhibitor entries. allosteric_regulators: emits
+        # AllostericRegulator and requires per-name multiplicities.
         spec_kinds = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             dead_end_inhibitors: I
             allosteric_regulators: A(1)
-            regulators: R
+            competitive_inhibitors: R
         end
         @test spec_kinds isa EnzymeReaction
         regs = EnzymeRates.regulators(spec_kinds)
@@ -198,18 +197,17 @@
             EnzymeRates.AllostericRegulator(:A)
         @test EnzymeRates.regulator(reg_by_name[:R]) ==
             EnzymeRates.CompetitiveInhibitor(:R)
+    end
 
-        # Backward compatibility: plain regulators: maps to CompetitiveInhibitor.
-        spec_plain = @enzyme_reaction begin
+    @testset "@enzyme_reaction rejects bare `regulators:` label" begin
+        # The @enzyme_reaction grammar requires `competitive_inhibitors:`,
+        # `dead_end_inhibitors:`, or `allosteric_regulators:`. A bare
+        # `regulators:` label must be reported as unknown.
+        @test_throws Exception eval(:(@enzyme_reaction begin
             substrates: S[C]
             products: P[C]
             regulators: R1, R2
-        end
-        regs_plain = EnzymeRates.regulators(spec_plain)
-        @test all(EnzymeRates.regulator(rm) isa EnzymeRates.CompetitiveInhibitor
-                  for rm in regs_plain)
-        @test Set(EnzymeRates.name(EnzymeRates.regulator(rm)) for rm in regs_plain) ==
-            Set([:R1, :R2])
+        end))
     end
 
     @testset "@enzyme_reaction with oligomeric_state" begin
@@ -285,7 +283,7 @@
         spec = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
-            regulators: I
+            competitive_inhibitors: I
         end
         @test spec isa EnzymeReaction
 

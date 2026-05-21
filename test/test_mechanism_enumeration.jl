@@ -3372,7 +3372,7 @@ end
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            regulators: I    # :unknown role
+            competitive_inhibitors: I
             oligomeric_state: 2
         end
         init_specs = EnzymeRates.init_mechanisms(rxn)

@@ -854,7 +854,7 @@ end
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
-        regulators: R1
+        competitive_inhibitors: R1
     end
     # Add dead-end regulator R1 to the largest topology
     topos = EnzymeRates.init_mechanisms(rxn)
@@ -926,7 +926,7 @@ end
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
-        regulators: R1, R2
+        competitive_inhibitors: R1, R2
     end
     # Add dead-end regulator R1 to the largest topology
     topos = EnzymeRates.init_mechanisms(rxn)
