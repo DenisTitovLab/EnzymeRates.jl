@@ -33,6 +33,54 @@
         @test EnzymeRates.kinetic_group(m, 1) == EnzymeRates.kinetic_group(m, 2)
         @test EnzymeRates.kinetic_group(m, 3) != EnzymeRates.kinetic_group(m, 4)
 
+        # Function-call species notation: E(S) ≡ species with conformation :E
+        # and bound metabolite :S. Synthesized form name is :E_S
+        # (matching `name(::Species)` from src/types.jl).
+        m_call = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+            end
+        end
+        @test m_call isa EnzymeMechanism
+        @test Set(EnzymeRates.enzyme_forms(m_call)) == Set([:E, :E_S, :E_P])
+        @test EnzymeRates.n_steps(m_call) == 3
+
+        # Multi-bound species: E(S, P) → :E_P_S (sorted alphabetically).
+        m_multi = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+        @test m_multi isa EnzymeMechanism
+        @test :E_A_B in EnzymeRates.enzyme_forms(m_multi)
+        @test :E_P_Q in EnzymeRates.enzyme_forms(m_multi)
+
+        # Residual notation: Estar(; residual = A - P).
+        m_res = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> Estar(; residual = A - P)
+                Estar(; residual = A - P) <--> Estar(Q; residual = A - P)
+                Estar(Q; residual = A - P) <--> Estar(; residual = A - P) + Q
+                Estar(; residual = A - P) + B <--> Estar(B; residual = A - P)
+                Estar(B; residual = A - P) <--> E + P
+            end
+        end
+        @test m_res isa EnzymeMechanism
+        @test EnzymeRates.n_steps(m_res) == 6
+
         # Reject atom bracket syntax in substrates:
         @test_throws Exception eval(:(@enzyme_mechanism begin
             substrates: S[C]

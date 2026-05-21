@@ -243,26 +243,109 @@ function _build_catalytic_mults_expr(mults)
     :(Int[$(mults...)])
 end
 
-function _parse_step_side_symbols(expr)
-    if expr isa Symbol
-        # Single-symbol side: bare symbol, e.g. `ES`.
-        return Expr(:tuple, QuoteNode(expr))
-    elseif expr isa Expr && expr.head == :call &&
-           expr.args[1] == :+
-        # Multi-symbol side: `E + S` parses as Expr(:call, :+, …);
-        # `E + S + ATP` parses as a single multi-arg `+` call.
+function _parse_step_side_symbols(expr, declared_mets::Set{Symbol})
+    if expr isa Expr && expr.head == :call && expr.args[1] == :+
+        # Multi-term side: `E + S` parses as Expr(:call, :+, …);
+        # `E + S + ATP` parses as a single multi-arg `+` call. Each term is
+        # one species, lowered to a Symbol via _step_side_term_to_symbol.
         syms = Expr(:tuple)
         for a in expr.args[2:end]
-            a isa Symbol || error(
-                "Step sides must contain only symbols (no atoms or " *
-                "expressions); define atoms in the species block. Got " *
-                "$a in step side")
-            push!(syms.args, QuoteNode(a))
+            push!(syms.args, QuoteNode(_step_side_term_to_symbol(a, declared_mets)))
         end
         return syms
     end
-    error("Expected `Sym` or `Sym + Sym + …` on each side of " *
-          "<--> or ⇌; got $expr")
+    Expr(:tuple, QuoteNode(_step_side_term_to_symbol(expr, declared_mets)))
+end
+
+# Resolve one term on a step side to a Symbol.
+# - Bare Symbol → metabolite (if declared) or conformation-only species name.
+# - Function call `E(S)` / `Estar(B; residual = A - P)` → synthesized species
+#   name matching `name(::Species)` from src/types.jl.
+function _step_side_term_to_symbol(expr, declared_mets::Set{Symbol})
+    if expr isa Symbol
+        return expr
+    elseif expr isa Expr && expr.head == :call &&
+           expr.args[1] isa Symbol
+        return _synthesize_species_name(expr, declared_mets)
+    end
+    error("Expected metabolite Symbol or species expression on step side; got $expr")
+end
+
+# Build a Symbol matching `name(::Species)` from a `Conformation(...)` AST.
+# Accepts:
+#   - `E()` → conformation :E, no bound, no residual                → :E
+#   - `E(S)` / `E(S, P)` → bound metabolites (sorted by name)        → :E_S / :E_P_S
+#   - `Estar(; residual = A - P)` → residual only                    → :Estar_res_+A_-P
+#   - `Estar(B; residual = A - P)` → bound + residual                → :Estar_B_res_+A_-P
+function _synthesize_species_name(expr::Expr, declared_mets::Set{Symbol})
+    conformation = expr.args[1]::Symbol
+    conformation in declared_mets &&
+        error("@enzyme_mechanism: conformation label `$conformation` collides " *
+              "with declared metabolite `$conformation`; choose a different " *
+              "conformation label.")
+    bound_syms = Symbol[]
+    added_syms = Symbol[]
+    subtracted_syms = Symbol[]
+    for arg in expr.args[2:end]
+        if arg isa Symbol
+            arg in declared_mets ||
+                error("@enzyme_mechanism: bound metabolite `$arg` in species " *
+                      "`$expr` is not declared. Declared: " *
+                      "$(sort(collect(declared_mets))).")
+            push!(bound_syms, arg)
+        elseif arg isa Expr && arg.head === :parameters
+            for kw in arg.args
+                if kw isa Expr && kw.head === :kw && kw.args[1] === :residual
+                    _walk_residual_expr(kw.args[2], true, added_syms,
+                                        subtracted_syms, declared_mets)
+                else
+                    error("@enzyme_mechanism: unknown keyword in species " *
+                          "`$expr`: $kw. Only `residual = ...` is allowed.")
+                end
+            end
+        else
+            error("@enzyme_mechanism: invalid entry in species `$expr`: $arg")
+        end
+    end
+    parts = String[String(conformation)]
+    for s in sort(bound_syms); push!(parts, String(s)); end
+    if !(isempty(added_syms) && isempty(subtracted_syms))
+        push!(parts, "res")
+        for s in sort(added_syms);      push!(parts, "+" * String(s)); end
+        for s in sort(subtracted_syms); push!(parts, "-" * String(s)); end
+    end
+    Symbol(join(parts, "_"))
+end
+
+# Walk a residual arithmetic expression (`A`, `A - P`, `S1 + S2 - P1 - P3`, etc.)
+# and classify each metabolite Symbol as added (positive) or subtracted (negative).
+function _walk_residual_expr(e, sign_positive, added, subtracted, declared_mets)
+    if e isa Symbol
+        e in declared_mets ||
+            error("@enzyme_mechanism: residual entry `$e` is not a declared " *
+                  "metabolite. Declared: $(sort(collect(declared_mets))).")
+        sign_positive ? push!(added, e) : push!(subtracted, e)
+    elseif e isa Expr && e.head === :call
+        op = e.args[1]
+        if op === :+ && length(e.args) >= 3
+            for a in e.args[2:end]
+                _walk_residual_expr(a, sign_positive, added, subtracted,
+                                    declared_mets)
+            end
+        elseif op === :- && length(e.args) == 3
+            _walk_residual_expr(e.args[2], sign_positive, added, subtracted,
+                                declared_mets)
+            _walk_residual_expr(e.args[3], !sign_positive, added, subtracted,
+                                declared_mets)
+        elseif op === :- && length(e.args) == 2
+            _walk_residual_expr(e.args[2], !sign_positive, added, subtracted,
+                                declared_mets)
+        else
+            error("@enzyme_mechanism: invalid residual expression: $e")
+        end
+    else
+        error("@enzyme_mechanism: invalid residual expression: $e")
+    end
 end
 
 """
@@ -272,21 +355,38 @@ end
         regulators: I
 
         steps: begin
-            (E + S ⇌ ES, EP + S ⇌ EPS)    # parenthesized → shared kinetics
-            ES + I ⇌ ESI                   # dead-end
-            ES    <--> EP
-            EP    ⇌    E + P
+            E + S ⇌ E(S)                   # function-call species notation
+            (E(S) ⇌ E(P), E_alt(S) ⇌ E_alt(P))   # parenthesized → shared kinetics
+            E(S) + I ⇌ E(S, I)             # dead-end
+            E(P) ⇌ E + P
         end
     end
 
 Build a plain (non-allosteric) `EnzymeMechanism`.
-- `substrates:`, `products:`, `regulators:` accept comma-separated bare symbols.
-  Atom brackets (e.g. `S[C]`) are rejected.
-- No `enzymes:` block (forms inferred from steps).
-- No `constraints:` block — same-kinetics groups are expressed via parenthesized
-  step-groups.
-- Allosteric-only constructs (`site(...)` / `::Tag` / `allosteric_regulators:` /
-  `catalytic_inhibitors:`) are rejected.
+
+- `substrates:`, `products:`, `regulators:` accept comma-separated bare
+  symbols. Atom brackets (`S[C]`) are rejected at the mechanism level.
+- `regulators:` entries are treated as `CompetitiveInhibitor`s when later
+  passed to `EnzymeReaction`.
+- Same-kinetics groups are expressed via parenthesized step-groups; no
+  `constraints:` block needed.
+- Allosteric-only constructs (`site(...)` / `::Tag` /
+  `allosteric_regulators:` / `catalytic_inhibitors:`) are rejected.
+
+Species notation on step sides:
+
+- Bare Symbol that matches a declared metabolite → that metabolite.
+- Bare Symbol otherwise (e.g. `E`, `Estar`, `ES`) → conformation-only
+  species named after the Symbol.
+- `E(S)` / `E(S, P)` → species with conformation `:E` and bound
+  metabolites; synthesized name is `:E_<bound...>` with bound names
+  sorted alphabetically (matching `name(::Species)`).
+- `Estar(; residual = A - P)` → species with empty bound and a residual
+  recording `+A` / `−P`; synthesized name is `:Estar_res_+A_-P`.
+- `Estar(B; residual = A - P)` → bound + residual; name
+  `:Estar_B_res_+A_-P`.
+
+Conformation labels cannot shadow declared metabolite names.
 """
 macro enzyme_mechanism(block)
     _reject_allosteric_syntax!(block)
@@ -371,7 +471,9 @@ function _parse_plain_mechanism_body(block)
     isempty(prods_list) && error("products: not specified")
     steps_block === nothing && error("steps: not specified")
 
-    rxns_expr = _parse_steps_block_with_groups(steps_block)
+    declared_mets = Set{Symbol}(subs_list) ∪ Set{Symbol}(prods_list) ∪
+                    Set{Symbol}(regs_list)
+    rxns_expr = _parse_steps_block_with_groups(steps_block, declared_mets)
     mets_expr = Expr(:tuple,
         Expr(:tuple, QuoteNode.(subs_list)...),
         Expr(:tuple, QuoteNode.(prods_list)...),
@@ -414,7 +516,8 @@ With `allow_tag=false` (plain mechanism), reject any `::Tag` annotations and ret
 just the rxns tuple-Expr. With `allow_tag=true` (allosteric mechanism), collect
 tags and return both.
 """
-function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
+function _parse_steps_block_with_groups(steps_block, declared_mets::Set{Symbol};
+                                        allow_tag::Bool=false)
     next_group = Ref(0)
     rxns = Expr(:tuple)
     tags = Pair{Int, Symbol}[]
@@ -433,7 +536,7 @@ function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
             tag isa Symbol || error("Step-group tag must be a Symbol; got $tag")
             push!(tags, gnum => tag)
             for step_expr in arg.args[1].args
-                push!(rxns.args, _parse_single_step(step_expr, gnum))
+                push!(rxns.args, _parse_single_step(step_expr, gnum, declared_mets))
             end
         # Parenthesized-group-without-tag (plain)
         elseif arg isa Expr && arg.head == :tuple
@@ -444,7 +547,7 @@ function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
             next_group[] += 1
             gnum = next_group[]
             for step_expr in arg.args
-                push!(rxns.args, _parse_single_step(step_expr, gnum))
+                push!(rxns.args, _parse_single_step(step_expr, gnum, declared_mets))
             end
         # Single step (with or without tag)
         elseif arg isa Expr && arg.head == :call
@@ -462,7 +565,7 @@ function _parse_steps_block_with_groups(steps_block; allow_tag::Bool=false)
                       "`:: <:OnlyR|:EqualRT|:NonequalRT>` annotation. Add " *
                       "`:: <state>` after the step expression.")
             end
-            push!(rxns.args, _parse_single_step(arg, gnum))
+            push!(rxns.args, _parse_single_step(arg, gnum, declared_mets))
         else
             error("Expected step or step-group; got $arg")
         end
@@ -509,15 +612,15 @@ Parse a single (already-de-tagged) step `lhs ⇌ rhs` or `lhs <--> rhs`, where
 each side is either a bare Symbol or `Sym + Sym + …`. Returns the 4-tuple
 Expr `(lhs_syms, rhs_syms, is_eq, kinetic_group)`.
 """
-function _parse_single_step(expr, gnum::Int)
+function _parse_single_step(expr, gnum::Int, declared_mets::Set{Symbol})
     expr isa Expr && expr.head == :call ||
         error("Expected lhs ⇌ rhs or lhs <--> rhs; got $expr")
     op = expr.args[1]
     is_eq = op == :⇌
     is_eq || op == :(<-->) ||
         error("Expected ⇌ or <--> step operator; got $op")
-    lhs = _parse_step_side_symbols(expr.args[2])
-    rhs = _parse_step_side_symbols(expr.args[3])
+    lhs = _parse_step_side_symbols(expr.args[2], declared_mets)
+    rhs = _parse_step_side_symbols(expr.args[3], declared_mets)
     Expr(:tuple, lhs, rhs, is_eq, gnum)
 end
 
@@ -760,8 +863,11 @@ function _parse_allosteric_mechanism_body(block)
     cat_n === nothing &&
         error("@allosteric_mechanism: site(:catalytic, N): is required")
 
+    declared_mets = Set{Symbol}(subs_list) ∪ Set{Symbol}(prods_list) ∪
+                    Set{Symbol}(cat_inhibitors) ∪
+                    Set{Symbol}(name for (name, _) in allo_regs)
     rxns_expr, group_tags = _parse_steps_block_with_groups(
-        cat_steps_block; allow_tag=true,
+        cat_steps_block, declared_mets; allow_tag=true,
     )
     # Bare-step rejection now happens inside _parse_steps_block_with_groups.
 
