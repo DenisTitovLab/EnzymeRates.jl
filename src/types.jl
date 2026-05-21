@@ -128,14 +128,24 @@ Base.hash(s::RegulatorySite, h::UInt) =
 # `bound_metabolite`; iso steps carry `nothing`. Binding steps are
 # canonicalized to have the metabolite on the `from_species` side. Iso
 # steps are canonicalized by lexical species-name order.
+#
+# `source_idx` is presentation metadata only — the flat source-order
+# position used to render positional parameter names (`:K1`, `:k10f`,
+# ...). It is auto-assigned by the `Mechanism` constructor and read
+# back by `_rep_idx_for_step`. It is NOT part of Step's structural
+# identity (see `==` / `hash` below). A future refactor that moves to
+# semantic parameter names (`:K_ATP`) will drop this field; all reads
+# flow through `_rep_idx_for_step` so removal is a contained edit.
 struct Step
     from_species::Species
     to_species::Species
     bound_metabolite::Union{Metabolite,Nothing}
     is_equilibrium::Bool
+    source_idx::Int
     function Step(from_species::Species, to_species::Species,
                   bound_metabolite::Union{Metabolite,Nothing},
-                  is_equilibrium::Bool)
+                  is_equilibrium::Bool;
+                  source_idx::Int = 0)
         if bound_metabolite !== nothing
             # Canonical binding direction: metabolite is BOUND in
             # to_species (and free, i.e., not in bound(from_species)),
@@ -154,7 +164,8 @@ struct Step
                 from_species, to_species = to_species, from_species
             end
         end
-        new(from_species, to_species, bound_metabolite, is_equilibrium)
+        new(from_species, to_species, bound_metabolite, is_equilibrium,
+            source_idx)
     end
 end
 
@@ -165,6 +176,10 @@ is_equilibrium(s::Step)   = s.is_equilibrium
 is_binding(s::Step)       = s.bound_metabolite !== nothing
 is_iso(s::Step)           = s.bound_metabolite === nothing
 direction(s::Step)        = is_binding(s) ? :binding : :iso
+# source_idx is presentation metadata for parameter naming, NOT part
+# of Step's structural identity. Equality and hash IGNORE it so that
+# two Steps with the same physics but different source positions
+# compare equal — required by Mechanism dedup.
 Base.:(==)(a::Step, b::Step) =
     a.from_species == b.from_species && a.to_species == b.to_species &&
     a.bound_metabolite == b.bound_metabolite &&
@@ -318,9 +333,47 @@ end
 
 # §5.8 — Mechanism: groups elementary steps by kinetic group (outer
 # vector). All steps within a group share kinetic parameters.
+#
+# The inner constructor assigns each Step's `source_idx` so the
+# chokepoint can render today's source-order positional parameter
+# names. If ALL incoming Steps have `source_idx == 0` (the default —
+# the natural DSL / enumeration path), the constructor auto-assigns by
+# flat position across groups. If ANY incoming Step has a non-zero
+# `source_idx`, the constructor preserves it (the caller — e.g., the
+# legacy-Sig lift — knows the true source position even after
+# regrouping). Mixed mode is rejected to keep the convention
+# unambiguous.
 struct Mechanism
     reaction::EnzymeReaction
     steps::Vector{Vector{Step}}
+    function Mechanism(reaction::EnzymeReaction,
+                       steps::Vector{Vector{Step}})
+        flat = Step[s for group in steps for s in group]
+        any_set = any(s -> s.source_idx != 0, flat)
+        all_set = all(s -> s.source_idx != 0, flat)
+        any_set && !all_set &&
+            error("Mechanism: mix of set and unset source_idx values " *
+                  "in steps; pass either all zero (auto-assign) or all " *
+                  "non-zero (preserve caller's source positions)")
+        if any_set
+            new(reaction, steps)
+        else
+            pos = 0
+            renumbered = Vector{Vector{Step}}()
+            for group in steps
+                new_group = Step[]
+                for s in group
+                    pos += 1
+                    push!(new_group,
+                          Step(s.from_species, s.to_species,
+                               s.bound_metabolite, s.is_equilibrium;
+                               source_idx = pos))
+                end
+                push!(renumbered, new_group)
+            end
+            new(reaction, renumbered)
+        end
+    end
 end
 
 reaction(m::Mechanism) = m.reaction
@@ -365,8 +418,39 @@ struct AllostericMechanism
                       "$_VALID_CAT_ALLO_STATES); :OnlyT is rejected for " *
                       "catalytic groups (R-state-active convention)")
         end
-        new(reaction, cat_steps, cat_allo_states,
-            catalytic_multiplicity, regulatory_sites)
+        # Mirror the non-allosteric `Mechanism` convention: if all
+        # incoming Steps have `source_idx == 0` (the default), assign
+        # by flat position across catalytic groups in source order;
+        # otherwise preserve the caller's per-Step source positions
+        # (reject mixed-mode).
+        flat = Step[s for group in cat_steps for s in group]
+        any_set = any(s -> s.source_idx != 0, flat)
+        all_set = all(s -> s.source_idx != 0, flat)
+        any_set && !all_set &&
+            error("AllostericMechanism: mix of set and unset source_idx " *
+                  "values in cat_steps; pass either all zero (auto-" *
+                  "assign) or all non-zero (preserve caller's source " *
+                  "positions)")
+        if any_set
+            new(reaction, cat_steps, cat_allo_states,
+                catalytic_multiplicity, regulatory_sites)
+        else
+            pos = 0
+            renumbered = Vector{Vector{Step}}()
+            for group in cat_steps
+                new_group = Step[]
+                for s in group
+                    pos += 1
+                    push!(new_group,
+                          Step(s.from_species, s.to_species,
+                               s.bound_metabolite, s.is_equilibrium;
+                               source_idx = pos))
+                end
+                push!(renumbered, new_group)
+            end
+            new(reaction, renumbered, cat_allo_states,
+                catalytic_multiplicity, regulatory_sites)
+        end
     end
 end
 
@@ -436,6 +520,7 @@ _to_sig(s::Step) = (
     _to_sig(s.to_species),
     s.bound_metabolite === nothing ? nothing : _to_sig(s.bound_metabolite),
     s.is_equilibrium,
+    s.source_idx,
 )
 
 _to_sig(ra::ReactantAtoms) = (
@@ -481,9 +566,10 @@ function _species_from_sig(sig::Tuple)
 end
 
 function _step_from_sig(sig::Tuple)
-    from_sig, to_sig, met_sig, is_eq = sig
+    from_sig, to_sig, met_sig, is_eq, source_idx = sig
     met = met_sig === nothing ? nothing : _metabolite_from_sig(met_sig)
-    Step(_species_from_sig(from_sig), _species_from_sig(to_sig), met, is_eq)
+    Step(_species_from_sig(from_sig), _species_from_sig(to_sig), met, is_eq;
+         source_idx = source_idx)
 end
 
 function _reactant_atoms_from_sig(sig::Tuple)
@@ -712,9 +798,14 @@ function _mechanism_from_legacy_sig(Sig::Tuple)
         s in reg_set  ? CompetitiveInhibitor(s) :
         error("Symbol $s is not a declared metabolite or regulator")
 
+    # Walk `rxns_sig` in source order and stamp each Step's
+    # `source_idx` with its original 1-based source position before
+    # grouping. The `Mechanism` constructor preserves these
+    # explicit values so `_rep_idx_for_step` reproduces today's
+    # source-order rep-idx naming (`:K1`, `:k10f`, ...).
     groups = Dict{Int, Vector{Step}}()
     group_order = Int[]
-    for (lhs, rhs, is_eq, gnum) in rxns_sig
+    for (src_pos, (lhs, rhs, is_eq, gnum)) in enumerate(rxns_sig)
         e_lhs = first(s for s in lhs if s ∉ met_set)
         e_rhs = first(s for s in rhs if s ∉ met_set)
         m_lhs = Symbol[s for s in lhs if s ∈ met_set]
@@ -733,7 +824,7 @@ function _mechanism_from_legacy_sig(Sig::Tuple)
 
         from = Species(from_bound, e_lhs, Residual())
         to   = Species(to_bound,   e_rhs, Residual())
-        step = Step(from, to, bound_met, is_eq)
+        step = Step(from, to, bound_met, is_eq; source_idx = src_pos)
 
         if !haskey(groups, gnum)
             groups[gnum] = Step[]
@@ -1610,17 +1701,18 @@ end
 # keeps any name-scheme change a single-function edit.
 
 # Map a Step to the rep-idx used in positional parameter names. The rep
-# is the position of the group's first step in the flattened step list,
-# matching the CLAUDE.md parameter naming convention.
+# is the group's first step's `source_idx` — i.e., the lowest source
+# index among the group's steps, matching the CLAUDE.md parameter
+# naming convention ("rep step is 6, the lowest-indexed step in that
+# group"). The `Mechanism` / `AllostericMechanism` constructors
+# guarantee `source_idx` is populated by flat source-order position.
 function _rep_idx_for_step(step::Step,
                            m::Union{Mechanism, AllostericMechanism})
     groups = m isa Mechanism ? m.steps : m.cat_steps
-    pos = 0
     for group in groups
         if step in group
-            return pos + 1
+            return first(group).source_idx
         end
-        pos += length(group)
     end
     error("Step not found in mechanism: $step")
 end

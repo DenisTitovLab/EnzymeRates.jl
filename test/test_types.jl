@@ -807,7 +807,7 @@
         @test site != site_reordered
     end
 
-    @testset "Step has no source_idx field — rep_idx comes from position" begin
+    @testset "Step carries source_idx presentation metadata" begin
         e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
         e_s = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
@@ -819,8 +819,14 @@
         s3 = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
 
         @test fieldnames(EnzymeRates.Step) ==
-              (:from_species, :to_species, :bound_metabolite, :is_equilibrium)
-        @test !(:source_idx in fieldnames(EnzymeRates.Step))
+              (:from_species, :to_species, :bound_metabolite,
+               :is_equilibrium, :source_idx)
+        @test :source_idx in fieldnames(EnzymeRates.Step)
+        # Default is 0 (unset) when not supplied; the `Mechanism`
+        # constructor auto-fills by flat position.
+        @test s1.source_idx == 0
+        @test s2.source_idx == 0
+        @test s3.source_idx == 0
 
         @test EnzymeRates.from_species(s1) === e
         @test EnzymeRates.to_species(s1) === e_s
@@ -837,6 +843,19 @@
         @test EnzymeRates.direction(s2) === :iso
 
         @test EnzymeRates.is_binding(s3)
+    end
+
+    @testset "Step `==` / hash ignore source_idx" begin
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
+        s   = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        s_at_5 = EnzymeRates.Step(
+            e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 5)
+        @test s == s_at_5
+        @test hash(s) == hash(s_at_5)
+        @test s.source_idx == 0
+        @test s_at_5.source_idx == 5
     end
 
     @testset "Step canonicalizes binding direction" begin
@@ -1037,6 +1056,82 @@
         m2 = EnzymeRates.Mechanism(r, [[s_bind], [s_iso], [s_rel]])
         @test m == m2
         @test hash(m) == hash(m2)
+    end
+
+    @testset "Mechanism auto-assigns source_idx by flat position" begin
+        r = EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(
+                 EnzymeRates.Substrate(:S), [:C => 1]),
+             EnzymeRates.ReactantAtoms(
+                 EnzymeRates.Product(:P), [:C => 1])],
+            EnzymeRates.RegulatorMults[],
+            [1],
+        )
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+
+        s1 = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        s2 = EnzymeRates.Step(e_s, e_p, nothing, false)
+        s3 = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
+        @test s1.source_idx == 0
+        @test s2.source_idx == 0
+        @test s3.source_idx == 0
+
+        m = EnzymeRates.Mechanism(r, [[s1], [s2], [s3]])
+        @test m.steps[1][1].source_idx == 1
+        @test m.steps[2][1].source_idx == 2
+        @test m.steps[3][1].source_idx == 3
+    end
+
+    @testset "Mechanism preserves explicit caller source_idx" begin
+        # Legacy lift sets source_idx explicitly based on the original
+        # source position (before grouping). The Mechanism ctor must
+        # preserve these so `_rep_idx_for_step` reproduces today's
+        # source-order rep-idx naming for mechanisms whose group
+        # members are non-contiguous in source order.
+        r = EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(
+                 EnzymeRates.Substrate(:S), [:C => 1]),
+             EnzymeRates.ReactantAtoms(
+                 EnzymeRates.Product(:P), [:C => 1])],
+            EnzymeRates.RegulatorMults[],
+            [1],
+        )
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+
+        s1 = EnzymeRates.Step(
+            e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 1)
+        s2 = EnzymeRates.Step(
+            e_s, e_p, nothing, false; source_idx = 7)
+        s3 = EnzymeRates.Step(
+            e, e_p, EnzymeRates.Product(:P), true; source_idx = 3)
+        m = EnzymeRates.Mechanism(r, [[s1], [s2], [s3]])
+        @test m.steps[1][1].source_idx == 1
+        @test m.steps[2][1].source_idx == 7
+        @test m.steps[3][1].source_idx == 3
+    end
+
+    @testset "Mechanism rejects mixed set / unset source_idx" begin
+        r = EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(
+                 EnzymeRates.Substrate(:S), [:C => 1]),
+             EnzymeRates.ReactantAtoms(
+                 EnzymeRates.Product(:P), [:C => 1])],
+            EnzymeRates.RegulatorMults[],
+            [1],
+        )
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+
+        s_set   = EnzymeRates.Step(
+            e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 1)
+        s_unset = EnzymeRates.Step(e_s, e_p, nothing, false)
+        @test_throws ErrorException EnzymeRates.Mechanism(
+            r, [[s_set], [s_unset]])
     end
 
     @testset "AllostericMechanism (non-parametric)" begin
