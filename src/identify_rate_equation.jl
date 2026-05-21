@@ -12,13 +12,13 @@ Holds the reaction, experimental data, and equilibrium
 constant for rate equation identification.
 
 # Fields
-- `reaction`: the `EnzymeReaction` instance
+- `reaction`: the `EnzymeReactionLegacy` instance
 - `data`: `NamedTuple` of column vectors with `:group`,
   `:Rate`, and metabolite columns
 - `Keq`: fixed equilibrium constant
 """
 struct IdentifyRateEquationProblem{
-    R<:EnzymeReaction, D<:NamedTuple
+    R<:EnzymeReactionLegacy, D<:NamedTuple
 }
     reaction::R
     data::D
@@ -26,7 +26,7 @@ struct IdentifyRateEquationProblem{
 end
 
 function IdentifyRateEquationProblem(
-    reaction::EnzymeReaction, table; Keq::Real
+    reaction::EnzymeReactionLegacy, table; Keq::Real
 )
     data = Tables.columntable(table)
     col_names = keys(data)

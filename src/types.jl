@@ -258,13 +258,142 @@ Base.hash(r::RegulatorMults, h::UInt) =
     hash(r.allowed_multiplicities,
          hash(r.regulator, hash(:RegulatorMults, h)))
 
+# §5.7 — EnzymeReaction: the public concrete reaction descriptor. Holds
+# reactants (substrate + product atom payload), regulators (with allowed
+# multiplicity sets), and the catalytic multiplicities the enumerator is
+# allowed to consider. Canonical ordering is enforced so two equivalent
+# constructions compare equal under `==` / `hash`.
+struct EnzymeReaction
+    reactants::Vector{ReactantAtoms}
+    regulators::Vector{RegulatorMults}
+    allowed_catalytic_multiplicities::Vector{Int}
+
+    function EnzymeReaction(reactants::Vector{ReactantAtoms},
+                            regulators::Vector{RegulatorMults},
+                            allowed_catalytic_multiplicities::Vector{Int})
+        sorted_reactants = sort(reactants; by = ra -> name(metabolite(ra)))
+        sorted_regulators = sort(regulators; by = rm -> name(regulator(rm)))
+        sorted_mults = sort(unique(allowed_catalytic_multiplicities))
+        all(m -> m ≥ 1, sorted_mults) ||
+            error("EnzymeReaction: allowed_catalytic_multiplicities must " *
+                  "all be ≥ 1, got $allowed_catalytic_multiplicities")
+        new(sorted_reactants, sorted_regulators, sorted_mults)
+    end
+end
+
+reactants(r::EnzymeReaction) = r.reactants
+regulators(r::EnzymeReaction) = r.regulators
+allowed_catalytic_multiplicities(r::EnzymeReaction) =
+    r.allowed_catalytic_multiplicities
+substrates(r::EnzymeReaction) =
+    Substrate[metabolite(ra) for ra in r.reactants if metabolite(ra) isa Substrate]
+products(r::EnzymeReaction) =
+    Product[metabolite(ra) for ra in r.reactants if metabolite(ra) isa Product]
+
+Base.:(==)(a::EnzymeReaction, b::EnzymeReaction) =
+    a.reactants == b.reactants && a.regulators == b.regulators &&
+    a.allowed_catalytic_multiplicities == b.allowed_catalytic_multiplicities
+Base.hash(r::EnzymeReaction, h::UInt) =
+    hash(r.allowed_catalytic_multiplicities,
+         hash(r.regulators,
+              hash(r.reactants, hash(:EnzymeReaction, h))))
+
+# §5.8 — Mechanism: groups elementary steps by kinetic group (outer
+# vector). All steps within a group share kinetic parameters.
+struct Mechanism
+    reaction::EnzymeReaction
+    steps::Vector{Vector{Step}}
+end
+
+reaction(m::Mechanism) = m.reaction
+steps(m::Mechanism) = m.steps
+kinetic_groups(m::Mechanism) = 1:length(m.steps)
+n_steps(m::Mechanism) = sum(length, m.steps; init = 0)
+rep_step(m::Mechanism, g::Int) = first(m.steps[g])
+
+Base.:(==)(a::Mechanism, b::Mechanism) =
+    a.reaction == b.reaction && a.steps == b.steps
+Base.hash(m::Mechanism, h::UInt) =
+    hash(m.steps, hash(m.reaction, hash(:Mechanism, h)))
+
+# §5.8 — AllostericMechanism: a multi-subunit MWC enzyme. Each catalytic
+# kinetic group carries an allosteric-state tag (`:OnlyR`, `:EqualRT`, or
+# `:NonequalRT` — `:OnlyT` is rejected by the R-state-active convention).
+const _VALID_CAT_ALLO_STATES = (:OnlyR, :EqualRT, :NonequalRT)
+
+struct AllostericMechanism
+    reaction::EnzymeReaction
+    cat_steps::Vector{Vector{Step}}
+    cat_allo_states::Vector{Symbol}
+    catalytic_multiplicity::Int
+    regulatory_sites::Vector{RegulatorySite}
+
+    function AllostericMechanism(reaction::EnzymeReaction,
+                                 cat_steps::Vector{Vector{Step}},
+                                 cat_allo_states::Vector{Symbol},
+                                 catalytic_multiplicity::Int,
+                                 regulatory_sites::Vector{RegulatorySite})
+        length(cat_allo_states) == length(cat_steps) ||
+            error("AllostericMechanism: cat_allo_states length " *
+                  "$(length(cat_allo_states)) must match cat_steps length " *
+                  "$(length(cat_steps))")
+        catalytic_multiplicity ≥ 1 ||
+            error("AllostericMechanism: catalytic_multiplicity must be ≥ 1, " *
+                  "got $catalytic_multiplicity")
+        for (g, tag) in enumerate(cat_allo_states)
+            tag in _VALID_CAT_ALLO_STATES ||
+                error("AllostericMechanism: catalytic group $g has invalid " *
+                      "allo state $tag (must be one of " *
+                      "$_VALID_CAT_ALLO_STATES); :OnlyT is rejected for " *
+                      "catalytic groups (R-state-active convention)")
+        end
+        new(reaction, cat_steps, cat_allo_states,
+            catalytic_multiplicity, regulatory_sites)
+    end
+end
+
+reaction(m::AllostericMechanism) = m.reaction
+steps(m::AllostericMechanism) = m.cat_steps
+cat_allo_state(m::AllostericMechanism, g::Int) = m.cat_allo_states[g]
+catalytic_multiplicity(m::AllostericMechanism) = m.catalytic_multiplicity
+regulatory_sites(m::AllostericMechanism) = m.regulatory_sites
+kinetic_groups(m::AllostericMechanism) = 1:length(m.cat_steps)
+n_steps(m::AllostericMechanism) = sum(length, m.cat_steps; init = 0)
+rep_step(m::AllostericMechanism, g::Int) = first(m.cat_steps[g])
+
+function allosteric_regulators(m::AllostericMechanism)
+    seen = AllostericRegulator[]
+    for site in m.regulatory_sites, lig in site.ligands
+        lig in seen || push!(seen, lig)
+    end
+    seen
+end
+
+function competitive_inhibitors(m::AllostericMechanism)
+    CompetitiveInhibitor[regulator(rm) for rm in m.reaction.regulators
+                         if regulator(rm) isa CompetitiveInhibitor]
+end
+
+Base.:(==)(a::AllostericMechanism, b::AllostericMechanism) =
+    a.reaction == b.reaction && a.cat_steps == b.cat_steps &&
+    a.cat_allo_states == b.cat_allo_states &&
+    a.catalytic_multiplicity == b.catalytic_multiplicity &&
+    a.regulatory_sites == b.regulatory_sites
+Base.hash(m::AllostericMechanism, h::UInt) =
+    hash(m.regulatory_sites,
+         hash(m.catalytic_multiplicity,
+              hash(m.cat_allo_states,
+                   hash(m.cat_steps,
+                        hash(m.reaction,
+                             hash(:AllostericMechanism, h))))))
+
 # ─── Parametric mechanism types ───────────────────────────────────────
 
 """Sort species tuples alphabetically by name (first element)."""
 _sort_species(t::Tuple) = Tuple(sort(collect(t); by=s -> s[1]))
 
 """
-    EnzymeReaction{Substrates, Products, Regulators, OligomericState}
+    EnzymeReactionLegacy{Substrates, Products, Regulators, OligomericState}
 
 Singleton type encoding an enzyme reaction specification in type parameters.
 
@@ -272,7 +401,7 @@ Singleton type encoding an enzyme reaction specification in type parameters.
 - `Regulators`: tuple of `Symbol` (plain names, no atoms).
 - `OligomericState`: number of subunits (Int, default 1).
 """
-struct EnzymeReaction{Substrates, Products, Regulators, OligomericState} end
+struct EnzymeReactionLegacy{Substrates, Products, Regulators, OligomericState} end
 
 """Sum element counts across a tuple of `(name, atoms)` pairs.
 Returns a Dict{Symbol,Int}. Errors if any species's atoms tuple
@@ -282,14 +411,14 @@ function _sum_atoms(species::Tuple, side::String)
     totals = Dict{Symbol,Int}()
     for (name, atoms) in species
         isempty(atoms) && error(
-            "EnzymeReaction: $side metabolite $name has no declared " *
+            "EnzymeReactionLegacy: $side metabolite $name has no declared " *
             "atoms; atoms are mandatory (use `[C…]` bracket syntax in " *
             "@enzyme_reaction or pass non-empty atom tuples to the " *
             "constructor).")
         for (elem, count) in atoms
             count isa Integer && !(count isa Bool) && count > 0 ||
                 error(
-                "EnzymeReaction: $side metabolite $name has " *
+                "EnzymeReactionLegacy: $side metabolite $name has " *
                 "non-positive atom count for element $elem ($count); " *
                 "atom counts must be positive integers (not Bool).")
             totals[elem] = get(totals, elem, 0) + count
@@ -298,7 +427,7 @@ function _sum_atoms(species::Tuple, side::String)
     totals
 end
 
-function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_state::Int=1)
+function EnzymeReactionLegacy(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_state::Int=1)
     isempty(subs) && error("Substrates must not be empty")
     isempty(prods) && error("Products must not be empty")
     subs_names = [s[1] for s in subs]
@@ -314,7 +443,7 @@ function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_st
         s_count = get(sub_atoms, elem, 0)
         p_count = get(prod_atoms, elem, 0)
         s_count == p_count || error(
-            "EnzymeReaction: atom imbalance — element $elem appears " *
+            "EnzymeReactionLegacy: atom imbalance — element $elem appears " *
             "$s_count time(s) on substrate side and $p_count time(s) " *
             "on product side. Declared atoms must balance.")
     end
@@ -336,7 +465,7 @@ function EnzymeReaction(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_st
     subs = _sort_species(subs)
     prods = _sort_species(prods)
     sorted_regs = Tuple(sort(collect(normalized_regs); by=first))
-    EnzymeReaction{subs, prods, sorted_regs, oligomeric_state}()
+    EnzymeReactionLegacy{subs, prods, sorted_regs, oligomeric_state}()
 end
 
 abstract type AbstractEnzymeMechanism end
@@ -648,7 +777,7 @@ const Reduced = ReducedMode()
 
 # --- Pretty printing ---
 
-function Base.show(io::IO, ::EnzymeReaction{S,P,R,N}) where {S,P,R,N}
+function Base.show(io::IO, ::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N}
     subs_str = join([string(name) for (name, _) in S], " + ")
     prods_str = join([string(name) for (name, _) in P], " + ")
     print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
@@ -784,22 +913,22 @@ end
 
 """Return substrates as a tuple of `Symbol` names."""
 substrates(::EnzymeMechanism{M}) where {M} = M[1]
-substrates(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = S
+substrates(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = S
 
 """Return products as a tuple of `Symbol` names."""
 products(::EnzymeMechanism{M}) where {M} = M[2]
-products(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = P
+products(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = P
 
 """Return regulators as a tuple of `Symbol` names."""
 regulators(::EnzymeMechanism{M}) where {M} = M[3]
-regulators(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} =
+regulators(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} =
     Tuple(r[1] for r in R)
 
 """Return regulator (name, role) pairs."""
-regulator_roles(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = R
+regulator_roles(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = R
 
 """Return oligomeric state (number of subunits)."""
-oligomeric_state(::EnzymeReaction{S,P,R,N}) where {S,P,R,N} = N
+oligomeric_state(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = N
 
 """
     metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}

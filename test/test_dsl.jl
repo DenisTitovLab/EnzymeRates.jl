@@ -134,7 +134,7 @@
             substrates: S[C]
             products:   P[C]
         end
-        @test spec isa EnzymeReaction
+        @test spec isa EnzymeReactionLegacy
         @test EnzymeRates.substrates(spec) == ((:S, ((:C, 1),)),)
         @test EnzymeRates.products(spec) == ((:P, ((:C, 1),)),)
         @test EnzymeRates.regulators(spec) == ()
@@ -171,7 +171,7 @@
             allosteric_regulators: A
             regulators: R
         end
-        @test spec_roles isa EnzymeReaction
+        @test spec_roles isa EnzymeReactionLegacy
         @test Set(EnzymeRates.regulators(spec_roles)) == Set([:I, :A, :R])
         roles = EnzymeRates.regulator_roles(spec_roles)
         @test length(roles) == 3
@@ -258,7 +258,7 @@
             products:   P[C]
             regulators: I
         end
-        @test spec isa EnzymeReaction
+        @test spec isa EnzymeReactionLegacy
 
         # Dead-end inhibitor: valid mechanism (competitive inhibition)
         m = @enzyme_mechanism begin

@@ -1,5 +1,6 @@
 using Test
 using EnzymeRates
+using EnzymeRates: EnzymeReactionLegacy
 using LinearAlgebra
 using Random
 

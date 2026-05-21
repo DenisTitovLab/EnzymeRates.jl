@@ -162,7 +162,7 @@ end
 
 """Extract atom counts as Dict{Symbol,Int} for a metabolite."""
 function _atoms_dict(
-    @nospecialize(reaction::EnzymeReaction),
+    @nospecialize(reaction::EnzymeReactionLegacy),
     met::Symbol,
 )
     result = Dict{Symbol,Int}()
@@ -315,7 +315,7 @@ Each topology is a set of steps forming one or more complete
 catalytic cycles (E -> ... -> E).
 """
 function _catalytic_topologies(
-    @nospecialize(reaction::EnzymeReaction),
+    @nospecialize(reaction::EnzymeReactionLegacy),
 )
     subs = substrates(reaction)
     prods = products(reaction)
@@ -891,7 +891,7 @@ all substrates for all products.
 """
 function _bound_metabolites_at_forms(
     spec::MechanismSpec,
-    @nospecialize(reaction::EnzymeReaction),
+    @nospecialize(reaction::EnzymeReactionLegacy),
 )
     # Collect all metabolite names (including
     # suffixed regulator dummies)
@@ -1132,7 +1132,7 @@ doesn't normally bind, subject to:
 """
 function _expand_substrate_product_dead_ends(
     specs::Vector{MechanismSpec},
-    @nospecialize(reaction::EnzymeReaction),
+    @nospecialize(reaction::EnzymeReactionLegacy),
 )
     sub_names = Set(s[1] for s in substrates(reaction))
     prod_names = Set(p[1] for p in products(reaction))
@@ -1388,7 +1388,7 @@ sharing the same `(metabolite, RE/SS)` class collapse into one
 group; iso steps and uncollapsable bindings stay singletons.
 """
 function init_mechanisms(
-    @nospecialize(reaction::EnzymeReaction),
+    @nospecialize(reaction::EnzymeReactionLegacy),
 )
     topos = _catalytic_topologies(reaction)
     expanded = _expand_substrate_product_dead_ends(
@@ -1652,7 +1652,7 @@ Each variant adds +1 to `n_fit_params_estimate`.
 """
 function _expand_add_dead_end_regulator(
     spec::AbstractMechanismSpec,
-    @nospecialize(reaction::EnzymeReaction);
+    @nospecialize(reaction::EnzymeReactionLegacy);
     exclude_regs::Set{Symbol}=Set{Symbol}(),
 )
     roles = regulator_roles(reaction)
@@ -1850,7 +1850,7 @@ all-`:EqualRT` baseline.
 """
 function _expand_to_allosteric(
     spec::MechanismSpec,
-    @nospecialize(reaction::EnzymeReaction),
+    @nospecialize(reaction::EnzymeReactionLegacy),
 )
     cn = oligomeric_state(reaction)
     base_pc = spec.n_fit_params_estimate
@@ -1887,7 +1887,7 @@ function _expand_to_allosteric(
 end
 
 _expand_to_allosteric(
-    ::AllostericMechanismSpec, @nospecialize(::EnzymeReaction),
+    ::AllostericMechanismSpec, @nospecialize(::EnzymeReactionLegacy),
 ) = AllostericMechanismSpec[]
 
 """
@@ -1941,7 +1941,7 @@ ligand × site option × tag flavor, emit a variant. Each variant adds
 """
 function _expand_add_allosteric_regulator(
     spec::AllostericMechanismSpec,
-    @nospecialize(reaction::EnzymeReaction),
+    @nospecialize(reaction::EnzymeReactionLegacy),
 )
     existing_allo = Set{Symbol}()
     for site in spec.allosteric_reg_sites
@@ -2026,7 +2026,7 @@ function _expand_add_allosteric_regulator(
 end
 
 _expand_add_allosteric_regulator(
-    ::MechanismSpec, @nospecialize(::EnzymeReaction),
+    ::MechanismSpec, @nospecialize(::EnzymeReactionLegacy),
 ) = AllostericMechanismSpec[]
 
 """
@@ -2044,7 +2044,7 @@ is forbidden by the constructor — but the move only goes to
 """
 function _expand_change_allo_state(
     spec::AllostericMechanismSpec,
-    @nospecialize(reaction::EnzymeReaction),
+    @nospecialize(reaction::EnzymeReactionLegacy),
 )
     base_steps = spec.base.steps
     group_info = _group_info(base_steps)
@@ -2086,7 +2086,7 @@ function _expand_change_allo_state(
 end
 
 _expand_change_allo_state(
-    ::MechanismSpec, @nospecialize(::EnzymeReaction),
+    ::MechanismSpec, @nospecialize(::EnzymeReactionLegacy),
 ) = AllostericMechanismSpec[]
 
 """
@@ -2138,7 +2138,7 @@ by target n_fit_params_estimate.
 """
 function expand_mechanisms(
     specs::Vector{<:AbstractMechanismSpec},
-    @nospecialize(reaction::EnzymeReaction))
+    @nospecialize(reaction::EnzymeReactionLegacy))
     result = Dict{Int, Vector{AbstractMechanismSpec}}()
     for spec in specs
         _add_expansions!(result, spec, reaction)
@@ -2149,7 +2149,7 @@ end
 function _add_expansions!(
     result::Dict{Int, Vector{AbstractMechanismSpec}},
     spec::AbstractMechanismSpec,
-    @nospecialize(reaction::EnzymeReaction))
+    @nospecialize(reaction::EnzymeReactionLegacy))
     for s in _expand_re_to_ss(spec)
         _push_to_dict!(result, s)
     end

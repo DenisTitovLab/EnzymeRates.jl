@@ -5,7 +5,7 @@ using EnzymeRates: StepSpec, MechanismSpec, AllostericMechanismSpec,
     AbstractMechanismSpec
 
 """
-    mechanism_spec_from_mechanism_and_rxn(m::EnzymeMechanism, rxn::EnzymeReaction)
+    mechanism_spec_from_mechanism_and_rxn(m::EnzymeMechanism, rxn::EnzymeReactionLegacy)
         → MechanismSpec
 
 Build a `MechanismSpec` from a compiled `EnzymeMechanism` and a
@@ -26,7 +26,7 @@ message identifying the disagreement.
 """
 function mechanism_spec_from_mechanism_and_rxn(
     m::EnzymeMechanism,
-    @nospecialize(rxn::EnzymeReaction))
+    @nospecialize(rxn::EnzymeReactionLegacy))
     m_subs = Set(EnzymeRates.substrates(m))
     rxn_subs = Set(s[1] for s in EnzymeRates.substrates(rxn))
     m_subs == rxn_subs ||
@@ -56,7 +56,7 @@ end
 
 """
     allosteric_spec_from_mechanism_and_rxn(m::AllostericEnzymeMechanism,
-                                           rxn::EnzymeReaction)
+                                           rxn::EnzymeReactionLegacy)
         → AllostericMechanismSpec
 
 Build an `AllostericMechanismSpec` from a compiled
@@ -83,7 +83,7 @@ message identifying the disagreement.
 """
 function allosteric_spec_from_mechanism_and_rxn(
     m::AllostericEnzymeMechanism,
-    @nospecialize(rxn::EnzymeReaction))
+    @nospecialize(rxn::EnzymeReactionLegacy))
     cm = EnzymeRates.catalytic_mechanism(m)
     m_subs = Set(EnzymeRates.substrates(m))
     rxn_subs = Set(s[1] for s in EnzymeRates.substrates(rxn))
@@ -454,7 +454,7 @@ end
 
 """Collect all mechanisms by running the full enumeration loop."""
 function enumerate_all(
-    @nospecialize(reaction::EnzymeReaction);
+    @nospecialize(reaction::EnzymeReactionLegacy);
     max_params::Int=20)
     cache = Dict{Int, Vector{EnzymeRates.AbstractMechanismSpec}}()
 

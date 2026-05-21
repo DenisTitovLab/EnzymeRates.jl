@@ -140,8 +140,8 @@ end
     #                              -> init_mechanisms(r_ter)  [@elapsed measured]
     #
     # If uni-uni warmup shares most specializations with ter-ter, t_warm
-    # should be substantially less than t_cold. Today's main has parametric
-    # EnzymeReaction{S,P,R,N} so per-arity specialization is unavoidable;
+    # should be substantially less than t_cold. The parametric
+    # EnzymeReactionLegacy{S,P,R,N} forces per-arity specialization;
     # the gate exists to catch a refactor commit that introduces NEW per-
     # arity specialization beyond today's baseline.
     #

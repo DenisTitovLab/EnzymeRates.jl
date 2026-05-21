@@ -90,7 +90,7 @@ end
         oligomeric_state: 4
     end
 
-Create an `EnzymeReaction` from a DSL block. Every substrate and product
+Create an `EnzymeReactionLegacy` from a DSL block. Every substrate and product
 must declare atoms using chemical formula bracket syntax: `S[C6H12O6]`.
 Element totals must balance between substrates and products. Regulators
 are plain symbol names (no atoms). `oligomeric_state` is an optional
@@ -125,7 +125,7 @@ macro enzyme_reaction(block)
         end
     end
     oligo = haskey(parsed, :oligomeric_state) ? parsed[:oligomeric_state] : 1
-    return esc(:(EnzymeReaction($subs, $prods, $regs; oligomeric_state=$oligo)))
+    return esc(:(EnzymeRates.EnzymeReactionLegacy($subs, $prods, $regs; oligomeric_state=$oligo)))
 end
 
 """Convert a parsed species tuple for regulators into a plain Symbol tuple.
