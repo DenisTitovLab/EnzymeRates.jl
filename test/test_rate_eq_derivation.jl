@@ -13,10 +13,11 @@ Independent reference: compute QSSA rate using Laplacian cofactor method.
 Works directly with EnzymeMechanism type parameters.
 """
 function reference_qssa(
-    m::EnzymeMechanism{Mets, Reactions},
+    m::EnzymeMechanism{Sig},
     params::NamedTuple,
     concs::NamedTuple,
-) where {Mets, Reactions}
+) where {Sig}
+    _, Reactions = Sig
     enz_names = EnzymeRates.enzyme_forms(m)
     n = length(enz_names)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
@@ -310,9 +311,10 @@ end
 # ── ODE steady-state helpers ────────────────────────────────────────────────
 
 function build_ode_rhs(
-    m::EnzymeMechanism{Mets, Reactions},
+    m::EnzymeMechanism{Sig},
     params, concs,
-) where {Mets, Reactions}
+) where {Sig}
+    _, Reactions = Sig
     enz_names = EnzymeRates.enzyme_forms(m)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
     enz_set = Set(enz_names)
@@ -349,9 +351,10 @@ function build_ode_rhs(
 end
 
 function ode_steady_state_flux(
-    m::EnzymeMechanism{Mets, Reactions},
+    m::EnzymeMechanism{Sig},
     params, concs,
-) where {Mets, Reactions}
+) where {Sig}
+    _, Reactions = Sig
     E_total = params.E_total
     enz_names = EnzymeRates.enzyme_forms(m)
     n = length(enz_names)

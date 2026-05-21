@@ -471,9 +471,10 @@ end
 abstract type AbstractEnzymeMechanism end
 
 """
-    EnzymeMechanism{Metabolites, Reactions}
+    EnzymeMechanism{Sig}
 
-Singleton type encoding an enzyme mechanism.
+Singleton type encoding an enzyme mechanism. `Sig` is a 2-tuple
+`(Metabolites, Reactions)` where:
 
 - `Metabolites`: 3-tuple `(substrates::Tuple{Symbol,...}, products::Tuple{Symbol,...},
   regulators::Tuple{Symbol,...})`. Plain symbol names — no atom content stored.
@@ -481,7 +482,7 @@ Singleton type encoding an enzyme mechanism.
   kinetic_group::Int)`. Steps with identical `kinetic_group` share kinetic
   parameters (one `K` for RE groups, one `k_f` and one `k_r` for SS groups).
 """
-struct EnzymeMechanism{Metabolites, Reactions} <: AbstractEnzymeMechanism end
+struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 
 """
     EnzymeMechanism(metabolites, reactions) → EnzymeMechanism
@@ -564,7 +565,7 @@ function EnzymeMechanism(
     _validate_kinetic_groups(rxns, met_set)
 
     # Build the singleton type and run remaining checks via accessors
-    m = EnzymeMechanism{mets, rxns}()
+    m = EnzymeMechanism{(mets, rxns)}()
 
     # Enzyme-form graph weakly connected
     _validate_enzyme_connectivity(m)
@@ -789,8 +790,9 @@ function Base.show(io::IO, ::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N}
 end
 
 function Base.show(
-    io::IO, m::EnzymeMechanism{Mets, Rxns},
-) where {Mets, Rxns}
+    io::IO, m::EnzymeMechanism{Sig},
+) where {Sig}
+    Mets, Rxns = Sig
     _, _, regs = Mets
     enz_set = Set(enzyme_forms(m))
     _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
@@ -912,15 +914,15 @@ end
 # ─── Accessors ─────────────────────────────────────────────────
 
 """Return substrates as a tuple of `Symbol` names."""
-substrates(::EnzymeMechanism{M}) where {M} = M[1]
+substrates(::EnzymeMechanism{Sig}) where {Sig} = Sig[1][1]
 substrates(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = S
 
 """Return products as a tuple of `Symbol` names."""
-products(::EnzymeMechanism{M}) where {M} = M[2]
+products(::EnzymeMechanism{Sig}) where {Sig} = Sig[1][2]
 products(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = P
 
 """Return regulators as a tuple of `Symbol` names."""
-regulators(::EnzymeMechanism{M}) where {M} = M[3]
+regulators(::EnzymeMechanism{Sig}) where {Sig} = Sig[1][3]
 regulators(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} =
     Tuple(r[1] for r in R)
 
@@ -936,7 +938,8 @@ oligomeric_state(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = N
 Return distinct metabolite names (substrates ∪ products ∪ regulators) as a tuple
 of `Symbol`s in declaration order, deduplicated.
 """
-@generated function metabolites(::EnzymeMechanism{M}) where {M}
+@generated function metabolites(::EnzymeMechanism{Sig}) where {Sig}
+    M = Sig[1]
     seen = Set{Symbol}()
     names = Symbol[]
     for group in M
@@ -951,28 +954,31 @@ of `Symbol`s in declaration order, deduplicated.
 end
 
 """Return the reactions tuple `((lhs, rhs, is_eq, kinetic_group), ...)`."""
-reactions(::EnzymeMechanism{M, R}) where {M, R} = R
+reactions(::EnzymeMechanism{Sig}) where {Sig} = Sig[2]
 
 """Return the equilibrium-step flags (`true` = rapid-equilibrium, `false` = steady-state)."""
-@generated function equilibrium_steps(::EnzymeMechanism{M, R}) where {M, R}
+@generated function equilibrium_steps(::EnzymeMechanism{Sig}) where {Sig}
+    R = Sig[2]
     Tuple(step[3] for step in R)
 end
 
 """Number of steps in the mechanism."""
-n_steps(::EnzymeMechanism{M, R}) where {M, R} = length(R)
+n_steps(::EnzymeMechanism{Sig}) where {Sig} = length(Sig[2])
 
 """Kinetic group of step `idx`."""
-kinetic_group(::EnzymeMechanism{M, R}, idx::Int) where {M, R} = R[idx][4]
+kinetic_group(::EnzymeMechanism{Sig}, idx::Int) where {Sig} = Sig[2][idx][4]
 
 """Sorted tuple of distinct kinetic group ids."""
-@generated function kinetic_groups(::EnzymeMechanism{M, R}) where {M, R}
+@generated function kinetic_groups(::EnzymeMechanism{Sig}) where {Sig}
+    R = Sig[2]
     Tuple(sort(unique(step[4] for step in R)))
 end
 
 """Indices of steps belonging to kinetic group `G`."""
 @generated function steps_in_group(
-    ::EnzymeMechanism{M, R}, ::Val{G},
-) where {M, R, G}
+    ::EnzymeMechanism{Sig}, ::Val{G},
+) where {Sig, G}
+    R = Sig[2]
     Tuple(i for (i, step) in enumerate(R) if step[4] == G)
 end
 steps_in_group(m::EnzymeMechanism, g::Int) = steps_in_group(m, Val(g))
@@ -983,7 +989,8 @@ steps_in_group(m::EnzymeMechanism, g::Int) = steps_in_group(m, Val(g))
 Return distinct enzyme-form names (any symbol appearing in a step that is not a
 metabolite) as a tuple of `Symbol`s in step-order, deduplicated.
 """
-@generated function enzyme_forms(::EnzymeMechanism{M, R}) where {M, R}
+@generated function enzyme_forms(::EnzymeMechanism{Sig}) where {Sig}
+    M, R = Sig
     met_names = Set{Symbol}()
     for group in M; for name in group; push!(met_names, name); end; end
     seen = Set{Symbol}()
@@ -1009,7 +1016,8 @@ Positive = produced; negative = consumed in the forward direction.
 Enzyme-row columns sum to zero by construction (each step has one
 enzyme on each side).
 """
-@generated function stoich_matrix(::EnzymeMechanism{M, R}) where {M, R}
+@generated function stoich_matrix(::EnzymeMechanism{Sig}) where {Sig}
+    M, R = Sig
     met_names_set = Set{Symbol}()
     for group in M; for name in group; push!(met_names_set, name); end; end
 

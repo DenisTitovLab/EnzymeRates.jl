@@ -6,7 +6,7 @@
             ((:ES,),   (:EP,), false, 2),
             ((:EP,),   (:E, :P), true, 3),
         )
-        m = EnzymeRates.EnzymeMechanism{mets, rxns}()
+        m = EnzymeRates.EnzymeMechanism{(mets, rxns)}()
 
         @test EnzymeRates.substrates(m) == (:S,)
         @test EnzymeRates.products(m) == (:P,)
@@ -30,10 +30,31 @@
             ((:ESS,),   (:EP,),  false, 2),
             ((:EP,),    (:E, :P), true, 3),
         )
-        m2 = EnzymeRates.EnzymeMechanism{mets, rxns_shared}()
+        m2 = EnzymeRates.EnzymeMechanism{(mets, rxns_shared)}()
         @test EnzymeRates.kinetic_group(m2, 1) == 1
         @test EnzymeRates.kinetic_group(m2, 2) == 1
         @test EnzymeRates.steps_in_group(m2, 1) == (1, 2)
+    end
+
+    @testset "EnzymeMechanism Sig repack" begin
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+            end
+        end
+
+        @test m isa EnzymeRates.EnzymeMechanism
+        Sig = typeof(m).parameters[1]
+        @test Sig isa Tuple
+        @test length(Sig) == 2
+
+        @test EnzymeRates.substrates(m) == (:S,)
+        @test EnzymeRates.products(m)   == (:P,)
+        @test EnzymeRates.n_steps(m)    == 3
     end
 
     @testset "stoich_matrix has expected enzyme/metabolite rows" begin
@@ -43,7 +64,7 @@
             ((:ES,),   (:EP,), false, 2),
             ((:EP,),   (:E, :P), true, 3),
         )
-        m = EnzymeRates.EnzymeMechanism{mets, rxns}()
+        m = EnzymeRates.EnzymeMechanism{(mets, rxns)}()
         S = EnzymeRates.stoich_matrix(m)
 
         enz_idx = EnzymeRates.enzyme_row_range(m)
@@ -501,7 +522,7 @@
             ((:ES,),    (:EP,),    false, 3),
             ((:E, :P),  (:EP,),    true,  1),
         )
-        cm_bad = EnzymeRates.EnzymeMechanism{bad_mets, bad_rxns}()
+        cm_bad = EnzymeRates.EnzymeMechanism{(bad_mets, bad_rxns)}()
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
             cm_bad, (2, (:NonequalRT, :NonequalRT)), ())
     end
