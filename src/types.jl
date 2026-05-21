@@ -684,6 +684,10 @@ Constructor validates:
 - No catalytic group has `:OnlyT` state.
 - At least one ligand at each reg site is non-`:EqualRT`.
 """
+# The three type parameters cannot be folded into a single value-tuple `Sig`
+# (as EnzymeMechanism{Sig} does): the first slot is a DataType (an
+# EnzymeMechanism subtype), and Julia rejects DataTypes inside the
+# value-tuple position of a type parameter.
 struct AllostericEnzymeMechanism{
     CatalyticMech, CatSites, RegSites,
 } <: AbstractEnzymeMechanism end
