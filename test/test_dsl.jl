@@ -92,16 +92,17 @@
             end
         end))
 
-        # Reject allosteric-only syntax (site(:catalytic, N))
+        # Reject allosteric-only syntax (regulatory_site(...))
         @test_throws Exception eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + S ⇌ ES
-                    ES <--> EP
-                    EP ⇌ E + P
-                end
+            regulatory_site(multiplicity = 2): begin
+                ligands: A
+            end
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end))
     end
@@ -110,14 +111,13 @@
         m = @allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
+            catalytic_multiplicity: 2
             allosteric_regulators: I::OnlyT
 
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + F6P ⇌ E_F6P    :: EqualRT
-                    E_F6P <--> E_F16BP :: EqualRT
-                    E_F16BP ⇌ E + F16BP :: EqualRT
-                end
+            catalytic_steps: begin
+                E + F6P ⇌ E_F6P    :: EqualRT
+                E_F6P <--> E_F16BP :: EqualRT
+                E_F16BP ⇌ E + F16BP :: EqualRT
             end
         end
         @test m isa EnzymeRates.AllostericEnzymeMechanism
@@ -127,12 +127,11 @@
         @test_throws Exception eval(:(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + F6P ⇌ E_F6P :: EqualRT
-                    E_F6P <--> E_F16BP
-                    E_F16BP ⇌ E + F16BP :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + F6P ⇌ E_F6P :: EqualRT
+                E_F6P <--> E_F16BP
+                E_F16BP ⇌ E + F16BP :: EqualRT
             end
         end))
 
@@ -140,12 +139,11 @@
         @test_throws Exception eval(:(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + F6P ⇌ E_F6P :: EqualRT
-                    E_F6P <--> E_F16BP :: OnlyT
-                    E_F16BP ⇌ E + F16BP :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + F6P ⇌ E_F6P :: EqualRT
+                E_F6P <--> E_F16BP :: OnlyT
+                E_F16BP ⇌ E + F16BP :: EqualRT
             end
         end))
 
@@ -153,13 +151,12 @@
         @test_throws Exception eval(:(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
+            catalytic_multiplicity: 2
             allosteric_regulators: I, J::OnlyT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + F6P ⇌ E_F6P :: EqualRT
-                    E_F6P <--> E_F16BP :: EqualRT
-                    E_F16BP ⇌ E + F16BP :: EqualRT
-                end
+            catalytic_steps: begin
+                E + F6P ⇌ E_F6P :: EqualRT
+                E_F6P <--> E_F16BP :: EqualRT
+                E_F16BP ⇌ E + F16BP :: EqualRT
             end
         end))
 
@@ -167,12 +164,11 @@
         @test_throws Exception eval(:(@allosteric_mechanism begin
             substrates: S, A
             products:   P
-            site(:catalytic, 2): begin
-                steps: begin
-                    (E + S ⇌ ES, E_A + S ⇌ ES_A)
-                    ES_A <--> EP   :: EqualRT
-                    EP ⇌ E + P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                (E + S ⇌ ES, E_A + S ⇌ ES_A)
+                ES_A <--> EP   :: EqualRT
+                EP ⇌ E + P      :: EqualRT
             end
         end))
     end

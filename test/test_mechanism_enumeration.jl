@@ -239,12 +239,11 @@ end
     m_allo_2 = @allosteric_mechanism begin
         substrates: S
         products: P
-        site(:catalytic, 2): begin
-            steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E_P    :: EqualRT
+            E + S ⇌ E_S    :: EqualRT
+            E_S <--> E_P   :: EqualRT
         end
     end
     rxn_oligo_4 = @enzyme_reaction begin
@@ -262,12 +261,11 @@ end
     m1 = @allosteric_mechanism begin
         substrates: S
         products: P
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ E_S       :: EqualRT
-                E + P ⇌ E_P       :: EqualRT
-                E_S <--> E_P      :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E_S       :: EqualRT
+            E + P ⇌ E_P       :: EqualRT
+            E_S <--> E_P      :: EqualRT
         end
     end
     rxn1 = @enzyme_reaction begin
@@ -283,12 +281,11 @@ end
     m2 = @allosteric_mechanism begin
         substrates: S
         products: P
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ E_S       :: OnlyR
-                E + P ⇌ E_P       :: EqualRT
-                E_S <--> E_P      :: NonequalRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E_S       :: OnlyR
+            E + P ⇌ E_P       :: EqualRT
+            E_S <--> E_P      :: NonequalRT
         end
     end
     spec2 = allosteric_spec_from_mechanism_and_rxn(m2, rxn1)
@@ -306,12 +303,11 @@ end
         substrates: S
         products: P
         allosteric_regulators: R::OnlyT
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ E_S       :: EqualRT
-                E + P ⇌ E_P       :: EqualRT
-                E_S <--> E_P      :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E_S       :: EqualRT
+            E + P ⇌ E_P       :: EqualRT
+            E_S <--> E_P      :: EqualRT
         end
     end
     spec3 = allosteric_spec_from_mechanism_and_rxn(m3, rxn3)
@@ -330,14 +326,13 @@ end
         substrates: S
         products: P
         allosteric_regulators: R1::OnlyR, R2::NonequalRT
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ E_S       :: EqualRT
-                E + P ⇌ E_P       :: EqualRT
-                E_S <--> E_P      :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E_S       :: EqualRT
+            E + P ⇌ E_P       :: EqualRT
+            E_S <--> E_P      :: EqualRT
         end
-        site(:regulatory, 2): begin
+        regulatory_site(multiplicity = 2): begin
             ligands: R1, R2
         end
     end
@@ -1390,12 +1385,11 @@ end
     m_allo_dispatch = @allosteric_mechanism begin
         substrates: S
         products: P
-        site(:catalytic, 2): begin
-            steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E_P    :: EqualRT
+            E + S ⇌ E_S    :: EqualRT
+            E_S <--> E_P   :: EqualRT
         end
     end
     spec_allo_dispatch = allosteric_spec_from_mechanism_and_rxn(
@@ -1935,12 +1929,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: EqualRT
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
@@ -1996,12 +1989,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: OnlyR
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: OnlyR
+                E_S <--> E_P      :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
@@ -2053,12 +2045,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: NonequalRT
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: NonequalRT
+                E_S <--> E_P      :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
@@ -2327,16 +2318,15 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: A, B
             products: P, Q
-            site(:catalytic, 2): begin
-                steps: begin
-                    (E + A ⇌ E_A, E_B + A ⇌ E_A_B)        :: NonequalRT
-                    (E + B ⇌ E_B, E_A + B ⇌ E_A_B)        :: EqualRT
-                    E + P ⇌ E_P             :: EqualRT
-                    E_P + Q ⇌ E_P_Q         :: EqualRT
-                    E + Q ⇌ E_Q             :: EqualRT
-                    E_Q + P ⇌ E_P_Q         :: EqualRT
-                    E_A_B <--> E_P_Q        :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)        :: NonequalRT
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)        :: EqualRT
+                E + P ⇌ E_P             :: EqualRT
+                E_P + Q ⇌ E_P_Q         :: EqualRT
+                E + Q ⇌ E_Q             :: EqualRT
+                E_Q + P ⇌ E_P_Q         :: EqualRT
+                E_A_B <--> E_P_Q        :: EqualRT
             end
         end
         bi_bi_allo_rxn = @enzyme_reaction begin
@@ -2400,14 +2390,13 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: A, B
             products: P, Q
-            site(:catalytic, 2): begin
-                steps: begin
-                    (E + A <--> E_A, E_B + A <--> E_A_B)        :: NonequalRT
-                    (E + B ⇌ E_B, E_A + B ⇌ E_A_B)             :: EqualRT
-                    (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)             :: EqualRT
-                    (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)             :: EqualRT
-                    E_A_B <--> E_P_Q                            :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                (E + A <--> E_A, E_B + A <--> E_A_B)        :: NonequalRT
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)             :: EqualRT
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)             :: EqualRT
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)             :: EqualRT
+                E_A_B <--> E_P_Q                            :: EqualRT
             end
         end
         bi_bi_allo_rxn = @enzyme_reaction begin
@@ -2951,12 +2940,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         rxn = @enzyme_reaction begin
@@ -3017,12 +3005,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
@@ -3111,42 +3098,38 @@ end
         # all-:EqualRT baseline + one :OnlyR variant per group.
         v_baseline = @allosteric_mechanism begin
             substrates: S; products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         v_g1_OnlyR = @allosteric_mechanism begin
             substrates: S; products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: OnlyR
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: OnlyR
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         v_g2_OnlyR = @allosteric_mechanism begin
             substrates: S; products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: OnlyR
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: OnlyR
+                E_S <--> E_P   :: EqualRT
             end
         end
         v_g3_OnlyR = @allosteric_mechanism begin
             substrates: S; products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: OnlyR
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: OnlyR
             end
         end
         @test Set(EnzymeRates.compile_mechanism(r) for r in result) ==
@@ -3169,12 +3152,11 @@ end
         # returns an empty vector.
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
@@ -3286,12 +3268,11 @@ end
         # regulator added yet.
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
@@ -3320,34 +3301,31 @@ end
         v_onlyR = @allosteric_mechanism begin
             substrates: S; products: P
             allosteric_regulators: R::OnlyR
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         v_onlyT = @allosteric_mechanism begin
             substrates: S; products: P
             allosteric_regulators: R::OnlyT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         v_neq = @allosteric_mechanism begin
             substrates: S; products: P
             allosteric_regulators: R::NonequalRT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         @test Set(EnzymeRates.compile_mechanism(r) for r in result) ==
@@ -3420,12 +3398,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
             allosteric_regulators: R1::OnlyR
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_2reg)
@@ -3475,12 +3452,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
             allosteric_regulators: R1::OnlyR
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_2reg)
@@ -3516,12 +3492,11 @@ end
             substrates: S
             products: P
             allosteric_regulators: R1::OnlyT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: EqualRT
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_2reg)
@@ -3562,12 +3537,11 @@ end
         end
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn_allo_overlap)
@@ -3621,12 +3595,11 @@ end
             substrates: S
             products: P
             allosteric_regulators: R1::OnlyR
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: EqualRT
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn)
@@ -3659,12 +3632,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: EqualRT
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn)
@@ -3704,12 +3676,11 @@ end
             substrates: S
             products: P
             allosteric_regulators: R::OnlyR
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: EqualRT
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn)
@@ -3727,12 +3698,11 @@ end
         # (flip its value to :NonequalRT in the dense Dict).
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
@@ -3782,12 +3752,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: NonequalRT
-                    E + S ⇌ E_S    :: NonequalRT
-                    E_S <--> E_P   :: NonequalRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: NonequalRT
+                E + S ⇌ E_S    :: NonequalRT
+                E_S <--> E_P   :: NonequalRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
@@ -3821,12 +3790,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
             allosteric_regulators: R::OnlyR
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
@@ -3858,12 +3826,11 @@ end
             substrates: S
             products: P
             allosteric_regulators: R::OnlyT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: EqualRT
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo_reg)
@@ -3906,12 +3873,11 @@ end
             substrates: S
             products: P
             allosteric_regulators: R1::OnlyR, R2::OnlyT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: EqualRT
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
             end
         end
         spec = allosteric_spec_from_mechanism_and_rxn(m_seed, rxn)
@@ -3949,14 +3915,13 @@ end
             substrates: S
             products: P
             allosteric_regulators: R::OnlyR
-            site(:catalytic, 4): begin
-                steps: begin
-                    E + P ⇌ E_P       :: EqualRT
-                    E + S ⇌ E_S       :: EqualRT
-                    E_S <--> E_P      :: EqualRT
-                end
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
             end
-            site(:regulatory, 2): begin
+            regulatory_site(multiplicity = 2): begin
                 ligands: R
             end
         end
@@ -4256,12 +4221,11 @@ end
         # (RE→SS rewrapped as allosteric, etc.).
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         allo = allosteric_spec_from_mechanism_and_rxn(m_seed, uni_uni_allo)
@@ -4286,12 +4250,11 @@ end
         m_seed = @allosteric_mechanism begin
             substrates: S; products: P
             allosteric_regulators: R::OnlyR
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + P ⇌ E_P    :: EqualRT
-                    E + S ⇌ E_S    :: EqualRT
-                    E_S <--> E_P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
             end
         end
         with_reg = allosteric_spec_from_mechanism_and_rxn(
@@ -4485,12 +4448,11 @@ end
         m = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E_c + S ⇌ E_S    :: NonequalRT
-                    E_c + P ⇌ E_P    :: NonequalRT
-                    E_S <--> E_P     :: OnlyR
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E_c + S ⇌ E_S    :: NonequalRT
+                E_c + P ⇌ E_P    :: NonequalRT
+                E_S <--> E_P     :: OnlyR
             end
         end
         @test EnzymeRates._t_state_dead(m)
@@ -4712,12 +4674,11 @@ end # top-level testset
             m = @allosteric_mechanism begin
                 substrates: S
                 products: P
-                site(:catalytic, 2): begin
-                    steps: begin
-                        E_c + S ⇌ E_S    :: NonequalRT
-                        E_c + P ⇌ E_P    :: NonequalRT
-                        E_S <--> E_P     :: OnlyR
-                    end
+                catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E_c + S ⇌ E_S    :: NonequalRT
+                    E_c + P ⇌ E_P    :: NonequalRT
+                    E_S <--> E_P     :: OnlyR
                 end
             end
             # Pre-assertion: the raw body actually contains T-state tokens.

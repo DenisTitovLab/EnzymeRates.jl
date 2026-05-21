@@ -38,14 +38,13 @@ using EnzymeRates
 m = @allosteric_mechanism begin
     substrates: S
     products:   P
+    catalytic_multiplicity: 2
     allosteric_regulators: A::OnlyR
 
-    site(:catalytic, 2): begin
-        steps: begin
-            E + S ⇌ ES      :: EqualRT
-            ES <--> EP     :: OnlyR
-            EP ⇌ E + P      :: EqualRT
-        end
+    catalytic_steps: begin
+        E + S ⇌ ES      :: EqualRT
+        ES <--> EP     :: OnlyR
+        EP ⇌ E + P      :: EqualRT
     end
 end
 ```

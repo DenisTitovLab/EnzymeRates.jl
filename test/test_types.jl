@@ -163,12 +163,11 @@
             products:   P
             allosteric_regulators: I::OnlyT
 
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + S ⇌ ES    :: EqualRT
-                    ES <--> EP    :: OnlyR
-                    EP ⇌ E + P    :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ ES    :: EqualRT
+                ES <--> EP    :: OnlyR
+                EP ⇌ E + P    :: EqualRT
             end
         end
         @test EnzymeRates.catalytic_multiplicity(m) == 2
@@ -360,12 +359,11 @@
             substrates: F6P
             products:   F16BP
             allosteric_regulators: I::OnlyT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + F6P ⇌ E_F6P   :: EqualRT
-                    E_F6P <--> E_F16BP :: EqualRT
-                    E_F16BP ⇌ E + F16BP :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + F6P ⇌ E_F6P   :: EqualRT
+                E_F6P <--> E_F16BP :: EqualRT
+                E_F16BP ⇌ E + F16BP :: EqualRT
             end
         end
         s_allo = sprint(show, m_allo)
@@ -532,12 +530,11 @@
             substrates: S
             products:   P
             allosteric_regulators: I::NonequalRT, J::OnlyT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + S ⇌ ES    :: NonequalRT
-                    ES <--> EP   :: OnlyR
-                    EP ⇌ E + P   :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ ES    :: NonequalRT
+                ES <--> EP   :: OnlyR
+                EP ⇌ E + P   :: EqualRT
             end
         end
         s = sprint(show, m)

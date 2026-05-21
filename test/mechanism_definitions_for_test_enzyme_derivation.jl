@@ -1228,12 +1228,11 @@ function build_mechanism_test_specs()
         m = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E_c + S ⇌ E_S    :: NonequalRT
-                    E_c + P ⇌ E_P    :: NonequalRT
-                    E_S <--> E_P     :: NonequalRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E_c + S ⇌ E_S    :: NonequalRT
+                E_c + P ⇌ E_P    :: NonequalRT
+                E_S <--> E_P     :: NonequalRT
             end
         end
 
@@ -1285,14 +1284,13 @@ function build_mechanism_test_specs()
             substrates: S
             products: P
             allosteric_regulators: I::NonequalRT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E_c + S ⇌ E_S    :: NonequalRT
-                    E_c + P ⇌ E_P    :: NonequalRT
-                    E_S <--> E_P     :: NonequalRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E_c + S ⇌ E_S    :: NonequalRT
+                E_c + P ⇌ E_P    :: NonequalRT
+                E_S <--> E_P     :: NonequalRT
             end
-            site(:regulatory, 1): begin
+            regulatory_site(multiplicity = 1): begin
                 ligands: I
             end
         end
@@ -1347,14 +1345,13 @@ function build_mechanism_test_specs()
             substrates: S
             products: P
             allosteric_regulators: I::NonequalRT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E_c + S ⇌ E_S    :: NonequalRT
-                    E_c + P ⇌ E_P    :: NonequalRT
-                    E_S <--> E_P     :: NonequalRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E_c + S ⇌ E_S    :: NonequalRT
+                E_c + P ⇌ E_P    :: NonequalRT
+                E_S <--> E_P     :: NonequalRT
             end
-            site(:regulatory, 1): begin
+            regulatory_site(multiplicity = 1): begin
                 ligands: I
             end
         end
@@ -1729,31 +1726,30 @@ function build_mechanism_test_specs()
             substrates: S1, S2
             products: P1, P2
             allosteric_regulators: R1::NonequalRT, R2::NonequalRT, R3::NonequalRT
-            site(:catalytic, 4): begin
-                steps: begin
-                    # S1 binding (shared K)
-                    (E_c + S1 ⇌ E_S1,
-                     E_S2 + S1 ⇌ E_S1S2,
-                     E_P2 + S1 ⇌ E_S1P2) :: NonequalRT
-                    # P1 binding (shared K)
-                    (E_c + P1 ⇌ E_P1,
-                     E_S2 + P1 ⇌ E_P1S2,
-                     E_P2 + P1 ⇌ E_P1P2) :: NonequalRT
-                    # S2 binding (shared K)
-                    (E_c + S2 ⇌ E_S2,
-                     E_S1 + S2 ⇌ E_S1S2,
-                     E_P1 + S2 ⇌ E_P1S2) :: NonequalRT
-                    # P2 binding (shared K)
-                    (E_c + P2 ⇌ E_P2,
-                     E_S1 + P2 ⇌ E_S1P2,
-                     E_P1 + P2 ⇌ E_P1P2) :: NonequalRT
-                    E_S1S2 <--> E_P1P2 :: NonequalRT
-                end
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                # S1 binding (shared K)
+                (E_c + S1 ⇌ E_S1,
+                 E_S2 + S1 ⇌ E_S1S2,
+                 E_P2 + S1 ⇌ E_S1P2) :: NonequalRT
+                # P1 binding (shared K)
+                (E_c + P1 ⇌ E_P1,
+                 E_S2 + P1 ⇌ E_P1S2,
+                 E_P2 + P1 ⇌ E_P1P2) :: NonequalRT
+                # S2 binding (shared K)
+                (E_c + S2 ⇌ E_S2,
+                 E_S1 + S2 ⇌ E_S1S2,
+                 E_P1 + S2 ⇌ E_P1S2) :: NonequalRT
+                # P2 binding (shared K)
+                (E_c + P2 ⇌ E_P2,
+                 E_S1 + P2 ⇌ E_S1P2,
+                 E_P1 + P2 ⇌ E_P1P2) :: NonequalRT
+                E_S1S2 <--> E_P1P2 :: NonequalRT
             end
-            site(:regulatory, 4): begin
+            regulatory_site(multiplicity = 4): begin
                 ligands: R1, R2
             end
-            site(:regulatory, 4): begin
+            regulatory_site(multiplicity = 4): begin
                 ligands: R3
             end
         end
@@ -1839,17 +1835,16 @@ function build_mechanism_test_specs()
             products:   F16BP, ADP
             allosteric_regulators: Pi::EqualRT, ATP::OnlyT, ADP::OnlyR, Citrate::OnlyT, F26BP::NonequalRT
 
-            site(:catalytic, 4): begin
-                steps: begin
-                    (E + F6P ⇌ E_F6P, E_ATP + F6P ⇌ E_F6P_ATP)      :: OnlyR
-                    (E + ATP ⇌ E_ATP, E_F6P + ATP ⇌ E_F6P_ATP)      :: EqualRT
-                    E_F6P_ATP <--> E_F16BP_ADP                         :: EqualRT
-                    (E_F16BP_ADP ⇌ E_ADP + F16BP, E_F16BP ⇌ E + F16BP) :: EqualRT
-                    (E_F16BP_ADP ⇌ E_F16BP + ADP, E_ADP ⇌ E + ADP)     :: EqualRT
-                end
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                (E + F6P ⇌ E_F6P, E_ATP + F6P ⇌ E_F6P_ATP)      :: OnlyR
+                (E + ATP ⇌ E_ATP, E_F6P + ATP ⇌ E_F6P_ATP)      :: EqualRT
+                E_F6P_ATP <--> E_F16BP_ADP                         :: EqualRT
+                (E_F16BP_ADP ⇌ E_ADP + F16BP, E_F16BP ⇌ E + F16BP) :: EqualRT
+                (E_F16BP_ADP ⇌ E_F16BP + ADP, E_ADP ⇌ E + ADP)     :: EqualRT
             end
 
-            site(:regulatory, 4): begin
+            regulatory_site(multiplicity = 4): begin
                 ligands: Pi, ATP
             end
         end
@@ -1926,7 +1921,7 @@ function build_mechanism_test_specs()
     #      the same site, so there are no E_ATP_G6Pi or E_ADP_G6Pi forms.
     #
     #   3. Allosteric site: G6P competes with Pi at a separate regulatory
-    #      site — site(:regulatory, 2) with G6P::OnlyT and Pi::EqualRT.
+    #      site — regulatory_site(multiplicity = 2) with G6P::OnlyT and Pi::EqualRT.
     #
     # ATP binding (group 2) is :OnlyR — T-state can't bind ATP, so the
     # catalytic cycle is broken and N_cat_T = 0.
@@ -1937,35 +1932,34 @@ function build_mechanism_test_specs()
             allosteric_regulators: G6P::OnlyT, Pi::EqualRT
             catalytic_inhibitors:  G6P
 
-            site(:catalytic, 2): begin
-                steps: begin
-                    # Group 1 (Glucose binding at catalytic site, EqualRT)
-                    (E + Glucose ⇌ E_Glc,
-                     E_ATP + Glucose ⇌ E_Glc_ATP,
-                     E_G6Pi + Glucose ⇌ E_Glc_G6Pi)    :: EqualRT
-                    # Group 2 (ATP binding at nucleotide pocket, OnlyR —
-                    # T-state can't bind ATP)
-                    (E + ATP ⇌ E_ATP,
-                     E_Glc + ATP ⇌ E_Glc_ATP)           :: OnlyR
-                    # Group 3 (catalysis SS, EqualRT)
-                    E_Glc_ATP <--> E_G6P_ADP            :: EqualRT
-                    # Group 4 (G6P binding/release at catalytic site, EqualRT)
-                    (E_G6P_ADP ⇌ E_ADP + G6P,
-                     E_G6P ⇌ E + G6P,
-                     E_G6P_G6Pi ⇌ E_G6Pi + G6P)         :: EqualRT
-                    # Group 5 (ADP release, EqualRT)
-                    (E_G6P_ADP ⇌ E_G6P + ADP,
-                     E_ADP ⇌ E + ADP)                   :: EqualRT
-                    # Group 6 (G6P binding at INHIBITORY site, EqualRT) —
-                    # G6P at site 2 competes with ATP/ADP, can co-bind with
-                    # Glucose at site 1 or G6P at site 1.
-                    (E + G6P ⇌ E_G6Pi,
-                     E_Glc + G6P ⇌ E_Glc_G6Pi,
-                     E_G6P + G6P ⇌ E_G6P_G6Pi)          :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                # Group 1 (Glucose binding at catalytic site, EqualRT)
+                (E + Glucose ⇌ E_Glc,
+                 E_ATP + Glucose ⇌ E_Glc_ATP,
+                 E_G6Pi + Glucose ⇌ E_Glc_G6Pi)    :: EqualRT
+                # Group 2 (ATP binding at nucleotide pocket, OnlyR —
+                # T-state can't bind ATP)
+                (E + ATP ⇌ E_ATP,
+                 E_Glc + ATP ⇌ E_Glc_ATP)           :: OnlyR
+                # Group 3 (catalysis SS, EqualRT)
+                E_Glc_ATP <--> E_G6P_ADP            :: EqualRT
+                # Group 4 (G6P binding/release at catalytic site, EqualRT)
+                (E_G6P_ADP ⇌ E_ADP + G6P,
+                 E_G6P ⇌ E + G6P,
+                 E_G6P_G6Pi ⇌ E_G6Pi + G6P)         :: EqualRT
+                # Group 5 (ADP release, EqualRT)
+                (E_G6P_ADP ⇌ E_G6P + ADP,
+                 E_ADP ⇌ E + ADP)                   :: EqualRT
+                # Group 6 (G6P binding at INHIBITORY site, EqualRT) —
+                # G6P at site 2 competes with ATP/ADP, can co-bind with
+                # Glucose at site 1 or G6P at site 1.
+                (E + G6P ⇌ E_G6Pi,
+                 E_Glc + G6P ⇌ E_Glc_G6Pi,
+                 E_G6P + G6P ⇌ E_G6P_G6Pi)          :: EqualRT
             end
 
-            site(:regulatory, 2): begin
+            regulatory_site(multiplicity = 2): begin
                 ligands: G6P, Pi
             end
         end
@@ -2062,24 +2056,23 @@ function build_mechanism_test_specs()
             products:   Pyruvate, ATP
             allosteric_regulators: ATP::OnlyT, F16BP::OnlyR
 
-            site(:catalytic, 4): begin
-                steps: begin
-                    (E + PEP ⇌ E_PEP,
-                     E_ADP + PEP ⇌ E_PEP_ADP)              :: NonequalRT
-                    (E + ADP ⇌ E_ADP,
-                     E_PEP + ADP ⇌ E_PEP_ADP)              :: EqualRT
-                    E_PEP_ADP <--> E_Pyr_ATP               :: EqualRT
-                    (E_Pyr_ATP ⇌ E_ATP + Pyruvate,
-                     E_Pyr ⇌ E + Pyruvate)                  :: EqualRT
-                    (E_Pyr_ATP ⇌ E_Pyr + ATP,
-                     E_ATP ⇌ E + ATP)                       :: EqualRT
-                end
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                (E + PEP ⇌ E_PEP,
+                 E_ADP + PEP ⇌ E_PEP_ADP)              :: NonequalRT
+                (E + ADP ⇌ E_ADP,
+                 E_PEP + ADP ⇌ E_PEP_ADP)              :: EqualRT
+                E_PEP_ADP <--> E_Pyr_ATP               :: EqualRT
+                (E_Pyr_ATP ⇌ E_ATP + Pyruvate,
+                 E_Pyr ⇌ E + Pyruvate)                  :: EqualRT
+                (E_Pyr_ATP ⇌ E_Pyr + ATP,
+                 E_ATP ⇌ E + ATP)                       :: EqualRT
             end
 
-            site(:regulatory, 2): begin
+            regulatory_site(multiplicity = 2): begin
                 ligands: ATP
             end
-            site(:regulatory, 4): begin
+            regulatory_site(multiplicity = 4): begin
                 ligands: F16BP
             end
         end
@@ -2160,21 +2153,20 @@ function build_mechanism_test_specs()
             products:   P1, P2
             allosteric_regulators: R1::NonequalRT, R2::EqualRT
 
-            site(:catalytic, 2): begin
-                steps: begin
-                    (E + S1 ⇌ E_S1,
-                     E_S2 + S1 ⇌ E_S1_S2)      :: NonequalRT
-                    (E + S2 ⇌ E_S2,
-                     E_S1 + S2 ⇌ E_S1_S2)      :: EqualRT
-                    E_S1_S2 <--> E_P1_P2      :: NonequalRT
-                    (E_P1_P2 ⇌ E_P2 + P1,
-                     E_P1 ⇌ E + P1)             :: NonequalRT
-                    (E_P1_P2 ⇌ E_P1 + P2,
-                     E_P2 ⇌ E + P2)             :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                (E + S1 ⇌ E_S1,
+                 E_S2 + S1 ⇌ E_S1_S2)      :: NonequalRT
+                (E + S2 ⇌ E_S2,
+                 E_S1 + S2 ⇌ E_S1_S2)      :: EqualRT
+                E_S1_S2 <--> E_P1_P2      :: NonequalRT
+                (E_P1_P2 ⇌ E_P2 + P1,
+                 E_P1 ⇌ E + P1)             :: NonequalRT
+                (E_P1_P2 ⇌ E_P1 + P2,
+                 E_P2 ⇌ E + P2)             :: EqualRT
             end
 
-            site(:regulatory, 2): begin
+            regulatory_site(multiplicity = 2): begin
                 ligands: R1, R2
             end
         end
@@ -2242,12 +2234,11 @@ function build_mechanism_test_specs()
             substrates: S
             products:   P
 
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + S ⇌ E_S    :: EqualRT      # group 1, K1
-                    E_S <--> E_P  :: EqualRT      # group 2, k2f catalysis
-                    E + P ⇌ E_P    :: OnlyR        # group 3, K3 (P binding)
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E_S    :: EqualRT      # group 1, K1
+                E_S <--> E_P  :: EqualRT      # group 2, k2f catalysis
+                E + P ⇌ E_P    :: OnlyR        # group 3, K3 (P binding)
             end
         end
 

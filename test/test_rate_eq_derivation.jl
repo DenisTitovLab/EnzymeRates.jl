@@ -974,12 +974,11 @@ end
     onlyR_sub = @allosteric_mechanism begin
         substrates: S
         products:   P
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ ES   :: OnlyR
-                ES <--> EP  :: EqualRT
-                EP ⇌ E + P   :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ ES   :: OnlyR
+            ES <--> EP  :: EqualRT
+            EP ⇌ E + P   :: EqualRT
         end
     end
     concs = (S=1.0, P=0.001)
@@ -996,12 +995,11 @@ end
     vtype = @allosteric_mechanism begin
         substrates: S
         products:   P
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ ES   :: EqualRT
-                ES <--> EP  :: OnlyR
-                EP ⇌ E + P   :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ ES   :: EqualRT
+            ES <--> EP  :: OnlyR
+            EP ⇌ E + P   :: EqualRT
         end
     end
     vparams = (K1=0.1, k2f=10.0, K3=0.5, Keq=1000.0, E_total=1.0)
@@ -1019,12 +1017,11 @@ end
     @test_throws Exception eval(:(@allosteric_mechanism begin
         substrates: S
         products:   P
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ ES    :: OnlyT
-                ES <--> EP   :: EqualRT
-                EP ⇌ E + P    :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ ES    :: OnlyT
+            ES <--> EP   :: EqualRT
+            EP ⇌ E + P    :: EqualRT
         end
     end))
 
@@ -1032,12 +1029,11 @@ end
     @test_throws Exception eval(:(@allosteric_mechanism begin
         substrates: S
         products:   P
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ ES    :: EqualRT
-                ES <--> EP   :: EqualRT
-                EP ⇌ E + P    :: OnlyT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ ES    :: EqualRT
+            ES <--> EP   :: EqualRT
+            EP ⇌ E + P    :: OnlyT
         end
     end))
 
@@ -1045,12 +1041,11 @@ end
     @test_throws Exception eval(:(@allosteric_mechanism begin
         substrates: S
         products:   P
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ ES    :: EqualRT
-                ES <--> EP   :: OnlyT
-                EP ⇌ E + P    :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ ES    :: EqualRT
+            ES <--> EP   :: OnlyT
+            EP ⇌ E + P    :: EqualRT
         end
     end))
 
@@ -1060,12 +1055,11 @@ end
         substrates: S
         products:   P
         allosteric_regulators: I::EqualRT
-        site(:catalytic, 2): begin
-            steps: begin
-                E + S ⇌ ES  :: EqualRT
-                ES <--> EP :: EqualRT
-                EP ⇌ E + P  :: EqualRT
-            end
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ ES  :: EqualRT
+            ES <--> EP :: EqualRT
+            EP ⇌ E + P  :: EqualRT
         end
     end))
 
