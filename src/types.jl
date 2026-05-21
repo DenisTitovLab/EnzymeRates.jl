@@ -396,9 +396,6 @@ Base.hash(m::AllostericMechanism, h::UInt) =
 #
 # One polymorphic `_to_sig` with a method per source type; the matching
 # `_*_from_sig` family reconstructs the corresponding type.
-# RegulatorySite + the allosteric converters are deferred to Stage 4 (the
-# AllostericEnzymeMechanism Sig-collapse constraint blocks a uniform
-# allosteric Sig today).
 
 _to_sig(s::Substrate)            = (:Substrate, s.name)
 _to_sig(p::Product)              = (:Product, p.name)
@@ -608,9 +605,8 @@ Singleton type encoding an enzyme mechanism. `Sig` is a 2-tuple
 struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 
 # Boundary converters: non-parametric Mechanism ↔ parametric
-# EnzymeMechanism{Sig}. The Sig shape produced here
-# `(reaction_sig, steps_sig)` coexists with the legacy DSL Sig shape
-# `(metabolites_tuple, reactions_tuple)` during the staged refactor.
+# EnzymeMechanism{Sig}. The Sig encodes the Mechanism's data as
+# `(reaction_sig, steps_sig)` — both tuple-of-tuples-of-Symbols/Ints.
 EnzymeMechanism(m::Mechanism) = EnzymeMechanism{_sig_of(m)}()
 Mechanism(::EnzymeMechanism{Sig}) where {Sig} = _mechanism_from_sig(Sig)
 
