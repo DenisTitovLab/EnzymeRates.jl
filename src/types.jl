@@ -1269,3 +1269,94 @@ function reg_allo_state(
     idx === nothing && error("Ligand $lig not at regulatory site $site_idx")
     return states[idx]
 end
+
+# ─── name(p::Parameter, m) chokepoint ─────────────────────────────────
+#
+# Single chokepoint for parameter Symbol production. Renders today's
+# positional names (:K1, :k1f, :K1_T, :K_<lig>_reg<i>) via Parameter
+# subtype dispatch. Future migration to path-based names is a single-
+# function-body edit (per feedback-chokepoint-accessors-for-future-
+# migrations).
+
+# Map a Step to the rep-idx used in positional parameter names. The rep
+# is the position of the group's first step in the flattened step list,
+# matching the CLAUDE.md parameter naming convention.
+function _rep_idx_for_step(step::Step,
+                           m::Union{Mechanism, AllostericMechanism})
+    groups = m isa Mechanism ? m.steps : m.cat_steps
+    pos = 0
+    for group in groups
+        if step in group
+            return pos + 1
+        end
+        pos += length(group)
+    end
+    error("Step not found in mechanism: $step")
+end
+
+# Bridge from the parametric EnzymeMechanism to its non-parametric form.
+# AllostericEnzymeMechanism is intentionally not bridged here: that
+# converter requires the deferred AllostericMechanism ↔
+# AllostericEnzymeMechanism work (see the constraint comment above the
+# AllostericEnzymeMechanism struct definition).
+_to_mechanism(em::EnzymeMechanism) = Mechanism(em)
+
+_rep_idx_for_step(step::Step, m::EnzymeMechanism) =
+    _rep_idx_for_step(step, _to_mechanism(m))
+
+# Look up a regulator site's 1-based position in an AllostericMechanism.
+function _site_idx_of(site::RegulatorySite, m::AllostericMechanism)
+    for (i, s) in enumerate(m.regulatory_sites)
+        s == site && return i
+    end
+    error("RegulatorySite not found in mechanism")
+end
+
+# Step-bound RE parameters
+function name(p::Kd,
+              m::Union{Mechanism, EnzymeMechanism, AllostericMechanism})
+    rep = _rep_idx_for_step(p.step, m)
+    p.state === :T ? Symbol("K$(rep)_T") : Symbol("K$rep")
+end
+function name(p::Kiso,
+              m::Union{Mechanism, EnzymeMechanism, AllostericMechanism})
+    rep = _rep_idx_for_step(p.step, m)
+    p.state === :T ? Symbol("K$(rep)_T") : Symbol("K$rep")
+end
+
+# Step-bound SS parameters
+function name(p::Kon,
+              m::Union{Mechanism, EnzymeMechanism, AllostericMechanism})
+    rep = _rep_idx_for_step(p.step, m)
+    p.state === :T ? Symbol("k$(rep)f_T") : Symbol("k$(rep)f")
+end
+function name(p::Koff,
+              m::Union{Mechanism, EnzymeMechanism, AllostericMechanism})
+    rep = _rep_idx_for_step(p.step, m)
+    p.state === :T ? Symbol("k$(rep)r_T") : Symbol("k$(rep)r")
+end
+function name(p::Kfor,
+              m::Union{Mechanism, EnzymeMechanism, AllostericMechanism})
+    rep = _rep_idx_for_step(p.step, m)
+    p.state === :T ? Symbol("k$(rep)f_T") : Symbol("k$(rep)f")
+end
+function name(p::Krev,
+              m::Union{Mechanism, EnzymeMechanism, AllostericMechanism})
+    rep = _rep_idx_for_step(p.step, m)
+    p.state === :T ? Symbol("k$(rep)r_T") : Symbol("k$(rep)r")
+end
+
+# Regulator-site parameter — AllostericMechanism only. The
+# AllostericEnzymeMechanism overload arrives in Stage 4 alongside its
+# converter.
+function name(p::Kreg, m::AllostericMechanism)
+    site_idx = _site_idx_of(p.site, m)
+    lig_name = name(p.ligand)
+    p.state === :T ? Symbol("K_$(lig_name)_T_reg$site_idx") :
+                     Symbol("K_$(lig_name)_reg$site_idx")
+end
+
+# Mechanism-level scalars
+name(::Keq,   _) = :Keq
+name(::Etot,  _) = :E_total
+name(::Lallo, _) = :L

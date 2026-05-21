@@ -1184,4 +1184,133 @@
         m_back = EnzymeRates.Mechanism(em)
         @test m_back == m
     end
+
+    @testset "name(p::Parameter, m) chokepoint" begin
+        r = EnzymeRates.EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
+            EnzymeRates.RegulatorMults[],
+            [1],
+        )
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+
+        step1 = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        step2 = EnzymeRates.Step(e_s, e_p, nothing, false)
+        step3 = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
+
+        m = EnzymeRates.Mechanism(r, [[step1], [step2], [step3]])
+
+        # Positional naming: rep_idx for kinetic group g = position of first
+        # step in steps(m)[g] within the flattened steps list.
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), m) === :K1
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :T),    m) === :K1_T
+        @test EnzymeRates.name(EnzymeRates.Kon(step2, :None), m) === :k2f
+        @test EnzymeRates.name(EnzymeRates.Koff(step2, :None), m) === :k2r
+        @test EnzymeRates.name(EnzymeRates.Kfor(step2, :None), m) === :k2f
+        @test EnzymeRates.name(EnzymeRates.Krev(step2, :None), m) === :k2r
+        @test EnzymeRates.name(EnzymeRates.Kd(step3, :None), m) === :K3
+
+        # T-suffix on SS step
+        @test EnzymeRates.name(EnzymeRates.Kon(step2, :T),  m) === :k2f_T
+        @test EnzymeRates.name(EnzymeRates.Koff(step2, :T), m) === :k2r_T
+
+        # Kiso uses K-naming (RE iso)
+        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :None), m) === :K2
+        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :T),    m) === :K2_T
+
+        # Mechanism-level scalars
+        @test EnzymeRates.name(EnzymeRates.Keq(),   m) === :Keq
+        @test EnzymeRates.name(EnzymeRates.Etot(),  m) === :E_total
+        @test EnzymeRates.name(EnzymeRates.Lallo(), m) === :L
+
+        # Same names resolve via EnzymeMechanism(m) (the parametric form).
+        em = EnzymeMechanism(m)
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), em) === :K1
+        @test EnzymeRates.name(EnzymeRates.Kon(step2, :None), em) === :k2f
+        @test EnzymeRates.name(EnzymeRates.Keq(),   em) === :Keq
+        @test EnzymeRates.name(EnzymeRates.Etot(),  em) === :E_total
+        @test EnzymeRates.name(EnzymeRates.Lallo(), em) === :L
+    end
+
+    @testset "name(p::Parameter, m) rep_idx for shared kinetic group" begin
+        # Group with 2 steps: rep is the first step's position in the
+        # flattened step list. If group 1 contains steps at positions 1
+        # and 2, rep_idx is 1; if group 2 starts at position 3 with two
+        # steps, rep_idx for group 2 is 3.
+        r = EnzymeRates.EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
+            EnzymeRates.RegulatorMults[],
+            [1],
+        )
+        e    = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s  = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_p  = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+        e_sp = EnzymeRates.Species(
+            EnzymeRates.Metabolite[
+                EnzymeRates.Substrate(:S), EnzymeRates.Product(:P)], :E)
+
+        step_a = EnzymeRates.Step(e,   e_s,  EnzymeRates.Substrate(:S), true)
+        step_b = EnzymeRates.Step(e_p, e_sp, EnzymeRates.Substrate(:S), true)
+        step_c = EnzymeRates.Step(e_s, e_p,  nothing, false)
+        step_d = EnzymeRates.Step(e,   e_p,  EnzymeRates.Product(:P), true)
+
+        m = EnzymeRates.Mechanism(r, [[step_a, step_b], [step_c], [step_d]])
+
+        # Group 1: steps 1, 2 — rep_idx = 1 for either step.
+        @test EnzymeRates.name(EnzymeRates.Kd(step_a, :None), m) === :K1
+        @test EnzymeRates.name(EnzymeRates.Kd(step_b, :None), m) === :K1
+        # Group 2: step 3 — rep_idx = 3.
+        @test EnzymeRates.name(EnzymeRates.Kon(step_c, :None), m) === :k3f
+        # Group 3: step 4 — rep_idx = 4.
+        @test EnzymeRates.name(EnzymeRates.Kd(step_d, :None), m) === :K4
+    end
+
+    @testset "name(p::Kreg, m) chokepoint" begin
+        r = EnzymeRates.EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
+            [EnzymeRates.RegulatorMults(
+                 EnzymeRates.AllostericRegulator(:A), [2])],
+            [2],
+        )
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+
+        cat_steps = [
+            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
+            [EnzymeRates.Step(e_s, e_p, nothing, false)],
+            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+        ]
+        site_a = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:A)], 2, [:NonequalRT])
+        am = EnzymeRates.AllostericMechanism(
+            r, cat_steps,
+            [:EqualRT, :EqualRT, :EqualRT], 2, [site_a])
+
+        @test EnzymeRates.name(
+            EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :R),
+            am) === :K_A_reg1
+        @test EnzymeRates.name(
+            EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :T),
+            am) === :K_A_T_reg1
+
+        # Step-bound parameters also resolve via AllostericMechanism.
+        rep = first(cat_steps[1])
+        @test EnzymeRates.name(EnzymeRates.Kd(rep, :None), am) === :K1
+        @test EnzymeRates.name(EnzymeRates.Kd(rep, :T),    am) === :K1_T
+
+        # Iso step in second kinetic group
+        iso_step = first(cat_steps[2])
+        @test EnzymeRates.name(EnzymeRates.Kiso(iso_step, :None), am) === :K2
+        @test EnzymeRates.name(EnzymeRates.Kon(iso_step, :None),  am) === :k2f
+
+        # Scalars also dispatch on AllostericMechanism
+        @test EnzymeRates.name(EnzymeRates.Keq(),   am) === :Keq
+        @test EnzymeRates.name(EnzymeRates.Etot(),  am) === :E_total
+        @test EnzymeRates.name(EnzymeRates.Lallo(), am) === :L
+    end
 end
