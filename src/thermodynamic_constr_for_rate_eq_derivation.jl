@@ -13,21 +13,36 @@ the equilibrium constant Keq.
 
 """
 Collect raw parameter symbols (K_i for RE, k_if/k_ir for SS) for the
-representative step of each kinetic group, in step-order.
+representative step of each kinetic group, in step-order. Routes
+Symbol production through the `name(p::Parameter, m)` chokepoint via
+`_enumerate_parameters_full`.
 """
-function _raw_param_symbols(m::EnzymeMechanism)
-    eq = equilibrium_steps(m)
-    ps = Symbol[]
-    for g in kinetic_groups(m)
-        rep = first(steps_in_group(m, g))
-        if eq[rep]
-            push!(ps, Symbol("K$rep"))
-        else
-            push!(ps, Symbol("k$(rep)f"))
-            push!(ps, Symbol("k$(rep)r"))
-        end
+function _raw_param_symbols(m::Mechanism)
+    Symbol[name(p, m) for p in _enumerate_parameters_full(m)]
+end
+
+_raw_param_symbols(m::EnzymeMechanism) = _raw_param_symbols(Mechanism(m))
+
+"""
+For each step in `m` (in source-index order), yield the Parameter
+instances that govern that step: `[Kd|Kiso]` for an RE step, `[Kon|Kfor,
+Koff|Krev]` for an SS step. Each Parameter is anchored on the original
+step (not the rep), so `name(p, m)` renders to the rep-renamed Symbol
+via the chokepoint — equivalent to applying the Pass-1 kinetic-group
+rename map.
+"""
+function _step_parameters(m::Mechanism)
+    flat = _flat_steps(m)
+    n = length(flat)
+    out = Vector{Vector{Parameter}}(undef, n)
+    for (s, _) in flat
+        params = is_equilibrium(s) ?
+            Parameter[is_binding(s) ? Kd(s, :None) : Kiso(s, :None)] :
+            Parameter[is_binding(s) ? Kon(s, :None)  : Kfor(s, :None),
+                      is_binding(s) ? Koff(s, :None) : Krev(s, :None)]
+        out[s.source_idx] = params
     end
-    ps
+    out
 end
 
 # ─── Thermodynamic Constraint Infrastructure ─────────────────────
@@ -188,6 +203,7 @@ function _dependent_param_exprs_kernel(
     rename::AbstractDict{Symbol, Symbol},
 )
     m = M()
+    mech = Mechanism(m)
     rxns = reactions(m)
     eq_steps = equilibrium_steps(m)
     enz_names = enzyme_forms(m)
@@ -207,7 +223,7 @@ function _dependent_param_exprs_kernel(
     end
 
     C, rhs_coeffs = _thermodynamic_constraints(M)
-    all_params = _raw_param_symbols(m)
+    all_params = _raw_param_symbols(mech)
     nc = size(C, 1)
     nsteps = size(C, 2)
     nc == 0 && return (Dict{Symbol, Union{Symbol, Expr}}(),
@@ -216,9 +232,16 @@ function _dependent_param_exprs_kernel(
     sym_col = Dict(p => i for (i, p) in enumerate(all_params))
     n_vars = length(all_params)
 
+    # For each step's source-index, the Parameter(s) governing it.
+    # `name(p, mech)` renders to the rep-renamed Symbol (Pass-1
+    # kinetic-group rename is folded into the chokepoint); `rename` then
+    # applies any Pass-2 single-symbol Wegscheider ties on top.
+    step_params = _step_parameters(mech)
+    step_name(p::Parameter) = get(rename, name(p, mech), name(p, mech))
+
     # Translate cycle-incidence columns into the merged-parameter A matrix.
     # Non-representative steps' columns are folded into their representative
-    # via the rename map; this is mathematically equivalent to a kinetic-group
+    # via the chokepoint; this is mathematically equivalent to a kinetic-group
     # equality constraint (K_idx = K_rep, k_idx_f = k_rep_f, ...).
     #
     # Binding K's are Kd in the polynomial; cycle products use 1/Kd, so
@@ -227,8 +250,7 @@ function _dependent_param_exprs_kernel(
     for (j, (lhs, _, _, _)) in enumerate(rxns)
         eq_steps[j] || continue
         any(s ∉ enz_set for s in lhs) || continue
-        sym = Symbol("K$j")
-        push!(binding_K_set, get(rename, sym, sym))
+        push!(binding_K_set, step_name(step_params[j][1]))
     end
 
     A = zeros(Rational{BigInt}, nc, n_vars)
@@ -236,13 +258,12 @@ function _dependent_param_exprs_kernel(
     for i in 1:nc, j in 1:nsteps
         C[i, j] == 0 && continue
         if eq_steps[j]
-            sym = Symbol("K$j")
-            sym = get(rename, sym, sym)
+            sym = step_name(step_params[j][1])
             sign_factor = sym in binding_K_set ? -1 : 1
             A[i, sym_col[sym]] += sign_factor * C[i, j]
         else
-            kf = Symbol("k$(j)f"); kr = Symbol("k$(j)r")
-            kf = get(rename, kf, kf); kr = get(rename, kr, kr)
+            kf = step_name(step_params[j][1])
+            kr = step_name(step_params[j][2])
             A[i, sym_col[kf]] += C[i, j]
             A[i, sym_col[kr]] -= C[i, j]
         end
@@ -266,14 +287,14 @@ function _dependent_param_exprs_kernel(
             base = 10
         end
         if eq_steps[j]
-            s = Symbol("K$j")
+            s = step_name(step_params[j][1])
             haskey(sym_col, s) && (priority[sym_col[s]] =
                 (is_free && has_met) ? -1 : base)
         else
-            for (suffix, offset) in (("f", 0), ("r", 1))
-                s = Symbol("k$(j)$suffix")
+            for (offset, p) in enumerate(step_params[j])
+                s = step_name(p)
                 haskey(sym_col, s) &&
-                    (priority[sym_col[s]] = base + offset)
+                    (priority[sym_col[s]] = base + offset - 1)
             end
         end
     end
