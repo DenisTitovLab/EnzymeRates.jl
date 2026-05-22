@@ -401,7 +401,7 @@ function _beam_search(
     fit_cache = Dict{UInt64, _CachedFitResult}()
 
     cache = Dict{Int,Vector{AbstractMechanismSpec}}()
-    for spec in init_mechanisms(prob.reaction)
+    for spec in _init_mechanism_specs(prob.reaction)
         push!(get!(cache, spec.n_fit_params_estimate,
                    AbstractMechanismSpec[]),
               spec)

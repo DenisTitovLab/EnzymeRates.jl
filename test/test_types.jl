@@ -616,7 +616,7 @@
             allosteric_regulators: R
             oligomeric_state: 2
         end
-        init = EnzymeRates.init_mechanisms(rxn)
+        init = EnzymeRates._init_mechanism_specs(rxn)
         base = first(init)
         used_groups = sort!(collect(
             Set(s.kinetic_group for s in base.steps)))

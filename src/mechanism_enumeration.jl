@@ -1385,7 +1385,8 @@ end
 # ─── Mechanism Enumeration ───────────────────────────────────
 
 """
-    init_mechanisms(reaction) -> Vector{MechanismSpec}
+    init_mechanisms(reaction::EnzymeReaction) -> Vector{Mechanism}
+    init_mechanisms(reaction::EnzymeReactionLegacy) -> Vector{MechanismSpec}
 
 Produce all mechanisms at minimum parameter count for a reaction.
 For each catalytic topology: 1 SS step, all K's grouped equal
@@ -1394,6 +1395,11 @@ per metabolite, all substrate/product dead-end subsets.
 Step kinetic groups are reassigned so that all binding steps
 sharing the same `(metabolite, RE/SS)` class collapse into one
 group; iso steps and uncollapsable bindings stay singletons.
+
+The `EnzymeReaction` method returns concrete `Mechanism` structs;
+the `EnzymeReactionLegacy` method is an internal entry point still
+used by enumeration consumers (`expand_mechanisms`, `dedup!`) that
+have not yet been switched to `Mechanism`.
 """
 function init_mechanisms(
     @nospecialize(reaction::EnzymeReactionLegacy),
@@ -2444,7 +2450,42 @@ end
 # Adapters that accept the concrete EnzymeReaction by converting to
 # the parametric EnzymeReactionLegacy form. The enumeration primitives
 # below dispatch on EnzymeReactionLegacy.
-init_mechanisms(r::EnzymeReaction) = init_mechanisms(_to_legacy_reaction(r))
+#
+# The public `init_mechanisms(::EnzymeReaction)` returns a
+# `Vector{Mechanism}` — concrete structs from `types.jl`. The legacy
+# pipeline still emits `MechanismSpec` values internally;
+# `_init_mechanism_specs` exposes that internal spec list to the few
+# downstream consumers (`expand_mechanisms`, `dedup!`, tests) that
+# have not yet been switched to `Mechanism`.
+init_mechanisms(r::EnzymeReaction) =
+    [_mechanism_from_spec(spec) for spec in _init_mechanism_specs(r)]
+
+"""
+    _init_mechanism_specs(reaction) -> Vector{MechanismSpec}
+
+Internal entry point that returns the enumerator's native
+`MechanismSpec` output without the boundary conversion to
+`Mechanism`. Used by `expand_mechanisms`/`dedup!` callers (and tests
+that introspect spec internals) until Tasks 5.3/5.4 switch them.
+Accepts both `EnzymeReaction` and `EnzymeReactionLegacy` so that
+`IdentifyRateEquationProblem.reaction::EnzymeReactionLegacy` callers
+work without an extra conversion.
+"""
+_init_mechanism_specs(r::EnzymeReaction) =
+    init_mechanisms(_to_legacy_reaction(r))
+
+_init_mechanism_specs(@nospecialize(r::EnzymeReactionLegacy)) =
+    init_mechanisms(r)
+
+"""
+    _mechanism_from_spec(spec::MechanismSpec) → Mechanism
+
+Convert an enumerator-produced `MechanismSpec` to a `Mechanism` by
+routing through `EnzymeMechanism(spec)` and lifting back. Steps are
+grouped by `kinetic_group` and renumbered in first-occurrence order.
+"""
+_mechanism_from_spec(spec::MechanismSpec) =
+    Mechanism(EnzymeMechanism(spec))
 
 _catalytic_topologies(r::EnzymeReaction) =
     _catalytic_topologies(_to_legacy_reaction(r))

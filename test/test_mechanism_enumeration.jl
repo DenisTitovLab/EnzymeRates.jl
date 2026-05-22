@@ -1415,7 +1415,7 @@ end
             (bi_bi_rxn, 2, 2),
             (bi_bi_pp_rxn, 2, 2),
         ]
-            specs = EnzymeRates.init_mechanisms(rxn)
+            specs = EnzymeRates._init_mechanism_specs(rxn)
             min_pc = n_s + n_p + 1
             for s in specs
                 @test s.n_fit_params_estimate >= min_pc
@@ -1429,7 +1429,7 @@ end
         # Formula: n_re_groups + 2*n_ss_groups - n_thermo = 2 + 2 - 1 = 3.
         # length(fitted_params(m)) for uni-uni init = 3 (K1, K2, k3f).
         # Estimate must equal actual on the simplest case.
-        init_specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
+        init_specs = EnzymeRates._init_mechanism_specs(uni_uni_rxn)
         @test !isempty(init_specs)
         spec = first(init_specs)
         m = EnzymeRates.compile_mechanism(spec)
@@ -1444,7 +1444,7 @@ end
         # This guards the upper-bound invariant: estimate ≥ actual.
         # Cap compiled specs to keep @generated cost bounded.
         cap = 30
-        init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+        init_specs = EnzymeRates._init_mechanism_specs(uni_uni_with_reg)
         for spec in init_specs[1:min(cap, end)]
             m = EnzymeRates.compile_mechanism(spec)
             @test spec.n_fit_params_estimate >=
@@ -1469,7 +1469,7 @@ end
         # RE→SS expansions add more SS steps; init never does.
         for rxn in [uni_uni_rxn, uni_bi_rxn,
                     bi_bi_rxn, bi_bi_pp_rxn]
-            specs = EnzymeRates.init_mechanisms(rxn)
+            specs = EnzymeRates._init_mechanism_specs(rxn)
             for s in specs
                 @test count(st -> !st.is_equilibrium, s.steps) == 1
             end
@@ -1481,7 +1481,7 @@ end
         # the same metabolite into one kinetic group (one shared K).
         # For bi-bi, metabolites like :B appear in multiple binding steps
         # (e.g. E+B⇌E_B and E_A+B⇌E_A_B) — these must share one kinetic_group.
-        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        specs = EnzymeRates._init_mechanism_specs(bi_bi_rxn)
         @test !isempty(specs)
         n_assertions_fired = 0
         for spec in specs
@@ -1516,7 +1516,7 @@ end
         # the actual fitted-param count must respect the upper-bound
         # invariant. Tests first 5 specs per reaction to cap @generated cost.
         for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
-            specs = EnzymeRates.init_mechanisms(rxn)
+            specs = EnzymeRates._init_mechanism_specs(rxn)
             for spec in first(specs, 5)
                 m = EnzymeMechanism(spec)
                 @test m isa EnzymeMechanism
@@ -1532,7 +1532,7 @@ end
         # in the regulators tuple — only the catalytic mechanism is built.
         # After expand_mechanisms adds the dead-end regulator, it should
         # appear.
-        init_specs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+        init_specs = EnzymeRates._init_mechanism_specs(uni_uni_with_reg)
         @test !isempty(init_specs)
         for spec in init_specs
             m = EnzymeRates.EnzymeMechanism(spec)
@@ -1581,7 +1581,7 @@ end
             products: P[C], Q[N]
             dead_end_inhibitors: I
         end
-        specs = EnzymeRates.init_mechanisms(rxn)
+        specs = EnzymeRates._init_mechanism_specs(rxn)
         floor_pc = 2 + 2 + 1   # n_subs + n_prods + 1
         # All init specs must have pc >= floor.
         for spec in specs
@@ -2099,7 +2099,7 @@ end
             dead_end_inhibitors: S
         end
         # Build via init + dead-end expansion to get the S/__reg overlap form.
-        init_specs = EnzymeRates.init_mechanisms(rxn)
+        init_specs = EnzymeRates._init_mechanism_specs(rxn)
         @test length(init_specs) == 1   # uni-uni: 1 catalytic topology
         seed_spec = first(init_specs)
         de_specs = EnzymeRates._expand_add_dead_end_regulator(seed_spec, rxn)
@@ -2157,7 +2157,7 @@ end
             dead_end_inhibitors: S
             oligomeric_state: 2
         end
-        init_specs = EnzymeRates.init_mechanisms(rxn)
+        init_specs = EnzymeRates._init_mechanism_specs(rxn)
         seed_spec = first(init_specs)
         de_specs = EnzymeRates._expand_add_dead_end_regulator(seed_spec, rxn)
         @test !isempty(de_specs)
@@ -2889,7 +2889,7 @@ end
             dead_end_inhibitors: S
         end
         # Init from rxn_overlap (1 catalytic topology for uni-uni).
-        init_specs = EnzymeRates.init_mechanisms(rxn_overlap)
+        init_specs = EnzymeRates._init_mechanism_specs(rxn_overlap)
         @test length(init_specs) == 1
         spec = first(init_specs)
 
@@ -3353,7 +3353,7 @@ end
             competitive_inhibitors: I
             oligomeric_state: 2
         end
-        init_specs = EnzymeRates.init_mechanisms(rxn)
+        init_specs = EnzymeRates._init_mechanism_specs(rxn)
         seed_spec = first(init_specs)
         # Add I as dead-end
         de_specs = EnzymeRates._expand_add_dead_end_regulator(seed_spec, rxn)
@@ -4054,7 +4054,7 @@ end
         # step ordering, which changes the EnzymeMechanism singleton's
         # `Reactions` type parameter. So we just verify the post-dedup
         # invariant: surviving specs are pairwise compile-distinct.
-        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        specs = EnzymeRates._init_mechanism_specs(bi_bi_rxn)
         pc = first(specs).n_fit_params_estimate
         cache = Dict(pc => AbstractMechanismSpec[specs...])
         EnzymeRates.dedup!(cache)
@@ -4067,7 +4067,7 @@ end
     end
 
     @testset "Idempotent" begin
-        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        specs = EnzymeRates._init_mechanism_specs(bi_bi_rxn)
         pc = first(specs).n_fit_params_estimate
         cache = Dict(pc => AbstractMechanismSpec[specs...])
         EnzymeRates.dedup!(cache)
@@ -4077,7 +4077,7 @@ end
     end
 
     @testset "Allosteric dedup: site order" begin
-        specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+        specs = EnzymeRates._init_mechanism_specs(uni_uni_allo)
         base = first(specs)
         used_groups = sort!(collect(
             Set(s.kinetic_group for s in base.steps)))
@@ -4106,7 +4106,7 @@ end
         # that at least one param-count bucket has post-dedup count <
         # pre-dedup count — proving dedup actually collapsed something
         # (i.e., two different expansion paths produced equivalent specs).
-        init_specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        init_specs = EnzymeRates._init_mechanism_specs(bi_bi_rxn)
         expanded = EnzymeRates.expand_mechanisms(init_specs, bi_bi_rxn)
         pre_dedup_counts = Dict(pc => length(specs) for (pc, specs) in expanded)
         EnzymeRates.dedup!(expanded)
@@ -4392,7 +4392,7 @@ end
 # ═══════════════════════════════════════════════════════════════════════
 
 @testset "Tagged groups exclude T-state params" begin
-    specs = EnzymeRates.init_mechanisms(uni_uni_allo)
+    specs = EnzymeRates._init_mechanism_specs(uni_uni_allo)
     spec = first(specs)
     allo_specs = EnzymeRates._expand_to_allosteric(
         spec, uni_uni_allo)

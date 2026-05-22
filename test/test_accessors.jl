@@ -91,7 +91,7 @@ end
         substrates: A[C], B[N]
         products:   P[C], Q[N]
     end
-    m_mono = first(EnzymeRates.init_mechanisms(rxn)) |>
+    m_mono = first(EnzymeRates._init_mechanism_specs(rxn)) |>
              EnzymeRates.EnzymeMechanism
     full_mono = parameters(m_mono, Full)
     reduced_mono = parameters(m_mono, Reduced)
@@ -107,7 +107,7 @@ end
         allosteric_regulators: R
         oligomeric_state: 2
     end
-    init = EnzymeRates.init_mechanisms(rxn_allo)
+    init = EnzymeRates._init_mechanism_specs(rxn_allo)
     base = first(init)
     used_groups = sort!(collect(
         Set(s.kinetic_group for s in base.steps)))

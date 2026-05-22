@@ -23,7 +23,7 @@ using OptimizationPyCMA
     # Build the constrained allosteric mechanism: K-type
     # allosteric with S, P only in R-state (`:OnlyR` group
     # tags) and R only in T-state (`:OnlyT` ligand tag).
-    _init = EnzymeRates.init_mechanisms(test_rxn)
+    _init = EnzymeRates._init_mechanism_specs(test_rxn)
     _base_spec = _init[1]
     # Find S-binding and P-binding kinetic groups by their
     # metabolite (single-step groups in init).
@@ -372,7 +372,7 @@ using OptimizationPyCMA
             substrates: S[C]
             products: P[C]
         end
-        init = EnzymeRates.init_mechanisms(rxn)
+        init = EnzymeRates._init_mechanism_specs(rxn)
         m = EnzymeRates.EnzymeMechanism(first(init))
 
         # 3 groups × 2 rows each so per-fold fits aren't degenerate

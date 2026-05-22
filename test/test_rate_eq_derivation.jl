@@ -886,7 +886,7 @@ end
         competitive_inhibitors: R1
     end
     # Add dead-end regulator R1 to the largest topology
-    topos = EnzymeRates.init_mechanisms(rxn)
+    topos = EnzymeRates._init_mechanism_specs(rxn)
     sort!(topos;
           by=s -> length(EnzymeRates.all_form_names(s)),
           rev=true)
@@ -958,7 +958,7 @@ end
         competitive_inhibitors: R1, R2
     end
     # Add dead-end regulator R1 to the largest topology
-    topos = EnzymeRates.init_mechanisms(rxn)
+    topos = EnzymeRates._init_mechanism_specs(rxn)
     sort!(topos;
           by=s -> length(EnzymeRates.all_form_names(s)),
           rev=true)
@@ -1197,7 +1197,7 @@ end
         allosteric_regulators: R
         oligomeric_state: 2
     end
-    init = EnzymeRates.init_mechanisms(rxn_allo)
+    init = EnzymeRates._init_mechanism_specs(rxn_allo)
     base = first(init)
     used_groups = sort!(collect(
         Set(s.kinetic_group for s in base.steps)))
