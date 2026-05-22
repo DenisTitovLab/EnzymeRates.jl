@@ -2659,6 +2659,79 @@ function dedup!(
     cache
 end
 
+# ─── Mechanism-based dedup ─────────────────────────────────────────────
+#
+# Canonical key for a `Step` that ignores `source_idx` (presentation
+# metadata). `Step`'s own `==`/`hash` already ignore `source_idx`; the
+# key tuple's sole job is to give `sort!` a deterministic ordering so
+# two physically-equivalent `Mechanism`s end up with identical step
+# storage and therefore identical struct-based `hash` / `==`.
+_step_canonical_key(s::Step) =
+    (hash(s.from_species), hash(s.to_species),
+     hash(s.bound_metabolite), s.is_equilibrium)
+
+"""
+Sort steps within each kinetic group by `_step_canonical_key`, then
+sort the outer group vector by the canonical key of its first step.
+Mutates the inner vectors of `m.steps` (and the outer vector itself)
+in place. `source_idx` values stay attached to their `Step`s; only
+storage order changes.
+"""
+function _canonicalize_mechanism!(m::Mechanism)
+    for group in m.steps
+        sort!(group; by = _step_canonical_key)
+    end
+    sort!(m.steps; by = group -> _step_canonical_key(first(group)))
+    m
+end
+
+function _canonicalize_mechanism!(am::AllostericMechanism)
+    # Catalytic-side step storage is canonicalized identically to
+    # `Mechanism`; the regulatory side is also canonicalized so two
+    # `AllostericMechanism`s differing only in site presentation order
+    # collapse. Ligand order within a site is fixed by the
+    # `RegulatorySite` constructor, so only the outer site vector and
+    # the parallel `cat_allo_states` vector need reordering. The inner
+    # sort must run BEFORE computing the outer permutation so the
+    # per-group "first step" key reflects the canonical inner order.
+    for group in am.cat_steps
+        sort!(group; by = _step_canonical_key)
+    end
+    perm = sortperm(1:length(am.cat_steps);
+                    by = g -> _step_canonical_key(first(am.cat_steps[g])))
+    permute!(am.cat_steps, perm)
+    permute!(am.cat_allo_states, perm)
+    sort!(am.regulatory_sites; by = _regulatory_site_canonical_key)
+    am
+end
+
+_regulatory_site_canonical_key(site::RegulatorySite) =
+    (Tuple(hash(l) for l in site.ligands),
+     site.multiplicity,
+     Tuple(site.allo_states))
+
+function dedup!(cache::Dict{Int, Vector{Mechanism}})
+    for (pc, mechs) in cache
+        for m in mechs
+            _canonicalize_mechanism!(m)
+        end
+        unique!(mechs)
+        isempty(mechs) && delete!(cache, pc)
+    end
+    cache
+end
+
+function dedup!(cache::Dict{Int, Vector{AllostericMechanism}})
+    for (pc, mechs) in cache
+        for m in mechs
+            _canonicalize_mechanism!(m)
+        end
+        unique!(mechs)
+        isempty(mechs) && delete!(cache, pc)
+    end
+    cache
+end
+
 # ─── Rate-equation canonical hash ──────────────────────────────────────
 
 """

@@ -4635,6 +4635,108 @@ end
         EnzymeRates.dedup!(cache)
         @test length(cache[3]) == 1
     end
+
+    @testset "Mechanism — same physics, different group order" begin
+        # Two Mechanisms representing the same physics but with their
+        # outer kinetic-group order swapped should collapse to one.
+        m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+        @test m_seed isa EnzymeRates.Mechanism
+        # Build a permuted copy by reversing the group order.
+        permuted_steps = reverse(m_seed.steps)
+        m_perm = EnzymeRates.Mechanism(
+            EnzymeRates.reaction(m_seed), permuted_steps)
+        cache = Dict(5 => EnzymeRates.Mechanism[m_seed, m_perm])
+        EnzymeRates.dedup!(cache)
+        @test length(cache[5]) == 1
+    end
+
+    @testset "Mechanism — different mechanisms preserved" begin
+        # Surviving Mechanisms must be pairwise distinct under
+        # compile-time equality (EnzymeMechanism singleton type).
+        mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        pc = 5  # arbitrary bucket key (init mechanisms all share params)
+        cache = Dict(pc => collect(mechs))
+        EnzymeRates.dedup!(cache)
+        compiled = Set(EnzymeRates.EnzymeMechanism(m) for m in cache[pc])
+        @test length(cache[pc]) == length(compiled)
+        @test length(cache[pc]) >= 2
+    end
+
+    @testset "Mechanism — idempotent" begin
+        mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        cache = Dict(5 => collect(mechs))
+        EnzymeRates.dedup!(cache)
+        n1 = length(cache[5])
+        EnzymeRates.dedup!(cache)
+        @test length(cache[5]) == n1
+    end
+
+    @testset "Mechanism — empty input" begin
+        cache = Dict{Int, Vector{EnzymeRates.Mechanism}}()
+        EnzymeRates.dedup!(cache)
+        @test isempty(cache)
+    end
+
+    @testset "Mechanism — empty bucket deleted" begin
+        cache = Dict(5 => EnzymeRates.Mechanism[])
+        EnzymeRates.dedup!(cache)
+        @test !haskey(cache, 5)
+    end
+
+    @testset "Mechanism — bi-bi init: count parity with MechanismSpec path" begin
+        # Both pipelines (MechanismSpec dedup vs Mechanism dedup, on the
+        # bi-bi init seed before any expansion) must produce the same
+        # post-dedup count. The init seed compiles 1:1 spec → EnzymeMechanism
+        # because every init spec is already in canonical form (no spec is
+        # a presentation-variant of another).
+        specs = EnzymeRates._init_mechanism_specs(bi_bi_rxn)
+        pc = first(specs).n_fit_params_estimate
+        spec_cache = Dict(pc => EnzymeRates.AbstractMechanismSpec[specs...])
+        EnzymeRates.dedup!(spec_cache)
+        spec_count = length(spec_cache[pc])
+
+        mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        mech_cache = Dict(pc => collect(mechs))
+        EnzymeRates.dedup!(mech_cache)
+        @test length(mech_cache[pc]) == spec_count
+    end
+
+    @testset "AllostericMechanism — same physics, site permutation" begin
+        # Build two AllostericMechanisms via the legacy spec path and lift,
+        # representing the same physics with sites in different order.
+        specs = EnzymeRates._init_mechanism_specs(uni_uni_allo)
+        base = first(specs)
+        used_groups = sort!(collect(
+            Set(s.kinetic_group for s in base.steps)))
+        group_tags = Dict{Int, Symbol}(
+            g => :NonequalRT for g in used_groups)
+        lig_tags = Dict{Symbol, Symbol}(
+            :A => :NonequalRT, :B => :NonequalRT)
+        spec_ab = AllostericMechanismSpec(
+            base, 2,
+            [[:A], [:B]], [2, 2],
+            copy(group_tags), copy(lig_tags),
+            base.n_fit_params_estimate + 2)
+        spec_ba = AllostericMechanismSpec(
+            base, 2,
+            [[:B], [:A]], [2, 2],
+            copy(group_tags), copy(lig_tags),
+            base.n_fit_params_estimate + 2)
+        am_ab = EnzymeRates.AllostericMechanism(
+            EnzymeRates.AllostericEnzymeMechanism(spec_ab))
+        am_ba = EnzymeRates.AllostericMechanism(
+            EnzymeRates.AllostericEnzymeMechanism(spec_ba))
+        cache = Dict(spec_ab.n_fit_params_estimate =>
+            EnzymeRates.AllostericMechanism[am_ab, am_ba])
+        EnzymeRates.dedup!(cache)
+        @test length(cache[spec_ab.n_fit_params_estimate]) == 1
+    end
+
+    @testset "AllostericMechanism — empty input" begin
+        cache = Dict{Int, Vector{EnzymeRates.AllostericMechanism}}()
+        EnzymeRates.dedup!(cache)
+        @test isempty(cache)
+    end
 end
 
 # ─── expand_mechanisms ─────────────────────────────────────────────────
