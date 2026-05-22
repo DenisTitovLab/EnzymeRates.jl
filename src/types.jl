@@ -749,7 +749,38 @@ struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 # `EnzymeMechanism(metabolites, reactions)` and the enumerator's
 # `EnzymeMechanism(spec::MechanismSpec)`; `Mechanism(em)` lifts either
 # shape so Stage 3 derivation consumers can walk a `Mechanism` uniformly.
-EnzymeMechanism(m::Mechanism) = EnzymeMechanism{_sig_of(m)}()
+# Lift a `Mechanism` to its singleton `EnzymeMechanism` type. The Sig
+# stores each Step's data including `source_idx`, which the derivation
+# pipeline keys parameter naming on (`_rep_idx_for_step`). To keep
+# downstream code's "source_idx == position in `reactions(em)`"
+# invariant intact across both Sig shapes — and avoid the index-by-
+# `source_idx` mismatch when an enumeration move produces a Mechanism
+# whose preserved `source_idx` no longer matches its current flat
+# group-major position — renumber `source_idx` to flat-position before
+# encoding. Mechanisms whose Steps already satisfy the invariant
+# (fresh DSL builds, init_mechanisms output, the Mechanism constructor
+# auto-assign path) are unaffected by the renumbering.
+EnzymeMechanism(m::Mechanism) =
+    EnzymeMechanism{_sig_of(_renumber_source_idx(m))}()
+
+function _renumber_source_idx(m::Mechanism)
+    pos = 0
+    new_steps = Vector{Vector{Step}}()
+    for group in m.steps
+        new_group = Step[]
+        for s in group
+            pos += 1
+            push!(new_group,
+                  Step(s.from_species, s.to_species,
+                       s.bound_metabolite, s.is_equilibrium;
+                       source_idx = pos))
+        end
+        push!(new_steps, new_group)
+    end
+    # Bypass the auto-assign branch by passing non-zero `source_idx` via
+    # the constructor; the constructor preserves the explicit values.
+    Mechanism(m.reaction, new_steps)
+end
 
 function Mechanism(em::EnzymeMechanism{Sig}) where {Sig}
     _is_new_sig(Sig) && return _mechanism_from_sig(Sig)
