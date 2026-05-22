@@ -23,32 +23,20 @@ using OptimizationPyCMA
     # Build the constrained allosteric mechanism: K-type
     # allosteric with S, P only in R-state (`:OnlyR` group
     # tags) and R only in T-state (`:OnlyT` ligand tag).
-    _init = EnzymeRates._init_mechanism_specs(test_rxn)
-    _base_spec = _init[1]
-    # Find S-binding and P-binding kinetic groups by their
-    # metabolite (single-step groups in init).
-    _g_s = first(s.kinetic_group for s in _base_spec.steps
-                 if EnzymeRates.step_metabolite(s) === :S)
-    _g_p = first(s.kinetic_group for s in _base_spec.steps
-                 if EnzymeRates.step_metabolite(s) === :P)
-    _used_groups = sort!(collect(
-        Set(s.kinetic_group for s in _base_spec.steps)))
-    _group_tags = Dict{Int,Symbol}(
-        g => :NonequalRT for g in _used_groups)
-    _group_tags[_g_s] = :OnlyR
-    _group_tags[_g_p] = :OnlyR
-    _allo_spec =
-        EnzymeRates.AllostericMechanismSpec(
-            _base_spec,
-            1,                # catalytic_n
-            [[:R]],           # reg sites
-            [1],              # multiplicities
-            _group_tags,
-            Dict(:R => :OnlyT),
-            8)                # n_fit_params_estimate
-    test_mechanism =
-        EnzymeRates.AllostericEnzymeMechanism(
-            _allo_spec)
+    _base = first(EnzymeRates.init_mechanisms(test_rxn))
+    _cat_allo_states = Symbol[]
+    for g in EnzymeRates.kinetic_groups(_base)
+        rep = EnzymeRates.rep_step(_base, g)
+        met = EnzymeRates.bound_metabolite(rep)
+        tag = (met isa EnzymeRates.Reactant) ? :OnlyR : :NonequalRT
+        push!(_cat_allo_states, tag)
+    end
+    _site = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:R)], 1, [:OnlyT])
+    _am = EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(_base), copy(EnzymeRates.steps(_base)),
+        _cat_allo_states, 1, [_site])
+    test_mechanism = EnzymeRates.AllostericEnzymeMechanism(_am)
 
     Keq_val = 2.0
     # 5 fitted params + 1 zeroed-path param (k3f_T)
@@ -372,8 +360,8 @@ using OptimizationPyCMA
             substrates: S[C]
             products: P[C]
         end
-        init = EnzymeRates._init_mechanism_specs(rxn)
-        m = EnzymeRates.EnzymeMechanism(first(init))
+        m = EnzymeRates.EnzymeMechanism(
+            first(EnzymeRates.init_mechanisms(rxn)))
 
         # 3 groups × 2 rows each so per-fold fits aren't degenerate
         data = DataFrame(
