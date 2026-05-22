@@ -616,24 +616,22 @@
             allosteric_regulators: R
             oligomeric_state: 2
         end
-        init = EnzymeRates._init_mechanism_specs(rxn)
-        base = first(init)
-        used_groups = sort!(collect(
-            Set(s.kinetic_group for s in base.steps)))
-        g_s = first(s.kinetic_group for s in base.steps
-                    if EnzymeRates.step_metabolite(s) === :S)
-        g_p = first(s.kinetic_group for s in base.steps
-                    if EnzymeRates.step_metabolite(s) === :P)
-        group_tags = Dict{Int,Symbol}(
-            g => :NonequalRT for g in used_groups)
-        group_tags[g_s] = :EqualRT
-        group_tags[g_p] = :EqualRT
-        spec = EnzymeRates.AllostericMechanismSpec(
-            base, 2, [[:R]], [2],
-            group_tags,
-            Dict(:R => :OnlyT),
-            base.n_fit_params_estimate + 1)
-        m = EnzymeRates.AllostericEnzymeMechanism(spec)
+        base = first(EnzymeRates.init_mechanisms(rxn))
+        cat_allo_states = Symbol[]
+        for g in EnzymeRates.kinetic_groups(base)
+            rep = EnzymeRates.rep_step(base, g)
+            met = EnzymeRates.bound_metabolite(rep)
+            tag = (met isa EnzymeRates.Reactant &&
+                   EnzymeRates.name(met) in (:S, :P)) ?
+                  :EqualRT : :NonequalRT
+            push!(cat_allo_states, tag)
+        end
+        site = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyT])
+        am = EnzymeRates.AllostericMechanism(
+            EnzymeRates.reaction(base), copy(EnzymeRates.steps(base)),
+            cat_allo_states, 2, [site])
+        m = EnzymeRates.AllostericEnzymeMechanism(am)
         s = repr(m)
 
         # Old summary line gone:
