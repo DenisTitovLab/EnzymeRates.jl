@@ -105,13 +105,13 @@ struct _CachedFitResult
     first_seen_eq_hash::String
 end
 
-"""Stage 1 result: uniform per-spec record so the `pmap` return
-is concretely-typed. The `spec` field is `AbstractMechanismSpec`
-(level vectors mix MechanismSpec and AllostericMechanismSpec, so
-we can't tighten the type without splitting the pipeline). On
-failure, every non-spec field has a sentinel value and `ok=false`."""
+"""Stage 1 result: uniform per-mechanism record so the `pmap` return
+is concretely-typed. The `mech` field is a `Union` of mechanism types
+(level vectors mix `Mechanism` and `AllostericMechanism`, so we can't
+tighten the type without splitting the pipeline). On failure, every
+non-mech field has a sentinel value and `ok=false`."""
 struct _Stage1Result
-    spec::AbstractMechanismSpec
+    mech::Union{Mechanism, AllostericMechanism}
     eq_text::String
     h_full::UInt64
     h_short::String
@@ -123,9 +123,9 @@ struct _Stage1Result
 end
 
 """Empty-failure sentinel."""
-_Stage1Failure(spec::AbstractMechanismSpec) =
+_Stage1Failure(m::Union{Mechanism, AllostericMechanism}) =
     _Stage1Result(
-        spec, "", zero(UInt64), "", 0, "",
+        m, "", zero(UInt64), "", 0, "",
         Dict{String,String}(), (), false)
 
 """
@@ -400,42 +400,43 @@ function _beam_search(
     # Persistent cross-level cache keyed by canonical hash.
     fit_cache = Dict{UInt64, _CachedFitResult}()
 
-    cache = Dict{Int,Vector{AbstractMechanismSpec}}()
-    for spec in _init_mechanism_specs(prob.reaction)
-        push!(get!(cache, spec.n_fit_params_estimate,
-                   AbstractMechanismSpec[]),
-              spec)
+    cache = Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}()
+    for m in init_mechanisms(prob.reaction, Mechanism)
+        push!(get!(cache, _n_fit_params_estimate(m),
+                   Union{Mechanism, AllostericMechanism}[]),
+              m)
     end
     dedup!(cache)
 
-    all_specs = AbstractMechanismSpec[]
+    all_mechs = Union{Mechanism, AllostericMechanism}[]
     all_rows  = NamedTuple[]
 
     isempty(cache) && return (
-        all_specs, _rows_to_dataframe(all_rows))
+        all_mechs, _rows_to_dataframe(all_rows))
 
     min_pc = minimum(keys(cache))
     for pc in min_pc:max_param_count
-        level = pop!(cache, pc, AbstractMechanismSpec[])
+        level = pop!(cache, pc,
+                     Union{Mechanism, AllostericMechanism}[])
         isempty(level) && (isempty(cache) ? break : continue)
 
         # ── Stage 1 (parallel): compile + hash ──
-        compiled = pmap_function(level) do spec
+        compiled = pmap_function(level) do mech
             try
-                m = compile_mechanism(spec)
+                m = compile_mechanism(mech)
                 eq_text = rate_equation_string(m)
                 h_full, h_short, name_map =
                     _canonical_rate_eq_hash_data(m)
                 fkeys = fitted_params(m)
                 n_actual = length(fkeys)
                 mech_type_str = string(typeof(m))
-                _Stage1Result(spec, eq_text, h_full, h_short,
+                _Stage1Result(mech, eq_text, h_full, h_short,
                               n_actual, mech_type_str, name_map,
                               fkeys, true)
             catch e
                 @debug("Mechanism compilation failed",
                        exception=(e, catch_backtrace()))
-                _Stage1Failure(spec)
+                _Stage1Failure(mech)
             end
         end
         filter!(c -> c.ok, compiled)
@@ -459,7 +460,7 @@ function _beam_search(
             collect(values(reps_by_hash))
         ) do rep
             try
-                m = compile_mechanism(rep.spec)
+                m = compile_mechanism(rep.mech)
                 fp = FittingProblem(m, prob.data; Keq=prob.Keq)
                 fit = fit_rate_equation(
                     fp, optimizer; kwargs...)
@@ -482,17 +483,17 @@ function _beam_search(
                 pc, r.n_actual, r.h_short)
         end
 
-        # ── Stage 3 (master): build ONE row per spec member ──
+        # ── Stage 3 (master): build ONE row per mechanism ──
         # Use Stage 1's captured `fitted_keys` (computed once on
         # the worker that compiled) instead of recompiling on
-        # master — saves a serial compile per spec.
+        # master — saves a serial compile per mechanism.
         level_rows = NamedTuple[]
-        level_specs = AbstractMechanismSpec[]
+        level_mechs = Union{Mechanism, AllostericMechanism}[]
         for c in compiled
             haskey(fit_cache, c.h_full) || continue
             cached = fit_cache[c.h_full]
             is_inherited = !(c.h_full in new_hashes)
-            spec_params = _project_cached_params(
+            mech_params = _project_cached_params(
                 cached.params, cached.canon_to_rep,
                 c.name_map, c.fitted_keys)
             row = (
@@ -502,17 +503,17 @@ function _beam_search(
                 rate_equation = c.eq_text,
                 fitted_param_names = c.fitted_keys,
                 fitted_param_values =
-                    Tuple(values(spec_params)),
+                    Tuple(values(mech_params)),
                 eq_hash = cached.first_seen_eq_hash,
                 fit_inherited_from_estimate =
                     is_inherited ? cached.first_seen_estimate :
                                    missing,
             )
             push!(level_rows, row)
-            push!(level_specs, c.spec)
+            push!(level_mechs, c.mech)
         end
 
-        append!(all_specs, level_specs)
+        append!(all_mechs, level_mechs)
         append!(all_rows,  level_rows)
 
         if save_dir !== nothing && !isempty(level_rows)
@@ -524,20 +525,20 @@ function _beam_search(
             loss_rel_threshold=loss_rel_threshold,
             loss_abs_threshold=loss_abs_threshold,
             min_beam_width=min_beam_width)
-        beam_specs = level_specs[sel]
+        beam_mechs = level_mechs[sel]
 
-        new_cache = expand_mechanisms(beam_specs, prob.reaction)
-        for (target_pc, specs) in new_cache
+        new_cache = expand_mechanisms(beam_mechs, prob.reaction)
+        for (target_pc, mechs) in new_cache
             target_pc > max_param_count && continue
             append!(get!(cache, target_pc,
-                         AbstractMechanismSpec[]),
-                    specs)
+                         Union{Mechanism, AllostericMechanism}[]),
+                    mechs)
         end
         dedup!(cache)
     end
 
     df = _rows_to_dataframe(all_rows)
-    return all_specs, df
+    return all_mechs, df
 end
 
 """
@@ -793,21 +794,21 @@ function _select_best_n_params(
 end
 
 function _cv_model_selection(
-    specs::Vector, df::DataFrame,
+    mechs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
     n_cv_candidates, pmap_function, optimizer,
     se_threshold::Float64,
     perm_p_threshold::Float64,
     kwargs...
 )
-    isempty(specs) && error(
+    isempty(mechs) && error(
         "No mechanisms were successfully " *
         "fitted during beam search")
 
     # Pick top n_cv_candidates per (n_params, eq_hash) bucket.
     candidate_indices = Int[]
     df_idx = DataFrame(
-        spec_idx = 1:nrow(df),
+        row_idx = 1:nrow(df),
         n_params = df.n_params,
         loss = df.loss,
         eq_hash = df.eq_hash,
@@ -818,18 +819,18 @@ function _cv_model_selection(
         for row in eachrow(sorted)
             row.eq_hash in seen_hashes && continue
             push!(seen_hashes, row.eq_hash)
-            push!(candidate_indices, row.spec_idx)
+            push!(candidate_indices, row.row_idx)
             length(seen_hashes) >= n_cv_candidates && break
         end
     end
 
-    candidate_specs = specs[candidate_indices]
+    candidate_mechs = mechs[candidate_indices]
     candidate_rows = df[candidate_indices, :]
 
     fold_scores_per_candidate = pmap_function(
-        candidate_specs
-    ) do spec
-        m = compile_mechanism(spec)
+        candidate_mechs
+    ) do mech
+        m = compile_mechanism(mech)
         _loocv(m, prob; optimizer, kwargs...)
     end
 
@@ -857,8 +858,8 @@ function _cv_model_selection(
         "internal: best_n=$(sel.best_n) has no rows in cv_df")
     sort_perm = sortperm(cv_df.loss[at_best_pc_idx])
     best_row_idx = at_best_pc_idx[sort_perm[1]]
-    best_spec = candidate_specs[best_row_idx]
-    best_mechanism = compile_mechanism(best_spec)
+    best_mech = candidate_mechs[best_row_idx]
+    best_mechanism = compile_mechanism(best_mech)
 
     # Populate diagnostic columns. A bucket may be absent from
     # diagnostics only if every row in it had empty fold scores.

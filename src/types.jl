@@ -1161,6 +1161,28 @@ function AllostericMechanism(
                         multiplicity, sites)
 end
 
+"""
+    AllostericEnzymeMechanism(am::AllostericMechanism)
+
+Lift an `AllostericMechanism` to its singleton `AllostericEnzymeMechanism`
+type. The catalytic side becomes an `EnzymeMechanism` lifting through
+`Mechanism(am.reaction, am.cat_steps)` so the `source_idx`-renumbering
+contract is preserved end-to-end. Catalytic and regulatory allosteric
+data are encoded directly into the type parameters.
+"""
+function AllostericEnzymeMechanism(am::AllostericMechanism)
+    cat_mech = Mechanism(am.reaction, am.cat_steps)
+    cm = EnzymeMechanism(cat_mech)
+    cat_sites = (am.catalytic_multiplicity,
+                 Tuple(am.cat_allo_states))
+    reg_sites = Tuple(
+        (Tuple(Symbol[name(l) for l in site.ligands]),
+         site.multiplicity,
+         Tuple(site.allo_states))
+        for site in am.regulatory_sites)
+    AllostericEnzymeMechanism(cm, cat_sites, reg_sites)
+end
+
 # --- Rate equation mode types ---
 
 """

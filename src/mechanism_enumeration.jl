@@ -1282,14 +1282,20 @@ end
 """
     compile_mechanism(spec::MechanismSpec)
     compile_mechanism(spec::AllostericMechanismSpec)
+    compile_mechanism(m::Mechanism)
+    compile_mechanism(am::AllostericMechanism)
 
-Convert a `MechanismSpec` to an `EnzymeMechanism`, or an
-`AllostericMechanismSpec` to an `AllostericEnzymeMechanism`.
+Convert a `MechanismSpec` to an `EnzymeMechanism`, an
+`AllostericMechanismSpec` to an `AllostericEnzymeMechanism`,
+a `Mechanism` to an `EnzymeMechanism`, or an `AllostericMechanism`
+to an `AllostericEnzymeMechanism`.
 """
 compile_mechanism(spec::MechanismSpec) =
     EnzymeMechanism(spec)
 compile_mechanism(spec::AllostericMechanismSpec) =
     AllostericEnzymeMechanism(spec)
+compile_mechanism(m::Mechanism) = EnzymeMechanism(m)
+compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
 
 """Strip a `__regN?` suffix from a Symbol; identity if absent."""
 function _strip_reg_suffix(sym::Symbol)
@@ -1510,6 +1516,56 @@ _steps(s::MechanismSpec) = s.steps
 _steps(s::AllostericMechanismSpec) = s.base.steps
 
 _n_fit_params_estimate(s::AbstractMechanismSpec) = s.n_fit_params_estimate
+
+"""
+    _n_fit_params_estimate(m::Mechanism)
+    _n_fit_params_estimate(am::AllostericMechanism)
+
+Upper-bound estimate of the fittable parameter count for a `Mechanism`
+or `AllostericMechanism`. Counts kinetic GROUPS (one K per RE group,
+two k per SS group) and subtracts the number of independent thermodynamic
+cycles (Haldane + Wegscheider) bound by the enzyme-form graph. The
+allosteric variant adds the per-tag bookkeeping plus +1 for `L`.
+
+This mirrors the spec-side `_n_fit_params_estimate_from_steps` formula
+but reads from `Mechanism`'s structural fields directly.
+"""
+function _n_fit_params_estimate(m::Mechanism)
+    n_steps = sum(length, m.steps; init = 0)
+    n_re_groups = 0
+    n_ss_groups = 0
+    form_names = Set{Symbol}()
+    for group in m.steps
+        isempty(group) && continue
+        is_re = is_equilibrium(first(group))
+        is_re ? (n_re_groups += 1) : (n_ss_groups += 1)
+        for s in group
+            push!(form_names, name(from_species(s)))
+            push!(form_names, name(to_species(s)))
+        end
+    end
+    n_thermo = n_steps - length(form_names) + 1
+    n_re_groups + 2 * n_ss_groups - n_thermo
+end
+
+function _n_fit_params_estimate(am::AllostericMechanism)
+    base = _n_fit_params_estimate(Mechanism(am.reaction, am.cat_steps))
+    # +1 for L (R/T equilibrium constant), plus per-tag bookkeeping:
+    # :NonequalRT catalytic groups double; :NonequalRT regulator ligands
+    # also double; per-site Kreg adds a K per ligand.
+    tag_extra = 0
+    for tag in am.cat_allo_states
+        tag == :NonequalRT && (tag_extra += 1)
+    end
+    reg_extra = 0
+    for site in am.regulatory_sites
+        for (lig, st) in zip(site.ligands, site.allo_states)
+            reg_extra += 1
+            st == :NonequalRT && (reg_extra += 1)
+        end
+    end
+    base + 1 + tag_extra + reg_extra
+end
 
 """
 Return a copy of `spec` with its steps replaced and estimate updated.
@@ -2536,6 +2592,80 @@ function expand_mechanisms(
     result
 end
 
+"""
+    expand_mechanisms(mechs::Vector, reaction)
+        → Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
+
+Mechanism-native overload. Applies all expansion moves to each input
+mechanism (RE→SS, split kinetic group, add dead-end regulator,
+to-allosteric, add allosteric regulator, change allo state) and
+buckets results by their `_n_fit_params_estimate` upper bound.
+
+Accepts a heterogeneous mix of `Mechanism` and `AllostericMechanism`
+inputs — the spec-overload pipeline returns the same mix because
+`_expand_to_allosteric` promotes a `Mechanism` to an
+`AllostericMechanism`. The reaction argument may be either a concrete
+`EnzymeReaction` or the legacy parametric form (the per-move helpers
+dispatch on `EnzymeReaction`; the boundary adapter at the bottom of
+this file forwards from legacy).
+"""
+function expand_mechanisms(
+    mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
+    rxn::EnzymeReaction)
+    result = Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}()
+    for m in mechs
+        _add_expansions_mech!(result, m, rxn)
+    end
+    result
+end
+
+# Adapter so callers holding the legacy parametric reaction form
+# (e.g. `IdentifyRateEquationProblem`) can drive the Mechanism-side
+# pipeline. Pulls the concrete `EnzymeReaction` from any mechanism in
+# the input vector (every `Mechanism`/`AllostericMechanism` stores its
+# own concrete reaction). Empty input is a no-op so no concrete
+# reaction is needed for the empty result.
+function expand_mechanisms(
+    mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
+    @nospecialize(::EnzymeReactionLegacy))
+    isempty(mechs) &&
+        return Dict{Int,
+                    Vector{Union{Mechanism, AllostericMechanism}}}()
+    expand_mechanisms(mechs, first(mechs).reaction)
+end
+
+function _add_expansions_mech!(
+    result::Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}},
+    m::Union{Mechanism, AllostericMechanism},
+    rxn::EnzymeReaction)
+    for s in _expand_re_to_ss(m)
+        _push_mech!(result, s)
+    end
+    for s in _expand_split_kinetic_group(m)
+        _push_mech!(result, s)
+    end
+    for s in _expand_add_dead_end_regulator(m, rxn)
+        _push_mech!(result, s)
+    end
+    for s in _expand_to_allosteric(m, rxn)
+        _push_mech!(result, s)
+    end
+    for s in _expand_add_allosteric_regulator(m, rxn)
+        _push_mech!(result, s)
+    end
+    for s in _expand_change_allo_state(m)
+        _push_mech!(result, s)
+    end
+end
+
+function _push_mech!(
+    result::Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}},
+    m::Union{Mechanism, AllostericMechanism})
+    pc = _n_fit_params_estimate(m)
+    push!(get!(result, pc,
+               Union{Mechanism, AllostericMechanism}[]), m)
+end
+
 function _add_expansions!(
     result::Dict{Int, Vector{AbstractMechanismSpec}},
     spec::AbstractMechanismSpec,
@@ -2732,6 +2862,27 @@ function dedup!(cache::Dict{Int, Vector{AllostericMechanism}})
     cache
 end
 
+"""
+    dedup!(cache::Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}})
+
+Heterogeneous-bucket dedup for the `identify_rate_equation` pipeline,
+which stores allosteric promotions alongside non-allosteric mechanisms
+in the same param-count bucket. Canonicalizes each mechanism in place
+via the type-specific `_canonicalize_mechanism!` overload, then runs
+`unique!` so structurally-equivalent mechanisms collapse.
+"""
+function dedup!(cache::Dict{Int,
+                            Vector{Union{Mechanism, AllostericMechanism}}})
+    for (pc, mechs) in cache
+        for m in mechs
+            _canonicalize_mechanism!(m)
+        end
+        unique!(mechs)
+        isempty(mechs) && delete!(cache, pc)
+    end
+    cache
+end
+
 # ─── Rate-equation canonical hash ──────────────────────────────────────
 
 """
@@ -2907,6 +3058,13 @@ end
 # downstream consumers (`expand_mechanisms`, `dedup!`, tests) that
 # have not yet been switched to `Mechanism`.
 init_mechanisms(r::EnzymeReaction) =
+    [_mechanism_from_spec(spec) for spec in _init_mechanism_specs(r)]
+
+# Mechanism-returning entry point for the EnzymeReactionLegacy form
+# stored in `IdentifyRateEquationProblem.reaction`. Bridges through
+# `_init_mechanism_specs` so the EnzymeReaction overload above stays
+# the canonical user-facing entry.
+init_mechanisms(r::EnzymeReactionLegacy, ::Type{Mechanism}) =
     [_mechanism_from_spec(spec) for spec in _init_mechanism_specs(r)]
 
 """
