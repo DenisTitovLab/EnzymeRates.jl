@@ -2635,31 +2635,109 @@ _expand_add_allosteric_regulator(
                                      rxn::EnzymeReaction)
         → Vector{AllostericMechanism}
 
-Mechanism-native overload. Like the dead-end overload, the caller
-must pass the declared `rxn` because the mechanism's own .reaction
-only carries regulators already bound by its steps; this move adds a
-regulator declared in the reaction but not yet bound. Bridges
-through the spec implementation (`_spec_from_mechanism` → spec move
-→ `AllostericMechanism(AllostericEnzymeMechanism(spec))`).
+Add one `AllostericRegulator` declared in `rxn` but not yet bound by
+`am` (neither at a regulatory site nor as a catalytic-step dead-end
+inhibitor). For each (new ligand, target site, tag) combination, emit
+a variant:
+
+  * target site ∈ {new site} ∪ {existing sites}
+  * tag ∈ {:OnlyR, :OnlyT, :NonequalRT} for any target site
+  * tag = :EqualRT only at an existing site that already has at least
+    one non-`:EqualRT` ligand (otherwise the `RegulatorySite`
+    constructor's all-`:EqualRT` rule would reject the variant).
+
+New sites inherit `am.catalytic_multiplicity` as their multiplicity.
+The mechanism's catalytic side, regulatory_sites' multiplicities, and
+reaction payload pass through unchanged.
+
+Caller must supply `rxn` because `am.reaction` only carries regulators
+already bound by its steps; not-yet-bound regulators live in the
+declared reaction.
 """
 function _expand_add_allosteric_regulator(
     am::AllostericMechanism, rxn::EnzymeReaction,
 )
-    spec = _spec_from_mechanism(am)
-    legacy_rxn = _to_legacy_reaction(rxn)
-    full_base = MechanismSpec(legacy_rxn, spec.base.steps,
-                              spec.base.n_fit_params_estimate)
-    full_spec = AllostericMechanismSpec(
-        full_base, spec.catalytic_n,
-        deepcopy(spec.allosteric_reg_sites),
-        copy(spec.allosteric_multiplicities),
-        copy(spec.group_tags), copy(spec.reg_ligand_tags),
-        spec.n_fit_params_estimate)
-    result_specs = _expand_add_allosteric_regulator(
-        full_spec, legacy_rxn)
-    AllostericMechanism[
-        AllostericMechanism(AllostericEnzymeMechanism(s))
-        for s in result_specs]
+    existing_allo = Set{Symbol}()
+    for site in am.regulatory_sites, lig in ligands(site)
+        push!(existing_allo, name(lig))
+    end
+
+    existing_de = Set{Symbol}()
+    for group in am.cat_steps, s in group
+        bm = bound_metabolite(s)
+        bm isa Regulator && push!(existing_de, name(bm))
+    end
+
+    new_regs = Symbol[]
+    for rm in regulators(rxn)
+        reg = regulator(rm)
+        reg isa AllostericRegulator || continue
+        name(reg) in existing_allo && continue
+        name(reg) in existing_de && continue
+        push!(new_regs, name(reg))
+    end
+    sort!(new_regs)
+    isempty(new_regs) && return AllostericMechanism[]
+
+    results = AllostericMechanism[]
+    for reg in new_regs
+        n_sites = length(am.regulatory_sites)
+        # Non-:EqualRT tags at any (new or existing) site.
+        for tag in (:OnlyR, :OnlyT, :NonequalRT)
+            for site_idx in 0:n_sites
+                push!(results,
+                    _make_am_with_added_reg(am, reg, tag, site_idx))
+            end
+        end
+        # :EqualRT at an existing site only when that site already has
+        # at least one non-:EqualRT ligand (avoids the constructor's
+        # all-:EqualRT single-ligand rejection / identical-cancellation).
+        for site_idx in 1:n_sites
+            site = am.regulatory_sites[site_idx]
+            any(st != :EqualRT for st in allo_states(site)) || continue
+            push!(results,
+                _make_am_with_added_reg(am, reg, :EqualRT, site_idx))
+        end
+    end
+    results
+end
+
+"""
+Build an `AllostericMechanism` identical to `am` except the ligand
+`reg::Symbol` is added at `site_idx` (0 = create a new site,
+1..length(am.regulatory_sites) = append to that existing site) with
+allosteric state `tag`. Multiplicity for a new site inherits
+`am.catalytic_multiplicity`.
+"""
+function _make_am_with_added_reg(
+    am::AllostericMechanism, reg::Symbol, tag::Symbol, site_idx::Int,
+)
+    new_sites = RegulatorySite[]
+    if site_idx == 0
+        for site in am.regulatory_sites
+            push!(new_sites, site)
+        end
+        push!(new_sites, RegulatorySite(
+            AllostericRegulator[AllostericRegulator(reg)],
+            am.catalytic_multiplicity,
+            Symbol[tag]))
+    else
+        for (i, site) in enumerate(am.regulatory_sites)
+            if i == site_idx
+                new_ligs = copy(ligands(site))
+                push!(new_ligs, AllostericRegulator(reg))
+                new_states = copy(allo_states(site))
+                push!(new_states, tag)
+                push!(new_sites, RegulatorySite(
+                    new_ligs, multiplicity(site), new_states))
+            else
+                push!(new_sites, site)
+            end
+        end
+    end
+    AllostericMechanism(am.reaction, copy(am.cat_steps),
+                        copy(am.cat_allo_states),
+                        am.catalytic_multiplicity, new_sites)
 end
 
 """
