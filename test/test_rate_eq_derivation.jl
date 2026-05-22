@@ -886,16 +886,15 @@ end
         competitive_inhibitors: R1
     end
     # Add dead-end regulator R1 to the largest topology
-    topos = EnzymeRates._init_mechanism_specs(rxn)
-    sort!(topos;
-          by=s -> length(EnzymeRates.all_form_names(s)),
-          rev=true)
-    variants = EnzymeRates._expand_add_dead_end_regulator(
-        topos[1], rxn)
-    # Find largest compilable spec
-    sort!(variants;
-          by=s -> length(EnzymeRates.all_form_names(s)),
-          rev=true)
+    n_forms_of(mech) = length(Set(
+        sp for grp in EnzymeRates.steps(mech) for st in grp
+        for sp in (EnzymeRates.from_species(st),
+                   EnzymeRates.to_species(st))))
+    topos = EnzymeRates.init_mechanisms(rxn)
+    sort!(topos; by=n_forms_of, rev=true)
+    variants = EnzymeRates._expand_add_dead_end_regulator(topos[1], rxn)
+    # Find largest compilable mechanism
+    sort!(variants; by=n_forms_of, rev=true)
     m = nothing
     for s in variants
         try
@@ -958,31 +957,32 @@ end
         competitive_inhibitors: R1, R2
     end
     # Add dead-end regulator R1 to the largest topology
-    topos = EnzymeRates._init_mechanism_specs(rxn)
-    sort!(topos;
-          by=s -> length(EnzymeRates.all_form_names(s)),
-          rev=true)
-    variants = EnzymeRates._expand_add_dead_end_regulator(
-        topos[1], rxn)
+    n_forms_of(mech) = length(Set(
+        sp for grp in EnzymeRates.steps(mech) for st in grp
+        for sp in (EnzymeRates.from_species(st),
+                   EnzymeRates.to_species(st))))
+    topos = EnzymeRates.init_mechanisms(rxn)
+    sort!(topos; by=n_forms_of, rev=true)
+    variants = EnzymeRates._expand_add_dead_end_regulator(topos[1], rxn)
     # Find a mechanism with >= 15 forms and force all
     # steps to SS to trigger the polynomial term limit.
-    # Skip specs that cause thermodynamic cycle errors.
-    sort!(variants;
-          by=s -> length(EnzymeRates.all_form_names(s)),
-          rev=true)
+    # Skip mechanisms that cause thermodynamic cycle errors.
+    sort!(variants; by=n_forms_of, rev=true)
     m_enum = nothing
     for s in variants
-        n_forms = length(
-            EnzymeRates.all_form_names(s))
-        n_forms >= 15 || continue
-        all_ss = [EnzymeRates.StepSpec(
-            st.reactants, st.products, false,
-            st.kinetic_group)
-            for st in s.steps]
-        spec = EnzymeRates.MechanismSpec(
-            s.reaction, all_ss, s.n_fit_params_estimate)
+        n_forms_of(s) >= 15 || continue
+        all_ss_groups = Vector{EnzymeRates.Step}[
+            [EnzymeRates.Step(
+                EnzymeRates.from_species(st),
+                EnzymeRates.to_species(st),
+                EnzymeRates.bound_metabolite(st),
+                false)
+             for st in grp]
+            for grp in EnzymeRates.steps(s)]
+        all_ss = EnzymeRates.Mechanism(
+            EnzymeRates.reaction(s), all_ss_groups)
         try
-            m_enum = EnzymeMechanism(spec)
+            m_enum = EnzymeMechanism(all_ss)
             parameters(m_enum)
             break
         catch
@@ -1191,22 +1191,17 @@ end
 end
 
 @testset "rate_equation_string allosteric byte-identical fixture" begin
-    rxn_allo = @enzyme_reaction begin
-        substrates: S[C]
-        products:   P[C]
-        allosteric_regulators: R
-        oligomeric_state: 2
+    m_allo = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: R::NonequalRT
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E_P  :: NonequalRT
+            E + S ⇌ E_S  :: NonequalRT
+            E_S <--> E_P :: NonequalRT
+        end
     end
-    init = EnzymeRates._init_mechanism_specs(rxn_allo)
-    base = first(init)
-    used_groups = sort!(collect(
-        Set(s.kinetic_group for s in base.steps)))
-    spec = EnzymeRates.AllostericMechanismSpec(
-        base, 2, [[:R]], [2],
-        Dict(g => :NonequalRT for g in used_groups),
-        Dict(:R => :NonequalRT),
-        base.n_fit_params_estimate + 5)
-    m_allo = EnzymeRates.AllostericEnzymeMechanism(spec)
     actual = rate_equation_string(m_allo)
     expected = raw"""(; K1, K2, k3f, K1_T, K2_T, k3f_T, K_R_reg1, K_R_T_reg1, L, Keq, E_total) = params
 (; S, P, R) = concs

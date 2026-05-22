@@ -91,8 +91,8 @@ end
         substrates: A[C], B[N]
         products:   P[C], Q[N]
     end
-    m_mono = first(EnzymeRates._init_mechanism_specs(rxn)) |>
-             EnzymeRates.EnzymeMechanism
+    m_mono = EnzymeRates.EnzymeMechanism(
+        first(EnzymeRates.init_mechanisms(rxn)))
     full_mono = parameters(m_mono, Full)
     reduced_mono = parameters(m_mono, Reduced)
     @test :E_total in full_mono
@@ -107,16 +107,14 @@ end
         allosteric_regulators: R
         oligomeric_state: 2
     end
-    init = EnzymeRates._init_mechanism_specs(rxn_allo)
-    base = first(init)
-    used_groups = sort!(collect(
-        Set(s.kinetic_group for s in base.steps)))
-    spec = EnzymeRates.AllostericMechanismSpec(
-        base, 2, [[:R]], [2],
-        Dict(g => :NonequalRT for g in used_groups),
-        Dict(:R => :NonequalRT),
-        base.n_fit_params_estimate + 5)
-    m_allo = EnzymeRates.AllostericEnzymeMechanism(spec)
+    base = first(EnzymeRates.init_mechanisms(rxn_allo))
+    cat_allo_states = fill(:NonequalRT, length(EnzymeRates.kinetic_groups(base)))
+    site = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:R)], 2, [:NonequalRT])
+    am = EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(base), copy(EnzymeRates.steps(base)),
+        cat_allo_states, 2, [site])
+    m_allo = EnzymeRates.AllostericEnzymeMechanism(am)
     full_allo = parameters(m_allo, Full)
     reduced_allo = parameters(m_allo, Reduced)
     @test :L in full_allo
