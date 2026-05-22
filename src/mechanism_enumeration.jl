@@ -2094,55 +2094,307 @@ function _spec_from_mechanism(am::AllostericMechanism)
 end
 
 """
+Walk every step in `m` (or `am`) and parse each form's bound-metabolite
+name set from the form Symbol (conformation only — `bound` is empty in
+Mechanisms produced by the enumerator / legacy lift). Greedy match
+against `met_set`. Used by the Mechanism-native dead-end-regulator move
+to identify eligible base forms.
+"""
+function _bound_mets_from_form_name(form::Symbol, met_set::Set{Symbol})
+    s = string(form)
+    (s == "E" || s == "Estar") && return Set{Symbol}()
+    body = startswith(s, "Estar_") ? s[7:end] :
+           startswith(s, "E_") ? s[3:end] : s
+    parts = split(body, "_")
+    result = Set{Symbol}()
+    i = 1
+    while i <= length(parts)
+        matched = false
+        for len in length(parts):-1:1
+            i + len - 1 > length(parts) && continue
+            candidate = Symbol(join(parts[i:i+len-1], "_"))
+            if candidate in met_set
+                push!(result, candidate)
+                i += len
+                matched = true
+                break
+            end
+        end
+        matched || (i += 1)
+    end
+    result
+end
+
+"""
+Reconstruct each form's bound-metabolite name set from the step graph
+of `m`. `extra_mets` extends the known metabolite vocabulary (e.g., a
+regulator declared in `rxn` but not yet bound). Returns
+`Dict{form_name => Set{met_name}}`.
+"""
+function _bound_at_forms(m::Union{Mechanism, AllostericMechanism},
+                         rxn::EnzymeReaction, extra_mets::Set{Symbol})
+    met_set = Set{Symbol}()
+    for ra in reactants(rxn); push!(met_set, name(metabolite(ra))); end
+    for rm in regulators(rxn); push!(met_set, name(regulator(rm))); end
+    union!(met_set, extra_mets)
+    for group in steps(m), s in group
+        bm = bound_metabolite(s)
+        bm === nothing || push!(met_set, name(bm))
+    end
+    result = Dict{Symbol, Set{Symbol}}()
+    for group in steps(m), s in group
+        for sp in (from_species(s), to_species(s))
+            fn = name(sp)
+            haskey(result, fn) ||
+                (result[fn] = _bound_mets_from_form_name(fn, met_set))
+        end
+    end
+    result
+end
+
+"""
+Return source-form names that have a binding step for the named
+metabolite. The source form is the side without the metabolite (RE
+binding canonicalizes the metabolite onto `to_species`).
+"""
+function _forms_with_binding_step_native(
+    m::Union{Mechanism, AllostericMechanism}, met_name::Symbol,
+)
+    result = Set{Symbol}()
+    for group in steps(m), s in group
+        bm = bound_metabolite(s)
+        bm === nothing && continue
+        name(bm) == met_name || continue
+        push!(result, name(from_species(s)))
+    end
+    result
+end
+
+"""
+Build a conformation-only `Species` with the given form Symbol as the
+conformation, no bound metabolites, and an empty residual. Matches the
+representation produced by `_mechanism_from_legacy_sig` so dead-end /
+mirror species built natively interoperate with enumerator output.
+"""
+_conformation_species(form::Symbol) =
+    Species(Metabolite[], form, Residual())
+
+"""
+Extend `rxn`'s regulators with a new `CompetitiveInhibitor(name)`,
+preserving every other field (reactants, allowed catalytic
+multiplicities). `EnzymeReaction`'s inner constructor canonicalizes the
+regulator order.
+"""
+function _add_competitive_inhibitor(rxn::EnzymeReaction, reg_name::Symbol)
+    new_regs = copy(rxn.regulators)
+    push!(new_regs, RegulatorMults(CompetitiveInhibitor(reg_name), Int[1]))
+    EnzymeReaction(copy(rxn.reactants), new_regs,
+                   copy(rxn.allowed_catalytic_multiplicities))
+end
+
+"""
     _expand_add_dead_end_regulator(m::Mechanism, rxn::EnzymeReaction;
                                    exclude_regs) → Vector{Mechanism}
     _expand_add_dead_end_regulator(am::AllostericMechanism,
                                    rxn::EnzymeReaction; exclude_regs) →
         Vector{AllostericMechanism}
 
-Mechanism-native overload of the dead-end-regulator expansion move.
-`rxn` is the declared reaction (with the full regulator list); the
-mechanism's own `.reaction` only carries regulators already bound by
-its steps, so the caller must supply the declared reaction to access
-not-yet-bound regulators. Bridges through the spec implementation
-(`_spec_from_mechanism` → spec move → `_mechanism_from_spec`),
-preserving the same structural enumeration.
+Add a dead-end regulator binding step set. For each `CompetitiveInhibitor`
+declared in `rxn` but not yet bound by `m`'s steps, enumerate inhibitor
+competition patterns (S × P × existing inhibitors); for each pattern,
+add RE binding steps to forms where the competing metabolite has a
+binding step and the form isn't already bound by any competing
+metabolite. Mirror steps inherit their catalytic counterpart's
+`kinetic_group`. All new binding steps for a single regulator share one
+fresh trailing kinetic group (one K_R parameter).
+
+The caller must pass the declared `rxn` because `m.reaction` only
+carries regulators already bound by its steps; not-yet-bound regulators
+live exclusively in the declared reaction. The new `Mechanism`'s
+reaction is `rxn` extended with the newly-bound regulator (preserving
+the substrate / product / multiplicity payload).
 """
 function _expand_add_dead_end_regulator(
     m::Mechanism, rxn::EnzymeReaction;
     exclude_regs::Set{Symbol}=Set{Symbol}(),
 )
-    spec = _spec_from_mechanism(m)
-    legacy_rxn = _to_legacy_reaction(rxn)
-    # The bridge produces a spec whose reaction is the mechanism's
-    # (possibly stripped) reaction; rebuild it carrying the declared
-    # `rxn` so the spec move sees the full regulator list.
-    full_spec = MechanismSpec(legacy_rxn, spec.steps,
-                              spec.n_fit_params_estimate)
-    result_specs = _expand_add_dead_end_regulator(
-        full_spec, legacy_rxn; exclude_regs=exclude_regs)
-    Mechanism[_mechanism_from_spec(s) for s in result_specs]
+    _expand_add_dead_end_regulator_native(
+        m, rxn, Set{Symbol}();
+        exclude_regs=exclude_regs,
+        wrap=(new_groups, new_g, new_reaction) ->
+            Mechanism(new_reaction, new_groups))
 end
 
 function _expand_add_dead_end_regulator(
     am::AllostericMechanism, rxn::EnzymeReaction;
     exclude_regs::Set{Symbol}=Set{Symbol}(),
 )
-    spec = _spec_from_mechanism(am)
-    legacy_rxn = _to_legacy_reaction(rxn)
-    full_base = MechanismSpec(legacy_rxn, spec.base.steps,
-                              spec.base.n_fit_params_estimate)
-    full_spec = AllostericMechanismSpec(
-        full_base, spec.catalytic_n,
-        deepcopy(spec.allosteric_reg_sites),
-        copy(spec.allosteric_multiplicities),
-        copy(spec.group_tags), copy(spec.reg_ligand_tags),
-        spec.n_fit_params_estimate)
-    result_specs = _expand_add_dead_end_regulator(
-        full_spec, legacy_rxn; exclude_regs=exclude_regs)
-    AllostericMechanism[
-        AllostericMechanism(AllostericEnzymeMechanism(s))
-        for s in result_specs]
+    # Allosteric ligands are excluded — dead-end is not the right move
+    # for them (they belong on a regulatory site).
+    allo_ligands = Set{Symbol}()
+    for site in am.regulatory_sites, lig in ligands(site)
+        push!(allo_ligands, name(lig))
+    end
+    _expand_add_dead_end_regulator_native(
+        am, rxn, allo_ligands;
+        exclude_regs=exclude_regs,
+        wrap=(new_groups, new_g, new_reaction) -> AllostericMechanism(
+            new_reaction, new_groups,
+            vcat(am.cat_allo_states, [:EqualRT]),
+            am.catalytic_multiplicity,
+            copy(am.regulatory_sites)))
+end
+
+"""
+Shared kernel for the Mechanism / AllostericMechanism dead-end
+expansion. `additional_excluded` carries allosteric ligand names that
+should not be eligible (empty for plain `Mechanism`). `wrap` constructs
+the result from the assembled step groups, the new regulator's kinetic
+group index, and the new reaction.
+"""
+function _expand_add_dead_end_regulator_native(
+    m::Union{Mechanism, AllostericMechanism},
+    rxn::EnzymeReaction,
+    additional_excluded::Set{Symbol};
+    exclude_regs::Set{Symbol},
+    wrap,
+)
+    isempty(regulators(rxn)) && return typeof(m)[]
+
+    sub_names = Set(name(s) for s in substrates(rxn))
+    prod_names = Set(name(p) for p in products(rxn))
+
+    existing_regs = Set{Symbol}()
+    for group in steps(m), s in group
+        bm = bound_metabolite(s)
+        bm isa Regulator && push!(existing_regs, name(bm))
+    end
+
+    eligible_regs = Symbol[]
+    for rm in regulators(rxn)
+        reg = regulator(rm)
+        reg isa CompetitiveInhibitor || continue
+        name(reg) in existing_regs && continue
+        name(reg) in additional_excluded && continue
+        name(reg) in exclude_regs && continue
+        push!(eligible_regs, name(reg))
+    end
+    sort!(eligible_regs)
+    isempty(eligible_regs) && return typeof(m)[]
+
+    cat_forms = Set{Symbol}()
+    for group in steps(m), s in group
+        push!(cat_forms, name(from_species(s)))
+        push!(cat_forms, name(to_species(s)))
+    end
+
+    n_groups_before = length(steps(m))
+    n_steps_before = sum(length, steps(m); init = 0)
+    results = typeof(m)[]
+
+    for reg_name in eligible_regs
+        # Make this regulator visible to form-name parsing so e.g.
+        # parsing :E_I knows :I is a bound metabolite.
+        bound = _bound_at_forms(m, rxn, Set([reg_name]))
+
+        eligible_forms = Symbol[]
+        for f in sort(collect(cat_forms))
+            haskey(bound, f) || continue
+            fb = bound[f]
+            (intersect(fb, sub_names) == sub_names ||
+                intersect(fb, prod_names) == prod_names) && continue
+            push!(eligible_forms, f)
+        end
+        isempty(eligible_forms) && continue
+
+        existing_inhibitors = Symbol[]
+        for group in steps(m), s in group
+            bm = bound_metabolite(s)
+            bm isa Regulator || continue
+            name(bm) == reg_name && continue
+            push!(existing_inhibitors, name(bm))
+        end
+        sort!(unique!(existing_inhibitors))
+
+        inh_patterns = _inhibitor_competition_patterns(
+            sub_names, prod_names, existing_inhibitors)
+        seen = Set{Vector{Symbol}}()
+
+        for (comp_subs, comp_prods, comp_inhibitors) in inh_patterns
+            target_forms = Set{Symbol}()
+            for met in comp_subs
+                union!(target_forms,
+                       _forms_with_binding_step_native(m, met))
+            end
+            for met in comp_prods
+                union!(target_forms,
+                       _forms_with_binding_step_native(m, met))
+            end
+            for inh in comp_inhibitors
+                union!(target_forms,
+                       _forms_with_binding_step_native(m, inh))
+            end
+
+            all_competing = union(comp_subs, comp_prods, comp_inhibitors)
+            active = Symbol[]
+            for f in sort(collect(target_forms))
+                f in eligible_forms || continue
+                haskey(bound, f) || continue
+                isempty(intersect(bound[f], all_competing)) || continue
+                push!(active, f)
+            end
+            isempty(active) && continue
+            active in seen && continue
+            push!(seen, active)
+
+            # Source-idx accounting: new steps continue past the
+            # existing max so the result Mechanism's invariant
+            # ("all source_idx non-zero" or "all zero") is preserved.
+            next_src = n_steps_before + 1
+
+            de_species_map = Dict{Symbol, Species}()
+            reg_group_steps = Step[]
+            for cf in active
+                de_name = _dead_end_form_name(cf, bound[cf], reg_name)
+                de_species = _conformation_species(de_name)
+                de_species_map[cf] = de_species
+                push!(reg_group_steps, Step(
+                    _conformation_species(cf), de_species,
+                    CompetitiveInhibitor(reg_name), true;
+                    source_idx = next_src))
+                next_src += 1
+            end
+
+            mirror_per_group = Dict{Int, Vector{Step}}()
+            for (gi, group) in enumerate(steps(m))
+                for s in group
+                    fn = name(from_species(s))
+                    tn = name(to_species(s))
+                    haskey(de_species_map, fn) || continue
+                    haskey(de_species_map, tn) || continue
+                    push!(get!(mirror_per_group, gi, Step[]),
+                        Step(de_species_map[fn], de_species_map[tn],
+                             bound_metabolite(s), is_equilibrium(s);
+                             source_idx = next_src))
+                    next_src += 1
+                end
+            end
+
+            new_groups = Vector{Vector{Step}}()
+            for (gi, group) in enumerate(steps(m))
+                extended = copy(group)
+                haskey(mirror_per_group, gi) &&
+                    append!(extended, mirror_per_group[gi])
+                push!(new_groups, extended)
+            end
+            push!(new_groups, reg_group_steps)
+
+            new_reaction = _add_competitive_inhibitor(rxn, reg_name)
+            push!(results, wrap(new_groups, n_groups_before + 1,
+                                new_reaction))
+        end
+    end
+    results
 end
 
 """
