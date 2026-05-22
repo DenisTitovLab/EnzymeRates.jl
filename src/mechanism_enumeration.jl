@@ -2323,6 +2323,49 @@ _expand_add_allosteric_regulator(
 ) = AllostericMechanismSpec[]
 
 """
+    _expand_add_allosteric_regulator(am::AllostericMechanism,
+                                     rxn::EnzymeReaction)
+        → Vector{AllostericMechanism}
+
+Mechanism-native overload. Like the dead-end overload, the caller
+must pass the declared `rxn` because the mechanism's own .reaction
+only carries regulators already bound by its steps; this move adds a
+regulator declared in the reaction but not yet bound. Bridges
+through the spec implementation (`_spec_from_mechanism` → spec move
+→ `AllostericMechanism(AllostericEnzymeMechanism(spec))`).
+"""
+function _expand_add_allosteric_regulator(
+    am::AllostericMechanism, rxn::EnzymeReaction,
+)
+    spec = _spec_from_mechanism(am)
+    legacy_rxn = _to_legacy_reaction(rxn)
+    full_base = MechanismSpec(legacy_rxn, spec.base.steps,
+                              spec.base.n_fit_params_estimate)
+    full_spec = AllostericMechanismSpec(
+        full_base, spec.catalytic_n,
+        deepcopy(spec.allosteric_reg_sites),
+        copy(spec.allosteric_multiplicities),
+        copy(spec.group_tags), copy(spec.reg_ligand_tags),
+        spec.n_fit_params_estimate)
+    result_specs = _expand_add_allosteric_regulator(
+        full_spec, legacy_rxn)
+    AllostericMechanism[
+        AllostericMechanism(AllostericEnzymeMechanism(s))
+        for s in result_specs]
+end
+
+"""
+    _expand_add_allosteric_regulator(m::Mechanism, rxn::EnzymeReaction)
+        → Vector{AllostericMechanism}
+
+Non-allosteric input: no-op (matches the spec overload's empty return).
+The dispatch shape here ensures callers walking a mixed Mechanism /
+AllostericMechanism collection don't need to type-check.
+"""
+_expand_add_allosteric_regulator(::Mechanism, ::EnzymeReaction) =
+    AllostericMechanism[]
+
+"""
     _expand_change_allo_state(spec, reaction)
         → Vector{AllostericMechanismSpec}
 

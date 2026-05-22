@@ -4063,6 +4063,55 @@ end
         @test isempty(EnzymeRates._expand_add_allosteric_regulator(spec, rxn))
     end
 
+    @testset "AllostericMechanism — uni-uni + R: enumerate variants" begin
+        # SEED: allosteric uni-uni with NO allosteric regulator bound yet,
+        # but :R declared in the reaction. The Mechanism overload requires
+        # passing the declared rxn because the AllostericMechanism's own
+        # .reaction strips not-yet-bound regulators.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+        # Build a baseline AllostericMechanism from the init spec → allo move.
+        specs = EnzymeRates._init_mechanism_specs(rxn)
+        allo_specs = EnzymeRates._expand_to_allosteric(first(specs), rxn)
+        am = EnzymeRates.AllostericMechanism(
+            EnzymeRates.AllostericEnzymeMechanism(first(allo_specs)))
+
+        result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
+
+        # 1. non-empty: at least one variant adds :R.
+        @test !isempty(result)
+
+        # 2. each result is an AllostericMechanism preserving multiplicity.
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        end
+
+        # 3. :R appears in regulatory_sites for every variant.
+        for r in result
+            has_r = any(r.regulatory_sites) do site
+                any(l -> EnzymeRates.name(l) === :R,
+                    EnzymeRates.ligands(site))
+            end
+            @test has_r
+        end
+    end
+
+    @testset "Mechanism — no-op (negative)" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+        m = first(EnzymeRates.init_mechanisms(rxn))
+        @test isempty(EnzymeRates._expand_add_allosteric_regulator(m, rxn))
+    end
+
 end
 
 # ─── _expand_change_allo_state ─────────────────────────────────────────
