@@ -1573,6 +1573,63 @@ _re_to_ss_delta(spec::AllostericMechanismSpec, g::Int) =
     spec.group_tags[g] == :NonequalRT ? 2 : 1
 
 """
+    _expand_re_to_ss(m::Mechanism) → Vector{Mechanism}
+    _expand_re_to_ss(m::AllostericMechanism) → Vector{AllostericMechanism}
+
+Mechanism-native overload of the RE→SS expansion move. For each
+catalytic kinetic group whose members are all RE, produce a variant
+with that entire group flipped to SS (atomic per group). All other
+groups, the reaction, and (for allosteric) the catalytic-allo tags,
+multiplicity, and regulatory sites are preserved verbatim. Each step's
+`source_idx` is preserved so positional parameter naming is stable.
+"""
+function _expand_re_to_ss(m::Mechanism)
+    results = Mechanism[]
+    for g in kinetic_groups(m)
+        all(is_equilibrium, m.steps[g]) || continue
+        push!(results, Mechanism(reaction(m),
+            _flip_group_to_ss(m.steps, g)))
+    end
+    results
+end
+
+function _expand_re_to_ss(m::AllostericMechanism)
+    results = AllostericMechanism[]
+    for g in kinetic_groups(m)
+        all(is_equilibrium, m.cat_steps[g]) || continue
+        push!(results, AllostericMechanism(
+            reaction(m),
+            _flip_group_to_ss(m.cat_steps, g),
+            copy(m.cat_allo_states),
+            m.catalytic_multiplicity,
+            copy(m.regulatory_sites)))
+    end
+    results
+end
+
+"""
+Return a fresh `Vector{Vector{Step}}` matching `groups` but with every
+Step in group `g` rebuilt with `is_equilibrium=false`. All other groups
+are reused by reference (Step is immutable). `source_idx` is preserved.
+"""
+function _flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int)
+    new_groups = Vector{Vector{Step}}()
+    for (gi, gr) in enumerate(groups)
+        if gi == g
+            flipped = Step[
+                Step(from_species(s), to_species(s),
+                     bound_metabolite(s), false;
+                     source_idx = s.source_idx)
+                for s in gr]
+            push!(new_groups, flipped)
+        else
+            push!(new_groups, gr)
+        end
+    end
+    new_groups
+end
+
+"""
     _expand_split_kinetic_group(spec) → Vector{typeof(spec)}
 
 For each kinetic group with 2+ members, split one step out into a

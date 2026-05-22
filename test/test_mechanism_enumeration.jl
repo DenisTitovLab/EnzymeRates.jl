@@ -2179,6 +2179,94 @@ end
         end
     end
 
+    @testset "Mechanism — uni-uni: 2 RE binding groups → 2 variants" begin
+        # SEED: uni-uni init mechanism. 3 kinetic groups: 2 RE binding
+        # (S-binding, P-binding) and 1 SS iso. _expand_re_to_ss fires per
+        # all-RE group → 2 variants.
+        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+        @test m isa EnzymeRates.Mechanism
+
+        result = EnzymeRates._expand_re_to_ss(m)
+
+        # 1. count: 2 all-RE groups (P-binding, S-binding). Iso already SS. → 2.
+        @test length(result) == 2
+        for r in result
+            @test r isa EnzymeRates.Mechanism
+            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+            @test length(r.steps) == length(m.steps)
+        end
+
+        # 2. property-style: in each variant, exactly one previously-RE
+        # group has all its steps newly SS; all other groups unchanged.
+        for r in result
+            n_groups_newly_ss = count(zip(m.steps, r.steps)) do (old_grp, new_grp)
+                length(old_grp) == length(new_grp) &&
+                    all(EnzymeRates.is_equilibrium, old_grp) &&
+                    !any(EnzymeRates.is_equilibrium, new_grp)
+            end
+            @test n_groups_newly_ss == 1
+        end
+
+        # 3. source_idx preserved: each Step's source_idx in the result
+        # matches the corresponding Step's source_idx in the seed.
+        for r in result
+            for (old_grp, new_grp) in zip(m.steps, r.steps)
+                @test [s.source_idx for s in old_grp] ==
+                      [s.source_idx for s in new_grp]
+            end
+        end
+    end
+
+    @testset "Mechanism — all-SS seed: empty (negative)" begin
+        # If every catalytic group is already SS, the move has no RE
+        # group to fire on → empty.
+        m_seed_with_all_ss = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+        # Convert every group to SS by applying _flip_group_to_ss
+        # repeatedly. (Use the same helper the production code uses.)
+        all_ss_groups = m_seed_with_all_ss.steps
+        for g in 1:length(all_ss_groups)
+            all_ss_groups = EnzymeRates._flip_group_to_ss(all_ss_groups, g)
+        end
+        m_all_ss = EnzymeRates.Mechanism(
+            EnzymeRates.reaction(m_seed_with_all_ss), all_ss_groups)
+        @test isempty(EnzymeRates._expand_re_to_ss(m_all_ss))
+    end
+
+    @testset "AllostericMechanism — :EqualRT: 2 variants, tags preserved" begin
+        # SEED: uni-uni allosteric init via legacy spec path → convert to
+        # AllostericMechanism. Default tag is :EqualRT post init (since
+        # init mechanisms are plain → :EqualRT after _expand_to_allosteric).
+        specs = EnzymeRates._init_mechanism_specs(uni_uni_allo)
+        spec = first(specs)
+        allo_specs = EnzymeRates._expand_to_allosteric(spec, uni_uni_allo)
+        @test !isempty(allo_specs)
+        allo_em = EnzymeRates.AllostericEnzymeMechanism(first(allo_specs))
+        am = EnzymeRates.AllostericMechanism(allo_em)
+
+        result = EnzymeRates._expand_re_to_ss(am)
+
+        # 1. count: 2 all-RE binding groups (P-, S-binding). Iso is SS. → 2.
+        @test length(result) == 2
+
+        # 2. allosteric state preserved on every variant.
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            @test r.cat_allo_states == am.cat_allo_states
+            @test r.catalytic_multiplicity == am.catalytic_multiplicity
+            @test r.regulatory_sites == am.regulatory_sites
+            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        end
+
+        # 3. exactly one group newly all-SS.
+        for r in result
+            n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
+                all(EnzymeRates.is_equilibrium, old) &&
+                    !any(EnzymeRates.is_equilibrium, new)
+            end
+            @test n_newly_ss == 1
+        end
+    end
+
 end
 
 # ─── _expand_split_kinetic_group ───────────────────────────────────────
