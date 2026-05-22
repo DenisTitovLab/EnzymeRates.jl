@@ -2143,6 +2143,47 @@ _expand_to_allosteric(
 ) = AllostericMechanismSpec[]
 
 """
+    _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
+        → Vector{AllostericMechanism}
+
+Mechanism-native overload: convert a non-allosteric `Mechanism` into
+allosteric variants. Emits the all-`:EqualRT` baseline plus one
+variant per kinetic group with that group set to `:OnlyR`
+(`n_groups + 1` variants total). The new mechanism inherits `rxn`'s
+oligomeric state as `catalytic_multiplicity`; regulatory_sites is
+empty (allosteric regulators are added later via
+`_expand_add_allosteric_regulator`). Steps are reused by reference.
+"""
+function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
+    cn = only(allowed_catalytic_multiplicities(rxn))
+    n_g = length(m.steps)
+    base_tags = Symbol[:EqualRT for _ in 1:n_g]
+    empty_sites = RegulatorySite[]
+    results = AllostericMechanism[]
+    push!(results, AllostericMechanism(
+        m.reaction, copy(m.steps), copy(base_tags),
+        cn, copy(empty_sites)))
+    for g in 1:n_g
+        new_tags = copy(base_tags)
+        new_tags[g] = :OnlyR
+        push!(results, AllostericMechanism(
+            m.reaction, copy(m.steps), new_tags,
+            cn, copy(empty_sites)))
+    end
+    results
+end
+
+"""
+    _expand_to_allosteric(am::AllostericMechanism, rxn::EnzymeReaction)
+        → Vector{AllostericMechanism}
+
+`AllostericMechanism` input is already allosteric — no-op move.
+Matches the spec overload's empty-vector return.
+"""
+_expand_to_allosteric(::AllostericMechanism, ::EnzymeReaction) =
+    AllostericMechanism[]
+
+"""
 Map kinetic_group → (is_re::Bool, iso_only::Bool). `iso_only` flags
 groups whose members are all isomerization steps (no metabolite).
 """

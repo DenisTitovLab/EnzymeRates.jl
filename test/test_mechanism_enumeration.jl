@@ -3576,6 +3576,64 @@ end
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
     end
+
+    @testset "Mechanism — uni-uni: n_groups + 1 variants" begin
+        # SEED: uni-uni init Mechanism. _expand_to_allosteric emits
+        # baseline + one per group with that group :OnlyR.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            oligomeric_state: 2
+        end
+        m = first(EnzymeRates.init_mechanisms(rxn))
+
+        result = EnzymeRates._expand_to_allosteric(m, rxn)
+
+        # 1. count: baseline + per-group :OnlyR = n_groups + 1.
+        n_groups = length(m.steps)
+        @test length(result) == n_groups + 1
+
+        # 2. each result is an AllostericMechanism with correct
+        # multiplicity and empty regulatory_sites.
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            @test r.catalytic_multiplicity == 2
+            @test isempty(r.regulatory_sites)
+            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+            @test length(r.cat_allo_states) == n_groups
+        end
+
+        # 3. baseline (first) is all-:EqualRT.
+        @test all(t -> t == :EqualRT, result[1].cat_allo_states)
+
+        # 4. each subsequent variant has exactly one :OnlyR tag.
+        for i in 2:length(result)
+            @test count(t -> t == :OnlyR,
+                        result[i].cat_allo_states) == 1
+            @test count(t -> t == :EqualRT,
+                        result[i].cat_allo_states) == n_groups - 1
+        end
+
+        # 5. compilability via the spec bridge (Mechanism →
+        # AllostericMechanismSpec → AllostericEnzymeMechanism).
+        for r in result
+            spec_r = EnzymeRates._spec_from_mechanism(r)
+            @test EnzymeRates.AllostericEnzymeMechanism(spec_r) isa
+                EnzymeRates.AllostericEnzymeMechanism
+        end
+    end
+
+    @testset "AllostericMechanism — no-op (negative)" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            oligomeric_state: 2
+        end
+        m = first(EnzymeRates.init_mechanisms(rxn))
+        allo_variants = EnzymeRates._expand_to_allosteric(m, rxn)
+        am = first(allo_variants)
+        @test isempty(EnzymeRates._expand_to_allosteric(am, rxn))
+    end
 end
 
 # ─── _expand_add_allosteric_regulator ──────────────────────────────────
