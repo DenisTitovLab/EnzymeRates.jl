@@ -1101,6 +1101,35 @@ function AllostericEnzymeMechanism(
     AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites}()
 end
 
+"""
+    AllostericMechanism(aem::AllostericEnzymeMechanism)
+
+Lift an `AllostericEnzymeMechanism{CM, CS, RS}` to the non-parametric
+`AllostericMechanism` struct. The catalytic mechanism is lifted via
+`Mechanism(CM())`; `CS = (multiplicity, cat_allo_states)` provides the
+catalytic-side data; each `RS` entry `(ligands, mult, reg_allo_states)`
+becomes a `RegulatorySite` whose ligand `Symbol`s are wrapped as
+`AllostericRegulator`. Mirrors `Mechanism(::EnzymeMechanism)` — bridges
+the parametric ↔ non-parametric boundary so derivation code can walk
+`AllostericMechanism` uniformly.
+"""
+function AllostericMechanism(
+    ::AllostericEnzymeMechanism{CM, CS, RS},
+) where {CM, CS, RS}
+    cm_mech = Mechanism(CM())
+    multiplicity, cat_allo_states = CS
+    sites = RegulatorySite[]
+    for entry in RS
+        ligands_syms, mult, reg_allo_states = entry
+        ligands_vec = AllostericRegulator[AllostericRegulator(l) for l in ligands_syms]
+        push!(sites,
+              RegulatorySite(ligands_vec, mult, collect(Symbol, reg_allo_states)))
+    end
+    AllostericMechanism(cm_mech.reaction, cm_mech.steps,
+                        collect(Symbol, cat_allo_states),
+                        multiplicity, sites)
+end
+
 # --- Rate equation mode types ---
 
 """
@@ -1718,6 +1747,16 @@ end
 
 _rep_idx_for_step(step::Step, m::EnzymeMechanism) =
     _rep_idx_for_step(step, Mechanism(m))
+_rep_idx_for_step(step::Step, m::AllostericEnzymeMechanism) =
+    _rep_idx_for_step(step, AllostericMechanism(m))
+
+# Bridge: parametric AllostericEnzymeMechanism → non-parametric
+# AllostericMechanism. Used by chokepoint dispatch (`name(p::Parameter,
+# m::AllostericEnzymeMechanism)`) so a single Mechanism-family
+# implementation handles both forms. Symmetric with
+# `Mechanism(::EnzymeMechanism)`.
+_to_mechanism(m::EnzymeMechanism)           = Mechanism(m)
+_to_mechanism(m::AllostericEnzymeMechanism) = AllostericMechanism(m)
 
 function _site_idx_of(site::RegulatorySite, m::AllostericMechanism)
     idx = findfirst(==(site), m.regulatory_sites)
@@ -1748,6 +1787,13 @@ function name(p::Kreg, m::AllostericMechanism)
     p.state === :T ? Symbol("K_$(lig_name)_T_reg$site_idx") :
                      Symbol("K_$(lig_name)_reg$site_idx")
 end
+
+# AllostericEnzymeMechanism dispatches via the AllostericMechanism lift
+# so the rate-equation body and Parameter-name production share one
+# implementation across parametric / non-parametric forms.
+name(p::Kreg, m::AllostericEnzymeMechanism) = name(p, AllostericMechanism(m))
+name(p::StepBoundParameter, m::AllostericEnzymeMechanism) =
+    name(p, AllostericMechanism(m))
 
 # Mechanism-level scalars
 name(::Keq,   _) = :Keq

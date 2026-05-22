@@ -1212,6 +1212,91 @@
             EnzymeRates.RegulatorySite[])
     end
 
+    @testset "AllostericMechanism(::AllostericEnzymeMechanism) converter" begin
+        cm = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+            end
+        end
+        aem = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:EqualRT, :NonequalRT, :OnlyR)),
+            (((:A, :B), 1, (:OnlyR, :NonequalRT)),),
+        )
+
+        am = EnzymeRates.AllostericMechanism(aem)
+        @test am isa EnzymeRates.AllostericMechanism
+
+        # Catalytic side lifted via Mechanism(CM())
+        @test EnzymeRates.steps(am) == EnzymeRates.Mechanism(cm).steps
+        @test EnzymeRates.reaction(am) == EnzymeRates.Mechanism(cm).reaction
+
+        # cat_allo_states and multiplicity extracted from CS
+        @test EnzymeRates.cat_allo_state(am, 1) === :EqualRT
+        @test EnzymeRates.cat_allo_state(am, 2) === :NonequalRT
+        @test EnzymeRates.cat_allo_state(am, 3) === :OnlyR
+        @test EnzymeRates.catalytic_multiplicity(am) == 2
+
+        # Regulatory sites: ligand Symbols wrapped as AllostericRegulator
+        sites = EnzymeRates.regulatory_sites(am)
+        @test length(sites) == 1
+        @test sites[1].ligands ==
+              [EnzymeRates.AllostericRegulator(:A),
+               EnzymeRates.AllostericRegulator(:B)]
+        @test sites[1].multiplicity == 1
+        @test sites[1].allo_states == [:OnlyR, :NonequalRT]
+
+        # Idempotent: two calls give equal results
+        @test EnzymeRates.AllostericMechanism(aem) == am
+
+        # _to_mechanism bridge dispatches to AllostericMechanism
+        @test EnzymeRates._to_mechanism(aem) == am
+        @test EnzymeRates._to_mechanism(aem) isa EnzymeRates.AllostericMechanism
+        # And matches the non-allosteric side too
+        @test EnzymeRates._to_mechanism(cm) == EnzymeRates.Mechanism(cm)
+    end
+
+    @testset "name(p, ::AllostericEnzymeMechanism) chokepoint overloads" begin
+        cm = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+            end
+        end
+        aem = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:NonequalRT, :EqualRT, :NonequalRT)),
+            (((:R,), 1, (:NonequalRT,)),),
+        )
+        am = EnzymeRates.AllostericMechanism(aem)
+
+        # Step-bound parameters: AEM dispatch matches AM dispatch
+        rep_bind = first(EnzymeRates.steps(am)[1])
+        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), aem) ==
+              EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), am)
+        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :T), aem) ==
+              EnzymeRates.name(EnzymeRates.Kd(rep_bind, :T), am)
+        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :T), aem) === :K1_T
+
+        rep_iso  = first(EnzymeRates.steps(am)[2])
+        @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) ==
+              EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), am)
+        @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) === :k2f
+
+        # Kreg: AEM dispatch matches AM dispatch
+        site = EnzymeRates.regulatory_sites(am)[1]
+        lig  = first(site.ligands)
+        @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :R), aem) ==
+              EnzymeRates.name(EnzymeRates.Kreg(site, lig, :R), am)
+        @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :T), aem) ===
+              :K_R_T_reg1
+    end
+
     @testset "_sig_of / _mechanism_from_sig roundtrip" begin
         # Use real atom data to catch type-parameter validity issues.
         # Pair{Symbol,Int} is NOT a valid type-parameter value; encoding

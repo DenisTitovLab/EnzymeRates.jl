@@ -1216,3 +1216,120 @@ k3r_T = (1 / Keq) * K1_T * (1 / K2_T) * k3f_T
 v = E_total * (2 * ((k3f * S / K2 - k3r * P / K1) * (1 + P / K1 + S / K2) * (1 + R / K_R_reg1) ^ 2 + L * (S * k3f_T / K2_T - P * k3r_T / K1_T) * (1 + P / K1_T + S / K2_T) * (1 + R / K_R_T_reg1) ^ 2)) / ((1 + P / K1 + S / K2) ^ 2 * (1 + R / K_R_reg1) ^ 2 + L * (1 + P / K1_T + S / K2_T) ^ 2 * (1 + R / K_R_T_reg1) ^ 2)"""
     @test actual == expected
 end
+
+@testset "Parameter-struct allosteric helpers" begin
+    cm = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
+        end
+    end
+
+    @testset "_onlyR_parameters" begin
+        # One :OnlyR catalytic group (RE binding) → single Kd(_, :R).
+        aem = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:OnlyR, :EqualRT, :EqualRT)),
+            (((:I,), 1, (:OnlyT,)),),
+        )
+        am = EnzymeRates.AllostericMechanism(aem)
+        params = EnzymeRates._onlyR_parameters(am)
+        # Render to Symbols to compare with legacy _onlyR_syms.
+        rendered = Set(EnzymeRates.name(p, am) for p in params)
+        @test rendered == EnzymeRates._onlyR_syms(aem)
+
+        # SS iso group with :OnlyR → Kfor + Krev pair.
+        aem_ss = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:EqualRT, :OnlyR, :EqualRT)),
+            (((:I,), 1, (:OnlyT,)),),
+        )
+        am_ss = EnzymeRates.AllostericMechanism(aem_ss)
+        ps = EnzymeRates._onlyR_parameters(am_ss)
+        @test length(ps) == 2
+        rendered_ss = Set(EnzymeRates.name(p, am_ss) for p in ps)
+        @test rendered_ss == EnzymeRates._onlyR_syms(aem_ss)
+
+        # No :OnlyR groups → empty.
+        aem_none = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:EqualRT, :EqualRT, :EqualRT)),
+            (((:I,), 1, (:OnlyT,)),),
+        )
+        @test isempty(EnzymeRates._onlyR_parameters(
+            EnzymeRates.AllostericMechanism(aem_none)))
+    end
+
+    @testset "_T_rename_parameters" begin
+        # Mix of :NonequalRT (rename), :EqualRT (skip), :OnlyR (skip).
+        aem = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:NonequalRT, :EqualRT, :NonequalRT)),
+            (((:I,), 1, (:OnlyT,)),),
+        )
+        am = EnzymeRates.AllostericMechanism(aem)
+        rename = EnzymeRates._T_rename_parameters(am)
+
+        # Render to Symbol pairs and compare against legacy _T_rename
+        # (which may include synthesized dep-symbol entries — filter
+        # those out for an apples-to-apples comparison).
+        rendered = Dict{Symbol, Symbol}()
+        for (r_p, t_p) in rename
+            rendered[EnzymeRates.name(r_p, am)] =
+                EnzymeRates.name(t_p, am)
+        end
+        legacy = EnzymeRates._T_rename(aem)
+        cm_inner = EnzymeRates.catalytic_mechanism(aem)
+        nonequalrt_syms = Set{Symbol}()
+        for g in EnzymeRates.kinetic_groups(cm_inner)
+            EnzymeRates.cat_allo_state(aem, g) === :NonequalRT || continue
+            rep = first(EnzymeRates.steps_in_group(cm_inner, g))
+            for s in EnzymeRates._group_param_symbols(cm_inner, rep)
+                push!(nonequalrt_syms, s)
+            end
+        end
+        legacy_first_pass = Dict(k => v for (k, v) in legacy
+                                 if k in nonequalrt_syms)
+        @test rendered == legacy_first_pass
+
+        # Empty case: no :NonequalRT groups → empty rename.
+        aem_none = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:OnlyR, :EqualRT, :EqualRT)),
+            (((:I,), 1, (:OnlyT,)),),
+        )
+        @test isempty(EnzymeRates._T_rename_parameters(
+            EnzymeRates.AllostericMechanism(aem_none)))
+    end
+
+    @testset "_all_t_state_parameters" begin
+        # :NonequalRT cat group + :NonequalRT reg ligand → both contribute.
+        aem = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:NonequalRT, :EqualRT, :NonequalRT)),
+            (((:R,), 1, (:NonequalRT,)),),
+        )
+        am = EnzymeRates.AllostericMechanism(aem)
+        params = EnzymeRates._all_t_state_parameters(am)
+        rendered = [EnzymeRates.name(p, am) for p in params]
+
+        # Catalytic side: every non-:OnlyR group contributes a T-state
+        # parameter (Kd/Kiso for RE, Kfor/Krev for SS).
+        @test :K1_T in rendered
+        @test :k2f_T in rendered
+        @test :k2r_T in rendered
+        @test :K3_T in rendered
+        # Regulator side: :R is :NonequalRT → K_R_T_reg1 appears.
+        @test :K_R_T_reg1 in rendered
+
+        # :OnlyR cat group + :OnlyR reg ligand are skipped.
+        aem_skip = EnzymeRates.AllostericEnzymeMechanism(
+            cm, (2, (:OnlyR, :NonequalRT, :EqualRT)),
+            (((:R,), 1, (:OnlyR,)),),
+        )
+        am_skip = EnzymeRates.AllostericMechanism(aem_skip)
+        rendered_skip = [EnzymeRates.name(p, am_skip)
+                         for p in EnzymeRates._all_t_state_parameters(am_skip)]
+        @test :K1_T ∉ rendered_skip          # :OnlyR cat group skipped
+        @test :k2f_T in rendered_skip        # :NonequalRT SS iso emits both
+        @test :k2r_T in rendered_skip
+        @test :K_R_T_reg1 ∉ rendered_skip    # :OnlyR reg ligand skipped
+    end
+end

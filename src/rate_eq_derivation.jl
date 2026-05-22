@@ -1159,6 +1159,105 @@ function _all_t_state_names(m::AllostericEnzymeMechanism)
     names
 end
 
+# ─── Parameter-struct allosteric helpers ─────────────────────────
+#
+# These mirror `_onlyR_syms`, `_T_rename`, `_all_t_state_names` but
+# return `Parameter` struct instances instead of pre-rendered `Symbol`s.
+# Routing through structs keeps the chokepoint discipline: the only
+# Symbol-producing site for parameter names is `name(p::Parameter, m)`.
+# Callers will be rewired in Tasks 4.2-4.5.
+
+"""
+Catalytic-cycle `Parameter`s zeroed in the T-state branch (one entry per
+`:OnlyR` kinetic group). Per kinetic group, the representative step's
+binding/iso × equilibrium/steady-state pair determines the emitted
+parameter type(s).
+"""
+function _onlyR_parameters(am::AllostericMechanism)
+    out = Parameter[]
+    for (g, group) in enumerate(am.cat_steps)
+        cat_allo_state(am, g) === :OnlyR || continue
+        rep = first(group)
+        if is_equilibrium(rep)
+            push!(out, is_binding(rep) ? Kd(rep, :R) : Kiso(rep, :R))
+        else
+            if is_binding(rep)
+                push!(out, Kon(rep, :R))
+                push!(out, Koff(rep, :R))
+            else
+                push!(out, Kfor(rep, :R))
+                push!(out, Krev(rep, :R))
+            end
+        end
+    end
+    out
+end
+
+"""
+R→T rename map for `:NonequalRT` kinetic groups — `Parameter` form. Maps
+each R-state catalytic Parameter to its T-state counterpart. The
+synthesized-dep second pass that `_T_rename` performs lives in
+`_dependent_param_exprs` rewrites (Tasks 4.2+) where dep symbols become
+Parameter struct instances.
+"""
+function _T_rename_parameters(am::AllostericMechanism)
+    rename = Dict{Parameter, Parameter}()
+    for (g, group) in enumerate(am.cat_steps)
+        cat_allo_state(am, g) === :NonequalRT || continue
+        rep = first(group)
+        if is_equilibrium(rep)
+            if is_binding(rep)
+                rename[Kd(rep, :R)] = Kd(rep, :T)
+            else
+                rename[Kiso(rep, :R)] = Kiso(rep, :T)
+            end
+        else
+            if is_binding(rep)
+                rename[Kon(rep, :R)]  = Kon(rep, :T)
+                rename[Koff(rep, :R)] = Koff(rep, :T)
+            else
+                rename[Kfor(rep, :R)] = Kfor(rep, :T)
+                rename[Krev(rep, :R)] = Krev(rep, :T)
+            end
+        end
+    end
+    rename
+end
+
+"""
+All T-state `Parameter`s the rate-equation body emits as constraint LHSes
+— `Parameter` form. Catalytic groups: every non-`:OnlyR` group
+contributes T-state Parameter(s) for its rep step (`Kd`/`Kiso`/`Kon`+
+`Koff`/`Kfor`+`Krev`). Regulator sites: every non-`:OnlyR` ligand
+contributes a T-state `Kreg`. The synthesized-dep mirrors that
+`_all_t_state_names` adds belong to dep-parameter machinery (Tasks 4.2+).
+"""
+function _all_t_state_parameters(am::AllostericMechanism)
+    out = Parameter[]
+    for (g, group) in enumerate(am.cat_steps)
+        cat_allo_state(am, g) === :OnlyR && continue
+        rep = first(group)
+        if is_equilibrium(rep)
+            push!(out, is_binding(rep) ? Kd(rep, :T) : Kiso(rep, :T))
+        else
+            if is_binding(rep)
+                push!(out, Kon(rep, :T))
+                push!(out, Koff(rep, :T))
+            else
+                push!(out, Kfor(rep, :T))
+                push!(out, Krev(rep, :T))
+            end
+        end
+    end
+    for site in am.regulatory_sites
+        for (lig, tag) in zip(site.ligands, site.allo_states)
+            tag === :OnlyR && continue
+            push!(out, Kreg(site, lig, :T))
+        end
+    end
+    out
+end
+
 # ─── Dependent parameter expressions ─────────────────────────────
 
 """
