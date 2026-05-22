@@ -2426,6 +2426,60 @@ _expand_change_allo_state(
 ) = AllostericMechanismSpec[]
 
 """
+    _expand_change_allo_state(am::AllostericMechanism)
+        → Vector{AllostericMechanism}
+
+Mechanism-native overload. Relax one allo state from a "constrained"
+tag (`:EqualRT`, `:OnlyR`, `:OnlyT`) to `:NonequalRT`. Variants are
+emitted for each catalytic kinetic group tag and each regulatory
+ligand tag that is not already `:NonequalRT`. The base catalytic
+steps, multiplicity, and untouched tags are preserved.
+"""
+function _expand_change_allo_state(am::AllostericMechanism)
+    results = AllostericMechanism[]
+
+    # Catalytic-group tag relaxations: cat_allo_states[g] :…→ :NonequalRT.
+    for g in 1:length(am.cat_allo_states)
+        am.cat_allo_states[g] == :NonequalRT && continue
+        new_states = copy(am.cat_allo_states)
+        new_states[g] = :NonequalRT
+        push!(results, AllostericMechanism(
+            am.reaction, copy(am.cat_steps), new_states,
+            am.catalytic_multiplicity,
+            copy(am.regulatory_sites)))
+    end
+
+    # Regulatory-ligand tag relaxations: walk each (site, ligand) pair.
+    for (si, site) in enumerate(am.regulatory_sites)
+        for (li, _) in enumerate(ligands(site))
+            allo_states(site)[li] == :NonequalRT && continue
+            new_sites = copy(am.regulatory_sites)
+            new_states = copy(allo_states(site))
+            new_states[li] = :NonequalRT
+            new_sites[si] = RegulatorySite(
+                copy(ligands(site)),
+                multiplicity(site),
+                new_states)
+            push!(results, AllostericMechanism(
+                am.reaction, copy(am.cat_steps),
+                copy(am.cat_allo_states),
+                am.catalytic_multiplicity,
+                new_sites))
+        end
+    end
+
+    results
+end
+
+"""
+    _expand_change_allo_state(m::Mechanism) → Vector{AllostericMechanism}
+
+Non-allosteric input: no-op (matches the spec overload's empty return).
+"""
+_expand_change_allo_state(::Mechanism) =
+    AllostericMechanism[]
+
+"""
     AllostericEnzymeMechanism(spec::AllostericMechanismSpec) →
         AllostericEnzymeMechanism
 

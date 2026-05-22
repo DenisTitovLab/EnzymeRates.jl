@@ -4363,6 +4363,72 @@ end
         end
     end
 
+    @testset "AllostericMechanism — uni-uni all-:EqualRT: 3 cat relaxations" begin
+        # SEED: uni-uni allosteric with all 3 catalytic groups tagged
+        # :EqualRT and no regulatory sites. Each non-:NonequalRT cat-group
+        # tag contributes one variant (flip to :NonequalRT).
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            oligomeric_state: 2
+        end
+        specs = EnzymeRates._init_mechanism_specs(rxn)
+        allo_specs = EnzymeRates._expand_to_allosteric(first(specs), rxn)
+        # Pick the all-:EqualRT baseline (first variant per spec impl).
+        am = EnzymeRates.AllostericMechanism(
+            EnzymeRates.AllostericEnzymeMechanism(first(allo_specs)))
+        @test all(t -> t == :EqualRT, am.cat_allo_states)
+
+        result = EnzymeRates._expand_change_allo_state(am)
+
+        # 1. count: 3 cat-group relaxations + 0 reg-ligand relaxations.
+        @test length(result) == length(am.cat_allo_states)
+
+        # 2. each variant has exactly one :NonequalRT entry in
+        # cat_allo_states; the rest match the seed.
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            @test count(t -> t == :NonequalRT, r.cat_allo_states) == 1
+            for i in 1:length(am.cat_allo_states)
+                @test r.cat_allo_states[i] == :NonequalRT ||
+                      r.cat_allo_states[i] == am.cat_allo_states[i]
+            end
+        end
+
+        # 3. preservation: reaction, multiplicity, sites.
+        for r in result
+            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+            @test r.catalytic_multiplicity == am.catalytic_multiplicity
+            @test r.regulatory_sites == am.regulatory_sites
+        end
+    end
+
+    @testset "AllostericMechanism — already-:NonequalRT: empty (negative)" begin
+        # If every tag is :NonequalRT, no relaxation is possible.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            oligomeric_state: 2
+        end
+        specs = EnzymeRates._init_mechanism_specs(rxn)
+        allo_specs = EnzymeRates._expand_to_allosteric(first(specs), rxn)
+        am_seed = EnzymeRates.AllostericMechanism(
+            EnzymeRates.AllostericEnzymeMechanism(first(allo_specs)))
+        # Manually build an all-:NonequalRT version.
+        am_all_neq = EnzymeRates.AllostericMechanism(
+            EnzymeRates.reaction(am_seed),
+            copy(am_seed.cat_steps),
+            fill(:NonequalRT, length(am_seed.cat_allo_states)),
+            am_seed.catalytic_multiplicity,
+            copy(am_seed.regulatory_sites))
+        @test isempty(EnzymeRates._expand_change_allo_state(am_all_neq))
+    end
+
+    @testset "Mechanism — no-op (negative)" begin
+        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+        @test isempty(EnzymeRates._expand_change_allo_state(m))
+    end
+
 end
 
 # ═══════════════════════════════════════════════════════════════════════
