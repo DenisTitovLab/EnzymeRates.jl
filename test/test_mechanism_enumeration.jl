@@ -3276,6 +3276,106 @@ end
             @test length(i_binding_groups) == 1
         end
     end
+
+    @testset "Mechanism — uni-uni + I: 1 variant" begin
+        # SEED: uni-uni init from rxn that declares :I as a dead-end inhibitor.
+        # The Mechanism overload requires the caller to pass the declared
+        # `rxn` separately because the Mechanism's own .reaction only carries
+        # regulators that are already bound by its steps (`I` isn't bound yet).
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+        end
+        m = first(EnzymeRates.init_mechanisms(rxn))
+        @test m isa EnzymeRates.Mechanism
+
+        result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+
+        # 1. count: 1 variant (mirrors the MechanismSpec testset above).
+        @test length(result) == 1
+        for r in result
+            @test r isa EnzymeRates.Mechanism
+        end
+
+        # 2. compilability: the result compiles via EnzymeMechanism.
+        for r in result
+            @test EnzymeRates.EnzymeMechanism(r) isa
+                EnzymeRates.EnzymeMechanism
+        end
+
+        # 3. structural: a new step exists with :I bound to E.
+        r1 = first(result)
+        has_i_step = any(r1.steps) do group
+            any(group) do s
+                EnzymeRates.bound_metabolite(s) !== nothing &&
+                    EnzymeRates.name(
+                        EnzymeRates.bound_metabolite(s)) === :I
+            end
+        end
+        @test has_i_step
+    end
+
+    @testset "Mechanism — exclude_regs suppresses regulator addition" begin
+        rxn_ij = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I, J
+        end
+        m = first(EnzymeRates.init_mechanisms(rxn_ij))
+
+        baseline = EnzymeRates._expand_add_dead_end_regulator(m, rxn_ij)
+        @test length(baseline) == 2
+
+        excluded = EnzymeRates._expand_add_dead_end_regulator(
+            m, rxn_ij; exclude_regs=Set([:I]))
+        @test length(excluded) == 1
+        # The remaining variant must bind :J, not :I.
+        has_i = any(excluded) do r
+            any(r.steps) do group
+                any(group) do s
+                    EnzymeRates.bound_metabolite(s) !== nothing &&
+                        EnzymeRates.name(
+                            EnzymeRates.bound_metabolite(s)) === :I
+                end
+            end
+        end
+        @test !has_i
+
+        @test isempty(EnzymeRates._expand_add_dead_end_regulator(
+            m, rxn_ij; exclude_regs=Set([:I, :J])))
+    end
+
+    @testset "Mechanism — no regulators: empty (negative)" begin
+        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+        end
+        @test isempty(EnzymeRates._expand_add_dead_end_regulator(m, rxn))
+    end
+
+    @testset "AllostericMechanism — dead-end on allosteric base" begin
+        # Build an AllostericMechanism with a dead-end-eligible regulator
+        # declared in the reaction (but not yet bound).
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+            oligomeric_state: 2
+        end
+        specs = EnzymeRates._init_mechanism_specs(rxn)
+        allo_specs = EnzymeRates._expand_to_allosteric(first(specs), rxn)
+        am = EnzymeRates.AllostericMechanism(
+            EnzymeRates.AllostericEnzymeMechanism(first(allo_specs)))
+
+        result = EnzymeRates._expand_add_dead_end_regulator(am, rxn)
+        @test !isempty(result)
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        end
+    end
 end
 
 # ═══════════════════════════════════════════════════════════════════════

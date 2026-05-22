@@ -1976,6 +1976,120 @@ function _dead_end_with_steps(
 end
 
 """
+    _spec_from_mechanism(m::Mechanism) → MechanismSpec
+
+Bridge a `Mechanism` to a `MechanismSpec` for routing through spec-
+based enumeration moves that have not yet been rewritten natively.
+Steps are flattened (outer Vector = kinetic groups) and emitted as
+StepSpec rows with the group index as `kinetic_group`. The PC field
+is an estimate from the step shape — exact tracking happens at the
+cache layer.
+"""
+function _spec_from_mechanism(m::Mechanism)
+    legacy_rxn = _to_legacy_reaction(m.reaction)
+    steps = StepSpec[]
+    for (gi, group) in enumerate(m.steps)
+        for s in group
+            push!(steps,
+                _stepspec_from_step(s, is_equilibrium(s), gi))
+        end
+    end
+    pc = _n_fit_params_estimate_from_steps(steps)
+    MechanismSpec(legacy_rxn, steps, pc)
+end
+
+"""
+    _spec_from_mechanism(am::AllostericMechanism) → AllostericMechanismSpec
+
+Bridge an `AllostericMechanism` to an `AllostericMechanismSpec`. The
+base spec is built via the `Mechanism` overload; allo-state tags map
+group index → tag; regulatory sites unpack into the dense
+allosteric_reg_sites / allosteric_multiplicities / reg_ligand_tags
+shape.
+"""
+function _spec_from_mechanism(am::AllostericMechanism)
+    legacy_rxn = _to_legacy_reaction(am.reaction)
+    steps = StepSpec[]
+    for (gi, group) in enumerate(am.cat_steps)
+        for s in group
+            push!(steps,
+                _stepspec_from_step(s, is_equilibrium(s), gi))
+        end
+    end
+    pc = _n_fit_params_estimate_from_steps(steps)
+    base = MechanismSpec(legacy_rxn, steps, pc)
+    group_tags = Dict{Int, Symbol}(
+        gi => am.cat_allo_states[gi]
+        for gi in 1:length(am.cat_allo_states))
+    reg_sites = Vector{Symbol}[]
+    mults = Int[]
+    reg_lig_tags = Dict{Symbol, Symbol}()
+    for site in am.regulatory_sites
+        site_ligs = [name(l) for l in ligands(site)]
+        push!(reg_sites, site_ligs)
+        push!(mults, multiplicity(site))
+        for (i, lig) in enumerate(ligands(site))
+            reg_lig_tags[name(lig)] = allo_states(site)[i]
+        end
+    end
+    AllostericMechanismSpec(
+        base, am.catalytic_multiplicity,
+        reg_sites, mults, group_tags, reg_lig_tags, pc)
+end
+
+"""
+    _expand_add_dead_end_regulator(m::Mechanism, rxn::EnzymeReaction;
+                                   exclude_regs) → Vector{Mechanism}
+    _expand_add_dead_end_regulator(am::AllostericMechanism,
+                                   rxn::EnzymeReaction; exclude_regs) →
+        Vector{AllostericMechanism}
+
+Mechanism-native overload of the dead-end-regulator expansion move.
+`rxn` is the declared reaction (with the full regulator list); the
+mechanism's own `.reaction` only carries regulators already bound by
+its steps, so the caller must supply the declared reaction to access
+not-yet-bound regulators. Bridges through the spec implementation
+(`_spec_from_mechanism` → spec move → `_mechanism_from_spec`),
+preserving the same structural enumeration.
+"""
+function _expand_add_dead_end_regulator(
+    m::Mechanism, rxn::EnzymeReaction;
+    exclude_regs::Set{Symbol}=Set{Symbol}(),
+)
+    spec = _spec_from_mechanism(m)
+    legacy_rxn = _to_legacy_reaction(rxn)
+    # The bridge produces a spec whose reaction is the mechanism's
+    # (possibly stripped) reaction; rebuild it carrying the declared
+    # `rxn` so the spec move sees the full regulator list.
+    full_spec = MechanismSpec(legacy_rxn, spec.steps,
+                              spec.n_fit_params_estimate)
+    result_specs = _expand_add_dead_end_regulator(
+        full_spec, legacy_rxn; exclude_regs=exclude_regs)
+    Mechanism[_mechanism_from_spec(s) for s in result_specs]
+end
+
+function _expand_add_dead_end_regulator(
+    am::AllostericMechanism, rxn::EnzymeReaction;
+    exclude_regs::Set{Symbol}=Set{Symbol}(),
+)
+    spec = _spec_from_mechanism(am)
+    legacy_rxn = _to_legacy_reaction(rxn)
+    full_base = MechanismSpec(legacy_rxn, spec.base.steps,
+                              spec.base.n_fit_params_estimate)
+    full_spec = AllostericMechanismSpec(
+        full_base, spec.catalytic_n,
+        deepcopy(spec.allosteric_reg_sites),
+        copy(spec.allosteric_multiplicities),
+        copy(spec.group_tags), copy(spec.reg_ligand_tags),
+        spec.n_fit_params_estimate)
+    result_specs = _expand_add_dead_end_regulator(
+        full_spec, legacy_rxn; exclude_regs=exclude_regs)
+    AllostericMechanism[
+        AllostericMechanism(AllostericEnzymeMechanism(s))
+        for s in result_specs]
+end
+
+"""
     _expand_to_allosteric(spec, reaction)
         → Vector{AllostericMechanismSpec}
 
