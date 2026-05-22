@@ -185,13 +185,6 @@ function _expr_to_string(x)
     end
 end
 
-"""Check if a symbol is a rate/equilibrium parameter (k or K), not Keq or E_total."""
-function is_k_parameter(sym::Symbol)
-    sym in (:Keq, :E_total) && return false
-    s = string(sym)
-    startswith(s, "k") || (startswith(s, "K") && length(s) > 1 && isdigit(s[2]))
-end
-
 """
     build_power_expr(keq_exp::Rational, factors)
 

@@ -667,9 +667,10 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
         @test kcat_orig > 0
 
         # Scale invariance: scaling SS k's by α scales kcat by α
+        ss_names = EnzymeRates._ss_rate_constant_names(m)
         α = 0.1 + 9.9 * rand(rng)
         scaled_params = NamedTuple{keys(params)}(Tuple(
-            EnzymeRates._is_ss_rate_constant(k) ? v * α : v
+            k in ss_names ? v * α : v
             for (k, v) in zip(keys(params), values(params))
         ))
         @test EnzymeRates._kcat_forward(m, scaled_params) ≈
@@ -682,7 +683,7 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
 
         # K values (non-SS params) unchanged
         for k in keys(params)
-            if !EnzymeRates._is_ss_rate_constant(k)
+            if !(k in ss_names)
                 @test norm[k] == params[k]
             end
         end
@@ -804,12 +805,35 @@ end
     @test count(==('('), s) <= 6
 end
 
-@testset "_is_ss_rate_constant" begin
-    for sym in (:k1f, :k2r, :k3f_T, :k10f)
-        @test EnzymeRates._is_ss_rate_constant(sym)
+@testset "_ss_rate_constant_names" begin
+    # SS-only Uni-Uni: 2 SS binding steps → k1f, k1r, k2f, k2r are SS.
+    uni_uni = only(s for s in MECHANISM_TEST_SPECS
+                   if s.name == "Uni-Uni").mechanism
+    names = EnzymeRates._ss_rate_constant_names(uni_uni)
+    for sym in (:k1f, :k1r, :k2f, :k2r)
+        @test sym in names
     end
-    for sym in (:K1, :K2, :K_I_reg1, :Keq, :L, :E_total)
-        @test !EnzymeRates._is_ss_rate_constant(sym)
+
+    # Mixed RE/SS: RE binding (K1) + SS catalysis (k2f, k2r). Only the
+    # SS k's are returned; RE binding K is excluded.
+    re_uu = only(s for s in MECHANISM_TEST_SPECS
+                 if s.name == "RE Uni-Uni").mechanism
+    re_uu_names = EnzymeRates._ss_rate_constant_names(re_uu)
+    @test :k2f in re_uu_names && :k2r in re_uu_names
+    for sym in (:K1, :Keq, :L, :E_total)
+        @test !(sym in re_uu_names)
+    end
+
+    # Allosteric: T-state versions of every SS rate constant are also
+    # included so `rescale_parameter_values` scales them in tandem.
+    mwc = only(s for s in MECHANISM_TEST_SPECS
+               if s.name == "MWC Dimer [AllostericEnzymeMechanism]").mechanism
+    mwc_names = EnzymeRates._ss_rate_constant_names(mwc)
+    for sym in (:k3f, :k3r, :k3f_T, :k3r_T)
+        @test sym in mwc_names
+    end
+    for sym in (:K1, :K2, :K1_T, :K2_T, :Keq, :L, :E_total)
+        @test !(sym in mwc_names)
     end
 end
 

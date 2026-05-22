@@ -603,7 +603,9 @@ function _rate_v_line(M::Type{<:EnzymeMechanism})
 end
 
 function rate_equation_string(::M, ::FullMode) where {M<:EnzymeMechanism}
-    lines = ["(; $(join(_sorted_raw_param_symbols(M), ", "))) = params",
+    mech = Mechanism(M())
+    param_names = Symbol[name(p, mech) for p in _enumerate_parameters_full(mech)]
+    lines = ["(; $(join((param_names..., :E_total), ", "))) = params",
              "(; $(join(metabolites(M()), ", "))) = concs"]
     push!(lines, _rate_v_line(M))
     join(lines, "\n")
@@ -665,23 +667,39 @@ end
 
 # ─── kcat Computation Helpers ──────────────────────────────────
 
-"""Check if a symbol is a steady-state rate constant (lowercase k followed by digit)."""
-function _is_ss_rate_constant(sym::Symbol)
-    s = string(sym)
-    length(s) > 1 && s[1] == 'k' && isdigit(s[2])
+"""
+Set of Symbol names for SS rate-constant parameters (Kon, Koff, Kfor,
+Krev) of `em`. For `AllostericEnzymeMechanism`, also includes the
+`_T`-suffixed names of every SS rate constant that lives in the
+T-state polynomial. Routes Symbol production through the
+`name(p, m)` chokepoint via Parameter-subtype dispatch. Used by
+`rescale_parameter_values` to scale only SS k's without touching RE
+Kd's, Keq, E_total, L, or regulatory K's.
+"""
+function _ss_rate_constant_names(em::EnzymeMechanism)
+    mech = Mechanism(em)
+    Set{Symbol}(name(p, mech) for p in _enumerate_parameters_full(mech)
+                if p isa Union{Kon, Koff, Kfor, Krev})
 end
 
-"""Group `num` and `den` POLYs by metabolite monomial pattern.
-Returns `(num_groups, den_groups)` where each value is a POLY of k-monomials
-sharing the same met-monomial. Reverse (negative-coefficient) terms are dropped
-from the numerator. Used by `_kcat_forward` to compare saturating metabolite
-patterns across R/T states."""
-function _kcat_groups_from_polys(num::POLY, den::POLY)
+function _ss_rate_constant_names(em::AllostericEnzymeMechanism)
+    r_names = _ss_rate_constant_names(catalytic_mechanism(em))
+    union(r_names, Set{Symbol}(_rename_params_T(s) for s in r_names))
+end
+
+"""Group `num` and `den` POLYs by metabolite monomial pattern, using
+`k_param_names` to classify each symbol. Returns `(num_groups,
+den_groups)` where each value is a POLY of k-monomials sharing the
+same met-monomial. Reverse (negative-coefficient) terms are dropped
+from the numerator. Used by `_kcat_forward` to compare saturating
+metabolite patterns across R/T states."""
+function _kcat_groups_from_polys(num::POLY, den::POLY,
+                                  k_param_names::Set{Symbol})
     function split_mono(mono::MONO)
         k_mono = MONO()
         met_mono = MONO()
         for (s, e) in mono
-            if is_k_parameter(s) || s == :Keq
+            if s in k_param_names || s == :Keq
                 push!(k_mono, s => e)
             elseif s != :E_total
                 push!(met_mono, s => e)
@@ -726,7 +744,8 @@ Multiple candidates arise for mechanisms with alternative catalytic pathways
     ::M, params::NamedTuple,
 ) where {M <: EnzymeMechanism}
     num, den = _raw_symbolic_rate_polys(M)
-    num_groups, den_groups = _kcat_groups_from_polys(num, den)
+    k_param_names = Set{Symbol}(_raw_param_symbols(M()))
+    num_groups, den_groups = _kcat_groups_from_polys(num, den, k_param_names)
 
     # Build kcat candidates: for each forward numerator metabolite group
     # with a matching denominator group, create (num_k_expr, den_k_expr)
@@ -789,8 +808,13 @@ corners and return the max.
     den_T_poly = _rename_symbols(
         _zero_symbols_in_poly(den_R_poly, r_only_syms),
         rename_T)
-    num_R_groups, den_R_groups = _kcat_groups_from_polys(num_R_poly, den_R_poly)
-    num_T_groups, den_T_groups = _kcat_groups_from_polys(num_T_poly, den_T_poly)
+    r_param_names = Set{Symbol}(_raw_param_symbols(CM()))
+    t_param_names = union(r_param_names,
+                          Set{Symbol}(_rename_params_T(s) for s in r_param_names))
+    num_R_groups, den_R_groups =
+        _kcat_groups_from_polys(num_R_poly, den_R_poly, r_param_names)
+    num_T_groups, den_T_groups =
+        _kcat_groups_from_polys(num_T_poly, den_T_poly, t_param_names)
 
     # Choose the saturating R-state met pattern (single component for
     # mechanisms exercised here; assert keeps that constraint visible).
@@ -955,8 +979,9 @@ function rescale_parameter_values(
 )
     kcat_current = _kcat_forward(m, params)
     scale = kcat / kcat_current
+    ss_names = _ss_rate_constant_names(m)
     NamedTuple{keys(params)}(Tuple(
-        _is_ss_rate_constant(k) ? v * scale : v
+        k in ss_names ? v * scale : v
         for (k, v) in zip(keys(params), values(params))
     ))
 end
@@ -977,9 +1002,11 @@ end
 
 # ─── Parameter naming ────────────────────────────────────────────
 
-"""Append `_T` suffix to any K or k parameter symbol (not Keq, E_total)."""
+"""Append `_T` suffix to a K or k parameter symbol. All call sites pass
+rate-constant symbols (sourced from `_group_param_symbols` or from
+`_dependent_param_exprs` keys / indeps), never `:Keq` or `:E_total`."""
 function _rename_params_T(sym::Symbol)
-    is_k_parameter(sym) ? Symbol(string(sym) * "_T") : sym
+    Symbol(string(sym) * "_T")
 end
 
 """Name for a regulatory site parameter: K_{ligand}_reg{i} or K_{ligand}_T_reg{i}."""
