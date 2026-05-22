@@ -1268,54 +1268,75 @@ R-state expressions come from `_dependent_param_exprs(CM)`; T-state entries
 copy R with `_T` rename, with per-group filtering (`:OnlyR` zeroed in T,
 `:EqualRT` shares R symbol).
 Adds reg site params and L to indep.
+
+Parameter Symbol production routes through `name(p, am)` (chokepoint),
+walking `Kd/Kiso/Kon/Koff/Kfor/Krev`/`Kreg` structs via the
+`_onlyR_parameters` / `_T_rename_parameters` helpers. RHS expression
+substitution stays Symbol-keyed because dep RHSes are `Expr` trees the
+substitution machinery walks at Symbol level.
 """
 function _dependent_param_exprs(
     ::Type{AllostericEnzymeMechanism{CM,CS,RS}},
 ) where {CM,CS,RS}
-    m = AllostericEnzymeMechanism{CM,CS,RS}()
+    aem = AllostericEnzymeMechanism{CM,CS,RS}()
+    am  = AllostericMechanism(aem)
     dep_R_all, indep_R_all = _dependent_param_exprs(CM)
-    r_only_syms = _onlyR_syms(m)
+
+    r_only_syms = Set{Symbol}(name(p, am) for p in _onlyR_parameters(am))
 
     dep_R = Dict{Symbol, Union{Symbol, Expr}}(dep_R_all)
     indep_R = collect(indep_R_all)
 
-    # Build T-state symbol substitution for non-`:EqualRT` groups
-    rename_T = _T_rename(m)
-    T_subs = Dict{Symbol, Symbol}(rename_T)
+    # Pass 1: base T-rename for `:NonequalRT` catalytic-group Parameters.
+    rename_T = Dict{Symbol, Symbol}(
+        name(p_R, am) => name(p_T, am)
+        for (p_R, p_T) in _T_rename_parameters(am)
+    )
+    # Pass 2: dep RHSes whose expression references a `:NonequalRT`
+    # symbol need their own T-state name. Mirrors `_T_rename`'s second
+    # pass: after Gaussian elimination, dep RHSes reference only
+    # independent params, so a single non-iterating pass suffices.
+    renamed_set = Set{Symbol}(keys(rename_T))
+    for (k, v) in dep_R_all
+        haskey(rename_T, k) && continue
+        _expr_references_any(v, renamed_set) || continue
+        rename_T[k] = _rename_params_T(k)
+    end
 
-    t_state_dead_flag = _t_state_dead(m)
+    t_state_dead_flag = _t_state_dead(aem)
 
     dep_T = Dict{Symbol, Union{Symbol, Expr}}()
     indep_T_list = Symbol[]
 
     # Generate T-state dep entries for every R-state dep that has a
-    # T-state version per `rename_T`. After Step 1's extension, this
-    # includes both Case A (dep symbol's catalytic group is :NonequalRT —
-    # the symbol itself is in rename_T) and Case B (dep symbol is
-    # :EqualRT-tagged but its RHS references a :NonequalRT symbol — the
-    # extended rename_T still contains a synthesized mapping).
+    # T-state version per `rename_T`. Covers both Case A (dep symbol's
+    # catalytic group is `:NonequalRT` — the symbol itself is in
+    # rename_T) and Case B (dep symbol is `:EqualRT`-tagged but its RHS
+    # references a `:NonequalRT` symbol — Pass 2 above added the
+    # synthesized mapping).
     for (k, v) in dep_R_all
         _expr_references_any(v, r_only_syms) && continue
         t_k = get(rename_T, k, nothing)
         t_k === nothing && continue
-        dep_T[t_k] = substitute_params_expr(v, T_subs)
+        dep_T[t_k] = substitute_params_expr(v, rename_T)
     end
 
-    # When the T-state cycle is dead (any :OnlyR group), skip generating
-    # :EqualRT mirror entries (K1_T = K1, k5f_T = k5f, etc.). They're
-    # already elided from the rate equation body in
-    # _build_allosteric_rate_body, so producing them here only inflates
-    # length(dep_exprs).
+    # When the T-state cycle is dead (any `:OnlyR` group), skip
+    # generating `:EqualRT` mirror entries (K1_T = K1, k5f_T = k5f,
+    # etc.). They're already elided from the rate equation body in
+    # `_build_allosteric_rate_body`, so producing them here only
+    # inflates `length(dep_exprs)`.
     #
-    # Additionally: even when t_state_dead_flag is false, a :NonequalRT
-    # symbol p can be "phantom" — declared as :NonequalRT but whose
-    # underlying p only appears in R-state monomials that ALSO contain a
-    # :OnlyR symbol. Those monomials get zeroed in the T-state polynomial
-    # (via _zero_symbols_in_poly), so p never survives the T-state
-    # masking and `_rename_params_T(p)` doesn't appear anywhere in the
-    # rate equation body. Adding it to indep would expose a fittable
-    # parameter that the optimizer searches over but that has no effect
-    # on the loss — pure dimension bloat. Filter against the set of
+    # Additionally: even when `t_state_dead_flag` is false, a
+    # `:NonequalRT` symbol `p` can be "phantom" — declared as
+    # `:NonequalRT` but whose underlying `p` only appears in R-state
+    # monomials that ALSO contain a `:OnlyR` symbol. Those monomials
+    # get zeroed in the T-state polynomial (via
+    # `_zero_symbols_in_poly`), so `p` never survives T-state masking
+    # and `_rename_params_T(p)` doesn't appear anywhere in the rate
+    # equation body. Adding it to indep would expose a fittable
+    # parameter the optimizer searches over but that has no effect on
+    # the loss — pure dimension bloat. Filter against the set of
     # symbols that actually survive into the T-state polynomial.
     num_R, den_R = _raw_symbolic_rate_polys(CM)
     t_state_survivors = _t_state_surviving_syms(num_R, den_R, r_only_syms)
@@ -1330,25 +1351,21 @@ function _dependent_param_exprs(
         end
     end
 
-    # Reg-site parameters
+    # Reg-site Parameters via `Kreg` structs + the `name(::Kreg, am)`
+    # chokepoint.
     reg_params_r = Symbol[]
     reg_params_t_indep = Symbol[]
-    reg_params_t_dep = Pair{Symbol, Symbol}[]
-    for (i, entry) in enumerate(RS)
-        for lig in entry[1]
-            tag = reg_allo_state(m, i, lig)
-            K_R = _reg_param_name(lig, i, false)
-            K_T = _reg_param_name(lig, i, true)
-            tag == :OnlyT || push!(reg_params_r, K_R)
-            if tag == :EqualRT
-                push!(reg_params_t_dep, K_T => K_R)
-            elseif tag == :NonequalRT || tag == :OnlyT
+    for site in regulatory_sites(am)
+        for (lig, tag) in zip(site.ligands, site.allo_states)
+            K_R = name(Kreg(site, lig, :R), am)
+            K_T = name(Kreg(site, lig, :T), am)
+            tag === :OnlyT || push!(reg_params_r, K_R)
+            if tag === :EqualRT
+                dep_T[K_T] = K_R
+            elseif tag === :NonequalRT || tag === :OnlyT
                 push!(reg_params_t_indep, K_T)
             end
         end
-    end
-    for (k, v) in reg_params_t_dep
-        dep_T[k] = v
     end
 
     merged_dep = merge(dep_R, dep_T)
