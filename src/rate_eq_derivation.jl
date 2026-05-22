@@ -1017,31 +1017,6 @@ end
 # multiplicity, regardless of whether n_reg_i matches cat_n.
 # ═══════════════════════════════════════════════════════════════════
 
-# ─── Parameter naming ────────────────────────────────────────────
-
-"""Append `_T` suffix to a K or k parameter symbol. All call sites pass
-rate-constant symbols (sourced from `_group_param_symbols` or from
-`_dependent_param_exprs` keys / indeps), never `:Keq` or `:E_total`."""
-function _rename_params_T(sym::Symbol)
-    Symbol(string(sym) * "_T")
-end
-
-"""Name for a regulatory site parameter: K_{ligand}_reg{i} or K_{ligand}_T_reg{i}."""
-function _reg_param_name(ligand::Symbol, site_idx::Int, T_state::Bool)
-    T_state ? Symbol("K_$(ligand)_T_reg$(site_idx)") :
-              Symbol("K_$(ligand)_reg$(site_idx)")
-end
-
-# ─── Allosteric kinetic-group symbol helpers ─────────────────────
-
-"""Parameter symbols (representative) for the kinetic group of step `idx`."""
-function _group_param_symbols(cm::EnzymeMechanism, idx::Int)
-    rep = first(steps_in_group(cm, kinetic_group(cm, idx)))
-    equilibrium_steps(cm)[rep] ?
-        (Symbol("K$rep"),) :
-        (Symbol("k$(rep)f"), Symbol("k$(rep)r"))
-end
-
 """
 The T-state catalytic cycle cannot close — and therefore both forward
 and reverse net flux vanish — when any `:OnlyR` kinetic group is
@@ -1056,133 +1031,6 @@ function _t_state_dead(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
     any(cat_allo_state(m, g) == :OnlyR for g in kinetic_groups(cm))
 end
-
-"""Catalytic-cycle parameter symbols zeroed in the T-state (`:OnlyR` groups)."""
-function _onlyR_syms(m::AllostericEnzymeMechanism)
-    cm = catalytic_mechanism(m)
-    syms = Set{Symbol}()
-    for g in kinetic_groups(cm)
-        cat_allo_state(m, g) == :OnlyR || continue
-        rep = first(steps_in_group(cm, g))
-        for s in _group_param_symbols(cm, rep); push!(syms, s); end
-    end
-    syms
-end
-
-"""
-R→T rename map for groups whose T-state symbol differs from their R-state
-symbol — `:NonequalRT` (independent K_R, K_T). Also adds synthesized dep-symbol
-mappings for any `:EqualRT`-tagged dep whose RHS expression references a
-`:NonequalRT` symbol, so T-state Haldane closures are preserved when catalysis
-is `:EqualRT` but a binding step is `:NonequalRT`.
-"""
-function _T_rename(m::AllostericEnzymeMechanism)
-    cm = catalytic_mechanism(m)
-    rename = Dict{Symbol, Symbol}()
-    # First pass: catalytic-group params with :NonequalRT (independent K_R / K_T).
-    # :OnlyT catalytic groups are rejected at construction, so we don't
-    # need a branch for them.
-    for g in kinetic_groups(cm)
-        cat_allo_state(m, g) == :NonequalRT || continue
-        rep = first(steps_in_group(cm, g))
-        for s in _group_param_symbols(cm, rep)
-            rename[s] = _rename_params_T(s)
-        end
-    end
-    # Second pass: derived dep symbols whose RHS references any T-renamed
-    # symbol need their own T-state name. After Gaussian elimination of
-    # the constraint matrix, dep RHSs reference only independent params
-    # (never other deps), so a single non-iterating pass suffices.
-    # Without this pass, a Haldane closure with :EqualRT catalysis whose
-    # formula references a :NonequalRT binding K would have its T-state
-    # value undefined at runtime — N_T uses the R-state value, breaking
-    # Haldane consistency at chemical equilibrium.
-    dep_R_all, _ = _dependent_param_exprs(typeof(cm))
-    renamed_set = Set{Symbol}(keys(rename))
-    for (k, v) in dep_R_all
-        haskey(rename, k) && continue
-        _expr_references_any(v, renamed_set) || continue
-        rename[k] = _rename_params_T(k)
-    end
-    rename
-end
-
-"""
-All `_T`-suffixed parameter names that the rate-equation body
-emits as constraint LHSes for an allosteric mechanism. Used by
-both `_build_dep_assignments` (which writes those constraint
-lines) and `parameters(m, Full)` (which the canonicalizer uses
-as its rename source).
-
-Iterates kinetic groups in sorted order and reg sites/ligands in
-declaration order so output is deterministic.
-"""
-function _all_t_state_names(m::AllostericEnzymeMechanism)
-    cm = catalytic_mechanism(m)
-    names = Symbol[]
-    t_dead = _t_state_dead(m)
-    # Catalytic group T-state symbols. When `t_dead`, only
-    # `:NonequalRT` groups contribute to the body (their K_T appears
-    # in `den_T`); `:EqualRT` groups use the R-state name in `den_T`,
-    # and their K_T constraint mirror is elided. When NOT dead, all
-    # non-`:OnlyR` groups contribute (via `num_T` and constraint
-    # mirrors).
-    for g in kinetic_groups(cm)
-        tag = cat_allo_state(m, g)
-        tag == :OnlyR && continue
-        t_dead && tag != :NonequalRT && continue
-        rep = first(steps_in_group(cm, g))
-        for s in _group_param_symbols(cm, rep)
-            push!(names, _rename_params_T(s))
-        end
-    end
-    # Synthesized `:EqualRT`-references-`:NonequalRT` dep mirrors
-    # appear ONLY as constraint LHSes (in `t_assignments`), which
-    # are elided when `t_dead`. Skip in that case.
-    if !t_dead
-        nonequalrt_set = Set{Symbol}()
-        for g in kinetic_groups(cm)
-            cat_allo_state(m, g) == :NonequalRT || continue
-            rep = first(steps_in_group(cm, g))
-            for s in _group_param_symbols(cm, rep)
-                push!(nonequalrt_set, s)
-            end
-        end
-        if !isempty(nonequalrt_set)
-            dep_R_all, _ = _dependent_param_exprs(typeof(cm))
-            # Sort dep entries by key Symbol so order is stable
-            # across Julia versions / Dict implementations —
-            # canonicalization downstream depends on stable order.
-            for (k, v) in sort(collect(dep_R_all); by=first)
-                k in nonequalrt_set && continue
-                _expr_references_any(v, nonequalrt_set) || continue
-                push!(names, _rename_params_T(k))
-            end
-        end
-    end
-    # Regulator T-state K names. Per `_reg_site_expr`, body uses
-    # K_T name when `tag in (:NonequalRT, :OnlyT)`. `:EqualRT`
-    # ligands use the R-state name in body (their K_T constraint
-    # mirror is elided when t_dead and irrelevant when alive).
-    for (i, entry) in enumerate(regulatory_sites(m))
-        ligands = entry[1]
-        tags = entry[3]
-        for (lig, tag) in zip(ligands, tags)
-            tag == :OnlyR && continue
-            t_dead && tag == :EqualRT && continue
-            push!(names, _reg_param_name(lig, i, true))
-        end
-    end
-    names
-end
-
-# ─── Parameter-struct allosteric helpers ─────────────────────────
-#
-# These mirror `_onlyR_syms`, `_T_rename`, `_all_t_state_names` but
-# return `Parameter` struct instances instead of pre-rendered `Symbol`s.
-# Routing through structs keeps the chokepoint discipline: the only
-# Symbol-producing site for parameter names is `name(p::Parameter, m)`.
-# Callers will be rewired in Tasks 4.2-4.5.
 
 """
 Catalytic-cycle `Parameter`s zeroed in the T-state branch (one entry per
@@ -1212,10 +1060,10 @@ end
 
 """
 R→T rename map for `:NonequalRT` kinetic groups — `Parameter` form. Maps
-each R-state catalytic Parameter to its T-state counterpart. The
-synthesized-dep second pass that `_T_rename` performs lives in
-`_dependent_param_exprs` rewrites (Tasks 4.2+) where dep symbols become
-Parameter struct instances.
+each R-state catalytic Parameter to its T-state counterpart. Synthesized
+dep T-symbols (whose RHS references a renamed `:NonequalRT` symbol) are
+emitted Symbol-level by the dep-assignment machinery; they have no
+Parameter representation.
 """
 function _T_rename_parameters(am::AllostericMechanism)
     rename = Dict{Parameter, Parameter}()
@@ -1246,8 +1094,9 @@ All T-state `Parameter`s the rate-equation body emits as constraint LHSes
 — `Parameter` form. Catalytic groups: every non-`:OnlyR` group
 contributes T-state Parameter(s) for its rep step (`Kd`/`Kiso`/`Kon`+
 `Koff`/`Kfor`+`Krev`). Regulator sites: every non-`:OnlyR` ligand
-contributes a T-state `Kreg`. The synthesized-dep mirrors that
-`_all_t_state_names` adds belong to dep-parameter machinery (Tasks 4.2+).
+contributes a T-state `Kreg`. Synthesized-dep T-mirrors (deps whose RHS
+references a `:NonequalRT` symbol) belong to dep-parameter machinery and
+are emitted Symbol-level by the dep-assignment builder.
 """
 function _all_t_state_parameters(am::AllostericMechanism)
     out = Parameter[]

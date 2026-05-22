@@ -4441,10 +4441,11 @@ end
     @testset "t_state_dead with :NonequalRT: K_T in body must be in parameters(Full)" begin
         # K-type allosteric uni-uni: catalytic step is :OnlyR (so
         # `_t_state_dead == true`), but binding steps are :NonequalRT.
-        # Bug B.4/A.1: `_all_t_state_names` returns empty when
-        # `_t_state_dead == true`, so K1_T/K2_T leak unrenamed into
-        # the canonical hash string → cache miss for structurally-
-        # equivalent specs whose rep-step indices differ.
+        # When `_t_state_dead == true`, the binding partition function
+        # for :NonequalRT groups must still emit K1_T / K2_T in `den_T`
+        # so the canonicalizer can rename them; otherwise structurally
+        # equivalent specs with different rep-step indices would hash
+        # differently.
         m = @allosteric_mechanism begin
             substrates: S
             products: P
