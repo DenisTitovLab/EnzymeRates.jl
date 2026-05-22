@@ -1708,6 +1708,73 @@ function _split_group_delta(
 end
 
 """
+    _expand_split_kinetic_group(m::Mechanism) → Vector{Mechanism}
+    _expand_split_kinetic_group(am::AllostericMechanism) → Vector{AllostericMechanism}
+
+Mechanism-native overload of the kinetic-group split move. For each
+catalytic group with 2+ members, produce one variant per member where
+that member is carved out into a fresh trailing group. The reaction
+(and, for allosteric, multiplicity / regulatory sites) is preserved.
+Catalytic allo-state tags are extended with the parent group's tag
+appended (splitting is a parameter-relaxation move that MUST NOT
+change R/T semantics). Each Step's `source_idx` is preserved.
+"""
+function _expand_split_kinetic_group(m::Mechanism)
+    results = Mechanism[]
+    for g in kinetic_groups(m)
+        length(m.steps[g]) >= 2 || continue
+        for split_idx in 1:length(m.steps[g])
+            push!(results, Mechanism(reaction(m),
+                _split_one_step(m.steps, g, split_idx)))
+        end
+    end
+    results
+end
+
+function _expand_split_kinetic_group(am::AllostericMechanism)
+    results = AllostericMechanism[]
+    for g in kinetic_groups(am)
+        length(am.cat_steps[g]) >= 2 || continue
+        for split_idx in 1:length(am.cat_steps[g])
+            new_groups = _split_one_step(am.cat_steps, g, split_idx)
+            new_states = vcat(am.cat_allo_states,
+                              [am.cat_allo_states[g]])
+            push!(results, AllostericMechanism(
+                reaction(am),
+                new_groups,
+                new_states,
+                am.catalytic_multiplicity,
+                copy(am.regulatory_sites)))
+        end
+    end
+    results
+end
+
+"""
+Return a fresh `Vector{Vector{Step}}` matching `groups` but with the
+step at `(g, split_idx)` moved into a new trailing singleton group.
+The split step's `source_idx` is preserved; other groups are reused
+by reference (Step / Vector{Step} are immutable from this caller's
+perspective).
+"""
+function _split_one_step(
+    groups::Vector{Vector{Step}}, g::Int, split_idx::Int,
+)
+    new_groups = Vector{Vector{Step}}()
+    for (gi, gr) in enumerate(groups)
+        if gi == g
+            remaining = Step[gr[i] for i in eachindex(gr)
+                             if i != split_idx]
+            push!(new_groups, remaining)
+        else
+            push!(new_groups, gr)
+        end
+    end
+    push!(new_groups, Step[groups[g][split_idx]])
+    new_groups
+end
+
+"""
     _expand_add_dead_end_regulator(spec, reaction; exclude_regs)
         → Vector{typeof(spec)}
 
