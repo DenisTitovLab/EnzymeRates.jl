@@ -3110,24 +3110,17 @@ end
         # Q-binding RE×2 :EqualRT). 4 × 2 members = 8 variants.
         @test length(result) == 8
 
-        # 2. Δ params: SS × :NonequalRT splits cost strictly more than
-        # RE × :EqualRT splits. Measured against the actual compiled
-        # fitted-param count (ground truth).
-        # `_n_fit_params_estimate(am::AllostericMechanism)` is an upper-
-        # bound estimate during enumeration but UNDER-counts SS
-        # :NonequalRT (which adds kf_T, kr_T on top of the R-state pair).
+        # 2. Δ params: 8 variants, deltas measured against the actual
+        # compiled fitted-param count (ground truth — true count after
+        # thermo-cycle bookkeeping; the upper-bound estimators give
+        # looser numbers). 6 splits add 0 (:EqualRT RE, absorbed by
+        # thermo cycles), 2 add 1 (the other RE splits), 2 add 2 (the
+        # :NonequalRT SS splits, doubled by the R/T-state pair).
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        # 6 :EqualRT RE-group splits + 2 :NonequalRT SS-group splits.
-        # The :NonequalRT SS splits dominate (largest values in the sorted
-        # vector), establishing the SS × NonequalRT > RE × EqualRT ordering.
-        @test length(deltas) == 8
-        @test deltas[end] > deltas[1]
-        @test deltas[end-1] > deltas[1]
-        @test count(==(maximum(deltas)), deltas) == 2  # 2 :NonequalRT SS splits
-        @test count(==(minimum(deltas)), deltas) >= 4  # ≥4 of the :EqualRT RE splits
+        @test deltas == [0, 0, 0, 0, 1, 1, 2, 2]
 
         # 3. compilability
         for r in result
