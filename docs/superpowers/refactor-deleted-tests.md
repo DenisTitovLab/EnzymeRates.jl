@@ -78,6 +78,40 @@ Check 2 (@testset count decrease) both consult this file. Each
 
 ---
 
+## Stage 6.2 — commit TBD-after-commit
+
+### test_mechanism_enumeration.jl `@testset "Rate-equation canonical hash dedup" > "_factor_sort_key sort order"`
+- Helper deleted: `_factor_sort_key` (a regex-pipeline sort-key helper
+  in `src/mechanism_enumeration.jl`, removed in Stage 6.2 alongside
+  the rest of the regex canonicalizer — `_canonicalize_rate_eq_with_map`,
+  `_sort_run_factors`, `_canonical_rate_eq_hash_data_impl_regex`, and
+  the `_canonical_rate_eq_hash_old` / `_canonical_rate_eq_hash_data_old`
+  aliases).
+- Replacement: NONE EQUIVALENT. The deleted testset asserted sort-key
+  ordering for `p_i`-style token strings; with the regex canonicalizer
+  gone, no string sorting happens — the struct-based canonicalizer
+  (`_canonical_rate_eq_hash_data_impl_struct`) works on `Expr` trees
+  and Parameter struct hashes directly.
+- Adjacent coverage:
+  - `test/test_canonical_hash_partition.jl` exercises the new
+    canonicalizer end-to-end on `init_mechanisms` output and pins
+    the equivalence-class count, catching any regression that would
+    have manifested via a sort-key bug in the old pipeline.
+
+### test_mechanism_enumeration.jl `@testset "Rate-equation canonical hash dedup" > "_sort_run_factors sort order"`
+- Helper deleted: `_sort_run_factors` (the regex helper that re-sorted
+  multiplication runs in canonicalized strings, removed alongside
+  `_factor_sort_key` per the entry above).
+- Replacement: NONE EQUIVALENT. The struct-based canonicalizer doesn't
+  produce string output for sorting; monomial ordering inside the
+  canonical Expr tree is the responsibility of the Expr-builder
+  (`_poly_to_expr` etc.), which is exercised by every rate-equation
+  test in the suite.
+- Adjacent coverage: same as above — `test/test_canonical_hash_partition.jl`
+  pins partition behavior end-to-end.
+
+---
+
 ## Pre-refactor cleanup — commit 4fb462e (PR #36, 2026-05-13)
 
 ### test_sym_poly.jl

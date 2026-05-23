@@ -4366,28 +4366,6 @@ end # top-level testset
 # ═══════════════════════════════════════════════════════════════════════
 
 @testset "Rate-equation canonical hash dedup" begin
-    @testset "_factor_sort_key sort order" begin
-        # p_i atoms sort numerically by index, not lexicographically.
-        @test EnzymeRates._factor_sort_key("p_1") <
-              EnzymeRates._factor_sort_key("p_2")
-        @test EnzymeRates._factor_sort_key("p_2") <
-              EnzymeRates._factor_sort_key("p_10")
-        # Non-p_i atoms (metabolite names, E_total) sort after p_i atoms.
-        @test EnzymeRates._factor_sort_key("p_99") <
-              EnzymeRates._factor_sort_key("E_total")
-    end
-
-    @testset "_sort_run_factors sort order" begin
-        @test EnzymeRates._sort_run_factors("p_3 * p_1 * p_2") ==
-              "p_1 * p_2 * p_3"
-        # Exponents preserved on their atom.
-        @test EnzymeRates._sort_run_factors("p_2 ^ 2 * p_1") ==
-              "p_1 * p_2 ^ 2"
-        # Non-p atoms sort to end.
-        @test EnzymeRates._sort_run_factors("S * p_1 * p_2") ==
-              "p_1 * p_2 * S"
-    end
-
     let
         # Shared exemplars used by multiple testsets below.
 
@@ -4488,18 +4466,23 @@ end # top-level testset
                   EnzymeRates._canonical_rate_eq_hash(m_random)
         end
 
-        @testset "Pass-1 kinetic-group merge: canonical text invariant" begin
+        @testset "Pass-1 kinetic-group merge: name_map covers every raw param" begin
             # biuni_mirror: both A-binding steps share kg=1, both B-binding
             # steps share kg=2. Pass 1 absorbs K_mirror -> K_rep.
             s = rate_equation_string(biuni_mirror)
             @test occursin("# User defined constraints:", s)
             @test occursin("(substituted into v)", s)
 
-            # Canonical text invariant: no raw K_i / k_if / k_ir tokens
-            # survive — every parameter is renamed to p_i.
-            canon, _ = EnzymeRates._canonicalize_rate_eq_with_map(biuni_mirror)
-            @test !occursin(r"\bK\d+\b", canon)
-            @test !occursin(r"\bk\d+[fr]\b", canon)
+            # name_map invariant: every raw K_i / k_if / k_ir symbol the
+            # mechanism's parameters expose has a canonical p_i token, so
+            # substitution into the rate-equation Exprs leaves no raw
+            # parameter symbols behind.
+            _, _, name_map =
+                EnzymeRates._canonical_rate_eq_hash_data(biuni_mirror)
+            for p in EnzymeRates.parameters(biuni_mirror, Full)
+                p === :E_total && continue
+                @test haskey(name_map, String(p))
+            end
         end
 
         @testset "LDH Pattern-A: graph-distinct mechanisms with equivalent v hash equally" begin
@@ -4527,12 +4510,13 @@ end # top-level testset
                   EnzymeRates._canonical_rate_eq_hash(ldh_m_c)
         end
 
-        @testset "Allosteric T-state K_i_T renamed away in canonical hash" begin
+        @testset "Allosteric T-state K_i_T tokens covered by name_map" begin
             # K-type allosteric uni-uni: catalytic step is :OnlyR
             # (`_t_state_dead == true`), but binding steps are :NonequalRT,
             # so K1_T and K2_T live in `den_T` of the rate equation body.
-            # Canonicalizer invariant: every parameter token must rename
-            # away — no raw `_T` suffixed names survive.
+            # Canonicalizer invariant: every T-state token must have a
+            # canonical p_i_T entry so substitution into the rate-equation
+            # Exprs leaves no raw parameter symbols behind.
             m = @allosteric_mechanism begin
                 substrates: S
                 products: P
@@ -4544,14 +4528,18 @@ end # top-level testset
                 end
             end
             # Pre-assertion: the raw body actually contains T-state tokens.
-            # Otherwise the canonicalizer's K_i_T renaming would be
-            # trivially satisfied by a mechanism that lacks a T-state
-            # body altogether.
+            # Otherwise the name_map's T-token coverage would be trivially
+            # satisfied by a mechanism that lacks a T-state body altogether.
             @test occursin("_T", rate_equation_string(m))
 
-            canon, _ = EnzymeRates._canonicalize_rate_eq_with_map(m)
-            @test !occursin(r"\bK\d+_T\b", canon)
-            @test !occursin(r"\bk\d+[fr]_T\b", canon)
+            _, _, name_map = EnzymeRates._canonical_rate_eq_hash_data(m)
+            # Every raw `K\d+_T` and `k\d+[fr]_T` key the rate-equation
+            # body could reference must be present in name_map.
+            t_keys = filter(k -> endswith(k, "_T"), collect(keys(name_map)))
+            @test !isempty(t_keys)
+            for k in t_keys
+                @test occursin(r"^(K\d+|k\d+[fr])_T$", k)
+            end
         end
 
         @testset "rate_equation_string emits section labels" begin

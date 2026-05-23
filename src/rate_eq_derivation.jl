@@ -1144,9 +1144,10 @@ Synthesized-dep T-symbols (derived deps whose RHS references a
 representation and are emitted Symbol-level by the caller.
 
 Non-appearing names (e.g., a catalytic T-state mirror that's elided in
-a `t_state_dead` mechanism) are filtered out downstream by
-`_canonicalize_rate_eq_with_map`'s `first_pos` scan, so this enumeration
-intentionally over-emits.
+a `t_state_dead` mechanism) are harmless to include: downstream
+`_expr_canonical_via_name_map` only substitutes Symbols that actually
+appear in the rate-equation Exprs, so unused name_map entries are
+inert. This enumeration intentionally over-emits.
 """
 function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
     out = Parameter[]
