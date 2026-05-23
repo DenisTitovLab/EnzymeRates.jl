@@ -122,9 +122,22 @@ src delta: -X / +Y net Z, cumulative: ±W
 
 ### Stage 6β — Migrate spec testsets to Mechanism (opaque-form)
 
-**Goal:** retire `MechanismSpec`/`StepSpec`/`AllostericMechanismSpec`
-from `test_mechanism_enumeration.jl` and from `src/` without losing
-assertion coverage.
+**Goal:** retire the *test-side* construction of
+`MechanismSpec`/`StepSpec`/`AllostericMechanismSpec` from
+`test_mechanism_enumeration.jl` without losing assertion coverage,
+plus delete the spec types' public surface and accessor helpers in
+`src/mechanism_enumeration.jl` that have no remaining `src/` callers
+after the migration. The **heavy internal enumeration pipeline** —
+`init_mechanisms(::EnzymeReactionLegacy)`, `_apply_equivalence_grouping`,
+`_expand_substrate_product_dead_ends`, and helpers — still
+**constructs `MechanismSpec` values internally** because the algorithm
+operates on the spec form; that rewrite is Stage 7d.
+
+After 6β: the spec types remain alive in `src/` but only as internal
+implementation detail of the enumeration; no test or external caller
+constructs them; the `Mechanism`-returning entry points
+(`init_mechanisms(::EnzymeReaction) → Vector{Mechanism}`) are the sole
+public API.
 
 **Approach:** translate each `MechanismSpec(rxn, [StepSpec(...)], n)`
 construction to `Mechanism(rxn, [[Step(Species([], :E_S),
@@ -145,17 +158,25 @@ Stage 7b.
 7. Migrate `_expand_change_allo_state` testsets.
 8. Migrate `_canonicalize!`/`_dedup_key`/dedup-integration testsets.
 9. Migrate `expand_mechanisms` and `Integration` testsets.
-10. Delete spec types (`MechanismSpec`, `StepSpec`,
-    `AllostericMechanismSpec`), their `_expand_*` overloads,
+10. Delete the spec types' **test-facing surface** in
+    `src/mechanism_enumeration.jl`: the six `_expand_*`
+    `AbstractMechanismSpec` overloads,
     `dedup!(::Dict{Int,Vector{<:AbstractMechanismSpec}})`,
-    `_canonicalize!`, `_dedup_key`, `_init_mechanism_specs`,
-    `_spec_from_mechanism`, `_mechanism_from_spec`,
-    `EnzymeMechanism(::MechanismSpec)` adapter,
-    `expand_mechanisms(::Vector{<:AbstractMechanismSpec}, ...)` overload,
-    `_n_fit_params_estimate(::AbstractMechanismSpec)` if separate.
+    `_canonicalize!`, `_dedup_key`, `_spec_from_mechanism`,
+    `_mechanism_from_spec`, `EnzymeMechanism(::MechanismSpec)`
+    adapter, `expand_mechanisms(::Vector{<:AbstractMechanismSpec},
+    ...)` overload, `_n_fit_params_estimate(::AbstractMechanismSpec)`.
+    Also delete `_init_mechanism_specs(::EnzymeReaction)` (no remaining
+    callers after the test migration).
+    **Keep alive (deleted in Stage 7d):** `MechanismSpec`/`StepSpec`/
+    `AllostericMechanismSpec` structs; `_init_mechanism_specs(::EnzymeReactionLegacy)`
+    (the heavy `init_mechanisms(::EnzymeReactionLegacy)` still builds
+    specs internally); `_apply_equivalence_grouping`;
+    `_expand_substrate_product_dead_ends` if it still returns specs.
 
-**LOC delta target:** Stage 6β cumulative ≈ −500 to −800 in
-`src/mechanism_enumeration.jl`.
+**LOC delta target:** Stage 6β cumulative ≈ −300 to −500 in
+`src/mechanism_enumeration.jl` (test-surface deletions only;
+heavy-pipeline deletions land in 7d).
 
 **Symbol form-name helpers stay** (`_form_name`, `_parse_bound`,
 `_bound_mets_from_form_name`, `_dead_end_form_name`, `_atoms_dict`,
@@ -176,30 +197,65 @@ the `Mechanism` form.
 
 ### Stage 7a — Chokepoint hygiene
 
-**Goal:** route every parameter-name rendering through
-`name(p::Parameter, m::Mechanism)`. After this stage, the chokepoint
-is the sole `Parameter → Symbol` mapping in `src/`.
+**Goal:** route every parameter-name rendering through the
+`name(...)` chokepoint, in two complementary forms:
+- **Value-context** (existing): `name(p::Parameter, m::Mechanism)`
+  takes a fully constructed Parameter (which carries a `step::Step`)
+  and a Mechanism.
+- **Type/index-context** (new — added by this stage):
+  `name(::Type{P}, idx::Int) where P<:Parameter` takes a Parameter
+  type and a kinetic-group rep-index, returning the same Symbol the
+  value-context form would produce for that group.
+
+The two methods delegate to a shared private formatter. The reason
+for splitting: rate-equation derivation in `src/rate_eq_derivation.jl`
+runs inside `@generated` functions that walk the `EnzymeMechanism{Sig}`
+type at compile time — at those sites only an `Int` group index is in
+scope; constructing a `Step` value to satisfy the value-context
+signature would require walking the Sig manually, defeating the
+chokepoint. The type/index variant fits the @generated call shape.
+
+After this stage, the chokepoint (these two methods) is the sole
+`Parameter → Symbol` mapping in `src/`. The future parameter-naming
+refactor changes both bodies in lockstep — still a contained edit.
 
 **Inventory of sites bypassing the chokepoint today:**
-- `src/rate_eq_derivation.jl` lines 132, 148, 627, 1632 — four
-  `Symbol("K$idx")` constructions.
-- `src/types.jl` lines 1840, 1841 — `Symbol("K_$(lig_name)_T_reg$site_idx")`
-  and `Symbol("K_$(lig_name)_reg$site_idx")`.
 
-**Approach:** at each site, identify the Parameter struct value that
-should produce the Symbol (a `K`, `Kr`, `Kreg`, etc., with the right
-state and site fields), call `name(p, m)` instead. If the Parameter
-isn't readily available at the call site, build it from the Step and
-Mechanism in scope.
+`src/rate_eq_derivation.jl` — 10 sites (in @generated context, no Step
+in scope; use the type/index variant):
+- Lines ~132, 148, 627, 1632 — `Symbol("K$idx")` (Kd rendering, R-state)
+- Lines ~134, 135, 631, 632, 1636, 1637 — `Symbol("k$(idx)f")` /
+  `Symbol("k$(idx)r")` (Kfor / Krev rendering)
 
-**Regression test:** add a test that scans `src/*.jl` for direct
-`Symbol("K…")`/`Symbol("k…")`/`Symbol("L")`/`Symbol("V…")`
-construction outside of `name(p, m)` implementations and fails if any
-slip back in. Likely a grep-based test in `test/test_aqua_jet.jl` or a
-new `test/test_chokepoint.jl`.
+`src/types.jl` — 2 sites (value context with Mechanism in scope; use
+the value-context variant):
+- Line 1840 — `Symbol("K_$(lig_name)_T_reg$site_idx")` (Kreg T-state)
+- Line 1841 — `Symbol("K_$(lig_name)_reg$site_idx")` (Kreg R-state)
 
-**LOC delta target:** ≈ 0 net (substitution, not deletion). Value is
-architectural: unblocks the future parameter-naming refactor.
+**Approach:**
+1. Implement the type/index-context variant in `src/types.jl`. For
+   each Parameter type (`Kd`, `Kiso`, `Kfor`, `Krev`, `Kon`, `Koff`,
+   `Kreg`), define `name(::Type{P}, idx::Int)` returning the same
+   positional Symbol the value-context form computes for a step at
+   that rep-index. Both forms call a single private formatter to
+   guarantee identical output.
+2. At each `rate_eq_derivation.jl` site, replace `Symbol("K$idx")`
+   with `name(Kd, idx)` (and similarly `Symbol("k$(idx)f")` →
+   `name(Kfor, idx)`, `Symbol("k$(idx)r")` → `name(Krev, idx)`).
+3. At the two `types.jl` Kreg sites, replace the direct construction
+   with the value-context call `name(Kreg(site_idx, lig_name,
+   p.state), m)` (verify the actual Kreg field ordering from
+   `src/types.jl:206`).
+
+**Regression test:** new `test/test_chokepoint.jl`. Scans `src/*.jl`
+line-by-line; any direct `Symbol("K…"` / `Symbol("k…"` /
+`Symbol("V…"` / `Symbol("L…"` literal *outside* the body of a `name`
+method is a failure. The regex must match both digit-literal forms
+(`Symbol("K1")`) and interpolation forms (`Symbol("K$idx")`,
+`Symbol("k$(idx)f")`) — the matcher pattern is `Symbol\("[KkVL][_a-zA-Z0-9$]`.
+
+**LOC delta target:** ≈ +20 (new type/index name methods; substitution
+at call sites). Value is architectural.
 
 ### Stage 7b — DSL native emission with decomposed Species
 
@@ -264,9 +320,20 @@ single cleanup commit.
    moves comes through new-grammar DSL or through Stage 6β-migrated
    construction sites (which can themselves migrate to decomposed
    form once the moves accept it).
-6. Delete the old-grammar parser branch and the legacy `(metabolites,
-   reactions)` macro emission path.
-7. Delete opaque-form helpers (`_form_name`, `_parse_bound`,
+6. **Narrow the bare-Symbol arm** (don't delete it outright — a few
+   conformation entries like `:E`, `:Estar` are still bare Symbols
+   in the new grammar). Allowed bare entries: any Symbol whose
+   string form contains no `_` character followed by an uppercase
+   metabolite-name character — i.e., conformations like `:E`,
+   `:Estar`, `:Estar2`. Any Symbol matching `_[A-Z]` (e.g., `:E_S`,
+   `:E_AB`) raises a clear error: "looks like an opaque bound-form
+   name; migrate to E(S) or E(A, B) call notation." This catches
+   any fixture that slipped migration; without it, an unmigrated
+   `:E_S` would silently re-parse as a pure conformation, changing
+   semantics.
+7. Delete the legacy `(metabolites, reactions)` macro emission path
+   (the always-decomposed branch is now the only emission path).
+8. Delete opaque-form helpers (`_form_name`, `_parse_bound`,
    `_bound_mets_from_form_name`, `_dead_end_form_name`, `_atoms_dict`,
    `_is_estar_form`, `_can_pingpong`, `_subtract_atoms`) and
    `_mechanism_from_legacy_sig` plus the `_is_new_sig` branch in
@@ -291,17 +358,43 @@ call path needs `_to_legacy_reaction`.
   - `identify_rate_equation(reaction::EnzymeReactionLegacy, ...)` →
     `(reaction::EnzymeReaction, ...)`
 
-**Compile-budget consideration:** `test_compile_budget.jl` (lines 77,
-147, etc.) currently constructs `EnzymeReactionLegacy` directly to
-exercise per-arity specialization paths. After 7c, those tests
-construct `EnzymeReaction` instead. The compile-budget gate remains at
-2× main. Since main's measurements used `EnzymeReactionLegacy`, the
-budget values may need re-baselining at this stage. If the new
-non-singleton `EnzymeReaction` produces *better* compile metrics
-(fewer specialized methods), reduce the budget accordingly so the gate
-stays meaningful. **Do not raise the budget** — spec §3 carry-over.
+**Body rewrites needed (this is the bulk of 7c's work):** the dispatch
+swap is mechanical but the function *bodies* aren't. The
+`EnzymeReactionLegacy` accessors return tuple shapes
+(`substrates(::EnzymeReactionLegacy)` → `Tuple{Tuple{Symbol, Tuple{...}}}`),
+while `EnzymeReaction` accessors return reactant structs
+(`substrates(::EnzymeReaction)` reads from `r.reactants`). Internals
+like `_atoms_dict` that destructure `(name, atoms)` tuples must be
+rewritten to use the struct accessors, or unified accessors that
+return consistent shapes for both types must be introduced first.
+Audit every internal at signature-swap time; explode at runtime
+otherwise.
 
-**LOC delta target:** small net (dispatch swap; deletions land in 7d).
+**Compile-budget framing:** `test_compile_budget.jl` lines 77, 147,
+etc. construct `EnzymeReactionLegacy` directly precisely to detect
+per-arity specialization regressions in the `{S,P,R,N}` parametric
+form. The non-parametric concrete `EnzymeReaction` cannot exhibit
+per-arity specialization at all — that's the *point* of switching:
+compilation of uni-uni should not specialize again for ter-ter
+because they share the same dispatch. The warmup-reuse test (lines
+154–194) is therefore expected to pass trivially after 7c (`t_warm ≈
+t_cold`) for the right reasons. This is a success, not a regression.
+
+Concretely for Stage 7c:
+- Re-baseline the trace-compile budgets to the new (lower) counts;
+  set 2× the new baseline as the gate.
+- The warmup-reuse test's ratio bound may need to be relaxed *up*
+  (because `t_warm` and `t_cold` are both dominated by tiny constant
+  overheads that don't compose into the original "warmup wins"
+  pattern) or the test may need a comment update describing that
+  it now verifies "no per-arity specialization happens" by direct
+  measurement rather than by relative speedup.
+- **Do not raise the budgets in a way that would mask a real
+  regression** — if you raise a bound, document why the previous bound
+  was inappropriate under the new architecture.
+
+**LOC delta target:** small net (dispatch swap + body rewrites; struct
+deletions land in 7d).
 
 ### Stage 7d — Delete legacy infrastructure
 
@@ -314,17 +407,28 @@ accessor branches in `src/types.jl` collapse to single bodies.
 
 | Item | File | Approx LOC |
 |------|------|-----------|
-| `EnzymeReactionLegacy{S,P,R,N}` struct + outer constructor | `types.jl` 628–693 | ~70 |
-| `EnzymeReactionLegacy` accessors (`substrates`, `products`, `regulators`, `regulator_roles`, `oligomeric_state`, `Base.show`) | `types.jl` 1451–1488, 1221 | ~80 |
-| `_to_legacy_reaction(r::EnzymeReaction)` | `types.jl` 697–730 | ~35 |
-| 2-arg `EnzymeMechanism(metabolites, reactions)` constructor + atom-balance check | `types.jl` 749–870 | ~120 |
-| Dual-Sig branches in 12 `EnzymeMechanism` accessors (`_is_new_sig` guards) | `types.jl` (scattered) | ~150 |
-| `_n_fit_params_estimate(::AbstractMechanismSpec)` (if not already gone in 6β) | `mechanism_enumeration.jl` | ~10 |
-| **Total** | | **~455** |
+| `EnzymeReactionLegacy{S,P,R,N}` struct (line 628) + outer constructor (lines 654–697) | `types.jl` 628, 654–697 | ~75 |
+| `EnzymeReactionLegacy` accessors (`substrates`, `products`, `regulators`, `regulator_roles`, `oligomeric_state`, `Base.show`) | `types.jl` 1221, 1451–1488 | ~80 |
+| `_to_legacy_reaction(r::EnzymeReaction)` | `types.jl` 700–723 | ~25 |
+| 2-arg `EnzymeMechanism(metabolites, reactions)` constructor | `types.jl` 877–~970 (verify) | ~100 |
+| Dual-Sig branches in 12 `EnzymeMechanism` accessors (`_is_new_sig` guards) + `_is_new_sig` helper | `types.jl` (scattered) | ~150 |
+| `MechanismSpec` / `StepSpec` / `AllostericMechanismSpec` / `AbstractMechanismSpec` structs + helpers preserved by 6β | `mechanism_enumeration.jl` | ~150 |
+| `_init_mechanism_specs(::EnzymeReactionLegacy)` (the heavy-pipeline entry point) | `mechanism_enumeration.jl` 3414 | ~5 |
+| `_apply_equivalence_grouping`, `_expand_substrate_product_dead_ends` spec-form helpers (after Task 7d.0 rewrites `init_mechanisms(::EnzymeReactionLegacy)` to produce Mechanism directly) | `mechanism_enumeration.jl` | ~80 |
+| **Total** | | **~665** |
 
-**LOC delta target:** −450 to −550. Stage 7d is the second-largest
-deletion stage of the continuation (after Stage 6β's spec-type
-removal).
+**Task 7d.0 (prerequisite):** rewrite the heavy
+`init_mechanisms(::EnzymeReactionLegacy)` at
+`mechanism_enumeration.jl:1410` to build `Vector{Mechanism}`
+directly. Today the body builds `MechanismSpec[]` via
+`_apply_equivalence_grouping`; the rewrite either (a) keeps an
+internal scratch representation and converts to `Mechanism` at the
+end, or (b) reworks the algorithm to manipulate `Mechanism` /
+`Vector{Vector{Step}}` throughout. This is the deletion-gating change
+— without it, `MechanismSpec` cannot be retired.
+
+**LOC delta target:** −650 to −750. Stage 7d is the single largest
+deletion stage of the continuation.
 
 ### Stage 7e — Cleanup + docs + PR
 
@@ -352,21 +456,27 @@ README updates, CLAUDE.md updates, final PR.
 
 ## 6. Stage-by-stage LOC budget summary
 
-| Stage | Target Δ | Cumulative target |
-|-------|----------|-------------------|
-| Start | — | +2,607 |
-| 6β | −500 to −800 | ≈ +1,900 |
-| 6 | −300 to −500 | ≈ +1,500 |
-| 7a | ≈ 0 | ≈ +1,500 |
-| 7b | −200 to −250 | ≈ +1,300 |
-| 7c | small | ≈ +1,300 |
-| 7d | −450 to −550 | ≈ +800 |
-| 7e | −100 | ≈ +700 |
-| **End** | | **≈ 7,800 (range 7,500–8,200)** |
+Cumulative is relative to main (7,136). Start of continuation:
++2,607 (current 9,743 src LOC).
 
-If any stage exceeds budget, the next stage absorbs the slack. The
-≤8,200 final target is the gate; intermediate per-stage targets are
-guides.
+| Stage | Target Δ | Cumulative |
+|-------|----------|------------|
+| Start | — | +2,607 |
+| 6β | −300 to −500 | ≈ +2,200 |
+| 6 | −300 to −500 | ≈ +1,800 |
+| 7a | +10 to +30 | ≈ +1,820 |
+| 7b | −200 to −250 | ≈ +1,600 |
+| 7c | ≈ 0 | ≈ +1,600 |
+| 7d | −650 to −750 | ≈ +900 |
+| 7e | −100 | ≈ +800 |
+| **End** | | **≈ +800 (≈ 7,940; gate ≤ 8,200)** |
+
+If a stage misses its target, the next stage absorbs the slack. The
+≤8,200 final src LOC is the only gate; per-stage targets are guides.
+Spec types' deletion shifted from 6β to 7d (sequencing fix — the heavy
+enumeration pipeline still constructs `MechanismSpec` internally
+until rewritten in Task 7d.0), which is why 6β's delta range is now
+smaller and 7d's larger than prior drafts.
 
 ## 7. Out of scope (deferred to a follow-up refactor)
 
@@ -428,8 +538,14 @@ the continuation's working assumptions (do not roll them back):
    deterministic lex-order direction. Causes the Segel Iso Uni Uni
    fixture's `k4f`/`k4r` confusion under opaque-form lift; resolved
    when fixtures move to decomposed Species in Stage 7b.
-4. **`regulators:` DSL alias dropped** — 8 test sites updated to
-   `competitive_inhibitors:`.
+4. **`@enzyme_reaction`'s `regulators:` alias dropped** — the
+   `@enzyme_reaction` macro rejects `regulators:` (only
+   `dead_end_inhibitors:`, `competitive_inhibitors:`,
+   `allosteric_regulators:` accepted, per
+   `src/dsl.jl` `_VALID_REACTION_LABELS`). `@enzyme_mechanism` and
+   `@allosteric_mechanism` still accept `regulators:` (~70 fixture
+   sites use it) — no change planned for those macros in this
+   continuation.
 5. **Memory note correction** —
    `project_dedup_pass2_dead_code` was wrong; pass-2 Wegscheider
    absorption IS load-bearing for inhibitor/activator mechanisms.

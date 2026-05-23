@@ -41,6 +41,10 @@ These apply to every commit in this plan:
 - **No temporal-context comments** in code (no "Stage N", "previously", "legacy", "will be"). Documentation in plans/specs is fine; code comments must be evergreen.
 - **Perf gates green at every commit:** `test_rate_equation_performance` in `test/test_rate_eq_derivation.jl` must show 0 allocs and < 100ns per call. The 3 compile-budget gates in `test/test_compile_budget.jl` must pass.
 - **Branch:** stay on `refactor-to-concrete-types-instead-of-symbols`. Single PR at the end.
+- **Chokepoint architecture (introduced in Stage 7a):** parameter Symbol rendering has two complementary entry points sharing a private `_param_symbol` formatter:
+  - **Value-context:** `name(p::Parameter, m::Mechanism) → Symbol` — takes a constructed Parameter value (carrying `step::Step`) and a Mechanism. Used by value-context callers in `src/types.jl` and elsewhere.
+  - **Type/index-context:** `name(::Type{P}, idx::Int) → Symbol where P<:Parameter` — takes a Parameter type and a kinetic-group rep-index. Used by `@generated` callers in `src/rate_eq_derivation.jl` that don't have a Step value in scope.
+  After Stage 7a, every Symbol rendering of a parameter name in `src/` goes through one of these two methods (enforced by `test/test_chokepoint.jl` regression). When in doubt about which form to use, prefer value-context; fall back to type/index only when the call site genuinely lacks a Mechanism or Step.
 
 ---
 
@@ -98,7 +102,26 @@ variants = EnzymeRates._expand_re_to_ss(m)
 ```
 
 Key translation rules:
-- `MechanismSpec(rxn, [step1, step2, ...], n)` → `Mechanism(rxn, group_steps([step1, step2, ...]))` where `group_steps` puts each StepSpec into its own inner Vector unless multiple StepSpecs share `kinetic_group::Int` (then they're grouped).
+- `MechanismSpec(rxn, [step1, step2, ...], n)` → `Mechanism(rxn, group_by_kg([step1, step2, ...]))` where `group_by_kg` collapses StepSpecs with the same `kinetic_group::Int` into one inner `Vector{Step}`, preserving source order.
+
+  The grouping algorithm (use this as a test helper if it shortens the testsets — many spec testsets *do* share kinetic groups across steps):
+
+  ```julia
+  function _group_by_kg(specs::Vector{StepSpec})
+      buckets = Dict{Int, Vector{Int}}()  # kg → step indices in source order
+      order = Int[]
+      for (i, s) in pairs(specs)
+          if !haskey(buckets, s.kinetic_group)
+              buckets[s.kinetic_group] = Int[]
+              push!(order, s.kinetic_group)
+          end
+          push!(buckets[s.kinetic_group], i)
+      end
+      [Step[<construct from specs[i]> for i in buckets[kg]] for kg in order]
+  end
+  ```
+
+  **Worked example with shared kg:** `MechanismSpec(rxn, [StepSpec(...kg=1), StepSpec(...kg=1), StepSpec(...kg=2)], n)` → `Mechanism(rxn, [[step_a, step_b], [step_c]])` — NOT `[[step_a], [step_b], [step_c]]`. Silently flattening to one-step-per-group changes the rate equation (shared parameters become independent).
 - `StepSpec([:E, :S], [:E_S], true, kg)` → `Step(Species([], :E), Species([], :E_S), Substrate(:S), true)`. The bound metabolite is detected from `reactants ∪ products` difference; for binding (`E + S → ES`), it's `:S`. For dissociation (`ES → E + P`), the order is reversed and bound is `:P`.
 - `StepSpec([:E_S], [:E_P], false, kg)` (iso, no metabolite) → `Step(Species([], :E_S), Species([], :E_P), nothing, false)`.
 - For substrate vs product vs regulator classification, look at `rxn`'s declared substrates/products/regulators and dispatch the right metabolite constructor: `Substrate(:S)`, `Product(:P)`, `CompetitiveInhibitor(:I)`, `AllostericRegulator(:R)`.
@@ -182,14 +205,42 @@ function _assert_mechanism_invariants(m::Mechanism)
 end
 
 function _assert_mechanism_invariants(m::AllostericMechanism)
-    _assert_mechanism_invariants(m.base)
-    # Dense tag storage: every kinetic group has a group_tag, every ligand has a reg_ligand_tag
-    n_groups = length(m.base.steps)
-    Set(keys(m.group_tags)) == Set(1:n_groups) ||
-        error("group_tags not dense: keys=$(sort(collect(keys(m.group_tags))))")
-    declared_ligands = Set(name(metabolite(r)) for s in m.allosteric_reg_sites for r in s)
-    Set(keys(m.reg_ligand_tags)) == declared_ligands ||
-        error("reg_ligand_tags not dense")
+    # Build a minimal Mechanism view of the catalytic side to reuse the
+    # base invariant checks (every cat-group non-empty, source_idx dense
+    # over flat cat steps, etc.). Then check the allosteric-specific
+    # invariants against the actual AllostericMechanism fields.
+    flat = Step[s for g in m.cat_steps for s in g]
+    isempty(flat) && error("AllostericMechanism: empty cat_steps")
+    for g in m.cat_steps
+        isempty(g) && error("AllostericMechanism: empty catalytic kinetic group")
+    end
+    src_indices = [s.source_idx for s in flat]
+    sort(src_indices) == collect(1:length(flat)) ||
+        error("AllostericMechanism: cat_steps source_idx not dense 1..n")
+
+    # cat_allo_states is one per cat group, validated by the constructor;
+    # re-check defensively here:
+    length(m.cat_allo_states) == length(m.cat_steps) ||
+        error("AllostericMechanism: cat_allo_states length " *
+              "$(length(m.cat_allo_states)) ≠ cat_steps length " *
+              "$(length(m.cat_steps))")
+    valid_cat_states = (:OnlyR, :EqualRT, :NonequalRT)
+    for tag in m.cat_allo_states
+        tag in valid_cat_states ||
+            error("AllostericMechanism: invalid cat allo state $tag")
+    end
+
+    m.catalytic_multiplicity ≥ 1 ||
+        error("AllostericMechanism: catalytic_multiplicity " *
+              "$(m.catalytic_multiplicity) must be ≥ 1")
+
+    # regulatory_sites is a Vector{RegulatorySite}; each site carries
+    # its own ligand list + multiplicity + per-ligand allo states. The
+    # constructor validates internal structure; here we only assert the
+    # list is non-nothing.
+    m.regulatory_sites isa Vector{RegulatorySite} ||
+        error("AllostericMechanism: regulatory_sites not Vector{RegulatorySite}")
+
     nothing
 end
 ```
@@ -206,41 +257,53 @@ Expected: PASS.
 
 - [ ] **Step 6: Add `enumerate_all_mechanism` helper to the test file**
 
+There is no `AbstractMechanism` abstract type — `Mechanism` and `AllostericMechanism` are independent concrete structs. Use a `Union{Mechanism, AllostericMechanism}` element type. The `dedup!` API takes a `Dict{Int, Vector{...}}`, not a `Vector` directly. There is no `expand_mechanisms_one`; use `expand_mechanisms(specs, rxn)` (or its Mechanism overload `expand_mechanisms(::Vector{<:Union{Mechanism,AllostericMechanism}}, ::EnzymeReaction)` if that's how it's defined — verify with `grep -n 'function expand_mechanisms' src/mechanism_enumeration.jl`).
+
 Add this above the existing `enumerate_all` helper in `test/test_mechanism_enumeration.jl`:
 
 ```julia
 """
-    enumerate_all_mechanism(rxn::EnzymeReaction) -> Dict{Int, Vector{<:AbstractMechanism}}
+    enumerate_all_mechanism(rxn::EnzymeReaction)
+        -> Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
 
 Mechanism-form parallel of `enumerate_all` (which works on specs).
 Used by 6β-migrated testsets that exercise full enumeration via the
 Mechanism API.
 """
 function enumerate_all_mechanism(rxn)
-    cache = Dict{Int, Vector{EnzymeRates.AbstractMechanism}}()
+    M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
+    cache = Dict{Int, Vector{M}}()
     for m in EnzymeRates.init_mechanisms(rxn)
         pc = EnzymeRates._n_fit_params_estimate(m)
-        push!(get!(cache, pc, EnzymeRates.AbstractMechanism[]), m)
+        push!(get!(cache, pc, M[]), m)
     end
-    results = Dict{Int, Vector{EnzymeRates.AbstractMechanism}}()
+    results = Dict{Int, Vector{M}}()
     while !isempty(cache)
         pc = minimum(keys(cache))
-        level = pop!(cache, pc, EnzymeRates.AbstractMechanism[])
-        EnzymeRates.dedup!(level)
+        # dedup! operates on a Dict slice — wrap and unwrap:
+        slice = Dict(pc => pop!(cache, pc))
+        EnzymeRates.dedup!(slice)
+        level = slice[pc]
         results[pc] = level
-        for m in level
-            for child in EnzymeRates.expand_mechanisms_one(m)
-                cpc = EnzymeRates._n_fit_params_estimate(child)
-                cpc > pc || continue
-                push!(get!(cache, cpc, EnzymeRates.AbstractMechanism[]), child)
-            end
+        # Expand one level at a time, sorted by param-count to feed
+        # the cache in ascending order.
+        children = EnzymeRates.expand_mechanisms(level, rxn)
+        for (cpc, group) in children
+            cpc > pc || continue
+            append!(get!(cache, cpc, M[]), group)
         end
     end
     results
 end
 ```
 
-(If `expand_mechanisms_one` doesn't exist yet as a single-mechanism entry point, locate the existing per-move dispatch in `src/mechanism_enumeration.jl` and either add a thin wrapper or call the moves directly inside this helper.)
+Verify the actual `dedup!` and `expand_mechanisms` Mechanism signatures with:
+
+```bash
+grep -nE "^function (dedup!|expand_mechanisms)" src/mechanism_enumeration.jl
+```
+
+If the API differs, adapt the helper body to match. Don't paper over a missing method — if `expand_mechanisms` doesn't yet have a `Vector{<:Union{Mechanism,AllostericMechanism}}` overload, add it as part of this commit (it's a thin wrapper around the per-move `_expand_*` calls).
 
 - [ ] **Step 7: Verify the helper compiles**
 
@@ -724,21 +787,31 @@ Delete the spec-form helpers:
 - `_assert_spec_invariants` methods (both for `MechanismSpec` and `AllostericMechanismSpec`)
 - The original `enumerate_all` function (the Mechanism version `enumerate_all_mechanism` from 6β.1 supersedes it).
 
-- [ ] **Step 3: Delete the spec types + overloads in `src/mechanism_enumeration.jl`**
+- [ ] **Step 3: Delete the spec types' TEST-FACING overloads in `src/mechanism_enumeration.jl`**
 
-Bottom-up:
-1. `StepSpec`, `MechanismSpec`, `AllostericMechanismSpec`, `AbstractMechanismSpec` struct definitions.
-2. `_expand_re_to_ss(::AbstractMechanismSpec)`, `_expand_split_kinetic_group(::AbstractMechanismSpec)`, `_expand_add_dead_end_regulator(::AbstractMechanismSpec)`, `_expand_to_allosteric(::AbstractMechanismSpec)`, `_expand_add_allosteric_regulator(::AbstractMechanismSpec)`, `_expand_change_allo_state(::AbstractMechanismSpec)` — six legacy overloads.
-3. `dedup!(::Dict{Int, Vector{<:AbstractMechanismSpec}})` legacy overload.
-4. `_canonicalize!(::AbstractMechanismSpec)`.
-5. `_dedup_key(::AbstractMechanismSpec)`.
-6. `_init_mechanism_specs(::EnzymeReaction)`, `_init_mechanism_specs(::EnzymeReactionLegacy)`. (The 2-arg method on `EnzymeReactionLegacy` is referenced from `src/identify_rate_equation.jl`; if so, update the caller to use `init_mechanisms` directly.)
-7. `_spec_from_mechanism`, `_mechanism_from_spec`.
-8. `EnzymeMechanism(spec::MechanismSpec)` adapter.
-9. `expand_mechanisms(::Vector{<:AbstractMechanismSpec}, ::EnzymeReactionLegacy)` legacy overload (the Mechanism version stays).
-10. `_n_fit_params_estimate(::AbstractMechanismSpec)` if defined as a separate method.
+The heavy enumeration pipeline (`init_mechanisms(::EnzymeReactionLegacy)`, `_apply_equivalence_grouping`, etc.) still builds `MechanismSpec` values internally — rewriting it to produce `Mechanism` directly is Task 7d.0. So this stage only retires the *test-facing surface* whose callers all went through 6β.1–6β.9.
 
-For each deletion, also delete the docstring above it.
+Before deleting each item, verify zero callers in src/:
+
+```bash
+grep -rn "<name>" src/
+```
+
+Items safe to delete in 6β.10 (zero src/ callers after migration):
+1. `_expand_re_to_ss(::AbstractMechanismSpec)`, `_expand_split_kinetic_group(::AbstractMechanismSpec)`, `_expand_add_dead_end_regulator(::AbstractMechanismSpec)`, `_expand_to_allosteric(::AbstractMechanismSpec)`, `_expand_add_allosteric_regulator(::AbstractMechanismSpec)`, `_expand_change_allo_state(::AbstractMechanismSpec)` — six test-facing overloads.
+2. `dedup!(::Dict{Int, Vector{<:AbstractMechanismSpec}})` legacy overload.
+3. `_canonicalize!(::AbstractMechanismSpec)` and `_dedup_key(::AbstractMechanismSpec)` if their only callers were the now-deleted dedup overload + the migrated testsets.
+4. `_n_fit_params_estimate(::AbstractMechanismSpec)` if a separate method.
+5. `_init_mechanism_specs(::EnzymeReaction)` (only the EnzymeReaction overload — the `EnzymeReactionLegacy` overload feeds the still-live heavy pipeline; keep it for 7d).
+
+Items that must STAY until Stage 7d (keep these alive in 6β.10):
+- `MechanismSpec`, `StepSpec`, `AllostericMechanismSpec`, `AbstractMechanismSpec` struct definitions — used inside `init_mechanisms(::EnzymeReactionLegacy)` and `_apply_equivalence_grouping`.
+- `_init_mechanism_specs(::EnzymeReactionLegacy)` — the heavy pipeline's entry.
+- `_spec_from_mechanism`, `_mechanism_from_spec` — used to convert specs ↔ Mechanism at pipeline boundaries (the `init_mechanisms(::EnzymeReaction) = [_mechanism_from_spec(s) for s in _init_mechanism_specs(r)]` adapter at `mechanism_enumeration.jl:3390` still uses this).
+- `EnzymeMechanism(spec::MechanismSpec)` adapter — verify with `grep -rn 'EnzymeMechanism(.*::MechanismSpec\|EnzymeMechanism(spec' src/`; delete if zero src/ callers.
+- `expand_mechanisms(::Vector{<:AbstractMechanismSpec}, ::EnzymeReactionLegacy)` legacy overload — same: verify, delete if zero src/ callers.
+
+For each deletion, delete the docstring above it.
 
 - [ ] **Step 4: Add §2.1 log entries for the spec-helper testset deletions**
 
@@ -755,21 +828,32 @@ behavior is preserved by the replacement code path.
 ### test_mechanism_enumeration.jl `@testset "spec-from-mechanism helpers reject inconsistent inputs"`
 - Lines: ~190–256 (pre-deletion)
 - Helper deleted: `mechanism_spec_from_mechanism_and_rxn`
-- Replacement: direct `Mechanism(rxn, [[Step(...)]])` construction in
-  6β-migrated testsets; the spec round-trip the helper exercised is
-  no longer needed because callers don't go through specs.
-- Integration coverage:
-  - `test_mechanism_enumeration.jl @testset "_expand_re_to_ss"` (and
-    each other `_expand_*` block) — the Mechanism inputs exercise the
-    same construction paths the helper used to validate.
+- Replacement: NONE EQUIVALENT. The helper's only purpose was the
+  spec ↔ Mechanism round-trip; once the helper is gone, the
+  round-trip surface ceases to exist. This is a true §2.1 narrow
+  exception — the behavior tested can no longer be tested because
+  the entity being tested is gone.
+- Integration coverage that exercises similar input-validation
+  surface (different but related):
+  - `test/test_types.jl @testset "EnzymeMechanism error cases"`
+    (line 391 — validates rejection of inconsistent
+    `EnzymeMechanism` inputs).
+  - `test/test_types.jl @testset "AllostericEnzymeMechanism
+    constructor validators"` (line 482 — validates rejection of
+    inconsistent allosteric inputs).
 
 ### test_mechanism_enumeration.jl `@testset "allosteric_spec_from_mechanism_and_rxn round-trip"`
 - Lines: ~257–... (pre-deletion)
 - Helper deleted: `allosteric_spec_from_mechanism_and_rxn`
-- Replacement: direct `AllostericMechanism(...)` construction in 6β-migrated
-  testsets.
-- Integration coverage: same as above, plus
-  `test_types.jl @testset "AllostericMechanism construction"`.
+- Replacement: NONE EQUIVALENT. Same rationale as above — the
+  round-trip behavior was the helper's only purpose.
+- Adjacent coverage:
+  - `test/test_types.jl @testset "AllostericEnzymeMechanism (new
+    design)"` (line 116 — direct AllostericMechanism construction
+    + invariants).
+  - `test/test_types.jl @testset "AllostericEnzymeMechanism
+    constructor + DSL"` (line 138 — DSL-driven construction +
+    accessor parity).
 EOF
 ```
 
@@ -871,18 +955,192 @@ Expected: all green; cumulative LOC delta ≈ +1,500 (start of stage was ≈ +1,
 
 **Stage LOC delta target:** ≈ 0 net.
 
-## Task 7a.1: Route `Symbol("K$idx")` sites in `src/rate_eq_derivation.jl` through the chokepoint
+## Task 7a.1: Add `name(::Type{P}, idx::Int)` chokepoint companion, then route all 10 `src/rate_eq_derivation.jl` sites through it
 
 **Files:**
-- Modify: `src/rate_eq_derivation.jl` lines 132, 148, 627, 1632
+- Modify: `src/types.jl` — add new `name(::Type{P}, idx::Int)` methods next to the existing `name(p::P, m::Mechanism)` ones
+- Modify: `src/rate_eq_derivation.jl` lines 132, 134, 135, 148, 627, 631, 632, 1632, 1636, 1637
 
-Inventory:
-- Line 132: `rename[Symbol("K$idx")] = Symbol("K$rep")` — builds a rename map from one positional K name to another.
-- Line 148: `sym = Symbol("K$idx")` — looks up a K param.
-- Line 627: `pass1_rename[Symbol("K$idx")] = Symbol("K$rep")` — another rename map entry.
-- Line 1632: same pattern as 627.
+The Parameter structs (`src/types.jl:195–202`) are `Kd`, `Kiso`, `Kon`, `Koff`, `Kfor`, `Krev` — each `<: Parameter` carrying `step::Step` and `state::Symbol`. There is **no `K` struct.** The existing value-context chokepoint signature is `name(p::Kd, m::Mechanism) → Symbol` (and similarly for each subtype); it computes `Symbol("K$(_rep_idx_for_step(p.step, m))")` (or equivalent). The @generated rate-equation derivation in `src/rate_eq_derivation.jl` has only an integer `idx` in scope (the kinetic-group rep-index), no `Step` and no `Mechanism` value — that's why a type/index-context companion is needed.
 
-These all build kinetic-group rename maps for the polynomial substitution passes. The Parameter struct that produces `Symbol("K$idx")` is `K(group_idx)`-style — verify by reading `src/types.jl` around the K Parameter definition and the chokepoint `name(::K, m)`.
+Inventory (rate_eq_derivation.jl):
+- Lines 132, 627, 1632: `rename[Symbol("K$idx")] = Symbol("K$rep")` — rename-map entries for Kd-renaming passes.
+- Line 148: `sym = Symbol("K$idx")` — Kd lookup.
+- Lines 134, 135, 631, 632, 1636, 1637: `Symbol("k$(idx)f")` / `Symbol("k$(idx)r")` — Kfor / Krev rendering.
+
+- [ ] **Step 1: Read each call site to understand context**
+
+```bash
+sed -n '125,160p' src/rate_eq_derivation.jl
+sed -n '620,640p' src/rate_eq_derivation.jl
+sed -n '1625,1645p' src/rate_eq_derivation.jl
+```
+
+- [ ] **Step 2: Read the value-context `name` methods + private formatter**
+
+```bash
+grep -nE "^function name\(.*::Kd\b|^name\(.*::Kd\b" src/types.jl
+grep -nE "^function name\(.*::Kfor\b|^function name\(.*::Krev\b" src/types.jl
+grep -n "_rep_idx_for_step" src/types.jl
+```
+
+Note the formatter (if any) those methods delegate to — Task 7a.0 below extracts/shares it across the value and type contexts.
+
+- [ ] **Step 3: Write a failing chokepoint-exclusivity regression test**
+
+Create `test/test_chokepoint.jl`:
+
+```julia
+using Test
+using EnzymeRates
+
+@testset "chokepoint: no direct Symbol(\"K…\") construction outside name() bodies" begin
+    src_dir = joinpath(dirname(@__DIR__), "src")
+    # Match both literal-digit forms Symbol("K1") and interpolation
+    # forms Symbol("K\$idx") / Symbol("k\$(idx)f").
+    pat = r"Symbol\(\"[KkVL][_a-zA-Z0-9$]"
+    for f in readdir(src_dir; join=true)
+        endswith(f, ".jl") || continue
+        offending = String[]
+        in_name_method = false
+        depth = 0
+        for (lineno, line) in enumerate(eachline(IOBuffer(read(f, String))))
+            # Detect entry to a `name(...) =` or `function name(...)` body
+            # whose first positional arg is a Parameter type/value.
+            if occursin(r"^\s*(function\s+)?name\(.*(::Parameter|::K[a-z]|::Type\{<:K)", line)
+                in_name_method = true
+                depth = max(1, count(==('('), line) - count(==(')'), line))
+            elseif in_name_method
+                depth += count(==('('), line) - count(==(')'), line)
+                if occursin(r"^end\s*$", line) || depth <= 0
+                    in_name_method = false
+                end
+            end
+            if !in_name_method && occursin(pat, line)
+                push!(offending, "$(basename(f)):$lineno: $line")
+            end
+        end
+        if !isempty(offending)
+            @info "chokepoint violations" offending
+        end
+        @test isempty(offending)
+    end
+end
+```
+
+Add `include("test_chokepoint.jl")` to `test/runtests.jl`.
+
+- [ ] **Step 4: Run the test to confirm it fails BEFORE the fix**
+
+```bash
+julia --project=test -e 'include("test/test_chokepoint.jl")' 2>&1 | tail -30
+```
+
+Expected: FAIL with ~12 offending lines (10 in `rate_eq_derivation.jl`, 2 in `types.jl`). If it passes, the regex is too narrow — fix the regex first.
+
+- [ ] **Step 5: Implement the type/index-context chokepoint companion in `src/types.jl`**
+
+Add next to the existing `name(p, m)` methods. Both call a single private formatter:
+
+```julia
+# Private positional-name formatter. The future parameter-naming
+# refactor replaces this body to emit semantic names.
+_param_symbol(::Type{Kd}, idx::Int) = Symbol("K", idx)
+_param_symbol(::Type{Kiso}, idx::Int) = Symbol("K", idx)  # or whatever the existing convention emits
+_param_symbol(::Type{Kfor}, idx::Int) = Symbol("k", idx, "f")
+_param_symbol(::Type{Krev}, idx::Int) = Symbol("k", idx, "r")
+_param_symbol(::Type{Kon}, idx::Int) = Symbol("k", idx, "f")  # verify against current convention
+_param_symbol(::Type{Koff}, idx::Int) = Symbol("k", idx, "r")
+
+# T-state suffix per existing convention (read current name(::Kd, m)
+# body to confirm the rule):
+_param_symbol(::Type{P}, idx::Int, state::Symbol) where P =
+    state === :T ? Symbol(_param_symbol(P, idx), "_T") :
+                   _param_symbol(P, idx)
+
+# Type/index-context chokepoint companion:
+name(::Type{P}, idx::Int) where P<:Parameter = _param_symbol(P, idx)
+name(::Type{P}, idx::Int, state::Symbol) where P<:Parameter =
+    _param_symbol(P, idx, state)
+
+# Refactor each existing value-context `name(p::P, m::Mechanism)` to
+# delegate to the same formatter:
+function name(p::Kd, m::Mechanism)
+    idx = _rep_idx_for_step(p.step, m)
+    _param_symbol(Kd, idx, p.state)
+end
+# (similar for Kiso, Kfor, Krev, Kon, Koff)
+```
+
+Verify the existing per-parameter conventions before writing the formatter bodies — read the current `name(p::P, m)` implementations and mirror their output exactly. Differences in T-state suffix, R-state default, etc., must be preserved.
+
+- [ ] **Step 6: Fix the rate_eq_derivation.jl sites**
+
+```julia
+# Line 132 (and 627, 1632): rename-map for Kd
+rename[Symbol("K$idx")] = Symbol("K$rep")
+# → 
+rename[name(Kd, idx)] = name(Kd, rep)
+
+# Line 148: Kd lookup
+sym = Symbol("K$idx")
+# →
+sym = name(Kd, idx)
+
+# Lines 134, 631, 1636: Kfor rename
+rename[Symbol("k$(idx)f")] = Symbol("k$(rep)f")
+# →
+rename[name(Kfor, idx)] = name(Kfor, rep)
+
+# Lines 135, 632, 1637: Krev rename
+rename[Symbol("k$(idx)r")] = Symbol("k$(rep)r")
+# →
+rename[name(Krev, idx)] = name(Krev, rep)
+```
+
+(Adjust based on the actual context — these are rename-map entries that pair an old name to a new name; the specific Parameter type per line depends on whether the line targets `K`/`k…f`/`k…r`.)
+
+- [ ] **Step 7: Re-run the regression test to confirm it passes (for rate_eq_derivation.jl sites)**
+
+```bash
+julia --project=test -e 'include("test/test_chokepoint.jl")' 2>&1 | tail -10
+```
+
+Expected: rate_eq_derivation.jl violations gone; 2 violations in types.jl remaining (fixed in 7a.2).
+
+- [ ] **Step 8: Run the full suite + integrity check**
+
+```bash
+bash scripts/check_test_integrity.sh main
+julia --project=test -e 'include("test/runtests.jl")' 2>&1 | tail -10
+```
+
+Expected: full suite passes; rate-equation tests verify the Symbols produced are bit-identical to before.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/types.jl src/rate_eq_derivation.jl test/test_chokepoint.jl test/runtests.jl
+git commit -m "$(cat <<'EOF'
+Stage 7a.1: add type/index-context chokepoint + route rate_eq_derivation through it
+
+Adds `name(::Type{P}, idx::Int)` companion to `name(p::P, m::Mechanism)`
+so @generated callers can render parameter symbols without a Step value.
+Both share private `_param_symbol` formatter — future parameter-naming
+refactor changes one function body.
+
+10 Symbol(\"K…\") / Symbol(\"k…\") constructions in
+src/rate_eq_derivation.jl (lines 132, 134, 135, 148, 627, 631, 632,
+1632, 1636, 1637) routed through the new companion.
+
+Adds test/test_chokepoint.jl regression — fails the build if any
+direct Symbol(\"[KkVL]…\") construction appears outside `name(...)`
+bodies.
+
+src delta: -X / +Y net Z, cumulative: ±W
+EOF
+)"
+```
 
 - [ ] **Step 1: Read each call site to understand context**
 
@@ -1027,34 +1285,38 @@ EOF
 **Files:**
 - Modify: `src/types.jl` lines 1840, 1841
 
-These two lines build `K_<lig>_T_reg<n>` / `K_<lig>_reg<n>` Symbols inline. The Parameter struct that produces these is `Kreg(site_idx, ligand_name, state)`.
+These two lines build `K_<lig>_T_reg<n>` / `K_<lig>_reg<n>` Symbols inline. The Parameter struct is `Kreg(site::RegulatorySite, ligand::AllostericRegulator, state::Symbol)` (per `src/types.jl:206–210`) — it takes **struct values**, not integer indices or bare Symbols.
 
-- [ ] **Step 1: Read the call site**
+The lines sit *inside* the `name(p::Kreg, m::AllostericMechanism)` body (`src/types.jl:1837`) — that's the chokepoint itself. The fix is to extract the Symbol-building logic into the same private `_param_symbol` formatter introduced in Task 7a.1, so the regression test (which scans for `Symbol("K…")` literals outside any `name(...)` body) passes.
+
+- [ ] **Step 1: Read the current `name(p::Kreg, m)` body**
 
 ```bash
 sed -n '1830,1850p' src/types.jl
 ```
 
-Identify the function this is inside — likely an accessor or rendering helper for an `AllostericEnzymeMechanism`. Note the variables in scope: `site_idx`, `lig_name`, `p.state` (`:T` or `:R`).
+Note that `p.site` is a `RegulatorySite` and `p.ligand` is an `AllostericRegulator` — derive `site_idx` (e.g., `findfirst(==(p.site), m.regulatory_sites)`) and `lig_name` (`name(p.ligand)`) from those.
 
-- [ ] **Step 2: Locate the Kreg struct + name method**
-
-```bash
-grep -n "^struct Kreg\|name(::Kreg\|name(p::Kreg" src/types.jl
-```
-
-- [ ] **Step 3: Replace the two lines**
+- [ ] **Step 2: Add the Kreg variant of `_param_symbol`**
 
 ```julia
-# Before:
-p.state === :T ? Symbol("K_$(lig_name)_T_reg$site_idx") :
-                 Symbol("K_$(lig_name)_reg$site_idx")
-
-# After:
-name(Kreg(site_idx, lig_name, p.state), m)
+_param_symbol(::Type{Kreg}, site_idx::Int, lig_name::Symbol, state::Symbol) =
+    state === :T ? Symbol("K_", lig_name, "_T_reg", site_idx) :
+                   Symbol("K_", lig_name, "_reg", site_idx)
 ```
 
-(Verify the `Kreg` constructor signature — read the struct definition. The arguments may need reordering.)
+- [ ] **Step 3: Rewrite `name(p::Kreg, m)` to call `_param_symbol`**
+
+```julia
+function name(p::Kreg, m::AllostericMechanism)
+    site_idx = findfirst(==(p.site), m.regulatory_sites)
+    site_idx === nothing &&
+        error("name(Kreg): ligand site $(p.site) not in mechanism")
+    _param_symbol(Kreg, site_idx, name(p.ligand), p.state)
+end
+```
+
+After this rewrite, the Symbol-construction is inside `_param_symbol` (called from inside `name`); no direct `Symbol("K…")` literal appears at module top-level. The regression test (which only excludes top-level literals when inside a `name(...)` body) now sees only `_param_symbol` calls — also acceptable because `_param_symbol` is the shared formatter.
 
 - [ ] **Step 4: Run the regression test**
 
@@ -1318,14 +1580,20 @@ EOF
 
 ## Task 7b.3: Migrate remaining DSL-using test files
 
-**Files:**
-- Modify: `test/test_dsl.jl` (36 DSL invocations)
-- Modify: `test/test_types.jl` (15)
-- Modify: `test/test_rate_eq_derivation.jl` (14)
-- Modify: `test/test_accessors.jl` (3)
-- Modify: `test/test_identify_rate_equation.jl` (3)
-- Modify: `test/test_fitting.jl` (2)
-- Modify: `test/test_compile_budget.jl` (1)
+**Files (re-inventory at execution time; counts as of 2026-05-22):**
+- Modify: `test/test_dsl.jl` (~22 DSL invocations)
+- Modify: `test/test_types.jl` (~13)
+- Modify: `test/test_rate_eq_derivation.jl` (~12)
+- Modify: `test/test_compile_budget.jl` (~1)
+- Modify: `test/test_fitting.jl` (~2)
+- Modify: `test/test_accessors.jl` (~1)
+- Modify: `test/test_mechanism_enumeration.jl` (~94 — but the bulk migrated to DSL form in 6β; verify what remains)
+- Skip: `test/test_identify_rate_equation.jl` (no DSL invocations)
+
+Re-verify counts:
+```bash
+for f in test/*.jl; do n=$(grep -c "@enzyme_mechanism\|@allosteric_mechanism" "$f"); [ "$n" -gt 0 ] && echo "$n  $f"; done
+```
 
 - [ ] **Step 1: Migrate one file at a time**
 
@@ -1452,9 +1720,31 @@ Expected: empty (no fixture has a bare-name multi-char RHS in a `=>` step).
 
 If non-empty, those fixtures need migration first (back to Task 7b.2/7b.3).
 
-- [ ] **Step 2: Delete the opaque-form parser branch in `_parse_step_entry`**
+- [ ] **Step 2: Narrow the bare-Symbol arm in `_parse_step_entry`**
 
-Remove the `if entry isa Symbol` arm (or simplify it to only accept pure-conformation single-character symbols like `:E`, `:Estar`). The new entry parser expects every bound-metabolite form to be a `Call` expression.
+Per the continuation spec §5 Stage 7b step 6, the Symbol arm stays but **rejects anything that looks like an opaque bound-form name**. Allowed: bare conformations (`:E`, `:Estar`, `:Estar2`, `:Eprime`). Rejected: any Symbol whose string form matches `_[A-Z]` (e.g., `:E_S`, `:E_AB`, `:E_PQ`) — these are opaque bound-form names; the parser raises a clear error pointing to the new `E(S)` notation.
+
+```julia
+function _parse_step_entry(entry, declared_mets::Dict{Symbol, Metabolite})
+    if entry isa Symbol
+        s = string(entry)
+        occursin(r"_[A-Z]", s) && error(
+            "@enzyme_mechanism: step entry `:$s` looks like an opaque " *
+            "bound-form name (matches `_<uppercase>`). Migrate to call " *
+            "notation: e.g., `E_S` → `E(S)`, `E_AB` → `E(A, B)`.")
+        return Species(Metabolite[], entry)
+    elseif entry isa Expr && entry.head === :call
+        conformation = entry.args[1]::Symbol
+        ligand_names = Symbol[a for a in entry.args[2:end]]
+        ligands = Metabolite[declared_mets[n] for n in ligand_names]
+        return Species(ligands, conformation)
+    else
+        error("@enzyme_mechanism: unrecognized step entry: $entry")
+    end
+end
+```
+
+This catches any fixture that slipped migration; without it, an unmigrated `:E_S` would silently re-parse as a pure conformation, changing semantics.
 
 - [ ] **Step 3: Delete the legacy macro emission path**
 
@@ -1598,9 +1888,35 @@ function init_mechanisms(@nospecialize(reaction::EnzymeReactionLegacy); kwargs..
 function init_mechanisms(reaction::EnzymeReaction; kwargs...)
 ```
 
-Drop `@nospecialize` — the concrete struct doesn't need it (no per-arity type explosion). Or keep it if the original had a reason (read the docstring comment if any).
+Drop `@nospecialize` — the concrete struct doesn't need it (no per-arity type explosion).
 
-Inside each function body, replace any `EnzymeReactionLegacy`-specific accessor calls with their `EnzymeReaction` equivalents (likely no changes needed because the accessors are polymorphic).
+**Body rewrites — the bulk of 7c's work.** The accessors return different shapes for the two reaction types:
+
+| Accessor | `::EnzymeReactionLegacy` returns | `::EnzymeReaction` returns |
+|----------|----------------------------------|----------------------------|
+| `substrates(r)` | `Tuple{Tuple{Symbol, Tuple{Tuple{Symbol,Int}...}}...}` | reactant struct accessors over `r.reactants` |
+| `products(r)` | same tuple shape | same |
+| `regulators(r)` | tuple of `Symbol`s | tuple of regulator structs |
+
+Internals like `_atoms_dict` at `src/mechanism_enumeration.jl:166–186` destructure the *old* tuple shape: `for (name, atoms) in substrates(r); for (elem, count) in atoms; ...`. After the dispatch swap, those destructures explode at runtime when handed `EnzymeReaction`'s struct shape.
+
+**Per-method procedure:** for each function whose signature changes, immediately scan the body for accessor calls and rewrite the destructures. Run that function's tests after each rewrite — don't batch the body changes.
+
+Common rewrites:
+```julia
+# Before (legacy tuple destructure):
+for (name, atoms) in substrates(r)
+    for (elem, count) in atoms
+        ...
+
+# After (struct accessors):
+for rt in r.reactants
+    metabolite(rt) isa Substrate || continue
+    for (elem, count) in atoms(rt)
+        ...
+```
+
+Verify accessor names against `src/types.jl` (search for `substrates(r::EnzymeReaction)` and similar).
 
 - [ ] **Step 4: Update `IdentifyRateEquationProblem` type parameter**
 
@@ -1638,9 +1954,11 @@ grep -rn "_to_legacy_reaction" src/
 
 Each remaining call should be removable — the dispatch swap above means callers can pass the concrete `EnzymeReaction` directly. The function itself stays for now (deleted in 7d).
 
-- [ ] **Step 7: Re-baseline compile-budget tests if needed**
+- [ ] **Step 7: Re-baseline compile-budget tests**
 
-Read `test/test_compile_budget.jl` lines 77, 147 etc. — these construct `EnzymeReactionLegacy` directly to exercise per-arity specialization paths. Change them to construct `EnzymeReaction` instead:
+Read `test/test_compile_budget.jl` lines 77, 147 etc. — these construct `EnzymeReactionLegacy` directly to detect per-arity specialization regressions in the `{S,P,R,N}` parametric form. After 7c the non-parametric concrete `EnzymeReaction` cannot exhibit per-arity specialization at all — that's the goal (compilation of uni-uni should not specialize again for ter-ter because they share the same dispatch). Per the continuation spec §5 Stage 7c, the warmup-reuse test passing trivially is a success, not a regression.
+
+Change the direct-constructor calls:
 
 ```julia
 # Before:
@@ -1660,13 +1978,14 @@ Run the compile-budget tests:
 julia --project=test -e 'include("test/test_compile_budget.jl")' 2>&1 | tail -20
 ```
 
-If the trace-compile counts are now significantly lower than the budget (e.g., baseline drops from 29 to 12), reduce the budgets to keep them tight at 2× the new baseline:
+Expected outcomes:
+1. **Trace-compile counts drop** because non-parametric reaction triggers less specialization. Update `INIT_TRACE_BUDGET` etc. to `2 × new_baseline` (rounded up). Example: `const INIT_TRACE_BUDGET = 24  # baseline post-7c: 12; budget = 2×`.
+2. **Wall-clock budgets stay or drop.** Update similarly.
+3. **Warmup-reuse test (`WARMUP_TER_RATIO_MAX`, `WARMUP_T_WARM_TER_MAX_S`) passes trivially** because `t_warm ≈ t_cold` (no specialization happens either time). Either:
+   - Leave the bounds as-is — the test just becomes a non-issue (acceptable; documents that no per-arity specialization happens).
+   - Replace the test body with a direct assertion: `which(init_mechanisms, (typeof(r_uni),)) === which(init_mechanisms, (typeof(r_ter),))` — proves dispatch identity directly. If you choose this rewrite, add a §2.1 log entry: helper deleted = "warmup-reuse measurement", replacement = "dispatch-identity check".
 
-```julia
-const INIT_TRACE_BUDGET = 24    # baseline 2026-05-22: 12; budget = 2× (rounded up)
-```
-
-If any budget would NEED to be raised (test_compile_budget gets WORSE after the dispatch swap), STOP and investigate — this would indicate that the concrete `EnzymeReaction` is somehow producing more specialized methods than the singleton, which would be unexpected. Don't raise the budget; redesign the change.
+If any budget would need to be **raised**, that signals concrete `EnzymeReaction` is producing more specialized methods than the singleton — unexpected. STOP and investigate before raising.
 
 - [ ] **Step 8: Run the regression test + full suite**
 
@@ -1712,6 +2031,150 @@ git tag stage-7c-complete
 **Stage goal:** delete `EnzymeReactionLegacy`, its accessors, `_to_legacy_reaction`, the dual-Sig branches in `src/types.jl` accessors, and any remaining adapter code.
 
 **Stage LOC delta target:** −450 to −550.
+
+## Task 7d.0: Rewrite heavy enumeration pipeline to build `Mechanism` directly + delete spec types
+
+**Files:**
+- Modify: `src/mechanism_enumeration.jl` — heavy `init_mechanisms(::EnzymeReactionLegacy)` body (~line 1410), `_apply_equivalence_grouping`, `_expand_substrate_product_dead_ends`, any other helper that constructs or returns `MechanismSpec`.
+- Modify: same file — delete `MechanismSpec`, `StepSpec`, `AllostericMechanismSpec`, `AbstractMechanismSpec` struct definitions; `_spec_from_mechanism`, `_mechanism_from_spec` adapters; `EnzymeMechanism(spec::MechanismSpec)`; `_init_mechanism_specs(::EnzymeReactionLegacy)`.
+
+**Why this is the deletion-gating task:** the heavy `init_mechanisms(::EnzymeReactionLegacy)` at `mechanism_enumeration.jl:1410` builds `MechanismSpec[]` via `_apply_equivalence_grouping`, which constructs more `MechanismSpec` instances internally. The `init_mechanisms(::EnzymeReaction)` adapter at line ~3390 bridges through `_mechanism_from_spec`. Until the heavy pipeline emits `Mechanism` directly, every spec-type deletion attempt breaks the bridge.
+
+- [ ] **Step 1: Inventory the heavy pipeline's spec construction sites**
+
+```bash
+grep -n "MechanismSpec\|StepSpec" src/mechanism_enumeration.jl | head -50
+```
+
+For each match, identify whether it's inside the heavy `init_mechanisms` path, `_apply_equivalence_grouping`, `_expand_substrate_product_dead_ends`, or another helper.
+
+- [ ] **Step 2: Choose rewrite strategy**
+
+Two options — pick one and commit to it:
+
+**(a) Internal scratch + final conversion.** Keep the algorithm's intermediate representation as it is, but at every point where it currently emits `MechanismSpec`, instead emit a new internal struct (e.g., `_RawSpec`) that's identical in shape but doesn't share the type name. Only the public-facing return type changes (to `Mechanism`). Lower risk; minimal algorithm changes. The internal struct is private; future cleanup can inline it.
+
+**(b) Algorithm rewrite.** Rework the pipeline to manipulate `Vector{Vector{Step}}` throughout, building `Mechanism` directly at the end. Higher risk because `_apply_equivalence_grouping` operates on flat `Vector{StepSpec}` plus `kinetic_group::Int` indexing — translating to nested `Vector{Vector{Step}}` requires a re-derivation pass. Cleaner long-term.
+
+Recommendation: option (a) for safety. The "internal scratch struct" can be deleted in a follow-up commit once the algorithm is verified.
+
+- [ ] **Step 3: Write a regression test pinning the public output**
+
+The public surface is `init_mechanisms(rxn) → Vector{Mechanism}` (and the integration tests in `test_mechanism_enumeration.jl` pin enumeration counts). The rewrite must produce identical output:
+
+```julia
+@testset "init_mechanisms output unchanged after heavy-pipeline rewrite" begin
+    for rxn_kind in [:uni_uni, :bi_bi_seq, :bi_bi_pp, :ter_ter_seq]
+        rxn = _make_rxn(rxn_kind)  # helper that constructs known fixtures
+        ms = EnzymeRates.init_mechanisms(rxn)
+        @test length(ms) > 0
+        for m in ms
+            EnzymeRates._assert_mechanism_invariants(m)
+        end
+    end
+end
+```
+
+Run it BEFORE the rewrite to capture the current behavior:
+
+```bash
+julia --project=test -e 'include("test/test_mechanism_enumeration.jl")' 2>&1 | grep -E "init_mechanisms output" | tail -5
+```
+
+- [ ] **Step 4: Implement option (a) — introduce `_RawSpec` as an internal-only struct**
+
+Add at the top of `src/mechanism_enumeration.jl`:
+
+```julia
+# Internal scratch representation used by init_mechanisms /
+# _apply_equivalence_grouping. Identical in shape to the deleted
+# MechanismSpec but lives inside the algorithm — not exposed.
+struct _RawStep
+    reactants::Vector{Symbol}
+    products::Vector{Symbol}
+    is_equilibrium::Bool
+    kinetic_group::Int
+end
+
+struct _RawSpec
+    reaction::EnzymeReactionLegacy
+    steps::Vector{_RawStep}
+    n_fit_params_estimate::Int
+end
+```
+
+Replace every `MechanismSpec(...)` / `StepSpec(...)` construction inside the heavy pipeline with `_RawSpec(...)` / `_RawStep(...)`. The algorithm logic is otherwise unchanged.
+
+At the end of `init_mechanisms(::EnzymeReactionLegacy)`, convert each `_RawSpec` to a `Mechanism` and return `Vector{Mechanism}`:
+
+```julia
+function init_mechanisms(@nospecialize(reaction::EnzymeReactionLegacy))
+    raws = _build_raw_specs(reaction)  # uses _RawSpec internally
+    return [_mechanism_from_raw(raw) for raw in raws]
+end
+```
+
+`_mechanism_from_raw` is the new private converter that mirrors the deleted `_mechanism_from_spec`. Delete `_mechanism_from_spec` and `_spec_from_mechanism` in this commit (they have no remaining callers).
+
+- [ ] **Step 5: Run the regression test + full suite**
+
+```bash
+julia --project=test -e 'include("test/test_mechanism_enumeration.jl")' 2>&1 | grep -E "init_mechanisms output|Test (Pass|Fail)" | tail -10
+bash scripts/check_test_integrity.sh main
+julia --project=test -e 'include("test/runtests.jl")' 2>&1 | tail -10
+```
+
+Expected: all green. Mechanism output bit-identical to pre-rewrite.
+
+- [ ] **Step 6: Delete the spec types + their now-orphaned helpers**
+
+After Step 5 verifies the pipeline doesn't need them:
+- `MechanismSpec`, `StepSpec`, `AllostericMechanismSpec`, `AbstractMechanismSpec` struct definitions.
+- `_init_mechanism_specs(::EnzymeReactionLegacy)` (its callers are `init_mechanisms(::EnzymeReaction)` and the bridge `init_mechanisms(::EnzymeReactionLegacy, ::Type{Mechanism})` — both now call `init_mechanisms(::EnzymeReactionLegacy)` directly).
+- `EnzymeMechanism(spec::MechanismSpec)` adapter.
+- Any leftover `_mechanism_from_spec` / `_spec_from_mechanism`.
+
+Verify zero callers for each before deleting:
+```bash
+grep -rn "<name>" src/ test/
+```
+
+- [ ] **Step 7: Run full suite + integrity check**
+
+```bash
+bash scripts/check_test_integrity.sh main
+julia --project=test -e 'include("test/runtests.jl")' 2>&1 | tail -10
+wc -l src/*.jl
+```
+
+Expected: all green. Stage 7d.0 cumulative LOC ≈ −150 to −200.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/mechanism_enumeration.jl test/test_mechanism_enumeration.jl
+git commit -m "$(cat <<'EOF'
+Stage 7d.0: rewrite heavy init_mechanisms to build Mechanism directly + delete spec types
+
+Introduces internal-only _RawSpec/_RawStep scratch structs identical
+in shape to the deleted MechanismSpec/StepSpec. The heavy pipeline
+(_apply_equivalence_grouping etc.) operates on _RawSpec; conversion
+to Mechanism happens at init_mechanisms boundary.
+
+Deletes MechanismSpec, StepSpec, AllostericMechanismSpec,
+AbstractMechanismSpec struct definitions + _init_mechanism_specs
+adapters + _mechanism_from_spec / _spec_from_mechanism +
+EnzymeMechanism(::MechanismSpec) adapter.
+
+Public output (init_mechanisms(rxn) → Vector{Mechanism}) bit-identical
+to pre-rewrite — verified by integration counts and structural invariants.
+
+src delta: -X / +Y net Z, cumulative: ±W
+EOF
+)"
+```
+
+---
 
 ## Task 7d.1: Delete `EnzymeReactionLegacy` struct + accessors + `_to_legacy_reaction`
 
@@ -1765,21 +2228,28 @@ Edit `docs/superpowers/refactor-deleted-tests.md`:
 
 - [ ] **Step 5: Delete the `EnzymeReactionLegacy` struct + accessors + helpers**
 
+Verify line numbers against the current file before deleting (the spec's deletion inventory in §5 Stage 7d table is the source of truth; numbers below were correct as of 2026-05-22 but may shift after preceding stages):
+
 In `src/types.jl`:
-- Delete `struct EnzymeReactionLegacy{S,P,R,N}` (line 628) and its docstring.
-- Delete the outer constructor `EnzymeReactionLegacy(subs, prods, regs; oligomeric_state)` (line 654–693).
-- Delete `_to_legacy_reaction(r::EnzymeReaction)` (line 697–730).
-- Delete the `Base.show(io, ::EnzymeReactionLegacy)` method (line 1221).
+- Delete `struct EnzymeReactionLegacy{S,P,R,N}` (was line 628) and its docstring.
+- Delete the outer constructor `EnzymeReactionLegacy(subs, prods, regs; oligomeric_state)` (was lines 654–697).
+- Delete `_to_legacy_reaction(r::EnzymeReaction)` (was lines 700–723).
+- Delete the `Base.show(io, ::EnzymeReactionLegacy)` method (was line 1221).
 - Delete the accessor methods on `EnzymeReactionLegacy`:
-  - `substrates(::EnzymeReactionLegacy)` (line 1451)
-  - `products(::EnzymeReactionLegacy)` (line 1462)
-  - `regulators(::EnzymeReactionLegacy)` (line 1472)
-  - `regulator_roles(::EnzymeReactionLegacy)` (line 1476)
-  - `oligomeric_state(::EnzymeReactionLegacy)` (line 1479)
+  - `substrates(::EnzymeReactionLegacy)` (was line 1451)
+  - `products(::EnzymeReactionLegacy)` (was line 1462)
+  - `regulators(::EnzymeReactionLegacy)` (was line 1472)
+  - `regulator_roles(::EnzymeReactionLegacy)` (was line 1476)
+  - `oligomeric_state(::EnzymeReactionLegacy)` (was line 1479)
 
 Also delete `_sum_atoms` IF it's only called by `EnzymeReactionLegacy`'s constructor — check with `grep -n "_sum_atoms" src/`. If the new `EnzymeReaction` constructor uses it too, leave it.
 
-In `EnzymeRates.jl`: remove `EnzymeReactionLegacy` from the `export` list if it's exported.
+In `src/EnzymeRates.jl`: remove `EnzymeReactionLegacy` from the `export` list if it's exported.
+
+Use line-number recovery commands at execution time:
+```bash
+grep -n "^struct EnzymeReactionLegacy\|^function EnzymeReactionLegacy\|^function _to_legacy_reaction\|^Base.show.*EnzymeReactionLegacy\|^substrates(::EnzymeReactionLegacy" src/types.jl
+```
 
 - [ ] **Step 6: Delete the `EnzymeReactionLegacy`-specific testsets in `test/test_types.jl`**
 
