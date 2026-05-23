@@ -7,7 +7,7 @@ The `scripts/check_test_integrity.sh` Check 1 (whole-file deletion) and
 Check 2 (@testset count decrease) both consult this file. Each
 `### <filename>` heading documents one permitted deletion.
 
-## Stage 6β.10 — commit TBD-after-commit
+## Stage 6β.10 — commit c6b2259
 
 ### test_mechanism_enumeration.jl `@testset "AllostericMechanismSpec constructor density validation"`
 - Helper deleted: dense-storage validation hooks specific to the
