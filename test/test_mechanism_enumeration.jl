@@ -456,23 +456,27 @@ function _assert_spec_invariants(spec::AllostericMechanismSpec)
 end
 
 """
-    enumerate_all_mechanism(rxn::EnzymeReaction)
+    enumerate_all_mechanism(rxn::EnzymeReaction; max_params::Int=typemax(Int))
         -> Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
 
 Mechanism-form parallel of `enumerate_all` (which works on specs).
 Used by 6β-migrated testsets that exercise full enumeration via the
-Mechanism API.
+Mechanism API. `max_params` mirrors the spec-form cap: levels with
+`_n_fit_params_estimate > max_params` are not processed, and child
+expansions exceeding the cap are dropped on insertion.
 """
-function enumerate_all_mechanism(rxn)
+function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
     M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
     cache = Dict{Int, Vector{M}}()
     for m in EnzymeRates.init_mechanisms(rxn)
         pc = EnzymeRates._n_fit_params_estimate(m)
+        pc <= max_params || continue
         push!(get!(cache, pc, M[]), m)
     end
     results = Dict{Int, Vector{M}}()
     while !isempty(cache)
         pc = minimum(keys(cache))
+        pc > max_params && break
         # dedup! operates on a Dict slice — wrap and unwrap:
         slice = Dict(pc => pop!(cache, pc))
         EnzymeRates.dedup!(slice)
@@ -482,7 +486,7 @@ function enumerate_all_mechanism(rxn)
         # the cache in ascending order.
         children = EnzymeRates.expand_mechanisms(level, rxn)
         for (cpc, group) in children
-            cpc > pc || continue
+            (cpc > pc && cpc <= max_params) || continue
             append!(get!(cache, cpc, M[]), group)
         end
     end
@@ -6804,6 +6808,13 @@ end
             EnzymeRates.AbstractMechanismSpec[], uni_uni_rxn))
     end
 
+    @testset "Mechanism — Empty input" begin
+        # Mechanism-form expand_mechanisms with empty input returns empty Dict.
+        empty_in = Union{EnzymeRates.Mechanism,
+                         EnzymeRates.AllostericMechanism}[]
+        @test isempty(EnzymeRates.expand_mechanisms(empty_in, uni_uni_rxn))
+    end
+
     @testset "Returns dict keyed by param count" begin
         # SEED: uni-uni RE-only, 3 singleton kinetic groups → base_pc = 3.
         m_seed = @enzyme_mechanism begin
@@ -6819,6 +6830,26 @@ end
         base_pc = spec.n_fit_params_estimate
         result = EnzymeRates.expand_mechanisms([spec], uni_uni_rxn)
         @test result isa Dict{Int, Vector{AbstractMechanismSpec}}
+        @test haskey(result, base_pc + 1)
+    end
+
+    @testset "Mechanism — Returns dict keyed by param count" begin
+        # SEED: uni-uni RE-only, 3 singleton kinetic groups → base_pc = 3.
+        em_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        m = EnzymeRates.Mechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(m)
+        base_pc = EnzymeRates._n_fit_params_estimate(m)
+        result = EnzymeRates.expand_mechanisms([m], uni_uni_rxn)
+        @test result isa Dict{Int, Vector{Union{
+            EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}}}
         @test haskey(result, base_pc + 1)
     end
 
@@ -6845,6 +6876,32 @@ end
         @test allo_count >= 4
     end
 
+    @testset "Mechanism — Allosteric expansion included" begin
+        # SEED: uni-uni RE-only attached to an oligomeric reaction.
+        # expand_mechanisms must include AllostericMechanism variants in
+        # its output.
+        em_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        m = EnzymeRates.Mechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(m)
+        result = EnzymeRates.expand_mechanisms([m], uni_uni_allo)
+        allo_count = sum(count(s -> s isa EnzymeRates.AllostericMechanism, ss)
+                         for (_, ss) in result)
+        # _expand_to_allosteric on a uni-uni seed with 3 kinetic groups
+        # produces n_groups+1=4 AllostericMechanism variants (one per
+        # group + one for L-only). Other moves do not produce
+        # AllostericMechanism output from a plain Mechanism, so at least 4
+        # exist.
+        @test allo_count >= 4
+    end
+
     @testset "No self-expansion to same param count" begin
         # SEED: uni-uni RE-only, base_pc = 3.
         # All keys in the result dict must be strictly greater than base_pc.
@@ -6860,6 +6917,27 @@ end
         spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
         base_pc = spec.n_fit_params_estimate
         result = EnzymeRates.expand_mechanisms([spec], uni_uni_rxn)
+        for (pc, _) in result
+            @test pc > base_pc
+        end
+    end
+
+    @testset "Mechanism — No self-expansion to same param count" begin
+        # SEED: uni-uni RE-only, base_pc = 3. All keys in the result dict
+        # must be strictly greater than base_pc.
+        em_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        m = EnzymeRates.Mechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(m)
+        base_pc = EnzymeRates._n_fit_params_estimate(m)
+        result = EnzymeRates.expand_mechanisms([m], uni_uni_rxn)
         for (pc, _) in result
             @test pc > base_pc
         end
@@ -6893,6 +6971,34 @@ end
         end
     end
 
+    @testset "AllostericMechanism — rewrap preserves structure" begin
+        # SEED: all-:EqualRT AllostericMechanism uni-uni. Passing this to
+        # expand_mechanisms must produce AllostericMechanism expansions
+        # (RE→SS rewrapped as allosteric, etc.).
+        aem = @allosteric_mechanism begin
+            substrates: S; products: P
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
+            end
+        end
+        am = EnzymeRates.AllostericMechanism(aem)
+        result = EnzymeRates.expand_mechanisms([am], uni_uni_allo)
+        allo_results = filter(s -> s isa EnzymeRates.AllostericMechanism,
+                              vcat([ss for (_, ss) in result]...))
+        @test !isempty(allo_results)
+        # Every rewrapped allosteric result must preserve the input's
+        # catalytic_multiplicity and reaction — cat_steps may differ (a
+        # base move may have changed them) but the allosteric-side
+        # metadata is preserved.
+        for r in allo_results
+            @test r.catalytic_multiplicity == am.catalytic_multiplicity
+            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        end
+    end
+
     @testset "Dead-end excludes allosteric regs" begin
         # SEED: allosteric uni-uni with R already added as an allosteric
         # regulator (:OnlyR). expand_mechanisms must never add R as a
@@ -6918,6 +7024,37 @@ end
                             (step.reactants, step.products))
                         @test !contains(string(sym), "R__reg")
                     end
+                end
+            end
+        end
+    end
+
+    @testset "AllostericMechanism — Dead-end excludes allosteric regs" begin
+        # SEED: AllostericMechanism uni-uni with R already added as an
+        # allosteric regulator (:OnlyR). expand_mechanisms must never add R
+        # as a dead-end inhibitor — no Step in any expansion may have
+        # bound_metabolite named :R (allosteric regulators live in
+        # regulatory_sites, not in cat_steps).
+        aem = @allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R::OnlyR
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
+            end
+        end
+        am = EnzymeRates.AllostericMechanism(aem)
+        result = EnzymeRates.expand_mechanisms([am], uni_uni_allo_reg)
+        for (_, ss) in result
+            for r in ss
+                groups = r isa EnzymeRates.AllostericMechanism ?
+                    r.cat_steps : r.steps
+                for group in groups, st in group
+                    bm = EnzymeRates.bound_metabolite(st)
+                    bm === nothing && continue
+                    @test EnzymeRates.name(bm) !== :R
                 end
             end
         end
@@ -6953,6 +7090,35 @@ end
         end
     end
 
+    @testset "Mechanism — Uni-uni full enumeration" begin
+        # Mechanism-form parallel of the spec testset above. Uses
+        # enumerate_all_mechanism with max_params=8 to mirror the spec
+        # cap. NOTE: the spec form's `n_fit_params_estimate` and the
+        # Mechanism form's `_n_fit_params_estimate` use different floors
+        # (the spec form takes max(group_pc, n_subs+n_prods+1); the
+        # Mechanism form is raw groups). For uni-uni both bottom out at
+        # pc=3 so the bound is equivalent here.
+        results = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
+        @test !isempty(results)
+        pcs = sort(collect(keys(results)))
+        @test issorted(pcs)
+        allo_count = 0
+        for (pc, mechs) in results
+            for m in mechs
+                if m isa EnzymeRates.Mechanism
+                    em = EnzymeRates.compile_mechanism(m)
+                    @test length(EnzymeRates.fitted_params(em)) <= pc
+                elseif m isa EnzymeRates.AllostericMechanism
+                    allo_count += 1
+                    allo_count > 3 && continue
+                    aem = EnzymeRates.compile_mechanism(m)
+                    @test length(EnzymeRates.fitted_params(aem)) <=
+                        EnzymeRates._n_fit_params_estimate(m)
+                end
+            end
+        end
+    end
+
     @testset "Bi-bi full enumeration" begin
         # Sample-based: with full per-group tag enumeration,
         # bi-bi at pc=10 has ~190k specs. Test the upper-bound
@@ -6972,6 +7138,44 @@ end
                     m = AllostericEnzymeMechanism(spec)
                     @test length(EnzymeRates.fitted_params(m)) <=
                         spec.n_fit_params_estimate
+                end
+            end
+        end
+    end
+
+    @testset "Mechanism — Bi-bi full enumeration" begin
+        # Mechanism-form parallel. Sample-based per bucket. NOTE: the
+        # spec form floors `n_fit_params_estimate` at
+        # `n_subs+n_prods+1` (= 5 for bi-bi) to recover a safe upper
+        # bound — the raw group-count formula is documented as "can
+        # underestimate — callers should floor to a safe lower bound"
+        # (see src/mechanism_enumeration.jl:1467). The Mechanism-side
+        # `_n_fit_params_estimate` is the raw, unfloored formula, so the
+        # bucket key is NOT a safe upper bound on its own; we apply the
+        # same floor locally to compute the spec-equivalent upper bound
+        # and assert against that. Cap at `max_params=4` (3 levels above
+        # the bi-bi Mechanism unfloored minimum of 1, matching the spec
+        # form's "3 levels above its floor of 5" depth at max_params=8)
+        # to keep test time bounded.
+        floor_pc = length(EnzymeRates.substrates(bi_bi_rxn)) +
+                   length(EnzymeRates.products(bi_bi_rxn)) + 1
+        results = enumerate_all_mechanism(bi_bi_rxn; max_params=4)
+        @test !isempty(results)
+        allo_count = 0
+        for (pc, mechs) in results
+            sample = first(mechs, 5)
+            for m in sample
+                if m isa EnzymeRates.Mechanism
+                    em = EnzymeRates.compile_mechanism(m)
+                    @test length(EnzymeRates.fitted_params(em)) <=
+                        max(pc, floor_pc)
+                elseif m isa EnzymeRates.AllostericMechanism
+                    allo_count += 1
+                    allo_count > 3 && continue
+                    aem = EnzymeRates.compile_mechanism(m)
+                    @test length(EnzymeRates.fitted_params(aem)) <=
+                        max(EnzymeRates._n_fit_params_estimate(m),
+                            floor_pc)
                 end
             end
         end
@@ -7008,6 +7212,39 @@ end
         end
     end
 
+    @testset "Mechanism — With allosteric regulators" begin
+        # Mechanism-form parallel. Sample-based per bucket. uni-uni
+        # allosteric reaction so the Mechanism `_n_fit_params_estimate`
+        # floor (raw groups) matches the spec floor at uni-uni.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+        results = enumerate_all_mechanism(rxn; max_params=8)
+        has_allo = any(
+            any(s isa EnzymeRates.AllostericMechanism for s in mechs)
+            for (_, mechs) in results)
+        @test has_allo
+        allo_count = 0
+        for (pc, mechs) in results
+            sample = first(mechs, 5)
+            for m in sample
+                if m isa EnzymeRates.Mechanism
+                    em = EnzymeRates.compile_mechanism(m)
+                    @test length(EnzymeRates.fitted_params(em)) <= pc
+                elseif m isa EnzymeRates.AllostericMechanism
+                    allo_count += 1
+                    allo_count > 3 && continue
+                    aem = EnzymeRates.compile_mechanism(m)
+                    @test length(EnzymeRates.fitted_params(aem)) <=
+                        EnzymeRates._n_fit_params_estimate(m)
+                end
+            end
+        end
+    end
+
     @testset "With dead-end regulator" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
@@ -7023,6 +7260,23 @@ end
         @test total_with_reg > total_plain
     end
 
+    @testset "Mechanism — With dead-end regulator" begin
+        # Mechanism-form parallel. Total population with a dead-end
+        # regulator strictly exceeds the plain uni-uni population at the
+        # same cap, since the regulator opens additional expansion moves.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: I
+        end
+        results = enumerate_all_mechanism(rxn; max_params=8)
+        @test !isempty(results)
+        plain = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
+        total_with_reg = sum(length(v) for v in values(results))
+        total_plain = sum(length(v) for v in values(plain))
+        @test total_with_reg > total_plain
+    end
+
     @testset "Multiple levels populated" begin
         results = enumerate_all(uni_uni_rxn; max_params=8)
         @test length(results) >= 2  # At least 2 param count levels
@@ -7030,6 +7284,16 @@ end
         # Param-count buckets must form a near-contiguous range.
         # The maximum single-move delta is 4 (SS :NonequalRT split),
         # so consecutive bucket keys can be separated by at most 4.
+        pcs = sort(collect(keys(results)))
+        @test all(pcs[i+1] - pcs[i] <= 4 for i in 1:length(pcs)-1)
+    end
+
+    @testset "Mechanism — Multiple levels populated" begin
+        # Mechanism-form parallel. At least 2 param-count buckets, and
+        # consecutive buckets separated by at most 4 (max single-move
+        # delta).
+        results = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
+        @test length(results) >= 2
         pcs = sort(collect(keys(results)))
         @test all(pcs[i+1] - pcs[i] <= 4 for i in 1:length(pcs)-1)
     end
