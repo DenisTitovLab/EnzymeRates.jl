@@ -2630,6 +2630,233 @@ function _canonical_rate_eq_hash_data_impl_regex(m::AbstractEnzymeMechanism)
     (h, string(h, base=16, pad=16), name_map)
 end
 
+# ─── Struct-based canonical-hash implementation ───────────────────────
+#
+# Walks the Parameter family + symbolic numerator/denominator Exprs
+# directly, producing a canonical key per Parameter from `Step` /
+# `RegulatorySite` / `AllostericRegulator` identity rather than from
+# rendered symbol strings. The rate-equation numerator/denominator
+# Exprs (from `_poly_to_expr`) and the Wegscheider/Haldane dep_exprs
+# are canonicalized by substituting per-Parameter Symbol leaves with
+# their canonical tokens. Two mechanisms with the same rate equation
+# but different kinetic-group numbering (and therefore different
+# positional symbol names like K1/K2/K3) produce the same canonical
+# Expr tree because their Parameter canonical keys coincide and the
+# `_poly_to_expr` monomial sort agrees once substitution is applied.
+
+"""
+Per-Parameter canonical key independent of mechanism position. Steps
+hash structurally (ignoring `source_idx`), so two Parameters bound to
+the same chemistry across two mechanisms produce the same key.
+"""
+_parameter_canonical_key(p::Kd)   = (:Kd,   hash(p.step), p.state)
+_parameter_canonical_key(p::Kiso) = (:Kiso, hash(p.step), p.state)
+_parameter_canonical_key(p::Kon)  = (:Kon,  hash(p.step), p.state)
+_parameter_canonical_key(p::Koff) = (:Koff, hash(p.step), p.state)
+_parameter_canonical_key(p::Kfor) = (:Kfor, hash(p.step), p.state)
+_parameter_canonical_key(p::Krev) = (:Krev, hash(p.step), p.state)
+_parameter_canonical_key(p::Kreg) =
+    (:Kreg, hash(p.site), hash(p.ligand), p.state)
+_parameter_canonical_key(::Keq)   = (:Keq,)
+_parameter_canonical_key(::Etot)  = (:Etot,)
+_parameter_canonical_key(::Lallo) = (:Lallo,)
+
+"""
+Every Parameter the canonicalizer needs a stable canonical token for.
+Mirrors the Parameter set covered by `parameters(m, Full)` minus
+`:E_total` (invariant across mechanisms, never appears in the
+rate-equation body). Includes `Keq()` because Haldane dep-expr RHSes
+reference `:Keq`.
+"""
+_enumerate_all_parameters_with_t_state(m::Mechanism) =
+    Parameter[_enumerate_parameters_full(m)..., Keq()]
+
+_enumerate_all_parameters_with_t_state(am::AllostericMechanism) =
+    Parameter[_enumerate_parameters_full_allosteric(am)..., Keq()]
+
+"""
+Walk `expr` replacing Symbol leaves found in `name_map` with their
+canonical-token Symbols. Non-parameter Symbols (metabolite names, math
+operators, callable heads) pass through unchanged.
+"""
+function _expr_canonical_via_name_map(expr, name_map::Dict{String,String})
+    if expr isa Symbol
+        s = String(expr)
+        haskey(name_map, s) && return Symbol(name_map[s])
+        return expr
+    end
+    expr isa Expr || return expr
+    Expr(expr.head,
+         Any[_expr_canonical_via_name_map(a, name_map)
+             for a in expr.args]...)
+end
+
+"""
+Canonical form for a non-allosteric `Mechanism` plus its
+`name_map::Dict{String,String}`. The canonical form covers the rate
+equation's numerator/denominator Exprs (after Parameter Symbol
+substitution via `name_map`) plus the Wegscheider/Haldane dep-expr
+set. Monomial ordering inside each Expr is determined by
+`_poly_to_expr`'s sort, which keys on raw Symbol *string* names — two
+structurally-equivalent mechanisms produce identical raw Symbol sets
+(modulo position) so their monomial sort coincides after substitution.
+"""
+function _canonicalize_for_hash(em::AbstractEnzymeMechanism, m::Mechanism)
+    name_map = _build_name_map(em, m)
+    dep_canon = _dep_exprs_canonical(em, name_map)
+
+    M_type = typeof(em)
+    num, den = _raw_symbolic_rate_polys(M_type)
+    param_set = Set{Symbol}(_raw_param_symbols(em))
+    conc_set = Set{Symbol}(metabolites(em))
+    num_expr = _poly_to_expr(num, param_set, conc_set)
+    den_expr = _poly_to_expr(den, param_set, conc_set)
+    num_canon = _expr_canonical_via_name_map(num_expr, name_map)
+    den_canon = _expr_canonical_via_name_map(den_expr, name_map)
+
+    canon = ((:NonAllosteric,), num_canon, den_canon, dep_canon)
+    (canon, name_map)
+end
+
+"""
+Canonical form for an `AllostericMechanism`. Uses the full
+numerator/denominator Expr from `_allosteric_num_den_exprs` (catalytic
+R + T polys composed with regulator-site factors and `L`) and applies
+`name_map` to canonicalize Parameter Symbols. Regulatory-site
+multiplicities, catalytic state tags, and the catalytic multiplicity
+participate in the canon so allosteric mechanisms differing only in
+these scalars hash distinctly.
+"""
+function _canonicalize_for_hash(em::AbstractEnzymeMechanism,
+                                m::AllostericMechanism)
+    em isa AllostericEnzymeMechanism || error(
+        "_canonicalize_for_hash: AllostericMechanism requires " *
+        "AllostericEnzymeMechanism, got $(typeof(em))")
+    name_map = _build_name_map(em, m)
+    dep_canon = _dep_exprs_canonical(em, name_map)
+
+    full_num, full_den = _allosteric_num_den_exprs(typeof(em))
+    num_canon = _expr_canonical_via_name_map(full_num, name_map)
+    den_canon = _expr_canonical_via_name_map(full_den, name_map)
+
+    cat_tags_canon = Tuple(m.cat_allo_states)
+    cat_mult = m.catalytic_multiplicity
+
+    site_entries = Tuple[]
+    for site in m.regulatory_sites
+        push!(site_entries,
+              (Tuple(hash(l) for l in site.ligands),
+               site.multiplicity,
+               Tuple(site.allo_states)))
+    end
+    site_canon = Tuple(sort(site_entries; by = repr))
+
+    canon = ((:Allosteric,), num_canon, den_canon, cat_tags_canon,
+             cat_mult, site_canon, dep_canon)
+    (canon, name_map)
+end
+
+"""
+Build the per-mechanism Symbol → canonical-token map. Used both by the
+canonical-form construction (substitutes Symbols in POLYs / Exprs) and
+returned through `_canonical_rate_eq_hash_data` for downstream
+projection via `_project_cached_params`.
+
+For an `AllostericMechanism`, also adds entries for synthesized dep
+T-names (LHSes that have no Parameter struct because they're derived
+deps with a `_T` suffix appended at render time). The synth-dep token
+is the R-state token with `_T` suffix, preserving R↔T correspondence
+across equivalent mechanisms.
+"""
+function _build_name_map(em::AbstractEnzymeMechanism,
+                         m::Union{Mechanism, AllostericMechanism})
+    all_params = _enumerate_all_parameters_with_t_state(m)
+    canon_keys = Tuple[_parameter_canonical_key(p) for p in all_params]
+    sorted_keys = sort!(unique(canon_keys); by = repr)
+    key_to_token = Dict{Tuple, String}(
+        k => "p_$i" for (i, k) in enumerate(sorted_keys))
+
+    name_map = Dict{String, String}()
+    for p in all_params
+        sym = name(p, m)
+        token = key_to_token[_parameter_canonical_key(p)]
+        name_map[String(sym)] = token
+    end
+
+    if m isa AllostericMechanism
+        for r_name in _synth_dep_r_names(em, m)
+            r_str = String(r_name)
+            tok = get(name_map, r_str, nothing)
+            tok === nothing && continue
+            t_str = r_str * "_T"
+            haskey(name_map, t_str) && continue
+            name_map[t_str] = tok * "_T"
+        end
+    end
+    name_map
+end
+
+"""
+Canonical, deterministic representation of the mechanism's
+Wegscheider/Haldane dep-expr set after `name_map` substitution. LHSes
+and RHSes both go through `name_map`, so two equivalent mechanisms
+produce equal `dep_canon` regardless of which raw step index played a
+given role.
+"""
+function _dep_exprs_canonical(em::AbstractEnzymeMechanism,
+                              name_map::Dict{String,String})
+    dep_exprs, _ = _dependent_param_exprs(typeof(em))
+    list = Tuple[]
+    for (sym, expr) in dep_exprs
+        lhs_tok = get(name_map, String(sym), String(sym))
+        rhs_canon = _expr_canonical_via_name_map(expr, name_map)
+        push!(list, (lhs_tok, rhs_canon))
+    end
+    sort!(list; by = repr)
+    Tuple(list)
+end
+
+"""
+R-state symbol names whose Wegscheider/Haldane RHS references a
+`:NonequalRT` catalytic symbol, so the assignment is mirrored into a
+synthesized `<sym>_T` dep entry. Mirrors the loop in
+`_dependent_param_exprs(::AllostericEnzymeMechanism)` Pass 2; the
+canonicalizer recovers just the R-state name set so it can register
+matching T-suffixed name_map entries. Returns an empty Vector when the
+T-state cycle is dead (no T-state mirrors get emitted).
+"""
+function _synth_dep_r_names(em::AllostericEnzymeMechanism,
+                            am::AllostericMechanism)
+    _t_state_dead(em) && return Symbol[]
+    CM = typeof(catalytic_mechanism(em))
+    dep_R_all, _ = _dependent_param_exprs(CM)
+    rename_T_keys = Set{Symbol}(
+        name(p_R, am) for (p_R, _) in _T_rename_parameters(am))
+    isempty(rename_T_keys) && return Symbol[]
+    out = Symbol[]
+    for (k, v) in dep_R_all
+        k in rename_T_keys && continue
+        _expr_references_any(v, rename_T_keys) || continue
+        push!(out, k)
+    end
+    out
+end
+
+"""
+Struct-based implementation of `_canonical_rate_eq_hash_data`. Walks
+`Mechanism` / `AllostericMechanism` structural fields directly via
+`_canonicalize_for_hash`. The returned `name_map::Dict{String,String}`
+satisfies the projection contract used by `_project_cached_params`:
+two hash-equivalent mechanisms produce maps that send corresponding
+parameter Symbols to the same canonical token.
+"""
+function _canonical_rate_eq_hash_data_impl_struct(em::AbstractEnzymeMechanism)
+    m = _to_mechanism(em)
+    canonical, name_map = _canonicalize_for_hash(em, m)
+    h = hash(canonical)
+    (h, string(h, base=16, pad=16), name_map)
+end
+
 """
 Return `(UInt64 hash, 16-char hex display string, name_map)`.
 The single entry point for canonical hashing; `_canonical_rate_eq_hash`
@@ -2637,10 +2864,10 @@ delegates here so the canonicalizer runs once and callers that need the
 name_map can retrieve it without a second pass.
 
 Hash collision probability over 10⁴ mechanisms is ~10⁻¹² with
-Julia's built-in `hash(::String)::UInt64`.
+Julia's built-in `hash(::UInt64)::UInt64`.
 """
 function _canonical_rate_eq_hash_data(m::AbstractEnzymeMechanism)
-    _canonical_rate_eq_hash_data_impl_regex(m)
+    _canonical_rate_eq_hash_data_impl_struct(m)
 end
 
 """
