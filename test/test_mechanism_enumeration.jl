@@ -6408,6 +6408,53 @@ end
     @test spec_c.allosteric_multiplicities == [2, 4]
 end
 
+@testset "Mechanism — _canonicalize_mechanism!" begin
+    # Test 1: outer kinetic-group order does not matter post-canonicalization.
+    # Build two Mechanisms from the same init seed but with the outer step
+    # groups in opposite orders; after _canonicalize_mechanism! both must be
+    # struct-equal (the basis for dedup!'s `unique!(mechs)`).
+    m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    EnzymeRates._assert_mechanism_invariants(m_seed)
+    m_perm = EnzymeRates.Mechanism(
+        EnzymeRates.reaction(m_seed), reverse(m_seed.steps))
+    EnzymeRates._canonicalize_mechanism!(m_seed)
+    EnzymeRates._canonicalize_mechanism!(m_perm)
+    @test m_seed == m_perm
+
+    # Test 2: AllostericMechanism — site permutation with DISTINCT
+    # multiplicities. The canonicalizer must permute cat_allo_states
+    # alongside cat_steps (catalytic side) and produce the same
+    # regulatory_sites ordering (regulatory side) regardless of input
+    # site order.
+    specs = EnzymeRates._init_mechanism_specs(uni_uni_allo)
+    base = first(specs)
+    used_groups = sort!(collect(
+        Set(s.kinetic_group for s in base.steps)))
+    group_tags = Dict{Int, Symbol}(
+        g => :EqualRT for g in used_groups)
+    lig_tags = Dict{Symbol, Symbol}(
+        :A => :OnlyR, :B => :OnlyT)
+    spec_ab = AllostericMechanismSpec(
+        base, 2,
+        Vector{Symbol}[[:A], [:B]], Int[2, 4],
+        copy(group_tags), copy(lig_tags),
+        base.n_fit_params_estimate + 4)
+    spec_ba = AllostericMechanismSpec(
+        base, 2,
+        Vector{Symbol}[[:B], [:A]], Int[4, 2],   # sites swapped, multiplicities follow
+        copy(group_tags), copy(lig_tags),
+        base.n_fit_params_estimate + 4)
+    am_ab = EnzymeRates.AllostericMechanism(
+        EnzymeRates.AllostericEnzymeMechanism(spec_ab))
+    am_ba = EnzymeRates.AllostericMechanism(
+        EnzymeRates.AllostericEnzymeMechanism(spec_ba))
+    EnzymeRates._assert_mechanism_invariants(am_ab)
+    EnzymeRates._assert_mechanism_invariants(am_ba)
+    EnzymeRates._canonicalize_mechanism!(am_ab)
+    EnzymeRates._canonicalize_mechanism!(am_ba)
+    @test am_ab == am_ba
+end
+
 # ─── _dedup_key ────────────────────────────────────────────────────────
 @testset "_dedup_key" begin
     # Same content → same key.
@@ -6432,6 +6479,55 @@ end
         Dict(:R => :OnlyR),
         4)
     @test EnzymeRates._dedup_key(spec1) != EnzymeRates._dedup_key(spec2)
+end
+
+# Mechanism dedup keys: struct equality after canonicalization.
+# Unlike MechanismSpec, the Mechanism path has no separate `_dedup_key`
+# function — `dedup!(::Dict{Int, Vector{Mechanism}})` canonicalizes in
+# place via `_canonicalize_mechanism!` and then calls `unique!(mechs)`
+# which relies on `Base.==` / `Base.hash` on the struct itself. This
+# testset locks in the struct-equality contract that powers that dedup.
+@testset "Mechanism — dedup key via struct equality" begin
+    # Same content → equal (and equal hashes).
+    m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    EnzymeRates._assert_mechanism_invariants(m_seed)
+    m_copy = EnzymeRates.Mechanism(
+        EnzymeRates.reaction(m_seed),
+        Vector{EnzymeRates.Step}[copy(g) for g in m_seed.steps])
+    EnzymeRates._canonicalize_mechanism!(m_seed)
+    EnzymeRates._canonicalize_mechanism!(m_copy)
+    @test m_seed == m_copy
+    @test hash(m_seed) == hash(m_copy)
+
+    # AllostericMechanism: differing site multiplicities → unequal (different
+    # hashes, in keeping with the spec-side `_dedup_key` contract that
+    # multiplicities are part of the structural identity).
+    specs = EnzymeRates._init_mechanism_specs(uni_uni_allo)
+    base = first(specs)
+    used_groups = sort!(collect(
+        Set(s.kinetic_group for s in base.steps)))
+    group_tags = Dict{Int, Symbol}(
+        g => :EqualRT for g in used_groups)
+    lig_tags = Dict{Symbol, Symbol}(:A => :OnlyR)
+    spec_m2 = AllostericMechanismSpec(
+        base, 2,
+        Vector{Symbol}[[:A]], Int[2],
+        copy(group_tags), copy(lig_tags),
+        base.n_fit_params_estimate + 2)
+    spec_m4 = AllostericMechanismSpec(
+        base, 2,
+        Vector{Symbol}[[:A]], Int[4],   # different multiplicity
+        copy(group_tags), copy(lig_tags),
+        base.n_fit_params_estimate + 2)
+    am_m2 = EnzymeRates.AllostericMechanism(
+        EnzymeRates.AllostericEnzymeMechanism(spec_m2))
+    am_m4 = EnzymeRates.AllostericMechanism(
+        EnzymeRates.AllostericEnzymeMechanism(spec_m4))
+    EnzymeRates._assert_mechanism_invariants(am_m2)
+    EnzymeRates._assert_mechanism_invariants(am_m4)
+    EnzymeRates._canonicalize_mechanism!(am_m2)
+    EnzymeRates._canonicalize_mechanism!(am_m4)
+    @test am_m2 != am_m4
 end
 
 # ─── dedup! ────────────────────────────────────────────────────────────
@@ -6653,6 +6749,50 @@ end
         cache = Dict{Int, Vector{EnzymeRates.AllostericMechanism}}()
         EnzymeRates.dedup!(cache)
         @test isempty(cache)
+    end
+
+    @testset "Mechanism — inter-move overlap: dedup actually fires" begin
+        # Run expand_mechanisms on a bi-bi init seed (Mechanism path), then
+        # dedup!. Assert that at least one param-count bucket has post-dedup
+        # count < pre-dedup count — proving the Mechanism-form dedup actually
+        # collapsed something (i.e., two different expansion paths produced
+        # equivalent Mechanisms). Mirrors the MechanismSpec testset above.
+        init_mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
+        expanded = EnzymeRates.expand_mechanisms(init_mechs, bi_bi_rxn)
+        pre_dedup_counts = Dict(pc => length(mechs) for (pc, mechs) in expanded)
+        EnzymeRates.dedup!(expanded)
+        post_dedup_counts = Dict(pc => length(mechs) for (pc, mechs) in expanded)
+        # post_dedup keys ⊆ pre_dedup keys (dedup only deletes empty buckets).
+        # At least one shared bucket should have shrunk.
+        shrank = any(get(pre_dedup_counts, pc, 0) > post_dedup_counts[pc]
+                     for pc in keys(post_dedup_counts))
+        @test shrank
+    end
+
+    @testset "Mechanism — permuted groups collapse via canonicalization" begin
+        # Two Mechanisms with the same physics but with their outer
+        # kinetic-group order arbitrarily rearranged should collapse to one
+        # after dedup!. This exercises _canonicalize_mechanism!'s outer-
+        # group sort path with a non-trivial permutation (not just a swap),
+        # which is the Mechanism-form analogue of the MechanismSpec testset
+        # "Non-contiguous kinetic_group IDs collapse via canonicalization"
+        # — kinetic-group integers do not exist on the Mechanism side
+        # (groups are positional, indexed by the outer Vector slot), so
+        # the analogue here is that any permutation of the outer Vector
+        # canonicalizes back to the same struct.
+        m_seed = first(EnzymeRates.init_mechanisms(bi_bi_rxn))
+        EnzymeRates._assert_mechanism_invariants(m_seed)
+        n_groups = length(m_seed.steps)
+        @assert n_groups >= 3 "bi-bi init seed must have ≥3 kinetic groups " *
+            "to exercise a non-trivial permutation"
+        # Cyclic-rotate-by-1 permutation: [g1, g2, …, gN] → [g2, …, gN, g1].
+        perm = vcat(2:n_groups, 1)
+        m_rotated = EnzymeRates.Mechanism(
+            EnzymeRates.reaction(m_seed), m_seed.steps[perm])
+        pc = 5
+        cache = Dict(pc => EnzymeRates.Mechanism[m_seed, m_rotated])
+        EnzymeRates.dedup!(cache)
+        @test length(cache[pc]) == 1
     end
 end
 
