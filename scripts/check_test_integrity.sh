@@ -11,11 +11,28 @@ BASE_REF="${1:-main}"
 fail=0
 
 # Hard Check 1: no test file deleted (renames OK; deletions forbidden).
-deleted=$(git diff --name-status "$BASE_REF"..HEAD -- test/ 2>/dev/null \
+# EXCEPTION: files documented in docs/superpowers/refactor-deleted-tests.md
+# under a `### <filename>` heading (spec §2.1 narrow exception).
+documented_files=$(grep -oE '^### test_[A-Za-z0-9_]+\.jl' \
+    docs/superpowers/refactor-deleted-tests.md 2>/dev/null \
+    | sed 's/^### //' | sort -u)
+deleted_full=$(git diff --name-status "$BASE_REF"..HEAD -- test/ 2>/dev/null \
     | awk '$1 == "D" { print $2 }')
-if [ -n "$deleted" ]; then
-    echo "FAIL [Check 1]: test file(s) deleted vs $BASE_REF:"
-    echo "$deleted" | sed 's/^/    /'
+undocumented=""
+for f in $deleted_full; do
+    base=$(basename "$f")
+    if echo "$documented_files" | grep -qx "$base"; then
+        continue
+    fi
+    undocumented="$undocumented$f
+"
+done
+if [ -n "$undocumented" ]; then
+    echo "FAIL [Check 1]: undocumented test file deletion(s) vs $BASE_REF:"
+    printf '%s' "$undocumented" | sed 's/^/    /'
+    echo "    Add a '### <filename>' entry to"
+    echo "    docs/superpowers/refactor-deleted-tests.md per spec §2.1,"
+    echo "    OR restore the file."
     fail=1
 fi
 
