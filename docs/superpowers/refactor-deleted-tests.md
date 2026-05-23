@@ -7,6 +7,75 @@ The `scripts/check_test_integrity.sh` Check 1 (whole-file deletion) and
 Check 2 (@testset count decrease) both consult this file. Each
 `### <filename>` heading documents one permitted deletion.
 
+## Stage 6β.10 — commit TBD-after-commit
+
+### test_mechanism_enumeration.jl `@testset "AllostericMechanismSpec constructor density validation"`
+- Helper deleted: dense-storage validation hooks specific to the
+  `AllostericMechanismSpec` constructor (still alive as a type, but
+  no longer constructed from user-test code post-deletion of the
+  spec testset family).
+- Replacement: NONE EQUIVALENT. The testset validated the constructor's
+  rejection of sparse `group_tags` / `reg_ligand_tags` Dicts; the
+  constructor itself stays alive (it's still used internally by the
+  heavy enumeration pipeline) but its validation logic is now exercised
+  only through the heavy pipeline's well-formed call sites. The dense
+  invariant survives — there is just no longer a user-facing entry
+  point that produces sparse input.
+- Adjacent coverage:
+  - `test/test_types.jl @testset "AllostericEnzymeMechanism constructor
+    validators"` validates the corresponding rejection on the
+    user-facing `AllostericEnzymeMechanism` constructor (the only
+    construction path that survives 6β.10).
+
+### test_mechanism_enumeration.jl `@testset "spec-from-mechanism helpers reject inconsistent inputs"`
+- Helper deleted: NONE (the helper `mechanism_spec_from_mechanism_and_rxn`
+  is retained as a test-internal helper until Task 7d.0 — it is still
+  used by ~12 auxiliary testsets that exercise the heavy pipeline's
+  internals). The testset itself is the §2.1 deletion target.
+- Replacement: NONE EQUIVALENT. The deleted testset validated that the
+  helper rejects substrate / product / regulator / oligomeric-state
+  disagreements between a compiled mechanism and a reaction. The
+  helper's only purpose in the Mechanism-form world is to bootstrap
+  spec-flavored testsets that have been deleted; its validation surface
+  is exercised in passing by every surviving caller, but no targeted
+  rejection-path test remains. This is a true §2.1 narrow exception.
+- Adjacent coverage:
+  - `test/test_types.jl @testset "EnzymeMechanism error cases"`
+    validates the corresponding rejection at the `EnzymeMechanism`
+    constructor level (no spec round-trip involved).
+
+### test_mechanism_enumeration.jl `@testset "allosteric_spec_from_mechanism_and_rxn round-trip"`
+- Helper deleted: NONE (the helper is retained — see entry above).
+- Replacement: NONE EQUIVALENT. The deleted testset validated lossless
+  round-tripping `AllostericEnzymeMechanism → spec →
+  AllostericEnzymeMechanism` identity. With the round-trip surface no
+  longer the canonical entry, the identity is asserted at the
+  AllostericMechanism / AllostericEnzymeMechanism layer instead.
+- Adjacent coverage:
+  - `test/test_types.jl @testset "AllostericEnzymeMechanism (new
+    design)"` directly constructs allosteric mechanisms and validates
+    invariants.
+  - `test/test_types.jl @testset "AllostericEnzymeMechanism
+    constructor + DSL"` validates accessor parity for DSL-driven
+    construction (which round-trips back through the same singleton
+    type).
+
+### test_mechanism_enumeration.jl `@testset "Base-level moves on allosteric specs" > "RE→SS on allosteric"`
+- Helper deleted: spec `_expand_re_to_ss(::AbstractMechanismSpec)` and
+  spec `_expand_to_allosteric(::MechanismSpec, ...)`. The testset
+  applied the spec-flavored RE→SS move on top of a spec-flavored
+  to-allosteric move on a spec built via the spec helper. Every step
+  of that chain is deleted.
+- Replacement: NONE EQUIVALENT in the spec form. The Mechanism-form
+  RE→SS-on-allosteric behavior is fully covered by the surviving
+  parallel testsets in `_expand_re_to_ss`:
+  - `@testset "Mechanism — :EqualRT group: Δ=+1"` (post-deletion line)
+  - `@testset "Mechanism — :OnlyR group: Δ=+1"`
+  - `@testset "Mechanism — :NonequalRT group: Δ=+2"`
+  - `@testset "AllostericMechanism — :EqualRT: 2 variants, tags
+    preserved"`
+  These cover every R/T-state tag flavor on the Mechanism path.
+
 ---
 
 ## Pre-refactor cleanup — commit 4fb462e (PR #36, 2026-05-13)
