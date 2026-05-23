@@ -129,10 +129,10 @@ function _build_kinetic_rename_map(M::Type{<:EnzymeMechanism})
         for idx in idxs
             idx == rep && continue
             if eq[idx]
-                rename[Symbol("K$idx")] = Symbol("K$rep")
+                rename[name(Kd, idx)] = name(Kd, rep)
             else
-                rename[Symbol("k$(idx)f")] = Symbol("k$(rep)f")
-                rename[Symbol("k$(idx)r")] = Symbol("k$(rep)r")
+                rename[name(Kfor, idx)] = name(Kfor, rep)
+                rename[name(Krev, idx)] = name(Krev, rep)
             end
         end
     end
@@ -145,7 +145,7 @@ function _build_kinetic_rename_map(M::Type{<:EnzymeMechanism})
     for (idx, (lhs, _, _, _)) in enumerate(rxns)
         eq[idx] || continue
         any(s ∉ enz_set for s in lhs) || continue
-        sym = Symbol("K$idx")
+        sym = name(Kd, idx)
         push!(binding_set, get(rename, sym, sym))
     end
 
@@ -624,12 +624,12 @@ function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
             idx == rep && continue
             if eq[idx]
                 push!(user_lines, "K$idx = K$rep$ANNOTATION_SUBSTITUTED")
-                pass1_rename[Symbol("K$idx")] = Symbol("K$rep")
+                pass1_rename[name(Kd, idx)] = name(Kd, rep)
             else
                 push!(user_lines, "k$(idx)f = k$(rep)f$ANNOTATION_SUBSTITUTED")
                 push!(user_lines, "k$(idx)r = k$(rep)r$ANNOTATION_SUBSTITUTED")
-                pass1_rename[Symbol("k$(idx)f")] = Symbol("k$(rep)f")
-                pass1_rename[Symbol("k$(idx)r")] = Symbol("k$(rep)r")
+                pass1_rename[name(Kfor, idx)] = name(Kfor, rep)
+                pass1_rename[name(Krev, idx)] = name(Krev, rep)
             end
         end
     end
@@ -1630,12 +1630,12 @@ function rate_equation_string(
             idx == rep && continue
             if eq[idx]
                 push!(user_lines, "K$idx = K$rep$ANNOTATION_SUBSTITUTED")
-                pass1_rename[Symbol("K$idx")] = Symbol("K$rep")
+                pass1_rename[name(Kd, idx)] = name(Kd, rep)
             else
                 push!(user_lines, "k$(idx)f = k$(rep)f$ANNOTATION_SUBSTITUTED")
                 push!(user_lines, "k$(idx)r = k$(rep)r$ANNOTATION_SUBSTITUTED")
-                pass1_rename[Symbol("k$(idx)f")] = Symbol("k$(rep)f")
-                pass1_rename[Symbol("k$(idx)r")] = Symbol("k$(rep)r")
+                pass1_rename[name(Kfor, idx)] = name(Kfor, rep)
+                pass1_rename[name(Krev, idx)] = name(Krev, rep)
             end
         end
     end

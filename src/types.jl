@@ -1819,18 +1819,30 @@ end
 
 # Step-bound parameters map to three rendering rules keyed by type:
 # Kd/Kiso → :K{rep},  Kon/Kfor → :k{rep}f,  Koff/Krev → :k{rep}r,
-# with optional `_T` suffix for T-state.
-_step_param_prefix(::Union{Kd, Kiso})              = 'K'
-_step_param_prefix(::Union{Kon, Koff, Kfor, Krev}) = 'k'
-_step_param_suffix(::Union{Kd, Kiso})              = ""
-_step_param_suffix(::Union{Kon, Kfor})             = "f"
-_step_param_suffix(::Union{Koff, Krev})            = "r"
+# with optional `_T` suffix for T-state. `_param_symbol` is the shared
+# formatter — both the value-context `name(p::P, m)` and the
+# type/index-context `name(::Type{P}, idx)` companion delegate here so a
+# future parameter-naming refactor (semantic names like :K_ATP) changes
+# one function body.
+_param_symbol(::Type{<:Union{Kd, Kiso}},        idx::Int) = Symbol("K", idx)
+_param_symbol(::Type{<:Union{Kon, Kfor}},       idx::Int) = Symbol("k", idx, "f")
+_param_symbol(::Type{<:Union{Koff, Krev}},      idx::Int) = Symbol("k", idx, "r")
+
+_param_symbol(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
+    state === :T ? Symbol(_param_symbol(P, idx), "_T") :
+                   _param_symbol(P, idx)
+
+# Type/index-context chokepoint companion. Used by @generated callers in
+# `rate_eq_derivation.jl` where only an integer rep-idx is in scope (no
+# Step value to construct a Parameter from).
+name(::Type{P}, idx::Int) where {P<:Parameter}                = _param_symbol(P, idx)
+name(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
+    _param_symbol(P, idx, state)
 
 function name(p::StepBoundParameter,
               m::Union{Mechanism, EnzymeMechanism, AllostericMechanism})
     rep = _rep_idx_for_step(p.step, m)
-    tag = p.state === :T ? "_T" : ""
-    Symbol("$(_step_param_prefix(p))$rep$(_step_param_suffix(p))$tag")
+    _param_symbol(typeof(p), rep, p.state)
 end
 
 # Regulator-site parameter — AllostericMechanism only.
