@@ -1834,7 +1834,10 @@ _param_symbol(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
 
 # Type/index-context chokepoint companion. Used by @generated callers in
 # `rate_eq_derivation.jl` where only an integer rep-idx is in scope (no
-# Step value to construct a Parameter from).
+# Step value to construct a Parameter from). Supports only step-bound
+# Parameter types (Kd/Kiso/Kon/Kfor/Koff/Krev) — Kreg names need a
+# ligand and site, Keq/Etot/Lallo are stateless, so all four remain
+# value-context only.
 name(::Type{P}, idx::Int) where {P<:Parameter}                = _param_symbol(P, idx)
 name(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
     _param_symbol(P, idx, state)
