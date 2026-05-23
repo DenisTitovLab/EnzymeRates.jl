@@ -5939,6 +5939,60 @@ end
               spec.n_fit_params_estimate + 1
     end
 
+    @testset "AllostericMechanism — regulator tag removal delta" begin
+        # Mirrors the spec sibling "Allosteric regulator tag removal delta"
+        # on the Mechanism path. SEED: uni-uni allosteric with one regulator
+        # R tagged :OnlyR; all 3 catalytic groups :EqualRT.
+        em_seed = @allosteric_mechanism begin
+            substrates: S; products: P
+            allosteric_regulators: R::OnlyR
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P    :: EqualRT
+                E + S ⇌ E_S    :: EqualRT
+                E_S <--> E_P   :: EqualRT
+            end
+        end
+        am = EnzymeRates.AllostericMechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(am)
+
+        result = EnzymeRates._expand_change_allo_state(am)
+
+        # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation = 4.
+        @test length(result) == 4
+
+        # 2. exactly one variant has the R ligand flipped to :NonequalRT
+        # (cat_allo_states preserved); locate it structurally.
+        r_removal = filter(result) do r
+            r.cat_allo_states == am.cat_allo_states &&
+                any(s -> any(t -> t == :NonequalRT,
+                             EnzymeRates.allo_states(s)),
+                    r.regulatory_sites)
+        end
+        @test length(r_removal) == 1
+
+        # 3. ground-truth Δ params via compiled `fitted_params`. The
+        # mechanism-side `_n_fit_params_estimate` collapses every tag
+        # relaxation to Δ=+1 uniformly (no RE/SS factor distinction); the
+        # compiled rate equation agrees — `fitted_params` returns the
+        # identical Δ=+1 for the R-ligand :OnlyR → :NonequalRT flip. The
+        # spec sibling above asserts +1 via its own estimator field; here
+        # we tie the same +1 to truth so the Mechanism-side test is
+        # estimator-independent.
+        seed_truth = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(am)))
+        @test length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(only(r_removal)))) ==
+            seed_truth + 1
+
+        # 4. compilability + invariants on each variant.
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(r)
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+    end
+
     @testset ":OnlyT regulator-ligand relaxation" begin
         # SEED: uni-uni allosteric with one regulator R tagged :OnlyT.
         # _expand_change_allo_state should produce variants for each
@@ -5978,6 +6032,63 @@ end
         # 4. property-style: exactly one ligand-relaxation variant has the
         # R tag flipped to :NonequalRT.
         n_r_relaxed = count(r -> r.reg_ligand_tags[:R] == :NonequalRT, result)
+        @test n_r_relaxed == 1
+    end
+
+    @testset "AllostericMechanism — :OnlyT regulator-ligand relaxation" begin
+        # Mirrors the spec sibling ":OnlyT regulator-ligand relaxation" on
+        # the Mechanism path. SEED: uni-uni allosteric with R::OnlyT and 3
+        # :EqualRT cat groups. Each non-:NonequalRT entry contributes one
+        # variant: 3 cat-group + 1 reg-ligand = 4.
+        em_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: R::OnlyT
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
+            end
+        end
+        am = EnzymeRates.AllostericMechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(am)
+
+        result = EnzymeRates._expand_change_allo_state(am)
+
+        # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation.
+        @test length(result) == 4
+
+        # 2. ground-truth Δ multiset via `fitted_params`. The spec sibling
+        # reports `[1, 1, 1, 2]` against its own estimator (which factors
+        # SS-iso group relaxation as +2). The Mechanism-side
+        # `_n_fit_params_estimate` does not apply that factor and the
+        # compiled rate equation likewise: every tag relaxation contributes
+        # exactly one new independent parameter. Truth: `[1, 1, 1, 1]`.
+        seed_truth = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(am)))
+        truth_deltas = sort([
+            length(EnzymeRates.fitted_params(
+                EnzymeRates.compile_mechanism(r))) - seed_truth
+            for r in result
+        ])
+        @test truth_deltas == [1, 1, 1, 1]
+
+        # 3. compilability + invariants.
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(r)
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+
+        # 4. exactly one ligand-relaxation variant: the R ligand's tag
+        # flipped from :OnlyT to :NonequalRT (located structurally).
+        n_r_relaxed = count(result) do r
+            r.cat_allo_states == am.cat_allo_states &&
+                any(s -> any(t -> t == :NonequalRT,
+                             EnzymeRates.allo_states(s)),
+                    r.regulatory_sites)
+        end
         @test n_r_relaxed == 1
     end
 
@@ -6023,6 +6134,79 @@ end
         @test n_r2_relaxed_only == 1
     end
 
+    @testset "AllostericMechanism — multiple regulator ligands at independent tags" begin
+        # Mirrors the spec sibling "Multiple regulator ligands at
+        # independent tags" on the Mechanism path. SEED: allosteric uni-uni
+        # with R1::OnlyR + R2::OnlyT at the same regulatory site, all 3 cat
+        # groups :EqualRT. Each non-:NonequalRT entry contributes one
+        # variant: 3 cat + 2 reg-ligand = 5.
+        em_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: R1::OnlyR, R2::OnlyT
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
+            end
+        end
+        am = EnzymeRates.AllostericMechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(am)
+
+        result = EnzymeRates._expand_change_allo_state(am)
+
+        # 1. count: 3 cat-group relaxations + 2 reg-ligand relaxations = 5.
+        @test length(result) == 5
+
+        # 2. ground-truth Δ multiset via `fitted_params`. The spec sibling
+        # asserts `[1, 1, 1, 1, 2]` against its own estimator (which
+        # factors the SS-iso cat-group relaxation as +2). On the
+        # Mechanism path, both `_n_fit_params_estimate` and the compiled
+        # rate equation agree that every tag relaxation contributes
+        # exactly one new independent parameter. Truth: `[1, 1, 1, 1, 1]`.
+        seed_truth = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(am)))
+        truth_deltas = sort([
+            length(EnzymeRates.fitted_params(
+                EnzymeRates.compile_mechanism(r))) - seed_truth
+            for r in result
+        ])
+        @test truth_deltas == [1, 1, 1, 1, 1]
+
+        # 3. compilability + invariants.
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(r)
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+
+        # 4. property: each ligand has exactly one variant where ONLY it
+        # is relaxed to :NonequalRT (cat states preserved, the other
+        # ligand keeps its seed tag). Locate by per-ligand state.
+        function _site_lig_state(r, lig_name)
+            for site in r.regulatory_sites
+                for (l, st) in zip(EnzymeRates.ligands(site),
+                                   EnzymeRates.allo_states(site))
+                    EnzymeRates.name(l) === lig_name && return st
+                end
+            end
+            error("ligand $lig_name not found")
+        end
+        n_r1_relaxed_only = count(result) do r
+            r.cat_allo_states == am.cat_allo_states &&
+                _site_lig_state(r, :R1) == :NonequalRT &&
+                _site_lig_state(r, :R2) == :OnlyT
+        end
+        n_r2_relaxed_only = count(result) do r
+            r.cat_allo_states == am.cat_allo_states &&
+                _site_lig_state(r, :R1) == :OnlyR &&
+                _site_lig_state(r, :R2) == :NonequalRT
+        end
+        @test n_r1_relaxed_only == 1
+        @test n_r2_relaxed_only == 1
+    end
+
     @testset "Non-default site multiplicity (catalytic_n=4, reg site multiplicity=2)" begin
         # SEED: catalytic 4-mer with regulator at multiplicity-2 site (less than catalytic_n).
         # _expand_change_allo_state and other allo moves should preserve site
@@ -6057,6 +6241,42 @@ end
         for r in result
             @test r.catalytic_n == 4
             @test r.allosteric_multiplicities == [2]
+        end
+    end
+
+    @testset "AllostericMechanism — non-default site multiplicity (cat=4, reg=2)" begin
+        # Mirrors the spec sibling "Non-default site multiplicity
+        # (catalytic_n=4, reg site multiplicity=2)" on the Mechanism path.
+        # SEED: catalytic 4-mer with R::OnlyR at a multiplicity-2 reg site
+        # (less than catalytic_multiplicity).
+        em_seed = @allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: R::OnlyR
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                E + P ⇌ E_P       :: EqualRT
+                E + S ⇌ E_S       :: EqualRT
+                E_S <--> E_P      :: EqualRT
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: R
+            end
+        end
+        am = EnzymeRates.AllostericMechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(am)
+        @test am.catalytic_multiplicity == 4
+        @test [EnzymeRates.multiplicity(s) for s in am.regulatory_sites] == [2]
+
+        # _expand_change_allo_state must preserve both
+        # catalytic_multiplicity and per-site multiplicity independently.
+        result = EnzymeRates._expand_change_allo_state(am)
+        @test !isempty(result)
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(r)
+            @test r.catalytic_multiplicity == 4
+            @test [EnzymeRates.multiplicity(s) for s in r.regulatory_sites] == [2]
         end
     end
 
