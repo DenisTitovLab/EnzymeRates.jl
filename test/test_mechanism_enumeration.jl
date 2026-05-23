@@ -2879,6 +2879,68 @@ end
         end
     end
 
+    @testset "Mechanism — mixed RE/SS group sizes: deltas differ" begin
+        # SEED: bi-bi random where the A-binding kinetic group is SS
+        # (size-2, both SS) and the B-binding kinetic group is RE
+        # (size-2, both RE). The remaining P-binding (size-2 RE),
+        # Q-binding (size-2 RE), and iso (singleton SS) groups are
+        # unchanged. Total: 9 steps, 5 kinetic groups. Splitting an RE
+        # multi-step group adds +1 (one new K). Splitting an SS multi-
+        # step group adds +2 (one new kf AND one new kr).
+        m_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A <--> E_A, E_B + A <--> E_A_B)
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
+                E_A_B <--> E_P_Q
+            end
+        end
+        m = EnzymeRates.Mechanism(m_seed)
+        EnzymeRates._assert_mechanism_invariants(m)
+
+        result = EnzymeRates._expand_split_kinetic_group(m)
+
+        # 1. count: 4 multi-step groups (A SS×2, B RE×2, P RE×2, Q RE×2).
+        # Each can split per member → 4 × 2 = 8 variants.
+        @test length(result) == 8
+
+        # 2. Δ params: split on an RE group → +1 (one new K). Split on an
+        # SS group → +2 (one new kf + one new kr). The seed has 1 SS multi-
+        # step group (A) and 3 RE multi-step groups (B, P, Q). Per-member
+        # splits give 2 SS splits at +2 each and 6 RE splits at +1 each.
+        base_est = EnzymeRates._n_fit_params_estimate(m)
+        deltas = sort([EnzymeRates._n_fit_params_estimate(r) - base_est
+                       for r in result])
+        @test deltas == [1, 1, 1, 1, 1, 1, 2, 2]
+
+        # 3. compilability
+        for r in result
+            @test r isa EnzymeRates.Mechanism
+            EnzymeRates._assert_mechanism_invariants(r)
+            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+        end
+
+        # 4. property-style: each result introduces exactly one new
+        # trailing kinetic group with exactly one step in it.
+        for r in result
+            @test length(r.steps) == length(m.steps) + 1
+            @test length(last(r.steps)) == 1
+        end
+
+        # 5. total step count preserved across the split.
+        for r in result
+            @test EnzymeRates.n_steps(r) == EnzymeRates.n_steps(m)
+        end
+
+        # 6. preservation
+        for r in result
+            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+        end
+    end
+
     @testset "AllostericMechanismSpec — split inherits parent's tag" begin
         # SEED: bi-bi allosteric where one multi-step group is :NonequalRT
         # and another is :EqualRT. Split must produce results where the
@@ -3018,6 +3080,83 @@ end
             @test r.allosteric_multiplicities == spec.allosteric_multiplicities
             @test r.reg_ligand_tags == spec.reg_ligand_tags
             @test r.base.reaction === spec.base.reaction
+        end
+    end
+
+    @testset "AllostericMechanism — SS multi-step :NonequalRT split" begin
+        # SEED: bi-bi allosteric where one multi-step group is BOTH SS AND
+        # :NonequalRT. Splitting this group costs more parameters than
+        # splitting a :EqualRT RE group (factor 2 for SS pair × factor 2
+        # for R/T-state pair).
+        em_seed = @allosteric_mechanism begin
+            substrates: A, B
+            products: P, Q
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                (E + A <--> E_A, E_B + A <--> E_A_B)        :: NonequalRT
+                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)             :: EqualRT
+                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)             :: EqualRT
+                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)             :: EqualRT
+                E_A_B <--> E_P_Q                            :: EqualRT
+            end
+        end
+        am = EnzymeRates.AllostericMechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(am)
+
+        result = EnzymeRates._expand_split_kinetic_group(am)
+
+        # 1. count: 4 multi-step groups (A-binding SS×2 :NonequalRT,
+        # B-binding RE×2 :EqualRT, P-binding RE×2 :EqualRT,
+        # Q-binding RE×2 :EqualRT). 4 × 2 members = 8 variants.
+        @test length(result) == 8
+
+        # 2. Δ params: SS × :NonequalRT splits cost strictly more than
+        # RE × :EqualRT splits. Measured against the actual compiled
+        # fitted-param count (ground truth).
+        # `_n_fit_params_estimate(am::AllostericMechanism)` is an upper-
+        # bound estimate during enumeration but UNDER-counts SS
+        # :NonequalRT (which adds kf_T, kr_T on top of the R-state pair).
+        base_fitted = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(am)))
+        deltas = sort([length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+        # 6 :EqualRT RE-group splits + 2 :NonequalRT SS-group splits.
+        # The :NonequalRT SS splits dominate (largest values in the sorted
+        # vector), establishing the SS × NonequalRT > RE × EqualRT ordering.
+        @test length(deltas) == 8
+        @test deltas[end] > deltas[1]
+        @test deltas[end-1] > deltas[1]
+        @test count(==(maximum(deltas)), deltas) == 2  # 2 :NonequalRT SS splits
+        @test count(==(minimum(deltas)), deltas) >= 4  # ≥4 of the :EqualRT RE splits
+
+        # 3. compilability
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(r)
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+
+        # 4. tag inheritance: split's new trailing group inherits parent's
+        # tag (cat_allo_states is extended by one entry per split).
+        for r in result
+            @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
+            # existing tags preserved
+            for g in 1:length(am.cat_allo_states)
+                @test r.cat_allo_states[g] == am.cat_allo_states[g]
+            end
+            # parent = the only group whose size shrank
+            parent_g = only(g for g in 1:length(am.cat_steps)
+                            if length(r.cat_steps[g]) <
+                               length(am.cat_steps[g]))
+            new_g = length(r.cat_allo_states)
+            @test r.cat_allo_states[new_g] == am.cat_allo_states[parent_g]
+        end
+
+        # 5. preservation
+        for r in result
+            @test r.catalytic_multiplicity == am.catalytic_multiplicity
+            @test r.regulatory_sites == am.regulatory_sites
+            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
         end
     end
 
