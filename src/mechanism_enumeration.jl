@@ -3453,3 +3453,75 @@ _expand_change_allo_state(spec::AbstractMechanismSpec, r::EnzymeReaction) =
 
 expand_mechanisms(specs::Vector{<:AbstractMechanismSpec}, r::EnzymeReaction) =
     expand_mechanisms(specs, _to_legacy_reaction(r))
+
+"""
+    _assert_mechanism_invariants(m::Mechanism) -> Nothing
+
+Structural invariants every valid Mechanism should satisfy:
+- Every group is non-empty
+- source_idx values are unique and dense (1 through n_steps)
+- Each binding step's bound_metabolite is non-nothing AND iso steps have nothing
+- from_species != to_species for every step
+"""
+function _assert_mechanism_invariants(m::Mechanism)
+    flat = collect(Iterators.flatten(m.steps))
+    isempty(flat) && error("empty steps in Mechanism")
+    for g in m.steps
+        isempty(g) && error("empty kinetic group in Mechanism")
+    end
+    src_indices = [s.source_idx for s in flat]
+    sort(src_indices) == collect(1:length(flat)) ||
+        error("source_idx values not dense 1..n: got $(sort(src_indices))")
+    for s in flat
+        if is_binding(s)
+            s.bound_metabolite === nothing &&
+                error("binding step has nothing bound_metabolite")
+        else
+            s.bound_metabolite === nothing ||
+                error("iso step has non-nothing bound_metabolite")
+        end
+        s.from_species == s.to_species &&
+            error("from_species == to_species in step $s")
+    end
+    nothing
+end
+
+function _assert_mechanism_invariants(m::AllostericMechanism)
+    # Build a minimal Mechanism view of the catalytic side to reuse the
+    # base invariant checks (every cat-group non-empty, source_idx dense
+    # over flat cat steps, etc.). Then check the allosteric-specific
+    # invariants against the actual AllostericMechanism fields.
+    flat = Step[s for g in m.cat_steps for s in g]
+    isempty(flat) && error("AllostericMechanism: empty cat_steps")
+    for g in m.cat_steps
+        isempty(g) && error("AllostericMechanism: empty catalytic kinetic group")
+    end
+    src_indices = [s.source_idx for s in flat]
+    sort(src_indices) == collect(1:length(flat)) ||
+        error("AllostericMechanism: cat_steps source_idx not dense 1..n")
+
+    # cat_allo_states is one per cat group, validated by the constructor;
+    # re-check defensively here:
+    length(m.cat_allo_states) == length(m.cat_steps) ||
+        error("AllostericMechanism: cat_allo_states length " *
+              "$(length(m.cat_allo_states)) ≠ cat_steps length " *
+              "$(length(m.cat_steps))")
+    valid_cat_states = (:OnlyR, :EqualRT, :NonequalRT)
+    for tag in m.cat_allo_states
+        tag in valid_cat_states ||
+            error("AllostericMechanism: invalid cat allo state $tag")
+    end
+
+    m.catalytic_multiplicity ≥ 1 ||
+        error("AllostericMechanism: catalytic_multiplicity " *
+              "$(m.catalytic_multiplicity) must be ≥ 1")
+
+    # regulatory_sites is a Vector{RegulatorySite}; each site carries
+    # its own ligand list + multiplicity + per-ligand allo states. The
+    # constructor validates internal structure; here we only assert the
+    # list is non-nothing.
+    m.regulatory_sites isa Vector{RegulatorySite} ||
+        error("AllostericMechanism: regulatory_sites not Vector{RegulatorySite}")
+
+    nothing
+end

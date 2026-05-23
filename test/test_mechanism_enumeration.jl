@@ -455,6 +455,40 @@ function _assert_spec_invariants(spec::AllostericMechanismSpec)
     end
 end
 
+"""
+    enumerate_all_mechanism(rxn::EnzymeReaction)
+        -> Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
+
+Mechanism-form parallel of `enumerate_all` (which works on specs).
+Used by 6β-migrated testsets that exercise full enumeration via the
+Mechanism API.
+"""
+function enumerate_all_mechanism(rxn)
+    M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
+    cache = Dict{Int, Vector{M}}()
+    for m in EnzymeRates.init_mechanisms(rxn)
+        pc = EnzymeRates._n_fit_params_estimate(m)
+        push!(get!(cache, pc, M[]), m)
+    end
+    results = Dict{Int, Vector{M}}()
+    while !isempty(cache)
+        pc = minimum(keys(cache))
+        # dedup! operates on a Dict slice — wrap and unwrap:
+        slice = Dict(pc => pop!(cache, pc))
+        EnzymeRates.dedup!(slice)
+        level = slice[pc]
+        results[pc] = level
+        # Expand one level at a time, sorted by param-count to feed
+        # the cache in ascending order.
+        children = EnzymeRates.expand_mechanisms(level, rxn)
+        for (cpc, group) in children
+            cpc > pc || continue
+            append!(get!(cache, cpc, M[]), group)
+        end
+    end
+    results
+end
+
 enumerate_all(reaction::EnzymeReaction; kwargs...) =
     enumerate_all(EnzymeRates._to_legacy_reaction(reaction); kwargs...)
 
@@ -488,6 +522,15 @@ function enumerate_all(
         EnzymeRates.dedup!(cache)
     end
     results
+end
+
+@testset "_assert_mechanism_invariants on uni-uni init" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+    end
+    m = first(EnzymeRates.init_mechanisms(rxn))
+    @test EnzymeRates._assert_mechanism_invariants(m) === nothing
 end
 
 @testset "Mechanism Enumeration" begin
