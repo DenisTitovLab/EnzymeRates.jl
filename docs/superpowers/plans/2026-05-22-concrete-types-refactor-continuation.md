@@ -797,21 +797,36 @@ Before deleting each item, verify zero callers in src/:
 grep -rn "<name>" src/
 ```
 
-Items safe to delete in 6β.10 (zero src/ callers after migration):
-1. `_expand_re_to_ss(::AbstractMechanismSpec)`, `_expand_split_kinetic_group(::AbstractMechanismSpec)`, `_expand_add_dead_end_regulator(::AbstractMechanismSpec)`, `_expand_to_allosteric(::AbstractMechanismSpec)`, `_expand_add_allosteric_regulator(::AbstractMechanismSpec)`, `_expand_change_allo_state(::AbstractMechanismSpec)` — six test-facing overloads.
-2. `dedup!(::Dict{Int, Vector{<:AbstractMechanismSpec}})` legacy overload.
-3. `_canonicalize!(::AbstractMechanismSpec)` and `_dedup_key(::AbstractMechanismSpec)` if their only callers were the now-deleted dedup overload + the migrated testsets.
-4. `_n_fit_params_estimate(::AbstractMechanismSpec)` if a separate method.
-5. `_init_mechanism_specs(::EnzymeReaction)` (only the EnzymeReaction overload — the `EnzymeReactionLegacy` overload feeds the still-live heavy pipeline; keep it for 7d).
+**Items safe to delete in 6β.10** (zero src/ callers after migration — verify each individually with `grep -rn "<name>" src/` BEFORE deleting; if any src caller is found, that item moves to Stage 7d):
 
-Items that must STAY until Stage 7d (keep these alive in 6β.10):
+1. `_expand_re_to_ss(::AbstractMechanismSpec)`, `_expand_split_kinetic_group(::AbstractMechanismSpec)`, `_expand_add_dead_end_regulator(::AbstractMechanismSpec)`, `_expand_to_allosteric(::AbstractMechanismSpec)`, `_expand_add_allosteric_regulator(::AbstractMechanismSpec)`, `_expand_change_allo_state(::AbstractMechanismSpec)` — six test-facing overloads.
+2. `dedup!(::Dict{Int, Vector{<:AbstractMechanismSpec}})` legacy overload (Mechanism overload stays).
+3. `_canonicalize!(::AbstractMechanismSpec)` and `_dedup_key(::AbstractMechanismSpec)` — only callers were the now-deleted dedup overload + the migrated testsets.
+4. `_n_fit_params_estimate(::AbstractMechanismSpec)` if a separate method from the Mechanism version.
+
+**Items that MUST STAY until Stage 7d** (live src/ callers — deleting them in 6β.10 breaks the build):
+
 - `MechanismSpec`, `StepSpec`, `AllostericMechanismSpec`, `AbstractMechanismSpec` struct definitions — used inside `init_mechanisms(::EnzymeReactionLegacy)` and `_apply_equivalence_grouping`.
-- `_init_mechanism_specs(::EnzymeReactionLegacy)` — the heavy pipeline's entry.
-- `_spec_from_mechanism`, `_mechanism_from_spec` — used to convert specs ↔ Mechanism at pipeline boundaries (the `init_mechanisms(::EnzymeReaction) = [_mechanism_from_spec(s) for s in _init_mechanism_specs(r)]` adapter at `mechanism_enumeration.jl:3390` still uses this).
-- `EnzymeMechanism(spec::MechanismSpec)` adapter — verify with `grep -rn 'EnzymeMechanism(.*::MechanismSpec\|EnzymeMechanism(spec' src/`; delete if zero src/ callers.
-- `expand_mechanisms(::Vector{<:AbstractMechanismSpec}, ::EnzymeReactionLegacy)` legacy overload — same: verify, delete if zero src/ callers.
+- `_init_mechanism_specs(::EnzymeReactionLegacy)` — the heavy pipeline's entry point.
+- **`_init_mechanism_specs(::EnzymeReaction)`** — called by the public `init_mechanisms(r::EnzymeReaction)` adapter at `src/mechanism_enumeration.jl:3390`. Earlier drafts of this plan incorrectly listed it as safe to delete; verify by `grep -n "_init_mechanism_specs" src/mechanism_enumeration.jl` and you'll see line 3390 still calls it.
+- `_spec_from_mechanism`, `_mechanism_from_spec` — used by the same `init_mechanisms(::EnzymeReaction)` adapter and by the `init_mechanisms(::EnzymeReactionLegacy, ::Type{Mechanism})` bridge at line 3397.
+- **`EnzymeMechanism(spec::MechanismSpec)` adapter** — called by `_mechanism_from_spec` AND by `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` at `src/mechanism_enumeration.jl:2886`. Earlier drafts listed it as safe-with-verification; the verification will fail. Defer to 7d.0.
+- `expand_mechanisms(::Vector{<:AbstractMechanismSpec}, ::EnzymeReactionLegacy)` legacy overload — verify with `grep -rn 'expand_mechanisms.*Vector.*Mechanism' src/`. If src/ callers exist beyond the heavy pipeline, defer to 7d.
 
 For each deletion, delete the docstring above it.
+
+**Pre-deletion verification gate (add to commit checklist):** before staging the deletion commit, run:
+
+```bash
+for fn in _expand_re_to_ss _expand_split_kinetic_group _expand_add_dead_end_regulator \
+          _expand_to_allosteric _expand_add_allosteric_regulator _expand_change_allo_state \
+          _canonicalize\! _dedup_key _n_fit_params_estimate; do
+    callers=$(grep -rln "\b${fn}\b(.*::.*Spec\b\|\b${fn}\b(.*Spec\[" src/ | wc -l)
+    echo "$fn: $callers src caller(s)"
+done
+```
+
+Every count should be 0 (or only the file containing the definition itself). If any has callers, STOP and defer that item to 7d.
 
 - [ ] **Step 4: Add §2.1 log entries for the spec-helper testset deletions**
 
@@ -988,47 +1003,116 @@ Note the formatter (if any) those methods delegate to — Task 7a.0 below extrac
 
 - [ ] **Step 3: Write a failing chokepoint-exclusivity regression test**
 
+The previous draft used a line-by-line regex + brace-depth tracker; that approach mis-detects assignment-form `name(...) = ...` methods (no `end` keyword, parens stay balanced) and misses `::StepBoundParameter` / `::Type{P} where P<:Parameter` signatures. Use Julia's AST parser instead — it gets these right by construction.
+
 Create `test/test_chokepoint.jl`:
 
 ```julia
 using Test
 using EnzymeRates
 
-@testset "chokepoint: no direct Symbol(\"K…\") construction outside name() bodies" begin
+const _CHOKEPOINT_PREFIX = r"^[KkVL][_a-zA-Z0-9]"
+
+# Extract the function-name symbol from a signature expression.
+# Handles `name(...)`, `name(...) where T`, `name(...)::Ret`, etc.
+function _sig_fn_name(sig)
+    while sig isa Expr && sig.head === :where
+        sig = sig.args[1]
+    end
+    if sig isa Expr && sig.head === :(::)
+        sig = sig.args[1]
+    end
+    return sig isa Expr && sig.head === :call ? sig.args[1] : nothing
+end
+
+# Extract the first positional arg type-annotation as a String.
+function _sig_first_arg_str(sig)
+    while sig isa Expr && sig.head === :where
+        sig = sig.args[1]
+    end
+    if sig isa Expr && sig.head === :(::)
+        sig = sig.args[1]
+    end
+    sig isa Expr && sig.head === :call || return ""
+    args = sig.args[2:end]
+    pos_args = filter(a -> !(a isa Expr && a.head === :parameters), args)
+    isempty(pos_args) && return ""
+    return string(pos_args[1])
+end
+
+# A method definition is a chokepoint body iff its name is `name` or
+# `_param_symbol` and its first positional arg signature mentions
+# Parameter / ::K[a-z] / ::Type{ — i.e., it dispatches on a Parameter
+# subtype value OR a Parameter type.
+function _is_chokepoint_def(expr)
+    expr isa Expr || return false
+    sig = if expr.head === :function && length(expr.args) >= 1
+        expr.args[1]
+    elseif expr.head === :(=) && expr.args[1] isa Expr &&
+           expr.args[1].head in (:call, :where)
+        expr.args[1]
+    else
+        return false
+    end
+    fn_name = _sig_fn_name(sig)
+    fn_name in (:name, :_param_symbol) || return false
+    arg_str = _sig_first_arg_str(sig)
+    return occursin(r"Parameter|::K[a-z]|::Type\{", arg_str)
+end
+
+# Reconstruct the string content of a `Symbol("...")` call. Supports
+# both literal Strings and `:string` interpolation expressions like
+# `Symbol("K\$idx")` → `Expr(:string, "K", :idx)`.
+function _symbol_call_pattern(expr)
+    expr isa Expr && expr.head === :call &&
+        length(expr.args) >= 2 && expr.args[1] === :Symbol || return nothing
+    arg2 = expr.args[2]
+    if arg2 isa String
+        return arg2
+    elseif arg2 isa Expr && arg2.head === :string
+        # Concatenate; non-String parts become a placeholder so the
+        # prefix regex can still match (e.g., "K\$idx" → "K\$_").
+        return join(p isa String ? p : "\$_" for p in arg2.args)
+    end
+    return nothing
+end
+
+function _walk_violations!(expr, in_chokepoint::Bool, out::Vector{String})
+    expr isa Expr || return
+    if _is_chokepoint_def(expr)
+        for child in expr.args
+            _walk_violations!(child, true, out)
+        end
+    else
+        pat = _symbol_call_pattern(expr)
+        if pat !== nothing && occursin(_CHOKEPOINT_PREFIX, pat) && !in_chokepoint
+            push!(out, "Symbol(\"$pat\")")
+        end
+        for child in expr.args
+            _walk_violations!(child, in_chokepoint, out)
+        end
+    end
+end
+
+@testset "chokepoint: no Symbol(\"[KkVL]…\") outside name()/_param_symbol bodies" begin
     src_dir = joinpath(dirname(@__DIR__), "src")
-    # Match both literal-digit forms Symbol("K1") and interpolation
-    # forms Symbol("K\$idx") / Symbol("k\$(idx)f").
-    pat = r"Symbol\(\"[KkVL][_a-zA-Z0-9$]"
     for f in readdir(src_dir; join=true)
         endswith(f, ".jl") || continue
-        offending = String[]
-        in_name_method = false
-        depth = 0
-        for (lineno, line) in enumerate(eachline(IOBuffer(read(f, String))))
-            # Detect entry to a `name(...) =` or `function name(...)` body
-            # whose first positional arg is a Parameter type/value.
-            if occursin(r"^\s*(function\s+)?name\(.*(::Parameter|::K[a-z]|::Type\{<:K)", line)
-                in_name_method = true
-                depth = max(1, count(==('('), line) - count(==(')'), line))
-            elseif in_name_method
-                depth += count(==('('), line) - count(==(')'), line)
-                if occursin(r"^end\s*$", line) || depth <= 0
-                    in_name_method = false
-                end
-            end
-            if !in_name_method && occursin(pat, line)
-                push!(offending, "$(basename(f)):$lineno: $line")
-            end
+        src = read(f, String)
+        expr = Meta.parseall(src; filename=f)
+        violations = String[]
+        _walk_violations!(expr, false, violations)
+        if !isempty(violations)
+            @info "chokepoint violations" file=basename(f) violations
         end
-        if !isempty(offending)
-            @info "chokepoint violations" offending
-        end
-        @test isempty(offending)
+        @test isempty(violations)
     end
 end
 ```
 
 Add `include("test_chokepoint.jl")` to `test/runtests.jl`.
+
+**Why the AST approach:** `Meta.parseall` produces a `:toplevel` block; recursive descent into `:function` / `:(=)` nodes lets us identify chokepoint methods by signature shape (not by line-range tricks). The walker then flags every `Symbol(<pat>)` call OUTSIDE a chokepoint body, supporting both literal-string and interpolation forms. False positives on legitimate `name()` methods are impossible by construction.
 
 - [ ] **Step 4: Run the test to confirm it fails BEFORE the fix**
 
@@ -1036,7 +1120,9 @@ Add `include("test_chokepoint.jl")` to `test/runtests.jl`.
 julia --project=test -e 'include("test/test_chokepoint.jl")' 2>&1 | tail -30
 ```
 
-Expected: FAIL with ~12 offending lines (10 in `rate_eq_derivation.jl`, 2 in `types.jl`). If it passes, the regex is too narrow — fix the regex first.
+Expected: FAIL with **10 offending lines, all in `rate_eq_derivation.jl`**. The 2 Kreg sites in `types.jl:1840–1841` sit *inside* `function name(p::Kreg, m::AllostericMechanism)` — the AST walker correctly classifies them as chokepoint-body and excludes them. They become visible to a different test or get refactored differently in Task 7a.2 (which extracts `_param_symbol(Kreg, …)` from inside the chokepoint body, so the source line moves from `name()` to `_param_symbol()` — both chokepoint, both excluded by this test).
+
+If the test reports 0 violations, the walker is matching too aggressively — verify `_is_chokepoint_def` isn't returning true for non-chokepoint methods. If it reports >10, the walker is missing a legitimate chokepoint body — verify the signature shape isn't matched by `_sig_fn_name`/`_sig_first_arg_str`.
 
 - [ ] **Step 5: Implement the type/index-context chokepoint companion in `src/types.jl`**
 
@@ -1621,25 +1707,24 @@ Lines 749–870 (approximate; verify). The new emission path doesn't call it.
 
 `src/types.jl` lines 785–860 (approximate). After deletion, `Mechanism(em::EnzymeMechanism{Sig})` is a single-body function: `_mechanism_from_sig(Sig)`.
 
-- [ ] **Step 6: Delete the opaque-form helpers**
+- [ ] **Step 6: Verify opaque-form helpers' callers — DEFER deletion to Task 7d.0**
 
-In `src/mechanism_enumeration.jl`:
-- `_form_name`
-- `_parse_bound`
-- `_bound_mets_from_form_name`
-- `_dead_end_form_name`
-- `_atoms_dict`
-- `_is_estar_form`
-- `_can_pingpong`
-- `_subtract_atoms`
+The opaque-form helpers (`_form_name`, `_parse_bound`, `_bound_mets_from_form_name`, `_dead_end_form_name`, `_atoms_dict`, `_is_estar_form`, `_can_pingpong`, `_subtract_atoms`) are also called by the heavy enumeration pipeline (`_catalytic_topologies`, `_apply_equivalence_grouping`) which stays alive until Task 7d.0. Deleting them in 7b.5 would break the heavy pipeline.
 
-For each, verify zero remaining callers via:
+Audit who calls each helper:
 
 ```bash
-grep -rn "<function_name>" src/ test/
+for fn in _form_name _parse_bound _bound_mets_from_form_name \
+          _dead_end_form_name _atoms_dict _is_estar_form \
+          _can_pingpong _subtract_atoms; do
+    callers=$(grep -rn "\b$fn\b" src/ | grep -v ":function $fn\|:$fn(" | wc -l)
+    echo "$fn: $callers call site(s) in src/"
+done
 ```
 
-If any caller remains, fix the caller first (likely a leftover `_expand_*` move that 7b.4 missed).
+Confirm each helper still has heavy-pipeline callers; document the count in this commit's message. The actual deletion happens in Task 7d.0 after the heavy pipeline is rewritten.
+
+In `src/mechanism_enumeration.jl`: leave the helpers in place; only delete the `_mechanism_from_legacy_sig` adapter (it has no remaining callers because every DSL-emitted Mechanism now comes through the decomposed-Species path).
 
 - [ ] **Step 7: Run the full suite + integrity check + perf gates**
 
@@ -1656,17 +1741,21 @@ Expected: all green. Stage 7b cumulative LOC delta ≈ −200 to −250.
 ```bash
 git add src/dsl.jl src/types.jl src/mechanism_enumeration.jl
 git commit -m "$(cat <<'EOF'
-Stage 7b.5: delete opaque-form helpers + legacy DSL emission path
+Stage 7b.5: narrow dual-grammar to decomposed-only + delete _mechanism_from_legacy_sig
 
-Removes _form_name, _parse_bound, _bound_mets_from_form_name,
-_dead_end_form_name, _atoms_dict, _is_estar_form, _can_pingpong,
-_subtract_atoms from src/mechanism_enumeration.jl. Removes the
-2-arg EnzymeMechanism(metabolites, reactions) constructor and
-_mechanism_from_legacy_sig + the _is_new_sig branch from src/types.jl.
-Removes the dual-grammar fallback in src/dsl.jl.
+DSL macros emit Mechanism(...) directly with decomposed Species.
+Bare-Symbol step entries restricted to single-component conformations;
+opaque `:E_S`-style names raise a clear migration error. Legacy
+(metabolites, reactions) emission path removed.
 
-After this commit, the only path from DSL to Mechanism is
-EnzymeMechanism(Mechanism(...)) with decomposed Species.
+Deletes _mechanism_from_legacy_sig in src/types.jl (no remaining
+callers — every DSL-emitted Mechanism now comes through the decomposed
+path).
+
+Opaque-form helpers (_form_name, _parse_bound, _atoms_dict, etc.)
+stay alive — heavy enumeration pipeline still uses them on the
+EnzymeReactionLegacy path; their deletion is bundled with the
+heavy-pipeline rewrite in Task 7d.0.
 
 src delta: -X / +Y net Z, cumulative: ±W
 EOF
@@ -1683,9 +1772,9 @@ git tag stage-7b-complete
 
 # Stage 7c — Enumeration dispatches on `EnzymeReaction`
 
-**Stage goal:** the ~20 sites in `src/mechanism_enumeration.jl` that dispatch on `EnzymeReactionLegacy` move to dispatch on `EnzymeReaction`. After this stage, no internal call path needs `_to_legacy_reaction`.
+**Stage goal:** the **public-facing** dispatch sites in `src/mechanism_enumeration.jl` and `src/identify_rate_equation.jl` that take `EnzymeReactionLegacy` move to dispatch on `EnzymeReaction`. The **heavy enumeration pipeline** (`init_mechanisms(::EnzymeReactionLegacy)`, `_catalytic_topologies`, `_atoms_dict`, `_apply_equivalence_grouping`, `_expand_substrate_product_dead_ends`) keeps its Legacy dispatch — Task 7d.0 ports the whole heavy path to `EnzymeReaction` in one go. Stage 7c therefore retires `_to_legacy_reaction` from external/public call paths, not from internal helpers.
 
-**Stage LOC delta target:** small net (dispatch swap; deletions land in 7d).
+**Stage LOC delta target:** small net (dispatch swap on public surface; deletions land in 7d).
 
 ## Task 7c.1: Inventory `EnzymeReactionLegacy` dispatch sites
 
@@ -1700,11 +1789,22 @@ grep -nE "::EnzymeReactionLegacy|<:EnzymeReactionLegacy" src/*.jl
 
 Expected output: ~20 method signatures in `src/mechanism_enumeration.jl`, plus 2 in `src/identify_rate_equation.jl` (struct type parameter + outer `identify_rate_equation` signature).
 
-- [ ] **Step 2: Verify `EnzymeReaction` is structurally compatible**
+- [ ] **Step 2: Classify each dispatch site as public-facing OR heavy-pipeline**
 
-For each dispatched function, check what fields it reads from the reaction argument. Read the same fields off `EnzymeReaction` (the concrete struct) and confirm equivalence. Common access patterns: `substrates(r)`, `products(r)`, `regulators(r)`, `oligomeric_state(r)`.
+Heavy-pipeline methods (KEEP on `EnzymeReactionLegacy` — Task 7d.0 ports them):
+- `init_mechanisms(::EnzymeReactionLegacy)` at `mechanism_enumeration.jl:1410`
+- `_catalytic_topologies(::EnzymeReactionLegacy)`
+- `_atoms_dict(::EnzymeReactionLegacy, met)`
+- `_apply_equivalence_grouping(spec::MechanismSpec, ...)`
+- `_expand_substrate_product_dead_ends(specs, ::EnzymeReactionLegacy)`
+- Other internal helpers called by the above
 
-If any access pattern is `EnzymeReactionLegacy`-specific (e.g., reads a type parameter directly via `where {S, P, R, N}`), STOP — that's a deeper rewrite, ask before proceeding.
+Public-facing methods (SWAP to `EnzymeReaction` in this stage):
+- `IdentifyRateEquationProblem{R<:EnzymeReactionLegacy, D}` parametric type
+- `identify_rate_equation(reaction::EnzymeReactionLegacy, ...)`
+- Any top-level enumeration entry that's called from user code via `EnzymeReaction` today through `_to_legacy_reaction`
+
+For each public-facing dispatched function, check what fields it reads from the reaction argument and confirm `EnzymeReaction` provides equivalent accessors. If a public-facing method reads `EnzymeReactionLegacy`-specific type parameters (`where {S, P, R, N}`), STOP — that's a deeper rewrite belonging to 7d.0.
 
 - [ ] **Step 3: Note the inventory in a working file (mental or scratch — no commit)**
 
@@ -1993,18 +2093,41 @@ julia --project=test -e 'include("test/runtests.jl")' 2>&1 | tail -10
 
 Expected: all green. Mechanism output bit-identical to pre-rewrite.
 
-- [ ] **Step 6: Delete the spec types + their now-orphaned helpers**
+- [ ] **Step 6: Delete the spec types + their now-orphaned helpers + opaque-form helpers**
 
-After Step 5 verifies the pipeline doesn't need them:
+After Step 5 verifies the rewritten heavy pipeline returns identical Mechanism output, the following become deletable. Verify zero callers for each before deleting via `grep -rn "<name>" src/ test/`.
+
+**Spec types + adapters** (kept alive through Stages 6β–7c):
 - `MechanismSpec`, `StepSpec`, `AllostericMechanismSpec`, `AbstractMechanismSpec` struct definitions.
-- `_init_mechanism_specs(::EnzymeReactionLegacy)` (its callers are `init_mechanisms(::EnzymeReaction)` and the bridge `init_mechanisms(::EnzymeReactionLegacy, ::Type{Mechanism})` — both now call `init_mechanisms(::EnzymeReactionLegacy)` directly).
+- `_init_mechanism_specs(::EnzymeReaction)` and `_init_mechanism_specs(::EnzymeReactionLegacy)` (their sole callers were the `init_mechanisms` adapters, which now go through the rewritten heavy pipeline directly).
+- `_spec_from_mechanism`, `_mechanism_from_spec`.
 - `EnzymeMechanism(spec::MechanismSpec)` adapter.
-- Any leftover `_mechanism_from_spec` / `_spec_from_mechanism`.
+- `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)` adapter.
+- `expand_mechanisms(::Vector{<:AbstractMechanismSpec}, ::EnzymeReactionLegacy)` if still alive.
+- `_n_fit_params_estimate_from_steps(steps::Vector{StepSpec})` if still alive.
 
-Verify zero callers for each before deleting:
+**Opaque-form helpers** (kept alive through Stages 6β–7c because the heavy pipeline used them):
+- `_form_name`
+- `_parse_bound`
+- `_bound_mets_from_form_name`
+- `_dead_end_form_name`
+- `_atoms_dict`
+- `_is_estar_form`
+- `_can_pingpong`
+- `_subtract_atoms`
+
+After the heavy-pipeline rewrite in Steps 1–5, these helpers should have zero src/ callers. Confirm with:
+
 ```bash
-grep -rn "<name>" src/ test/
+for fn in _form_name _parse_bound _bound_mets_from_form_name \
+          _dead_end_form_name _atoms_dict _is_estar_form \
+          _can_pingpong _subtract_atoms; do
+    callers=$(grep -rn "\b$fn\b" src/ | grep -v ":function $fn\|:$fn(" | wc -l)
+    echo "$fn: $callers caller(s)"
+done
 ```
+
+Any non-zero count means a heavy-pipeline path slipped through the rewrite — fix that caller first, then delete the helper.
 
 - [ ] **Step 7: Run full suite + integrity check**
 

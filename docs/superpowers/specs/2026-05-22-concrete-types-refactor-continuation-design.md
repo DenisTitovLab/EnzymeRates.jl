@@ -158,21 +158,29 @@ Stage 7b.
 7. Migrate `_expand_change_allo_state` testsets.
 8. Migrate `_canonicalize!`/`_dedup_key`/dedup-integration testsets.
 9. Migrate `expand_mechanisms` and `Integration` testsets.
-10. Delete the spec types' **test-facing surface** in
+10. Delete only the spec types' **test-facing surface** in
     `src/mechanism_enumeration.jl`: the six `_expand_*`
-    `AbstractMechanismSpec` overloads,
-    `dedup!(::Dict{Int,Vector{<:AbstractMechanismSpec}})`,
-    `_canonicalize!`, `_dedup_key`, `_spec_from_mechanism`,
-    `_mechanism_from_spec`, `EnzymeMechanism(::MechanismSpec)`
-    adapter, `expand_mechanisms(::Vector{<:AbstractMechanismSpec},
-    ...)` overload, `_n_fit_params_estimate(::AbstractMechanismSpec)`.
-    Also delete `_init_mechanism_specs(::EnzymeReaction)` (no remaining
-    callers after the test migration).
-    **Keep alive (deleted in Stage 7d):** `MechanismSpec`/`StepSpec`/
-    `AllostericMechanismSpec` structs; `_init_mechanism_specs(::EnzymeReactionLegacy)`
-    (the heavy `init_mechanisms(::EnzymeReactionLegacy)` still builds
-    specs internally); `_apply_equivalence_grouping`;
-    `_expand_substrate_product_dead_ends` if it still returns specs.
+    `AbstractMechanismSpec` overloads;
+    `dedup!(::Dict{Int,Vector{<:AbstractMechanismSpec}})`;
+    `_canonicalize!(::AbstractMechanismSpec)`;
+    `_dedup_key(::AbstractMechanismSpec)`;
+    `_n_fit_params_estimate(::AbstractMechanismSpec)` if a separate
+    method from the Mechanism version.
+    For each, verify zero src/ callers via `grep -rn` BEFORE deleting;
+    if any have callers, defer to Stage 7d.
+
+    **Keep alive (deleted in Stage 7d):** `MechanismSpec`, `StepSpec`,
+    `AllostericMechanismSpec`, `AbstractMechanismSpec` structs;
+    `_init_mechanism_specs(::EnzymeReaction)` AND
+    `_init_mechanism_specs(::EnzymeReactionLegacy)` (both still feed
+    the live `init_mechanisms(::EnzymeReaction)` adapter at
+    `mechanism_enumeration.jl:3390`); `_spec_from_mechanism`,
+    `_mechanism_from_spec`; `EnzymeMechanism(spec::MechanismSpec)`
+    adapter; `AllostericEnzymeMechanism(spec::AllostericMechanismSpec)`;
+    `_apply_equivalence_grouping`;
+    `_expand_substrate_product_dead_ends` if it still returns specs;
+    `_catalytic_topologies` and `_atoms_dict` (called by the heavy
+    pipeline on the Legacy path).
 
 **LOC delta target:** Stage 6β cumulative ≈ −300 to −500 in
 `src/mechanism_enumeration.jl` (test-surface deletions only;
@@ -253,10 +261,19 @@ the value-context variant):
 2. At each `rate_eq_derivation.jl` site, replace `Symbol("K$idx")`
    with `name(Kd, idx)` (and similarly `Symbol("k$(idx)f")` →
    `name(Kfor, idx)`, `Symbol("k$(idx)r")` → `name(Krev, idx)`).
-3. At the two `types.jl` Kreg sites, replace the direct construction
-   with the value-context call `name(Kreg(site_idx, lig_name,
-   p.state), m)` (verify the actual Kreg field ordering from
-   `src/types.jl:206`).
+3. At the two `types.jl` Kreg sites (which sit *inside* the
+   `name(p::Kreg, m::AllostericMechanism)` chokepoint body at
+   `src/types.jl:1837`), the goal is to factor the Symbol-building
+   logic out of the function body into the shared `_param_symbol`
+   formatter so the chokepoint regression test sees no top-level
+   Symbol literals. Add a `_param_symbol(::Type{Kreg}, site_idx::Int,
+   lig_name::Symbol, state::Symbol)` method that returns the same
+   Symbol the current inline code does, then rewrite the chokepoint
+   body to look up `site_idx = findfirst(==(p.site),
+   m.regulatory_sites)` and `lig_name = name(p.ligand)`, and
+   delegate to `_param_symbol`. **Do not construct a new `Kreg` —**
+   `Kreg(site::RegulatorySite, ligand::AllostericRegulator,
+   state::Symbol)` takes struct values, not primitives.
 
 **Regression test:** new `test/test_chokepoint.jl`. Scans `src/*.jl`
 line-by-line; any direct `Symbol("K…"` / `Symbol("k…"` /
@@ -356,10 +373,17 @@ deletion ≈ −60; fixture rewrites are tests, not src).
 
 ### Stage 7c — Enumeration dispatches on `EnzymeReaction`
 
-**Goal:** the ~20 sites in `src/mechanism_enumeration.jl` that
-currently dispatch on `EnzymeReactionLegacy` move to dispatch on
-`EnzymeReaction` (the concrete struct). After this stage, no internal
-call path needs `_to_legacy_reaction`.
+**Goal:** the **public-facing** dispatch sites in
+`src/mechanism_enumeration.jl` and `src/identify_rate_equation.jl`
+that currently take `EnzymeReactionLegacy` move to dispatch on
+`EnzymeReaction` (the concrete struct). The **heavy enumeration
+pipeline** (`init_mechanisms(::EnzymeReactionLegacy)`,
+`_catalytic_topologies`, `_atoms_dict`,
+`_apply_equivalence_grouping`, `_expand_substrate_product_dead_ends`)
+still dispatches on `EnzymeReactionLegacy` because its body operates
+on the singleton type parameters; that conversion is Task 7d.0's
+job. So `_to_legacy_reaction` remains called from inside the public
+`init_mechanisms(::EnzymeReaction)` adapter until 7d.0 retires it.
 
 **Affected dispatch points (inventory):**
 - `src/mechanism_enumeration.jl` ~20 method signatures
@@ -369,17 +393,24 @@ call path needs `_to_legacy_reaction`.
   - `identify_rate_equation(reaction::EnzymeReactionLegacy, ...)` →
     `(reaction::EnzymeReaction, ...)`
 
-**Body rewrites needed (this is the bulk of 7c's work):** the dispatch
-swap is mechanical but the function *bodies* aren't. The
-`EnzymeReactionLegacy` accessors return tuple shapes
-(`substrates(::EnzymeReactionLegacy)` → `Tuple{Tuple{Symbol, Tuple{...}}}`),
-while `EnzymeReaction` accessors return reactant structs
-(`substrates(::EnzymeReaction)` reads from `r.reactants`). Internals
-like `_atoms_dict` that destructure `(name, atoms)` tuples must be
-rewritten to use the struct accessors, or unified accessors that
-return consistent shapes for both types must be introduced first.
-Audit every internal at signature-swap time; explode at runtime
-otherwise.
+**Body rewrites needed for non-heavy-pipeline methods.** For methods
+whose dispatch DOES swap to `::EnzymeReaction` in 7c, the function
+*bodies* often need updating too: the `EnzymeReactionLegacy`
+accessors return tuple shapes
+(`substrates(::EnzymeReactionLegacy)` → `Tuple{Tuple{Symbol,
+Tuple{...}}}`), while `EnzymeReaction` accessors return reactant
+structs (`substrates(::EnzymeReaction)` reads from `r.reactants`).
+Internals that destructure `(name, atoms)` tuples must be rewritten
+to use the struct accessors.
+
+**Do NOT** rewrite heavy-pipeline methods that stay on Legacy
+(`_atoms_dict`, `_catalytic_topologies`, `_apply_equivalence_grouping`,
+`_expand_substrate_product_dead_ends`) — their bodies are correct as
+written for the Legacy shape and will get rewritten when Task 7d.0
+ports the entire heavy path to `EnzymeReaction`. Audit each method
+at signature-swap time: if the swap is to `::EnzymeReaction`, body
+rewrites needed; if the method stays on `::EnzymeReactionLegacy`,
+leave it alone.
 
 **Compile-budget framing:** `test_compile_budget.jl` lines 77, 147,
 etc. construct `EnzymeReactionLegacy` directly precisely to detect
