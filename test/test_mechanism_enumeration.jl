@@ -4655,6 +4655,36 @@ end
         end
     end
 
+    @testset "Mechanism — oligomeric_state from reaction" begin
+        # Mirrors the MechanismSpec sibling above on the Mechanism path.
+        # The catalytic_multiplicity of the resulting AllostericMechanism
+        # is taken from rxn4's oligomeric_state, not hardcoded to 2.
+        rxn4 = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            oligomeric_state: 4
+        end
+        em_seed = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + P ⇌ E_P
+                E + S ⇌ E_S
+                E_S <--> E_P
+            end
+        end
+        m = EnzymeRates.Mechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(m)
+
+        result = EnzymeRates._expand_to_allosteric(m, rxn4)
+        @test !isempty(result)
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(r)
+            @test r.catalytic_multiplicity == 4
+        end
+    end
+
     @testset "Bi-bi sequential: 5 groups → 6 variants" begin
         # _expand_to_allosteric emits 1 baseline + 1 :OnlyR per group.
         # 5 groups → 1 + 5 = 6 variants.
@@ -4679,6 +4709,50 @@ end
         @test length(result) == 6
         for r in result
             @test r.n_fit_params_estimate == spec.n_fit_params_estimate + 1
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+    end
+
+    @testset "Mechanism — Bi-bi sequential: 5 groups → 6 variants" begin
+        # Mirrors the MechanismSpec sibling above on the Mechanism path.
+        # _expand_to_allosteric emits 1 baseline + 1 :OnlyR per group.
+        # 5 kinetic groups → 6 variants.
+        em_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E_A
+                E_A + B ⇌ E_A_B
+                E + Q ⇌ E_Q
+                E_Q + P ⇌ E_P_Q
+                E_A_B <--> E_P_Q
+            end
+        end
+        m = EnzymeRates.Mechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(m)
+        bi_bi_allo_rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            oligomeric_state: 2
+        end
+
+        result = EnzymeRates._expand_to_allosteric(m, bi_bi_allo_rxn)
+
+        # 1. count: 5 kinetic groups → 1 + 5 = 6 variants.
+        @test length(result) == 6
+
+        # 2. Δ params: +1 per variant (just L). All emitted variants are
+        # all-:EqualRT or single-:OnlyR — no :NonequalRT tags — so the
+        # AllostericMechanism estimator collapses to base + 1.
+        for r in result
+            @test EnzymeRates._n_fit_params_estimate(r) ==
+                EnzymeRates._n_fit_params_estimate(m) + 1
+        end
+
+        # 3. compilability — must produce AllostericEnzymeMechanism.
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
     end
@@ -4720,6 +4794,53 @@ end
 
         # 3. compilability
         for r in result
+            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        end
+    end
+
+    @testset "Mechanism — Bi-bi ping-pong: n_groups + 1 variants" begin
+        # Mirrors the MechanismSpec sibling above on the Mechanism path.
+        # SEED: bi-bi ping-pong topology. Move emits 1 baseline + 1
+        # :OnlyR variant per kinetic group.
+        em_seed = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E_A
+                Estar + B ⇌ Estar_B
+                E + Q ⇌ E_Q
+                Estar + P ⇌ Estar_A_P
+                E_A <--> Estar_A_P
+                Estar_B ⇌ E_Q
+            end
+        end
+        m = EnzymeRates.Mechanism(em_seed)
+        EnzymeRates._assert_mechanism_invariants(m)
+        bi_bi_pp_allo_rxn = @enzyme_reaction begin
+            substrates: A[CX], B[N]
+            products: P[C], Q[NX]
+            oligomeric_state: 2
+        end
+
+        result = EnzymeRates._expand_to_allosteric(m, bi_bi_pp_allo_rxn)
+
+        # 1. count: n_groups + 1 variants. Verify the actual group count
+        # from the seed before accepting this number.
+        n_groups = length(m.steps)
+        @test length(result) == n_groups + 1
+
+        # 2. Δ params: +1 (just L) per variant. All emitted variants are
+        # all-:EqualRT or single-:OnlyR — no :NonequalRT tags — so the
+        # AllostericMechanism estimator collapses to base + 1.
+        for r in result
+            @test EnzymeRates._n_fit_params_estimate(r) ==
+                EnzymeRates._n_fit_params_estimate(m) + 1
+        end
+
+        # 3. compilability
+        for r in result
+            @test r isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
     end
