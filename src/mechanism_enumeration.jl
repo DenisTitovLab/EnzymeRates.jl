@@ -2618,6 +2618,19 @@ function _factor_sort_key(f::AbstractString)
 end
 
 """
+Regex-based implementation of `_canonical_rate_eq_hash_data`. Kept as
+an immutable witness so the canonical-hash equivalence test
+(`test/test_canonical_hash_equivalence.jl`) can compare any future
+implementation against this baseline via the `_canonical_rate_eq_hash_old`
+alias below.
+"""
+function _canonical_rate_eq_hash_data_impl_regex(m::AbstractEnzymeMechanism)
+    canonical, name_map = _canonicalize_rate_eq_with_map(m)
+    h = hash(canonical)
+    (h, string(h, base=16, pad=16), name_map)
+end
+
+"""
 Return `(UInt64 hash, 16-char hex display string, name_map)`.
 The single entry point for canonical hashing; `_canonical_rate_eq_hash`
 delegates here so the canonicalizer runs once and callers that need the
@@ -2627,9 +2640,7 @@ Hash collision probability over 10⁴ mechanisms is ~10⁻¹² with
 Julia's built-in `hash(::String)::UInt64`.
 """
 function _canonical_rate_eq_hash_data(m::AbstractEnzymeMechanism)
-    canonical, name_map = _canonicalize_rate_eq_with_map(m)
-    h = hash(canonical)
-    (h, string(h, base=16, pad=16), name_map)
+    _canonical_rate_eq_hash_data_impl_regex(m)
 end
 
 """
@@ -2638,6 +2649,20 @@ Hash a mechanism's canonicalized rate equation. Returns the
 """
 function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
     first(_canonical_rate_eq_hash_data(m))
+end
+
+"""
+Stable alias pointing at the regex-based implementation
+(`_canonical_rate_eq_hash_data_impl_regex`). Used by the canonical-hash
+equivalence regression test to compare against `_canonical_rate_eq_hash_data`,
+which may be rewired to an alternative implementation in later work.
+"""
+function _canonical_rate_eq_hash_data_old(m::AbstractEnzymeMechanism)
+    _canonical_rate_eq_hash_data_impl_regex(m)
+end
+
+function _canonical_rate_eq_hash_old(m::AbstractEnzymeMechanism)
+    first(_canonical_rate_eq_hash_data_old(m))
 end
 
 # Adapters that accept the concrete EnzymeReaction by converting to
