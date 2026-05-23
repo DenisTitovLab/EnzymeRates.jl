@@ -78,7 +78,7 @@ Check 2 (@testset count decrease) both consult this file. Each
 
 ---
 
-## Stage 6.2 — commit TBD-after-commit
+## Stage 6.2 — commit 7af94e2
 
 ### test_mechanism_enumeration.jl `@testset "Rate-equation canonical hash dedup" > "_factor_sort_key sort order"`
 - Helper deleted: `_factor_sort_key` (a regex-pipeline sort-key helper
