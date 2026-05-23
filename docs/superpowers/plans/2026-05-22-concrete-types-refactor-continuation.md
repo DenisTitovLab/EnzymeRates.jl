@@ -76,9 +76,9 @@ These apply to every commit in this plan:
 
 # Stage 6β — Migrate spec testsets to Mechanism (opaque-form)
 
-**Stage goal:** retire `MechanismSpec`/`StepSpec`/`AllostericMechanismSpec` from `test/test_mechanism_enumeration.jl` and from `src/mechanism_enumeration.jl` without losing assertion coverage. Use opaque-form Species (`Species([], :ES)`) so the existing `_expand_*` moves work unchanged.
+**Stage goal:** retire the **test-side** construction of `MechanismSpec`/`StepSpec`/`AllostericMechanismSpec` from `test/test_mechanism_enumeration.jl` and the test-facing spec helpers / overloads from `src/mechanism_enumeration.jl`, without losing assertion coverage. The spec struct definitions themselves AND the heavy enumeration pipeline that still constructs them internally stay alive until Stage 7d.0 (sequencing fix). Use opaque-form Species (`Species([], :ES)`) so the existing `_expand_*` moves work unchanged.
 
-**Stage LOC delta target:** −500 to −800 in `src/mechanism_enumeration.jl`.
+**Stage LOC delta target:** −300 to −500 in `src/mechanism_enumeration.jl` (test-surface deletions only).
 
 **Migration pattern (refer back from each task):**
 
@@ -953,7 +953,7 @@ Expected: all green; cumulative LOC delta ≈ +1,500 (start of stage was ≈ +1,
 
 **Stage goal:** every parameter-name rendering in `src/` flows through `name(p::Parameter, m::Mechanism)`. After this stage the chokepoint is the sole `Parameter → Symbol` mapping; a regression test enforces this for future commits.
 
-**Stage LOC delta target:** ≈ 0 net.
+**Stage LOC delta target:** ≈ +10 to +30 net (new `name(::Type{P}, idx::Int)` companion methods + `_param_symbol` formatter; substitution at call sites). Value is architectural.
 
 ## Task 7a.1: Add `name(::Type{P}, idx::Int)` chokepoint companion, then route all 10 `src/rate_eq_derivation.jl` sites through it
 
@@ -1142,143 +1142,6 @@ EOF
 )"
 ```
 
-- [ ] **Step 1: Read each call site to understand context**
-
-```bash
-sed -n '125,155p' src/rate_eq_derivation.jl
-sed -n '620,635p' src/rate_eq_derivation.jl
-sed -n '1625,1640p' src/rate_eq_derivation.jl
-```
-
-- [ ] **Step 2: Find the K Parameter constructor and chokepoint signature**
-
-```bash
-grep -n "^struct K\|name(::K\|name(p::K" src/types.jl
-```
-
-- [ ] **Step 3: Write a regression test that fails before the change**
-
-In a new file `test/test_chokepoint.jl`:
-
-```julia
-using Test
-using EnzymeRates
-
-@testset "chokepoint: no direct Symbol(\"K\$idx\") construction outside name()" begin
-    src_dir = joinpath(dirname(@__DIR__), "src")
-    for f in readdir(src_dir; join=true)
-        endswith(f, ".jl") || continue
-        content = read(f, String)
-        # Allow Symbol("...") calls inside the body of name() methods.
-        # Strategy: a Symbol("K…") line outside a function whose signature
-        # contains `::Parameter` or `name(p::` is a violation.
-        # Quick first pass: just count the regex matches per file.
-        matches = collect(eachmatch(r"Symbol\(\"K\d|Symbol\(\"k\d|Symbol\(\"V|Symbol\(\"L\"", content))
-        # After 7a, the only acceptable matches should be inside name() bodies.
-        # Use a stricter line-by-line check that skips name-method bodies.
-        offending = String[]
-        in_name_method = false
-        depth = 0
-        for line in eachline(IOBuffer(content))
-            if occursin(r"^function name\(.*Parameter", line) || occursin(r"^name\(.*Parameter.*\) =", line)
-                in_name_method = true
-                depth = 1
-            elseif in_name_method
-                depth += count(==('('), line) - count(==(')'), line) +
-                        count(==('{'), line) - count(==('}'), line)
-                if occursin(r"^end\s*$", line) || depth <= 0
-                    in_name_method = false
-                end
-            end
-            if !in_name_method && occursin(r"Symbol\(\"K\d|Symbol\(\"k\d[fr]|Symbol\(\"K_|Symbol\(\"V|Symbol\(\"L\"", line)
-                push!(offending, "$(basename(f)): $line")
-            end
-        end
-        @test isempty(offending) || (println("offending:\n", join(offending, "\n")); false)
-    end
-end
-```
-
-(This is a heuristic test — refine if false positives appear. The key invariant: no top-level direct Symbol("K…") construction outside `name(p, m)` bodies.)
-
-Add to `test/runtests.jl`:
-
-```julia
-include("test_chokepoint.jl")
-```
-
-- [ ] **Step 4: Run the test to confirm it fails before the fix**
-
-```bash
-julia --project=test -e 'include("test/test_chokepoint.jl")' 2>&1 | tail -20
-```
-
-Expected: FAIL with offending lines from `rate_eq_derivation.jl` and `types.jl`.
-
-- [ ] **Step 5: Fix line 132 — rename map entry**
-
-Read the surrounding context (lines 125–155). The variables `idx` and `rep` are integers identifying kinetic groups. The Mechanism `m` is in scope. The fix:
-
-```julia
-# Before:
-rename[Symbol("K$idx")] = Symbol("K$rep")
-
-# After:
-rename[name(K(idx), m)] = name(K(rep), m)
-```
-
-(Verify `K(group_idx::Int)` is the correct constructor — read the K struct definition in `src/types.jl`. If the field is named differently, adjust.)
-
-- [ ] **Step 6: Fix line 148 — symbol lookup**
-
-```julia
-# Before:
-sym = Symbol("K$idx")
-
-# After:
-sym = name(K(idx), m)
-```
-
-- [ ] **Step 7: Fix lines 627, 1632 — rename map entries**
-
-Same pattern as line 132.
-
-- [ ] **Step 8: Re-run the regression test to confirm it passes**
-
-```bash
-julia --project=test -e 'include("test/test_chokepoint.jl")' 2>&1 | tail -10
-```
-
-Expected: PASS (offending lines now empty for `rate_eq_derivation.jl`; `types.jl` still has its 2 lines, fixed in 7a.2).
-
-- [ ] **Step 9: Run the full suite + integrity check**
-
-```bash
-bash scripts/check_test_integrity.sh main
-julia --project=test -e 'include("test/runtests.jl")' 2>&1 | tail -10
-```
-
-Expected: full suite passes; the 4 changed lines should produce identical Symbols to before (verify by running the rate-equation tests — they compare exact Symbols).
-
-- [ ] **Step 10: Commit**
-
-```bash
-git add src/rate_eq_derivation.jl test/test_chokepoint.jl test/runtests.jl
-git commit -m "$(cat <<'EOF'
-Stage 7a.1: route Symbol(\"K\$idx\") sites in rate_eq_derivation.jl through name(K, m)
-
-Four call sites (lines 132, 148, 627, 1632) that built positional K
-param names directly now call name(K(group_idx), m). Identical output;
-removes string concatenation in favor of struct-driven rendering.
-
-Adds test/test_chokepoint.jl regression test: no direct
-Symbol(\"K...\") / Symbol(\"k...\") / Symbol(\"V...\") / Symbol(\"L\")
-construction outside of name(p, m) bodies.
-
-src delta: -X / +Y net Z, cumulative: ±W
-EOF
-)"
-```
 
 ## Task 7a.2: Route regulator-K sites in `src/types.jl` through the chokepoint
 
@@ -1888,7 +1751,7 @@ function init_mechanisms(@nospecialize(reaction::EnzymeReactionLegacy); kwargs..
 function init_mechanisms(reaction::EnzymeReaction; kwargs...)
 ```
 
-Drop `@nospecialize` — the concrete struct doesn't need it (no per-arity type explosion).
+Decide on `@nospecialize` per method: the non-parametric `EnzymeReaction` doesn't trigger per-arity specialization, so `@nospecialize` is no longer load-bearing for that reason. Keep `@nospecialize` if the method is only ever called from a generic dispatch path where you want to discourage Julia from specializing on argument values; drop it if the method genuinely benefits from inlining. Default: keep `@nospecialize` (matches the existing convention and is harmless on the new type).
 
 **Body rewrites — the bulk of 7c's work.** The accessors return different shapes for the two reaction types:
 
@@ -2030,7 +1893,7 @@ git tag stage-7c-complete
 
 **Stage goal:** delete `EnzymeReactionLegacy`, its accessors, `_to_legacy_reaction`, the dual-Sig branches in `src/types.jl` accessors, and any remaining adapter code.
 
-**Stage LOC delta target:** −450 to −550.
+**Stage LOC delta target:** −650 to −750 (includes Task 7d.0's heavy-pipeline rewrite + spec-types deletion + the EnzymeReactionLegacy struct/accessors/dual-Sig collapse).
 
 ## Task 7d.0: Rewrite heavy enumeration pipeline to build `Mechanism` directly + delete spec types
 
@@ -2097,11 +1960,15 @@ struct _RawStep
 end
 
 struct _RawSpec
-    reaction::EnzymeReactionLegacy
+    reaction::EnzymeReactionLegacy  # see note below
     steps::Vector{_RawStep}
     n_fit_params_estimate::Int
 end
 ```
+
+**Note on `_RawSpec.reaction` type:** Task 7d.0 runs *after* Stage 7c, which already swapped most dispatch from `EnzymeReactionLegacy` to `EnzymeReaction`. However, the heavy `init_mechanisms(::EnzymeReactionLegacy)` itself still keys on the singleton form because the topology generator inspects the reaction's type parameters. The `_RawSpec.reaction` field therefore carries the same `EnzymeReactionLegacy` it always has. Task 7d.1 deletes `EnzymeReactionLegacy` after this scratch struct is gone (or after the field is migrated to `EnzymeReaction`). Document this dependency clearly in the commit message — without it, a reader expects 7c to have already retired all Legacy references and sees a contradiction.
+
+A cleaner alternative: rewrite the topology generator in 7d.0 to take an `EnzymeReaction` directly (removing the last Legacy dependency in the heavy path); then `_RawSpec.reaction::EnzymeReaction` and 7d.1 becomes a pure deletion. This is more work but eliminates the awkward intermediate state.
 
 Replace every `MechanismSpec(...)` / `StepSpec(...)` construction inside the heavy pipeline with `_RawSpec(...)` / `_RawStep(...)`. The algorithm logic is otherwise unchanged.
 

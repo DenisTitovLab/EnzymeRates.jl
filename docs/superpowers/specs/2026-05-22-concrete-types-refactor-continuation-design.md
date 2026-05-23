@@ -233,12 +233,23 @@ the value-context variant):
 - Line 1841 — `Symbol("K_$(lig_name)_reg$site_idx")` (Kreg R-state)
 
 **Approach:**
-1. Implement the type/index-context variant in `src/types.jl`. For
-   each Parameter type (`Kd`, `Kiso`, `Kfor`, `Krev`, `Kon`, `Koff`,
-   `Kreg`), define `name(::Type{P}, idx::Int)` returning the same
-   positional Symbol the value-context form computes for a step at
-   that rep-index. Both forms call a single private formatter to
-   guarantee identical output.
+1. Implement the type/index-context variant in `src/types.jl`. The
+   variant applies only to step-indexed Parameter types that
+   the @generated callers actually use: `Kd`, `Kiso`, `Kfor`,
+   `Krev`, `Kon`, `Koff` — each gets a `name(::Type{P}, idx::Int)`
+   (and a `name(::Type{P}, idx::Int, state::Symbol)` for T-state)
+   returning the same positional Symbol the value-context form
+   computes for a step at that rep-index. **`Kreg` does NOT get a
+   type/index companion** — Kreg names need a ligand symbol and a
+   site, not just an integer index, so it remains value-context only
+   (taking a `Kreg` value with `site::RegulatorySite,
+   ligand::AllostericRegulator, state::Symbol` fields).
+
+   Both call paths route through a private `_param_symbol(...)`
+   formatter family — one method per Parameter shape (3-arg for the
+   step-indexed types, 4-arg for Kreg). "Shared formatter" means the
+   Symbol-building logic lives in one place per Parameter type, not
+   that all parameters share a single `_param_symbol` arity.
 2. At each `rate_eq_derivation.jl` site, replace `Symbol("K$idx")`
    with `name(Kd, idx)` (and similarly `Symbol("k$(idx)f")` →
    `name(Kfor, idx)`, `Symbol("k$(idx)r")` → `name(Krev, idx)`).
