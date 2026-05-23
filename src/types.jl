@@ -1832,6 +1832,12 @@ _param_symbol(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
     state === :T ? Symbol(_param_symbol(P, idx), "_T") :
                    _param_symbol(P, idx)
 
+# Regulator-site Parameter — keyed by site index + ligand name (not the
+# step-bound rep-idx), so it has its own formatter signature.
+_param_symbol(::Type{Kreg}, site_idx::Int, lig_name::Symbol, state::Symbol) =
+    state === :T ? Symbol("K_", lig_name, "_T_reg", site_idx) :
+                   Symbol("K_", lig_name, "_reg",   site_idx)
+
 # Type/index-context chokepoint companion. Used by @generated callers in
 # `rate_eq_derivation.jl` where only an integer rep-idx is in scope (no
 # Step value to construct a Parameter from). Supports only step-bound
@@ -1851,9 +1857,7 @@ end
 # Regulator-site parameter — AllostericMechanism only.
 function name(p::Kreg, m::AllostericMechanism)
     site_idx = _site_idx_of(p.site, m)
-    lig_name = name(p.ligand)
-    p.state === :T ? Symbol("K_$(lig_name)_T_reg$site_idx") :
-                     Symbol("K_$(lig_name)_reg$site_idx")
+    _param_symbol(Kreg, site_idx, name(p.ligand), p.state)
 end
 
 # AllostericEnzymeMechanism dispatches via the AllostericMechanism lift
