@@ -271,13 +271,36 @@ function _step_side_term_to_symbol(expr, declared_mets::Set{Symbol})
     error("Expected metabolite Symbol or species expression on step side; got $expr")
 end
 
-# Build a Symbol matching `name(::Species)` from a `Conformation(...)` AST.
-# Accepts:
-#   - `E()` → conformation :E, no bound, no residual                → :E
-#   - `E(S)` / `E(S, P)` → bound metabolites (sorted by name)        → :E_S / :E_P_S
-#   - `Estar(; residual = A - P)` → residual only                    → :Estar_res_+A_-P
-#   - `Estar(B; residual = A - P)` → bound + residual                → :Estar_B_res_+A_-P
-function _synthesize_species_name(expr::Expr, declared_mets::Set{Symbol})
+# Parse one step side into a Vector{_StepSideTerm}. Mirrors
+# `_parse_step_side_symbols` but preserves structural info (Call-form
+# decomposition, declared-metabolite role) for the new-emission path.
+function _parse_step_side_terms(expr, declared_mets::Set{Symbol})
+    if expr isa Expr && expr.head == :call && expr.args[1] == :+
+        return _StepSideTerm[
+            _step_side_term_info(a, declared_mets) for a in expr.args[2:end]
+        ]
+    end
+    _StepSideTerm[_step_side_term_info(expr, declared_mets)]
+end
+
+# Build a `_StepSideTerm` for a single term on a step side.
+function _step_side_term_info(expr, declared_mets::Set{Symbol})
+    if expr isa Symbol
+        return expr in declared_mets ?
+               _term_metabolite(expr) :
+               _term_bare_enzyme(expr)
+    elseif expr isa Expr && expr.head == :call &&
+           expr.args[1] isa Symbol
+        return _call_form_term_info(expr, declared_mets)
+    end
+    error("Expected metabolite Symbol or species expression on step side; got $expr")
+end
+
+# Build a `_StepSideTerm` for a Call-form species `E(S, ATP)` /
+# `Estar(B; residual = A - P)`. The legacy synthesized Symbol is built
+# alongside the structural fields so a single call to this function
+# covers both emission paths.
+function _call_form_term_info(expr::Expr, declared_mets::Set{Symbol})
     conformation = expr.args[1]::Symbol
     conformation in declared_mets &&
         error("@enzyme_mechanism: conformation label `$conformation` collides " *
@@ -307,14 +330,89 @@ function _synthesize_species_name(expr::Expr, declared_mets::Set{Symbol})
             error("@enzyme_mechanism: invalid entry in species `$expr`: $arg")
         end
     end
+    sort!(bound_syms)
+    sort!(added_syms)
+    sort!(subtracted_syms)
     parts = String[String(conformation)]
-    for s in sort(bound_syms); push!(parts, String(s)); end
+    for s in bound_syms; push!(parts, String(s)); end
     if !(isempty(added_syms) && isempty(subtracted_syms))
         push!(parts, "res")
-        for s in sort(added_syms);      push!(parts, "+" * String(s)); end
-        for s in sort(subtracted_syms); push!(parts, "-" * String(s)); end
+        for s in added_syms;      push!(parts, "+" * String(s)); end
+        for s in subtracted_syms; push!(parts, "-" * String(s)); end
     end
-    Symbol(join(parts, "_"))
+    sym = Symbol(join(parts, "_"))
+    _StepSideTerm(sym, :call, conformation, bound_syms,
+                  added_syms, subtracted_syms)
+end
+
+# Build a Symbol matching `name(::Species)` from a `Conformation(...)` AST.
+# Accepts:
+#   - `E()` → conformation :E, no bound, no residual                → :E
+#   - `E(S)` / `E(S, P)` → bound metabolites (sorted by name)        → :E_S / :E_P_S
+#   - `Estar(; residual = A - P)` → residual only                    → :Estar_res_+A_-P
+#   - `Estar(B; residual = A - P)` → bound + residual                → :Estar_B_res_+A_-P
+function _synthesize_species_name(expr::Expr, declared_mets::Set{Symbol})
+    _call_form_term_info(expr, declared_mets).sym
+end
+
+# Structural side-term record collected during step parsing. Carries
+# both the legacy Symbol form (the synthesized species name) and the
+# decomposed-Species info needed to emit `Mechanism(...)` directly.
+#
+# `kind`:
+#   :metabolite   — bare Symbol matching a declared metabolite (`S`).
+#   :bare_enzyme  — bare Symbol enzyme-form name. Reclassified to
+#                   :conformation or :opaque after all steps parsed,
+#                   based on whether it appears as a Call-head elsewhere
+#                   or matches the single-cap-then-lower conformation
+#                   shape (`E`, `Estar`, `Eprime`).
+#   :call         — call-form `E(S)` / `Estar(B; residual=A-P)`. Always
+#                   decomposed-compatible; carries bound + residual data.
+struct _StepSideTerm
+    sym::Symbol                          # legacy synthesized Symbol
+    kind::Symbol
+    conformation::Symbol                 # for :call/bare-enzyme cases
+    bound::Vector{Symbol}                # for :call (sorted by parser)
+    residual_added::Vector{Symbol}       # for :call (sorted)
+    residual_subtracted::Vector{Symbol}  # for :call (sorted)
+end
+
+_term_metabolite(sym::Symbol) = _StepSideTerm(
+    sym, :metabolite, sym, Symbol[], Symbol[], Symbol[])
+_term_bare_enzyme(sym::Symbol) = _StepSideTerm(
+    sym, :bare_enzyme, sym, Symbol[], Symbol[], Symbol[])
+
+# A bare Symbol is "conformation-shaped" iff it matches a single capital
+# letter followed by any number of lowercase letters: :E, :Estar, :Eprime.
+# Multi-capital or underscore-bearing Symbols (:ES, :EAB, :E_S) are
+# opaque legacy enzyme-form names.
+_is_conformation_shape(sym::Symbol) =
+    occursin(r"^[A-Z][a-z]*$", String(sym))
+
+# True iff every bare-enzyme term in the parsed steps is decomposed-
+# compatible. A bare-enzyme term `:X` is compatible iff `:X` is either
+# (a) seen as a Call-form head in this steps block, or (b) matches the
+# single-cap-then-lower conformation shape.
+function _all_bare_terms_compatible(side_terms_per_step,
+                                    call_heads::Set{Symbol})
+    for (_, lhs, rhs) in side_terms_per_step
+        for t in (lhs..., rhs...)
+            t.kind === :bare_enzyme || continue
+            (t.sym in call_heads || _is_conformation_shape(t.sym)) ||
+                return false
+        end
+    end
+    true
+end
+
+# True iff at least one Call-form term was used.
+function _any_call_form(side_terms_per_step)
+    for (_, lhs, rhs) in side_terms_per_step
+        for t in (lhs..., rhs...)
+            t.kind === :call && return true
+        end
+    end
+    false
 end
 
 # Walk a residual arithmetic expression (`A`, `A - P`, `S1 + S2 - P1 - P3`, etc.)
@@ -390,8 +488,7 @@ Conformation labels cannot shadow declared metabolite names.
 """
 macro enzyme_mechanism(block)
     _reject_allosteric_syntax!(block)
-    mets_expr, rxns_expr = _parse_plain_mechanism_body(block)
-    return esc(:(EnzymeMechanism($mets_expr, $rxns_expr)))
+    return esc(_parse_plain_mechanism_body(block))
 end
 
 function _reject_allosteric_syntax!(block)
@@ -476,13 +573,197 @@ function _parse_plain_mechanism_body(block)
 
     declared_mets = Set{Symbol}(subs_list) ∪ Set{Symbol}(prods_list) ∪
                     Set{Symbol}(regs_list)
-    rxns_expr = _parse_steps_block_with_groups(steps_block, declared_mets)
+    role_of = Dict{Symbol,Symbol}()
+    for s in subs_list;  role_of[s] = :Substrate;            end
+    for p in prods_list; role_of[p] = :Product;              end
+    for r in regs_list;  role_of[r] = :CompetitiveInhibitor; end
+
+    rxns_expr, side_terms_per_step =
+        _parse_steps_block_with_groups(steps_block, declared_mets)
+
+    if _should_emit_new_grammar(side_terms_per_step)
+        return _build_mechanism_expr(subs_list, prods_list, regs_list,
+                                     role_of, side_terms_per_step)
+    end
+
     mets_expr = Expr(:tuple,
         Expr(:tuple, QuoteNode.(subs_list)...),
         Expr(:tuple, QuoteNode.(prods_list)...),
         Expr(:tuple, QuoteNode.(regs_list)...),
     )
-    mets_expr, rxns_expr
+    :(EnzymeMechanism($mets_expr, $rxns_expr))
+end
+
+# Decide whether to emit the new `EnzymeMechanism(Mechanism(...))` shape.
+# Triggered by: at least one Call-form term AND every bare-enzyme term
+# is decomposed-compatible (matches a Call-form head seen elsewhere or
+# matches the single-cap-then-lower conformation shape).
+function _should_emit_new_grammar(side_terms_per_step)
+    _any_call_form(side_terms_per_step) || return false
+    call_heads = Set{Symbol}()
+    for (_, lhs, rhs) in side_terms_per_step
+        for t in (lhs..., rhs...)
+            t.kind === :call && push!(call_heads, t.conformation)
+        end
+    end
+    _all_bare_terms_compatible(side_terms_per_step, call_heads)
+end
+
+# Build the `EnzymeMechanism(Mechanism(reaction, grouped_steps))` Expr
+# from the structural per-step records collected during parsing.
+#
+# Atoms for each declared metabolite default to `[:C => 1]` — the same
+# placeholder convention `_mechanism_from_legacy_sig` uses when lifting
+# the legacy Sig shape. Real atom payloads live at the @enzyme_reaction
+# level, not @enzyme_mechanism.
+function _build_mechanism_expr(subs_list, prods_list, regs_list,
+                               role_of::Dict{Symbol,Symbol},
+                               side_terms_per_step)
+    reactants_entries = Expr[]
+    for s in subs_list
+        push!(reactants_entries,
+              :(EnzymeRates.ReactantAtoms(
+                    EnzymeRates.Substrate($(QuoteNode(s))),
+                    Pair{Symbol,Int}[:C => 1])))
+    end
+    for p in prods_list
+        push!(reactants_entries,
+              :(EnzymeRates.ReactantAtoms(
+                    EnzymeRates.Product($(QuoteNode(p))),
+                    Pair{Symbol,Int}[:C => 1])))
+    end
+    reactants_expr = :(EnzymeRates.ReactantAtoms[$(reactants_entries...)])
+
+    regulator_entries = Expr[]
+    for r in regs_list
+        push!(regulator_entries,
+              :(EnzymeRates.RegulatorMults(
+                    EnzymeRates.CompetitiveInhibitor($(QuoteNode(r))),
+                    Int[1])))
+    end
+    regulators_expr = :(EnzymeRates.RegulatorMults[$(regulator_entries...)])
+
+    reaction_expr = :(EnzymeRates.EnzymeReaction(
+        $reactants_expr, $regulators_expr, Int[1]))
+
+    # Group structural step records by gnum (preserving source order).
+    group_order = Int[]
+    by_group = Dict{Int, Vector{Tuple{Vector{_StepSideTerm},
+                                      Vector{_StepSideTerm}, Bool}}}()
+    for (g, lhs, rhs, is_eq) in side_terms_per_step
+        if !haskey(by_group, g)
+            by_group[g] = Tuple{Vector{_StepSideTerm},
+                                Vector{_StepSideTerm}, Bool}[]
+            push!(group_order, g)
+        end
+        push!(by_group[g], (lhs, rhs, is_eq))
+    end
+
+    group_exprs = Expr[]
+    for g in group_order
+        step_exprs = Expr[]
+        for (lhs, rhs, is_eq) in by_group[g]
+            push!(step_exprs,
+                  _build_step_expr(lhs, rhs, is_eq, role_of))
+        end
+        push!(group_exprs, :(EnzymeRates.Step[$(step_exprs...)]))
+    end
+    groups_expr = :(Vector{EnzymeRates.Step}[$(group_exprs...)])
+
+    :(EnzymeRates.EnzymeMechanism(
+        EnzymeRates.Mechanism($reaction_expr, $groups_expr)))
+end
+
+# Build a `Step(from_species, to_species, bound_metabolite, is_eq)` Expr
+# from one step's LHS/RHS structural terms. Each side has exactly one
+# enzyme-form term (bare conformation OR call-form) and zero or one
+# metabolite terms.
+function _build_step_expr(lhs::Vector{_StepSideTerm},
+                          rhs::Vector{_StepSideTerm},
+                          is_eq::Bool,
+                          role_of::Dict{Symbol,Symbol})
+    lhs_enzyme, lhs_met = _split_side(lhs)
+    rhs_enzyme, rhs_met = _split_side(rhs)
+    bound_met_term = lhs_met !== nothing ? lhs_met :
+                     rhs_met !== nothing ? rhs_met : nothing
+    from_expr = _species_expr_from_term(lhs_enzyme, role_of)
+    to_expr   = _species_expr_from_term(rhs_enzyme, role_of)
+    met_expr  = bound_met_term === nothing ? :nothing :
+                _metabolite_expr(bound_met_term.sym, role_of)
+    :(EnzymeRates.Step($from_expr, $to_expr, $met_expr, $is_eq))
+end
+
+# Split a step side into its (enzyme_term, optional_metabolite_term).
+# Errors if there is not exactly one enzyme term or more than one
+# metabolite term.
+function _split_side(side::Vector{_StepSideTerm})
+    enzyme_term = nothing
+    met_term = nothing
+    for t in side
+        if t.kind === :metabolite
+            met_term === nothing ||
+                error("@enzyme_mechanism: step side has more than one " *
+                      "metabolite term ($(met_term.sym), $(t.sym)); each " *
+                      "elementary step binds at most one metabolite.")
+            met_term = t
+        else
+            enzyme_term === nothing ||
+                error("@enzyme_mechanism: step side has more than one " *
+                      "enzyme-form term ($(enzyme_term.sym), $(t.sym)); " *
+                      "each elementary step has exactly one enzyme form " *
+                      "per side.")
+            enzyme_term = t
+        end
+    end
+    enzyme_term === nothing &&
+        error("@enzyme_mechanism: step side has no enzyme-form term " *
+              "(terms: $(Symbol[t.sym for t in side])).")
+    enzyme_term, met_term
+end
+
+# Build a `Species(bound, conformation, residual)` Expr from an enzyme-
+# form `_StepSideTerm` (either bare conformation or Call-form).
+function _species_expr_from_term(t::_StepSideTerm,
+                                 role_of::Dict{Symbol,Symbol})
+    bound_entries = Expr[
+        _metabolite_expr(b, role_of) for b in t.bound
+    ]
+    bound_expr = :(EnzymeRates.Metabolite[$(bound_entries...)])
+    added_entries = Expr[
+        _metabolite_expr(a, role_of) for a in t.residual_added
+    ]
+    sub_entries = Expr[
+        _metabolite_expr(s, role_of) for s in t.residual_subtracted
+    ]
+    residual_expr = if isempty(added_entries) && isempty(sub_entries)
+        :(EnzymeRates.Residual())
+    else
+        :(EnzymeRates.Residual(
+            EnzymeRates.Substrate[$(added_entries...)],
+            EnzymeRates.Product[$(sub_entries...)]))
+    end
+    :(EnzymeRates.Species($bound_expr, $(QuoteNode(t.conformation)),
+                          $residual_expr))
+end
+
+# Build an Expr that constructs the appropriate `Metabolite` subtype for
+# a declared name. The role is looked up from `role_of`.
+function _metabolite_expr(name::Symbol, role_of::Dict{Symbol,Symbol})
+    role = get(role_of, name, nothing)
+    role === nothing &&
+        error("@enzyme_mechanism: metabolite `$name` is not declared in " *
+              "substrates:, products:, or regulators:.")
+    if role === :Substrate
+        :(EnzymeRates.Substrate($(QuoteNode(name))))
+    elseif role === :Product
+        :(EnzymeRates.Product($(QuoteNode(name))))
+    elseif role === :CompetitiveInhibitor
+        :(EnzymeRates.CompetitiveInhibitor($(QuoteNode(name))))
+    elseif role === :AllostericRegulator
+        :(EnzymeRates.AllostericRegulator($(QuoteNode(name))))
+    else
+        error("@enzyme_mechanism: unknown metabolite role $role for $name")
+    end
 end
 
 """
@@ -515,15 +796,20 @@ Parse the steps block. Each top-level expression is either:
   - `Expr(:call, ⇌|<-->, lhs, Expr(:(::), rhs, Tag))` — single tagged step (allosteric).
   - `Expr(:call, ⇌|<-->, lhs, rhs)` — single untagged step (plain).
 
-With `allow_tag=false` (plain mechanism), reject any `::Tag` annotations and return
-just the rxns tuple-Expr. With `allow_tag=true` (allosteric mechanism), collect
-tags and return both.
+Returns the rxns tuple-Expr (legacy emission shape) AND a Vector of
+structural per-step records `(gnum, lhs_terms, rhs_terms, is_eq)` used
+by the new-emission decision logic in `_parse_plain_mechanism_body` /
+`_parse_allosteric_mechanism_body`. With `allow_tag=false` (plain
+mechanism), reject any `::Tag` annotations. With `allow_tag=true`
+(allosteric mechanism), also return collected `gnum => tag` pairs.
 """
 function _parse_steps_block_with_groups(steps_block, declared_mets::Set{Symbol};
                                         allow_tag::Bool=false)
     next_group = Ref(0)
     rxns = Expr(:tuple)
     tags = Pair{Int, Symbol}[]
+    side_terms_per_step = Tuple{Int, Vector{_StepSideTerm},
+                                Vector{_StepSideTerm}, Bool}[]
 
     for arg in steps_block.args
         arg isa LineNumberNode && continue
@@ -539,7 +825,10 @@ function _parse_steps_block_with_groups(steps_block, declared_mets::Set{Symbol};
             tag isa Symbol || error("Step-group tag must be a Symbol; got $tag")
             push!(tags, gnum => tag)
             for step_expr in arg.args[1].args
-                push!(rxns.args, _parse_single_step(step_expr, gnum, declared_mets))
+                push!(rxns.args,
+                      _parse_single_step(step_expr, gnum, declared_mets))
+                push!(side_terms_per_step,
+                      _step_struct_info(step_expr, gnum, declared_mets))
             end
         # Parenthesized-group-without-tag (plain)
         elseif arg isa Expr && arg.head == :tuple
@@ -550,7 +839,10 @@ function _parse_steps_block_with_groups(steps_block, declared_mets::Set{Symbol};
             next_group[] += 1
             gnum = next_group[]
             for step_expr in arg.args
-                push!(rxns.args, _parse_single_step(step_expr, gnum, declared_mets))
+                push!(rxns.args,
+                      _parse_single_step(step_expr, gnum, declared_mets))
+                push!(side_terms_per_step,
+                      _step_struct_info(step_expr, gnum, declared_mets))
             end
         # Single step (with or without tag)
         elseif arg isa Expr && arg.head == :call
@@ -569,16 +861,36 @@ function _parse_steps_block_with_groups(steps_block, declared_mets::Set{Symbol};
                       "`:: <state>` after the step expression.")
             end
             push!(rxns.args, _parse_single_step(arg, gnum, declared_mets))
+            push!(side_terms_per_step,
+                  _step_struct_info(arg, gnum, declared_mets))
         else
             error("Expected step or step-group; got $arg")
         end
     end
 
     if allow_tag
-        return rxns, tags
+        return rxns, tags, side_terms_per_step
     else
-        return rxns
+        return rxns, side_terms_per_step
     end
+end
+
+"""
+Return the structural per-step record `(gnum, lhs_terms, rhs_terms, is_eq)`
+for a single (possibly already-de-tagged) step expression. Mirrors
+`_parse_single_step` but produces `_StepSideTerm`s instead of QuoteNoded
+Symbol tuple-Exprs.
+"""
+function _step_struct_info(expr, gnum::Int, declared_mets::Set{Symbol})
+    expr isa Expr && expr.head == :call ||
+        error("Expected lhs ⇌ rhs or lhs <--> rhs; got $expr")
+    op = expr.args[1]
+    is_eq = op == :⇌
+    is_eq || op == :(<-->) ||
+        error("Expected ⇌ or <--> step operator; got $op")
+    lhs = _parse_step_side_terms(expr.args[2], declared_mets)
+    rhs = _parse_step_side_terms(expr.args[3], declared_mets)
+    (gnum, lhs, rhs, is_eq)
 end
 
 """
@@ -863,7 +1175,7 @@ function _parse_allosteric_mechanism_body(block)
     declared_mets = Set{Symbol}(subs_list) ∪ Set{Symbol}(prods_list) ∪
                     Set{Symbol}(cat_inhibitors) ∪
                     Set{Symbol}(name for (name, _) in allo_regs)
-    rxns_expr, group_tags = _parse_steps_block_with_groups(
+    rxns_expr, group_tags, _ = _parse_steps_block_with_groups(
         cat_steps_block, declared_mets; allow_tag=true,
     )
 

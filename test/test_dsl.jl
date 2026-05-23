@@ -1,4 +1,66 @@
 @testset "DSL" begin
+    @testset "DSL: decomposed-Species notation parses to Mechanism" begin
+        # Decomposed call-form on every step → parser emits a structured
+        # Mechanism (not a synthesized opaque Symbol). The to_species of
+        # `E + S => E(S)` is a Species with conformation :E and bound
+        # metabolite [Substrate(:S)].
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+            end
+        end
+        mech = EnzymeRates.Mechanism(m)
+        @test length(mech.steps) == 3
+        es_step = first(mech.steps)[1]                  # E + S => E(S)
+        @test EnzymeRates.conformation(es_step.to_species) == :E
+        @test EnzymeRates.bound(es_step.to_species) ==
+              EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
+        # The E + S side has conformation :E with no bound metabolite.
+        @test EnzymeRates.conformation(es_step.from_species) == :E
+        @test isempty(EnzymeRates.bound(es_step.from_species))
+
+        # Second step: E(S) <--> E(P) — iso. The `Step` constructor
+        # canonicalizes iso direction by lex on species name, so
+        # `E_P` (lex-smaller) becomes `from_species` and `E_S` becomes
+        # `to_species`. Both sides are decomposed regardless.
+        iso_step = mech.steps[2][1]
+        @test EnzymeRates.bound(iso_step.from_species) ==
+              EnzymeRates.Metabolite[EnzymeRates.Product(:P)]
+        @test EnzymeRates.bound(iso_step.to_species) ==
+              EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
+
+        # Multi-bound: E(A, B) → bound [Substrate(:A), Substrate(:B)]
+        # (sorted by name). Mixed substrate/product/regulator roles
+        # resolved from the declared metabolite blocks.
+        m_multi = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P
+            regulators: I
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P)
+                E(P) <--> E + P
+                E + I <--> E(I)
+            end
+        end
+        mech_multi = EnzymeRates.Mechanism(m_multi)
+        eab = mech_multi.steps[2][1].to_species         # E(A, B)
+        @test EnzymeRates.conformation(eab) == :E
+        @test EnzymeRates.bound(eab) ==
+              EnzymeRates.Metabolite[EnzymeRates.Substrate(:A),
+                                     EnzymeRates.Substrate(:B)]
+        # Dead-end inhibitor lookup picks the correct Metabolite subtype.
+        ei = mech_multi.steps[5][1].to_species          # E(I)
+        @test EnzymeRates.bound(ei) ==
+              EnzymeRates.Metabolite[
+                  EnzymeRates.CompetitiveInhibitor(:I)]
+    end
+
     @testset "@enzyme_mechanism: + step-side syntax" begin
         # New form: + separator, no brackets.
         m = @enzyme_mechanism begin
