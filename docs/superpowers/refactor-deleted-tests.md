@@ -212,7 +212,7 @@ Per spec §2, no individual `@test` assertion has been weakened
     round-trip-induced semantic drift would surface as a hash
     mismatch.
 
-## Stage 7d.1 — commit TBD-after-commit
+## Stage 7d.1 — commit e179e69
 
 Eleven `@testset "EnzymeReactionLegacy …"` blocks in `test/test_types.jl`
 are deleted in this stage. The helper they exercised
