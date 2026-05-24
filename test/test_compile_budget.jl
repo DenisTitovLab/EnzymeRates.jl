@@ -73,15 +73,19 @@ end
 @testset "compile-budget" begin
     # Trace-compile: init_mechanisms on a bi-bi reaction (non-trivial so
     # the gate is representative; uni-uni is too small to catch regressions).
+    # Constructs EnzymeReaction via the direct constructor so the trace
+    # measures only the enumeration pipeline, independent of the DSL
+    # parser's macro-expansion cost.
     @testset "trace-compile: init_mechanisms (bi-bi)" begin
-        # Constructs EnzymeReactionLegacy directly so the init_mechanisms
-        # trace-compile gate measures only the enumeration pipeline,
-        # independent of DSL grammar changes.
         script = """
             using EnzymeRates
-            r = EnzymeRates.EnzymeReactionLegacy(
-                ((:A, ((:C, 1),)), (:B, ((:N, 1),))),
-                ((:P, ((:C, 1),)), (:Q, ((:N, 1),))),
+            r = EnzymeRates.EnzymeReaction(
+                [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:A), [:C => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:N => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q),   [:N => 1])],
+                EnzymeRates.RegulatorMults[],
+                Int[1],
             )
             EnzymeRates.init_mechanisms(r)
             """
@@ -143,38 +147,46 @@ end
     #                              -> init_mechanisms(r_ter)  [@elapsed measured]
     #
     # If uni-uni warmup shares most specializations with ter-ter, t_warm
-    # should be substantially less than t_cold. The parametric
-    # EnzymeReactionLegacy{S,P,R,N} forces per-arity specialization;
-    # the gate exists to catch a refactor commit that introduces NEW per-
-    # arity specialization beyond today's baseline.
+    # should be substantially less than t_cold.
     #
     # Single-subprocess @elapsed per scenario avoids the subtraction-noise
     # problem the trace-compile-count approach had (small delta of two
     # larger noisy numbers).
     @testset "warmup-reuse: ter-ter post-warmup wall-clock bounded vs cold" begin
-        # Constructs EnzymeReactionLegacy directly so the warmup-reuse
-        # gate measures only the enumeration pipeline, independent of
-        # DSL grammar changes.
+        # Constructs EnzymeReaction via the direct constructor so the
+        # warmup-reuse gate measures only the enumeration pipeline,
+        # independent of the DSL parser's macro-expansion cost.
+        ter_ctor = """
+            EnzymeRates.EnzymeReaction(
+                [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:A), [:C => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:N => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:C), [:O => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q),   [:N => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:R),   [:O => 1])],
+                EnzymeRates.RegulatorMults[],
+                Int[1],
+            )
+            """
+        uni_ctor = """
+            EnzymeRates.EnzymeReaction(
+                [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1])],
+                EnzymeRates.RegulatorMults[],
+                Int[1],
+            )
+            """
         cold_script = """
             using EnzymeRates
-            r_ter = EnzymeRates.EnzymeReactionLegacy(
-                ((:A, ((:C, 1),)), (:B, ((:N, 1),)), (:C, ((:O, 1),))),
-                ((:P, ((:C, 1),)), (:Q, ((:N, 1),)), (:R, ((:O, 1),))),
-            )
+            r_ter = $ter_ctor
             t = @elapsed EnzymeRates.init_mechanisms(r_ter)
             println("ELAPSED:", t)
             """
         warm_script = """
             using EnzymeRates
-            r_uni = EnzymeRates.EnzymeReactionLegacy(
-                ((:S, ((:C, 1),)),),
-                ((:P, ((:C, 1),)),),
-            )
+            r_uni = $uni_ctor
             EnzymeRates.init_mechanisms(r_uni)   # warmup; not timed
-            r_ter = EnzymeRates.EnzymeReactionLegacy(
-                ((:A, ((:C, 1),)), (:B, ((:N, 1),)), (:C, ((:O, 1),))),
-                ((:P, ((:C, 1),)), (:Q, ((:N, 1),)), (:R, ((:O, 1),))),
-            )
+            r_ter = $ter_ctor
             t = @elapsed EnzymeRates.init_mechanisms(r_ter)
             println("ELAPSED:", t)
             """

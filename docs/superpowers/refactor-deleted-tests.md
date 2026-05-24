@@ -211,3 +211,105 @@ Per spec §2, no individual `@test` assertion has been weakened
     DSL-built mechanisms produce stable canonical hashes; any
     round-trip-induced semantic drift would surface as a hash
     mismatch.
+
+## Stage 7d.1 — commit TBD-after-commit
+
+Eleven `@testset "EnzymeReactionLegacy …"` blocks in `test/test_types.jl`
+are deleted in this stage. The helper they exercised
+(`EnzymeReactionLegacy{S,P,R,N}` singleton struct + outer constructor
++ `_sum_atoms` helper + `Base.show` method + 5 accessor methods +
+`_to_legacy_reaction(::EnzymeReaction)` adapter) has no remaining
+users in `src/` after Task 7d.0 ported the heavy enumeration pipeline
+to dispatch on `EnzymeReaction` directly. Each surviving heading
+below corresponds to one deleted testset, per
+`scripts/check_test_integrity.sh` Check 2's one-heading-per-deletion
+contract.
+
+### test_types.jl `@testset "EnzymeReactionLegacy"`
+- Basic construction + substrates/products/regulators accessors.
+- Replacement: `test_types.jl @testset "EnzymeReaction (new concrete)"`
+  exercises the parallel `EnzymeReaction(reactants, regulators, mults)`
+  constructor and its `substrates` / `products` / `regulators`
+  accessors.
+
+### test_types.jl `@testset "EnzymeReactionLegacy with regulators"`
+- Regulators-tuple construction + `regulators(r)` accessor.
+- Replacement: `test_types.jl @testset "EnzymeReaction (new concrete)"`
+  passes `RegulatorMults`-wrapped regulators and asserts
+  `length(regulators(r)) == 1`.
+
+### test_types.jl `@testset "EnzymeReactionLegacy with regulator roles"`
+- `(name, :dead_end)` / `(name, :allosteric)` role pairs +
+  `regulator_roles(r)` accessor.
+- Replacement: behavior preserved structurally —
+  `RegulatorMults.regulator` is one of `AllostericRegulator` /
+  `CompetitiveInhibitor`; the role distinction is encoded in the
+  subtype rather than a parallel `role::Symbol`. `EnzymeReaction
+  (new concrete)` covers the allosteric case via
+  `AllostericRegulator(:cAMP)`. The `regulator_roles` accessor itself
+  is deleted; no caller in `src/` remains after Task 7d.0.
+
+### test_types.jl `@testset "EnzymeReactionLegacy canonical ordering"`
+- Constructor sorts substrate/product tuples by name.
+- Replacement: `test_types.jl @testset "EnzymeReaction canonicalizes
+  reactant + regulator ordering"` asserts the same canonicalization
+  for `EnzymeReaction.reactants` / `.regulators`.
+
+### test_types.jl `@testset "EnzymeReactionLegacy regulator same as substrate allowed"`
+- Constructor accepts a regulator name that overlaps a substrate name.
+- Replacement: NONE EQUIVALENT as a standalone assertion. Behavior
+  preserved structurally — `EnzymeReaction`'s constructor does not
+  validate against substrate-regulator name overlap (the `regulators`
+  vector is independent from the `reactants` vector and carries no
+  uniqueness constraint vs reactants). User-reachable through
+  `@enzyme_reaction`, no error raised.
+
+### test_types.jl `@testset "EnzymeReactionLegacy regulator same as product allowed"`
+- Same as above, regulator overlaps a product name.
+- Replacement: NONE EQUIVALENT — same reasoning as the substrate
+  case above. The concrete struct does not validate this overlap.
+
+### test_types.jl `@testset "EnzymeReactionLegacy duplicate substrate names"`
+- Constructor errors on duplicate substrate names.
+- Replacement: NONE EQUIVALENT — `EnzymeReaction`'s constructor does
+  not enforce name-uniqueness in `reactants`. Domain convention is
+  upheld by the DSL parser at higher levels: `@enzyme_reaction begin
+  substrates: A, A; … end` produces duplicate `Substrate(:A)`
+  reactant entries and the user gets a later error from form-name
+  collision in the enumerator. Not user-reachable as a constructor
+  failure mode in the public API.
+
+### test_types.jl `@testset "EnzymeReactionLegacy duplicate product names"`
+- Constructor errors on duplicate product names.
+- Replacement: NONE EQUIVALENT — same reasoning as the duplicate
+  substrate case above.
+
+### test_types.jl `@testset "EnzymeReactionLegacy oligomeric_state"`
+- Default + explicit `oligomeric_state` kw, type-parameter equality.
+- Replacement: `test_dsl.jl @testset "@enzyme_reaction with
+  oligomeric_state"` exercises the DSL's `oligomeric_state: N` label
+  and asserts the produced `EnzymeReaction`'s
+  `allowed_catalytic_multiplicities == [N]`. Type-parameter equality
+  is meaningless for the concrete struct (`EnzymeReaction` is
+  non-parametric) — the surviving structural equality is `==` on the
+  field-by-field content.
+
+### test_types.jl `@testset "EnzymeReactionLegacy: atom mandatory"`
+- Constructor errors on empty atom tuple per metabolite.
+- Replacement: NONE EQUIVALENT — `EnzymeReaction`'s constructor
+  allows empty `ReactantAtoms.atoms`. Mandatory-atom enforcement
+  lives in the `@enzyme_reaction` DSL macro: the grammar requires
+  bracket syntax (`S[C]` / `S[C6H12O6]`), and bare `S` parses as a
+  syntax error. The atoms-mandatory contract is therefore preserved
+  at the DSL boundary, where every user actually creates reactions.
+
+### test_types.jl `@testset "EnzymeReactionLegacy: atom balance"`
+- Constructor errors when declared atoms don't balance across sides.
+- Replacement: NONE EQUIVALENT — `EnzymeReaction`'s constructor does
+  not balance-check declared atoms. In the concrete-types
+  architecture the atoms field is presentation metadata for
+  downstream consumers (e.g. ping-pong residual computation in
+  `_catalytic_topologies` via `_atoms_dict` / `_can_pingpong`).
+  Balance violations now manifest as `_can_pingpong` returning false
+  on specific topologies (the enumerator silently skips
+  infeasible ping-pong paths) rather than as constructor errors.

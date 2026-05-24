@@ -164,20 +164,15 @@ end
 
 """Extract atom counts as Dict{Symbol,Int} for a metabolite."""
 function _atoms_dict(
-    @nospecialize(reaction::EnzymeReactionLegacy),
+    reaction::EnzymeReaction,
     met::Symbol,
 )
     result = Dict{Symbol,Int}()
-    for (name, atoms) in substrates(reaction)
-        name == met || continue
-        for (a, c) in atoms
-            result[a] = get(result, a, 0) + c
-        end
-        return result
-    end
-    for (name, atoms) in products(reaction)
-        name == met || continue
-        for (a, c) in atoms
+    for ra in reactants(reaction)
+        m = metabolite(ra)
+        (m isa Substrate || m isa Product) || continue
+        name(m) == met || continue
+        for (a, c) in atoms(ra)
             result[a] = get(result, a, 0) + c
         end
         return result
@@ -309,12 +304,10 @@ Each topology is a set of steps forming one or more complete
 catalytic cycles (E -> ... -> E).
 """
 function _catalytic_topologies(
-    @nospecialize(reaction::EnzymeReactionLegacy),
+    reaction::EnzymeReaction,
 )
-    subs = substrates(reaction)
-    prods = products(reaction)
-    sub_names = Symbol[s[1] for s in subs]
-    prod_names = Symbol[p[1] for p in prods]
+    sub_names = Symbol[name(s) for s in substrates(reaction)]
+    prod_names = Symbol[name(p) for p in products(reaction)]
 
     # Precompute atom dicts for each metabolite
     sub_atoms = Dict(
@@ -898,16 +891,16 @@ all substrates for all products.
 """
 function _bound_metabolites_at_forms(
     spec::_RawSpec,
-    @nospecialize(reaction::EnzymeReactionLegacy),
+    reaction::EnzymeReaction,
 )
     # Collect all metabolite names (including
     # suffixed regulator dummies)
     met_set = Set{Symbol}()
-    for (name, _) in substrates(reaction)
-        push!(met_set, name)
+    for s in substrates(reaction)
+        push!(met_set, name(s))
     end
-    for (name, _) in products(reaction)
-        push!(met_set, name)
+    for p in products(reaction)
+        push!(met_set, name(p))
     end
     for s in spec.steps
         met = step_metabolite(s)
@@ -1139,10 +1132,10 @@ doesn't normally bind, subject to:
 """
 function _expand_substrate_product_dead_ends(
     specs::Vector{_RawSpec},
-    @nospecialize(reaction::EnzymeReactionLegacy),
+    reaction::EnzymeReaction,
 )
-    sub_names = Set(s[1] for s in substrates(reaction))
-    prod_names = Set(p[1] for p in products(reaction))
+    sub_names = Set(name(s) for s in substrates(reaction))
+    prod_names = Set(name(p) for p in products(reaction))
     all_mets = union(sub_names, prod_names)
 
     # Competition patterns depend only on the reaction,
@@ -1316,16 +1309,15 @@ function EnzymeMechanism(
     spec::_RawSpec;
     exclude_regs::Set{Symbol}=Set{Symbol}(),
 )
-    rxn = spec.reaction isa EnzymeReaction ?
-          _to_legacy_reaction(spec.reaction) : spec.reaction
-    subs = Tuple(s[1] for s in substrates(rxn))
-    prods = Tuple(p[1] for p in products(rxn))
+    rxn = spec.reaction::EnzymeReaction
+    subs = Tuple(name(s) for s in substrates(rxn))
+    prods = Tuple(name(p) for p in products(rxn))
     # Allosteric regulators belong on regulatory sites, not in the
     # catalytic mechanism — auto-exclude them from the catalytic
     # `regulators` list so EnzymeMechanism can be built standalone.
     auto_exclude = Set{Symbol}(
-        name for (name, role) in regulator_roles(rxn)
-        if role === :allosteric)
+        name(regulator(rm)) for rm in regulators(rxn)
+        if regulator(rm) isa AllostericRegulator)
     union!(auto_exclude, exclude_regs)
     # Build the set of names actually appearing on any step (after
     # stripping the __reg suffix used by enumeration internals).
@@ -1335,8 +1327,9 @@ function EnzymeMechanism(
             push!(appears_in_steps, _strip_reg_suffix(sym))
         end
     end
-    regs = Tuple(r for r in regulators(rxn)
-                 if r ∉ auto_exclude && r ∈ appears_in_steps)
+    regs = Tuple(name(regulator(rm)) for rm in regulators(rxn)
+                 if name(regulator(rm)) ∉ auto_exclude &&
+                    name(regulator(rm)) ∈ appears_in_steps)
     met_set = Set{Symbol}()
     for g in (subs, prods, regs); for n in g; push!(met_set, n); end; end
 
@@ -1391,7 +1384,7 @@ end
 # ─── Mechanism Enumeration ───────────────────────────────────
 
 """
-    _init_raw_specs(reaction::EnzymeReactionLegacy) -> Vector{_RawSpec}
+    _init_raw_specs(reaction::EnzymeReaction) -> Vector{_RawSpec}
 
 Internal heavy-pipeline entry point. Produces all mechanisms at minimum
 parameter count for a reaction as `_RawSpec` scratch structs. For each
@@ -1409,7 +1402,7 @@ Conversion to the public `Mechanism` happens at the
 `init_mechanisms(::EnzymeReaction)` boundary via `_mechanism_from_raw`.
 """
 function _init_raw_specs(
-    @nospecialize(reaction::EnzymeReactionLegacy),
+    reaction::EnzymeReaction,
 )
     topos = _catalytic_topologies(reaction)
     expanded = _expand_substrate_product_dead_ends(
@@ -2332,21 +2325,6 @@ function expand_mechanisms(
     result
 end
 
-# Adapter so callers holding the legacy parametric reaction form
-# (e.g. `IdentifyRateEquationProblem`) can drive the Mechanism-side
-# pipeline. Pulls the concrete `EnzymeReaction` from any mechanism in
-# the input vector (every `Mechanism`/`AllostericMechanism` stores its
-# own concrete reaction). Empty input is a no-op so no concrete
-# reaction is needed for the empty result.
-function expand_mechanisms(
-    mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
-    @nospecialize(::EnzymeReactionLegacy))
-    isempty(mechs) &&
-        return Dict{Int,
-                    Vector{Union{Mechanism, AllostericMechanism}}}()
-    expand_mechanisms(mechs, first(mechs).reaction)
-end
-
 function _add_expansions_mech!(
     result::Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}},
     m::Union{Mechanism, AllostericMechanism},
@@ -2727,30 +2705,16 @@ end
 
 """
     init_mechanisms(reaction::EnzymeReaction) -> Vector{Mechanism}
-    init_mechanisms(reaction::EnzymeReactionLegacy) -> Vector{Mechanism}
 
 Public entry point. Produces all mechanisms at minimum parameter count
 for a reaction as concrete `Mechanism` structs. The heavy enumeration
 pipeline (`_catalytic_topologies`, `_expand_substrate_product_dead_ends`,
 `_apply_equivalence_grouping`) runs on internal `_RawSpec` scratch
 structs; conversion to `Mechanism` happens at this boundary via
-`_mechanism_from_raw`. Both `EnzymeReaction` and the legacy parametric
-form `EnzymeReactionLegacy` are accepted (the trace-compile budget
-tests build the legacy singleton directly to measure the enumeration
-pipeline without DSL grammar interference).
+`_mechanism_from_raw`.
 """
 init_mechanisms(r::EnzymeReaction) =
     [_mechanism_from_raw(spec) for spec in _init_raw_specs(r)]
-
-init_mechanisms(@nospecialize(r::EnzymeReactionLegacy)) =
-    [_mechanism_from_raw(spec) for spec in _init_raw_specs(r)]
-
-# Accept the concrete EnzymeReaction by forwarding to the
-# EnzymeReactionLegacy method (the heavy pipeline still dispatches on
-# the legacy singleton form). Internal-only — tests use this directly to
-# probe the raw pipeline output.
-_init_raw_specs(r::EnzymeReaction) =
-    _init_raw_specs(_to_legacy_reaction(r))
 
 """
     _mechanism_from_raw(spec::_RawSpec) → Mechanism
@@ -2761,19 +2725,6 @@ grouped by `kinetic_group` and renumbered in first-occurrence order.
 """
 _mechanism_from_raw(spec::_RawSpec) =
     Mechanism(EnzymeMechanism(spec))
-
-_catalytic_topologies(r::EnzymeReaction) =
-    _catalytic_topologies(_to_legacy_reaction(r))
-
-_atoms_dict(r::EnzymeReaction, met::Symbol) =
-    _atoms_dict(_to_legacy_reaction(r), met)
-
-_bound_metabolites_at_forms(spec::_RawSpec, r::EnzymeReaction) =
-    _bound_metabolites_at_forms(spec, _to_legacy_reaction(r))
-
-_expand_substrate_product_dead_ends(specs::Vector{_RawSpec},
-                                    r::EnzymeReaction) =
-    _expand_substrate_product_dead_ends(specs, _to_legacy_reaction(r))
 
 """
     _assert_mechanism_invariants(m::Mechanism) -> Nothing

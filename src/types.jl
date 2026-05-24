@@ -619,115 +619,6 @@ end
 
 # ─── Parametric mechanism types ───────────────────────────────────────
 
-"""Sort species tuples alphabetically by name (first element)."""
-_sort_species(t::Tuple) = Tuple(sort(collect(t); by=s -> s[1]))
-
-"""
-    EnzymeReactionLegacy{Substrates, Products, Regulators, OligomericState}
-
-Singleton type encoding an enzyme reaction specification in type parameters.
-
-- `Substrates`, `Products`: tuple of `(name::Symbol, atoms::Tuple{Vararg{Tuple{Symbol,Int}}})`.
-- `Regulators`: tuple of `Symbol` (plain names, no atoms).
-- `OligomericState`: number of subunits (Int, default 1).
-"""
-struct EnzymeReactionLegacy{Substrates, Products, Regulators, OligomericState} end
-
-"""Sum element counts across a tuple of `(name, atoms)` pairs.
-Returns a Dict{Symbol,Int}. Errors if any species's atoms tuple
-is empty (atoms are mandatory) or if any per-atom count is not a
-positive Int."""
-function _sum_atoms(species::Tuple, side::String)
-    totals = Dict{Symbol,Int}()
-    for (name, atoms) in species
-        isempty(atoms) && error(
-            "EnzymeReactionLegacy: $side metabolite $name has no declared " *
-            "atoms; atoms are mandatory (use `[C…]` bracket syntax in " *
-            "@enzyme_reaction or pass non-empty atom tuples to the " *
-            "constructor).")
-        for (elem, count) in atoms
-            count isa Integer && !(count isa Bool) && count > 0 ||
-                error(
-                "EnzymeReactionLegacy: $side metabolite $name has " *
-                "non-positive atom count for element $elem ($count); " *
-                "atom counts must be positive integers (not Bool).")
-            totals[elem] = get(totals, elem, 0) + count
-        end
-    end
-    totals
-end
-
-function EnzymeReactionLegacy(subs::Tuple, prods::Tuple, regs::Tuple=(); oligomeric_state::Int=1)
-    isempty(subs) && error("Substrates must not be empty")
-    isempty(prods) && error("Products must not be empty")
-    subs_names = [s[1] for s in subs]
-    prods_names = [s[1] for s in prods]
-    length(subs_names) != length(Set(subs_names)) &&
-        error("Duplicate substrate names")
-    length(prods_names) != length(Set(prods_names)) &&
-        error("Duplicate product names")
-    sub_atoms = _sum_atoms(subs, "substrate")
-    prod_atoms = _sum_atoms(prods, "product")
-    all_elems = union(keys(sub_atoms), keys(prod_atoms))
-    for elem in all_elems
-        s_count = get(sub_atoms, elem, 0)
-        p_count = get(prod_atoms, elem, 0)
-        s_count == p_count || error(
-            "EnzymeReactionLegacy: atom imbalance — element $elem appears " *
-            "$s_count time(s) on substrate side and $p_count time(s) " *
-            "on product side. Declared atoms must balance.")
-    end
-    # Normalize regulators to (name, role) pairs
-    normalized_regs = if isempty(regs)
-        regs
-    elseif regs[1] isa Symbol
-        Tuple((r, :unknown) for r in regs)
-    else
-        regs
-    end
-    for r in normalized_regs
-        r isa Tuple{Symbol,Symbol} ||
-            error("Regulators must be (Symbol, Symbol) pairs, got $r")
-    end
-    reg_names = [r[1] for r in normalized_regs]
-    length(reg_names) != length(Set(reg_names)) &&
-        error("Duplicate regulator names")
-    subs = _sort_species(subs)
-    prods = _sort_species(prods)
-    sorted_regs = Tuple(sort(collect(normalized_regs); by=first))
-    EnzymeReactionLegacy{subs, prods, sorted_regs, oligomeric_state}()
-end
-
-# Convert the concrete EnzymeReaction into its parametric Legacy form.
-# Used to feed EnzymeReaction values into call sites that still
-# dispatch on EnzymeReactionLegacy (init_mechanisms, expand_mechanisms,
-# IdentifyRateEquationProblem). Stage 5 / Stage 6 retire the consumers
-# of the Legacy form, after which this helper becomes dead code.
-function _to_legacy_reaction(r::EnzymeReaction)
-    subs = Tuple((name(metabolite(ra)),
-                  Tuple((e => c) for (e, c) in atoms(ra)))
-                 for ra in r.reactants if metabolite(ra) isa Substrate)
-    prods = Tuple((name(metabolite(ra)),
-                   Tuple((e => c) for (e, c) in atoms(ra)))
-                  for ra in r.reactants if metabolite(ra) isa Product)
-    # Legacy atoms shape is Tuple{Tuple{Symbol,Int}...} — convert
-    # the Pair tuples above to (Symbol, Int) tuples.
-    subs_t = Tuple((nm, Tuple((p.first, p.second) for p in at))
-                   for (nm, at) in subs)
-    prods_t = Tuple((nm, Tuple((p.first, p.second) for p in at))
-                    for (nm, at) in prods)
-    regs_t = Tuple((name(regulator(rm)),
-                    regulator(rm) isa AllostericRegulator ?
-                        :allosteric : :dead_end)
-                   for rm in r.regulators)
-    mults = r.allowed_catalytic_multiplicities
-    length(mults) == 1 ||
-        error("_to_legacy_reaction: EnzymeReactionLegacy supports a single " *
-              "oligomeric_state; got allowed_catalytic_multiplicities=$mults. " *
-              "Enumeration over multiple multiplicities is a Stage 5 capability.")
-    EnzymeReactionLegacy(subs_t, prods_t, regs_t; oligomeric_state=mults[1])
-end
-
 abstract type AbstractEnzymeMechanism end
 
 """
@@ -1224,17 +1115,6 @@ const Reduced = ReducedMode()
 
 # --- Pretty printing ---
 
-function Base.show(io::IO, ::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N}
-    subs_str = join([string(name) for (name, _) in S], " + ")
-    prods_str = join([string(name) for (name, _) in P], " + ")
-    print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
-    if !isempty(R)
-        regs_str = join([string(r[1]) for r in R], ", ")
-        print(io, " | regulators: ", regs_str)
-    end
-    N > 1 && print(io, " | oligomeric_state: ", N)
-end
-
 function Base.show(io::IO, m::EnzymeMechanism)
     # `show` reads through the accessors so it works for both Sig shapes.
     Rxns = reactions(m)
@@ -1473,7 +1353,6 @@ end
     end
     Sig[1][1]
 end
-substrates(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = S
 
 """Return products as a tuple of `Symbol` names."""
 @generated function products(::EnzymeMechanism{Sig}) where {Sig}
@@ -1487,7 +1366,6 @@ substrates(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = S
     end
     Sig[1][2]
 end
-products(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = P
 
 """Return regulators as a tuple of `Symbol` names."""
 @generated function regulators(::EnzymeMechanism{Sig}) where {Sig}
@@ -1501,14 +1379,6 @@ products(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = P
     end
     Sig[1][3]
 end
-regulators(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} =
-    Tuple(r[1] for r in R)
-
-"""Return regulator (name, role) pairs."""
-regulator_roles(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = R
-
-"""Return oligomeric state (number of subunits)."""
-oligomeric_state(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = N
 
 """
     metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}
