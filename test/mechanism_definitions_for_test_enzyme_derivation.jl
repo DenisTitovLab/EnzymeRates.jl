@@ -59,8 +59,8 @@ function build_mechanism_test_specs()
             substrates: S
             products: P
             steps: begin
-                E + S <--> ES
-                ES <--> E + P
+                E + S <--> E(S)
+                E(S) <--> E + P
             end
         end
         push!(specs, MechanismTestSpec(
@@ -89,9 +89,9 @@ function build_mechanism_test_specs()
             substrates: A
             products: P
             steps: begin
-                E + A <--> EA
-                EA <--> EP
-                EP <--> E + P
+                E + A <--> E(A)
+                E(A) <--> E(P)
+                E(P) <--> E + P
             end
         end
 
@@ -128,9 +128,9 @@ function build_mechanism_test_specs()
             substrates: A
             products: P
             steps: begin
-                E + A <--> EA
-                EA <--> EP
-                EP <--> F + P
+                E + A <--> E(A)
+                E(A) <--> E(P)
+                E(P) <--> F + P
                 F <--> E
             end
         end
@@ -555,13 +555,13 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> EA
-                E + B <--> EB
-                EA + B <--> EAB
-                EB + A <--> EAB
-                EAB <--> EPQ
-                EPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E + B <--> E(B)
+                E(A) + B <--> E(A, B)
+                E(B) + A <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
         push!(specs, MechanismTestSpec(
@@ -788,8 +788,8 @@ function build_mechanism_test_specs()
             substrates: A
             products: P
             steps: begin
-                E + A ⇌ EA
-                EA <--> E + P
+                E + A ⇌ E(A)
+                E(A) <--> E + P
             end
         end
 
@@ -872,13 +872,13 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ EA
-                E + B ⇌ EB
-                EA + B <--> EAB
-                EB + A <--> EAB
-                EAB <--> EPQ
-                EPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A ⇌ E(A)
+                E + B ⇌ E(B)
+                E(A) + B <--> E(A, B)
+                E(B) + A <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
         push!(specs, MechanismTestSpec(
@@ -907,10 +907,10 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E + S ⇌ ES        # K1
-                ES <--> EP        # k2f, k2r (SS)
-                EP ⇌ E + P        # K3
-                E + R ⇌ ER        # K4
+                E + S ⇌ E(S)      # K1
+                E(S) <--> E(P)    # k2f, k2r (SS)
+                E(P) ⇌ E + P      # K3
+                E + R ⇌ E(R)      # K4
             end
         end
 
@@ -954,11 +954,11 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E + S ⇌ E_S        # K1
-                E_S <--> E_P       # k2f, k2r (SS)
-                E + P ⇌ E_P        # K3
-                (E + R ⇌ E_R, E_S + R ⇌ E_S_R)  # K4 = K5 (R binding shared)
-                E_R + S ⇌ E_S_R    # K6
+                E + S ⇌ E(S)        # K1
+                E(S) <--> E(P)      # k2f, k2r (SS)
+                E + P ⇌ E(P)        # K3
+                (E + R ⇌ E(R), E(S) + R ⇌ E(S, R))  # K4 = K5 (R binding shared)
+                E(R) + S ⇌ E(S, R)  # K6
             end
         end
 
@@ -1000,10 +1000,10 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E + S ⇌ E_S        # K1
-                E_S <--> E_P       # k2f, k2r (SS)
-                E + P ⇌ E_P        # K3
-                E_S + R ⇌ E_S_R    # K4
+                E + S ⇌ E(S)        # K1
+                E(S) <--> E(P)      # k2f, k2r (SS)
+                E + P ⇌ E(P)        # K3
+                E(S) + R ⇌ E(S, R)  # K4
             end
         end
 
@@ -1046,10 +1046,10 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E_R + S ⇌ E_S_R    # K1
-                E_S_R <--> E_P_R   # k2f, k2r (SS)
-                E_R + P ⇌ E_P_R    # K3
-                E + R ⇌ E_R        # K4
+                E(R) + S ⇌ E(S, R)    # K1
+                E(S, R) <--> E(P, R)  # k2f, k2r (SS)
+                E(R) + P ⇌ E(P, R)    # K3
+                E + R ⇌ E(R)          # K4
             end
         end
 
@@ -1097,15 +1097,15 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E + S ⇌ E_S          # K1
-                E_S <--> E_P         # k2f, k2r (SS)
-                E + P ⇌ E_P          # K3
-                E_R + S ⇌ E_S_R      # K4
-                E_S_R <--> E_P_R     # k5f, k5r (SS)
-                E_R + P ⇌ E_P_R      # K6
-                (E + R ⇌ E_R,         # K7 = K8 = K9 (R binding shared)
-                 E_S + R ⇌ E_S_R,
-                 E_P + R ⇌ E_P_R)
+                E + S ⇌ E(S)            # K1
+                E(S) <--> E(P)          # k2f, k2r (SS)
+                E + P ⇌ E(P)            # K3
+                E(R) + S ⇌ E(S, R)      # K4
+                E(S, R) <--> E(P, R)    # k5f, k5r (SS)
+                E(R) + P ⇌ E(P, R)      # K6
+                (E + R ⇌ E(R),          # K7 = K8 = K9 (R binding shared)
+                 E(S) + R ⇌ E(S, R),
+                 E(P) + R ⇌ E(P, R))
             end
         end
 
@@ -1156,16 +1156,16 @@ function build_mechanism_test_specs()
             products: P
             regulators: A, I
             steps: begin
-                E + S ⇌ E_S          # K1
-                E_S <--> E_P         # k2f, k2r (SS)
-                E + P ⇌ E_P          # K3
-                E_A + S ⇌ E_S_A      # K4
-                E_S_A <--> E_P_A     # k5f, k5r (SS)
-                E_A + P ⇌ E_P_A      # K6
-                (E + A ⇌ E_A,         # K7 = K8 = K9 (A binding shared)
-                 E_S + A ⇌ E_S_A,
-                 E_P + A ⇌ E_P_A)
-                E + I ⇌ E_I          # K10
+                E + S ⇌ E(S)            # K1
+                E(S) <--> E(P)          # k2f, k2r (SS)
+                E + P ⇌ E(P)            # K3
+                E(A) + S ⇌ E(A, S)      # K4
+                E(A, S) <--> E(A, P)    # k5f, k5r (SS)
+                E(A) + P ⇌ E(A, P)      # K6
+                (E + A ⇌ E(A),          # K7 = K8 = K9 (A binding shared)
+                 E(S) + A ⇌ E(A, S),
+                 E(P) + A ⇌ E(A, P))
+                E + I ⇌ E(I)            # K10
             end
         end
 
@@ -1230,9 +1230,9 @@ function build_mechanism_test_specs()
             products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E_c + S ⇌ E_S    :: NonequalRT
-                E_c + P ⇌ E_P    :: NonequalRT
-                E_S <--> E_P     :: NonequalRT
+                E + S ⇌ E(S)    :: NonequalRT
+                E + P ⇌ E(P)    :: NonequalRT
+                E(S) <--> E(P)  :: NonequalRT
             end
         end
 
@@ -1286,9 +1286,9 @@ function build_mechanism_test_specs()
             allosteric_regulators: I::NonequalRT
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E_c + S ⇌ E_S    :: NonequalRT
-                E_c + P ⇌ E_P    :: NonequalRT
-                E_S <--> E_P     :: NonequalRT
+                E + S ⇌ E(S)    :: NonequalRT
+                E + P ⇌ E(P)    :: NonequalRT
+                E(S) <--> E(P)  :: NonequalRT
             end
             regulatory_site(multiplicity = 1): begin
                 ligands: I
@@ -1347,9 +1347,9 @@ function build_mechanism_test_specs()
             allosteric_regulators: I::NonequalRT
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E_c + S ⇌ E_S    :: NonequalRT
-                E_c + P ⇌ E_P    :: NonequalRT
-                E_S <--> E_P     :: NonequalRT
+                E + S ⇌ E(S)    :: NonequalRT
+                E + P ⇌ E(P)    :: NonequalRT
+                E(S) <--> E(P)  :: NonequalRT
             end
             regulatory_site(multiplicity = 1): begin
                 ligands: I
@@ -1403,11 +1403,11 @@ function build_mechanism_test_specs()
             products: P
             regulators: I1, I2
             steps: begin
-                E + S ⇌ E_S
-                E_S <--> E_P
-                E + P ⇌ E_P
-                E + I1 ⇌ E_I1
-                E + I2 ⇌ E_I2
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
+                E + I1 ⇌ E(I1)
+                E + I2 ⇌ E(I2)
             end
         end
 
@@ -1450,30 +1450,30 @@ function build_mechanism_test_specs()
             regulators: I1, I2
             steps: begin
                 # S binding (shared K1)
-                (E + S ⇌ E_S,
-                 E_I1 + S ⇌ E_S_I1,
-                 E_I2 + S ⇌ E_S_I2,
-                 E_I1_I2 + S ⇌ E_S_I1_I2)
-                E_S <--> E_P
+                (E + S ⇌ E(S),
+                 E(I1) + S ⇌ E(S, I1),
+                 E(I2) + S ⇌ E(S, I2),
+                 E(I1, I2) + S ⇌ E(S, I1, I2))
+                E(S) <--> E(P)
                 # P binding (shared K3)
-                (E + P ⇌ E_P,
-                 E_I1 + P ⇌ E_P_I1,
-                 E_I2 + P ⇌ E_P_I2,
-                 E_I1_I2 + P ⇌ E_P_I1_I2)
+                (E + P ⇌ E(P),
+                 E(I1) + P ⇌ E(P, I1),
+                 E(I2) + P ⇌ E(P, I2),
+                 E(I1, I2) + P ⇌ E(P, I1, I2))
                 # I1 binding (shared K4)
-                (E + I1 ⇌ E_I1,
-                 E_S + I1 ⇌ E_S_I1,
-                 E_P + I1 ⇌ E_P_I1,
-                 E_I2 + I1 ⇌ E_I1_I2,
-                 E_S_I2 + I1 ⇌ E_S_I1_I2,
-                 E_P_I2 + I1 ⇌ E_P_I1_I2)
+                (E + I1 ⇌ E(I1),
+                 E(S) + I1 ⇌ E(S, I1),
+                 E(P) + I1 ⇌ E(P, I1),
+                 E(I2) + I1 ⇌ E(I1, I2),
+                 E(S, I2) + I1 ⇌ E(S, I1, I2),
+                 E(P, I2) + I1 ⇌ E(P, I1, I2))
                 # I2 binding (shared K7)
-                (E + I2 ⇌ E_I2,
-                 E_S + I2 ⇌ E_S_I2,
-                 E_P + I2 ⇌ E_P_I2,
-                 E_I1 + I2 ⇌ E_I1_I2,
-                 E_S_I1 + I2 ⇌ E_S_I1_I2,
-                 E_P_I1 + I2 ⇌ E_P_I1_I2)
+                (E + I2 ⇌ E(I2),
+                 E(S) + I2 ⇌ E(S, I2),
+                 E(P) + I2 ⇌ E(P, I2),
+                 E(I1) + I2 ⇌ E(I1, I2),
+                 E(S, I1) + I2 ⇌ E(S, I1, I2),
+                 E(P, I1) + I2 ⇌ E(P, I1, I2))
             end
         end
 
@@ -1520,15 +1520,15 @@ function build_mechanism_test_specs()
             regulators: I1, I2
             steps: begin
                 # S binding (shared K1)
-                (E + S ⇌ E_S, E_I1 + S ⇌ E_S_I1)
-                E_S <--> E_P
+                (E + S ⇌ E(S), E(I1) + S ⇌ E(S, I1))
+                E(S) <--> E(P)
                 # P binding (shared K3)
-                (E + P ⇌ E_P, E_I1 + P ⇌ E_P_I1)
+                (E + P ⇌ E(P), E(I1) + P ⇌ E(P, I1))
                 # I1 binding (shared K4)
-                (E + I1 ⇌ E_I1,
-                 E_S + I1 ⇌ E_S_I1,
-                 E_P + I1 ⇌ E_P_I1)
-                E + I2 ⇌ E_I2
+                (E + I1 ⇌ E(I1),
+                 E(S) + I1 ⇌ E(S, I1),
+                 E(P) + I1 ⇌ E(P, I1))
+                E + I2 ⇌ E(I2)
             end
         end
 
@@ -1573,11 +1573,11 @@ function build_mechanism_test_specs()
             products: P
             regulators: I1, I2
             steps: begin
-                E + S ⇌ E_S
-                E_S <--> E_P
-                E + P ⇌ E_P
-                E_S + I1 ⇌ E_S_I1
-                E + I2 ⇌ E_I2
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
+                E(S) + I1 ⇌ E(S, I1)
+                E + I2 ⇌ E(I2)
             end
         end
 
@@ -1622,22 +1622,22 @@ function build_mechanism_test_specs()
             regulators: I1, I2
             steps: begin
                 # S binding (shared K1)
-                (E + S ⇌ E_S,
-                 E_I1 + S ⇌ E_S_I1,
-                 E_I2 + S ⇌ E_S_I2)
-                E_S <--> E_P
+                (E + S ⇌ E(S),
+                 E(I1) + S ⇌ E(S, I1),
+                 E(I2) + S ⇌ E(S, I2))
+                E(S) <--> E(P)
                 # P binding (shared K3)
-                (E + P ⇌ E_P,
-                 E_I1 + P ⇌ E_P_I1,
-                 E_I2 + P ⇌ E_P_I2)
+                (E + P ⇌ E(P),
+                 E(I1) + P ⇌ E(P, I1),
+                 E(I2) + P ⇌ E(P, I2))
                 # I1 binding (shared K4)
-                (E + I1 ⇌ E_I1,
-                 E_S + I1 ⇌ E_S_I1,
-                 E_P + I1 ⇌ E_P_I1)
+                (E + I1 ⇌ E(I1),
+                 E(S) + I1 ⇌ E(S, I1),
+                 E(P) + I1 ⇌ E(P, I1))
                 # I2 binding (shared K9)
-                (E + I2 ⇌ E_I2,
-                 E_S + I2 ⇌ E_S_I2,
-                 E_P + I2 ⇌ E_P_I2)
+                (E + I2 ⇌ E(I2),
+                 E(S) + I2 ⇌ E(S, I2),
+                 E(P) + I2 ⇌ E(P, I2))
             end
         end
 
@@ -1729,22 +1729,22 @@ function build_mechanism_test_specs()
             catalytic_multiplicity: 4
             catalytic_steps: begin
                 # S1 binding (shared K)
-                (E_c + S1 ⇌ E_S1,
-                 E_S2 + S1 ⇌ E_S1S2,
-                 E_P2 + S1 ⇌ E_S1P2) :: NonequalRT
+                (E + S1 ⇌ E(S1),
+                 E(S2) + S1 ⇌ E(S1, S2),
+                 E(P2) + S1 ⇌ E(S1, P2)) :: NonequalRT
                 # P1 binding (shared K)
-                (E_c + P1 ⇌ E_P1,
-                 E_S2 + P1 ⇌ E_P1S2,
-                 E_P2 + P1 ⇌ E_P1P2) :: NonequalRT
+                (E + P1 ⇌ E(P1),
+                 E(S2) + P1 ⇌ E(P1, S2),
+                 E(P2) + P1 ⇌ E(P1, P2)) :: NonequalRT
                 # S2 binding (shared K)
-                (E_c + S2 ⇌ E_S2,
-                 E_S1 + S2 ⇌ E_S1S2,
-                 E_P1 + S2 ⇌ E_P1S2) :: NonequalRT
+                (E + S2 ⇌ E(S2),
+                 E(S1) + S2 ⇌ E(S1, S2),
+                 E(P1) + S2 ⇌ E(P1, S2)) :: NonequalRT
                 # P2 binding (shared K)
-                (E_c + P2 ⇌ E_P2,
-                 E_S1 + P2 ⇌ E_S1P2,
-                 E_P1 + P2 ⇌ E_P1P2) :: NonequalRT
-                E_S1S2 <--> E_P1P2 :: NonequalRT
+                (E + P2 ⇌ E(P2),
+                 E(S1) + P2 ⇌ E(S1, P2),
+                 E(P1) + P2 ⇌ E(P1, P2)) :: NonequalRT
+                E(S1, S2) <--> E(P1, P2) :: NonequalRT
             end
             regulatory_site(multiplicity = 4): begin
                 ligands: R1, R2
@@ -1837,11 +1837,11 @@ function build_mechanism_test_specs()
 
             catalytic_multiplicity: 4
             catalytic_steps: begin
-                (E + F6P ⇌ E_F6P, E_ATP + F6P ⇌ E_F6P_ATP)      :: OnlyR
-                (E + ATP ⇌ E_ATP, E_F6P + ATP ⇌ E_F6P_ATP)      :: EqualRT
-                E_F6P_ATP <--> E_F16BP_ADP                         :: EqualRT
-                (E_F16BP_ADP ⇌ E_ADP + F16BP, E_F16BP ⇌ E + F16BP) :: EqualRT
-                (E_F16BP_ADP ⇌ E_F16BP + ADP, E_ADP ⇌ E + ADP)     :: EqualRT
+                (E + F6P ⇌ E(F6P), E(ATP) + F6P ⇌ E(F6P, ATP))           :: OnlyR
+                (E + ATP ⇌ E(ATP), E(F6P) + ATP ⇌ E(F6P, ATP))           :: EqualRT
+                E(F6P, ATP) <--> E(F16BP, ADP)                            :: EqualRT
+                (E(F16BP, ADP) ⇌ E(ADP) + F16BP, E(F16BP) ⇌ E + F16BP)   :: EqualRT
+                (E(F16BP, ADP) ⇌ E(F16BP) + ADP, E(ADP) ⇌ E + ADP)       :: EqualRT
             end
 
             regulatory_site(multiplicity = 4): begin
@@ -2058,15 +2058,15 @@ function build_mechanism_test_specs()
 
             catalytic_multiplicity: 4
             catalytic_steps: begin
-                (E + PEP ⇌ E_PEP,
-                 E_ADP + PEP ⇌ E_PEP_ADP)              :: NonequalRT
-                (E + ADP ⇌ E_ADP,
-                 E_PEP + ADP ⇌ E_PEP_ADP)              :: EqualRT
-                E_PEP_ADP <--> E_Pyr_ATP               :: EqualRT
-                (E_Pyr_ATP ⇌ E_ATP + Pyruvate,
-                 E_Pyr ⇌ E + Pyruvate)                  :: EqualRT
-                (E_Pyr_ATP ⇌ E_Pyr + ATP,
-                 E_ATP ⇌ E + ATP)                       :: EqualRT
+                (E + PEP ⇌ E(PEP),
+                 E(ADP) + PEP ⇌ E(PEP, ADP))                          :: NonequalRT
+                (E + ADP ⇌ E(ADP),
+                 E(PEP) + ADP ⇌ E(PEP, ADP))                          :: EqualRT
+                E(PEP, ADP) <--> E(Pyruvate, ATP)                     :: EqualRT
+                (E(Pyruvate, ATP) ⇌ E(ATP) + Pyruvate,
+                 E(Pyruvate) ⇌ E + Pyruvate)                          :: EqualRT
+                (E(Pyruvate, ATP) ⇌ E(Pyruvate) + ATP,
+                 E(ATP) ⇌ E + ATP)                                    :: EqualRT
             end
 
             regulatory_site(multiplicity = 2): begin
@@ -2155,15 +2155,15 @@ function build_mechanism_test_specs()
 
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                (E + S1 ⇌ E_S1,
-                 E_S2 + S1 ⇌ E_S1_S2)      :: NonequalRT
-                (E + S2 ⇌ E_S2,
-                 E_S1 + S2 ⇌ E_S1_S2)      :: EqualRT
-                E_S1_S2 <--> E_P1_P2      :: NonequalRT
-                (E_P1_P2 ⇌ E_P2 + P1,
-                 E_P1 ⇌ E + P1)             :: NonequalRT
-                (E_P1_P2 ⇌ E_P1 + P2,
-                 E_P2 ⇌ E + P2)             :: EqualRT
+                (E + S1 ⇌ E(S1),
+                 E(S2) + S1 ⇌ E(S1, S2))    :: NonequalRT
+                (E + S2 ⇌ E(S2),
+                 E(S1) + S2 ⇌ E(S1, S2))    :: EqualRT
+                E(S1, S2) <--> E(P1, P2)    :: NonequalRT
+                (E(P1, P2) ⇌ E(P2) + P1,
+                 E(P1) ⇌ E + P1)            :: NonequalRT
+                (E(P1, P2) ⇌ E(P1) + P2,
+                 E(P2) ⇌ E + P2)            :: EqualRT
             end
 
             regulatory_site(multiplicity = 2): begin
@@ -2236,9 +2236,9 @@ function build_mechanism_test_specs()
 
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + S ⇌ E_S    :: EqualRT      # group 1, K1
-                E_S <--> E_P  :: EqualRT      # group 2, k2f catalysis
-                E + P ⇌ E_P    :: OnlyR        # group 3, K3 (P binding)
+                E + S ⇌ E(S)    :: EqualRT      # group 1, K1
+                E(S) <--> E(P)  :: EqualRT      # group 2, k2f catalysis
+                E + P ⇌ E(P)    :: OnlyR        # group 3, K3 (P binding)
             end
         end
 
