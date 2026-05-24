@@ -147,12 +147,17 @@ struct Step
                   is_equilibrium::Bool;
                   source_idx::Int = 0)
         if bound_metabolite !== nothing
-            # Canonical binding direction: metabolite is BOUND in
-            # to_species (and free, i.e., not in bound(from_species)),
-            # matching the existing "E + S ⇌ E_S" convention.
+            # RE binding steps canonicalize to "free + enzyme → enzyme-met"
+            # so two structurally-equivalent RE steps written in opposite
+            # source directions dedup to the same Step. SS steps are NOT
+            # canonicalized: their kf/kr labels are direction-sensitive
+            # (analytical formulas reference :kNf as the source-forward
+            # rate constant), so swapping would silently flip rate-equation
+            # output. See CLAUDE.md "Canonical Step Form" for the
+            # invariant.
             in_from = any(m -> m == bound_metabolite, bound(from_species))
             in_to   = any(m -> m == bound_metabolite, bound(to_species))
-            if in_from && !in_to
+            if is_equilibrium && in_from && !in_to
                 from_species, to_species = to_species, from_species
             end
         else
