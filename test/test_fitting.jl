@@ -252,14 +252,18 @@ using Tables
     # ── Test 8: Speed benchmark ───────────────────────────────────────────────
     @testset "Speed" begin
         # Build a larger mechanism: Ordered Bi-Bi
+        # Decomposed ordered bi-bi: the central complex EAB↔EPQ becomes an
+        # explicit iso step E(A, B) <--> E(P, Q). 5 steps total (was 4 in
+        # the lumped-central-complex form); fitter recovers k1-k5 params.
         ordered_bi_bi = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABEPQ
-                EABEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
