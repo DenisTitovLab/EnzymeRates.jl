@@ -276,6 +276,11 @@ end
         topos = EnzymeRates._catalytic_topologies(uni_uni_rxn)
         @test length(topos) == 1
 
+        # NOTE: this `===` round-trip test requires the seed mechanism to be
+        # compiled via the same code path as `EnzymeMechanism(spec)` —
+        # i.e., the legacy Sig encoding. The `mechanism_spec_from_mechanism_and_rxn`
+        # → `EnzymeMechanism(spec)` round-trip goes through the legacy path,
+        # so the seed must stay in opaque-Symbol form for type-identity to hold.
         m_uu = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -687,9 +692,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + P ⇌ E_P
-            E + S ⇌ E_S
-            E_S <--> E_P
+            E + P ⇌ E(P)
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
         end
     end
     spec_uu = mechanism_spec_from_mechanism_and_rxn(
@@ -704,15 +709,15 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E_A
-            E_B + A ⇌ E_A_B
-            E + B ⇌ E_B
-            E_A + B ⇌ E_A_B
-            E + P ⇌ E_P
-            E_P + Q ⇌ E_P_Q
-            E + Q ⇌ E_Q
-            E_Q + P ⇌ E_P_Q
-            E_A_B <--> E_P_Q
+            E + A ⇌ E(A)
+            E(B) + A ⇌ E(A, B)
+            E + B ⇌ E(B)
+            E(A) + B ⇌ E(A, B)
+            E + P ⇌ E(P)
+            E(P) + Q ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            E(Q) + P ⇌ E(P, Q)
+            E(A, B) <--> E(P, Q)
         end
     end
     spec_bb = mechanism_spec_from_mechanism_and_rxn(
@@ -829,9 +834,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
+                E + P ⇌ E(P)
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
             end
         end
         spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
@@ -861,15 +866,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                E_B + A ⇌ E_A_B
-                E + B ⇌ E_B
-                E_A + B ⇌ E_A_B
-                E + P ⇌ E_P
-                E_P + Q ⇌ E_P_Q
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
+                E + A ⇌ E(A)
+                E(B) + A ⇌ E(A, B)
+                E + B ⇌ E(B)
+                E(A) + B ⇌ E(A, B)
+                E + P ⇌ E(P)
+                E(P) + Q ⇌ E(P, Q)
+                E + Q ⇌ E(Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(A, B) <--> E(P, Q)
             end
         end
         spec = mechanism_spec_from_mechanism_and_rxn(m, bi_bi_rxn)
@@ -890,10 +895,10 @@ end
             substrates: S
             products: P, Q
             steps: begin
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E + S ⇌ E_S
-                E_S <--> E_P_Q
+                E + Q ⇌ E(Q)
+                E(Q) + P ⇌ E(P, Q)
+                E + S ⇌ E(S)
+                E(S) <--> E(P, Q)
             end
         end
         spec = mechanism_spec_from_mechanism_and_rxn(m, uni_bi_rxn)
@@ -912,12 +917,12 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                Estar + B ⇌ Estar_B
-                E + Q ⇌ E_Q
-                Estar + P ⇌ Estar_A_P
-                E_A <--> Estar_A_P
-                Estar_B ⇌ E_Q
+                E + A ⇌ E(A)
+                Estar + B ⇌ Estar(B)
+                E + Q ⇌ E(Q)
+                Estar + P ⇌ Estar(A, P)
+                E(A) <--> Estar(A, P)
+                Estar(B) ⇌ E(Q)
             end
         end
         spec = mechanism_spec_from_mechanism_and_rxn(
@@ -950,15 +955,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                E_B + A ⇌ E_A_B
-                E + B ⇌ E_B
-                E_A + B ⇌ E_A_B
-                E + P ⇌ E_P
-                E_P + Q ⇌ E_P_Q
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
+                E + A ⇌ E(A)
+                E(B) + A ⇌ E(A, B)
+                E + B ⇌ E(B)
+                E(A) + B ⇌ E(A, B)
+                E + P ⇌ E(P)
+                E(P) + Q ⇌ E(P, Q)
+                E + Q ⇌ E(Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(A, B) <--> E(P, Q)
             end
         end
         spec_bb = mechanism_spec_from_mechanism_and_rxn(
@@ -1381,11 +1386,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                E_A + B ⇌ E_A_B
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E + Q ⇌ E(Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(A, B) <--> E(P, Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -1434,11 +1439,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
-                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
-                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
-                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
-                E_A_B <--> E_P_Q
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -1480,12 +1485,12 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                Estar + B ⇌ Estar_B
-                E + Q ⇌ E_Q
-                Estar + P ⇌ Estar_A_P
-                E_A <--> Estar_A_P
-                Estar_B ⇌ E_Q
+                E + A ⇌ E(A)
+                Estar + B ⇌ Estar(B)
+                E + Q ⇌ E(Q)
+                Estar + P ⇌ Estar(A, P)
+                E(A) <--> Estar(A, P)
+                Estar(B) ⇌ E(Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -1526,13 +1531,13 @@ end
             substrates: A, B, D
             products: P, Q, R
             steps: begin
-                E + A ⇌ E_A
-                E_A + B ⇌ E_A_B
-                E_A_B + D ⇌ E_A_B_D
-                E + R ⇌ E_R
-                E_R + Q ⇌ E_Q_R
-                E_Q_R + P ⇌ E_P_Q_R
-                E_A_B_D <--> E_P_Q_R
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) + D ⇌ E(A, B, D)
+                E + R ⇌ E(R)
+                E(R) + Q ⇌ E(Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(A, B, D) <--> E(P, Q, R)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -1557,9 +1562,9 @@ end
             products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: EqualRT
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: EqualRT
+                E(S) <--> E(P)    :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -1611,9 +1616,9 @@ end
             products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: OnlyR
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: OnlyR
+                E(S) <--> E(P)    :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -1668,9 +1673,9 @@ end
             products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: NonequalRT
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: NonequalRT
+                E(S) <--> E(P)    :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -1916,11 +1921,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A <--> E_A, E_B + A <--> E_A_B)
-                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
-                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
-                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
-                E_A_B <--> E_P_Q
+                (E + A <--> E(A), E(B) + A <--> E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
         end
         m = EnzymeRates.Mechanism(m_seed)
@@ -1976,11 +1981,11 @@ end
             products: P, Q
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                (E + A <--> E_A, E_B + A <--> E_A_B)        :: NonequalRT
-                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)             :: EqualRT
-                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)             :: EqualRT
-                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)             :: EqualRT
-                E_A_B <--> E_P_Q                            :: EqualRT
+                (E + A <--> E(A), E(B) + A <--> E(A, B))    :: NonequalRT
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))          :: EqualRT
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: EqualRT
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: EqualRT
+                E(A, B) <--> E(P, Q)                        :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -2045,11 +2050,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
-                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
-                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
-                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
-                E_A_B <--> E_P_Q
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
         end
         spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_rxn)
@@ -2097,9 +2102,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
+                E + P ⇌ E(P)
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
             end
         end
         spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
@@ -2116,13 +2121,13 @@ end
             products: P, Q
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)        :: NonequalRT
-                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)        :: EqualRT
-                E + P ⇌ E_P             :: EqualRT
-                E_P + Q ⇌ E_P_Q         :: EqualRT
-                E + Q ⇌ E_Q             :: EqualRT
-                E_Q + P ⇌ E_P_Q         :: EqualRT
-                E_A_B <--> E_P_Q        :: EqualRT
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))    :: NonequalRT
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))    :: EqualRT
+                E + P ⇌ E(P)             :: EqualRT
+                E(P) + Q ⇌ E(P, Q)       :: EqualRT
+                E + Q ⇌ E(Q)             :: EqualRT
+                E(Q) + P ⇌ E(P, Q)       :: EqualRT
+                E(A, B) <--> E(P, Q)     :: EqualRT
             end
         end
         bi_bi_allo_rxn = @enzyme_reaction begin
@@ -2178,11 +2183,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                E_A + B ⇌ E_A_B
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E + Q ⇌ E(Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(A, B) <--> E(P, Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -2244,11 +2249,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
-                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
-                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
-                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
-                E_A_B <--> E_P_Q
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -2307,12 +2312,12 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                Estar + B ⇌ Estar_B
-                E + Q ⇌ E_Q
-                Estar + P ⇌ Estar_A_P
-                E_A <--> Estar_A_P
-                Estar_B ⇌ E_Q
+                E + A ⇌ E(A)
+                Estar + B ⇌ Estar(B)
+                E + Q ⇌ E(Q)
+                Estar + P ⇌ Estar(A, P)
+                E(A) <--> Estar(A, P)
+                Estar(B) ⇌ E(Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -2371,9 +2376,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
+                E + P ⇌ E(P)
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -2426,11 +2431,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
-                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
-                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
-                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
-                E_A_B <--> E_P_Q
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -2573,9 +2578,9 @@ end
             products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
+                E + P ⇌ E(P)    :: EqualRT
+                E + S ⇌ E(S)    :: EqualRT
+                E(S) <--> E(P)  :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -2648,9 +2653,9 @@ end
             products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
+                E + P ⇌ E(P)    :: EqualRT
+                E + S ⇌ E(S)    :: EqualRT
+                E(S) <--> E(P)  :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -2668,11 +2673,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E_A, E_B + A ⇌ E_A_B)
-                (E + B ⇌ E_B, E_A + B ⇌ E_A_B)
-                (E + P ⇌ E_P, E_Q + P ⇌ E_P_Q)
-                (E + Q ⇌ E_Q, E_P + Q ⇌ E_P_Q)
-                E_A_B <--> E_P_Q
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -2824,9 +2829,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
+                E + P ⇌ E(P)
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -2849,11 +2854,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                E_A + B ⇌ E_A_B
-                E + Q ⇌ E_Q
-                E_Q + P ⇌ E_P_Q
-                E_A_B <--> E_P_Q
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E + Q ⇌ E(Q)
+                E(Q) + P ⇌ E(P, Q)
+                E(A, B) <--> E(P, Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -2893,12 +2898,12 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E_A
-                Estar + B ⇌ Estar_B
-                E + Q ⇌ E_Q
-                Estar + P ⇌ Estar_A_P
-                E_A <--> Estar_A_P
-                Estar_B ⇌ E_Q
+                E + A ⇌ E(A)
+                Estar + B ⇌ Estar(B)
+                E + Q ⇌ E(Q)
+                Estar + P ⇌ Estar(A, P)
+                E(A) <--> Estar(A, P)
+                Estar(B) ⇌ E(Q)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -3003,9 +3008,9 @@ end
             substrates: S; products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
+                E + P ⇌ E(P)    :: EqualRT
+                E + S ⇌ E(S)    :: EqualRT
+                E(S) <--> E(P)  :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3105,9 +3110,9 @@ end
             allosteric_regulators: R1::OnlyR
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
+                E + P ⇌ E(P)    :: EqualRT
+                E + S ⇌ E(S)    :: EqualRT
+                E(S) <--> E(P)  :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3163,9 +3168,9 @@ end
             allosteric_regulators: R1::OnlyR
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
+                E + P ⇌ E(P)    :: EqualRT
+                E + S ⇌ E(S)    :: EqualRT
+                E(S) <--> E(P)  :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3209,9 +3214,9 @@ end
             allosteric_regulators: R1::OnlyT
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: EqualRT
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: EqualRT
+                E(S) <--> E(P)    :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3262,9 +3267,9 @@ end
             substrates: S; products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
+                E + P ⇌ E(P)    :: EqualRT
+                E + S ⇌ E(S)    :: EqualRT
+                E(S) <--> E(P)  :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3323,9 +3328,9 @@ end
             allosteric_regulators: R1::OnlyR
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: EqualRT
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: EqualRT
+                E(S) <--> E(P)    :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3360,9 +3365,9 @@ end
             products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: EqualRT
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: EqualRT
+                E(S) <--> E(P)    :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3410,9 +3415,9 @@ end
             allosteric_regulators: R::OnlyR
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: EqualRT
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: EqualRT
+                E(S) <--> E(P)    :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3482,9 +3487,9 @@ end
             allosteric_regulators: R::OnlyR
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
+                E + P ⇌ E(P)    :: EqualRT
+                E + S ⇌ E(S)    :: EqualRT
+                E(S) <--> E(P)  :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3538,9 +3543,9 @@ end
             allosteric_regulators: R::OnlyT
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: EqualRT
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: EqualRT
+                E(S) <--> E(P)    :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3596,9 +3601,9 @@ end
             allosteric_regulators: R1::OnlyR, R2::OnlyT
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: EqualRT
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: EqualRT
+                E(S) <--> E(P)    :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(em_seed)
@@ -3668,9 +3673,9 @@ end
             allosteric_regulators: R::OnlyR
             catalytic_multiplicity: 4
             catalytic_steps: begin
-                E + P ⇌ E_P       :: EqualRT
-                E + S ⇌ E_S       :: EqualRT
-                E_S <--> E_P      :: EqualRT
+                E + P ⇌ E(P)      :: EqualRT
+                E + S ⇌ E(S)      :: EqualRT
+                E(S) <--> E(P)    :: EqualRT
             end
             regulatory_site(multiplicity = 2): begin
                 ligands: R
@@ -4023,9 +4028,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
+                E + P ⇌ E(P)
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -4045,9 +4050,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
+                E + P ⇌ E(P)
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -4070,9 +4075,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
+                E + P ⇌ E(P)
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
             end
         end
         m = EnzymeRates.Mechanism(em_seed)
@@ -4092,9 +4097,9 @@ end
             substrates: S; products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
+                E + P ⇌ E(P)    :: EqualRT
+                E + S ⇌ E(S)    :: EqualRT
+                E(S) <--> E(P)  :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(aem)
@@ -4123,9 +4128,9 @@ end
             allosteric_regulators: R::OnlyR
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + P ⇌ E_P    :: EqualRT
-                E + S ⇌ E_S    :: EqualRT
-                E_S <--> E_P   :: EqualRT
+                E + P ⇌ E(P)    :: EqualRT
+                E + S ⇌ E(S)    :: EqualRT
+                E(S) <--> E(P)  :: EqualRT
             end
         end
         am = EnzymeRates.AllostericMechanism(aem)
@@ -4374,9 +4379,9 @@ end # top-level testset
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E_S
-                E_S <--> E_P
-                E + P ⇌ E_P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
             end
         end
 
