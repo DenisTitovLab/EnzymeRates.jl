@@ -1411,14 +1411,26 @@ end
 """Build a (lhs_syms, rhs_syms, is_eq, kinetic_group) tuple from a `Step`.
 
 The legacy 4-tuple shape pairs the free metabolite with the enzyme form
-on the OPPOSITE side from where it is bound: `E + S ⇌ E_S` becomes
-`((:E, :S), (:E_S,), true)`. We read `bound(to_species)` to decide
-which side carries the free metabolite — if the metabolite is bound
-in the to-species (binding direction), the free metabolite goes on
-the from side; if bound in the from-species (release direction), the
-free metabolite goes on the to side. Weak Species reps (empty `bound`
-on both sides) default to the canonical binding direction
-(free metabolite on the from side)."""
+on the OPPOSITE side from where it changes binding state:
+
+- Binding (`E + S ⇌ E_S`): free metabolite on from-side
+  → `((:E, :S), (:E_S,), true)`.
+- Release (`E_S ⇌ E + P`): free metabolite on to-side
+  → `((:E_S,), (:E, :P), true)`.
+
+Direction is inferred in this priority order:
+
+1. `met` is statically bound in to_species → binding direction.
+2. `met` is statically bound in from_species → release direction.
+3. Bound-list size: more bound in from than to → release (something
+   left the complex); more bound in to than from → binding.
+4. Both bound lists same size or both empty (weak/opaque Species) →
+   default to binding (preserves the legacy convention).
+
+The bound-list-size fallback covers steps like `E(S) → E + P` where
+the released metabolite (`P`) isn't statically bound in either
+species: from carries more bound metabolites (`[S]`) than to (`[]`)
+so we infer release."""
 function _legacy_step_tuple(step::Step, g::Int)
     e_from = _species_sym(from_species(step))
     e_to   = _species_sym(to_species(step))
@@ -1429,11 +1441,15 @@ function _legacy_step_tuple(step::Step, g::Int)
         return ((e_from,), (e_to,), is_eq, g)
     end
     met_name = name(met)
-    bound_in_to = any(m -> m == met, bound(to_species(step)))
-    bound_in_from = any(m -> m == met, bound(from_species(step)))
+    from_bound = bound(from_species(step))
+    to_bound   = bound(to_species(step))
+    bound_in_to   = any(m -> m == met, to_bound)
+    bound_in_from = any(m -> m == met, from_bound)
     if bound_in_to
         return ((e_from, met_name), (e_to,), is_eq, g)
     elseif bound_in_from
+        return ((e_from,), (e_to, met_name), is_eq, g)
+    elseif length(from_bound) > length(to_bound)
         return ((e_from,), (e_to, met_name), is_eq, g)
     end
     ((e_from, met_name), (e_to,), is_eq, g)
