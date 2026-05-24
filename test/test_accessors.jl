@@ -3,8 +3,8 @@
         substrates: S
         products:   P
         steps: begin
-            E + S <--> ES
-            ES <--> E + P
+            E + S <--> E(S)
+            E(S) <--> E + P
         end
     end
 

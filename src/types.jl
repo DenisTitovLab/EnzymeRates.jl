@@ -1462,34 +1462,44 @@ function _legacy_step_tuple(step::Step, g::Int)
 end
 
 """Return substrates as a tuple of `Symbol` names."""
-function substrates(em::EnzymeMechanism{Sig}) where {Sig}
+@generated function substrates(::EnzymeMechanism{Sig}) where {Sig}
     if _is_new_sig(Sig)
-        Tuple(name(metabolite(ra)) for ra in reactants(reaction(Mechanism(em)))
-              if metabolite(ra) isa Substrate)
-    else
-        Sig[1][1]
+        names = Symbol[]
+        for entry in Sig[1][1]
+            kind, nm = entry[1]
+            kind === :Substrate && push!(names, nm)
+        end
+        return Tuple(names)
     end
+    Sig[1][1]
 end
 substrates(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = S
 
 """Return products as a tuple of `Symbol` names."""
-function products(em::EnzymeMechanism{Sig}) where {Sig}
+@generated function products(::EnzymeMechanism{Sig}) where {Sig}
     if _is_new_sig(Sig)
-        Tuple(name(metabolite(ra)) for ra in reactants(reaction(Mechanism(em)))
-              if metabolite(ra) isa Product)
-    else
-        Sig[1][2]
+        names = Symbol[]
+        for entry in Sig[1][1]
+            kind, nm = entry[1]
+            kind === :Product && push!(names, nm)
+        end
+        return Tuple(names)
     end
+    Sig[1][2]
 end
 products(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} = P
 
 """Return regulators as a tuple of `Symbol` names."""
-function regulators(em::EnzymeMechanism{Sig}) where {Sig}
+@generated function regulators(::EnzymeMechanism{Sig}) where {Sig}
     if _is_new_sig(Sig)
-        Tuple(name(regulator(rm)) for rm in regulators(reaction(Mechanism(em))))
-    else
-        Sig[1][3]
+        names = Symbol[]
+        for entry in Sig[1][2]
+            _kind, nm = entry[1]
+            push!(names, nm)
+        end
+        return Tuple(names)
     end
+    Sig[1][3]
 end
 regulators(::EnzymeReactionLegacy{S,P,R,N}) where {S,P,R,N} =
     Tuple(r[1] for r in R)
@@ -1542,11 +1552,68 @@ of `Symbol`s in declaration order, deduplicated.
     Tuple(names)
 end
 
+"""Synthesize the legacy enzyme-form name from a Species sig
+`(bound_sigs, conformation, residual_sig)` — mirrors `name(::Species)`.
+Bound order matches `Species.bound`, which is sorted by name in the
+struct constructor and preserved by `_to_sig`."""
+function _species_name_from_sig(species_sig)
+    bound_sigs, conformation, residual_sig = species_sig
+    added_sig, sub_sig = residual_sig
+    has_res = !(isempty(added_sig) && isempty(sub_sig))
+    if isempty(bound_sigs) && !has_res
+        return conformation
+    end
+    parts = String[String(conformation)]
+    for b in bound_sigs
+        push!(parts, String(b[2]))
+    end
+    if has_res
+        push!(parts, "res")
+        for a in added_sig
+            push!(parts, "+" * String(a[2]))
+        end
+        for r in sub_sig
+            push!(parts, "-" * String(r[2]))
+        end
+    end
+    Symbol(join(parts, "_"))
+end
+
+"""Build a (lhs, rhs, is_eq, g) tuple from a Sig step at @generated time.
+Replicates `_legacy_step_tuple` direction inference using the bound-sig
+lists (which contain `(kind, name)` tuples)."""
+function _legacy_step_tuple_from_sig(step_sig, g::Int)
+    from_sig, to_sig, met_sig, is_eq, _src = step_sig
+    e_from = _species_name_from_sig(from_sig)
+    e_to   = _species_name_from_sig(to_sig)
+    if met_sig === nothing
+        return ((e_from,), (e_to,), is_eq, g)
+    end
+    met_name = met_sig[2]
+    from_bound = from_sig[1]
+    to_bound   = to_sig[1]
+    bound_in_to   = any(b -> b == met_sig, to_bound)
+    bound_in_from = any(b -> b == met_sig, from_bound)
+    if bound_in_to
+        return ((e_from, met_name), (e_to,), is_eq, g)
+    elseif bound_in_from
+        return ((e_from,), (e_to, met_name), is_eq, g)
+    elseif length(from_bound) > length(to_bound)
+        return ((e_from,), (e_to, met_name), is_eq, g)
+    end
+    ((e_from, met_name), (e_to,), is_eq, g)
+end
+
 """Return the reactions tuple `((lhs, rhs, is_eq, kinetic_group), ...)`."""
-function reactions(em::EnzymeMechanism{Sig}) where {Sig}
+@generated function reactions(::EnzymeMechanism{Sig}) where {Sig}
     if _is_new_sig(Sig)
-        mech = Mechanism(em)
-        return Tuple(_legacy_step_tuple(s, g) for (s, g) in _flat_steps(mech))
+        tuples = Any[]
+        for (g, group) in enumerate(Sig[2])
+            for step_sig in group
+                push!(tuples, _legacy_step_tuple_from_sig(step_sig, g))
+            end
+        end
+        return Tuple(tuples)
     end
     Sig[2]
 end
@@ -1613,25 +1680,32 @@ steps_in_group(m::EnzymeMechanism, g::Int) = steps_in_group(m, Val(g))
 Return distinct enzyme-form names (any symbol appearing in a step that is not a
 metabolite) as a tuple of `Symbol`s in step-order, deduplicated.
 """
-function enzyme_forms(em::EnzymeMechanism{Sig}) where {Sig}
+@generated function enzyme_forms(::EnzymeMechanism{Sig}) where {Sig}
     if _is_new_sig(Sig)
-        mech = Mechanism(em)
-        met_names = Set(metabolites(em))
+        # Collect metabolite names so a Species whose synthesized name
+        # coincidentally matches a metabolite (e.g., bare `:S` conformation)
+        # is excluded — matches legacy semantics.
+        met_names = Set{Symbol}()
+        for entry in Sig[1][1]
+            push!(met_names, entry[1][2])
+        end
+        for entry in Sig[1][2]
+            push!(met_names, entry[1][2])
+        end
         seen = Set{Symbol}()
         forms = Symbol[]
-        for (s, _) in _flat_steps(mech)
-            for nm in (_species_sym(from_species(s)),
-                       _species_sym(to_species(s)))
-                nm ∉ met_names && nm ∉ seen &&
-                    (push!(seen, nm); push!(forms, nm))
+        for group in Sig[2]
+            for step_sig in group
+                from_sig, to_sig, _, _, _ = step_sig
+                for sp_sig in (from_sig, to_sig)
+                    nm = _species_name_from_sig(sp_sig)
+                    nm ∉ met_names && nm ∉ seen &&
+                        (push!(seen, nm); push!(forms, nm))
+                end
             end
         end
         return Tuple(forms)
     end
-    _enzyme_forms_legacy(em)
-end
-
-@generated function _enzyme_forms_legacy(::EnzymeMechanism{Sig}) where {Sig}
     M, R = Sig
     met_names = Set{Symbol}()
     for group in M; for name in group; push!(met_names, name); end; end
