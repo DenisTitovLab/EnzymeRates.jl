@@ -69,13 +69,13 @@
             substrates: S
             products:   P
             steps: begin
-                E + S <--> ES
-                ES <--> E + P
+                E + S <--> E(S)
+                E(S) <--> E + P
             end
         end
         @test m isa EnzymeMechanism
         @test EnzymeRates.n_steps(m) == 2
-        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
+        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :E_S])
     end
 
     @testset "@enzyme_mechanism (new grammar)" begin
@@ -85,10 +85,10 @@
             regulators: I
 
             steps: begin
-                (E + S ⇌ ES, EP + S ⇌ EPS)
-                ES + I ⇌ ESI
-                ES <--> EP
-                EP ⇌ E + P
+                (E + S ⇌ E(S), E(P) + S ⇌ E(P, S))
+                E(S) + I ⇌ E(S, I)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end
         @test EnzymeRates.substrates(m) == (:S,)
@@ -150,9 +150,9 @@
             substrates: S[C]
             products:   P
             steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end))
 
@@ -164,9 +164,9 @@
                 ligands: A
             end
             steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end))
     end
@@ -179,9 +179,9 @@
             allosteric_regulators: I::OnlyT
 
             catalytic_steps: begin
-                E + F6P ⇌ E_F6P    :: EqualRT
-                E_F6P <--> E_F16BP :: EqualRT
-                E_F16BP ⇌ E + F16BP :: EqualRT
+                E + F6P ⇌ E(F6P)         :: EqualRT
+                E(F6P) <--> E(F16BP)     :: EqualRT
+                E(F16BP) ⇌ E + F16BP     :: EqualRT
             end
         end
         @test m isa EnzymeRates.AllostericEnzymeMechanism
@@ -193,9 +193,9 @@
             products:   F16BP
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + F6P ⇌ E_F6P :: EqualRT
-                E_F6P <--> E_F16BP
-                E_F16BP ⇌ E + F16BP :: EqualRT
+                E + F6P ⇌ E(F6P) :: EqualRT
+                E(F6P) <--> E(F16BP)
+                E(F16BP) ⇌ E + F16BP :: EqualRT
             end
         end))
 
@@ -205,9 +205,9 @@
             products:   F16BP
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + F6P ⇌ E_F6P :: EqualRT
-                E_F6P <--> E_F16BP :: OnlyT
-                E_F16BP ⇌ E + F16BP :: EqualRT
+                E + F6P ⇌ E(F6P) :: EqualRT
+                E(F6P) <--> E(F16BP) :: OnlyT
+                E(F16BP) ⇌ E + F16BP :: EqualRT
             end
         end))
 
@@ -218,9 +218,9 @@
             catalytic_multiplicity: 2
             allosteric_regulators: I, J::OnlyT
             catalytic_steps: begin
-                E + F6P ⇌ E_F6P :: EqualRT
-                E_F6P <--> E_F16BP :: EqualRT
-                E_F16BP ⇌ E + F16BP :: EqualRT
+                E + F6P ⇌ E(F6P) :: EqualRT
+                E(F6P) <--> E(F16BP) :: EqualRT
+                E(F16BP) ⇌ E + F16BP :: EqualRT
             end
         end))
 
@@ -230,9 +230,9 @@
             products:   P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                (E + S ⇌ ES, E_A + S ⇌ ES_A)
-                ES_A <--> EP   :: EqualRT
-                EP ⇌ E + P      :: EqualRT
+                (E + S ⇌ E(S), E(A) + S ⇌ E(A, S))
+                E(A, S) <--> E(P)   :: EqualRT
+                E(P) ⇌ E + P        :: EqualRT
             end
         end))
     end
@@ -347,14 +347,14 @@
             substrates: S
             products:   P
             steps: begin
-                E + S <--> ES
-                ES <--> E + P
+                E + S <--> E(S)
+                E(S) <--> E + P
             end
         end
         @test m isa EnzymeMechanism
         @test EnzymeRates.n_steps(m) == 2
         @test EnzymeRates.n_states(m) == 2
-        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
+        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :E_S])
         @test Set(metabolites(m)) == Set([:S, :P])
 
         # Numeric check: same as Uni-Uni spot check
@@ -368,18 +368,22 @@
             substrates: A, B
             products:   P, Q
             steps: begin
-                E + A <--> EA
-                EA <--> FP
-                FP <--> F + P
-                F + B <--> FB
-                FB <--> EQ
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E(A) <--> F(P)
+                F(P) <--> F + P
+                F + B <--> F(B)
+                F(B) <--> E(Q)
+                E(Q) <--> E + Q
             end
         end
         @test EnzymeRates.n_states(m2) == 6
     end
 
     @testset "Elementary steps" begin
+        # Kept opaque: decomposed grammar validates ≤1 metabolite/side
+        # at macro-expansion time, which `@test_throws` does not catch.
+        # The opaque path defers the check to the constructor at runtime,
+        # which is what `@test_throws` here is asserting.
         @test_throws ErrorException @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -401,9 +405,9 @@
             products:   P
             regulators: I
             steps: begin
-                E + S <--> ES
-                ES <--> E + P
-                E + I <--> EI
+                E + S <--> E(S)
+                E(S) <--> E + P
+                E + I <--> E(I)
             end
         end
         @test m isa EnzymeMechanism
@@ -415,8 +419,8 @@
             substrates: S
             products:   P
             steps: begin
-                E + S <--> ES
-                ES <--> E + P
+                E + S <--> E(S)
+                E(S) <--> E + P
             end
         end
         @test m isa EnzymeMechanism
@@ -429,12 +433,12 @@
             substrates: A, B
             products:   P, Q
             steps: begin
-                (E + A ⇌ EA, EB + A ⇌ EAB)
-                E + B ⇌ EB
-                EA + B ⇌ EAB
-                EAB <--> EPQ
-                EPQ ⇌ EQ + P
-                EQ ⇌ E + Q
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                E + B ⇌ E(B)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) ⇌ E(Q) + P
+                E(Q) ⇌ E + Q
             end
         end
         @test m isa EnzymeMechanism

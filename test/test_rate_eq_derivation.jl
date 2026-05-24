@@ -1005,9 +1005,9 @@ end
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ ES   :: OnlyR
-            ES <--> EP  :: EqualRT
-            EP ⇌ E + P   :: EqualRT
+            E + S ⇌ E(S)     :: OnlyR
+            E(S) <--> E(P)   :: EqualRT
+            E(P) ⇌ E + P     :: EqualRT
         end
     end
     concs = (S=1.0, P=0.001)
@@ -1026,9 +1026,9 @@ end
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ ES   :: EqualRT
-            ES <--> EP  :: OnlyR
-            EP ⇌ E + P   :: EqualRT
+            E + S ⇌ E(S)     :: EqualRT
+            E(S) <--> E(P)   :: OnlyR
+            E(P) ⇌ E + P     :: EqualRT
         end
     end
     vparams = (K1=0.1, k2f=10.0, K3=0.5, Keq=1000.0, E_total=1.0)
@@ -1048,9 +1048,9 @@ end
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ ES    :: OnlyT
-            ES <--> EP   :: EqualRT
-            EP ⇌ E + P    :: EqualRT
+            E + S ⇌ E(S)     :: OnlyT
+            E(S) <--> E(P)   :: EqualRT
+            E(P) ⇌ E + P     :: EqualRT
         end
     end))
 
@@ -1060,9 +1060,9 @@ end
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ ES    :: EqualRT
-            ES <--> EP   :: EqualRT
-            EP ⇌ E + P    :: OnlyT
+            E + S ⇌ E(S)     :: EqualRT
+            E(S) <--> E(P)   :: EqualRT
+            E(P) ⇌ E + P     :: OnlyT
         end
     end))
 
@@ -1072,9 +1072,9 @@ end
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ ES    :: EqualRT
-            ES <--> EP   :: OnlyT
-            EP ⇌ E + P    :: EqualRT
+            E + S ⇌ E(S)     :: EqualRT
+            E(S) <--> E(P)   :: OnlyT
+            E(P) ⇌ E + P     :: EqualRT
         end
     end))
 
@@ -1086,9 +1086,9 @@ end
         allosteric_regulators: I::EqualRT
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ ES  :: EqualRT
-            ES <--> EP :: EqualRT
-            EP ⇌ E + P  :: EqualRT
+            E + S ⇌ E(S)     :: EqualRT
+            E(S) <--> E(P)   :: EqualRT
+            E(P) ⇌ E + P     :: EqualRT
         end
     end))
 
@@ -1121,9 +1121,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            E + S ⇌ ES
-            ES <--> EP
-            EP ⇌ E + P
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
         end
     end
     m_mix = EnzymeRates.AllostericEnzymeMechanism(
@@ -1152,9 +1152,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            E + S ⇌ E_S
-            E_S <--> E_P
-            E + P ⇌ E_P
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
         end
     end
     m_mixed = EnzymeRates.AllostericEnzymeMechanism(
@@ -1178,9 +1178,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            E + S ⇌ ES
-            ES <--> EP
-            EP ⇌ E + P
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
         end
     end
     @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
@@ -1197,9 +1197,9 @@ end
         allosteric_regulators: R::NonequalRT
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + P ⇌ E_P  :: NonequalRT
-            E + S ⇌ E_S  :: NonequalRT
-            E_S <--> E_P :: NonequalRT
+            E + P ⇌ E(P)     :: NonequalRT
+            E + S ⇌ E(S)     :: NonequalRT
+            E(S) <--> E(P)   :: NonequalRT
         end
     end
     actual = rate_equation_string(m_allo)
@@ -1217,9 +1217,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            E + S ⇌ ES
-            ES <--> EP
-            EP ⇌ E + P
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
         end
     end
 

@@ -105,9 +105,9 @@ end
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ ES
-                    ES <--> EP
-                    EP ⇌ E + P
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E(P) ⇌ E + P
                 end
             end
             params = NamedTuple{Tuple(EnzymeRates.parameters(m))}(

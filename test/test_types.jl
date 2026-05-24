@@ -41,9 +41,9 @@
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end
 
@@ -118,9 +118,9 @@
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end
         # Dense format: (multiplicity, cat_allo_states) and (ligands, mult, reg_allo_states)
@@ -140,9 +140,9 @@
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end
 
@@ -165,9 +165,9 @@
 
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + S ⇌ ES    :: EqualRT
-                ES <--> EP    :: OnlyR
-                EP ⇌ E + P    :: EqualRT
+                E + S ⇌ E(S)     :: EqualRT
+                E(S) <--> E(P)   :: OnlyR
+                E(P) ⇌ E + P     :: EqualRT
             end
         end
         @test EnzymeRates.catalytic_multiplicity(m) == 2
@@ -292,31 +292,31 @@
             substrates: S
             products:   P
             steps: begin
-                E + S <--> ES
-                ES <--> E + P
+                E + S <--> E(S)
+                E(S) <--> E + P
             end
         end
         @test sprint(show, m) ==
-            "EnzymeMechanism: E + S <--> ES <--> E + P"
+            "EnzymeMechanism: E + S <--> E_S <--> E + P"
 
         # Branched mechanism: multi-line with header summary.
         m_b = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
             steps: begin
-                E + A <--> EA
-                E + B <--> EB
-                EA + B <--> EAB
-                EB + A <--> EAB
-                EAB <--> EPQ
-                EPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E + B <--> E(B)
+                E(A) + B <--> E(A, B)
+                E(B) + A <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
         s = sprint(show, m_b)
         @test startswith(s, "EnzymeMechanism (7 steps, 6 enzyme forms):")
-        @test contains(s, "E + A <--> EA")
-        @test contains(s, "EQ <--> E + Q")
+        @test contains(s, "E + A <--> E_A")
+        @test contains(s, "E_Q <--> E + Q")
 
         # Linear chain with canonical RE binding: chain-walk renders the
         # release step in reverse so the chain stays linear.
@@ -324,13 +324,13 @@
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end
         @test sprint(show, m_re) ==
-            "EnzymeMechanism: E + S ⇌ ES <--> EP ⇌ E + P"
+            "EnzymeMechanism: E + S ⇌ E_S <--> E_P ⇌ E + P"
 
         # Mechanism with regulators: appended at end.
         m_reg = @enzyme_mechanism begin
@@ -338,9 +338,9 @@
             products:   P
             regulators: I
             steps: begin
-                E + S <--> ES
-                ES <--> E + P
-                E + I <--> EI
+                E + S <--> E(S)
+                E(S) <--> E + P
+                E + I <--> E(I)
             end
         end
         @test contains(sprint(show, m_reg), "| regulators: I")
@@ -361,9 +361,9 @@
             allosteric_regulators: I::OnlyT
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + F6P ⇌ E_F6P   :: EqualRT
-                E_F6P <--> E_F16BP :: EqualRT
-                E_F16BP ⇌ E + F16BP :: EqualRT
+                E + F6P ⇌ E(F6P)         :: EqualRT
+                E(F6P) <--> E(F16BP)     :: EqualRT
+                E(F16BP) ⇌ E + F16BP     :: EqualRT
             end
         end
         s_allo = sprint(show, m_allo)
@@ -484,9 +484,9 @@
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end
         # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
@@ -532,9 +532,9 @@
             allosteric_regulators: I::NonequalRT, J::OnlyT
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + S ⇌ ES    :: NonequalRT
-                ES <--> EP   :: OnlyR
-                EP ⇌ E + P   :: EqualRT
+                E + S ⇌ E(S)     :: NonequalRT
+                E(S) <--> E(P)   :: OnlyR
+                E(P) ⇌ E + P     :: EqualRT
             end
         end
         s = sprint(show, m)
@@ -1226,9 +1226,9 @@
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end
         aem = EnzymeRates.AllostericEnzymeMechanism(
@@ -1273,9 +1273,9 @@
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
             end
         end
         aem = EnzymeRates.AllostericEnzymeMechanism(
