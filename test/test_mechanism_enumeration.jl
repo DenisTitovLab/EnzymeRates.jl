@@ -1,148 +1,26 @@
 # ABOUTME: Tests for mechanism enumeration pipeline
 # ABOUTME: Unit tests per move + integration tests per reaction
 
-using EnzymeRates: StepSpec, MechanismSpec, AllostericMechanismSpec,
-    AbstractMechanismSpec
+"""
+    raw_spec_from_em(em::EnzymeMechanism) → _RawSpec
+
+Build the internal `_RawSpec` scratch struct from a compiled
+`EnzymeMechanism` by lifting `em` to a `Mechanism` and routing through
+`_raw_from_mechanism`. Used in tests to probe spec-form helpers
+(`_expand_substrate_product_dead_ends`, `_forms_with_binding_step`,
+`_bound_metabolites_at_forms`) with a known mechanism literal.
+"""
+raw_spec_from_em(em::EnzymeMechanism) =
+    EnzymeRates._raw_from_mechanism(EnzymeRates.Mechanism(em))
 
 """
-    mechanism_spec_from_mechanism_and_rxn(m::EnzymeMechanism, rxn::EnzymeReactionLegacy)
-        → MechanismSpec
+    raw_allo_spec_from_em(em::AllostericEnzymeMechanism) → _RawAllostericSpec
 
-Build a `MechanismSpec` from a compiled `EnzymeMechanism` and a
-reaction. `m` carries the catalytic structure (steps, kinetic groups);
-`rxn` carries reaction-level metadata (atom counts, declared regulators)
-that `EnzymeMechanism` does not store. The two inputs are validated
-internally for consistency before the spec is built:
-
-- `substrates(m)` and `substrates(rxn)` names must match exactly.
-- `products(m)` and `products(rxn)` names must match exactly.
-- `regulators(m)` must be a subset of `regulators(rxn)`. The subset
-  rule allows hybrid construction where the mechanism does not yet
-  bind every regulator declared in the reaction (e.g., the seed for
-  `_expand_add_dead_end_regulator` tests).
-
-Throws `ErrorException` on any inconsistency, with a descriptive
-message identifying the disagreement.
+Allosteric counterpart of `raw_spec_from_em`. Lifts `em` to an
+`AllostericMechanism` then converts via `_raw_from_mechanism`.
 """
-mechanism_spec_from_mechanism_and_rxn(m::EnzymeMechanism,
-                                      rxn::EnzymeReaction) =
-    mechanism_spec_from_mechanism_and_rxn(m, EnzymeRates._to_legacy_reaction(rxn))
-
-function mechanism_spec_from_mechanism_and_rxn(
-    m::EnzymeMechanism,
-    @nospecialize(rxn::EnzymeReactionLegacy))
-    m_subs = Set(EnzymeRates.substrates(m))
-    rxn_subs = Set(s[1] for s in EnzymeRates.substrates(rxn))
-    m_subs == rxn_subs ||
-        error("mechanism_spec_from_mechanism_and_rxn: substrate names " *
-              "disagree — m=$m_subs, rxn=$rxn_subs")
-    m_prods = Set(EnzymeRates.products(m))
-    rxn_prods = Set(p[1] for p in EnzymeRates.products(rxn))
-    m_prods == rxn_prods ||
-        error("mechanism_spec_from_mechanism_and_rxn: product names " *
-              "disagree — m=$m_prods, rxn=$rxn_prods")
-    m_regs = Set(EnzymeRates.regulators(m))
-    rxn_regs = Set(EnzymeRates.regulators(rxn))
-    m_regs ⊆ rxn_regs ||
-        error("mechanism_spec_from_mechanism_and_rxn: m has regulators " *
-              "$(setdiff(m_regs, rxn_regs)) not declared in rxn")
-
-    rxns = EnzymeRates.reactions(m)
-    steps = StepSpec[]
-    for (lhs, rhs, is_eq, gnum) in rxns
-        push!(steps, StepSpec(
-            collect(lhs), collect(rhs), is_eq, gnum))
-    end
-    MechanismSpec(
-        rxn, steps,
-        length(EnzymeRates.fitted_params(m)))
-end
-
-"""
-    allosteric_spec_from_mechanism_and_rxn(m::AllostericEnzymeMechanism,
-                                           rxn::EnzymeReactionLegacy)
-        → AllostericMechanismSpec
-
-Build an `AllostericMechanismSpec` from a compiled
-`AllostericEnzymeMechanism` and a reaction. Symmetric to
-`mechanism_spec_from_mechanism_and_rxn`: `m` carries the catalytic
-structure and the R/T-state tags; `rxn` carries reaction-level metadata
-that the compiled mechanism does not store. Validated internally for
-consistency before the spec is built:
-
-- `substrates(m)` and `substrates(rxn)` names must match exactly.
-- `products(m)` and `products(rxn)` names must match exactly.
-- The union of catalytic regulators (`regulators(catalytic_mechanism(m))`)
-  and allosteric regulators (`regulators(m)`) must be a subset of
-  `regulators(rxn)`.
-- `oligomeric_state(rxn) == catalytic_multiplicity(m)`.
-
-`AllostericMechanismSpec` uses dense Dict storage — every kinetic group
-and every regulator ligand has an explicit `group_tags` /
-`reg_ligand_tags` entry — so the spec build itself is a pure
-pass-through (no `:NonequalRT` filtering).
-
-Throws `ErrorException` on any inconsistency, with a descriptive
-message identifying the disagreement.
-"""
-allosteric_spec_from_mechanism_and_rxn(m::AllostericEnzymeMechanism,
-                                       rxn::EnzymeReaction) =
-    allosteric_spec_from_mechanism_and_rxn(m, EnzymeRates._to_legacy_reaction(rxn))
-
-function allosteric_spec_from_mechanism_and_rxn(
-    m::AllostericEnzymeMechanism,
-    @nospecialize(rxn::EnzymeReactionLegacy))
-    cm = EnzymeRates.catalytic_mechanism(m)
-    m_subs = Set(EnzymeRates.substrates(m))
-    rxn_subs = Set(s[1] for s in EnzymeRates.substrates(rxn))
-    m_subs == rxn_subs ||
-        error("allosteric_spec_from_mechanism_and_rxn: substrate names " *
-              "disagree — m=$m_subs, rxn=$rxn_subs")
-    m_prods = Set(EnzymeRates.products(m))
-    rxn_prods = Set(p[1] for p in EnzymeRates.products(rxn))
-    m_prods == rxn_prods ||
-        error("allosteric_spec_from_mechanism_and_rxn: product names " *
-              "disagree — m=$m_prods, rxn=$rxn_prods")
-    # Allosteric m: regulators(m) returns allosteric-only;
-    # regulators(catalytic_mechanism(m)) returns catalytic-side dead-ends.
-    m_regs = Set(EnzymeRates.regulators(cm)) ∪ Set(EnzymeRates.regulators(m))
-    rxn_regs = Set(EnzymeRates.regulators(rxn))
-    m_regs ⊆ rxn_regs ||
-        error("allosteric_spec_from_mechanism_and_rxn: m has regulators " *
-              "$(setdiff(m_regs, rxn_regs)) not declared in rxn")
-    EnzymeRates.oligomeric_state(rxn) == EnzymeRates.catalytic_multiplicity(m) ||
-        error("allosteric_spec_from_mechanism_and_rxn: oligomeric_state " *
-              "disagrees — m=$(EnzymeRates.catalytic_multiplicity(m)), " *
-              "rxn=$(EnzymeRates.oligomeric_state(rxn))")
-
-    base_spec = mechanism_spec_from_mechanism_and_rxn(cm, rxn)
-
-    cat_n = EnzymeRates.catalytic_multiplicity(m)
-
-    group_tags = Dict{Int, Symbol}()
-    for g in EnzymeRates.kinetic_groups(EnzymeRates.catalytic_mechanism(m))
-        group_tags[g] = EnzymeRates.cat_allo_state(m, g)
-    end
-
-    n_reg_sites = length(EnzymeRates.regulatory_sites(m))
-    reg_sites = Vector{Symbol}[]
-    multiplicities = Int[]
-    reg_ligand_tags = Dict{Symbol, Symbol}()
-    for i in 1:n_reg_sites
-        ligs = collect(EnzymeRates.regulatory_site_ligands(m, i))
-        push!(reg_sites, ligs)
-        push!(multiplicities,
-            EnzymeRates.regulatory_site_multiplicity(m, i))
-        for lig in ligs
-            reg_ligand_tags[lig] = EnzymeRates.reg_allo_state(m, i, lig)
-        end
-    end
-
-    AllostericMechanismSpec(
-        base_spec, cat_n, reg_sites, multiplicities,
-        group_tags, reg_ligand_tags,
-        length(EnzymeRates.fitted_params(m)))
-end
+raw_allo_spec_from_em(em::AllostericEnzymeMechanism) =
+    EnzymeRates._raw_from_mechanism(EnzymeRates.AllostericMechanism(em))
 
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
@@ -275,25 +153,7 @@ end
     @testset "Uni-Uni" begin
         topos = EnzymeRates._catalytic_topologies(uni_uni_rxn)
         @test length(topos) == 1
-
-        # NOTE: this `===` round-trip test requires the seed mechanism to be
-        # compiled via the same code path as `EnzymeMechanism(spec)` —
-        # i.e., the legacy Sig encoding. The `mechanism_spec_from_mechanism_and_rxn`
-        # → `EnzymeMechanism(spec)` round-trip goes through the legacy path,
-        # so the seed must stay in opaque-Symbol form for type-identity to hold.
-        m_uu = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E_P
-                E + S ⇌ E_S
-                E_S <--> E_P
-            end
-        end
-        spec_rt = mechanism_spec_from_mechanism_and_rxn(
-            m_uu, uni_uni_rxn)
-        @test EnzymeMechanism(spec_rt) === m_uu
-        @test EnzymeMechanism(topos[1]) === m_uu
+        # Every topology has exactly one SS step (the iso).
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t.steps) == 1
@@ -697,8 +557,7 @@ end
             E(S) <--> E(P)
         end
     end
-    spec_uu = mechanism_spec_from_mechanism_and_rxn(
-        m_uu, uni_uni_rxn)
+    spec_uu = raw_spec_from_em(m_uu)
     @test EnzymeRates._forms_with_binding_step(
         spec_uu.steps, :S) == Set([:E])
     @test EnzymeRates._forms_with_binding_step(
@@ -720,8 +579,7 @@ end
             E(A, B) <--> E(P, Q)
         end
     end
-    spec_bb = mechanism_spec_from_mechanism_and_rxn(
-        m_bb, bi_bi_rxn)
+    spec_bb = raw_spec_from_em(m_bb)
     @test EnzymeRates._forms_with_binding_step(
         spec_bb.steps, :B) == Set([:E, :E_A])
     @test EnzymeRates._forms_with_binding_step(
@@ -839,7 +697,7 @@ end
                 E(S) <--> E(P)
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_uni_rxn)
+        spec = raw_spec_from_em(m)
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [spec], uni_uni_rxn)
@@ -877,7 +735,7 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, bi_bi_rxn)
+        spec = raw_spec_from_em(m)
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [spec], bi_bi_rxn)
@@ -901,7 +759,7 @@ end
                 E(S) <--> E(P, Q)
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m, uni_bi_rxn)
+        spec = raw_spec_from_em(m)
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [spec], uni_bi_rxn)
@@ -925,8 +783,7 @@ end
                 Estar(B) ⇌ E(Q)
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(
-            m, bi_bi_pp_rxn)
+        spec = raw_spec_from_em(m)
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [spec], bi_bi_pp_rxn)
@@ -966,8 +823,7 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end
-        spec_bb = mechanism_spec_from_mechanism_and_rxn(
-            m_bb, bi_bi_rxn)
+        spec_bb = raw_spec_from_em(m_bb)
 
         # Note: the variant count assertion (length == 7) is covered by
         # the "Bi-Bi random: 4 dead-end forms" sub-testset higher in this
@@ -1054,30 +910,18 @@ end
 end
 
 @testset "AllostericEnzymeMechanism TR equivalence" begin
-    base_rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
+    # Steps with kinetic_group 1 = S binding (RE, :EqualRT),
+    # 2 = P binding (RE, :OnlyR), 3 = iso (SS, :NonequalRT).
+    m_compiled = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)             :: EqualRT
+            E + P ⇌ E(P)             :: OnlyR
+            E(S) <--> E(P)           :: NonequalRT
+        end
     end
-    # Steps with kinetic_group: 1 = S binding (RE),
-    # 2 = P binding (RE), 3 = iso (SS).
-    base_steps = [
-        StepSpec([:E, :S], [:E_S], true, 1),
-        StepSpec([:E, :P], [:E_P], true, 2),
-        StepSpec([:E_S], [:E_P], false, 3),
-    ]
-    base_spec = MechanismSpec(base_rxn, base_steps, 3)
-
-    # S binding (group 1) is `:EqualRT` (K_T_S = K_R_S),
-    # P binding (group 2) is `:OnlyR` (absent from T-state).
-    # Iso (group 3) is `:NonequalRT` (default).
-    allo_spec = AllostericMechanismSpec(
-        base_spec, 2,
-        Vector{Symbol}[], Int[],
-        Dict(1 => :EqualRT, 2 => :OnlyR, 3 => :NonequalRT),
-        Dict{Symbol, Symbol}(),
-        base_spec.n_fit_params_estimate + 1)
-
-    m_compiled = AllostericEnzymeMechanism(allo_spec)
     @test EnzymeRates.cat_allo_state(m_compiled, 1) == :EqualRT
     @test EnzymeRates.cat_allo_state(m_compiled, 2) == :OnlyR
 end
@@ -1086,94 +930,26 @@ end
 # 2. Initialization (compile_mechanism + init_mechanisms)
 # ═══════════════════════════════════════════════════════════════════════
 
-# ─── compile_mechanism / EnzymeMechanism round-trip ────────────────────
-@testset "compile_mechanism round-trip" begin
-    # Round-trip lossless invariant: for any mechanism built via the DSL,
-    # mechanism_spec_from_mechanism_and_rxn ∘ EnzymeMechanism (== compile_mechanism)
-    # returns the same singleton type. Validates the helper AND the
-    # constructor's bidirectional consistency.
+# ─── compile_mechanism dispatch ────────────────────────────────────────
+@testset "compile_mechanism dispatch" begin
+    # `compile_mechanism` dispatches a `Mechanism` to the
+    # `EnzymeMechanism` constructor and an `AllostericMechanism` to the
+    # `AllostericEnzymeMechanism` constructor. Verify both legs.
+    m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    @test EnzymeRates.compile_mechanism(m) === EnzymeMechanism(m)
 
-    # uni-uni
-    m_uu = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + P ⇌ E_P
-            E + S ⇌ E_S
-            E_S <--> E_P
-        end
-    end
-    spec_uu = mechanism_spec_from_mechanism_and_rxn(m_uu, uni_uni_rxn)
-    @test EnzymeMechanism(spec_uu) === m_uu
-
-    # bi-bi sequential
-    m_seq = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A ⇌ E_A
-            E_A + B ⇌ E_A_B
-            E + Q ⇌ E_Q
-            E_Q + P ⇌ E_P_Q
-            E_A_B <--> E_P_Q
-        end
-    end
-    spec_seq = mechanism_spec_from_mechanism_and_rxn(m_seq, bi_bi_rxn)
-    @test EnzymeMechanism(spec_seq) === m_seq
-
-    # bi-bi ping-pong
-    m_pp = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A ⇌ E_A
-            Estar + B ⇌ Estar_B
-            E + Q ⇌ E_Q
-            Estar + P ⇌ Estar_A_P
-            E_A <--> Estar_A_P
-            Estar_B ⇌ E_Q
-        end
-    end
-    spec_pp = mechanism_spec_from_mechanism_and_rxn(m_pp, bi_bi_pp_rxn)
-    @test EnzymeMechanism(spec_pp) === m_pp
-
-    # uni-uni with dead-end inhibitor (regulator strip in the round-trip)
-    m_uu_i = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        regulators: I
-        steps: begin
-            E + P ⇌ E_P
-            E + S ⇌ E_S
-            E_S <--> E_P
-            E + I ⇌ E_I
-        end
-    end
-    spec_uu_i = mechanism_spec_from_mechanism_and_rxn(m_uu_i, uni_uni_with_reg)
-    @test EnzymeMechanism(spec_uu_i) === m_uu_i
-
-    # Dispatch: compile_mechanism dispatches correctly to the right type-specific
-    # constructor. Verify by comparing to the explicit constructor.
-    @test EnzymeRates.compile_mechanism(spec_uu) === EnzymeMechanism(spec_uu)
-    @test EnzymeRates.compile_mechanism(spec_seq) === EnzymeMechanism(spec_seq)
-
-    # Also verify dispatch for AllostericMechanismSpec via a small allosteric
-    # seed (this overlaps with the dedicated allosteric round-trip testset
-    # but is part of the dispatch contract).
-    m_allo_dispatch = @allosteric_mechanism begin
+    am_seed = @allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + P ⇌ E_P    :: EqualRT
-            E + S ⇌ E_S    :: EqualRT
-            E_S <--> E_P   :: EqualRT
+            E + P ⇌ E(P)   :: EqualRT
+            E + S ⇌ E(S)   :: EqualRT
+            E(S) <--> E(P) :: EqualRT
         end
     end
-    spec_allo_dispatch = allosteric_spec_from_mechanism_and_rxn(
-        m_allo_dispatch, uni_uni_allo)
-    @test EnzymeRates.compile_mechanism(spec_allo_dispatch) ===
-        AllostericEnzymeMechanism(spec_allo_dispatch)
+    am = EnzymeRates.AllostericMechanism(am_seed)
+    @test EnzymeRates.compile_mechanism(am) === AllostericEnzymeMechanism(am)
 end
 
 # ─── init_mechanisms ───────────────────────────────────────────────────
@@ -1193,7 +969,7 @@ end
             (bi_bi_rxn, 2, 2),
             (bi_bi_pp_rxn, 2, 2),
         ]
-            specs = EnzymeRates._init_mechanism_specs(rxn)
+            specs = EnzymeRates._init_raw_specs(rxn)
             min_pc = n_s + n_p + 1
             for s in specs
                 @test s.n_fit_params_estimate >= min_pc
@@ -1207,7 +983,7 @@ end
         # Formula: n_re_groups + 2*n_ss_groups - n_thermo = 2 + 2 - 1 = 3.
         # length(fitted_params(m)) for uni-uni init = 3 (K1, K2, k3f).
         # Estimate must equal actual on the simplest case.
-        init_specs = EnzymeRates._init_mechanism_specs(uni_uni_rxn)
+        init_specs = EnzymeRates._init_raw_specs(uni_uni_rxn)
         @test !isempty(init_specs)
         spec = first(init_specs)
         m = EnzymeRates.compile_mechanism(spec)
@@ -1248,7 +1024,7 @@ end
         # RE→SS expansions add more SS steps; init never does.
         for rxn in [uni_uni_rxn, uni_bi_rxn,
                     bi_bi_rxn, bi_bi_pp_rxn]
-            specs = EnzymeRates._init_mechanism_specs(rxn)
+            specs = EnzymeRates._init_raw_specs(rxn)
             for s in specs
                 @test count(st -> !st.is_equilibrium, s.steps) == 1
             end
@@ -1260,17 +1036,17 @@ end
         # the same metabolite into one kinetic group (one shared K).
         # For bi-bi, metabolites like :B appear in multiple binding steps
         # (e.g. E+B⇌E_B and E_A+B⇌E_A_B) — these must share one kinetic_group.
-        specs = EnzymeRates._init_mechanism_specs(bi_bi_rxn)
+        specs = EnzymeRates._init_raw_specs(bi_bi_rxn)
         @test !isempty(specs)
         n_assertions_fired = 0
         for spec in specs
-            by_metabolite = Dict{Symbol, Vector{EnzymeRates.StepSpec}}()
+            by_metabolite = Dict{Symbol, Vector{EnzymeRates._RawStep}}()
             for step in spec.steps
                 step.is_equilibrium || continue
                 length(step.reactants) == 2 || continue
                 met = step.reactants[2]
                 push!(get!(by_metabolite, met,
-                           EnzymeRates.StepSpec[]), step)
+                           EnzymeRates._RawStep[]), step)
             end
             for (_met, steps) in by_metabolite
                 length(steps) >= 2 || continue
@@ -1295,7 +1071,7 @@ end
         # the actual fitted-param count must respect the upper-bound
         # invariant. Tests first 5 specs per reaction to cap @generated cost.
         for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
-            specs = EnzymeRates._init_mechanism_specs(rxn)
+            specs = EnzymeRates._init_raw_specs(rxn)
             for spec in first(specs, 5)
                 m = EnzymeMechanism(spec)
                 @test m isa EnzymeMechanism
@@ -1360,7 +1136,7 @@ end
             products: P[C], Q[N]
             dead_end_inhibitors: I
         end
-        specs = EnzymeRates._init_mechanism_specs(rxn)
+        specs = EnzymeRates._init_raw_specs(rxn)
         floor_pc = 2 + 2 + 1   # n_subs + n_prods + 1
         # All init specs must have pc >= floor.
         for spec in specs
@@ -2057,8 +1833,8 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, bi_bi_rxn)
-        m = EnzymeRates._mechanism_from_spec(spec)
+        spec = raw_spec_from_em(m_seed)
+        m = EnzymeRates._mechanism_from_raw(spec)
 
         result = EnzymeRates._expand_split_kinetic_group(m)
 
@@ -2107,8 +1883,8 @@ end
                 E(S) <--> E(P)
             end
         end
-        spec = mechanism_spec_from_mechanism_and_rxn(m_seed, uni_uni_rxn)
-        m = EnzymeRates._mechanism_from_spec(spec)
+        spec = raw_spec_from_em(m_seed)
+        m = EnzymeRates._mechanism_from_raw(spec)
         @test isempty(EnzymeRates._expand_split_kinetic_group(m))
     end
 
@@ -2135,7 +1911,7 @@ end
             products: P[C], Q[N]
             oligomeric_state: 2
         end
-        spec = allosteric_spec_from_mechanism_and_rxn(m_seed, bi_bi_allo_rxn)
+        spec = raw_allo_spec_from_em(m_seed)
         am = EnzymeRates.AllostericMechanism(
             EnzymeRates.AllostericEnzymeMechanism(spec))
 
@@ -2977,7 +2753,7 @@ end
         # 5. compilability via the spec bridge (Mechanism →
         # AllostericMechanismSpec → AllostericEnzymeMechanism).
         for r in result
-            spec_r = EnzymeRates._spec_from_mechanism(r)
+            spec_r = EnzymeRates._raw_from_mechanism(r)
             @test EnzymeRates.AllostericEnzymeMechanism(spec_r) isa
                 EnzymeRates.AllostericEnzymeMechanism
         end
@@ -3788,7 +3564,7 @@ end
     # alongside cat_steps (catalytic side) and produce the same
     # regulatory_sites ordering (regulatory side) regardless of input
     # site order.
-    specs = EnzymeRates._init_mechanism_specs(uni_uni_allo)
+    specs = EnzymeRates._init_raw_specs(uni_uni_allo)
     base = first(specs)
     used_groups = sort!(collect(
         Set(s.kinetic_group for s in base.steps)))
@@ -3796,12 +3572,12 @@ end
         g => :EqualRT for g in used_groups)
     lig_tags = Dict{Symbol, Symbol}(
         :A => :OnlyR, :B => :OnlyT)
-    spec_ab = AllostericMechanismSpec(
+    spec_ab = EnzymeRates._RawAllostericSpec(
         base, 2,
         Vector{Symbol}[[:A], [:B]], Int[2, 4],
         copy(group_tags), copy(lig_tags),
         base.n_fit_params_estimate + 4)
-    spec_ba = AllostericMechanismSpec(
+    spec_ba = EnzymeRates._RawAllostericSpec(
         base, 2,
         Vector{Symbol}[[:B], [:A]], Int[4, 2],   # sites swapped, multiplicities follow
         copy(group_tags), copy(lig_tags),
@@ -3840,19 +3616,19 @@ end
     # AllostericMechanism: differing site multiplicities → unequal (different
     # hashes, in keeping with the spec-side `_dedup_key` contract that
     # multiplicities are part of the structural identity).
-    specs = EnzymeRates._init_mechanism_specs(uni_uni_allo)
+    specs = EnzymeRates._init_raw_specs(uni_uni_allo)
     base = first(specs)
     used_groups = sort!(collect(
         Set(s.kinetic_group for s in base.steps)))
     group_tags = Dict{Int, Symbol}(
         g => :EqualRT for g in used_groups)
     lig_tags = Dict{Symbol, Symbol}(:A => :OnlyR)
-    spec_m2 = AllostericMechanismSpec(
+    spec_m2 = EnzymeRates._RawAllostericSpec(
         base, 2,
         Vector{Symbol}[[:A]], Int[2],
         copy(group_tags), copy(lig_tags),
         base.n_fit_params_estimate + 2)
-    spec_m4 = AllostericMechanismSpec(
+    spec_m4 = EnzymeRates._RawAllostericSpec(
         base, 2,
         Vector{Symbol}[[:A]], Int[4],   # different multiplicity
         copy(group_tags), copy(lig_tags),
@@ -3933,7 +3709,7 @@ end
     @testset "AllostericMechanism — same physics, site permutation" begin
         # Build two AllostericMechanisms via the legacy spec path and lift,
         # representing the same physics with sites in different order.
-        specs = EnzymeRates._init_mechanism_specs(uni_uni_allo)
+        specs = EnzymeRates._init_raw_specs(uni_uni_allo)
         base = first(specs)
         used_groups = sort!(collect(
             Set(s.kinetic_group for s in base.steps)))
@@ -3941,12 +3717,12 @@ end
             g => :NonequalRT for g in used_groups)
         lig_tags = Dict{Symbol, Symbol}(
             :A => :NonequalRT, :B => :NonequalRT)
-        spec_ab = AllostericMechanismSpec(
+        spec_ab = EnzymeRates._RawAllostericSpec(
             base, 2,
             [[:A], [:B]], [2, 2],
             copy(group_tags), copy(lig_tags),
             base.n_fit_params_estimate + 2)
-        spec_ba = AllostericMechanismSpec(
+        spec_ba = EnzymeRates._RawAllostericSpec(
             base, 2,
             [[:B], [:A]], [2, 2],
             copy(group_tags), copy(lig_tags),

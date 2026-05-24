@@ -170,3 +170,44 @@ the old shape).
 Per spec §2, no individual `@test` assertion has been weakened
 (`==` → `≈`, exact-value → `isa`, etc.). New work that touches
 `@test` lines must remain under the same constraint.
+
+---
+
+## Stage 7d.0 — commit TBD
+
+### test_mechanism_enumeration.jl `@testset "AllostericEnzymeMechanism TR equivalence"`
+- **Original**: built a `MechanismSpec` from a `StepSpec[]` literal,
+  wrapped in an `AllostericMechanismSpec`, then compiled to verify
+  `cat_allo_state` returns `:EqualRT` / `:OnlyR` for the seeded tags.
+- **Why removed**: the test was rewritten (not deleted): same assertions
+  now build the `AllostericEnzymeMechanism` directly via
+  `@allosteric_mechanism` DSL with per-step `:: AlloState` annotations.
+  Net `@test` count is unchanged; the test ID is the same. Listed here
+  only because Stage 7d.0's spec-type retirement triggered the rewrite.
+
+### test_mechanism_enumeration.jl `@testset "compile_mechanism round-trip"`
+- **Original (4 sub-tests)**: built a `MechanismSpec` via
+  `mechanism_spec_from_mechanism_and_rxn(m, rxn)` and asserted
+  `EnzymeMechanism(spec) === m` (round-trip type identity through
+  the spec path) for uni-uni, bi-bi sequential, bi-bi ping-pong, and
+  uni-uni-with-regulator seeds.
+- **Replacement**: NONE EQUIVALENT — the round-trip surface required
+  preserving the iso step's source-order direction (`E_S <--> E_P`
+  not `E_P <--> E_S`), which the `MechanismSpec`-via-`reactions(em)`
+  path did naturally but the `Mechanism`-via-`Step` path does not
+  (Step canonicalizes iso direction lex). The `===` type identity
+  cannot survive the canonicalization.
+- **Adjacent coverage**:
+  - `compile_mechanism dispatch` (replacement testset) verifies the
+    dispatch contract: `compile_mechanism(::Mechanism) ===
+    EnzymeMechanism(::Mechanism)` and
+    `compile_mechanism(::AllostericMechanism) ===
+    AllostericEnzymeMechanism(::AllostericMechanism)`. The "build a
+    Mechanism then lift" path is exercised by every `init_mechanisms`
+    output fixture (lifted via `EnzymeMechanism(m)` for the
+    rate-equation derivation tests).
+  - `_canonical_rate_eq_hash_partition` in
+    `test/test_canonical_hash_partition.jl` indirectly verifies that
+    DSL-built mechanisms produce stable canonical hashes; any
+    round-trip-induced semantic drift would surface as a hash
+    mismatch.

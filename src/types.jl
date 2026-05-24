@@ -753,7 +753,7 @@ struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 # as `(reaction_sig, steps_sig)` produced by `_sig_of`. The legacy-shape
 # Sig `(metabolites_3tuple, rxns_4tuple)` is produced by
 # `EnzymeMechanism(metabolites, reactions)` and the enumerator's
-# `EnzymeMechanism(spec::MechanismSpec)`; `Mechanism(em)` lifts either
+# `EnzymeMechanism(spec::_RawSpec)`; `Mechanism(em)` lifts either
 # shape so Stage 3 derivation consumers can walk a `Mechanism` uniformly.
 # Lift a `Mechanism` to its singleton `EnzymeMechanism` type. The Sig
 # stores each Step's data including `source_idx`, which the derivation
@@ -1364,7 +1364,7 @@ end
 #
 # - Legacy Sig `(metabolites_3tuple, rxns_4tuple)` — produced by
 #   `EnzymeMechanism(metabolites, reactions)` and the enumeration
-#   internals' `EnzymeMechanism(spec::MechanismSpec)`. The first slot
+#   internals' `EnzymeMechanism(spec::_RawSpec)`. The first slot
 #   is a 3-tuple of name `Tuple{Symbol,...}`s.
 # - New Sig `(reaction_sig, steps_sig)` — produced by
 #   `EnzymeMechanism(::Mechanism)` (via `_sig_of`). The first slot is
