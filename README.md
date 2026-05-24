@@ -42,9 +42,9 @@ m = @allosteric_mechanism begin
     allosteric_regulators: A::OnlyR
 
     catalytic_steps: begin
-        E + S ⇌ ES      :: EqualRT
-        ES <--> EP     :: OnlyR
-        EP ⇌ E + P      :: EqualRT
+        E + S ⇌ E(S)         :: EqualRT
+        E(S) <--> E(P)       :: OnlyR
+        E(P) ⇌ E + P         :: EqualRT
     end
 end
 ```
