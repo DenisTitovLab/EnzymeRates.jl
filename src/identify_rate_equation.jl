@@ -12,24 +12,21 @@ Holds the reaction, experimental data, and equilibrium
 constant for rate equation identification.
 
 # Fields
-- `reaction`: the `EnzymeReactionLegacy` instance
+- `reaction`: the `EnzymeReaction` instance
 - `data`: `NamedTuple` of column vectors with `:group`,
   `:Rate`, and metabolite columns
 - `Keq`: fixed equilibrium constant
 """
 struct IdentifyRateEquationProblem{
-    R<:EnzymeReactionLegacy, D<:NamedTuple
+    R<:EnzymeReaction, D<:NamedTuple
 }
     reaction::R
     data::D
     Keq::Float64
 end
 
-IdentifyRateEquationProblem(reaction::EnzymeReaction, table; Keq::Real) =
-    IdentifyRateEquationProblem(_to_legacy_reaction(reaction), table; Keq=Keq)
-
 function IdentifyRateEquationProblem(
-    reaction::EnzymeReactionLegacy, table; Keq::Real
+    reaction::EnzymeReaction, table; Keq::Real
 )
     data = Tables.columntable(table)
     col_names = keys(data)
@@ -38,12 +35,13 @@ function IdentifyRateEquationProblem(
         req in col_names ||
             error("Missing required column: $req")
     end
-    # Extract metabolite names from reaction
-    # (substrates/products are (name, atoms) pairs)
+    # Extract metabolite names from reaction (struct accessors return
+    # Substrate/Product/RegulatorMults; pull the underlying Symbol via
+    # `name()`).
     mnames = tuple(
-        [s[1] for s in substrates(reaction)]...,
-        [p[1] for p in products(reaction)]...,
-        regulators(reaction)...,
+        (name(s) for s in substrates(reaction))...,
+        (name(p) for p in products(reaction))...,
+        (name(regulator(r)) for r in regulators(reaction))...,
     )
     for m in mnames
         m in col_names ||
@@ -401,7 +399,7 @@ function _beam_search(
     fit_cache = Dict{UInt64, _CachedFitResult}()
 
     cache = Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}()
-    for m in init_mechanisms(prob.reaction, Mechanism)
+    for m in init_mechanisms(prob.reaction)
         push!(get!(cache, _n_fit_params_estimate(m),
                    Union{Mechanism, AllostericMechanism}[]),
               m)
