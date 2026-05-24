@@ -380,17 +380,18 @@
     end
 
     @testset "Elementary steps" begin
-        # Kept opaque: decomposed grammar validates ≤1 metabolite/side
-        # at macro-expansion time, which `@test_throws` does not catch.
-        # The opaque path defers the check to the constructor at runtime,
-        # which is what `@test_throws` here is asserting.
-        @test_throws ErrorException @enzyme_mechanism begin
+        # The decomposed grammar's parser validates ≤1 metabolite/side
+        # at macro-expansion time. Wrap in `eval(:(...))` so the macro
+        # expansion happens at runtime where `@test_throws` can catch
+        # the LoadError that wraps the parser's exception (same pattern
+        # as lines 149, 160 above).
+        @test_throws Exception eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S + P <--> ESP
+                E + S + P <--> E(S, P)
             end
-        end
+        end))
 
         spec = @enzyme_reaction begin
             substrates: S[C]

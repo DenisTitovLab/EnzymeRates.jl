@@ -4348,9 +4348,9 @@ end
             products: P
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E_c + S ⇌ E_S    :: NonequalRT
-                E_c + P ⇌ E_P    :: NonequalRT
-                E_S <--> E_P     :: OnlyR
+                E_c + S ⇌ E_c(S)      :: NonequalRT
+                E_c + P ⇌ E_c(P)      :: NonequalRT
+                E_c(S) <--> E_c(P)    :: OnlyR
             end
         end
         @test EnzymeRates._t_state_dead(m)
@@ -4527,9 +4527,9 @@ end # top-level testset
                 products: P
                 catalytic_multiplicity: 2
                 catalytic_steps: begin
-                    E_c + S ⇌ E_S    :: NonequalRT
-                    E_c + P ⇌ E_P    :: NonequalRT
-                    E_S <--> E_P     :: OnlyR
+                    E_c + S ⇌ E_c(S)      :: NonequalRT
+                    E_c + P ⇌ E_c(P)      :: NonequalRT
+                    E_c(S) <--> E_c(P)    :: OnlyR
                 end
             end
             # Pre-assertion: the raw body actually contains T-state tokens.

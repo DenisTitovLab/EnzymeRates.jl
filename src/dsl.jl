@@ -382,12 +382,14 @@ _term_metabolite(sym::Symbol) = _StepSideTerm(
 _term_bare_enzyme(sym::Symbol) = _StepSideTerm(
     sym, :bare_enzyme, sym, Symbol[], Symbol[], Symbol[])
 
-# A bare Symbol is "conformation-shaped" iff it matches a single capital
-# letter followed by any number of lowercase letters: :E, :Estar, :Eprime.
-# Multi-capital or underscore-bearing Symbols (:ES, :EAB, :E_S) are
-# opaque legacy enzyme-form names.
+# A bare Symbol is "conformation-shaped" iff it starts with a single
+# capital letter followed by any mix of lowercase letters, digits, and
+# underscore-separated lowercase/digit run: :E, :Estar, :Estar2, :E_c,
+# :E_secondary. Multi-capital Symbols (:ES, :EAB) and underscore-then-
+# uppercase Symbols (:E_S, :Estar_A_B) are opaque legacy enzyme-form
+# names — rejected so the dual-grammar emission picks the legacy path.
 _is_conformation_shape(sym::Symbol) =
-    occursin(r"^[A-Z][a-z]*$", String(sym))
+    occursin(r"^[A-Z][a-z0-9]*(_[a-z0-9]+)*$", String(sym))
 
 # True iff every bare-enzyme term in the parsed steps is decomposed-
 # compatible. A bare-enzyme term `:X` is compatible iff `:X` is either
