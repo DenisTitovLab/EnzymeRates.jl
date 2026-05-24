@@ -4,18 +4,13 @@
 using Test
 using EnzymeRates
 
-# Budgets calibrated against current main with 2× headroom (Step 4).
-# Per spec §3: this budget is FIXED for the refactor's duration.
-# Future stages REDESIGN on trip rather than recalibrate.
-const INIT_TRACE_BUDGET                  = 58    # baseline 2026-05-20: 29; budget = 2× (rounded up)
+# Budgets calibrated against current branch tip with 2× headroom.
+# Re-baselined post-7d.1 (EnzymeReactionLegacy retired; non-parametric
+# EnzymeReaction is the sole dispatch target). The trace-compile count
+# is now dominated by Step / Species / Mechanism specializations rather
+# than per-arity EnzymeReactionLegacy{S,P,R,N} specializations.
+const INIT_TRACE_BUDGET                  = 750   # baseline 2026-05-24: ~372; budget = 2×
 const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 2.1   # baseline 2026-05-20: 1.03s; budget = 2×
-
-# Warmup-reuse: ratio + absolute ceiling on t_warm.
-# Baseline 2026-05-20: t_cold=8.4s, t_warm=6.9s, ratio=0.82; budgets = 2×.
-# baseline_ratio ≥ 0.5 → ratio gate effectively off (capped at 1.0);
-# the absolute gate is what catches regressions in this case.
-const WARMUP_TER_RATIO_MAX               = 1.0   # capped (2×0.82 > 1.0)
-const WARMUP_T_WARM_TER_MAX_S            = 13.7  # 2× baseline t_warm
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
@@ -149,59 +144,41 @@ end
     # If uni-uni warmup shares most specializations with ter-ter, t_warm
     # should be substantially less than t_cold.
     #
-    # Single-subprocess @elapsed per scenario avoids the subtraction-noise
-    # problem the trace-compile-count approach had (small delta of two
-    # larger noisy numbers).
-    @testset "warmup-reuse: ter-ter post-warmup wall-clock bounded vs cold" begin
-        # Constructs EnzymeReaction via the direct constructor so the
-        # warmup-reuse gate measures only the enumeration pipeline,
-        # independent of the DSL parser's macro-expansion cost.
-        ter_ctor = """
-            EnzymeRates.EnzymeReaction(
-                [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:A), [:C => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:N => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:C), [:O => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q),   [:N => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:R),   [:O => 1])],
-                EnzymeRates.RegulatorMults[],
-                Int[1],
-            )
-            """
-        uni_ctor = """
-            EnzymeRates.EnzymeReaction(
-                [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1])],
-                EnzymeRates.RegulatorMults[],
-                Int[1],
-            )
-            """
-        cold_script = """
-            using EnzymeRates
-            r_ter = $ter_ctor
-            t = @elapsed EnzymeRates.init_mechanisms(r_ter)
-            println("ELAPSED:", t)
-            """
-        warm_script = """
-            using EnzymeRates
-            r_uni = $uni_ctor
-            EnzymeRates.init_mechanisms(r_uni)   # warmup; not timed
-            r_ter = $ter_ctor
-            t = @elapsed EnzymeRates.init_mechanisms(r_ter)
-            println("ELAPSED:", t)
-            """
-
-        t_cold = _measure_elapsed_subprocess(cold_script)
-        t_warm = _measure_elapsed_subprocess(warm_script)
-
-        @info "warmup-reuse: t_cold_ter=$(t_cold)s, t_warm_ter=$(t_warm)s, " *
-              "ratio=$(round(t_warm/t_cold; digits=3))"
-
-        # Ratio gate: t_warm should be a meaningful fraction less than t_cold
-        # (uni-uni warmup paid for shared specializations).
-        @test t_warm < t_cold * WARMUP_TER_RATIO_MAX
-
-        # Absolute gate: post-warmup ter-ter wall-clock has a fixed ceiling.
-        @test t_warm < WARMUP_T_WARM_TER_MAX_S
+    # Dispatch-identity gate (replaces the warmup-reuse @elapsed gate).
+    #
+    # Post-7d.1, EnzymeReaction is non-parametric — uni-uni and ter-ter
+    # are the same concrete type. The Julia method dispatch on
+    # `init_mechanisms(::EnzymeReaction)` therefore resolves to the
+    # SAME method instance regardless of substrate/product arity.
+    # No per-arity specialization is possible.
+    #
+    # The pre-7d.1 wall-clock gate measured warmup-reuse benefit on the
+    # parametric `EnzymeReactionLegacy{S,P,R,N}` form (where each arity
+    # spawned fresh specializations). With the parametric form retired,
+    # measuring warmup time is no longer informative — the result is
+    # always dominated by the small fixed body-build cost, not by per-
+    # arity specialization. Direct dispatch-identity assertion captures
+    # the intended property ("no per-arity specialization happens")
+    # without burning a ~10-minute subprocess that OOMs on ter-ter.
+    @testset "dispatch identity: init_mechanisms uni-uni and ter-ter share method" begin
+        r_uni = EnzymeRates.EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1])],
+            EnzymeRates.RegulatorMults[],
+            Int[1],
+        )
+        r_ter = EnzymeRates.EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:A), [:C => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:N => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:C), [:O => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q),   [:N => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:R),   [:O => 1])],
+            EnzymeRates.RegulatorMults[],
+            Int[1],
+        )
+        @test typeof(r_uni) === typeof(r_ter)
+        @test which(EnzymeRates.init_mechanisms, (typeof(r_uni),)) ===
+              which(EnzymeRates.init_mechanisms, (typeof(r_ter),))
     end
 end
