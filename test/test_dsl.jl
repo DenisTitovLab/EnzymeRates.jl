@@ -8,14 +8,14 @@
             substrates: S
             products:   P
             steps: begin
-                E + S <--> E(S)
-                E(S) <--> E(P)
-                E(P) <--> E + P
+                E + S ⇌ E(S)
+                E(S) ⇌ E(P)
+                E(P) ⇌ E + P
             end
         end
         mech = EnzymeRates.Mechanism(m)
         @test length(mech.steps) == 3
-        es_step = first(mech.steps)[1]                  # E + S => E(S)
+        es_step = first(mech.steps)[1]                  # E + S ⇌ E(S)
         @test EnzymeRates.conformation(es_step.to_species) == :E
         @test EnzymeRates.bound(es_step.to_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
@@ -23,10 +23,12 @@
         @test EnzymeRates.conformation(es_step.from_species) == :E
         @test isempty(EnzymeRates.bound(es_step.from_species))
 
-        # Second step: E(S) <--> E(P) — iso. The `Step` constructor
-        # canonicalizes iso direction by lex on species name, so
+        # Second step: E(S) ⇌ E(P) — RE iso. The `Step` constructor
+        # canonicalizes RE iso direction by lex on species name, so
         # `E_P` (lex-smaller) becomes `from_species` and `E_S` becomes
-        # `to_species`. Both sides are decomposed regardless.
+        # `to_species`. SS iso steps (`<-->`) would preserve source
+        # direction instead — see test_types.jl
+        # "Step canonicalizes RE iso direction, preserves SS iso".
         iso_step = mech.steps[2][1]
         @test EnzymeRates.bound(iso_step.from_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Product(:P)]

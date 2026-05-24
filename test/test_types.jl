@@ -871,15 +871,26 @@
         @test EnzymeRates.to_species(released) === e_s
     end
 
-    @testset "Step canonicalizes iso direction" begin
+    @testset "Step canonicalizes RE iso direction, preserves SS iso" begin
         e_s = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
         e_p = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Product(:P)], :E)
-        fwd = EnzymeRates.Step(e_s, e_p, nothing, false)
-        rev = EnzymeRates.Step(e_p, e_s, nothing, false)
-        @test fwd == rev
-        @test hash(fwd) == hash(rev)
+
+        # RE iso: deterministic lex-on-name canonicalization for dedup.
+        re_fwd = EnzymeRates.Step(e_s, e_p, nothing, true)
+        re_rev = EnzymeRates.Step(e_p, e_s, nothing, true)
+        @test re_fwd == re_rev
+        @test hash(re_fwd) == hash(re_rev)
+
+        # SS iso: direction preserved (kf/kr labels are direction-sensitive;
+        # analytical formulas reference :kNf as source-forward). See
+        # CLAUDE.md "Canonical Step Form".
+        ss_fwd = EnzymeRates.Step(e_s, e_p, nothing, false)
+        ss_rev = EnzymeRates.Step(e_p, e_s, nothing, false)
+        @test ss_fwd != ss_rev
+        @test EnzymeRates.from_species(ss_fwd) === e_s
+        @test EnzymeRates.from_species(ss_rev) === e_p
     end
 
     @testset "Parameter family: step-bound, Kreg, mechanism-level" begin

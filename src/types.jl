@@ -160,11 +160,12 @@ struct Step
             if is_equilibrium && in_from && !in_to
                 from_species, to_species = to_species, from_species
             end
-        else
-            # Iso steps: deterministic direction by lex on name(from_species).
-            # Stronger ordering (substrate-then-product-content tiebreak) may
-            # be needed once consumers exist; today's invariant is determinism
-            # only.
+        elseif is_equilibrium
+            # RE iso steps: deterministic direction by lex on name(from_species).
+            # SS iso steps are NOT canonicalized — their kf/kr labels are
+            # direction-sensitive (analytical formulas reference :kNf as the
+            # source-forward rate constant), so swapping would silently flip
+            # rate-equation output. See CLAUDE.md "Canonical Step Form".
             if string(name(from_species)) > string(name(to_species))
                 from_species, to_species = to_species, from_species
             end
