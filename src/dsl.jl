@@ -391,30 +391,27 @@ _term_bare_enzyme(sym::Symbol) = _StepSideTerm(
 _is_conformation_shape(sym::Symbol) =
     occursin(r"^[A-Z][a-z0-9]*(_[a-z0-9]+)*$", String(sym))
 
-# True iff every bare-enzyme term in the parsed steps is decomposed-
-# compatible. A bare-enzyme term `:X` is compatible iff `:X` is either
-# (a) seen as a Call-form head in this steps block, or (b) matches the
-# single-cap-then-lower conformation shape.
-function _all_bare_terms_compatible(side_terms_per_step,
-                                    call_heads::Set{Symbol})
-    for (_, lhs, rhs) in side_terms_per_step
+# Raise a clear migration error if any bare-enzyme term is an opaque
+# bound-form name. A bare-enzyme term `:X` is acceptable iff `:X` is a
+# Call-form head seen in this steps block (`E` in `E(S)`) OR matches the
+# single-cap-then-lower conformation shape (`:E`, `:Estar`, `:E_c`).
+function _assert_no_opaque_terms(side_terms_per_step)
+    call_heads = Set{Symbol}()
+    for (_, lhs, rhs, _) in side_terms_per_step
+        for t in (lhs..., rhs...)
+            t.kind === :call && push!(call_heads, t.conformation)
+        end
+    end
+    for (_, lhs, rhs, _) in side_terms_per_step
         for t in (lhs..., rhs...)
             t.kind === :bare_enzyme || continue
-            (t.sym in call_heads || _is_conformation_shape(t.sym)) ||
-                return false
+            (t.sym in call_heads || _is_conformation_shape(t.sym)) && continue
+            error("@enzyme_mechanism: `$(t.sym)` looks like an opaque " *
+                  "bound-form name; write it as decomposed call notation, " *
+                  "e.g. `E(S)` or `E(A, B)`.")
         end
     end
-    true
-end
-
-# True iff at least one Call-form term was used.
-function _any_call_form(side_terms_per_step)
-    for (_, lhs, rhs) in side_terms_per_step
-        for t in (lhs..., rhs...)
-            t.kind === :call && return true
-        end
-    end
-    false
+    nothing
 end
 
 # Walk a residual arithmetic expression (`A`, `A - P`, `S1 + S2 - P1 - P3`, etc.)
@@ -583,32 +580,9 @@ function _parse_plain_mechanism_body(block)
     rxns_expr, side_terms_per_step =
         _parse_steps_block_with_groups(steps_block, declared_mets)
 
-    if _should_emit_new_grammar(side_terms_per_step)
-        return _build_mechanism_expr(subs_list, prods_list, regs_list,
-                                     role_of, side_terms_per_step)
-    end
-
-    mets_expr = Expr(:tuple,
-        Expr(:tuple, QuoteNode.(subs_list)...),
-        Expr(:tuple, QuoteNode.(prods_list)...),
-        Expr(:tuple, QuoteNode.(regs_list)...),
-    )
-    :(EnzymeMechanism($mets_expr, $rxns_expr))
-end
-
-# Decide whether to emit the new `EnzymeMechanism(Mechanism(...))` shape.
-# Triggered by: at least one Call-form term AND every bare-enzyme term
-# is decomposed-compatible (matches a Call-form head seen elsewhere or
-# matches the single-cap-then-lower conformation shape).
-function _should_emit_new_grammar(side_terms_per_step)
-    _any_call_form(side_terms_per_step) || return false
-    call_heads = Set{Symbol}()
-    for (_, lhs, rhs) in side_terms_per_step
-        for t in (lhs..., rhs...)
-            t.kind === :call && push!(call_heads, t.conformation)
-        end
-    end
-    _all_bare_terms_compatible(side_terms_per_step, call_heads)
+    _assert_no_opaque_terms(side_terms_per_step)
+    return _build_mechanism_expr(subs_list, prods_list, regs_list,
+                                 role_of, side_terms_per_step)
 end
 
 # Build the `EnzymeMechanism(Mechanism(reaction, grouped_steps))` Expr

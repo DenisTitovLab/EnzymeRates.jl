@@ -318,6 +318,17 @@
         end))
     end
 
+    @testset "opaque bound-form names are rejected" begin
+        @test_throws Exception eval(:(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> ES
+                ES <--> E + P
+            end
+        end))
+    end
+
     @testset "@enzyme_reaction with oligomeric_state" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
