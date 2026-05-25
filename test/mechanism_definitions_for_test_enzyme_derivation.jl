@@ -212,10 +212,10 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABEPQ
-                EABEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
@@ -310,10 +310,10 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> EAFP
-                EAFP <--> F + P
-                F + B <--> FBEQ
-                FBEQ <--> E + Q
+                E + A <--> E(A)
+                E(A) <--> F + P
+                F + B <--> F(B)
+                F(B) <--> E + Q
             end
         end
 
@@ -359,11 +359,11 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q
             steps: begin
-                E + A <--> EA
-                EA + B <--> EAB
-                EAB + C <--> EABCEPQ
-                EABCEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) + C <--> E(A, B, C)
+                E(A, B, C) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
@@ -422,12 +422,12 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                E + A <--> EA
-                EA + B <--> EAB
-                EAB + C <--> EABCEPQR
-                EABCEPQR <--> EQR + P
-                EQR <--> ER + Q
-                ER <--> E + R
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) + C <--> E(A, B, C)
+                E(A, B, C) <--> E(Q, R) + P
+                E(Q, R) <--> E(R) + Q
+                E(R) <--> E + R
             end
         end
 
