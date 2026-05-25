@@ -319,12 +319,24 @@
     end
 
     @testset "opaque bound-form names are rejected" begin
-        @test_throws Exception eval(:(@enzyme_mechanism begin
+        @test_throws "opaque bound-form name" eval(:(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
                 E + S <--> ES
                 ES <--> E + P
+            end
+        end))
+    end
+
+    @testset "@allosteric_mechanism rejects opaque bound-form names" begin
+        @test_throws "opaque bound-form name" eval(:(@allosteric_mechanism begin
+            substrates: S
+            products: P
+            allosteric_regulators: I::OnlyT
+            catalytic_steps: begin
+                E + S <--> ES :: EqualRT
+                ES <--> E + P :: EqualRT
             end
         end))
     end

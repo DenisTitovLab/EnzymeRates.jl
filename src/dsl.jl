@@ -577,7 +577,7 @@ function _parse_plain_mechanism_body(block)
     for p in prods_list; role_of[p] = :Product;              end
     for r in regs_list;  role_of[r] = :CompetitiveInhibitor; end
 
-    rxns_expr, side_terms_per_step =
+    _, side_terms_per_step =
         _parse_steps_block_with_groups(steps_block, declared_mets)
 
     _assert_no_opaque_terms(side_terms_per_step)
@@ -1151,16 +1151,20 @@ function _parse_allosteric_mechanism_body(block)
     declared_mets = Set{Symbol}(subs_list) ∪ Set{Symbol}(prods_list) ∪
                     Set{Symbol}(cat_inhibitors) ∪
                     Set{Symbol}(name for (name, _) in allo_regs)
-    rxns_expr, group_tags, _ = _parse_steps_block_with_groups(
+
+    role_of = Dict{Symbol,Symbol}()
+    for s in subs_list;       role_of[s] = :Substrate;            end
+    for p in prods_list;      role_of[p] = :Product;              end
+    for i in cat_inhibitors;  role_of[i] = :CompetitiveInhibitor; end
+    for (r, _) in allo_regs;  role_of[r] = :AllostericRegulator;  end
+
+    _, group_tags, side_terms_per_step = _parse_steps_block_with_groups(
         cat_steps_block, declared_mets; allow_tag=true,
     )
 
-    cm_mets_expr = Expr(:tuple,
-        Expr(:tuple, QuoteNode.(subs_list)...),
-        Expr(:tuple, QuoteNode.(prods_list)...),
-        Expr(:tuple, QuoteNode.(cat_inhibitors)...),
-    )
-    cm_expr = :(EnzymeMechanism($cm_mets_expr, $rxns_expr))
+    _assert_no_opaque_terms(side_terms_per_step)
+    cm_expr = _build_mechanism_expr(subs_list, prods_list, cat_inhibitors,
+                                    role_of, side_terms_per_step)
 
     cat_sites_expr = _build_cat_sites_expr(cat_n, group_tags)
     reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
