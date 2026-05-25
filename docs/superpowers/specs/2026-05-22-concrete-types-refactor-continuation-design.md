@@ -592,3 +592,70 @@ the continuation's working assumptions (do not roll them back):
    `project_dedup_pass2_dead_code` was wrong; pass-2 Wegscheider
    absorption IS load-bearing for inhibitor/activator mechanisms.
    `_build_kinetic_rename_map` is kept.
+
+## 10. Finishing-phase addendum (2026-05-25)
+
+The previous session landed Stages 6β–7e but deferred three coupled
+cleanups: the opaque-form enumeration helpers, the 5 opaque-form Segel
+fixtures, and the legacy DSL emission + dual-Sig accessor branches. This
+addendum records the decisions that close them out.
+
+### 10.1 Lumped central-complex fixtures migrate by rename, not re-derivation
+
+The 5 fixtures (`:EABEPQ`, `:EAFP`/`:FBEQ`, `:EABCEPQ`, `:EABCEPQR`) use
+lumped central-complex node names. The deferred-work framing assumed
+moving them off opaque grammar required either re-deriving the textbook
+analytical formula for an explicit-iso split form, or replacing the
+analytical-comparison test with a synthetic-data fit.
+
+**Both are unnecessary.** A spike (Segel Ordered Bi Bi built both ways)
+showed the derived `rate_equation_string` is byte-for-byte identical
+between the opaque `EABEPQ` form and the decomposed single-node `E(A,B)`
+form: same `n_states`, `n_steps`, `fitted_params`, Haldane constraint,
+and denominator. Migration is therefore a **mechanical rename** of the
+lumped node to a single decomposed node (`EABEPQ → E(A,B)`,
+`EAFP → E(A)`, `FBEQ → F(B)`, …); the textbook formula is preserved.
+
+Why it works: `stoich_matrix` (`src/types.jl`) treats enzyme forms as
+opaque species *by name* (no atom-tracking of bound contents), so a
+fused catalytic-release step `E(A,B) <--> E(Q) + P` — where `P` was never
+bound in `E(A,B)` — is a valid stoichiometric column. Release direction
+is inferred by `_legacy_step_tuple`'s bound-list-size fallback
+(`length(from_bound) > length(to_bound)`). This keeps the lumped 4-step
+form 4 steps in decomposed grammar instead of forcing the 5-step
+explicit-iso split.
+
+### 10.2 No opaque-form escape hatch (Stage 7b.6 confirmed, reasoning corrected)
+
+The opaque bound-form grammar (`:EABEPQ`, `:E_S`) is removed from the
+macros. Users must write decomposed forms (`E(A,B)`, `E(P,Q)`)
+explicitly. §5 Stage 7b.6's "reject opaque bound-form Symbols at parse
+time" decision stands; only its premise changes — rejecting opaque forms
+does NOT force fixture re-derivation (per §10.1), so there is no cost to
+deleting the opaque path outright.
+
+### 10.3 Revised finishing sequence
+
+Stages collapse from the handoff's A→B→C into two phases:
+
+**Phase 1 — fixture rename + legacy-path removal** (low risk):
+1. Rename the 5 lumped fixtures to single decomposed nodes; their
+   analytical-rate tests stay green.
+2. DSL rejects opaque bound-form Symbols with a clear migration error.
+3. Delete the legacy DSL emission path, the 2-arg
+   `EnzymeMechanism(metabolites, reactions)` constructor, and
+   `_mechanism_from_legacy_sig`.
+4. Collapse the 12 `_is_new_sig` dual-Sig accessor branches to the
+   new-shape body; delete `_is_new_sig` and `_legacy_step_tuple` if dead.
+
+**Phase 2 — enumeration Symbol→struct rewrite** (high risk, last):
+Rewrite the topology backtracker + dead-end enumeration to operate on
+`Step`/decomposed `Species` instead of opaque `Symbol` working-rep;
+delete the parse-back helpers (`_parse_bound`,
+`_bound_mets_from_form_name`, `_dead_end_form_name`, `_is_estar_form`)
+and the topology-backtracker atom helpers as their callers disappear.
+
+All §8 non-negotiables (test integrity, perf gates, compile-budget,
+no `--amend`, no temporal-context comments, chokepoint exclusivity)
+apply unchanged. Verify the full suite + integrity check + compile-budget
++ `rate_equation` 0-alloc/<100ns gate after every commit.
