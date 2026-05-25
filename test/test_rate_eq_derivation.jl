@@ -929,22 +929,22 @@ end
         products: P, Q
         regulators: R1
         steps: begin
-            E + A <--> EA
-            EA <--> EAFP
-            EAFP <--> F + P
-            F + B <--> FB
-            FB <--> FBEQ
-            FBEQ <--> E + Q
-            E + R1 <--> E_R1
-            EA + R1 <--> EA_R1
-            EAFP + R1 <--> EAFP_R1
-            F + R1 <--> F_R1
-            FB + R1 <--> FB_R1
-            E_R1 + A <--> EA_R1
-            EA_R1 <--> EAFP_R1
-            EAFP_R1 <--> F_R1 + P
-            F_R1 + B <--> FB_R1
-            FB_R1 <--> E_R1 + Q
+            E + A <--> E(A)
+            E(A) <--> F(P)
+            F(P) <--> F + P
+            F + B <--> F(B)
+            F(B) <--> E(Q)
+            E(Q) <--> E + Q
+            E + R1 <--> E(R1)
+            E(A) + R1 <--> E(A, R1)
+            F(P) + R1 <--> F(P, R1)
+            F + R1 <--> F(R1)
+            F(B) + R1 <--> F(B, R1)
+            E(R1) + A <--> E(A, R1)
+            E(A, R1) <--> F(P, R1)
+            F(P, R1) <--> F(R1) + P
+            F(R1) + B <--> F(B, R1)
+            F(B, R1) <--> E(R1) + Q
         end
     end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
