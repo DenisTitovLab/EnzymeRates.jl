@@ -313,3 +313,25 @@ contract.
   Balance violations now manifest as `_can_pingpong` returning false
   on specific topologies (the enumerator silently skips
   infeasible ping-pong paths) rather than as constructor errors.
+
+## Finish-refactor Phase 1 — commit TBD (backfill SHA)
+
+### test_mechanism_definitions_for_test_enzyme_derivation.jl `MechanismTestSpec name="Segel Theorell-Chance Bi Bi"`
+- **Original**: a Theorell-Chance Bi Bi mechanism `E + A ⇌ EA + B ⇌ EQ + P ⇌ E + Q`
+  with an analytical rate (Segel Eq. IX-122) and an analytical kcat
+  (`p -> p.k3f`). Tested on `main`.
+- **Why removed**: un-representable in the concrete-types grammar. The middle
+  step `EA + B <--> EQ + P` *binds* B **and** *releases* P in a single
+  transition; `Step` carries one `bound_metabolite` field, so a compound
+  bimolecular bind+release cannot be encoded. Both the structs-throughout and
+  the concrete-types refactor attempts confirmed this — there is no decomposed
+  Species rename that preserves the lumped Theorell-Chance step graph. Denis
+  approved deletion (brainstorm 2026-05-25).
+- **Replacement**: NONE EQUIVALENT — the lumped bind+release Theorell-Chance
+  variant is intentionally not expressible.
+- **Adjacent coverage**: the bi-bi mechanism space is covered by **Segel Ordered
+  Bi Bi** (full ternary `E(A,B)` complex, sequential bind/release) and the
+  **Ping-Pong Bi Bi** family (covalent `F` intermediate). Theorell-Chance is the
+  zero-ternary-complex limit between them; its distinguishing feature (no
+  measurable central complex) is a rate-law simplification, not a new
+  elementary-step topology, so derivation coverage is not reduced.

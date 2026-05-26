@@ -169,9 +169,9 @@ function build_mechanism_test_specs()
             substrates: A
             products: P, Q
             steps: begin
-                E + A <--> EAEPQ
-                EAEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E(A) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
@@ -251,54 +251,6 @@ function build_mechanism_test_specs()
             expected_n_independent_params=7,
             analytical_rate_fn=(p, c) -> rate_ordered_bi_bi(merge(p, (Etotal=p.Et,)), c),
             analytical_kcat_fn=p -> p.k3f * p.k4f / (p.k3f + p.k4f),
-        ))
-    end
-
-    # 6. Segel Theorell-Chance Bi Bi (new): E + A ⇌ EA + B ⇌ EQ + P ⇌ E + Q
-    #    Reference: Segel, Enzyme Kinetics, Eq. IX-122
-    let
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A <--> EA
-                EA + B <--> EQ + P
-                EQ <--> E + Q
-            end
-        end
-
-        # Segel Eq. IX-122: Theorell-Chance Bi Bi steady-state rate
-        function rate_theorell_chance_bi_bi(params, concs)
-            (; k1f, k1r, k2f, k2r, k3f, k3r, Etotal) = params
-            (; A, B, P, Q) = concs
-            num = k1f * k2f * k3f * A * B - k1r * k2r * k3r * P * Q
-            denom = k1r * k3f +
-                    k1f * k3f * A +
-                    k2f * k3f * B +
-                    k1r * k2r * P +
-                    k1r * k3r * Q +
-                    k1f * k2f * A * B +
-                    k1f * k2r * A * P +
-                    k2f * k3r * B * Q +
-                    k2r * k3r * P * Q
-            return Etotal * num / denom
-        end
-
-        push!(specs, MechanismTestSpec(
-            name="Segel Theorell-Chance Bi Bi",
-            mechanism=m,
-            metabolite_names=[:A, :B, :P, :Q],
-            expected_n_states=3,
-            expected_n_steps=3,
-            expected_n_metabolites=4,
-            expected_n_haldane_constraints=1,
-            expected_n_mirror_constraints=0,
-            expected_n_wegscheider_constraints=0,
-            expected_n_independent_params=5,
-            analytical_rate_fn=(p, c) ->
-                rate_theorell_chance_bi_bi(
-                    merge(p, (Etotal=p.Et,)), c),
-            analytical_kcat_fn=p -> p.k3f,
         ))
     end
 
@@ -498,11 +450,11 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABFP
-                EABFP <--> F + P
-                F + C <--> FCEQ
-                FCEQ <--> E + Q
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> F + P
+                F + C <--> F(C)
+                F(C) <--> E + Q
             end
         end
 
@@ -587,12 +539,12 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABFP
-                EABFP <--> F + P
-                F + C <--> FCEQR
-                FCEQR <--> ER + Q
-                ER <--> E + R
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> F + P
+                F + C <--> F(C)
+                F(C) <--> E(R) + Q
+                E(R) <--> E + R
             end
         end
 
@@ -656,12 +608,12 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABFPQ
-                EABFPQ <--> FQ + P
-                FQ <--> F + Q
-                F + C <--> FCER
-                FCER <--> E + R
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> F(Q) + P
+                F(Q) <--> F + Q
+                F + C <--> F(C)
+                F(C) <--> E + R
             end
         end
 
@@ -725,12 +677,12 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                E + A <--> EAFP
-                EAFP <--> F + P
-                F + B <--> FBGQ
-                FBGQ <--> G + Q
-                G + C <--> GCER
-                GCER <--> E + R
+                E + A <--> E(A)
+                E(A) <--> F + P
+                F + B <--> F(B)
+                F(B) <--> G + Q
+                G + C <--> G(C)
+                G(C) <--> E + R
             end
         end
 
@@ -826,10 +778,10 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ EA
-                EA + B ⇌ EABEPQ
-                EABEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
