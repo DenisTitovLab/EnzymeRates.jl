@@ -1,148 +1,6 @@
 # ABOUTME: Mechanism enumeration by incremental parameter count growth
 # ABOUTME: Provides init_mechanisms, expand_mechanisms, dedup! building blocks
 
-# ─── Mechanism Spec Types ──────────────────────────────────────
-
-abstract type _AbstractRawSpec end
-
-"""
-Elementary step with kinetic-group tag. Steps sharing a `kinetic_group`
-share kinetic parameters (one `K` for RE groups, one `kf`/`kr` for SS).
-Canonical binding direction: metabolite on LHS for RE binding steps.
-"""
-struct _RawStep
-    reactants::Vector{Symbol}   # [:E, :S] or [:EAB]
-    products::Vector{Symbol}    # [:ES] or [:EPQ]
-    is_equilibrium::Bool
-    kinetic_group::Int
-end
-
-Base.:(==)(a::_RawStep, b::_RawStep) =
-    a.reactants == b.reactants &&
-    a.products == b.products &&
-    a.is_equilibrium == b.is_equilibrium &&
-    a.kinetic_group == b.kinetic_group
-
-Base.hash(s::_RawStep, h::UInt) =
-    hash(s.kinetic_group, hash(s.is_equilibrium,
-        hash(s.products, hash(s.reactants, h))))
-
-"""
-    _RawSpec <: _AbstractRawSpec
-
-Monomeric enzyme mechanism specification. Steps are `_RawStep` values
-with inline form names, equilibrium status, and kinetic-group tag.
-Same-group steps share kinetic parameters.
-"""
-struct _RawSpec <: _AbstractRawSpec
-    reaction::Any
-    steps::Vector{_RawStep}
-    n_fit_params_estimate::Int
-end
-
-"""
-    _RawAllostericSpec <: _AbstractRawSpec
-
-Allosteric enzyme mechanism built from a base `_RawSpec`. Each
-catalytic kinetic group and each regulator-site ligand carries an
-allosteric state tag indicating its R/T-state relationship. Tags:
-`:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`.
-
-`group_tags` and `reg_ligand_tags` use **dense** Dict storage — every
-kinetic group present in `base.steps` has an explicit entry in
-`group_tags`, and every ligand listed in `allosteric_reg_sites` has an
-explicit entry in `reg_ligand_tags`. The default tag for newly
-constructed specs is `:NonequalRT`, but it is stored explicitly rather
-than implied by Dict absence. The constructor validates this density.
-
-`group_tags` maps `kinetic_group → tag`.
-`reg_ligand_tags` maps `ligand → tag`.
-"""
-struct _RawAllostericSpec <: _AbstractRawSpec
-    base::_RawSpec
-    catalytic_n::Int
-    allosteric_reg_sites::Vector{Vector{Symbol}}
-    allosteric_multiplicities::Vector{Int}
-    group_tags::Dict{Int, Symbol}
-    reg_ligand_tags::Dict{Symbol, Symbol}
-    n_fit_params_estimate::Int
-
-    function _RawAllostericSpec(
-        base::_RawSpec,
-        catalytic_n::Int,
-        allosteric_reg_sites::Vector{Vector{Symbol}},
-        allosteric_multiplicities::Vector{Int},
-        group_tags::Dict{Int, Symbol},
-        reg_ligand_tags::Dict{Symbol, Symbol},
-        n_fit_params_estimate::Int,
-    )
-        used_groups = Set(s.kinetic_group for s in base.steps)
-        for g in used_groups
-            haskey(group_tags, g) || error(
-                "_RawAllostericSpec: kinetic_group $g present " *
-                "in base.steps but missing from group_tags " *
-                "(dense storage required).")
-        end
-        for site in allosteric_reg_sites
-            for lig in site
-                haskey(reg_ligand_tags, lig) || error(
-                    "_RawAllostericSpec: ligand $lig listed in " *
-                    "allosteric_reg_sites but missing from " *
-                    "reg_ligand_tags (dense storage required).")
-            end
-        end
-        new(base, catalytic_n, allosteric_reg_sites,
-            allosteric_multiplicities, group_tags,
-            reg_ligand_tags, n_fit_params_estimate)
-    end
-end
-
-# ─── _RawStep Helpers ──────────────────────────────────────────
-
-"""Return the metabolite for a step, or nothing for isomerization."""
-step_metabolite(s::_RawStep) =
-    length(s.reactants) == 2 ? s.reactants[2] : nothing
-
-"""Return (from_form, to_form) for a step."""
-step_forms(s::_RawStep) = (s.reactants[1], s.products[1])
-
-"""Collect all unique form names from steps."""
-function all_form_names(spec::_RawSpec)
-    forms = Set{Symbol}()
-    for s in spec.steps
-        push!(forms, s.reactants[1])
-        push!(forms, s.products[1])
-    end
-    forms
-end
-
-function all_form_names(steps::Vector{_RawStep})
-    forms = Set{Symbol}()
-    for s in steps
-        push!(forms, s.reactants[1])
-        push!(forms, s.products[1])
-    end
-    forms
-end
-
-"""
-    _forms_with_binding_step(steps, metabolite)
-        → Set{Symbol}
-
-Return source forms that have a binding step for `metabolite`.
-The source form is the one that doesn't contain the metabolite
-(the reactant side of a binding step).
-"""
-function _forms_with_binding_step(
-    steps::Vector{_RawStep}, metabolite::Symbol,
-)
-    result = Set{Symbol}()
-    for s in steps
-        step_metabolite(s) === metabolite || continue
-        push!(result, s.reactants[1])
-    end
-    result
-end
 
 # ─── Stage 1: Catalytic Topologies ───────────────────────────
 
@@ -297,7 +155,7 @@ function _release_products!(
 end
 
 """
-    _catalytic_topologies(reaction) -> Vector{_RawSpec}
+    _catalytic_topologies(reaction) -> Vector{Vector{Step}}
 
 Build catalytic cycle topologies by constructive backtracking.
 Each topology is a set of steps forming one or more complete
@@ -645,7 +503,7 @@ function _catalytic_topologies(
         Symbol[], Symbol[], false, false, Step[]
     )
 
-    isempty(all_paths) && return _RawSpec[]
+    isempty(all_paths) && return Vector{Step}[]
 
     # Deduplicate paths by their structural step content.
     # `Step` equality / hash ignore source_idx and use
@@ -758,7 +616,7 @@ function _catalytic_topologies(
                  string(name(to_species(s))))
                 for s in pat])))
 
-    result = _RawSpec[]
+    result = Vector{Step}[]
     for iso_pat in sorted_iso_pats
         group_paths = iso_groups[iso_pat]
         all_group_steps = Set{Step}()
@@ -804,153 +662,20 @@ function _catalytic_topologies(
                 string(name(to_species(s))),
             ))
 
-            push!(result, _mechanism_spec_from_steps(
-                reaction, steps))
+            # The first iso step is the (single) SS step; every other
+            # step is RE. Rebuild each Step with that tag (Step is
+            # immutable; direction is unaffected by is_equilibrium).
+            iso_idx = findfirst(is_iso, steps)
+            push!(result, Step[
+                Step(from_species(s), to_species(s),
+                     bound_metabolite(s), i != iso_idx)
+                for (i, s) in enumerate(steps)])
         end
     end
     result
 end
 
-"""
-Convert a backtracker-produced `Vector{Step}` topology into a
-`_RawSpec`. Picks the first iso step as the (only) SS step
-(`is_equilibrium=false`); all other steps are RE. Each step is
-assigned its source position as its kinetic-group index. Computes
-`n_fit_params_estimate` from the form / step counts.
-"""
-function _mechanism_spec_from_steps(
-    reaction, steps::Vector{Step},
-)
-    iso_idx = findfirst(is_iso, steps)
-    tagged = _RawStep[
-        _stepspec_from_step(s, i != iso_idx, i)
-        for (i, s) in enumerate(steps)
-    ]
-
-    form_names = Set{Symbol}()
-    for s in steps
-        push!(form_names, name(from_species(s)))
-        push!(form_names, name(to_species(s)))
-    end
-    n_forms = length(form_names)
-    n_steps = length(steps)
-    n_cycles = n_steps - n_forms + 1
-    n_re = count(s -> s.is_equilibrium, tagged)
-    n_ss = n_steps - n_re
-    n_fit_params_estimate = n_re + 2 * n_ss - n_cycles
-
-    _RawSpec(reaction, tagged, n_fit_params_estimate)
-end
-
-"""
-Render a `Step` into the legacy `_RawStep` shape used by the rest
-of the enumeration pipeline. Binding steps put the metabolite on
-LHS (canonical binding direction). Iso steps render in the forward
-catalytic direction: the species with more bound substrates is the
-source; the species with more bound products is the destination.
-This preserves the semantic substrate-bound → product-bound iso
-direction even after `Step`'s lex-based iso canonicalization.
-"""
-function _stepspec_from_step(
-    s::Step, is_equilibrium::Bool, kinetic_group::Int,
-)
-    if is_binding(s)
-        from_name = name(from_species(s))
-        to_name   = name(to_species(s))
-        m_name    = name(bound_metabolite(s))
-        _RawStep(
-            [from_name, m_name], [to_name],
-            is_equilibrium, kinetic_group)
-    else
-        n_subs_from = count(b -> b isa Substrate,
-                            bound(from_species(s)))
-        n_subs_to   = count(b -> b isa Substrate,
-                            bound(to_species(s)))
-        # Forward iso: substrate-rich side → product-rich side.
-        # Ties broken by lex on species name for determinism.
-        forward = (n_subs_from > n_subs_to) ||
-                  (n_subs_from == n_subs_to &&
-                   string(name(from_species(s))) <=
-                   string(name(to_species(s))))
-        a, b = forward ? (from_species(s), to_species(s)) :
-                         (to_species(s), from_species(s))
-        _RawStep(
-            [name(a)], [name(b)],
-            is_equilibrium, kinetic_group)
-    end
-end
-
 # ─── Dead-End Helpers ────────────────────────────────────────
-
-"""
-    _bound_metabolites_at_forms(spec, reaction)
-
-Map each form name to its set of bound metabolite names by
-tracing binding steps from :E. Isomerization steps swap
-all substrates for all products.
-"""
-function _bound_metabolites_at_forms(
-    spec::_RawSpec,
-    reaction::EnzymeReaction,
-)
-    # Collect all metabolite names (including
-    # suffixed regulator dummies)
-    met_set = Set{Symbol}()
-    for s in substrates(reaction)
-        push!(met_set, name(s))
-    end
-    for p in products(reaction)
-        push!(met_set, name(p))
-    end
-    for s in spec.steps
-        met = step_metabolite(s)
-        met !== nothing && push!(met_set, met)
-    end
-
-    # Parse bound metabolites from form name
-    # by greedily matching known metabolites
-    function _parse_bound(form::Symbol)
-        s = string(form)
-        # Strip E_ or Estar_ prefix
-        if s == "E" || s == "Estar"
-            return Set{Symbol}()
-        end
-        body = startswith(s, "Estar_") ? s[7:end] :
-               startswith(s, "E_") ? s[3:end] : s
-        # Split by _ and reassemble multi-part
-        # metabolite names (e.g., I1__reg)
-        parts = split(body, "_")
-        result = Set{Symbol}()
-        i = 1
-        while i <= length(parts)
-            # Try longest match first
-            matched = false
-            for len in length(parts):-1:1
-                i + len - 1 > length(parts) && continue
-                candidate = Symbol(join(
-                    parts[i:i+len-1], "_"))
-                if candidate in met_set
-                    push!(result, candidate)
-                    i += len
-                    matched = true
-                    break
-                end
-            end
-            if !matched
-                # Unknown part — skip
-                i += 1
-            end
-        end
-        result
-    end
-
-    forms = all_form_names(spec)
-    bound = Dict{Symbol, Set{Symbol}}()
-    for f in forms
-        bound[f] = _parse_bound(f)
-    end
-    bound
-end
 
 """
     _dead_end_form_name(base_form, base_bound, added_met)
@@ -1117,13 +842,14 @@ function _inhibitor_competition_patterns(
 end
 
 """
-    _expand_substrate_product_dead_ends(specs, reaction)
-        -> Vector{_RawSpec}
+    _expand_substrate_product_dead_ends(topos, reaction)
+        -> Vector{Tuple{Vector{Step}, Vector{Int}}}
 
-For each spec, enumerate substrate/product dead-end
-form combinations. A dead-end form is created when a
-substrate or product binds to a catalytic form where it
-doesn't normally bind, subject to:
+For each catalytic topology, enumerate substrate/product dead-end
+form combinations and return each resulting mechanism as a flat
+`Vector{Step}` paired with a parallel `Vector{Int}` of kinetic-group
+ids. A dead-end form is created when a substrate or product binds to
+a catalytic form where it doesn't normally bind, subject to:
 - The resulting form is not already a catalytic form
 - The resulting form binds at least one substrate AND
   at least one product (mixed binding required)
@@ -1131,7 +857,7 @@ doesn't normally bind, subject to:
   all products
 """
 function _expand_substrate_product_dead_ends(
-    specs::Vector{_RawSpec},
+    topos::Vector{Vector{Step}},
     reaction::EnzymeReaction,
 )
     sub_names = Set(name(s) for s in substrates(reaction))
@@ -1143,15 +869,27 @@ function _expand_substrate_product_dead_ends(
     patterns = _competition_patterns(
         sub_names, prod_names)
 
-    result = _RawSpec[]
-    for spec in specs
-        bound = _bound_metabolites_at_forms(
-            spec, reaction)
-        cat_forms = all_form_names(spec)
+    _role(m::Symbol) = m in sub_names ? Substrate(m) : Product(m)
+    _add(sp::Species, m::Symbol) = Species(
+        Metabolite[bound(sp)..., _role(m)],
+        conformation(sp), residual(sp))
+
+    result = Tuple{Vector{Step}, Vector{Int}}[]
+    for topo in topos
+        # Form name → Species and → bound-metabolite-name set.
+        form_sp = Dict{Symbol, Species}()
+        for s in topo
+            form_sp[name(from_species(s))] = from_species(s)
+            form_sp[name(to_species(s))] = to_species(s)
+        end
+        boundmap = Dict{Symbol, Set{Symbol}}(
+            f => Set(name(b) for b in bound(sp))
+            for (f, sp) in form_sp)
+        cat_forms = Set(keys(form_sp))
 
         de_opportunities =
             _substrate_product_dead_end_opportunities(
-                bound, cat_forms, sub_names,
+                boundmap, cat_forms, sub_names,
                 prod_names)
 
         # Deduplicate: multiple catalytic forms may
@@ -1160,8 +898,7 @@ function _expand_substrate_product_dead_ends(
         de_forms = Dict{Symbol,
             Vector{Tuple{Symbol, Symbol}}}()
         for (f, m) in de_opportunities
-            de_name = _dead_end_form_name(
-                f, bound[f], m)
+            de_name = name(_add(form_sp[f], m))
             push!(get!(de_forms, de_name,
                 Tuple{Symbol, Symbol}[]), (f, m))
         end
@@ -1173,14 +910,7 @@ function _expand_substrate_product_dead_ends(
             entries = de_forms[de_name]
             f, m = first(entries)
             de_bound[de_name] = union(
-                bound[f], Set([m]))
-        end
-
-        # Look up the catalytic step's kinetic_group when
-        # we want to attach a mirror step to the same group.
-        cat_step_groups = Dict{Tuple{Symbol,Symbol}, Int}()
-        for s in spec.steps
-            cat_step_groups[step_forms(s)] = s.kinetic_group
+                boundmap[f], Set([m]))
         end
 
         seen = Set{Vector{Symbol}}()
@@ -1207,11 +937,12 @@ function _expand_substrate_product_dead_ends(
 
             active_de = Set{Symbol}(allowed_de)
 
-            # Build new steps: original + dead-end
-            new_steps = copy(spec.steps)
-            next_g = maximum(
-                s.kinetic_group for s in new_steps;
-                init=0) + 1
+            # Build new steps: original topology + dead-end.
+            # Each topology step is its own initial group
+            # (group id = source position).
+            steps = copy(topo)
+            groups = collect(1:length(topo))
+            next_g = length(topo) + 1
 
             # Add binding steps for active dead-ends.
             # Each binding step is an equivalence-eligible
@@ -1219,11 +950,11 @@ function _expand_substrate_product_dead_ends(
             # step gets its own fresh group (init_mechanisms
             # later applies same-metabolite grouping).
             for de_name in sort(collect(active_de))
-                entries = de_forms[de_name]
-                for (cat_form, met) in entries
-                    push!(new_steps, _RawStep(
-                        [cat_form, met], [de_name],
-                        true, next_g))
+                for (cat_form, met) in de_forms[de_name]
+                    base = form_sp[cat_form]
+                    push!(steps, Step(
+                        base, _add(base, met), _role(met), true))
+                    push!(groups, next_g)
                     next_g += 1
                 end
             end
@@ -1232,39 +963,27 @@ function _expand_substrate_product_dead_ends(
             # step, if both endpoints have dead-end
             # forms with the same metabolite, add a
             # parallel step. Mirror inherits RE/SS
-            # AND the catalytic step's kinetic_group.
-            for s in spec.steps
-                from, to =
-                    s.reactants[1], s.products[1]
-                met = step_metabolite(s)
+            # AND the catalytic step's kinetic_group
+            # (the step's source position in the topology).
+            for (ci, s) in enumerate(topo)
+                from = name(from_species(s))
+                to = name(to_species(s))
                 for de_met in sort(collect(all_mets))
-                    haskey(bound, from) || continue
-                    haskey(bound, to) || continue
-                    de_met in bound[from] && continue
-                    de_met in bound[to] && continue
-                    from_de = _dead_end_form_name(
-                        from, bound[from], de_met)
-                    to_de = _dead_end_form_name(
-                        to, bound[to], de_met)
+                    de_met in boundmap[from] && continue
+                    de_met in boundmap[to] && continue
+                    from_de = name(_add(form_sp[from], de_met))
+                    to_de = name(_add(form_sp[to], de_met))
                     from_de in active_de || continue
                     to_de in active_de || continue
-                    g = s.kinetic_group
-                    if met !== nothing
-                        push!(new_steps, _RawStep(
-                            [from_de, met], [to_de],
-                            s.is_equilibrium, g))
-                    else
-                        push!(new_steps, _RawStep(
-                            [from_de], [to_de],
-                            s.is_equilibrium, g))
-                    end
+                    push!(steps, Step(
+                        _add(form_sp[from], de_met),
+                        _add(form_sp[to], de_met),
+                        bound_metabolite(s), is_equilibrium(s)))
+                    push!(groups, ci)
                 end
             end
 
-            pc = _n_fit_params_estimate_from_steps(new_steps)
-
-            push!(result, _RawSpec(
-                spec.reaction, new_steps, pc))
+            push!(result, (steps, groups))
         end
     end
     result
@@ -1273,241 +992,65 @@ end
 # ─── Compilation ─────────────────────────────────────────────
 
 """
-    compile_mechanism(spec::_RawSpec)
-    compile_mechanism(spec::_RawAllostericSpec)
     compile_mechanism(m::Mechanism)
     compile_mechanism(am::AllostericMechanism)
 
-Convert a `_RawSpec` to an `EnzymeMechanism`, an
-`_RawAllostericSpec` to an `AllostericEnzymeMechanism`,
-a `Mechanism` to an `EnzymeMechanism`, or an `AllostericMechanism`
-to an `AllostericEnzymeMechanism`.
+Convert a `Mechanism` to an `EnzymeMechanism`, or an
+`AllostericMechanism` to an `AllostericEnzymeMechanism`.
 """
-compile_mechanism(spec::_RawSpec) =
-    EnzymeMechanism(spec)
-compile_mechanism(spec::_RawAllostericSpec) =
-    AllostericEnzymeMechanism(spec)
 compile_mechanism(m::Mechanism) = EnzymeMechanism(m)
 compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
-
-"""Strip a `__regN?` suffix from a Symbol; identity if absent."""
-function _strip_reg_suffix(sym::Symbol)
-    s = string(sym)
-    m = match(r"^(.+)__reg\d*$", s)
-    m === nothing ? sym : Symbol(m.captures[1])
-end
-
-"""
-    EnzymeMechanism(spec::_RawSpec) → EnzymeMechanism
-
-Build the singleton `EnzymeMechanism` type. Metabolite occurrences
-that carry a `__regN?` suffix are stripped to their bare reaction
-name; form names matching the same pattern are stripped when no
-collision would result.
-"""
-function EnzymeMechanism(
-    spec::_RawSpec;
-    exclude_regs::Set{Symbol}=Set{Symbol}(),
-)
-    rxn = spec.reaction::EnzymeReaction
-    subs = Tuple(name(s) for s in substrates(rxn))
-    prods = Tuple(name(p) for p in products(rxn))
-    # Allosteric regulators belong on regulatory sites, not in the
-    # catalytic mechanism — auto-exclude them from the catalytic
-    # `regulators` list so EnzymeMechanism can be built standalone.
-    auto_exclude = Set{Symbol}(
-        name(regulator(rm)) for rm in regulators(rxn)
-        if regulator(rm) isa AllostericRegulator)
-    union!(auto_exclude, exclude_regs)
-    # Build the set of names actually appearing on any step (after
-    # stripping the __reg suffix used by enumeration internals).
-    appears_in_steps = Set{Symbol}()
-    for s in spec.steps
-        for sym in Iterators.flatten((s.reactants, s.products))
-            push!(appears_in_steps, _strip_reg_suffix(sym))
-        end
-    end
-    regs = Tuple(name(regulator(rm)) for rm in regulators(rxn)
-                 if name(regulator(rm)) ∉ auto_exclude &&
-                    name(regulator(rm)) ∈ appears_in_steps)
-    met_set = Set{Symbol}()
-    for g in (subs, prods, regs); for n in g; push!(met_set, n); end; end
-
-    # Suffixed regulator dummies (e.g. :I__reg) act as metabolites in
-    # steps but compile down to their bare reaction name.
-    suffixed = Set{Symbol}()
-    for s in spec.steps
-        for sym in Iterators.flatten((s.reactants, s.products))
-            stripped = _strip_reg_suffix(sym)
-            stripped == sym && continue
-            stripped in met_set && push!(suffixed, sym)
-        end
-    end
-
-    # Form name renaming: strip suffix when no collision; otherwise
-    # keep the suffixed name.
-    form_set = Set{Symbol}()
-    for s in spec.steps
-        for sym in Iterators.flatten((s.reactants, s.products))
-            sym in met_set && continue
-            sym in suffixed && continue
-            push!(form_set, sym)
-        end
-    end
-    form_name_map = Dict{Symbol,Symbol}()
-    used = Set{Symbol}()
-    for name in sort!(collect(form_set))
-        candidate = _strip_reg_suffix(name)
-        if candidate == name || candidate ∉ used
-            form_name_map[name] = candidate
-            push!(used, candidate)
-        else
-            form_name_map[name] = name
-            push!(used, name)
-        end
-    end
-
-    rxns = Tuple(
-        (
-            Tuple(get(form_name_map, x, _strip_reg_suffix(x))
-                  for x in s.reactants),
-            Tuple(get(form_name_map, x, _strip_reg_suffix(x))
-                  for x in s.products),
-            s.is_equilibrium,
-            s.kinetic_group,
-        )
-        for s in spec.steps
-    )
-    EnzymeMechanism((subs, prods, regs), rxns)
-end
 
 # ─── Mechanism Enumeration ───────────────────────────────────
 
 """
-    _init_raw_specs(reaction::EnzymeReaction) -> Vector{_RawSpec}
+    _to_group_list(steps, groups) -> Vector{Vector{Step}}
 
-Internal heavy-pipeline entry point. Produces all mechanisms at minimum
-parameter count for a reaction as `_RawSpec` scratch structs. For each
-catalytic topology: 1 SS step, all K's grouped equal per metabolite,
-all substrate/product dead-end subsets.
-
-Step kinetic groups are reassigned so that all binding steps sharing
-the same `(metabolite, RE/SS)` class collapse into one group; iso
-steps and uncollapsable bindings stay singletons.
-
-`_RawSpec` is an internal scratch representation used only by the
-heavy-pipeline helpers (`_catalytic_topologies`,
-`_expand_substrate_product_dead_ends`, `_apply_equivalence_grouping`).
-Conversion to the public `Mechanism` happens at the
-`init_mechanisms(::EnzymeReaction)` boundary via `_mechanism_from_raw`.
+Partition a flat `Vector{Step}` into kinetic groups by the parallel
+`groups` id vector, ordered by first occurrence of each group id in the
+flat step list (source order), so the resulting group order — and hence
+the group-major rep-index parameter naming — matches the source order
+of the catalytic topology, dead-end, and mirror steps.
 """
-function _init_raw_specs(
-    reaction::EnzymeReaction,
-)
-    topos = _catalytic_topologies(reaction)
-    expanded = _expand_substrate_product_dead_ends(
-        topos, reaction)
-
-    n_s = length(substrates(reaction))
-    n_p = length(products(reaction))
-    floor_pc = n_s + n_p + 1
-
-    result = _RawSpec[]
-    for spec in expanded
-        push!(result, _apply_equivalence_grouping(
-            spec, floor_pc))
+function _to_group_list(steps::Vector{Step}, groups::Vector{Int})
+    order = Int[]
+    bygroup = Dict{Int, Vector{Step}}()
+    for (s, g) in zip(steps, groups)
+        haskey(bygroup, g) || push!(order, g)
+        push!(get!(bygroup, g, Step[]), s)
     end
-    result
+    [bygroup[g] for g in order]
 end
 
 """
-Reassign `kinetic_group` so steps sharing `(metabolite, RE/SS)`
-collapse into one group. Other steps preserve their existing
-group ids (singletons remain singletons).
-
-`pc` is the maximum of the group-based count and `floor_pc`,
-ensuring the upper-bound invariant `pc >= length(parameters(m))`
-holds when dead-end mirror groups create non-catalytic cycles
-that don't impose new Wegscheider constraints.
+Reassign kinetic-group ids so binding steps sharing `(metabolite, RE/SS)`
+collapse into one group. Each multi-step class is assigned a fresh id;
+singleton classes and iso steps keep their existing id. Operates on the
+`(steps, groups)` parallel-array form and returns the merged pair.
 """
 function _apply_equivalence_grouping(
-    spec::_RawSpec, floor_pc::Int,
+    steps::Vector{Step}, groups::Vector{Int},
 )
-    groups = _max_equivalence_constraints(spec)
-    new_steps = _RawStep[]
-    for s in spec.steps
-        met = step_metabolite(s)
-        if met !== nothing &&
-                haskey(groups, (met, s.is_equilibrium))
-            g = groups[(met, s.is_equilibrium)]
-            push!(new_steps, _RawStep(
-                s.reactants, s.products,
-                s.is_equilibrium, g))
-        else
-            push!(new_steps, s)
-        end
-    end
-    pc = max(
-        _n_fit_params_estimate_from_steps(new_steps),
-        floor_pc)
-    _RawSpec(spec.reaction, new_steps, pc)
-end
-
-"""
-Compute parameter-count estimate from a step list, counting kinetic
-groups rather than individual steps. This is exact for mechanisms
-whose cycles all impose independent Wegscheider constraints; dead-end
-mirror cycles add 0 effective constraints, so this formula can
-underestimate — callers should floor to a safe lower bound.
-"""
-function _n_fit_params_estimate_from_steps(steps::Vector{_RawStep})
-    groups_re = Set{Int}()
-    groups_ss = Set{Int}()
-    for s in steps
-        if s.is_equilibrium
-            push!(groups_re, s.kinetic_group)
-        else
-            push!(groups_ss, s.kinetic_group)
-        end
-    end
-    n_forms = length(all_form_names(steps))
-    n_thermo = length(steps) - n_forms + 1
-    length(groups_re) + 2 * length(groups_ss) - n_thermo
-end
-
-"""
-Group catalytic-cycle binding steps that share the same
-`(metabolite, is_equilibrium)` class; each multi-step class is
-assigned a fresh kinetic-group integer. Returns a `Dict{(met,is_eq) → gnum}`
-covering only classes with 2+ steps. Iso steps (no metabolite) and
-singleton classes are not in the dict — callers leave their existing
-group ids intact.
-"""
-function _max_equivalence_constraints(spec::_RawSpec)
     classes = Dict{Tuple{Symbol,Bool}, Vector{Int}}()
-    for (i, s) in enumerate(spec.steps)
-        met = step_metabolite(s)
-        met === nothing && continue
-        key = (met, s.is_equilibrium)
-        push!(get!(classes, key, Int[]), i)
+    for (i, s) in enumerate(steps)
+        bm = bound_metabolite(s)
+        bm === nothing && continue
+        push!(get!(classes, (name(bm), is_equilibrium(s)), Int[]), i)
     end
-
-    used = Set{Int}(s.kinetic_group for s in spec.steps)
-    next_g = isempty(used) ? 1 : maximum(used) + 1
-    result = Dict{Tuple{Symbol,Bool}, Int}()
-    for (key, idxs) in classes
+    next_g = maximum(groups; init=0) + 1
+    new_groups = copy(groups)
+    for (_, idxs) in classes
         length(idxs) >= 2 || continue
-        result[key] = next_g
+        for i in idxs
+            new_groups[i] = next_g
+        end
         next_g += 1
     end
-    result
+    (steps, new_groups)
 end
 
-# ─── Expansion-Move Helpers ──────────────────────────────────
 
-"""Return the underlying `Vector{_RawStep}` for either spec type."""
-_steps(s::_RawSpec) = s.steps
-_steps(s::_RawAllostericSpec) = s.base.steps
+# ─── Expansion-Move Helpers ──────────────────────────────────
 
 """
     _n_fit_params_estimate(m::Mechanism)
@@ -1519,8 +1062,9 @@ two k per SS group) and subtracts the number of independent thermodynamic
 cycles (Haldane + Wegscheider) bound by the enzyme-form graph. The
 allosteric variant adds the per-tag bookkeeping plus +1 for `L`.
 
-This mirrors the spec-side `_n_fit_params_estimate_from_steps` formula
-but reads from `Mechanism`'s structural fields directly.
+This is the raw group-count formula and can underestimate when dead-end
+mirror cycles add non-constraining cycles; callers that need a safe
+upper bound floor it at `n_subs + n_prods + 1` at the call site.
 """
 function _n_fit_params_estimate(m::Mechanism)
     n_steps = sum(length, m.steps; init = 0)
@@ -1683,66 +1227,6 @@ function _split_one_step(
     end
     push!(new_groups, Step[groups[g][split_idx]])
     new_groups
-end
-
-"""
-    _raw_from_mechanism(m::Mechanism) → _RawSpec
-
-Bridge a `Mechanism` to a `_RawSpec` for routing through spec-
-based enumeration moves that have not yet been rewritten natively.
-Steps are flattened (outer Vector = kinetic groups) and emitted as
-_RawStep rows with the group index as `kinetic_group`. The PC field
-is an estimate from the step shape — exact tracking happens at the
-cache layer.
-"""
-function _raw_from_mechanism(m::Mechanism)
-    steps = _RawStep[]
-    for (gi, group) in enumerate(m.steps)
-        for s in group
-            push!(steps,
-                _stepspec_from_step(s, is_equilibrium(s), gi))
-        end
-    end
-    pc = _n_fit_params_estimate_from_steps(steps)
-    _RawSpec(m.reaction, steps, pc)
-end
-
-"""
-    _raw_from_mechanism(am::AllostericMechanism) → _RawAllostericSpec
-
-Bridge an `AllostericMechanism` to an `_RawAllostericSpec`. The
-base spec is built via the `Mechanism` overload; allo-state tags map
-group index → tag; regulatory sites unpack into the dense
-allosteric_reg_sites / allosteric_multiplicities / reg_ligand_tags
-shape.
-"""
-function _raw_from_mechanism(am::AllostericMechanism)
-    steps = _RawStep[]
-    for (gi, group) in enumerate(am.cat_steps)
-        for s in group
-            push!(steps,
-                _stepspec_from_step(s, is_equilibrium(s), gi))
-        end
-    end
-    pc = _n_fit_params_estimate_from_steps(steps)
-    base = _RawSpec(am.reaction, steps, pc)
-    group_tags = Dict{Int, Symbol}(
-        gi => am.cat_allo_states[gi]
-        for gi in 1:length(am.cat_allo_states))
-    reg_sites = Vector{Symbol}[]
-    mults = Int[]
-    reg_lig_tags = Dict{Symbol, Symbol}()
-    for site in am.regulatory_sites
-        site_ligs = [name(l) for l in ligands(site)]
-        push!(reg_sites, site_ligs)
-        push!(mults, multiplicity(site))
-        for (i, lig) in enumerate(ligands(site))
-            reg_lig_tags[name(lig)] = allo_states(site)[i]
-        end
-    end
-    _RawAllostericSpec(
-        base, am.catalytic_multiplicity,
-        reg_sites, mults, group_tags, reg_lig_tags, pc)
 end
 
 """
@@ -2266,40 +1750,6 @@ _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
 """
-    AllostericEnzymeMechanism(spec::_RawAllostericSpec) →
-        AllostericEnzymeMechanism
-
-Build the singleton allosteric type from a spec. `group_tags`
-sorted by group id for canonical type identity. Each regulator
-site contributes its ligand list, multiplicity, and the
-non-default per-ligand tag entries.
-"""
-function AllostericEnzymeMechanism(spec::_RawAllostericSpec)
-    # Allosteric ligands sit at reg sites in the assembled allosteric
-    # mechanism; they don't appear in the catalytic-cycle steps and
-    # must not show up in the catalytic `EnzymeMechanism`'s
-    # `regulators` list.
-    allo_set = Set{Symbol}()
-    for site in spec.allosteric_reg_sites
-        for l in site; push!(allo_set, l); end
-    end
-    cm = EnzymeMechanism(spec.base; exclude_regs=allo_set)
-
-    n_groups = length(unique(s.kinetic_group for s in spec.base.steps))
-    cat_states = ntuple(g -> spec.group_tags[g], n_groups)
-
-    reg_sites = ntuple(length(spec.allosteric_reg_sites)) do i
-        ligs = Tuple(spec.allosteric_reg_sites[i])
-        mult = spec.allosteric_multiplicities[i]
-        lig_states = ntuple(k -> spec.reg_ligand_tags[ligs[k]],
-                            length(ligs))
-        (ligs, mult, lig_states)
-    end
-
-    AllostericEnzymeMechanism(cm, (spec.catalytic_n, cat_states), reg_sites)
-end
-
-"""
     expand_mechanisms(mechs::Vector, reaction)
         → Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
 
@@ -2707,24 +2157,24 @@ end
     init_mechanisms(reaction::EnzymeReaction) -> Vector{Mechanism}
 
 Public entry point. Produces all mechanisms at minimum parameter count
-for a reaction as concrete `Mechanism` structs. The heavy enumeration
-pipeline (`_catalytic_topologies`, `_expand_substrate_product_dead_ends`,
-`_apply_equivalence_grouping`) runs on internal `_RawSpec` scratch
-structs; conversion to `Mechanism` happens at this boundary via
-`_mechanism_from_raw`.
+for a reaction as concrete `Mechanism` structs. For each catalytic
+topology (`_catalytic_topologies`): 1 SS step, all substrate/product
+dead-end subsets (`_expand_substrate_product_dead_ends`), with binding
+steps sharing the same `(metabolite, RE/SS)` class collapsed into one
+kinetic group (`_apply_equivalence_grouping`).
 """
-init_mechanisms(r::EnzymeReaction) =
-    [_mechanism_from_raw(spec) for spec in _init_raw_specs(r)]
-
-"""
-    _mechanism_from_raw(spec::_RawSpec) → Mechanism
-
-Convert an enumerator-produced `_RawSpec` to a `Mechanism` by
-routing through `EnzymeMechanism(spec)` and lifting back. Steps are
-grouped by `kinetic_group` and renumbered in first-occurrence order.
-"""
-_mechanism_from_raw(spec::_RawSpec) =
-    Mechanism(EnzymeMechanism(spec))
+function init_mechanisms(r::EnzymeReaction)
+    topos = _catalytic_topologies(r)
+    expanded = _expand_substrate_product_dead_ends(topos, r)
+    mechs = Mechanism[]
+    for (steps, groups) in expanded
+        merged_steps, merged_groups =
+            _apply_equivalence_grouping(steps, groups)
+        push!(mechs, Mechanism(
+            r, _to_group_list(merged_steps, merged_groups)))
+    end
+    mechs
+end
 
 """
     _assert_mechanism_invariants(m::Mechanism) -> Nothing

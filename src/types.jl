@@ -646,9 +646,8 @@ struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 # EnzymeMechanism{Sig}. The new-shape Sig encodes the Mechanism's data
 # as `(reaction_sig, steps_sig)` produced by `_sig_of`. The legacy-shape
 # Sig `(metabolites_3tuple, rxns_4tuple)` is produced by
-# `EnzymeMechanism(metabolites, reactions)` and the enumerator's
-# `EnzymeMechanism(spec::_RawSpec)`; `Mechanism(em)` lifts either
-# shape so Stage 3 derivation consumers can walk a `Mechanism` uniformly.
+# `EnzymeMechanism(metabolites, reactions)`; `Mechanism(em)` lifts either
+# shape so derivation consumers can walk a `Mechanism` uniformly.
 # Lift a `Mechanism` to its singleton `EnzymeMechanism` type. The Sig
 # stores each Step's data including `source_idx`, which the derivation
 # pipeline keys parameter naming on (`_rep_idx_for_step`). To keep
@@ -661,7 +660,34 @@ struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 # (fresh DSL builds, init_mechanisms output, the Mechanism constructor
 # auto-assign path) are unaffected by the renumbering.
 EnzymeMechanism(m::Mechanism) =
-    EnzymeMechanism{_sig_of(_renumber_source_idx(m))}()
+    EnzymeMechanism{_sig_of(
+        _drop_unbound_regulators(_renumber_source_idx(m)))}()
+
+# A regulator declared on the reaction that no step actually binds does
+# not belong in the compiled catalytic mechanism's `regulators` list
+# (e.g. a dead-end inhibitor before any expansion move binds it). Drop
+# such regulators so they neither show up in `regulators(em)` nor get a
+# parameter. Substrates/products are never dropped.
+function _drop_unbound_regulators(m::Mechanism)
+    bound_names = Set{Symbol}()
+    for group in m.steps, s in group
+        for sp in (from_species(s), to_species(s))
+            for b in bound(sp)
+                push!(bound_names, name(b))
+            end
+        end
+        bm = bound_metabolite(s)
+        bm === nothing || push!(bound_names, name(bm))
+    end
+    regs = regulators(m.reaction)
+    kept = RegulatorMults[rm for rm in regs
+                          if name(regulator(rm)) in bound_names]
+    length(kept) == length(regs) && return m
+    filtered_reaction = EnzymeReaction(
+        reactants(m.reaction), kept,
+        allowed_catalytic_multiplicities(m.reaction))
+    Mechanism(filtered_reaction, m.steps)
+end
 
 function _renumber_source_idx(m::Mechanism)
     pos = 0
@@ -1246,8 +1272,7 @@ end
 # concrete-types transition:
 #
 # - Legacy Sig `(metabolites_3tuple, rxns_4tuple)` — produced by
-#   `EnzymeMechanism(metabolites, reactions)` and the enumeration
-#   internals' `EnzymeMechanism(spec::_RawSpec)`. The first slot
+#   `EnzymeMechanism(metabolites, reactions)`. The first slot
 #   is a 3-tuple of name `Tuple{Symbol,...}`s.
 # - New Sig `(reaction_sig, steps_sig)` — produced by
 #   `EnzymeMechanism(::Mechanism)` (via `_sig_of`). The first slot is

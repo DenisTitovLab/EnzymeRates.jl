@@ -949,49 +949,38 @@ end
     end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
 
-    # Enumerated mechanism with many forms from Ping-Pong Bi-Bi
-    # with 2 regulators. Triggers the early abort inside sym_det.
-    rxn = @enzyme_reaction begin
-        substrates: A[CX], B[N]
-        products: P[C], Q[NX]
-        competitive_inhibitors: R1, R2
-    end
-    # Add dead-end regulator R1 to the largest topology
-    n_forms_of(mech) = length(Set(
-        sp for grp in EnzymeRates.steps(mech) for st in grp
-        for sp in (EnzymeRates.from_species(st),
-                   EnzymeRates.to_species(st))))
-    topos = EnzymeRates.init_mechanisms(rxn)
-    sort!(topos; by=n_forms_of, rev=true)
-    variants = EnzymeRates._expand_add_dead_end_regulator(topos[1], rxn)
-    # Find a mechanism with >= 15 forms and force all
-    # steps to SS to trigger the polynomial term limit.
-    # Skip mechanisms that cause thermodynamic cycle errors.
-    sort!(variants; by=n_forms_of, rev=true)
-    m_enum = nothing
-    for s in variants
-        n_forms_of(s) >= 15 || continue
-        all_ss_groups = Vector{EnzymeRates.Step}[
-            [EnzymeRates.Step(
-                EnzymeRates.from_species(st),
-                EnzymeRates.to_species(st),
-                EnzymeRates.bound_metabolite(st),
-                false)
-             for st in grp]
-            for grp in EnzymeRates.steps(s)]
-        all_ss = EnzymeRates.Mechanism(
-            EnzymeRates.reaction(s), all_ss_groups)
-        try
-            m_enum = EnzymeMechanism(all_ss)
-            parameters(m_enum)
-            break
-        catch
-            m_enum = nothing
+    # A directly-constructed random Bi-Bi with an R1 dead-end that binds
+    # the free enzyme AND every catalytic form, so each `E(X, R1)` form is
+    # reachable two ways (`E(R1)+X` and `E(X)+R1`). Those cycles multiply
+    # the King-Altman spanning-tree count past MAX_RATE_EQUATION_TERMS, so
+    # the all-SS derivation aborts inside `sym_det`. Built directly rather
+    # than enumerated so the guard is exercised deterministically.
+    m_cyclic = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: R1
+        steps: begin
+            E + A <--> E(A)
+            E + B <--> E(B)
+            E(A) + B <--> E(A, B)
+            E(B) + A <--> E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) <--> E(P) + Q
+            E(P, Q) <--> E(Q) + P
+            E + P <--> E(P)
+            E + Q <--> E(Q)
+            E + R1 <--> E(R1)
+            E(R1) + A <--> E(A, R1)
+            E(A) + R1 <--> E(A, R1)
+            E(R1) + B <--> E(B, R1)
+            E(B) + R1 <--> E(B, R1)
+            E(R1) + P <--> E(P, R1)
+            E(P) + R1 <--> E(P, R1)
+            E(R1) + Q <--> E(Q, R1)
+            E(Q) + R1 <--> E(Q, R1)
         end
     end
-    if m_enum !== nothing
-        @test_throws "polynomial terms" rate_equation_string(m_enum)
-    end
+    @test_throws "polynomial terms" rate_equation_string(m_cyclic)
 end
 
 
