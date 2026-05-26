@@ -1935,28 +1935,28 @@ function build_mechanism_test_specs()
             catalytic_multiplicity: 2
             catalytic_steps: begin
                 # Group 1 (Glucose binding at catalytic site, EqualRT)
-                (E + Glucose ⇌ E_Glc,
-                 E_ATP + Glucose ⇌ E_Glc_ATP,
-                 E_G6Pi + Glucose ⇌ E_Glc_G6Pi)    :: EqualRT
+                (E + Glucose ⇌ E(Glucose),
+                 E(ATP) + Glucose ⇌ E(Glucose, ATP),
+                 E(G6P::Inh) + Glucose ⇌ E(Glucose, G6P::Inh))    :: EqualRT
                 # Group 2 (ATP binding at nucleotide pocket, OnlyR —
                 # T-state can't bind ATP)
-                (E + ATP ⇌ E_ATP,
-                 E_Glc + ATP ⇌ E_Glc_ATP)           :: OnlyR
+                (E + ATP ⇌ E(ATP),
+                 E(Glucose) + ATP ⇌ E(Glucose, ATP))              :: OnlyR
                 # Group 3 (catalysis SS, EqualRT)
-                E_Glc_ATP <--> E_G6P_ADP            :: EqualRT
+                E(Glucose, ATP) <--> E(G6P, ADP)                  :: EqualRT
                 # Group 4 (G6P binding/release at catalytic site, EqualRT)
-                (E_G6P_ADP ⇌ E_ADP + G6P,
-                 E_G6P ⇌ E + G6P,
-                 E_G6P_G6Pi ⇌ E_G6Pi + G6P)         :: EqualRT
+                (E(G6P, ADP) ⇌ E(ADP) + G6P,
+                 E(G6P) ⇌ E + G6P,
+                 E(G6P, G6P::Inh) ⇌ E(G6P::Inh) + G6P)            :: EqualRT
                 # Group 5 (ADP release, EqualRT)
-                (E_G6P_ADP ⇌ E_G6P + ADP,
-                 E_ADP ⇌ E + ADP)                   :: EqualRT
+                (E(G6P, ADP) ⇌ E(G6P) + ADP,
+                 E(ADP) ⇌ E + ADP)                                :: EqualRT
                 # Group 6 (G6P binding at INHIBITORY site, EqualRT) —
                 # G6P at site 2 competes with ATP/ADP, can co-bind with
                 # Glucose at site 1 or G6P at site 1.
-                (E + G6P ⇌ E_G6Pi,
-                 E_Glc + G6P ⇌ E_Glc_G6Pi,
-                 E_G6P + G6P ⇌ E_G6P_G6Pi)          :: EqualRT
+                (E + G6P::Inh ⇌ E(G6P::Inh),
+                 E(Glucose) + G6P::Inh ⇌ E(Glucose, G6P::Inh),
+                 E(G6P) + G6P::Inh ⇌ E(G6P, G6P::Inh))            :: EqualRT
             end
 
             regulatory_site(multiplicity = 2): begin
