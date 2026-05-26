@@ -659,3 +659,68 @@ All §8 non-negotiables (test integrity, perf gates, compile-budget,
 no `--amend`, no temporal-context comments, chokepoint exclusivity)
 apply unchanged. Verify the full suite + integrity check + compile-budget
 + `rate_equation` 0-alloc/<100ns gate after every commit.
+
+## 11. Execution findings (2026-05-25) — Phase 1 is harder than the spike implied
+
+The §10 plan assumed the only opaque fixtures were the 5 lumped
+single-metabolite ones, migratable by rename. Executing it surfaced
+three architectural constraints and a much larger fixture set. These are
+established facts (spike + full-suite diagnostic), not hypotheses; the
+revised plan must be built on them.
+
+### 11.1 The new Step-based Sig is lossy for opaque Species
+
+The new Sig encodes each `Step` as `(from_species, to_species,
+bound_metabolite, is_equilibrium)` and reconstructs the reaction
+`(lhs, rhs)` via `_legacy_step_tuple_from_sig`, which infers
+binding-vs-release direction from bound-list membership:
+
+- **Fully-decomposed** Species (explicit bound lists) → direction is
+  recoverable losslessly (metabolite in `to`-bound but not `from` ⇒
+  binds; in `from` but not `to` ⇒ releases).
+- **Opaque** Species (empty bound lists, e.g. `Species([], :EABEPQ)`) →
+  the metabolite is in *neither* bound list, so direction is *guessed*
+  (default: binding). Product-**release** steps of opaque central
+  complexes (`EABEPQ <--> EQ + P`) get mis-reconstructed as binding
+  (`EABEPQ + P → EQ`), corrupting stoichiometry. The derivation then
+  fails with `Cycle N produces metabolite change not proportional to
+  net reaction`.
+
+**Consequence:** disabling opaque rejection to route opaque fixtures
+through the new Sig as opaque Species does **not** yield green — the
+opaque central complexes crash. The legacy Sig avoided this by storing
+the explicit reaction tuples; the new Sig cannot. Therefore every opaque
+fixture **must be decomposed** (or deleted); there is no opaque-Species
+shortcut, and legacy-path removal is coupled to completing fixture
+decomposition.
+
+### 11.2 Three mechanism shapes and how they resolve
+
+Full-suite diagnostic (rejection off) → 54 errors across ~7 fixtures:
+
+| Shape | Fixtures | Resolution |
+|---|---|---|
+| Bind+release in one step (`EA + B <--> EQ + P`) | Theorell-Chance | **Un-representable** — `Step` has one `bound_metabolite`, can't encode two. **Delete** (Denis-approved §2.1). |
+| Opaque central complex, single-metabolite steps | Ordered Uni Bi (`EAEPQ`), RE Ordered Bi-Bi (`EABEPQ`), Segel Bi-Uni-Uni-Uni PP Ter Bi (`EABFP`/`FCEQ`), Bi-Uni-Uni-Bi PP Ter Ter (`FCEQR`), Bi-Bi-Uni-Uni PP Ter Ter (`EABFPQ`/`FCER`), Hexa Uni PP (`EAFP`/`FBGQ`/`GCER`) | **Decompose** by renaming each lumped node to a single decomposed node (the spike-validated pattern). ~6 fixtures. Tractable. |
+| Multi-site metabolite | HK — G6P binds as **Product** (catalytic site), **CompetitiveInhibitor** (nucleotide pocket), and **AllostericRegulator** (regulatory site) simultaneously; forms `E_G6P` vs `E_G6Pi` vs `E_G6P_G6Pi` | **Build a DSL feature** to express "metabolite bound at site/role X vs Y" in decomposed grammar (the model already distinguishes via `Metabolite` subtype in the bound list — `Product(:G6P)` vs `CompetitiveInhibitor(:G6P)` — but the grammar + one-role-per-name `role_of` can't). Denis: keep HK, modify code. |
+
+### 11.3 Revised Phase 1 sequence (supersedes §10.3 Phase 1)
+
+1. **Design + build the multi-site-binding DSL feature** (HK's blocker;
+   warrants its own brainstorm/spec — syntax for per-binding role +
+   `role_of`/`_build_step_expr` changes). Hardest; do first.
+2. **Decompose all opaque fixtures** to decomposed grammar: the ~6
+   single-metabolite lumped fixtures by rename; HK via the new feature;
+   delete Theorell-Chance (§2.1). Suite green.
+3. **Delete the legacy Sig path** (2-arg `EnzymeMechanism(metabolites,
+   reactions)`, `_mechanism_from_legacy_sig`, the 12 `_is_new_sig`
+   accessor branches) — now safe, nothing produces legacy-shape Sig.
+4. **Re-enable opaque rejection** in both macros as the final gate.
+
+### 11.4 Process note
+
+Delegating exploratory fixture migration to autonomous subagents failed
+(one reverted the architecture to escape a blocker instead of
+escalating). This work is exploratory, not mechanical: drive it directly
+or with tightly-scoped, closely-monitored single-fixture subagents, and
+escalate architectural blockers rather than working around them.
