@@ -4369,3 +4369,36 @@ end # top-level testset
 
     end # let
 end
+
+@testset "Phase 2 baseline: bi-bi init_mechanisms structural golden" begin
+    # Canonical, derivation-free key for one Mechanism: per kinetic group,
+    # the sorted set of (from form, to form, bound metabolite, RE/SS) tuples;
+    # groups themselves sorted so the key is order-independent.
+    function _mech_struct_key(m::EnzymeRates.Mechanism)
+        grpkeys = String[]
+        for grp in m.steps
+            stepkeys = sort([
+                string((EnzymeRates.name(EnzymeRates.from_species(s)),
+                        EnzymeRates.name(EnzymeRates.to_species(s)),
+                        EnzymeRates.bound_metabolite(s) === nothing ? :iso :
+                            EnzymeRates.name(EnzymeRates.bound_metabolite(s)),
+                        EnzymeRates.is_equilibrium(s)))
+                for s in grp])
+            push!(grpkeys, join(stepkeys, "|"))
+        end
+        join(sort(grpkeys), " ;; ")
+    end
+
+    init = EnzymeRates.init_mechanisms(bi_bi_rxn)
+    mech_keys = sort([_mech_struct_key(m) for m in init])
+    @test length(unique(mech_keys)) == length(mech_keys)   # no structural dups post-dedup
+
+    fixture = joinpath(@__DIR__, "fixtures", "phase2_init_golden.txt")
+    if !isfile(fixture)
+        mkpath(dirname(fixture)); write(fixture, join(mech_keys, "\n"))
+        @warn "bootstrapped phase2 golden fixture; commit it" fixture
+    end
+    golden = readlines(fixture)
+    @test mech_keys == golden          # permanent structural regression gate
+    @test length(init) == length(golden)   # init_mechanisms count invariant
+end
