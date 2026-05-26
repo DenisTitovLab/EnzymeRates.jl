@@ -1454,9 +1454,13 @@ function _species_name_from_sig(species_sig)
 end
 
 """Build a (lhs, rhs, is_eq, g) tuple from a Sig step at @generated time.
-Replicates `_legacy_step_tuple` direction inference using the bound-sig
-lists (which contain `(kind, name)` tuples)."""
-function _legacy_step_tuple_from_sig(step_sig, g::Int)
+The bound metabolite's side is set by its bound-list membership: present in
+the to-species' bound list ⇒ it binds (lhs); present in the from-species'
+list ⇒ it releases (rhs). A metabolite in neither list is produced by the
+step — a dissociation (rhs) — since any consumed or retained metabolite would
+appear in a bound list; this covers fused catalytic-release steps where the
+released product was never explicitly bound."""
+function _step_tuple_from_sig(step_sig, g::Int)
     from_sig, to_sig, met_sig, is_eq, _src = step_sig
     e_from = _species_name_from_sig(from_sig)
     e_to   = _species_name_from_sig(to_sig)
@@ -1472,7 +1476,7 @@ function _legacy_step_tuple_from_sig(step_sig, g::Int)
         return ((e_from, met_name), (e_to,), is_eq, g)
     elseif bound_in_from
         return ((e_from,), (e_to, met_name), is_eq, g)
-    elseif length(from_bound) > length(to_bound)
+    elseif met_sig[1] === :Product
         return ((e_from,), (e_to, met_name), is_eq, g)
     end
     ((e_from, met_name), (e_to,), is_eq, g)
@@ -1484,7 +1488,7 @@ end
         tuples = Any[]
         for (g, group) in enumerate(Sig[2])
             for step_sig in group
-                push!(tuples, _legacy_step_tuple_from_sig(step_sig, g))
+                push!(tuples, _step_tuple_from_sig(step_sig, g))
             end
         end
         return Tuple(tuples)

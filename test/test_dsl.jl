@@ -468,4 +468,24 @@
         @test occursin("P", re_str)        # real metabolite name appears
         @test !occursin("Pinh", re_str)    # the inh marker never leaks into the equation
     end
+
+    @testset "fused catalytic release: metabolite in neither bound list dissociates" begin
+        # E(A) <--> E(Q) + P : P is produced by the step (in neither E(A) nor
+        # E(Q) bound list, and both sides are 1-bound). It must reconstruct as
+        # a release (P on the rhs), not a binding.
+        m = @enzyme_mechanism begin
+            substrates: A
+            products: P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+        rxns = EnzymeRates.reactions(m)
+        mid = rxns[2]            # (lhs, rhs, is_eq, g) for E(A) <--> E(Q) + P
+        @test mid[1] == (:E_A,)  # lhs: only the enzyme form
+        @test :P in mid[2]       # P released (rhs)
+        @test :P ∉ mid[1]        # P not consumed (lhs)
+    end
 end
