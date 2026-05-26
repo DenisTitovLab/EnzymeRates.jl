@@ -1456,12 +1456,14 @@ end
 """Build a (lhs, rhs, is_eq, g) tuple from a Sig step at @generated time.
 The bound metabolite's side is set by its bound-list membership: present in
 the to-species' bound list ⇒ it binds (lhs); present in the from-species'
-list ⇒ it releases (rhs). When it is in neither list, an **SS** step carrying
-a product is a fused catalytic release — the product is produced by the step
+list ⇒ it releases (rhs). When it is in neither list, an **SS** step on a
+**decomposed** form (at least one side has a non-empty bound list) carrying a
+product is a fused catalytic release — the product is produced by the step
 (dissociation, rhs), since a retained metabolite would appear in a bound list.
-RE steps are canonicalized metabolite-on-binding-side, so an RE metabolite in
-neither list (e.g. an opaque enumeration form with empty bound lists) binds;
-those keep the bound-list-size heuristic."""
+Opaque forms (both bound lists empty — RE steps, or SS steps from RE→SS
+enumeration moves) are canonicalized metabolite-on-binding-side, so they bind
+via the bound-list-size heuristic; the non-empty-bounds guard keeps the
+dissociation rule from mis-releasing those."""
 function _step_tuple_from_sig(step_sig, g::Int)
     from_sig, to_sig, met_sig, is_eq, _src = step_sig
     e_from = _species_name_from_sig(from_sig)
@@ -1478,7 +1480,8 @@ function _step_tuple_from_sig(step_sig, g::Int)
         return ((e_from, met_name), (e_to,), is_eq, g)
     elseif bound_in_from
         return ((e_from,), (e_to, met_name), is_eq, g)
-    elseif !is_eq && met_sig[1] === :Product
+    elseif !is_eq && met_sig[1] === :Product &&
+           !(isempty(from_bound) && isempty(to_bound))
         return ((e_from,), (e_to, met_name), is_eq, g)
     elseif length(from_bound) > length(to_bound)
         return ((e_from,), (e_to, met_name), is_eq, g)
