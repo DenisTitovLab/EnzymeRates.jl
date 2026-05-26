@@ -264,6 +264,8 @@ end
 function _step_side_term_to_symbol(expr, declared_mets::Set{Symbol})
     if expr isa Symbol
         return expr
+    elseif expr isa Expr && expr.head == :(::) && expr.args[1] isa Symbol
+        return expr.args[1]
     elseif expr isa Expr && expr.head == :call &&
            expr.args[1] isa Symbol
         return _synthesize_species_name(expr, declared_mets)
@@ -289,6 +291,18 @@ function _step_side_term_info(expr, declared_mets::Set{Symbol})
         return expr in declared_mets ?
                _term_metabolite(expr) :
                _term_bare_enzyme(expr)
+    elseif expr isa Expr && expr.head == :(::)
+        name = expr.args[1]
+        tag  = expr.args[2]
+        (name isa Symbol) ||
+            error("@enzyme_mechanism: expected `name::Inh`; got $expr")
+        tag === :Inh ||
+            error("@enzyme_mechanism: unknown role tag ::$tag on $name; " *
+                  "only ::Inh is supported.")
+        name in declared_mets ||
+            error("@enzyme_mechanism: tagged metabolite `$name` in `$expr` is " *
+                  "not declared. Declared: $(sort(collect(declared_mets))).")
+        return _term_metabolite(name, :inh)
     elseif expr isa Expr && expr.head == :call &&
            expr.args[1] isa Symbol
         return _call_form_term_info(expr, declared_mets)
@@ -307,6 +321,7 @@ function _call_form_term_info(expr::Expr, declared_mets::Set{Symbol})
               "with declared metabolite `$conformation`; choose a different " *
               "conformation label.")
     bound_syms = Symbol[]
+    bound_roles = Symbol[]
     added_syms = Symbol[]
     subtracted_syms = Symbol[]
     for arg in expr.args[2:end]
@@ -316,6 +331,22 @@ function _call_form_term_info(expr::Expr, declared_mets::Set{Symbol})
                       "`$expr` is not declared. Declared: " *
                       "$(sort(collect(declared_mets))).")
             push!(bound_syms, arg)
+            push!(bound_roles, :default)
+        elseif arg isa Expr && arg.head === :(::)
+            name = arg.args[1]
+            tag  = arg.args[2]
+            (name isa Symbol) ||
+                error("@enzyme_mechanism: expected `name::Inh` in species " *
+                      "`$expr`; got $arg")
+            tag === :Inh ||
+                error("@enzyme_mechanism: unknown role tag ::$tag on $name; " *
+                      "only ::Inh is supported.")
+            name in declared_mets ||
+                error("@enzyme_mechanism: bound metabolite `$name` in species " *
+                      "`$expr` is not declared. Declared: " *
+                      "$(sort(collect(declared_mets))).")
+            push!(bound_syms, name)
+            push!(bound_roles, :inh)
         elseif arg isa Expr && arg.head === :parameters
             for kw in arg.args
                 if kw isa Expr && kw.head === :kw && kw.args[1] === :residual
@@ -330,19 +361,23 @@ function _call_form_term_info(expr::Expr, declared_mets::Set{Symbol})
             error("@enzyme_mechanism: invalid entry in species `$expr`: $arg")
         end
     end
-    sort!(bound_syms)
+    perm = sortperm(collect(zip(bound_syms, bound_roles)))
+    bound_syms = bound_syms[perm]
+    bound_roles = bound_roles[perm]
     sort!(added_syms)
     sort!(subtracted_syms)
     parts = String[String(conformation)]
-    for s in bound_syms; push!(parts, String(s)); end
+    for (s, role) in zip(bound_syms, bound_roles)
+        push!(parts, role === :inh ? String(s) * "inh" : String(s))
+    end
     if !(isempty(added_syms) && isempty(subtracted_syms))
         push!(parts, "res")
         for s in added_syms;      push!(parts, "+" * String(s)); end
         for s in subtracted_syms; push!(parts, "-" * String(s)); end
     end
     sym = Symbol(join(parts, "_"))
-    _StepSideTerm(sym, :call, conformation, bound_syms,
-                  added_syms, subtracted_syms)
+    _StepSideTerm(sym, :call, conformation, bound_syms, bound_roles,
+                  added_syms, subtracted_syms, :default)
 end
 
 # Build a Symbol matching `name(::Species)` from a `Conformation(...)` AST.
@@ -373,14 +408,16 @@ struct _StepSideTerm
     kind::Symbol
     conformation::Symbol                 # for :call/bare-enzyme cases
     bound::Vector{Symbol}                # for :call (sorted by parser)
+    bound_roles::Vector{Symbol}          # parallel to `bound`: :default or :inh
     residual_added::Vector{Symbol}       # for :call (sorted)
     residual_subtracted::Vector{Symbol}  # for :call (sorted)
+    role::Symbol                         # for :metabolite free term: :default or :inh
 end
 
-_term_metabolite(sym::Symbol) = _StepSideTerm(
-    sym, :metabolite, sym, Symbol[], Symbol[], Symbol[])
+_term_metabolite(sym::Symbol, role::Symbol = :default) = _StepSideTerm(
+    sym, :metabolite, sym, Symbol[], Symbol[], Symbol[], Symbol[], role)
 _term_bare_enzyme(sym::Symbol) = _StepSideTerm(
-    sym, :bare_enzyme, sym, Symbol[], Symbol[], Symbol[])
+    sym, :bare_enzyme, sym, Symbol[], Symbol[], Symbol[], Symbol[], :default)
 
 # A bare Symbol is "conformation-shaped" iff it starts with a single
 # capital letter followed by any mix of lowercase letters, digits, and
@@ -500,7 +537,7 @@ function _reject_allosteric_syntax!(block)
             error("@enzyme_mechanism: `regulatory_site(...)` belongs in " *
                   "@allosteric_mechanism")
         end
-        label_expr in (:allosteric_regulators, :catalytic_inhibitors,
+        label_expr in (:allosteric_regulators,
                        :catalytic_multiplicity, :catalytic_steps) &&
             error("@enzyme_mechanism: `$label_expr:` is allosteric-only; " *
                   "use @allosteric_mechanism instead")
@@ -560,7 +597,7 @@ function _parse_plain_mechanism_body(block)
             append!(subs_list, _bare_symbols_from_values(values, label))
         elseif label == :products
             append!(prods_list, _bare_symbols_from_values(values, label))
-        elseif label == :regulators
+        elseif label == :regulators || label == :catalytic_inhibitors
             append!(regs_list, _bare_symbols_from_values(values, label))
         else
             error("Unknown @enzyme_mechanism label: $label")
@@ -575,7 +612,12 @@ function _parse_plain_mechanism_body(block)
     role_of = Dict{Symbol,Symbol}()
     for s in subs_list;  role_of[s] = :Substrate;            end
     for p in prods_list; role_of[p] = :Product;              end
-    for r in regs_list;  role_of[r] = :CompetitiveInhibitor; end
+    # A name declared both as a reactant and a (catalytic-)inhibitor keeps its
+    # reactant role for untagged ligands; the CompetitiveInhibitor role is
+    # reached only via the `::Inh` tag.
+    for r in regs_list
+        haskey(role_of, r) || (role_of[r] = :CompetitiveInhibitor)
+    end
 
     _, side_terms_per_step =
         _parse_steps_block_with_groups(steps_block, declared_mets)
@@ -664,7 +706,8 @@ function _build_step_expr(lhs::Vector{_StepSideTerm},
     from_expr = _species_expr_from_term(lhs_enzyme, role_of)
     to_expr   = _species_expr_from_term(rhs_enzyme, role_of)
     met_expr  = bound_met_term === nothing ? :nothing :
-                _metabolite_expr(bound_met_term.sym, role_of)
+                _metabolite_expr(bound_met_term.sym, role_of,
+                                 bound_met_term.role)
     :(EnzymeRates.Step($from_expr, $to_expr, $met_expr, $is_eq))
 end
 
@@ -701,7 +744,8 @@ end
 function _species_expr_from_term(t::_StepSideTerm,
                                  role_of::Dict{Symbol,Symbol})
     bound_entries = Expr[
-        _metabolite_expr(b, role_of) for b in t.bound
+        _metabolite_expr(b, role_of, r)
+        for (b, r) in zip(t.bound, t.bound_roles)
     ]
     bound_expr = :(EnzymeRates.Metabolite[$(bound_entries...)])
     added_entries = Expr[
@@ -723,7 +767,11 @@ end
 
 # Build an Expr that constructs the appropriate `Metabolite` subtype for
 # a declared name. The role is looked up from `role_of`.
-function _metabolite_expr(name::Symbol, role_of::Dict{Symbol,Symbol})
+function _metabolite_expr(name::Symbol, role_of::Dict{Symbol,Symbol},
+                          override::Symbol = :default)
+    if override === :inh
+        return :(EnzymeRates.CompetitiveInhibitor($(QuoteNode(name))))
+    end
     role = get(role_of, name, nothing)
     role === nothing &&
         error("@enzyme_mechanism: metabolite `$name` is not declared in " *

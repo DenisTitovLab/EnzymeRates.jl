@@ -447,4 +447,25 @@
         @test EnzymeRates.kinetic_group(m, 1) == EnzymeRates.kinetic_group(m, 2)
         @test EnzymeRates.kinetic_group(m, 3) != EnzymeRates.kinetic_group(m, 1)
     end
+
+    @testset "::Inh role tag: product that also competitively inhibits" begin
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            catalytic_inhibitors: P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+                E + P::Inh <--> E(P::Inh)
+            end
+        end
+        forms = EnzymeRates.enzyme_forms(m)
+        @test :E_P in forms        # product-bound form (catalytic release)
+        @test :E_Pinh in forms     # inhibitor-bound form — DISTINCT from :E_P
+        @test :E_P != :E_Pinh
+        # rate_equation must reference concs.P for the inhibitor term, not concs.Pinh:
+        @test_nowarn rate_equation_string(m)
+        @test !occursin("Pinh", split(rate_equation_string(m), "concs")[1])
+    end
 end

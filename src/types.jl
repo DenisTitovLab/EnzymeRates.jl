@@ -77,7 +77,8 @@ Base.hash(s::Species, h::UInt) =
 function name(s::Species)
     parts = String[String(s.conformation)]
     for m in s.bound
-        push!(parts, String(name(m)))
+        push!(parts, m isa CompetitiveInhibitor ?
+                     String(name(m)) * "inh" : String(name(m)))
     end
     if has_residual(s)
         push!(parts, "res")
@@ -1435,7 +1436,8 @@ function _species_name_from_sig(species_sig)
     end
     parts = String[String(conformation)]
     for b in bound_sigs
-        push!(parts, String(b[2]))
+        push!(parts, b[1] === :CompetitiveInhibitor ?
+                     String(b[2]) * "inh" : String(b[2]))
     end
     if has_res
         push!(parts, "res")
