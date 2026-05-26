@@ -53,7 +53,9 @@ struct Species
     residual::Residual
     function Species(bound::Vector{<:Metabolite}, conformation::Symbol,
                      residual::Residual)
-        new(sort(Vector{Metabolite}(bound); by=name), conformation, residual)
+        new(sort(Vector{Metabolite}(bound);
+                 by = m -> (name(m), m isa CompetitiveInhibitor)),
+            conformation, residual)
     end
 end
 Species(bound, conformation::Symbol) = Species(bound, conformation, Residual())

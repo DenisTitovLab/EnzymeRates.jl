@@ -623,6 +623,20 @@
         s_res = EnzymeRates.Species(EnzymeRates.Metabolite[], :Estar, res)
         @test EnzymeRates.has_residual(s_res)
         @test EnzymeRates.residual(s_res) == res
+
+        # Same metabolite name bound in two roles (product + competitive
+        # inhibitor) canonicalizes regardless of construction order: same
+        # Species, same hash, same form name (non-inhibitor segment first).
+        d1 = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Product(:G6P),
+                                   EnzymeRates.CompetitiveInhibitor(:G6P)], :E)
+        d2 = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.CompetitiveInhibitor(:G6P),
+                                   EnzymeRates.Product(:G6P)], :E)
+        @test d1 == d2
+        @test hash(d1) == hash(d2)
+        @test EnzymeRates.name(d1) === EnzymeRates.name(d2)
+        @test EnzymeRates.name(d1) === :E_G6P_G6Pinh
     end
 
     @testset "RegulatorySite: validation + accessors" begin

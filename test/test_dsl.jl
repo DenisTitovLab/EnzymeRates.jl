@@ -464,7 +464,8 @@
         @test :E_Pinh in forms     # inhibitor-bound form — DISTINCT from :E_P
         @test :E_P != :E_Pinh
         # rate_equation must reference concs.P for the inhibitor term, not concs.Pinh:
-        @test_nowarn rate_equation_string(m)
-        @test !occursin("Pinh", split(rate_equation_string(m), "concs")[1])
+        re_str = rate_equation_string(m)
+        @test occursin("P", re_str)        # real metabolite name appears
+        @test !occursin("Pinh", re_str)    # the inh marker never leaks into the equation
     end
 end
