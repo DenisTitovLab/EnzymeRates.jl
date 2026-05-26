@@ -537,7 +537,7 @@ function _reject_allosteric_syntax!(block)
             error("@enzyme_mechanism: `regulatory_site(...)` belongs in " *
                   "@allosteric_mechanism")
         end
-        label_expr in (:allosteric_regulators,
+        label_expr in (:allosteric_regulators, :catalytic_inhibitors,
                        :catalytic_multiplicity, :catalytic_steps) &&
             error("@enzyme_mechanism: `$label_expr:` is allosteric-only; " *
                   "use @allosteric_mechanism instead")
@@ -597,7 +597,7 @@ function _parse_plain_mechanism_body(block)
             append!(subs_list, _bare_symbols_from_values(values, label))
         elseif label == :products
             append!(prods_list, _bare_symbols_from_values(values, label))
-        elseif label == :regulators || label == :catalytic_inhibitors
+        elseif label == :regulators
             append!(regs_list, _bare_symbols_from_values(values, label))
         else
             error("Unknown @enzyme_mechanism label: $label")
@@ -612,12 +612,7 @@ function _parse_plain_mechanism_body(block)
     role_of = Dict{Symbol,Symbol}()
     for s in subs_list;  role_of[s] = :Substrate;            end
     for p in prods_list; role_of[p] = :Product;              end
-    # A name declared both as a reactant and a (catalytic-)inhibitor keeps its
-    # reactant role for untagged ligands; the CompetitiveInhibitor role is
-    # reached only via the `::Inh` tag.
-    for r in regs_list
-        haskey(role_of, r) || (role_of[r] = :CompetitiveInhibitor)
-    end
+    for r in regs_list;  role_of[r] = :CompetitiveInhibitor; end
 
     _, side_terms_per_step =
         _parse_steps_block_with_groups(steps_block, declared_mets)

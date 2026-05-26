@@ -452,7 +452,6 @@
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
-            catalytic_inhibitors: P
             steps: begin
                 E + S <--> E(S)
                 E(S) <--> E(P)
