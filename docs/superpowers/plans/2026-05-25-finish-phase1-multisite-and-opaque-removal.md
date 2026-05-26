@@ -27,7 +27,7 @@
     include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<file>.jl")'
   ```
 - **Green-at-every-commit tension**: while opaque fixtures remain unmigrated the *full* suite is red (the file won't fully derive). Verify each step with the relevant *per-file* test, commit granularly, and treat the **end of Task 7** as the full-suite green gate. This is a documented, intentional red window on a feature branch (not pushed); do not paper over it.
-- **Perf/chokepoint gates** green at the green gate: `test_rate_equation_performance`, 3 compile-budget gates, `test_chokepoint.jl`.
+- **Perf/chokepoint gates** — run `test_rate_equation_performance`, the 3 compile-budget gates, and `test_chokepoint.jl` **per-commit during the red window**, not only at the Task 7 gate. They construct their own small mechanisms and do not need the red fixtures to load, so a `_species_name_from_sig`/Step-canonicalization edit that introduces an allocation or compile-budget regression is caught at its origin commit rather than bisected back from Task 7.
 - Commit footer: `src delta: -X / +Y net Z, cumulative: ±W` (`wc -l src/*.jl`; cumulative vs main 7136). End messages with `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`.
 
 ---
@@ -77,12 +77,14 @@ end
 
 ## Task 3: Role-distinct form naming
 
-**Files:** `src/dsl.jl` (synthesized name in `_call_form_term_info`), `src/types.jl` (`name(::Species)` at `types.jl:77`).
+**Files:** `src/types.jl` (`_species_name_from_sig` at `types.jl:1429` — **the load-bearing producer**; `name(::Species)` at `types.jl:77`), `src/dsl.jl` (synthesized name in `_call_form_term_info`).
 
-- [ ] Decide the marker: an `inh`-suffixed leaf (`:E_Pinh`, `:E_G6P_G6Pinh`). Apply it in BOTH name producers so they agree:
-  - `_call_form_term_info`'s synthesized `sym`: append `inh` to an inhibitor-role ligand's segment (`"$(name)inh"`).
-  - `name(::Species)` (`types.jl:77`): when a bound metabolite `m isa CompetitiveInhibitor`, render its segment as `"$(name(m))inh"` instead of `name(m)`.
-- [ ] **Ripple check**: this changes form names for EVERY competitive-inhibitor-bound form (e.g. the "Competitive Inhibitor" fixture's `:E_I` → `:E_Iinh`). Grep tests for asserted inhibitor form names: `grep -rn "E_I\b\|_I\b\|enzyme_forms" test/test_dsl.jl test/test_types.jl test/test_accessors.jl`. Update those assertions to the new `inh`-suffixed names IN THE SAME COMMIT (mechanical test adaptation, not weakening — same property, renamed form). Analytical-rate fixtures assert positional params (`K1`, `K12`), not form names, so they are unaffected.
+- [ ] Decide the marker: an `inh`-suffixed leaf (`:E_Pinh`, `:E_G6P_G6Pinh`). Apply it in **all THREE** form-name producers so they agree. **`_species_name_from_sig` is primary** — it is the function the `@generated` accessors (`enzyme_forms` `types.jl:1571`, `reactions` `types.jl:1478`, `stoich_matrix`) actually call to name enzyme forms; the King-Altman derivation is keyed on its output. The other two only mirror it.
+  - **`_species_name_from_sig` (`types.jl:1429`)** — the bound loop at line 1438 does `push!(parts, String(b[2]))` (bare name), ignoring `b[1]` (the kind tag). Change it to append `inh` when `b[1] === :CompetitiveInhibitor`. **Without this edit, `E(P::Inh)` and `E(P)` both render `:E_P` → the two enzyme states collapse in the King-Altman graph and stoichiometry corrupts** (the exact failure `::Inh` exists to prevent — verified: Task 1's spike asserts `:E_Pinh ∈ enzyme_forms(m)`, and `enzyme_forms` routes through this function, NOT `name(::Species)`).
+  - `name(::Species)` (`types.jl:77`): when a bound metabolite `m isa CompetitiveInhibitor`, render its segment as `"$(name(m))inh"`.
+  - `_call_form_term_info`'s synthesized `sym` (`src/dsl.jl`): append `inh` to an inhibitor-role ligand's segment.
+- [ ] **Ripple check (broadened)**: `regulators:` ALSO maps to `role_of[r] = :CompetitiveInhibitor` (`dsl.jl:578`), so the suffix ripples to EVERY form bound by a `regulators:`/`competitive_inhibitors:` metabolite — not just the lone `:E_I` the earlier draft named (which was wrong: the "Competitive Inhibitor" regulator is `R`, so its form is `:E_R`, and there are `_R`-suffixed forms across fixtures #18, #19, #27, #29, #30, the activator fixture, etc. — ~104 `:E_*` assertions in `test/`). Enumerate affected fixtures by inspecting each mechanism's `role_of` for `:CompetitiveInhibitor` metabolites, NOT by guessing leaf names. Update those assertions to the `inh`-suffixed names IN THE SAME COMMIT (mechanical adaptation, same property, renamed form). Analytical-rate fixtures assert positional params (`K1`, `K12`), not form names, so they are unaffected.
+  - **Phase 2 naming-divergence note:** the enumeration synthesizes dead-end forms via `_dead_end_form_name` (`src/mechanism_enumeration.jl`) WITHOUT this `inh` suffix. After this rename, DSL/derivation and enumeration name the same competitive-inhibitor-bound concept differently. Resolve the convention when the enumeration is rewritten (Phase 2) — flagged there, not fixed here.
 - [ ] **Concentration check**: confirm `rate_equation` for the Task-1 `m` uses `concs.P` for the `E(P::Inh)` binding (real name preserved). Add to the Task-1 testset:
 ```julia
     concs = (S=1.0, P=2.0); pv = EnzymeRates.fitted_params(m)
@@ -135,6 +137,8 @@ Keep `allosteric_regulators: G6P::OnlyT, Pi::EqualRT`, `catalytic_inhibitors: G6
 
 Each lumped opaque node → single decomposed node (the spike-validated rename; continuation spec §10.1 / §11.2). Formulas + `expected_n_*` unchanged. Do one fixture per commit; run its analytical test after each.
 
+**Ping-pong fixtures are spike-verified (2026-05-25).** A standalone spike of #10 (Segel Bi Uni Uni Uni PP Ter Bi) — `EABFP → E(A,B)`, `FCEQ → F(C)`, `F` bare — derived 5 states / 5 steps / 9 independent params and matched Segel Eq. IX-228 to `rtol=1e-10` over 20 random-parameter trials via the harness's own `test_analytical_rate`/`test_constraint_counting`. The bound-list-size fallback reconstructs the fused conformation-change-plus-release step `E(A, B) <--> F + P` as a release correctly. So the 4 ping-pong fixtures (#10, #12, #13, #14) **keep their analytical formulas** — do NOT drop them or expand steps (the reference branch `refactor-to-use-structs-throughout` expanded only because it lacked this fallback). The per-fixture analytical test below is a safety net, not an expected failure point; #14 (Hexa, two conformation changes E→F→G) is the same pattern with one more conformation.
+
 - [ ] **Segel Ordered Uni Bi** (`EAEPQ`): `E + A <--> EA` → `E + A <--> E(A)`; `EA <--> EAEPQ` (check exact opaque steps) → decomposed central node `E(A)`/`E(A,?)`; release steps → `E(A) <--> E(Q) + P` etc. Translate by mirroring the opaque step graph; verify analytical rate green.
 - [ ] **RE Ordered Bi-Bi** (`EABEPQ`, RE steps): `E(A,B)` single central node; same as Segel Ordered Bi Bi rename but with `⇌` RE steps preserved.
 - [ ] **Segel Bi Uni Uni Uni PP Ter Bi** (`EABFP`/`FCEQ`): rename lumped nodes to substrate-side decomposed nodes (`EABFP → E(A,B)` then iso to `F(P)`; `FCEQ → F(C)` then `E(Q)`); preserve ping-pong `F`/`E` conformations.
@@ -150,20 +154,22 @@ After all: `mechanism_definitions` derives with zero opaque forms. **Run the FUL
 - [ ] `grep -nE "<-->|⇌" test/mechanism_definitions_for_test_enzyme_derivation.jl | grep -E "[A-Z][A-Za-z0-9]*([A-Z]|_[A-Z])"` → only metabolite atoms / declared names, no opaque enzyme forms. Also grep `test_rate_eq_derivation.jl` (`m_manual` already migrated) and other test files for stray opaque `@enzyme_mechanism`/`@allosteric_mechanism` step entries; migrate any found.
 - [ ] Full suite green; `check_test_integrity.sh main` EXIT=0. Commit/tag `phase1-fixtures-decomposed`.
 
-## Task 8: Delete the legacy Sig path + re-enable rejection
+## Task 8: Re-enable opaque rejection
 
-Now nothing produces a legacy-shape Sig (both macros emit decomposed; no opaque fixtures). Delete the legacy encoding and gate opaque grammar.
+> **Sequencing (roadmap ③ decision, 2026-05-25):** the legacy Sig path deletion that used to live here **moved to after the Phase 2 enumerator rewrite** — see `2026-05-25-finish-refactor-roadmap.md`. Deleting the legacy Sig before the enumerator stops emitting opaque Species risks leaving the multi-substrate `identify_rate_equation` path with neither a working legacy path nor a fixed enumerator. Re-enabling rejection (below) is independent of that — rejection gates the DSL *macros*, while the enumerator builds Species programmatically, so it stays in Phase 1.
+
+Both macros emit decomposed and no opaque fixtures remain (Tasks 5–6), so opaque grammar can be gated.
 
 - [ ] **Re-enable rejection**: re-add the two `_assert_no_opaque_terms(side_terms_per_step)` calls (both macros) and the two rejection testsets removed in Task 0 (strengthened to `@test_throws "opaque bound-form name"`). Per-file `test/test_dsl.jl` green.
-- [ ] **Delete** in `src/types.jl`: the 2-arg `EnzymeMechanism(metabolites, reactions)` constructor (~766-864) + its now-dead validators (verify callers first); `_mechanism_from_legacy_sig` (~698-764); collapse `Mechanism(em)` to `_mechanism_from_sig(Sig)`; collapse the 12 `_is_new_sig` accessor branches to the new-shape body; delete `_is_new_sig`, dead `_legacy_step_tuple` + `_species_sym`; rename `_legacy_step_tuple_from_sig` → `_step_tuple_from_sig`. Handle the 4 `@test_throws` on the 2-arg constructor in `test/test_types.jl` per §2.1 (entity gone; validation covered by `Mechanism`/`EnzymeMechanism(::Mechanism)` validator testsets).
-- [ ] After each deletion: full suite + integrity + perf/compile/chokepoint gates green.
-- [ ] Commit per logical deletion. Tag `phase1-legacy-removed`.
+- [ ] Full suite + integrity + perf/compile/chokepoint gates green. Commit. Tag `phase1-fixtures-decomposed-rejection-on`.
 
-## Task 9: Final verification + docs
+## Task 9: Phase 1 checkpoint + handoff to Phase 2
 
-- [ ] Full `Pkg.test()` green (read the summary line); all gates green; `wc -l src/*.jl` recorded; `grep -rnE "_is_new_sig|_mechanism_from_legacy_sig" src/` → empty.
-- [ ] Update CLAUDE.md if the DSL grammar section needs the `::Inh` note; update continuation spec §11 status to "done".
-- [ ] Report to Denis: tests, LOC delta, gates.
+> Phase 1 ends here. The legacy Sig path is **still present** (its deletion is sequenced after the Phase 2 enumerator rewrite — roadmap ③). Do NOT assert `_is_new_sig`/`_mechanism_from_legacy_sig` are gone or mark the refactor "done" yet.
+
+- [ ] Full `Pkg.test()` green (read the summary line, not the notification exit); all gates green; `wc -l src/*.jl` recorded for the commit footer.
+- [ ] Update CLAUDE.md's DSL grammar section with the `::Inh` role-tag note.
+- [ ] Report Phase 1 results to Denis (tests, LOC delta, gates), then proceed to the roadmap's Phase 2 (enumerator Symbol→struct + bi-bi exit gate), which is re-planned in its own brainstorm.
 
 ---
 
