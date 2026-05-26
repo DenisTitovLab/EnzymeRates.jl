@@ -580,7 +580,6 @@ function _parse_plain_mechanism_body(block)
     _, side_terms_per_step =
         _parse_steps_block_with_groups(steps_block, declared_mets)
 
-    _assert_no_opaque_terms(side_terms_per_step)
     return _build_mechanism_expr(subs_list, prods_list, regs_list,
                                  role_of, side_terms_per_step)
 end
@@ -1162,7 +1161,6 @@ function _parse_allosteric_mechanism_body(block)
         cat_steps_block, declared_mets; allow_tag=true,
     )
 
-    _assert_no_opaque_terms(side_terms_per_step)
     cm_expr = _build_mechanism_expr(subs_list, prods_list, cat_inhibitors,
                                     role_of, side_terms_per_step)
 
