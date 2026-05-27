@@ -1,15 +1,14 @@
-# ABOUTME: Compile-time regression gates for the EnzymeRates pipeline.
-# ABOUTME: One trace-compile (init_mechanisms) + one wall-clock (rate_equation body-build).
+# ABOUTME: Compile-time regression gates for the EnzymeRates pipeline:
+# ABOUTME: init_mechanisms trace-compile, rate_equation body-build wall-clock, ter-ter→uni-uni compile reuse, dispatch identity.
 
 using Test
 using EnzymeRates
 
-# Budgets calibrated against current branch tip with 2× headroom.
-# Re-baselined post-7d.1 (EnzymeReactionLegacy retired; non-parametric
-# EnzymeReaction is the sole dispatch target). The trace-compile count
-# is now dominated by Step / Species / Mechanism specializations rather
-# than per-arity EnzymeReactionLegacy{S,P,R,N} specializations.
-const INIT_TRACE_BUDGET                  = 750   # baseline 2026-05-24: ~372; budget = 2×
+# Budgets calibrated against the current branch tip with 2× headroom.
+# init_mechanisms trace-compile is dominated by Step / Species / Mechanism
+# struct + @generated accessor specializations (EnzymeReaction is
+# non-parametric, so there is no per-arity reaction-type specialization).
+const INIT_TRACE_BUDGET                  = 100   # baseline 2026-05-27: 47; budget ≈ 2×
 const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 2.1   # baseline 2026-05-20: 1.03s; budget = 2×
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
@@ -63,6 +62,26 @@ function _measure_elapsed_subprocess(script::String)
     out = String(take!(out_buf))
     m = match(r"ELAPSED:([0-9.eE+-]+)", out)
     m === nothing ? NaN : parse(Float64, m.captures[1])
+end
+
+# Runs `script` in a fresh Julia subprocess; the script is expected to print
+# `<label>:<float>` for each label in `labels`. Returns a Vector{Float64}
+# parallel to `labels` (NaN for any label not found or on subprocess failure).
+function _measure_labeled_subprocess(script::String, labels::Vector{String})
+    julia_exe = Base.julia_cmd().exec[1]
+    out_buf = IOBuffer()
+    try
+        run(pipeline(Cmd([julia_exe, "--project=.", "-e", script]);
+                     stdout=out_buf, stderr=devnull); wait=true)
+    catch e
+        @warn "labeled subprocess failed: $e"
+        return fill(NaN, length(labels))
+    end
+    out = String(take!(out_buf))
+    map(labels) do label
+        m = match(Regex("$(label):([0-9.eE+-]+)"), out)
+        m === nothing ? NaN : parse(Float64, m.captures[1])
+    end
 end
 
 @testset "compile-budget" begin
@@ -134,32 +153,50 @@ end
         @test t_first < RATE_EQUATION_WALLCLOCK_BUDGET_S
     end
 
-    # Warmup-reuse regression: time init_mechanisms(r_ter) in two scenarios,
-    # each in its own fresh Julia subprocess to avoid cross-test pollution:
-    #
-    #   t_cold: using EnzymeRates -> init_mechanisms(r_ter)
-    #   t_warm: using EnzymeRates -> init_mechanisms(r_uni)  [warmup]
-    #                              -> init_mechanisms(r_ter)  [@elapsed measured]
-    #
-    # If uni-uni warmup shares most specializations with ter-ter, t_warm
-    # should be substantially less than t_cold.
-    #
-    # Dispatch-identity gate (replaces the warmup-reuse @elapsed gate).
-    #
-    # Post-7d.1, EnzymeReaction is non-parametric — uni-uni and ter-ter
-    # are the same concrete type. The Julia method dispatch on
-    # `init_mechanisms(::EnzymeReaction)` therefore resolves to the
-    # SAME method instance regardless of substrate/product arity.
-    # No per-arity specialization is possible.
-    #
-    # The pre-7d.1 wall-clock gate measured warmup-reuse benefit on the
-    # parametric `EnzymeReactionLegacy{S,P,R,N}` form (where each arity
-    # spawned fresh specializations). With the parametric form retired,
-    # measuring warmup time is no longer informative — the result is
-    # always dominated by the small fixed body-build cost, not by per-
-    # arity specialization. Direct dispatch-identity assertion captures
-    # the intended property ("no per-arity specialization happens")
-    # without burning a ~10-minute subprocess that OOMs on ter-ter.
+    # Compile-reuse: ter-ter init_mechanisms compiles a superset of uni-uni's
+    # machinery, so running uni-uni AFTER ter-ter in the same process is
+    # essentially free. Measured in one fresh subprocess — ter-ter runs once
+    # and doubles as the cold-compile gate:
+    #   ter-ter cold ≈ 15 s, then uni-uni warm ≈ 0.1 ms (vs ≈ 3 s cold).
+    # The warm/cold gap is robust to machine speed (warm is ~0 regardless),
+    # unlike an absolute wall-clock ceiling on the cold time.
+    @testset "compile reuse: ter-ter warms all of uni-uni" begin
+        script = """
+            using EnzymeRates
+            r_ter = EnzymeRates.EnzymeReaction(
+                [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:A), [:C => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:N => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:C), [:O => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q),   [:N => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:R),   [:O => 1])],
+                EnzymeRates.RegulatorMults[], Int[1])
+            t_ter = @elapsed EnzymeRates.init_mechanisms(r_ter)
+            r_uni = EnzymeRates.EnzymeReaction(
+                [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
+                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1])],
+                EnzymeRates.RegulatorMults[], Int[1])
+            t_uni = @elapsed EnzymeRates.init_mechanisms(r_uni)
+            println("TER_COLD:", t_ter)
+            println("UNI_WARM:", t_uni)
+            """
+        t_ter, t_uni = _measure_labeled_subprocess(script, ["TER_COLD", "UNI_WARM"])
+        @info "compile reuse: ter_cold=$(round(t_ter; digits=2))s  " *
+              "uni_warm=$(round(t_uni * 1e6; digits=1))µs  " *
+              "ratio=$(round(t_uni / t_ter; sigdigits=2))"
+        # ter-ter cold-compile ceiling (~2× the 2026-05-27 baseline of ~15 s).
+        @test isfinite(t_ter)
+        @test t_ter < 30.0
+        # Warm uni-uni must be near-instant: ter-ter already compiled the
+        # superset, so uni-uni JIT-compiles nothing. Cold uni-uni is ≈ 3 s;
+        # this gate keeps a ~70× margin and is insensitive to machine speed.
+        @test isfinite(t_uni)
+        @test t_uni < 0.01
+    end
+
+    # Dispatch identity: EnzymeReaction is non-parametric, so uni-uni and
+    # ter-ter are the same concrete type and `init_mechanisms(::EnzymeReaction)`
+    # resolves to the same method instance — no per-arity specialization.
     @testset "dispatch identity: init_mechanisms uni-uni and ter-ter share method" begin
         r_uni = EnzymeRates.EnzymeReaction(
             [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
