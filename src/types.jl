@@ -75,17 +75,17 @@ Base.hash(s::Species, h::UInt) =
 # Species([Substrate(:A), Substrate(:B)]) both render :E_A_B). Domain
 # convention: metabolite Symbols must not contain `_`.
 function name(s::Species)
-    parts = String[String(s.conformation)]
-    for m in s.bound
+    parts = String[String(conformation(s))]
+    for m in bound(s)
         push!(parts, m isa CompetitiveInhibitor ?
                      String(name(m)) * "inh" : String(name(m)))
     end
     if has_residual(s)
         push!(parts, "res")
-        for a in added(s.residual)
+        for a in added(residual(s))
             push!(parts, "+" * String(name(a)))
         end
-        for r in subtracted(s.residual)
+        for r in subtracted(residual(s))
             push!(parts, "-" * String(name(r)))
         end
     end
@@ -309,9 +309,9 @@ regulators(r::EnzymeReaction) = r.regulators
 allowed_catalytic_multiplicities(r::EnzymeReaction) =
     r.allowed_catalytic_multiplicities
 substrates(r::EnzymeReaction) =
-    Substrate[metabolite(ra) for ra in r.reactants if metabolite(ra) isa Substrate]
+    Substrate[metabolite(ra) for ra in reactants(r) if metabolite(ra) isa Substrate]
 products(r::EnzymeReaction) =
-    Product[metabolite(ra) for ra in r.reactants if metabolite(ra) isa Product]
+    Product[metabolite(ra) for ra in reactants(r) if metabolite(ra) isa Product]
 
 Base.:(==)(a::EnzymeReaction, b::EnzymeReaction) =
     a.reactants == b.reactants && a.regulators == b.regulators &&
@@ -325,12 +325,12 @@ function Base.show(io::IO, r::EnzymeReaction)
     subs_str  = join(String.(name.(substrates(r))), " + ")
     prods_str = join(String.(name.(products(r))),   " + ")
     print(io, "EnzymeReaction: ", subs_str, " ⇌ ", prods_str)
-    if !isempty(r.regulators)
+    if !isempty(regulators(r))
         regs_str = join(
-            (String(name(regulator(rm))) for rm in r.regulators), ", ")
+            (String(name(regulator(rm))) for rm in regulators(r)), ", ")
         print(io, " | regulators: ", regs_str)
     end
-    mults = r.allowed_catalytic_multiplicities
+    mults = allowed_catalytic_multiplicities(r)
     if length(mults) == 1 && mults[1] > 1
         print(io, " | oligomeric_state: ", mults[1])
     elseif length(mults) > 1 || (length(mults) == 1 && mults[1] != 1)
@@ -473,14 +473,14 @@ rep_step(m::AllostericMechanism, g::Int) = first(m.cat_steps[g])
 
 function allosteric_regulators(m::AllostericMechanism)
     seen = AllostericRegulator[]
-    for site in m.regulatory_sites, lig in site.ligands
+    for site in regulatory_sites(m), lig in ligands(site)
         lig in seen || push!(seen, lig)
     end
     seen
 end
 
 function competitive_inhibitors(m::AllostericMechanism)
-    CompetitiveInhibitor[regulator(rm) for rm in m.reaction.regulators
+    CompetitiveInhibitor[regulator(rm) for rm in regulators(reaction(m))
                          if regulator(rm) isa CompetitiveInhibitor]
 end
 
@@ -507,33 +507,33 @@ Base.hash(m::AllostericMechanism, h::UInt) =
 # One polymorphic `_to_sig` with a method per source type; the matching
 # `_*_from_sig` family reconstructs the corresponding type.
 
-_to_sig(s::Substrate)            = (:Substrate, s.name)
-_to_sig(p::Product)              = (:Product, p.name)
-_to_sig(r::AllostericRegulator)  = (:AllostericRegulator, r.name)
-_to_sig(c::CompetitiveInhibitor) = (:CompetitiveInhibitor, c.name)
+_to_sig(s::Substrate)            = (:Substrate, name(s))
+_to_sig(p::Product)              = (:Product, name(p))
+_to_sig(r::AllostericRegulator)  = (:AllostericRegulator, name(r))
+_to_sig(c::CompetitiveInhibitor) = (:CompetitiveInhibitor, name(c))
 
 _to_sig(r::Residual) = (
-    Tuple(_to_sig(m) for m in r.added),
-    Tuple(_to_sig(m) for m in r.subtracted),
+    Tuple(_to_sig(m) for m in added(r)),
+    Tuple(_to_sig(m) for m in subtracted(r)),
 )
 
 _to_sig(s::Species) = (
-    Tuple(_to_sig(m) for m in s.bound),
-    s.conformation,
-    _to_sig(s.residual),
+    Tuple(_to_sig(m) for m in bound(s)),
+    conformation(s),
+    _to_sig(residual(s)),
 )
 
 _to_sig(s::Step) = (
-    _to_sig(s.from_species),
-    _to_sig(s.to_species),
-    s.bound_metabolite === nothing ? nothing : _to_sig(s.bound_metabolite),
-    s.is_equilibrium,
-    s.source_idx,
+    _to_sig(from_species(s)),
+    _to_sig(to_species(s)),
+    bound_metabolite(s) === nothing ? nothing : _to_sig(bound_metabolite(s)),
+    is_equilibrium(s),
+    source_idx(s),
 )
 
 _to_sig(ra::ReactantAtoms) = (
     _to_sig(ra.metabolite),
-    Tuple((p.first, p.second) for p in ra.atoms),   # Tuple{Symbol,Int}, NOT Pair
+    Tuple((p.first, p.second) for p in atoms(ra)),   # Tuple{Symbol,Int}, NOT Pair
 )
 
 _to_sig(rm::RegulatorMults) = (
@@ -542,9 +542,9 @@ _to_sig(rm::RegulatorMults) = (
 )
 
 _to_sig(r::EnzymeReaction) = (
-    Tuple(_to_sig(ra) for ra in r.reactants),
-    Tuple(_to_sig(rm) for rm in r.regulators),
-    Tuple(r.allowed_catalytic_multiplicities),
+    Tuple(_to_sig(ra) for ra in reactants(r)),
+    Tuple(_to_sig(rm) for rm in regulators(r)),
+    Tuple(allowed_catalytic_multiplicities(r)),
 )
 
 function _metabolite_from_sig(sig::Tuple{Symbol, Symbol})
@@ -610,8 +610,8 @@ function _steps_from_sig(sig::Tuple)
 end
 
 _sig_of(m::Mechanism) = (
-    _to_sig(m.reaction),
-    Tuple(Tuple(_to_sig(s) for s in g) for g in m.steps),
+    _to_sig(reaction(m)),
+    Tuple(Tuple(_to_sig(s) for s in g) for g in steps(m)),
 )
 
 function _mechanism_from_sig(sig::Tuple)
@@ -667,7 +667,7 @@ EnzymeMechanism(m::Mechanism) =
 # parameter. Substrates/products are never dropped.
 function _drop_unbound_regulators(m::Mechanism)
     bound_names = Set{Symbol}()
-    for group in m.steps, s in group
+    for group in steps(m), s in group
         for sp in (from_species(s), to_species(s))
             for b in bound(sp)
                 push!(bound_names, name(b))
@@ -676,33 +676,33 @@ function _drop_unbound_regulators(m::Mechanism)
         bm = bound_metabolite(s)
         bm === nothing || push!(bound_names, name(bm))
     end
-    regs = regulators(m.reaction)
+    regs = regulators(reaction(m))
     kept = RegulatorMults[rm for rm in regs
                           if name(regulator(rm)) in bound_names]
     length(kept) == length(regs) && return m
     filtered_reaction = EnzymeReaction(
-        reactants(m.reaction), kept,
-        allowed_catalytic_multiplicities(m.reaction))
-    Mechanism(filtered_reaction, m.steps)
+        reactants(reaction(m)), kept,
+        allowed_catalytic_multiplicities(reaction(m)))
+    Mechanism(filtered_reaction, steps(m))
 end
 
 function _renumber_source_idx(m::Mechanism)
     pos = 0
     new_steps = Vector{Vector{Step}}()
-    for group in m.steps
+    for group in steps(m)
         new_group = Step[]
         for s in group
             pos += 1
             push!(new_group,
-                  Step(s.from_species, s.to_species,
-                       s.bound_metabolite, s.is_equilibrium;
+                  Step(from_species(s), to_species(s),
+                       bound_metabolite(s), is_equilibrium(s);
                        source_idx = pos))
         end
         push!(new_steps, new_group)
     end
     # Bypass the auto-assign branch by passing non-zero `source_idx` via
     # the constructor; the constructor preserves the explicit values.
-    Mechanism(m.reaction, new_steps)
+    Mechanism(reaction(m), new_steps)
 end
 
 Mechanism(em::EnzymeMechanism{Sig}) where {Sig} = _mechanism_from_sig(Sig)
@@ -819,7 +819,7 @@ function AllostericMechanism(
         push!(sites,
               RegulatorySite(ligands_vec, mult, collect(Symbol, reg_allo_states)))
     end
-    AllostericMechanism(cm_mech.reaction, cm_mech.steps,
+    AllostericMechanism(reaction(cm_mech), steps(cm_mech),
                         collect(Symbol, cat_allo_states),
                         multiplicity, sites)
 end
@@ -834,15 +834,15 @@ contract is preserved end-to-end. Catalytic and regulatory allosteric
 data are encoded directly into the type parameters.
 """
 function AllostericEnzymeMechanism(am::AllostericMechanism)
-    cat_mech = Mechanism(am.reaction, am.cat_steps)
+    cat_mech = Mechanism(reaction(am), steps(am))
     cm = EnzymeMechanism(cat_mech)
-    cat_sites = (am.catalytic_multiplicity,
-                 Tuple(am.cat_allo_states))
+    cat_sites = (catalytic_multiplicity(am),
+                 Tuple(cat_allo_states(am)))
     reg_sites = Tuple(
-        (Tuple(Symbol[name(l) for l in site.ligands]),
-         site.multiplicity,
-         Tuple(site.allo_states))
-        for site in am.regulatory_sites)
+        (Tuple(Symbol[name(l) for l in ligands(site)]),
+         multiplicity(site),
+         Tuple(allo_states(site)))
+        for site in regulatory_sites(am))
     AllostericEnzymeMechanism(cm, cat_sites, reg_sites)
 end
 
@@ -1014,7 +1014,7 @@ end
 `(step::Step, kinetic_group::Int)` pairs."""
 function _flat_steps(m::Mechanism)
     out = Tuple{Step, Int}[]
-    for (g, group) in enumerate(m.steps)
+    for (g, group) in enumerate(steps(m))
         for s in group
             push!(out, (s, g))
         end
@@ -1365,10 +1365,10 @@ end
 # guarantee `source_idx` is populated by flat source-order position.
 function _rep_idx_for_step(step::Step,
                            m::Union{Mechanism, AllostericMechanism})
-    groups = m isa Mechanism ? m.steps : m.cat_steps
+    groups = steps(m)
     for group in groups
         if step in group
-            return first(group).source_idx
+            return source_idx(first(group))
         end
     end
     error("Step not found in mechanism: $step")
@@ -1388,7 +1388,7 @@ _to_mechanism(m::EnzymeMechanism)           = Mechanism(m)
 _to_mechanism(m::AllostericEnzymeMechanism) = AllostericMechanism(m)
 
 function _site_idx_of(site::RegulatorySite, m::AllostericMechanism)
-    idx = findfirst(==(site), m.regulatory_sites)
+    idx = findfirst(==(site), regulatory_sites(m))
     idx === nothing && error("RegulatorySite not found in mechanism")
     return idx
 end
@@ -1458,7 +1458,7 @@ have no R/T branches.
 """
 function _enumerate_parameters_full(m::Mechanism)
     out = Parameter[]
-    for group in m.steps
+    for group in steps(m)
         rep = first(group)
         if is_equilibrium(rep)
             push!(out, is_binding(rep) ? Kd(rep, :None) : Kiso(rep, :None))
