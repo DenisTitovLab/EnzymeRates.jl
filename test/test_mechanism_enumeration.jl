@@ -171,6 +171,54 @@ end
     @test EnzymeRates._assert_mechanism_invariants(m) === nothing
 end
 
+@testset "_assert_mechanism_invariants: ported coverage + group composition" begin
+    # POSITIVE: an init mechanism with an unbound declared inhibitor must NOT
+    # error — regulators are intentionally excluded from the coverage check
+    # (init_mechanisms declares dead-end inhibitors that no step binds yet).
+    rxn_inh = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        competitive_inhibitors: R
+    end
+    for m in EnzymeRates.init_mechanisms(rxn_inh)
+        @test EnzymeRates._assert_mechanism_invariants(m) === nothing
+    end
+
+    # NEGATIVE 1: a declared SUBSTRATE that no step binds → error.
+    rxn_unused = @enzyme_reaction begin
+        substrates: S[C], T[C]
+        products:   P[C2]
+    end
+    s1 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
+                          EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+                          EnzymeRates.Substrate(:S), true; source_idx = 1)
+    s2 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+                          EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
+                          nothing, false; source_idx = 2)
+    s3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
+                          EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
+                          EnzymeRates.Product(:P), true; source_idx = 3)
+    m_unused = EnzymeRates.Mechanism(rxn_unused, [[s1], [s2], [s3]])
+    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
+
+    # NEGATIVE 2: a kinetic group binding two different metabolites → error.
+    rxn2 = @enzyme_reaction begin
+        substrates: S[C], A[N]
+        products:   P[CN]
+    end
+    g1a = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
+                           EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+                           EnzymeRates.Substrate(:S), true; source_idx = 1)
+    g1b = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
+                           EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
+                           EnzymeRates.Substrate(:A), true; source_idx = 2)
+    g2  = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+                           EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
+                           nothing, false; source_idx = 3)
+    m_mixed = EnzymeRates.Mechanism(rxn2, [[g1a, g1b], [g2]])
+    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mixed)
+end
+
 @testset "Mechanism Enumeration" begin
 
 # ═══════════════════════════════════════════════════════════════════════

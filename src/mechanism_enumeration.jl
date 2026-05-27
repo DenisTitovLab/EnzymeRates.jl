@@ -2139,6 +2139,43 @@ function _assert_mechanism_invariants(m::Mechanism)
         s.from_species == s.to_species &&
             error("from_species == to_species in step $s")
     end
+
+    # Every declared substrate/product must appear in some step. Regulators
+    # are excluded — init_mechanisms declares a dead-end inhibitor that no
+    # step binds yet (expand_mechanisms binds it later; _drop_unbound_regulators
+    # drops it at compile time). Substrates/products are never dropped.
+    appearing = Set{Symbol}()
+    for s in flat
+        for sp in (from_species(s), to_species(s))
+            for met in bound(sp)
+                push!(appearing, name(met))
+            end
+        end
+        bm = bound_metabolite(s)
+        bm === nothing || push!(appearing, name(bm))
+    end
+    for met in (substrates(reaction(m))..., products(reaction(m))...)
+        name(met) in appearing ||
+            error("declared substrate/product $(name(met)) appears in no step")
+    end
+
+    # A kinetic group of size > 1 must bind a single metabolite with a single
+    # RE/SS kind (no mixing). Iso steps within such a group are ignored here;
+    # the per-step loop above already enforces bound/iso consistency.
+    for group in m.steps
+        length(group) == 1 && continue
+        kinds = [(is_equilibrium(s), bound_metabolite(s)) for s in group
+                 if bound_metabolite(s) !== nothing]
+        isempty(kinds) && continue
+        first_eq, first_met = kinds[1]
+        for (eq, met) in kinds[2:end]
+            eq == first_eq ||
+                error("kinetic group mixes RE and SS binding steps")
+            met == first_met ||
+                error("kinetic group binds different metabolites: " *
+                      "$(name(first_met)) and $(name(met))")
+        end
+    end
     nothing
 end
 
