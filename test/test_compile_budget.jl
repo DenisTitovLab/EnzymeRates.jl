@@ -155,43 +155,53 @@ end
 
     # Compile-reuse: ter-ter init_mechanisms compiles a superset of uni-uni's
     # machinery, so running uni-uni AFTER ter-ter in the same process is
-    # essentially free. Measured in one fresh subprocess — ter-ter runs once
-    # and doubles as the cold-compile gate:
-    #   ter-ter cold ≈ 15 s, then uni-uni warm ≈ 0.1 ms (vs ≈ 3 s cold).
-    # The warm/cold gap is robust to machine speed (warm is ~0 regardless),
-    # unlike an absolute wall-clock ceiling on the cold time.
+    # essentially free. Measured in two fresh subprocesses (reactions built
+    # via @enzyme_reaction, as the original main gate did):
+    #   - cold:  uni-uni alone           → t_uni_cold ≈ 3 s
+    #   - warm:  ter-ter, then uni-uni    → t_ter ≈ 15 s, t_uni_warm ≈ 0.1 ms
+    # The warm/cold ratio (≈ 5e-5) is robust to machine speed (warm is ~0
+    # regardless), unlike an absolute wall-clock ceiling on the cold time.
     @testset "compile reuse: ter-ter warms all of uni-uni" begin
-        script = """
+        cold_script = """
             using EnzymeRates
-            r_ter = EnzymeRates.EnzymeReaction(
-                [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:A), [:C => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:N => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:C), [:O => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q),   [:N => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:R),   [:O => 1])],
-                EnzymeRates.RegulatorMults[], Int[1])
+            r_uni = @enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+            end
+            t = @elapsed EnzymeRates.init_mechanisms(r_uni)
+            println("UNI_COLD:", t)
+            """
+        warm_script = """
+            using EnzymeRates
+            r_ter = @enzyme_reaction begin
+                substrates: A[C], B[N], C[O]
+                products:   P[C], Q[N], R[O]
+            end
             t_ter = @elapsed EnzymeRates.init_mechanisms(r_ter)
-            r_uni = EnzymeRates.EnzymeReaction(
-                [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
-                 EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1])],
-                EnzymeRates.RegulatorMults[], Int[1])
+            r_uni = @enzyme_reaction begin
+                substrates: S[C]
+                products:   P[C]
+            end
             t_uni = @elapsed EnzymeRates.init_mechanisms(r_uni)
             println("TER_COLD:", t_ter)
             println("UNI_WARM:", t_uni)
             """
-        t_ter, t_uni = _measure_labeled_subprocess(script, ["TER_COLD", "UNI_WARM"])
+        t_uni_cold = _measure_labeled_subprocess(cold_script, ["UNI_COLD"])[1]
+        t_ter, t_uni_warm =
+            _measure_labeled_subprocess(warm_script, ["TER_COLD", "UNI_WARM"])
         @info "compile reuse: ter_cold=$(round(t_ter; digits=2))s  " *
-              "uni_warm=$(round(t_uni * 1e6; digits=1))µs  " *
-              "ratio=$(round(t_uni / t_ter; sigdigits=2))"
+              "uni_cold=$(round(t_uni_cold; digits=2))s  " *
+              "uni_warm=$(round(t_uni_warm * 1e6; digits=1))µs  " *
+              "warm/cold=$(round(t_uni_warm / t_uni_cold; sigdigits=2))"
         # ter-ter cold-compile ceiling (~2× the 2026-05-27 baseline of ~15 s).
         @test isfinite(t_ter)
         @test t_ter < 30.0
-        # Warm uni-uni must be near-instant: ter-ter already compiled the
-        # superset, so uni-uni JIT-compiles nothing. Cold uni-uni is ≈ 3 s;
-        # this gate keeps a ~70× margin and is insensitive to machine speed.
-        @test isfinite(t_uni)
-        @test t_uni < 0.01
+        # Warm uni-uni must be near-instant relative to cold: ter-ter already
+        # compiled the superset. Observed warm/cold ≈ 5e-5; the < 1e-3 gate
+        # keeps a ~20× margin and is insensitive to machine speed.
+        @test isfinite(t_uni_cold) && t_uni_cold > 0
+        @test isfinite(t_uni_warm)
+        @test t_uni_warm / t_uni_cold < 0.001
     end
 
     # Dispatch identity: EnzymeReaction is non-parametric, so uni-uni and
