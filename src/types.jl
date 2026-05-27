@@ -1,5 +1,3 @@
-using LinearAlgebra: rank
-
 # ─── Concrete type hierarchy (spec §5.1–5.7) ──────────────────────────
 
 # §5.1 — Metabolite / Reactant / Regulator hierarchy.
