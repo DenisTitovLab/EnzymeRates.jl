@@ -1051,11 +1051,11 @@ mirror cycles add non-constraining cycles; callers that need a safe
 upper bound floor it at `n_subs + n_prods + 1` at the call site.
 """
 function _n_fit_params_estimate(m::Mechanism)
-    n_steps = sum(length, m.steps; init = 0)
+    n_steps = sum(length, steps(m); init = 0)
     n_re_groups = 0
     n_ss_groups = 0
     form_names = Set{Symbol}()
-    for group in m.steps
+    for group in steps(m)
         isempty(group) && continue
         is_re = is_equilibrium(first(group))
         is_re ? (n_re_groups += 1) : (n_ss_groups += 1)
@@ -1069,17 +1069,17 @@ function _n_fit_params_estimate(m::Mechanism)
 end
 
 function _n_fit_params_estimate(am::AllostericMechanism)
-    base = _n_fit_params_estimate(Mechanism(am.reaction, am.cat_steps))
+    base = _n_fit_params_estimate(Mechanism(reaction(am), steps(am)))
     # +1 for L (R/T equilibrium constant), plus per-tag bookkeeping:
     # :NonequalRT catalytic groups double; :NonequalRT regulator ligands
     # also double; per-site Kreg adds a K per ligand.
     tag_extra = 0
-    for tag in am.cat_allo_states
+    for tag in cat_allo_states(am)
         tag == :NonequalRT && (tag_extra += 1)
     end
     reg_extra = 0
-    for site in am.regulatory_sites
-        for (lig, st) in zip(site.ligands, site.allo_states)
+    for site in regulatory_sites(am)
+        for (lig, st) in zip(ligands(site), allo_states(site))
             reg_extra += 1
             st == :NonequalRT && (reg_extra += 1)
         end
@@ -1103,9 +1103,9 @@ multiplicity, and regulatory sites are preserved verbatim. Each step's
 function _expand_re_to_ss(m::Mechanism)
     results = Mechanism[]
     for g in kinetic_groups(m)
-        all(is_equilibrium, m.steps[g]) || continue
+        all(is_equilibrium, steps(m)[g]) || continue
         push!(results, Mechanism(reaction(m),
-            _flip_group_to_ss(m.steps, g)))
+            _flip_group_to_ss(steps(m), g)))
     end
     results
 end
@@ -1113,13 +1113,13 @@ end
 function _expand_re_to_ss(m::AllostericMechanism)
     results = AllostericMechanism[]
     for g in kinetic_groups(m)
-        all(is_equilibrium, m.cat_steps[g]) || continue
+        all(is_equilibrium, steps(m)[g]) || continue
         push!(results, AllostericMechanism(
             reaction(m),
-            _flip_group_to_ss(m.cat_steps, g),
-            copy(m.cat_allo_states),
-            m.catalytic_multiplicity,
-            copy(m.regulatory_sites)))
+            _flip_group_to_ss(steps(m), g),
+            copy(cat_allo_states(m)),
+            catalytic_multiplicity(m),
+            copy(regulatory_sites(m))))
     end
     results
 end
@@ -1136,7 +1136,7 @@ function _flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int)
             flipped = Step[
                 Step(from_species(s), to_species(s),
                      bound_metabolite(s), false;
-                     source_idx = s.source_idx)
+                     source_idx = source_idx(s))
                 for s in gr]
             push!(new_groups, flipped)
         else
@@ -1161,10 +1161,10 @@ change R/T semantics). Each Step's `source_idx` is preserved.
 function _expand_split_kinetic_group(m::Mechanism)
     results = Mechanism[]
     for g in kinetic_groups(m)
-        length(m.steps[g]) >= 2 || continue
-        for split_idx in 1:length(m.steps[g])
+        length(steps(m)[g]) >= 2 || continue
+        for split_idx in 1:length(steps(m)[g])
             push!(results, Mechanism(reaction(m),
-                _split_one_step(m.steps, g, split_idx)))
+                _split_one_step(steps(m), g, split_idx)))
         end
     end
     results
@@ -1173,17 +1173,17 @@ end
 function _expand_split_kinetic_group(am::AllostericMechanism)
     results = AllostericMechanism[]
     for g in kinetic_groups(am)
-        length(am.cat_steps[g]) >= 2 || continue
-        for split_idx in 1:length(am.cat_steps[g])
-            new_groups = _split_one_step(am.cat_steps, g, split_idx)
-            new_states = vcat(am.cat_allo_states,
-                              [am.cat_allo_states[g]])
+        length(steps(am)[g]) >= 2 || continue
+        for split_idx in 1:length(steps(am)[g])
+            new_groups = _split_one_step(steps(am), g, split_idx)
+            new_states = vcat(cat_allo_states(am),
+                              [cat_allo_states(am)[g]])
             push!(results, AllostericMechanism(
                 reaction(am),
                 new_groups,
                 new_states,
-                am.catalytic_multiplicity,
-                copy(am.regulatory_sites)))
+                catalytic_multiplicity(am),
+                copy(regulatory_sites(am))))
         end
     end
     results
@@ -1255,10 +1255,10 @@ multiplicities). `EnzymeReaction`'s inner constructor canonicalizes the
 regulator order.
 """
 function _add_competitive_inhibitor(rxn::EnzymeReaction, reg_name::Symbol)
-    new_regs = copy(rxn.regulators)
+    new_regs = copy(regulators(rxn))
     push!(new_regs, RegulatorMults(CompetitiveInhibitor(reg_name), Int[1]))
-    EnzymeReaction(copy(rxn.reactants), new_regs,
-                   copy(rxn.allowed_catalytic_multiplicities))
+    EnzymeReaction(copy(reactants(rxn)), new_regs,
+                   copy(allowed_catalytic_multiplicities(rxn)))
 end
 
 """
@@ -1301,7 +1301,7 @@ function _expand_add_dead_end_regulator(
     # Allosteric ligands are excluded — dead-end is not the right move
     # for them (they belong on a regulatory site).
     allo_ligands = Set{Symbol}()
-    for site in am.regulatory_sites, lig in ligands(site)
+    for site in regulatory_sites(am), lig in ligands(site)
         push!(allo_ligands, name(lig))
     end
     _expand_add_dead_end_regulator_native(
@@ -1309,9 +1309,9 @@ function _expand_add_dead_end_regulator(
         exclude_regs=exclude_regs,
         wrap=(new_groups, new_g, new_reaction) -> AllostericMechanism(
             new_reaction, new_groups,
-            vcat(am.cat_allo_states, [:EqualRT]),
-            am.catalytic_multiplicity,
-            copy(am.regulatory_sites)))
+            vcat(cat_allo_states(am), [:EqualRT]),
+            catalytic_multiplicity(am),
+            copy(regulatory_sites(am))))
 end
 
 """
@@ -1481,18 +1481,18 @@ empty (allosteric regulators are added later via
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     cn = only(allowed_catalytic_multiplicities(rxn))
-    n_g = length(m.steps)
+    n_g = length(steps(m))
     base_tags = Symbol[:EqualRT for _ in 1:n_g]
     empty_sites = RegulatorySite[]
     results = AllostericMechanism[]
     push!(results, AllostericMechanism(
-        m.reaction, copy(m.steps), copy(base_tags),
+        reaction(m), copy(steps(m)), copy(base_tags),
         cn, copy(empty_sites)))
     for g in 1:n_g
         new_tags = copy(base_tags)
         new_tags[g] = :OnlyR
         push!(results, AllostericMechanism(
-            m.reaction, copy(m.steps), new_tags,
+            reaction(m), copy(steps(m)), new_tags,
             cn, copy(empty_sites)))
     end
     results
@@ -1536,12 +1536,12 @@ function _expand_add_allosteric_regulator(
     am::AllostericMechanism, rxn::EnzymeReaction,
 )
     existing_allo = Set{Symbol}()
-    for site in am.regulatory_sites, lig in ligands(site)
+    for site in regulatory_sites(am), lig in ligands(site)
         push!(existing_allo, name(lig))
     end
 
     existing_de = Set{Symbol}()
-    for group in am.cat_steps, s in group
+    for group in steps(am), s in group
         bm = bound_metabolite(s)
         bm isa Regulator && push!(existing_de, name(bm))
     end
@@ -1559,7 +1559,7 @@ function _expand_add_allosteric_regulator(
 
     results = AllostericMechanism[]
     for reg in new_regs
-        n_sites = length(am.regulatory_sites)
+        n_sites = length(regulatory_sites(am))
         # Non-:EqualRT tags at any (new or existing) site.
         for tag in (:OnlyR, :OnlyT, :NonequalRT)
             for site_idx in 0:n_sites
@@ -1571,7 +1571,7 @@ function _expand_add_allosteric_regulator(
         # at least one non-:EqualRT ligand (avoids the constructor's
         # all-:EqualRT single-ligand rejection / identical-cancellation).
         for site_idx in 1:n_sites
-            site = am.regulatory_sites[site_idx]
+            site = regulatory_sites(am)[site_idx]
             any(st != :EqualRT for st in allo_states(site)) || continue
             push!(results,
                 _make_am_with_added_reg(am, reg, :EqualRT, site_idx))
@@ -1592,15 +1592,15 @@ function _make_am_with_added_reg(
 )
     new_sites = RegulatorySite[]
     if site_idx == 0
-        for site in am.regulatory_sites
+        for site in regulatory_sites(am)
             push!(new_sites, site)
         end
         push!(new_sites, RegulatorySite(
             AllostericRegulator[AllostericRegulator(reg)],
-            am.catalytic_multiplicity,
+            catalytic_multiplicity(am),
             Symbol[tag]))
     else
-        for (i, site) in enumerate(am.regulatory_sites)
+        for (i, site) in enumerate(regulatory_sites(am))
             if i == site_idx
                 new_ligs = copy(ligands(site))
                 push!(new_ligs, AllostericRegulator(reg))
@@ -1613,9 +1613,9 @@ function _make_am_with_added_reg(
             end
         end
     end
-    AllostericMechanism(am.reaction, copy(am.cat_steps),
-                        copy(am.cat_allo_states),
-                        am.catalytic_multiplicity, new_sites)
+    AllostericMechanism(reaction(am), copy(steps(am)),
+                        copy(cat_allo_states(am)),
+                        catalytic_multiplicity(am), new_sites)
 end
 
 """
@@ -1643,21 +1643,21 @@ function _expand_change_allo_state(am::AllostericMechanism)
     results = AllostericMechanism[]
 
     # Catalytic-group tag relaxations: cat_allo_states[g] :…→ :NonequalRT.
-    for g in 1:length(am.cat_allo_states)
-        am.cat_allo_states[g] == :NonequalRT && continue
-        new_states = copy(am.cat_allo_states)
+    for g in 1:length(cat_allo_states(am))
+        cat_allo_states(am)[g] == :NonequalRT && continue
+        new_states = copy(cat_allo_states(am))
         new_states[g] = :NonequalRT
         push!(results, AllostericMechanism(
-            am.reaction, copy(am.cat_steps), new_states,
-            am.catalytic_multiplicity,
-            copy(am.regulatory_sites)))
+            reaction(am), copy(steps(am)), new_states,
+            catalytic_multiplicity(am),
+            copy(regulatory_sites(am))))
     end
 
     # Regulatory-ligand tag relaxations: walk each (site, ligand) pair.
-    for (si, site) in enumerate(am.regulatory_sites)
+    for (si, site) in enumerate(regulatory_sites(am))
         for (li, _) in enumerate(ligands(site))
             allo_states(site)[li] == :NonequalRT && continue
-            new_sites = copy(am.regulatory_sites)
+            new_sites = copy(regulatory_sites(am))
             new_states = copy(allo_states(site))
             new_states[li] = :NonequalRT
             new_sites[si] = RegulatorySite(
@@ -1665,9 +1665,9 @@ function _expand_change_allo_state(am::AllostericMechanism)
                 multiplicity(site),
                 new_states)
             push!(results, AllostericMechanism(
-                am.reaction, copy(am.cat_steps),
-                copy(am.cat_allo_states),
-                am.catalytic_multiplicity,
+                reaction(am), copy(steps(am)),
+                copy(cat_allo_states(am)),
+                catalytic_multiplicity(am),
                 new_sites))
         end
     end
@@ -1751,8 +1751,8 @@ end
 # two physically-equivalent `Mechanism`s end up with identical step
 # storage and therefore identical struct-based `hash` / `==`.
 _step_canonical_key(s::Step) =
-    (hash(s.from_species), hash(s.to_species),
-     hash(s.bound_metabolite), s.is_equilibrium)
+    (hash(from_species(s)), hash(to_species(s)),
+     hash(bound_metabolite(s)), is_equilibrium(s))
 
 """
 Sort steps within each kinetic group by `_step_canonical_key`, then
@@ -1762,10 +1762,10 @@ in place. `source_idx` values stay attached to their `Step`s; only
 storage order changes.
 """
 function _canonicalize_mechanism!(m::Mechanism)
-    for group in m.steps
+    for group in steps(m)
         sort!(group; by = _step_canonical_key)
     end
-    sort!(m.steps; by = group -> _step_canonical_key(first(group)))
+    sort!(steps(m); by = group -> _step_canonical_key(first(group)))
     m
 end
 
@@ -1778,21 +1778,21 @@ function _canonicalize_mechanism!(am::AllostericMechanism)
     # the parallel `cat_allo_states` vector need reordering. The inner
     # sort must run BEFORE computing the outer permutation so the
     # per-group "first step" key reflects the canonical inner order.
-    for group in am.cat_steps
+    for group in steps(am)
         sort!(group; by = _step_canonical_key)
     end
-    perm = sortperm(1:length(am.cat_steps);
-                    by = g -> _step_canonical_key(first(am.cat_steps[g])))
-    permute!(am.cat_steps, perm)
-    permute!(am.cat_allo_states, perm)
-    sort!(am.regulatory_sites; by = _regulatory_site_canonical_key)
+    perm = sortperm(1:length(steps(am));
+                    by = g -> _step_canonical_key(first(steps(am)[g])))
+    permute!(steps(am), perm)
+    permute!(cat_allo_states(am), perm)
+    sort!(regulatory_sites(am); by = _regulatory_site_canonical_key)
     am
 end
 
 _regulatory_site_canonical_key(site::RegulatorySite) =
-    (Tuple(hash(l) for l in site.ligands),
-     site.multiplicity,
-     Tuple(site.allo_states))
+    (Tuple(hash(l) for l in ligands(site)),
+     multiplicity(site),
+     Tuple(allo_states(site)))
 
 function dedup!(cache::Dict{Int, Vector{Mechanism}})
     for (pc, mechs) in cache
@@ -1948,15 +1948,15 @@ function _canonicalize_for_hash(em::AbstractEnzymeMechanism,
     num_canon = _expr_canonical_via_name_map(full_num, name_map)
     den_canon = _expr_canonical_via_name_map(full_den, name_map)
 
-    cat_tags_canon = Tuple(m.cat_allo_states)
-    cat_mult = m.catalytic_multiplicity
+    cat_tags_canon = Tuple(cat_allo_states(m))
+    cat_mult = catalytic_multiplicity(m)
 
     site_entries = Tuple[]
-    for site in m.regulatory_sites
+    for site in regulatory_sites(m)
         push!(site_entries,
-              (Tuple(hash(l) for l in site.ligands),
-               site.multiplicity,
-               Tuple(site.allo_states)))
+              (Tuple(hash(l) for l in ligands(site)),
+               multiplicity(site),
+               Tuple(allo_states(site))))
     end
     site_canon = Tuple(sort(site_entries; by = repr))
 
@@ -2120,23 +2120,23 @@ Structural invariants every valid Mechanism should satisfy:
 - from_species != to_species for every step
 """
 function _assert_mechanism_invariants(m::Mechanism)
-    flat = collect(Iterators.flatten(m.steps))
+    flat = collect(Iterators.flatten(steps(m)))
     isempty(flat) && error("empty steps in Mechanism")
-    for g in m.steps
+    for g in steps(m)
         isempty(g) && error("empty kinetic group in Mechanism")
     end
-    src_indices = [s.source_idx for s in flat]
+    src_indices = [source_idx(s) for s in flat]
     sort(src_indices) == collect(1:length(flat)) ||
         error("source_idx values not dense 1..n: got $(sort(src_indices))")
     for s in flat
         if is_binding(s)
-            s.bound_metabolite === nothing &&
+            bound_metabolite(s) === nothing &&
                 error("binding step has nothing bound_metabolite")
         else
-            s.bound_metabolite === nothing ||
+            bound_metabolite(s) === nothing ||
                 error("iso step has non-nothing bound_metabolite")
         end
-        s.from_species == s.to_species &&
+        from_species(s) == to_species(s) &&
             error("from_species == to_species in step $s")
     end
 
@@ -2162,7 +2162,7 @@ function _assert_mechanism_invariants(m::Mechanism)
     # A kinetic group of size > 1 must bind a single metabolite with a single
     # RE/SS kind (no mixing). Iso steps within such a group are ignored here;
     # the per-step loop above already enforces bound/iso consistency.
-    for group in m.steps
+    for group in steps(m)
         length(group) == 1 && continue
         kinds = [(is_equilibrium(s), bound_metabolite(s)) for s in group
                  if bound_metabolite(s) !== nothing]
@@ -2184,36 +2184,36 @@ function _assert_mechanism_invariants(m::AllostericMechanism)
     # base invariant checks (every cat-group non-empty, source_idx dense
     # over flat cat steps, etc.). Then check the allosteric-specific
     # invariants against the actual AllostericMechanism fields.
-    flat = Step[s for g in m.cat_steps for s in g]
+    flat = Step[s for g in steps(m) for s in g]
     isempty(flat) && error("AllostericMechanism: empty cat_steps")
-    for g in m.cat_steps
+    for g in steps(m)
         isempty(g) && error("AllostericMechanism: empty catalytic kinetic group")
     end
-    src_indices = [s.source_idx for s in flat]
+    src_indices = [source_idx(s) for s in flat]
     sort(src_indices) == collect(1:length(flat)) ||
         error("AllostericMechanism: cat_steps source_idx not dense 1..n")
 
     # cat_allo_states is one per cat group, validated by the constructor;
     # re-check defensively here:
-    length(m.cat_allo_states) == length(m.cat_steps) ||
+    length(cat_allo_states(m)) == length(steps(m)) ||
         error("AllostericMechanism: cat_allo_states length " *
-              "$(length(m.cat_allo_states)) ≠ cat_steps length " *
-              "$(length(m.cat_steps))")
+              "$(length(cat_allo_states(m))) ≠ cat_steps length " *
+              "$(length(steps(m)))")
     valid_cat_states = (:OnlyR, :EqualRT, :NonequalRT)
-    for tag in m.cat_allo_states
+    for tag in cat_allo_states(m)
         tag in valid_cat_states ||
             error("AllostericMechanism: invalid cat allo state $tag")
     end
 
-    m.catalytic_multiplicity ≥ 1 ||
+    catalytic_multiplicity(m) ≥ 1 ||
         error("AllostericMechanism: catalytic_multiplicity " *
-              "$(m.catalytic_multiplicity) must be ≥ 1")
+              "$(catalytic_multiplicity(m)) must be ≥ 1")
 
     # regulatory_sites is a Vector{RegulatorySite}; each site carries
     # its own ligand list + multiplicity + per-ligand allo states. The
     # constructor validates internal structure; here we only assert the
     # list is non-nothing.
-    m.regulatory_sites isa Vector{RegulatorySite} ||
+    regulatory_sites(m) isa Vector{RegulatorySite} ||
         error("AllostericMechanism: regulatory_sites not Vector{RegulatorySite}")
 
     nothing
