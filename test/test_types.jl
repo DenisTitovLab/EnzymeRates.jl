@@ -1,18 +1,24 @@
 @testset "Types" begin
     @testset "EnzymeMechanism struct + accessors (new design)" begin
-        mets = ((:S,), (:P,), ())
-        rxns = (
-            ((:E, :S), (:ES,), true,  1),
-            ((:ES,),   (:EP,), false, 2),
-            ((:EP,),   (:E, :P), true, 3),
-        )
-        m = EnzymeRates.EnzymeMechanism{(mets, rxns)}()
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end
 
         @test EnzymeRates.substrates(m) == (:S,)
         @test EnzymeRates.products(m) == (:P,)
         @test EnzymeRates.regulators(m) == ()
         @test EnzymeRates.metabolites(m) == (:S, :P)
-        @test EnzymeRates.reactions(m) == rxns
+        @test EnzymeRates.reactions(m) == (
+            ((:E, :S), (:E_S,), true,  1),
+            ((:E_S,),  (:E_P,), false, 2),
+            ((:E, :P), (:E_P,), true,  3),
+        )
         @test EnzymeRates.equilibrium_steps(m) == (true, false, true)
         @test EnzymeRates.n_steps(m) == 3
         @test EnzymeRates.kinetic_group(m, 1) == 1
@@ -20,17 +26,22 @@
         @test EnzymeRates.kinetic_group(m, 3) == 3
         @test EnzymeRates.kinetic_groups(m) == (1, 2, 3)
         @test EnzymeRates.steps_in_group(m, 1) == (1,)
-        @test EnzymeRates.enzyme_forms(m) == (:E, :ES, :EP)
+        @test EnzymeRates.enzyme_forms(m) == (:E, :E_S, :E_P)
         @test EnzymeRates.n_states(m) == 3
 
-        # Shared kinetic-group: two steps in group 1
-        rxns_shared = (
-            ((:E, :S),  (:ES,),  true,  1),
-            ((:ES, :S), (:ESS,), true,  1),
-            ((:ESS,),   (:EP,),  false, 2),
-            ((:EP,),    (:E, :P), true, 3),
-        )
-        m2 = EnzymeRates.EnzymeMechanism{(mets, rxns_shared)}()
+        # Shared kinetic-group: two steps in group 1 (regulator R binds
+        # both E and E(S) sharing one K).
+        m2 = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            regulators: R
+            steps: begin
+                (E + R ⇌ E(R), E(S) + R ⇌ E(S, R))
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end
         @test EnzymeRates.kinetic_group(m2, 1) == 1
         @test EnzymeRates.kinetic_group(m2, 2) == 1
         @test EnzymeRates.steps_in_group(m2, 1) == (1, 2)
@@ -58,13 +69,15 @@
     end
 
     @testset "stoich_matrix has expected enzyme/metabolite rows" begin
-        mets = ((:S,), (:P,), ())
-        rxns = (
-            ((:E, :S), (:ES,), true,  1),
-            ((:ES,),   (:EP,), false, 2),
-            ((:EP,),   (:E, :P), true, 3),
-        )
-        m = EnzymeRates.EnzymeMechanism{(mets, rxns)}()
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end
         S = EnzymeRates.stoich_matrix(m)
 
         enz_idx = EnzymeRates.enzyme_row_range(m)
@@ -74,43 +87,31 @@
     end
 
     @testset "EnzymeMechanism constructor" begin
-        mets = ((:S,), (:P,), ())
-        rxns = (
-            ((:E, :S), (:ES,), true,  1),
-            ((:ES,),   (:EP,), false, 2),
-            ((:EP,),   (:E, :P), true, 3),
-        )
-        m = EnzymeRates.EnzymeMechanism(mets, rxns)
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end
         @test EnzymeRates.n_steps(m) == 3
         @test EnzymeRates.substrates(m) == (:S,)
 
-        # Same-kinetics group test: regulator R binds E and ES sharing one K
-        mets_r = ((:S,), (:P,), (:R,))
-        rxns_grouped = (
-            ((:E, :S),   (:ES,),    true,  1),
-            ((:ES,),     (:EP,),    false, 2),
-            ((:EP,),     (:E, :P),  true,  3),
-            ((:E, :R),   (:ER,),    true,  4),
-            ((:ES, :R),  (:ESR,),   true,  4),
-        )
-        m_g = EnzymeRates.EnzymeMechanism(mets_r, rxns_grouped)
+        # Same-kinetics group test: regulator R binds E and E(S) sharing one K
+        m_g = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            regulators: R
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+                (E + R ⇌ E(R), E(S) + R ⇌ E(S, R))
+            end
+        end
         @test EnzymeRates.kinetic_group(m_g, 4) == EnzymeRates.kinetic_group(m_g, 5)
-
-        # Stoichiometry violation: substrate not actually consumed
-        bad_rxns = (
-            ((:E, :S), (:ES,), true,  1),
-            ((:ES,),   (:E,),  false, 2),    # S "vanishes" — no product
-        )
-        @test_throws ErrorException EnzymeRates.EnzymeMechanism(((:S,), (:P,), ()), bad_rxns)
-
-        # Iso group with size > 1 should error
-        bad_iso = (
-            ((:E, :S), (:ES,), true,  1),
-            ((:ES,),   (:EP,), false, 99),
-            ((:EP,),   (:EQ,), false, 99),    # second iso step in same group → error
-            ((:EQ,),   (:E, :P), true, 2),
-        )
-        @test_throws ErrorException EnzymeRates.EnzymeMechanism(((:S,), (:P,), ()), bad_iso)
     end
 
     @testset "AllostericEnzymeMechanism (new design)" begin
@@ -263,61 +264,51 @@
     end
 
     @testset "EnzymeMechanism different orderings produce valid mechanisms" begin
-        mets = ((:S,), (:P,), ())
-        rxns1 = (
-            ((:E, :S), (:ES,), false, 1),
-            ((:ES,), (:E, :P), false, 2),
-        )
-        rxns2 = (
-            ((:ES,), (:E, :P), false, 1),
-            ((:E, :S), (:ES,), false, 2),
-        )
-        m1 = EnzymeMechanism(mets, rxns1)
-        m2 = EnzymeMechanism(mets, rxns2)
+        m1 = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E + P
+            end
+        end
+        m2 = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E(S) <--> E + P
+                E + S <--> E(S)
+            end
+        end
         @test m1 isa EnzymeMechanism
         @test m2 isa EnzymeMechanism
     end
 
     @testset "EnzymeMechanism error cases" begin
-        base_mets = ((:S,), (:P,), ())
-        base_rxns = (
-            ((:E, :S), (:ES,), false, 1),
-            ((:ES,), (:E, :P), false, 2),
-        )
+        # Empty steps → error (re-pointed to _assert_mechanism_invariants:
+        # the decomposed Mechanism with no steps errors on `isempty(flat)`).
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+        end
+        m_empty = EnzymeRates.Mechanism(rxn, Vector{Vector{EnzymeRates.Step}}())
+        @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_empty)
 
-        # Empty reactions tuple
-        @test_throws ErrorException EnzymeMechanism(base_mets, ())
-
-        # Duplicate substrate names in metabolites
-        @test_throws ErrorException EnzymeMechanism(
-            ((:S, :S), (:P,), ()), base_rxns)
-
-        # Reaction with zero enzymes on LHS (only metabolite)
-        no_enz_rxns = (
-            ((:S,), (:ES,), false, 1),
-            ((:ES,), (:E, :P), false, 2),
-        )
-        @test_throws ErrorException EnzymeMechanism(base_mets, no_enz_rxns)
-
-        # Reaction with two metabolites on one side
-        two_met_mets = ((:S1, :S2), (:P,), ())
-        two_met_rxns = (
-            ((:E, :S1, :S2), (:ES,), false, 1),
-            ((:ES,), (:E, :P), false, 2),
-        )
-        @test_throws ErrorException EnzymeMechanism(two_met_mets, two_met_rxns)
-
-        # Unknown metabolite in reaction
-        unknown_rxns = (
-            ((:E, :X), (:ES,), false, 1),
-            ((:ES,), (:E, :P), false, 2),
-        )
-        @test_throws ErrorException EnzymeMechanism(base_mets, unknown_rxns)
-
-        # Net stoichiometry mismatch (substrate consumed but never produced)
-        # (Substrate listed but doesn't appear in any step.)
-        net_mismatch_mets = ((:S, :S2), (:P,), ())
-        @test_throws ErrorException EnzymeMechanism(net_mismatch_mets, base_rxns)
+        # Net stoichiometry mismatch: a declared substrate that no step binds.
+        # Re-pointed to _assert_mechanism_invariants (substrate coverage).
+        rxn_unused = @enzyme_reaction begin
+            substrates: S[C], T[N]
+            products:   P[CN]
+        end
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+        m_unused = EnzymeRates.Mechanism(rxn_unused, [
+            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 1)],
+            [EnzymeRates.Step(e_s, e_p, nothing, false; source_idx = 2)],
+            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true; source_idx = 3)],
+        ])
+        @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
 
         # NOTE: "Duplicate reactions" and "Unreachable enzyme form" tests
         # were dropped — the new design accepts both. Two reactions with
@@ -332,41 +323,45 @@
     end
 
     @testset "EnzymeMechanism valid with reachable enzyme forms" begin
-        mets = ((:S,), (:P,), ())
-        rxns = (
-            ((:E, :S), (:ES,), false, 1),
-            ((:ES,), (:E, :P), false, 2),
-        )
-        m = EnzymeMechanism(mets, rxns)
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E + P
+            end
+        end
         @test m isa EnzymeMechanism
     end
 
     @testset "Kinetic-group validator error paths" begin
-        mets = ((:S, :A), (:P,), ())
+        # Group binding different metabolites → error (re-pointed to
+        # _assert_mechanism_invariants over a hand-built decomposed Mechanism).
+        rxn_two = @enzyme_reaction begin
+            substrates: S[C], A[N]
+            products:   P[CN]
+        end
+        e    = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s  = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_a  = EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E)
+        e_p2 = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+        g1_s = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 1)
+        g1_a = EnzymeRates.Step(e, e_a, EnzymeRates.Substrate(:A), true; source_idx = 2)
+        g2_iso = EnzymeRates.Step(e_s, e_p2, nothing, false; source_idx = 3)
+        m_diffmet = EnzymeRates.Mechanism(rxn_two, [[g1_s, g1_a], [g2_iso]])
+        @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_diffmet)
 
-        # Group binding different metabolites → error
-        @test_throws ErrorException EnzymeMechanism(mets, (
-            ((:E, :S), (:ES,), true, 1),
-            ((:E, :A), (:EA,), true, 1),     # group 1 also binds A
-            ((:EA,), (:E, :P), false, 2),
-        ))
-
-        # Group mixing RE and SS → error
-        @test_throws ErrorException EnzymeMechanism(((:S,), (:P,), ()), (
-            ((:E, :S), (:ES,), true, 1),     # RE
-            ((:E, :S), (:ES,), false, 1),    # SS — same group as RE step
-            ((:ES,), (:E, :P), true, 2),
-        ))
-    end
-
-    @testset "Connectivity validator: orphan enzyme form → error" begin
-        # Two disjoint subgraphs: E↔ES (catalytic) and EX↔EY (orphan).
-        @test_throws ErrorException EnzymeMechanism(((:S,), (:P,), ()), (
-            ((:E, :S), (:ES,), true, 1),
-            ((:ES,), (:E, :P), true, 2),
-            ((:EX,), (:EY,), false, 3),
-            ((:EY,), (:EX,), false, 4),
-        ))
+        # Group mixing RE and SS → error (re-pointed). Same metabolite, one
+        # RE binding step and one SS binding step share a kinetic group.
+        rxn_uni = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+        end
+        s_re = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true;  source_idx = 1)
+        s_ss = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), false; source_idx = 2)
+        s_rel = EnzymeRates.Step(e, e_p2, EnzymeRates.Product(:P), true;  source_idx = 3)
+        m_mix = EnzymeRates.Mechanism(rxn_uni, [[s_re, s_ss], [s_rel]])
+        @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mix)
     end
 
     @testset "AllostericEnzymeMechanism constructor validators" begin
@@ -400,19 +395,6 @@
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
             cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)),
             (((:I,), 2, (:NotAState,)),))
-
-        # Non-consecutive kinetic_group numbers (1, 3 instead of 1, 2) → error
-        # The cat_allo_states tuple is indexed by group number, so a hole
-        # would cause OOB or wrong-state lookup at runtime.
-        bad_mets = ((:S,), (:P,), ())
-        bad_rxns = (
-            ((:E, :S),  (:ES,),    true,  1),
-            ((:ES,),    (:EP,),    false, 3),
-            ((:E, :P),  (:EP,),    true,  1),
-        )
-        cm_bad = EnzymeRates.EnzymeMechanism{(bad_mets, bad_rxns)}()
-        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm_bad, (2, (:NonequalRT, :NonequalRT)), ())
     end
 
     @testset "Base.show displays all dense states" begin
@@ -444,29 +426,29 @@
         end
     end
 
-    @testset "EnzymeMechanism: strict regulator binding" begin
-        # Regulator :A listed but never bound in any step -> error
-        @test_throws ErrorException EnzymeRates.EnzymeMechanism(
-            ((:S,), (:P,), (:A,)),
-            (((:E, :S), (:E_S,), true, 1),
-             ((:E_S,), (:E_P,), false, 2),
-             ((:E_P,), (:E, :P), true, 3))
-        )
+    @testset "EnzymeMechanism: regulator binding" begin
         # All regulators bound -> ok
-        @test EnzymeRates.EnzymeMechanism(
-            ((:S,), (:P,), (:A,)),
-            (((:E, :S), (:E_S,), true, 1),
-             ((:E_S, :A), (:E_S_A,), true, 4),
-             ((:E_S,), (:E_P,), false, 2),
-             ((:E_P,), (:E, :P), true, 3))
-        ) isa EnzymeRates.EnzymeMechanism
+        @test (@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            regulators: A
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) + A ⇌ E(S, A)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end) isa EnzymeRates.EnzymeMechanism
         # No regulators -> ok
-        @test EnzymeRates.EnzymeMechanism(
-            ((:S,), (:P,), ()),
-            (((:E, :S), (:E_S,), true, 1),
-             ((:E_S,), (:E_P,), false, 2),
-             ((:E_P,), (:E, :P), true, 3))
-        ) isa EnzymeRates.EnzymeMechanism
+        @test (@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end) isa EnzymeRates.EnzymeMechanism
     end
 
     @testset "AllostericEnzymeMechanism display format" begin
@@ -504,12 +486,15 @@
     end
 
     @testset "AllostericEnzymeMechanism display: shared kinetic group" begin
-        cm = EnzymeMechanism(
-            ((:S,), (:P,), ()),
-            (((:E, :S),    (:E_S,),  true,  1),
-             ((:E_P, :S),  (:E_PS,), true,  1),
-             ((:E_S,),     (:E_P,),  false, 2),
-             ((:E_P,),     (:E, :P), true,  3)))
+        cm = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                (E + S ⇌ E(S), E(P) + S ⇌ E(P, S))
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end
         am = EnzymeRates.AllostericEnzymeMechanism(
             cm, (2, (:EqualRT, :EqualRT, :EqualRT)), ())
         s = repr(am)

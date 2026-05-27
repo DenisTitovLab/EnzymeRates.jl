@@ -335,3 +335,47 @@ contract.
   zero-ternary-complex limit between them; its distinguishing feature (no
   measurable central complex) is a rate-law simplification, not a new
   elementary-step topology, so derivation coverage is not reduced.
+
+## Concrete-types refactor — legacy 2-arg EnzymeMechanism constructor removal — commit TBD
+
+### test_types.jl `@test_throws` — stoichiometry rank mismatch (substrate "vanishes", no product)
+- Helper deleted: the 2-arg `EnzymeMechanism(mets, rxns)` constructor's `_validate_*` (removed in the next task).
+- Replacement: NONE EQUIVALENT (superseded by design — net-stoichiometry rank is not enforced on the decomposed path). `_assert_mechanism_invariants` only checks declared-metabolite coverage, not a stoichiometry rank balance.
+- Adjacent coverage: declared substrate/product coverage is re-pointed to `_assert_mechanism_invariants` (see the net-stoich-mismatch re-point in `@testset "EnzymeMechanism error cases"`); thermodynamic/rank concerns are a Wegscheider/Haldane downstream concern.
+
+### test_types.jl `@test_throws` — iso group size > 1
+- Helper deleted: the 2-arg `EnzymeMechanism(mets, rxns)` constructor's `_validate_*`.
+- Replacement: NONE EQUIVALENT (superseded). Verified empirically: `_assert_mechanism_invariants` does NOT error on a kinetic group containing two iso (nothing-bound) steps — its size>1 group check filters to `bound_metabolite !== nothing` steps, so two iso steps in one group pass.
+- Adjacent coverage: per-step bound/iso consistency is still enforced by `_assert_mechanism_invariants`; the binding-step group composition (single metabolite, no RE/SS mixing) is re-pointed (see `@testset "Kinetic-group validator error paths"`).
+
+### test_types.jl `@test_throws` — duplicate substrate names
+- Helper deleted: the 2-arg `EnzymeMechanism(mets, rxns)` constructor's `_validate_*`.
+- Replacement: NONE EQUIVALENT. Verified empirically: the decomposed `EnzymeReaction` constructor accepts duplicate `ReactantAtoms` substrate names without error (no `allunique` check). Not a constructor failure mode on the concrete-types path.
+- Adjacent coverage: none — uniqueness is not a contract of the concrete `EnzymeReaction`.
+
+### test_types.jl `@test_throws` — reaction with zero enzymes on a side
+- Helper deleted: the 2-arg `EnzymeMechanism(mets, rxns)` constructor's `_validate_*`.
+- Replacement: NONE EQUIVALENT (moot) — a decomposed `Step` always carries exactly one `Species` per side (`from_species` / `to_species`), so "zero enzymes on a side" is unrepresentable.
+
+### test_types.jl `@test_throws` — two metabolites on one side
+- Helper deleted: the 2-arg `EnzymeMechanism(mets, rxns)` constructor's `_validate_*`.
+- Replacement: NONE EQUIVALENT (moot) — `Step.bound_metabolite` is a single `Union{Metabolite,Nothing}` field, so two free metabolites on one side of a single step is unrepresentable.
+
+### test_types.jl `@test_throws` — unknown metabolite in reaction
+- Helper deleted: the 2-arg `EnzymeMechanism(mets, rxns)` constructor's `_validate_*`.
+- Replacement: NONE EQUIVALENT (moot) — a decomposed `Step` binds a typed `Metabolite` object (`Substrate`/`Product`/…), not a free Symbol, so an "unknown" Symbol metabolite cannot enter a step.
+
+### test_types.jl `@testset "Connectivity validator: orphan enzyme form → error"`
+- Helper deleted: the 2-arg `EnzymeMechanism(mets, rxns)` constructor's connectivity validator.
+- Replacement: NONE EQUIVALENT (superseded) — the decomposed design intentionally dropped the enzyme-form connectivity invariant (documented in the surviving `test_types.jl @testset "EnzymeMechanism error cases"` NOTE comment): enzyme forms are inferred from steps, so a disjoint subgraph is structurally valid.
+- Adjacent coverage: graph connectivity is a downstream Wegscheider-analysis concern, not a constructor invariant.
+
+### test_types.jl `@test_throws` — non-consecutive kinetic_group numbers (AllostericEnzymeMechanism validators)
+- Helper deleted: the direct `EnzymeMechanism{(mets, rxns)}()` singleton form (`cm_bad` fixture) that encoded a group "hole" (groups 1, 3).
+- Replacement: NONE EQUIVALENT (moot) — the decomposed `Mechanism.steps` outer-vector index *is* the kinetic-group number, so groups are dense-by-construction and a non-consecutive (holed) kinetic-group numbering is unrepresentable. The constructor can never receive such a mechanism.
+- Adjacent coverage: `cat_allo_states` length validation against the cat-group count is still exercised by the surviving wrong-length `@test_throws` in the same testset.
+
+### test_types.jl `@test_throws` — strict regulator binding (regulator listed but never bound)
+- Helper deleted: the 2-arg `EnzymeMechanism(mets, rxns)` constructor's strict-regulator-binding validator.
+- Replacement: NONE EQUIVALENT (superseded). Regulators are intentionally excluded from the `_assert_mechanism_invariants` coverage check (per CLAUDE.md: `init_mechanisms` declares dead-end inhibitors that no step binds yet; `expand_mechanisms` binds them later). Verified empirically: an unbound declared regulator on the `@enzyme_mechanism` path produces NO error — the regulator is simply absent from `regulators(m)`.
+- Adjacent coverage: substrate/product coverage (the never-excluded case) is re-pointed to `_assert_mechanism_invariants`; positive "all regulators bound" / "no regulators" cases are preserved via decomposed `@enzyme_mechanism` in `@testset "EnzymeMechanism: regulator binding"`.
