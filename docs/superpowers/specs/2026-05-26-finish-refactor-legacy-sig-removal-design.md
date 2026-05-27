@@ -105,10 +105,36 @@ failure rather than an explicit guard (cite the probe result).
 
 ## Bucket A — legacy Sig path (~310 LOC, `src/types.jl`)
 
-Reachable only via the 2-arg `EnzymeMechanism(metabolites, reactions)`
-constructor, which nothing in `src/` or `test/` calls (verified: DSL emits
-the 1-arg `EnzymeMechanism(Mechanism(...))` lift; no test constructs the
-2-arg form).
+Reachable from production only via the 1-arg `EnzymeMechanism(Mechanism(...))`
+lift, which routes through the new Sig — **not** the legacy path. But the
+2-arg `EnzymeMechanism(metabolites, reactions)` constructor **is** called
+~16× in `test/test_types.jl` (opaque tuples), where it carries a body of
+**validation logic absent from the decomposed `Mechanism` constructor**
+(which does only `source_idx` bookkeeping). So Bucket A is not pure
+dead-code removal — it must decide the fate of those validators + tests.
+
+**Validator audit (decided: port the meaningful, drop the moot/superseded).**
+The decomposed-world invariant home is `_assert_mechanism_invariants`
+(`src/mechanism_enumeration.jl:2122`), already called ~80× in tests — *not*
+the `Mechanism` constructor, which is deliberately permissive (it is called
+constantly by the enumerator; the design intentionally moved structural
+invariants out of it — see the `test_types.jl:322–331` note that connectivity
+was dropped as a downstream concern).
+
+| Legacy validator | Verdict | Reason |
+|---|---|---|
+| step is a 4-tuple / `is_eq::Bool` / `gnum::Int` | **drop (moot)** | `Step` is a typed struct — unrepresentable invalid shape |
+| exactly one enzyme form per side | **drop (moot)** | `Step.from_species`/`to_species` are single `Species` |
+| ≤1 metabolite per side | **drop (moot)** | `Step.bound_metabolite` is a single field |
+| empty reactions | **already covered** | `_assert_mechanism_invariants`: `isempty(flat)` |
+| every metabolite appears in some step | **port** to `_assert_mechanism_invariants` | representable, not yet checked |
+| kinetic-group: RE/SS mixing, same-metabolite, iso-singleton | **port** the not-yet-covered parts to `_assert_mechanism_invariants` | bound/iso consistency already checked there; RE/SS-mix + same-met are not |
+| enzyme-form connectivity / orphans | **drop (superseded by design)** | `test_types.jl:322–331` documents the decomposed design intentionally dropped this; Wegscheider handles it downstream |
+| stoichiometry rank test | **drop (superseded by design)** | a rank test in the hot constructor is a perf/design regression; not enforced anywhere on the decomposed path today |
+
+Each dropped test gets a `refactor-deleted-tests.md` §2.1 entry citing the
+row's reason. Positive construction tests (`n_steps`, `substrates`,
+kinetic-group sharing) are **migrated** to decomposed grammar, not deleted.
 
 **Step 0 (first):** commit the bi-bi exit-gate probe as a permanent test
 (e.g. in `test/test_mechanism_enumeration.jl` or `test_identify_rate_equation.jl`):
@@ -132,9 +158,11 @@ bi-bi `init_mechanisms` → every mechanism `compile_mechanism` +
 7. Stale doc comments referencing the 2-arg shorthand: types.jl L641, 649,
    796, 1275, 1291; dsl.jl L629; rate_eq_derivation.jl L189.
 
-**Test handling:** the 4 `@test_throws` on the 2-arg constructor in
-`test/test_types.jl` are removed with a §2.1 log entry in the same commit
-(they validate a deleted constructor — no longer meaningful).
+**Test handling:** the ~16 `test_types.jl` sites using the 2-arg
+constructor are resolved per the audit table above — positive construction
+tests migrated to decomposed grammar; `@test_throws` validation tests either
+re-pointed at `_assert_mechanism_invariants` (ported validators) or deleted
+with a §2.1 entry (moot/superseded validators), in the same commit.
 
 **Verification:** full suite green; `check_test_integrity.sh main` EXIT=0;
 per-commit perf / compile-budget / chokepoint gates green; `@testset` count
