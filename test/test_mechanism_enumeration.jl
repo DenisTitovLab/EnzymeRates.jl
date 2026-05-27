@@ -1127,6 +1127,18 @@ end
         end
     end
 
+    @testset "bi-bi exit gate: init mechanisms derive (subset)" begin
+        mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        @test length(mechs) == 77
+        # Derive a small subset only — full-77 derivation is ~86s. Pick the 5
+        # smallest by step count (cheapest to compile).
+        by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
+        for m in by_size[1:5]
+            s = EnzymeRates.rate_equation_string(EnzymeRates.compile_mechanism(m))
+            @test s isa AbstractString && !isempty(s)
+        end
+    end
+
     @testset "Drops unbound regulators from init Mechanism" begin
         # init_mechanisms produces Mechanisms without dead-end regulators
         # bound. When compiled to EnzymeMechanism, the regulator must NOT
