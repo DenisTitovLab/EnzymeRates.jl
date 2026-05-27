@@ -180,6 +180,7 @@ from_species(s::Step)     = s.from_species
 to_species(s::Step)       = s.to_species
 bound_metabolite(s::Step) = s.bound_metabolite
 is_equilibrium(s::Step)   = s.is_equilibrium
+source_idx(s::Step)       = s.source_idx
 is_binding(s::Step)       = s.bound_metabolite !== nothing
 is_iso(s::Step)           = s.bound_metabolite === nothing
 direction(s::Step)        = is_binding(s) ? :binding : :iso
@@ -463,6 +464,7 @@ end
 reaction(m::AllostericMechanism) = m.reaction
 steps(m::AllostericMechanism) = m.cat_steps
 cat_allo_state(m::AllostericMechanism, g::Int) = m.cat_allo_states[g]
+cat_allo_states(m::AllostericMechanism) = m.cat_allo_states
 catalytic_multiplicity(m::AllostericMechanism) = m.catalytic_multiplicity
 regulatory_sites(m::AllostericMechanism) = m.regulatory_sites
 kinetic_groups(m::AllostericMechanism) = 1:length(m.cat_steps)

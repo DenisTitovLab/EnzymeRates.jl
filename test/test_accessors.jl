@@ -126,3 +126,25 @@ end
     @test :Keq in reduced_allo
     @test :E_total in reduced_allo
 end
+
+@testset "added field accessors: source_idx, cat_allo_states" begin
+    st = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
+        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+        EnzymeRates.Substrate(:S), true; source_idx = 7)
+    @test EnzymeRates.source_idx(st) == 7
+
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    base = first(EnzymeRates.init_mechanisms(rxn))
+    cas = fill(:NonequalRT, length(EnzymeRates.kinetic_groups(base)))
+    site = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:R)], 2, [:NonequalRT])
+    am = EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(base), copy(EnzymeRates.steps(base)), cas, 2, [site])
+    @test EnzymeRates.cat_allo_states(am) == cas
+end
