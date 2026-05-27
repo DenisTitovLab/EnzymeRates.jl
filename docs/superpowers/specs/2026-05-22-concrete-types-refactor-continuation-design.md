@@ -724,3 +724,18 @@ Delegating exploratory fixture migration to autonomous subagents failed
 escalating). This work is exploratory, not mechanical: drive it directly
 or with tightly-scoped, closely-monitored single-fixture subagents, and
 escalate architectural blockers rather than working around them.
+
+### 11.5 Status (branch `refactor-to-concrete-types-instead-of-symbols`)
+
+Phase 2 enumeration internals are complete: `init_mechanisms` and
+`expand_mechanisms` emit decomposed `Mechanism` / `AllostericMechanism`
+(built from `Step` / `Species`) end-to-end. The entire opaque-form
+`_Raw*` working-representation family and all form-name string helpers
+(`_dead_end_form_name`, `_is_estar_form`, `_bound_mets_from_form_name`,
+`_parse_bound`, `_mechanism_spec_from_steps`, `_stepspec_from_step`,
+`_mechanism_from_raw`, `_raw_from_mechanism`, `_form_name`, etc.) are
+deleted. §3.1 #1 (one struct family in the enumerator) and #2 (no
+form-name parse-back) hold for the enumeration path. The 2-arg
+`EnzymeMechanism(metabolites, reactions)` legacy Sig path still exists in
+`src/types.jl` (unreachable from the DSL); its removal is the separate
+§11.3 step 3, not yet done.

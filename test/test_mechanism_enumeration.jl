@@ -32,7 +32,7 @@ _topo_mech(rxn, t::Vector{EnzymeRates.Step}) =
         rxn, EnzymeRates._to_group_list(t, collect(1:length(t))))
 
 # Form-name set and form→bound-metabolite-name map for a flat topology
-# Step list (the decomposed equivalents of the old scratch helpers).
+# Step list, derived from the decomposed Species of each Step.
 _form_names(t::Vector{EnzymeRates.Step}) = Set{Symbol}(
     EnzymeRates.name(sp)
     for s in t for sp in (EnzymeRates.from_species(s),

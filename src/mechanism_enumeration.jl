@@ -605,9 +605,8 @@ function _catalytic_topologies(
     # smaller iso-step counts first (sequential before
     # ping-pong), then by sorted iso-step names. This stabilizes
     # the topology output order so test ordering invariants hold
-    # — `Set{Step}` hashing is not value-stable across this
-    # refactor's data-structure change, so unordered iteration
-    # would reorder topologies relative to legacy.
+    # — `Set{Step}` hashing is not value-stable, so unordered
+    # iteration would reorder topologies.
     sorted_iso_pats = sort(collect(keys(iso_groups));
         by = pat -> (
             length(pat),

@@ -1,7 +1,7 @@
 # Phase 2 — Enumerator to decomposed Species end-to-end (design)
 
 **Branch:** `refactor-to-concrete-types-instead-of-symbols`
-**Status:** spec; pending implementation plan
+**Status:** implemented — `init_mechanisms` / `expand_mechanisms` emit decomposed `Mechanism` / `AllostericMechanism` end-to-end; the `_Raw*` working-rep family and all form-name string helpers are deleted; full suite green.
 **Date:** 2026-05-26
 **Prerequisite reading:**
 [`2026-05-20-concrete-types-refactor-design.md`](2026-05-20-concrete-types-refactor-design.md),

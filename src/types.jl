@@ -1307,9 +1307,6 @@ function _is_new_sig(Sig::Tuple)
                         :AllostericRegulator, :CompetitiveInhibitor)
 end
 
-"""Render a `Species` as the bare Symbol used by the legacy step shape."""
-_species_sym(s::Species) = name(s)
-
 """Walk the steps of `Mechanism(em)` in flat order, yielding
 `(step::Step, kinetic_group::Int)` pairs."""
 function _flat_steps(m::Mechanism)
@@ -1322,52 +1319,6 @@ function _flat_steps(m::Mechanism)
     out
 end
 
-"""Build a (lhs_syms, rhs_syms, is_eq, kinetic_group) tuple from a `Step`.
-
-The legacy 4-tuple shape pairs the free metabolite with the enzyme form
-on the OPPOSITE side from where it changes binding state:
-
-- Binding (`E + S ⇌ E_S`): free metabolite on from-side
-  → `((:E, :S), (:E_S,), true)`.
-- Release (`E_S ⇌ E + P`): free metabolite on to-side
-  → `((:E_S,), (:E, :P), true)`.
-
-Direction is inferred in this priority order:
-
-1. `met` is statically bound in to_species → binding direction.
-2. `met` is statically bound in from_species → release direction.
-3. Bound-list size: more bound in from than to → release (something
-   left the complex); more bound in to than from → binding.
-4. Both bound lists same size or both empty (weak/opaque Species) →
-   default to binding (preserves the legacy convention).
-
-The bound-list-size fallback covers steps like `E(S) → E + P` where
-the released metabolite (`P`) isn't statically bound in either
-species: from carries more bound metabolites (`[S]`) than to (`[]`)
-so we infer release."""
-function _legacy_step_tuple(step::Step, g::Int)
-    e_from = _species_sym(from_species(step))
-    e_to   = _species_sym(to_species(step))
-    met    = bound_metabolite(step)
-    is_eq  = is_equilibrium(step)
-    if met === nothing
-        # Iso step — no metabolite on either side.
-        return ((e_from,), (e_to,), is_eq, g)
-    end
-    met_name = name(met)
-    from_bound = bound(from_species(step))
-    to_bound   = bound(to_species(step))
-    bound_in_to   = any(m -> m == met, to_bound)
-    bound_in_from = any(m -> m == met, from_bound)
-    if bound_in_to
-        return ((e_from, met_name), (e_to,), is_eq, g)
-    elseif bound_in_from
-        return ((e_from,), (e_to, met_name), is_eq, g)
-    elseif length(from_bound) > length(to_bound)
-        return ((e_from,), (e_to, met_name), is_eq, g)
-    end
-    ((e_from, met_name), (e_to,), is_eq, g)
-end
 
 """Return substrates as a tuple of `Symbol` names."""
 @generated function substrates(::EnzymeMechanism{Sig}) where {Sig}
