@@ -42,6 +42,10 @@ _boundmap(t::Vector{EnzymeRates.Step}) = Dict{Symbol, Set{Symbol}}(
         Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
     for s in t for sp in (EnzymeRates.from_species(s),
                           EnzymeRates.to_species(s)))
+_form_species(t::Vector{EnzymeRates.Step}) = Dict{Symbol, EnzymeRates.Species}(
+    EnzymeRates.name(sp) => sp
+    for s in t for sp in (EnzymeRates.from_species(s),
+                          EnzymeRates.to_species(s)))
 
 # Flat topology (Vector{Step}) from a compiled mechanism, matching the
 # shape _catalytic_topologies now returns (each step its own kinetic group).
@@ -636,21 +640,25 @@ end
         for t in topos)
     random_topo = topos[idx]
     bound = _boundmap(random_topo)
+    form_sp = _form_species(random_topo)
     sub_names = Set([:A, :B, :D])
     prod_names = Set([:P, :Q, :R])
     cat_forms = _form_names(random_topo)
+    _role(m) = m in sub_names ? EnzymeRates.Substrate(m) :
+                                EnzymeRates.Product(m)
+    _add(sp, m) = EnzymeRates.Species(
+        EnzymeRates.Metabolite[EnzymeRates.bound(sp)..., _role(m)],
+        EnzymeRates.conformation(sp), EnzymeRates.residual(sp))
     _sp_de_opps =
         EnzymeRates._substrate_product_dead_end_opportunities
     de_opps = _sp_de_opps(
-        bound, cat_forms,
-        sub_names, prod_names)
+        form_sp, bound, cat_forms,
+        sub_names, prod_names, _add)
     # Group dead-end forms
     de_forms = Dict{Symbol,
         Vector{Tuple{Symbol, Symbol}}}()
     for (f, m) in de_opps
-        de_name =
-            EnzymeRates._dead_end_form_name(
-                f, bound[f], m)
+        de_name = EnzymeRates.name(_add(form_sp[f], m))
         push!(get!(de_forms, de_name,
             Tuple{Symbol, Symbol}[]), (f, m))
     end
@@ -816,7 +824,8 @@ end
         @test length(result) == 7
 
         # Assert that some result variants contain Estar-prefixed dead-end
-        # forms (proving the Estar branch of _dead_end_form_name is reached).
+        # forms (proving dead-end forms inherit the base form's Estar
+        # conformation).
         seed_forms = _form_names(topo)
         new_estar_forms = Set{Symbol}()
         for r in result
@@ -2281,13 +2290,12 @@ end
 
         # Property: ≥1 variant has I1 + I2 coexisting on the same enzyme
         # form (non-competing); ≥1 variant has I2 forms that never
-        # coexist with I1 (fully-competing). Dead-end species are
-        # built via `_conformation_species(form_name)` with empty
-        # `bound`; the inhibitor identity lives in the conformation
-        # Symbol name (e.g., `:E_I1_I2`), not in `bound`. Check the
-        # rendered form names directly. Collect ALL form names per
-        # variant from both from_species and to_species across every
-        # step.
+        # coexist with I1 (fully-competing). Dead-end species carry the
+        # inhibitor as a `CompetitiveInhibitor` in `bound`, rendered with
+        # an `inh` marker in the form name (e.g., `:E_I1inh_I2inh`). The
+        # substring checks below match the bare inhibitor names within
+        # those rendered form names. Collect ALL form names per variant
+        # from both from_species and to_species across every step.
         function _all_forms(r)
             forms = String[]
             for group in r.steps, s in group
@@ -2337,14 +2345,10 @@ end
 
         # 2. Δ params: +1 (one new K_I parameter), measured against
         # ground-truth `fitted_params(compile_mechanism(...))`. The
-        # Mechanism-side `_n_fit_params_estimate` under-counts here
-        # because the dead-end form `:E_S` (built from
-        # `_dead_end_form_name(:E, ∅, :S)`) collides with the
-        # substrate-bound form `:E_S` (rendered from
-        # `Species([Substrate(:S)], :E)`); both render to the same Symbol
-        # so the formula's `form_names` dedup sees one form not two and
-        # `n_thermo` over-counts. Ground truth is canonical per the
-        # 6β.3 follow-up pattern.
+        # dead-end inhibitor binds as a `CompetitiveInhibitor`, so its
+        # form renders `:E_Sinh` — distinct from the substrate-bound
+        # `:E_S` (`Species([Substrate(:S)], :E)`). Ground truth is
+        # canonical per the 6β.3 follow-up pattern.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         for r in result

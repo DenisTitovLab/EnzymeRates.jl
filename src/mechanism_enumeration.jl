@@ -678,33 +678,16 @@ end
 # ─── Dead-End Helpers ────────────────────────────────────────
 
 """
-    _dead_end_form_name(base_form, base_bound, added_met)
-
-Create form name for a dead-end form: base form's bound
-metabolites plus the added metabolite. Preserves the E/Estar
-prefix of the base form.
-"""
-function _dead_end_form_name(
-    base_form::Symbol,
-    base_bound::Set{Symbol}, added_met::Symbol,
-)
-    all_mets = sort(collect(
-        union(base_bound, Set([added_met]))))
-    prefix = _is_estar_form(base_form) ? "Estar" : "E"
-    Symbol(prefix * "_" * join(all_mets, "_"))
-end
-
-function _is_estar_form(form::Symbol)
-    s = string(form)
-    s == "Estar" || startswith(s, "Estar_")
-end
-
-"""
     _substrate_product_dead_end_opportunities(
-        bound, cat_forms, sub_names, prod_names)
+        form_sp, bound, cat_forms, sub_names, prod_names,
+        add_metabolite)
 
 Find (form, metabolite) dead-end opportunities for
-substrates and products. A dead-end is valid when:
+substrates and products. `form_sp` maps each catalytic
+form name to its `Species`; `add_metabolite(species, met)`
+returns the `Species` with `met` added to its bound list,
+used to render the candidate dead-end form name. A dead-end
+is valid when:
 - The form doesn't already bind all substrates or all
   products
 - The metabolite isn't already bound at the form
@@ -714,10 +697,12 @@ substrates and products. A dead-end is valid when:
 - The result doesn't have all substrates or all products
 """
 function _substrate_product_dead_end_opportunities(
+    form_sp::Dict{Symbol, Species},
     bound::Dict{Symbol, Set{Symbol}},
     cat_forms::Set{Symbol},
     sub_names::Set{Symbol},
     prod_names::Set{Symbol},
+    add_metabolite,
 )
     all_mets = union(sub_names, prod_names)
     opportunities = Tuple{Symbol, Symbol}[]
@@ -731,7 +716,7 @@ function _substrate_product_dead_end_opportunities(
             fb_prods == prod_names) && continue
         for m in sort(collect(all_mets))
             m in fb && continue
-            de_name = _dead_end_form_name(f, fb, m)
+            de_name = name(add_metabolite(form_sp[f], m))
             de_name in cat_forms && continue
             new_bound = union(fb, Set([m]))
             new_subs = intersect(
@@ -889,8 +874,8 @@ function _expand_substrate_product_dead_ends(
 
         de_opportunities =
             _substrate_product_dead_end_opportunities(
-                boundmap, cat_forms, sub_names,
-                prod_names)
+                form_sp, boundmap, cat_forms, sub_names,
+                prod_names, _add)
 
         # Deduplicate: multiple catalytic forms may
         # produce the same dead-end form. Group by
@@ -1230,59 +1215,17 @@ function _split_one_step(
 end
 
 """
-Walk every step in `m` (or `am`) and parse each form's bound-metabolite
-name set from the form Symbol (conformation only — `bound` is empty in
-Mechanisms produced by the enumerator / legacy lift). Greedy match
-against `met_set`. Used by the Mechanism-native dead-end-regulator move
-to identify eligible base forms.
-"""
-function _bound_mets_from_form_name(form::Symbol, met_set::Set{Symbol})
-    s = string(form)
-    (s == "E" || s == "Estar") && return Set{Symbol}()
-    body = startswith(s, "Estar_") ? s[7:end] :
-           startswith(s, "E_") ? s[3:end] : s
-    parts = split(body, "_")
-    result = Set{Symbol}()
-    i = 1
-    while i <= length(parts)
-        matched = false
-        for len in length(parts):-1:1
-            i + len - 1 > length(parts) && continue
-            candidate = Symbol(join(parts[i:i+len-1], "_"))
-            if candidate in met_set
-                push!(result, candidate)
-                i += len
-                matched = true
-                break
-            end
-        end
-        matched || (i += 1)
-    end
-    result
-end
-
-"""
-Reconstruct each form's bound-metabolite name set from the step graph
-of `m`. `extra_mets` extends the known metabolite vocabulary (e.g., a
-regulator declared in `rxn` but not yet bound). Returns
+Map each form name in `m`'s step graph to the set of bound-metabolite
+names read directly from its `Species`. Returns
 `Dict{form_name => Set{met_name}}`.
 """
-function _bound_at_forms(m::Union{Mechanism, AllostericMechanism},
-                         rxn::EnzymeReaction, extra_mets::Set{Symbol})
-    met_set = Set{Symbol}()
-    for ra in reactants(rxn); push!(met_set, name(metabolite(ra))); end
-    for rm in regulators(rxn); push!(met_set, name(regulator(rm))); end
-    union!(met_set, extra_mets)
-    for group in steps(m), s in group
-        bm = bound_metabolite(s)
-        bm === nothing || push!(met_set, name(bm))
-    end
+function _bound_at_forms(m::Union{Mechanism, AllostericMechanism})
     result = Dict{Symbol, Set{Symbol}}()
     for group in steps(m), s in group
         for sp in (from_species(s), to_species(s))
             fn = name(sp)
             haskey(result, fn) ||
-                (result[fn] = _bound_mets_from_form_name(fn, met_set))
+                (result[fn] = Set(name(b) for b in bound(sp)))
         end
     end
     result
@@ -1305,15 +1248,6 @@ function _forms_with_binding_step_native(
     end
     result
 end
-
-"""
-Build a conformation-only `Species` with the given form Symbol as the
-conformation, no bound metabolites, and an empty residual. Matches the
-representation produced by `_mechanism_from_legacy_sig` so dead-end /
-mirror species built natively interoperate with enumerator output.
-"""
-_conformation_species(form::Symbol) =
-    Species(Metabolite[], form, Residual())
 
 """
 Extend `rxn`'s regulators with a new `CompetitiveInhibitor(name)`,
@@ -1418,25 +1352,24 @@ function _expand_add_dead_end_regulator_native(
     sort!(eligible_regs)
     isempty(eligible_regs) && return typeof(m)[]
 
-    cat_forms = Set{Symbol}()
+    form_sp = Dict{Symbol, Species}()
     for group in steps(m), s in group
-        push!(cat_forms, name(from_species(s)))
-        push!(cat_forms, name(to_species(s)))
+        form_sp[name(from_species(s))] = from_species(s)
+        form_sp[name(to_species(s))] = to_species(s)
     end
+    cat_forms = Set(keys(form_sp))
 
     n_groups_before = length(steps(m))
     n_steps_before = sum(length, steps(m); init = 0)
     results = typeof(m)[]
 
-    for reg_name in eligible_regs
-        # Make this regulator visible to form-name parsing so e.g.
-        # parsing :E_I knows :I is a bound metabolite.
-        bound = _bound_at_forms(m, rxn, Set([reg_name]))
+    boundmap = _bound_at_forms(m)
 
+    for reg_name in eligible_regs
         eligible_forms = Symbol[]
         for f in sort(collect(cat_forms))
-            haskey(bound, f) || continue
-            fb = bound[f]
+            haskey(boundmap, f) || continue
+            fb = boundmap[f]
             (intersect(fb, sub_names) == sub_names ||
                 intersect(fb, prod_names) == prod_names) && continue
             push!(eligible_forms, f)
@@ -1475,8 +1408,8 @@ function _expand_add_dead_end_regulator_native(
             active = Symbol[]
             for f in sort(collect(target_forms))
                 f in eligible_forms || continue
-                haskey(bound, f) || continue
-                isempty(intersect(bound[f], all_competing)) || continue
+                haskey(boundmap, f) || continue
+                isempty(intersect(boundmap[f], all_competing)) || continue
                 push!(active, f)
             end
             isempty(active) && continue
@@ -1491,11 +1424,13 @@ function _expand_add_dead_end_regulator_native(
             de_species_map = Dict{Symbol, Species}()
             reg_group_steps = Step[]
             for cf in active
-                de_name = _dead_end_form_name(cf, bound[cf], reg_name)
-                de_species = _conformation_species(de_name)
+                base = form_sp[cf]
+                de_species = Species(
+                    Metabolite[bound(base)..., CompetitiveInhibitor(reg_name)],
+                    conformation(base), residual(base))
                 de_species_map[cf] = de_species
                 push!(reg_group_steps, Step(
-                    _conformation_species(cf), de_species,
+                    base, de_species,
                     CompetitiveInhibitor(reg_name), true;
                     source_idx = next_src))
                 next_src += 1
