@@ -84,98 +84,6 @@ struct IdentifyRateEquationResults
     cv_results::DataFrame
 end
 
-"""Cached fit result keyed by canonical rate-equation hash.
-- `first_seen_estimate`: the beam-search level (the `pc` loop
-  iteration value, equal to `n_fit_params_estimate`) at which
-  this hash's fit was first performed.
-- `first_seen_n_actual`: `length(fitted_params(m))` at first fit.
-- `first_seen_eq_hash`: 16-char hex display string of the hash.
-- `canon_to_rep`: pre-inverted `canonical_token => rep_orig_key`
-  map, computed once at cache-insert. Spec members of the same
-  hash group reuse this; avoids O(N) re-inversion per spec.
-"""
-struct _CachedFitResult
-    loss::Float64
-    params::NamedTuple
-    canon_to_rep::Dict{String,String}
-    first_seen_estimate::Int
-    first_seen_n_actual::Int
-    first_seen_eq_hash::String
-end
-
-"""Stage 1 result: uniform per-mechanism record so the `pmap` return
-is concretely-typed. The `mech` field is a `Union` of mechanism types
-(level vectors mix `Mechanism` and `AllostericMechanism`, so we can't
-tighten the type without splitting the pipeline). On failure, every
-non-mech field has a sentinel value and `ok=false`."""
-struct _Stage1Result
-    mech::Union{Mechanism, AllostericMechanism}
-    eq_text::String
-    h_full::UInt64
-    h_short::String
-    n_actual::Int
-    mech_type_str::String
-    name_map::Dict{String,String}
-    fitted_keys::Tuple{Vararg{Symbol}}
-    ok::Bool
-end
-
-"""Empty-failure sentinel."""
-_Stage1Failure(m::Union{Mechanism, AllostericMechanism}) =
-    _Stage1Result(
-        m, "", zero(UInt64), "", 0, "",
-        Dict{String,String}(), (), false)
-
-"""
-Project cached params (keyed by rep spec's `fitted_params`
-symbols) onto a target spec's own `fitted_params` keys, preserving
-canonical-position values. Two specs in the same hash group have
-isomorphic rate equations modulo parameter renaming; this function
-applies the canonical position bijection
-(rep_fitted_key → canonical_token → spec_fitted_key) to relabel
-values without changing them.
-
-`canon_to_rep` is the pre-inverted `canonical_token => rep_orig_key`
-map (computed once at cache-insert from the rep's name_map).
-`spec_name_map` is the spec's `orig_string => canonical_token` Dict
-produced by the canonicalizer over `parameters(m, Full)`. They
-include BOTH independent and dependent parameter names. We
-restrict the projection to FITTED (independent) keys only —
-`cached_params` is keyed by `fitted_params(rep_m)`, which doesn't
-contain dep names. Iterating `keys(spec_name_map)` directly would
-cause `KeyError` for any dep name (e.g., `:k10r`, `:K1_T` for
-`:EqualRT` mirrors).
-
-The return is a NamedTuple keyed by `fitted_params(spec_m)`.
-"""
-function _project_cached_params(
-    cached_params::NamedTuple,
-    canon_to_rep::Dict{String,String},
-    spec_name_map::Dict{String,String},
-    spec_fitted_keys::Tuple{Vararg{Symbol}},
-)
-    # Defensive lookup: a fitted key may not appear in the body
-    # (e.g., a parameter on a zeroed `:NonequalRT` path), in which
-    # case `spec_name_map` has no entry. Fall back to the spec key
-    # itself in cached_params if both maps lack the canonical token;
-    # if even that misses, use NaN as a sentinel that downstream
-    # loss/CV will surface.
-    function _proj(k::Symbol)
-        s = String(k)
-        canon = get(spec_name_map, s, nothing)
-        if canon !== nothing && haskey(canon_to_rep, canon)
-            rep_key = Symbol(canon_to_rep[canon])
-            haskey(cached_params, rep_key) &&
-                return cached_params[rep_key]
-        end
-        haskey(cached_params, k) && return cached_params[k]
-        return NaN
-    end
-
-    NamedTuple{spec_fitted_keys}(
-        Tuple(_proj(k) for k in spec_fitted_keys))
-end
-
 """
     identify_rate_equation(prob; kwargs...)
 
@@ -387,6 +295,98 @@ function _select_beam(
     # rely on the by-loss sort order, which is a side-effect of
     # the rank computation rather than part of the contract.
     sort!(selected)
+end
+
+"""Cached fit result keyed by canonical rate-equation hash.
+- `first_seen_estimate`: the beam-search level (the `pc` loop
+  iteration value, equal to `n_fit_params_estimate`) at which
+  this hash's fit was first performed.
+- `first_seen_n_actual`: `length(fitted_params(m))` at first fit.
+- `first_seen_eq_hash`: 16-char hex display string of the hash.
+- `canon_to_rep`: pre-inverted `canonical_token => rep_orig_key`
+  map, computed once at cache-insert. Spec members of the same
+  hash group reuse this; avoids O(N) re-inversion per spec.
+"""
+struct _CachedFitResult
+    loss::Float64
+    params::NamedTuple
+    canon_to_rep::Dict{String,String}
+    first_seen_estimate::Int
+    first_seen_n_actual::Int
+    first_seen_eq_hash::String
+end
+
+"""Stage 1 result: uniform per-mechanism record so the `pmap` return
+is concretely-typed. The `mech` field is a `Union` of mechanism types
+(level vectors mix `Mechanism` and `AllostericMechanism`, so we can't
+tighten the type without splitting the pipeline). On failure, every
+non-mech field has a sentinel value and `ok=false`."""
+struct _Stage1Result
+    mech::Union{Mechanism, AllostericMechanism}
+    eq_text::String
+    h_full::UInt64
+    h_short::String
+    n_actual::Int
+    mech_type_str::String
+    name_map::Dict{String,String}
+    fitted_keys::Tuple{Vararg{Symbol}}
+    ok::Bool
+end
+
+"""Empty-failure sentinel."""
+_Stage1Failure(m::Union{Mechanism, AllostericMechanism}) =
+    _Stage1Result(
+        m, "", zero(UInt64), "", 0, "",
+        Dict{String,String}(), (), false)
+
+"""
+Project cached params (keyed by rep spec's `fitted_params`
+symbols) onto a target spec's own `fitted_params` keys, preserving
+canonical-position values. Two specs in the same hash group have
+isomorphic rate equations modulo parameter renaming; this function
+applies the canonical position bijection
+(rep_fitted_key → canonical_token → spec_fitted_key) to relabel
+values without changing them.
+
+`canon_to_rep` is the pre-inverted `canonical_token => rep_orig_key`
+map (computed once at cache-insert from the rep's name_map).
+`spec_name_map` is the spec's `orig_string => canonical_token` Dict
+produced by the canonicalizer over `parameters(m, Full)`. They
+include BOTH independent and dependent parameter names. We
+restrict the projection to FITTED (independent) keys only —
+`cached_params` is keyed by `fitted_params(rep_m)`, which doesn't
+contain dep names. Iterating `keys(spec_name_map)` directly would
+cause `KeyError` for any dep name (e.g., `:k10r`, `:K1_T` for
+`:EqualRT` mirrors).
+
+The return is a NamedTuple keyed by `fitted_params(spec_m)`.
+"""
+function _project_cached_params(
+    cached_params::NamedTuple,
+    canon_to_rep::Dict{String,String},
+    spec_name_map::Dict{String,String},
+    spec_fitted_keys::Tuple{Vararg{Symbol}},
+)
+    # Defensive lookup: a fitted key may not appear in the body
+    # (e.g., a parameter on a zeroed `:NonequalRT` path), in which
+    # case `spec_name_map` has no entry. Fall back to the spec key
+    # itself in cached_params if both maps lack the canonical token;
+    # if even that misses, use NaN as a sentinel that downstream
+    # loss/CV will surface.
+    function _proj(k::Symbol)
+        s = String(k)
+        canon = get(spec_name_map, s, nothing)
+        if canon !== nothing && haskey(canon_to_rep, canon)
+            rep_key = Symbol(canon_to_rep[canon])
+            haskey(cached_params, rep_key) &&
+                return cached_params[rep_key]
+        end
+        haskey(cached_params, k) && return cached_params[k]
+        return NaN
+    end
+
+    NamedTuple{spec_fitted_keys}(
+        Tuple(_proj(k) for k in spec_fitted_keys))
 end
 
 function _beam_search(
