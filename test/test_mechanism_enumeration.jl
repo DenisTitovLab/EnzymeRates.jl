@@ -4232,14 +4232,16 @@ end # top-level testset
 
         # Random bi-uni with substrate-side mirror sharing: A-binding
         # steps share kinetic_group=1, B-binding steps share kg=2.
-        biuni_mirror = EnzymeMechanism(
-            ((:A, :B), (:P,), ()),
-            (((:E, :A), (:E_A,), true, 1),
-             ((:E_B, :A), (:E_A_B,), true, 1),
-             ((:E, :B), (:E_B,), true, 2),
-             ((:E_A, :B), (:E_A_B,), true, 2),
-             ((:E_A_B,), (:E_P,), false, 3),
-             ((:E, :P), (:E_P,), true, 4)))
+        biuni_mirror = @enzyme_mechanism begin
+            substrates: A, B
+            products: P
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                E(A, B) <--> E(P)
+                E + P ⇌ E(P)
+            end
+        end
 
         # LDH Pattern-A pair (11 steps each). m_a and m_b differ in step
         # ordering AND in which intermediate forms appear (m_a has
@@ -4249,33 +4251,29 @@ end # top-level testset
         # — smaller mechanisms produce graph-equivalent topologies
         # (already collapsed by step sorting) rather than graph-distinct
         # yet v-equivalent ones.
-        ldh_m_a = EnzymeMechanism(
-            ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
-            (((:E, :Lactate), (:E_Lactate,), true, 1),
-             ((:E, :NAD), (:E_NAD,), true, 2),
-             ((:E, :NADH), (:E_NADH,), true, 3),
-             ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
-             ((:E_Lactate, :NAD), (:E_Lactate_NAD,), true, 2),
-             ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
-             ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
-             ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
-             ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
-             ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
-             ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+        ldh_m_a = @enzyme_mechanism begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            steps: begin
+                (E + Lactate ⇌ E(Lactate), E(NADH) + Lactate ⇌ E(Lactate, NADH))
+                (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD), E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))
+                (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
+                (E + Pyruvate ⇌ E(Pyruvate), E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate), E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
+                E(NADH, Pyruvate) <--> E(Lactate, NAD)
+            end
+        end
 
-        ldh_m_b = EnzymeMechanism(
-            ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
-            (((:E, :Lactate), (:E_Lactate,), true, 1),
-             ((:E, :NAD), (:E_NAD,), true, 2),
-             ((:E, :NADH), (:E_NADH,), true, 3),
-             ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
-             ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
-             ((:E_NAD, :Lactate), (:E_Lactate_NAD,), true, 1),
-             ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
-             ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
-             ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
-             ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
-             ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+        ldh_m_b = @enzyme_mechanism begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            steps: begin
+                (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD), E(NADH) + Lactate ⇌ E(Lactate, NADH))
+                (E + NAD ⇌ E(NAD), E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))
+                (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
+                (E + Pyruvate ⇌ E(Pyruvate), E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate), E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
+                E(NADH, Pyruvate) <--> E(Lactate, NAD)
+            end
+        end
 
         @testset "Hash is deterministic across repeated calls" begin
             h1 = EnzymeRates._canonical_rate_eq_hash(uni_uni_3step)
@@ -4298,20 +4296,28 @@ end # top-level testset
             # and B-first paths). Same substrate set, same product set, but
             # the random mechanism has a different enzyme-form graph. The
             # canonicalizer must produce different hashes.
-            m_ordered = EnzymeMechanism(
-                ((:A, :B), (:P,), ()),
-                (((:E, :A), (:E_A,), true, 1),
-                 ((:E_A, :B), (:E_A_B,), true, 2),
-                 ((:E_A_B,), (:E_P,), false, 3),
-                 ((:E, :P), (:E_P,), true, 4)))
-            m_random = EnzymeMechanism(
-                ((:A, :B), (:P,), ()),
-                (((:E, :A), (:E_A,), true, 1),
-                 ((:E, :B), (:E_B,), true, 2),
-                 ((:E_A, :B), (:E_A_B,), true, 3),
-                 ((:E_B, :A), (:E_A_B,), true, 4),
-                 ((:E_A_B,), (:E_P,), false, 5),
-                 ((:E, :P), (:E_P,), true, 6)))
+            m_ordered = @enzyme_mechanism begin
+                substrates: A, B
+                products: P
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(A) + B ⇌ E(A, B)
+                    E(A, B) <--> E(P)
+                    E + P ⇌ E(P)
+                end
+            end
+            m_random = @enzyme_mechanism begin
+                substrates: A, B
+                products: P
+                steps: begin
+                    E + A ⇌ E(A)
+                    E + B ⇌ E(B)
+                    E(A) + B ⇌ E(A, B)
+                    E(B) + A ⇌ E(A, B)
+                    E(A, B) <--> E(P)
+                    E + P ⇌ E(P)
+                end
+            end
             @test EnzymeRates._canonical_rate_eq_hash(m_ordered) !=
                   EnzymeRates._canonical_rate_eq_hash(m_random)
         end
@@ -4343,19 +4349,18 @@ end # top-level testset
             # kinetic_group changed from 1 to 12 breaks the Lactate-
             # binding-via-NAD path's sharing with the direct E+Lactate
             # binding step. The resulting v polynomial differs.
-            ldh_m_c = EnzymeMechanism(
-                ((:NADH, :Pyruvate), (:Lactate, :NAD), ()),
-                (((:E, :Lactate), (:E_Lactate,), true, 1),
-                 ((:E, :NAD), (:E_NAD,), true, 2),
-                 ((:E, :NADH), (:E_NADH,), true, 3),
-                 ((:E, :Pyruvate), (:E_Pyruvate,), true, 4),
-                 ((:E_Lactate, :NADH), (:E_Lactate_NADH,), true, 3),
-                 ((:E_NAD, :Lactate), (:E_Lactate_NAD,), true, 12),
-                 ((:E_NAD, :Pyruvate), (:E_NAD_Pyruvate,), true, 4),
-                 ((:E_NADH, :Lactate), (:E_Lactate_NADH,), true, 1),
-                 ((:E_NADH, :Pyruvate), (:E_NADH_Pyruvate,), true, 4),
-                 ((:E_NADH_Pyruvate,), (:E_Lactate_NAD,), false, 5),
-                 ((:E_Pyruvate, :NAD), (:E_NAD_Pyruvate,), true, 2)))
+            ldh_m_c = @enzyme_mechanism begin
+                substrates: NADH, Pyruvate
+                products: Lactate, NAD
+                steps: begin
+                    (E + Lactate ⇌ E(Lactate), E(NADH) + Lactate ⇌ E(Lactate, NADH))
+                    (E + NAD ⇌ E(NAD), E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))
+                    (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
+                    (E + Pyruvate ⇌ E(Pyruvate), E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate), E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
+                    E(NAD) + Lactate ⇌ E(Lactate, NAD)
+                    E(NADH, Pyruvate) <--> E(Lactate, NAD)
+                end
+            end
             @test EnzymeRates._canonical_rate_eq_hash(ldh_m_a) !=
                   EnzymeRates._canonical_rate_eq_hash(ldh_m_c)
         end
@@ -4410,30 +4415,41 @@ end # top-level testset
             # singleton kinetic_groups (no Pass-1 absorption) preserves the
             # Wegscheider cycle relations and renders them as multi-symbol
             # RHSes in this section.
-            m_weg = EnzymeMechanism(
-                ((:A, :B), (:P, :Q), ()),
-                (((:E, :A), (:E_A,), true, 1),
-                 ((:E, :B), (:E_B,), true, 2),
-                 ((:E_A, :B), (:E_A_B,), true, 3),
-                 ((:E_B, :A), (:E_A_B,), true, 4),
-                 ((:E_A_B,), (:E_P_Q,), false, 5),
-                 ((:E_P, :Q), (:E_P_Q,), true, 6),
-                 ((:E_Q, :P), (:E_P_Q,), true, 7),
-                 ((:E, :P), (:E_P,), true, 8),
-                 ((:E, :Q), (:E_Q,), true, 9)))
+            m_weg = @enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E + B ⇌ E(B)
+                    E(A) + B ⇌ E(A, B)
+                    E(B) + A ⇌ E(A, B)
+                    E(A, B) <--> E(P, Q)
+                    E(P) + Q ⇌ E(P, Q)
+                    E(Q) + P ⇌ E(P, Q)
+                    E + P ⇌ E(P)
+                    E + Q ⇌ E(Q)
+                end
+            end
             s_weg = rate_equation_string(m_weg)
             @test occursin("# Wegscheider constraints:", s_weg)
         end
 
         @testset "Hash-equivalent mechanisms share fitted_params" begin
-            # Exact tuple equality: hash-equivalent mechanisms that exposed
-            # different fitted_params symbols would cause the fitter to
-            # explore different parameter dimensions for "the same"
-            # equation. Verified for the LDH pair: both produce
-            # (:K1, :K2, :K3, :K4, :k10f).
+            # Fit reuse (`_project_cached_params`) maps cached params across
+            # hash-equivalent mechanisms through the canonical name_map
+            # (orig_string => canonical_token), not by raw fitted_params
+            # symbol identity. The contract is that each mechanism's fitted
+            # params map to the same multiset of canonical tokens — so a fit
+            # cached on one projects onto the other. Raw symbol names can
+            # differ: rep-step naming follows kinetic-group sizes, which two
+            # graph-distinct but v-equivalent mechanisms need not share.
             fp_a = EnzymeRates.fitted_params(ldh_m_a)
             fp_b = EnzymeRates.fitted_params(ldh_m_b)
-            @test fp_a == fp_b
+            _, _, nm_a = EnzymeRates._canonical_rate_eq_hash_data(ldh_m_a)
+            _, _, nm_b = EnzymeRates._canonical_rate_eq_hash_data(ldh_m_b)
+            canon_tokens(fp, nm) =
+                sort!([get(nm, String(p), String(p)) for p in fp])
+            @test canon_tokens(fp_a, nm_a) == canon_tokens(fp_b, nm_b)
         end
 
     end # let

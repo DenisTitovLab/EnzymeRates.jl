@@ -1082,23 +1082,41 @@ end
     end))
 
     # Stoichiometric infeasibility: Q listed as product but never appears
-    # in any reaction step → constructor rejects.
-    @test_throws ErrorException EnzymeRates.EnzymeMechanism(
-        ((:S,), (:P, :Q), ()),
-        (((:E, :S), (:ES,), true, 1),
-         ((:ES,), (:EP,), false, 2),
-         ((:EP,), (:E, :P), true, 3)),
-    )
+    # in any reaction step → invariant check rejects.
+    rxn_no_q = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C], Q[N]
+    end
+    s_q1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
+                            EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+                            EnzymeRates.Substrate(:S), true; source_idx = 1)
+    s_q2 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+                            EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
+                            nothing, false; source_idx = 2)
+    s_q3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
+                            EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
+                            EnzymeRates.Product(:P), true; source_idx = 3)
+    m_no_q = EnzymeRates.Mechanism(rxn_no_q, [[s_q1], [s_q2], [s_q3]])
+    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_no_q)
 
     # Same-kinetics group across different metabolites: group 1 contains both
-    # an S-binding and an A-binding step → constructor rejects.
-    @test_throws ErrorException EnzymeRates.EnzymeMechanism(
-        ((:S, :A), (:P,), ()),
-        (((:E, :S), (:ES,), true, 1),
-         ((:E, :A), (:EA,), true, 1),
-         ((:EA,), (:E,), false, 2),
-         ((:EA,), (:E, :P), true, 3)),
-    )
+    # an S-binding and an A-binding step → invariant check rejects.
+    rxn_sa = @enzyme_reaction begin
+        substrates: S[C], A[N]
+        products:   P[CN]
+    end
+    g_sa1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
+                             EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+                             EnzymeRates.Substrate(:S), true; source_idx = 1)
+    g_sa2 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
+                             EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
+                             EnzymeRates.Substrate(:A), true; source_idx = 2)
+    g_sa3 = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:S), EnzymeRates.Substrate(:A)], :E_S_A),
+        EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
+        nothing, false; source_idx = 3)
+    m_sa = EnzymeRates.Mechanism(rxn_sa, [[g_sa1, g_sa2], [g_sa3]])
+    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_sa)
 
     # Regression: T-state binding K's must be in Kd convention even when
     # `:OnlyR` and `:NonequalRT` catalytic groups coexist. Without the fix,
