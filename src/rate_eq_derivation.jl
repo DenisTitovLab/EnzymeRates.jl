@@ -213,11 +213,11 @@ function _compute_re_groups(mech::Mechanism)
         while parent[x] != x; parent[x] = parent[parent[x]]; x = parent[x]; end
         x
     end
-    for group in mech.steps
+    for group in steps(mech)
         for s in group
             is_equilibrium(s) || continue
-            i_from = findfirst(==(s.from_species), enz_species)
-            i_to   = findfirst(==(s.to_species),   enz_species)
+            i_from = findfirst(==(from_species(s)), enz_species)
+            i_to   = findfirst(==(to_species(s)),   enz_species)
             ra, rb = find(i_from), find(i_to)
             ra != rb && (parent[ra] = rb)
         end
@@ -236,10 +236,10 @@ end
 """Distinct enzyme Species in `m.steps`, in step-walk order."""
 function _enumerate_species(m::Mechanism)
     seen = Species[]
-    for group in m.steps
+    for group in steps(m)
         for s in group
-            s.from_species in seen || push!(seen, s.from_species)
-            s.to_species   in seen || push!(seen, s.to_species)
+            from_species(s) in seen || push!(seen, from_species(s))
+            to_species(s)   in seen || push!(seen, to_species(s))
         end
     end
     seen
@@ -1040,7 +1040,7 @@ parameter type(s).
 """
 function _onlyR_parameters(am::AllostericMechanism)
     out = Parameter[]
-    for (g, group) in enumerate(am.cat_steps)
+    for (g, group) in enumerate(steps(am))
         cat_allo_state(am, g) === :OnlyR || continue
         rep = first(group)
         if is_equilibrium(rep)
@@ -1067,7 +1067,7 @@ Parameter representation.
 """
 function _T_rename_parameters(am::AllostericMechanism)
     rename = Dict{Parameter, Parameter}()
-    for (g, group) in enumerate(am.cat_steps)
+    for (g, group) in enumerate(steps(am))
         cat_allo_state(am, g) === :NonequalRT || continue
         rep = first(group)
         if is_equilibrium(rep)
@@ -1100,7 +1100,7 @@ are emitted Symbol-level by the dep-assignment builder.
 """
 function _all_t_state_parameters(am::AllostericMechanism)
     out = Parameter[]
-    for (g, group) in enumerate(am.cat_steps)
+    for (g, group) in enumerate(steps(am))
         cat_allo_state(am, g) === :OnlyR && continue
         rep = first(group)
         if is_equilibrium(rep)
@@ -1115,8 +1115,8 @@ function _all_t_state_parameters(am::AllostericMechanism)
             end
         end
     end
-    for site in am.regulatory_sites
-        for (lig, tag) in zip(site.ligands, site.allo_states)
+    for site in regulatory_sites(am)
+        for (lig, tag) in zip(ligands(site), allo_states(site))
             tag === :OnlyR && continue
             push!(out, Kreg(site, lig, :T))
         end
@@ -1151,7 +1151,7 @@ inert. This enumeration intentionally over-emits.
 """
 function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
     out = Parameter[]
-    for (g, group) in enumerate(am.cat_steps)
+    for (g, group) in enumerate(steps(am))
         rep = first(group)
         st = cat_allo_state(am, g) === :EqualRT ? :None : :R
         if is_equilibrium(rep)
@@ -1167,8 +1167,8 @@ function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
         end
     end
     append!(out, _all_t_state_parameters(am))
-    for site in am.regulatory_sites
-        for (lig, tag) in zip(site.ligands, site.allo_states)
+    for site in regulatory_sites(am)
+        for (lig, tag) in zip(ligands(site), allo_states(site))
             tag === :OnlyT && continue
             push!(out, Kreg(site, lig, :R))
         end
@@ -1193,7 +1193,7 @@ emitted here.
 """
 function _synthesized_dep_t_names(::Type{CM}, am::AllostericMechanism,
                                   ) where {CM <: EnzymeMechanism}
-    any(cat_allo_state(am, g) === :OnlyR for g in 1:length(am.cat_steps)) &&
+    any(cat_allo_state(am, g) === :OnlyR for g in 1:length(steps(am))) &&
         return Symbol[]
     dep_R_all, _ = _dependent_param_exprs(CM)
     nonequalrt_set = Set{Symbol}(
@@ -1309,7 +1309,7 @@ function _dependent_param_exprs(
     reg_params_r = Symbol[]
     reg_params_t_indep = Symbol[]
     for site in regulatory_sites(am)
-        for (lig, tag) in zip(site.ligands, site.allo_states)
+        for (lig, tag) in zip(ligands(site), allo_states(site))
             K_R = name(Kreg(site, lig, :R), am)
             K_T = name(Kreg(site, lig, :T), am)
             tag === :OnlyT || push!(reg_params_r, K_R)
@@ -1339,7 +1339,7 @@ Renders K-names via the `name(::Kreg, am)` chokepoint."""
 function _reg_site_expr(am::AllostericMechanism, site_idx::Int, T_state::Bool)
     site = regulatory_sites(am)[site_idx]
     terms = Any[1]
-    for (lig, tag) in zip(site.ligands, site.allo_states)
+    for (lig, tag) in zip(ligands(site), allo_states(site))
         if T_state
             tag === :OnlyR && continue
         else
@@ -1412,7 +1412,7 @@ function _build_dep_assignments(
     # caller elides `t_assignments` entirely in that case.
     t_dead = _t_state_dead(m)
     t_names_set = Set{Symbol}()
-    for (g, group) in enumerate(am.cat_steps)
+    for (g, group) in enumerate(steps(am))
         tag = cat_allo_state(am, g)
         tag === :OnlyR && continue
         t_dead && tag !== :NonequalRT && continue
@@ -1457,7 +1457,7 @@ function _build_dep_assignments(
     # `:EqualRT` reg params: K_T_reg = K_R_reg. Routes through `Kreg`
     # chokepoint so the symbol scheme stays in one place.
     for site in regulatory_sites(am)
-        for (lig, tag) in zip(site.ligands, site.allo_states)
+        for (lig, tag) in zip(ligands(site), allo_states(site))
             tag === :EqualRT || continue
             push!(t_assignments,
                   Expr(:(=), name(Kreg(site, lig, :T), am),
@@ -1543,7 +1543,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         factors = Any[N]
         CatN > 1 && push!(factors, _power_expr(Q, CatN - 1))
         for i in eachindex(RS)
-            push!(factors, _power_expr(reg_Qs[i], RS[i].multiplicity))
+            push!(factors, _power_expr(reg_Qs[i], multiplicity(RS[i])))
         end
         _nest_binary(:*, factors)
     end
@@ -1552,7 +1552,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     function make_den_term(Q, reg_Qs)
         factors = Any[_power_expr(Q, CatN)]
         for i in eachindex(RS)
-            push!(factors, _power_expr(reg_Qs[i], RS[i].multiplicity))
+            push!(factors, _power_expr(reg_Qs[i], multiplicity(RS[i])))
         end
         _nest_binary(:*, factors)
     end
