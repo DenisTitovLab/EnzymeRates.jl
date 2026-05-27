@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **This work has one exploratory task (A3 validator port) — do NOT delegate it to an unsupervised subagent.** Drive it directly. The rest is deletion / mechanical conversion / movement.
 
-**Goal:** Close the Symbol→concrete-struct refactor by deleting the dead legacy opaque-Symbol code paths, routing all field access through accessors, and reorganizing file layout — all behavior-preserving.
+**Goal:** Delete the dead *legacy* opaque-Symbol code paths, route field access through accessors, and reorganize file layout — all behavior-preserving. **This unifies the FRONT END only.** It does NOT achieve "one struct family / no parallel representations": the derivation back-end still runs on regenerated opaque Symbol tuples (`_species_name_from_sig`/`_step_tuple_from_sig` → `reactions`/`enzyme_forms` → King-Altman/Wegscheider). That back-end unification is a deferred next phase, not this PR (see spec "Deferred").
 
-**Architecture:** Six buckets in locked order: **B** (dsl.jl dead `rxns` chain) → **B′** (opaque-rejection guard) → **A** (legacy Sig path + validator audit) → **C** (stale memory) → **D** (accessor discipline) → **E** (file layout). Deletions first, accessors next, pure movement last. Spec: `docs/superpowers/specs/2026-05-26-finish-refactor-legacy-sig-removal-design.md`.
+**Architecture:** Five buckets in locked order: **B** (dsl.jl dead `rxns` chain) → **A** (legacy Sig path + validator audit) → **C** (stale memory) → **D** (accessor discipline) → **E** (file layout). Deletions first, accessors next, pure movement last. **Bucket B′ (remove opaque guard) was DROPPED** — review proved the guard is load-bearing (without it, opaque `ES <--> E + P` is silently accepted, product dropped). Spec: `docs/superpowers/specs/2026-05-26-finish-refactor-legacy-sig-removal-design.md`.
 
 **Tech Stack:** Julia 1.10+, Test/Aqua/JET. Non-negotiable gates run **per commit**: `test_rate_equation_performance` (0-alloc/<100ns), 3 compile-budget gates, `test_chokepoint.jl`. Plus `scripts/check_test_integrity.sh main` (EXIT=0) at every test-touching commit.
 
@@ -32,15 +32,14 @@
 
 | File | Buckets touching it | Responsibility |
 |---|---|---|
-| `src/dsl.jl` | B, B′, D, E | macros; delete dead `rxns` chain + opaque guard |
+| `src/dsl.jl` | B, D, E | macros; delete dead `rxns` chain (keep opaque guard + `.sym` field) |
 | `src/types.jl` | A, D, E | structs + accessors; delete legacy Sig path |
 | `src/mechanism_enumeration.jl` | A, D, E | enumeration; `_assert_mechanism_invariants` gains ported validators |
 | `src/rate_eq_derivation.jl` | A(comment), D, E | derivation; doc fix + accessors |
 | `src/thermodynamic_constr_for_rate_eq_derivation.jl`, `src/fitting.jl`, `src/identify_rate_equation.jl`, `src/sym_poly_for_rate_eq_derivation.jl` | D, E | accessors + layout |
-| `test/test_types.jl` | A | migrate/delete legacy-constructor tests |
-| `test/test_mechanism_enumeration.jl` | A | add bi-bi exit-gate test; assert ported validators |
-| `test/test_dsl.jl` | B′ | delete opaque-rejection tests |
-| `docs/superpowers/refactor-deleted-tests.md` | A, B′ | §2.1 entries |
+| `test/test_types.jl` | A | migrate ALL legacy-Sig constructions (2-arg AND `EnzymeMechanism{(...)}()`) |
+| `test/test_mechanism_enumeration.jl` | A | add bi-bi exit-gate (subset) test; assert ported validators |
+| `docs/superpowers/refactor-deleted-tests.md` | A | §2.1 entries |
 
 ---
 
@@ -88,9 +87,11 @@ In `src/dsl.jl`, edit `_parse_steps_block_with_groups` (825–895):
     )
 ```
 
-- [ ] **Step 4: Delete the now-orphaned functions.**
+- [ ] **Step 4: Delete the now-orphaned functions — but KEEP the `.sym` field.**
 
-Delete from `src/dsl.jl`: `_parse_single_step` (949–959), `_parse_step_side_symbols` (246–258), `_step_side_term_to_symbol` (264–274), `_synthesize_species_name` (389–391). Delete the `.sym` synthesis block inside `_call_form_term_info` (369–381) and remove `sym` from the `_StepSideTerm` it builds (verify by reading 317–388 first; if `_StepSideTerm.sym` field is now unused everywhere, drop the field from the struct definition too — grep `.sym` across `src/dsl.jl` to confirm zero remaining reads).
+Delete from `src/dsl.jl`: `_parse_single_step` (949–959), `_parse_step_side_symbols` (246–258), `_step_side_term_to_symbol` (264–274), `_synthesize_species_name` (389–391).
+
+**Do NOT drop the `_StepSideTerm.sym` field.** Review verified it's read on the live emission path: `_build_step_expr` reads `bound_met_term.sym` (`dsl.jl:705`), `_split_side` reads it (720/726/734), and the opaque guard reads it (445). For `:metabolite`/`:bare_enzyme` terms `sym` is the real name. Only the dead `:call`-branch *synthesis* (the `parts`/`join`/`Symbol(...)` block at 369–378) is removable — replace it so the `:call` `_StepSideTerm`'s first arg is the bare conformation name (read 317–388 first to get the exact constructor call), not a string-joined synthesized symbol. Fix the misleading "legacy synthesized" comment (~407) while there.
 
 - [ ] **Step 5: Update touched docstrings.**
 
@@ -119,169 +120,70 @@ git commit   # "refactor: delete dead legacy rxns-emission chain in dsl.jl"
 
 ---
 
-# BUCKET B′ — remove opaque-rejection guard
-
-### Task B′1: Confirm opaque forms still error without the explicit guard (HARD GATE)
-
-**Files:** none (probe only).
-
-- [ ] **Step 1: Write a throwaway probe** at `/tmp/opaque_probe.jl`:
-```julia
-using Pkg; Pkg.activate(temp=true); Pkg.develop(path=".")
-using EnzymeRates
-threw = false
-try
-    Core.eval(Main, quote
-        using EnzymeRates
-        EnzymeRates.@enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + S <--> ES
-                ES <--> E + P
-            end
-        end
-    end)
-catch err
-    global threw = true
-    println("opaque form errored: ", first(sprint(showerror, err), 150))
-end
-threw || error("REGRESSION: opaque form was SILENTLY ACCEPTED — keep the guard")
-println("OK — opaque still errors")
-```
-
-- [ ] **Step 2: Run it after temporarily removing the guard call.**
-
-Comment out (do NOT yet delete) the `_assert_no_opaque_terms(...)` calls at `src/dsl.jl:620` and `:1208`, then:
-```bash
-julia --project=. /tmp/opaque_probe.jl
-```
-Expected: `OK — opaque still errors`.
-**If it prints the REGRESSION error instead:** STOP. Opaque forms become silently accepted without the guard → keep the guard, skip Bucket B′ entirely, and report to Denis. Restore the commented calls.
-
-- [ ] **Step 3: If green, proceed; if red, restore guard and stop.** Record the probe's error message — it goes in the §2.1 entry (Task B′2 Step 3).
-
-### Task B′2: Delete the guard + its tests
-
-**Files:**
-- Modify: `src/dsl.jl` — delete `_assert_no_opaque_terms` (435–451), `_is_conformation_shape` (428–429), call sites (620, 1208).
-- Modify: `test/test_dsl.jl` — delete opaque-rejection testsets (~321–342; read to confirm exact range).
-- Modify: `docs/superpowers/refactor-deleted-tests.md` — §2.1 entry.
-
-- [ ] **Step 1: Delete the guard functions + call sites.**
-
-Remove `_assert_no_opaque_terms` (435–451), `_is_conformation_shape` (428–429), and the two call sites (620, 1208, already commented in B′1).
-
-- [ ] **Step 2: Delete the opaque-rejection tests.**
-
-Read `test/test_dsl.jl` around 300–350 to find the exact testset(s) asserting opaque rejection (`@test_throws` on `:ES`/`E_S` forms). Delete them.
-
-- [ ] **Step 3: Add §2.1 entry** to `docs/superpowers/refactor-deleted-tests.md`:
-> **§2.1** — `test_dsl.jl` opaque-rejection tests deleted with `_assert_no_opaque_terms`/`_is_conformation_shape`. Opaque bound-form names (`:ES`) are now rejected by the decomposed grammar's natural parse failure (probe 2026-05-26: error `<paste from B′1 Step 3>`), not an explicit guard. No production path emits opaque forms.
-
-- [ ] **Step 4: Verify + gates + full suite.**
-```bash
-grep -rn "_assert_no_opaque_terms\|_is_conformation_shape" src/ test/   # empty
-bash scripts/check_test_integrity.sh main; echo "EXIT=$?"               # 0
-```
-Run `test_dsl.jl`, full suite, perf/compile/chokepoint gates. Expected: all green.
-
-- [ ] **Step 5: Commit.**
-```bash
-git add src/dsl.jl test/test_dsl.jl docs/superpowers/refactor-deleted-tests.md
-git commit   # "refactor: remove opaque-rejection guard; grammar parse failure suffices"
-```
-
----
-
 # BUCKET A — legacy Sig path
 
-### Task A1: Commit the bi-bi exit-gate as a permanent test (lock the precondition)
+> **Ordering is review-corrected.** The accessor collapse (A5) MUST come after
+> all legacy-Sig construction is gone — `test_types.jl` calls accessors on
+> legacy-Sig mechanisms (built both via the 2-arg constructor AND directly via
+> `EnzymeMechanism{(mets,rxns)}()` at lines 9, 33, 67, 413). Order: A1 exit
+> gate → A2 port validators → A3 migrate ALL legacy-Sig tests → A4 delete
+> 2-arg constructor → A5 collapse accessors → A6 delete `_is_new_sig` +
+> `_mechanism_from_legacy_sig`.
+
+### Task A1: Commit the bi-bi exit-gate as a permanent test (cost-bounded subset)
 
 **Files:**
 - Modify: `test/test_mechanism_enumeration.jl` (add a testset near the existing `bi_bi_rxn` const at line 65).
 
-- [ ] **Step 1: Add the test.** After the existing bi-bi enumeration testsets, add:
+Deriving all 77 bi-bi rate equations costs ~86 s cold (review-measured) and risks the compile-budget gate. Assert the count (cheap) + derive only a small fixed subset (proves the enumerator routes through the new Sig).
+
+- [ ] **Step 1: Add the test.**
 ```julia
-@testset "bi-bi exit gate: every init mechanism derives a rate equation" begin
+@testset "bi-bi exit gate: init mechanisms derive (subset)" begin
     mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
     @test length(mechs) == 77
-    for (i, m) in enumerate(mechs)
-        cm = EnzymeRates.compile_mechanism(m)
-        s = EnzymeRates.rate_equation_string(cm)
-        @test s isa AbstractString
-        @test !isempty(s)
+    # Derive a small subset only — full-77 derivation is ~86s and not worth
+    # it on every cold run. Pick the 5 with the fewest enzyme forms.
+    by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
+    for m in by_size[1:5]
+        s = EnzymeRates.rate_equation_string(EnzymeRates.compile_mechanism(m))
+        @test s isa AbstractString && !isempty(s)
     end
 end
 ```
 
-- [ ] **Step 2: Run it.** Via per-file recipe on `test/test_mechanism_enumeration.jl`.
-Expected: PASS (77 mechanisms, all derive). This was proven green 2026-05-26.
+- [ ] **Step 2: Run it.** Per-file recipe on `test/test_mechanism_enumeration.jl`. Expected: PASS. (`init_mechanisms(bi_bi_rxn)` → 77 was proven 2026-05-26.) Note the added wall-time; if even the 5-subset trips a compile budget, reduce to 2.
 
 - [ ] **Step 3: Commit.**
 ```bash
 git add test/test_mechanism_enumeration.jl
-git commit   # "test: bi-bi exit gate — all init mechanisms derive (Phase 2 precondition)"
+git commit   # "test: bi-bi exit gate — init mechanisms derive (enumerator routes through new Sig)"
 ```
 
-### Task A2: Collapse the 12 `@generated` accessor branches onto the new-Sig body
+### Task A2: Port the meaningful legacy validators into `_assert_mechanism_invariants` (EXPLORATORY — drive directly)
 
 **Files:**
-- Modify: `src/types.jl` — accessors with `if _is_new_sig(Sig)` at lines 1325, 1338, 1351, 1369, 1470, 1484, 1493, 1500, 1511, 1522, 1545, 1597 (and `Mechanism(em)` at 712–714).
-
-- [ ] **Step 1: For each accessor, read the full function, then collapse it.**
-
-Pattern — each accessor currently looks like:
-```julia
-@generated function substrates(::EnzymeMechanism{Sig}) where {Sig}
-    if _is_new_sig(Sig)
-        <NEW BODY>
-        return X
-    end
-    <LEGACY BODY>          # e.g. Sig[1][1]
-end
-```
-Collapse to (drop the guard + the trailing legacy body, keep the new body un-indented):
-```julia
-@generated function substrates(::EnzymeMechanism{Sig}) where {Sig}
-    <NEW BODY>
-    return X
-end
-```
-For the ternary form at 1493 (`_is_new_sig(Sig) ? A : B`), keep only `A`.
-
-**Do this one accessor at a time.** After each, run `test_accessors.jl` (per-file recipe) — Expected: PASS (it's on decomposed grammar, exercises the new body). A regression here means a wrong collapse.
-
-- [ ] **Step 2: Simplify `Mechanism(em)` (712–714).**
-```julia
-Mechanism(em::EnzymeMechanism{Sig}) where {Sig} = _mechanism_from_sig(Sig)
-```
-
-- [ ] **Step 3: Run `test_accessors.jl` + full suite + gates.**
-Expected: all green. Confirm `test_rate_equation_performance` 0-alloc still passes.
-
-- [ ] **Step 4: Commit.**
-```bash
-git add src/types.jl
-git commit   # "refactor: collapse EnzymeMechanism accessors onto the single decomposed-Sig body"
-```
-
-### Task A3: Audit + port the meaningful legacy validators into `_assert_mechanism_invariants` (EXPLORATORY — drive directly)
-
-**Files:**
-- Modify: `src/mechanism_enumeration.jl` — `_assert_mechanism_invariants(m::Mechanism)` (2122–2143).
+- Modify: `src/mechanism_enumeration.jl` — `_assert_mechanism_invariants(m::Mechanism)` (~2122–2143).
 - Modify: `test/test_mechanism_enumeration.jl` — add tests for the ported invariants.
 
-The audit (from spec Bucket A table): **port** "every metabolite appears in some step" and the kinetic-group "RE/SS-mixing + same-metabolite-per-group" checks (the iso/binding `bound_metabolite` consistency is already in `_assert_mechanism_invariants`); **drop** the rest (moot: typed-struct-guaranteed; superseded: connectivity + stoich, per `test_types.jl:322–331` design intent).
+Per the spec audit: **port** "every declared **substrate/product** appears in some step" (regulators EXCLUDED — see below) and the kinetic-group "RE/SS-mixing + same-metabolite-per-group" checks; **drop** the rest (moot / superseded). The iso/binding `bound_metabolite` consistency is already checked.
 
-- [ ] **Step 1: Write failing tests for the two ported invariants** in `test/test_mechanism_enumeration.jl`:
+**Why regulators are excluded:** `_drop_unbound_regulators` (types.jl:671) intentionally lets `init_mechanisms` declare a dead-end inhibitor that no step binds yet (`expand_mechanisms` binds it later). Including regulators in the "appears" check would error on every inhibitor `init_mechanisms` output — and `_assert_mechanism_invariants` is called ~80× over enumerated mechanisms. Substrates/products are never dropped, so they are safe to require.
+
+- [ ] **Step 1: Write failing tests** in `test/test_mechanism_enumeration.jl`. First read `src/types.jl:11–160` to confirm the `Species`/`Step`/`Substrate`/`Product` constructor signatures, then:
 ```julia
-@testset "ported invariants: unused metabolite + kinetic-group composition" begin
-    # Build a Mechanism whose reaction declares a regulator R that no step uses.
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        competitive_inhibitors: R
+@testset "ported invariants: unused substrate/product + kinetic-group composition" begin
+    # POSITIVE: an init mechanism with an unbound declared inhibitor must NOT error.
+    rxn_inh = @enzyme_reaction begin
+        substrates: S[C]; products: P[C]; competitive_inhibitors: R
+    end
+    for m in EnzymeRates.init_mechanisms(rxn_inh)
+        @test EnzymeRates._assert_mechanism_invariants(m) === nothing
+    end
+
+    # NEGATIVE 1: a declared SUBSTRATE that no step binds → error.
+    rxn_unused = @enzyme_reaction begin
+        substrates: S[C], T[C]; products: P[C2]   # T never appears in a step
     end
     s1 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
                           EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
@@ -292,13 +194,12 @@ The audit (from spec Bucket A table): **port** "every metabolite appears in some
     s3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
                           EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                           EnzymeRates.Product(:P), true; source_idx = 3)
-    m_unused = EnzymeRates.Mechanism(rxn, [[s1], [s2], [s3]])
+    m_unused = EnzymeRates.Mechanism(rxn_unused, [[s1], [s2], [s3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
 
-    # A kinetic group binding two different metabolites → error.
+    # NEGATIVE 2: a kinetic group binding two different metabolites → error.
     rxn2 = @enzyme_reaction begin
-        substrates: S[C], A[N]
-        products: P[CN]
+        substrates: S[C], A[N]; products: P[CN]
     end
     g1a = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
                            EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
@@ -309,18 +210,19 @@ The audit (from spec Bucket A table): **port** "every metabolite appears in some
     g2  = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
                            EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
                            nothing, false; source_idx = 3)
-    m_mixed_met = EnzymeRates.Mechanism(rxn2, [[g1a, g1b], [g2]])
-    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mixed_met)
+    m_mixed = EnzymeRates.Mechanism(rxn2, [[g1a, g1b], [g2]])
+    @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mixed)
 end
 ```
-**Note:** verify the exact `Species`/`Step`/`Metabolite` constructor signatures by reading `src/types.jl:11-160` before writing these — adjust the fixture to the real constructors. The shapes above follow the decomposed grammar (`E(S)` = `Species([Substrate(:S)], :E)`).
+**Note:** if `rxn_unused`/the manual `Mechanism` construction itself errors (e.g. an existing constructor invariant rejects an unbound substrate before `_assert_mechanism_invariants` runs), adjust the negative fixture — the point is to reach the ported check.
 
-- [ ] **Step 2: Run the test — confirm it FAILS** (current `_assert_mechanism_invariants` doesn't check these).
-Expected: FAIL (no error thrown → `@test_throws` fails).
+- [ ] **Step 2: Run — confirm the NEGATIVE cases FAIL** (current `_assert_mechanism_invariants` doesn't check these; the positive case already passes).
 
-- [ ] **Step 3: Port the two checks into `_assert_mechanism_invariants(m::Mechanism)`** (after the existing per-step loop, before `nothing`):
+- [ ] **Step 3: Port the checks** into `_assert_mechanism_invariants(m::Mechanism)` (after the existing per-step loop, before `nothing`). `substrates(reaction(m))`/`products(reaction(m))` return `Vector{Substrate}`/`Vector{Product}` (types.jl:312–315); `name(met)` gives the Symbol (23–26):
 ```julia
-    # Every declared metabolite/regulator must appear in some step.
+    # Every declared substrate/product must appear in some step. Regulators
+    # are intentionally excluded — _drop_unbound_regulators (types.jl) lets
+    # init_mechanisms declare a dead-end inhibitor no step binds yet.
     appearing = Set{Symbol}()
     for s in flat
         for sp in (from_species(s), to_species(s))
@@ -329,48 +231,50 @@ Expected: FAIL (no error thrown → `@test_throws` fails).
         bm = bound_metabolite(s)
         bm === nothing || push!(appearing, name(bm))
     end
-    for nm in metabolites(reaction(m))
-        nm in appearing ||
-            error("declared metabolite/regulator $nm appears in no step")
+    for met in (substrates(reaction(m))..., products(reaction(m))...)
+        name(met) in appearing ||
+            error("declared substrate/product $(name(met)) appears in no step")
     end
 
-    # Within a kinetic group of size > 1: all binding (no RE/SS mix), same metabolite.
+    # Within a kinetic group of size > 1: all binding same metabolite, no RE/SS mix.
     for group in m.steps
         length(group) == 1 && continue
-        kinds = [(s.is_equilibrium, bound_metabolite(s)) for s in group
+        kinds = [(is_equilibrium(s), bound_metabolite(s)) for s in group
                  if bound_metabolite(s) !== nothing]
         isempty(kinds) && continue
         first_eq, first_met = kinds[1]
         for (eq, met) in kinds[2:end]
-            eq == first_eq ||
-                error("kinetic group mixes RE and SS binding steps")
+            eq == first_eq || error("kinetic group mixes RE and SS binding steps")
             met == first_met ||
                 error("kinetic group binds different metabolites: " *
                       "$(name(first_met)) and $(name(met))")
         end
     end
 ```
-**Note:** confirm `metabolites(reaction(m))` returns the declared substrate∪product∪regulator names (read `src/types.jl` accessors first); if the accessor name differs, use the correct one. `name(::Substrate/Product/CompetitiveInhibitor/AllostericRegulator)` already exists (types.jl:23–26), so `name(met)` is valid here.
 
-- [ ] **Step 4: Run the new test — confirm it PASSES**, then run the **full** `test_mechanism_enumeration.jl` — Expected: PASS, including the ~80 existing `_assert_mechanism_invariants` calls (the ported checks must not reject any currently-valid enumerated mechanism). **If any existing call now errors, STOP** — a real enumerated mechanism violates a ported invariant, meaning the invariant is wrong for the decomposed world; re-examine before proceeding.
+- [ ] **Step 4: Run the new test — confirm PASS**, then the **full** `test_mechanism_enumeration.jl` (~80 existing `_assert_mechanism_invariants` calls). Expected: PASS. **If ANY existing call now errors, STOP** — a real enumerated mechanism violates a ported invariant → the invariant is wrong for the decomposed world; re-examine (do not loosen the test).
 
 - [ ] **Step 5: Commit.**
 ```bash
 git add src/mechanism_enumeration.jl test/test_mechanism_enumeration.jl
-git commit   # "refactor: port unused-metabolite + kinetic-group-composition checks to _assert_mechanism_invariants"
+git commit   # "refactor: port substrate/product-coverage + kinetic-group-composition checks to _assert_mechanism_invariants"
 ```
 
-### Task A4: Migrate / delete the legacy-constructor tests in test_types.jl
+### Task A3: Migrate ALL legacy-Sig constructions in test_types.jl
 
 **Files:**
-- Modify: `test/test_types.jl` — testsets at 76–114, 265–279, 281–332, 334–342, 344–360, 362–370.
-- Modify: `docs/superpowers/refactor-deleted-tests.md` — §2.1 entries for dropped tests.
+- Modify: `test/test_types.jl`.
+- Modify: `docs/superpowers/refactor-deleted-tests.md` — §2.1 entries.
 
-- [ ] **Step 1: Migrate the positive construction tests** (76–97, 265–279, 334–342) to decomposed grammar.
+- [ ] **Step 1: Inventory every legacy-Sig construction.**
+```bash
+grep -nE "EnzymeMechanism\{\(|EnzymeMechanism\(\(\(|EnzymeMechanism\(mets|EnzymeMechanism\(base_mets|EnzymeMechanism\(.*_mets" test/test_types.jl
+```
+Known sites (review-verified): direct `EnzymeMechanism{(mets,rxns)}()` at **9, 33, 67, 413**; 2-arg `EnzymeMechanism(((...)))`/`(mets,rxns)` throughout 76–360. Cover ALL of them — especially the testsets at **2–37** ("EnzymeMechanism struct + accessors"), **60–74** ("stoich_matrix"), and the `AllostericEnzymeMechanism` validator block **372–417** + **449**, which the earlier plan draft omitted.
 
-Replace the opaque-tuple `EnzymeMechanism(mets, rxns)` constructions with `@enzyme_mechanism` decomposed-grammar fixtures that produce the same structure, preserving the assertions (`n_steps`, `substrates`, `kinetic_group` sharing, `isa EnzymeMechanism`). Example for 76–85:
+- [ ] **Step 2: Migrate positive construction/accessor tests** (the 2–37 accessor testset, 60–74 stoich, 76–97, 265–279, 334–342, and any allosteric `cm` fixture) to `@enzyme_mechanism` decomposed grammar, preserving each assertion. Example:
 ```julia
-@testset "EnzymeMechanism construction (decomposed)" begin
+@testset "EnzymeMechanism construction + accessors (decomposed)" begin
     m = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -382,69 +286,107 @@ Replace the opaque-tuple `EnzymeMechanism(mets, rxns)` constructions with `@enzy
     end
     @test EnzymeRates.n_steps(m) == 3
     @test EnzymeRates.substrates(m) == (:S,)
+    # ...port the remaining accessor assertions (reactions/enzyme_forms/
+    #    stoich_matrix/enzyme_row_range/...) onto this decomposed `m`.
 end
 ```
-For the same-kinetics group test (87–97), use a competitive-inhibitor fixture binding E and E(S) in one group (see `test_dsl.jl`/`test_accessors.jl` for the grammar) and assert `kinetic_group` equality.
+For the same-kinetics group test (87–97), use a competitive-inhibitor fixture binding E and E(S) in one group (grammar in `test_dsl.jl`/`test_accessors.jl`) and assert `kinetic_group` equality. For the allosteric validator block (372–417), rebuild `cm`/`cm_bad` via `@enzyme_mechanism` instead of `EnzymeMechanism{(...)}()`.
 
-- [ ] **Step 2: Re-point the *ported*-validator `@test_throws`** (kinetic-group different-metabolite at 348–352; RE/SS mix at 355–359) onto `_assert_mechanism_invariants` over a decomposed `Mechanism` (reuse the A3 fixtures' shape). These move to `test_mechanism_enumeration.jl` only if cleaner; otherwise keep in `test_types.jl` asserting via `_assert_mechanism_invariants`.
+- [ ] **Step 3: Re-point ported-validator `@test_throws`** (kinetic-group different-metabolite ~348–352; RE/SS mix ~355–359) onto `_assert_mechanism_invariants` over a decomposed `Mechanism` (reuse the A2 fixture shapes).
 
-- [ ] **Step 3: Delete the moot/superseded `@test_throws`** with §2.1 entries:
-  - 104 (stoich "vanish"), 113 (iso group size>1 — iso singleton is in `_assert_mechanism_invariants`? confirm; if not covered, this is a *ported* check, move to Step 2), 289 (empty reactions — covered by `_assert_mechanism_invariants` `isempty`), 292 (dup substrate names — confirm where enforced now), 300 (zero enzyme — moot), 308 (two metabolites — moot), 315 (unknown metabolite — moot, unrepresentable in decomposed `Step`), 320 (net stoich mismatch — superseded), 362–370 (orphan connectivity — superseded per design note).
-  - §2.1 entry text per the spec audit table reasons.
+- [ ] **Step 4: Delete moot/superseded `@test_throws`** with a §2.1 entry **per assertion** (the audit table reasons): stoich "vanish" (~104), iso-group-size>1 (~113 — if not covered by `_assert_mechanism_invariants`'s bound/iso check, this is a *ported* check → Step 3 instead), empty reactions (~289, covered by `isempty`), dup substrate names (~292 — confirm where enforced; if nowhere, note as dropped), zero enzyme (~300, moot), two metabolites (~308, moot), unknown metabolite (~315, moot), net stoich mismatch (~320, superseded), orphan connectivity (~362–370, superseded).
 
-- [ ] **Step 4: Run `test_types.jl` + full suite + integrity.**
+- [ ] **Step 5: Integrity check — manual, because the script can't see assertion-level deletions.**
 ```bash
-bash scripts/check_test_integrity.sh main; echo "EXIT=$?"   # 0
+bash scripts/check_test_integrity.sh main; echo "EXIT=$?"   # 0 (necessary, not sufficient)
 ```
-Expected: all green; `@testset` count change accounted for by §2.1 entries.
+`check_test_integrity.sh` counts `@testset` headings, NOT `@test_throws` inside a surviving testset (script line ~47). So a dropped assertion can pass EXIT=0 silently. **Manually confirm a §2.1 entry exists for each `@test_throws` removed in Step 4.** Then run `test_types.jl` + full suite. Expected: all green.
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 6: Commit.**
 ```bash
 git add test/test_types.jl docs/superpowers/refactor-deleted-tests.md
-git commit   # "test: migrate legacy-constructor tests to decomposed grammar; drop moot/superseded validators (§2.1)"
+git commit   # "test: migrate all legacy-Sig constructions to decomposed grammar; drop moot/superseded validators (§2.1)"
 ```
 
-### Task A5: Delete the legacy Sig path itself
+### Task A4: Delete the 2-arg constructor + its orphaned validators
 
 **Files:**
-- Modify: `src/types.jl` — `_is_new_sig` (1292–1308) + doc block (1280–1287), `_mechanism_from_legacy_sig` (727–~795), 2-arg `EnzymeMechanism` constructor (803–888) + `_validate_kinetic_groups`/`_validate_enzyme_connectivity`/`_validate_stoichiometry`/`_pretty_reaction` (894–971) **if now unused**, stale doc comments (641, 649, 796, 1275, 1291).
-- Modify: `src/rate_eq_derivation.jl:189` (doc comment).
+- Modify: `src/types.jl` — 2-arg `EnzymeMechanism` constructor (~803–888) + `_validate_kinetic_groups`/`_validate_enzyme_connectivity`/`_validate_stoichiometry`/`_pretty_reaction` (~894–971).
 
-- [ ] **Step 1: Confirm the validators are now unused in src/.**
+- [ ] **Step 1: Confirm zero remaining callers** (A3 removed the test callers; nothing in src calls the 2-arg form — DSL emits the 1-arg lift):
 ```bash
+grep -rnE "EnzymeMechanism\(\(\(|EnzymeMechanism\(mets|EnzymeMechanism\{\(" src/ test/
 grep -rn "_validate_kinetic_groups\|_validate_enzyme_connectivity\|_validate_stoichiometry\|_pretty_reaction" src/ test/
 ```
-Expected: only their definitions + the 2-arg constructor body. (Task A4 removed the test callers.) If a test still references them, resolve that first.
+Expected: only the definitions themselves. If a test still constructs a legacy Sig, return to A3.
 
-- [ ] **Step 2: Delete the 2-arg constructor + its now-orphaned validators.** Remove `EnzymeMechanism(mets, rxns)` (803–888) and `_validate_kinetic_groups`, `_validate_enzyme_connectivity`, `_validate_stoichiometry`, `_pretty_reaction` (894–971) **only if** Step 1 showed them unused.
+- [ ] **Step 2: Delete** the 2-arg `EnzymeMechanism(mets, rxns)` constructor and the four now-orphaned validators. (Keep `_assert_mechanism_invariants` — it's the live decomposed-world checker, now carrying the ported invariants.)
 
-- [ ] **Step 3: Delete `_mechanism_from_legacy_sig`** (727–~795). It is no longer referenced (Task A2 made `Mechanism(em)` call `_mechanism_from_sig` directly).
-
-- [ ] **Step 4: Delete `_is_new_sig`** (1292–1308) + its doc-comment block (1280–1287).
-
-- [ ] **Step 5: Confirm `_legacy_step_tuple`/`_species_sym` are gone** and rename the misnamed reconstructor.
+- [ ] **Step 3: Run full suite + gates.** Expected: green (legacy-Sig construction is gone everywhere). Commit:
 ```bash
-grep -rn "_legacy_step_tuple\b\|_species_sym\b" src/   # expect empty (already absent)
+git add src/types.jl
+git commit   # "refactor: delete the 2-arg legacy EnzymeMechanism constructor + its orphaned validators"
 ```
-`_step_tuple_from_sig` (types.jl:1443) is already correctly named — no rename needed (the earlier `_legacy_step_tuple_from_sig` was renamed in commit 388944c). Confirm no `_legacy_*` names remain:
+
+### Task A5: Collapse the ~12 `@generated` accessor branches onto the new-Sig body
+
+**Files:**
+- Modify: `src/types.jl` — accessors with `if _is_new_sig(Sig)` (~1325, 1338, 1351, 1369, 1470, 1484, 1493, 1500, 1511, 1522, 1545, 1597) + `Mechanism(em)` (~711–714).
+
+Safe now: A3+A4 removed every legacy-Sig producer, so no `EnzymeMechanism{Sig}` with a legacy Sig exists.
+
+- [ ] **Step 1: Collapse each accessor, one at a time.** Each currently looks like:
+```julia
+@generated function substrates(::EnzymeMechanism{Sig}) where {Sig}
+    if _is_new_sig(Sig)
+        <NEW BODY>
+        return X
+    end
+    <LEGACY BODY>          # e.g. Sig[1][1]
+end
+```
+Collapse to (drop guard + trailing legacy body, keep the new body):
+```julia
+@generated function substrates(::EnzymeMechanism{Sig}) where {Sig}
+    <NEW BODY>
+    return X
+end
+```
+For the ternary at ~1493 (`_is_new_sig(Sig) ? A : B`), keep only `A`. **After EACH accessor, run `test_accessors.jl`** (per-file recipe) — Expected: PASS. A regression = wrong collapse.
+
+- [ ] **Step 2: Simplify `Mechanism(em)`** to `Mechanism(em::EnzymeMechanism{Sig}) where {Sig} = _mechanism_from_sig(Sig)`.
+
+- [ ] **Step 3: Run `test_accessors.jl` + full suite + perf gate.** Expected: all green; `test_rate_equation_performance` 0-alloc still passes. Commit:
 ```bash
-grep -rn "_legacy" src/
+git add src/types.jl
+git commit   # "refactor: collapse EnzymeMechanism accessors onto the single decomposed-Sig body"
 ```
-Expected: empty (or only the rate_eq_derivation.jl:189 comment, fixed next).
 
-- [ ] **Step 6: Fix stale doc comments.** types.jl lines 641, 649, 796, 1275, 1291 (references to `EnzymeMechanism(metabolites, reactions)`) and rate_eq_derivation.jl:189 — reword to describe the current single Sig shape; no temporal words.
+### Task A6: Delete `_is_new_sig` + `_mechanism_from_legacy_sig` + stale comments
 
-- [ ] **Step 7: Verify the closure of "one struct family".**
+**Files:**
+- Modify: `src/types.jl` — `_is_new_sig` (~1292–1308) + doc block (~1280–1287), `_mechanism_from_legacy_sig` (~727–795), stale doc comments (~641, 649, 796, 1275, 1291).
+- Modify: `src/rate_eq_derivation.jl:189` (doc comment).
+
+- [ ] **Step 1: Confirm both are now unused.**
+```bash
+grep -rn "_is_new_sig\|_mechanism_from_legacy_sig" src/   # only their own definitions
+```
+(`_is_new_sig` lost its callers in A5; `_mechanism_from_legacy_sig` lost its only caller when A5 simplified `Mechanism(em)`.)
+
+- [ ] **Step 2: Delete `_is_new_sig` + its doc block, and `_mechanism_from_legacy_sig`.**
+
+- [ ] **Step 3: Fix stale doc comments** referencing `EnzymeMechanism(metabolites, reactions)` (types.jl ~641, 649, 796, 1275, 1291; rate_eq_derivation.jl ~189) — reword to the current single Sig shape, no temporal words. Confirm no `_legacy_*` names remain (`grep -rn "_legacy" src/` → empty; the `_legacy_step_tuple_from_sig` → `_step_tuple_from_sig` rename already landed in commit 388944c).
+
+- [ ] **Step 4: Verify + full suite + all gates.**
 ```bash
 grep -rnE "_is_new_sig|_mechanism_from_legacy_sig|EnzymeMechanism\(metabolites" src/   # empty
+bash scripts/check_test_integrity.sh main; echo "EXIT=$?"                              # 0
 ```
-
-- [ ] **Step 8: Full suite + integrity + all gates.** Expected: all green. Re-run `test_rate_equation_performance` (0-alloc), 3 compile budgets, `test_chokepoint.jl`.
-
-- [ ] **Step 9: Commit.**
+Full suite green; `test_rate_equation_performance` 0-alloc/<100ns; 3 compile budgets; `test_chokepoint.jl`. Commit:
 ```bash
 git add src/types.jl src/rate_eq_derivation.jl
-git commit   # "refactor: delete legacy opaque-Sig path — one struct family"
+git commit   # "refactor: delete legacy opaque-Sig discriminator + reconstructor — front-end on one struct family"
 ```
 
 ---
@@ -469,30 +411,29 @@ git commit   # "refactor: delete legacy opaque-Sig path — one struct family"
 **Files:**
 - Modify: `src/types.jl` — add any missing field accessors.
 
-- [ ] **Step 1: Enumerate every concrete-struct field and its accessor.** Read `src/types.jl` struct definitions (lines ~11–415). For each field, confirm an accessor exists; build the gap list. Known existing: `name` (Metabolite family, 23–26), `bound`/`conformation`/`residual` (Species), `from_species`/`to_species`/`bound_metabolite` (Step), `reaction`/`steps`/`regulatory_sites`. Likely missing (verify): `is_equilibrium`/`source_idx` (Step), `cat_allo_states`/`catalytic_multiplicity` (AllostericMechanism — note `.cat_steps` maps to existing `steps(m)`), `atoms` (ReactantAtoms), `ligands` (RegulatorySite, RegulatorMults).
+- [ ] **Step 1: Enumerate every concrete-struct field and its accessor.** Read `src/types.jl` struct definitions (lines ~11–415). Review verified **most accessors already exist** — `name` (Metabolite family, 23–26), `is_equilibrium` (184), `ligands` (120), `atoms` (258), `catalytic_multiplicity` (469), plus `bound`/`conformation`/`residual`/`from_species`/`to_species`/`bound_metabolite`/`reaction`/`steps`/`regulatory_sites`. **Genuinely missing — add only these:** `source_idx` (Step), `cat_allo_states` (AllostericMechanism), and `allo_states` on `RegulatorySite` (read as `site.allo_states` 6× in `rate_eq_derivation.jl`). `.cat_steps` maps to existing `steps(m)` (no new accessor). Re-grep to confirm before adding anything.
 
-- [ ] **Step 2: Write a failing test** in `test/test_accessors.jl` asserting each newly-added accessor returns the field value (use an existing fixture `m`/`am`/a constructed `Step`/`Species`). Example:
+- [ ] **Step 2: Write a failing test** in `test/test_accessors.jl` for the genuinely-missing accessors only:
 ```julia
 @testset "added field accessors" begin
     st = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
                           EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                          EnzymeRates.Substrate(:S), true; source_idx = 1)
-    @test EnzymeRates.is_equilibrium(st) == true
-    @test EnzymeRates.source_idx(st) == 1
+                          EnzymeRates.Substrate(:S), true; source_idx = 7)
+    @test EnzymeRates.source_idx(st) == 7
+    # + cat_allo_states(am) and allo_states(site) on existing fixtures
 end
 ```
-Adjust to the actual missing set from Step 1.
+Adjust to the confirmed-missing set from Step 1 (do NOT assert `is_equilibrium`/`name`/etc. — those already exist and would pass immediately, defeating the failing-test step).
 
-- [ ] **Step 3: Run — confirm FAIL** (accessors undefined).
+- [ ] **Step 3: Run — confirm FAIL** (the genuinely-missing accessors are undefined).
 
-- [ ] **Step 4: Add the accessors** next to the related existing ones in `src/types.jl`, one-liners:
+- [ ] **Step 4: Add the missing accessors** next to the related existing ones in `src/types.jl`:
 ```julia
-is_equilibrium(s::Step) = s.is_equilibrium
-source_idx(s::Step)     = s.source_idx
-name(m::Substrate) = m.name        # + Product / CompetitiveInhibitor / AllostericRegulator
-# … etc for the confirmed-missing set
+source_idx(s::Step) = s.source_idx
+cat_allo_states(m::AllostericMechanism) = m.cat_allo_states
+allo_states(site::RegulatorySite) = site.allo_states
 ```
-For the `Metabolite` family `name`, add one method per concrete subtype (or `name(m::Metabolite) = m.name` if the field is shared via the abstract type's layout — verify). **Do not** collide with `name(p::Parameter, m)` / `name(::Type{P}, idx)` — different signatures, fine.
+(Also add `multiplicity(site::RegulatorySite) = site.multiplicity` if a re-grep shows `.multiplicity` is read without an accessor.) Do NOT collide with `name(p::Parameter, m)` / `name(::Type{P}, idx)` — different signatures, fine.
 
 - [ ] **Step 5: Run — confirm PASS.** Then full suite + perf gate (new accessors inline → 0-alloc unaffected).
 
@@ -589,21 +530,25 @@ wc -l src/*.jl   # record total
 ```
 Write the honest achieved total into the PR body; record it in the spec / roadmap as the renegotiated measured target (LOC non-gating).
 
-- [ ] **Step 4: Docs final pass.** Re-read README + CLAUDE.md for opaque-form / legacy-Sig references invalidated by the deletions. Update continuation spec §11 status to "done — legacy Sig removed, accessors unified, layout reorganized."
+- [ ] **Step 4: Docs final pass.** Re-read README + CLAUDE.md for opaque-form / legacy-Sig references invalidated by the deletions. Update continuation spec §11 status to "legacy Sig removed; front end on one struct family; **derivation back-end opaque-tuple representation deferred** (see spec 'Deferred')."
 
-- [ ] **Step 5: Push + PR.**
+- [ ] **Step 5: Push + PR — HONEST framing.**
 ```bash
 git push -u origin refactor-to-concrete-types-instead-of-symbols
 gh pr create --fill
 ```
-PR body: honest LOC numbers; celebrate the single-struct-family closure; link the deferred parameter-naming refactor (continuation spec §7) and the deferred `_n_fit_params_estimate` undercount as the next steps. End the body with the Claude Code attribution footer.
+PR body must state plainly: this removes the *legacy* Sig and unifies the **front end** (DSL + enumeration + public mechanism surface) onto one struct family; it does **NOT** close §3.1 #1 — the King-Altman/Wegscheider **derivation back-end still runs on regenerated opaque Symbol tuples** (`_species_name_from_sig`/`_step_tuple_from_sig` → `reactions`/`enzyme_forms`), which remains a deliberate second representation. Honest LOC numbers (branch lands above main — the cost of structured types). Link the three deferred next steps: **(1) derivation back-end unification** (the real remaining work), (2) parameter-naming refactor (continuation spec §7), (3) `_n_fit_params_estimate` undercount. End with the Claude Code attribution footer.
 
 ---
 
 ## Self-Review Notes
 
-- **Spec coverage:** B → Task B1; B′ → Tasks B′1, B′2; A → Tasks A1–A5; C → Task C1; D → Tasks D1, D2–D8; E → Tasks E1–E8; Final → Task F1. All buckets covered.
-- **Riskiest tasks:** A3 (exploratory validator port — drive directly, stop if a real mechanism violates a ported invariant), A2 (12 accessor collapses — one at a time, `test_accessors.jl` after each), E on `types.jl` (struct ordering — last, smallest moves).
-- **Hard gates with stop-conditions:** B′1 (opaque must still error or keep guard), A3 Step 4 (no enumerated mechanism may fail a ported invariant), A5 Step 1 (validators must be unused before deletion).
+- **Spec coverage:** B → Task B1; A → Tasks A1–A6; C → Task C1; D → Tasks D1, D2–D8; E → Tasks E1–E8; Final → Task F1. Bucket B′ dropped (guard is load-bearing). All remaining buckets covered.
+- **Bucket A ordering (review-corrected):** migrate tests (A3) + delete 2-arg constructor (A4) BEFORE collapsing accessors (A5) — `test_types.jl` calls accessors on legacy-Sig mechanisms, so collapsing first would red the suite mid-bucket.
+- **Riskiest tasks:** A2 (exploratory validator port — drive directly; STOP if a real enumerated mechanism fails a ported invariant), A5 (12 accessor collapses — one at a time, `test_accessors.jl` after each), E on `types.jl` (struct ordering — last, smallest moves).
+- **Hard gates with stop-conditions:** A2 Step 4 (no enumerated mechanism may fail a ported invariant — and regulators are excluded precisely so inhibitor init mechanisms don't), A4 Step 1 (zero legacy-Sig producers before deleting the constructor), A5 (no legacy Sig exists before collapsing accessors).
+- **`_StepSideTerm.sym` field stays** (B Task B1 Step 4) — it's live on the emission path; only the `:call` synthesis is dead.
+- **Integrity gate is necessary-not-sufficient for A3** — the script counts `@testset`, not `@test_throws` inside one; manually confirm a §2.1 entry per dropped assertion.
+- **Honest scope:** this is front-end unification + legacy-Sig removal, NOT full "one struct family." The PR must say so.
 - **Don't trust `Pkg.test` exit codes** — read the `Test Summary` line.
-- **Line numbers drift** as deletions land — each task re-greps/re-reads before editing rather than trusting the numbers from this plan verbatim.
+- **Line numbers drift** as deletions land — each task re-greps/re-reads before editing.
