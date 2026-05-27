@@ -40,7 +40,7 @@ function _step_parameters(m::Mechanism)
             Parameter[is_binding(s) ? Kd(s, :None) : Kiso(s, :None)] :
             Parameter[is_binding(s) ? Kon(s, :None)  : Kfor(s, :None),
                       is_binding(s) ? Koff(s, :None) : Krev(s, :None)]
-        out[s.source_idx] = params
+        out[source_idx(s)] = params
     end
     out
 end
