@@ -174,7 +174,7 @@ _build_kinetic_rename_map(m::EnzymeMechanism) = _build_kinetic_rename_map(typeof
 # ─── RE Group Helpers ───────────────────────────────────────
 
 """
-Split a legacy reaction side into `(enzyme_sym, metabolite_syms)`. Used
+Split a reaction side into `(enzyme_sym, metabolite_syms)`. Used
 by the thermodynamic-constraint kernel (`_dependent_param_exprs_kernel`)
 and as the underlying helper for `_step_sides` below.
 """

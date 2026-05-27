@@ -572,9 +572,8 @@ end
 # Build the `EnzymeMechanism(Mechanism(reaction, grouped_steps))` Expr
 # from the structural per-step records collected during parsing.
 #
-# Atoms for each declared metabolite default to `[:C => 1]` — the same
-# placeholder convention `_mechanism_from_legacy_sig` uses when lifting
-# the legacy Sig shape. Real atom payloads live at the @enzyme_reaction
+# Atoms for each declared metabolite default to `[:C => 1]` — a
+# placeholder. Real atom payloads live at the @enzyme_reaction
 # level, not @enzyme_mechanism.
 function _build_mechanism_expr(subs_list, prods_list, regs_list,
                                role_of::Dict{Symbol,Symbol},

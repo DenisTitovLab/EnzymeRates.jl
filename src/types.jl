@@ -346,10 +346,9 @@ end
 # names. If ALL incoming Steps have `source_idx == 0` (the default —
 # the natural DSL / enumeration path), the constructor auto-assigns by
 # flat position across groups. If ANY incoming Step has a non-zero
-# `source_idx`, the constructor preserves it (the caller — e.g., the
-# legacy-Sig lift — knows the true source position even after
-# regrouping). Mixed mode is rejected to keep the convention
-# unambiguous.
+# `source_idx`, the constructor preserves it (the caller knows the
+# true source position even after regrouping). Mixed mode is rejected
+# to keep the convention unambiguous.
 struct Mechanism
     reaction::EnzymeReaction
     steps::Vector{Vector{Step}}
@@ -635,22 +634,20 @@ Singleton type encoding an enzyme mechanism. `Sig` is the tuple
   (from-species, to-species, bound metabolite, is-equilibrium).
 
 The conversion functions are `_sig_of` and `_mechanism_from_sig`; the
-exact layout is internal — users construct via `EnzymeMechanism(::Mechanism)`
-or the `EnzymeMechanism(metabolites, reactions)` shorthand below.
+exact layout is internal — users construct via `EnzymeMechanism(::Mechanism)`.
 """
 struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 
 # Boundary converters: non-parametric Mechanism ↔ parametric
-# EnzymeMechanism{Sig}. The new-shape Sig encodes the Mechanism's data
-# as `(reaction_sig, steps_sig)` produced by `_sig_of`. The legacy-shape
-# Sig `(metabolites_3tuple, rxns_4tuple)` is produced by
-# `EnzymeMechanism(metabolites, reactions)`; `Mechanism(em)` lifts either
-# shape so derivation consumers can walk a `Mechanism` uniformly.
+# EnzymeMechanism{Sig}. The Sig encodes the Mechanism's data as
+# `(reaction_sig, steps_sig)` produced by `_sig_of`; `Mechanism(em)`
+# lifts it back so derivation consumers can walk a `Mechanism`
+# uniformly.
 # Lift a `Mechanism` to its singleton `EnzymeMechanism` type. The Sig
 # stores each Step's data including `source_idx`, which the derivation
 # pipeline keys parameter naming on (`_rep_idx_for_step`). To keep
 # downstream code's "source_idx == position in `reactions(em)`"
-# invariant intact across both Sig shapes — and avoid the index-by-
+# invariant intact — and avoid the index-by-
 # `source_idx` mismatch when an enumeration move produces a Mechanism
 # whose preserved `source_idx` no longer matches its current flat
 # group-major position — renumber `source_idx` to flat-position before
@@ -707,85 +704,6 @@ function _renumber_source_idx(m::Mechanism)
 end
 
 Mechanism(em::EnzymeMechanism{Sig}) where {Sig} = _mechanism_from_sig(Sig)
-
-"""
-Build a `Mechanism` from the legacy `(metabolites_3tuple, rxns_4tuple)`
-Sig shape. Each enzyme-form Symbol becomes a conformation-only `Species`
-with empty `bound` and empty `Residual`, so `name(species)` round-trips
-to the original opaque Symbol exactly (`:E`, `:ES`, `:EAB`, ...). The
-`bound_metabolite` field of `Step` carries the metabolite, while
-`from_species`/`to_species` are taken straight from the source
-`(lhs, rhs)` order. Because the metabolite is in neither bound list,
-`Step`'s binding-direction canonicalization no-ops and source-order
-direction is preserved verbatim.
-"""
-function _mechanism_from_legacy_sig(Sig::Tuple)
-    mets_sig, rxns_sig = Sig
-    subs, prods, regs = mets_sig
-
-    reactants = ReactantAtoms[]
-    for s in subs
-        push!(reactants,
-            ReactantAtoms(Substrate(s), Pair{Symbol,Int}[:C => 1]))
-    end
-    for p in prods
-        push!(reactants,
-            ReactantAtoms(Product(p), Pair{Symbol,Int}[:C => 1]))
-    end
-    regulators_vec = RegulatorMults[]
-    for r in regs
-        push!(regulators_vec,
-            RegulatorMults(CompetitiveInhibitor(r), Int[1]))
-    end
-    reaction = EnzymeReaction(reactants, regulators_vec, Int[1])
-
-    sub_set, prod_set, reg_set =
-        Set{Symbol}(subs), Set{Symbol}(prods), Set{Symbol}(regs)
-    met_set = sub_set ∪ prod_set ∪ reg_set
-    metabolite_of(s::Symbol) =
-        s in sub_set  ? Substrate(s) :
-        s in prod_set ? Product(s) :
-        s in reg_set  ? CompetitiveInhibitor(s) :
-        error("Symbol $s is not a declared metabolite or regulator")
-
-    # Walk `rxns_sig` in source order and stamp each Step's
-    # `source_idx` with its original 1-based source position before
-    # grouping. The `Mechanism` constructor preserves these
-    # explicit values so `_rep_idx_for_step` reproduces today's
-    # source-order rep-idx naming (`:K1`, `:k10f`, ...).
-    groups = Dict{Int, Vector{Step}}()
-    group_order = Int[]
-    for (src_pos, (lhs, rhs, is_eq, gnum)) in enumerate(rxns_sig)
-        e_lhs = first(s for s in lhs if s ∉ met_set)
-        e_rhs = first(s for s in rhs if s ∉ met_set)
-        m_lhs = Symbol[s for s in lhs if s ∈ met_set]
-        m_rhs = Symbol[s for s in rhs if s ∈ met_set]
-        length(m_lhs) <= 1 ||
-            error("_mechanism_from_legacy_sig: step $src_pos has more than " *
-                  "one metabolite on LHS ($m_lhs); each Step must bind " *
-                  "exactly one metabolite")
-        length(m_rhs) <= 1 ||
-            error("_mechanism_from_legacy_sig: step $src_pos has more than " *
-                  "one metabolite on RHS ($m_rhs); each Step must bind " *
-                  "exactly one metabolite")
-
-        bound_met = !isempty(m_lhs) ? metabolite_of(m_lhs[1]) :
-                    !isempty(m_rhs) ? metabolite_of(m_rhs[1]) :
-                    nothing
-
-        from = Species(Metabolite[], e_lhs, Residual())
-        to   = Species(Metabolite[], e_rhs, Residual())
-        step = Step(from, to, bound_met, is_eq; source_idx = src_pos)
-
-        if !haskey(groups, gnum)
-            groups[gnum] = Step[]
-            push!(group_order, gnum)
-        end
-        push!(groups[gnum], step)
-    end
-    step_groups = Vector{Step}[groups[g] for g in group_order]
-    Mechanism(reaction, step_groups)
-end
 
 """
     AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites}
@@ -1084,45 +1002,11 @@ end
 
 # ─── Accessors ─────────────────────────────────────────────────
 #
-# Accessors on `EnzymeMechanism{Sig}` dispatch on Sig content to
-# preserve compatibility with two construction paths during the
-# concrete-types transition:
-#
-# - Legacy Sig `(metabolites_3tuple, rxns_4tuple)` — produced by
-#   `EnzymeMechanism(metabolites, reactions)`. The first slot
-#   is a 3-tuple of name `Tuple{Symbol,...}`s.
-# - New Sig `(reaction_sig, steps_sig)` — produced by
-#   `EnzymeMechanism(::Mechanism)` (via `_sig_of`). The first slot is
-#   the EnzymeReaction encoding (reactants + regulators + mults), so
-#   `Sig[1]` is also a 3-tuple but its first element is a tuple of
-#   `((kind::Symbol, name::Symbol), atoms_tuple)` reactants, not a
-#   tuple of names.
-#
-# `_is_new_sig` is the discriminator: it checks whether `Sig[1][1]`
-# (the first reactant slot) is a 2-tuple with a `Symbol`-`Symbol` head
-# (a metabolite encoding from `_to_sig`) versus a `Tuple{Symbol,...}`
-# (a name tuple from the legacy shape).
-
-"""True iff `Sig` is the new shape `(reaction_sig, steps_sig)` produced
-by `_sig_of`. False iff it is the legacy `(mets, rxns)` shape produced
-by `EnzymeMechanism(metabolites, reactions)`."""
-function _is_new_sig(Sig::Tuple)
-    length(Sig) == 2 || return false
-    reaction_or_mets = Sig[1]
-    length(reaction_or_mets) == 3 || return false
-    first_slot = reaction_or_mets[1]
-    first_slot isa Tuple || return false
-    # New-shape reactants: a tuple of (metabolite_sig, atoms_sig) pairs,
-    # where each metabolite_sig is `(:Substrate|:Product|..., name)`.
-    # Legacy mets: substrates as a `Tuple{Symbol,...}` of bare names.
-    isempty(first_slot) && return false
-    entry = first_slot[1]
-    entry isa Tuple && length(entry) == 2 &&
-        entry[1] isa Tuple && length(entry[1]) == 2 &&
-        entry[1][1] isa Symbol &&
-        entry[1][1] in (:Substrate, :Product,
-                        :AllostericRegulator, :CompetitiveInhibitor)
-end
+# Accessors on `EnzymeMechanism{Sig}` walk the `(reaction_sig,
+# steps_sig)` encoding produced by `_sig_of`. `Sig[1]` is the
+# EnzymeReaction encoding (reactants + regulators + mults), where
+# each reactant slot is `((kind::Symbol, name::Symbol), atoms_tuple)`;
+# `Sig[2]` is the per-step encoding.
 
 """Walk the steps of `Mechanism(em)` in flat order, yielding
 `(step::Step, kinetic_group::Int)` pairs."""
@@ -1195,7 +1079,7 @@ of `Symbol`s in declaration order, deduplicated.
     return Tuple(names)
 end
 
-"""Synthesize the legacy enzyme-form name from a Species sig
+"""Synthesize the enzyme-form name from a Species sig
 `(bound_sigs, conformation, residual_sig)` — mirrors `name(::Species)`.
 Bound order matches `Species.bound`, which is sorted by name in the
 struct constructor and preserved by `_to_sig`."""
