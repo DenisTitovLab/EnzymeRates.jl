@@ -1,4 +1,8 @@
-# Finish the Concrete-Types Refactor — Legacy-Sig + Dual-Grammar Removal
+# Finish the Concrete-Types Refactor — Deletion, Accessor Discipline, Layout
+
+> **Bucket order (locked):** B (dsl dead chain) → B′ (opaque guard) →
+> A (legacy Sig) → C (stale memory) → D (accessor discipline) →
+> E (layout reorg). Deletions first, accessors next, pure-movement last.
 
 **Date:** 2026-05-26
 **Branch:** `refactor-to-concrete-types-instead-of-symbols` (unpushed; main = `7,136` src LOC)
@@ -16,8 +20,11 @@ five accessors are `@generated` and zero-alloc on the decomposed path. What
 remains is genuinely dead code kept alive only by an unused legacy
 constructor and an unused legacy parsing branch.
 
-This is a **pure deletion / collapse** — no new behavior, no new tests of new
-functionality. Success = same observable behavior, fewer code paths.
+The deletion buckets (A/B/B′) are **pure deletion / collapse** — no new
+behavior. Two further maintainability passes follow the deletions: routing
+all data access through accessor functions (D) and reorganizing file layout
+(E). All three are behavior-preserving: success = same observable behavior,
+cleaner structure.
 
 ## Precondition (proven 2026-05-26)
 
@@ -43,7 +50,10 @@ This probe becomes a committed regression test (see Bucket A, Step 0).
   number.
 - **LOC gate: renegotiate to measured.** Delete everything genuinely dead,
   then record the honest achieved total as the new baseline. LOC is
-  non-gating (continuation spec §8). Estimated landing: ~8,400 (from 8,781).
+  non-gating (continuation spec §8). The deletions (A/B/B′) remove ~410 LOC
+  (8,781 → ~8,370); the accessor pass (D) is roughly LOC-neutral (a few added
+  accessor definitions); the layout pass (E) is net-zero. Record the final
+  measured number; do not contort to hit a target.
 
 ## Bucket B — dsl.jl dual-grammar dead chain (~80 LOC)
 
@@ -135,6 +145,65 @@ per-commit perf / compile-budget / chokepoint gates green; `@testset` count
 - Delete the stale memory `project-accessor-allocates-on-decomposed-sig`
   (resolved by `bc1c592`; `test_accessors.jl` is on decomposed grammar and
   asserts `== 0` allocs).
+
+## Bucket D — accessor discipline (after deletions)
+
+Route all data access through accessor functions instead of direct
+`.field` access, for maintainability. Accessors already exist for most
+fields (`bound`/`conformation`/`residual` on `Species`;
+`from_species`/`to_species`/`bound_metabolite` on `Step`;
+`reaction`/`steps`/`regulatory_sites` on `Mechanism`/`AllostericMechanism`).
+Direct field access is currently pervasive (~900 sites: `.steps` 216×,
+`.reaction` 103×, `.bound` 85×, `.atoms` 83×, `.ligands` 49×, …).
+
+**Scope (locked with Denis): everywhere except definitions.** Convert all
+`.field` reads to accessor calls across `src/`, *including* inside
+`types.jl` — except the accessor definitions themselves, the struct
+constructors, and `@generated`-internal Sig-tuple indexing (those legitimately
+touch fields / tuple slots directly). No enforcement test (rely on review).
+
+**No perf risk:** trivial accessors inline to zero cost; the hot
+`rate_equation` path uses the separate `@generated` `EnzymeMechanism{Sig}`
+accessors (compile-time), not these concrete-struct fields. The
+`test_rate_equation_performance` gate is re-verified at the end regardless.
+
+**Step 1 — accessor inventory + add missing.** Enumerate every field of
+every concrete struct (`Species`, `Step`, `Mechanism`, `AllostericMechanism`,
+`EnzymeReaction`, `ReactantAtoms`, `RegulatorMults`, `RegulatorySite`,
+`Residual`, `Metabolite` family). For each field, confirm an accessor exists;
+add the missing ones (candidates: `is_equilibrium`/`source_idx` on `Step`;
+`cat_allo_states`/`catalytic_multiplicity` on `AllostericMechanism`; `atoms`
+on `ReactantAtoms`; `ligands` on `RegulatorySite`/`RegulatorMults`; `name` on
+the `Metabolite` family — note `name` is already overloaded for `Parameter`,
+so the metabolite method is an added signature). Resolve naming collisions
+deliberately: `AllostericMechanism.cat_steps` is exposed as `steps(m)` (no
+separate `cat_steps` accessor) — map `.cat_steps` → `steps(m)`.
+
+**Step 2 — mechanical conversion, file by file**, full suite green after
+each file. Smallest reasonable diff per commit; commit per file or per type.
+
+## Bucket E — file layout reorganization (last)
+
+Reorder each `src/` file so the reader meets the important things first:
+major public types and functions near the top, functions that do similar
+things grouped adjacently, less-important helpers at the end.
+
+**Sequenced last** because it's pure movement and is easiest to review
+against a stable, already-deleted-and-accessored function set.
+
+**Julia ordering constraints (must be preserved):**
+- A `struct` must be defined before any method signature or other struct
+  field that references its type. Type/struct blocks stay first in
+  `types.jl`.
+- A macro must be defined before its use site is parsed. `@enzyme_reaction`
+  etc. and their helpers keep their relative order in `dsl.jl`.
+- `const`s used at top level must precede their use.
+- Plain function *call* resolution is order-independent within the module, so
+  helper functions may move freely subject to the above.
+
+**Verification:** this is behavior-preserving movement — full suite green
+plus all gates after each file. A failure means something was genuinely
+order-dependent (surface it, don't paper over).
 
 ## Final verification (continuation spec §3)
 
