@@ -208,22 +208,14 @@ end
     # ter-ter are the same concrete type and `init_mechanisms(::EnzymeReaction)`
     # resolves to the same method instance — no per-arity specialization.
     @testset "dispatch identity: init_mechanisms uni-uni and ter-ter share method" begin
-        r_uni = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1])],
-            EnzymeRates.RegulatorMults[],
-            Int[1],
-        )
-        r_ter = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:A), [:C => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:N => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:C), [:O => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q),   [:N => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:R),   [:O => 1])],
-            EnzymeRates.RegulatorMults[],
-            Int[1],
-        )
+        r_uni = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+        end
+        r_ter = @enzyme_reaction begin
+            substrates: A[C], B[N], C[O]
+            products:   P[C], Q[N], R[O]
+        end
         @test typeof(r_uni) === typeof(r_ter)
         @test which(EnzymeRates.init_mechanisms, (typeof(r_uni),)) ===
               which(EnzymeRates.init_mechanisms, (typeof(r_ter),))
