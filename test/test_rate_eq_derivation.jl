@@ -101,6 +101,54 @@ end
 
 # ── Parameter generation helpers ────────────────────────────────────────────
 
+"""
+Re-key a structural-named parameter NamedTuple to the **per-step** positional
+names (`K1`, `k1f`, `k1r`, …) that hand-derived analytical oracles destructure.
+Walks every step in source order; emits one positional name per RE step or two
+per SS step keyed on the step's source position; each value is looked up by the
+rep parameter's structural name in `nt` (so group members share the rep's
+value, matching how the package's destructure-by-name works today).
+Permanent test utility — oracles are inherently positional and source-indexed.
+"""
+function positional_params(m, nt::NamedTuple)
+    mech = m isa EnzymeRates.Mechanism             ? m :
+           m isa EnzymeRates.AllostericMechanism   ? m :
+           m isa EnzymeRates.AllostericEnzymeMechanism ? EnzymeRates.AllostericMechanism(m) :
+           EnzymeRates.Mechanism(m)
+    names = Symbol[]
+    vals  = Any[]
+    for group in EnzymeRates.steps(mech)
+        rep = first(group)
+        if EnzymeRates.is_equilibrium(rep)
+            rep_name = EnzymeRates.name(EnzymeRates.Kd(rep, :None), mech)
+            for s in group
+                push!(names, Symbol("K", EnzymeRates.source_idx(s)))
+                push!(vals,  nt[rep_name])
+            end
+        else
+            fwd_name = EnzymeRates.name(EnzymeRates.Kfor(rep, :None), mech)
+            rev_name = EnzymeRates.name(EnzymeRates.Krev(rep, :None), mech)
+            for s in group
+                idx = EnzymeRates.source_idx(s)
+                push!(names, Symbol("k", idx, "f")); push!(vals, nt[fwd_name])
+                push!(names, Symbol("k", idx, "r")); push!(vals, nt[rev_name])
+            end
+        end
+    end
+    # Pass through any remaining params not covered by the step loop (T-state
+    # params, Lallo, Kreg, Keq, E_total, etc.) under their existing names.
+    # Today these names are already positional (e.g. :K1_T); after Phase 3.1
+    # adds an I-state branch to the per-step loop, only the truly-global
+    # params (Keq, E_total, L) will fall through this loop.
+    emitted = Set(names)
+    for k in keys(nt)
+        k ∈ emitted && continue
+        push!(names, k)
+        push!(vals, nt[k])
+    end
+    NamedTuple{Tuple(names)}(Tuple(vals))
+end
+
 """Generate random reduced (fitted) params + Keq + E_total for a mechanism."""
 function random_reduced_params(m; rng=Random.default_rng())
     fp = EnzymeRates.fitted_params(m)
@@ -504,7 +552,7 @@ function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
                 random_independent_params_concs(
                     m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(all_params, (Et=Et,))
+            p = merge(positional_params(m, all_params), (Et=Et,))
             p_pkg = merge(new_params, (E_total=Et,))
             isapprox(
                 rate_equation(m, concs, p_pkg),
