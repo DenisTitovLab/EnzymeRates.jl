@@ -32,14 +32,18 @@ These were resolved in brainstorming with Denis:
    scheme (`_dependent_param_exprs_kernel`, prefers keeping free-enzyme binding
    and forward-over-reverse) is **unchanged**. Which parameter becomes dependent
    does not change. Only its *name* changes.
-2. **Canonicalize SS steps too.** The "SS steps preserve source direction"
-   invariant (CLAUDE.md "Canonical Step Form") existed because the old `:kNf`/
-   `:kNr` labels were tied to write-direction. Structural species-pair names
-   remove that reason, so SS step storage direction is canonicalized like RE
-   steps, and the special case is deleted from the `Step` constructor and dedup.
-   **After this, every `Step` is canonicalized** (RE and SS alike). A side
-   benefit: the current dedup gap where SS steps written in opposite directions
-   (`ES⇌EP` vs `EP⇌ES`) compare *unequal* disappears — they collapse to one Step.
+2. **Canonicalize SS iso steps in the physical-forward direction.** SS iso
+   steps are stored with `from` = the side that has more substrate (or fewer
+   product) bindings, so `kf` consistently denotes the physical-forward rate
+   (substrate-bound → product-bound). Pure conformational iso (no substrate
+   or product involved on either side) falls back to lex on species name.
+   Canonicalization moves from the `Step` constructor (no reaction context)
+   into the `Mechanism` / `AllostericMechanism` constructor (where the
+   `EnzymeReaction`'s substrate/product sets are available). The derivation's
+   existing assumption "LHS = kf-side" (`rate_eq_derivation.jl:356-360`)
+   becomes physical-forward-aligned and *more* correct than today's
+   source-order behavior. RE step canonicalization in the `Step` constructor
+   is unchanged.
 
 3. **Active/Inactive (A/I) everywhere.** Rename the allosteric-state notion
    from R/T to A (active) / I (inactive) throughout: taxonomy symbols
@@ -89,7 +93,7 @@ prefix; `EqualAI` emits no token.
 | `Kreg` | allosteric regulator | `K[_<state>]_<lig>reg` | `:K_G6Preg`, `:K_A_G6Preg` |
 | `Kd` (CompetitiveInhibitor role) | dead-end RE binding | `K_<met>inh[_<fromform>]` | `:K_G6Pinh` |
 | `Keq`  | — | `:Keq` | |
-| `Etot` | — | `:Et` | |
+| `Etot` | — | `:E_total` (unchanged; baked into ~15 sites including the generated rate body and fitter — pure churn to rename) | |
 | `Lallo`| — | `:L` | |
 
 Conventions:
@@ -131,8 +135,14 @@ Conventions:
   emit structural names from a Step value (and ligand/site for `Kreg`), with the
   A/I state token placed after the type prefix and omitted for `EqualAI`. Delete
   `name(::Type{P}, idx)` and `name(::Type{P}, idx, state)` (the index-context
-  companion) and delete `_rep_idx_for_step`. The single remaining entry point is
-  value-context `name(p::Parameter, m)`. `name(::Etot)` returns `:Et`.
+  companion) and replace `_rep_idx_for_step` with `_rep_step` returning the rep
+  `Step`. The single remaining entry point is value-context `name(p::Parameter, m)`.
+- **Inactive-state name helper `_inactive_name(sym)`**: returns the structural
+  inactive (`I_`) name for a given active-state name by inserting `I_` after the
+  first underscore. Every synthesized-dep `Symbol(string(k) * "_T")` site (~11
+  across `rate_eq_derivation.jl` and `mechanism_enumeration.jl`) routes through
+  this helper so the chokepoint's mid-name token placement and the
+  synth-dep machinery use one structural convention.
 
 ### Kinetic-group representative (`_step_priority`)
 
