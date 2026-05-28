@@ -664,6 +664,17 @@
         @test site != site_reordered
     end
 
+    @testset "RegulatorySite: A/I allo-state symbols accepted; R/T rejected" begin
+        for st in (:EqualAI, :OnlyA, :OnlyI, :NonequalAI)
+            @test EnzymeRates.RegulatorySite(
+                [EnzymeRates.AllostericRegulator(:G6P)], 1, [st]) isa EnzymeRates.RegulatorySite
+        end
+        for st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT)
+            @test_throws ErrorException EnzymeRates.RegulatorySite(
+                [EnzymeRates.AllostericRegulator(:G6P)], 1, [st])
+        end
+    end
+
     @testset "Step carries source_idx presentation metadata" begin
         e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
         e_s = EnzymeRates.Species(

@@ -108,9 +108,9 @@ struct RegulatorySite
         multiplicity ≥ 1 ||
             error("RegulatorySite: multiplicity must be ≥ 1, got $multiplicity")
         for st in allo_states
-            st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
+            st in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI) ||
                 error("RegulatorySite: allo state $st must be one of " *
-                      ":OnlyR, :OnlyT, :EqualRT, :NonequalRT")
+                      ":OnlyA, :OnlyI, :EqualAI, :NonequalAI")
         end
         new(ligands, multiplicity, allo_states)
     end
@@ -398,7 +398,7 @@ Base.hash(m::Mechanism, h::UInt) =
 # §5.8 — AllostericMechanism: a multi-subunit MWC enzyme. Each catalytic
 # kinetic group carries an allosteric-state tag (`:OnlyR`, `:EqualRT`, or
 # `:NonequalRT` — `:OnlyT` is rejected by the R-state-active convention).
-const _VALID_CAT_ALLO_STATES = (:OnlyR, :EqualRT, :NonequalRT)
+const _VALID_CAT_ALLO_STATES = (:OnlyA, :EqualAI, :NonequalAI)
 
 struct AllostericMechanism
     reaction::EnzymeReaction
@@ -423,8 +423,8 @@ struct AllostericMechanism
             tag in _VALID_CAT_ALLO_STATES ||
                 error("AllostericMechanism: catalytic group $g has invalid " *
                       "allo state $tag (must be one of " *
-                      "$_VALID_CAT_ALLO_STATES); :OnlyT is rejected for " *
-                      "catalytic groups (R-state-active convention)")
+                      "$_VALID_CAT_ALLO_STATES); :OnlyI is rejected for " *
+                      "catalytic groups (active-state-active convention)")
         end
         # Mirror the non-allosteric `Mechanism` convention: if all
         # incoming Steps have `source_idx == 0` (the default), assign
@@ -760,14 +760,14 @@ function AllostericEnzymeMechanism(
         error("cat_allo_states length $(length(cat_allo_states)) does not " *
               "match catalytic kinetic-group count $n_groups")
     for (g, st) in enumerate(cat_allo_states)
-        st === :OnlyT &&
-            error("Catalytic kinetic group $g has state :OnlyT; the " *
-                  "R-state is the active state by convention. Relabel " *
-                  "your mechanism so the active state is R (use :OnlyR " *
+        st === :OnlyI &&
+            error("Catalytic kinetic group $g has state :OnlyI; the " *
+                  "active state is the active state by convention. Relabel " *
+                  "your mechanism so the active state is A (use :OnlyA " *
                   "instead).")
-        st in (:OnlyR, :EqualRT, :NonequalRT) ||
+        st in (:OnlyA, :EqualAI, :NonequalAI) ||
             error("Catalytic kinetic group $g has unknown allo state $st; " *
-                  "must be one of (:OnlyR, :EqualRT, :NonequalRT)")
+                  "must be one of (:OnlyA, :EqualAI, :NonequalAI)")
     end
 
     for (i, entry) in enumerate(reg_sites)
@@ -783,14 +783,14 @@ function AllostericEnzymeMechanism(
             error("Reg site $i: reg_allo_states length $(length(reg_allo_states)) " *
                   "does not match ligand count $(length(ligands))")
         for (k, st) in enumerate(reg_allo_states)
-            st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT) ||
+            st in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI) ||
                 error("Reg site $i, ligand $(ligands[k]): unknown allo state $st")
         end
-        # All-:EqualRT site cancels identically — error
-        all(st === :EqualRT for st in reg_allo_states) &&
-            error("Reg site $i: all ligands are :EqualRT, which produces " *
-                  "Q_reg_R == Q_reg_T — no allosteric effect. At least one " *
-                  "ligand must be :OnlyR, :OnlyT, or :NonequalRT.")
+        # All-:EqualAI site cancels identically — error
+        all(st === :EqualAI for st in reg_allo_states) &&
+            error("Reg site $i: all ligands are :EqualAI, which produces " *
+                  "Q_reg_A == Q_reg_I — no allosteric effect. At least one " *
+                  "ligand must be :OnlyA, :OnlyI, or :NonequalAI.")
     end
 
     AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites}()
