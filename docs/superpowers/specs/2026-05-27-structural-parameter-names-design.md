@@ -159,12 +159,18 @@ Conventions:
   `name(::Type{P}, idx)` and `name(::Type{P}, idx, state)` (the index-context
   companion) and replace `_rep_idx_for_step` with `_rep_step` returning the rep
   `Step`. The single remaining entry point is value-context `name(p::Parameter, m)`.
-- **Inactive-state name helper `_inactive_name(sym)`**: returns the structural
-  inactive (`I_`) name for a given active-state name by inserting `I_` after the
-  first underscore. Every synthesized-dep `Symbol(string(k) * "_T")` site (~11
-  across `rate_eq_derivation.jl` and `mechanism_enumeration.jl`) routes through
-  this helper so the chokepoint's mid-name token placement and the
-  synth-dep machinery use one structural convention.
+- **Synth-dep T-name production routes through the chokepoint.** The
+  Wegscheider/Haldane elimination kernel returns dep parameter keys as
+  `Symbol`s, but every dep Symbol corresponds to a real `Parameter` struct
+  (the eliminated one) that the kernel discards. Two small helpers — a
+  `_param_for_symbol(m, sym)` lookup over `_enumerate_parameters_full(m)`
+  and a `_flip_to_inactive(p)` that constructs the same `Parameter` type
+  with `state = :I` — recover the struct and re-render through the
+  chokepoint. The 11 `Symbol(string(k) * "_T")` string-surgery sites in
+  `rate_eq_derivation.jl` and `mechanism_enumeration.jl` collapse to one
+  pattern: `name(_flip_to_inactive(_param_for_symbol(m, k)), m)`. The
+  chokepoint becomes the single Parameter→Symbol rendering path; there
+  is no inactive-name string helper.
 
 ### Kinetic-group representative (`_step_priority`)
 

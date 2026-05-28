@@ -26,7 +26,7 @@
 
 | File | Change |
 |---|---|
-| `src/types.jl` | `name(Species)` concat; chokepoint `_param_symbol`/`name` structural rewrite; `_inactive_name` helper; delete `name(::Type{P},idx)`, `_rep_idx_for_step`; `Step.source_idx` removal; `Mechanism`/`AllostericMechanism` constructor cleanup (incl. unified RE+SS physical-forward iso canonicalization, Phase 5); remove the RE-iso lex branch from the `Step` constructor; `RegulatorySite` A/I validator |
+| `src/types.jl` | `name(Species)` concat; chokepoint `_param_symbol`/`name` structural rewrite; `_flip_to_inactive` + `_param_for_symbol` helpers (synth-dep T-name production via Parameter struct, not string surgery); delete `name(::Type{P},idx)`, `_rep_idx_for_step`; `Step.source_idx` removal; `Mechanism`/`AllostericMechanism` constructor cleanup (incl. unified RE+SS physical-forward iso canonicalization, Phase 5); remove the RE-iso lex branch from the `Step` constructor; `RegulatorySite` A/I validator |
 | `src/rate_eq_derivation.jl` | A/I branch-state + helper renames (`_onlyR_*`→`_onlyA_*`, `_T_rename*`→`_I_rename*`); `@generated` callers switch to value-context `name(p,m)`; `_step_priority` consumers |
 | `src/thermodynamic_constr_for_rate_eq_derivation.jl` | extract `_step_priority`; rep = `argmin`; drop `source_idx`-keyed ordering in `_step_parameters` |
 | `src/mechanism_enumeration.jl` | SS canonicalization fallout in dedup; simplify canonical-hash token layer; A/I in `_T_rename_parameters` callers |
@@ -392,68 +392,95 @@ git add src/types.jl test/test_types.jl
 git commit -m "refactor: chokepoint renders structural parameter names"
 ```
 
-### Task 3.1.5: Consolidate the 11 `string(k) * "_T"` synth-dep sites through one `_inactive_name` helper
+### Task 3.1.5: Route the 11 synth-dep `_T` sites through the chokepoint via Parameter-struct flipping (no string surgery)
 
-The chokepoint (Task 3.1) now emits the inactive token mid-name (`:K_I_ATP_E`). But ~11 sites synthesize inactive-state names for *dependent* params that have no `Parameter` struct (Wegscheider/Haldane-eliminated symbols) by appending `_T` to the rendered active name. After Task 3.1 those sites would produce `:K_ATP_E_T` while the chokepoint produces `:K_I_ATP_E` for the same parameter — the allosteric rate body would reference dep symbols that don't match the base param names. This task introduces one structural helper and routes every synth-dep site through it (the DRY simplification Denis asked for).
+The chokepoint (Task 3.1) emits the inactive token mid-name (`:K_I_ATP_E`). ~11 sites currently produce inactive-state Symbols by appending `"_T"` to a rendered active Symbol. With the A/I rename that string surgery is wrong twice over: it appends `_T` instead of `_I`, and it doesn't relocate the token to its mid-name position. The right fix is **not** another string-surgery helper — every dep Symbol corresponds to a real `Parameter` (the Wegscheider/Haldane-eliminated one); the kernel just discards the struct and returns Symbol keys. We recover the Parameter, flip its `:state` field to `:I` structurally, and re-render through the chokepoint. This eliminates the string-surgery class entirely; the chokepoint becomes the single Parameter→Symbol rendering path.
 
-**Files:** `src/rate_eq_derivation.jl` (sites at lines 813, 1206, 1256, 1300, 1303, 1401, 1454, 1473, 1515), `src/mechanism_enumeration.jl` (sites at lines 2000-2002), `src/types.jl` (helper definition next to chokepoint)
+**Files:** `src/rate_eq_derivation.jl` (the 9 synth-dep sites: lines 813, 1206, 1256, 1300, 1303, 1401, 1454, 1473, 1515), `src/mechanism_enumeration.jl` (sites at lines 2000-2002), `src/types.jl` (helpers next to chokepoint).
 
-- [ ] **Step 1: Write a failing allosteric integration test** in `test/test_rate_eq_derivation.jl`: pick an existing `MECHANISM_TEST_SPECS` entry that has a `NonequalAI` group (T-state distinct params) and a Haldane-derived dep, build params, call `rate_equation`, compare to its analytical oracle through the positional shim. After Task 3.1 alone this test should FAIL because the dep symbol in the generated body is `:K_…_T` while `parameters(m)` advertises `:K_I_…`. Run to confirm FAIL.
+- [ ] **Step 1: Write a failing allosteric integration test** in `test/test_rate_eq_derivation.jl`. Pick an existing `MECHANISM_TEST_SPECS` entry that has a `NonequalAI` group AND a Haldane-derived dep parameter (a dep whose RHS references a NonequalAI symbol), build params, call `rate_equation`, compare to its analytical oracle through the positional shim. After Task 3.1 lands, the dep symbol in the generated body is `:K_…_T` while `parameters(m)` advertises `:K_I_…` — the body destructures a name the params NamedTuple lacks. The test fails with `UndefVarError` or `KeyError`. Run to confirm FAIL.
 
-- [ ] **Step 2: Add the helper** in `src/types.jl` next to the chokepoint render helpers:
+- [ ] **Step 2: Add `_flip_to_inactive` and `_param_for_symbol` helpers** in `src/types.jl` next to the chokepoint render helpers. Both are tiny and the chokepoint test will not flag them (no `Symbol("K…")` literals — they call the existing chokepoint).
 
 ```julia
-# Structural inactive-state name from an active-state name. Synth-dep
-# machinery (Wegscheider/Haldane elimination) operates on already-rendered
-# symbols of NonequalAI-active dep parameters; those carry an `_A_` state
-# token after the type prefix (e.g. :K_A_ATP_E). The inactive variant
-# **swaps** that token to `_I_` (not appends/inserts) so the result
-# matches what the chokepoint emits for the same parameter with state=:I.
-#
-# Errors if the input has no `_A_` token: an EqualAI / non-allosteric
-# parameter has no separate inactive variant, and the synth-dep machinery
-# must not invoke this on such symbols.
-function _inactive_name(sym::Symbol)
-    s = String(sym)
-    occursin("_A_", s) ||
-        error("_inactive_name: $sym has no _A_ token to swap to _I_ " *
-              "(EqualAI / non-allosteric symbols have no inactive variant)")
-    Symbol(replace(s, "_A_" => "_I_"; count=1))
+# Flip a Parameter's allosteric state to inactive. The state field already
+# exists; we just construct the same Parameter type with state = :I. Used
+# by the Wegscheider/Haldane synth-dep machinery to recover the inactive
+# variant of an eliminated dep parameter without string surgery.
+_flip_to_inactive(p::P) where {P<:Union{Kd,Kiso,Kon,Koff,Kfor,Krev}} =
+    P(p.step, :I)
+_flip_to_inactive(p::Kreg) = Kreg(p.site, p.ligand, :I)
+
+# Recover the Parameter struct that renders to `sym` under `name(p, m)`.
+# Walks `_enumerate_parameters_full(m)` once and matches by rendered name.
+# Errors loudly if no match — the synth-dep machinery only invokes this
+# on dep Symbols that correspond to enumerated parameters; a miss means
+# Pass-2 Wegscheider absorption fired (per project_dedup_pass2_dead_code
+# memory, this doesn't happen on real mechanisms — if it ever does, the
+# error is the right signal to handle it explicitly, not silently).
+function _param_for_symbol(m::Union{Mechanism,AllostericMechanism,
+                                    EnzymeMechanism,AllostericEnzymeMechanism},
+                           sym::Symbol)
+    mech = _to_mechanism(m)
+    for p in _enumerate_parameters_full(mech)
+        name(p, mech) == sym && return p
+    end
+    # Also check allosteric R-branch / Kreg parameters when applicable.
+    if mech isa AllostericMechanism
+        for p in _onlyR_parameters(mech)
+            name(p, mech) == sym && return p
+        end
+        for p in _all_t_state_parameters(mech)
+            name(p, mech) == sym && return p
+        end
+    end
+    error("_param_for_symbol: no Parameter renders to $sym in $(name(mech)). " *
+          "Likely cause: Pass-2 Wegscheider absorption produced a synthesized " *
+          "Symbol with no Parameter struct (see project_dedup_pass2_dead_code).")
 end
 ```
 
-- [ ] **Step 3: Route every `Symbol(string(k) * "_T")` site through `_inactive_name`.**
+- [ ] **Step 3: Rewrite every synth-dep `_T` site to use the chokepoint via the flipped Parameter.** Pattern:
 
-Mechanical substitution. For each line:
+```julia
+# old
+rename_T[k] = Symbol(string(k) * "_T")
+# new
+rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)
+```
+
+The 11 sites to convert:
 
 | File:Line | Old | New |
 |---|---|---|
-| `rate_eq_derivation.jl:813` | `rename_T[k] = Symbol(string(k) * "_T")` | `rename_T[k] = _inactive_name(k)` |
-| `rate_eq_derivation.jl:1206` | `push!(names, Symbol(string(k) * "_T"))` | `push!(names, _inactive_name(k))` |
-| `rate_eq_derivation.jl:1256` | `rename_T[k] = Symbol(string(k) * "_T")` | `rename_T[k] = _inactive_name(k)` |
-| `rate_eq_derivation.jl:1300` | `push!(indep_T_list, Symbol(string(p) * "_T"))` | `push!(indep_T_list, _inactive_name(p))` |
-| `rate_eq_derivation.jl:1303` | `dep_T[Symbol(string(p) * "_T")] = p` | `dep_T[_inactive_name(p)] = p` |
-| `rate_eq_derivation.jl:1401` | `rename_T[k] = Symbol(string(k) * "_T")` | `rename_T[k] = _inactive_name(k)` |
-| `rate_eq_derivation.jl:1454` | `Expr(:(=), Symbol(string(p) * "_T"), p)` | `Expr(:(=), _inactive_name(p), p)` |
-| `rate_eq_derivation.jl:1473` | `t_sym = Symbol(string(sym) * "_T")` | `t_sym = _inactive_name(sym)` |
-| `rate_eq_derivation.jl:1515` | `rename_T[k] = Symbol(string(k) * "_T")` | `rename_T[k] = _inactive_name(k)` |
-| `mechanism_enumeration.jl:2000` | `t_str = r_str * "_T"` | `t_str = String(_inactive_name(Symbol(r_str)))` |
-| `mechanism_enumeration.jl:2002` | `name_map[t_str] = tok * "_T"` | `name_map[t_str] = tok * "_T"` (this one stays — `tok` is the canonical `p_$i` token, not a parameter symbol; document why) |
+| `rate_eq_derivation.jl:813` | `rename_T[k] = Symbol(string(k) * "_T")` | `rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)` |
+| `rate_eq_derivation.jl:1206` | `push!(names, Symbol(string(k) * "_T"))` | `push!(names, name(_flip_to_inactive(_param_for_symbol(am, k)), am))` |
+| `rate_eq_derivation.jl:1256` | `rename_T[k] = Symbol(string(k) * "_T")` | `rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)` |
+| `rate_eq_derivation.jl:1300` | `push!(indep_T_list, Symbol(string(p) * "_T"))` | `push!(indep_T_list, name(_flip_to_inactive(_param_for_symbol(am, p)), am))` |
+| `rate_eq_derivation.jl:1303` | `dep_T[Symbol(string(p) * "_T")] = p` | `dep_T[name(_flip_to_inactive(_param_for_symbol(am, p)), am)] = p` |
+| `rate_eq_derivation.jl:1401` | `rename_T[k] = Symbol(string(k) * "_T")` | `rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)` |
+| `rate_eq_derivation.jl:1454` | `Expr(:(=), Symbol(string(p) * "_T"), p)` | `Expr(:(=), name(_flip_to_inactive(_param_for_symbol(am, p)), am), p)` |
+| `rate_eq_derivation.jl:1473` | `t_sym = Symbol(string(sym) * "_T")` | `t_sym = name(_flip_to_inactive(_param_for_symbol(am, sym)), am)` |
+| `rate_eq_derivation.jl:1515` | `rename_T[k] = Symbol(string(k) * "_T")` | `rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)` |
+| `mechanism_enumeration.jl:2000` | `t_str = r_str * "_T"` | `t_str = String(name(_flip_to_inactive(_param_for_symbol(am, Symbol(r_str))), am))` |
+| `mechanism_enumeration.jl:2002` | `name_map[t_str] = tok * "_T"` | **stays as-is** — `tok` is a canonical `p_$i` token from the rate-eq hash machinery (Phase 7's territory), not a parameter Symbol. Add an inline comment justifying it. |
 
-Grep audit after edits: `grep -rn '\* *"_T"' src/` should return only the `tok * "_T"` line at `mechanism_enumeration.jl:2002` (with a comment justifying it) and zero other hits. If anything else remains, route it.
+> **Lookup performance.** `_param_for_symbol` walks `_enumerate_parameters_full` once per call. Sites that call it in a loop over `dep_R_all` (e.g. 813, 1256) become O(n_params × n_deps) per @generated build. Acceptable: this runs at compile time, not in the rate-equation hot path; mechanism size is bounded (n_steps ≤ ~20 for realistic mechanisms). If `test_compile_budget.jl` ever shows the trace count climbing because of this, hoist the `_enumerate_parameters_full(mech)` walk into a `Dict{Symbol,Parameter}` once per call site and reuse — but defer that optimization until/unless the budget test complains.
 
-- [ ] **Step 4: Update `test_chokepoint.jl`** to recognize `_inactive_name` as a chokepoint body. Add `:_inactive_name` to the allowed `fn_name` set so its `Symbol(...)` call doesn't trip the AST walker.
+- [ ] **Step 4: Grep audit.** `grep -rn '\* *"_T"' src/` should return ONE remaining line (`mechanism_enumeration.jl:2002`, with its comment justifying it) — that one operates on canonical `p_$i` tokens from the hash layer, not on parameter Symbols, and is appropriate to handle in Phase 7. Any other surviving `*"_T"` site is a bug; route it through the chokepoint pattern above.
 
-- [ ] **Step 5: Run the allosteric integration test + full suite**
+- [ ] **Step 5: No `test_chokepoint.jl` change needed.** `_flip_to_inactive` and `_param_for_symbol` don't construct any `Symbol("K…")` literals — they delegate Symbol production to the existing chokepoint. The AST walker doesn't fire.
+
+- [ ] **Step 6: Run the allosteric integration test + full suite**
 
 Run: `julia --project -e 'using Pkg; Pkg.test()'`
-Expected: PASS (the failing test from Step 1 now green; allosteric goldens may shift — regenerate as part of Task 3.3).
+Expected: PASS (failing test from Step 1 now green; allosteric goldens may shift — regenerate as part of Task 3.3).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/types.jl src/rate_eq_derivation.jl src/mechanism_enumeration.jl test/test_chokepoint.jl test/test_rate_eq_derivation.jl
-git commit -m "refactor: route synth-dep T-names through _inactive_name helper"
+git add src/types.jl src/rate_eq_derivation.jl src/mechanism_enumeration.jl test/test_rate_eq_derivation.jl
+git commit -m "refactor: synth-dep T-names route through chokepoint via _flip_to_inactive"
 ```
 
 ### Task 3.2: Delete the now-identity Pass-1 rename; convert index-context callers to value-context
@@ -641,7 +668,8 @@ _dep_key(p::EnzymeRates.Parameter) = _dep_key(p, EnzymeRates.name)  # see below
 function _struct_key(name_sym::Symbol, m)
     # Resolve a dep RHS Symbol back to its Parameter struct via
     # `_enumerate_parameters_full(m)` + name lookup; gives a structural
-    # tuple even for synth-dep T-symbols (route through _inactive_name).
+    # tuple even for synth-dep T-symbols (route through _param_for_symbol +
+    # _flip_to_inactive to recover the Parameter struct).
     ...
 end
 
@@ -1059,11 +1087,11 @@ git commit -m "refactor: remove dead index-era code and comments"
 - Decision 5 (hybrid tests) → Phase 0 shim + golden-capture steps throughout.
 - Naming table → Phase 3 Task 3.1 chokepoint bodies.
 - `name(Species)` concat → Phase 1. `:Et` rename DROPPED per Denis (~15 hard-coded `:E_total` sites; pure churn unrelated to structural naming).
-- `_inactive_name` helper (consolidates 11 `string(k) * "_T"` synth-dep sites) → Phase 3 Task 3.1.5. This was the DRY simplification Denis flagged when approving the A/I mid-name placement.
+- Synth-dep T-name production (11 `string(k) * "_T"` sites) routes through the chokepoint via `_flip_to_inactive(_param_for_symbol(m, k))` → Phase 3 Task 3.1.5. The chokepoint becomes the single Parameter→Symbol path; no string-surgery helper. Denis's insight: every dep Symbol corresponds to a real `Parameter` struct (with a `state` field) — the kernel just discarded it; we recover it via lookup and flip the field structurally.
 - Phase 5 rewritten to canonicalize **all iso steps (RE and SS)** with one rule — `_canonical_iso_direction` — in the `Mechanism` constructor (which has reaction context). Tier 1 substrate/product counts → Tier 2 1-hop **binding** (RE+SS) graph context (handles the Segel `F ⇌ E` case fully source-independently) → Tier 3 lex fallback. Residual is NOT a tier (atom conservation makes it redundant with Tier 1). The RE-iso lex branch is removed from the `Step` constructor.
 - Round-2 reviewer fixes folded in:
   - Tier 2 filter changed from RE-only to all binding steps (the keystone fixture Segel Iso Uni Uni uses `<-->` (SS) throughout, so an RE-only filter would degenerate to lex on its own test). `all_re_steps` → `all_binding_steps`.
-  - `_inactive_name` redefined to **swap** `_A_` → `_I_` (not insert), erroring on no-A-token symbols — the original "insert after first underscore" double-encoded state for NonequalAI groups.
+  - Replaced the proposed `_inactive_name` string-surgery helper entirely with `_flip_to_inactive(p)` + `_param_for_symbol(m, sym)` that route synth-dep T-name production through the chokepoint via the Parameter's `:state` field. Cleaner architecture (one rendering path, no double-encoding bug class) and matches Denis's question "why string surgery when the Parameter has a state field?".
   - Phase 0 `positional_params` shim rewritten to walk **flat steps in source order**, emitting per-step `:K{src_idx}`/`:k{src_idx}f/r` names with rep-value lookup, so the 11 multi-step-group analytical oracles (HK, PFK-1, PK, the inhibitor specs, MWC tetramer, etc.) keep working.
   - Decision-1 dep-set guard re-keyed on **structural Parameter identity** (Parameter type + step hash + state), not rendered names — invariant under rep change AND iso flip. Re-runs as a gate at the end of Phase 4, 5, AND 6.
   - Phase 5 audit extended to `src/` Step construction sites, not just `test/`.
