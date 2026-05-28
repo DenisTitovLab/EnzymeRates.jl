@@ -113,7 +113,8 @@ Permanent test utility — oracles are inherently positional and source-indexed.
 function positional_params(m, nt::NamedTuple)
     mech = m isa EnzymeRates.Mechanism             ? m :
            m isa EnzymeRates.AllostericMechanism   ? m :
-           m isa EnzymeRates.AllostericEnzymeMechanism ? EnzymeRates.AllostericMechanism(m) :
+           m isa EnzymeRates.AllostericEnzymeMechanism ?
+               EnzymeRates.AllostericMechanism(m) :
            EnzymeRates.Mechanism(m)
     names = Symbol[]
     vals  = Any[]
@@ -137,9 +138,6 @@ function positional_params(m, nt::NamedTuple)
     end
     # Pass through any remaining params not covered by the step loop (T-state
     # params, Lallo, Kreg, Keq, E_total, etc.) under their existing names.
-    # Today these names are already positional (e.g. :K1_T); after Phase 3.1
-    # adds an I-state branch to the per-step loop, only the truly-global
-    # params (Keq, E_total, L) will fall through this loop.
     emitted = Set(names)
     for k in keys(nt)
         k ∈ emitted && continue
