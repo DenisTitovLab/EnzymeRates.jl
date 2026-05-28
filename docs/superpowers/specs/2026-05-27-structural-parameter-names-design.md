@@ -49,11 +49,14 @@ These were resolved in brainstorming with Denis:
    - **Tier 1:** `(n_subs_bound, -n_prods_bound)` — higher = more "from".
      Captures atom-balance progression. Decides the 95% case.
    - **Tier 2 (1-hop graph context):** For each species classify by which
-     RE binding steps touch it as the free side: `:substrate_only` /
+     BINDING steps (RE or SS) touch it as the free side: `:substrate_only` /
      `:product_only` / `:both` / `:neither`. If from=`:product_only` and
      to=`:substrate_only`, "product-exit → substrate-entry" is forward
-     (the cycle-closing/regeneration step). Handles the Segel Iso Uni Uni
-     `F ⇌ E` case fully source-direction-independently.
+     (the cycle-closing/regeneration step). All binding steps (not just RE)
+     count, because the chemistry fact "this form is where substrates
+     enter / products leave" is independent of the kinetic kind — and
+     fixtures like Segel Iso Uni Uni use `<-->` (SS) for every step.
+     Handles the Segel `F ⇌ E` case fully source-direction-independently.
    - **Tier 3 (lex on conformation name):** deterministic fallback for the
      truly-symmetric tail (`:both` ↔ `:both` random-mechanism rearrangement,
      or `:neither` ↔ `:neither` theoretical conformational change with no

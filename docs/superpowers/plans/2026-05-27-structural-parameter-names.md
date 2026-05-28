@@ -56,33 +56,41 @@ In `test/test_rate_eq_derivation.jl`, just above `random_reduced_params` (line 1
 
 ```julia
 """
-Re-key a structural-named parameter NamedTuple to the positional names
-(`K1`, `k1f`, `k1r`, …) that hand-derived analytical oracles destructure.
-Walks `m`'s kinetic groups in storage order, emitting one positional name
-per group (RE) or two (SS, forward then reverse), and pairs them with the
-structural names from `parameters(m)` in the same order. Permanent test
-utility: oracles are inherently positional, so they bind to slot, not to
-the structural identity.
+Re-key a structural-named parameter NamedTuple to the **per-step** positional
+names (`K1`, `k1f`, `k1r`, …) that hand-derived analytical oracles destructure.
+Walks every step in source order; emits one positional name per RE step or two
+per SS step keyed on the step's source position; each value is looked up by the
+rep parameter's structural name in `nt` (so group members share the rep's
+value, matching how the package's destructure-by-name works today).
+Permanent test utility — oracles are inherently positional and source-indexed.
 """
 function positional_params(m, nt::NamedTuple)
     mech = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
-    structural = collect(EnzymeRates.parameters(m))
-    positional = Symbol[]
-    i = 0
+    names = Symbol[]
+    vals  = Any[]
     for group in EnzymeRates.steps(mech)
-        i += 1
         rep = first(group)
         if EnzymeRates.is_equilibrium(rep)
-            push!(positional, Symbol("K", i))
+            rep_name = EnzymeRates.name(EnzymeRates.Kd(rep, :None), mech)
+            for s in group
+                push!(names, Symbol("K", EnzymeRates.source_idx(s)))
+                push!(vals,  nt[rep_name])
+            end
         else
-            push!(positional, Symbol("k", i, "f"))
-            push!(positional, Symbol("k", i, "r"))
+            fwd_name = EnzymeRates.name(EnzymeRates.Kfor(rep, :None), mech)
+            rev_name = EnzymeRates.name(EnzymeRates.Krev(rep, :None), mech)
+            for s in group
+                idx = EnzymeRates.source_idx(s)
+                push!(names, Symbol("k", idx, "f")); push!(vals, nt[fwd_name])
+                push!(names, Symbol("k", idx, "r")); push!(vals, nt[rev_name])
+            end
         end
     end
-    @assert length(positional) == length(structural) "positional/structural length mismatch for $(EnzymeRates.name(EnzymeMechanism(mech)))"
-    NamedTuple{Tuple(positional)}(Tuple(nt[s] for s in structural))
+    NamedTuple{Tuple(names)}(Tuple(vals))
 end
 ```
+
+> **Note: shim uses `source_idx` of each step.** This matches today's per-step naming convention exactly (RE iso steps `:K2` etc. → `:K2` value = rep's K-value; multi-step kinetic groups share values via the lookup). After Phase 6 deletes `source_idx`, replace the lookup with the step's position in the flat iteration order (which equals `source_idx` today by Task 6.1's precondition assertion).
 
 - [ ] **Step 2: Route the oracle call through the shim**
 
@@ -395,16 +403,22 @@ The chokepoint (Task 3.1) now emits the inactive token mid-name (`:K_I_ATP_E`). 
 - [ ] **Step 2: Add the helper** in `src/types.jl` next to the chokepoint render helpers:
 
 ```julia
-# Structural inactive-state name from an active-state name. Inserts the
-# `I_` token after the first underscore so :K_ATP_E -> :K_I_ATP_E,
-# :kon_ATP_E -> :kon_I_ATP_E, :Kiso_EA_to_EstarA -> :Kiso_I_EA_to_EstarA.
-# Used by Wegscheider/Haldane synth-dep machinery for symbols that have
-# no Parameter struct and can't route through the value-context chokepoint.
+# Structural inactive-state name from an active-state name. Synth-dep
+# machinery (Wegscheider/Haldane elimination) operates on already-rendered
+# symbols of NonequalAI-active dep parameters; those carry an `_A_` state
+# token after the type prefix (e.g. :K_A_ATP_E). The inactive variant
+# **swaps** that token to `_I_` (not appends/inserts) so the result
+# matches what the chokepoint emits for the same parameter with state=:I.
+#
+# Errors if the input has no `_A_` token: an EqualAI / non-allosteric
+# parameter has no separate inactive variant, and the synth-dep machinery
+# must not invoke this on such symbols.
 function _inactive_name(sym::Symbol)
     s = String(sym)
-    i = findfirst('_', s)
-    i === nothing && error("_inactive_name: $(sym) has no underscore — cannot place I_ token")
-    Symbol(s[1:i], "I_", s[i+1:end])
+    occursin("_A_", s) ||
+        error("_inactive_name: $sym has no _A_ token to swap to _I_ " *
+              "(EqualAI / non-allosteric symbols have no inactive variant)")
+    Symbol(replace(s, "_A_" => "_I_"; count=1))
 end
 ```
 
@@ -617,20 +631,32 @@ end
 ```
 where `_free_enz_set(m)` is the extracted free-enzyme-set helper (lines 215-223). Put `_step_priority`/`_group_rep`/`_step_lex_key`/`_free_enz_set` in `src/thermodynamic_constr_for_rate_eq_derivation.jl`. `types.jl`'s `_rep_step` may call them even though `types.jl` is `include`d first — Julia resolves plain function calls at call time, so intra-module definition order does not matter (these run at rate-equation build/runtime, by which point all methods exist).
 
-- [ ] **Step 5: Add a dep-set snapshot test as the Decision 1 guard.** Before changing the pivot path (`_dependent_param_exprs_kernel`), snapshot `Set(keys(dep_exprs))` and `Set(indep)` for every `MECHANISM_TEST_SPECS` entry into a fixture; after the pivot now calls `_step_priority`, assert the sets are identical. This catches any drift in WHICH parameter becomes dependent (Decision 1 says elimination choice is unchanged — golden strings alone don't guard the symbol *set*, only the symbol *names*).
+- [ ] **Step 5: Add a Decision-1 dep-set guard keyed on structural Parameter IDENTITY, not rendered names.** Rendered names change for two unrelated reasons across this refactor (Phase 4 rep change → different rep name; Phase 5 iso flip → different from/to). A name-keyed guard conflates those with a real dep-choice drift. The correct invariant for Decision 1 is "the same *Parameter struct* becomes dependent." Snapshot the dep set as `{(Type, hash(step or site), state)}` tuples — invariant under both rep-change and iso direction flip.
 
 ```julia
 # test/test_dep_set_invariance.jl  (new file)
-@testset "Decision 1: dep-set unchanged by _step_priority extraction" begin
+"""Structural canonical key for a Parameter — Step.hash already ignores
+source_idx, so this is stable under the Phase 4/5/6 transformations."""
+_dep_key(p::EnzymeRates.Parameter) = _dep_key(p, EnzymeRates.name)  # see below
+function _struct_key(name_sym::Symbol, m)
+    # Resolve a dep RHS Symbol back to its Parameter struct via
+    # `_enumerate_parameters_full(m)` + name lookup; gives a structural
+    # tuple even for synth-dep T-symbols (route through _inactive_name).
+    ...
+end
+
+@testset "Decision 1: dep-set structurally unchanged" begin
     for spec in MECHANISM_TEST_SPECS
         em = EnzymeMechanism(spec.mechanism)
         dep_exprs, indep = EnzymeRates._dependent_param_exprs(typeof(em))
-        @test Set(keys(dep_exprs)) == spec.expected_dep_keys     # fixture
-        @test Set(indep)            == spec.expected_indep_set    # fixture
+        @test Set(_struct_key(k, spec.mechanism) for k in keys(dep_exprs)) ==
+              spec.expected_dep_struct_keys     # fixture
+        @test Set(_struct_key(s, spec.mechanism) for s in indep) ==
+              spec.expected_indep_struct_keys
     end
 end
 ```
-Capture the `expected_dep_keys`/`expected_indep_set` fixtures from the pre-Phase-4 run (run the test, paste the actuals into the spec). After Phase 4 lands the test must stay green.
+Capture the `expected_*_struct_keys` fixtures from a pre-Phase-4 run; the test must stay green after **each** of Phases 4, 5, and 6 (re-run as a gate at each phase boundary). If it drifts at Phase 5, a SS iso direction flip silently moved the dep choice between physical kf and physical kr — investigate before regenerating goldens.
 
 - [ ] **Step 6: Run to confirm pass; run full suite; regenerate any goldens whose rep changed.**
 
@@ -714,13 +740,22 @@ end
 - [ ] **Step 3: Add the canonicalizer + `entry_kind` helper** in `src/types.jl` next to the `Mechanism` constructor:
 
 ```julia
-# Classify how a species participates in RE binding steps as the FREE side
-# (canonical RE binding puts the metabolite on the from_species side, so the
-# free side IS from_species). Used by `_canonical_iso_direction` Tier 2 to
-# decide direction for pure-conformational iso steps where Tier 1 ties.
-function _entry_kind(sp::Species, re_steps, subs::Set{Symbol}, prods::Set{Symbol})
+# Classify how a species participates in BINDING steps (RE or SS) as the
+# FREE side (canonical binding puts the metabolite on the from_species side,
+# so the free side IS from_species). Used by `_canonical_iso_direction`
+# Tier 2 to decide direction for pure-conformational iso steps where Tier 1
+# ties.
+#
+# Why ALL binding steps (not just RE): the "substrate-entry / product-exit"
+# property is a chemistry fact about which forms metabolites enter and
+# leave at — it does NOT depend on whether the binding step is rapid-
+# equilibrium or steady-state. The DSL parses `<-->` as SS and `⇌` as RE;
+# fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
+# use `<-->` throughout, so an RE-only filter would mis-classify both `E`
+# and `F` as `:neither` and the F⇌E case would fall through to Tier 3 lex.
+function _entry_kind(sp::Species, binding_steps, subs::Set{Symbol}, prods::Set{Symbol})
     has_sub = false; has_prod = false
-    for s in re_steps
+    for s in binding_steps
         from_species(s) == sp || continue
         b = bound_metabolite(s); b === nothing && continue
         n = name(b)
@@ -735,11 +770,12 @@ end
 
 # Canonicalize an iso step's storage direction to physical-forward, so
 # `from` is further from product-release / closer to substrate-binding.
-# Applies to RE iso AND SS iso (the question is identical; only the
-# parameter count differs). RE binding (metabolite on from side) is
-# already canonicalized by the Step constructor.
+# Applies to RE iso AND SS iso — the direction question is identical;
+# only the parameter count differs. (RE/SS *binding* steps are already
+# canonicalized: RE by the Step constructor; SS binding stays as-is —
+# kf/koff/kon/koff direction is meaningful per-step regardless.)
 function _canonical_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
-                                  all_re_steps::Vector{Step})
+                                  all_binding_steps::Vector{Step})
     is_binding(s) && return s
     f, t = from_species(s), to_species(s)
 
@@ -750,9 +786,9 @@ function _canonical_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol}
     sf > st && return s
     sf < st && return Step(t, f, nothing, is_equilibrium(s))
 
-    # Tier 2: 1-hop RE-binding graph context.
-    fk = _entry_kind(f, all_re_steps, subs, prods)
-    tk = _entry_kind(t, all_re_steps, subs, prods)
+    # Tier 2: 1-hop binding (RE+SS) graph context.
+    fk = _entry_kind(f, all_binding_steps, subs, prods)
+    tk = _entry_kind(t, all_binding_steps, subs, prods)
     fk == :product_only   && tk == :substrate_only && return s
     fk == :substrate_only && tk == :product_only   && return Step(t, f, nothing, is_equilibrium(s))
 
@@ -770,8 +806,8 @@ function Mechanism(reaction::EnzymeReaction, steps::Vector{Vector{Step}})
     subs  = Set(substrates(reaction))
     prods = Set(products(reaction))
     flat  = Step[s for g in steps for s in g]
-    re_steps = filter(s -> is_equilibrium(s) && is_binding(s), flat)
-    canon = [[_canonical_iso_direction(s, subs, prods, re_steps) for s in g] for g in steps]
+    binding_steps = filter(is_binding, flat)
+    canon = [[_canonical_iso_direction(s, subs, prods, binding_steps) for s in g] for g in steps]
     # (the existing source_idx auto-assign block operates on `canon` and stays until Phase 6 deletes it.)
     ...
 end
@@ -780,15 +816,21 @@ Mirror in `AllostericMechanism`'s constructor for its `cat_steps`.
 
 - [ ] **Step 6: Run the unit test to PASS.**
 
-- [ ] **Step 7: Audit `test/test_types.jl` for bare-`Step` RE-iso direction assertions.** With RE-iso canonicalization moved to `Mechanism`, any test that constructs two opposite-direction RE iso `Step`s and asserts `==` will now fail (until the Steps live in a Mechanism). Find them with `grep -nE 'Step\([^)]*,\s*nothing,\s*true' test/` and rewrite each to build a Mechanism wrapper or use `_canonical_iso_direction` directly.
+- [ ] **Step 7: Audit `src/` AND `test/` for bare `Step(...)` constructions of iso steps.** With RE-iso canonicalization moved out of the Step constructor, any code path that builds opposite-direction iso Steps and compares them (or hashes them into a dedup set) outside a Mechanism context loses determinism. Grep: `grep -rnE 'Step\(' src/ test/`. For each hit verify the construction is followed by `Mechanism(...)`-wrapping before any `==`/`hash`/`in`/`Set` operation. Specifically audit `src/mechanism_enumeration.jl` expansion moves (`_expand_re_to_ss`, `_expand_split_kinetic_group`, dead-end propagation, `init_mechanisms` topology builder) — these construct Steps freely and pass them to `Mechanism(reaction, steps)` at the end, which is fine; just confirm no intermediate dedup or hashing happens on bare iso Steps. For test sites that previously relied on Step `==` for opposite-direction RE iso, rewrite under a Mechanism wrapper.
 
-- [ ] **Step 8: Run full suite; regenerate goldens for mechanisms whose iso direction changed; verify numerical oracles.**
+- [ ] **Step 8: Run the Decision-1 dep-set guard test (Phase 4 Step 5) as a Phase-5 gate.** Iso canonicalization may flip the stored `from`/`to` of some SS iso steps; the pivot scorer's `is_free` check reads from the now-canonical direction. The structural dep-set must stay identical. If it shifts here, the iso flip silently moved the dep choice between physical kf and kr for some mechanism — diagnose before continuing.
+
+```bash
+julia --project -e 'using EnzymeRates, Test; include("test/test_dep_set_invariance.jl")'
+```
+
+- [ ] **Step 9: Run full suite; regenerate goldens for mechanisms whose iso direction changed; verify numerical oracles.**
 
 Run: `julia --project -e 'using Pkg; Pkg.test()'`
 - Golden string churn: regenerate from actuals.
 - **Numerical oracle policy (Risk R1).** Physical-forward canonicalization makes oracles written in the natural forward direction already canonical, so slot flips should be rare. If a numerical test fails because the oracle author wrote a step backward, fix the `positional_params` shim mapping for that mechanism (swap f/r slot assignment), never the oracle formula.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add -A
@@ -921,6 +963,61 @@ git add -A
 git commit -m "refactor: canonical hash keys on structural name, drop token layer"
 ```
 
+### Task 7.1b: Delete the `_step_sides` / `rxns`-walk indirection in the derivation
+
+Round-2 reviewer finding: once iso direction is canonical (Phase 5), the derivation no longer needs to read direction from the `rxns` tuple via `_step_sides` — `from_species(s)` / `to_species(s)` IS the canonical direction, and `rxns` is just a re-projection of those. The "Using Step's from/to would be wrong" warning at `rate_eq_derivation.jl:356-360` is now stale (Task 5.2 already rewrote the comment); this task deletes the underlying indirection.
+
+**Files:** `src/rate_eq_derivation.jl` (`_raw_symbolic_rate_polys`, `_compute_numerator`, `_compute_alpha`, `_compute_re_groups` and any `enumerate(rxns)` walks), `src/thermodynamic_constr_for_rate_eq_derivation.jl` (`_dependent_param_exprs_kernel` line 276+ `enumerate(rxns)` walk), helpers `_step_sides` / `_split_reaction_side`.
+
+- [ ] **Step 1: Map every `enumerate(rxns)` walk in the derivation.** Grep: `grep -rnE 'enumerate\(rxns\)|_step_sides|_split_reaction_side' src/`.
+
+- [ ] **Step 2: Rewrite each walk to iterate `_flat_steps(mech)` and read direction/metabolite directly from the Step.** A typical translation:
+```julia
+# old:
+for (idx, (lhs, rhs, _, _)) in enumerate(rxns)
+    e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
+    e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
+    ...
+end
+# new (after Phase 5 makes Step.from/to canonical):
+for (idx, (s, _)) in enumerate(_flat_steps(mech))
+    e_lhs = name(from_species(s)); e_rhs = name(to_species(s))
+    b = bound_metabolite(s)
+    m_lhs = b === nothing ? Symbol[] : [name(b)]   # canonical RE binding: met on from
+    m_rhs = Symbol[]                                # SS binding still has met-on-from after Step ctor
+    ...
+end
+```
+The exact `m_lhs`/`m_rhs` policy depends on whether the step is RE binding (metabolite on `from`), SS binding (metabolite stays where Step ctor canonicalized it, also `from`), or iso (no metabolite). Verify carefully against each call site.
+
+- [ ] **Step 3: Delete `_step_sides` and `_split_reaction_side` once no callers remain.** Confirm via grep.
+
+- [ ] **Step 4: Run full suite to PASS.** Numerical oracle tests + golden strings are the safety net — if a rewrite gets metabolite-side assignment wrong, numerical oracles fail loudly.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -A
+git commit -m "refactor: derivation reads direction from Step directly; delete _step_sides/rxns walks"
+```
+
+### Task 7.1c: Verify Pass-2 Wegscheider absorption never fires, then delete `_build_kinetic_rename_map`
+
+Round-2 reviewer finding + the project memory note (`project_dedup_pass2_dead_code.md`): "Pass-2 single-symbol Wegscheider absorption doesn't fire on real or minimal mechanisms." Task 3.2 already deletes Pass-1. If Pass-2 is also empirically never-fires, the whole `_build_kinetic_rename_map` function — plus the `rename` plumbing through `_dependent_param_exprs_kernel`, the `indep` filter at `thermodynamic_constr…:185`, the `ANNOTATION_SUBSTITUTED` constant (`rate_eq_derivation.jl:12`), and its consumer regex — can be deleted wholesale. ~100-200 LOC of pure deletion.
+
+- [ ] **Step 1: Add an empirical assertion** that runs through every `MECHANISM_TEST_SPECS` entry (and the enumerator's `init_mechanisms` output for a sample of canonical reactions) and asserts `_build_kinetic_rename_map(typeof(em)) == Dict{Symbol,Symbol}()` — empty. Run it.
+
+- [ ] **Step 2: If Step 1 passes,** delete `_build_kinetic_rename_map`. Replace its call sites in `_dependent_param_exprs` and the `rate_equation_string` allosteric block with the empty-Dict equivalent (inlined). Drop the kernel's `rename` parameter; the kernel becomes single-argument. Delete `ANNOTATION_SUBSTITUTED` and the `_canonicalize_for_hash` regex consumer in `identify_rate_equation.jl`. Re-run full suite + hash-partition test.
+
+- [ ] **Step 3: If Step 1 fails** (Pass-2 fires for some mechanism), document the firing mechanism in a comment and keep the function. Note in the commit message.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add -A
+git commit -m "refactor: delete _build_kinetic_rename_map and ANNOTATION_SUBSTITUTED (Pass-2 never fires)"
+```
+
 ### Task 7.2: Dead-comment + dead-code sweep
 
 **Files:** all of `src/`
@@ -963,6 +1060,13 @@ git commit -m "refactor: remove dead index-era code and comments"
 - Naming table → Phase 3 Task 3.1 chokepoint bodies.
 - `name(Species)` concat → Phase 1. `:Et` rename DROPPED per Denis (~15 hard-coded `:E_total` sites; pure churn unrelated to structural naming).
 - `_inactive_name` helper (consolidates 11 `string(k) * "_T"` synth-dep sites) → Phase 3 Task 3.1.5. This was the DRY simplification Denis flagged when approving the A/I mid-name placement.
-- Phase 5 rewritten to canonicalize **all iso steps (RE and SS)** with one rule — `_canonical_iso_direction` — in the `Mechanism` constructor (which has reaction context). Tier 1 substrate/product counts → Tier 2 1-hop RE-binding graph context (handles the Segel `F ⇌ E` case fully source-independently) → Tier 3 lex fallback. Residual is NOT a tier (atom conservation makes it redundant with Tier 1). The RE-iso lex branch is removed from the `Step` constructor.
-- Two-reviewer audit: confirmed perf gate (R3) safe; converged on physical-forward canonicalization, `_inactive_name` consolidation, and the dep-set snapshot test. Reviewers **disagreed** on Phase 7 token-layer deletion (subsumed by structural names vs needed for cross-mechanism equivalence) — Phase 7 stays conservative, gated by `test_canonical_hash_partition.jl`.
+- Phase 5 rewritten to canonicalize **all iso steps (RE and SS)** with one rule — `_canonical_iso_direction` — in the `Mechanism` constructor (which has reaction context). Tier 1 substrate/product counts → Tier 2 1-hop **binding** (RE+SS) graph context (handles the Segel `F ⇌ E` case fully source-independently) → Tier 3 lex fallback. Residual is NOT a tier (atom conservation makes it redundant with Tier 1). The RE-iso lex branch is removed from the `Step` constructor.
+- Round-2 reviewer fixes folded in:
+  - Tier 2 filter changed from RE-only to all binding steps (the keystone fixture Segel Iso Uni Uni uses `<-->` (SS) throughout, so an RE-only filter would degenerate to lex on its own test). `all_re_steps` → `all_binding_steps`.
+  - `_inactive_name` redefined to **swap** `_A_` → `_I_` (not insert), erroring on no-A-token symbols — the original "insert after first underscore" double-encoded state for NonequalAI groups.
+  - Phase 0 `positional_params` shim rewritten to walk **flat steps in source order**, emitting per-step `:K{src_idx}`/`:k{src_idx}f/r` names with rep-value lookup, so the 11 multi-step-group analytical oracles (HK, PFK-1, PK, the inhibitor specs, MWC tetramer, etc.) keep working.
+  - Decision-1 dep-set guard re-keyed on **structural Parameter identity** (Parameter type + step hash + state), not rendered names — invariant under rep change AND iso flip. Re-runs as a gate at the end of Phase 4, 5, AND 6.
+  - Phase 5 audit extended to `src/` Step construction sites, not just `test/`.
+- Two-reviewer audits (round 1 + round 2): confirmed perf gate (R3) safe; the round-2 audit caught three blocking bugs in my draft and one large simplification I'd left on the table.
+- Phase 7 expanded: in addition to the conservative canonical-hash simplification (Task 7.1), Task 7.1b deletes `_step_sides`/`rxns`-walks in the derivation (Step now is the single source of truth post-canonicalization) and Task 7.1c attempts to delete `_build_kinetic_rename_map` + `ANNOTATION_SUBSTITUTED` entirely (gated on the empirical observation, per project memory, that Pass-2 Wegscheider absorption never fires on real mechanisms). Combined LOC win likely larger than Task 7.1 alone.
 - Risk R1 (SS×shim) → Phase 5 Task 5.1 Step 5 explicit policy. R2 (collision) → accepted, noted in `name(p::Kreg)` comment. R3 (perf) → `test_rate_equation_performance` runs in the full suite every phase.
