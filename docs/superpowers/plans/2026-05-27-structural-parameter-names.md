@@ -14,6 +14,23 @@
 
 ## Conventions used in every phase
 
+> **🚫 NON-NEGOTIABLE: No test is deleted during this refactor.** Tests are
+> *adapted* to the new parameter names only. If you hit a test that appears
+> obsolete because its underlying functionality is genuinely gone, **STOP
+> and clear it with Denis before removing the test or any `@test`/`@testset`
+> block.** Do not delete a test on the basis of "this fails after the rename
+> and I can't see how to fix it." Per CLAUDE.md: *"Never delete a test
+> because it's failing. Instead, raise the issue with Denis."*
+>
+> - Renaming `:K1` → `:K_ATP_E` in an `@test` literal: **adaptation** ✓
+> - Regenerating a golden string from captured actuals: **adaptation** ✓
+> - Rewriting an `analytical_rate_fn`'s `(; k1f, …) = params` destructuring:
+>   **don't** — use the `positional_params` shim (Phase 0).
+> - Removing an `@test` line, an `@testset` block, or a `MECHANISM_TEST_SPECS`
+>   entry: **deletion** — requires explicit approval from Denis.
+> - Reducing `n_trials`, test mechanisms covered, or property-check
+>   iterations: **coverage reduction** — requires explicit approval.
+
 - **Full suite:** `julia --project -e 'using Pkg; Pkg.test()'` (cold, slow — pays precompile + JIT).
 - **Faster single-file iteration:** start a session and include one file, e.g.
   `julia --project -e 'using EnzymeRates; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/test_rate_eq_derivation.jl")'`

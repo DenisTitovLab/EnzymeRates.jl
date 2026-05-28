@@ -24,6 +24,17 @@ This lets us:
 - Remove the "SS steps are not canonicalized" special case in the `Step`
   constructor and dedup (see Decision 2).
 
+## Non-negotiable invariant: tests are adapted, not deleted
+
+**No test is deleted during this refactor. Tests are adapted to the new parameter names only.** If implementation work hits a test that appears obsolete because its underlying functionality is genuinely gone, **stop and clear the deletion with Denis before removing it** — do not delete on the basis of "this test fails after the rename and I don't see how to fix it." Per CLAUDE.md: "Never delete a test because it's failing. Instead, raise the issue with Denis."
+
+Concretely:
+- Renaming a literal `:K1`/`:k6f` to its structural equivalent (`:K_ATP_E`, `:k_ES_to_EP`) is adaptation.
+- Regenerating a golden string from captured actuals is adaptation.
+- Rewriting a numerical oracle's destructuring (`(; k1f, …) = params`) — **don't**; the positional-remap shim is the supported adaptation path.
+- Removing an `@test` line or a whole `@testset` block is **deletion** and requires explicit approval.
+- Reducing the number of test trials, mechanisms covered, or property-check iterations is **coverage reduction** and requires explicit approval.
+
 ## Locked decisions
 
 These were resolved in brainstorming with Denis:
