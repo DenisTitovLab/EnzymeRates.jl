@@ -309,11 +309,18 @@ git commit -m "docs: CLAUDE.md allosteric taxonomy R/T -> A/I"
 
 Goal: `_param_symbol`/`name(p, m)` emit structural names. Delete the index-context companion and `_rep_idx_for_step`; switch `@generated` callers to value-context. Rep stays `first(group)`. Regenerate all parameter-name goldens.
 
-### Task 3.1: Rewrite the chokepoint to render structural names
+### Task 3.1: Atomic chokepoint rewrite + synth-dep T-name routing (single commit)
 
-**Files:** `src/types.jl:1396-1449`
+> **Why these two changes commit together:** the chokepoint's mid-name `:I` token (e.g. `:K_I_ATP_E`) is *incompatible* with the legacy synth-dep `string(active_name) * "_T"` string-surgery sites (which would produce `:K_A_ATP_E_T`). Landing the chokepoint alone leaves allosteric `NonequalAI` tests red because the rate body references `:K_A_..._T` while `parameters(m)` advertises `:K_I_...`. Landing the synth-dep routing alone has no chokepoint to render structural inactive names from. The two pieces must land in one commit to keep the build green. This task accordingly subsumes what was originally drafted as a separate "Task 3.1.5."
 
-- [ ] **Step 1: Write a failing unit test** in `test/test_types.jl` for a known mechanism:
+**Files:**
+- `src/types.jl:1396-1449` (chokepoint + `_flip_to_inactive` + `_param_for_symbol` helpers)
+- `src/rate_eq_derivation.jl` (9 synth-dep `_T` sites: lines 813, 1206, 1256, 1300, 1303, 1401, 1454, 1473, 1515)
+- `src/mechanism_enumeration.jl` (lines 2000-2002 — only line 2000 routes through `_flip_to_inactive`; line 2002 stays as-is, see Step 6)
+- `test/test_types.jl` (structural-name unit test)
+- `test/test_rate_eq_derivation.jl` (allosteric `NonequalAI` integration test)
+
+- [ ] **Step 1: Write a failing unit test for structural parameter names** in `test/test_types.jl`:
 
 ```julia
 @testset "structural parameter names" begin
@@ -332,9 +339,11 @@ Goal: `_param_symbol`/`name(p, m)` emit structural names. Delete the index-conte
 end
 ```
 
-- [ ] **Step 2: Run to confirm fail** — expected `:k1f`-style names present, `:k_ES_to_EP` absent.
+- [ ] **Step 2: Write a failing allosteric integration test** in `test/test_rate_eq_derivation.jl`. Pick an existing `MECHANISM_TEST_SPECS` entry that has a `NonequalAI` group AND a Haldane/Wegscheider-derived dep parameter whose RHS references a `NonequalAI` symbol. Build params, call `rate_equation`, compare to its analytical oracle via the `positional_params` shim. This test must fail in the intermediate state (chokepoint rewritten but synth-dep sites still using `_T` suffix) — the rate body destructures a `:K_..._T` name that `parameters(m)` doesn't advertise. After both halves of this task land, it passes.
 
-- [ ] **Step 3: Replace the chokepoint bodies** at `src/types.jl:1396-1449`. The value-context `name(p, m)` must still resolve a step to its kinetic-group **representative** (group members share one parameter), so `_rep_idx_for_step` is *replaced* by `_rep_step` (returns the rep `Step` instead of an index) rather than deleted. The render is then a pure function of the rep step + state:
+- [ ] **Step 3: Run to confirm BOTH tests fail** (the structural-name unit test fails because today's names are positional; the allosteric integration test will be the gate that proves both halves are wired together correctly).
+
+- [ ] **Step 4: Replace the chokepoint bodies** at `src/types.jl:1396-1449`. The value-context `name(p, m)` must still resolve a step to its kinetic-group **representative** (group members share one parameter), so `_rep_idx_for_step` is *replaced* by `_rep_step` (returns the rep `Step` instead of an index) rather than deleted. The render is then a pure function of the rep step + state:
 
 ```julia
 # Structural parameter-name rendering. Every Parameter → Symbol passes
@@ -413,24 +422,9 @@ Delete `_param_symbol` (all methods), `name(::Type{P}, idx)` / `name(::Type{P}, 
 
 > Note on `Krev`/`Kiso`: with unified iso canonicalization not yet in place (Phase 5), iso `from`/`to` follow stored order (RE iso = Step ctor's lex; SS iso = source). `Kfor`/`Krev` name the forward and reverse directed transitions of the rep step, so the pair is direction-independent regardless of storage order. After Phase 5 the stored direction becomes physical-forward for both RE and SS iso.
 
-- [ ] **Step 4: Run the unit test to confirm pass.**
+> **Do NOT commit yet.** At this point the structural-name unit test (Step 1) passes but the allosteric integration test (Step 2) is still red because the synth-dep sites still produce `:K_..._T` while the chokepoint produces `:K_I_...`. Continue with Steps 5-9 below to land both halves before committing.
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/types.jl test/test_types.jl
-git commit -m "refactor: chokepoint renders structural parameter names"
-```
-
-### Task 3.1.5: Route the 11 synth-dep `_T` sites through the chokepoint via Parameter-struct flipping (no string surgery)
-
-The chokepoint (Task 3.1) emits the inactive token mid-name (`:K_I_ATP_E`). ~11 sites currently produce inactive-state Symbols by appending `"_T"` to a rendered active Symbol. With the A/I rename that string surgery is wrong twice over: it appends `_T` instead of `_I`, and it doesn't relocate the token to its mid-name position. The right fix is **not** another string-surgery helper — every dep Symbol corresponds to a real `Parameter` (the Wegscheider/Haldane-eliminated one); the kernel just discards the struct and returns Symbol keys. We recover the Parameter, flip its `:state` field to `:I` structurally, and re-render through the chokepoint. This eliminates the string-surgery class entirely; the chokepoint becomes the single Parameter→Symbol rendering path.
-
-**Files:** `src/rate_eq_derivation.jl` (the 9 synth-dep sites: lines 813, 1206, 1256, 1300, 1303, 1401, 1454, 1473, 1515), `src/mechanism_enumeration.jl` (sites at lines 2000-2002), `src/types.jl` (helpers next to chokepoint).
-
-- [ ] **Step 1: Write a failing allosteric integration test** in `test/test_rate_eq_derivation.jl`. Pick an existing `MECHANISM_TEST_SPECS` entry that has a `NonequalAI` group AND a Haldane-derived dep parameter (a dep whose RHS references a NonequalAI symbol), build params, call `rate_equation`, compare to its analytical oracle through the positional shim. After Task 3.1 lands, the dep symbol in the generated body is `:K_…_T` while `parameters(m)` advertises `:K_I_…` — the body destructures a name the params NamedTuple lacks. The test fails with `UndefVarError` or `KeyError`. Run to confirm FAIL.
-
-- [ ] **Step 2: Add `_flip_to_inactive` and `_param_for_symbol` helpers** in `src/types.jl` next to the chokepoint render helpers. Both are tiny and the chokepoint test will not flag them (no `Symbol("K…")` literals — they call the existing chokepoint).
+- [ ] **Step 5: Add `_flip_to_inactive` and `_param_for_symbol` helpers** in `src/types.jl` next to the chokepoint render helpers. Both are tiny and the chokepoint test will not flag them (no `Symbol("K…")` literals — they call the existing chokepoint).
 
 ```julia
 # Flip a Parameter's allosteric state to its inactive counterpart. Used
@@ -491,7 +485,7 @@ function _param_for_symbol(m::Union{Mechanism,AllostericMechanism,
 end
 ```
 
-- [ ] **Step 3: Rewrite every synth-dep `_T` site to use the chokepoint via the flipped Parameter.** Pattern:
+- [ ] **Step 6: Rewrite every synth-dep `_T` site to use the chokepoint via the flipped Parameter.** Pattern:
 
 ```julia
 # old
@@ -518,20 +512,32 @@ The 11 sites to convert:
 
 > **Lookup performance.** `_param_for_symbol` walks `_enumerate_parameters_full` once per call. Sites that call it in a loop over `dep_R_all` (e.g. 813, 1256) become O(n_params × n_deps) per @generated build. Acceptable: this runs at compile time, not in the rate-equation hot path; mechanism size is bounded (n_steps ≤ ~20 for realistic mechanisms). If `test_compile_budget.jl` ever shows the trace count climbing because of this, hoist the `_enumerate_parameters_full(mech)` walk into a `Dict{Symbol,Parameter}` once per call site and reuse — but defer that optimization until/unless the budget test complains.
 
-- [ ] **Step 4: Grep audit.** `grep -rn '\* *"_T"' src/` should return ONE remaining line (`mechanism_enumeration.jl:2002`, with its comment justifying it) — that one operates on canonical `p_$i` tokens from the hash layer, not on parameter Symbols, and is appropriate to handle in Phase 7. Any other surviving `*"_T"` site is a bug; route it through the chokepoint pattern above.
+- [ ] **Step 7: Grep audit.** `grep -rn '\* *"_T"' src/` should return ONE remaining line (`mechanism_enumeration.jl:2002`, with its comment justifying it) — that one operates on canonical `p_$i` tokens from the hash layer, not on parameter Symbols, and is appropriate to handle in Phase 7. Any other surviving `*"_T"` site is a bug; route it through the chokepoint pattern above.
 
-- [ ] **Step 5: No `test_chokepoint.jl` change needed.** `_flip_to_inactive` and `_param_for_symbol` don't construct any `Symbol("K…")` literals — they delegate Symbol production to the existing chokepoint. The AST walker doesn't fire.
+- [ ] **Step 8: No `test/test_chokepoint.jl` change needed.** `_flip_to_inactive` and `_param_for_symbol` don't construct any `Symbol("K…")` literals — they delegate Symbol production to the existing chokepoint. The AST walker doesn't fire on them.
 
-- [ ] **Step 6: Run the allosteric integration test + full suite**
+- [ ] **Step 9: Run both failing tests + full suite to confirm PASS**
 
 Run: `julia --project -e 'using Pkg; Pkg.test()'`
-Expected: PASS (failing test from Step 1 now green; allosteric goldens may shift — regenerate as part of Task 3.3).
+Expected: PASS — both the structural-name unit test (Step 1) and the allosteric integration test (Step 2) now green. Allosteric golden strings may shift; those are regenerated in Task 3.3, not here.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Single commit** (the whole task lands together)
 
 ```bash
-git add src/types.jl src/rate_eq_derivation.jl src/mechanism_enumeration.jl test/test_rate_eq_derivation.jl
-git commit -m "refactor: synth-dep T-names route through chokepoint via _flip_to_inactive"
+git add src/types.jl src/rate_eq_derivation.jl src/mechanism_enumeration.jl test/test_types.jl test/test_rate_eq_derivation.jl
+git commit -m "$(cat <<'EOF'
+refactor: chokepoint renders structural names; synth-dep T-names route through chokepoint
+
+Atomic two-part change committed together to keep the build green:
+- Chokepoint emits structural param names (state token mid-name; A/I).
+- Synth-dep T-name production switched from string(active) * "_T" to
+  name(_flip_to_inactive(_param_for_symbol(m, k)), m), so the chokepoint
+  is the single Parameter -> Symbol rendering path. The 11 string-surgery
+  sites collapse to one pattern.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
 ```
 
 ### Task 3.2: Delete the now-identity Pass-1 rename; convert index-context callers to value-context
@@ -1185,7 +1191,7 @@ git commit -m "refactor: remove dead index-era code and comments"
 - Decision 5 (hybrid tests) → Phase 0 shim + golden-capture steps throughout.
 - Naming table → Phase 3 Task 3.1 chokepoint bodies.
 - `name(Species)` concat → Phase 1. `:Et` rename DROPPED per Denis (~15 hard-coded `:E_total` sites; pure churn unrelated to structural naming).
-- Synth-dep T-name production (11 `string(k) * "_T"` sites) routes through the chokepoint via `_flip_to_inactive(_param_for_symbol(m, k))` → Phase 3 Task 3.1.5. The chokepoint becomes the single Parameter→Symbol path; no string-surgery helper. Denis's insight: every dep Symbol corresponds to a real `Parameter` struct (with a `state` field) — the kernel just discarded it; we recover it via lookup and flip the field structurally.
+- Synth-dep T-name production (11 `string(k) * "_T"` sites) routes through the chokepoint via `_flip_to_inactive(_param_for_symbol(m, k))` → **merged into Phase 3 Task 3.1** (originally drafted as separate "Task 3.1.5"; merged because the chokepoint's mid-name `:I` token is incompatible with the legacy string-surgery sites — landing one without the other leaves allosteric `NonequalAI` tests red, violating build-green-per-commit). The chokepoint becomes the single Parameter→Symbol path; no string-surgery helper. Denis's insight: every dep Symbol corresponds to a real `Parameter` struct (with a `state` field) — the kernel just discarded it; we recover it via lookup and flip the field structurally.
 - Phase 5 rewritten to canonicalize **all iso steps (RE and SS)** with one rule — `_canonical_iso_direction` — in the `Mechanism` constructor (which has reaction context). Tier 1 substrate/product counts → Tier 2 1-hop **binding** (RE+SS) graph context (handles the Segel `F ⇌ E` case fully source-independently) → Tier 3 lex fallback. Residual is NOT a tier (atom conservation makes it redundant with Tier 1). The RE-iso lex branch is removed from the `Step` constructor.
 - Round-2 reviewer fixes folded in:
   - Tier 2 filter changed from RE-only to all binding steps (the keystone fixture Segel Iso Uni Uni uses `<-->` (SS) throughout, so an RE-only filter would degenerate to lex on its own test). `all_re_steps` → `all_binding_steps`.
@@ -1201,3 +1207,5 @@ git commit -m "refactor: remove dead index-era code and comments"
   - **Every Step canonicalized.** Phase 5 Task 5.1 Step 4 now also drops the `is_equilibrium &&` guard on binding canonicalization in the Step constructor — all binding steps (RE and SS) canonicalize to metabolite-on-`from`. Combined with the unified iso canonicalization in Mechanism ctor, every Step has a deterministic canonical direction.
   - **Phase 4 updates `positional_params` shim's rep selection** from `first(group)` to `_group_rep(group, _free_enz_set(mech))`, consistent with the package's new rep semantics.
   - **TDD by default, capture-and-verify only as long-string fallback.** The top-level "Conventions used in every phase" section now mandates predict-then-test: every expected value is computed by applying the well-defined transformation rule to the current expected BEFORE running the suite. Capture-and-paste is reserved for full `rate_equation_string` outputs and even there the diff must match the predicted rule leaf-by-leaf. Each task's golden-related steps rewritten accordingly.
+  - **Phase 3 Task 3.1 and the originally-separate Task 3.1.5 merged** into one atomic task with one commit. The chokepoint's mid-name `:I` token is incompatible with the legacy `string(active) * "_T"` synth-dep sites — committing them separately leaves the build red on allosteric `NonequalAI` tests between commits. They must land together.
+  - **Step (the struct) has no EqualAI-vs-`:None` analog** to fix. Step's fields are purely structural (`from_species`, `to_species`, `bound_metabolite`, `is_equilibrium`); it never carried an allosteric-state field, so there's nothing to disambiguate. Allosteric context lives on the *mechanism* (`AllostericMechanism.cat_allo_states[g]`, `RegulatorySite.allo_states[i]`), not on Step.
