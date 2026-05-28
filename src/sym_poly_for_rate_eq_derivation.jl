@@ -297,7 +297,7 @@ NO symbol from `r_only_syms` (those monomials are the ones that remain
 non-zero in the T-state polynomial).
 
 Used by the AllostericEnzymeMechanism dep-exprs filter to avoid declaring
-`:NonequalRT` T-state parameters that never appear in the rate equation
+`:NonequalAI` I-state parameters that never appear in the rate equation
 body — a phantom-parameter case where `p` is only present in R-state
 monomials that get zeroed when constructing the T-state polynomial.
 """

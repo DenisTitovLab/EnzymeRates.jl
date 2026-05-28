@@ -176,16 +176,16 @@
             substrates: F6P
             products:   F16BP
             catalytic_multiplicity: 2
-            allosteric_regulators: I::OnlyT
+            allosteric_regulators: I::OnlyI
 
             catalytic_steps: begin
-                E + F6P ⇌ E(F6P)         :: EqualRT
-                E(F6P) <--> E(F16BP)     :: EqualRT
-                E(F16BP) ⇌ E + F16BP     :: EqualRT
+                E + F6P ⇌ E(F6P)         :: EqualAI
+                E(F6P) <--> E(F16BP)     :: EqualAI
+                E(F16BP) ⇌ E + F16BP     :: EqualAI
             end
         end
         @test m isa EnzymeRates.AllostericEnzymeMechanism
-        @test EnzymeRates.allosteric_regulators(m) ⊇ ((:I, :OnlyT),)
+        @test EnzymeRates.allosteric_regulators(m) ⊇ ((:I, :OnlyI),)
 
         # Reject untagged catalytic step
         @test_throws Exception eval(:(@allosteric_mechanism begin
@@ -193,21 +193,21 @@
             products:   F16BP
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + F6P ⇌ E(F6P) :: EqualRT
+                E + F6P ⇌ E(F6P) :: EqualAI
                 E(F6P) <--> E(F16BP)
-                E(F16BP) ⇌ E + F16BP :: EqualRT
+                E(F16BP) ⇌ E + F16BP :: EqualAI
             end
         end))
 
-        # Reject :OnlyT on a catalytic step (V-type allostery not supported)
+        # Reject :OnlyI on a catalytic step (V-type allostery not supported)
         @test_throws Exception eval(:(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + F6P ⇌ E(F6P) :: EqualRT
-                E(F6P) <--> E(F16BP) :: OnlyT
-                E(F16BP) ⇌ E + F16BP :: EqualRT
+                E + F6P ⇌ E(F6P) :: EqualAI
+                E(F6P) <--> E(F16BP) :: OnlyI
+                E(F16BP) ⇌ E + F16BP :: EqualAI
             end
         end))
 
@@ -216,11 +216,11 @@
             substrates: F6P
             products:   F16BP
             catalytic_multiplicity: 2
-            allosteric_regulators: I, J::OnlyT
+            allosteric_regulators: I, J::OnlyI
             catalytic_steps: begin
-                E + F6P ⇌ E(F6P) :: EqualRT
-                E(F6P) <--> E(F16BP) :: EqualRT
-                E(F16BP) ⇌ E + F16BP :: EqualRT
+                E + F6P ⇌ E(F6P) :: EqualAI
+                E(F6P) <--> E(F16BP) :: EqualAI
+                E(F16BP) ⇌ E + F16BP :: EqualAI
             end
         end))
 
@@ -231,8 +231,8 @@
             catalytic_multiplicity: 2
             catalytic_steps: begin
                 (E + S ⇌ E(S), E(A) + S ⇌ E(A, S))
-                E(A, S) <--> E(P)   :: EqualRT
-                E(P) ⇌ E + P        :: EqualRT
+                E(A, S) <--> E(P)   :: EqualAI
+                E(P) ⇌ E + P        :: EqualAI
             end
         end))
     end
@@ -333,10 +333,10 @@
         @test_throws "opaque bound-form name" eval(:(@allosteric_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: I::OnlyT
+            allosteric_regulators: I::OnlyI
             catalytic_steps: begin
-                E + S <--> ES :: EqualRT
-                ES <--> E + P :: EqualRT
+                E + S <--> ES :: EqualAI
+                ES <--> E + P :: EqualAI
             end
         end))
     end

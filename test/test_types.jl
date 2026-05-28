@@ -125,14 +125,14 @@
             end
         end
         # Dense format: (multiplicity, cat_allo_states) and (ligands, mult, reg_allo_states)
-        cat_sites = (2, (:NonequalRT, :OnlyR, :NonequalRT))
-        reg_sites = ((((:I,), 2, (:OnlyT,)),),)
+        cat_sites = (2, (:NonequalAI, :OnlyA, :NonequalAI))
+        reg_sites = ((((:I,), 2, (:OnlyI,)),),)
         m = EnzymeRates.AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites[1]}()
 
         @test EnzymeRates.catalytic_mechanism(m) === cm
         @test EnzymeRates.catalytic_multiplicity(m) == 2
-        @test EnzymeRates.cat_allo_state(m, 1) == :NonequalRT
-        @test EnzymeRates.cat_allo_state(m, 2) == :OnlyR
+        @test EnzymeRates.cat_allo_state(m, 1) == :NonequalAI
+        @test EnzymeRates.cat_allo_state(m, 2) == :OnlyA
         @test EnzymeRates.regulatory_sites(m) == reg_sites[1]
     end
 
@@ -147,34 +147,34 @@
             end
         end
 
-        # Single-ligand :EqualRT reg site → error
+        # Single-ligand :EqualAI reg site → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)),
-            (((:I,), 2, (:EqualRT,)),),
+            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
+            (((:I,), 2, (:EqualAI,)),),
         )
 
-        # Catalytic group :OnlyT → error
+        # Catalytic group :OnlyI → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalRT, :OnlyT, :NonequalRT)), (),
+            cm, (2, (:NonequalAI, :OnlyI, :NonequalAI)), (),
         )
 
         # Build via DSL
         m = @allosteric_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: I::OnlyT
+            allosteric_regulators: I::OnlyI
 
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + S ⇌ E(S)     :: EqualRT
-                E(S) <--> E(P)   :: OnlyR
-                E(P) ⇌ E + P     :: EqualRT
+                E + S ⇌ E(S)     :: EqualAI
+                E(S) <--> E(P)   :: OnlyA
+                E(P) ⇌ E + P     :: EqualAI
             end
         end
         @test EnzymeRates.catalytic_multiplicity(m) == 2
-        @test EnzymeRates.cat_allo_state(m, 1) == :EqualRT
-        @test EnzymeRates.cat_allo_state(m, 2) == :OnlyR
-        @test EnzymeRates.allosteric_regulators(m) == ((:I, :OnlyT),)
+        @test EnzymeRates.cat_allo_state(m, 1) == :EqualAI
+        @test EnzymeRates.cat_allo_state(m, 2) == :OnlyA
+        @test EnzymeRates.allosteric_regulators(m) == ((:I, :OnlyI),)
     end
 
     @testset "Pretty printing" begin
@@ -249,18 +249,18 @@
         m_allo = @allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
-            allosteric_regulators: I::OnlyT
+            allosteric_regulators: I::OnlyI
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + F6P ⇌ E(F6P)         :: EqualRT
-                E(F6P) <--> E(F16BP)     :: EqualRT
-                E(F16BP) ⇌ E + F16BP     :: EqualRT
+                E + F6P ⇌ E(F6P)         :: EqualAI
+                E(F6P) <--> E(F16BP)     :: EqualAI
+                E(F16BP) ⇌ E + F16BP     :: EqualAI
             end
         end
         s_allo = sprint(show, m_allo)
         @test contains(s_allo, "AllostericEnzymeMechanism (cat_n=2")
         @test contains(s_allo, "reg sites")
-        @test contains(s_allo, "I::OnlyT")
+        @test contains(s_allo, "I::OnlyI")
     end
 
     @testset "EnzymeMechanism different orderings produce valid mechanisms" begin
@@ -376,24 +376,24 @@
         end
         # Wrong-length cat_allo_states (4 entries for 3 kinetic groups) → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT, :OnlyR)), ())
+            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA)), ())
 
         # Invalid allo state value → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NotAState, :NonequalRT, :NonequalRT)), ())
+            cm, (2, (:NotAState, :NonequalAI, :NonequalAI)), ())
 
         # Reg site with no ligands → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)), (((), 2, ()),))
+            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)), (((), 2, ()),))
 
-        # Reg site with all-:EqualRT ligands → error (cancels identically)
+        # Reg site with all-:EqualAI ligands → error (cancels identically)
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)),
-            (((:I, :J), 2, (:EqualRT, :EqualRT)),))
+            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
+            (((:I, :J), 2, (:EqualAI, :EqualAI)),))
 
         # Invalid reg-site ligand allo state → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalRT, :NonequalRT, :NonequalRT)),
+            cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
             (((:I,), 2, (:NotAState,)),))
     end
 
@@ -401,12 +401,12 @@
         m = @allosteric_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: I::NonequalRT, J::OnlyT
+            allosteric_regulators: I::NonequalAI, J::OnlyI
             catalytic_multiplicity: 2
             catalytic_steps: begin
-                E + S ⇌ E(S)     :: NonequalRT
-                E(S) <--> E(P)   :: OnlyR
-                E(P) ⇌ E + P     :: EqualRT
+                E + S ⇌ E(S)     :: NonequalAI
+                E(S) <--> E(P)   :: OnlyA
+                E(P) ⇌ E + P     :: EqualAI
             end
         end
         s = sprint(show, m)
@@ -417,7 +417,7 @@
         for g in 1:n_groups
             @test occursin(string(EnzymeRates.cat_allo_state(m, g)), s)
         end
-        # No :NonequalRT ligand silently hidden from reg-site display
+        # No :NonequalAI ligand silently hidden from reg-site display
         for (i, _) in enumerate(EnzymeRates.regulatory_sites(m))
             for lig in EnzymeRates.regulatory_site_ligands(m, i)
                 state = EnzymeRates.reg_allo_state(m, i, lig)
@@ -465,11 +465,11 @@
             met = EnzymeRates.bound_metabolite(rep)
             tag = (met isa EnzymeRates.Reactant &&
                    EnzymeRates.name(met) in (:S, :P)) ?
-                  :EqualRT : :NonequalRT
+                  :EqualAI : :NonequalAI
             push!(cat_allo_states, tag)
         end
         site = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyT])
+            [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyI])
         am = EnzymeRates.AllostericMechanism(
             EnzymeRates.reaction(base), copy(EnzymeRates.steps(base)),
             cat_allo_states, 2, [site])
@@ -479,7 +479,7 @@
         # Old summary line gone:
         @test !occursin("cat_allo_states:", s)
         # Inline ::Tag annotations on each step or step group:
-        @test occursin(":: EqualRT", s)
+        @test occursin(":: EqualAI", s)
         # Multi-line catalytic display (no chain shortcut):
         n_steps_re = count(c -> c == '\n', s)
         @test n_steps_re >= 3   # header + ≥3 step lines
@@ -496,17 +496,17 @@
             end
         end
         am = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:EqualRT, :EqualRT, :EqualRT)), ())
+            cm, (2, (:EqualAI, :EqualAI, :EqualAI)), ())
         s = repr(am)
 
         # The parenthesized-group branch must execute: look for the
-        # exact "(...) :: EqualRT" shape with a comma-separated body.
+        # exact "(...) :: EqualAI" shape with a comma-separated body.
         paren_group_match = match(
-            r"\([^()]*,[^()]*\) :: EqualRT", s)
+            r"\([^()]*,[^()]*\) :: EqualAI", s)
         @test paren_group_match !== nothing
         # Format: lhs/rhs joined with " + " (no brackets).
-        @test occursin("ES <--> EP :: EqualRT", s)
-        @test occursin(":: EqualRT", s)
+        @test occursin("ES <--> EP :: EqualAI", s)
+        @test occursin(":: EqualAI", s)
         @test !occursin("cat_allo_states:", s)
     end
 
@@ -628,39 +628,39 @@
         lig_a = EnzymeRates.AllostericRegulator(:A)
         lig_b = EnzymeRates.AllostericRegulator(:B)
         site = EnzymeRates.RegulatorySite(
-            [lig_a, lig_b], 4, [:OnlyR, :NonequalRT],
+            [lig_a, lig_b], 4, [:OnlyA, :NonequalAI],
         )
         @test EnzymeRates.ligands(site) == [lig_a, lig_b]
         @test EnzymeRates.multiplicity(site) == 4
-        @test EnzymeRates.allo_states(site) == [:OnlyR, :NonequalRT]
+        @test EnzymeRates.allo_states(site) == [:OnlyA, :NonequalAI]
 
         # Mismatched ligand / allo_state length → error
         @test_throws ErrorException EnzymeRates.RegulatorySite(
-            [lig_a, lig_b], 4, [:OnlyR])
+            [lig_a, lig_b], 4, [:OnlyA])
 
         # Multiplicity < 1 → error
         @test_throws ErrorException EnzymeRates.RegulatorySite(
-            [lig_a], 0, [:OnlyR])
+            [lig_a], 0, [:OnlyA])
 
         # Invalid allo state → error
         @test_throws ErrorException EnzymeRates.RegulatorySite(
             [lig_a], 1, [:NotAState])
 
         # All four allowed states accepted
-        for st in (:OnlyR, :OnlyT, :EqualRT, :NonequalRT)
+        for st in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
             @test EnzymeRates.RegulatorySite([lig_a], 1, [st]) isa
                   EnzymeRates.RegulatorySite
         end
 
         # Equality / hash
         site2 = EnzymeRates.RegulatorySite(
-            [lig_a, lig_b], 4, [:OnlyR, :NonequalRT])
+            [lig_a, lig_b], 4, [:OnlyA, :NonequalAI])
         @test site == site2
         @test hash(site) == hash(site2)
         # Order-sensitive: ligand ordering is parallel to allo_states,
-        # so [A,B] / [OnlyR,NonequalRT] != [B,A] / [OnlyR,NonequalRT].
+        # so [A,B] / [OnlyA,NonequalAI] != [B,A] / [OnlyA,NonequalAI].
         site_reordered = EnzymeRates.RegulatorySite(
-            [lig_b, lig_a], 4, [:OnlyR, :NonequalRT])
+            [lig_b, lig_a], 4, [:OnlyA, :NonequalAI])
         @test site != site_reordered
     end
 
@@ -770,14 +770,14 @@
         step = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
 
         kd_none = EnzymeRates.Kd(step, :None)
-        kd_t    = EnzymeRates.Kd(step, :T)
+        kd_i    = EnzymeRates.Kd(step, :I)
         @test kd_none isa EnzymeRates.Kd
         @test kd_none isa EnzymeRates.Parameter
         @test EnzymeRates.governing_step(kd_none) === step
         @test !EnzymeRates.is_t_state(kd_none)
-        @test EnzymeRates.is_t_state(kd_t)
+        @test EnzymeRates.is_t_state(kd_i)
         @test kd_none == EnzymeRates.Kd(step, :None)
-        @test kd_none != kd_t
+        @test kd_none != kd_i
 
         for T in (EnzymeRates.Kiso, EnzymeRates.Kon, EnzymeRates.Koff,
                   EnzymeRates.Kfor, EnzymeRates.Krev)
@@ -785,16 +785,16 @@
             @test p isa EnzymeRates.Parameter
             @test EnzymeRates.governing_step(p) === step
             @test !EnzymeRates.is_t_state(p)
-            @test EnzymeRates.is_t_state(T(step, :T))
+            @test EnzymeRates.is_t_state(T(step, :I))
         end
 
         lig_a = EnzymeRates.AllostericRegulator(:A)
-        site = EnzymeRates.RegulatorySite([lig_a], 2, [:OnlyR])
-        kr = EnzymeRates.Kreg(site, lig_a, :R)
+        site = EnzymeRates.RegulatorySite([lig_a], 2, [:OnlyA])
+        kr = EnzymeRates.Kreg(site, lig_a, :A)
         @test kr isa EnzymeRates.Parameter
-        @test EnzymeRates.is_t_state(EnzymeRates.Kreg(site, lig_a, :T))
+        @test EnzymeRates.is_t_state(EnzymeRates.Kreg(site, lig_a, :I))
         @test !EnzymeRates.is_t_state(kr)
-        @test kr == EnzymeRates.Kreg(site, lig_a, :R)
+        @test kr == EnzymeRates.Kreg(site, lig_a, :A)
 
         # Mechanism-level scalars: singletons
         @test EnzymeRates.Keq() == EnzymeRates.Keq()
@@ -1030,16 +1030,16 @@
         s_rel  = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
 
         site = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:I)], 1, [:OnlyT])
+            [EnzymeRates.AllostericRegulator(:I)], 1, [:OnlyI])
         m = EnzymeRates.AllostericMechanism(
             r, [[s_bind], [s_iso], [s_rel]],
-            [:EqualRT, :NonequalRT, :OnlyR], 2,
+            [:EqualAI, :NonequalAI, :OnlyA], 2,
             [site])
 
         @test EnzymeRates.reaction(m) == r
         @test EnzymeRates.steps(m) == [[s_bind], [s_iso], [s_rel]]
-        @test EnzymeRates.cat_allo_state(m, 1) == :EqualRT
-        @test EnzymeRates.cat_allo_state(m, 3) == :OnlyR
+        @test EnzymeRates.cat_allo_state(m, 1) == :EqualAI
+        @test EnzymeRates.cat_allo_state(m, 3) == :OnlyA
         @test EnzymeRates.catalytic_multiplicity(m) == 2
         @test EnzymeRates.regulatory_sites(m) == [site]
         @test EnzymeRates.kinetic_groups(m) == 1:3
@@ -1050,7 +1050,7 @@
 
         m2 = EnzymeRates.AllostericMechanism(
             r, [[s_bind], [s_iso], [s_rel]],
-            [:EqualRT, :NonequalRT, :OnlyR], 2,
+            [:EqualAI, :NonequalAI, :OnlyA], 2,
             [site])
         @test m == m2
         @test hash(m) == hash(m2)
@@ -1070,19 +1070,19 @@
         s_bind = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
         cat_steps = [[s_bind]]
 
-        # :OnlyT for catalytic group is rejected (R-state-active convention)
+        # :OnlyI for catalytic group is rejected (R-state-active convention)
         @test_throws ErrorException EnzymeRates.AllostericMechanism(
-            r, cat_steps, [:OnlyT], 1,
+            r, cat_steps, [:OnlyI], 1,
             EnzymeRates.RegulatorySite[])
 
         # Length mismatch
         @test_throws ErrorException EnzymeRates.AllostericMechanism(
-            r, cat_steps, [:EqualRT, :NonequalRT], 1,
+            r, cat_steps, [:EqualAI, :NonequalAI], 1,
             EnzymeRates.RegulatorySite[])
 
         # catalytic_multiplicity < 1
         @test_throws ErrorException EnzymeRates.AllostericMechanism(
-            r, cat_steps, [:EqualRT], 0,
+            r, cat_steps, [:EqualAI], 0,
             EnzymeRates.RegulatorySite[])
 
         # Unknown allo-state symbol
@@ -1102,8 +1102,8 @@
             end
         end
         aem = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:EqualRT, :NonequalRT, :OnlyR)),
-            (((:A, :B), 1, (:OnlyR, :NonequalRT)),),
+            cm, (2, (:EqualAI, :NonequalAI, :OnlyA)),
+            (((:A, :B), 1, (:OnlyA, :NonequalAI)),),
         )
 
         am = EnzymeRates.AllostericMechanism(aem)
@@ -1114,9 +1114,9 @@
         @test EnzymeRates.reaction(am) == EnzymeRates.Mechanism(cm).reaction
 
         # cat_allo_states and multiplicity extracted from CS
-        @test EnzymeRates.cat_allo_state(am, 1) === :EqualRT
-        @test EnzymeRates.cat_allo_state(am, 2) === :NonequalRT
-        @test EnzymeRates.cat_allo_state(am, 3) === :OnlyR
+        @test EnzymeRates.cat_allo_state(am, 1) === :EqualAI
+        @test EnzymeRates.cat_allo_state(am, 2) === :NonequalAI
+        @test EnzymeRates.cat_allo_state(am, 3) === :OnlyA
         @test EnzymeRates.catalytic_multiplicity(am) == 2
 
         # Regulatory sites: ligand Symbols wrapped as AllostericRegulator
@@ -1126,7 +1126,7 @@
               [EnzymeRates.AllostericRegulator(:A),
                EnzymeRates.AllostericRegulator(:B)]
         @test sites[1].multiplicity == 1
-        @test sites[1].allo_states == [:OnlyR, :NonequalRT]
+        @test sites[1].allo_states == [:OnlyA, :NonequalAI]
 
         # Idempotent: two calls give equal results
         @test EnzymeRates.AllostericMechanism(aem) == am
@@ -1149,8 +1149,8 @@
             end
         end
         aem = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalRT, :EqualRT, :NonequalRT)),
-            (((:R,), 1, (:NonequalRT,)),),
+            cm, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
+            (((:R,), 1, (:NonequalAI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
 
@@ -1158,9 +1158,9 @@
         rep_bind = first(EnzymeRates.steps(am)[1])
         @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), aem) ==
               EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), am)
-        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :T), aem) ==
-              EnzymeRates.name(EnzymeRates.Kd(rep_bind, :T), am)
-        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :T), aem) === :K1_T
+        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) ==
+              EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), am)
+        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) === :K1_T
 
         rep_iso  = first(EnzymeRates.steps(am)[2])
         @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) ==
@@ -1170,9 +1170,9 @@
         # Kreg: AEM dispatch matches AM dispatch
         site = EnzymeRates.regulatory_sites(am)[1]
         lig  = first(site.ligands)
-        @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :R), aem) ==
-              EnzymeRates.name(EnzymeRates.Kreg(site, lig, :R), am)
-        @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :T), aem) ===
+        @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :A), aem) ==
+              EnzymeRates.name(EnzymeRates.Kreg(site, lig, :A), am)
+        @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :I), aem) ===
               :K_R_T_reg1
     end
 
@@ -1261,20 +1261,20 @@
         # Positional naming: rep_idx for kinetic group g = position of first
         # step in steps(m)[g] within the flattened steps list.
         @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), m) === :K1
-        @test EnzymeRates.name(EnzymeRates.Kd(step1, :T),    m) === :K1_T
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :I),    m) === :K1_T
         @test EnzymeRates.name(EnzymeRates.Kon(step2, :None), m) === :k2f
         @test EnzymeRates.name(EnzymeRates.Koff(step2, :None), m) === :k2r
         @test EnzymeRates.name(EnzymeRates.Kfor(step2, :None), m) === :k2f
         @test EnzymeRates.name(EnzymeRates.Krev(step2, :None), m) === :k2r
         @test EnzymeRates.name(EnzymeRates.Kd(step3, :None), m) === :K3
 
-        # T-suffix on SS step
-        @test EnzymeRates.name(EnzymeRates.Kon(step2, :T),  m) === :k2f_T
-        @test EnzymeRates.name(EnzymeRates.Koff(step2, :T), m) === :k2r_T
+        # I-suffix on SS step
+        @test EnzymeRates.name(EnzymeRates.Kon(step2, :I),  m) === :k2f_T
+        @test EnzymeRates.name(EnzymeRates.Koff(step2, :I), m) === :k2r_T
 
         # Kiso uses K-naming (RE iso)
         @test EnzymeRates.name(EnzymeRates.Kiso(step2, :None), m) === :K2
-        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :T),    m) === :K2_T
+        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :I),    m) === :K2_T
 
         # Mechanism-level scalars
         @test EnzymeRates.name(EnzymeRates.Keq(),   m) === :Keq
@@ -1342,22 +1342,22 @@
             [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
         ]
         site_a = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A)], 2, [:NonequalRT])
+            [EnzymeRates.AllostericRegulator(:A)], 2, [:NonequalAI])
         am = EnzymeRates.AllostericMechanism(
             r, cat_steps,
-            [:EqualRT, :EqualRT, :EqualRT], 2, [site_a])
+            [:EqualAI, :EqualAI, :EqualAI], 2, [site_a])
 
         @test EnzymeRates.name(
-            EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :R),
+            EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :A),
             am) === :K_A_reg1
         @test EnzymeRates.name(
-            EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :T),
+            EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :I),
             am) === :K_A_T_reg1
 
         # Step-bound parameters also resolve via AllostericMechanism.
         rep = first(cat_steps[1])
         @test EnzymeRates.name(EnzymeRates.Kd(rep, :None), am) === :K1
-        @test EnzymeRates.name(EnzymeRates.Kd(rep, :T),    am) === :K1_T
+        @test EnzymeRates.name(EnzymeRates.Kd(rep, :I),    am) === :K1_T
 
         # Iso step in second kinetic group
         iso_step = first(cat_steps[2])

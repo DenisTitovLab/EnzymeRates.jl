@@ -21,18 +21,18 @@ using OptimizationPyCMA
     end
 
     # Build the constrained allosteric mechanism: K-type
-    # allosteric with S, P only in R-state (`:OnlyR` group
-    # tags) and R only in T-state (`:OnlyT` ligand tag).
+    # allosteric with S, P only in R-state (`:OnlyA` group
+    # tags) and R only in T-state (`:OnlyI` ligand tag).
     _base = first(EnzymeRates.init_mechanisms(test_rxn))
     _cat_allo_states = Symbol[]
     for g in EnzymeRates.kinetic_groups(_base)
         rep = EnzymeRates.rep_step(_base, g)
         met = EnzymeRates.bound_metabolite(rep)
-        tag = (met isa EnzymeRates.Reactant) ? :OnlyR : :NonequalRT
+        tag = (met isa EnzymeRates.Reactant) ? :OnlyA : :NonequalAI
         push!(_cat_allo_states, tag)
     end
     _site = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:R)], 1, [:OnlyT])
+        [EnzymeRates.AllostericRegulator(:R)], 1, [:OnlyI])
     _am = EnzymeRates.AllostericMechanism(
         EnzymeRates.reaction(_base), copy(EnzymeRates.steps(_base)),
         _cat_allo_states, 1, [_site])

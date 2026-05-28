@@ -1070,18 +1070,18 @@ end
 
 function _n_fit_params_estimate(am::AllostericMechanism)
     base = _n_fit_params_estimate(Mechanism(reaction(am), steps(am)))
-    # +1 for L (R/T equilibrium constant), plus per-tag bookkeeping:
-    # :NonequalRT catalytic groups double; :NonequalRT regulator ligands
+    # +1 for L (A/I equilibrium constant), plus per-tag bookkeeping:
+    # :NonequalAI catalytic groups double; :NonequalAI regulator ligands
     # also double; per-site Kreg adds a K per ligand.
     tag_extra = 0
     for tag in cat_allo_states(am)
-        tag == :NonequalRT && (tag_extra += 1)
+        tag == :NonequalAI && (tag_extra += 1)
     end
     reg_extra = 0
     for site in regulatory_sites(am)
         for (lig, st) in zip(ligands(site), allo_states(site))
             reg_extra += 1
-            st == :NonequalRT && (reg_extra += 1)
+            st == :NonequalAI && (reg_extra += 1)
         end
     end
     base + 1 + tag_extra + reg_extra
@@ -1309,7 +1309,7 @@ function _expand_add_dead_end_regulator(
         exclude_regs=exclude_regs,
         wrap=(new_groups, new_g, new_reaction) -> AllostericMechanism(
             new_reaction, new_groups,
-            vcat(cat_allo_states(am), [:EqualRT]),
+            vcat(cat_allo_states(am), [:EqualAI]),
             catalytic_multiplicity(am),
             copy(regulatory_sites(am))))
 end
@@ -1472,8 +1472,8 @@ end
         → Vector{AllostericMechanism}
 
 Mechanism-native overload: convert a non-allosteric `Mechanism` into
-allosteric variants. Emits the all-`:EqualRT` baseline plus one
-variant per kinetic group with that group set to `:OnlyR`
+allosteric variants. Emits the all-`:EqualAI` baseline plus one
+variant per kinetic group with that group set to `:OnlyA`
 (`n_groups + 1` variants total). The new mechanism inherits `rxn`'s
 oligomeric state as `catalytic_multiplicity`; regulatory_sites is
 empty (allosteric regulators are added later via
@@ -1482,7 +1482,7 @@ empty (allosteric regulators are added later via
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     cn = only(allowed_catalytic_multiplicities(rxn))
     n_g = length(steps(m))
-    base_tags = Symbol[:EqualRT for _ in 1:n_g]
+    base_tags = Symbol[:EqualAI for _ in 1:n_g]
     empty_sites = RegulatorySite[]
     results = AllostericMechanism[]
     push!(results, AllostericMechanism(
@@ -1490,7 +1490,7 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
         cn, copy(empty_sites)))
     for g in 1:n_g
         new_tags = copy(base_tags)
-        new_tags[g] = :OnlyR
+        new_tags[g] = :OnlyA
         push!(results, AllostericMechanism(
             reaction(m), copy(steps(m)), new_tags,
             cn, copy(empty_sites)))
@@ -1519,10 +1519,10 @@ inhibitor). For each (new ligand, target site, tag) combination, emit
 a variant:
 
   * target site ∈ {new site} ∪ {existing sites}
-  * tag ∈ {:OnlyR, :OnlyT, :NonequalRT} for any target site
-  * tag = :EqualRT only at an existing site that already has at least
-    one non-`:EqualRT` ligand (otherwise the `RegulatorySite`
-    constructor's all-`:EqualRT` rule would reject the variant).
+  * tag ∈ {:OnlyA, :OnlyI, :NonequalAI} for any target site
+  * tag = :EqualAI only at an existing site that already has at least
+    one non-`:EqualAI` ligand (otherwise the `RegulatorySite`
+    constructor's all-`:EqualAI` rule would reject the variant).
 
 New sites inherit `am.catalytic_multiplicity` as their multiplicity.
 The mechanism's catalytic side, regulatory_sites' multiplicities, and
@@ -1560,21 +1560,21 @@ function _expand_add_allosteric_regulator(
     results = AllostericMechanism[]
     for reg in new_regs
         n_sites = length(regulatory_sites(am))
-        # Non-:EqualRT tags at any (new or existing) site.
-        for tag in (:OnlyR, :OnlyT, :NonequalRT)
+        # Non-:EqualAI tags at any (new or existing) site.
+        for tag in (:OnlyA, :OnlyI, :NonequalAI)
             for site_idx in 0:n_sites
                 push!(results,
                     _make_am_with_added_reg(am, reg, tag, site_idx))
             end
         end
-        # :EqualRT at an existing site only when that site already has
-        # at least one non-:EqualRT ligand (avoids the constructor's
-        # all-:EqualRT single-ligand rejection / identical-cancellation).
+        # :EqualAI at an existing site only when that site already has
+        # at least one non-:EqualAI ligand (avoids the constructor's
+        # all-:EqualAI single-ligand rejection / identical-cancellation).
         for site_idx in 1:n_sites
             site = regulatory_sites(am)[site_idx]
-            any(st != :EqualRT for st in allo_states(site)) || continue
+            any(st != :EqualAI for st in allo_states(site)) || continue
             push!(results,
-                _make_am_with_added_reg(am, reg, :EqualRT, site_idx))
+                _make_am_with_added_reg(am, reg, :EqualAI, site_idx))
         end
     end
     results
@@ -1634,19 +1634,19 @@ _expand_add_allosteric_regulator(::Mechanism, ::EnzymeReaction) =
         → Vector{AllostericMechanism}
 
 Mechanism-native overload. Relax one allo state from a "constrained"
-tag (`:EqualRT`, `:OnlyR`, `:OnlyT`) to `:NonequalRT`. Variants are
+tag (`:EqualAI`, `:OnlyA`, `:OnlyI`) to `:NonequalAI`. Variants are
 emitted for each catalytic kinetic group tag and each regulatory
-ligand tag that is not already `:NonequalRT`. The base catalytic
+ligand tag that is not already `:NonequalAI`. The base catalytic
 steps, multiplicity, and untouched tags are preserved.
 """
 function _expand_change_allo_state(am::AllostericMechanism)
     results = AllostericMechanism[]
 
-    # Catalytic-group tag relaxations: cat_allo_states[g] :…→ :NonequalRT.
+    # Catalytic-group tag relaxations: cat_allo_states[g] :…→ :NonequalAI.
     for g in 1:length(cat_allo_states(am))
-        cat_allo_states(am)[g] == :NonequalRT && continue
+        cat_allo_states(am)[g] == :NonequalAI && continue
         new_states = copy(cat_allo_states(am))
-        new_states[g] = :NonequalRT
+        new_states[g] = :NonequalAI
         push!(results, AllostericMechanism(
             reaction(am), copy(steps(am)), new_states,
             catalytic_multiplicity(am),
@@ -1656,10 +1656,10 @@ function _expand_change_allo_state(am::AllostericMechanism)
     # Regulatory-ligand tag relaxations: walk each (site, ligand) pair.
     for (si, site) in enumerate(regulatory_sites(am))
         for (li, _) in enumerate(ligands(site))
-            allo_states(site)[li] == :NonequalRT && continue
+            allo_states(site)[li] == :NonequalAI && continue
             new_sites = copy(regulatory_sites(am))
             new_states = copy(allo_states(site))
-            new_states[li] = :NonequalRT
+            new_states[li] = :NonequalAI
             new_sites[si] = RegulatorySite(
                 copy(ligands(site)),
                 multiplicity(site),
@@ -2026,13 +2026,13 @@ function _dep_exprs_canonical(em::AbstractEnzymeMechanism,
 end
 
 """
-R-state symbol names whose Wegscheider/Haldane RHS references a
-`:NonequalRT` catalytic symbol, so the assignment is mirrored into a
+A-state symbol names whose Wegscheider/Haldane RHS references a
+`:NonequalAI` catalytic symbol, so the assignment is mirrored into a
 synthesized `<sym>_T` dep entry. Mirrors the loop in
 `_dependent_param_exprs(::AllostericEnzymeMechanism)` Pass 2; the
-canonicalizer recovers just the R-state name set so it can register
-matching T-suffixed name_map entries. Returns an empty Vector when the
-T-state cycle is dead (no T-state mirrors get emitted).
+canonicalizer recovers just the A-state name set so it can register
+matching I-suffixed name_map entries. Returns an empty Vector when the
+I-state cycle is dead (no I-state mirrors get emitted).
 """
 function _synth_dep_r_names(em::AllostericEnzymeMechanism,
                             am::AllostericMechanism)
@@ -2040,7 +2040,7 @@ function _synth_dep_r_names(em::AllostericEnzymeMechanism,
     CM = typeof(catalytic_mechanism(em))
     dep_R_all, _ = _dependent_param_exprs(CM)
     rename_T_keys = Set{Symbol}(
-        name(p_R, am) for (p_R, _) in _T_rename_parameters(am))
+        name(p_R, am) for (p_R, _) in _I_rename_parameters(am))
     isempty(rename_T_keys) && return Symbol[]
     out = Symbol[]
     for (k, v) in dep_R_all
@@ -2199,7 +2199,7 @@ function _assert_mechanism_invariants(m::AllostericMechanism)
         error("AllostericMechanism: cat_allo_states length " *
               "$(length(cat_allo_states(m))) ≠ cat_steps length " *
               "$(length(steps(m)))")
-    valid_cat_states = (:OnlyR, :EqualRT, :NonequalRT)
+    valid_cat_states = (:OnlyA, :EqualAI, :NonequalAI)
     for tag in cat_allo_states(m)
         tag in valid_cat_states ||
             error("AllostericMechanism: invalid cat allo state $tag")

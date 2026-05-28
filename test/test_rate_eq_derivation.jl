@@ -1032,7 +1032,7 @@ end
 
 # ── Single-feature edge cases ─────────────────────────────────────────────
 @testset "Allosteric edge cases" begin
-    # OnlyR substrate: S binds only in R-state (R-state-active convention).
+    # OnlyA substrate: S binds only in R-state (R-state-active convention).
     # T-state cycle is dead, so all forward catalysis happens through R.
     # As K1 → ∞ (weaker R-state binding), rate vanishes.
     onlyR_sub = @allosteric_mechanism begin
@@ -1040,9 +1040,9 @@ end
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ E(S)     :: OnlyR
-            E(S) <--> E(P)   :: EqualRT
-            E(P) ⇌ E + P     :: EqualRT
+            E + S ⇌ E(S)     :: OnlyA
+            E(S) <--> E(P)   :: EqualAI
+            E(P) ⇌ E + P     :: EqualAI
         end
     end
     concs = (S=1.0, P=0.001)
@@ -1053,7 +1053,7 @@ end
     @test rate_weak < 1e-3
     @test rate_weak / rate_strong < 1e-5
 
-    # V-type only: all bindings :EqualRT but catalysis :OnlyR. T-state binds
+    # V-type only: all bindings :EqualAI but catalysis :OnlyA. T-state binds
     # substrate normally but cannot catalyze (k_T = 0), so N_T = 0. As L → ∞
     # (T-state dominant) the rate vanishes.
     vtype = @allosteric_mechanism begin
@@ -1061,9 +1061,9 @@ end
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualRT
-            E(S) <--> E(P)   :: OnlyR
-            E(P) ⇌ E + P     :: EqualRT
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
         end
     end
     vparams = (K1=0.1, k2f=10.0, K3=0.5, Keq=1000.0, E_total=1.0)
@@ -1071,59 +1071,59 @@ end
     rate_T = rate_equation(vtype, concs, merge(vparams, (L=1e10,)))
     @test rate_R > 1.0
     @test rate_T < 1e-6
-    # T-state numerator branch is elided when t_state_dead (any :OnlyR catalytic group);
+    # T-state numerator branch is elided when t_state_dead (any :OnlyA catalytic group);
     # rate is E_total · catN · num_R / (Q_R^catN + L · Q_T^catN). At large L, the T-state
     # enzyme mass dominates the denominator → rate ∝ 1/(1+L).
     @test rate_T * 1e10 < 100.0    # bounded as L grows
 
-    # :OnlyT on a substrate-binding catalytic group → constructor error
-    # (R-state convention: relabel so the active state is R, i.e. use :OnlyR).
+    # :OnlyI on a substrate-binding catalytic group → constructor error
+    # (R-state convention: relabel so the active state is R, i.e. use :OnlyA).
     @test_throws Exception eval(:(@allosteric_mechanism begin
         substrates: S
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ E(S)     :: OnlyT
-            E(S) <--> E(P)   :: EqualRT
-            E(P) ⇌ E + P     :: EqualRT
+            E + S ⇌ E(S)     :: OnlyI
+            E(S) <--> E(P)   :: EqualAI
+            E(P) ⇌ E + P     :: EqualAI
         end
     end))
 
-    # :OnlyT on a product-binding catalytic group → constructor error
+    # :OnlyI on a product-binding catalytic group → constructor error
     @test_throws Exception eval(:(@allosteric_mechanism begin
         substrates: S
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualRT
-            E(S) <--> E(P)   :: EqualRT
-            E(P) ⇌ E + P     :: OnlyT
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: EqualAI
+            E(P) ⇌ E + P     :: OnlyI
         end
     end))
 
-    # :OnlyT on the catalysis SS step → constructor error
+    # :OnlyI on the catalysis SS step → constructor error
     @test_throws Exception eval(:(@allosteric_mechanism begin
         substrates: S
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualRT
-            E(S) <--> E(P)   :: OnlyT
-            E(P) ⇌ E + P     :: EqualRT
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyI
+            E(P) ⇌ E + P     :: EqualAI
         end
     end))
 
 
-    # Single-ligand :EqualRT reg site cancels identically → constructor error
+    # Single-ligand :EqualAI reg site cancels identically → constructor error
     @test_throws Exception eval(:(@allosteric_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: I::EqualRT
+        allosteric_regulators: I::EqualAI
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + S ⇌ E(S)     :: EqualRT
-            E(S) <--> E(P)   :: EqualRT
-            E(P) ⇌ E + P     :: EqualRT
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: EqualAI
+            E(P) ⇌ E + P     :: EqualAI
         end
     end))
 
@@ -1165,7 +1165,7 @@ end
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_sa)
 
     # Regression: T-state binding K's must be in Kd convention even when
-    # `:OnlyR` and `:NonequalRT` catalytic groups coexist. Without the fix,
+    # `:OnlyA` and `:NonequalAI` catalytic groups coexist. Without the fix,
     # the flat-poly path in _allosteric_num_den_exprs renders T-state K's
     # as `K_T * met` (Ka) instead of `met / K_T` (Kd), silently producing
     # wrong rates whenever a mechanism mixes these two tags. Regression
@@ -1181,8 +1181,8 @@ end
     end
     m_mix = EnzymeRates.AllostericEnzymeMechanism(
         cm_mix,
-        (2, (:NonequalRT, :OnlyR, :NonequalRT)),
-        (((:I,), 2, (:OnlyT,)),),
+        (2, (:NonequalAI, :OnlyA, :NonequalAI)),
+        (((:I,), 2, (:OnlyI,)),),
     )
     p_mix = (K1=0.1, k2f=10.0, K3=0.5,
              K1_T=10.0, K3_T=10.0,
@@ -1196,10 +1196,10 @@ end
     @test occursin("S / K1_T", rate_equation_string(m_mix))
     @test occursin("P / K3_T", rate_equation_string(m_mix))
 
-    # Regression: :NonequalRT substrate + :EqualRT catalysis must produce
+    # Regression: :NonequalAI substrate + :EqualAI catalysis must produce
     # zero rate at chemical equilibrium. The framework derives a T-state
-    # Haldane (k2r_T) from the :EqualRT k2f because the dep expression
-    # for k2r references :NonequalRT K1, so the dep-assignment builder
+    # Haldane (k2r_T) from the :EqualAI k2f because the dep expression
+    # for k2r references :NonequalAI K1, so the dep-assignment builder
     # synthesizes a T-name for k2r and substitutes it into N_T.
     cm_mixed = @enzyme_mechanism begin
         substrates: S
@@ -1212,8 +1212,8 @@ end
     end
     m_mixed = EnzymeRates.AllostericEnzymeMechanism(
         cm_mixed,
-        (2, (:NonequalRT, :EqualRT, :EqualRT)),
-        (((:I,), 2, (:NonequalRT,)),),
+        (2, (:NonequalAI, :EqualAI, :EqualAI)),
+        (((:I,), 2, (:NonequalAI,)),),
     )
     Keq_val = 5.0
     p_eq = (K1=0.3, k2f=8.0, K3=0.7,
@@ -1238,7 +1238,7 @@ end
     end
     @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
         cm_simple,
-        (2, (:NonequalRT, :EqualRT, :EqualRT)),
+        (2, (:NonequalAI, :EqualAI, :EqualAI)),
         (((), 2, ()),),  # empty ligand tuple
     )
 end
@@ -1247,12 +1247,12 @@ end
     m_allo = @allosteric_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R::NonequalRT
+        allosteric_regulators: R::NonequalAI
         catalytic_multiplicity: 2
         catalytic_steps: begin
-            E + P ⇌ E(P)     :: NonequalRT
-            E + S ⇌ E(S)     :: NonequalRT
-            E(S) <--> E(P)   :: NonequalRT
+            E + P ⇌ E(P)     :: NonequalAI
+            E + S ⇌ E(S)     :: NonequalAI
+            E(S) <--> E(P)   :: NonequalAI
         end
     end
     actual = rate_equation_string(m_allo)
@@ -1276,97 +1276,97 @@ end
         end
     end
 
-    @testset "_onlyR_parameters" begin
-        # One :OnlyR catalytic group (RE binding) → single Kd(_, :R).
+    @testset "_onlyA_parameters" begin
+        # One :OnlyA catalytic group (RE binding) → single Kd(_, :A).
         aem = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:OnlyR, :EqualRT, :EqualRT)),
-            (((:I,), 1, (:OnlyT,)),),
+            cm, (2, (:OnlyA, :EqualAI, :EqualAI)),
+            (((:I,), 1, (:OnlyI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
-        params = EnzymeRates._onlyR_parameters(am)
+        params = EnzymeRates._onlyA_parameters(am)
         rendered = Set(EnzymeRates.name(p, am) for p in params)
         # RE binding rep step 1 → single Kd named :K1.
         @test rendered == Set([:K1])
 
-        # SS iso group with :OnlyR → Kfor + Krev pair.
+        # SS iso group with :OnlyA → Kfor + Krev pair.
         aem_ss = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:EqualRT, :OnlyR, :EqualRT)),
-            (((:I,), 1, (:OnlyT,)),),
+            cm, (2, (:EqualAI, :OnlyA, :EqualAI)),
+            (((:I,), 1, (:OnlyI,)),),
         )
         am_ss = EnzymeRates.AllostericMechanism(aem_ss)
-        ps = EnzymeRates._onlyR_parameters(am_ss)
+        ps = EnzymeRates._onlyA_parameters(am_ss)
         @test length(ps) == 2
         rendered_ss = Set(EnzymeRates.name(p, am_ss) for p in ps)
         # SS iso rep step 2 → :k2f + :k2r pair.
         @test rendered_ss == Set([:k2f, :k2r])
 
-        # No :OnlyR groups → empty.
+        # No :OnlyA groups → empty.
         aem_none = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:EqualRT, :EqualRT, :EqualRT)),
-            (((:I,), 1, (:OnlyT,)),),
+            cm, (2, (:EqualAI, :EqualAI, :EqualAI)),
+            (((:I,), 1, (:OnlyI,)),),
         )
-        @test isempty(EnzymeRates._onlyR_parameters(
+        @test isempty(EnzymeRates._onlyA_parameters(
             EnzymeRates.AllostericMechanism(aem_none)))
     end
 
-    @testset "_T_rename_parameters" begin
-        # Mix of :NonequalRT (rename), :EqualRT (skip), :OnlyR (skip).
+    @testset "_I_rename_parameters" begin
+        # Mix of :NonequalAI (rename), :EqualAI (skip), :OnlyA (skip).
         aem = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalRT, :EqualRT, :NonequalRT)),
-            (((:I,), 1, (:OnlyT,)),),
+            cm, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
+            (((:I,), 1, (:OnlyI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
-        rename = EnzymeRates._T_rename_parameters(am)
+        rename = EnzymeRates._I_rename_parameters(am)
 
         rendered = Dict{Symbol, Symbol}()
         for (r_p, t_p) in rename
             rendered[EnzymeRates.name(r_p, am)] =
                 EnzymeRates.name(t_p, am)
         end
-        # Groups 1 (rep=1) and 3 (rep=3) are :NonequalRT RE bindings →
-        # Kd(rep, :R) → Kd(rep, :T) for each. Group 2 (rep=2) is :EqualRT
+        # Groups 1 (rep=1) and 3 (rep=3) are :NonequalAI RE bindings →
+        # Kd(rep, :A) → Kd(rep, :I) for each. Group 2 (rep=2) is :EqualAI
         # and is skipped.
         @test rendered == Dict(:K1 => :K1_T, :K3 => :K3_T)
 
-        # Empty case: no :NonequalRT groups → empty rename.
+        # Empty case: no :NonequalAI groups → empty rename.
         aem_none = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:OnlyR, :EqualRT, :EqualRT)),
-            (((:I,), 1, (:OnlyT,)),),
+            cm, (2, (:OnlyA, :EqualAI, :EqualAI)),
+            (((:I,), 1, (:OnlyI,)),),
         )
-        @test isempty(EnzymeRates._T_rename_parameters(
+        @test isempty(EnzymeRates._I_rename_parameters(
             EnzymeRates.AllostericMechanism(aem_none)))
     end
 
-    @testset "_all_t_state_parameters" begin
-        # :NonequalRT cat group + :NonequalRT reg ligand → both contribute.
+    @testset "_all_i_state_parameters" begin
+        # :NonequalAI cat group + :NonequalAI reg ligand → both contribute.
         aem = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalRT, :EqualRT, :NonequalRT)),
-            (((:R,), 1, (:NonequalRT,)),),
+            cm, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
+            (((:R,), 1, (:NonequalAI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
-        params = EnzymeRates._all_t_state_parameters(am)
+        params = EnzymeRates._all_i_state_parameters(am)
         rendered = [EnzymeRates.name(p, am) for p in params]
 
-        # Catalytic side: every non-:OnlyR group contributes a T-state
+        # Catalytic side: every non-:OnlyA group contributes a T-state
         # parameter (Kd/Kiso for RE, Kfor/Krev for SS).
         @test :K1_T in rendered
         @test :k2f_T in rendered
         @test :k2r_T in rendered
         @test :K3_T in rendered
-        # Regulator side: :R is :NonequalRT → K_R_T_reg1 appears.
+        # Regulator side: :R is :NonequalAI → K_R_T_reg1 appears.
         @test :K_R_T_reg1 in rendered
 
-        # :OnlyR cat group + :OnlyR reg ligand are skipped.
+        # :OnlyA cat group + :OnlyA reg ligand are skipped.
         aem_skip = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:OnlyR, :NonequalRT, :EqualRT)),
-            (((:R,), 1, (:OnlyR,)),),
+            cm, (2, (:OnlyA, :NonequalAI, :EqualAI)),
+            (((:R,), 1, (:OnlyA,)),),
         )
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
         rendered_skip = [EnzymeRates.name(p, am_skip)
-                         for p in EnzymeRates._all_t_state_parameters(am_skip)]
-        @test :K1_T ∉ rendered_skip          # :OnlyR cat group skipped
-        @test :k2f_T in rendered_skip        # :NonequalRT SS iso emits both
+                         for p in EnzymeRates._all_i_state_parameters(am_skip)]
+        @test :K1_T ∉ rendered_skip          # :OnlyA cat group skipped
+        @test :k2f_T in rendered_skip        # :NonequalAI SS iso emits both
         @test :k2r_T in rendered_skip
-        @test :K_R_T_reg1 ∉ rendered_skip    # :OnlyR reg ligand skipped
+        @test :K_R_T_reg1 ∉ rendered_skip    # :OnlyA reg ligand skipped
     end
 end

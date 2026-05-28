@@ -24,9 +24,9 @@ Return the parameter names required for the given mode as a tuple of Symbols.
   `AllostericEnzymeMechanism`.
 - `Full`: all raw rate-constant symbols + E_total. For
   `EnzymeMechanism` this is "all 2N k's + E_total." For
-  `AllostericEnzymeMechanism` it composes the catalytic raw R-state
-  symbols + every T-state mirror (catalytic + regulatory + synthesized
-  dep) + reg-site R-state K's (skipping `:OnlyT` ligands) + `:L` +
+  `AllostericEnzymeMechanism` it composes the catalytic raw A-state
+  symbols + every I-state mirror (catalytic + regulatory + synthesized
+  dep) + reg-site A-state K's (skipping `:OnlyI` ligands) + `:L` +
   `:E_total`. The allosteric Full mode is used as a name source by the
   rate-equation canonicalizer in `identify_rate_equation`; no
   `rate_equation` method is defined for
@@ -61,12 +61,12 @@ end
     params = _enumerate_parameters_full_allosteric(am)
     names = Symbol[name(p, am) for p in params]
 
-    # Synthesized-dep T-symbols are constraint LHSes the rate-equation
-    # body emits when a non-`:NonequalRT`-tagged dep's RHS references a
-    # `:NonequalRT` symbol. They have no Parameter-struct rep (the LHS
+    # Synthesized-dep I-symbols are constraint LHSes the rate-equation
+    # body emits when a non-`:NonequalAI`-tagged dep's RHS references a
+    # `:NonequalAI` symbol. They have no Parameter-struct rep (the LHS
     # is a derived dep name, not a base k/K/Kreg), so they're produced
     # Symbol-level. Spliced just before the first Kreg / Lallo so they
-    # land between catalytic-T mirrors and reg-T mirrors in the output
+    # land between catalytic-I mirrors and reg-I mirrors in the output
     # tuple.
     synth_names = _synthesized_dep_t_names(typeof(catalytic_mechanism(aem)),
                                             am)
@@ -680,7 +680,7 @@ end
 function _ss_rate_constant_names(em::AllostericEnzymeMechanism)
     am = AllostericMechanism(em)
     r_names = _ss_rate_constant_names(catalytic_mechanism(em))
-    t_names = Set{Symbol}(name(p, am) for p in _all_t_state_parameters(am)
+    t_names = Set{Symbol}(name(p, am) for p in _all_i_state_parameters(am)
                           if p isa Union{Kon, Koff, Kfor, Krev})
     union(r_names, t_names)
 end
@@ -792,19 +792,19 @@ corners and return the max.
     am  = AllostericMechanism(aem)
     CatN = catalytic_multiplicity(am)
 
-    # Build R-state and T-state polynomials separately so the saturating
-    # metabolite pattern can be matched across conformations. T-state zeros
-    # `:OnlyR` k symbols at the polynomial level — patterns that only exist
-    # via an `:OnlyR` step (e.g. an `:OnlyR` substrate-binding K) drop out
-    # of T-state, so their `(num_k_T, den_k_T)` are 0 and the T-state
+    # Build A-state and I-state polynomials separately so the saturating
+    # metabolite pattern can be matched across conformations. I-state zeros
+    # `:OnlyA` k symbols at the polynomial level — patterns that only exist
+    # via an `:OnlyA` step (e.g. an `:OnlyA` substrate-binding K) drop out
+    # of I-state, so their `(num_k_I, den_k_I)` are 0 and the I-state
     # contribution at saturation vanishes.
     num_R_poly, den_R_poly = _raw_symbolic_rate_polys(CM)
-    r_only_syms = Set{Symbol}(name(p, am) for p in _onlyR_parameters(am))
+    r_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
     rename_T = Dict{Symbol, Symbol}(
         name(p_R, am) => name(p_T, am)
-        for (p_R, p_T) in _T_rename_parameters(am))
-    # Pass 2: dep RHSes referencing a `:NonequalRT` symbol pick up a
-    # T-state name. Mirrors `_dependent_param_exprs` Stage 4.2 logic.
+        for (p_R, p_T) in _I_rename_parameters(am))
+    # Pass 2: dep RHSes referencing a `:NonequalAI` symbol pick up an
+    # I-state name. Mirrors `_dependent_param_exprs` Stage 4.2 logic.
     dep_R_all, _ = _dependent_param_exprs(CM)
     renamed_set = Set{Symbol}(keys(rename_T))
     for (k, v) in dep_R_all
@@ -825,7 +825,7 @@ corners and return the max.
     # since polynomial monomials only contain base k/K symbols.
     t_param_names = union(
         r_param_names,
-        Set{Symbol}(name(p, am) for p in _all_t_state_parameters(am)
+        Set{Symbol}(name(p, am) for p in _all_i_state_parameters(am)
                     if !(p isa Kreg)))
     num_R_groups, den_R_groups =
         _kcat_groups_from_polys(num_R_poly, den_R_poly, r_param_names)
@@ -925,15 +925,15 @@ corners and return the max.
             sat_terms_T = Any[]
             for (lig, tag) in zip(site.ligands, site.allo_states)
                 if (mask >> lig_idx[lig]) & 1 == 1
-                    if tag !== :OnlyT
-                        K_R_sym = name(Kreg(site, lig, :R), am)
+                    if tag !== :OnlyI
+                        K_R_sym = name(Kreg(site, lig, :A), am)
                         push!(sat_terms_R, :(inv($K_R_sym)))
                     end
-                    if tag !== :OnlyR
-                        # `:EqualRT` ligands share the R-state symbol; the
-                        # body emits an `:EqualRT` ligand's T-state slot
-                        # via the R-state name (no `_T` rename).
-                        K_T_state = tag === :EqualRT ? :R : :T
+                    if tag !== :OnlyA
+                        # `:EqualAI` ligands share the A-state symbol; the
+                        # body emits an `:EqualAI` ligand's I-state slot
+                        # via the A-state name (no `_T` rename).
+                        K_T_state = tag === :EqualAI ? :A : :I
                         K_T_sym = name(Kreg(site, lig, K_T_state), am)
                         push!(sat_terms_T, :(inv($K_T_sym)))
                     end
@@ -1018,40 +1018,40 @@ end
 # ═══════════════════════════════════════════════════════════════════
 
 """
-The T-state catalytic cycle cannot close — and therefore both forward
-and reverse net flux vanish — when any `:OnlyR` kinetic group is
+The I-state catalytic cycle cannot close — and therefore both forward
+and reverse net flux vanish — when any `:OnlyA` kinetic group is
 present. The Cha polynomial-zeroing approach kills only one half of
-the catalytic flux (forward for substrate-OnlyR, reverse for
-product-OnlyR), leaving the other half non-zero at chemical
-equilibrium. Forcing `N_T = 0` ensures Haldane consistency. Used by
+the catalytic flux (forward for substrate-OnlyA, reverse for
+product-OnlyA), leaving the other half non-zero at chemical
+equilibrium. Forcing `N_I = 0` ensures Haldane consistency. Used by
 both `rate_equation` (via `_allosteric_num_den_exprs`) and
 `_kcat_forward`.
 """
 function _t_state_dead(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
-    any(cat_allo_state(m, g) == :OnlyR for g in kinetic_groups(cm))
+    any(cat_allo_state(m, g) == :OnlyA for g in kinetic_groups(cm))
 end
 
 """
-Catalytic-cycle `Parameter`s zeroed in the T-state branch (one entry per
-`:OnlyR` kinetic group). Per kinetic group, the representative step's
+Catalytic-cycle `Parameter`s zeroed in the I-state branch (one entry per
+`:OnlyA` kinetic group). Per kinetic group, the representative step's
 binding/iso × equilibrium/steady-state pair determines the emitted
 parameter type(s).
 """
-function _onlyR_parameters(am::AllostericMechanism)
+function _onlyA_parameters(am::AllostericMechanism)
     out = Parameter[]
     for (g, group) in enumerate(steps(am))
-        cat_allo_state(am, g) === :OnlyR || continue
+        cat_allo_state(am, g) === :OnlyA || continue
         rep = first(group)
         if is_equilibrium(rep)
-            push!(out, is_binding(rep) ? Kd(rep, :R) : Kiso(rep, :R))
+            push!(out, is_binding(rep) ? Kd(rep, :A) : Kiso(rep, :A))
         else
             if is_binding(rep)
-                push!(out, Kon(rep, :R))
-                push!(out, Koff(rep, :R))
+                push!(out, Kon(rep, :A))
+                push!(out, Koff(rep, :A))
             else
-                push!(out, Kfor(rep, :R))
-                push!(out, Krev(rep, :R))
+                push!(out, Kfor(rep, :A))
+                push!(out, Krev(rep, :A))
             end
         end
     end
@@ -1059,30 +1059,30 @@ function _onlyR_parameters(am::AllostericMechanism)
 end
 
 """
-R→T rename map for `:NonequalRT` kinetic groups — `Parameter` form. Maps
-each R-state catalytic Parameter to its T-state counterpart. Synthesized
-dep T-symbols (whose RHS references a renamed `:NonequalRT` symbol) are
+A→I rename map for `:NonequalAI` kinetic groups — `Parameter` form. Maps
+each A-state catalytic Parameter to its I-state counterpart. Synthesized
+dep I-symbols (whose RHS references a renamed `:NonequalAI` symbol) are
 emitted Symbol-level by the dep-assignment machinery; they have no
 Parameter representation.
 """
-function _T_rename_parameters(am::AllostericMechanism)
+function _I_rename_parameters(am::AllostericMechanism)
     rename = Dict{Parameter, Parameter}()
     for (g, group) in enumerate(steps(am))
-        cat_allo_state(am, g) === :NonequalRT || continue
+        cat_allo_state(am, g) === :NonequalAI || continue
         rep = first(group)
         if is_equilibrium(rep)
             if is_binding(rep)
-                rename[Kd(rep, :R)] = Kd(rep, :T)
+                rename[Kd(rep, :A)] = Kd(rep, :I)
             else
-                rename[Kiso(rep, :R)] = Kiso(rep, :T)
+                rename[Kiso(rep, :A)] = Kiso(rep, :I)
             end
         else
             if is_binding(rep)
-                rename[Kon(rep, :R)]  = Kon(rep, :T)
-                rename[Koff(rep, :R)] = Koff(rep, :T)
+                rename[Kon(rep, :A)]  = Kon(rep, :I)
+                rename[Koff(rep, :A)] = Koff(rep, :I)
             else
-                rename[Kfor(rep, :R)] = Kfor(rep, :T)
-                rename[Krev(rep, :R)] = Krev(rep, :T)
+                rename[Kfor(rep, :A)] = Kfor(rep, :I)
+                rename[Krev(rep, :A)] = Krev(rep, :I)
             end
         end
     end
@@ -1090,35 +1090,35 @@ function _T_rename_parameters(am::AllostericMechanism)
 end
 
 """
-All T-state `Parameter`s the rate-equation body emits as constraint LHSes
-— `Parameter` form. Catalytic groups: every non-`:OnlyR` group
-contributes T-state Parameter(s) for its rep step (`Kd`/`Kiso`/`Kon`+
-`Koff`/`Kfor`+`Krev`). Regulator sites: every non-`:OnlyR` ligand
-contributes a T-state `Kreg`. Synthesized-dep T-mirrors (deps whose RHS
-references a `:NonequalRT` symbol) belong to dep-parameter machinery and
+All I-state `Parameter`s the rate-equation body emits as constraint LHSes
+— `Parameter` form. Catalytic groups: every non-`:OnlyA` group
+contributes I-state Parameter(s) for its rep step (`Kd`/`Kiso`/`Kon`+
+`Koff`/`Kfor`+`Krev`). Regulator sites: every non-`:OnlyA` ligand
+contributes an I-state `Kreg`. Synthesized-dep I-mirrors (deps whose RHS
+references a `:NonequalAI` symbol) belong to dep-parameter machinery and
 are emitted Symbol-level by the dep-assignment builder.
 """
-function _all_t_state_parameters(am::AllostericMechanism)
+function _all_i_state_parameters(am::AllostericMechanism)
     out = Parameter[]
     for (g, group) in enumerate(steps(am))
-        cat_allo_state(am, g) === :OnlyR && continue
+        cat_allo_state(am, g) === :OnlyA && continue
         rep = first(group)
         if is_equilibrium(rep)
-            push!(out, is_binding(rep) ? Kd(rep, :T) : Kiso(rep, :T))
+            push!(out, is_binding(rep) ? Kd(rep, :I) : Kiso(rep, :I))
         else
             if is_binding(rep)
-                push!(out, Kon(rep, :T))
-                push!(out, Koff(rep, :T))
+                push!(out, Kon(rep, :I))
+                push!(out, Koff(rep, :I))
             else
-                push!(out, Kfor(rep, :T))
-                push!(out, Krev(rep, :T))
+                push!(out, Kfor(rep, :I))
+                push!(out, Krev(rep, :I))
             end
         end
     end
     for site in regulatory_sites(am)
         for (lig, tag) in zip(ligands(site), allo_states(site))
-            tag === :OnlyR && continue
-            push!(out, Kreg(site, lig, :T))
+            tag === :OnlyA && continue
+            push!(out, Kreg(site, lig, :I))
         end
     end
     out
@@ -1128,22 +1128,22 @@ end
 Enumerate every raw rate-constant `Parameter` for an `AllostericMechanism`
 that the canonicalizer needs as a rename source. Order is:
 
-1. Catalytic R-state Parameter per kinetic group (every group). `:OnlyR`
-   and `:NonequalRT` use `state = :R`; `:EqualRT` uses `state = :None`
-   because the symbol is shared with the T-state branch (the chokepoint
+1. Catalytic A-state Parameter per kinetic group (every group). `:OnlyA`
+   and `:NonequalAI` use `state = :A`; `:EqualAI` uses `state = :EqualAI`
+   because the symbol is shared with the I-state branch (the chokepoint
    `name(p, m)` renders both to the same `Symbol`).
-2. Catalytic T-state mirrors via `_all_t_state_parameters` (skips
-   `:OnlyR` groups).
-3. Reg-site `Kreg(site, lig, :T)` and `Kreg(site, lig, :R)` per ligand
-   (the T-state set skips `:OnlyR` ligands; the R-state set skips
-   `:OnlyT` ligands).
+2. Catalytic I-state mirrors via `_all_i_state_parameters` (skips
+   `:OnlyA` groups).
+3. Reg-site `Kreg(site, lig, :I)` and `Kreg(site, lig, :A)` per ligand
+   (the I-state set skips `:OnlyA` ligands; the A-state set skips
+   `:OnlyI` ligands).
 4. `Lallo()` for the MWC coupling `L`.
 
-Synthesized-dep T-symbols (derived deps whose RHS references a
-`:NonequalRT` symbol) are NOT included — they have no Parameter
+Synthesized-dep I-symbols (derived deps whose RHS references a
+`:NonequalAI` symbol) are NOT included — they have no Parameter
 representation and are emitted Symbol-level by the caller.
 
-Non-appearing names (e.g., a catalytic T-state mirror that's elided in
+Non-appearing names (e.g., a catalytic I-state mirror that's elided in
 a `t_state_dead` mechanism) are harmless to include: downstream
 `_expr_canonical_via_name_map` only substitutes Symbols that actually
 appear in the rate-equation Exprs, so unused name_map entries are
@@ -1153,7 +1153,7 @@ function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
     out = Parameter[]
     for (g, group) in enumerate(steps(am))
         rep = first(group)
-        st = cat_allo_state(am, g) === :EqualRT ? :None : :R
+        st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
         if is_equilibrium(rep)
             push!(out, is_binding(rep) ? Kd(rep, st) : Kiso(rep, st))
         else
@@ -1166,11 +1166,11 @@ function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
             end
         end
     end
-    append!(out, _all_t_state_parameters(am))
+    append!(out, _all_i_state_parameters(am))
     for site in regulatory_sites(am)
         for (lig, tag) in zip(ligands(site), allo_states(site))
-            tag === :OnlyT && continue
-            push!(out, Kreg(site, lig, :R))
+            tag === :OnlyI && continue
+            push!(out, Kreg(site, lig, :A))
         end
     end
     push!(out, Lallo())
@@ -1178,31 +1178,31 @@ function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
 end
 
 """
-Synthesized T-state dep-symbol names emitted as constraint LHSes by the
-rate-equation body whenever a non-`:NonequalRT`-tagged dep symbol's RHS
-references a `:NonequalRT` catalytic symbol. These symbols have no
+Synthesized I-state dep-symbol names emitted as constraint LHSes by the
+rate-equation body whenever a non-`:NonequalAI`-tagged dep symbol's RHS
+references a `:NonequalAI` catalytic symbol. These symbols have no
 Parameter struct representation (they're derived deps from
 Wegscheider/Haldane elimination, not base k/K/Kreg), so they are
 produced Symbol-level. Used by `parameters(Full)` to ensure the
 canonicalizer's rename source covers them.
 
-When the T-state cycle is dead (any `:OnlyR` catalytic group present)
-the rate-equation body elides every T-state constraint assignment, so
-synthesized dep T-names never appear in the body and need not be
+When the I-state cycle is dead (any `:OnlyA` catalytic group present)
+the rate-equation body elides every I-state constraint assignment, so
+synthesized dep I-names never appear in the body and need not be
 emitted here.
 """
 function _synthesized_dep_t_names(::Type{CM}, am::AllostericMechanism,
                                   ) where {CM <: EnzymeMechanism}
-    any(cat_allo_state(am, g) === :OnlyR for g in 1:length(steps(am))) &&
+    any(cat_allo_state(am, g) === :OnlyA for g in 1:length(steps(am))) &&
         return Symbol[]
     dep_R_all, _ = _dependent_param_exprs(CM)
-    nonequalrt_set = Set{Symbol}(
-        name(p, am) for (p, _) in _T_rename_parameters(am))
-    isempty(nonequalrt_set) && return Symbol[]
+    nonequalai_set = Set{Symbol}(
+        name(p, am) for (p, _) in _I_rename_parameters(am))
+    isempty(nonequalai_set) && return Symbol[]
     names = Symbol[]
     for (k, v) in sort(collect(dep_R_all); by=first)
-        k in nonequalrt_set && continue
-        _expr_references_any(v, nonequalrt_set) || continue
+        k in nonequalai_set && continue
+        _expr_references_any(v, nonequalai_set) || continue
         push!(names, Symbol(string(k) * "_T"))
     end
     names
@@ -1214,14 +1214,14 @@ end
     _dependent_param_exprs(M::Type{<:AllostericEnzymeMechanism})
 
 Return `(dep_exprs, indep_params)` for an AllostericEnzymeMechanism.
-R-state expressions come from `_dependent_param_exprs(CM)`; T-state entries
-copy R with `_T` rename, with per-group filtering (`:OnlyR` zeroed in T,
-`:EqualRT` shares R symbol).
+A-state expressions come from `_dependent_param_exprs(CM)`; I-state entries
+copy A with `_T` rename, with per-group filtering (`:OnlyA` zeroed in I,
+`:EqualAI` shares A symbol).
 Adds reg site params and L to indep.
 
 Parameter Symbol production routes through `name(p, am)` (chokepoint),
 walking `Kd/Kiso/Kon/Koff/Kfor/Krev`/`Kreg` structs via the
-`_onlyR_parameters` / `_T_rename_parameters` helpers. RHS expression
+`_onlyA_parameters` / `_I_rename_parameters` helpers. RHS expression
 substitution stays Symbol-keyed because dep RHSes are `Expr` trees the
 substitution machinery walks at Symbol level.
 """
@@ -1232,21 +1232,21 @@ function _dependent_param_exprs(
     am  = AllostericMechanism(aem)
     dep_R_all, indep_R_all = _dependent_param_exprs(CM)
 
-    r_only_syms = Set{Symbol}(name(p, am) for p in _onlyR_parameters(am))
+    r_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
 
     dep_R = Dict{Symbol, Union{Symbol, Expr}}(dep_R_all)
     indep_R = collect(indep_R_all)
 
-    # Pass 1: base T-rename for `:NonequalRT` catalytic-group Parameters.
+    # Pass 1: base I-rename for `:NonequalAI` catalytic-group Parameters.
     rename_T = Dict{Symbol, Symbol}(
         name(p_R, am) => name(p_T, am)
-        for (p_R, p_T) in _T_rename_parameters(am)
+        for (p_R, p_T) in _I_rename_parameters(am)
     )
-    # Pass 2: dep RHSes whose expression references a `:NonequalRT`
-    # symbol need their own T-state name. Mirrors the second pass in
+    # Pass 2: dep RHSes whose expression references a `:NonequalAI`
+    # symbol need their own I-state name. Mirrors the second pass in
     # `_build_dep_assignments`: after Gaussian elimination, dep RHSes
     # reference only independent params, so a single non-iterating pass
-    # suffices. Synthesized dep T-names have no Parameter-struct rep
+    # suffices. Synthesized dep I-names have no Parameter-struct rep
     # (they're derived deps from Wegscheider/Haldane elimination, not
     # base k/K/Kreg), so the `_T` suffix is appended directly.
     renamed_set = Set{Symbol}(keys(rename_T))
@@ -1261,11 +1261,11 @@ function _dependent_param_exprs(
     dep_T = Dict{Symbol, Union{Symbol, Expr}}()
     indep_T_list = Symbol[]
 
-    # Generate T-state dep entries for every R-state dep that has a
-    # T-state version per `rename_T`. Covers both Case A (dep symbol's
-    # catalytic group is `:NonequalRT` — the symbol itself is in
-    # rename_T) and Case B (dep symbol is `:EqualRT`-tagged but its RHS
-    # references a `:NonequalRT` symbol — Pass 2 above added the
+    # Generate I-state dep entries for every A-state dep that has an
+    # I-state version per `rename_T`. Covers both Case A (dep symbol's
+    # catalytic group is `:NonequalAI` — the symbol itself is in
+    # rename_T) and Case B (dep symbol is `:EqualAI`-tagged but its RHS
+    # references a `:NonequalAI` symbol — Pass 2 above added the
     # synthesized mapping).
     for (k, v) in dep_R_all
         _expr_references_any(v, r_only_syms) && continue
@@ -1274,23 +1274,23 @@ function _dependent_param_exprs(
         dep_T[t_k] = substitute_params_expr(v, rename_T)
     end
 
-    # When the T-state cycle is dead (any `:OnlyR` group), skip
-    # generating `:EqualRT` mirror entries (K1_T = K1, k5f_T = k5f,
+    # When the I-state cycle is dead (any `:OnlyA` group), skip
+    # generating `:EqualAI` mirror entries (K1_T = K1, k5f_T = k5f,
     # etc.). They're already elided from the rate equation body in
     # `_build_allosteric_rate_body`, so producing them here only
     # inflates `length(dep_exprs)`.
     #
     # Additionally: even when `t_state_dead_flag` is false, a
-    # `:NonequalRT` symbol `p` can be "phantom" — declared as
-    # `:NonequalRT` but whose underlying `p` only appears in R-state
-    # monomials that ALSO contain a `:OnlyR` symbol. Those monomials
-    # get zeroed in the T-state polynomial (via
-    # `_zero_symbols_in_poly`), so `p` never survives T-state masking
+    # `:NonequalAI` symbol `p` can be "phantom" — declared as
+    # `:NonequalAI` but whose underlying `p` only appears in A-state
+    # monomials that ALSO contain a `:OnlyA` symbol. Those monomials
+    # get zeroed in the I-state polynomial (via
+    # `_zero_symbols_in_poly`), so `p` never survives I-state masking
     # and its `_T`-suffixed name doesn't appear anywhere in the rate
     # equation body. Adding it to indep would expose a fittable
     # parameter the optimizer searches over but that has no effect on
     # the loss — pure dimension bloat. Filter against the set of
-    # symbols that actually survive into the T-state polynomial.
+    # symbols that actually survive into the I-state polynomial.
     num_R, den_R = _raw_symbolic_rate_polys(CM)
     t_state_survivors = _t_state_surviving_syms(num_R, den_R, r_only_syms)
     for p in indep_R_all
@@ -1310,12 +1310,12 @@ function _dependent_param_exprs(
     reg_params_t_indep = Symbol[]
     for site in regulatory_sites(am)
         for (lig, tag) in zip(ligands(site), allo_states(site))
-            K_R = name(Kreg(site, lig, :R), am)
-            K_T = name(Kreg(site, lig, :T), am)
-            tag === :OnlyT || push!(reg_params_r, K_R)
-            if tag === :EqualRT
+            K_R = name(Kreg(site, lig, :A), am)
+            K_T = name(Kreg(site, lig, :I), am)
+            tag === :OnlyI || push!(reg_params_r, K_R)
+            if tag === :EqualAI
                 dep_T[K_T] = K_R
-            elseif tag === :NonequalRT || tag === :OnlyT
+            elseif tag === :NonequalAI || tag === :OnlyI
                 push!(reg_params_t_indep, K_T)
             end
         end
@@ -1333,21 +1333,21 @@ end
 # ─── Rate body building helpers ───────────────────────────────────
 
 """Build the regulatory site partition function expression: 1 + lig/K_lig_reg_i + ...
-Skips ligands absent from the given conformation (`:OnlyR` in T-state, `:OnlyT`
-in R-state). Uses the R-state K symbol when the ligand tag is `:EqualRT`.
+Skips ligands absent from the given conformation (`:OnlyA` in I-state, `:OnlyI`
+in A-state). Uses the A-state K symbol when the ligand tag is `:EqualAI`.
 Renders K-names via the `name(::Kreg, am)` chokepoint."""
 function _reg_site_expr(am::AllostericMechanism, site_idx::Int, T_state::Bool)
     site = regulatory_sites(am)[site_idx]
     terms = Any[1]
     for (lig, tag) in zip(ligands(site), allo_states(site))
         if T_state
-            tag === :OnlyR && continue
+            tag === :OnlyA && continue
         else
-            tag === :OnlyT && continue
+            tag === :OnlyI && continue
         end
-        # `:EqualRT` ligands share the R-state symbol in both conformations;
-        # `:NonequalRT` / `:OnlyT` ligands carry a distinct T-state K name.
-        state = (T_state && tag in (:NonequalRT, :OnlyT)) ? :T : :R
+        # `:EqualAI` ligands share the A-state symbol in both conformations;
+        # `:NonequalAI` / `:OnlyI` ligands carry a distinct I-state K name.
+        state = (T_state && tag in (:NonequalAI, :OnlyI)) ? :I : :A
         K_sym = name(Kreg(site, lig, state), am)
         push!(terms, :($(name(lig)) / $K_sym))
     end
@@ -1367,12 +1367,12 @@ Returns `(r_assignments::Vector{Expr}, t_assignments::Vector{Expr})`.
 Shared by `_build_allosteric_rate_body` and `rate_equation_string`.
 
 Routes all parameter Symbol production through the `name(p, am)`
-chokepoint via `_onlyR_parameters`, `_T_rename_parameters`, and
-`_all_t_state_parameters`. The set of T-state assignment LHSes that get
+chokepoint via `_onlyA_parameters`, `_I_rename_parameters`, and
+`_all_i_state_parameters`. The set of I-state assignment LHSes that get
 emitted for catalytic dep symbols mirrors the catalytic side of
-`_all_t_state_parameters` plus synthesized dep T-names (derived deps
-referencing a `:NonequalRT` symbol). When the T-state cycle is dead,
-synthesized dep T-names are elided here for the same reason the caller
+`_all_i_state_parameters` plus synthesized dep I-names (derived deps
+referencing a `:NonequalAI` symbol). When the I-state cycle is dead,
+synthesized dep I-names are elided here for the same reason the caller
 elides `t_assignments` entirely in that case.
 """
 function _build_dep_assignments(
@@ -1385,13 +1385,13 @@ function _build_dep_assignments(
     dep_R, indep_R = _dependent_param_exprs(CM)
     sorted_deps = sort(collect(dep_R); by=first)
 
-    r_only_syms = Set{Symbol}(name(p, am) for p in _onlyR_parameters(am))
-    # Pass 1: base T-rename for `:NonequalRT` catalytic-group Parameters.
+    r_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
+    # Pass 1: base I-rename for `:NonequalAI` catalytic-group Parameters.
     rename_T = Dict{Symbol, Symbol}(
         name(p_R, am) => name(p_T, am)
-        for (p_R, p_T) in _T_rename_parameters(am))
-    # Pass 2: dep RHSes referencing a `:NonequalRT` symbol need their own
-    # T-state name. Mirrors `_dependent_param_exprs` Stage 4.2 logic; the
+        for (p_R, p_T) in _I_rename_parameters(am))
+    # Pass 2: dep RHSes referencing a `:NonequalAI` symbol need their own
+    # I-state name. Mirrors `_dependent_param_exprs` Stage 4.2 logic; the
     # synthesized entries here are the same ones the rate-equation body
     # consumes via `t_names_set`.
     renamed_set = Set{Symbol}(keys(rename_T))
@@ -1402,38 +1402,38 @@ function _build_dep_assignments(
     end
     T_subs = rename_T
 
-    # Catalytic T-state dep-symbol filter: a catalytic dep gets a T-state
-    # assignment if its T-mirror name appears among the catalytic T-state
-    # Parameters (every non-`:OnlyR` group when alive; only `:NonequalRT`
-    # groups when t_dead — `:EqualRT` groups share the R-state symbol so
+    # Catalytic I-state dep-symbol filter: a catalytic dep gets an I-state
+    # assignment if its I-mirror name appears among the catalytic I-state
+    # Parameters (every non-`:OnlyA` group when alive; only `:NonequalAI`
+    # groups when t_dead — `:EqualAI` groups share the A-state symbol so
     # emit no constraint mirror) OR was synthesized in Pass 2 above
-    # (covers `:EqualRT` deps whose RHS references a `:NonequalRT`
+    # (covers `:EqualAI` deps whose RHS references a `:NonequalAI`
     # symbol). When t_dead, synthesized entries are elided since the
     # caller elides `t_assignments` entirely in that case.
     t_dead = _t_state_dead(m)
     t_names_set = Set{Symbol}()
     for (g, group) in enumerate(steps(am))
         tag = cat_allo_state(am, g)
-        tag === :OnlyR && continue
-        t_dead && tag !== :NonequalRT && continue
+        tag === :OnlyA && continue
+        t_dead && tag !== :NonequalAI && continue
         rep = first(group)
         if is_equilibrium(rep)
             push!(t_names_set,
-                  name(is_binding(rep) ? Kd(rep, :T) : Kiso(rep, :T), am))
+                  name(is_binding(rep) ? Kd(rep, :I) : Kiso(rep, :I), am))
         else
             if is_binding(rep)
-                push!(t_names_set, name(Kon(rep, :T), am))
-                push!(t_names_set, name(Koff(rep, :T), am))
+                push!(t_names_set, name(Kon(rep, :I), am))
+                push!(t_names_set, name(Koff(rep, :I), am))
             else
-                push!(t_names_set, name(Kfor(rep, :T), am))
-                push!(t_names_set, name(Krev(rep, :T), am))
+                push!(t_names_set, name(Kfor(rep, :I), am))
+                push!(t_names_set, name(Krev(rep, :I), am))
             end
         end
     end
     if !t_dead
-        # Synthesized dep T-names: catalytic deps whose RHS references a
-        # `:NonequalRT` symbol but whose own catalytic group is NOT
-        # `:NonequalRT`. They are entries `rename_T[k]` where `k` was
+        # Synthesized dep I-names: catalytic deps whose RHS references a
+        # `:NonequalAI` symbol but whose own catalytic group is NOT
+        # `:NonequalAI`. They are entries `rename_T[k]` where `k` was
         # added in the Pass-2 loop above (i.e., not in the original
         # `renamed_set`).
         for (k, v) in rename_T
@@ -1446,29 +1446,29 @@ function _build_dep_assignments(
 
     t_assignments = Expr[]
 
-    # `:EqualRT` independent catalytic params: p_T = p_R
+    # `:EqualAI` independent catalytic params: p_T = p_A
     # (must come before dep assignments that reference them)
     for p in indep_R
         p ∈ r_only_syms && continue
-        haskey(rename_T, p) && continue  # NonequalRT — handled below
+        haskey(rename_T, p) && continue  # NonequalAI — handled below
         push!(t_assignments, Expr(:(=), Symbol(string(p) * "_T"), p))
     end
 
-    # `:EqualRT` reg params: K_T_reg = K_R_reg. Routes through `Kreg`
+    # `:EqualAI` reg params: K_T_reg = K_A_reg. Routes through `Kreg`
     # chokepoint so the symbol scheme stays in one place.
     for site in regulatory_sites(am)
         for (lig, tag) in zip(ligands(site), allo_states(site))
-            tag === :EqualRT || continue
+            tag === :EqualAI || continue
             push!(t_assignments,
-                  Expr(:(=), name(Kreg(site, lig, :T), am),
-                             name(Kreg(site, lig, :R), am)))
+                  Expr(:(=), name(Kreg(site, lig, :I), am),
+                             name(Kreg(site, lig, :A), am)))
         end
     end
 
-    # Emit a T-state assignment for every dep with a T-state name in
-    # `t_names_set`. Covers both `:NonequalRT`-tagged dep symbols (Case A)
-    # and synthesized T-names for `:EqualRT`-tagged derived deps whose
-    # RHS references a `:NonequalRT` symbol (Case B).
+    # Emit an I-state assignment for every dep with an I-state name in
+    # `t_names_set`. Covers both `:NonequalAI`-tagged dep symbols (Case A)
+    # and synthesized I-names for `:EqualAI`-tagged derived deps whose
+    # RHS references a `:NonequalAI` symbol (Case B).
     for (sym, expr_kd) in sorted_deps
         t_sym = Symbol(string(sym) * "_T")
         t_sym in t_names_set || continue
@@ -1499,13 +1499,13 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     cat_params = Set{Symbol}(_raw_param_symbols(CM()))
     cat_mets = Set{Symbol}(metabolites(CM()))
 
-    r_only_syms = Set{Symbol}(name(p, am) for p in _onlyR_parameters(am))
-    # Pass 1: base T-rename for `:NonequalRT` catalytic-group Parameters.
+    r_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
+    # Pass 1: base I-rename for `:NonequalAI` catalytic-group Parameters.
     rename_T = Dict{Symbol, Symbol}(
         name(p_R, am) => name(p_T, am)
-        for (p_R, p_T) in _T_rename_parameters(am))
-    # Pass 2: dep RHSes referencing a `:NonequalRT` symbol need their own
-    # T-state name so the polynomial rename covers synthesized deps.
+        for (p_R, p_T) in _I_rename_parameters(am))
+    # Pass 2: dep RHSes referencing a `:NonequalAI` symbol need their own
+    # I-state name so the polynomial rename covers synthesized deps.
     # Mirrors the second pass in `_dependent_param_exprs` (Stage 4.2).
     dep_R_all, _ = _dependent_param_exprs(CM)
     renamed_set = Set{Symbol}(keys(rename_T))
@@ -1518,11 +1518,11 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     N_R = _poly_to_expr(num_R_poly, cat_params, cat_mets)
     Q_R = _poly_to_expr(den_R_poly, cat_params, cat_mets)
 
-    # T-state catalytic Exprs.
-    # Zero `:OnlyR` symbols at POLY level, then rename `:NonequalRT`
-    # symbols to T-suffixed counterparts. `:EqualRT` symbols pass through
-    # unchanged (R-state binding) and resolve through dep-param assignments.
-    # When the T-state cycle is broken, force N_T = 0: the Cha framework
+    # I-state catalytic Exprs.
+    # Zero `:OnlyA` symbols at POLY level, then rename `:NonequalAI`
+    # symbols to I-suffixed counterparts. `:EqualAI` symbols pass through
+    # unchanged (A-state binding) and resolve through dep-param assignments.
+    # When the I-state cycle is broken, force N_I = 0: the Cha framework
     # otherwise produces a non-physical reverse flux from products that
     # have nowhere to go.
     num_t_poly = _rename_symbols(
@@ -1578,9 +1578,9 @@ function _build_allosteric_rate_body(M_type::Type{<:AllostericEnzymeMechanism})
     rate_expr = :(E_total * ($full_num) / ($full_den))
 
     r_assignments, t_assignments_ = _build_dep_assignments(M_type)
-    # When the T-state cycle is broken, t_assignments (T-state Haldanes
-    # and :EqualRT catalytic mirrors K_T = K) become dead code — they're
-    # only referenced from the L*num_T branch, which is now elided.
+    # When the I-state cycle is broken, t_assignments (I-state Haldanes
+    # and :EqualAI catalytic mirrors K_T = K) become dead code — they're
+    # only referenced from the L*num_I branch, which is now elided.
     t_assignments = _t_state_dead(M_type()) ? Expr[] : t_assignments_
 
     _, indep = _dependent_param_exprs(M_type)

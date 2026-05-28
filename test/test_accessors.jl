@@ -108,9 +108,9 @@ end
         oligomeric_state: 2
     end
     base = first(EnzymeRates.init_mechanisms(rxn_allo))
-    cat_allo_states = fill(:NonequalRT, length(EnzymeRates.kinetic_groups(base)))
+    cat_allo_states = fill(:NonequalAI, length(EnzymeRates.kinetic_groups(base)))
     site = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:R)], 2, [:NonequalRT])
+        [EnzymeRates.AllostericRegulator(:R)], 2, [:NonequalAI])
     am = EnzymeRates.AllostericMechanism(
         EnzymeRates.reaction(base), copy(EnzymeRates.steps(base)),
         cat_allo_states, 2, [site])
@@ -141,9 +141,9 @@ end
         oligomeric_state: 2
     end
     base = first(EnzymeRates.init_mechanisms(rxn))
-    cas = fill(:NonequalRT, length(EnzymeRates.kinetic_groups(base)))
+    cas = fill(:NonequalAI, length(EnzymeRates.kinetic_groups(base)))
     site = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:R)], 2, [:NonequalRT])
+        [EnzymeRates.AllostericRegulator(:R)], 2, [:NonequalAI])
     am = EnzymeRates.AllostericMechanism(
         EnzymeRates.reaction(base), copy(EnzymeRates.steps(base)), cas, 2, [site])
     @test EnzymeRates.cat_allo_states(am) == cas

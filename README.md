@@ -27,8 +27,8 @@ Pkg.add(url="https://github.com/DenisTitovLab/EnzymeRates.jl")
 
 The running example is a uni-uni reaction `S ⇌ P` catalyzed by an MWC
 homodimer with V-type allosteric activation. Substrate and product
-bind both conformations with the same affinity (`:EqualRT`), but only
-the R conformation catalyzes (`:OnlyR`); an allosteric activator `A`
+bind both conformations with the same affinity (`:EqualAI`), but only
+the R conformation catalyzes (`:OnlyA`); an allosteric activator `A`
 binds R preferentially and shifts the population from the catalytically
 silent T toward R.
 
@@ -39,12 +39,12 @@ m = @allosteric_mechanism begin
     substrates: S
     products:   P
     catalytic_multiplicity: 2
-    allosteric_regulators: A::OnlyR
+    allosteric_regulators: A::OnlyA
 
     catalytic_steps: begin
-        E + S ⇌ E(S)         :: EqualRT
-        E(S) <--> E(P)       :: OnlyR
-        E(P) ⇌ E + P         :: EqualRT
+        E + S ⇌ E(S)         :: EqualAI
+        E(S) <--> E(P)       :: OnlyA
+        E(P) ⇌ E + P         :: EqualAI
     end
 end
 ```
@@ -52,9 +52,9 @@ end
 The two `⇌` steps mark binding events at rapid equilibrium (one
 binding constant `K` per step); the `<-->` step marks a steady-state
 catalytic interconversion (independent forward and reverse rate
-constants `kf`, `kr`). The `::EqualRT` annotation says the
-corresponding K is shared between R and T conformations; `::OnlyR`
-says the catalytic step fires only in R; and the `A::OnlyR` regulator
+constants `kf`, `kr`). The `::EqualAI` annotation says the
+corresponding K is shared between R and T conformations; `::OnlyA`
+says the catalytic step fires only in R; and the `A::OnlyA` regulator
 means the activator binds R only.
 
 `parameters(m)` lists the names the framework needs at evaluation
@@ -209,23 +209,23 @@ two-state model: the enzyme exists in an active R conformation and an
 inactive T conformation, with `L = [T]/[R]` the conformational
 equilibrium for the bare enzyme and the same `L` propagating to all
 ligand-bound species. Each kinetic group (binding step, catalytic
-interconversion) can be `:OnlyR`, `:EqualRT`, or `:NonequalRT`; each
-regulatory ligand can additionally be `:OnlyT`. The four tags:
+interconversion) can be `:OnlyA`, `:EqualAI`, or `:NonequalAI`; each
+regulatory ligand can additionally be `:OnlyI`. The four tags:
 
-- `:OnlyR` — the symbol exists in R only; T-state contributions are
-  zero. A `:OnlyR` activator binds R preferentially and shifts the
+- `:OnlyA` — the symbol exists in R only; T-state contributions are
+  zero. A `:OnlyA` activator binds R preferentially and shifts the
   population toward R.
-- `:OnlyT` — symbol exists in T only. A `:OnlyT` regulator binds T
+- `:OnlyI` — symbol exists in T only. A `:OnlyI` regulator binds T
   preferentially and shifts the population toward T (a typical
   allosteric inhibitor).
-- `:EqualRT` — same `K` (or `kf`, `kr`) in both conformations. Useful
+- `:EqualAI` — same `K` (or `kf`, `kr`) in both conformations. Useful
   for ligands that bind without conformational preference.
-- `:NonequalRT` — independent R and T parameters (`K_R`, `K_T`).
+- `:NonequalAI` — independent R and T parameters (`K_R`, `K_T`).
 
 The full rate equation is then the sum of R-state and T-state numerator
 terms, weighted by the partition function `(R-state polynomial)^n +
 L*(T-state polynomial)^n`, where `n` is the oligomeric state. The
-example mechanism above uses `:OnlyR` everywhere — the T-state
+example mechanism above uses `:OnlyA` everywhere — the T-state
 contributions vanish and the printed rate equation simplifies
 accordingly.
 

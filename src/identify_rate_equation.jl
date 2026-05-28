@@ -357,7 +357,7 @@ restrict the projection to FITTED (independent) keys only —
 `cached_params` is keyed by `fitted_params(rep_m)`, which doesn't
 contain dep names. Iterating `keys(spec_name_map)` directly would
 cause `KeyError` for any dep name (e.g., `:k10r`, `:K1_T` for
-`:EqualRT` mirrors).
+`:EqualAI` mirrors).
 
 The return is a NamedTuple keyed by `fitted_params(spec_m)`.
 """
@@ -368,7 +368,7 @@ function _project_cached_params(
     spec_fitted_keys::Tuple{Vararg{Symbol}},
 )
     # Defensive lookup: a fitted key may not appear in the body
-    # (e.g., a parameter on a zeroed `:NonequalRT` path), in which
+    # (e.g., a parameter on a zeroed `:NonequalAI` path), in which
     # case `spec_name_map` has no entry. Fall back to the spec key
     # itself in cached_params if both maps lack the canonical token;
     # if even that misses, use NaN as a sentinel that downstream

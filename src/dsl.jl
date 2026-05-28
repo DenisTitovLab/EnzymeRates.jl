@@ -796,7 +796,7 @@ function _parse_steps_block_with_groups(steps_block, declared_mets::Set{Symbol};
         elseif arg isa Expr && arg.head == :tuple
             allow_tag &&
                 error("@allosteric_mechanism: parenthesized step group " *
-                      "`$(arg)` is missing `:: <:OnlyR|:EqualRT|:NonequalRT>` " *
+                      "`$(arg)` is missing `:: <:OnlyA|:EqualAI|:NonequalAI>` " *
                       "annotation. Add `:: <state>` after the closing paren.")
             next_group[] += 1
             gnum = next_group[]
@@ -817,7 +817,7 @@ function _parse_steps_block_with_groups(steps_block, declared_mets::Set{Symbol};
                 push!(tags, gnum => tag)
             elseif allow_tag
                 error("@allosteric_mechanism: step `$(original)` is missing " *
-                      "`:: <:OnlyR|:EqualRT|:NonequalRT>` annotation. Add " *
+                      "`:: <:OnlyA|:EqualAI|:NonequalAI>` annotation. Add " *
                       "`:: <state>` after the step expression.")
             end
             push!(side_terms_per_step,
@@ -885,12 +885,12 @@ end
         substrates: F6P
         products:   F16BP
         catalytic_multiplicity: 2
-        allosteric_regulators: A::OnlyR, I::OnlyT
+        allosteric_regulators: A::OnlyA, I::OnlyI
 
         catalytic_steps: begin
-            E + F6P ⇌ E(F6P)        :: EqualRT
-            E(F6P) <--> E(F16BP)    :: EqualRT
-            (E(F16BP) ⇌ E + F16BP)  :: EqualRT
+            E + F6P ⇌ E(F6P)        :: EqualAI
+            E(F6P) <--> E(F16BP)    :: EqualAI
+            (E(F16BP) ⇌ E + F16BP)  :: EqualAI
         end
 
         regulatory_site(multiplicity = 4): begin
@@ -906,7 +906,7 @@ Build an `AllostericEnzymeMechanism` (MWC, two conformations).
 - `substrates:`, `products:`, `catalytic_inhibitors:` accept comma-separated
   bare symbols.
 - `allosteric_regulators:` requires `name::Tag` per entry, where Tag is one of
-  `OnlyR`, `OnlyT`, `EqualRT`, `NonequalRT`.
+  `OnlyA`, `OnlyI`, `EqualAI`, `NonequalAI`.
 - `catalytic_multiplicity: N` is the subunit count for the catalytic site
   (default 1).
 - `catalytic_steps: begin ... end` is required (exactly once); each step or
@@ -923,7 +923,7 @@ macro allosteric_mechanism(block)
     return esc(_parse_allosteric_mechanism_body(block))
 end
 
-const _ALLOSTERIC_REG_STATES = Set([:OnlyR, :OnlyT, :EqualRT, :NonequalRT])
+const _ALLOSTERIC_REG_STATES = Set([:OnlyA, :OnlyI, :EqualAI, :NonequalAI])
 
 """
 Coerce labeled-line values to `(name, tag)` pairs. Each value must be
@@ -935,7 +935,7 @@ function _tagged_symbols_from_values(values, label, valid_tags)
     for v in values
         v isa Expr && v.head == :(::) ||
             error("@allosteric_mechanism `$label:` requires per-entry " *
-                  "::Tag annotations (e.g., I::OnlyT); got $v")
+                  "::Tag annotations (e.g., I::OnlyI); got $v")
         name, tag = v.args[1], v.args[2]
         name isa Symbol ||
             error("@allosteric_mechanism `$label:`: expected Symbol name " *
@@ -1054,7 +1054,7 @@ function _build_cat_sites_expr(cat_n, group_tags)
     tag_of = Dict{Int,Symbol}(group_tags)
     n_groups = isempty(group_tags) ? 0 : maximum(g for (g, _) in group_tags)
     states_tuple = Expr(:tuple,
-        (QuoteNode(get(tag_of, g, :NonequalRT)) for g in 1:n_groups)...)
+        (QuoteNode(get(tag_of, g, :NonequalAI)) for g in 1:n_groups)...)
     Expr(:tuple, cat_n, states_tuple)
 end
 

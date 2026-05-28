@@ -229,7 +229,7 @@ const StepBoundParameter = Union{Kd, Kiso, Kon, Koff, Kfor, Krev}
 const StatefulParameter  = Union{Kd, Kiso, Kon, Koff, Kfor, Krev, Kreg}
 
 governing_step(p::StepBoundParameter) = p.step
-is_t_state(p::StatefulParameter)      = p.state === :T
+is_t_state(p::StatefulParameter)      = p.state === :I
 
 for T in (:Kd, :Kiso, :Kon, :Koff, :Kfor, :Krev)
     @eval Base.:(==)(a::$T, b::$T) =
@@ -396,8 +396,8 @@ Base.hash(m::Mechanism, h::UInt) =
     hash(m.steps, hash(m.reaction, hash(:Mechanism, h)))
 
 # §5.8 — AllostericMechanism: a multi-subunit MWC enzyme. Each catalytic
-# kinetic group carries an allosteric-state tag (`:OnlyR`, `:EqualRT`, or
-# `:NonequalRT` — `:OnlyT` is rejected by the R-state-active convention).
+# kinetic group carries an allosteric-state tag (`:OnlyA`, `:EqualAI`, or
+# `:NonequalAI` — `:OnlyI` is rejected by the active-state convention).
 const _VALID_CAT_ALLO_STATES = (:OnlyA, :EqualAI, :NonequalAI)
 
 struct AllostericMechanism
@@ -718,20 +718,20 @@ Multi-subunit MWC allosteric enzyme. `CatalyticMech` is an
 - `CatSites`: `(multiplicity::Int, cat_allo_states::Tuple{Symbol...})`.
   `cat_allo_states[g]` is the allosteric state of catalytic kinetic
   group `g` (1-indexed, dense — every group must have an entry).
-  Allowed values: `:EqualRT`, `:NonequalRT`, `:OnlyR`. `:OnlyT`
-  catalytic groups error during construction (R-state-active
+  Allowed values: `:EqualAI`, `:NonequalAI`, `:OnlyA`. `:OnlyI`
+  catalytic groups error during construction (active-state
   convention).
 - `RegSites`: tuple of regulator-site entries
   `(ligands::Tuple{Symbol...}, multiplicity::Int,
    reg_allo_states::Tuple{Symbol...})` where `reg_allo_states` is
   parallel to `ligands`. Allowed values: all four states
-  (`:EqualRT`, `:NonequalRT`, `:OnlyR`, `:OnlyT`).
+  (`:EqualAI`, `:NonequalAI`, `:OnlyA`, `:OnlyI`).
 
 Constructor validates:
 - Catalytic state count matches kinetic-group count.
 - Regulator state tuple length matches ligand tuple length at each site.
-- No catalytic group has `:OnlyT` state.
-- At least one ligand at each reg site is non-`:EqualRT`.
+- No catalytic group has `:OnlyI` state.
+- At least one ligand at each reg site is non-`:EqualAI`.
 """
 # The three type parameters cannot be folded into a single value-tuple `Sig`
 # (as EnzymeMechanism{Sig} does): the first slot is a DataType (an
@@ -762,8 +762,8 @@ function AllostericEnzymeMechanism(
     for (g, st) in enumerate(cat_allo_states)
         st === :OnlyI &&
             error("Catalytic kinetic group $g has state :OnlyI; the " *
-                  "active state is the active state by convention. Relabel " *
-                  "your mechanism so the active state is A (use :OnlyA " *
+                  "active branch is the active state by convention. Relabel " *
+                  "your mechanism so the active branch is A (use :OnlyA " *
                   "instead).")
         st in (:OnlyA, :EqualAI, :NonequalAI) ||
             error("Catalytic kinetic group $g has unknown allo state $st; " *
@@ -1407,13 +1407,14 @@ _param_symbol(::Type{<:Union{Kon, Kfor}},       idx::Int) = Symbol("k", idx, "f"
 _param_symbol(::Type{<:Union{Koff, Krev}},      idx::Int) = Symbol("k", idx, "r")
 
 _param_symbol(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
-    state === :T ? Symbol(_param_symbol(P, idx), "_T") :
+    state === :I ? Symbol(_param_symbol(P, idx), "_T") :
                    _param_symbol(P, idx)
+# :None, :EqualAI, :A all render without suffix (render byte-identical).
 
 # Regulator-site Parameter — keyed by site index + ligand name (not the
 # step-bound rep-idx), so it has its own formatter signature.
 _param_symbol(::Type{Kreg}, site_idx::Int, lig_name::Symbol, state::Symbol) =
-    state === :T ? Symbol("K_", lig_name, "_T_reg", site_idx) :
+    state === :I ? Symbol("K_", lig_name, "_T_reg", site_idx) :
                    Symbol("K_", lig_name, "_reg",   site_idx)
 
 # Type/index-context chokepoint companion. Used by @generated callers in
@@ -1456,7 +1457,7 @@ mechanism, in kinetic-group order. Each kinetic group's representative
 step (the first step in the group) drives the emit: RE binding → `Kd`,
 RE iso → `Kiso`, SS binding → `Kon`+`Koff`, SS iso → `Kfor`+`Krev`. All
 parameters carry `state === :None` because non-allosteric mechanisms
-have no R/T branches.
+have no A/I branches.
 """
 function _enumerate_parameters_full(m::Mechanism)
     out = Parameter[]
