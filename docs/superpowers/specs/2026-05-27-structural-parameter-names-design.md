@@ -37,7 +37,26 @@ These were resolved in brainstorming with Denis:
    `:kNr` labels were tied to write-direction. Structural species-pair names
    remove that reason, so SS step storage direction is canonicalized like RE
    steps, and the special case is deleted from the `Step` constructor and dedup.
-3. **Hybrid test migration.** Golden output assertions (`expected_factored_num`/
+   **After this, every `Step` is canonicalized** (RE and SS alike). A side
+   benefit: the current dedup gap where SS steps written in opposite directions
+   (`ES⇌EP` vs `EP⇌ES`) compare *unequal* disappears — they collapse to one Step.
+
+3. **Active/Inactive (A/I) everywhere.** Rename the allosteric-state notion
+   from R/T to A (active) / I (inactive) throughout: taxonomy symbols
+   (`:OnlyR→:OnlyA`, `:OnlyT→:OnlyI`, `:EqualRT→:EqualAI`, `:NonequalRT→:NonequalAI`),
+   the user-facing DSL annotations, CLAUDE.md docs, and rendered names. The
+   state token sits **right after the type prefix**, not at the end, and
+   `EqualAI` carries **no token**: `K_ATP_E` (equal), `K_A_ATP_E` (OnlyA),
+   `K_I_ATP_E` (OnlyI), both for NonequalAI; `kon_A_ATP_E`, `k_A_ES_to_EP`.
+
+4. **Single priority function for rep + pivot.** Extract a pure
+   `_step_priority(step, m)::Int`. The kinetic-group **name representative** is
+   `argmin` within the group (least-eliminable = most primary, lexical
+   tiebreak); the Haldane elimination **pivot** keeps its existing `argmax`
+   behavior among reps. Kinetic groups are kind-homogeneous (all binding or all
+   iso), so within a group this picks the free-enzyme-binding member — the
+   intuitive name. Naming and elimination thus share one notion of primacy.
+5. **Hybrid test migration.** Golden output assertions (`expected_factored_num`/
    `expected_factored_denom`, `rate_equation_string`, `parameters()` literal
    tuples) are **regenerated** to structural names — they are outputs we want to
    assert. Hand-derived numerical physics oracles (`analytical_rate_fn`,
@@ -48,35 +67,44 @@ These were resolved in brainstorming with Denis:
 
 ## Naming scheme
 
-`name(s::Species)` already renders structural form names (`:E`, `:E_ATP`,
-`:Estar`, `:E_c`). Parameter names compose those with the bound metabolite.
+`name(s::Species)` renders structural form names. It is **changed** to drop the
+underscore between conformation and bound metabolites (full concat), so form
+names read `:E`, `:ES`, `:EP`, `:EATP`, `:EATPGlc`, `:EstarA`. Underscore then
+serves purely as the parameter-field separator, removing the
+`K_ATP_E_Glc`-is-it-`ATP`/`E_Glc`-or-`ATP_E`/`Glc` ambiguity. Residual markers
+(`res`, `+X`, `-Y`) keep their existing form (e.g. `:Estarres+P`).
+
+Parameter names compose the (concatenated) form name with the bound metabolite
+and the optional A/I state token. State token placement: right after the type
+prefix; `EqualAI` emits no token.
 
 | Parameter | Step kind | Rendered name | Example |
 |---|---|---|---|
-| `Kd`   | RE binding | `K_<met>_<fromform>` | `:K_ATP_E`, `:K_Glc_E_ATP` |
-| `Kiso` | RE isomerization (no metabolite) | `Kiso_<from>_to_<to>` | `:Kiso_EA_to_EstarA` |
-| `Kon`  | SS binding, forward | `kon_<met>_<fromform>` | `:kon_ATP_E` |
-| `Koff` | SS binding, reverse | `koff_<met>_<fromform>` | `:koff_ATP_E` |
-| `Kfor` | SS isomerization, forward | `k_<from>_to_<to>` | `:k_ES_to_EP` |
-| `Krev` | SS isomerization, reverse | `k_<to>_to_<from>` | `:k_EP_to_ES` |
-| `Kreg` | allosteric regulator | `K_<lig>reg` | `:K_G6Preg` |
+| `Kd`   | RE binding | `K[_<state>]_<met>_<fromform>` | `:K_ATP_E`, `:K_A_Glc_EATP` |
+| `Kiso` | RE isomerization (no metabolite) | `Kiso[_<state>]_<from>_to_<to>` | `:Kiso_EA_to_EstarA` |
+| `Kon`  | SS binding, forward | `kon[_<state>]_<met>_<fromform>` | `:kon_ATP_E`, `:kon_A_ATP_E` |
+| `Koff` | SS binding, reverse | `koff[_<state>]_<met>_<fromform>` | `:koff_ATP_E` |
+| `Kfor` | SS isomerization, forward | `k[_<state>]_<from>_to_<to>` | `:k_ES_to_EP`, `:k_A_ES_to_EP` |
+| `Krev` | SS isomerization, reverse | `k[_<state>]_<to>_to_<from>` | `:k_EP_to_ES` |
+| `Kreg` | allosteric regulator | `K[_<state>]_<lig>reg` | `:K_G6Preg`, `:K_A_G6Preg` |
 | `Kd` (CompetitiveInhibitor role) | dead-end RE binding | `K_<met>inh[_<fromform>]` | `:K_G6Pinh` |
 | `Keq`  | — | `:Keq` | |
-| `Etot` | — | `:E_total` | |
+| `Etot` | — | `:Et` | |
 | `Lallo`| — | `:L` | |
 
 Conventions:
 
+- **`<state>`** ∈ {`A`, `I`} appears only for `OnlyA` (`A`), `OnlyI` (`I`), and
+  `NonequalAI` (both `A` and `I` variants emitted). `EqualAI` and non-allosteric
+  parameters emit no state token.
 - **`<fromform>`** is the pre-binding enzyme form (the `from_species` of the
-  canonicalized RE/SS binding step). It is **always included** so a metabolite
-  that binds more than one form (random mechanisms) stays unambiguous. For the
-  free enzyme this is just `E`, giving `:K_ATP_E`.
+  canonicalized RE/SS binding step), rendered via the concatenated
+  `name(Species)`. **Always included** so a metabolite that binds more than one
+  form stays unambiguous. For the free enzyme it is `E`, giving `:K_ATP_E`.
 - **`<from>`/`<to>`** for isomerizations are the canonicalized step's species
   pair. Each rate constant is named by its **actual directed transition**, so
   the name is unambiguous regardless of storage order. After SS canonicalization
   (Decision 2) the stored direction is deterministic (lex on species name).
-- **T-state suffix** `_T` is appended unchanged: `:K_ATP_E_T`, `:k_ES_to_EP_T`,
-  `:K_G6Preg_T`.
 - **Uniqueness within a mechanism** is guaranteed because a step is identified
   by `(from_species, to_species, bound_metabolite, is_equilibrium)`, and the
   name encodes enough of that tuple to be injective. See Risk R2 for the one
@@ -86,26 +114,37 @@ Conventions:
 
 ### `src/types.jl`
 
+- **`name(s::Species)`**: drop the `_` separator between conformation and bound
+  metabolites (full concat). Residual markers (`res`/`+`/`-`) unchanged. This
+  affects `enzyme_forms` rendering and any golden string showing form names.
 - **`Step`**: drop the `source_idx` field. Drop the SS-direction special case
   in the constructor so SS steps canonicalize like RE steps. `==`/`hash` are
   unaffected (already ignore `source_idx`).
 - **`Mechanism` / `AllostericMechanism` constructors**: stop assigning
   `source_idx`. Remove the density-of-`source_idx` validation.
+- **Allosteric-state taxonomy**: rename `:OnlyR/:OnlyT/:EqualRT/:NonequalRT` →
+  `:OnlyA/:OnlyI/:EqualAI/:NonequalAI` in the `RegulatorySite` validator, the
+  `AllostericMechanism` validation, the symbolic R/T-rename machinery
+  (`_onlyR_syms`, `_T_rename`, `_rename_symbols`, `_zero_symbols_in_poly`
+  callers), and the DSL annotation parser. CLAUDE.md updated to match.
 - **Chokepoint** (`_param_symbol` family): rewrite the `_param_symbol` bodies to
-  emit structural names from a Step value (and ligand/site for `Kreg`). Delete
+  emit structural names from a Step value (and ligand/site for `Kreg`), with the
+  A/I state token placed after the type prefix and omitted for `EqualAI`. Delete
   `name(::Type{P}, idx)` and `name(::Type{P}, idx, state)` (the index-context
   companion) and delete `_rep_idx_for_step`. The single remaining entry point is
-  value-context `name(p::Parameter, m)`.
+  value-context `name(p::Parameter, m)`. `name(::Etot)` returns `:Et`.
 
-### Kinetic-group representative
+### Kinetic-group representative (`_step_priority`)
 
 The per-group representative survives (two physically-distinct steps in one
-group do **not** share a structural name). Rep selection moves from "lowest
-`source_idx`" to "first step in the **canonicalized** group storage order"
-(dedup already sorts groups by `_step_canonical_key`, so this is deterministic
-and structural). The group's parameter name = the rep step's structural name;
-the Pass-1 rename map maps the other members' names to it, exactly as today —
-only keyed on structural names instead of `K9 => K4`.
+group do **not** share a structural name). Extract a pure
+`_step_priority(step, m)::Int` from the existing Haldane pivot logic. The group
+name representative is `argmin(_step_priority)` within the group (least-eliminable
+= most primary), lexical tiebreak on the structural name for determinism. The
+Haldane elimination pivot keeps its `argmax` selection among reps. The group's
+parameter name = the rep step's structural name; the Pass-1 rename map maps the
+other members' names to it, exactly as today — only keyed on structural names
+instead of `K9 => K4`.
 
 ### `src/rate_eq_derivation.jl` and `src/thermodynamic_constr_for_rate_eq_derivation.jl`
 
