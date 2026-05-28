@@ -1369,4 +1369,73 @@
         @test EnzymeRates.name(EnzymeRates.Etot(),  am) === :E_total
         @test EnzymeRates.name(EnzymeRates.Lallo(), am) === :L
     end
+
+    @testset "structural parameter names" begin
+        m = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+            end
+        end
+        ps = EnzymeRates.parameters(m)
+        # SS iso forward step E(S) → E(P) must appear as :k_ES_to_EP
+        @test :k_ES_to_EP in ps
+        # No positional index names (old scheme: k2f, K1, etc.)
+        @test !any(p -> occursin(r"^k[0-9]", String(p)), ps)
+        @test !any(p -> occursin(r"^K[0-9]", String(p)), ps)
+    end
+
+    @testset "synth-dep I-state names consistent with chokepoint (NonequalAI)" begin
+        # PK-like mechanism: NonequalAI PEP binding, EqualAI catalysis.
+        # k5r is a Haldane dep whose RHS references K_PEP_E (NonequalAI),
+        # so a synthesized I-state dep is produced. The synth-dep name must
+        # be what name(_flip_to_inactive(_param_for_symbol(am, active)), am)
+        # returns, not string(active) * "_T".
+        m = @allosteric_mechanism begin
+            substrates: PEP, ADP
+            products:   Pyruvate, ATP
+            allosteric_regulators: ATP::OnlyI, F16BP::OnlyA
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                (E + PEP ⇌ E(PEP),
+                 E(ADP) + PEP ⇌ E(PEP, ADP))                          :: NonequalAI
+                (E + ADP ⇌ E(ADP),
+                 E(PEP) + ADP ⇌ E(PEP, ADP))                          :: EqualAI
+                E(PEP, ADP) <--> E(Pyruvate, ATP)                     :: EqualAI
+                (E(Pyruvate, ATP) ⇌ E(ATP) + Pyruvate,
+                 E(Pyruvate) ⇌ E + Pyruvate)                          :: EqualAI
+                (E(Pyruvate, ATP) ⇌ E(Pyruvate) + ATP,
+                 E(ATP) ⇌ E + ATP)                                    :: EqualAI
+            end
+            regulatory_site(multiplicity = 2): begin
+                ligands: ATP
+            end
+            regulatory_site(multiplicity = 4): begin
+                ligands: F16BP
+            end
+        end
+        # parameters(m, Reduced) must advertise the I-state variant of PEP
+        # binding using the structural mid-name I_ token, not a _T suffix.
+        ps = EnzymeRates.parameters(m)
+        ps_str = String.(collect(ps))
+        # The I-state PEP binding param must use mid-name I_ token
+        @test any(s -> startswith(s, "K_I_"), ps_str)
+        # No param name should use _T suffix
+        @test !any(s -> endswith(s, "_T"), ps_str)
+        # Calling rate_equation must not error (proves indep names and rate
+        # body names are consistent — the intermediate state would KeyError here).
+        rng = Random.MersenneTwister(1234)
+        met_names = [:PEP, :ADP, :Pyruvate, :ATP, :F16BP]
+        concs_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in met_names)
+        concs = NamedTuple{Tuple(met_names)}(concs_vals)
+        indep = EnzymeRates.fitted_params(m)
+        param_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in indep)
+        params = NamedTuple{indep}(param_vals)
+        params = merge(params, (Keq=1.0, E_total=1.0))
+        v = EnzymeRates.rate_equation(m, concs, params)
+        @test isfinite(v)
+    end
 end

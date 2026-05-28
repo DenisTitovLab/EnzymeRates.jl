@@ -1997,9 +1997,9 @@ function _build_name_map(em::AbstractEnzymeMechanism,
             r_str = String(r_name)
             tok = get(name_map, r_str, nothing)
             tok === nothing && continue
-            t_str = r_str * "_T"
+            t_str = String(name(_flip_to_inactive(_param_for_symbol(m, r_name)), m))
             haskey(name_map, t_str) && continue
-            name_map[t_str] = tok * "_T"
+            name_map[t_str] = tok * "_T"  # tok is a canonical p_<i> hash token, not a parameter Symbol — Phase 7 cleanup territory.
         end
     end
     name_map

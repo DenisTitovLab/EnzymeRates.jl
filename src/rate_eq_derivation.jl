@@ -810,7 +810,7 @@ corners and return the max.
     for (k, v) in dep_R_all
         haskey(rename_T, k) && continue
         _expr_references_any(v, renamed_set) || continue
-        rename_T[k] = Symbol(string(k) * "_T")
+        rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)
     end
     num_T_poly = _rename_symbols(
         _zero_symbols_in_poly(num_R_poly, r_only_syms),
@@ -1203,7 +1203,7 @@ function _synthesized_dep_t_names(::Type{CM}, am::AllostericMechanism,
     for (k, v) in sort(collect(dep_R_all); by=first)
         k in nonequalai_set && continue
         _expr_references_any(v, nonequalai_set) || continue
-        push!(names, Symbol(string(k) * "_T"))
+        push!(names, name(_flip_to_inactive(_param_for_symbol(am, k)), am))
     end
     names
 end
@@ -1246,14 +1246,13 @@ function _dependent_param_exprs(
     # symbol need their own I-state name. Mirrors the second pass in
     # `_build_dep_assignments`: after Gaussian elimination, dep RHSes
     # reference only independent params, so a single non-iterating pass
-    # suffices. Synthesized dep I-names have no Parameter-struct rep
-    # (they're derived deps from Wegscheider/Haldane elimination, not
-    # base k/K/Kreg), so the `_T` suffix is appended directly.
+    # suffices. Synthesized dep I-names are produced through the chokepoint
+    # via _flip_to_inactive + _param_for_symbol so no string surgery is needed.
     renamed_set = Set{Symbol}(keys(rename_T))
     for (k, v) in dep_R_all
         haskey(rename_T, k) && continue
         _expr_references_any(v, renamed_set) || continue
-        rename_T[k] = Symbol(string(k) * "_T")
+        rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)
     end
 
     t_state_dead_flag = _t_state_dead(aem)
@@ -1297,10 +1296,13 @@ function _dependent_param_exprs(
         p ∈ r_only_syms && continue
         if haskey(rename_T, p)
             p ∈ t_state_survivors || continue
-            push!(indep_T_list, Symbol(string(p) * "_T"))
+            push!(indep_T_list, rename_T[p])
         elseif !t_state_dead_flag
             p ∈ t_state_survivors || continue
-            dep_T[Symbol(string(p) * "_T")] = p
+            p_inactive = _flip_to_inactive(_param_for_symbol(am, p))
+            i_name = name(p_inactive, am)
+            i_name == p && continue  # EqualAI: A and I share the same symbol
+            dep_T[i_name] = p
         end
     end
 
@@ -1398,7 +1400,7 @@ function _build_dep_assignments(
     for (k, v) in dep_R
         haskey(rename_T, k) && continue
         _expr_references_any(v, renamed_set) || continue
-        rename_T[k] = Symbol(string(k) * "_T")
+        rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)
     end
     T_subs = rename_T
 
@@ -1451,7 +1453,10 @@ function _build_dep_assignments(
     for p in indep_R
         p ∈ r_only_syms && continue
         haskey(rename_T, p) && continue  # NonequalAI — handled below
-        push!(t_assignments, Expr(:(=), Symbol(string(p) * "_T"), p))
+        p_inactive = _flip_to_inactive(_param_for_symbol(am, p))
+        i_name = name(p_inactive, am)
+        i_name == p && continue  # EqualAI: A and I share the same symbol
+        push!(t_assignments, Expr(:(=), i_name, p))
     end
 
     # `:EqualAI` reg params: K_T_reg = K_A_reg. Routes through `Kreg`
@@ -1470,7 +1475,8 @@ function _build_dep_assignments(
     # and synthesized I-names for `:EqualAI`-tagged derived deps whose
     # RHS references a `:NonequalAI` symbol (Case B).
     for (sym, expr_kd) in sorted_deps
-        t_sym = Symbol(string(sym) * "_T")
+        t_sym = get(rename_T, sym, nothing)
+        t_sym === nothing && continue
         t_sym in t_names_set || continue
         if _expr_references_any(expr_kd, r_only_syms)
             push!(t_assignments, Expr(:(=), t_sym, 0))
@@ -1512,7 +1518,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     for (k, v) in dep_R_all
         haskey(rename_T, k) && continue
         _expr_references_any(v, renamed_set) || continue
-        rename_T[k] = Symbol(string(k) * "_T")
+        rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)
     end
 
     N_R = _poly_to_expr(num_R_poly, cat_params, cat_mets)

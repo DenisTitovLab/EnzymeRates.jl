@@ -1370,3 +1370,54 @@ end
         @test :K_R_T_reg1 ∉ rendered_skip    # :OnlyA reg ligand skipped
     end
 end
+
+@testset "structural names + synth-dep routing: allosteric NonequalAI" begin
+    # NonequalAI substrate binding (PEP), EqualAI catalysis.
+    # k_cat_rev (Haldane dep) references the NonequalAI PEP binding K,
+    # so a synthesized I-state dep name is produced.
+    # After the full atomic change: the synth-dep name must use the
+    # structural mid-name I_ token (from name(_flip_to_inactive(...))),
+    # not string(active) * "_T".
+    # In the intermediate state (chokepoint rewritten, synth-dep sites
+    # not yet updated), rate_equation errors with a KeyError because the
+    # rate polynomial uses structural I-names but indep_T_list has _T-
+    # suffixed structural names.
+    m = @allosteric_mechanism begin
+        substrates: PEP, ADP
+        products:   Pyruvate, ATP
+        allosteric_regulators: ATP::OnlyI, F16BP::OnlyA
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            (E + PEP ⇌ E(PEP),
+             E(ADP) + PEP ⇌ E(PEP, ADP))                          :: NonequalAI
+            (E + ADP ⇌ E(ADP),
+             E(PEP) + ADP ⇌ E(PEP, ADP))                          :: EqualAI
+            E(PEP, ADP) <--> E(Pyruvate, ATP)                     :: EqualAI
+            (E(Pyruvate, ATP) ⇌ E(ATP) + Pyruvate,
+             E(Pyruvate) ⇌ E + Pyruvate)                          :: EqualAI
+            (E(Pyruvate, ATP) ⇌ E(Pyruvate) + ATP,
+             E(ATP) ⇌ E + ATP)                                    :: EqualAI
+        end
+        regulatory_site(multiplicity = 2): begin
+            ligands: ATP
+        end
+        regulatory_site(multiplicity = 4): begin
+            ligands: F16BP
+        end
+    end
+    ps_str = String.(collect(EnzymeRates.parameters(m)))
+    # I-state param names use mid-name I_ token, not _T suffix.
+    @test any(s -> startswith(s, "K_I_"), ps_str)
+    @test !any(s -> endswith(s, "_T"), ps_str)
+    # rate_equation must not error (intermediate state KeyErrors here).
+    rng = Random.MersenneTwister(9999)
+    met_names = [:PEP, :ADP, :Pyruvate, :ATP, :F16BP]
+    concs_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in met_names)
+    concs = NamedTuple{Tuple(met_names)}(concs_vals)
+    indep = EnzymeRates.fitted_params(m)
+    param_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in indep)
+    params = NamedTuple{indep}(param_vals)
+    params = merge(params, (Keq=1.0, E_total=1.0))
+    v = rate_equation(m, concs, params)
+    @test isfinite(v)
+end

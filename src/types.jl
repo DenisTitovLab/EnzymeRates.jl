@@ -439,6 +439,20 @@ struct AllostericMechanism
                   "values in cat_steps; pass either all zero (auto-" *
                   "assign) or all non-zero (preserve caller's source " *
                   "positions)")
+        # Detect Kreg name collision: a ligand in two distinct regulatory
+        # sites would produce identical rendered Kreg names (no site
+        # discriminator). Not enumerated; constructor rejects it.
+        seen_ligands = Set{Symbol}()
+        for site in regulatory_sites
+            for lig in ligands(site)
+                ligname = name(lig)
+                ligname in seen_ligands &&
+                    error("AllostericMechanism: ligand $ligname appears in two " *
+                          "distinct regulatory sites; rendered Kreg names would " *
+                          "collide. Same-ligand-two-sites is not enumerated.")
+                push!(seen_ligands, ligname)
+            end
+        end
         if any_set
             new(reaction, cat_steps, cat_allo_states,
                 catalytic_multiplicity, regulatory_sites)
@@ -1354,17 +1368,54 @@ end
 
 # ─── name(p::Parameter, m) chokepoint ─────────────────────────────────
 #
-# Single chokepoint for parameter Symbol production. Renders positional
-# names (:K1, :k1f, :K1_T, :K_<lig>_reg<i>) via Parameter subtype
+# Single chokepoint for parameter Symbol production. Renders structural
+# names (:K_S_E, :k_ES_to_EP, :K_I_S_E, :K_Ireg) via Parameter subtype
 # dispatch. Routing all parameter-name production through one function
 # keeps any name-scheme change a single-function edit.
 
-# Map a Step to the rep-idx used in positional parameter names. The rep
-# is the group's first step's `source_idx` — i.e., the lowest source
-# index among the group's steps, matching the CLAUDE.md parameter
-# naming convention ("rep step is 6, the lowest-indexed step in that
-# group"). The `Mechanism` / `AllostericMechanism` constructors
-# guarantee `source_idx` is populated by flat source-order position.
+# State token — placed right after the type prefix:
+#   :A       → ""    (allosteric active branch renders identical to non-
+#                     allosteric :None; the R-state/active name is the base name)
+#   :I       → "I_"  (allosteric inactive branch: OnlyI or NonequalAI-inactive)
+#   :EqualAI → ""    (allosteric shared symbol; same rendering as :None/:A)
+#   :None    → ""    (non-allosteric mechanism)
+# Only the inactive branch gets a mid-name token; active/None/EqualAI all
+# render the same base name so the catalytic and allosteric dep-expr
+# machinery can cross-reference parameter names without symbol translation.
+function _state_tag(state::Symbol)
+    state === :I       && return "I_"
+    state === :A       && return ""
+    state === :EqualAI && return ""
+    state === :None    && return ""
+    error("_state_tag: unexpected Parameter.state $state " *
+          "(must be one of :None, :EqualAI, :A, :I)")
+end
+
+# Render a binding param from its rep step: metabolite + pre-binding form.
+_render_binding(prefix::String, rep::Step, state::Symbol) =
+    Symbol(prefix, _state_tag(state),
+           String(name(bound_metabolite(rep))), "_",
+           String(name(from_species(rep))))
+
+# Render an iso param by directed species pair.
+_render_iso(prefix::String, from::Species, to::Species, state::Symbol) =
+    Symbol(prefix, _state_tag(state),
+           String(name(from)), "_to_", String(name(to)))
+
+# Find the kinetic group containing `step`; return its naming rep.
+function _rep_step(step::Step, m::Union{Mechanism, AllostericMechanism})
+    for group in steps(m)
+        step in group && return first(group)
+    end
+    error("Step not found in mechanism: $step")
+end
+_rep_step(step::Step, m::EnzymeMechanism) = _rep_step(step, Mechanism(m))
+_rep_step(step::Step, m::AllostericEnzymeMechanism) =
+    _rep_step(step, AllostericMechanism(m))
+
+# Map a Step to the rep-idx used in the type/index-context name companion.
+# The Mechanism / AllostericMechanism constructors guarantee `source_idx`
+# is populated by flat source-order position.
 function _rep_idx_for_step(step::Step,
                            m::Union{Mechanism, AllostericMechanism})
     groups = steps(m)
@@ -1395,61 +1446,157 @@ function _site_idx_of(site::RegulatorySite, m::AllostericMechanism)
     return idx
 end
 
-# Step-bound parameters map to three rendering rules keyed by type:
-# Kd/Kiso → :K{rep},  Kon/Kfor → :k{rep}f,  Koff/Krev → :k{rep}r,
-# with optional `_T` suffix for T-state. `_param_symbol` is the shared
-# formatter — both the value-context `name(p::P, m)` and the
-# type/index-context `name(::Type{P}, idx)` companion delegate here so a
-# future parameter-naming refactor (semantic names like :K_ATP) changes
-# one function body.
-_param_symbol(::Type{<:Union{Kd, Kiso}},        idx::Int) = Symbol("K", idx)
-_param_symbol(::Type{<:Union{Kon, Kfor}},       idx::Int) = Symbol("k", idx, "f")
-_param_symbol(::Type{<:Union{Koff, Krev}},      idx::Int) = Symbol("k", idx, "r")
-
-_param_symbol(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
-    state === :I ? Symbol(_param_symbol(P, idx), "_T") :
-                   _param_symbol(P, idx)
-# :None, :EqualAI, :A all render without suffix (render byte-identical).
-
-# Regulator-site Parameter — keyed by site index + ligand name (not the
-# step-bound rep-idx), so it has its own formatter signature.
-_param_symbol(::Type{Kreg}, site_idx::Int, lig_name::Symbol, state::Symbol) =
-    state === :I ? Symbol("K_", lig_name, "_T_reg", site_idx) :
-                   Symbol("K_", lig_name, "_reg",   site_idx)
-
 # Type/index-context chokepoint companion. Used by @generated callers in
 # `rate_eq_derivation.jl` where only an integer rep-idx is in scope (no
 # Step value to construct a Parameter from). Supports only step-bound
 # Parameter types (Kd/Kiso/Kon/Kfor/Koff/Krev) — Kreg names need a
 # ligand and site, Keq/Etot/Lallo are stateless, so all four remain
 # value-context only.
+_param_symbol(::Type{<:Union{Kd, Kiso}},        idx::Int) = Symbol("K", idx)
+_param_symbol(::Type{<:Union{Kon, Kfor}},       idx::Int) = Symbol("k", idx, "f")
+_param_symbol(::Type{<:Union{Koff, Krev}},      idx::Int) = Symbol("k", idx, "r")
+_param_symbol(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
+    state === :I ? Symbol(_param_symbol(P, idx), "_T") :
+                   _param_symbol(P, idx)
+_param_symbol(::Type{Kreg}, site_idx::Int, lig_name::Symbol, state::Symbol) =
+    state === :I ? Symbol("K_", lig_name, "_T_reg", site_idx) :
+                   Symbol("K_", lig_name, "_reg",   site_idx)
 name(::Type{P}, idx::Int) where {P<:Parameter}                = _param_symbol(P, idx)
 name(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
     _param_symbol(P, idx, state)
 
-function name(p::StepBoundParameter,
-              m::Union{Mechanism, EnzymeMechanism, AllostericMechanism})
-    rep = _rep_idx_for_step(p.step, m)
-    _param_symbol(typeof(p), rep, p.state)
+const _AnyMech =
+    Union{Mechanism, EnzymeMechanism, AllostericMechanism, AllostericEnzymeMechanism}
+
+name(p::Kd, m::_AnyMech) =
+    _render_binding("K_", _rep_step(p.step, m), p.state)
+function name(p::Kon, m::_AnyMech)
+    rep = _rep_step(p.step, m)
+    is_binding(rep) ? _render_binding("kon_", rep, p.state) :
+                      _render_iso("k_", from_species(rep), to_species(rep), p.state)
+end
+function name(p::Koff, m::_AnyMech)
+    rep = _rep_step(p.step, m)
+    is_binding(rep) ? _render_binding("koff_", rep, p.state) :
+                      _render_iso("k_", to_species(rep), from_species(rep), p.state)
+end
+function name(p::Kiso, m::_AnyMech)
+    rep = _rep_step(p.step, m)
+    _render_iso("Kiso_", from_species(rep), to_species(rep), p.state)
+end
+function name(p::Kfor, m::_AnyMech)
+    rep = _rep_step(p.step, m)
+    _render_iso("k_", from_species(rep), to_species(rep), p.state)
+end
+function name(p::Krev, m::_AnyMech)
+    rep = _rep_step(p.step, m)
+    _render_iso("k_", to_species(rep), from_species(rep), p.state)
 end
 
-# Regulator-site parameter — AllostericMechanism only.
-function name(p::Kreg, m::AllostericMechanism)
-    site_idx = _site_idx_of(p.site, m)
-    _param_symbol(Kreg, site_idx, name(p.ligand), p.state)
+# Regulator-site parameter: ligand name + state + "reg" + site index.
+function name(p::Kreg, m::Union{AllostericMechanism, AllostericEnzymeMechanism})
+    am = m isa AllostericMechanism ? m : AllostericMechanism(m)
+    site_idx = _site_idx_of(p.site, am)
+    Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg", site_idx)
 end
-
-# AllostericEnzymeMechanism dispatches via the AllostericMechanism lift
-# so the rate-equation body and Parameter-name production share one
-# implementation across parametric / non-parametric forms.
-name(p::Kreg, m::AllostericEnzymeMechanism) = name(p, AllostericMechanism(m))
-name(p::StepBoundParameter, m::AllostericEnzymeMechanism) =
-    name(p, AllostericMechanism(m))
 
 # Mechanism-level scalars
 name(::Keq,   _) = :Keq
 name(::Etot,  _) = :E_total
 name(::Lallo, _) = :L
+
+# Flip a Parameter's allosteric state to its inactive counterpart. Used
+# by the Wegscheider/Haldane synth-dep machinery to recover the inactive
+# variant of an eliminated dep parameter without string surgery.
+function _flip_to_inactive(p::P) where {P <: Union{Kd, Kiso, Kon, Koff, Kfor, Krev}}
+    p.state === :A       && return P(p.step, :I)
+    p.state === :I       && return P(p.step, :A)
+    p.state === :EqualAI && return p
+    p.state === :None    && error(
+        "_flip_to_inactive: $(P) with state=:None has no inactive variant " *
+        "(non-allosteric parameters). Caller bug — the synth-dep machinery " *
+        "should only invoke this on allosteric parameters.")
+    error("_flip_to_inactive: $(P) has unexpected state $(p.state)")
+end
+function _flip_to_inactive(p::Kreg)
+    p.state === :A       && return Kreg(p.site, p.ligand, :I)
+    p.state === :I       && return Kreg(p.site, p.ligand, :A)
+    p.state === :EqualAI && return p
+    p.state === :None    && error(
+        "_flip_to_inactive: Kreg with state=:None has no inactive variant")
+    error("_flip_to_inactive: Kreg has unexpected state $(p.state)")
+end
+
+# Recover the Parameter struct that renders to `sym` under `name(p, m)`.
+# Walks the full parameter set once and matches by rendered name.
+function _param_for_symbol(m::Union{Mechanism, EnzymeMechanism}, sym::Symbol)
+    mech = m isa Mechanism ? m : Mechanism(m)
+    for p in _enumerate_parameters_full(mech)
+        name(p, mech) == sym && return p
+    end
+    error("_param_for_symbol: no Parameter renders to $sym in non-allosteric mechanism")
+end
+
+function _param_for_symbol(
+    m::Union{AllostericMechanism, AllostericEnzymeMechanism}, sym::Symbol,
+)
+    am = m isa AllostericMechanism ? m : AllostericMechanism(m)
+    for p in _onlyA_parameters_for_sym(am)
+        name(p, am) == sym && return p
+    end
+    for p in _all_params_for_sym(am)
+        name(p, am) == sym && return p
+    end
+    error("_param_for_symbol: no Parameter renders to $sym in allosteric mechanism")
+end
+
+# Walk all A-state catalytic parameters (for _param_for_symbol lookup).
+function _onlyA_parameters_for_sym(am::AllostericMechanism)
+    out = Parameter[]
+    for (g, group) in enumerate(steps(am))
+        st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
+        rep = first(group)
+        if is_equilibrium(rep)
+            push!(out, is_binding(rep) ? Kd(rep, st) : Kiso(rep, st))
+        else
+            if is_binding(rep)
+                push!(out, Kon(rep, st))
+                push!(out, Koff(rep, st))
+            else
+                push!(out, Kfor(rep, st))
+                push!(out, Krev(rep, st))
+            end
+        end
+    end
+    out
+end
+
+# Walk all I-state catalytic + reg parameters (for _param_for_symbol lookup).
+function _all_params_for_sym(am::AllostericMechanism)
+    out = Parameter[]
+    for (g, group) in enumerate(steps(am))
+        cat_allo_state(am, g) === :OnlyA && continue
+        rep = first(group)
+        if is_equilibrium(rep)
+            push!(out, is_binding(rep) ? Kd(rep, :I) : Kiso(rep, :I))
+        else
+            if is_binding(rep)
+                push!(out, Kon(rep, :I))
+                push!(out, Koff(rep, :I))
+            else
+                push!(out, Kfor(rep, :I))
+                push!(out, Krev(rep, :I))
+            end
+        end
+    end
+    for site in regulatory_sites(am)
+        for (lig, tag) in zip(ligands(site), allo_states(site))
+            tag === :OnlyI || push!(out, Kreg(site, lig, :A))
+            tag === :OnlyA || push!(out, Kreg(site, lig, :I))
+        end
+    end
+    out
+end
 
 """
 Enumerate every raw rate-constant Parameter for a non-allosteric
