@@ -248,18 +248,18 @@ All `Parameter → Symbol` rendering in `src/` flows through one of two entry po
 - At the `EnzymeMechanism` level, regulators are bare Symbols (no role tags) — the role distinction is captured by the mechanism's structure (which forms the regulator binds to and which kinetic_group those steps belong to).
 
 ### Allosteric state taxonomy (per kinetic group, per regulatory ligand)
-- `:OnlyR` — symbol exists in R-state only; T-state zeros it.
-- `:OnlyT` — symbol exists in T-state only; R-state zeros it. Catalytic groups cannot be `:OnlyT` (R-state-active convention).
-- `:EqualRT` — single shared symbol for both states (K_R = K_T).
-- `:NonequalRT` — independent R and T symbols (K_R, K_T separately).
+- `:OnlyA` — symbol exists in active state only; inactive state zeros it.
+- `:OnlyI` — symbol exists in inactive state only; active state zeros it. Catalytic groups cannot be `:OnlyI` (active-state convention).
+- `:EqualAI` — single shared symbol for both states (K_A = K_I).
+- `:NonequalAI` — independent active and inactive state symbols (K_A, K_I separately).
 - DSL: catalytic-step allosteric states via `:: AlloState` annotation in `site(:catalytic, N): begin steps: … end`. Regulator allosteric states via `name::AlloState` in `allosteric_regulators:`.
-- Both `AllostericMechanism` (dense `Vector` fields) and `AllostericEnzymeMechanism` (Tuple type parameters) use **dense** storage — every kinetic group has an explicit `cat_allo_states` entry; every regulatory site/ligand has an explicit allo-state tag. The default tag is `:NonequalRT` but is stored explicitly. The `AllostericMechanism` constructor validates density.
+- Both `AllostericMechanism` (dense `Vector` fields) and `AllostericEnzymeMechanism` (Tuple type parameters) use **dense** storage — every kinetic group has an explicit `cat_allo_states` entry; every regulatory site/ligand has an explicit allo-state tag. The default tag is `:NonequalAI` but is stored explicitly. The `AllostericMechanism` constructor validates density.
 
 ### Mirror / dead-end kinetic-group sharing
 - The mechanism-enumeration generator assigns dead-end mirror steps the same `kinetic_group::Int` as their catalytic counterpart. Mirror propagation is implicit in the kinetic-group atomicity: when a group's RE→SS conversion fires, every member converts together.
 
 ### Parameter naming convention
-- `parameters(m)` returns one symbol per kinetic group, named after the group's *representative step* (the first step in source order that belongs to the group), not the group number. So if steps 1, 2, 3 share `kinetic_group=1`, the binding K is `:K1`. If steps 6-9 share `kinetic_group=3`, the binding K is `:K6` (rep step is 6, the lowest-indexed step in that group). For SS groups: `:k{rep}f`, `:k{rep}r`. T-state suffix: `:K{rep}_T`, `:k{rep}f_T`.
+- `parameters(m)` returns one symbol per kinetic group, named after the group's *representative step* (the first step in source order that belongs to the group), not the group number. So if steps 1, 2, 3 share `kinetic_group=1`, the binding K is `:K1`. If steps 6-9 share `kinetic_group=3`, the binding K is `:K6` (rep step is 6, the lowest-indexed step in that group). For SS groups: `:k{rep}f`, `:k{rep}r`. Inactive-state suffix: `:K{rep}_I`, `:k{rep}f_I`.
 - This is consistent across `parameters`, `_dependent_param_exprs`, `rate_equation_string`, `_kcat_forward`. Hand-written analytical formulas should match the rep-step naming, not consecutive 1, 2, 3 numbering.
 
 ### Catalytic topology constraints
@@ -286,13 +286,13 @@ All `Parameter → Symbol` rendering in `src/` flows through one of two entry po
 - `Step` has 5 fields: `from_species::Species, to_species::Species, bound_metabolite::Union{Metabolite,Nothing}, is_equilibrium::Bool, source_idx::Int`. Steps with the same kinetic_group share kinetic parameters (encoded via `Mechanism.steps`' outer Vector grouping).
 - `Mechanism` has 2 fields: `reaction::EnzymeReaction, steps::Vector{Vector{Step}}`. Outer vector = kinetic groups, inner = steps sharing a group.
 - `AllostericMechanism` has 5 fields: `reaction, cat_steps::Vector{Vector{Step}}, cat_allo_states::Vector{Symbol}, catalytic_multiplicity::Int, regulatory_sites::Vector{RegulatorySite}`. `RegulatorySite` carries its own ligands + multiplicity + per-ligand allo-state.
-- `_n_fit_params_estimate` is an upper-bound estimate during enumeration; true count comes from `length(fitted_params(m))` after compilation. The estimator is known to under-count SS `:NonequalRT` groups in some shapes (see `feedback-test-translation-assertion-strength` memory) — when assertions need exact param counts, prefer `length(fitted_params(compile_mechanism(m)))`.
+- `_n_fit_params_estimate` is an upper-bound estimate during enumeration; true count comes from `length(fitted_params(m))` after compilation. The estimator is known to under-count SS `:NonequalAI` groups in some shapes (see `feedback-test-translation-assertion-strength` memory) — when assertions need exact param counts, prefer `length(fitted_params(compile_mechanism(m)))`.
 - `init_mechanisms` / `expand_mechanisms` build `Mechanism` / `AllostericMechanism` directly from decomposed `Step` / `Species` — no intermediate spec or scratch working-representation.
 - `oligomeric_state` from `EnzymeReaction` sets `catalytic_n` and all regulator site multiplicities (not enumerated).
 - `EnzymeMechanism(m::Mechanism)` and `AllostericEnzymeMechanism(am::AllostericMechanism)` lift a decomposed mechanism to its singleton derivation type (`compile_mechanism` wraps both).
 - Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor.
-- Allosteric state taxonomy (per kinetic group, per regulatory ligand): `:OnlyR`, `:OnlyT`, `:EqualRT`, `:NonequalRT`. `:OnlyR` / `:OnlyT` symbols are zeroed in the opposite state's polynomial; `:NonequalRT` symbols are renamed to T-suffixed counterparts in the T-state poly; `:EqualRT` symbols pass through unchanged.
-- Allosteric conversion is +1 param (just L). Per-kinetic-group allosteric-state enumeration replaces the old K-type/V-type hardcoded subsets. Iso-only groups (no metabolite) cannot be `:OnlyT` (R-inactive iso is just a relabel).
+- Allosteric state taxonomy (per kinetic group, per regulatory ligand): `:OnlyA`, `:OnlyI`, `:EqualAI`, `:NonequalAI`. `:OnlyA` / `:OnlyI` symbols are zeroed in the opposite state's polynomial; `:NonequalAI` symbols are renamed to I-suffixed counterparts in the inactive-state poly; `:EqualAI` symbols pass through unchanged.
+- Allosteric conversion is +1 param (just L). Per-kinetic-group allosteric-state enumeration replaces the old K-type/V-type hardcoded subsets. Iso-only groups (no metabolite) cannot be `:OnlyI` (inactive-state iso is just a relabel).
 
 ## Source Layout
 
