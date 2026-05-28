@@ -43,18 +43,26 @@ These were resolved in brainstorming with Denis:
    scheme (`_dependent_param_exprs_kernel`, prefers keeping free-enzyme binding
    and forward-over-reverse) is **unchanged**. Which parameter becomes dependent
    does not change. Only its *name* changes.
-2. **Canonicalize all iso steps (RE and SS) in the physical-forward direction.**
-   Iso steps are stored with `from` = the side further along the catalytic
-   cycle's substrate→product progression. The direction question is identical
-   for RE iso (`K`) and SS iso (`kf`/`kr`); only the parameter count differs,
-   not the storage direction, so one canonicalization rule covers both.
-   Iso canonicalization moves out of the `Step` constructor (no reaction
-   context) into the `Mechanism` / `AllostericMechanism` constructor (which
-   carries the `EnzymeReaction`'s substrate/product sets). RE *binding*
-   canonicalization stays in the `Step` constructor (metabolite on `from`
-   side — needs no reaction context). The derivation's existing assumption
-   "LHS = kf-side" (`rate_eq_derivation.jl:356-360`) becomes physical-forward-
-   aligned and *more* correct than today's source-order behavior.
+2. **Every `Step` is canonicalized.** Two canonicalization rules, applied in
+   two places:
+   - **Binding steps (RE and SS)** are canonicalized in the `Step`
+     constructor: the bound metabolite goes on the `from_species` side, so
+     "binding direction" (free + met → bound) is the stored direction. This
+     drops today's `is_equilibrium &&` guard at `types.jl:159-163` — that
+     guard existed only because the old positional `:k6f`/`:k6r` names were
+     direction-tied; with structural `kon_<met>_<form>` / `koff_<met>_<form>`
+     names the guard becomes harmful (SS binding stored opposite-to-binding
+     would give a kon symbol that physically means koff).
+   - **Iso steps (RE and SS)** are canonicalized in the
+     `Mechanism` / `AllostericMechanism` constructor (which carries the
+     `EnzymeReaction`'s substrate/product sets) to the physical-forward
+     direction: `from` = side further along the substrate→product
+     progression. One canonicalization rule (`_canonical_iso_direction`)
+     covers both kinds; only the parameter count differs (RE: one `K`;
+     SS: `kf`+`kr`), not the storage direction. The derivation's existing
+     "LHS = kf-side" assumption (`rate_eq_derivation.jl:356-360`) becomes
+     physical-forward-aligned and *more* correct than today's source-order
+     behavior.
 
    Algorithm (Mechanism constructor, per iso step):
    - **Tier 1:** `(n_subs_bound, -n_prods_bound)` — higher = more "from".
@@ -79,12 +87,33 @@ These were resolved in brainstorming with Denis:
    never be the discriminator.
 
 3. **Active/Inactive (A/I) everywhere.** Rename the allosteric-state notion
-   from R/T to A (active) / I (inactive) throughout: taxonomy symbols
-   (`:OnlyR→:OnlyA`, `:OnlyT→:OnlyI`, `:EqualRT→:EqualAI`, `:NonequalRT→:NonequalAI`),
-   the user-facing DSL annotations, CLAUDE.md docs, and rendered names. The
-   state token sits **right after the type prefix**, not at the end, and
-   `EqualAI` carries **no token**: `K_ATP_E` (equal), `K_A_ATP_E` (OnlyA),
-   `K_I_ATP_E` (OnlyI), both for NonequalAI; `kon_A_ATP_E`, `k_A_ES_to_EP`.
+   from R/T to A (active) / I (inactive) throughout: group/site taxonomy
+   symbols (`:OnlyR→:OnlyA`, `:OnlyT→:OnlyI`, `:EqualRT→:EqualAI`,
+   `:NonequalRT→:NonequalAI`), the user-facing DSL annotations, CLAUDE.md
+   docs, and rendered names.
+
+   **`Parameter.state` field takes one of four values** (replacing today's
+   `{:None, :R, :T}`):
+
+   | `Parameter.state` | meaning | rendered state token |
+   |---|---|---|
+   | `:None` | non-allosteric mechanism (no allosteric context anywhere) | `""` |
+   | `:EqualAI` | allosteric, EqualAI group/site (single shared symbol) | `""` |
+   | `:A` | allosteric active branch (OnlyA, or NonequalAI active variant) | `"A_"` |
+   | `:I` | allosteric inactive branch (OnlyI, or NonequalAI inactive variant) | `"I_"` |
+
+   `:None` and `:EqualAI` render identically (no token), but the semantic
+   distinction matters for `_flip_to_inactive`:
+   - `:None` → **error** (caller bug; non-allosteric params have no inactive variant)
+   - `:EqualAI` → return `p` unchanged (shared symbol, no separate variant)
+   - `:A` → return `p` with `state = :I`
+   - `:I` → return `p` with `state = :A`
+
+   The state token sits **right after the type prefix**, not at the end:
+   `K_ATP_E` (None/EqualAI), `K_A_ATP_E` (A), `K_I_ATP_E` (I); `kon_A_ATP_E`,
+   `k_A_ES_to_EP`. Today's code conflates EqualRT with non-allosteric via
+   `st = ... === :EqualRT ? :None : :R` (`rate_eq_derivation.jl:1156`); the
+   rename fixes this by introducing the distinct `:EqualAI` state.
 
 4. **Single priority function for rep + pivot.** Extract a pure
    `_step_priority(step, m)::Int`. The kinetic-group **name representative** is
