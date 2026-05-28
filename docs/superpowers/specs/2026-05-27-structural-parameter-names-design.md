@@ -30,7 +30,7 @@ This lets us:
 
 Concretely:
 - Renaming a literal `:K1`/`:k6f` to its structural equivalent (`:K_ATP_E`, `:k_ES_to_EP`) is adaptation.
-- Regenerating a golden string from captured actuals is adaptation.
+- Predicting a golden string by applying the well-defined transformation rule to the current expected, then verifying the implementation matches, is adaptation.
 - Rewriting a numerical oracle's destructuring (`(; k1f, …) = params`) — **don't**; the positional-remap shim is the supported adaptation path.
 - Removing an `@test` line or a whole `@testset` block is **deletion** and requires explicit approval.
 - Reducing the number of test trials, mechanisms covered, or property-check iterations is **coverage reduction** and requires explicit approval.
@@ -116,7 +116,7 @@ These were resolved in brainstorming with Denis:
    rename fixes this by introducing the distinct `:EqualAI` state.
 
 4. **Single priority function for rep + pivot.** Extract a pure
-   `_step_priority(step, m)::Int`. The kinetic-group **name representative** is
+   `_step_priority(step, free_enz_set)::Int`. The kinetic-group **name representative** is
    `argmin` within the group (least-eliminable = most primary, lexical
    tiebreak); the Haldane elimination **pivot** keeps its existing `argmax`
    behavior among reps. Kinetic groups are kind-homogeneous (all binding or all
@@ -124,7 +124,7 @@ These were resolved in brainstorming with Denis:
    intuitive name. Naming and elimination thus share one notion of primacy.
 5. **Hybrid test migration.** Golden output assertions (`expected_factored_num`/
    `expected_factored_denom`, `rate_equation_string`, `parameters()` literal
-   tuples) are **regenerated** to structural names — they are outputs we want to
+   tuples) are **adapted to structural names via TDD predict-then-test** — they are outputs we want to
    assert. Hand-derived numerical physics oracles (`analytical_rate_fn`,
    `rate_uni_uni`, `analytical_kcat_fn`) are kept **byte-for-byte unchanged**;
    a permanent positional-remap helper maps `parameters(m)`-ordered structural
@@ -170,7 +170,7 @@ Conventions:
 - **`<from>`/`<to>`** for isomerizations are the canonicalized step's species
   pair. Each rate constant is named by its **actual directed transition**, so
   the name is unambiguous regardless of storage order. After SS canonicalization
-  (Decision 2) the stored direction is deterministic (lex on species name).
+  (Decision 2) the stored direction is deterministic (physical-forward via Tier 1 atom-balance / Tier 2 binding-context / Tier 3 lex fallback).
 - **Uniqueness within a mechanism** is guaranteed because a step is identified
   by `(from_species, to_species, bound_metabolite, is_equilibrium)`, and the
   name encodes enough of that tuple to be injective. See Risk R2 for the one
@@ -216,7 +216,7 @@ Conventions:
 
 The per-group representative survives (two physically-distinct steps in one
 group do **not** share a structural name). Extract a pure
-`_step_priority(step, m)::Int` from the existing Haldane pivot logic. The group
+`_step_priority(step, free_enz_set)::Int` from the existing Haldane pivot logic. The group
 name representative is `argmin(_step_priority)` within the group (least-eliminable
 = most primary), lexical tiebreak on the structural name for determinism. The
 Haldane elimination pivot keeps its `argmax` selection among reps. The group's
@@ -277,16 +277,14 @@ instead of `K9 => K4`.
 
 ## Sequencing (high level; detailed plan via writing-plans)
 
-1. Rewrite the chokepoint to structural names (keep `source_idx` temporarily so
-   the build stays green); regenerate golden strings + add the oracle shim.
-2. Move kinetic-group rep to structural-first; switch `@generated` callers to
-   value-context `name(p, m)`; delete `name(::Type{P}, idx)` and
-   `_rep_idx_for_step`.
-3. Remove `Step.source_idx` and its constructor/validation references.
-4. Canonicalize SS steps; delete the "SS not canonicalized" special case;
-   re-green oracles via shim mapping.
-5. Cleanup sweep: simplify canonical-hash token layer, dedup, derivation, and
-   enumeration code paths that referenced indices; remove now-dead comments.
+0. Add the `positional_params` oracle shim (no-op today; safety net for the rename).
+1. Concat `name(Species)` (drop underscores between conformation and bound metabolites); update form-name goldens TDD-style.
+2. A/I rename: taxonomy symbols (`:OnlyR→:OnlyA` etc.), branch states (`:R→:A`, `:T→:I`), introduce `:EqualAI` as a distinct state (replacing `:None`-for-EqualAI conflation), DSL annotations, helper identifiers. Render output byte-identical (chokepoint still maps `:I` to `_T` suffix transitionally).
+3. Atomic chokepoint rewrite + synth-dep T-name routing (one commit): `_state_tag`, `_render_binding`, `_render_iso`, `_rep_step` replace `_param_symbol` + `name(::Type{P},idx)` + `_rep_idx_for_step`; `_flip_to_inactive` + `_param_for_symbol` route all synth-dep `_T` sites through the chokepoint. Then delete the now-identity Pass-1 rename and convert index-context callers; update TDD-style goldens; update chokepoint AST test.
+4. Extract `_step_priority`; group-rep = `argmin(_step_priority)`; add structural Parameter-keyed dep-set guard test (Decision-1 invariant); update positional_params shim's rep selection.
+5. Canonicalize all iso steps (RE + SS) physical-forward in the `Mechanism` constructor (`_canonical_iso_direction` with three tiers); drop the RE-iso lex branch from the `Step` constructor; drop the `is_equilibrium &&` guard on binding canonicalization so every Step is canonicalized.
+6. Remove `Step.source_idx` and its constructor/validation references (gate: dep-set guard stays green).
+7. Cleanup sweep: simplify canonical-hash token layer (guarded by `test_canonical_hash_partition`); delete `_step_sides`/`_split_reaction_side` indirection (Step now is the single source of truth for direction); verify Pass-2 Wegscheider absorption is empirically dead and delete `_build_kinetic_rename_map` + `ANNOTATION_SUBSTITUTED` if so; remove now-dead comments.
 
 ## Success criteria
 
