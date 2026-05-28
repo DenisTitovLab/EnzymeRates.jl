@@ -69,17 +69,18 @@ Base.hash(s::Species, h::UInt) =
     hash(s.bound, hash(s.conformation, hash(s.residual, hash(:Species, h))))
 
 # Render species name deterministically from fields:
-#   :<conformation>[_<bound1>_<bound2>...][_res[_+<added>...][_-<subtracted>...]]
-# Underscore is the field separator, so metabolite Symbols containing `_`
-# produce ambiguous output (Species([Substrate(:A_B)]) and
-# Species([Substrate(:A), Substrate(:B)]) both render :E_A_B). Domain
-# convention: metabolite Symbols must not contain `_`.
+#   :<conformation><bound1><bound2>...[_res[_+<added>...][_-<subtracted>...]]
+# Conformation and bound metabolites are concatenated without separator.
+# Metabolite Symbols must not contain `_` (domain convention): `:EATP`
+# unambiguously means E with ATP bound, not a conformation named "EATP".
+# Examples: `:E`, `:ES`, `:EATP`, `:EstarA_res_+P`.
 function name(s::Species)
-    parts = String[String(conformation(s))]
+    head = String(conformation(s))
     for m in bound(s)
-        push!(parts, m isa CompetitiveInhibitor ?
-                     String(name(m)) * "inh" : String(name(m)))
+        head *= m isa CompetitiveInhibitor ?
+                String(name(m)) * "inh" : String(name(m))
     end
+    parts = String[head]
     if has_residual(s)
         push!(parts, "res")
         for a in added(residual(s))
@@ -1092,11 +1093,12 @@ function _species_name_from_sig(species_sig)
     if isempty(bound_sigs) && !has_res
         return conformation
     end
-    parts = String[String(conformation)]
+    head = String(conformation)
     for b in bound_sigs
-        push!(parts, b[1] === :CompetitiveInhibitor ?
-                     String(b[2]) * "inh" : String(b[2]))
+        head *= b[1] === :CompetitiveInhibitor ?
+                String(b[2]) * "inh" : String(b[2])
     end
+    parts = String[head]
     if has_res
         push!(parts, "res")
         for a in added_sig

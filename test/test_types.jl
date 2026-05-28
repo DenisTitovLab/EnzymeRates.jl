@@ -15,9 +15,9 @@
         @test EnzymeRates.regulators(m) == ()
         @test EnzymeRates.metabolites(m) == (:S, :P)
         @test EnzymeRates.reactions(m) == (
-            ((:E, :S), (:E_S,), true,  1),
-            ((:E_S,),  (:E_P,), false, 2),
-            ((:E, :P), (:E_P,), true,  3),
+            ((:E, :S), (:ES,), true,  1),
+            ((:ES,),   (:EP,), false, 2),
+            ((:E, :P), (:EP,), true,  3),
         )
         @test EnzymeRates.equilibrium_steps(m) == (true, false, true)
         @test EnzymeRates.n_steps(m) == 3
@@ -26,7 +26,7 @@
         @test EnzymeRates.kinetic_group(m, 3) == 3
         @test EnzymeRates.kinetic_groups(m) == (1, 2, 3)
         @test EnzymeRates.steps_in_group(m, 1) == (1,)
-        @test EnzymeRates.enzyme_forms(m) == (:E, :E_S, :E_P)
+        @test EnzymeRates.enzyme_forms(m) == (:E, :ES, :EP)
         @test EnzymeRates.n_states(m) == 3
 
         # Shared kinetic-group: two steps in group 1 (regulator R binds
@@ -188,7 +188,7 @@
             end
         end
         @test sprint(show, m) ==
-            "EnzymeMechanism: E + S <--> E_S <--> E + P"
+            "EnzymeMechanism: E + S <--> ES <--> E + P"
 
         # Branched mechanism: multi-line with header summary.
         m_b = @enzyme_mechanism begin
@@ -206,8 +206,8 @@
         end
         s = sprint(show, m_b)
         @test startswith(s, "EnzymeMechanism (7 steps, 6 enzyme forms):")
-        @test contains(s, "E + A <--> E_A")
-        @test contains(s, "E_Q <--> E + Q")
+        @test contains(s, "E + A <--> EA")
+        @test contains(s, "EQ <--> E + Q")
 
         # Linear chain with canonical RE binding: chain-walk renders the
         # release step in reverse so the chain stays linear.
@@ -221,7 +221,7 @@
             end
         end
         @test sprint(show, m_re) ==
-            "EnzymeMechanism: E + S ⇌ E_S <--> E_P ⇌ E + P"
+            "EnzymeMechanism: E + S ⇌ ES <--> EP ⇌ E + P"
 
         # Mechanism with regulators: appended at end.
         m_reg = @enzyme_mechanism begin
@@ -505,7 +505,7 @@
             r"\([^()]*,[^()]*\) :: EqualRT", s)
         @test paren_group_match !== nothing
         # Format: lhs/rhs joined with " + " (no brackets).
-        @test occursin("E_S <--> E_P :: EqualRT", s)
+        @test occursin("ES <--> EP :: EqualRT", s)
         @test occursin(":: EqualRT", s)
         @test !occursin("cat_allo_states:", s)
     end
@@ -594,7 +594,7 @@
                                    EnzymeRates.Substrate(:B)],
             :E,
         )
-        @test EnzymeRates.name(s_es) === :E_A_B
+        @test EnzymeRates.name(s_es) === :EAB
 
         # Estar conformation
         s_estar = EnzymeRates.Species(EnzymeRates.Metabolite[], :Estar)
@@ -621,7 +621,7 @@
         @test d1 == d2
         @test hash(d1) == hash(d2)
         @test EnzymeRates.name(d1) === EnzymeRates.name(d2)
-        @test EnzymeRates.name(d1) === :E_G6P_G6Pinh
+        @test EnzymeRates.name(d1) === :EG6PG6Pinh
     end
 
     @testset "RegulatorySite: validation + accessors" begin
