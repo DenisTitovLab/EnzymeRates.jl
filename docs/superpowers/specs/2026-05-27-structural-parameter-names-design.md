@@ -32,18 +32,37 @@ These were resolved in brainstorming with Denis:
    scheme (`_dependent_param_exprs_kernel`, prefers keeping free-enzyme binding
    and forward-over-reverse) is **unchanged**. Which parameter becomes dependent
    does not change. Only its *name* changes.
-2. **Canonicalize SS iso steps in the physical-forward direction.** SS iso
-   steps are stored with `from` = the side that has more substrate (or fewer
-   product) bindings, so `kf` consistently denotes the physical-forward rate
-   (substrate-bound → product-bound). Pure conformational iso (no substrate
-   or product involved on either side) falls back to lex on species name.
-   Canonicalization moves from the `Step` constructor (no reaction context)
-   into the `Mechanism` / `AllostericMechanism` constructor (where the
-   `EnzymeReaction`'s substrate/product sets are available). The derivation's
-   existing assumption "LHS = kf-side" (`rate_eq_derivation.jl:356-360`)
-   becomes physical-forward-aligned and *more* correct than today's
-   source-order behavior. RE step canonicalization in the `Step` constructor
-   is unchanged.
+2. **Canonicalize all iso steps (RE and SS) in the physical-forward direction.**
+   Iso steps are stored with `from` = the side further along the catalytic
+   cycle's substrate→product progression. The direction question is identical
+   for RE iso (`K`) and SS iso (`kf`/`kr`); only the parameter count differs,
+   not the storage direction, so one canonicalization rule covers both.
+   Iso canonicalization moves out of the `Step` constructor (no reaction
+   context) into the `Mechanism` / `AllostericMechanism` constructor (which
+   carries the `EnzymeReaction`'s substrate/product sets). RE *binding*
+   canonicalization stays in the `Step` constructor (metabolite on `from`
+   side — needs no reaction context). The derivation's existing assumption
+   "LHS = kf-side" (`rate_eq_derivation.jl:356-360`) becomes physical-forward-
+   aligned and *more* correct than today's source-order behavior.
+
+   Algorithm (Mechanism constructor, per iso step):
+   - **Tier 1:** `(n_subs_bound, -n_prods_bound)` — higher = more "from".
+     Captures atom-balance progression. Decides the 95% case.
+   - **Tier 2 (1-hop graph context):** For each species classify by which
+     RE binding steps touch it as the free side: `:substrate_only` /
+     `:product_only` / `:both` / `:neither`. If from=`:product_only` and
+     to=`:substrate_only`, "product-exit → substrate-entry" is forward
+     (the cycle-closing/regeneration step). Handles the Segel Iso Uni Uni
+     `F ⇌ E` case fully source-direction-independently.
+   - **Tier 3 (lex on conformation name):** deterministic fallback for the
+     truly-symmetric tail (`:both` ↔ `:both` random-mechanism rearrangement,
+     or `:neither` ↔ `:neither` theoretical conformational change with no
+     metabolite traffic on either side).
+
+   Residual atoms are NOT a separate tier: by atom conservation, an iso step
+   cannot change residual content without also changing bound metabolites,
+   so a Tier-1 tie implies a residual tie automatically — residual would
+   never be the discriminator.
 
 3. **Active/Inactive (A/I) everywhere.** Rename the allosteric-state notion
    from R/T to A (active) / I (inactive) throughout: taxonomy symbols

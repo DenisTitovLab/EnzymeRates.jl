@@ -26,7 +26,7 @@
 
 | File | Change |
 |---|---|
-| `src/types.jl` | `name(Species)` concat; chokepoint `_param_symbol`/`name` structural rewrite; `_inactive_name` helper; delete `name(::Type{P},idx)`, `_rep_idx_for_step`; `Step.source_idx` removal; `Mechanism`/`AllostericMechanism` constructor cleanup (incl. physical-forward SS iso canonicalization, Phase 5); `RegulatorySite` A/I validator |
+| `src/types.jl` | `name(Species)` concat; chokepoint `_param_symbol`/`name` structural rewrite; `_inactive_name` helper; delete `name(::Type{P},idx)`, `_rep_idx_for_step`; `Step.source_idx` removal; `Mechanism`/`AllostericMechanism` constructor cleanup (incl. unified RE+SS physical-forward iso canonicalization, Phase 5); remove the RE-iso lex branch from the `Step` constructor; `RegulatorySite` A/I validator |
 | `src/rate_eq_derivation.jl` | A/I branch-state + helper renames (`_onlyR_*`→`_onlyA_*`, `_T_rename*`→`_I_rename*`); `@generated` callers switch to value-context `name(p,m)`; `_step_priority` consumers |
 | `src/thermodynamic_constr_for_rate_eq_derivation.jl` | extract `_step_priority`; rep = `argmin`; drop `source_idx`-keyed ordering in `_step_parameters` |
 | `src/mechanism_enumeration.jl` | SS canonicalization fallout in dedup; simplify canonical-hash token layer; A/I in `_T_rename_parameters` callers |
@@ -373,7 +373,7 @@ Delete `_param_symbol` (all methods), `name(::Type{P}, idx)` / `name(::Type{P}, 
 
 > **`Kreg` name injectivity (Risk R2).** The body above never inspects `m` and cannot detect a same-ligand-two-sites collision at name time. Per Denis's note ("same ligand is almost never an allo regulator at two sites"), do NOT add an unreachable error branch in `name(p::Kreg, …)`. Instead, add an assertion in the `AllostericMechanism` constructor that no ligand appears in two distinct `RegulatorySite`s. That gives the same safety with sibling visibility and a clear error site.
 
-> Note on `Krev`: with SS canonicalization not yet in place (Phase 5), `from`/`to` follow stored order. `Kfor`/`Krev` name the forward and reverse directed transitions of the rep step, so the pair is direction-independent regardless of storage order.
+> Note on `Krev`/`Kiso`: with unified iso canonicalization not yet in place (Phase 5), iso `from`/`to` follow stored order (RE iso = Step ctor's lex; SS iso = source). `Kfor`/`Krev` name the forward and reverse directed transitions of the rep step, so the pair is direction-independent regardless of storage order. After Phase 5 the stored direction becomes physical-forward for both RE and SS iso.
 
 - [ ] **Step 4: Run the unit test to confirm pass.**
 
@@ -645,29 +645,26 @@ git commit -m "refactor: kinetic-group name rep via shared _step_priority (argmi
 
 ---
 
-## Phase 5 — Canonicalize SS iso steps in the physical-forward direction
+## Phase 5 — Canonicalize all iso steps (RE and SS) in the physical-forward direction
 
-Goal: SS iso step storage direction is canonicalized so the `from` side is the side with **more substrates bound** (or fewer products), making `Kfor` consistently denote the physical-forward rate (substrate → product progression). Pure conformational iso (no substrates or products involved on either side) falls back to lex. RE step canonicalization in the `Step` constructor is unchanged. The derivation's existing "LHS = kf-side" assumption (`rate_eq_derivation.jl:356-360`) becomes physical-forward-aligned.
+Goal: iso step storage direction is canonicalized so the `from` side is the side further along the catalytic cycle's substrate→product progression. The direction question is identical for RE iso (one `K`) and SS iso (two `kf`/`kr`); only parameter count differs, so **one canonicalization rule covers both**. Iso canonicalization moves out of `Step` into the `Mechanism` / `AllostericMechanism` constructor (which has the `EnzymeReaction`'s substrate/product sets). RE *binding* canonicalization stays in `Step` (metabolite on `from` side — needs no reaction context). The derivation's "LHS = kf-side" assumption (`rate_eq_derivation.jl:356-360`) becomes physical-forward-aligned.
 
-Canonicalization moves to the `Mechanism` / `AllostericMechanism` constructor (which has the `EnzymeReaction`'s substrate/product sets), because `Step` itself has no reaction context.
+Algorithm (`_canonical_iso_direction`, per iso step):
+- **Tier 1:** `score(sp) = (n_subs_bound, -n_prods_bound)`. Higher = more "from". Atom-balance progression; decides the 95% case.
+- **Tier 2 (1-hop graph context):** classify each species by which RE binding steps touch it as the free side — `:substrate_only` / `:product_only` / `:both` / `:neither`. If from=`:product_only` and to=`:substrate_only`, the step is the cycle-closing/regeneration step; forward = exit → entry. Handles Segel Iso Uni Uni `F ⇌ E` fully source-independently.
+- **Tier 3 (lex on conformation name):** deterministic fallback for the truly-symmetric tail.
 
-### Task 5.1: Add the physical-forward canonicalizer for SS iso steps
+Residual atoms are NOT a tier: by atom conservation, an iso step can't change residual without also changing bound metabolites, so a Tier-1 tie implies a residual tie automatically.
 
-**Files:** `src/types.jl` (new helper near the `Mechanism` constructor), `src/types.jl:140-177` (Step constructor doc only — code unchanged for SS), `src/types.jl:353-384` (`Mechanism` constructor), `AllostericMechanism` constructor
+### Task 5.1: Add `_canonical_iso_direction` (unified RE + SS) and apply it in the Mechanism constructor
 
-- [ ] **Step 1: Write a failing test** in `test/test_types.jl` for both the substrate/product case and the pure-conformational fallback:
+**Files:** `src/types.jl:140-177` (`Step` constructor — **remove** the RE-iso lex branch at 164-172; RE binding canonicalization at 159-163 stays), `src/types.jl:353-384` (`Mechanism` constructor), `AllostericMechanism` constructor, new helpers placed next to `Mechanism`.
+
+- [ ] **Step 1: Write a failing test** in `test/test_types.jl` covering Tier 1, Tier 2 (the Segel `F ⇌ E` case), and an RE iso reorientation:
 
 ```julia
-@testset "SS iso steps canonicalize to physical-forward" begin
-    # ES <--> EP: forward = S-bound side (ES) -> P-bound side (EP)
-    ES = Species([Substrate(:S)], :E); EP = Species([Product(:P)], :E)
-    rxn = @enzyme_reaction begin
-        substrates: S; products: P
-        steps: begin
-            E + S <--> E(S); E(S) <--> E(P); E(P) <--> E + P
-        end
-    end
-    # Build via @enzyme_mechanism so the Mechanism constructor canonicalizes.
+@testset "iso canonicalization (RE + SS, all tiers)" begin
+    # Tier 1 (SS iso, score differs): forward = substrate-bound -> product-bound.
     m_fwd = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
@@ -680,90 +677,133 @@ Canonicalization moves to the `Mechanism` / `AllostericMechanism` constructor (w
         substrates: S; products: P
         steps: begin
             E + S <--> E(S)
-            E(P)  -->  E(S)   # SS iso written backwards
+            E(P)  -->  E(S)        # SS iso written backwards
             E(P) <--> E + P
         end
     end
-    @test m_fwd == m_rev       # mechanism dedups under canonicalization
-    iso_step = only(s for grp in EnzymeRates.steps(EnzymeRates.Mechanism(m_rev))
-                       for s in grp if !EnzymeRates.is_equilibrium(s))
-    @test EnzymeRates.name(EnzymeRates.from_species(iso_step)) == :ES
-    @test EnzymeRates.name(EnzymeRates.to_species(iso_step))   == :EP
+    @test m_fwd == m_rev
 
-    # Pure conformational E <--> Estar (no S/P): lex fallback.
-    # Build a contrived mechanism with such a step, assert from=E, to=Estar.
-end
-```
-
-- [ ] **Step 2: Run to confirm fail** — today SS iso preserves source direction; `m_fwd != m_rev`.
-
-- [ ] **Step 3: Add the canonicalizer** in `src/types.jl` next to the `Mechanism` constructor:
-
-```julia
-# Count substrates (resp. products) bound in a species. Used for SS iso
-# step canonicalization: forward direction = side with more substrates
-# bound (or fewer products), so `Kfor` consistently denotes the
-# physical-forward rate. Substrate-bound count beats product count;
-# when both tie, lex on form name picks a stable direction
-# (pure conformational iso with no S/P involved).
-function _canonical_ss_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol})
-    is_equilibrium(s) && return s              # RE handled in Step ctor
-    is_binding(s) && return s                  # SS binding stays as-is
-    f, t = from_species(s), to_species(s)
-    n_sub_from = count(m -> name(m) in subs,  bound(f))
-    n_sub_to   = count(m -> name(m) in subs,  bound(t))
-    n_prod_from = count(m -> name(m) in prods, bound(f))
-    n_prod_to   = count(m -> name(m) in prods, bound(t))
-    score(nsub, nprod) = (nsub, -nprod)        # more subs, fewer prods = more "forward"
-    sf, st = score(n_sub_from, n_prod_from), score(n_sub_to, n_prod_to)
-    sf > st && return s                                                # already forward
-    sf < st && return Step(t, f, nothing, false)                       # flip
-    # tie (e.g. pure conformational E ⇌ Estar): lex fallback.
-    string(name(f)) ≤ string(name(t)) ? s : Step(t, f, nothing, false)
-end
-```
-
-- [ ] **Step 4: Apply it in the `Mechanism` constructor** (`src/types.jl:353-384`):
-
-```julia
-struct Mechanism
-    reaction::EnzymeReaction
-    steps::Vector{Vector{Step}}
-    function Mechanism(reaction::EnzymeReaction, steps::Vector{Vector{Step}})
-        subs  = Set(substrates(reaction))
-        prods = Set(products(reaction))
-        canon = [[_canonical_ss_iso_direction(s, subs, prods) for s in g] for g in steps]
-        # (the existing source_idx auto-assign block stays until Phase 6 deletes it.)
-        ...
+    # Tier 2 (the Segel Iso Uni Uni case): pure conformational F <--> E,
+    # tied on Tier 1, decided by entry_kind. Two opposite-source-direction
+    # mechanisms canonicalize to the same form.
+    s1 = @enzyme_mechanism begin
+        substrates: A; products: P
+        steps: begin
+            E + A <--> E(A); E(A) <--> E(P); E(P) <--> F + P; F <--> E
+        end
     end
+    s2 = @enzyme_mechanism begin
+        substrates: A; products: P
+        steps: begin
+            E + A <--> E(A); E(A) <--> E(P); E(P) <--> F + P; E <--> F   # last step flipped
+        end
+    end
+    @test s1 == s2
+    iso = only(s for grp in EnzymeRates.steps(EnzymeRates.Mechanism(s2))
+                   for s in grp
+                   if !EnzymeRates.is_binding(s) && !EnzymeRates.is_equilibrium(s) == false  # RE iso
+                   && EnzymeRates.bound_metabolite(s) === nothing
+                   && EnzymeRates.name(EnzymeRates.from_species(s)) in (:E, :F))
+    @test EnzymeRates.name(EnzymeRates.from_species(iso)) == :F  # product-exit
+    @test EnzymeRates.name(EnzymeRates.to_species(iso))   == :E  # substrate-entry
 end
 ```
-Mirror the change in `AllostericMechanism`'s constructor for its `cat_steps`.
 
-- [ ] **Step 5: Run the unit test to PASS.**
+- [ ] **Step 2: Run to confirm fail** — today both equalities fail (SS iso never canonicalized; RE iso canonicalized by raw lex which picks `:E → :F`, not `:F → :E`).
 
-- [ ] **Step 6: Run full suite; regenerate goldens for mechanisms whose SS iso direction changed; verify numerical oracles.**
+- [ ] **Step 3: Add the canonicalizer + `entry_kind` helper** in `src/types.jl` next to the `Mechanism` constructor:
+
+```julia
+# Classify how a species participates in RE binding steps as the FREE side
+# (canonical RE binding puts the metabolite on the from_species side, so the
+# free side IS from_species). Used by `_canonical_iso_direction` Tier 2 to
+# decide direction for pure-conformational iso steps where Tier 1 ties.
+function _entry_kind(sp::Species, re_steps, subs::Set{Symbol}, prods::Set{Symbol})
+    has_sub = false; has_prod = false
+    for s in re_steps
+        from_species(s) == sp || continue
+        b = bound_metabolite(s); b === nothing && continue
+        n = name(b)
+        n in subs  && (has_sub  = true)
+        n in prods && (has_prod = true)
+    end
+    has_sub && has_prod && return :both
+    has_sub  && return :substrate_only
+    has_prod && return :product_only
+    return :neither
+end
+
+# Canonicalize an iso step's storage direction to physical-forward, so
+# `from` is further from product-release / closer to substrate-binding.
+# Applies to RE iso AND SS iso (the question is identical; only the
+# parameter count differs). RE binding (metabolite on from side) is
+# already canonicalized by the Step constructor.
+function _canonical_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
+                                  all_re_steps::Vector{Step})
+    is_binding(s) && return s
+    f, t = from_species(s), to_species(s)
+
+    # Tier 1: atom-balance progression.
+    score(sp) = (count(m -> name(m) in subs,  bound(sp)),
+                -count(m -> name(m) in prods, bound(sp)))
+    sf, st = score(f), score(t)
+    sf > st && return s
+    sf < st && return Step(t, f, nothing, is_equilibrium(s))
+
+    # Tier 2: 1-hop RE-binding graph context.
+    fk = _entry_kind(f, all_re_steps, subs, prods)
+    tk = _entry_kind(t, all_re_steps, subs, prods)
+    fk == :product_only   && tk == :substrate_only && return s
+    fk == :substrate_only && tk == :product_only   && return Step(t, f, nothing, is_equilibrium(s))
+
+    # Tier 3: lex fallback (source-independent).
+    string(name(f)) ≤ string(name(t)) ? s : Step(t, f, nothing, is_equilibrium(s))
+end
+```
+
+- [ ] **Step 4: Remove the RE-iso lex branch from `Step`** at `src/types.jl:164-172`. The `elseif is_equilibrium` block goes away; only the RE-binding swap at 159-163 remains in the `Step` constructor. Update the constructor's comment to say "RE binding canonicalizes here; ALL iso steps canonicalize in the Mechanism constructor via `_canonical_iso_direction`."
+
+- [ ] **Step 5: Apply the canonicalizer in `Mechanism`** (`src/types.jl:353-384`):
+
+```julia
+function Mechanism(reaction::EnzymeReaction, steps::Vector{Vector{Step}})
+    subs  = Set(substrates(reaction))
+    prods = Set(products(reaction))
+    flat  = Step[s for g in steps for s in g]
+    re_steps = filter(s -> is_equilibrium(s) && is_binding(s), flat)
+    canon = [[_canonical_iso_direction(s, subs, prods, re_steps) for s in g] for g in steps]
+    # (the existing source_idx auto-assign block operates on `canon` and stays until Phase 6 deletes it.)
+    ...
+end
+```
+Mirror in `AllostericMechanism`'s constructor for its `cat_steps`.
+
+- [ ] **Step 6: Run the unit test to PASS.**
+
+- [ ] **Step 7: Audit `test/test_types.jl` for bare-`Step` RE-iso direction assertions.** With RE-iso canonicalization moved to `Mechanism`, any test that constructs two opposite-direction RE iso `Step`s and asserts `==` will now fail (until the Steps live in a Mechanism). Find them with `grep -nE 'Step\([^)]*,\s*nothing,\s*true' test/` and rewrite each to build a Mechanism wrapper or use `_canonical_iso_direction` directly.
+
+- [ ] **Step 8: Run full suite; regenerate goldens for mechanisms whose iso direction changed; verify numerical oracles.**
 
 Run: `julia --project -e 'using Pkg; Pkg.test()'`
 - Golden string churn: regenerate from actuals.
-- **Numerical oracle policy (Risk R1).** With physical-forward canonicalization, every test mechanism written in the natural forward direction is already canonical, so oracle slots should not flip. If a numerical test fails because an oracle was hand-written in a non-forward direction, fix the **`positional_params` shim mapping** for that mechanism (swap f/r slot assignment), never the oracle formula. Loud failure, not silent — assert this in plan-runtime: if any analytical_rate_fn fails after this task, stop and inspect that mechanism's source direction before any other change.
+- **Numerical oracle policy (Risk R1).** Physical-forward canonicalization makes oracles written in the natural forward direction already canonical, so slot flips should be rare. If a numerical test fails because the oracle author wrote a step backward, fix the `positional_params` shim mapping for that mechanism (swap f/r slot assignment), never the oracle formula.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
-git commit -m "refactor: SS iso canonicalizes to physical-forward direction"
+git commit -m "refactor: unified iso canonicalization to physical-forward direction"
 ```
 
-### Task 5.2: Remove the now-stale "SS not canonicalized" comments + update CLAUDE.md
+### Task 5.2: Update comments and CLAUDE.md for the unified iso canonicalization
 
-**Files:** `src/types.jl:165-172` (Step constructor comment about SS), `src/rate_eq_derivation.jl:356-360` (derivation source-order comment), `src/mechanism_enumeration.jl:509`, `.claude/CLAUDE.md`
+**Files:** `src/types.jl` (Step ctor comment), `src/rate_eq_derivation.jl:356-360` (derivation source-order comment), `src/mechanism_enumeration.jl:509`, `.claude/CLAUDE.md`
 
-- [ ] **Step 1:** Replace the Step-ctor comment at `types.jl:165-172` ("SS iso steps are NOT canonicalized") with a pointer: "RE steps canonicalize here; SS iso steps canonicalize physical-forward in the Mechanism constructor — see `_canonical_ss_iso_direction`."
+- [ ] **Step 1:** Update the `Step` constructor comment to describe the new split: RE binding canonicalizes here (metabolite on `from`); ALL iso steps (RE and SS) canonicalize in the Mechanism constructor via `_canonical_iso_direction`.
 
-- [ ] **Step 2:** Rewrite the `rate_eq_derivation.jl:356-360` comment. The old text warned "Using Step's from/to would be wrong" because SS storage wasn't canonical. Now it IS canonical (and physically forward), so reading direction from Step's `from`/`to` is correct and consistent with `rxns`. The derivation's "LHS = kf-side" now means "physical-forward side = kf-side." Make this explicit; remove the warning about iso SS swapping.
+- [ ] **Step 2:** Rewrite the `rate_eq_derivation.jl:356-360` comment. The warning "Using Step's from/to would be wrong" is now stale: iso storage IS canonical and physically forward, so reading direction from Step's `from`/`to` (or equivalently from `rxns`) is correct. The "LHS = kf-side" now means "physical-forward side = kf-side."
 
-- [ ] **Step 3:** Update CLAUDE.md "Canonical Step Form": RE step canonicalization (puts metabolite on LHS, RE iso ordered by lex) is unchanged. SS iso steps are canonicalized in the Mechanism constructor to the physical-forward direction (substrates bound on `from`, products on `to`; lex tiebreak for pure conformational). All SS binding steps and all RE steps remain canonicalized exactly as today.
+- [ ] **Step 3:** Update CLAUDE.md "Canonical Step Form": RE binding canonicalization in the Step constructor is unchanged (metabolite on `from`). ALL iso steps (RE and SS) are canonicalized in the Mechanism constructor via `_canonical_iso_direction` (Tier 1 substrate/product counts → Tier 2 1-hop RE-binding graph context → Tier 3 lex). Replace any text claiming "SS steps are NOT canonicalized" or "RE iso canonicalized by lex in Step."
 
 - [ ] **Step 4: Run full suite to PASS.**
 
@@ -771,7 +811,7 @@ git commit -m "refactor: SS iso canonicalizes to physical-forward direction"
 
 ```bash
 git add -A
-git commit -m "docs: update Canonical Step Form for physical-forward SS iso"
+git commit -m "docs: unified iso canonicalization (RE + SS) in Canonical Step Form"
 ```
 
 ---
@@ -923,6 +963,6 @@ git commit -m "refactor: remove dead index-era code and comments"
 - Naming table → Phase 3 Task 3.1 chokepoint bodies.
 - `name(Species)` concat → Phase 1. `:Et` rename DROPPED per Denis (~15 hard-coded `:E_total` sites; pure churn unrelated to structural naming).
 - `_inactive_name` helper (consolidates 11 `string(k) * "_T"` synth-dep sites) → Phase 3 Task 3.1.5. This was the DRY simplification Denis flagged when approving the A/I mid-name placement.
-- Phase 5 rewritten to canonicalize SS iso in the *physical-forward* direction (substrate-bound → product-bound, lex fallback), in the `Mechanism` constructor (which has reaction context), not the `Step` constructor.
+- Phase 5 rewritten to canonicalize **all iso steps (RE and SS)** with one rule — `_canonical_iso_direction` — in the `Mechanism` constructor (which has reaction context). Tier 1 substrate/product counts → Tier 2 1-hop RE-binding graph context (handles the Segel `F ⇌ E` case fully source-independently) → Tier 3 lex fallback. Residual is NOT a tier (atom conservation makes it redundant with Tier 1). The RE-iso lex branch is removed from the `Step` constructor.
 - Two-reviewer audit: confirmed perf gate (R3) safe; converged on physical-forward canonicalization, `_inactive_name` consolidation, and the dep-set snapshot test. Reviewers **disagreed** on Phase 7 token-layer deletion (subsumed by structural names vs needed for cross-mechanism equivalence) — Phase 7 stays conservative, gated by `test_canonical_hash_partition.jl`.
 - Risk R1 (SS×shim) → Phase 5 Task 5.1 Step 5 explicit policy. R2 (collision) → accepted, noted in `name(p::Kreg)` comment. R3 (perf) → `test_rate_equation_performance` runs in the full suite every phase.
