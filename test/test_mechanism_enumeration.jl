@@ -357,13 +357,12 @@ end
             for s in spec
                 if length(_t_reactants(s)) == 1 &&
                         length(_t_products(s)) == 1
-                    src = string(_t_reactants(s)[1])
-                    src_parts = Symbol.(split(
-                        replace(src, "Estar" => "E"),
-                        "_"))
+                    # Use bound list directly (name-parsing is ambiguous
+                    # with the concat form naming convention).
+                    src_sp, _ = _iso_orient(s)
                     has_sub = any(
-                        p -> p ∈ sub_names_set,
-                        src_parts)
+                        b -> EnzymeRates.name(b) ∈ sub_names_set,
+                        EnzymeRates.bound(src_sp))
                     @test has_sub
                 end
             end
@@ -376,11 +375,15 @@ end
                 if length(_t_reactants(s)) == 1 &&
                         length(_t_products(s)) == 1
                     dst = string(_t_products(s)[1])
-                    if startswith(dst, "Estar_")
-                        dst_parts = Symbol.(
-                            split(dst[7:end], "_"))
-                        for p in dst_parts
-                            @test p ∉ sub_names_set
+                    if startswith(dst, "Estar") && dst != "Estar"
+                        # Estar-bound form: conformation "Estar" followed by
+                        # concatenated metabolite names (no separator). The
+                        # suffix is the metabolite portion of the form name.
+                        suffix = dst[6:end]
+                        # Check each metabolite name doesn't appear as a full
+                        # word in the suffix by checking against known sub names.
+                        for sub_name in sub_names_set
+                            @test !contains(suffix, string(sub_name))
                         end
                     end
                 end
@@ -403,12 +406,12 @@ end
                     length(_t_products(s)) == 1
             ]
             has_atp_hco3_iso = any(iso_steps) do (r, p)
-                r == [Symbol("E_ATP_HCO3")] &&
-                    p == [Symbol("Estar_ADP_Pi")]
+                r == [Symbol("EATPHCO3")] &&
+                    p == [Symbol("EstarADPPi")]
             end
             has_pyr_iso = any(iso_steps) do (r, p)
-                r == [Symbol("Estar_Pyr")] &&
-                    p == [Symbol("E_OAA")]
+                r == [Symbol("EstarPyr")] &&
+                    p == [Symbol("EOAA")]
             end
             if has_atp_hco3_iso && has_pyr_iso
                 found = true
@@ -447,13 +450,13 @@ end
                     length(_t_products(s)) == 1
             ]
             has_pyr = any(iso_steps) do (r, p)
-                r == [:E_Pyr] && p == [:Estar_CO2]
+                r == [:EPyr] && p == [:EstarCO2]
             end
             has_coa = any(iso_steps) do (r, p)
-                r == [:Estar_CoA] && p == [:Estar_AcCoA]
+                r == [:EstarCoA] && p == [:EstarAcCoA]
             end
             has_nad = any(iso_steps) do (r, p)
-                r == [:Estar_NAD] && p == [:E_NADH]
+                r == [:EstarNAD] && p == [:ENADH]
             end
             if has_pyr && has_coa && has_nad
                 found = true
@@ -659,13 +662,13 @@ end
     end
     mech_bb = EnzymeRates.Mechanism(m_bb)
     @test EnzymeRates._forms_with_binding_step_native(
-        mech_bb, :B) == Set([:E, :E_A])
+        mech_bb, :B) == Set([:E, :EA])
     @test EnzymeRates._forms_with_binding_step_native(
-        mech_bb, :A) == Set([:E, :E_B])
+        mech_bb, :A) == Set([:E, :EB])
     @test EnzymeRates._forms_with_binding_step_native(
-        mech_bb, :P) == Set([:E, :E_Q])
+        mech_bb, :P) == Set([:E, :EQ])
     @test EnzymeRates._forms_with_binding_step_native(
-        mech_bb, :Q) == Set([:E, :E_P])
+        mech_bb, :Q) == Set([:E, :EP])
 end
 
 # ─── _substrate_product_dead_end_opportunities ──────────────────────────
@@ -675,10 +678,10 @@ end
     # {A↔P, B↔Q, D↔R}:
     #   1S+1P: 6 allowed, 3 forbidden (the 3
     #     diagonal pairs A-P, B-Q, D-R)
-    #   2S+1P: 3 allowed (E_A_B_R, E_A_D_Q,
-    #     E_B_D_P), 6 forbidden
-    #   1S+2P: 3 allowed (E_A_Q_R, E_B_P_R,
-    #     E_D_P_Q), 6 forbidden
+    #   2S+1P: 3 allowed (EABR, EADQ,
+    #     EBDP), 6 forbidden
+    #   1S+2P: 3 allowed (EAQR, EBPR,
+    #     EDPQ), 6 forbidden
     #   Total: 12 allowed out of 27
     topos = EnzymeRates._catalytic_topologies(
         ter_ter_rxn)
@@ -741,23 +744,23 @@ end
     @test length(allowed) == 12
 
     # Verify specific allowed forms
-    @test :E_A_Q in allowed   # 1S+1P
-    @test :E_A_R in allowed
-    @test :E_B_P in allowed
-    @test :E_B_R in allowed
-    @test :E_D_P in allowed
-    @test :E_D_Q in allowed
-    @test :E_A_B_R in allowed # 2S+1P
-    @test :E_A_D_Q in allowed
-    @test :E_B_D_P in allowed
-    @test :E_A_Q_R in allowed # 1S+2P
-    @test :E_B_P_R in allowed
-    @test :E_D_P_Q in allowed
+    @test :EAQ in allowed   # 1S+1P
+    @test :EAR in allowed
+    @test :EBP in allowed
+    @test :EBR in allowed
+    @test :EDP in allowed
+    @test :EDQ in allowed
+    @test :EABR in allowed # 2S+1P
+    @test :EADQ in allowed
+    @test :EBDP in allowed
+    @test :EAQR in allowed # 1S+2P
+    @test :EBPR in allowed
+    @test :EDPQ in allowed
 
     # Verify specific forbidden forms
-    @test :E_A_P ∉ allowed    # A↔P diagonal
-    @test :E_B_Q ∉ allowed    # B↔Q diagonal
-    @test :E_D_R ∉ allowed    # D↔R diagonal
+    @test :EAP ∉ allowed    # A↔P diagonal
+    @test :EBQ ∉ allowed    # B↔Q diagonal
+    @test :EDR ∉ allowed    # D↔R diagonal
 end
 
 # ─── _expand_substrate_product_dead_ends ────────────────────────────────
@@ -879,7 +882,7 @@ end
         for r in result
             new_forms = setdiff(_form_names(r[1]), seed_forms)
             for f in new_forms
-                startswith(string(f), "Estar_") && push!(new_estar_forms, f)
+                startswith(string(f), "Estar") && string(f) != "Estar" && push!(new_estar_forms, f)
             end
         end
         @test !isempty(new_estar_forms)
@@ -2406,8 +2409,8 @@ end
         # 2. Δ params: +1 (one new K_I parameter), measured against
         # ground-truth `fitted_params(compile_mechanism(...))`. The
         # dead-end inhibitor binds as a `CompetitiveInhibitor`, so its
-        # form renders `:E_Sinh` — distinct from the substrate-bound
-        # `:E_S` (`Species([Substrate(:S)], :E)`). Ground truth is
+        # form renders `:ESinh` — distinct from the substrate-bound
+        # `:ES` (`Species([Substrate(:S)], :E)`). Ground truth is
         # canonical per the 6β.3 follow-up pattern.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))

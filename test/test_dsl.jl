@@ -75,7 +75,7 @@
         end
         @test m isa EnzymeMechanism
         @test EnzymeRates.n_steps(m) == 2
-        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :E_S])
+        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
     end
 
     @testset "@enzyme_mechanism (new grammar)" begin
@@ -98,7 +98,7 @@
         @test EnzymeRates.kinetic_group(m, 3) != EnzymeRates.kinetic_group(m, 4)
 
         # Function-call species notation: E(S) ≡ species with conformation :E
-        # and bound metabolite :S. Synthesized form name is :E_S
+        # and bound metabolite :S. Synthesized form name is :ES
         # (matching `name(::Species)` from src/types.jl).
         m_call = @enzyme_mechanism begin
             substrates: S
@@ -110,10 +110,10 @@
             end
         end
         @test m_call isa EnzymeMechanism
-        @test Set(EnzymeRates.enzyme_forms(m_call)) == Set([:E, :E_S, :E_P])
+        @test Set(EnzymeRates.enzyme_forms(m_call)) == Set([:E, :ES, :EP])
         @test EnzymeRates.n_steps(m_call) == 3
 
-        # Multi-bound species: E(S, P) → :E_P_S (sorted alphabetically).
+        # Multi-bound species: E(S, P) → :EPS (sorted alphabetically).
         m_multi = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
@@ -126,8 +126,8 @@
             end
         end
         @test m_multi isa EnzymeMechanism
-        @test :E_A_B in EnzymeRates.enzyme_forms(m_multi)
-        @test :E_P_Q in EnzymeRates.enzyme_forms(m_multi)
+        @test :EAB in EnzymeRates.enzyme_forms(m_multi)
+        @test :EPQ in EnzymeRates.enzyme_forms(m_multi)
 
         # Residual notation: Estar(; residual = A - P).
         m_res = @enzyme_mechanism begin
@@ -377,7 +377,7 @@
         @test m isa EnzymeMechanism
         @test EnzymeRates.n_steps(m) == 2
         @test EnzymeRates.n_states(m) == 2
-        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :E_S])
+        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
         @test Set(metabolites(m)) == Set([:S, :P])
 
         # Numeric check: same as Uni-Uni spot check
@@ -482,9 +482,9 @@
             end
         end
         forms = EnzymeRates.enzyme_forms(m)
-        @test :E_P in forms        # product-bound form (catalytic release)
-        @test :E_Pinh in forms     # inhibitor-bound form — DISTINCT from :E_P
-        @test :E_P != :E_Pinh
+        @test :EP in forms        # product-bound form (catalytic release)
+        @test :EPinh in forms     # inhibitor-bound form — DISTINCT from :EP
+        @test :EP != :EPinh
         # rate_equation must reference concs.P for the inhibitor term, not concs.Pinh:
         re_str = rate_equation_string(m)
         @test occursin("P", re_str)        # real metabolite name appears
@@ -506,7 +506,7 @@
         end
         rxns = EnzymeRates.reactions(m)
         mid = rxns[2]            # (lhs, rhs, is_eq, g) for E(A) <--> E(Q) + P
-        @test mid[1] == (:E_A,)  # lhs: only the enzyme form
+        @test mid[1] == (:EA,)  # lhs: only the enzyme form
         @test :P in mid[2]       # P released (rhs)
         @test :P ∉ mid[1]        # P not consumed (lhs)
     end
