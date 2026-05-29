@@ -1315,6 +1315,46 @@ end
     rate_eq = rate_equation(m_mixed, (S=S_eq, P=P_eq, I=0.5), p_eq)
     @test isapprox(rate_eq, 0.0; atol=1e-10)
 
+    # Wegscheider-cycle EqualAI×NonequalAI: the Random-order Bi-Bi mechanism has a
+    # genuine independent Wegscheider cycle. With the B-binding group :NonequalAI
+    # (group 2 — chosen because it pivots the Wegscheider-dependent EqualAI K
+    # koff_A_E onto a Case-B promotion: its RHS references the :NonequalAI symbol
+    # kon_A_B_E and has no Keq), the contained synth-dep fix must reach Wegscheider
+    # deps. Asserts the mechanism-agnostic invariant: zero net rate at chemical
+    # equilibrium. (Over-parametrized; rejection is a follow-up PR — see
+    # docs/superpowers/specs/2026-05-29-nonequalai-rank-validity.md.)
+    cm_ro = @enzyme_mechanism begin
+        substrates: A, B
+        products:   P, Q
+        steps: begin
+            E + A <--> E(A)
+            E + B <--> E(B)
+            E(A) + B <--> E(A, B)
+            E(B) + A <--> E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) <--> E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    m_ro = EnzymeRates.AllostericEnzymeMechanism(
+        cm_ro,
+        (2, (:EqualAI, :NonequalAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI)),
+        (((:I,), 2, (:NonequalAI,)),),
+    )
+    # Overall A + B ⇌ P + Q, so Keq = P·Q/(A·B).
+    Keq_ro = 4.0
+    A_eq, B_eq = 1.5, 2.0
+    P_eq = 3.0
+    Q_eq = Keq_ro * A_eq * B_eq / P_eq
+    p_ro = (kon_A_E=1.2, kon_A_B_E=0.9, koff_A_B_E=1.5, kon_B_EA=1.1, koff_B_EA=0.8,
+            kon_A_EB=1.3, koff_A_EB=0.7, k_EAB_to_EPQ=6.0, kon_P_EPQ=1.4,
+            koff_P_EPQ=0.6, kon_Q_EQ=1.0, koff_Q_EQ=0.9, kon_I_B_E=0.5,
+            koff_I_B_E=1.7, K_A_Ireg=1.0, K_I_Ireg=4.0, L=2.0, Keq=Keq_ro,
+            E_total=1.0)
+    @test isapprox(
+        rate_equation(m_ro, (A=A_eq, B=B_eq, P=P_eq, Q=Q_eq, I=0.5), p_ro), 0.0;
+        atol=1e-9)
+
     # Empty ligand list at reg site → constructor error
     cm_simple = @enzyme_mechanism begin
         substrates: S
