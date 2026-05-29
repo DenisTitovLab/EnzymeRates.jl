@@ -4203,12 +4203,12 @@ end
         end
         @test EnzymeRates._t_state_dead(m)
         params_full = parameters(m, Full)
-        # K1_T and K2_T are referenced in `den_T` of the body
+        # K_I_S_E_c and K_I_P_E_c are referenced in `den_T` of the body
         # (the binding partition function for :NonequalAI groups
         # is built regardless of `t_state_dead` since `den_T`
         # always appears in the denominator).
-        @test :K1_T in params_full
-        @test :K2_T in params_full
+        @test :K_I_S_E_c in params_full
+        @test :K_I_P_E_c in params_full
     end
 end
 
@@ -4368,12 +4368,12 @@ end # top-level testset
                   EnzymeRates._canonical_rate_eq_hash(ldh_m_c)
         end
 
-        @testset "Allosteric T-state K_i_T tokens covered by name_map" begin
+        @testset "Allosteric I-state tokens covered by name_map" begin
             # K-type allosteric uni-uni: catalytic step is :OnlyA
             # (`_t_state_dead == true`), but binding steps are :NonequalAI,
-            # so K1_T and K2_T live in `den_T` of the rate equation body.
-            # Canonicalizer invariant: every T-state token must have a
-            # canonical p_i_T entry so substitution into the rate-equation
+            # so K_I_S_E_c and K_I_P_E_c live in `den_T` of the rate equation body.
+            # Canonicalizer invariant: every I-state token must have a
+            # canonical entry so substitution into the rate-equation
             # Exprs leaves no raw parameter symbols behind.
             m = @allosteric_mechanism begin
                 substrates: S
@@ -4385,18 +4385,20 @@ end # top-level testset
                     E_c(S) <--> E_c(P)    :: OnlyA
                 end
             end
-            # Pre-assertion: the raw body actually contains T-state tokens.
-            # Otherwise the name_map's T-token coverage would be trivially
-            # satisfied by a mechanism that lacks a T-state body altogether.
-            @test occursin("_T", rate_equation_string(m))
+            # Pre-assertion: the raw body actually contains I-state tokens
+            # (structural naming: K_I_ prefix for inactive-state params).
+            # Otherwise the name_map's I-token coverage would be trivially
+            # satisfied by a mechanism that lacks an I-state body altogether.
+            @test occursin("K_I_", rate_equation_string(m))
 
             _, _, name_map = EnzymeRates._canonical_rate_eq_hash_data(m)
-            # Every raw `K\d+_T` and `k\d+[fr]_T` key the rate-equation
-            # body could reference must be present in name_map.
-            t_keys = filter(k -> endswith(k, "_T"), collect(keys(name_map)))
-            @test !isempty(t_keys)
-            for k in t_keys
-                @test occursin(r"^(K\d+|k\d+[fr])_T$", k)
+            # Every raw K_I_ or k_I_ key the rate-equation body could
+            # reference must be present in name_map.
+            i_keys = filter(k -> contains(k, "K_I_") || contains(k, "k_I_"),
+                            collect(keys(name_map)))
+            @test !isempty(i_keys)
+            for k in i_keys
+                @test occursin(r"^(K_I_|k_I_)", k)
             end
         end
 

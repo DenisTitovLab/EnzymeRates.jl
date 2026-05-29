@@ -891,9 +891,9 @@ function build_mechanism_test_specs()
             analytical_kcat_fn=p -> p.k2f,
             # Textbook: flat sum denominator (no Cartesian product structure)
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + S / K1 + P / K3 + R / K4",
+            "1 + P / K_P_E + R / K_R_E + S / K_S_E",
         ))
     end
 
@@ -937,9 +937,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) -> rate_noncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + S / K1 + P / K3 + R / K4 + R * S / (K1 * K4)",
+            "1 + P / K_P_E + R / K_R_E + S / K_S_E + R * S / (K_R_E * K_S_E)",
         ))
     end
 
@@ -982,9 +982,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) -> rate_uncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + S / K1 + P / K3 + R * S / (K1 * K4)",
+            "1 + P / K_P_E + S / K_S_E + R * S / (K_R_ES * K_S_E)",
         ))
     end
 
@@ -1029,12 +1029,12 @@ function build_mechanism_test_specs()
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
             # Mathematically equivalent factoring: numerator and denominator
-            # are both multiplied by R/K4 in the alternative form. The
+            # are both multiplied by R/K_R_E in the alternative form. The
             # derivation now produces this form directly.
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ERinhS_to_EPRinh * S / K_S_ERinh - k_EPRinh_to_ERinhS * P / K_P_ERinh",
             expected_factored_denom=
-            "K4 / R + 1 + S / K1 + P / K3",
+            "K_R_E / R + 1 + P / K_P_ERinh + S / K_S_ERinh",
         ))
     end
 
@@ -1087,9 +1087,9 @@ function build_mechanism_test_specs()
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> max(p.k2f, p.k5f),
             expected_factored_num=
-            "k2f * S / K1 + k5f * R * S / (K1 * K7) - (k2r * P / K3 + k5r * P * R / (K3 * K7))",
+            "k_ES_to_EP * S / K_S_E + k_ERinhS_to_EPRinh * R * S / (K_R_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EPRinh_to_ERinhS * P * R / (K_P_E * K_R_E))",
             expected_factored_denom=
-            "1 + S / K1 + P / K3 + R / K7 + R * S / (K1 * K7) + P * R / (K3 * K7)",
+            "1 + P / K_P_E + R / K_R_E + S / K_S_E + P * R / (K_P_E * K_R_E) + R * S / (K_R_E * K_S_E)",
         ))
     end
 
@@ -1150,9 +1150,9 @@ function build_mechanism_test_specs()
             # Denom has both multiplicative (activator) and additive
             # (inhibitor) structure
             expected_factored_num=
-            "k2f * S / K1 + k5f * A * S / (K1 * K7) - (k2r * P / K3 + k5r * A * P / (K3 * K7))",
+            "k_ES_to_EP * S / K_S_E + k_EAinhS_to_EAinhP * A * S / (K_A_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EAinhP_to_EAinhS * A * P / (K_A_E * K_P_E))",
             expected_factored_denom=
-            "1 + A / K7 + I / K10 + S / K1 + P / K3 + A * S / (K1 * K7) + A * P / (K3 * K7)",
+            "1 + A / K_A_E + I / K_I_E + P / K_P_E + S / K_S_E + A * P / (K_A_E * K_P_E) + A * S / (K_A_E * K_S_E)",
         ))
     end
 
@@ -1213,10 +1213,10 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_oligo,
             expected_factored_num=
-            "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
-            " + L * (S * k3f_T / K1_T - P * k3r_T / K2_T) * (1 + S / K1_T + P / K2_T))",
+            "2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E)" *
+            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E))",
             expected_factored_denom=
-            "(1 + S / K1 + P / K2) ^ 2 + L * (1 + S / K1_T + P / K2_T) ^ 2",
+            "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2",
         ))
     end
 
@@ -1276,11 +1276,11 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
             expected_factored_num=
-            "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2) * (1 + I / K_I_reg1)" *
-            " + L * (S * k3f_T / K1_T - P * k3r_T / K2_T) * (1 + S / K1_T + P / K2_T) * (1 + I / K_I_T_reg1))",
+            "2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
+            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg))",
             expected_factored_denom=
-            "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
-            " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
+            "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + I / K_A_Ireg)" *
+            " + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + I / K_I_Ireg)",
         ))
     end
 
@@ -1337,11 +1337,11 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_inh_oligo,
             expected_factored_num=
-            "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2) * (1 + I / K_I_reg1)" *
-            " + L * (S * k3f_T / K1_T - P * k3r_T / K2_T) * (1 + S / K1_T + P / K2_T) * (1 + I / K_I_T_reg1))",
+            "2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
+            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg))",
             expected_factored_denom=
-            "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
-            " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
+            "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + I / K_A_Ireg)" *
+            " + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + I / K_I_Ireg)",
         ))
     end
 
@@ -1385,9 +1385,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K4 + I2 / K5 + S / K1 + P / K3",
+            "1 + I1 / K_I1_E + I2 / K_I2_E + P / K_P_E + S / K_S_E",
         ))
     end
 
@@ -1454,9 +1454,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k5f * S / K1 - k5r * P / K6",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K10 + I2 / K16 + S / K1 + P / K6 + I1 * I2 / (K10 * K16) + I1 * S / (K1 * K10) + I1 * P / (K10 * K6) + I2 * S / (K1 * K16) + I2 * P / (K16 * K6) + I1 * I2 * S / (K1 * K10 * K16) + I1 * I2 * P / (K10 * K16 * K6)",
+            "1 + I1 / K_I1_E + I2 / K_I2_E + P / K_P_E + S / K_S_E + I1 * I2 / (K_I1_E * K_I2_E) + I1 * P / (K_I1_E * K_P_E) + I1 * S / (K_I1_E * K_S_E) + I2 * P / (K_I2_E * K_P_E) + I2 * S / (K_I2_E * K_S_E) + I1 * I2 * P / (K_I1_E * K_I2_E * K_P_E) + I1 * I2 * S / (K_I1_E * K_I2_E * K_S_E)",
         ))
     end
 
@@ -1509,9 +1509,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k3f * S / K1 - k3r * P / K4",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K6 + I2 / K9 + S / K1 + P / K4 + I1 * S / (K1 * K6) + I1 * P / (K4 * K6)",
+            "1 + I1 / K_I1_E + I2 / K_I2_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1_E * K_P_E) + I1 * S / (K_I1_E * K_S_E)",
         ))
     end
 
@@ -1556,9 +1556,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I2 / K5 + S / K1 + P / K3 + I1 * S / (K1 * K4)",
+            "1 + I2 / K_I2_E + P / K_P_E + S / K_S_E + I1 * S / (K_I1_ES * K_S_E)",
         ))
     end
 
@@ -1618,9 +1618,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k4f * S / K1 - k4r * P / K5",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K8 + I2 / K11 + S / K1 + P / K5 + I1 * S / (K1 * K8) + I1 * P / (K5 * K8) + I2 * S / (K1 * K11) + I2 * P / (K11 * K5)",
+            "1 + I1 / K_I1_E + I2 / K_I2_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1_E * K_P_E) + I1 * S / (K_I1_E * K_S_E) + I2 * P / (K_I2_E * K_P_E) + I2 * S / (K_I2_E * K_S_E)",
         ))
     end
 

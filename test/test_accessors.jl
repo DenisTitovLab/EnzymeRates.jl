@@ -120,8 +120,8 @@ end
     @test :L in full_allo
     @test :E_total in full_allo
     @test :Keq ∉ full_allo
-    @test any(occursin("_T", string(p)) for p in full_allo)
-    @test any(occursin("_reg", string(p)) for p in full_allo)
+    @test any(occursin("_I_", string(p)) for p in full_allo)
+    @test any(occursin("reg", string(p)) for p in full_allo)
     @test :L in reduced_allo
     @test :Keq in reduced_allo
     @test :E_total in reduced_allo

@@ -45,7 +45,7 @@ using Tables
     # ── Test 2: FittingProblem construction ───────────────────────────────────
     @testset "Construction" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -65,7 +65,7 @@ using Tables
     # ── Test 3: Loss function correctness ─────────────────────────────────────
     @testset "Loss at true params is zero" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -86,7 +86,7 @@ using Tables
     # ── Test 4: Per-group centering invariance ───────────────────────────────
     @testset "Centering invariance" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -117,7 +117,7 @@ using Tables
     # ── Test 5: Multi-group centering invariance ─────────────────────────────
     @testset "Multi-group centering invariance" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -159,12 +159,12 @@ using Tables
         )
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
-        # Use params that produce negative predictions (very large k2r relative to k2f)
+        # Use params that produce negative predictions (very large koff_P_ES relative to kon_P_ES)
         pn = EnzymeRates.fitted_params(uni_uni)
         np = length(pn)
         x_bad = zeros(np)
         for (i, p) in enumerate(pn)
-            if p == :k2r
+            if p == :koff_P_ES
                 x_bad[i] = 15.0  # exp(15) ≈ 3.3M
             else
                 x_bad[i] = -15.0  # exp(-15) ≈ 3e-7
@@ -237,7 +237,7 @@ using Tables
     # ── Test 7: Zero allocations ──────────────────────────────────────────────
     @testset "Zero allocations" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
@@ -302,7 +302,7 @@ using Tables
     @testset "kcat normalization" begin
         using OptimizationBBO
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),

@@ -706,7 +706,8 @@ function test_analytical_kcat(spec::MechanismTestSpec; seed=42)
         rng = Random.MersenneTwister(seed)
         params = random_reduced_params(m; rng)
         kcat = EnzymeRates._kcat_forward(m, params)
-        @test kcat ≈ spec.analytical_kcat_fn(params) rtol=1e-10
+        p = merge(positional_params(m, params), (Et=params.E_total,))
+        @test kcat ≈ spec.analytical_kcat_fn(p) rtol=1e-10
     end
 end
 
@@ -860,33 +861,33 @@ end
 end
 
 @testset "_ss_rate_constant_names" begin
-    # SS-only Uni-Uni: 2 SS binding steps → k1f, k1r, k2f, k2r are SS.
+    # SS-only Uni-Uni: 2 SS binding steps → kon/koff names are SS.
     uni_uni = only(s for s in MECHANISM_TEST_SPECS
                    if s.name == "Uni-Uni").mechanism
     names = EnzymeRates._ss_rate_constant_names(uni_uni)
-    for sym in (:k1f, :k1r, :k2f, :k2r)
+    for sym in (:kon_S_E, :koff_S_E, :kon_P_ES, :koff_P_ES)
         @test sym in names
     end
 
-    # Mixed RE/SS: RE binding (K1) + SS catalysis (k2f, k2r). Only the
+    # Mixed RE/SS: RE binding (K_A_E) + SS catalysis. Only the
     # SS k's are returned; RE binding K is excluded.
     re_uu = only(s for s in MECHANISM_TEST_SPECS
                  if s.name == "RE Uni-Uni").mechanism
     re_uu_names = EnzymeRates._ss_rate_constant_names(re_uu)
-    @test :k2f in re_uu_names && :k2r in re_uu_names
-    for sym in (:K1, :Keq, :L, :E_total)
+    @test :kon_P_EA in re_uu_names && :koff_P_EA in re_uu_names
+    for sym in (:K_A_E, :Keq, :L, :E_total)
         @test !(sym in re_uu_names)
     end
 
-    # Allosteric: T-state versions of every SS rate constant are also
+    # Allosteric: I-state versions of every SS rate constant are also
     # included so `rescale_parameter_values` scales them in tandem.
     mwc = only(s for s in MECHANISM_TEST_SPECS
                if s.name == "MWC Dimer [AllostericEnzymeMechanism]").mechanism
     mwc_names = EnzymeRates._ss_rate_constant_names(mwc)
-    for sym in (:k3f, :k3r, :k3f_T, :k3r_T)
+    for sym in (:k_A_ES_to_EP, :k_A_EP_to_ES, :k_I_ES_to_EP, :k_I_EP_to_ES)
         @test sym in mwc_names
     end
-    for sym in (:K1, :K2, :K1_T, :K2_T, :Keq, :L, :E_total)
+    for sym in (:K_A_S_E, :K_A_P_E, :K_I_S_E, :K_I_P_E, :Keq, :L, :E_total)
         @test !(sym in mwc_names)
     end
 end
@@ -1054,9 +1055,9 @@ end
         end
     end
     concs = (S=1.0, P=0.001)
-    base_params = (k2f=10.0, K3=0.5, L=10.0, Keq=1000.0, E_total=1.0)
-    rate_strong = rate_equation(onlyR_sub, concs, merge(base_params, (K1=0.01,)))
-    rate_weak   = rate_equation(onlyR_sub, concs, merge(base_params, (K1=1e6,)))
+    base_params = (k_ES_to_EP=10.0, K_P_E=0.5, L=10.0, Keq=1000.0, E_total=1.0)
+    rate_strong = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_S_E=0.01,)))
+    rate_weak   = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_S_E=1e6,)))
     @test rate_strong > 1.0
     @test rate_weak < 1e-3
     @test rate_weak / rate_strong < 1e-5
@@ -1074,7 +1075,7 @@ end
             E(P) ⇌ E + P     :: EqualAI
         end
     end
-    vparams = (K1=0.1, k2f=10.0, K3=0.5, Keq=1000.0, E_total=1.0)
+    vparams = (K_S_E=0.1, k_A_ES_to_EP=10.0, K_P_E=0.5, Keq=1000.0, E_total=1.0)
     rate_R = rate_equation(vtype, concs, merge(vparams, (L=0.0,)))
     rate_T = rate_equation(vtype, concs, merge(vparams, (L=1e10,)))
     @test rate_R > 1.0
@@ -1264,12 +1265,12 @@ end
         end
     end
     actual = rate_equation_string(m_allo)
-    expected = raw"""(; K1, K2, k3f, K1_T, K2_T, k3f_T, K_R_reg1, K_R_T_reg1, L, Keq, E_total) = params
+    expected = raw"""(; K_A_P_E, K_A_S_E, k_A_ES_to_EP, K_I_P_E, K_I_S_E, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
 (; S, P, R) = concs
 # Haldane constraints:
-k3r = (1 / Keq) * K1 * (1 / K2) * k3f
-k3r_T = (1 / Keq) * K1_T * (1 / K2_T) * k3f_T
-v = E_total * (2 * ((k3f * S / K2 - k3r * P / K1) * (1 + P / K1 + S / K2) * (1 + R / K_R_reg1) ^ 2 + L * (S * k3f_T / K2_T - P * k3r_T / K1_T) * (1 + P / K1_T + S / K2_T) * (1 + R / K_R_T_reg1) ^ 2)) / ((1 + P / K1 + S / K2) ^ 2 * (1 + R / K_R_reg1) ^ 2 + L * (1 + P / K1_T + S / K2_T) ^ 2 * (1 + R / K_R_T_reg1) ^ 2)"""
+k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
+k_I_EP_to_ES = (1 / Keq) * K_I_P_E * (1 / K_I_S_E) * k_I_ES_to_EP
+v = E_total * (2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + R / K_A_Rreg) ^ 2 + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + R / K_I_Rreg) ^ 2)) / ((1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + R / K_A_Rreg) ^ 2 + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + R / K_I_Rreg) ^ 2)"""
     @test actual == expected
 end
 
@@ -1293,8 +1294,8 @@ end
         am = EnzymeRates.AllostericMechanism(aem)
         params = EnzymeRates._onlyA_parameters(am)
         rendered = Set(EnzymeRates.name(p, am) for p in params)
-        # RE binding rep step 1 → single Kd named :K1.
-        @test rendered == Set([:K1])
+        # RE binding E+S → ES with :OnlyA → single Kd named :K_A_S_E.
+        @test rendered == Set([:K_A_S_E])
 
         # SS iso group with :OnlyA → Kfor + Krev pair.
         aem_ss = EnzymeRates.AllostericEnzymeMechanism(
@@ -1305,8 +1306,8 @@ end
         ps = EnzymeRates._onlyA_parameters(am_ss)
         @test length(ps) == 2
         rendered_ss = Set(EnzymeRates.name(p, am_ss) for p in ps)
-        # SS iso rep step 2 → :k2f + :k2r pair.
-        @test rendered_ss == Set([:k2f, :k2r])
+        # SS iso ES → EP with :OnlyA → k_A_ES_to_EP + k_A_EP_to_ES pair.
+        @test rendered_ss == Set([:k_A_ES_to_EP, :k_A_EP_to_ES])
 
         # No :OnlyA groups → empty.
         aem_none = EnzymeRates.AllostericEnzymeMechanism(
@@ -1331,10 +1332,10 @@ end
             rendered[EnzymeRates.name(r_p, am)] =
                 EnzymeRates.name(t_p, am)
         end
-        # Groups 1 (rep=1) and 3 (rep=3) are :NonequalAI RE bindings →
-        # Kd(rep, :A) → Kd(rep, :I) for each. Group 2 (rep=2) is :EqualAI
+        # Groups 1 (E+S RE binding) and 3 (E+P RE binding) are :NonequalAI →
+        # Kd(rep, :A) → Kd(rep, :I) for each. Group 2 (SS iso) is :EqualAI
         # and is skipped.
-        @test rendered == Dict(:K1 => :K1_T, :K3 => :K3_T)
+        @test rendered == Dict(:K_A_S_E => :K_I_S_E, :K_A_P_E => :K_I_P_E)
 
         # Empty case: no :NonequalAI groups → empty rename.
         aem_none = EnzymeRates.AllostericEnzymeMechanism(
@@ -1355,12 +1356,12 @@ end
         params = EnzymeRates._all_i_state_parameters(am)
         rendered = [EnzymeRates.name(p, am) for p in params]
 
-        # Catalytic side: every non-:OnlyA group contributes a T-state
-        # parameter (Kd/Kiso for RE, Kfor/Krev for SS).
-        @test :K1_T in rendered
-        @test :k2f_T in rendered
-        @test :k2r_T in rendered
-        @test :K3_T in rendered
+        # Catalytic side: every non-:OnlyA group contributes an I-state
+        # parameter (Kd for RE binding, Kfor/Krev for SS).
+        @test :K_I_S_E in rendered
+        @test :k_I_ES_to_EP in rendered
+        @test :k_I_EP_to_ES in rendered
+        @test :K_I_P_E in rendered
         # Regulator side: :R is :NonequalAI → K_I_Rreg appears.
         @test :K_I_Rreg in rendered
 
@@ -1372,9 +1373,9 @@ end
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
         rendered_skip = [EnzymeRates.name(p, am_skip)
                          for p in EnzymeRates._all_i_state_parameters(am_skip)]
-        @test :K1_T ∉ rendered_skip          # :OnlyA cat group skipped
-        @test :k2f_T in rendered_skip        # :NonequalAI SS iso emits both
-        @test :k2r_T in rendered_skip
+        @test :K_I_S_E ∉ rendered_skip          # :OnlyA cat group skipped
+        @test :k_I_ES_to_EP in rendered_skip    # :NonequalAI SS iso emits both
+        @test :k_I_EP_to_ES in rendered_skip
         @test :K_I_Rreg ∉ rendered_skip    # :OnlyA reg ligand skipped
     end
 end

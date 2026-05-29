@@ -39,10 +39,10 @@ using OptimizationPyCMA
     test_mechanism = EnzymeRates.AllostericEnzymeMechanism(_am)
 
     Keq_val = 2.0
-    # 5 fitted params + 1 zeroed-path param (k3f_T)
+    # 5 fitted params: K_A_P_E, K_A_S_E, k_A_EP_to_ES, K_I_Rreg, L
     true_params = (
-        K1 = 1.0, K2 = 0.5, k3f = 5.0,
-        k3f_T = 1.0, K_R_T_reg1 = 2.0, L = 0.1,
+        K_A_P_E = 1.0, K_A_S_E = 0.5, k_A_EP_to_ES = 5.0,
+        K_I_Rreg = 2.0, L = 0.1,
         Keq = Keq_val, E_total = 1.0)
 
     function make_test_data(

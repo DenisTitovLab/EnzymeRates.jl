@@ -1160,12 +1160,12 @@
               EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), am)
         @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) ==
               EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), am)
-        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) === :K1_T
+        @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) === :K_I_S_E
 
         rep_iso  = first(EnzymeRates.steps(am)[2])
         @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) ==
               EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), am)
-        @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) === :k2f
+        @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) === :k_ES_to_EP
 
         # Kreg: AEM dispatch matches AM dispatch
         site = EnzymeRates.regulatory_sites(am)[1]
@@ -1258,23 +1258,23 @@
 
         m = EnzymeRates.Mechanism(r, [[step1], [step2], [step3]])
 
-        # Positional naming: rep_idx for kinetic group g = position of first
-        # step in steps(m)[g] within the flattened steps list.
-        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), m) === :K1
-        @test EnzymeRates.name(EnzymeRates.Kd(step1, :I),    m) === :K1_T
-        @test EnzymeRates.name(EnzymeRates.Kon(step2, :None), m) === :k2f
-        @test EnzymeRates.name(EnzymeRates.Koff(step2, :None), m) === :k2r
-        @test EnzymeRates.name(EnzymeRates.Kfor(step2, :None), m) === :k2f
-        @test EnzymeRates.name(EnzymeRates.Krev(step2, :None), m) === :k2r
-        @test EnzymeRates.name(EnzymeRates.Kd(step3, :None), m) === :K3
+        # Structural naming: binding params encode metabolite + pre-binding form;
+        # iso params encode directed species pair.
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), m) === :K_S_E
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :I),    m) === :K_I_S_E
+        @test EnzymeRates.name(EnzymeRates.Kon(step2, :None), m) === :k_ES_to_EP
+        @test EnzymeRates.name(EnzymeRates.Koff(step2, :None), m) === :k_EP_to_ES
+        @test EnzymeRates.name(EnzymeRates.Kfor(step2, :None), m) === :k_ES_to_EP
+        @test EnzymeRates.name(EnzymeRates.Krev(step2, :None), m) === :k_EP_to_ES
+        @test EnzymeRates.name(EnzymeRates.Kd(step3, :None), m) === :K_P_E
 
-        # I-suffix on SS step
-        @test EnzymeRates.name(EnzymeRates.Kon(step2, :I),  m) === :k2f_T
-        @test EnzymeRates.name(EnzymeRates.Koff(step2, :I), m) === :k2r_T
+        # I-state token on SS step
+        @test EnzymeRates.name(EnzymeRates.Kon(step2, :I),  m) === :k_I_ES_to_EP
+        @test EnzymeRates.name(EnzymeRates.Koff(step2, :I), m) === :k_I_EP_to_ES
 
-        # Kiso uses K-naming (RE iso)
-        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :None), m) === :K2
-        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :I),    m) === :K2_T
+        # Kiso uses Kiso_ prefix (RE iso)
+        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :None), m) === :Kiso_ES_to_EP
+        @test EnzymeRates.name(EnzymeRates.Kiso(step2, :I),    m) === :Kiso_I_ES_to_EP
 
         # Mechanism-level scalars
         @test EnzymeRates.name(EnzymeRates.Keq(),   m) === :Keq
@@ -1283,8 +1283,8 @@
 
         # Same names resolve via EnzymeMechanism(m) (the parametric form).
         em = EnzymeMechanism(m)
-        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), em) === :K1
-        @test EnzymeRates.name(EnzymeRates.Kon(step2, :None), em) === :k2f
+        @test EnzymeRates.name(EnzymeRates.Kd(step1, :None), em) === :K_S_E
+        @test EnzymeRates.name(EnzymeRates.Kon(step2, :None), em) === :k_ES_to_EP
         @test EnzymeRates.name(EnzymeRates.Keq(),   em) === :Keq
         @test EnzymeRates.name(EnzymeRates.Etot(),  em) === :E_total
         @test EnzymeRates.name(EnzymeRates.Lallo(), em) === :L
@@ -1315,13 +1315,13 @@
 
         m = EnzymeRates.Mechanism(r, [[step_a, step_b], [step_c], [step_d]])
 
-        # Group 1: steps 1, 2 — rep_idx = 1 for either step.
-        @test EnzymeRates.name(EnzymeRates.Kd(step_a, :None), m) === :K1
-        @test EnzymeRates.name(EnzymeRates.Kd(step_b, :None), m) === :K1
-        # Group 2: step 3 — rep_idx = 3.
-        @test EnzymeRates.name(EnzymeRates.Kon(step_c, :None), m) === :k3f
-        # Group 3: step 4 — rep_idx = 4.
-        @test EnzymeRates.name(EnzymeRates.Kd(step_d, :None), m) === :K4
+        # Group 1: both steps bind S; rep = step_a. Both yield the same name.
+        @test EnzymeRates.name(EnzymeRates.Kd(step_a, :None), m) === :K_S_E
+        @test EnzymeRates.name(EnzymeRates.Kd(step_b, :None), m) === :K_S_E
+        # Group 2: SS iso ES → EP.
+        @test EnzymeRates.name(EnzymeRates.Kon(step_c, :None), m) === :k_ES_to_EP
+        # Group 3: RE binding P from E.
+        @test EnzymeRates.name(EnzymeRates.Kd(step_d, :None), m) === :K_P_E
     end
 
     @testset "name(p::Kreg, m) chokepoint" begin
@@ -1356,13 +1356,13 @@
 
         # Step-bound parameters also resolve via AllostericMechanism.
         rep = first(cat_steps[1])
-        @test EnzymeRates.name(EnzymeRates.Kd(rep, :None), am) === :K1
-        @test EnzymeRates.name(EnzymeRates.Kd(rep, :I),    am) === :K1_T
+        @test EnzymeRates.name(EnzymeRates.Kd(rep, :None), am) === :K_S_E
+        @test EnzymeRates.name(EnzymeRates.Kd(rep, :I),    am) === :K_I_S_E
 
         # Iso step in second kinetic group
         iso_step = first(cat_steps[2])
-        @test EnzymeRates.name(EnzymeRates.Kiso(iso_step, :None), am) === :K2
-        @test EnzymeRates.name(EnzymeRates.Kon(iso_step, :None),  am) === :k2f
+        @test EnzymeRates.name(EnzymeRates.Kiso(iso_step, :None), am) === :Kiso_ES_to_EP
+        @test EnzymeRates.name(EnzymeRates.Kon(iso_step, :None),  am) === :k_ES_to_EP
 
         # Scalars also dispatch on AllostericMechanism
         @test EnzymeRates.name(EnzymeRates.Keq(),   am) === :Keq
