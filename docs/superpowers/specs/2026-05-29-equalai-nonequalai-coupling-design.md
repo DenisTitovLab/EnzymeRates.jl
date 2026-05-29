@@ -18,8 +18,10 @@ all-mechanism rewrite of dependent-parameter removal, not just allosteric).
 ## 1. The real bug
 
 On the structural-parameter-names branch, four allosteric tests fail:
-- **PK Constraints** — `n_haldane_constraints = 1` (should be 2),
-  `n_mirror_constraints = 0` (should be 4).
+- **PK Constraints** — `n_haldane_constraints = 1` (should be 2). (The
+  test's `n_mirror_constraints` golden of 4 is itself stale from the
+  positional→structural naming migration; the structurally-correct value is
+  0 — see §4.)
 - **PK Haldane Equilibrium**.
 - **m_mixed p_eq** — rate ≈ 2.615 at chemical equilibrium (should be 0).
 - **Allosteric Analytical Rate**.
@@ -90,10 +92,16 @@ touching `_flip_to_inactive`'s semantics.
 
 ## 4. Tests (true TDD — pre-derive expected values independently)
 
-- **PK Constraints / Haldane Equilibrium:** with the fix, PK must show
-  `n_haldane = 2`, `n_mirror = 4`, and zero net rate at equilibrium.
-  Re-derive these counts from the dep machinery on the corrected PK output,
-  matching implementation to truth — no blind golden edits.
+- **PK Constraints / Haldane Equilibrium:** with the fix, PK shows
+  `n_haldane = 2` and zero net rate at equilibrium. The `n_mirror` golden was
+  stale (positional era): under structural naming `:EqualAI` catalytic groups
+  share one symbol (no rename → no mirror dep), so the structurally-correct
+  values are **PK `n_mirror = 0`** and **m_all `n_mirror = 1`** (one `:EqualAI`
+  regulator ligand). Goldens corrected to truth — verified against the code
+  (the `i_name == p && continue` EqualAI skip), the `_classify_dep_expr`
+  definition, and the hand-verified analytical formula — not blindly.
+  (`n_mirror` is now largely vestigial under structural naming; a candidate
+  for repurposing/removal in the parent's cleanup.)
 - **m_mixed:** the existing `@test isapprox(rate_eq, 0.0; atol=1e-10)` must
   pass. **Keep m_mixed as-is** (it is a valid single-NonequalAI mechanism);
   the earlier plan to convert it to a `@test_throws` or all-NonequalAI was
