@@ -1315,6 +1315,16 @@ end
     rate_eq = rate_equation(m_mixed, (S=S_eq, P=P_eq, I=0.5), p_eq)
     @test isapprox(rate_eq, 0.0; atol=1e-10)
 
+    # _synthesized_dep_t_names must emit the distinct I-name for a Case-B
+    # promoted :EqualAI dep (k_EP_to_ES), matching the rate body, not the
+    # self-mapped A-name that _flip_to_inactive yields for an :EqualAI dep.
+    let am_mm = EnzymeRates.AllostericMechanism(m_mixed),
+        CM_mm = typeof(EnzymeRates.catalytic_mechanism(m_mixed))
+        synth = EnzymeRates._synthesized_dep_t_names(CM_mm, am_mm)
+        @test :k_I_EP_to_ES in synth        # distinct I-name, matching the rate body
+        @test :k_EP_to_ES ∉ synth           # not the self-mapped A-name
+    end
+
     # Wegscheider-cycle EqualAI×NonequalAI: the Random-order Bi-Bi mechanism has a
     # genuine independent Wegscheider cycle. With the B-binding group :NonequalAI
     # (group 2 — chosen because it pivots the Wegscheider-dependent EqualAI K

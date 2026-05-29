@@ -1220,7 +1220,7 @@ function _synthesized_dep_t_names(::Type{CM}, am::AllostericMechanism,
     for (k, v) in sort(collect(dep_R_all); by=first)
         k in nonequalai_set && continue
         _expr_references_any(v, nonequalai_set) || continue
-        push!(names, name(_flip_to_inactive(_param_for_symbol(am, k)), am))
+        push!(names, _dep_inactive_name(am, k))
     end
     names
 end
