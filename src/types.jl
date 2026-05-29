@@ -1475,6 +1475,15 @@ function _flip_to_inactive(p::Kreg)
     error("_flip_to_inactive: Kreg has unexpected state $(p.state)")
 end
 
+# Inactive-state variant of a parameter REGARDLESS of its allosteric tag.
+# Unlike `_flip_to_inactive` (which returns an `:EqualAI`/`:None` param
+# unchanged), this forces the `:I` state, used to give a *dependent* `:EqualAI`
+# parameter a distinct inactive name when the Haldane/Wegscheider relation
+# makes it differ between states.
+_force_inactive(p::P) where {P <: Union{Kd, Kiso, Kon, Koff, Kfor, Krev}} =
+    P(p.step, :I)
+_force_inactive(p::Kreg) = Kreg(p.site, p.ligand, :I)
+
 # Recover the Parameter struct that renders to `sym` under `name(p, m)`.
 # Walks the full parameter set once and matches by rendered name.
 function _param_for_symbol(m::Union{Mechanism, EnzymeMechanism}, sym::Symbol)

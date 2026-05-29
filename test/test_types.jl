@@ -1438,4 +1438,21 @@
         v = EnzymeRates.rate_equation(m, concs, params)
         @test isfinite(v)
     end
+
+    @testset "_force_inactive forces :I regardless of tag" begin
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species(
+            EnzymeRates.Metabolite[EnzymeRates.Product(:P)], :E)
+        s = EnzymeRates.Step(e_s, e_p, nothing, false)
+
+        # An :EqualAI parameter has no :I variant under _flip_to_inactive
+        # (returns itself); _force_inactive must return the explicit :I variant.
+        p_eq = EnzymeRates.Krev(s, :EqualAI)
+        @test EnzymeRates._flip_to_inactive(p_eq) === p_eq          # unchanged
+        @test EnzymeRates._force_inactive(p_eq) == EnzymeRates.Krev(s, :I)
+        p_a = EnzymeRates.Krev(s, :A)
+        @test EnzymeRates._force_inactive(p_a) == EnzymeRates.Krev(s, :I)
+    end
 end
