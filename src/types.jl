@@ -132,12 +132,11 @@ Base.hash(s::RegulatorySite, h::UInt) =
 # steps are canonicalized by lexical species-name order.
 #
 # `source_idx` is presentation metadata only — the flat source-order
-# position used to render positional parameter names (`:K1`, `:k10f`,
-# ...). It is auto-assigned by the `Mechanism` constructor and read
-# back by `_rep_idx_for_step`. It is NOT part of Step's structural
-# identity (see `==` / `hash` below). A future refactor that moves to
-# semantic parameter names (`:K_ATP`) will drop this field; all reads
-# flow through `_rep_idx_for_step` so removal is a contained edit.
+# position used as a stable tiebreaker for group-rep selection. It is
+# auto-assigned by the `Mechanism` constructor. It is NOT part of Step's
+# structural identity (see `==` / `hash` below). A future refactor will
+# drop this field once `_step_priority` is extracted and all ordering
+# goes through it.
 struct Step
     from_species::Species
     to_species::Species
@@ -661,16 +660,14 @@ struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 # lifts it back so derivation consumers can walk a `Mechanism`
 # uniformly.
 # Lift a `Mechanism` to its singleton `EnzymeMechanism` type. The Sig
-# stores each Step's data including `source_idx`, which the derivation
-# pipeline keys parameter naming on (`_rep_idx_for_step`). To keep
-# downstream code's "source_idx == position in `reactions(em)`"
-# invariant intact — and avoid the index-by-
-# `source_idx` mismatch when an enumeration move produces a Mechanism
-# whose preserved `source_idx` no longer matches its current flat
-# group-major position — renumber `source_idx` to flat-position before
-# encoding. Mechanisms whose Steps already satisfy the invariant
-# (fresh DSL builds, init_mechanisms output, the Mechanism constructor
-# auto-assign path) are unaffected by the renumbering.
+# stores each Step's data including `source_idx`. To keep downstream
+# code's "source_idx == position in `reactions(em)`" invariant intact —
+# and avoid the index-by-source_idx mismatch when an enumeration move
+# produces a Mechanism whose preserved `source_idx` no longer matches
+# its current flat group-major position — renumber `source_idx` to
+# flat-position before encoding. Mechanisms whose Steps already satisfy
+# the invariant (fresh DSL builds, init_mechanisms output, the Mechanism
+# constructor auto-assign path) are unaffected by the renumbering.
 EnzymeMechanism(m::Mechanism) =
     EnzymeMechanism{_sig_of(
         _drop_unbound_regulators(_renumber_source_idx(m)))}()
@@ -1409,25 +1406,6 @@ _rep_step(step::Step, m::EnzymeMechanism) = _rep_step(step, Mechanism(m))
 _rep_step(step::Step, m::AllostericEnzymeMechanism) =
     _rep_step(step, AllostericMechanism(m))
 
-# Map a Step to the rep-idx used in the type/index-context name companion.
-# The Mechanism / AllostericMechanism constructors guarantee `source_idx`
-# is populated by flat source-order position.
-function _rep_idx_for_step(step::Step,
-                           m::Union{Mechanism, AllostericMechanism})
-    groups = steps(m)
-    for group in groups
-        if step in group
-            return source_idx(first(group))
-        end
-    end
-    error("Step not found in mechanism: $step")
-end
-
-_rep_idx_for_step(step::Step, m::EnzymeMechanism) =
-    _rep_idx_for_step(step, Mechanism(m))
-_rep_idx_for_step(step::Step, m::AllostericEnzymeMechanism) =
-    _rep_idx_for_step(step, AllostericMechanism(m))
-
 # Bridge: parametric AllostericEnzymeMechanism → non-parametric
 # AllostericMechanism. Used by chokepoint dispatch (`name(p::Parameter,
 # m::AllostericEnzymeMechanism)`) so a single Mechanism-family
@@ -1435,31 +1413,6 @@ _rep_idx_for_step(step::Step, m::AllostericEnzymeMechanism) =
 # `Mechanism(::EnzymeMechanism)`.
 _to_mechanism(m::EnzymeMechanism)           = Mechanism(m)
 _to_mechanism(m::AllostericEnzymeMechanism) = AllostericMechanism(m)
-
-function _site_idx_of(site::RegulatorySite, m::AllostericMechanism)
-    idx = findfirst(==(site), regulatory_sites(m))
-    idx === nothing && error("RegulatorySite not found in mechanism")
-    return idx
-end
-
-# Type/index-context chokepoint companion. Used by @generated callers in
-# `rate_eq_derivation.jl` where only an integer rep-idx is in scope (no
-# Step value to construct a Parameter from). Supports only step-bound
-# Parameter types (Kd/Kiso/Kon/Kfor/Koff/Krev) — Kreg names need a
-# ligand and site, Keq/Etot/Lallo are stateless, so all four remain
-# value-context only.
-_param_symbol(::Type{<:Union{Kd, Kiso}},        idx::Int) = Symbol("K", idx)
-_param_symbol(::Type{<:Union{Kon, Kfor}},       idx::Int) = Symbol("k", idx, "f")
-_param_symbol(::Type{<:Union{Koff, Krev}},      idx::Int) = Symbol("k", idx, "r")
-_param_symbol(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
-    state === :I ? Symbol(_param_symbol(P, idx), "_T") :
-                   _param_symbol(P, idx)
-_param_symbol(::Type{Kreg}, site_idx::Int, lig_name::Symbol, state::Symbol) =
-    state === :I ? Symbol("K_", lig_name, "_T_reg", site_idx) :
-                   Symbol("K_", lig_name, "_reg",   site_idx)
-name(::Type{P}, idx::Int) where {P<:Parameter}                = _param_symbol(P, idx)
-name(::Type{P}, idx::Int, state::Symbol) where {P<:Parameter} =
-    _param_symbol(P, idx, state)
 
 const _AnyMech =
     Union{Mechanism, EnzymeMechanism, AllostericMechanism, AllostericEnzymeMechanism}
@@ -1489,16 +1442,11 @@ function name(p::Krev, m::_AnyMech)
     _render_iso("k_", to_species(rep), from_species(rep), p.state)
 end
 
-# Regulator-site parameter: ligand name + optional inactive marker + "reg" + site index.
-# I-state uses "_T_" infix (not the step-bound "I_" prefix) so the ligand name
-# is always the first token after "K_" regardless of state.
-function name(p::Kreg, m::Union{AllostericMechanism, AllostericEnzymeMechanism})
-    am = m isa AllostericMechanism ? m : AllostericMechanism(m)
-    site_idx = _site_idx_of(p.site, am)
-    lig = String(name(p.ligand))
-    p.state === :I ? Symbol("K_", lig, "_T_reg", site_idx) :
-                     Symbol("K_", lig, "_reg",   site_idx)
-end
+# Regulator-site parameter: state tag + ligand name + "reg". No site index —
+# the AllostericMechanism constructor enforces that each ligand appears at most
+# once across all sites (same-ligand-two-sites collision check added in Stage 7a).
+name(p::Kreg, ::Union{AllostericMechanism, AllostericEnzymeMechanism}) =
+    Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg")
 
 # Mechanism-level scalars
 name(::Keq,   _) = :Keq

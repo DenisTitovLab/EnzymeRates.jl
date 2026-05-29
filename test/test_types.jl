@@ -1173,7 +1173,7 @@
         @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :A), aem) ==
               EnzymeRates.name(EnzymeRates.Kreg(site, lig, :A), am)
         @test EnzymeRates.name(EnzymeRates.Kreg(site, lig, :I), aem) ===
-              :K_R_T_reg1
+              :K_I_Rreg
     end
 
     @testset "_sig_of / _mechanism_from_sig roundtrip" begin
@@ -1349,10 +1349,10 @@
 
         @test EnzymeRates.name(
             EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :A),
-            am) === :K_A_reg1
+            am) === :K_A_Areg
         @test EnzymeRates.name(
             EnzymeRates.Kreg(site_a, EnzymeRates.AllostericRegulator(:A), :I),
-            am) === :K_A_T_reg1
+            am) === :K_I_Areg
 
         # Step-bound parameters also resolve via AllostericMechanism.
         rep = first(cat_steps[1])

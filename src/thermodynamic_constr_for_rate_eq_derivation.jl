@@ -27,9 +27,8 @@ _raw_param_symbols(m::EnzymeMechanism) = _raw_param_symbols(Mechanism(m))
 For each step in `m` (in source-index order), yield the Parameter
 instances that govern that step: `[Kd|Kiso]` for an RE step, `[Kon|Kfor,
 Koff|Krev]` for an SS step. Each Parameter is anchored on the original
-step (not the rep), so `name(p, m)` renders to the rep-renamed Symbol
-via the chokepoint — equivalent to applying the Pass-1 kinetic-group
-rename map.
+step (not the rep), so `name(p, m)` renders to the rep's structural
+Symbol via the value-context chokepoint, collapsing kinetic-group members.
 """
 function _step_parameters(m::Mechanism)
     flat = _flat_steps(m)

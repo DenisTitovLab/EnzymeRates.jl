@@ -93,79 +93,48 @@ end
 end
 
 """
-Build a renaming map from non-representative step parameter symbols to the
-representative step's parameter symbols. Used to alias `K2` → `K1` (etc.) when
-steps 1 and 2 share a kinetic group.
+Build a renaming map for single-symbol Wegscheider RE ties between two
+binding K's. The value-context chokepoint already collapses group members
+to their rep's name, so kinetic-group merges no longer need a rename pass.
 
-Two passes:
+**Single-symbol Wegscheider RE ties.** Calls
+`_dependent_param_exprs_kernel` to discover binding-K-to-binding-K
+Wegscheider closures of the form `K_a = K_b` (RHS is a bare Symbol).
+Both sides must be binding K's (RE step with a metabolite on LHS) —
+absorbing a binding-K-to-iso-K tie would produce inconsistent sign-flips
+when the kernel runs with the full rename, since the binding-K column is
+sign-flipped (Kd convention) but the iso-K column is not.
 
-1. **User-defined kinetic-group merges.** Steps inside a single
-   kinetic group share parameters; the rename collapses every
-   non-representative symbol to the representative.
-
-2. **Single-symbol Wegscheider RE ties.** Calls
-   `_dependent_param_exprs_kernel` with the Pass-1 rename to discover
-   binding-K-to-binding-K Wegscheider closures of the form `K_a = K_b`
-   (RHS is a bare Symbol). Both sides must be binding K's (RE step
-   with a metabolite on LHS, post-Pass-1 rename) — absorbing a
-   binding-K-to-iso-K tie would produce inconsistent sign-flips when
-   the kernel runs with the full rename, since the binding-K column
-   is sign-flipped (Kd convention) but the iso-K column is not.
-
-Pass 2 means the polynomial in `v` uses the representative symbol
-directly, so Source-C duplicates (split kinetic groups that
-Wegscheider ties back together) collapse at hash time.
+This rename means the polynomial in `v` uses the representative symbol
+directly, so Source-C duplicates (split kinetic groups that Wegscheider
+ties back together) collapse at hash time.
 """
 function _build_kinetic_rename_map(M::Type{<:EnzymeMechanism})
     m = M()
+    mech = Mechanism(m)
     rename = Dict{Symbol, Symbol}()
-    eq = equilibrium_steps(m)
-
-    # Pass 1: user-defined kinetic-group merges.
-    for g in kinetic_groups(m)
-        idxs = steps_in_group(m, g)
-        length(idxs) == 1 && continue
-        rep = first(idxs)
-        for idx in idxs
-            idx == rep && continue
-            if eq[idx]
-                rename[name(Kd, idx)] = name(Kd, rep)
-            else
-                rename[name(Kfor, idx)] = name(Kfor, rep)
-                rename[name(Krev, idx)] = name(Krev, rep)
-            end
-        end
-    end
-
-    # Build the binding-K set under the Pass-1 rename so Pass 2 only
-    # absorbs ties between two binding K's.
     rxns = reactions(m)
+    eq = equilibrium_steps(m)
     enz_set = Set(enzyme_forms(m))
+    step_params = _step_parameters(mech)
+    # binding-K set: value-context rep name of each RE binding group.
     binding_set = Set{Symbol}()
     for (idx, (lhs, _, _, _)) in enumerate(rxns)
         eq[idx] || continue
         any(s ∉ enz_set for s in lhs) || continue
-        sym = name(Kd, idx)
-        push!(binding_set, get(rename, sym, sym))
+        push!(binding_set, name(step_params[idx][1], mech))
     end
-
     # Pass 2: single-symbol Wegscheider RE ties between two binding K's.
-    # Transitive closure: if K10 -> K8 was added in Pass 1 and Pass 2
-    # absorbs K8 -> K4, every existing entry pointing to K8 must
-    # advance to K4 so the rename is idempotent.
     dep_raw, _ = _dependent_param_exprs_kernel(M, rename)
     for (lhs, rhs) in dep_raw
         rhs isa Symbol || continue
         lhs in binding_set && rhs in binding_set || continue
         target = get(rename, rhs, rhs)
         rename[lhs] = target
-        # Snapshot keys before mutating values so we don't iterate
-        # the Dict while writing to it.
         for k in collect(keys(rename))
             rename[k] == lhs && (rename[k] = target)
         end
     end
-
     rename
 end
 
@@ -335,8 +304,8 @@ end
 Build raw numerator and denominator POLYs for the rate equation by
 walking the lifted `Mechanism`. Parameter Symbols on the leaves of
 `num`/`den` are produced via the `name(p, mech)` chokepoint (which
-folds Pass-1 kinetic-group merges). `rename_map` then applies any
-Pass-2 single-symbol Wegscheider ties as a post-pass.
+collapses kinetic-group members to their rep's name). `rename_map` then
+applies any single-symbol Wegscheider ties as a post-pass.
 """
 function _raw_symbolic_rate_polys(mech::Mechanism, rxns, eq_steps,
                                   step_params, rename_map,
@@ -430,9 +399,8 @@ function _raw_symbolic_rate_polys(mech::Mechanism, rxns, eq_steps,
         den = poly_mul(den, poly_const(abs_nu))
     end
 
-    # Apply Pass-2 (single-symbol Wegscheider) renaming on top of the
-    # Pass-1 kinetic-group rename already folded into chokepoint Symbol
-    # production.
+    # Apply single-symbol Wegscheider renaming (kinetic-group collapse is
+    # already handled by the chokepoint Symbol production).
     num = _rename_symbols(num, rename_map)
     den = _rename_symbols(den, rename_map)
 
@@ -610,35 +578,10 @@ function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
     m = M()
     _, indep = _dependent_param_exprs(M)
 
-    # User defined: equalities encoded in the kinetic-group structure of
-    # the EnzymeMechanism type. All such ties get folded into the rename
-    # map and substituted into v, so every line carries the annotation.
-    user_lines = String[]
-    eq = equilibrium_steps(m)
-    pass1_rename = Dict{Symbol, Symbol}()
-    for g in kinetic_groups(m)
-        idxs = steps_in_group(m, g)
-        length(idxs) == 1 && continue
-        rep = first(idxs)
-        for idx in idxs
-            idx == rep && continue
-            if eq[idx]
-                push!(user_lines, "K$idx = K$rep$ANNOTATION_SUBSTITUTED")
-                pass1_rename[name(Kd, idx)] = name(Kd, rep)
-            else
-                push!(user_lines, "k$(idx)f = k$(rep)f$ANNOTATION_SUBSTITUTED")
-                push!(user_lines, "k$(idx)r = k$(rep)r$ANNOTATION_SUBSTITUTED")
-                pass1_rename[name(Kfor, idx)] = name(Kfor, rep)
-                pass1_rename[name(Krev, idx)] = name(Krev, rep)
-            end
-        end
-    end
-
-    # Wegscheider/Haldane: raw dep_exprs from the Pass-1-only rename so
-    # absorbed single-symbol ties remain visible. Single-symbol entries
-    # get the substituted-into-v annotation; multi-symbol RHSes get
-    # runtime assignment in `_build_rate_body` (no annotation).
-    dep_raw, _ = _dependent_param_exprs_kernel(M, pass1_rename)
+    # Wegscheider/Haldane: single-symbol entries get the substituted-into-v
+    # annotation; multi-symbol RHSes get runtime assignment in
+    # `_build_rate_body` (no annotation).
+    dep_raw, _ = _dependent_param_exprs_kernel(M, Dict{Symbol, Symbol}())
     keq_set = Set([:Keq])
     weg_lines, hal_lines = String[], String[]
     for (sym, expr) in sort(collect(dep_raw); by=p -> string(p[1]))
@@ -650,8 +593,6 @@ function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
 
     lines = ["(; $(join((indep..., :Keq, :E_total), ", "))) = params",
              "(; $(join(metabolites(m), ", "))) = concs"]
-    isempty(user_lines) ||
-        (push!(lines, "# User defined constraints:"); append!(lines, user_lines))
     isempty(weg_lines)  ||
         (push!(lines, "# Wegscheider constraints:");  append!(lines, weg_lines))
     isempty(hal_lines)  ||
@@ -1704,32 +1645,10 @@ function rate_equation_string(
     hw_params = (indep..., :Keq, :E_total)
     mets = metabolites(m)
 
-    # User defined: catalytic-mechanism kinetic-group structure. All
-    # such ties are folded into the rename map and substituted into v.
-    user_lines = String[]
-    eq = equilibrium_steps(cm)
-    pass1_rename = Dict{Symbol, Symbol}()
-    for g in kinetic_groups(cm)
-        idxs = steps_in_group(cm, g)
-        length(idxs) == 1 && continue
-        rep = first(idxs)
-        for idx in idxs
-            idx == rep && continue
-            if eq[idx]
-                push!(user_lines, "K$idx = K$rep$ANNOTATION_SUBSTITUTED")
-                pass1_rename[name(Kd, idx)] = name(Kd, rep)
-            else
-                push!(user_lines, "k$(idx)f = k$(rep)f$ANNOTATION_SUBSTITUTED")
-                push!(user_lines, "k$(idx)r = k$(rep)r$ANNOTATION_SUBSTITUTED")
-                pass1_rename[name(Kfor, idx)] = name(Kfor, rep)
-                pass1_rename[name(Krev, idx)] = name(Krev, rep)
-            end
-        end
-    end
-
-    # R-state Wegscheider/Haldane: raw dep_exprs from the Pass-1-only
-    # rename keep absorbed single-symbol ties visible.
-    dep_R_raw, _ = _dependent_param_exprs_kernel(CMT, pass1_rename)
+    # R-state Wegscheider/Haldane: single-symbol entries get the
+    # substituted-into-v annotation; multi-symbol RHSes get runtime
+    # assignment in `_build_rate_body` (no annotation).
+    dep_R_raw, _ = _dependent_param_exprs_kernel(CMT, Dict{Symbol, Symbol}())
     keq_set = Set([:Keq])
     weg_lines, hal_lines = String[], String[]
     for (sym, expr) in sort(collect(dep_R_raw); by=p -> string(p[1]))
@@ -1765,8 +1684,6 @@ function rate_equation_string(
 
     lines = ["(; $(join(hw_params, ", "))) = params",
              "(; $(join(mets, ", "))) = concs"]
-    isempty(user_lines) ||
-        (push!(lines, "# User defined constraints:"); append!(lines, user_lines))
     isempty(weg_lines)  ||
         (push!(lines, "# Wegscheider constraints:");  append!(lines, weg_lines))
     isempty(hal_lines)  ||

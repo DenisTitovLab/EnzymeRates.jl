@@ -1194,7 +1194,7 @@ end
     )
     p_mix = (K1=0.1, k2f=10.0, K3=0.5,
              K1_T=10.0, K3_T=10.0,
-             K_I_T_reg1=1.0, L=1.0, Keq=1000.0, E_total=1.0)
+             K_I_Ireg=1.0, L=1.0, Keq=1000.0, E_total=1.0)
     rate_mix = rate_equation(m_mix, (S=10.0, P=0.0, I=0.0), p_mix)
     # With Kd convention (correct): rate ≈ 19.79 (R-state catalysis dominates).
     # With Ka convention (bug): rate ≈ 9.9 — half the correct value.
@@ -1226,7 +1226,7 @@ end
     Keq_val = 5.0
     p_eq = (K1=0.3, k2f=8.0, K3=0.7,
             K1_T=2.5,
-            K_I_reg1=1.0, K_I_T_reg1=4.0,
+            K_A_Ireg=1.0, K_I_Ireg=4.0,
             L=2.0, Keq=Keq_val, E_total=1.0)
     # At chemical equilibrium: P = Keq · S
     S_eq = 1.5
@@ -1361,8 +1361,8 @@ end
         @test :k2f_T in rendered
         @test :k2r_T in rendered
         @test :K3_T in rendered
-        # Regulator side: :R is :NonequalAI → K_R_T_reg1 appears.
-        @test :K_R_T_reg1 in rendered
+        # Regulator side: :R is :NonequalAI → K_I_Rreg appears.
+        @test :K_I_Rreg in rendered
 
         # :OnlyA cat group + :OnlyA reg ligand are skipped.
         aem_skip = EnzymeRates.AllostericEnzymeMechanism(
@@ -1375,7 +1375,7 @@ end
         @test :K1_T ∉ rendered_skip          # :OnlyA cat group skipped
         @test :k2f_T in rendered_skip        # :NonequalAI SS iso emits both
         @test :k2r_T in rendered_skip
-        @test :K_R_T_reg1 ∉ rendered_skip    # :OnlyA reg ligand skipped
+        @test :K_I_Rreg ∉ rendered_skip    # :OnlyA reg ligand skipped
     end
 end
 

@@ -4325,17 +4325,17 @@ end # top-level testset
                   EnzymeRates._canonical_rate_eq_hash(m_random)
         end
 
-        @testset "Pass-1 kinetic-group merge: name_map covers every raw param" begin
+        @testset "kinetic-group merge: name_map covers every raw param" begin
             # biuni_mirror: both A-binding steps share kg=1, both B-binding
-            # steps share kg=2. Pass 1 absorbs K_mirror -> K_rep.
+            # steps share kg=2. Structural names collapse group members to
+            # their rep's name via the value-context chokepoint — no separate
+            # "User defined constraints:" section is emitted.
             s = rate_equation_string(biuni_mirror)
-            @test occursin("# User defined constraints:", s)
-            @test occursin("(substituted into v)", s)
+            @test !occursin("# User defined constraints:", s)
 
-            # name_map invariant: every raw K_i / k_if / k_ir symbol the
-            # mechanism's parameters expose has a canonical p_i token, so
-            # substitution into the rate-equation Exprs leaves no raw
-            # parameter symbols behind.
+            # name_map invariant: every symbol the mechanism's Full parameters
+            # expose has a canonical p_i token, so substitution into the
+            # rate-equation Exprs leaves no raw parameter symbols behind.
             _, _, name_map =
                 EnzymeRates._canonical_rate_eq_hash_data(biuni_mirror)
             for p in EnzymeRates.parameters(biuni_mirror, Full)
@@ -4401,10 +4401,11 @@ end # top-level testset
         end
 
         @testset "rate_equation_string emits section labels" begin
-            # User-defined section emitted when a mechanism has shared
-            # kinetic_groups; uses the random bi-uni mirror exemplar above.
+            # With structural names, shared kinetic_group members collapse
+            # via the value-context chokepoint — no separate user-defined
+            # section is emitted.
             s_user = rate_equation_string(biuni_mirror)
-            @test occursin("# User defined constraints:", s_user)
+            @test !occursin("# User defined constraints:", s_user)
 
             # Haldane section: any RE binding mechanism with Keq has it.
             # The Wegscheider section is not emitted on minimal mechanisms;
