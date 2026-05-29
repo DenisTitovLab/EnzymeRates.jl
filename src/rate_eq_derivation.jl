@@ -759,12 +759,7 @@ corners and return the max.
     # Pass 2: dep RHSes referencing a `:NonequalAI` symbol pick up an
     # I-state name. Mirrors `_dependent_param_exprs` Stage 4.2 logic.
     dep_R_all, _ = _dependent_param_exprs_allosteric(am)
-    renamed_set = Set{Symbol}(keys(rename_T))
-    for (k, v) in dep_R_all
-        haskey(rename_T, k) && continue
-        _expr_references_any(v, renamed_set) || continue
-        rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)
-    end
+    renamed_set = _add_case_b_renames!(rename_T, dep_R_all, am)
     num_T_poly = _rename_symbols(
         _zero_symbols_in_poly(num_R_poly, r_only_syms),
         rename_T)
@@ -1294,12 +1289,7 @@ function _dependent_param_exprs(
     # reference only independent params, so a single non-iterating pass
     # suffices. Synthesized dep I-names are produced through the chokepoint
     # via _flip_to_inactive + _param_for_symbol so no string surgery is needed.
-    renamed_set = Set{Symbol}(keys(rename_T))
-    for (k, v) in dep_R_all
-        haskey(rename_T, k) && continue
-        _expr_references_any(v, renamed_set) || continue
-        rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)
-    end
+    renamed_set = _add_case_b_renames!(rename_T, dep_R_all, am)
 
     t_state_dead_flag = _t_state_dead(aem)
 
@@ -1441,12 +1431,7 @@ function _build_dep_assignments(
     # I-state name. Mirrors `_dependent_param_exprs` Stage 4.2 logic; the
     # synthesized entries here are the same ones the rate-equation body
     # consumes via `t_names_set`.
-    renamed_set = Set{Symbol}(keys(rename_T))
-    for (k, v) in dep_R
-        haskey(rename_T, k) && continue
-        _expr_references_any(v, renamed_set) || continue
-        rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)
-    end
+    renamed_set = _add_case_b_renames!(rename_T, dep_R, am)
     T_subs = rename_T
 
     # Catalytic I-state dep-symbol filter: a catalytic dep gets an I-state
@@ -1560,12 +1545,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     # I-state name so the polynomial rename covers synthesized deps.
     # Mirrors the second pass in `_dependent_param_exprs` (Stage 4.2).
     dep_R_all, _ = _dependent_param_exprs_allosteric(am)
-    renamed_set = Set{Symbol}(keys(rename_T))
-    for (k, v) in dep_R_all
-        haskey(rename_T, k) && continue
-        _expr_references_any(v, renamed_set) || continue
-        rename_T[k] = name(_flip_to_inactive(_param_for_symbol(am, k)), am)
-    end
+    renamed_set = _add_case_b_renames!(rename_T, dep_R_all, am)
 
     N_R = _poly_to_expr(num_R_poly, cat_params, cat_mets)
     Q_R = _poly_to_expr(den_R_poly, cat_params, cat_mets)
