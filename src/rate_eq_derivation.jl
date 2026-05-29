@@ -1232,6 +1232,30 @@ end
 
 # ─── Dependent parameter expressions ─────────────────────────────
 
+# Distinct inactive-state name for a *dependent* parameter being promoted to
+# per-state (Case B: an `:EqualAI` dep whose Haldane/Wegscheider RHS references
+# a `:NonequalAI` symbol). For a `:NonequalAI`/`:A` dep, `_flip_to_inactive`
+# already yields a distinct `:I` name; for an `:EqualAI` dep it is a no-op, so
+# fall back to the forced `:I` variant to avoid a self-map.
+function _dep_inactive_name(am, k::Symbol)
+    p = _param_for_symbol(am, k)
+    nm = name(_flip_to_inactive(p), am)
+    nm == k ? name(_force_inactive(p), am) : nm
+end
+
+# Pass 2 of the I-rename construction, shared across the four synth-dep sites so
+# the synthesized inactive names are identical everywhere. Returns the Pass-1
+# key set (callers that need to distinguish synthesized entries use it).
+function _add_case_b_renames!(rename_T::Dict{Symbol, Symbol}, deps, am)
+    renamed_set = Set{Symbol}(keys(rename_T))
+    for (k, v) in deps
+        haskey(rename_T, k) && continue
+        _expr_references_any(v, renamed_set) || continue
+        rename_T[k] = _dep_inactive_name(am, k)
+    end
+    return renamed_set
+end
+
 """
     _dependent_param_exprs(M::Type{<:AllostericEnzymeMechanism})
 

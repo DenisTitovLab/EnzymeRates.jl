@@ -1332,6 +1332,36 @@ end
     )
 end
 
+@testset "_dep_inactive_name distinct for promoted EqualAI dep" begin
+    # :NonequalAI S-binding + :EqualAI catalysis: the :EqualAI catalysis
+    # reverse is the dep whose Haldane RHS references the :NonequalAI
+    # S-binding K. _flip_to_inactive is a no-op on the :EqualAI dep, so
+    # _dep_inactive_name must fall back to the forced :I name (distinct).
+    cm_mixed = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end
+    m_mixed = EnzymeRates.AllostericEnzymeMechanism(
+        cm_mixed,
+        (2, (:NonequalAI, :EqualAI, :EqualAI)),
+        (((:I,), 2, (:NonequalAI,)),),
+    )
+    am = EnzymeRates.AllostericMechanism(m_mixed)
+    dep_R, _ = EnzymeRates._dependent_param_exprs_allosteric(am)
+    nonequalai = Set(EnzymeRates.name(p_R, am)
+                     for (p_R, _) in EnzymeRates._I_rename_parameters(am))
+    # find an EqualAI dep whose RHS references a NonequalAI symbol
+    k = first(k for (k, v) in dep_R
+              if EnzymeRates._expr_references_any(v, nonequalai)
+                 && !(k in nonequalai))
+    @test EnzymeRates._dep_inactive_name(am, k) != k
+end
+
 @testset "rate_equation_string allosteric byte-identical fixture" begin
     m_allo = @allosteric_mechanism begin
         substrates: S
