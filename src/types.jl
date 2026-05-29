@@ -1374,17 +1374,13 @@ end
 # keeps any name-scheme change a single-function edit.
 
 # State token — placed right after the type prefix:
-#   :A       → ""    (allosteric active branch renders identical to non-
-#                     allosteric :None; the R-state/active name is the base name)
+#   :A       → "A_"  (allosteric active branch; distinguishes allosteric from non-)
 #   :I       → "I_"  (allosteric inactive branch: OnlyI or NonequalAI-inactive)
-#   :EqualAI → ""    (allosteric shared symbol; same rendering as :None/:A)
+#   :EqualAI → ""    (allosteric shared symbol; shared between A and I state)
 #   :None    → ""    (non-allosteric mechanism)
-# Only the inactive branch gets a mid-name token; active/None/EqualAI all
-# render the same base name so the catalytic and allosteric dep-expr
-# machinery can cross-reference parameter names without symbol translation.
 function _state_tag(state::Symbol)
+    state === :A       && return "A_"
     state === :I       && return "I_"
-    state === :A       && return ""
     state === :EqualAI && return ""
     state === :None    && return ""
     error("_state_tag: unexpected Parameter.state $state " *
@@ -1493,11 +1489,15 @@ function name(p::Krev, m::_AnyMech)
     _render_iso("k_", to_species(rep), from_species(rep), p.state)
 end
 
-# Regulator-site parameter: ligand name + state + "reg" + site index.
+# Regulator-site parameter: ligand name + optional inactive marker + "reg" + site index.
+# I-state uses "_T_" infix (not the step-bound "I_" prefix) so the ligand name
+# is always the first token after "K_" regardless of state.
 function name(p::Kreg, m::Union{AllostericMechanism, AllostericEnzymeMechanism})
     am = m isa AllostericMechanism ? m : AllostericMechanism(m)
     site_idx = _site_idx_of(p.site, am)
-    Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg", site_idx)
+    lig = String(name(p.ligand))
+    p.state === :I ? Symbol("K_", lig, "_T_reg", site_idx) :
+                     Symbol("K_", lig, "_reg",   site_idx)
 end
 
 # Mechanism-level scalars

@@ -679,7 +679,19 @@ end
 
 function _ss_rate_constant_names(em::AllostericEnzymeMechanism)
     am = AllostericMechanism(em)
-    r_names = _ss_rate_constant_names(catalytic_mechanism(em))
+    r_names = Set{Symbol}()
+    for (g, group) in enumerate(steps(am))
+        rep = first(group)
+        is_equilibrium(rep) && continue
+        st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
+        if is_binding(rep)
+            push!(r_names, name(Kon(rep, st), am))
+            push!(r_names, name(Koff(rep, st), am))
+        else
+            push!(r_names, name(Kfor(rep, st), am))
+            push!(r_names, name(Krev(rep, st), am))
+        end
+    end
     t_names = Set{Symbol}(name(p, am) for p in _all_i_state_parameters(am)
                           if p isa Union{Kon, Koff, Kfor, Krev})
     union(r_names, t_names)
@@ -798,14 +810,14 @@ corners and return the max.
     # via an `:OnlyA` step (e.g. an `:OnlyA` substrate-binding K) drop out
     # of I-state, so their `(num_k_I, den_k_I)` are 0 and the I-state
     # contribution at saturation vanishes.
-    num_R_poly, den_R_poly = _raw_symbolic_rate_polys(CM)
+    num_R_poly, den_R_poly = _raw_symbolic_rate_polys_allosteric(am)
     r_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
     rename_T = Dict{Symbol, Symbol}(
         name(p_R, am) => name(p_T, am)
         for (p_R, p_T) in _I_rename_parameters(am))
     # Pass 2: dep RHSes referencing a `:NonequalAI` symbol pick up an
     # I-state name. Mirrors `_dependent_param_exprs` Stage 4.2 logic.
-    dep_R_all, _ = _dependent_param_exprs(CM)
+    dep_R_all, _ = _dependent_param_exprs_allosteric(am)
     renamed_set = Set{Symbol}(keys(rename_T))
     for (k, v) in dep_R_all
         haskey(rename_T, k) && continue
@@ -818,7 +830,8 @@ corners and return the max.
     den_T_poly = _rename_symbols(
         _zero_symbols_in_poly(den_R_poly, r_only_syms),
         rename_T)
-    r_param_names = Set{Symbol}(_raw_param_symbols(CM()))
+    rename_R = _R_rename_parameters(am)
+    r_param_names = Set{Symbol}(get(rename_R, s, s) for s in _raw_param_symbols(CM()))
     # T-state param-name set: every R-state name plus its T mirror, sourced
     # via Parameter-struct dispatch through `name(p, am)`. Covers catalytic
     # rate-constant Parameters; synth-dep T-mirrors aren't classifier-relevant
@@ -1090,6 +1103,74 @@ function _I_rename_parameters(am::AllostericMechanism)
 end
 
 """
+Rename map converting the catalytic polynomial's `:None`-rendered Symbols to
+their `:A`-rendered counterparts for non-`:EqualAI` catalytic groups.
+
+The catalytic polynomial is derived from a non-allosteric `EnzymeMechanism`
+whose parameters carry `state=:None`, producing Symbols like `:K_ATP_E`.
+Allosteric parameter enumeration uses `state=:A`, producing `:K_A_ATP_E`.
+This map bridges the gap so polynomial Symbols align with the allosteric
+machinery's expectations.
+
+`:EqualAI` groups are skipped: both `:None` and `:EqualAI` render with an
+empty state token, so `name(p_None, am) == name(p_EqualAI, am)` — the rename
+is an identity and can be omitted.
+"""
+function _R_rename_parameters(am::AllostericMechanism)
+    rename = Dict{Symbol, Symbol}()
+    for (g, group) in enumerate(steps(am))
+        cat_allo_state(am, g) === :EqualAI && continue
+        rep = first(group)
+        if is_equilibrium(rep)
+            P = is_binding(rep) ? Kd : Kiso
+            rename[name(P(rep, :None), am)] = name(P(rep, :A), am)
+        else
+            if is_binding(rep)
+                rename[name(Kon(rep, :None), am)]  = name(Kon(rep, :A), am)
+                rename[name(Koff(rep, :None), am)] = name(Koff(rep, :A), am)
+            else
+                rename[name(Kfor(rep, :None), am)] = name(Kfor(rep, :A), am)
+                rename[name(Krev(rep, :None), am)] = name(Krev(rep, :A), am)
+            end
+        end
+    end
+    rename
+end
+
+"""
+Apply the `:None`→`:A` rename to a raw catalytic polynomial for use in
+allosteric context. `:EqualAI` groups need no rename (both states share
+an empty state token and thus identical symbol rendering).
+"""
+function _raw_symbolic_rate_polys_allosteric(am::AllostericMechanism)
+    CM = typeof(compile_mechanism(Mechanism(reaction(am), steps(am))))
+    num_poly, den_poly = _raw_symbolic_rate_polys(CM)
+    rename_R = _R_rename_parameters(am)
+    isempty(rename_R) && return num_poly, den_poly
+    _rename_symbols(num_poly, rename_R), _rename_symbols(den_poly, rename_R)
+end
+
+"""
+Return `(dep_exprs, indep_params)` for the catalytic sub-mechanism in
+allosteric context, with dep keys and RHS Symbols renamed from `:None`-state
+to `:A`-state. `:EqualAI` groups are skipped (identity rename).
+"""
+function _dependent_param_exprs_allosteric(am::AllostericMechanism)
+    CM = typeof(compile_mechanism(Mechanism(reaction(am), steps(am))))
+    dep, indep = _dependent_param_exprs(CM)
+    rename_R = _R_rename_parameters(am)
+    isempty(rename_R) && return dep, indep
+    renamed_dep = Dict{Symbol, Union{Symbol, Expr}}()
+    for (k, v) in dep
+        new_k = get(rename_R, k, k)
+        new_v = substitute_params_expr(v, rename_R)
+        renamed_dep[new_k] = new_v
+    end
+    renamed_indep = Symbol[get(rename_R, p, p) for p in indep]
+    renamed_dep, renamed_indep
+end
+
+"""
 All I-state `Parameter`s the rate-equation body emits as constraint LHSes
 — `Parameter` form. Catalytic groups: every non-`:OnlyA` group
 contributes I-state Parameter(s) for its rep step (`Kd`/`Kiso`/`Kon`+
@@ -1195,7 +1276,7 @@ function _synthesized_dep_t_names(::Type{CM}, am::AllostericMechanism,
                                   ) where {CM <: EnzymeMechanism}
     any(cat_allo_state(am, g) === :OnlyA for g in 1:length(steps(am))) &&
         return Symbol[]
-    dep_R_all, _ = _dependent_param_exprs(CM)
+    dep_R_all, _ = _dependent_param_exprs_allosteric(am)
     nonequalai_set = Set{Symbol}(
         name(p, am) for (p, _) in _I_rename_parameters(am))
     isempty(nonequalai_set) && return Symbol[]
@@ -1230,7 +1311,7 @@ function _dependent_param_exprs(
 ) where {CM,CS,RS}
     aem = AllostericEnzymeMechanism{CM,CS,RS}()
     am  = AllostericMechanism(aem)
-    dep_R_all, indep_R_all = _dependent_param_exprs(CM)
+    dep_R_all, indep_R_all = _dependent_param_exprs_allosteric(am)
 
     r_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
 
@@ -1290,7 +1371,7 @@ function _dependent_param_exprs(
     # parameter the optimizer searches over but that has no effect on
     # the loss — pure dimension bloat. Filter against the set of
     # symbols that actually survive into the I-state polynomial.
-    num_R, den_R = _raw_symbolic_rate_polys(CM)
+    num_R, den_R = _raw_symbolic_rate_polys_allosteric(am)
     t_state_survivors = _t_state_surviving_syms(num_R, den_R, r_only_syms)
     for p in indep_R_all
         p ∈ r_only_syms && continue
@@ -1382,9 +1463,8 @@ function _build_dep_assignments(
 )
     m = M_type()
     am = AllostericMechanism(m)
-    CM = typeof(catalytic_mechanism(m))
 
-    dep_R, indep_R = _dependent_param_exprs(CM)
+    dep_R, indep_R = _dependent_param_exprs_allosteric(am)
     sorted_deps = sort(collect(dep_R); by=first)
 
     r_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
@@ -1501,8 +1581,9 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     CatN = catalytic_multiplicity(m)
     RS = regulatory_sites(am)
 
-    num_R_poly, den_R_poly = _raw_symbolic_rate_polys(CM)
-    cat_params = Set{Symbol}(_raw_param_symbols(CM()))
+    num_R_poly, den_R_poly = _raw_symbolic_rate_polys_allosteric(am)
+    rename_R = _R_rename_parameters(am)
+    cat_params = Set{Symbol}(get(rename_R, s, s) for s in _raw_param_symbols(CM()))
     cat_mets = Set{Symbol}(metabolites(CM()))
 
     r_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
@@ -1513,7 +1594,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     # Pass 2: dep RHSes referencing a `:NonequalAI` symbol need their own
     # I-state name so the polynomial rename covers synthesized deps.
     # Mirrors the second pass in `_dependent_param_exprs` (Stage 4.2).
-    dep_R_all, _ = _dependent_param_exprs(CM)
+    dep_R_all, _ = _dependent_param_exprs_allosteric(am)
     renamed_set = Set{Symbol}(keys(rename_T))
     for (k, v) in dep_R_all
         haskey(rename_T, k) && continue

@@ -116,19 +116,27 @@ function positional_params(m, nt::NamedTuple)
            m isa EnzymeRates.AllostericEnzymeMechanism ?
                EnzymeRates.AllostericMechanism(m) :
            EnzymeRates.Mechanism(m)
+    is_allo = mech isa EnzymeRates.AllostericMechanism
     names = Symbol[]
     vals  = Any[]
-    for group in EnzymeRates.steps(mech)
+    for (g, group) in enumerate(EnzymeRates.steps(mech))
         rep = first(group)
+        st = if !is_allo
+            :None
+        elseif EnzymeRates.cat_allo_state(mech, g) === :EqualAI
+            :EqualAI
+        else
+            :A
+        end
         if EnzymeRates.is_equilibrium(rep)
-            rep_name = EnzymeRates.name(EnzymeRates.Kd(rep, :None), mech)
+            rep_name = EnzymeRates.name(EnzymeRates.Kd(rep, st), mech)
             for s in group
                 push!(names, Symbol("K", EnzymeRates.source_idx(s)))
                 push!(vals,  nt[rep_name])
             end
         else
-            fwd_name = EnzymeRates.name(EnzymeRates.Kfor(rep, :None), mech)
-            rev_name = EnzymeRates.name(EnzymeRates.Krev(rep, :None), mech)
+            fwd_name = EnzymeRates.name(EnzymeRates.Kfor(rep, st), mech)
+            rev_name = EnzymeRates.name(EnzymeRates.Krev(rep, st), mech)
             for s in group
                 idx = EnzymeRates.source_idx(s)
                 push!(names, Symbol("k", idx, "f")); push!(vals, nt[fwd_name])
