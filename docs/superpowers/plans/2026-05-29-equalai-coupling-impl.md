@@ -281,42 +281,53 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Test: `test/test_rate_eq_derivation.jl` (in the `Allosteric edge cases`
   testset, after `m_mixed`)
 
-The four targeted tests are Haldane-side. A Wegscheider-derived dependent `K`
-can hit the same Case-B path (random-order binding loop). Assert the
+The four targeted tests are Haldane-side. The **"Random-order Bi-Bi"** spec
+mechanism (`test/mechanism_definitions_for_test_enzyme_derivation.jl` ~line 504,
+`n_wegscheider=1`, `n_mirror=0`) has a genuine independent Wegscheider cycle (the
+ungrouped binding square `E→EA→EAB→EB→E`). Made allosteric with one binding
+group `:NonequalAI`, its Wegscheider-dependent `:EqualAI` binding K hits the same
+Case-B path on a **Wegscheider** cycle (not a Haldane cycle), so the contained
+fix must reach it. The contained fix *computes* this by promoting that dependent
+binding K (it does NOT reject — rejection is the rank-algorithm follow-up; see
+`docs/superpowers/specs/2026-05-29-nonequalai-rank-validity.md`). Assert the
 mechanism-agnostic invariant — **zero net rate at chemical equilibrium** — which
 needs no full analytical pre-derivation.
 
 - [ ] **Step 1: Write the test**
 
 ```julia
-# Random-order substrate binding creates a Wegscheider loop; one binding is
-# :NonequalAI so a Wegscheider-dependent :EqualAI K is promoted (Case B on a
-# Wegscheider cycle, not a Haldane cycle). Any thermodynamically-consistent
-# mechanism MUST give zero net rate at chemical equilibrium.
+# Random-order Bi-Bi: the ungrouped binding square is a genuine Wegscheider
+# cycle. One binding is :NonequalAI, so the Wegscheider-dependent :EqualAI
+# binding K is promoted (Case B on a WEGSCHEIDER cycle). Any thermodynamically
+# consistent mechanism MUST give zero net rate at chemical equilibrium.
+# (This config is over-parametrized — the rank-validity follow-up will REJECT
+#  it; here we only verify the contained fix computes it consistently.)
 cm_ro = @enzyme_mechanism begin
     substrates: A, B
-    products:   P
+    products:   P, Q
     steps: begin
-        E + A ⇌ E(A)
-        E + B ⇌ E(B)
-        E(A) + B ⇌ E(A, B)
-        E(B) + A ⇌ E(A, B)
-        E(A, B) <--> E(P)
-        E(P) ⇌ E + P
+        E + A <--> E(A)
+        E + B <--> E(B)
+        E(A) + B <--> E(A, B)
+        E(B) + A <--> E(A, B)
+        E(A, B) <--> E(P, Q)
+        E(P, Q) <--> E(Q) + P
+        E(Q) <--> E + Q
     end
 end
 m_ro = EnzymeRates.AllostericEnzymeMechanism(
     cm_ro,
-    (2, (:NonequalAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI)),
+    (2, (:NonequalAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI)),
     (((:I,), 2, (:NonequalAI,)),),
 )
-# Pick concs at chemical equilibrium: with overall A+B ⇌ P, Keq = P/(A·B).
+# Overall A + B ⇌ P + Q, so Keq = P·Q/(A·B).
 Keq_ro = 4.0
 A_eq, B_eq = 1.5, 2.0
-P_eq = Keq_ro * A_eq * B_eq
+P_eq, Q_eq = 3.0, (Keq_ro * A_eq * B_eq / 3.0)
 p_ro = (/* fill independent params from rate_equation_string(m_ro); set Keq=Keq_ro, E_total=1.0, L=2.0, reg K's positive */)
 @test isapprox(
-    rate_equation(m_ro, (A=A_eq, B=B_eq, P=P_eq, I=0.5), p_ro), 0.0; atol=1e-9)
+    rate_equation(m_ro, (A=A_eq, B=B_eq, P=P_eq, Q=Q_eq, I=0.5), p_ro),
+    0.0; atol=1e-9)
 ```
 Before writing the literal `p_ro`, obtain the exact independent-parameter names
 by printing `EnzymeRates.rate_equation_string(m_ro)` and `fitted_params(m_ro)`;

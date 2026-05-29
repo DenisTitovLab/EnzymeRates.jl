@@ -66,11 +66,22 @@ With SS groups in `F`, PK is correctly **valid**.
 
 ## What it catches (and the contained fix does not)
 
-1. **Pure-RE Wegscheider loop, lone NonequalAI** — a random-order binding loop
-   with no SS step. `F` = just that one NonequalAI binding group; its column is
-   independent of nothing → split forced to zero → **degenerate**. The
-   contained fix would emit a phantom `K_T`. The symmetry rewrite cannot rescue
-   it either (no speed DOF in a pure-RE loop). Only this test flags it.
+1. **Lone NonequalAI binding K trapped in a pure-RE Wegscheider loop** — the
+   canonical fixture is the existing **"Random-order Bi-Bi"** test mechanism
+   (`test/mechanism_definitions_for_test_enzyme_derivation.jl`, `n_wegscheider=1`,
+   `n_mirror=0`: its binding steps are ungrouped, so the square
+   `E→EA→EAB→EB→E` is a genuine Wegscheider cycle). Make it allosteric with
+   **one** binding group `:NonequalAI`, the rest `:EqualAI`. That group `g1`
+   sits in two cycles: the catalytic Haldane (SS reverse as absorber) **and**
+   the pure-RE Wegscheider square (no SS step). Over `F = {g1, SS-reverse}` the
+   Wegscheider row is `[c·g1, 0]` — the SS reverse is not in the binding loop,
+   so it cannot help — forcing `d_g1 = 0` → **degenerate** → reject. The SS
+   reverse rescues a lone NonequalAI in a *Haldane* cycle (why PK is valid) but
+   never in a pure-RE *Wegscheider* loop. The **contained fix instead silently
+   promotes** the Wegscheider-dependent `:EqualAI` binding K to absorb the
+   split (computes zero at equilibrium, over-parametrized) — exactly the sneaky
+   behavior this rejection replaces. The symmetry rewrite cannot rescue it
+   either (no speed DOF in a pure-RE loop). Only this rank test flags it.
 2. **Full-rank multi-cycle (including Haldane-containing) mechanisms** —
    interlocking Haldane + Wegscheider cycles where the free-absorber columns are
    full-rank, so some `:NonequalAI` split is forced to zero *even with SS
