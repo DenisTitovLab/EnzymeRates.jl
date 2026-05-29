@@ -3,8 +3,9 @@
 **Date:** 2026-05-29 (revised after deeper analysis)
 **Branch:** `refactor-to-concrete-types-instead-of-symbols`
 **Status:** Approved design, pending implementation
-**Companion:** `2026-05-29-allosteric-direction-symmetry-principle.md` (the
-larger, post-refactor follow-up this fix consciously defers to).
+**Companion:** `2026-05-29-direction-symmetry-constraint-resolution.md` (the
+larger, post-refactor follow-up this fix consciously defers to — a general,
+all-mechanism rewrite of dependent-parameter removal, not just allosteric).
 
 > **Revision note.** An earlier version of this doc proposed rejecting mixed
 > EqualAI × NonequalAI configurations via a rank/nullspace validator and

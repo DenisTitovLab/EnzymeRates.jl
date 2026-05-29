@@ -1,4 +1,4 @@
-# Allosteric Direction-Symmetry Principle — Design Knowledge
+# Direction-Symmetry Principle for Thermodynamic Constraint Resolution — Design Knowledge
 
 **Date:** 2026-05-29
 **Status:** Design knowledge for a FUTURE follow-up PR (after the parent
@@ -11,11 +11,30 @@ document exists so the reasoning is not lost.
 
 While investigating the EqualAI × NonequalAI coupling bug we worked through
 the thermodynamics of MWC allosteric mechanisms carefully and uncovered a
-deeper, more principled way to resolve thermodynamic constraints in
-two-state (active/inactive) enzymes. It is too large and too entangled with
-the parent refactor's derivation core to implement now, but it is the
-correct long-term foundation. Denis's decision: ship the contained fix now,
-finish the parent refactor, then do this as its own (large) PR.
+deeper, more principled way to resolve thermodynamic (Haldane / Wegscheider)
+constraints — one that applies to **every reversible mechanism, not just
+allosteric ones**.
+
+**The core idea (general):** rewrite dependent-parameter removal so the
+constraint is resolved in a **direction-symmetry-invariant** manner — it must
+not matter whether the user wrote the reaction forward or reverse. The
+constraint pins a *ratio* (`k_for/k_rev`, or an equilibrium constant); keep
+the direction-*symmetric* combination (the *speed* `√(k_for·k_rev)`) as the
+free parameter and derive both rate constants from speed + the pinned ratio,
+distributing any forced difference by the unique minimum-norm symmetric
+solution. The current code instead drops one rate constant (e.g. `k_rev`),
+which silently privileges the user's arbitrary forward/reverse labeling.
+
+This is a major refactor (it touches the constraint-resolution core *and*
+every hand-written analytical formula, which gain `√` terms) but also a
+major **unification and correctness fix**. It is too large and too entangled
+with the parent refactor's derivation core to implement now. Denis's
+decision: ship the contained fix now, finish the parent refactor, then do
+this as its own (large) PR.
+
+The allosteric (A/I) case below is the most *visible* manifestation (it
+changes the model, not just the parametrization), but the principle is
+general — see §5a.
 
 ## 1. The physical model (corrected)
 
@@ -141,6 +160,36 @@ Consequences:
 - **Unifies the taxonomy:** speeds are shared kinetic DOF; ratios are
   thermodynamically pinned and symmetrically split; `:NonequalAI` buys
   explicit asymmetry; absorber-less loops are rejected.
+
+## 5a. The principle is general — non-allosteric mechanisms too
+
+The forward/reverse asymmetry is **not** created by the allosteric tags. It
+is present in *every* reversible mechanism the moment a Haldane/Wegscheider
+constraint eliminates a dependent parameter. "Drop `k_rev`, keep `k_for`
+free" privileges the forward direction even in a single-state,
+non-allosteric mechanism: write the same enzyme backwards and the code keeps
+the *other* rate constant free, yielding a different parametrization and a
+different-looking analytical formula for the identical enzyme.
+
+The symmetric resolution applies uniformly — keep the speed
+`√(k_for·k_rev)` free, derive both rate constants from speed + the pinned
+ratio. Two regimes of the *same* principle:
+
+- **Non-allosteric (single state):** the symmetric choice does **not** change
+  the model (same achievable rate curves — it is a reparametrization), but it
+  makes the canonical parametrization and the rate-equation **form**
+  direction-invariant, and parameter reporting reproducible. Cost: `√` enters
+  even simple rate equations, and every analytical formula in the suite must
+  be rewritten.
+- **Allosteric (A/I):** the symmetric distribution of the forced state-split
+  additionally changes the **model** itself (different I-state rate
+  equation), and is the genuinely-more-correct, direction-invariant choice
+  (`k_for_I · k_rev_I = k_for_A · k_rev_A`).
+
+So the follow-up is not "an allosteric tweak" — it is a **rewrite of
+dependent-parameter removal** for all mechanisms, with the allosteric case as
+the most visible payoff. `_dependent_param_exprs_kernel` is the single
+chokepoint for both.
 
 ## 6. Implementation notes & costs (for the follow-up PR)
 
