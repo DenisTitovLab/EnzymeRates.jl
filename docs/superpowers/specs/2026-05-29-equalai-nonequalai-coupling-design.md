@@ -120,8 +120,8 @@ touching `_flip_to_inactive`'s semantics.
 - Do **not** touch the structural-naming chokepoint (`_state_tag`,
   `_render_binding`, `_render_iso`) or `_flip_to_inactive`'s semantics.
 - The genuinely-degenerate **lone-NonequalAI pure-RE Wegscheider** case
-  (an over-parametrization, not a crash) is left for the follow-up; it does
-  not block suite-green.
+  (an over-parametrization, not a crash) is left for the follow-up — see
+  `2026-05-29-nonequalai-rank-validity.md`; it does not block suite-green.
 
 ## 6. Done when
 

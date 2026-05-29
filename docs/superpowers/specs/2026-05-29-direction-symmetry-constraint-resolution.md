@@ -75,15 +75,18 @@ catalysis `:EqualAI`; the catalytic reverse `k5r`/`k5r_T` absorbs the
 PEP-affinity split). An earlier "≥2 NonequalAI per cycle" rule was wrong
 because it omitted dependent (SS-reverse) absorbers from the accounting.
 
-### Degeneracy / rank test (still useful)
+### Degeneracy / rank test (its own spec)
 
-Free-absorbing column set `F = {NonequalAI RE groups} ∪ {SS groups in the
-cycle}`. A NonequalAI group `g` buys a *genuine* free parameter iff
-`rank(C_live[:,F]) == rank(C_live[:,F∖{g}])`. The **only** genuinely
-degenerate case is a **lone NonequalAI binding K in a pure-RE Wegscheider
-loop with no SS step to absorb the split** — there is no free absorber, so
-the split is forced to zero and the NonequalAI tag is vacuous. Such configs
-should be rejected (or normalized) as over-parametrized.
+A NonequalAI group buys a *genuine* free parameter only when its split can be
+nonzero given the free absorbers (`F = {NonequalAI RE groups} ∪ {SS groups in
+the cycle}`). The clearest degenerate case is a **lone NonequalAI binding K in
+a pure-RE Wegscheider loop with no SS step to absorb the split**; full-rank
+multi-cycle mechanisms can also force a split to zero even with SS absorbers
+present. This **validity/degeneracy algorithm is captured in its own spec**,
+`2026-05-29-nonequalai-rank-validity.md` — a distinct, durable concern (config
+validity / enumeration) that remains necessary even after this
+symmetric-resolution rewrite, since a pure-RE loop has no speed DOF to absorb a
+split regardless of how constraints are resolved.
 
 ## 3. The direction-invariance defect
 
