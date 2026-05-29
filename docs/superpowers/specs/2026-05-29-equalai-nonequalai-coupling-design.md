@@ -122,6 +122,16 @@ touching `_flip_to_inactive`'s semantics.
 - The genuinely-degenerate **lone-NonequalAI pure-RE Wegscheider** case
   (an over-parametrization, not a crash) is left for the follow-up — see
   `2026-05-29-nonequalai-rank-validity.md`; it does not block suite-green.
+- **`parameters(m, Full)` has a pre-existing duplicate** for Case-B shapes: the
+  base enumeration (`_all_i_state_parameters`) already emits the I-state reverse
+  (e.g. `:k_I_EP_to_ES`) as a `Krev(rep, :I)` struct, and `_synthesized_dep_t_names`
+  emits the same name — so `parameters(Full)` is not `allunique`. This is not
+  introduced by this fix (the self-map merely changed which symbol duplicated),
+  only affects `parameters(Full)` whose consumer (`identify_rate_equation`
+  canonicalizer) is still pending, and is entangled with the parent refactor's
+  parameters-API design (whether `_all_i_state_parameters` should emit an
+  I-mirror for an `:EqualAI` group whose reverse is a dependent Haldane
+  constant). Deferred to the parent refactor / a follow-up; not chased here.
 
 ## 6. Done when
 
