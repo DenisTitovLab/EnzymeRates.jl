@@ -104,10 +104,11 @@ end
 """
 Re-key a structural-named parameter NamedTuple to the **per-step** positional
 names (`K1`, `k1f`, `k1r`, …) that hand-derived analytical oracles destructure.
-Walks every step in source order; emits one positional name per RE step or two
-per SS step keyed on the step's source position; each value is looked up by the
-rep parameter's structural name in `nt` (so group members share the rep's
-value, matching how the package's destructure-by-name works today).
+Walks every kinetic group; for allosteric mechanisms also emits the T-state
+positional variants (`K1_T`, `k1f_T`, …) for :NonequalAI groups. Kreg
+structural keys (`:K_A_<lig>reg`, `:K_I_<lig>reg`, `:K_<lig>reg`) are mapped
+to positional keys (`:K_<lig>_reg{site}`, `:K_<lig>_T_reg{site}`). Any
+remaining keys (L, Keq, E_total, etc.) are passed through unchanged.
 Permanent test utility — oracles are inherently positional and source-indexed.
 """
 function positional_params(m, nt::NamedTuple)
@@ -119,33 +120,129 @@ function positional_params(m, nt::NamedTuple)
     is_allo = mech isa EnzymeRates.AllostericMechanism
     names = Symbol[]
     vals  = Any[]
+
     for (g, group) in enumerate(EnzymeRates.steps(mech))
         rep = first(group)
-        st = if !is_allo
-            :None
-        elseif EnzymeRates.cat_allo_state(mech, g) === :EqualAI
-            :EqualAI
-        else
-            :A
-        end
+        cat_st = is_allo ? EnzymeRates.cat_allo_state(mech, g) : :None
+        # Determine which active-branch state token to pass to name()
+        act_st = (cat_st === :EqualAI || cat_st === :None) ? cat_st : :A
+        # Inactive branch exists for :NonequalAI groups only
+        has_inactive = is_allo && cat_st === :NonequalAI
+
         if EnzymeRates.is_equilibrium(rep)
-            rep_name = EnzymeRates.name(EnzymeRates.Kd(rep, st), mech)
-            for s in group
-                push!(names, Symbol("K", EnzymeRates.source_idx(s)))
-                push!(vals,  nt[rep_name])
+            # RE step: binding → Kd; iso → Kiso
+            act_key = if EnzymeRates.is_binding(rep)
+                EnzymeRates.name(EnzymeRates.Kd(rep, act_st), mech)
+            else
+                EnzymeRates.name(EnzymeRates.Kiso(rep, act_st), mech)
+            end
+            if haskey(nt, act_key)
+                for s in group
+                    push!(names, Symbol("K", EnzymeRates.source_idx(s)))
+                    push!(vals,  nt[act_key])
+                end
+            end
+            if has_inactive
+                ina_key = if EnzymeRates.is_binding(rep)
+                    EnzymeRates.name(EnzymeRates.Kd(rep, :I), mech)
+                else
+                    EnzymeRates.name(EnzymeRates.Kiso(rep, :I), mech)
+                end
+                if haskey(nt, ina_key)
+                    for s in group
+                        push!(names, Symbol("K", EnzymeRates.source_idx(s), "_T"))
+                        push!(vals,  nt[ina_key])
+                    end
+                end
             end
         else
-            fwd_name = EnzymeRates.name(EnzymeRates.Kfor(rep, st), mech)
-            rev_name = EnzymeRates.name(EnzymeRates.Krev(rep, st), mech)
+            # SS step: binding → Kon/Koff; iso → Kfor/Krev
+            act_fwd, act_rev = if EnzymeRates.is_binding(rep)
+                EnzymeRates.name(EnzymeRates.Kon(rep, act_st), mech),
+                EnzymeRates.name(EnzymeRates.Koff(rep, act_st), mech)
+            else
+                EnzymeRates.name(EnzymeRates.Kfor(rep, act_st), mech),
+                EnzymeRates.name(EnzymeRates.Krev(rep, act_st), mech)
+            end
             for s in group
                 idx = EnzymeRates.source_idx(s)
-                push!(names, Symbol("k", idx, "f")); push!(vals, nt[fwd_name])
-                push!(names, Symbol("k", idx, "r")); push!(vals, nt[rev_name])
+                if haskey(nt, act_fwd)
+                    push!(names, Symbol("k", idx, "f")); push!(vals, nt[act_fwd])
+                end
+                if haskey(nt, act_rev)
+                    push!(names, Symbol("k", idx, "r")); push!(vals, nt[act_rev])
+                end
+            end
+            if has_inactive
+                ina_fwd, ina_rev = if EnzymeRates.is_binding(rep)
+                    EnzymeRates.name(EnzymeRates.Kon(rep, :I), mech),
+                    EnzymeRates.name(EnzymeRates.Koff(rep, :I), mech)
+                else
+                    EnzymeRates.name(EnzymeRates.Kfor(rep, :I), mech),
+                    EnzymeRates.name(EnzymeRates.Krev(rep, :I), mech)
+                end
+                for s in group
+                    idx = EnzymeRates.source_idx(s)
+                    if haskey(nt, ina_fwd)
+                        push!(names, Symbol("k", idx, "f_T")); push!(vals, nt[ina_fwd])
+                    end
+                    if haskey(nt, ina_rev)
+                        push!(names, Symbol("k", idx, "r_T")); push!(vals, nt[ina_rev])
+                    end
+                end
             end
         end
     end
-    # Pass through any remaining params not covered by the step loop (T-state
-    # params, Lallo, Kreg, Keq, E_total, etc.) under their existing names.
+
+    # Kreg: emit positional :K_<lig>_reg{site} / :K_<lig>_T_reg{site} keys.
+    if is_allo
+        for (site_idx, site) in enumerate(EnzymeRates.regulatory_sites(mech))
+            for (lig, tag) in zip(EnzymeRates.ligands(site),
+                                  EnzymeRates.allo_states(site))
+                lig_str = String(EnzymeRates.name(lig))
+                act_pos = Symbol("K_", lig_str, "_reg", site_idx)
+                ina_pos = Symbol("K_", lig_str, "_T_reg", site_idx)
+                if tag === :EqualAI
+                    # EqualAI emits K_A_<lig>reg as the independent name (with
+                    # K_I_<lig>reg as a Haldane-derived dep equal to it). We look
+                    # up whichever of the two is present in nt.
+                    struct_key_a = EnzymeRates.name(
+                        EnzymeRates.Kreg(site, lig, :A), mech)
+                    struct_key_i = EnzymeRates.name(
+                        EnzymeRates.Kreg(site, lig, :I), mech)
+                    struct_key = haskey(nt, struct_key_a) ? struct_key_a : struct_key_i
+                    if haskey(nt, struct_key)
+                        push!(names, act_pos); push!(vals, nt[struct_key])
+                    end
+                elseif tag === :OnlyA
+                    struct_key = EnzymeRates.name(
+                        EnzymeRates.Kreg(site, lig, :A), mech)
+                    if haskey(nt, struct_key)
+                        push!(names, act_pos); push!(vals, nt[struct_key])
+                    end
+                elseif tag === :OnlyI
+                    struct_key = EnzymeRates.name(
+                        EnzymeRates.Kreg(site, lig, :I), mech)
+                    if haskey(nt, struct_key)
+                        push!(names, ina_pos); push!(vals, nt[struct_key])
+                    end
+                else  # :NonequalAI
+                    act_key = EnzymeRates.name(
+                        EnzymeRates.Kreg(site, lig, :A), mech)
+                    ina_key = EnzymeRates.name(
+                        EnzymeRates.Kreg(site, lig, :I), mech)
+                    if haskey(nt, act_key)
+                        push!(names, act_pos); push!(vals, nt[act_key])
+                    end
+                    if haskey(nt, ina_key)
+                        push!(names, ina_pos); push!(vals, nt[ina_key])
+                    end
+                end
+            end
+        end
+    end
+
+    # Pass through any remaining keys (L, Keq, E_total, etc.) unchanged.
     emitted = Set(names)
     for k in keys(nt)
         k ∈ emitted && continue
@@ -218,52 +315,12 @@ function make_independent_params(m, all_params, Keq)
 end
 
 """
-Compute all k values from independent params + Keq by
-evaluating dependent parameter expressions.
-Returns a NamedTuple with all k's + E_total.
+Compute all structural-named params (independent + Haldane-derived dependents)
+plus Keq + E_total for a mechanism. Returns a NamedTuple with structural keys
+(e.g. :K_S_E, :k_ES_to_EP) that positional_params can remap to oracle-style
+positional names.
 """
 function compute_all_params(m, new_params)
-    eq = EnzymeRates.equilibrium_steps(m)
-    ns = EnzymeRates.n_steps(m)
-    dep = _get_dependent_params(m)
-    # Build all raw param keys: K_i for RE steps, k_if/k_ir for SS steps
-    all_keys = Symbol[]
-    for i in 1:ns
-        if eq[i]
-            push!(all_keys, Symbol("K$i"))
-        else
-            push!(all_keys, Symbol("k$(i)f"))
-            push!(all_keys, Symbol("k$(i)r"))
-        end
-    end
-    push!(all_keys, :E_total)
-    # Evaluate dependent expressions using new_params as the "params" namespace
-    dep_dict = Dict{Symbol, Float64}()
-    for (sym, expr_str) in dep
-        val = _eval_dep_expr(expr_str, new_params)
-        dep_dict[sym] = val
-    end
-    # Resolve kinetic-group aliases (e.g., K2 → K1 when steps share group)
-    rename = EnzymeRates._build_kinetic_rename_map(m)
-    for (alias, rep) in rename
-        if haskey(dep_dict, rep)
-            dep_dict[alias] = dep_dict[rep]
-        elseif haskey(new_params, rep)
-            dep_dict[alias] = Float64(new_params[rep])
-        end
-    end
-    all_vals = Float64[haskey(dep_dict, k) ? dep_dict[k] :
-                       haskey(new_params, k) ? Float64(new_params[k]) :
-                       error("Missing parameter $k")
-                       for k in all_keys]
-    return NamedTuple{Tuple(all_keys)}(Tuple(all_vals))
-end
-
-"""
-AllostericEnzymeMechanism version of compute_all_params.
-Returns all independent + dependent (Haldane-derived) params + Keq + E_total.
-"""
-function compute_all_params(m::EnzymeRates.AllostericEnzymeMechanism, new_params)
     indep = _get_independent_params(m)
     dep = _get_dependent_params(m)
     dep_dict = Dict{Symbol, Float64}()
@@ -309,8 +366,7 @@ function random_independent_params_concs(
 end
 
 """
-Convert raw params (K_g / k_g_f / k_g_r for each kinetic group's
-representative step) to ODE params (large k_if/k_ir for all steps).
+Convert structural-named params to ODE params (large k_if/k_ir for all steps).
 Steps sharing a kinetic_group share the same K (or k_f/k_r) param.
 
 For binding RE steps (metabolite on LHS, canonical form):
@@ -319,37 +375,58 @@ For RE isomerization steps (no metabolite, enzyme-only):
     K = Ka = kf/kr, so k_if = 1e6 * K, k_ir = 1e6.
 """
 function raw_to_ode_params(m, raw_params)
+    mech = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
     eq = EnzymeRates.equilibrium_steps(m)
     ns = EnzymeRates.n_steps(m)
     rxns = EnzymeRates.reactions(m)
     enz_set = Set(EnzymeRates.enzyme_forms(m))
+    # Kinetic-group rename map: maps Wegscheider-equivalent RE binding K names
+    # (e.g. K_S_ERinh → K_S_E) so the param lookup succeeds even when the
+    # mechanism has sharing via Wegscheider constraints.
+    rename = EnzymeRates._build_kinetic_rename_map(m)
     # A canonical RE binding step has a metabolite on LHS (canonical form
     # invariant: all RE binding steps are written `E + S ⇌ ES`).
     is_binding_step = Bool[
         eq[i] && any(s ∉ enz_set for s in rxns[i][1])
         for i in 1:ns
     ]
+    # Resolve a structural param key through the rename map if not present
+    _lookup(k) = haskey(raw_params, k) ? Float64(raw_params[k]) :
+                 haskey(rename, k) ? Float64(raw_params[rename[k]]) :
+                 error("raw_to_ode_params: missing param $k")
     param_keys = Symbol[]
     param_vals = Float64[]
     for i in 1:ns
         g = EnzymeRates.kinetic_group(m, i)
-        rep = first(EnzymeRates.steps_in_group(m, g))
+        rep_step = first(EnzymeRates.steps(mech)[g])
         push!(param_keys, Symbol("k$(i)f"))
         push!(param_keys, Symbol("k$(i)r"))
         if eq[i]
-            K = Float64(raw_params[Symbol("K$rep")])
+            # Look up structural K key for the rep step (Kd for binding, Kiso for iso)
             if is_binding_step[i]
+                K_key = EnzymeRates.name(EnzymeRates.Kd(rep_step, :None), mech)
+                K = _lookup(K_key)
                 # Binding step (metabolite on LHS): K = Kd = kr/kf
                 push!(param_vals, 1e6)
                 push!(param_vals, 1e6 * K)
             else
+                K_key = EnzymeRates.name(EnzymeRates.Kiso(rep_step, :None), mech)
+                K = _lookup(K_key)
                 # RE isomerization (no metabolite): K = Ka = kf/kr
                 push!(param_vals, 1e6 * K)
                 push!(param_vals, 1e6)
             end
         else
-            push!(param_vals, Float64(raw_params[Symbol("k$(rep)f")]))
-            push!(param_vals, Float64(raw_params[Symbol("k$(rep)r")]))
+            # SS step: binding → Kon/Koff; iso → Kfor/Krev
+            fwd_key, rev_key = if EnzymeRates.is_binding(rep_step)
+                EnzymeRates.name(EnzymeRates.Kon(rep_step, :None), mech),
+                EnzymeRates.name(EnzymeRates.Koff(rep_step, :None), mech)
+            else
+                EnzymeRates.name(EnzymeRates.Kfor(rep_step, :None), mech),
+                EnzymeRates.name(EnzymeRates.Krev(rep_step, :None), mech)
+            end
+            push!(param_vals, _lookup(fwd_key))
+            push!(param_vals, _lookup(rev_key))
         end
     end
     push!(param_keys, :E_total)
@@ -537,9 +614,11 @@ function test_reference_qssa(spec::MechanismTestSpec; n_trials=20, seed=42)
             new_params, concs, all_params =
                 random_independent_params_concs(
                     m, met_names; rng=rng)
+            # reference_qssa uses positional step-indexed k$(i)f/k$(i)r keys
+            pos_params = positional_params(m, all_params)
             isapprox(
                 rate_equation(m, concs, new_params),
-                reference_qssa(m, all_params, concs);
+                reference_qssa(m, pos_params, concs);
                 rtol=spec.reference_rtol)
         end
     end
@@ -616,10 +695,11 @@ function test_ode_steadystate(spec::MechanismTestSpec; n_trials=10, seed=42)
             new_params, concs, all_params =
                 random_independent_params_concs(
                     m, met_names; rng=rng)
-            # Convert K_i to large k_if/k_ir for ODE
+            # Convert structural params to positional k_if/k_ir for ODE
+            pos_params = positional_params(m, all_params)
             ode_params = has_re ?
                 raw_to_ode_params(m, all_params) :
-                all_params
+                pos_params
             v_ode = ode_steady_state_flux(m, ode_params, concs)
             v_ka = rate_equation(m, concs, new_params)
             # Use looser tolerance for RE mechanisms (large rate approximation)
