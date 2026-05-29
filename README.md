@@ -77,11 +77,11 @@ using OptimizationPyCMA, Random
 Random.seed!(42)
 
 true_params = (
-    K1 = 1e-4,           # S binding K (shared R/T)
-    k2f = 100.0,         # catalytic SS forward rate (R only)
-    K3 = 1e-3,           # P binding K (shared R/T)
-    K_A_reg1 = 1e-5,     # activator binding K (R only)
-    L = 10000.0,         # conformational [T]/[R] for free enzyme
+    K_S_E = 1e-4,           # S binding K (shared R/T)
+    k_A_ES_to_EP = 100.0,   # catalytic SS forward rate (R only)
+    K_P_E = 1e-3,           # P binding K (shared R/T)
+    K_A_Areg = 1e-5,        # activator binding K (R only)
+    L = 10000.0,            # conformational [T]/[R] for free enzyme
     Keq = 2.0,
     E_total = 1.0,
 )
@@ -93,9 +93,9 @@ logu(K) = K * 10.0 ^ (rand() * 4 - 2)
 data_rows = NamedTuple[]
 for grp in 1:5
     for _ in 1:10
-        S = logu(true_params.K1)
-        P = logu(true_params.K3)
-        A = logu(true_params.K_A_reg1)
+        S = logu(true_params.K_S_E)
+        P = logu(true_params.K_P_E)
+        A = logu(true_params.K_A_Areg)
         v_true = rate_equation(m, (S=S, P=P, A=A), true_params)
         v_obs = v_true * exp(0.05 * randn())   # 5% multiplicative log-normal noise
         push!(data_rows, (group="G$grp", Rate=v_obs, S=S, P=P, A=A))
@@ -120,8 +120,8 @@ separately measured kcat.
 fp = FittingProblem(m, data; Keq=2.0)
 result = fit_rate_equation(fp, PyCMAOpt();
     n_restarts=3, maxtime=5.0, popsize=50)
-result.params       # K1, K3, K_A_reg1, L recover near true.
-                    # k2f is normalized so kcat = 1.0 (its true
+result.params       # K_S_E, K_P_E, K_A_Areg, L recover near true.
+                    # k_A_ES_to_EP is normalized so kcat = 1.0 (its true
                     # value 100.0 is the kcat scale).
 result.loss         # final loss value (~5% noise floor)
 ```

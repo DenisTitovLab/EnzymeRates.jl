@@ -1273,8 +1273,8 @@ end
         (2, (:NonequalAI, :OnlyA, :NonequalAI)),
         (((:I,), 2, (:OnlyI,)),),
     )
-    p_mix = (K1=0.1, k2f=10.0, K3=0.5,
-             K1_T=10.0, K3_T=10.0,
+    p_mix = (K_A_S_E=0.1, k_A_ES_to_EP=10.0, K_A_P_E=0.5,
+             K_I_S_E=10.0, K_I_P_E=10.0,
              K_I_Ireg=1.0, L=1.0, Keq=1000.0, E_total=1.0)
     rate_mix = rate_equation(m_mix, (S=10.0, P=0.0, I=0.0), p_mix)
     # With Kd convention (correct): rate ≈ 19.79 (R-state catalysis dominates).
@@ -1282,8 +1282,8 @@ end
     @test isapprox(rate_mix, 19.79; rtol=0.05)
 
     # Sanity: rate_equation_string emits Kd form for T-state K's.
-    @test occursin("S / K1_T", rate_equation_string(m_mix))
-    @test occursin("P / K3_T", rate_equation_string(m_mix))
+    @test occursin("S / K_I_S_E", rate_equation_string(m_mix))
+    @test occursin("P / K_I_P_E", rate_equation_string(m_mix))
 
     # Regression: :NonequalAI substrate + :EqualAI catalysis must produce
     # zero rate at chemical equilibrium. The framework derives a T-state
@@ -1305,8 +1305,8 @@ end
         (((:I,), 2, (:NonequalAI,)),),
     )
     Keq_val = 5.0
-    p_eq = (K1=0.3, k2f=8.0, K3=0.7,
-            K1_T=2.5,
+    p_eq = (K_A_S_E=0.3, k_ES_to_EP=8.0, K_P_E=0.7,
+            K_I_S_E=2.5,
             K_A_Ireg=1.0, K_I_Ireg=4.0,
             L=2.0, Keq=Keq_val, E_total=1.0)
     # At chemical equilibrium: P = Keq · S

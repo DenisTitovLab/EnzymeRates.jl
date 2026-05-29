@@ -382,7 +382,7 @@
 
         # Numeric check: same as Uni-Uni spot check
         Keq = 3.2 * 2.5 / (0.8 * 1.1)
-        params = (k1f=3.2, k2f=2.5, k2r=1.1, Keq=Keq, E_total=1.0)
+        params = (kon_S_E=3.2, kon_P_ES=2.5, koff_P_ES=1.1, Keq=Keq, E_total=1.0)
         concs = (S=0.7, P=0.3)
         @test rate_equation(m, concs, params) ≈ 0.9091 atol=0.001
 
