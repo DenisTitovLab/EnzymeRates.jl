@@ -254,6 +254,16 @@ All `Parameter → Symbol` rendering in `src/` flows through one of two entry po
 - `:NonequalAI` — independent active and inactive state symbols (K_A, K_I separately).
 - DSL: catalytic-step allosteric states via `:: AlloState` annotation in `site(:catalytic, N): begin steps: … end`. Regulator allosteric states via `name::AlloState` in `allosteric_regulators:`.
 - Both `AllostericMechanism` (dense `Vector` fields) and `AllostericEnzymeMechanism` (Tuple type parameters) use **dense** storage — every kinetic group has an explicit `cat_allo_states` entry; every regulatory site/ligand has an explicit allo-state tag. The default tag is `:NonequalAI` but is stored explicitly. The `AllostericMechanism` constructor validates density.
+- An `:EqualAI` group's *dependent* parameter (e.g. an SS reverse rate, or a
+  Wegscheider-dependent binding K) may legitimately differ between A and I
+  states when its Haldane/Wegscheider RHS references a `:NonequalAI` symbol.
+  The synth-dep machinery synthesizes a **distinct** inactive-state name for
+  such a dependent param (shared `_dep_inactive_name` / `_add_case_b_renames!`
+  helper) — it is NOT a tag violation, since the dependent value is derived,
+  not user-shared. The planned direction-symmetric resolution of this
+  (speeds shared, ratios derived) and the NonequalAI degeneracy rejection are
+  follow-up PRs (see docs/superpowers/specs/2026-05-29-direction-symmetry-
+  constraint-resolution.md and 2026-05-29-nonequalai-rank-validity.md).
 
 ### Mirror / dead-end kinetic-group sharing
 - The mechanism-enumeration generator assigns dead-end mirror steps the same `kinetic_group::Int` as their catalytic counterpart. Mirror propagation is implicit in the kinetic-group atomicity: when a group's RE→SS conversion fires, every member converts together.
