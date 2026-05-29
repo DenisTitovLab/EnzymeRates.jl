@@ -25,6 +25,8 @@ Base.@kwdef struct MechanismTestSpec
     # Constraint expectations
     expected_n_haldane_constraints::Int       # RHS references Keq (catalytic-cycle closure)
     expected_n_mirror_constraints::Int        # RHS is a single Symbol (allosteric :EqualAI rename)
+    # NOTE: largely vestigial under structural naming — mostly 0, only nonzero for :EqualAI
+    # reg ligands; candidate for repurposing-or-removal in the structural-naming cleanup.
     expected_n_wegscheider_constraints::Int   # RHS Expr without Keq (multi-cycle futile-cycle closure)
     expected_n_independent_params::Int        # 2*n_steps - n_constraints
 
@@ -2080,7 +2082,8 @@ function build_mechanism_test_specs()
             expected_n_steps=9,
             expected_n_metabolites=5,
             expected_n_haldane_constraints=2,
-            expected_n_mirror_constraints=4,
+            # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror
+            expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
             run_ode_test=false,
@@ -2163,7 +2166,8 @@ function build_mechanism_test_specs()
             expected_n_steps=9,
             expected_n_metabolites=6,
             expected_n_haldane_constraints=2,
-            expected_n_mirror_constraints=3,
+            # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror
+            expected_n_mirror_constraints=1,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=12,
             run_ode_test=false,
