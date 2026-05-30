@@ -750,10 +750,8 @@ corners and return the max.
     # of I-state, so their `(num_k_I, den_k_I)` are 0 and the I-state
     # contribution at saturation vanishes.
     num_A_poly, den_A_poly = _raw_symbolic_rate_polys_allosteric(am)
-    a_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
-    rename_I = Dict{Symbol, Symbol}(
-        name(p_A, am) => name(p_I, am)
-        for (p_A, p_I) in _I_rename_parameters(am))
+    a_only_syms = _a_only_syms(am)
+    rename_I = _a_to_i_rename(am)
     # Pass 2: dep RHSes referencing a `:NonequalAI` symbol pick up an
     # I-state name. Mirrors `_dependent_param_exprs` Pass 2 below.
     dep_A_all, _ = _dependent_param_exprs_allosteric(am)
@@ -979,6 +977,25 @@ function _i_state_dead(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
     any(cat_allo_state(m, g) == :OnlyA for g in kinetic_groups(cm))
 end
+
+"""
+Set of A-state catalytic parameter Symbol names for an
+`AllostericMechanism`. Cached helper for the four call sites in
+`_kcat_forward`, `_dependent_param_exprs`, `_build_dep_assignments`,
+and `_allosteric_num_den_exprs` that each previously rebuilt this set.
+"""
+_a_only_syms(am::AllostericMechanism) =
+    Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
+
+"""
+A → I rename map (Symbol → Symbol) for `:NonequalAI` catalytic-group
+parameters. Routes through `name(p, am)`; both keys and values are the
+rendered Symbol names of `Kd/Kiso/Kon/Koff/Kfor/Krev` parameters.
+"""
+_a_to_i_rename(am::AllostericMechanism) =
+    Dict{Symbol, Symbol}(
+        name(p_A, am) => name(p_I, am)
+        for (p_A, p_I) in _I_rename_parameters(am))
 
 """
 Catalytic-cycle `Parameter`s zeroed in the I-state branch (one entry per
@@ -1277,16 +1294,13 @@ function _dependent_param_exprs(
     am  = AllostericMechanism(aem)
     dep_A_all, indep_A_all = _dependent_param_exprs_allosteric(am)
 
-    a_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
+    a_only_syms = _a_only_syms(am)
 
     dep_A = Dict{Symbol, Union{Symbol, Expr}}(dep_A_all)
     indep_A = collect(indep_A_all)
 
     # Pass 1: base I-rename for `:NonequalAI` catalytic-group Parameters.
-    rename_I = Dict{Symbol, Symbol}(
-        name(p_A, am) => name(p_I, am)
-        for (p_A, p_I) in _I_rename_parameters(am)
-    )
+    rename_I = _a_to_i_rename(am)
     # Pass 2: dep RHSes whose expression references a `:NonequalAI`
     # symbol need their own I-state name. Mirrors the second pass in
     # `_build_dep_assignments`: after Gaussian elimination, dep RHSes
@@ -1426,11 +1440,9 @@ function _build_dep_assignments(
     dep_A, indep_A = _dependent_param_exprs_allosteric(am)
     sorted_deps = sort(collect(dep_A); by=first)
 
-    a_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
+    a_only_syms = _a_only_syms(am)
     # Pass 1: base I-rename for `:NonequalAI` catalytic-group Parameters.
-    rename_I = Dict{Symbol, Symbol}(
-        name(p_A, am) => name(p_I, am)
-        for (p_A, p_I) in _I_rename_parameters(am))
+    rename_I = _a_to_i_rename(am)
     # Pass 2: dep RHSes referencing a `:NonequalAI` symbol need their own
     # I-state name. Mirrors `_dependent_param_exprs` Pass 2; the
     # synthesized entries here are the same ones the rate-equation body
@@ -1541,11 +1553,9 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     cat_params = Set{Symbol}(get(rename_A, s, s) for s in _raw_param_symbols(CM()))
     cat_mets = Set{Symbol}(metabolites(CM()))
 
-    a_only_syms = Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
+    a_only_syms = _a_only_syms(am)
     # Pass 1: base I-rename for `:NonequalAI` catalytic-group Parameters.
-    rename_I = Dict{Symbol, Symbol}(
-        name(p_A, am) => name(p_I, am)
-        for (p_A, p_I) in _I_rename_parameters(am))
+    rename_I = _a_to_i_rename(am)
     # Pass 2: dep RHSes referencing a `:NonequalAI` symbol need their own
     # I-state name so the polynomial rename covers synthesized deps.
     # Mirrors the second pass in `_dependent_param_exprs`.
