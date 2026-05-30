@@ -253,6 +253,47 @@ function positional_params(m, nt::NamedTuple)
     NamedTuple{Tuple(names)}(Tuple(vals))
 end
 
+"""
+Positional params for the **hand-written analytical oracles**, which fix
+`k{idx}f` as the chemically-forward (substrate→product) rate of source step
+`idx`. A product-binding step canonicalizes to `E + P → EP` (product on the
+`to` side), so the package's stored-forward rate (the one `positional_params`
+puts on `k{idx}f`) is actually the chemical REVERSE (binding) of the oracle's
+forward (release `EP → E + P`). Swap the `k{idx}f`/`k{idx}r` values for those
+steps so the oracle's forward keeps its release meaning. (The QSSA / ODE
+oracles read the canonical stored direction directly and need the un-swapped
+`positional_params`.)
+"""
+function analytical_oracle_params(m, nt::NamedTuple)
+    mech = m isa EnzymeRates.AllostericEnzymeMechanism ?
+               EnzymeRates.AllostericMechanism(m) :
+           m isa EnzymeRates.EnzymeMechanism ? EnzymeRates.Mechanism(m) : m
+    pos = positional_params(m, nt)
+    swap_idxs = Set{Int}()
+    for group in EnzymeRates.steps(mech), s in group
+        bm = EnzymeRates.bound_metabolite(s)
+        if bm isa EnzymeRates.Product &&
+           bm in EnzymeRates.bound(EnzymeRates.to_species(s))
+            push!(swap_idxs, EnzymeRates.source_idx(s))
+        end
+    end
+    isempty(swap_idxs) && return pos
+    names = Symbol[]; vals = Any[]
+    for (k, v) in pairs(pos)
+        ks = String(k)
+        swapped = k
+        for i in swap_idxs
+            if ks == "k$(i)f";      swapped = Symbol("k", i, "r"); break
+            elseif ks == "k$(i)r";  swapped = Symbol("k", i, "f"); break
+            elseif ks == "k$(i)f_T"; swapped = Symbol("k", i, "r_T"); break
+            elseif ks == "k$(i)r_T"; swapped = Symbol("k", i, "f_T"); break
+            end
+        end
+        push!(names, swapped); push!(vals, v)
+    end
+    NamedTuple{Tuple(names)}(Tuple(vals))
+end
+
 """Generate random reduced (fitted) params + Keq + E_total for a mechanism."""
 function random_reduced_params(m; rng=Random.default_rng())
     fp = EnzymeRates.fitted_params(m)
@@ -638,7 +679,7 @@ function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
                 random_independent_params_concs(
                     m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(positional_params(m, all_params), (Et=Et,))
+            p = merge(analytical_oracle_params(m, all_params), (Et=Et,))
             p_pkg = merge(new_params, (E_total=Et,))
             isapprox(
                 rate_equation(m, concs, p_pkg),
@@ -787,7 +828,7 @@ function test_analytical_kcat(spec::MechanismTestSpec; seed=42)
         rng = Random.MersenneTwister(seed)
         params = random_reduced_params(m; rng)
         kcat = EnzymeRates._kcat_forward(m, params)
-        p = merge(positional_params(m, params), (Et=params.E_total,))
+        p = merge(analytical_oracle_params(m, params), (Et=params.E_total,))
         @test kcat ≈ spec.analytical_kcat_fn(p) rtol=1e-10
     end
 end
@@ -1358,8 +1399,8 @@ end
     P_eq = 3.0
     Q_eq = Keq_ro * A_eq * B_eq / P_eq
     p_ro = (kon_A_E=1.2, kon_A_B_E=0.9, koff_A_B_E=1.5, kon_B_EA=1.1, koff_B_EA=0.8,
-            kon_A_EB=1.3, koff_A_EB=0.7, k_EAB_to_EPQ=6.0, kon_P_EPQ=1.4,
-            koff_P_EPQ=0.6, kon_Q_EQ=1.0, koff_Q_EQ=0.9, kon_I_B_E=0.5,
+            kon_A_EB=1.3, koff_A_EB=0.7, k_EAB_to_EPQ=6.0, kon_P_EQ=1.4,
+            koff_P_EQ=0.6, kon_Q_E=1.0, koff_Q_E=0.9, kon_I_B_E=0.5,
             koff_I_B_E=1.7, K_A_Ireg=1.0, K_I_Ireg=4.0, L=2.0, Keq=Keq_ro,
             E_total=1.0)
     @test isapprox(

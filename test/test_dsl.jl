@@ -23,17 +23,15 @@
         @test EnzymeRates.conformation(es_step.from_species) == :E
         @test isempty(EnzymeRates.bound(es_step.from_species))
 
-        # Second step: E(S) ⇌ E(P) — RE iso. The `Step` constructor
-        # canonicalizes RE iso direction by lex on species name, so
-        # `E_P` (lex-smaller) becomes `from_species` and `E_S` becomes
-        # `to_species`. SS iso steps (`<-->`) would preserve source
-        # direction instead — see test_types.jl
-        # "Step canonicalizes RE iso direction, preserves SS iso".
+        # Second step: E(S) ⇌ E(P) — RE iso. The Mechanism constructor
+        # canonicalizes iso direction physical-forward (substrate-bound
+        # `from`, product-bound `to`) via `_canonical_iso_direction`, so
+        # `E_S` is `from_species` and `E_P` is `to_species`.
         iso_step = mech.steps[2][1]
         @test EnzymeRates.bound(iso_step.from_species) ==
-              EnzymeRates.Metabolite[EnzymeRates.Product(:P)]
-        @test EnzymeRates.bound(iso_step.to_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
+        @test EnzymeRates.bound(iso_step.to_species) ==
+              EnzymeRates.Metabolite[EnzymeRates.Product(:P)]
 
         # Multi-bound: E(A, B) → bound [Substrate(:A), Substrate(:B)]
         # (sorted by name). Mixed substrate/product/regulator roles

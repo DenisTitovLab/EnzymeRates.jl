@@ -127,9 +127,11 @@ Base.hash(s::RegulatorySite, h::UInt) =
         hash(s.ligands, hash(:RegulatorySite, h))))
 
 # §5.4 — Step: one elementary transition. Binding steps carry
-# `bound_metabolite`; iso steps carry `nothing`. Binding steps are
-# canonicalized to have the metabolite on the `from_species` side. Iso
-# steps are canonicalized by lexical species-name order.
+# `bound_metabolite`; iso steps carry `nothing`. All binding steps (RE and
+# SS) canonicalize here (metabolite on the `from_species` side). All iso
+# steps (RE and SS) canonicalize in the Mechanism constructor via
+# `_canonical_iso_direction`. After Mechanism construction, every Step is
+# canonicalized.
 #
 # `source_idx` is presentation metadata only — the flat source-order
 # position used as a stable tiebreaker for group-rep selection. It is
@@ -148,26 +150,16 @@ struct Step
                   is_equilibrium::Bool;
                   source_idx::Int = 0)
         if bound_metabolite !== nothing
-            # RE binding steps canonicalize to "free + enzyme → enzyme-met"
-            # so two structurally-equivalent RE steps written in opposite
-            # source directions dedup to the same Step. SS steps are NOT
-            # canonicalized: their kf/kr labels are direction-sensitive
-            # (analytical formulas reference :kNf as the source-forward
-            # rate constant), so swapping would silently flip rate-equation
-            # output. See CLAUDE.md "Canonical Step Form" for the
-            # invariant.
+            # All binding steps (RE and SS) canonicalize to "free + enzyme →
+            # enzyme-met" so two structurally-equivalent binding steps written
+            # in opposite source directions dedup to the same Step. With
+            # structural binding-K names keyed on the bound metabolite + form
+            # (not source direction), the canonical metabolite-on-`from`
+            # orientation is direction-independent. See CLAUDE.md "Canonical
+            # Step Form" for the invariant.
             in_from = any(m -> m == bound_metabolite, bound(from_species))
             in_to   = any(m -> m == bound_metabolite, bound(to_species))
-            if is_equilibrium && in_from && !in_to
-                from_species, to_species = to_species, from_species
-            end
-        elseif is_equilibrium
-            # RE iso steps: deterministic direction by lex on name(from_species).
-            # SS iso steps are NOT canonicalized — their kf/kr labels are
-            # direction-sensitive (analytical formulas reference :kNf as the
-            # source-forward rate constant), so swapping would silently flip
-            # rate-equation output. See CLAUDE.md "Canonical Step Form".
-            if string(name(from_species)) > string(name(to_species))
+            if in_from && !in_to
                 from_species, to_species = to_species, from_species
             end
         end
@@ -339,6 +331,62 @@ function Base.show(io::IO, r::EnzymeReaction)
     end
 end
 
+# Classify how a species participates in BINDING steps (RE or SS) as the
+# FREE side (canonical binding puts the metabolite on the from_species side,
+# so the free side IS from_species). Used by `_canonical_iso_direction`
+# Tier 2 to decide direction for pure-conformational iso steps where Tier 1
+# ties.
+#
+# Why ALL binding steps (not just RE): the "substrate-entry / product-exit"
+# property is a chemistry fact about which forms metabolites enter and
+# leave at — it does NOT depend on whether the binding step is rapid-
+# equilibrium or steady-state. The DSL parses `<-->` as SS and `⇌` as RE;
+# fixtures like Segel Iso Uni Uni (`E + A <--> EA ⇌ EP <--> F + P, F <--> E`)
+# use `<-->` throughout, so an RE-only filter would mis-classify both `E`
+# and `F` as `:neither` and the F⇌E case would fall through to Tier 3 lex.
+function _entry_kind(sp::Species, binding_steps, subs::Set{Symbol}, prods::Set{Symbol})
+    has_sub = false; has_prod = false
+    for s in binding_steps
+        from_species(s) == sp || continue
+        b = bound_metabolite(s); b === nothing && continue
+        n = name(b)
+        n in subs  && (has_sub  = true)
+        n in prods && (has_prod = true)
+    end
+    has_sub && has_prod && return :both
+    has_sub  && return :substrate_only
+    has_prod && return :product_only
+    return :neither
+end
+
+# Canonicalize an iso step's storage direction to physical-forward, so
+# `from` is further from product-release / closer to substrate-binding.
+# Applies to RE iso AND SS iso — the direction question is identical;
+# only the parameter count differs. (All binding steps — RE and SS —
+# are canonicalized metabolite-on-`from` by the Step constructor; this
+# function only handles iso steps.)
+function _canonical_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
+                                  all_binding_steps::Vector{Step})
+    is_binding(s) && return s
+    f, t = from_species(s), to_species(s)
+
+    # Tier 1: atom-balance progression.
+    score(sp) = (count(m -> name(m) in subs,  bound(sp)),
+                -count(m -> name(m) in prods, bound(sp)))
+    sf, st = score(f), score(t)
+    sf > st && return s
+    sf < st && return Step(t, f, nothing, is_equilibrium(s))
+
+    # Tier 2: 1-hop binding (RE+SS) graph context.
+    fk = _entry_kind(f, all_binding_steps, subs, prods)
+    tk = _entry_kind(t, all_binding_steps, subs, prods)
+    fk == :product_only   && tk == :substrate_only && return s
+    fk == :substrate_only && tk == :product_only   && return Step(t, f, nothing, is_equilibrium(s))
+
+    # Tier 3: lex fallback (source-independent).
+    string(name(f)) ≤ string(name(t)) ? s : Step(t, f, nothing, is_equilibrium(s))
+end
+
 # §5.8 — Mechanism: groups elementary steps by kinetic group (outer
 # vector). All steps within a group share kinetic parameters.
 #
@@ -355,6 +403,12 @@ struct Mechanism
     steps::Vector{Vector{Step}}
     function Mechanism(reaction::EnzymeReaction,
                        steps::Vector{Vector{Step}})
+        subs  = Set{Symbol}(name(s) for s in substrates(reaction))
+        prods = Set{Symbol}(name(s) for s in products(reaction))
+        flat0 = Step[s for group in steps for s in group]
+        binding_steps = filter(is_binding, flat0)
+        steps = [[_canonical_iso_direction(s, subs, prods, binding_steps)
+                  for s in group] for group in steps]
         flat = Step[s for group in steps for s in group]
         any_set = any(s -> s.source_idx != 0, flat)
         all_set = all(s -> s.source_idx != 0, flat)
@@ -425,6 +479,14 @@ struct AllostericMechanism
                       "$_VALID_CAT_ALLO_STATES); :OnlyI is rejected for " *
                       "catalytic groups (active-state-active convention)")
         end
+        # Canonicalize iso-step storage direction (RE + SS) to physical-
+        # forward, mirroring the non-allosteric `Mechanism` constructor.
+        subs  = Set{Symbol}(name(s) for s in substrates(reaction))
+        prods = Set{Symbol}(name(s) for s in products(reaction))
+        flat0 = Step[s for group in cat_steps for s in group]
+        binding_steps = filter(is_binding, flat0)
+        cat_steps = [[_canonical_iso_direction(s, subs, prods, binding_steps)
+                      for s in group] for group in cat_steps]
         # Mirror the non-allosteric `Mechanism` convention: if all
         # incoming Steps have `source_idx == 0` (the default), assign
         # by flat position across catalytic groups in source order;

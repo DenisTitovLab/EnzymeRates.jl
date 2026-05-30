@@ -207,7 +207,7 @@
         s = sprint(show, m_b)
         @test startswith(s, "EnzymeMechanism (7 steps, 6 enzyme forms):")
         @test contains(s, "E + A <--> EA")
-        @test contains(s, "EQ <--> E + Q")
+        @test contains(s, "E + Q <--> EQ")
 
         # Linear chain with canonical RE binding: chain-walk renders the
         # release step in reverse so the chain stays linear.
@@ -732,30 +732,39 @@
             EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
 
         # User authored release direction (E_S → E + S, metabolite on RHS).
-        # Constructor swaps to binding direction (E + S → E_S).
-        released = EnzymeRates.Step(e_s, e, EnzymeRates.Substrate(:S), true)
-        bound    = EnzymeRates.Step(e,   e_s, EnzymeRates.Substrate(:S), true)
-        @test released == bound
-        @test hash(released) == hash(bound)
-        @test EnzymeRates.from_species(released) === e
-        @test EnzymeRates.to_species(released) === e_s
+        # Constructor swaps to binding direction (E + S → E_S). Both RE and
+        # SS binding canonicalize this way.
+        re_released = EnzymeRates.Step(e_s, e, EnzymeRates.Substrate(:S), true)
+        re_bound    = EnzymeRates.Step(e,   e_s, EnzymeRates.Substrate(:S), true)
+        @test re_released == re_bound
+        @test hash(re_released) == hash(re_bound)
+        @test EnzymeRates.from_species(re_released) === e
+        @test EnzymeRates.to_species(re_released) === e_s
+
+        ss_released = EnzymeRates.Step(e_s, e, EnzymeRates.Substrate(:S), false)
+        ss_bound    = EnzymeRates.Step(e,   e_s, EnzymeRates.Substrate(:S), false)
+        @test ss_released == ss_bound
+        @test hash(ss_released) == hash(ss_bound)
+        @test EnzymeRates.from_species(ss_released) === e
+        @test EnzymeRates.to_species(ss_released) === e_s
     end
 
-    @testset "Step canonicalizes RE iso direction, preserves SS iso" begin
+    @testset "Step preserves iso direction (canonicalized in Mechanism ctor)" begin
         e_s = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
         e_p = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Product(:P)], :E)
 
-        # RE iso: deterministic lex-on-name canonicalization for dedup.
+        # The Step constructor does NOT canonicalize iso steps (RE or SS) —
+        # iso direction depends on the reaction's substrate/product sets and
+        # is decided by `_canonical_iso_direction` in the Mechanism / Allosteric
+        # Mechanism constructor. At the bare-Step level, direction is preserved.
         re_fwd = EnzymeRates.Step(e_s, e_p, nothing, true)
         re_rev = EnzymeRates.Step(e_p, e_s, nothing, true)
-        @test re_fwd == re_rev
-        @test hash(re_fwd) == hash(re_rev)
+        @test re_fwd != re_rev
+        @test EnzymeRates.from_species(re_fwd) === e_s
+        @test EnzymeRates.from_species(re_rev) === e_p
 
-        # SS iso: direction preserved (kf/kr labels are direction-sensitive;
-        # analytical formulas reference :kNf as source-forward). See
-        # CLAUDE.md "Canonical Step Form".
         ss_fwd = EnzymeRates.Step(e_s, e_p, nothing, false)
         ss_rev = EnzymeRates.Step(e_p, e_s, nothing, false)
         @test ss_fwd != ss_rev
@@ -935,6 +944,51 @@
         m2 = EnzymeRates.Mechanism(r, [[s_bind], [s_iso], [s_rel]])
         @test m == m2
         @test hash(m) == hash(m2)
+    end
+
+    @testset "iso canonicalization (RE + SS, all tiers)" begin
+        # Tier 1 (SS iso, score differs): forward = substrate-bound -> product-bound.
+        m_fwd = @enzyme_mechanism begin
+            substrates: S; products: P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E(P)
+                E(P) <--> E + P
+            end
+        end
+        m_rev = @enzyme_mechanism begin
+            substrates: S; products: P
+            steps: begin
+                E + S <--> E(S)
+                E(P) <--> E(S)        # SS iso written backwards
+                E(P) <--> E + P
+            end
+        end
+        @test EnzymeRates.Mechanism(m_fwd) == EnzymeRates.Mechanism(m_rev)
+
+        # Tier 2 (the Segel Iso Uni Uni case): pure conformational F <--> E,
+        # tied on Tier 1, decided by entry_kind. Two opposite-source-direction
+        # mechanisms canonicalize to the same form.
+        s1 = @enzyme_mechanism begin
+            substrates: A; products: P
+            steps: begin
+                E + A <--> E(A); E(A) <--> E(P); E(P) <--> F + P; F <--> E
+            end
+        end
+        s2 = @enzyme_mechanism begin
+            substrates: A; products: P
+            steps: begin
+                E + A <--> E(A); E(A) <--> E(P); E(P) <--> F + P; E <--> F   # last step flipped
+            end
+        end
+        @test EnzymeRates.Mechanism(s1) == EnzymeRates.Mechanism(s2)
+        iso = only(s for grp in EnzymeRates.steps(EnzymeRates.Mechanism(s2))
+                       for s in grp
+                       if !EnzymeRates.is_binding(s) &&
+                          EnzymeRates.bound_metabolite(s) === nothing &&
+                          EnzymeRates.name(EnzymeRates.from_species(s)) in (:E, :F))
+        @test EnzymeRates.name(EnzymeRates.from_species(iso)) == :F  # product-exit
+        @test EnzymeRates.name(EnzymeRates.to_species(iso))   == :E  # substrate-entry
     end
 
     @testset "Mechanism auto-assigns source_idx by flat position" begin
