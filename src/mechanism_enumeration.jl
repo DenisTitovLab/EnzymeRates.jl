@@ -1863,56 +1863,38 @@ function _expr_canonical_via_name_map(expr, name_map::Dict{String,String})
 end
 
 """
-Canonical form for a non-allosteric `Mechanism` plus its
-`name_map::Dict{String,String}`. The canonical form covers the rate
-equation's numerator/denominator Exprs (after Parameter Symbol
-substitution via `name_map`) plus the Wegscheider/Haldane dep-expr
-set. Monomial ordering inside each Expr is determined by
-`_poly_to_expr`'s sort, which keys on raw Symbol *string* names — two
-structurally-equivalent mechanisms produce identical raw Symbol sets
-(modulo position) so their monomial sort coincides after substitution.
+Type-specific (num_expr, den_expr) for the canonical-hash trunk.
+- For non-allosteric: builds POLYs via `_raw_symbolic_rate_polys` and
+  renders via `_poly_to_expr`.
+- For allosteric: uses `_allosteric_num_den_exprs` which returns the
+  full MWC Exprs directly.
 """
-function _canonicalize_for_hash(em::AbstractEnzymeMechanism, m::Mechanism)
-    name_map = _build_name_map(em, m)
-    dep_canon = _dep_exprs_canonical(em, name_map)
+function _num_den_exprs(em::AbstractEnzymeMechanism, ::Mechanism)
+    M = typeof(em)
+    num, den = _raw_symbolic_rate_polys(M)
+    pset = Set{Symbol}(_raw_param_symbols(em))
+    cset = Set{Symbol}(metabolites(em))
+    (_poly_to_expr(num, pset, cset), _poly_to_expr(den, pset, cset))
+end
 
-    M_type = typeof(em)
-    num, den = _raw_symbolic_rate_polys(M_type)
-    param_set = Set{Symbol}(_raw_param_symbols(em))
-    conc_set = Set{Symbol}(metabolites(em))
-    num_expr = _poly_to_expr(num, param_set, conc_set)
-    den_expr = _poly_to_expr(den, param_set, conc_set)
-    num_canon = _expr_canonical_via_name_map(num_expr, name_map)
-    den_canon = _expr_canonical_via_name_map(den_expr, name_map)
-
-    canon = ((:NonAllosteric,), num_canon, den_canon, dep_canon)
-    (canon, name_map)
+function _num_den_exprs(em::AbstractEnzymeMechanism, ::AllostericMechanism)
+    em isa AllostericEnzymeMechanism || error(
+        "_num_den_exprs: AllostericMechanism requires " *
+        "AllostericEnzymeMechanism, got $(typeof(em))")
+    _allosteric_num_den_exprs(typeof(em))
 end
 
 """
-Canonical form for an `AllostericMechanism`. Uses the full
-numerator/denominator Expr from `_allosteric_num_den_exprs` (catalytic
-R + T polys composed with regulator-site factors and `L`) and applies
-`name_map` to canonicalize Parameter Symbols. Regulatory-site
-multiplicities, catalytic state tags, and the catalytic multiplicity
-participate in the canon so allosteric mechanisms differing only in
-these scalars hash distinctly.
+Type-specific canon-tuple suffix for allosteric mechanisms. Empty
+tuple for non-allosteric; for allosteric, includes catalytic state
+tags, multiplicity, and regulator site shape so two allosteric
+mechanisms differing only in those scalars hash distinctly.
 """
-function _canonicalize_for_hash(em::AbstractEnzymeMechanism,
-                                m::AllostericMechanism)
-    em isa AllostericEnzymeMechanism || error(
-        "_canonicalize_for_hash: AllostericMechanism requires " *
-        "AllostericEnzymeMechanism, got $(typeof(em))")
-    name_map = _build_name_map(em, m)
-    dep_canon = _dep_exprs_canonical(em, name_map)
+_allosteric_canon_suffix(::Mechanism) = ()
 
-    full_num, full_den = _allosteric_num_den_exprs(typeof(em))
-    num_canon = _expr_canonical_via_name_map(full_num, name_map)
-    den_canon = _expr_canonical_via_name_map(full_den, name_map)
-
+function _allosteric_canon_suffix(m::AllostericMechanism)
     cat_tags_canon = Tuple(cat_allo_states(m))
     cat_mult = catalytic_multiplicity(m)
-
     site_entries = Tuple[]
     for site in regulatory_sites(m)
         push!(site_entries,
@@ -1921,9 +1903,35 @@ function _canonicalize_for_hash(em::AbstractEnzymeMechanism,
                Tuple(allo_states(site))))
     end
     site_canon = Tuple(sort(site_entries; by = repr))
+    (cat_tags_canon, cat_mult, site_canon)
+end
 
-    canon = ((:Allosteric,), num_canon, den_canon, cat_tags_canon,
-             cat_mult, site_canon, dep_canon)
+"""
+Canonical form for a mechanism plus its `name_map::Dict{String,String}`.
+Walks the Parameter family + symbolic numerator/denominator Exprs
+directly, producing a canonical key per Parameter from `Step` /
+`RegulatorySite` / `AllostericRegulator` identity rather than from
+rendered symbol strings.
+
+Two mechanisms with the same rate equation but different kinetic-group
+numbering (and therefore different positional symbol names) produce the
+same canonical Expr tree because their Parameter canonical keys
+coincide and the `_poly_to_expr` monomial sort agrees once substitution
+is applied. For allosteric mechanisms, additional canon slots
+(catalytic state tags, catalytic multiplicity, regulator site shape)
+ensure mechanisms differing only in those scalars hash distinctly.
+"""
+function _canonicalize_for_hash(em::AbstractEnzymeMechanism,
+                                m::Union{Mechanism, AllostericMechanism})
+    name_map = _build_name_map(em, m)
+    dep_canon = _dep_exprs_canonical(em, name_map)
+    num, den = _num_den_exprs(em, m)
+    num_canon = _expr_canonical_via_name_map(num, name_map)
+    den_canon = _expr_canonical_via_name_map(den, name_map)
+    canon = m isa AllostericMechanism ?
+        ((:Allosteric,), num_canon, den_canon,
+         _allosteric_canon_suffix(m)..., dep_canon) :
+        ((:NonAllosteric,), num_canon, den_canon, dep_canon)
     (canon, name_map)
 end
 
