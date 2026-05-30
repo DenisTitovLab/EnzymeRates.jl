@@ -94,22 +94,19 @@ end
 
 """
 Build a renaming map for single-symbol Wegscheider RE ties between two
-binding K's. The value-context chokepoint already collapses group members
-to their rep's name, so kinetic-group merges no longer need a rename pass.
+binding K's. Calls `_dependent_param_exprs_kernel` to discover
+binding-K-to-binding-K Wegscheider closures of the form `K_a = K_b`
+(RHS is a bare Symbol). Both sides must be binding K's (RE step with
+metabolite on LHS) — absorbing a binding-K-to-iso-K tie would produce
+inconsistent sign-flips when the kernel runs with the full rename,
+since the binding-K column is sign-flipped (Kd convention) but the
+iso-K column is not.
 
-**Single-symbol Wegscheider RE ties.** Calls
-`_dependent_param_exprs_kernel` to discover binding-K-to-binding-K
-Wegscheider closures of the form `K_a = K_b` (RHS is a bare Symbol).
-Both sides must be binding K's (RE step with a metabolite on LHS) —
-absorbing a binding-K-to-iso-K tie would produce inconsistent sign-flips
-when the kernel runs with the full rename, since the binding-K column is
-sign-flipped (Kd convention) but the iso-K column is not.
-
-This rename means the polynomial in `v` uses the representative symbol
-directly, so Source-C duplicates (split kinetic groups that Wegscheider
-ties back together) collapse at hash time.
+The rename means the polynomial in `v` uses the representative symbol
+directly, so Source-C duplicates (split kinetic groups that
+Wegscheider ties back together) collapse at hash time.
 """
-function _build_kinetic_rename_map(M::Type{<:EnzymeMechanism})
+function _build_wegscheider_rename_map(M::Type{<:EnzymeMechanism})
     m = M()
     mech = Mechanism(m)
     rename = Dict{Symbol, Symbol}()
@@ -138,7 +135,7 @@ function _build_kinetic_rename_map(M::Type{<:EnzymeMechanism})
     rename
 end
 
-_build_kinetic_rename_map(m::EnzymeMechanism) = _build_kinetic_rename_map(typeof(m))
+_build_wegscheider_rename_map(m::EnzymeMechanism) = _build_wegscheider_rename_map(typeof(m))
 
 # ─── RE Group Helpers ───────────────────────────────────────
 
@@ -413,7 +410,7 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     rxns = reactions(m)
     eq_steps = equilibrium_steps(m)
     step_params = _step_parameters(mech)
-    rename_map = _build_kinetic_rename_map(m)
+    rename_map = _build_wegscheider_rename_map(m)
     _raw_symbolic_rate_polys(
         mech, rxns, eq_steps, step_params, rename_map,
         substrates(m), products(m),

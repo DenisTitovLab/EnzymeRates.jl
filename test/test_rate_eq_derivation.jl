@@ -443,7 +443,7 @@ function raw_to_ode_params(m, raw_params)
     # Kinetic-group rename map: maps Wegscheider-equivalent RE binding K names
     # (e.g. K_S_ERinh → K_S_E) so the param lookup succeeds even when the
     # mechanism has sharing via Wegscheider constraints.
-    rename = EnzymeRates._build_kinetic_rename_map(m)
+    rename = EnzymeRates._build_wegscheider_rename_map(m)
     # A canonical RE binding step has a metabolite on LHS (canonical form
     # invariant: all RE binding steps are written `E + S ⇌ ES`).
     is_binding_step = Bool[

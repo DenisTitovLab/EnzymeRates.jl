@@ -215,12 +215,12 @@ kinetic group share parameters: their cycle-incidence columns are merged
 into the representative step's column before Gaussian elimination, so
 `dep_exprs` and `indep_params` are keyed only on representatives.
 
-The wrapper calls `_build_kinetic_rename_map(M)` to obtain the full
-rename map (user-defined kinetic-group merges plus absorbed single-symbol
-Wegscheider RE ties) and forwards to `_dependent_param_exprs_kernel`.
+The wrapper calls `_build_wegscheider_rename_map(M)` to obtain the
+rename map for absorbed single-symbol Wegscheider RE ties and forwards
+to `_dependent_param_exprs_kernel`.
 """
 function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
-    rename = _build_kinetic_rename_map(M)
+    rename = _build_wegscheider_rename_map(M)
     dep_exprs, indep = _dependent_param_exprs_kernel(M, rename)
     # Filter Pass-2-absorbed symbols out of indep. Pass 2 of
     # `_build_wegscheider_rename_map` adds entries like `K_P_E => K_S_E`
@@ -244,7 +244,7 @@ the rename map as a parameter so callers can supply either the
 user-defined kinetic-group rename (Pass 1 only) or the full rename map
 that also absorbs single-symbol Wegscheider RE ties (Pass 1 + Pass 2).
 
-Pass 2 of `_build_kinetic_rename_map` calls this kernel with the
+Pass 2 of `_build_wegscheider_rename_map` calls this kernel with the
 Pass-1-only rename to discover which single-symbol ties to absorb; the
 display path in `rate_equation_string` likewise calls it with the
 Pass-1-only rename to keep absorbed ties visible under the
