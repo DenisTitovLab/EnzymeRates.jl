@@ -216,11 +216,12 @@ end
 
 """
 Compute alpha factors (relative concentrations within RE groups) as POLY
-values. Iterates `rxns` in source order so direction reflects the user's
-authored side ordering (the Step constructor's iso-direction swap rule
-would otherwise lex-canonicalize iso RE steps). `step_to_K[idx]` is the
-parameter Symbol for the RE step at flat source position `idx` (rep-
-renamed via the `name(p, m)` chokepoint).
+values. Iterates `rxns`, whose direction reflects each Step's canonical
+storage: binding steps are metabolite-on-`to`, iso steps are physical-
+forward (canonicalized in the Mechanism constructor via
+`_canonical_iso_direction`). `step_to_K[idx]` is the parameter Symbol for
+the RE step at flat position `idx` (rep-renamed via the `name(p, m)`
+chokepoint).
 """
 function _compute_alpha(rxns, eq_steps, enz_species, enz_set,
                         enz_name_to_form, groups, step_to_K)
@@ -323,10 +324,11 @@ function _raw_symbolic_rate_polys(mech::Mechanism, rxns, eq_steps,
     G = length(groups)
 
     # Build rate matrix R[g1,g2] with alpha denominators cleared. We walk
-    # SS steps in source order via `rxns` — direction comes from the
-    # original tuple (LHS = kf-side, RHS = kr-side). Using Step's from/to
-    # would be wrong for iso SS steps whose Step constructor swaps to
-    # lex-canonical direction (e.g. Segel Iso Uni Uni's `F <--> E`).
+    # SS steps via `rxns`; direction is the Step's canonical physical-forward
+    # storage (LHS/from = kf-side, RHS/to = kr-side). Since every iso step is
+    # canonicalized physical-forward in the Mechanism constructor, Step's
+    # from/to and `rxns` agree — reading either is correct (a future cleanup
+    # can drop the `rxns` re-projection and read Step.from/to directly).
     R = [poly_zero() for _ in 1:G, _ in 1:G]
     for (idx, _) in enumerate(rxns)
         eq_steps[idx] && continue
