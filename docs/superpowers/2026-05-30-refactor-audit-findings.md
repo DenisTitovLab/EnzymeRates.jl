@@ -677,6 +677,10 @@ The audit recommends Denis review the hypothesis after Wave 3 lands and re-basel
 **Blocking tests:** none direct
 **Recommendation:** Defer with Cluster F.
 
+### src/EnzymeRates.jl
+
+*No findings.* The module file (37 LOC: declaration + 16 exports + 4 `using` lines + 9 `include` statements + closing `end`) is pure scaffolding. Once Cluster A's F-003 demotes the singleton types, the exports for `EnzymeMechanism` / `AllostericEnzymeMechanism` may need review depending on whether the demoted types remain in the public surface (recommended: keep exported with reduced doc surface; they remain valid input/output types for compile-time entry points).
+
 ---
 
 ## §3 Dependency clusters
