@@ -210,16 +210,20 @@ Read `src/mechanism_enumeration.jl` lines 1951-1965.
 1962: """
 ```
 
-Edit L1958-1961 to use A/I notation (the refactor's current internal taxonomy):
+Edit L1958-1961 to use A/I notation in the explanation, but **keep the `_T` token literal** — the `_T` suffix is the load-bearing cache token (a historical artifact from the old R/T allosteric naming, kept for cache-projection compatibility across mechanisms):
 
 ```
 1957: For an `AllostericMechanism`, also adds entries for synthesized dep
 1958: I-names (LHSes that have no Parameter struct because they're derived
-1959: deps with an `_I` suffix appended at render time). The synth-dep token
-1960: is the A-state token with `_I` suffix, preserving A↔I correspondence
-1961: across equivalent mechanisms.
-1962: """
+1959: deps with an inactive-state suffix appended at render time). The
+1960: synth-dep token is the A-state token with `_T` suffix (a legacy
+1961: cache-token literal from the old R/T allosteric naming, kept for
+1962: cross-mechanism cache compatibility — see Step 9). This preserves
+1963: A↔I correspondence across equivalent mechanisms.
+1964: """
 ```
+
+This way the docstring uses current A/I terminology for the conceptual A↔I correspondence, but acknowledges the `_T` literal that the code still emits (and that's load-bearing for cache projection).
 
 - [ ] **Step 9: mechanism_enumeration.jl L1980-1986 — rename r/t variables + drop "Phase 7" comment**
 
@@ -240,7 +244,7 @@ Read `src/mechanism_enumeration.jl` lines 1979-1990.
 1990: end
 ```
 
-Edit to rename `r_name`/`r_str`/`t_str` → `a_name`/`a_str`/`i_str` and drop the "Phase 7" comment:
+Edit to rename `r_name`/`r_str`/`t_str` → `a_name`/`a_str`/`i_str` and drop the "Phase 7" comment. **DO NOT** change the `"_T"` literal — it is the load-bearing cache token (Step 8 docstring acknowledges this):
 
 ```
 1979:    if m isa AllostericMechanism
@@ -250,7 +254,7 @@ Edit to rename `r_name`/`r_str`/`t_str` → `a_name`/`a_str`/`i_str` and drop th
 1983:            tok === nothing && continue
 1984:            i_str = String(name(_flip_to_inactive(_param_for_symbol(m, a_name)), m))
 1985:            haskey(name_map, i_str) && continue
-1986:            name_map[i_str] = tok * "_T"
+1986:            name_map[i_str] = tok * "_T"  # "_T" is the legacy cache-token suffix; kept for cross-mechanism cache compatibility
 1987:        end
 1988:    end
 1989:    name_map
@@ -1411,29 +1415,48 @@ Replace the body (L155-167) and docstring:
 """
 Per-step side breakdown for the rate equation derivation. Returns
 `(from_species_sym, to_species_sym, m_lhs_syms, m_rhs_syms)` for a
-single `Step`. Direction is read directly from the canonical-form
-Step (binding steps have metabolite on `to_species` per the Step
-constructor invariant; iso steps are canonicalized physical-forward
-in the Mechanism constructor). The metabolite-on-which-side
-projection mirrors what `_step_tuple_from_sig` used to emit at
-@generated time, but reads from Step fields directly.
+single `Step`. The metabolite-on-which-side projection mirrors what
+`_step_tuple_from_sig` (types.jl:1093-1116) emits at @generated time,
+but reads from Step fields directly. The five-branch logic is
+load-bearing — in particular, SS catalytic-release steps where the
+bound metabolite is a Product that doesn't appear in either bound
+list (the "SS dissociation rule" per the
+`project-ss-dissociation-reconstruction-rule` memory) put the
+metabolite on m_rhs, not m_lhs.
 """
 function _step_sides(s::Step)
     e_lhs = name(from_species(s))
     e_rhs = name(to_species(s))
-    if is_binding(s)
-        bm = bound_metabolite(s)
-        # Canonical: bound metabolite resides in to_species.bound; emit it
-        # on the lhs syms list to match the old rxns-tuple convention
-        # consumed by _compute_alpha / _compute_numerator (m_lhs is the
-        # metabolite-on-the-binding-step side).
-        return e_lhs, e_rhs, Symbol[name(bm)], Symbol[]
+    is_iso(s) && return (e_lhs, e_rhs, Symbol[], Symbol[])
+    bm = bound_metabolite(s)
+    bm_name = name(bm)
+    from_bound_names = Set{Symbol}(name(m) for m in bound(from_species(s)))
+    to_bound_names = Set{Symbol}(name(m) for m in bound(to_species(s)))
+    if bm_name in to_bound_names
+        # Canonical binding: bound met on to_species → emit on m_lhs
+        return (e_lhs, e_rhs, Symbol[bm_name], Symbol[])
+    elseif bm_name in from_bound_names
+        # Reverse-canonical (defensive: ctor swap should have prevented this)
+        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
+    elseif !is_equilibrium(s) && bm isa Product &&
+           !(isempty(from_bound_names) && isempty(to_bound_names))
+        # SS dissociation rule: bound_metabolite is a Product released
+        # in an SS catalytic step; not in either bound list (because the
+        # Species canonicalization moved it). Emit on m_rhs to match
+        # _step_tuple_from_sig L1109-1113.
+        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
+    elseif length(from_bound_names) > length(to_bound_names)
+        # Bound-list-size fallback (mirrors _step_tuple_from_sig L1112)
+        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
+    else
+        return (e_lhs, e_rhs, Symbol[bm_name], Symbol[])
     end
-    e_lhs, e_rhs, Symbol[], Symbol[]
 end
 ```
 
 Note: the `enz_set` parameter (used in the old form to split a side that already had Symbol tuples) is no longer needed — Step's `from_species`/`to_species` are already enzyme Species, and `bound_metabolite` is already the metabolite. No splitting needed.
+
+**Verification:** The five-branch shape is structurally identical to `_step_tuple_from_sig` at `src/types.jl:1093-1116`. Cross-check by reading both side-by-side; any divergence in branch order or condition breaks SS catalytic-release mechanisms.
 
 - [ ] **Step 2: Find all call sites and update signatures**
 
@@ -1734,13 +1757,17 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     mech = Mechanism(M())
     step_params = _step_parameters(mech)
     rename_map = _build_wegscheider_rename_map(M)
+    # CRITICAL: substrates(::EnzymeReaction) returns Vector{Substrate}
+    # (concrete metabolite structs); _compute_numerator expects Symbols
+    # (ref_name comparisons via ==). Wrap explicitly.
+    subs_syms = Symbol[name(s) for s in substrates(mech.reaction)]
+    prods_syms = Symbol[name(p) for p in products(mech.reaction)]
     _raw_symbolic_rate_polys(mech, step_params, rename_map,
-                              substrates(mech.reaction),
-                              products(mech.reaction))
+                              subs_syms, prods_syms)
 end
 ```
 
-Note: `substrates(M())` / `products(M())` becomes `substrates(mech.reaction)` / `products(mech.reaction)` since `mech.reaction::EnzymeReaction` already has the data. This is an early instance of Wave 3's accessor demotion happening locally.
+Note: `substrates(M())` / `products(M())` (the @generated accessor on `EnzymeMechanism`) returned `Tuple{Symbol,...}`. `substrates(mech.reaction)` returns `Vector{Substrate}` per `src/types.jl:288-291` — different element type. The explicit `Symbol[name(s) for s in ...]` wrap is required to keep `_compute_numerator`'s `count(==(ref_name), prods_species)` working correctly.
 
 - [ ] **Step 3: Rewrite `_compute_numerator` (L427-502)**
 
@@ -1924,28 +1951,45 @@ function _thermodynamic_constraints(mech::Mechanism)
         B[i_to,   j] += 1
     end
 
-    # Stoichiometry matrix (rows = metabolites, cols = steps)
+    # Stoichiometry matrix (rows = metabolites, cols = steps). Mirrors
+    # the old stoich_matrix(em) walk over rxns tuples: each metabolite
+    # appearing on the lhs of the canonical rxns tuple contributes -1
+    # (consumed from free pool), each on the rhs contributes +1
+    # (produced). Use _step_sides(s::Step) (from Task 2.3) which
+    # mirrors _step_tuple_from_sig's 5-branch dissociation logic.
+    #
+    # IMPORTANT: do NOT additionally walk from_bound/to_bound diffs.
+    # For a binding step `E + S → ES`, _step_sides returns
+    # (m_lhs=[:S], m_rhs=[]), giving -1 for S. The bound-list diff would
+    # give +1 for S (S appears in to_species.bound), double-counting and
+    # netting to 0 — wrong. For iso steps, _step_sides returns empty
+    # tuples; iso-step met flux is encoded in the bound-list diff. So
+    # split: binding steps use _step_sides; iso steps use bound-list diff.
     met_idx = Dict(n => i for (i, n) in enumerate(met_names))
     stoich_mat = zeros(Int, length(met_names), nsteps)
     for (j, (s, _)) in enumerate(flat)
         if is_binding(s)
-            stoich_mat[met_idx[name(bound_metabolite(s))], j] -= 1
-        end
-        # Iso steps that produce / consume products (e.g. catalytic-release
-        # iso): these surface via Species' bound metabolites differing
-        # between from and to. Walk both bound lists.
-        from_bound = Set(name(m) for m in bound(from_species(s)))
-        to_bound = Set(name(m) for m in bound(to_species(s)))
-        for met in setdiff(from_bound, to_bound)
-            haskey(met_idx, met) && (stoich_mat[met_idx[met], j] -= 1)
-        end
-        for met in setdiff(to_bound, from_bound)
-            haskey(met_idx, met) && (stoich_mat[met_idx[met], j] += 1)
+            _, _, m_lhs, m_rhs = _step_sides(s)
+            for m in m_lhs
+                haskey(met_idx, m) && (stoich_mat[met_idx[m], j] -= 1)
+            end
+            for m in m_rhs
+                haskey(met_idx, m) && (stoich_mat[met_idx[m], j] += 1)
+            end
+        else
+            # Iso step: net metabolite change comes from from_bound /
+            # to_bound diff (e.g. catalytic iso E(A,B) ⇌ E(P,Q) consumes
+            # A,B and produces P,Q).
+            from_bound = Set(name(m) for m in bound(from_species(s)))
+            to_bound = Set(name(m) for m in bound(to_species(s)))
+            for met in setdiff(from_bound, to_bound)
+                haskey(met_idx, met) && (stoich_mat[met_idx[met], j] -= 1)
+            end
+            for met in setdiff(to_bound, from_bound)
+                haskey(met_idx, met) && (stoich_mat[met_idx[met], j] += 1)
+            end
         end
     end
-    # Note: the above incorporates both binding-step met consumption AND
-    # iso-step net-met change. This subsumes what stoich_matrix(m) /
-    # metabolite_row_range(m) used to provide.
 
     NS = _integer_nullspace(B)
     nc = size(NS, 2)
@@ -2860,24 +2904,35 @@ EOF
 )"
 ```
 
-## Task 3.6: Convert `@generated parameters` / `fitted_params` to plain functions
+## Task 3.6: Convert `@generated parameters` / `fitted_params` to plain functions + add Mechanism methods
 
 **Files:**
 - Modify: `src/rate_eq_derivation.jl:41-93`
+- Add new methods for `Mechanism` / `AllostericMechanism` so Task 3.11 (`compile_mechanism` lift deletion) works
 
-Finding F-037.
+Finding F-037. **Critical correction (post-audit):** Q-018's claim that all APIs accept `AbstractEnzymeMechanism` was partly wrong — `parameters` and `rate_equation_string` actually dispatch on `<:EnzymeMechanism` ONLY (not the abstract type). Direct grep verification: `src/rate_eq_derivation.jl:50,82,568,577` all specify `M<:EnzymeMechanism`. After Task 3.11 deletes `compile_mechanism` lifts in `identify_rate_equation.jl`, callers will pass `m::Mechanism` to `parameters` / `rate_equation_string` and hit `MethodError`. This task MUST add Mechanism / AllostericMechanism methods so those callers work.
 
-- [ ] **Step 1: Replace all 4 `@generated parameters` methods + `@generated fitted_params`**
+(`fitted_params` at L90 already uses `M <: _AnyMechanism = AbstractEnzymeMechanism` — so it works for any subtype already, but we still add Mechanism / AllostericMechanism methods for clarity.)
+
+- [ ] **Step 1: Replace all 4 `@generated parameters` methods + `@generated fitted_params` AND add Mechanism / AllostericMechanism methods**
 
 Read `src/rate_eq_derivation.jl` lines 38-93.
 
-Replace L41-93 with plain functions:
+Replace L41-93 with the following expanded set:
 
 ```julia
+# parameters: 4 EnzymeMechanism/AllostericEnzymeMechanism methods (plain
+# functions over the singleton family) + 4 Mechanism/AllostericMechanism
+# methods. The Mechanism methods are NEW — needed so callers that no
+# longer hold a compiled singleton (post Task 3.11) still work.
+
 function parameters(em::EnzymeMechanism, ::FullMode)
-    mech = Mechanism(em)
-    params = _enumerate_parameters_full(mech)
-    Tuple((Tuple(name(p, mech) for p in params)..., :E_total))
+    parameters(Mechanism(em), Full)
+end
+
+function parameters(m::Mechanism, ::FullMode)
+    params = _enumerate_parameters_full(m)
+    Tuple((Tuple(name(p, m) for p in params)..., :E_total))
 end
 
 function parameters(em::EnzymeMechanism, ::ReducedMode)
@@ -2885,10 +2940,22 @@ function parameters(em::EnzymeMechanism, ::ReducedMode)
     (indep..., :Keq, :E_total)
 end
 
+function parameters(m::Mechanism, ::ReducedMode)
+    # _dependent_param_exprs currently takes Type{<:EnzymeMechanism};
+    # for a Mechanism, lift through compile_mechanism. compile_mechanism
+    # itself stays per F-002 / F-055 deferral. The lift is one-off per
+    # mechanism shape; cached at the @generated level.
+    parameters(compile_mechanism(m), Reduced)
+end
+
 function parameters(aem::AllostericEnzymeMechanism, ::FullMode)
-    am = AllostericMechanism(aem)
+    parameters(AllostericMechanism(aem), Full)
+end
+
+function parameters(am::AllostericMechanism, ::FullMode)
     params = _enumerate_parameters_full_allosteric(am)
     names = Symbol[name(p, am) for p in params]
+    aem = compile_mechanism(am)  # for catalytic_mechanism + synth-dep
     synth_names = _synthesized_dep_i_names(typeof(catalytic_mechanism(aem)), am)
     if !isempty(synth_names)
         insert_pos = findfirst(p -> p isa Union{Kreg, Lallo}, params)
@@ -2903,6 +2970,10 @@ function parameters(aem::AllostericEnzymeMechanism, ::ReducedMode)
     (indep..., :Keq, :E_total)
 end
 
+function parameters(am::AllostericMechanism, ::ReducedMode)
+    parameters(compile_mechanism(am), Reduced)
+end
+
 function fitted_params(em::EnzymeMechanism)
     _, indep = _dependent_param_exprs(typeof(em))
     indep
@@ -2912,7 +2983,37 @@ function fitted_params(aem::AllostericEnzymeMechanism)
     _, indep = _dependent_param_exprs(typeof(aem))
     indep
 end
+
+# Mechanism / AllostericMechanism dispatches — lift via compile_mechanism
+function fitted_params(m::Mechanism) = fitted_params(compile_mechanism(m))
+function fitted_params(am::AllostericMechanism) = fitted_params(compile_mechanism(am))
 ```
+
+- [ ] **Step 2: Add Mechanism / AllostericMechanism methods for `rate_equation_string` (L568-577)**
+
+The `rate_equation_string(::M, ::FullMode) where {M<:EnzymeMechanism}` and `(::M, ::ReducedMode) where {M<:EnzymeMechanism}` methods at L568 and L577 ALSO need Mechanism counterparts. Add immediately after each:
+
+```julia
+rate_equation_string(m::Mechanism, mode) = rate_equation_string(compile_mechanism(m), mode)
+rate_equation_string(am::AllostericMechanism, mode) = rate_equation_string(compile_mechanism(am), mode)
+rate_equation_string(m::Mechanism) = rate_equation_string(compile_mechanism(m))
+rate_equation_string(am::AllostericMechanism) = rate_equation_string(compile_mechanism(am))
+```
+
+(Place these alongside the existing methods — `rate_equation_string` already has a default-mode forwarder at L556 that takes `_AnyMechanism = AbstractEnzymeMechanism`, but the actual `(m, ::Mode)` dispatches only accept EnzymeMechanism / AllostericEnzymeMechanism.)
+
+- [ ] **Step 3: Add Mechanism methods for `rate_equation` itself**
+
+`rate_equation` is `@generated` on `EnzymeMechanism` / `AllostericEnzymeMechanism` (L534, L540, L1640). For perf, the @generated dispatch must stay on the singleton. But user-facing callers may now pass `Mechanism` (post Task 3.11). Add explicit lift methods:
+
+```julia
+rate_equation(m::Mechanism, concs, params, mode=Reduced) =
+    rate_equation(compile_mechanism(m), concs, params, mode)
+rate_equation(am::AllostericMechanism, concs, params, mode=Reduced) =
+    rate_equation(compile_mechanism(am), concs, params, mode)
+```
+
+**Perf note:** `compile_mechanism(m)` does Sig conversion (Vector walking) — NOT zero-alloc. Tight inner loops MUST still call `compile_mechanism` once outside the loop and reuse the compiled value. This task makes the convenience-API ergonomic, not the hot-path. Document in the docstring that the perf invariant only holds for `EnzymeMechanism` / `AllostericEnzymeMechanism` inputs.
 
 - [ ] **Step 2: Run tests**
 
@@ -3306,11 +3407,24 @@ EOF
 **Files:**
 - Modify: `src/identify_rate_equation.jl:424, 461, 831, 860`
 
-Finding F-070. Per Q-018, all 4 lifts become no-ops since APIs already accept `AbstractEnzymeMechanism`.
+Finding F-070.
 
-**Important:** the APIs (`rate_equation_string`, `_canonical_rate_eq_hash_data`, `fitted_params`, `FittingProblem`, `_loocv`) currently dispatch on `AbstractEnzymeMechanism`. They need to accept `Mechanism` / `AllostericMechanism` directly too — either by widening to include these types, or by making them subtype `AbstractEnzymeMechanism`.
+**Critical correction (post-audit re-verification):** Q-018 originally claimed "all APIs already accept `AbstractEnzymeMechanism`". This was **half-wrong**:
 
-The cleanest path: **make `Mechanism` and `AllostericMechanism` subtype `AbstractEnzymeMechanism`** (a one-line struct annotation change), so the API stays the same and `compile_mechanism` becomes optional.
+| API | Actual dispatch |
+|---|---|
+| `rate_equation` | `@generated` on `EnzymeMechanism` / `AllostericEnzymeMechanism` ONLY |
+| `rate_equation_string(::M, ::Mode)` | `M <: EnzymeMechanism` ONLY (no AbstractEnzymeMechanism method) |
+| `parameters(::M, ::Mode)` | `M <: EnzymeMechanism` or `AllostericEnzymeMechanism` ONLY |
+| `fitted_params(::M)` | `M <: _AnyMechanism = AbstractEnzymeMechanism` ✓ |
+| `_canonical_rate_eq_hash_data(::AbstractEnzymeMechanism)` | ✓ |
+| `FittingProblem(::AbstractEnzymeMechanism, ...)` | ✓ |
+| `_loocv(::AbstractEnzymeMechanism, ...)` | ✓ |
+| `rescale_parameter_values(::_AnyMechanism, ...)` | ✓ |
+
+So Task 3.6 already adds the missing Mechanism / AllostericMechanism methods for `parameters`, `fitted_params`, `rate_equation`, and `rate_equation_string`. This task can then proceed.
+
+**This task assumes Task 3.6 lands FIRST.** Reorder if needed.
 
 - [ ] **Step 1: Subtype Mechanism and AllostericMechanism under AbstractEnzymeMechanism**
 
@@ -3349,15 +3463,62 @@ abstract type AbstractEnzymeMechanism end
 
 And remove the duplicate at the old L622 location.
 
-- [ ] **Step 2: Run tests**
+- [ ] **Step 2: Widen `_to_mechanism` to accept Mechanism / AllostericMechanism**
+
+Read `src/types.jl` lines 1378-1382.
+
+Append two identity methods so `_to_mechanism` works for the now-AbstractEnzymeMechanism-subtyped concrete structs:
+
+```julia
+_to_mechanism(m::EnzymeMechanism)           = Mechanism(m)
+_to_mechanism(m::AllostericEnzymeMechanism) = AllostericMechanism(m)
+# Identity dispatches for the bare concrete structs (post-subtype):
+_to_mechanism(m::Mechanism)                 = m
+_to_mechanism(am::AllostericMechanism)      = am
+```
+
+- [ ] **Step 3: Widen `_num_den_exprs` + `_dep_exprs_canonical` + `_canonicalize_for_hash` callers to lift bare Mechanism to singleton**
+
+The `_canonicalize_for_hash` trunk introduced in Task 1.6 calls `_num_den_exprs(em, m)`, which in turn calls `_raw_symbolic_rate_polys(typeof(em))` (expects `Type{<:EnzymeMechanism}`) or `_allosteric_num_den_exprs(typeof(em))` (expects `Type{<:AllostericEnzymeMechanism}`). Similarly, `_dep_exprs_canonical(em, name_map)` calls `_dependent_param_exprs(typeof(em))` with the same constraint.
+
+After this Task's Step 1 subtypes Mechanism/AllostericMechanism under AbstractEnzymeMechanism, those `typeof(em)` calls could see `Mechanism` (not a singleton) and dispatch fails.
+
+Fix: in `_canonicalize_for_hash`, lift `em` to its singleton form up front. Add at the start of the merged trunk:
+
+Read `src/mechanism_enumeration.jl` (the location after Task 1.6 lands — search for `function _canonicalize_for_hash`).
+
+Add a one-line lift:
+
+```julia
+function _canonicalize_for_hash(em::AbstractEnzymeMechanism,
+                                m::Union{Mechanism, AllostericMechanism})
+    # Lift bare Mechanism/AllostericMechanism to their singleton form
+    # so the internal dispatches that expect Type{<:EnzymeMechanism} or
+    # Type{<:AllostericEnzymeMechanism} still work.
+    em_compiled = (em isa EnzymeMechanism || em isa AllostericEnzymeMechanism) ?
+                  em : compile_mechanism(em)
+    name_map = _build_name_map(em_compiled, m)
+    dep_canon = _dep_exprs_canonical(em_compiled, name_map)
+    num, den = _num_den_exprs(em_compiled, m)
+    num_canon = _expr_canonical_via_name_map(num, name_map)
+    den_canon = _expr_canonical_via_name_map(den, name_map)
+    canon = m isa AllostericMechanism ?
+        ((:Allosteric,), num_canon, den_canon,
+         _allosteric_canon_suffix(m)..., dep_canon) :
+        ((:NonAllosteric,), num_canon, den_canon, dep_canon)
+    (canon, name_map)
+end
+```
+
+- [ ] **Step 4: Run tests as a checkpoint before deleting the explicit lifts**
 
 ```bash
 julia --project -e 'using Pkg; Pkg.test()'
 ```
 
-Expected: green. APIs that dispatched on `AbstractEnzymeMechanism` now accept all four types: Mechanism, AllostericMechanism, EnzymeMechanism, AllostericEnzymeMechanism.
+Expected: green. At this point, Mechanism and AllostericMechanism are subtypes of AbstractEnzymeMechanism, `_to_mechanism` handles all four, and `_canonicalize_for_hash` lifts internally. Existing callers that still pass EnzymeMechanism work unchanged.
 
-- [ ] **Step 3: Delete 4 compile_mechanism call sites in identify_rate_equation.jl**
+- [ ] **Step 5: Delete 4 compile_mechanism call sites in identify_rate_equation.jl**
 
 Read `src/identify_rate_equation.jl` lines 420-470.
 
@@ -3409,7 +3570,7 @@ Same at L860:
 860:     best_mechanism = best_mech
 ```
 
-- [ ] **Step 4: Update test files that call compile_mechanism**
+- [ ] **Step 6: Update test files that call compile_mechanism**
 
 Per Q-001, ~50 test callers across `test/test_mechanism_enumeration.jl`, `test/test_rate_eq_derivation.jl`, `test/test_canonical_hash_partition.jl`, `test/test_dep_set_invariance.jl`.
 
@@ -3424,13 +3585,13 @@ rm test/*.bak
 
 This is a simple text substitution. The pattern `compile_mechanism(m)` becomes `m` for any single-argument call. If a test uses `compile_mechanism(reaction)` for some other purpose (passing a reaction instead of a mechanism), it would also be touched — but `compile_mechanism` only has Mechanism / AllostericMechanism methods, so any other usage was already a bug.
 
-- [ ] **Step 5: Update one specific test (Q-012 noted this)**
+- [ ] **Step 7: Update one specific test (Q-012 noted this)**
 
 Read `test/test_mechanism_enumeration.jl` line 4295.
 
 The line asserts `name_map isa Dict{String, String}`. Update if needed (it should still be the case at this stage since Cluster F is deferred — string-keyed projection stays). If the assertion's still valid, leave it.
 
-- [ ] **Step 6: Run full test suite**
+- [ ] **Step 8: Run full test suite**
 
 ```bash
 julia --project -e 'using Pkg; Pkg.test()'
@@ -3438,10 +3599,10 @@ julia --project -e 'using Pkg; Pkg.test()'
 
 Expected: green.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/types.jl src/identify_rate_equation.jl test/
+git add src/types.jl src/mechanism_enumeration.jl src/identify_rate_equation.jl test/
 git commit -m "$(cat <<'EOF'
 refactor: subtype Mechanism / AllostericMechanism under AbstractEnzymeMechanism + drop compile_mechanism lifts
 
@@ -3761,13 +3922,29 @@ julia --project test/test_rate_eq_derivation.jl 2>&1 | grep -E "(allocations|<10
 
 Expected: 0 allocations / <100ns reported for every spec.
 
-- [ ] **Step 3: Measure LOC delta**
+**Critical:** Wave 3 is the wave most likely to break the perf gate (subtyping change, accessor demotion, lift deletions). If this fails, find which task caused the regression and either fix the implementation or revert that task. Do not proceed to Wave 4 with the perf gate red.
+
+- [ ] **Step 3: Verify `compile_mechanism` still exists and is exported as expected**
+
+```bash
+grep -n "^compile_mechanism\b\|^function compile_mechanism\b" src/mechanism_enumeration.jl
+grep -n "compile_mechanism" src/EnzymeRates.jl
+```
+
+Expected: `compile_mechanism` is still defined (per F-002 / F-055 deferrals — the function stays as the explicit lift). It is NOT exported (per CLAUDE.md "`compile_mechanism` is NOT exported"). If it accidentally got exported during Cluster A, revert that export.
+
+- [ ] **Step 4: Measure LOC delta**
 
 Run the baseline-counter from Wave 1 Task 1.9 Step 2.
 
-Expected: ~5,000 non-comment non-doc LOC (down ~700 from baseline).
+Expected: ~5,050-5,100 non-comment non-doc LOC (down ~600-650 from baseline 5,706).
 
-This is short of the audit's ~5,000 LOC target (~13.7% reduction). Some findings demoted to no-change during this wave (F-002, F-053), explaining the gap. The honest measured number is the deliverable.
+This is short of the audit's original ~5,000 LOC target (~13.7% reduction). The gap is explained by:
+- F-002 deferred (~118 LOC of Sig conversion bridge stays — load-bearing for `@generated` dispatch)
+- F-055 deferred (~2 LOC of `compile_mechanism` definitions stay — needed at fast-path lift boundary)
+- F-053 demoted to no-change (the `EnzymeMechanism` forwarder is still needed for callers holding the singleton)
+
+Revised realistic target: **~660 LOC saved (~11.5% of baseline)**. The honest measured number is the deliverable — record it.
 
 # Wave 4 — Doc-hygiene sweep + audit-doc updates
 

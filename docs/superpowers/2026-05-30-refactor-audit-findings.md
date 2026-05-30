@@ -20,12 +20,12 @@
 | Permissive-parser-guard | 1 *(batched, Cluster G)* |
 | Doc hygiene (stale-spec / comment-as-docstring) | 20 |
 
-**Estimated LOC savings (non-comment non-doc src):**
+**Estimated LOC savings (non-comment non-doc src) — revised post-impl-plan-review:**
 
 | Cluster | Net delete | After-rewrite | Notes |
 |---|---|---|---|
-| A — Singleton-type demotion | ~520 | ~150 LOC of rewrites in place | The big architectural move; high impact |
-| B — Derivation back-end struct-native walk | ~80 | ~30 LOC of rewrites | Q-016 confirmed feasible |
+| A — Singleton-type demotion | ~400 *(was ~520)* | ~150 LOC of rewrites in place | F-002 (118-LOC Sig conversion bridge) deferred — load-bearing for `@generated rate_equation` dispatch. F-055 (`compile_mechanism` delete) deferred for the same reason. |
+| B — Derivation back-end struct-native walk | ~80 | ~30 LOC of rewrites | Per Q-016 plus reviewer-caught SS-dissociation edge case in `_step_sides` |
 | C — Smaller `_emit_cat_params_for_rep` helper | ~20 | ~10 LOC of rewrites | Per Q-015 don't fully unify the 5 helpers |
 | D — Expansion-move + dedup! consolidation | ~115 | ~30 LOC of rewrites | Adds `_with_steps`/`_with_*` helpers |
 | E — Doc hygiene sweep | 0 (non-comment non-doc) | n/a | ~20 finding-equivalents; readability |
@@ -33,9 +33,11 @@
 | G — Parser-tighten (Approach B) | ~25 | — | Inline `_assert_no_opaque_terms` into parse step |
 | H — Small cleanups (kinetic-rename rename, wrapper inline, etc.) | ~20 | — | Independent of A-D |
 
-**Total net LOC savings (non-deferred): ~780 LOC (~13.7% of baseline)**, plus ~220 LOC of in-place rewrites (mostly `@generated` → plain functions, struct-native walks).
+**Total net LOC savings (non-deferred, revised): ~660 LOC (~11.5% of baseline)**, plus ~220 LOC of in-place rewrites (mostly `@generated` → plain functions, struct-native walks). The earlier ~780 LOC figure overstated Cluster A — F-002 (Sig conversion bridge) is load-bearing for `@generated rate_equation` dispatch and cannot be deleted without redesigning the dispatch model itself (out of audit scope).
 
-**Hypothesis test:** Denis's "up to half of src may be removable" claim is **partially supported**. The audit measured ~14% non-comment non-doc LOC reduction available across all non-deferred clusters. The remaining gap to 50% would require:
+**Audit-time verification error (recorded for transparency):** Q-018 originally claimed all rate-equation APIs accept `AbstractEnzymeMechanism`. Direct grep re-verification (post-impl-plan-review) showed `parameters` (`rate_eq_derivation.jl:50,82`) and `rate_equation_string` (`L568,577`) actually dispatch on `<:EnzymeMechanism` ONLY. `fitted_params`, `_canonical_rate_eq_hash_data`, `FittingProblem`, `_loocv`, and `rescale_parameter_values` DO accept `AbstractEnzymeMechanism`. The impl plan's Task 3.6 was updated to add explicit `Mechanism` / `AllostericMechanism` methods for `parameters` and `rate_equation_string` to compensate.
+
+**Hypothesis test:** Denis's "up to half of src may be removable" claim is **partially supported**. The audit measured ~12% non-comment non-doc LOC reduction available across all non-deferred clusters (revised down from the original ~14% estimate). The remaining gap to 50% would require:
 
 1. **Further deletion of test-private helpers** that constrain design without testing behavior (CLAUDE.md no-test-deletion rule requires replacing with behavior coverage, so this is constrained).
 2. **Replacing the `@generated`-driven King-Altman / Cha derivation** with a runtime alternative (different refactor; not in scope).
@@ -46,7 +48,7 @@ The audit recommends Denis review the hypothesis after Wave 3 lands and re-basel
 
 **Top architectural moves:**
 
-1. **Cluster A — Demote `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` to internal compile artifact.** The singleton-type bridge (Sig conversion machinery, 14 @generated accessors, 14-line forwarding-accessor block, double-lift constructors, `_drop_unbound_regulators`, `_param_for_symbol` family) all exist to support a parametric mechanism representation. Per Q-005 / Q-006 / Q-009 / Q-018: none of this is on the `rate_equation` runtime hot path. The Mechanism / AllostericMechanism concrete structs (already used throughout the front end) can become the primary representation; the singletons become internal `compile_mechanism` artifacts used only at @generated-body-build time. Net ~520 LOC delete + ~150 LOC of rewrites.
+1. **Cluster A — Demote `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` to internal compile artifact.** The singleton-type bridge (Sig conversion machinery, 14 @generated accessors, 14-line forwarding-accessor block, double-lift constructors, `_drop_unbound_regulators`, `_param_for_symbol` family) all exist to support a parametric mechanism representation. Per Q-005 / Q-006 / Q-009: most of this is not on the `rate_equation` runtime hot path. The Mechanism / AllostericMechanism concrete structs (already used throughout the front end) can become the primary representation. Net ~400 LOC delete + ~150 LOC of rewrites. **The singleton types themselves and the `_sig_of` / `_*_from_sig` bridge stay** (load-bearing for `@generated rate_equation` dispatch — the @generated body specializes per-mechanism-shape via the `Sig` type parameter; collapsing Sig requires redesigning the dispatch model which is out of scope). `compile_mechanism` similarly stays as the explicit lift to the fast-path handle.
 2. **Cluster B — Replace `_step_tuple_from_sig` / `_species_name_from_sig` symbol-tuple plumbing with struct-native walk over `Mechanism.steps`.** The King-Altman and Wegscheider consumers in `_raw_symbolic_rate_polys`, `_compute_alpha`, `_compute_numerator`, `_thermodynamic_constraints`, `_dependent_param_exprs_kernel` all consume `rxns = reactions(m)` opaque tuples that regenerate structure already on Step. Per Q-016 the source comment at L325-329 explicitly invites this cleanup. ~80 LOC + struct-native rewrite.
 3. **Cluster D — Add internal update constructors (`_with_steps`, `_with_cat_allo_states`, `_with_reg_sites`) to collapse dual-dispatch expansion moves.** The 4 expansion-move helpers (`_expand_re_to_ss`, `_expand_split_kinetic_group`, `_expand_add_dead_end_regulator`, `_expand_change_allo_state`) each have nearly-identical Mechanism + AllostericMechanism methods that differ only in result-type construction. With proper builder helpers each pair collapses to one method. Plus three `dedup!` methods collapse to one `dedup!(Dict{Int, <:Vector})`. ~115 LOC.
 
@@ -69,16 +71,17 @@ The audit recommends Denis review the hypothesis after Wave 3 lands and re-basel
 **Blocking tests:** none
 **Recommendation:** The docstring at L46-47 reads "`:E_A_B`" (underscore-separated) but the code at L78-82 concatenates without separator producing `:EATP`. Update example to `:EATP` / `:EstarA_res_+P` to match the code-emitted shape.
 
-#### F-002  Delete Mechanism↔Sig conversion machinery after singleton demote
+#### F-002  *(DEFERRED — out of audit scope)* Delete Mechanism↔Sig conversion machinery
 
 **Location:** src/types.jl:500-617
 **Category:** Architectural
-**Confidence:** High
-**LOC saving (non-comment non-doc):** ~118
-**Simplification gain:** Removes the entire Sig encode/decode bridge — `_to_sig` polymorphic methods, the `_*_from_sig` family, `_sig_of`, `_mechanism_from_sig`. Per Q-002 these have only two real callers (`EnzymeMechanism(::Mechanism)` lift and `Mechanism(::EnzymeMechanism)` lift) plus one round-trip test.
-**Depends on:** F-003 (must demote the singleton type itself to unlock this)
-**Blocking tests:** test/test_types.jl:1195-1209 (sig roundtrip test — delete with the bridge)
-**Recommendation:** When `EnzymeMechanism{Sig}` ceases to be the primary representation (F-003), the encode/decode bridge becomes orphan code. Delete L500-617 wholesale and remove the roundtrip test.
+**Confidence:** High (the bridge is identifiable and grep-encapsulated per Q-002)
+**LOC saving (non-comment non-doc):** ~118 *(DEFERRED — not delivered)*
+**Status:** **DEFERRED.** The Sig conversion bridge is load-bearing as long as `EnzymeMechanism{Sig}` exists as the `@generated rate_equation` dispatch type. `_sig_of` is called by the lift; `_mechanism_from_sig` is called by `Mechanism(::EnzymeMechanism)` which body-builders use at @generated time. Deleting the bridge requires redesigning the @generated dispatch model itself (e.g., switching to a Mechanism-keyed dispatch table). That is a separate refactor, out of this audit's scope.
+**Simplification gain:** Would remove the entire Sig encode/decode bridge — but not unlocked by the singleton demote alone.
+**Depends on:** A redesign of `@generated rate_equation` dispatch — not pursued.
+**Blocking tests:** test/test_types.jl:1195-1209 (sig roundtrip test — stays).
+**Recommendation:** Leave the bridge in place. Track as a follow-up beyond the impl plan; revisit if/when the @generated dispatch model itself is reconsidered.
 
 #### F-003  Demote EnzymeMechanism / AllostericEnzymeMechanism to internal compile artifacts
 
@@ -270,6 +273,17 @@ The audit recommends Denis review the hypothesis after Wave 3 lands and re-basel
 **Depends on:** none
 **Blocking tests:** none
 **Recommendation:** Convert each `#`-block to `"""docstring"""`. Move L1-2 into a module-attached docstring (or as the package's overall doc since this file is `include`d).
+
+#### F-035  ABOUTME header for sym_poly_for_rate_eq_derivation.jl
+
+**Location:** src/sym_poly_for_rate_eq_derivation.jl:1-2
+**Category:** Doc hygiene
+**Confidence:** Medium
+**LOC saving (non-comment non-doc):** 0
+**Simplification gain:** File-level header follows the CLAUDE.md `ABOUTME:` convention used by `fitting.jl` and `mechanism_enumeration.jl`. Greppable.
+**Depends on:** none
+**Blocking tests:** none
+**Recommendation:** Reformat L1-2 from a free-form description to two `# ABOUTME: ...` lines per the project convention. (Distinguished from F-034's scope — F-034 covers function-level `#`-block conversions; F-035 covers only the file-level header.)
 
 #### F-036  Fix stale "K2 → K1" example in `_rename_symbols` docstring
 
@@ -488,16 +502,17 @@ The audit recommends Denis review the hypothesis after Wave 3 lands and re-basel
 
 ### src/mechanism_enumeration.jl
 
-#### F-055  Delete `compile_mechanism` lift functions
+#### F-055  *(DEFERRED — pairs with F-002)* Delete `compile_mechanism` lift functions
 
 **Location:** src/mechanism_enumeration.jl:977-985
 **Category:** Architectural (Cluster A ripple)
 **Confidence:** Medium
-**LOC saving (non-comment non-doc):** ~2 (plus all 7 prod callers per Q-001)
-**Simplification gain:** After F-003 + F-070 (and similar at thermo/rate_eq derivation sites), `compile_mechanism` has no callers and deletes.
-**Depends on:** F-003, F-070, F-048, F-049
-**Blocking tests:** test/test_mechanism_enumeration.jl has ~50 callers of `compile_mechanism` — these likely become direct Mechanism/AllostericMechanism use. Log replacements per CLAUDE.md
-**Recommendation:** Final delete in Cluster A. Test updates: replace `compile_mechanism(m)` with `m` (identity) in tests.
+**LOC saving (non-comment non-doc):** ~2 *(DEFERRED — not delivered)*
+**Status:** **DEFERRED.** `compile_mechanism` is the explicit lift from `Mechanism` / `AllostericMechanism` to the `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton. The singleton is load-bearing for `@generated rate_equation` dispatch (see F-002). The lift is still needed at the user-facing fast-path boundary (`fitted = fit(...)`; `for c in concs; rate_equation(em, c, p); end`). Many internal callers DO go away (per F-070 in identify_rate_equation, the explicit lifts there become identity since Mechanism/AllostericMechanism subtype `AbstractEnzymeMechanism` after Task 3.11). But the function itself stays.
+**Simplification gain:** Would remove explicit lift everywhere — superseded by the per-callsite cleanups in F-070, F-048 etc.
+**Depends on:** F-002 (the singleton demotion that would obsolete the lift entirely).
+**Blocking tests:** test/test_mechanism_enumeration.jl has ~50 callers of `compile_mechanism` — these become `m` (identity) per Task 3.11 Step 6 since Mechanism / AllostericMechanism now subtype `AbstractEnzymeMechanism`.
+**Recommendation:** Leave `compile_mechanism` defined; delete the explicit prod callers as covered by F-070, F-048.
 
 #### F-056  Add `_with_steps` / `_with_cat_allo_states` internal update constructors; collapse `_expand_re_to_ss` + `_expand_split_kinetic_group` duals
 
@@ -659,12 +674,12 @@ The audit recommends Denis review the hypothesis after Wave 3 lands and re-basel
 
 **Location:** src/identify_rate_equation.jl:424 + 461 + 831 + 860
 **Category:** Architectural (Cluster A ripple)
-**Confidence:** High *(per Q-018)*
+**Confidence:** High *(post Q-018 re-verification + impl plan Task 3.6 widening)*
 **LOC saving (non-comment non-doc):** ~4
-**Simplification gain:** APIs (`rate_equation_string`, `_canonical_rate_eq_hash_data`, `fitted_params`, `FittingProblem`, `_loocv`) all already accept `AbstractEnzymeMechanism`. After F-003, the 4 lifts become no-ops. Pass-through.
-**Depends on:** F-003, F-055
+**Simplification gain:** After Task 3.11 subtypes Mechanism / AllostericMechanism under `AbstractEnzymeMechanism`, AND Task 3.6 adds explicit `Mechanism` / `AllostericMechanism` methods for `parameters` and `rate_equation_string` (which dispatched on `<:EnzymeMechanism` only — Q-018 was half-wrong), the four lifts become identity. **Correction:** Q-018 originally claimed all APIs accept `AbstractEnzymeMechanism`; direct re-verification showed `parameters` and `rate_equation_string` do not. Task 3.6 in the impl plan now adds the missing methods.
+**Depends on:** F-003 (singleton demote + abstract-type subtyping), F-037 / Task 3.6 (parameters / rate_equation_string Mechanism methods)
 **Blocking tests:** none direct
-**Recommendation:** Bundled with F-003.
+**Recommendation:** Bundled with F-003 + Task 3.6.
 
 #### F-071  *(DEFERRED — Cluster F)* String-keyed Dict inversion at identify_rate_equation.jl:478
 
@@ -687,27 +702,28 @@ The audit recommends Denis review the hypothesis after Wave 3 lands and re-basel
 
 ### Cluster A — Singleton-type demotion *(THE big architectural move)*
 
-**Findings:** F-002, F-003, F-004, F-005, F-006, F-007, F-008, F-009, F-010, F-011, F-015, F-016, F-017, F-037, F-048, F-053, F-054, F-055, F-070
+**Findings:** F-003, F-004, F-005, F-006, F-007, F-008, F-009, F-010, F-011, F-015, F-016, F-017, F-037, F-048, F-053, F-054, F-070
 
-**Total LOC:** ~520 LOC net delete + ~150 LOC of in-place rewrites
+**Deferred from this cluster:** F-002 (Sig conversion bridge — load-bearing for `@generated rate_equation` dispatch) and F-055 (`compile_mechanism` function — needed at the fast-path boundary). See the F-002 / F-055 finding entries for rationale.
+
+**Total LOC:** ~400 LOC net delete + ~150 LOC of in-place rewrites *(revised down from ~520 due to F-002 / F-055 deferral)*
 
 **Dependency chain:**
-- F-003 is the head — demote the singleton types
-- F-002, F-004, F-006, F-007, F-011, F-015, F-016, F-017, F-037, F-053, F-054 follow F-003
+- F-003 is the head — demote the singleton types' user-facing surface
+- F-004, F-006, F-007, F-011, F-015, F-016, F-017, F-037, F-053, F-054 follow F-003
 - F-008, F-009 depend on F-007 (the @generated-accessor collapse)
-- F-048, F-055, F-070 are pure deletion of `compile_mechanism` callsites after the type demotes
+- F-048, F-070 are pure deletion of explicit `compile_mechanism` callsites that become identity after Mechanism / AllostericMechanism subtype `AbstractEnzymeMechanism`
 - F-010 is independent (forwarding-accessor consolidation) but lands cleanly with this cluster
 
 **Sequencing within cluster:**
-1. F-003 (singleton type minimization)
-2. F-007 (collapse @generated accessors)
-3. F-008, F-009 (delete symbol-tuple helpers)
-4. F-002 (delete Sig conversion machinery — last because the lift constructor reads from it)
-5. F-010, F-011, F-037 (downstream collapses)
-6. F-015, F-016, F-017 (dsl macro emission)
-7. F-048, F-053, F-055, F-070 (delete lift calls)
-8. F-006 (rewrite show methods)
-9. F-004, F-054, F-005 (minor cleanups + docstring trims)
+1. F-003 (singleton type minimization — `EnzymeMechanism{Sig}` stays as internal compile artifact)
+2. F-007 (collapse @generated accessors over the singleton to plain functions)
+3. F-008, F-009 (delete `_species_name_from_sig` + `_step_tuple_from_sig` after their @generated consumers are gone)
+4. F-010, F-011, F-037 (downstream collapses)
+5. F-015, F-016, F-017 (dsl macro emission switches to `Mechanism(...)` / `AllostericMechanism(...)`)
+6. F-048, F-053, F-070 (delete explicit lift callers — `compile_mechanism` the function itself stays per F-055 deferral)
+7. F-006 (rewrite show methods)
+8. F-004, F-054, F-005 (minor cleanups + docstring trims)
 
 ### Cluster B — Derivation back-end struct-native walk
 
@@ -819,18 +835,19 @@ Estimated Wave 2 savings: **~100 LOC** + significant readability improvement (no
 
 ### Wave 3 — Singleton-type demotion *(Cluster A — the big architectural move)*
 
-- F-003 (the demote itself)
+- F-003 (the demote itself — singleton stays as internal compile artifact)
 - F-007 (collapse @generated accessors)
-- F-008, F-009 (delete symbol-tuple helpers)
-- F-002 (delete Sig conversion)
+- F-008, F-009 (delete symbol-tuple helpers `_species_name_from_sig` / `_step_tuple_from_sig`)
 - F-010, F-011, F-037 (downstream collapses)
-- F-015, F-016, F-017 (dsl emission)
-- F-048, F-053, F-055, F-070 (delete lift calls)
+- F-015, F-016, F-017 (dsl emission switches to concrete-struct emission)
+- F-048, F-053, F-070 (delete explicit lift calls; the `compile_mechanism` function itself stays per F-055 deferral)
 - F-006 (rewrite show)
 - F-004, F-054, F-005 (minor cleanups)
 - **Cluster D rest:** F-056, F-057, F-058, F-059 (collapse expansion-move duals — happens to land cleanly with Wave 3 since `_with_*` helpers naturally fit Cluster A's structural emphasis)
 
-Estimated Wave 3 savings: **~620 LOC** delete + ~150 LOC in-place rewrites.
+Excluded from Wave 3 (DEFERRED): F-002 (delete Sig conversion) and F-055 (delete `compile_mechanism` itself) — both are load-bearing for `@generated rate_equation` dispatch and require redesigning that dispatch model, which is out of audit scope.
+
+Estimated Wave 3 savings: **~500 LOC** delete + ~150 LOC in-place rewrites *(revised down from ~620 due to F-002 / F-055 deferral)*.
 
 **Pre-conditions for Wave 3:**
 - Test-side: update ~50 `compile_mechanism(m)` callers in test files to use `m` directly (Q-001 enumerated these)
