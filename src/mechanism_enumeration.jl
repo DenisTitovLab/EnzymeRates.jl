@@ -2038,31 +2038,22 @@ function _synth_dep_a_names(em::AllostericEnzymeMechanism,
 end
 
 """
-Struct-based implementation of `_canonical_rate_eq_hash_data`. Walks
+Compute the canonical rate-equation hash for `em`. Walks
 `Mechanism` / `AllostericMechanism` structural fields directly via
-`_canonicalize_for_hash`. The returned `name_map::Dict{String,String}`
-satisfies the projection contract used by `_project_cached_params`:
-two hash-equivalent mechanisms produce maps that send corresponding
+`_canonicalize_for_hash`. Returns `(UInt64 hash, 16-char hex display
+string, name_map)`. The `name_map::Dict{String,String}` satisfies the
+projection contract used by `_project_cached_params`: two
+hash-equivalent mechanisms produce maps that send corresponding
 parameter Symbols to the same canonical token.
-"""
-function _canonical_rate_eq_hash_data_impl_struct(em::AbstractEnzymeMechanism)
-    m = _to_mechanism(em)
-    canonical, name_map = _canonicalize_for_hash(em, m)
-    h = hash(canonical)
-    (h, string(h, base=16, pad=16), name_map)
-end
-
-"""
-Return `(UInt64 hash, 16-char hex display string, name_map)`.
-The single entry point for canonical hashing; `_canonical_rate_eq_hash`
-delegates here so the canonicalizer runs once and callers that need the
-name_map can retrieve it without a second pass.
 
 Hash collision probability over 10⁴ mechanisms is ~10⁻¹² with
 Julia's built-in `hash(::UInt64)::UInt64`.
 """
-function _canonical_rate_eq_hash_data(m::AbstractEnzymeMechanism)
-    _canonical_rate_eq_hash_data_impl_struct(m)
+function _canonical_rate_eq_hash_data(em::AbstractEnzymeMechanism)
+    m = _to_mechanism(em)
+    canonical, name_map = _canonicalize_for_hash(em, m)
+    h = hash(canonical)
+    (h, string(h, base=16, pad=16), name_map)
 end
 
 """
