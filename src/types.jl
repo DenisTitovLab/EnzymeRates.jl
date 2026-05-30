@@ -132,23 +132,14 @@ Base.hash(s::RegulatorySite, h::UInt) =
 # steps (RE and SS) canonicalize in the Mechanism constructor via
 # `_canonical_iso_direction`. After Mechanism construction, every Step is
 # canonicalized.
-#
-# `source_idx` is presentation metadata only — the flat source-order
-# position used as a stable tiebreaker for group-rep selection. It is
-# auto-assigned by the `Mechanism` constructor. It is NOT part of Step's
-# structural identity (see `==` / `hash` below). A future refactor will
-# drop this field once `_step_priority` is extracted and all ordering
-# goes through it.
 struct Step
     from_species::Species
     to_species::Species
     bound_metabolite::Union{Metabolite,Nothing}
     is_equilibrium::Bool
-    source_idx::Int
     function Step(from_species::Species, to_species::Species,
                   bound_metabolite::Union{Metabolite,Nothing},
-                  is_equilibrium::Bool;
-                  source_idx::Int = 0)
+                  is_equilibrium::Bool)
         if bound_metabolite !== nothing
             # All binding steps (RE and SS) canonicalize to "free + enzyme →
             # enzyme-met" so two structurally-equivalent binding steps written
@@ -163,8 +154,7 @@ struct Step
                 from_species, to_species = to_species, from_species
             end
         end
-        new(from_species, to_species, bound_metabolite, is_equilibrium,
-            source_idx)
+        new(from_species, to_species, bound_metabolite, is_equilibrium)
     end
 end
 
@@ -172,14 +162,9 @@ from_species(s::Step)     = s.from_species
 to_species(s::Step)       = s.to_species
 bound_metabolite(s::Step) = s.bound_metabolite
 is_equilibrium(s::Step)   = s.is_equilibrium
-source_idx(s::Step)       = s.source_idx
 is_binding(s::Step)       = s.bound_metabolite !== nothing
 is_iso(s::Step)           = s.bound_metabolite === nothing
 direction(s::Step)        = is_binding(s) ? :binding : :iso
-# source_idx is presentation metadata for parameter naming, NOT part
-# of Step's structural identity. Equality and hash IGNORE it so that
-# two Steps with the same physics but different source positions
-# compare equal — required by Mechanism dedup.
 Base.:(==)(a::Step, b::Step) =
     a.from_species == b.from_species && a.to_species == b.to_species &&
     a.bound_metabolite == b.bound_metabolite &&
@@ -388,16 +373,10 @@ function _canonical_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol}
 end
 
 # §5.8 — Mechanism: groups elementary steps by kinetic group (outer
-# vector). All steps within a group share kinetic parameters.
-#
-# The inner constructor assigns each Step's `source_idx` so the
-# chokepoint can render today's source-order positional parameter
-# names. If ALL incoming Steps have `source_idx == 0` (the default —
-# the natural DSL / enumeration path), the constructor auto-assigns by
-# flat position across groups. If ANY incoming Step has a non-zero
-# `source_idx`, the constructor preserves it (the caller knows the
-# true source position even after regrouping). Mixed mode is rejected
-# to keep the convention unambiguous.
+# vector). All steps within a group share kinetic parameters. The
+# constructor canonicalizes iso-step direction and stores the steps;
+# parameter naming and step ordering derive purely from structure and
+# flat iteration order.
 struct Mechanism
     reaction::EnzymeReaction
     steps::Vector{Vector{Step}}
@@ -409,31 +388,7 @@ struct Mechanism
         binding_steps = filter(is_binding, flat0)
         steps = [[_canonical_iso_direction(s, subs, prods, binding_steps)
                   for s in group] for group in steps]
-        flat = Step[s for group in steps for s in group]
-        any_set = any(s -> s.source_idx != 0, flat)
-        all_set = all(s -> s.source_idx != 0, flat)
-        any_set && !all_set &&
-            error("Mechanism: mix of set and unset source_idx values " *
-                  "in steps; pass either all zero (auto-assign) or all " *
-                  "non-zero (preserve caller's source positions)")
-        if any_set
-            new(reaction, steps)
-        else
-            pos = 0
-            renumbered = Vector{Vector{Step}}()
-            for group in steps
-                new_group = Step[]
-                for s in group
-                    pos += 1
-                    push!(new_group,
-                          Step(s.from_species, s.to_species,
-                               s.bound_metabolite, s.is_equilibrium;
-                               source_idx = pos))
-                end
-                push!(renumbered, new_group)
-            end
-            new(reaction, renumbered)
-        end
+        new(reaction, steps)
     end
 end
 
@@ -487,19 +442,6 @@ struct AllostericMechanism
         binding_steps = filter(is_binding, flat0)
         cat_steps = [[_canonical_iso_direction(s, subs, prods, binding_steps)
                       for s in group] for group in cat_steps]
-        # Mirror the non-allosteric `Mechanism` convention: if all
-        # incoming Steps have `source_idx == 0` (the default), assign
-        # by flat position across catalytic groups in source order;
-        # otherwise preserve the caller's per-Step source positions
-        # (reject mixed-mode).
-        flat = Step[s for group in cat_steps for s in group]
-        any_set = any(s -> s.source_idx != 0, flat)
-        all_set = all(s -> s.source_idx != 0, flat)
-        any_set && !all_set &&
-            error("AllostericMechanism: mix of set and unset source_idx " *
-                  "values in cat_steps; pass either all zero (auto-" *
-                  "assign) or all non-zero (preserve caller's source " *
-                  "positions)")
         # Detect Kreg name collision: a ligand in two distinct regulatory
         # sites would produce identical rendered Kreg names (no site
         # discriminator). Not enumerated; constructor rejects it.
@@ -514,26 +456,8 @@ struct AllostericMechanism
                 push!(seen_ligands, ligname)
             end
         end
-        if any_set
-            new(reaction, cat_steps, cat_allo_states,
-                catalytic_multiplicity, regulatory_sites)
-        else
-            pos = 0
-            renumbered = Vector{Vector{Step}}()
-            for group in cat_steps
-                new_group = Step[]
-                for s in group
-                    pos += 1
-                    push!(new_group,
-                          Step(s.from_species, s.to_species,
-                               s.bound_metabolite, s.is_equilibrium;
-                               source_idx = pos))
-                end
-                push!(renumbered, new_group)
-            end
-            new(reaction, renumbered, cat_allo_states,
-                catalytic_multiplicity, regulatory_sites)
-        end
+        new(reaction, cat_steps, cat_allo_states,
+            catalytic_multiplicity, regulatory_sites)
     end
 end
 
@@ -604,7 +528,6 @@ _to_sig(s::Step) = (
     _to_sig(to_species(s)),
     bound_metabolite(s) === nothing ? nothing : _to_sig(bound_metabolite(s)),
     is_equilibrium(s),
-    source_idx(s),
 )
 
 _to_sig(ra::ReactantAtoms) = (
@@ -650,10 +573,9 @@ function _species_from_sig(sig::Tuple)
 end
 
 function _step_from_sig(sig::Tuple)
-    from_sig, to_sig, met_sig, is_eq, source_idx = sig
+    from_sig, to_sig, met_sig, is_eq = sig
     met = met_sig === nothing ? nothing : _metabolite_from_sig(met_sig)
-    Step(_species_from_sig(from_sig), _species_from_sig(to_sig), met, is_eq;
-         source_idx = source_idx)
+    Step(_species_from_sig(from_sig), _species_from_sig(to_sig), met, is_eq)
 end
 
 function _reactant_atoms_from_sig(sig::Tuple)
@@ -722,17 +644,10 @@ struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 # lifts it back so derivation consumers can walk a `Mechanism`
 # uniformly.
 # Lift a `Mechanism` to its singleton `EnzymeMechanism` type. The Sig
-# stores each Step's data including `source_idx`. To keep downstream
-# code's "source_idx == position in `reactions(em)`" invariant intact —
-# and avoid the index-by-source_idx mismatch when an enumeration move
-# produces a Mechanism whose preserved `source_idx` no longer matches
-# its current flat group-major position — renumber `source_idx` to
-# flat-position before encoding. Mechanisms whose Steps already satisfy
-# the invariant (fresh DSL builds, init_mechanisms output, the Mechanism
-# constructor auto-assign path) are unaffected by the renumbering.
+# is purely structural — two mechanisms differing only in source order
+# collapse to the same `EnzymeMechanism` type.
 EnzymeMechanism(m::Mechanism) =
-    EnzymeMechanism{_sig_of(
-        _drop_unbound_regulators(_renumber_source_idx(m)))}()
+    EnzymeMechanism{_sig_of(_drop_unbound_regulators(m))}()
 
 # A regulator declared on the reaction that no step actually binds does
 # not belong in the compiled catalytic mechanism's `regulators` list
@@ -758,25 +673,6 @@ function _drop_unbound_regulators(m::Mechanism)
         reactants(reaction(m)), kept,
         allowed_catalytic_multiplicities(reaction(m)))
     Mechanism(filtered_reaction, steps(m))
-end
-
-function _renumber_source_idx(m::Mechanism)
-    pos = 0
-    new_steps = Vector{Vector{Step}}()
-    for group in steps(m)
-        new_group = Step[]
-        for s in group
-            pos += 1
-            push!(new_group,
-                  Step(from_species(s), to_species(s),
-                       bound_metabolite(s), is_equilibrium(s);
-                       source_idx = pos))
-        end
-        push!(new_steps, new_group)
-    end
-    # Bypass the auto-assign branch by passing non-zero `source_idx` via
-    # the constructor; the constructor preserves the explicit values.
-    Mechanism(reaction(m), new_steps)
 end
 
 Mechanism(em::EnzymeMechanism{Sig}) where {Sig} = _mechanism_from_sig(Sig)
@@ -903,8 +799,7 @@ end
 
 Lift an `AllostericMechanism` to its singleton `AllostericEnzymeMechanism`
 type. The catalytic side becomes an `EnzymeMechanism` lifting through
-`Mechanism(am.reaction, am.cat_steps)` so the `source_idx`-renumbering
-contract is preserved end-to-end. Catalytic and regulatory allosteric
+`Mechanism(am.reaction, am.cat_steps)`. Catalytic and regulatory allosteric
 data are encoded directly into the type parameters.
 """
 function AllostericEnzymeMechanism(am::AllostericMechanism)
@@ -1196,7 +1091,7 @@ enumeration moves) are canonicalized metabolite-on-binding-side, so they bind
 via the bound-list-size heuristic; the non-empty-bounds guard keeps the
 dissociation rule from mis-releasing those."""
 function _step_tuple_from_sig(step_sig, g::Int)
-    from_sig, to_sig, met_sig, is_eq, _src = step_sig
+    from_sig, to_sig, met_sig, is_eq = step_sig
     e_from = _species_name_from_sig(from_sig)
     e_to   = _species_name_from_sig(to_sig)
     if met_sig === nothing
@@ -1291,7 +1186,7 @@ metabolite) as a tuple of `Symbol`s in step-order, deduplicated.
     forms = Symbol[]
     for group in Sig[2]
         for step_sig in group
-            from_sig, to_sig, _, _, _ = step_sig
+            from_sig, to_sig, _, _ = step_sig
             for sp_sig in (from_sig, to_sig)
                 nm = _species_name_from_sig(sp_sig)
                 nm ∉ met_names && nm ∉ seen &&

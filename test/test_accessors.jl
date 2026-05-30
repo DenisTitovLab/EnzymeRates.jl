@@ -127,13 +127,7 @@ end
     @test :E_total in reduced_allo
 end
 
-@testset "added field accessors: source_idx, cat_allo_states" begin
-    st = EnzymeRates.Step(
-        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
-        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-        EnzymeRates.Substrate(:S), true; source_idx = 7)
-    @test EnzymeRates.source_idx(st) == 7
-
+@testset "added field accessors: cat_allo_states" begin
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products:   P[C]

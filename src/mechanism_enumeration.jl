@@ -506,9 +506,8 @@ function _catalytic_topologies(
     isempty(all_paths) && return Vector{Step}[]
 
     # Deduplicate paths by their structural step content.
-    # `Step` equality / hash ignore source_idx and use
-    # canonical direction, so this correctly identifies
-    # equal step multi-sets across paths.
+    # `Step` equality / hash use canonical direction, so this
+    # correctly identifies equal step multi-sets across paths.
     unique_paths = Vector{Vector{Step}}()
     seen_path_keys = Set{Set{Step}}()
     for path in all_paths
@@ -1097,8 +1096,7 @@ Mechanism-native overload of the RE→SS expansion move. For each
 catalytic kinetic group whose members are all RE, produce a variant
 with that entire group flipped to SS (atomic per group). All other
 groups, the reaction, and (for allosteric) the catalytic-allo tags,
-multiplicity, and regulatory sites are preserved verbatim. Each step's
-`source_idx` is preserved so positional parameter naming is stable.
+multiplicity, and regulatory sites are preserved verbatim.
 """
 function _expand_re_to_ss(m::Mechanism)
     results = Mechanism[]
@@ -1127,7 +1125,7 @@ end
 """
 Return a fresh `Vector{Vector{Step}}` matching `groups` but with every
 Step in group `g` rebuilt with `is_equilibrium=false`. All other groups
-are reused by reference (Step is immutable). `source_idx` is preserved.
+are reused by reference (Step is immutable).
 """
 function _flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int)
     new_groups = Vector{Vector{Step}}()
@@ -1135,8 +1133,7 @@ function _flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int)
         if gi == g
             flipped = Step[
                 Step(from_species(s), to_species(s),
-                     bound_metabolite(s), false;
-                     source_idx = source_idx(s))
+                     bound_metabolite(s), false)
                 for s in gr]
             push!(new_groups, flipped)
         else
@@ -1156,7 +1153,7 @@ that member is carved out into a fresh trailing group. The reaction
 (and, for allosteric, multiplicity / regulatory sites) is preserved.
 Catalytic allo-state tags are extended with the parent group's tag
 appended (splitting is a parameter-relaxation move that MUST NOT
-change R/T semantics). Each Step's `source_idx` is preserved.
+change R/T semantics).
 """
 function _expand_split_kinetic_group(m::Mechanism)
     results = Mechanism[]
@@ -1192,9 +1189,8 @@ end
 """
 Return a fresh `Vector{Vector{Step}}` matching `groups` but with the
 step at `(g, split_idx)` moved into a new trailing singleton group.
-The split step's `source_idx` is preserved; other groups are reused
-by reference (Step / Vector{Step} are immutable from this caller's
-perspective).
+Other groups are reused by reference (Step / Vector{Step} are immutable
+from this caller's perspective).
 """
 function _split_one_step(
     groups::Vector{Vector{Step}}, g::Int, split_idx::Int,
@@ -1359,7 +1355,6 @@ function _expand_add_dead_end_regulator_native(
     cat_forms = Set(keys(form_sp))
 
     n_groups_before = length(steps(m))
-    n_steps_before = sum(length, steps(m); init = 0)
     results = typeof(m)[]
 
     boundmap = _bound_at_forms(m)
@@ -1415,11 +1410,6 @@ function _expand_add_dead_end_regulator_native(
             active in seen && continue
             push!(seen, active)
 
-            # Source-idx accounting: new steps continue past the
-            # existing max so the result Mechanism's invariant
-            # ("all source_idx non-zero" or "all zero") is preserved.
-            next_src = n_steps_before + 1
-
             de_species_map = Dict{Symbol, Species}()
             reg_group_steps = Step[]
             for cf in active
@@ -1430,9 +1420,7 @@ function _expand_add_dead_end_regulator_native(
                 de_species_map[cf] = de_species
                 push!(reg_group_steps, Step(
                     base, de_species,
-                    CompetitiveInhibitor(reg_name), true;
-                    source_idx = next_src))
-                next_src += 1
+                    CompetitiveInhibitor(reg_name), true))
             end
 
             mirror_per_group = Dict{Int, Vector{Step}}()
@@ -1444,9 +1432,7 @@ function _expand_add_dead_end_regulator_native(
                     haskey(de_species_map, tn) || continue
                     push!(get!(mirror_per_group, gi, Step[]),
                         Step(de_species_map[fn], de_species_map[tn],
-                             bound_metabolite(s), is_equilibrium(s);
-                             source_idx = next_src))
-                    next_src += 1
+                             bound_metabolite(s), is_equilibrium(s)))
                 end
             end
 
@@ -1745,11 +1731,10 @@ end
 
 # ─── Mechanism-based dedup ─────────────────────────────────────────────
 #
-# Canonical key for a `Step` that ignores `source_idx` (presentation
-# metadata). `Step`'s own `==`/`hash` already ignore `source_idx`; the
-# key tuple's sole job is to give `sort!` a deterministic ordering so
-# two physically-equivalent `Mechanism`s end up with identical step
-# storage and therefore identical struct-based `hash` / `==`.
+# Canonical key for a `Step`. The key tuple's sole job is to give
+# `sort!` a deterministic ordering so two physically-equivalent
+# `Mechanism`s end up with identical step storage and therefore
+# identical struct-based `hash` / `==`.
 _step_canonical_key(s::Step) =
     (hash(from_species(s)), hash(to_species(s)),
      hash(bound_metabolite(s)), is_equilibrium(s))
@@ -1758,8 +1743,7 @@ _step_canonical_key(s::Step) =
 Sort steps within each kinetic group by `_step_canonical_key`, then
 sort the outer group vector by the canonical key of its first step.
 Mutates the inner vectors of `m.steps` (and the outer vector itself)
-in place. `source_idx` values stay attached to their `Step`s; only
-storage order changes.
+in place; only storage order changes.
 """
 function _canonicalize_mechanism!(m::Mechanism)
     for group in steps(m)
@@ -1855,8 +1839,8 @@ end
 
 """
 Per-Parameter canonical key independent of mechanism position. Steps
-hash structurally (ignoring `source_idx`), so two Parameters bound to
-the same chemistry across two mechanisms produce the same key.
+hash structurally, so two Parameters bound to the same chemistry across
+two mechanisms produce the same key.
 """
 _parameter_canonical_key(p::Kd)   = (:Kd,   hash(p.step), p.state)
 _parameter_canonical_key(p::Kiso) = (:Kiso, hash(p.step), p.state)
@@ -2115,7 +2099,6 @@ end
 
 Structural invariants every valid Mechanism should satisfy:
 - Every group is non-empty
-- source_idx values are unique and dense (1 through n_steps)
 - Each binding step's bound_metabolite is non-nothing AND iso steps have nothing
 - from_species != to_species for every step
 """
@@ -2125,9 +2108,6 @@ function _assert_mechanism_invariants(m::Mechanism)
     for g in steps(m)
         isempty(g) && error("empty kinetic group in Mechanism")
     end
-    src_indices = [source_idx(s) for s in flat]
-    sort(src_indices) == collect(1:length(flat)) ||
-        error("source_idx values not dense 1..n: got $(sort(src_indices))")
     for s in flat
         if is_binding(s)
             bound_metabolite(s) === nothing &&
@@ -2180,18 +2160,14 @@ function _assert_mechanism_invariants(m::Mechanism)
 end
 
 function _assert_mechanism_invariants(m::AllostericMechanism)
-    # Build a minimal Mechanism view of the catalytic side to reuse the
-    # base invariant checks (every cat-group non-empty, source_idx dense
-    # over flat cat steps, etc.). Then check the allosteric-specific
-    # invariants against the actual AllostericMechanism fields.
+    # Check the base catalytic-side invariants (every cat-group non-empty,
+    # etc.), then the allosteric-specific invariants against the actual
+    # AllostericMechanism fields.
     flat = Step[s for g in steps(m) for s in g]
     isempty(flat) && error("AllostericMechanism: empty cat_steps")
     for g in steps(m)
         isempty(g) && error("AllostericMechanism: empty catalytic kinetic group")
     end
-    src_indices = [source_idx(s) for s in flat]
-    sort(src_indices) == collect(1:length(flat)) ||
-        error("AllostericMechanism: cat_steps source_idx not dense 1..n")
 
     # cat_allo_states is one per cat group, validated by the constructor;
     # re-check defensively here:

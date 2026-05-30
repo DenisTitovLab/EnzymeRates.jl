@@ -191,13 +191,13 @@ end
     end
     s1 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
                           EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                          EnzymeRates.Substrate(:S), true; source_idx = 1)
+                          EnzymeRates.Substrate(:S), true)
     s2 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
                           EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                          nothing, false; source_idx = 2)
+                          nothing, false)
     s3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
                           EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                          EnzymeRates.Product(:P), true; source_idx = 3)
+                          EnzymeRates.Product(:P), true)
     m_unused = EnzymeRates.Mechanism(rxn_unused, [[s1], [s2], [s3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
 
@@ -208,13 +208,13 @@ end
     end
     g1a = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
                            EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                           EnzymeRates.Substrate(:S), true; source_idx = 1)
+                           EnzymeRates.Substrate(:S), true)
     g1b = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
                            EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
-                           EnzymeRates.Substrate(:A), true; source_idx = 2)
+                           EnzymeRates.Substrate(:A), true)
     g2  = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
                            EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                           nothing, false; source_idx = 3)
+                           nothing, false)
     m_mixed = EnzymeRates.Mechanism(rxn2, [[g1a, g1b], [g2]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mixed)
 end
@@ -1731,12 +1731,17 @@ end
             @test n_groups_newly_ss == 1
         end
 
-        # 3. source_idx preserved: each Step's source_idx in the result
-        # matches the corresponding Step's source_idx in the seed.
+        # 3. step structure preserved: each Step's chemistry (from/to
+        # species + bound metabolite) in the result matches the
+        # corresponding Step in the seed, position-for-position.
         for r in result
             for (old_grp, new_grp) in zip(m.steps, r.steps)
-                @test [s.source_idx for s in old_grp] ==
-                      [s.source_idx for s in new_grp]
+                @test [EnzymeRates.from_species(s) for s in old_grp] ==
+                      [EnzymeRates.from_species(s) for s in new_grp]
+                @test [EnzymeRates.to_species(s) for s in old_grp] ==
+                      [EnzymeRates.to_species(s) for s in new_grp]
+                @test [EnzymeRates.bound_metabolite(s) for s in old_grp] ==
+                      [EnzymeRates.bound_metabolite(s) for s in new_grp]
             end
         end
     end
@@ -1969,15 +1974,11 @@ end
             @test EnzymeRates.n_steps(r) == EnzymeRates.n_steps(m)
         end
 
-        # 5. source_idx preserved on the split step.
+        # 5. the carved-out split step is one of the seed's steps.
         for r in result
             split_step = first(last(r.steps))
-            @test split_step.source_idx > 0
-            # The split step's source_idx must match an original
-            # Step's source_idx.
-            orig_indices = Set(s.source_idx
-                               for g in m.steps for s in g)
-            @test split_step.source_idx in orig_indices
+            orig_steps = Set(s for g in m.steps for s in g)
+            @test split_step in orig_steps
         end
     end
 

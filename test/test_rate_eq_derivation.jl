@@ -109,7 +109,8 @@ positional variants (`K1_T`, `k1f_T`, …) for :NonequalAI groups. Kreg
 structural keys (`:K_A_<lig>reg`, `:K_I_<lig>reg`, `:K_<lig>reg`) are mapped
 to positional keys (`:K_<lig>_reg{site}`, `:K_<lig>_T_reg{site}`). Any
 remaining keys (L, Keq, E_total, etc.) are passed through unchanged.
-Permanent test utility — oracles are inherently positional and source-indexed.
+Permanent test utility — oracles are inherently positional and index by
+flat-iteration order.
 """
 function positional_params(m, nt::NamedTuple)
     mech = m isa EnzymeRates.Mechanism             ? m :
@@ -121,8 +122,23 @@ function positional_params(m, nt::NamedTuple)
     names = Symbol[]
     vals  = Any[]
 
+    # Flat-iteration index of each step (group-major). The positional
+    # oracle parameter names key on this flat position.
+    flat_idx = Vector{Vector{Int}}()
+    let pos = 0
+        for group in EnzymeRates.steps(mech)
+            idxs = Int[]
+            for _ in group
+                pos += 1
+                push!(idxs, pos)
+            end
+            push!(flat_idx, idxs)
+        end
+    end
+
     fes = EnzymeRates._free_enz_set(mech)
     for (g, group) in enumerate(EnzymeRates.steps(mech))
+        gidx = flat_idx[g]
         rep = EnzymeRates._group_rep(group, fes)
         cat_st = is_allo ? EnzymeRates.cat_allo_state(mech, g) : :None
         # Determine which active-branch state token to pass to name()
@@ -138,8 +154,8 @@ function positional_params(m, nt::NamedTuple)
                 EnzymeRates.name(EnzymeRates.Kiso(rep, act_st), mech)
             end
             if haskey(nt, act_key)
-                for s in group
-                    push!(names, Symbol("K", EnzymeRates.source_idx(s)))
+                for idx in gidx
+                    push!(names, Symbol("K", idx))
                     push!(vals,  nt[act_key])
                 end
             end
@@ -150,8 +166,8 @@ function positional_params(m, nt::NamedTuple)
                     EnzymeRates.name(EnzymeRates.Kiso(rep, :I), mech)
                 end
                 if haskey(nt, ina_key)
-                    for s in group
-                        push!(names, Symbol("K", EnzymeRates.source_idx(s), "_T"))
+                    for idx in gidx
+                        push!(names, Symbol("K", idx, "_T"))
                         push!(vals,  nt[ina_key])
                     end
                 end
@@ -165,8 +181,7 @@ function positional_params(m, nt::NamedTuple)
                 EnzymeRates.name(EnzymeRates.Kfor(rep, act_st), mech),
                 EnzymeRates.name(EnzymeRates.Krev(rep, act_st), mech)
             end
-            for s in group
-                idx = EnzymeRates.source_idx(s)
+            for idx in gidx
                 if haskey(nt, act_fwd)
                     push!(names, Symbol("k", idx, "f")); push!(vals, nt[act_fwd])
                 end
@@ -182,8 +197,7 @@ function positional_params(m, nt::NamedTuple)
                     EnzymeRates.name(EnzymeRates.Kfor(rep, :I), mech),
                     EnzymeRates.name(EnzymeRates.Krev(rep, :I), mech)
                 end
-                for s in group
-                    idx = EnzymeRates.source_idx(s)
+                for idx in gidx
                     if haskey(nt, ina_fwd)
                         push!(names, Symbol("k", idx, "f_T")); push!(vals, nt[ina_fwd])
                     end
@@ -270,11 +284,15 @@ function analytical_oracle_params(m, nt::NamedTuple)
            m isa EnzymeRates.EnzymeMechanism ? EnzymeRates.Mechanism(m) : m
     pos = positional_params(m, nt)
     swap_idxs = Set{Int}()
-    for group in EnzymeRates.steps(mech), s in group
-        bm = EnzymeRates.bound_metabolite(s)
-        if bm isa EnzymeRates.Product &&
-           bm in EnzymeRates.bound(EnzymeRates.to_species(s))
-            push!(swap_idxs, EnzymeRates.source_idx(s))
+    i = 0
+    for group in EnzymeRates.steps(mech)
+        for s in group
+            i += 1
+            bm = EnzymeRates.bound_metabolite(s)
+            if bm isa EnzymeRates.Product &&
+               bm in EnzymeRates.bound(EnzymeRates.to_species(s))
+                push!(swap_idxs, i)
+            end
         end
     end
     isempty(swap_idxs) && return pos
@@ -1266,13 +1284,13 @@ end
     end
     s_q1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                             EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                            EnzymeRates.Substrate(:S), true; source_idx = 1)
+                            EnzymeRates.Substrate(:S), true)
     s_q2 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
                             EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-                            nothing, false; source_idx = 2)
+                            nothing, false)
     s_q3 = EnzymeRates.Step(EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
                             EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
-                            EnzymeRates.Product(:P), true; source_idx = 3)
+                            EnzymeRates.Product(:P), true)
     m_no_q = EnzymeRates.Mechanism(rxn_no_q, [[s_q1], [s_q2], [s_q3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_no_q)
 
@@ -1284,14 +1302,14 @@ end
     end
     g_sa1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                              EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
-                             EnzymeRates.Substrate(:S), true; source_idx = 1)
+                             EnzymeRates.Substrate(:S), true)
     g_sa2 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),
                              EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
-                             EnzymeRates.Substrate(:A), true; source_idx = 2)
+                             EnzymeRates.Substrate(:A), true)
     g_sa3 = EnzymeRates.Step(
         EnzymeRates.Species([EnzymeRates.Substrate(:S), EnzymeRates.Substrate(:A)], :E_S_A),
         EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
-        nothing, false; source_idx = 3)
+        nothing, false)
     m_sa = EnzymeRates.Mechanism(rxn_sa, [[g_sa1, g_sa2], [g_sa3]])
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_sa)
 

@@ -304,9 +304,9 @@
         e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
         e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
         m_unused = EnzymeRates.Mechanism(rxn_unused, [
-            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 1)],
-            [EnzymeRates.Step(e_s, e_p, nothing, false; source_idx = 2)],
-            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true; source_idx = 3)],
+            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
+            [EnzymeRates.Step(e_s, e_p, nothing, false)],
+            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
         ])
         @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
 
@@ -345,9 +345,9 @@
         e_s  = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
         e_a  = EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E)
         e_p2 = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-        g1_s = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 1)
-        g1_a = EnzymeRates.Step(e, e_a, EnzymeRates.Substrate(:A), true; source_idx = 2)
-        g2_iso = EnzymeRates.Step(e_s, e_p2, nothing, false; source_idx = 3)
+        g1_s = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        g1_a = EnzymeRates.Step(e, e_a, EnzymeRates.Substrate(:A), true)
+        g2_iso = EnzymeRates.Step(e_s, e_p2, nothing, false)
         m_diffmet = EnzymeRates.Mechanism(rxn_two, [[g1_s, g1_a], [g2_iso]])
         @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_diffmet)
 
@@ -357,9 +357,9 @@
             substrates: S[C]
             products:   P[C]
         end
-        s_re = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true;  source_idx = 1)
-        s_ss = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), false; source_idx = 2)
-        s_rel = EnzymeRates.Step(e, e_p2, EnzymeRates.Product(:P), true;  source_idx = 3)
+        s_re = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        s_ss = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), false)
+        s_rel = EnzymeRates.Step(e, e_p2, EnzymeRates.Product(:P), true)
         m_mix = EnzymeRates.Mechanism(rxn_uni, [[s_re, s_ss], [s_rel]])
         @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mix)
     end
@@ -675,7 +675,7 @@
         end
     end
 
-    @testset "Step carries source_idx presentation metadata" begin
+    @testset "Step fields + accessors" begin
         e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
         e_s = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
@@ -688,13 +688,7 @@
 
         @test fieldnames(EnzymeRates.Step) ==
               (:from_species, :to_species, :bound_metabolite,
-               :is_equilibrium, :source_idx)
-        @test :source_idx in fieldnames(EnzymeRates.Step)
-        # Default is 0 (unset) when not supplied; the `Mechanism`
-        # constructor auto-fills by flat position.
-        @test s1.source_idx == 0
-        @test s2.source_idx == 0
-        @test s3.source_idx == 0
+               :is_equilibrium)
 
         @test EnzymeRates.from_species(s1) === e
         @test EnzymeRates.to_species(s1) === e_s
@@ -713,17 +707,14 @@
         @test EnzymeRates.is_binding(s3)
     end
 
-    @testset "Step `==` / hash ignore source_idx" begin
+    @testset "Step `==` / hash are structural" begin
         e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
         e_s = EnzymeRates.Species(
             EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)], :E)
-        s   = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
-        s_at_5 = EnzymeRates.Step(
-            e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 5)
-        @test s == s_at_5
-        @test hash(s) == hash(s_at_5)
-        @test s.source_idx == 0
-        @test s_at_5.source_idx == 5
+        s  = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        s2 = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
+        @test s == s2
+        @test hash(s) == hash(s2)
     end
 
     @testset "Step canonicalizes binding direction" begin
@@ -991,7 +982,7 @@
         @test EnzymeRates.name(EnzymeRates.to_species(iso))   == :E  # substrate-entry
     end
 
-    @testset "Mechanism auto-assigns source_idx by flat position" begin
+    @testset "Mechanism stores steps in flat order" begin
         r = EnzymeReaction(
             [EnzymeRates.ReactantAtoms(
                  EnzymeRates.Substrate(:S), [:C => 1]),
@@ -1007,64 +998,11 @@
         s1 = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
         s2 = EnzymeRates.Step(e_s, e_p, nothing, false)
         s3 = EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)
-        @test s1.source_idx == 0
-        @test s2.source_idx == 0
-        @test s3.source_idx == 0
 
         m = EnzymeRates.Mechanism(r, [[s1], [s2], [s3]])
-        @test m.steps[1][1].source_idx == 1
-        @test m.steps[2][1].source_idx == 2
-        @test m.steps[3][1].source_idx == 3
-    end
-
-    @testset "Mechanism preserves explicit caller source_idx" begin
-        # Legacy lift sets source_idx explicitly based on the original
-        # source position (before grouping). The Mechanism ctor must
-        # preserve these so `_rep_idx_for_step` reproduces today's
-        # source-order rep-idx naming for mechanisms whose group
-        # members are non-contiguous in source order.
-        r = EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(
-                 EnzymeRates.Substrate(:S), [:C => 1]),
-             EnzymeRates.ReactantAtoms(
-                 EnzymeRates.Product(:P), [:C => 1])],
-            EnzymeRates.RegulatorMults[],
-            [1],
-        )
-        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-
-        s1 = EnzymeRates.Step(
-            e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 1)
-        s2 = EnzymeRates.Step(
-            e_s, e_p, nothing, false; source_idx = 7)
-        s3 = EnzymeRates.Step(
-            e, e_p, EnzymeRates.Product(:P), true; source_idx = 3)
-        m = EnzymeRates.Mechanism(r, [[s1], [s2], [s3]])
-        @test m.steps[1][1].source_idx == 1
-        @test m.steps[2][1].source_idx == 7
-        @test m.steps[3][1].source_idx == 3
-    end
-
-    @testset "Mechanism rejects mixed set / unset source_idx" begin
-        r = EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(
-                 EnzymeRates.Substrate(:S), [:C => 1]),
-             EnzymeRates.ReactantAtoms(
-                 EnzymeRates.Product(:P), [:C => 1])],
-            EnzymeRates.RegulatorMults[],
-            [1],
-        )
-        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
-        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
-        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
-
-        s_set   = EnzymeRates.Step(
-            e, e_s, EnzymeRates.Substrate(:S), true; source_idx = 1)
-        s_unset = EnzymeRates.Step(e_s, e_p, nothing, false)
-        @test_throws ErrorException EnzymeRates.Mechanism(
-            r, [[s_set], [s_unset]])
+        flat = EnzymeRates._flat_steps(m)
+        @test [s for (s, _) in flat] == [s1, s2, s3]
+        @test [g for (_, g) in flat] == [1, 2, 3]
     end
 
     @testset "AllostericMechanism (non-parametric)" begin
@@ -1508,15 +1446,5 @@
         @test EnzymeRates._force_inactive(p_eq) == EnzymeRates.Krev(s, :I)
         p_a = EnzymeRates.Krev(s, :A)
         @test EnzymeRates._force_inactive(p_a) == EnzymeRates.Krev(s, :I)
-    end
-
-    @testset "source_idx == flat iteration order (precondition for removal)" begin
-        for spec in MECHANISM_TEST_SPECS
-            spec.mechanism isa EnzymeRates.EnzymeMechanism || continue
-            m = EnzymeRates.Mechanism(spec.mechanism)
-            flat = EnzymeRates._flat_steps(m)
-            @test [EnzymeRates.source_idx(s) for (s, _) in flat] ==
-                  collect(1:length(flat))
-        end
     end
 end
