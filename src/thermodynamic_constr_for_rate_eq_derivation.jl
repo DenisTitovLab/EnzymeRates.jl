@@ -24,22 +24,20 @@ end
 _raw_param_symbols(m::EnzymeMechanism) = _raw_param_symbols(Mechanism(m))
 
 """
-For each step in `m` (in source-index order), yield the Parameter
+For each step in `m` (in flat-iteration order), yield the Parameter
 instances that govern that step: `[Kd|Kiso]` for an RE step, `[Kon|Kfor,
 Koff|Krev]` for an SS step. Each Parameter is anchored on the original
 step (not the rep), so `name(p, m)` renders to the rep's structural
 Symbol via the value-context chokepoint, collapsing kinetic-group members.
 """
 function _step_parameters(m::Mechanism)
-    flat = _flat_steps(m)
-    n = length(flat)
-    out = Vector{Vector{Parameter}}(undef, n)
-    for (s, _) in flat
+    out = Vector{Vector{Parameter}}()
+    for (s, _) in _flat_steps(m)
         params = is_equilibrium(s) ?
             Parameter[is_binding(s) ? Kd(s, :None) : Kiso(s, :None)] :
             Parameter[is_binding(s) ? Kon(s, :None)  : Kfor(s, :None),
                       is_binding(s) ? Koff(s, :None) : Krev(s, :None)]
-        out[source_idx(s)] = params
+        push!(out, params)
     end
     out
 end

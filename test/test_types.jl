@@ -1509,4 +1509,14 @@
         p_a = EnzymeRates.Krev(s, :A)
         @test EnzymeRates._force_inactive(p_a) == EnzymeRates.Krev(s, :I)
     end
+
+    @testset "source_idx == flat iteration order (precondition for removal)" begin
+        for spec in MECHANISM_TEST_SPECS
+            spec.mechanism isa EnzymeRates.EnzymeMechanism || continue
+            m = EnzymeRates.Mechanism(spec.mechanism)
+            flat = EnzymeRates._flat_steps(m)
+            @test [EnzymeRates.source_idx(s) for (s, _) in flat] ==
+                  collect(1:length(flat))
+        end
+    end
 end
