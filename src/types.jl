@@ -205,7 +205,7 @@ const StepBoundParameter = Union{Kd, Kiso, Kon, Koff, Kfor, Krev}
 const StatefulParameter  = Union{Kd, Kiso, Kon, Koff, Kfor, Krev, Kreg}
 
 governing_step(p::StepBoundParameter) = p.step
-is_t_state(p::StatefulParameter)      = p.state === :I
+is_i_state(p::StatefulParameter)      = p.state === :I
 
 for T in (:Kd, :Kiso, :Kon, :Koff, :Kfor, :Krev)
     @eval Base.:(==)(a::$T, b::$T) =

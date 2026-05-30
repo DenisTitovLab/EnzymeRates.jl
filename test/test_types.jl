@@ -774,8 +774,8 @@
         @test kd_none isa EnzymeRates.Kd
         @test kd_none isa EnzymeRates.Parameter
         @test EnzymeRates.governing_step(kd_none) === step
-        @test !EnzymeRates.is_t_state(kd_none)
-        @test EnzymeRates.is_t_state(kd_i)
+        @test !EnzymeRates.is_i_state(kd_none)
+        @test EnzymeRates.is_i_state(kd_i)
         @test kd_none == EnzymeRates.Kd(step, :None)
         @test kd_none != kd_i
 
@@ -784,16 +784,16 @@
             p = T(step, :None)
             @test p isa EnzymeRates.Parameter
             @test EnzymeRates.governing_step(p) === step
-            @test !EnzymeRates.is_t_state(p)
-            @test EnzymeRates.is_t_state(T(step, :I))
+            @test !EnzymeRates.is_i_state(p)
+            @test EnzymeRates.is_i_state(T(step, :I))
         end
 
         lig_a = EnzymeRates.AllostericRegulator(:A)
         site = EnzymeRates.RegulatorySite([lig_a], 2, [:OnlyA])
         kr = EnzymeRates.Kreg(site, lig_a, :A)
         @test kr isa EnzymeRates.Parameter
-        @test EnzymeRates.is_t_state(EnzymeRates.Kreg(site, lig_a, :I))
-        @test !EnzymeRates.is_t_state(kr)
+        @test EnzymeRates.is_i_state(EnzymeRates.Kreg(site, lig_a, :I))
+        @test !EnzymeRates.is_i_state(kr)
         @test kr == EnzymeRates.Kreg(site, lig_a, :A)
 
         # Mechanism-level scalars: singletons

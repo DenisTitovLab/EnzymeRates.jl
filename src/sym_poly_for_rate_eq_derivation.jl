@@ -301,7 +301,7 @@ Used by the AllostericEnzymeMechanism dep-exprs filter to avoid declaring
 body — a phantom-parameter case where `p` is only present in active-state
 monomials that get zeroed when constructing the inactive-state polynomial.
 """
-function _t_state_surviving_syms(num_A::POLY, den_A::POLY, a_only_syms::Set{Symbol})
+function _i_state_surviving_syms(num_A::POLY, den_A::POLY, a_only_syms::Set{Symbol})
     surviving = Set{Symbol}()
     for poly in (num_A, den_A)
         for mono in keys(poly)

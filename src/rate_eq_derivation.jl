@@ -68,7 +68,7 @@ end
     # Symbol-level. Spliced just before the first Kreg / Lallo so they
     # land between catalytic-I mirrors and reg-I mirrors in the output
     # tuple.
-    synth_names = _synthesized_dep_t_names(typeof(catalytic_mechanism(aem)),
+    synth_names = _synthesized_dep_i_names(typeof(catalytic_mechanism(aem)),
                                             am)
     if !isempty(synth_names)
         insert_pos = findfirst(p -> p isa Union{Kreg, Lallo}, params)
@@ -816,7 +816,7 @@ corners and return the max.
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq)
 
-    i_state_dead = _t_state_dead(aem)
+    i_state_dead = _i_state_dead(aem)
 
     # A_c = num_k_c * den_k_c^(CatN-1), B_c = den_k_c^CatN
     A_A = CatN == 1 ? num_k_A_expr :
@@ -978,7 +978,7 @@ equilibrium. Forcing `N_I = 0` ensures Haldane consistency. Used by
 both `rate_equation` (via `_allosteric_num_den_exprs`) and
 `_kcat_forward`.
 """
-function _t_state_dead(m::AllostericEnzymeMechanism)
+function _i_state_dead(m::AllostericEnzymeMechanism)
     cm = catalytic_mechanism(m)
     any(cat_allo_state(m, g) == :OnlyA for g in kinetic_groups(cm))
 end
@@ -1215,7 +1215,7 @@ the rate-equation body elides every I-state constraint assignment, so
 synthesized dep I-names never appear in the body and need not be
 emitted here.
 """
-function _synthesized_dep_t_names(::Type{CM}, am::AllostericMechanism,
+function _synthesized_dep_i_names(::Type{CM}, am::AllostericMechanism,
                                   ) where {CM <: EnzymeMechanism}
     any(cat_allo_state(am, g) === :OnlyA for g in 1:length(steps(am))) &&
         return Symbol[]
@@ -1298,7 +1298,7 @@ function _dependent_param_exprs(
     # via _flip_to_inactive + _param_for_symbol so no string surgery is needed.
     _add_case_b_renames!(rename_I, dep_A_all, am)
 
-    t_state_dead_flag = _t_state_dead(aem)
+    t_state_dead_flag = _i_state_dead(aem)
 
     dep_I = Dict{Symbol, Union{Symbol, Expr}}()
     indep_I_list = Symbol[]
@@ -1334,7 +1334,7 @@ function _dependent_param_exprs(
     # the loss — pure dimension bloat. Filter against the set of
     # symbols that actually survive into the I-state polynomial.
     num_A, den_A = _raw_symbolic_rate_polys_allosteric(am)
-    i_state_survivors = _t_state_surviving_syms(num_A, den_A, a_only_syms)
+    i_state_survivors = _i_state_surviving_syms(num_A, den_A, a_only_syms)
     for p in indep_A_all
         p ∈ a_only_syms && continue
         if haskey(rename_I, p)
@@ -1449,7 +1449,7 @@ function _build_dep_assignments(
     # (covers `:EqualAI` deps whose RHS references a `:NonequalAI`
     # symbol). When i_dead, synthesized entries are elided since the
     # caller elides `i_assignments` entirely in that case.
-    i_dead = _t_state_dead(m)
+    i_dead = _i_state_dead(m)
     i_names_set = Set{Symbol}()
     fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
@@ -1571,7 +1571,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     den_i_poly = _rename_symbols(
         _zero_symbols_in_poly(den_A_poly, a_only_syms),
         rename_I)
-    N_I = _t_state_dead(m) ? 0 :
+    N_I = _i_state_dead(m) ? 0 :
           _poly_to_expr(num_i_poly, cat_params, cat_mets)
     Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)
 
@@ -1601,7 +1601,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     den_A = make_den_term(Q_A, reg_Q_A)
     den_I = make_den_term(Q_I, reg_Q_I)
 
-    if _t_state_dead(m)
+    if _i_state_dead(m)
         # I-state cycle broken: N_I = 0, so drop the L*num_I term
         # entirely (skip dead numerator branch). Q_I still contributes
         # to denominator as enzyme mass.
@@ -1621,7 +1621,7 @@ function _build_allosteric_rate_body(M_type::Type{<:AllostericEnzymeMechanism})
     # When the I-state cycle is broken, i_assignments (I-state Haldanes
     # and :EqualAI catalytic mirrors K_I = K) become dead code — they're
     # only referenced from the L*num_I branch, which is now elided.
-    i_assignments = _t_state_dead(M_type()) ? Expr[] : i_assignments_
+    i_assignments = _i_state_dead(M_type()) ? Expr[] : i_assignments_
 
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq, :E_total)
@@ -1675,7 +1675,7 @@ function rate_equation_string(
     # mechanisms thus use the same three-section structure as
     # non-allosteric.
     _, i_assignments_ = _build_dep_assignments(M)
-    i_assignments = _t_state_dead(m) ? Expr[] : i_assignments_
+    i_assignments = _i_state_dead(m) ? Expr[] : i_assignments_
     for a in i_assignments
         sym = a.args[1]
         expr = a.args[2]

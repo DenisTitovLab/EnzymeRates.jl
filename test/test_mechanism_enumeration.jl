@@ -4186,8 +4186,8 @@ end
 
     @testset "t_state_dead with :NonequalAI: K_T in body must be in parameters(Full)" begin
         # K-type allosteric uni-uni: catalytic step is :OnlyA (so
-        # `_t_state_dead == true`), but binding steps are :NonequalAI.
-        # When `_t_state_dead == true`, the binding partition function
+        # `_i_state_dead == true`), but binding steps are :NonequalAI.
+        # When `_i_state_dead == true`, the binding partition function
         # for :NonequalAI groups must still emit K1_T / K2_T in `den_T`
         # so the canonicalizer can rename them; otherwise structurally
         # equivalent specs with different rep-step indices would hash
@@ -4202,7 +4202,7 @@ end
                 E_c(S) <--> E_c(P)    :: OnlyA
             end
         end
-        @test EnzymeRates._t_state_dead(m)
+        @test EnzymeRates._i_state_dead(m)
         params_full = parameters(m, Full)
         # K_I_S_E_c and K_I_P_E_c are referenced in `den_T` of the body
         # (the binding partition function for :NonequalAI groups
@@ -4371,7 +4371,7 @@ end # top-level testset
 
         @testset "Allosteric I-state tokens covered by name_map" begin
             # K-type allosteric uni-uni: catalytic step is :OnlyA
-            # (`_t_state_dead == true`), but binding steps are :NonequalAI,
+            # (`_i_state_dead == true`), but binding steps are :NonequalAI,
             # so K_I_S_E_c and K_I_P_E_c live in `den_T` of the rate equation body.
             # Canonicalizer invariant: every I-state token must have a
             # canonical entry so substitution into the rate-equation

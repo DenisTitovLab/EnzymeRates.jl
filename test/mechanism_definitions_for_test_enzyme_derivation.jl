@@ -2179,7 +2179,7 @@ function build_mechanism_test_specs()
     end
 
     # ── m_OnlyA_prod: single product :OnlyA (T-state cycle dead) ────────────
-    # Exercises `_t_state_dead` detection for product-binding :OnlyA groups.
+    # Exercises `_i_state_dead` detection for product-binding :OnlyA groups.
     # The T-state cycle is broken at product release; with t_state_dead = true,
     # N_T is forced to 0 and the L*num_T branch is dropped. Analytical
     # kcat = 2·k2f/(1+L) — L-dependent because the saturating R-state

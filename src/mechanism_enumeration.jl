@@ -1861,10 +1861,10 @@ Mirrors the Parameter set covered by `parameters(m, Full)` minus
 rate-equation body). Includes `Keq()` because Haldane dep-expr RHSes
 reference `:Keq`.
 """
-_enumerate_all_parameters_with_t_state(m::Mechanism) =
+_enumerate_all_parameters_with_i_state(m::Mechanism) =
     Parameter[_enumerate_parameters_full(m)..., Keq()]
 
-_enumerate_all_parameters_with_t_state(am::AllostericMechanism) =
+_enumerate_all_parameters_with_i_state(am::AllostericMechanism) =
     Parameter[_enumerate_parameters_full_allosteric(am)..., Keq()]
 
 """
@@ -1963,7 +1963,7 @@ across equivalent mechanisms.
 """
 function _build_name_map(em::AbstractEnzymeMechanism,
                          m::Union{Mechanism, AllostericMechanism})
-    all_params = _enumerate_all_parameters_with_t_state(m)
+    all_params = _enumerate_all_parameters_with_i_state(m)
     canon_keys = Tuple[_parameter_canonical_key(p) for p in all_params]
     sorted_keys = sort!(unique(canon_keys); by = repr)
     key_to_token = Dict{Tuple, String}(
@@ -1977,7 +1977,7 @@ function _build_name_map(em::AbstractEnzymeMechanism,
     end
 
     if m isa AllostericMechanism
-        for r_name in _synth_dep_r_names(em, m)
+        for r_name in _synth_dep_a_names(em, m)
             r_str = String(r_name)
             tok = get(name_map, r_str, nothing)
             tok === nothing && continue
@@ -2018,9 +2018,9 @@ canonicalizer recovers just the A-state name set so it can register
 matching I-suffixed name_map entries. Returns an empty Vector when the
 I-state cycle is dead (no I-state mirrors get emitted).
 """
-function _synth_dep_r_names(em::AllostericEnzymeMechanism,
+function _synth_dep_a_names(em::AllostericEnzymeMechanism,
                             am::AllostericMechanism)
-    _t_state_dead(em) && return Symbol[]
+    _i_state_dead(em) && return Symbol[]
     CM = typeof(catalytic_mechanism(em))
     dep_A_all, _ = _dependent_param_exprs(CM)
     rename_I_keys = Set{Symbol}(
