@@ -375,28 +375,6 @@ _term_bare_enzyme(sym::Symbol) = _StepSideTerm(
 _is_conformation_shape(sym::Symbol) =
     occursin(r"^[A-Z][a-z0-9]*(_[a-z0-9]+)*$", String(sym))
 
-# Raise a clear migration error if any bare-enzyme term is an opaque
-# bound-form name. A bare-enzyme term `:X` is acceptable iff `:X` is a
-# Call-form head seen in this steps block (`E` in `E(S)`) OR matches the
-# single-cap-then-lower conformation shape (`:E`, `:Estar`, `:E_c`).
-function _assert_no_opaque_terms(side_terms_per_step)
-    call_heads = Set{Symbol}()
-    for (_, lhs, rhs, _) in side_terms_per_step
-        for t in (lhs..., rhs...)
-            t.kind === :call && push!(call_heads, t.conformation)
-        end
-    end
-    for (_, lhs, rhs, _) in side_terms_per_step
-        for t in (lhs..., rhs...)
-            t.kind === :bare_enzyme || continue
-            (t.sym in call_heads || _is_conformation_shape(t.sym)) && continue
-            error("@enzyme_mechanism: `$(t.sym)` looks like an opaque " *
-                  "bound-form name; write it as decomposed call notation, " *
-                  "e.g. `E(S)` or `E(A, B)`.")
-        end
-    end
-    nothing
-end
 
 # Walk a residual arithmetic expression (`A`, `A - P`, `S1 + S2 - P1 - P3`, etc.)
 # and classify each metabolite Symbol as added (positive) or subtracted (negative).
@@ -564,7 +542,29 @@ function _parse_plain_mechanism_body(block)
     side_terms_per_step =
         _parse_steps_block_with_groups(steps_block, declared_mets)
 
-    _assert_no_opaque_terms(side_terms_per_step)
+    # Reject opaque bound-form bare-enzyme names: a bare-enzyme term `:X` is
+    # acceptable iff `:X` is a Call-form head seen in this steps block
+    # (`E` in `E(S)`) OR matches the single-cap-then-lower conformation
+    # shape (`:E`, `:Estar`, `:E_c`). Multi-capital Symbols (`:ES`, `:EAB`)
+    # and underscore-then-uppercase Symbols (`:E_S`) are opaque and rejected
+    # in favor of decomposed call notation.
+    let
+        call_heads = Set{Symbol}()
+        for (_, lhs, rhs, _) in side_terms_per_step
+            for t in (lhs..., rhs...)
+                t.kind === :call && push!(call_heads, t.conformation)
+            end
+        end
+        for (_, lhs, rhs, _) in side_terms_per_step
+            for t in (lhs..., rhs...)
+                t.kind === :bare_enzyme || continue
+                (t.sym in call_heads || _is_conformation_shape(t.sym)) && continue
+                error("@enzyme_mechanism: `$(t.sym)` looks like an opaque " *
+                      "bound-form name; write it as decomposed call notation, " *
+                      "e.g. `E(S)` or `E(A, B)`.")
+            end
+        end
+    end
     return _build_mechanism_expr(subs_list, prods_list, regs_list,
                                  role_of, side_terms_per_step)
 end
@@ -1127,7 +1127,29 @@ function _parse_allosteric_mechanism_body(block)
         cat_steps_block, declared_mets; allow_tag=true,
     )
 
-    _assert_no_opaque_terms(side_terms_per_step)
+    # Reject opaque bound-form bare-enzyme names: a bare-enzyme term `:X` is
+    # acceptable iff `:X` is a Call-form head seen in this steps block
+    # (`E` in `E(S)`) OR matches the single-cap-then-lower conformation
+    # shape (`:E`, `:Estar`, `:E_c`). Multi-capital Symbols (`:ES`, `:EAB`)
+    # and underscore-then-uppercase Symbols (`:E_S`) are opaque and rejected
+    # in favor of decomposed call notation.
+    let
+        call_heads = Set{Symbol}()
+        for (_, lhs, rhs, _) in side_terms_per_step
+            for t in (lhs..., rhs...)
+                t.kind === :call && push!(call_heads, t.conformation)
+            end
+        end
+        for (_, lhs, rhs, _) in side_terms_per_step
+            for t in (lhs..., rhs...)
+                t.kind === :bare_enzyme || continue
+                (t.sym in call_heads || _is_conformation_shape(t.sym)) && continue
+                error("@enzyme_mechanism: `$(t.sym)` looks like an opaque " *
+                      "bound-form name; write it as decomposed call notation, " *
+                      "e.g. `E(S)` or `E(A, B)`.")
+            end
+        end
+    end
     cm_expr = _build_mechanism_expr(subs_list, prods_list, cat_inhibitors,
                                     role_of, side_terms_per_step)
 
