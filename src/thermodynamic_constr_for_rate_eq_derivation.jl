@@ -45,23 +45,29 @@ end
 # ─── Structural primacy: free-enzyme set + step priority ─────────
 
 """
-Set of enzyme-form names that are NOT the RHS of any canonical RE binding
-step `F + met… ⇌ F_bound`. SS steps don't determine binding state (their
-direction isn't canonicalized). Shared by the kinetic-group name
-representative and the Haldane elimination pivot.
+Set of enzyme-form names that are NOT the RHS of any canonical RE
+binding step `F + met… ⇌ F_bound`. Walks `Mechanism.steps` directly:
+for each RE binding step, the canonical form puts the bound metabolite
+on `to_species`, so `to_species`'s name is excluded from the free set.
+Iso steps don't determine binding state. SS steps' direction is not
+canonicalized so they don't participate.
+
+Shared by the kinetic-group name representative and the Haldane
+elimination pivot.
 """
 function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
-    em = compile_mechanism(m)
-    enz_names = enzyme_forms(em)
-    enz_set = Set(enz_names)
-    free_enz_set = Set{Symbol}(enz_names)
-    for (lhs, rhs, is_eq, _) in reactions(em)
-        is_eq || continue
-        _, m_l = _split_reaction_side(lhs, enz_set)
-        e_r, m_r = _split_reaction_side(rhs, enz_set)
-        if !isempty(m_l) && isempty(m_r)
-            delete!(free_enz_set, e_r)
-        end
+    enz_names = Set{Symbol}()
+    for group in steps(m), s in group
+        push!(enz_names, name(from_species(s)))
+        push!(enz_names, name(to_species(s)))
+    end
+    free_enz_set = copy(enz_names)
+    for group in steps(m), s in group
+        is_equilibrium(s) || continue
+        is_binding(s) || continue
+        # Canonical: bound metabolite resides on to_species. The from-side
+        # is the "free + met" reactant; the to-side is the bound form.
+        delete!(free_enz_set, name(to_species(s)))
     end
     free_enz_set
 end
