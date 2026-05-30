@@ -1820,12 +1820,8 @@ Per-Parameter canonical key independent of mechanism position. Steps
 hash structurally, so two Parameters bound to the same chemistry across
 two mechanisms produce the same key.
 """
-_parameter_canonical_key(p::Kd)   = (:Kd,   hash(p.step), p.state)
-_parameter_canonical_key(p::Kiso) = (:Kiso, hash(p.step), p.state)
-_parameter_canonical_key(p::Kon)  = (:Kon,  hash(p.step), p.state)
-_parameter_canonical_key(p::Koff) = (:Koff, hash(p.step), p.state)
-_parameter_canonical_key(p::Kfor) = (:Kfor, hash(p.step), p.state)
-_parameter_canonical_key(p::Krev) = (:Krev, hash(p.step), p.state)
+_parameter_canonical_key(p::StepBoundParameter) =
+    (nameof(typeof(p)), hash(p.step), p.state)
 _parameter_canonical_key(p::Kreg) =
     (:Kreg, hash(p.site), hash(p.ligand), p.state)
 _parameter_canonical_key(::Keq)   = (:Keq,)
