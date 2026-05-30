@@ -2,9 +2,10 @@
 
 **Date:** 2026-05-30
 **Branch:** `refactor-to-concrete-types-instead-of-symbols`
-  (unpushed; main = 7,136 total src LOC; this branch = 9,402 total src
-  LOC across 9 files. Non-comment non-doc src LOC — the audit's
-  target metric — is measured at Pass-3 start, not yet computed.)
+  (unpushed; main = 7,136 total src LOC; this branch = 8,456 total src
+  LOC across 9 files, 5,706 non-comment non-doc — the audit's target
+  metric — measured 2026-05-30 by `wc -l` and an awk filter dropping
+  blanks, `#` comments, and `"""…"""` docstring blocks.)
 **Status:** design pending Denis review
 
 ## Goal
