@@ -191,16 +191,6 @@ function _step_sides(s::Step)
     end
 end
 
-# TEMPORARY shim for the rxns-based callers; deleted in Task 2.5 when
-# _raw_symbolic_rate_polys / _compute_alpha / _compute_numerator switch
-# to flat-Step iteration.
-function _step_sides(rxns, src_idx::Int, enz_set)
-    lhs, rhs, _, _ = rxns[src_idx]
-    e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
-    e_rhs, m_rhs = _split_reaction_side(rhs, enz_set)
-    e_lhs, e_rhs, m_lhs, m_rhs
-end
-
 """
 Compute RE-connected groups via union-find over enzyme Species. Walks
 `m.steps` directly; nodes are Species values (compared by `==`). Returns
@@ -249,18 +239,18 @@ end
 
 """
 Compute alpha factors (relative concentrations within RE groups) as POLY
-values. Iterates `rxns`, whose direction reflects each Step's canonical
-storage: binding steps are metabolite-on-`to`, iso steps are physical-
-forward (canonicalized in the Mechanism constructor via
-`_canonical_iso_direction`). `step_to_K[idx]` is the parameter Symbol for
-the RE step at flat position `idx` (rep-renamed via the `name(p, m)`
-chokepoint).
+values. Iterates `mech.steps` directly. Binding steps' direction comes
+from the canonical Step form (metabolite-on-`to_species`); iso steps
+are physical-forward (canonicalized in the Mechanism constructor).
+`step_to_K[idx]` is the parameter Symbol for the RE step at flat
+position `idx` (rep-renamed via the `name(p, m)` chokepoint).
 """
-function _compute_alpha(rxns, eq_steps, enz_species, enz_set,
+function _compute_alpha(mech::Mechanism, enz_species, enz_set,
                         enz_name_to_form, groups, step_to_K)
     N = length(enz_species)
     alpha_num = Vector{POLY}(fill(poly_one(), N))
     alpha_den = Vector{POLY}(fill(poly_one(), N))
+    flat = _flat_steps(mech)
 
     for group in groups
         length(group) == 1 && continue
@@ -268,20 +258,18 @@ function _compute_alpha(rxns, eq_steps, enz_species, enz_set,
         queue = [group[1]]
         while !isempty(queue)
             cur = popfirst!(queue)
-            for (idx, _) in enumerate(rxns)
-                eq_steps[idx] || continue
-                e_l, e_r, m_l, m_r = _step_sides(rxns, idx, enz_set)
+            for (idx, (s, _)) in enumerate(flat)
+                is_equilibrium(s) || continue
+                e_l, e_r, m_l, m_r = _step_sides(s)
                 i_f = enz_name_to_form[e_l]
                 j_f = enz_name_to_form[e_r]
                 K = poly_sym(step_to_K[idx])
                 is_iso = isempty(m_l) && isempty(m_r)
                 if i_f == cur && j_f ∉ visited
                     if is_iso
-                        # iso: K (Ka) in alpha_num for the more-isomerized form
                         alpha_num[j_f] = poly_mul(alpha_num[cur], K)
                         alpha_den[j_f] = alpha_den[cur]
                     else
-                        # binding step: Kd in alpha_den (Kd convention)
                         alpha_num[j_f] = poly_mul(alpha_num[cur], poly_sym(m_l[1]))
                         alpha_den[j_f] = poly_mul(alpha_den[cur], K)
                         isempty(m_r) ||
@@ -293,7 +281,6 @@ function _compute_alpha(rxns, eq_steps, enz_species, enz_set,
                         alpha_num[i_f] = alpha_num[cur]
                         alpha_den[i_f] = poly_mul(alpha_den[cur], K)
                     else
-                        # backward binding: Kd into alpha_num, met into alpha_den
                         alpha_num[i_f] = poly_mul(alpha_num[cur], K)
                         alpha_den[i_f] = poly_mul(alpha_den[cur], poly_sym(m_l[1]))
                     end
@@ -341,79 +328,51 @@ walking the lifted `Mechanism`. Parameter Symbols on the leaves of
 collapses kinetic-group members to their rep's name). `rename_map` then
 applies any single-symbol Wegscheider ties as a post-pass.
 """
-function _raw_symbolic_rate_polys(mech::Mechanism, rxns, eq_steps,
-                                  step_params, rename_map,
+function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
                                   subs_species, prods_species)
     enz_species, groups, form_to_group = _compute_re_groups(mech)
     enz_set = Set(name(es) for es in enz_species)
     enz_name_to_form = Dict{Symbol, Int}(
         name(es) => i for (i, es) in enumerate(enz_species))
+    flat = _flat_steps(mech)
     step_to_K = Dict{Int, Symbol}(
         i => name(step_params[i][1], mech)
-        for i in eachindex(step_params) if eq_steps[i])
+        for i in eachindex(flat) if is_equilibrium(flat[i][1]))
     alpha_num, alpha_den, sigma_num, sigma_den =
-        _compute_alpha(rxns, eq_steps, enz_species, enz_set,
+        _compute_alpha(mech, enz_species, enz_set,
                        enz_name_to_form, groups, step_to_K)
     G = length(groups)
 
-    # Build rate matrix R[g1,g2] with alpha denominators cleared. We walk
-    # SS steps via `rxns`; direction is the Step's canonical physical-forward
-    # storage (LHS/from = kf-side, RHS/to = kr-side). Since every iso step is
-    # canonicalized physical-forward in the Mechanism constructor, Step's
-    # from/to and `rxns` agree — reading either is correct (a future cleanup
-    # can drop the `rxns` re-projection and read Step.from/to directly).
     R = [poly_zero() for _ in 1:G, _ in 1:G]
-    for (idx, _) in enumerate(rxns)
-        eq_steps[idx] && continue
-        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(rxns, idx, enz_set)
+    for (idx, (s, _)) in enumerate(flat)
+        is_equilibrium(s) && continue
+        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(s)
         i_form = enz_name_to_form[e_lhs]
         j_form = enz_name_to_form[e_rhs]
         g1, g2 = form_to_group[i_form], form_to_group[j_form]
         kf_poly = poly_sym(name(step_params[idx][1], mech))
         kr_poly = poly_sym(name(step_params[idx][2], mech))
-
-        R[g1, g2] = poly_add(
-            R[g1, g2],
-            _ss_contrib(
-                kf_poly, m_lhs, i_form,
-                alpha_num, alpha_den, groups[g1],
-            ),
-        )
-        R[g2, g1] = poly_add(
-            R[g2, g1],
-            _ss_contrib(
-                kr_poly, m_rhs, j_form,
-                alpha_num, alpha_den, groups[g2],
-            ),
-        )
+        R[g1, g2] = poly_add(R[g1, g2],
+            _ss_contrib(kf_poly, m_lhs, i_form, alpha_num, alpha_den, groups[g1]))
+        R[g2, g1] = poly_add(R[g2, g1],
+            _ss_contrib(kr_poly, m_rhs, j_form, alpha_num, alpha_den, groups[g2]))
     end
 
-    # Build Laplacian and cofactor determinants
     L = [i == j ? poly_zero() : poly_neg(R[i,j])
          for i in 1:G, j in 1:G]
     for i in 1:G
-        L[i, i] = reduce(
-            poly_add,
-            R[i, j] for j in 1:G if j != i;
-            init=poly_zero(),
-        )
+        L[i, i] = reduce(poly_add, R[i, j] for j in 1:G if j != i; init=poly_zero())
     end
     D = [begin
         idx = [r for r in 1:G if r != root]
-        isempty(idx) ? poly_one() :
-            sym_det(L[idx, idx], G - 1)
+        isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
-    # Build flat denominator: sum over groups of sigma_g * D_g
     normalize = G == 1 && sigma_den[1] != poly_one()
     den = poly_zero()
     for g in 1:G
         raw_sigma = if normalize
-            reduce(
-                poly_add,
-                (_poly_div_mono(alpha_num[i], alpha_den[i])
-                 for i in groups[g]),
-            )
+            reduce(poly_add, (_poly_div_mono(alpha_num[i], alpha_den[i]) for i in groups[g]))
         else
             sigma_num[g]
         end
@@ -421,12 +380,10 @@ function _raw_symbolic_rate_polys(mech::Mechanism, rxns, eq_steps,
         den = poly_add(den, poly_mul(csigma, D[g]))
     end
 
-    # Numerator: net flux through SS steps
     num, nu_ref = _compute_numerator(
-        mech, rxns, eq_steps, enz_set, enz_name_to_form, step_params,
+        mech, enz_set, enz_name_to_form, step_params,
         alpha_num, alpha_den, form_to_group, groups,
-        D, subs_species, prods_species,
-    )
+        D, subs_species, prods_species)
     normalize && (num = _poly_div_mono(num, sigma_den[1]))
 
     abs_nu = abs(nu_ref)
@@ -434,25 +391,22 @@ function _raw_symbolic_rate_polys(mech::Mechanism, rxns, eq_steps,
         den = poly_mul(den, poly_const(abs_nu))
     end
 
-    # Apply single-symbol Wegscheider renaming (kinetic-group collapse is
-    # already handled by the chokepoint Symbol production).
     num = _rename_symbols(num, rename_map)
     den = _rename_symbols(den, rename_map)
-
     num, den
 end
 
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
-    m = M()
-    mech = Mechanism(m)
-    rxns = reactions(m)
-    eq_steps = equilibrium_steps(m)
+    mech = Mechanism(M())
     step_params = _step_parameters(mech)
-    rename_map = _build_wegscheider_rename_map(m)
-    _raw_symbolic_rate_polys(
-        mech, rxns, eq_steps, step_params, rename_map,
-        substrates(m), products(m),
-    )
+    rename_map = _build_wegscheider_rename_map(M)
+    # CRITICAL: substrates(::EnzymeReaction) returns Vector{Substrate}
+    # (concrete metabolite structs); _compute_numerator expects Symbols
+    # (ref_name comparisons via ==). Wrap explicitly.
+    subs_syms = Symbol[name(s) for s in substrates(mech.reaction)]
+    prods_syms = Symbol[name(p) for p in products(mech.reaction)]
+    _raw_symbolic_rate_polys(mech, step_params, rename_map,
+                              subs_syms, prods_syms)
 end
 
 """
@@ -460,7 +414,7 @@ Compute the numerator polynomial by selecting an appropriate metabolite
 to track through SS steps. Returns `(num::POLY, nu_ref::Int)`.
 """
 function _compute_numerator(
-    mech, rxns, eq_steps, enz_set, enz_name_to_form, step_params,
+    mech::Mechanism, enz_set, enz_name_to_form, step_params,
     alpha_num, alpha_den, form_to_group, groups,
     D, subs_species, prods_species,
 )
@@ -468,11 +422,13 @@ function _compute_numerator(
     nu_ref = (count(==(ref_name), prods_species) -
               count(==(ref_name), subs_species))
 
+    flat = _flat_steps(mech)
+
     # Classify metabolites into SS vs RE step sets
     ss_mets, re_mets = Set{Symbol}(), Set{Symbol}()
-    for (idx, _) in enumerate(rxns)
-        _, _, m_lhs, m_rhs = _step_sides(rxns, idx, enz_set)
-        target = eq_steps[idx] ? re_mets : ss_mets
+    for (s, _) in flat
+        _, _, m_lhs, m_rhs = _step_sides(s)
+        target = is_equilibrium(s) ? re_mets : ss_mets
         for met in m_lhs; push!(target, met); end
         for met in m_rhs; push!(target, met); end
     end
@@ -497,9 +453,9 @@ function _compute_numerator(
 
     # Compute flux through SS steps
     result = poly_zero()
-    for (idx, _) in enumerate(rxns)
-        eq_steps[idx] && continue
-        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(rxns, idx, enz_set)
+    for (idx, (s, _)) in enumerate(flat)
+        is_equilibrium(s) && continue
+        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(s)
         i_form = enz_name_to_form[e_lhs]
         j_form = enz_name_to_form[e_rhs]
         g1, g2 = form_to_group[i_form], form_to_group[j_form]
