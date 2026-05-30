@@ -624,6 +624,11 @@ function test_structure(spec::MechanismTestSpec)
         @test EnzymeRates.n_states(m) == spec.expected_n_states
         @test EnzymeRates.n_steps(m) == spec.expected_n_steps
         @test length(metabolites(m)) == spec.expected_n_metabolites
+        # Structural parameter names must be injective on the load-bearing
+        # paths the fitter consumes (Reduced + fitted_params). A collision
+        # would silently shorten the destructured params NamedTuple.
+        @test allunique(EnzymeRates.parameters(m))           # Reduced (default)
+        @test allunique(EnzymeRates.fitted_params(m))
     end
 end
 
@@ -949,6 +954,19 @@ end
     for spec in MECHANISM_TEST_SPECS
         run_all_tests(spec)
     end
+end
+
+# Deferred: `parameters(m, Full)` is not injective for Case-B allosteric
+# shapes — an `:EqualAI` group whose reverse rate is a Haldane-dependent
+# constant emits the base I-state name AND a synth-dep name that coincide
+# (e.g. PK's `:k_I_EATPPyruvate_to_EADPPEP`). Full mode's only consumer is
+# the not-yet-implemented identify_rate_equation canonicalizer, so this is
+# harmless today. Tracked here so the deferral surfaces in CI rather than
+# only in prose; resolve in the direction-symmetry / nonequalai-rank-validity
+# follow-up PRs, then promote to @test.
+@testset "parameters(Full) Case-B duplicate (deferred)" begin
+    pk = only(s for s in MECHANISM_TEST_SPECS if s.name == "PK")
+    @test_broken allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
 end
 
 # ── Standalone kcat tests ──────────────────────────────────────────────────────

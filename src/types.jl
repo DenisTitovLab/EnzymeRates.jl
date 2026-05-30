@@ -145,9 +145,9 @@ struct Step
             # enzyme-met" so two structurally-equivalent binding steps written
             # in opposite source directions dedup to the same Step. With
             # structural binding-K names keyed on the bound metabolite + form
-            # (not source direction), the canonical metabolite-on-`from`
-            # orientation is direction-independent. See CLAUDE.md "Canonical
-            # Step Form" for the invariant.
+            # (not source direction), the canonical metabolite-on-`to`
+            # orientation (free form on `from`) is direction-independent. See
+            # CLAUDE.md "Canonical Step Form" for the invariant.
             in_from = any(m -> m == bound_metabolite, bound(from_species))
             in_to   = any(m -> m == bound_metabolite, bound(to_species))
             if in_from && !in_to
