@@ -1153,7 +1153,7 @@ that member is carved out into a fresh trailing group. The reaction
 (and, for allosteric, multiplicity / regulatory sites) is preserved.
 Catalytic allo-state tags are extended with the parent group's tag
 appended (splitting is a parameter-relaxation move that MUST NOT
-change R/T semantics).
+change A/I semantics).
 """
 function _expand_split_kinetic_group(m::Mechanism)
     results = Mechanism[]
@@ -2022,14 +2022,14 @@ function _synth_dep_r_names(em::AllostericEnzymeMechanism,
                             am::AllostericMechanism)
     _t_state_dead(em) && return Symbol[]
     CM = typeof(catalytic_mechanism(em))
-    dep_R_all, _ = _dependent_param_exprs(CM)
-    rename_T_keys = Set{Symbol}(
-        name(p_R, am) for (p_R, _) in _I_rename_parameters(am))
-    isempty(rename_T_keys) && return Symbol[]
+    dep_A_all, _ = _dependent_param_exprs(CM)
+    rename_I_keys = Set{Symbol}(
+        name(p_A, am) for (p_A, _) in _I_rename_parameters(am))
+    isempty(rename_I_keys) && return Symbol[]
     out = Symbol[]
-    for (k, v) in dep_R_all
-        k in rename_T_keys && continue
-        _expr_references_any(v, rename_T_keys) || continue
+    for (k, v) in dep_A_all
+        k in rename_I_keys && continue
+        _expr_references_any(v, rename_I_keys) || continue
         push!(out, k)
     end
     out
