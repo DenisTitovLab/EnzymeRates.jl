@@ -44,6 +44,61 @@ function _step_parameters(m::Mechanism)
     out
 end
 
+# ─── Structural primacy: free-enzyme set + step priority ─────────
+
+"""
+Set of enzyme-form names that are NOT the RHS of any canonical RE binding
+step `F + met… ⇌ F_bound`. SS steps don't determine binding state (their
+direction isn't canonicalized). Shared by the kinetic-group name
+representative and the Haldane elimination pivot.
+"""
+function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
+    em = compile_mechanism(m)
+    enz_names = enzyme_forms(em)
+    enz_set = Set(enz_names)
+    free_enz_set = Set{Symbol}(enz_names)
+    for (lhs, rhs, is_eq, _) in reactions(em)
+        is_eq || continue
+        _, m_l = _split_reaction_side(lhs, enz_set)
+        e_r, m_r = _split_reaction_side(rhs, enz_set)
+        if !isempty(m_l) && isempty(m_r)
+            delete!(free_enz_set, e_r)
+        end
+    end
+    free_enz_set
+end
+
+"""
+Structural primacy base score for a step (lower = more primary / less
+eliminable). Free-enzyme RE binding (-1) < free-enzyme SS binding (0) <
+non-free metabolite step (10) < internal isomerization (20). Shared by the
+kinetic-group name representative (argmin) and the Haldane elimination pivot
+(argmax, which adds a +0/+1 forward/reverse offset per rate constant).
+"""
+function _step_priority(s::Step, free_enz_set::Set{Symbol})
+    has_met = is_binding(s)
+    is_free = (name(from_species(s)) in free_enz_set) ||
+              (name(to_species(s))   in free_enz_set)
+    is_equilibrium(s) && has_met && is_free && return -1
+    return !has_met ? 20 : is_free ? 0 : 10
+end
+
+"""
+Total lexical tiebreak for two distinct steps in the same kinetic group:
+species pair + bound metabolite + RE/SS flag.
+"""
+_step_lex_key(s::Step) =
+    (String(name(from_species(s))), String(name(to_species(s))),
+     String(bound_metabolite(s) === nothing ? "" : name(bound_metabolite(s))),
+     is_equilibrium(s))
+
+"""
+Kinetic-group naming representative: the structurally-primary step
+(`argmin _step_priority`), with a deterministic lexical tiebreak.
+"""
+_group_rep(group::Vector{Step}, free_enz_set::Set{Symbol}) =
+    argmin(s -> (_step_priority(s, free_enz_set), _step_lex_key(s)), group)
+
 # ─── Thermodynamic Constraint Infrastructure ─────────────────────
 
 function _integer_nullspace(A::Matrix{Int})
@@ -208,18 +263,7 @@ function _dependent_param_exprs_kernel(
     enz_names = enzyme_forms(m)
     enz_set = Set(enz_names)
 
-    # Free enzyme is any form that's never the RHS of a canonical RE binding
-    # step `F + met... ⇌ F_bound`. SS steps don't determine binding state
-    # (their direction isn't canonicalized). Used for pivot priority.
-    free_enz_set = Set{Symbol}(enz_names)
-    for (lhs, rhs, is_eq, _) in rxns
-        is_eq || continue
-        _, m_l = _split_reaction_side(lhs, enz_set)
-        e_r, m_r = _split_reaction_side(rhs, enz_set)
-        if !isempty(m_l) && isempty(m_r)
-            delete!(free_enz_set, e_r)
-        end
-    end
+    free_enz_set = _free_enz_set(mech)
 
     C, rhs_coeffs = _thermodynamic_constraints(M)
     all_params = _raw_param_symbols(mech)
@@ -269,26 +313,16 @@ function _dependent_param_exprs_kernel(
     end
 
     # Pivot priority: internal isomerizations > metabolite steps
-    #                 > free-enzyme binding. Inherits from the representative
-    #                 step (first in the kinetic group).
+    #                 > free-enzyme binding (argmax picks most eliminable).
+    #                 Same `_step_priority` scoring feeds the group-naming rep
+    #                 (argmin). SS steps add a +0/+1 forward/reverse offset.
     priority = zeros(Int, n_vars)
-    for (j, (lhs, rhs_rxn, _, _)) in enumerate(rxns)
-        e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
-        e_rhs, m_rhs = _split_reaction_side(rhs_rxn, enz_set)
-        has_met = !isempty(m_lhs) || !isempty(m_rhs)
-        is_free = (e_lhs in free_enz_set ||
-                   e_rhs in free_enz_set)
-        if !has_met
-            base = 20
-        elseif is_free
-            base = 0
-        else
-            base = 10
-        end
+    for j in 1:nsteps
+        step = step_params[j][1].step
+        base = _step_priority(step, free_enz_set)
         if eq_steps[j]
             s = step_name(step_params[j][1])
-            haskey(sym_col, s) && (priority[sym_col[s]] =
-                (is_free && has_met) ? -1 : base)
+            haskey(sym_col, s) && (priority[sym_col[s]] = base)
         else
             for (offset, p) in enumerate(step_params[j])
                 s = step_name(p)

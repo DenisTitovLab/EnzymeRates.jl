@@ -1385,10 +1385,16 @@ function _state_tag(state::Symbol)
 end
 
 # Render a binding param from its rep step: metabolite + pre-binding form.
-_render_binding(prefix::String, rep::Step, state::Symbol) =
-    Symbol(prefix, _state_tag(state),
-           String(name(bound_metabolite(rep))), "_",
+# A CompetitiveInhibitor-role bound metabolite gains an `inh` marker (mirrors
+# `name(Species)`) so an inhibitor-role group is distinct from the same
+# metabolite's product-role group.
+function _render_binding(prefix::String, rep::Step, state::Symbol)
+    met = bound_metabolite(rep)
+    met_name = met isa CompetitiveInhibitor ?
+               String(name(met)) * "inh" : String(name(met))
+    Symbol(prefix, _state_tag(state), met_name, "_",
            String(name(from_species(rep))))
+end
 
 # Render an iso param by directed species pair.
 _render_iso(prefix::String, from::Species, to::Species, state::Symbol) =
@@ -1397,8 +1403,9 @@ _render_iso(prefix::String, from::Species, to::Species, state::Symbol) =
 
 # Find the kinetic group containing `step`; return its naming rep.
 function _rep_step(step::Step, m::Union{Mechanism, AllostericMechanism})
+    fes = _free_enz_set(m)
     for group in steps(m)
-        step in group && return first(group)
+        step in group && return _group_rep(group, fes)
     end
     error("Step not found in mechanism: $step")
 end
@@ -1510,9 +1517,10 @@ end
 # Walk all A-state catalytic parameters (for _param_for_symbol lookup).
 function _onlyA_parameters_for_sym(am::AllostericMechanism)
     out = Parameter[]
+    fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
         st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
-        rep = first(group)
+        rep = _group_rep(group, fes)
         if is_equilibrium(rep)
             push!(out, is_binding(rep) ? Kd(rep, st) : Kiso(rep, st))
         else
@@ -1531,9 +1539,10 @@ end
 # Walk all I-state catalytic + reg parameters (for _param_for_symbol lookup).
 function _all_params_for_sym(am::AllostericMechanism)
     out = Parameter[]
+    fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
         cat_allo_state(am, g) === :OnlyA && continue
-        rep = first(group)
+        rep = _group_rep(group, fes)
         if is_equilibrium(rep)
             push!(out, is_binding(rep) ? Kd(rep, :I) : Kiso(rep, :I))
         else
@@ -1558,15 +1567,16 @@ end
 """
 Enumerate every raw rate-constant Parameter for a non-allosteric
 mechanism, in kinetic-group order. Each kinetic group's representative
-step (the first step in the group) drives the emit: RE binding → `Kd`,
-RE iso → `Kiso`, SS binding → `Kon`+`Koff`, SS iso → `Kfor`+`Krev`. All
-parameters carry `state === :None` because non-allosteric mechanisms
-have no A/I branches.
+step (the structurally-primary step, `_group_rep`) drives the emit: RE
+binding → `Kd`, RE iso → `Kiso`, SS binding → `Kon`+`Koff`, SS iso →
+`Kfor`+`Krev`. All parameters carry `state === :None` because
+non-allosteric mechanisms have no A/I branches.
 """
 function _enumerate_parameters_full(m::Mechanism)
     out = Parameter[]
+    fes = _free_enz_set(m)
     for group in steps(m)
-        rep = first(group)
+        rep = _group_rep(group, fes)
         if is_equilibrium(rep)
             push!(out, is_binding(rep) ? Kd(rep, :None) : Kiso(rep, :None))
         else

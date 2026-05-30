@@ -121,8 +121,9 @@ function positional_params(m, nt::NamedTuple)
     names = Symbol[]
     vals  = Any[]
 
+    fes = EnzymeRates._free_enz_set(mech)
     for (g, group) in enumerate(EnzymeRates.steps(mech))
-        rep = first(group)
+        rep = EnzymeRates._group_rep(group, fes)
         cat_st = is_allo ? EnzymeRates.cat_allo_state(mech, g) : :None
         # Determine which active-branch state token to pass to name()
         act_st = (cat_st === :EqualAI || cat_st === :None) ? cat_st : :A
@@ -1589,4 +1590,23 @@ end
     params = merge(params, (Keq=1.0, E_total=1.0))
     v = rate_equation(m, concs, params)
     @test isfinite(v)
+end
+
+@testset "kinetic-group name rep is structurally primary (free-enzyme binding)" begin
+    # A kinetic group joining a free-enzyme binding step (E + S ⇌ E_S) with a
+    # non-free dead-end mirror (EI1_inh + S ⇌ EI1_inh_S) must be NAMED after
+    # the free-enzyme step regardless of the steps' source order. The rep is
+    # the structurally-primary step (argmin _step_priority), not first(group).
+    spec = first(s for s in MECHANISM_TEST_SPECS
+                 if s.name == "Non-competitive + Competitive Inhibitor")
+    mech = EnzymeRates.Mechanism(spec.mechanism)
+    groups = EnzymeRates.steps(mech)
+    # group 1 = the S-binding group {E→E_S (free), EI1inh→EI1inh_S (non-free)}.
+    # Force the non-free mirror to be first(group); structural-primacy naming
+    # must still pick the free-enzyme step → :K_S_E (not :K_S_EI1inh).
+    reversed = [gi == 1 ? reverse(g) : g for (gi, g) in enumerate(groups)]
+    mech_rev = EnzymeRates.Mechanism(mech.reaction, reversed)
+    params_rev = EnzymeRates.parameters(EnzymeRates.compile_mechanism(mech_rev))
+    @test :K_S_E in params_rev
+    @test !(:K_S_EI1inh in params_rev)
 end

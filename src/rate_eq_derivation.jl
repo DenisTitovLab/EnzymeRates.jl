@@ -621,8 +621,9 @@ end
 function _ss_rate_constant_names(em::AllostericEnzymeMechanism)
     am = AllostericMechanism(em)
     r_names = Set{Symbol}()
+    fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
-        rep = first(group)
+        rep = _group_rep(group, fes)
         is_equilibrium(rep) && continue
         st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
         if is_binding(rep)
@@ -989,9 +990,10 @@ parameter type(s).
 """
 function _onlyA_parameters(am::AllostericMechanism)
     out = Parameter[]
+    fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
         cat_allo_state(am, g) === :OnlyA || continue
-        rep = first(group)
+        rep = _group_rep(group, fes)
         if is_equilibrium(rep)
             push!(out, is_binding(rep) ? Kd(rep, :A) : Kiso(rep, :A))
         else
@@ -1016,9 +1018,10 @@ Parameter representation.
 """
 function _I_rename_parameters(am::AllostericMechanism)
     rename = Dict{Parameter, Parameter}()
+    fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
         cat_allo_state(am, g) === :NonequalAI || continue
-        rep = first(group)
+        rep = _group_rep(group, fes)
         if is_equilibrium(rep)
             if is_binding(rep)
                 rename[Kd(rep, :A)] = Kd(rep, :I)
@@ -1054,9 +1057,10 @@ is an identity and can be omitted.
 """
 function _R_rename_parameters(am::AllostericMechanism)
     rename = Dict{Symbol, Symbol}()
+    fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
         cat_allo_state(am, g) === :EqualAI && continue
-        rep = first(group)
+        rep = _group_rep(group, fes)
         if is_equilibrium(rep)
             P = is_binding(rep) ? Kd : Kiso
             rename[name(P(rep, :None), am)] = name(P(rep, :A), am)
@@ -1117,9 +1121,10 @@ are emitted Symbol-level by the dep-assignment builder.
 """
 function _all_i_state_parameters(am::AllostericMechanism)
     out = Parameter[]
+    fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
         cat_allo_state(am, g) === :OnlyA && continue
-        rep = first(group)
+        rep = _group_rep(group, fes)
         if is_equilibrium(rep)
             push!(out, is_binding(rep) ? Kd(rep, :I) : Kiso(rep, :I))
         else
@@ -1168,8 +1173,9 @@ inert. This enumeration intentionally over-emits.
 """
 function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
     out = Parameter[]
+    fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
-        rep = first(group)
+        rep = _group_rep(group, fes)
         st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
         if is_equilibrium(rep)
             push!(out, is_binding(rep) ? Kd(rep, st) : Kiso(rep, st))
@@ -1444,11 +1450,12 @@ function _build_dep_assignments(
     # caller elides `t_assignments` entirely in that case.
     t_dead = _t_state_dead(m)
     t_names_set = Set{Symbol}()
+    fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
         tag = cat_allo_state(am, g)
         tag === :OnlyA && continue
         t_dead && tag !== :NonequalAI && continue
-        rep = first(group)
+        rep = _group_rep(group, fes)
         if is_equilibrium(rep)
             push!(t_names_set,
                   name(is_binding(rep) ? Kd(rep, :I) : Kiso(rep, :I), am))

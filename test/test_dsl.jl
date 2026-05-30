@@ -487,8 +487,9 @@
         @test :EP != :EPinh
         # rate_equation must reference concs.P for the inhibitor term, not concs.Pinh:
         re_str = rate_equation_string(m)
-        @test occursin("P", re_str)        # real metabolite name appears
-        @test !occursin("Pinh", re_str)    # the inh marker never leaks into the equation
+        @test occursin("P", re_str)             # real metabolite name appears
+        @test occursin("(; S, P) = concs", re_str)  # concentration is P, never Pinh
+        @test !occursin("Pinh = concs", re_str)     # the inh marker never names a concentration
     end
 
     @testset "fused catalytic release: metabolite in neither bound list dissociates" begin

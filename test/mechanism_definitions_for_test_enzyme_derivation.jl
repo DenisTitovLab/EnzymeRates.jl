@@ -895,7 +895,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + P / K_P_E + R / K_R_E + S / K_S_E",
+            "1 + P / K_P_E + R / K_Rinh_E + S / K_S_E",
         ))
     end
 
@@ -941,7 +941,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + P / K_P_E + R / K_R_E + S / K_S_E + R * S / (K_R_E * K_S_E)",
+            "1 + P / K_P_E + R / K_Rinh_E + S / K_S_E + R * S / (K_Rinh_E * K_S_E)",
         ))
     end
 
@@ -986,7 +986,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + P / K_P_E + S / K_S_E + R * S / (K_R_ES * K_S_E)",
+            "1 + P / K_P_E + S / K_S_E + R * S / (K_Rinh_ES * K_S_E)",
         ))
     end
 
@@ -1031,12 +1031,12 @@ function build_mechanism_test_specs()
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
             # Mathematically equivalent factoring: numerator and denominator
-            # are both multiplied by R/K_R_E in the alternative form. The
+            # are both multiplied by R/K_Rinh_E in the alternative form. The
             # derivation now produces this form directly.
             expected_factored_num=
             "k_ERinhS_to_EPRinh * S / K_S_ERinh - k_EPRinh_to_ERinhS * P / K_P_ERinh",
             expected_factored_denom=
-            "K_R_E / R + 1 + P / K_P_ERinh + S / K_S_ERinh",
+            "K_Rinh_E / R + 1 + P / K_P_ERinh + S / K_S_ERinh",
         ))
     end
 
@@ -1089,9 +1089,9 @@ function build_mechanism_test_specs()
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> max(p.k2f, p.k5f),
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E + k_ERinhS_to_EPRinh * R * S / (K_R_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EPRinh_to_ERinhS * P * R / (K_P_E * K_R_E))",
+            "k_ES_to_EP * S / K_S_E + k_ERinhS_to_EPRinh * R * S / (K_Rinh_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EPRinh_to_ERinhS * P * R / (K_P_E * K_Rinh_E))",
             expected_factored_denom=
-            "1 + P / K_P_E + R / K_R_E + S / K_S_E + P * R / (K_P_E * K_R_E) + R * S / (K_R_E * K_S_E)",
+            "1 + P / K_P_E + R / K_Rinh_E + S / K_S_E + P * R / (K_P_E * K_Rinh_E) + R * S / (K_Rinh_E * K_S_E)",
         ))
     end
 
@@ -1152,9 +1152,9 @@ function build_mechanism_test_specs()
             # Denom has both multiplicative (activator) and additive
             # (inhibitor) structure
             expected_factored_num=
-            "k_ES_to_EP * S / K_S_E + k_EAinhS_to_EAinhP * A * S / (K_A_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EAinhP_to_EAinhS * A * P / (K_A_E * K_P_E))",
+            "k_ES_to_EP * S / K_S_E + k_EAinhS_to_EAinhP * A * S / (K_Ainh_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EAinhP_to_EAinhS * A * P / (K_Ainh_E * K_P_E))",
             expected_factored_denom=
-            "1 + A / K_A_E + I / K_I_E + P / K_P_E + S / K_S_E + A * P / (K_A_E * K_P_E) + A * S / (K_A_E * K_S_E)",
+            "1 + A / K_Ainh_E + I / K_Iinh_E + P / K_P_E + S / K_S_E + A * P / (K_Ainh_E * K_P_E) + A * S / (K_Ainh_E * K_S_E)",
         ))
     end
 
@@ -1389,7 +1389,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K_I1_E + I2 / K_I2_E + P / K_P_E + S / K_S_E",
+            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E",
         ))
     end
 
@@ -1458,7 +1458,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K_I1_E + I2 / K_I2_E + P / K_P_E + S / K_S_E + I1 * I2 / (K_I1_E * K_I2_E) + I1 * P / (K_I1_E * K_P_E) + I1 * S / (K_I1_E * K_S_E) + I2 * P / (K_I2_E * K_P_E) + I2 * S / (K_I2_E * K_S_E) + I1 * I2 * P / (K_I1_E * K_I2_E * K_P_E) + I1 * I2 * S / (K_I1_E * K_I2_E * K_S_E)",
+            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * I2 / (K_I1inh_E * K_I2inh_E) + I1 * P / (K_I1inh_E * K_P_E) + I1 * S / (K_I1inh_E * K_S_E) + I2 * P / (K_I2inh_E * K_P_E) + I2 * S / (K_I2inh_E * K_S_E) + I1 * I2 * P / (K_I1inh_E * K_I2inh_E * K_P_E) + I1 * I2 * S / (K_I1inh_E * K_I2inh_E * K_S_E)",
         ))
     end
 
@@ -1513,7 +1513,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K_I1_E + I2 / K_I2_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1_E * K_P_E) + I1 * S / (K_I1_E * K_S_E)",
+            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1inh_E * K_P_E) + I1 * S / (K_I1inh_E * K_S_E)",
         ))
     end
 
@@ -1560,7 +1560,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I2 / K_I2_E + P / K_P_E + S / K_S_E + I1 * S / (K_I1_ES * K_S_E)",
+            "1 + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * S / (K_I1inh_ES * K_S_E)",
         ))
     end
 
@@ -1622,7 +1622,7 @@ function build_mechanism_test_specs()
             expected_factored_num=
             "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K_I1_E + I2 / K_I2_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1_E * K_P_E) + I1 * S / (K_I1_E * K_S_E) + I2 * P / (K_I2_E * K_P_E) + I2 * S / (K_I2_E * K_S_E)",
+            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1inh_E * K_P_E) + I1 * S / (K_I1inh_E * K_S_E) + I2 * P / (K_I2inh_E * K_P_E) + I2 * S / (K_I2inh_E * K_S_E)",
         ))
     end
 
