@@ -24,15 +24,22 @@ using EnzymeRates
         end)),
     ]
 
-    # Expected partition sizes per reaction. These literals were measured
-    # empirically at Stage 6.2 (after the regex hasher was retired and the
-    # struct-based hasher's partition matched the regex hasher's on these
-    # fixtures per the Stage 6.0 equivalence test that gated the deletion).
-    # If these counts ever change in a future commit, the canonical hasher's
+    # Expected partition sizes per reaction. These are the number of DISTINCT
+    # rate equations the init-level enumeration produces — verified directly:
+    # the 77 bi_bi init mechanisms yield exactly 21 distinct
+    # `rate_equation_string` outputs, and the canonical hasher produces exactly
+    # 21 classes, with zero over-collapse (no hash bucket mixes distinct rate
+    # equations) and zero under-collapse (no two equal rate equations land in
+    # different buckets). Under structural parameter names the hash partitions
+    # exactly by rate-equation equivalence. (The earlier frozen `23` was an
+    # over-count from the retired positional-token renumbering, whose
+    # first-occurrence `p_$i` assignment was monomial-order-sensitive and
+    # failed to collapse two pairs of genuinely rate-equivalent mechanisms.)
+    # If these counts change in a future commit, the canonical hasher's
     # equivalence classes have shifted — investigate before merging.
     expected_n_classes = Dict(
         "uni_uni" => 1,
-        "bi_bi"   => 23,
+        "bi_bi"   => 21,
     )
 
     for (label, reaction) in test_reactions
