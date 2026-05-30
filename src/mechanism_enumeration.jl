@@ -1956,10 +1956,12 @@ returned through `_canonical_rate_eq_hash_data` for downstream
 projection via `_project_cached_params`.
 
 For an `AllostericMechanism`, also adds entries for synthesized dep
-T-names (LHSes that have no Parameter struct because they're derived
-deps with a `_T` suffix appended at render time). The synth-dep token
-is the R-state token with `_T` suffix, preserving R↔T correspondence
-across equivalent mechanisms.
+I-names (LHSes that have no Parameter struct because they're derived
+deps with an inactive-state suffix appended at render time). The
+synth-dep token is the A-state token with `_T` suffix (a legacy
+cache-token literal from the old R/T allosteric naming, kept for
+cross-mechanism cache compatibility — see Step 9). This preserves
+A↔I correspondence across equivalent mechanisms.
 """
 function _build_name_map(em::AbstractEnzymeMechanism,
                          m::Union{Mechanism, AllostericMechanism})
@@ -1977,13 +1979,13 @@ function _build_name_map(em::AbstractEnzymeMechanism,
     end
 
     if m isa AllostericMechanism
-        for r_name in _synth_dep_a_names(em, m)
-            r_str = String(r_name)
-            tok = get(name_map, r_str, nothing)
+        for a_name in _synth_dep_a_names(em, m)
+            a_str = String(a_name)
+            tok = get(name_map, a_str, nothing)
             tok === nothing && continue
-            t_str = String(name(_flip_to_inactive(_param_for_symbol(m, r_name)), m))
-            haskey(name_map, t_str) && continue
-            name_map[t_str] = tok * "_T"  # tok is a canonical p_<i> hash token, not a parameter Symbol — Phase 7 cleanup territory.
+            i_str = String(name(_flip_to_inactive(_param_for_symbol(m, a_name)), m))
+            haskey(name_map, i_str) && continue
+            name_map[i_str] = tok * "_T"  # "_T" is the legacy cache-token suffix; kept for cross-mechanism cache compatibility
         end
     end
     name_map

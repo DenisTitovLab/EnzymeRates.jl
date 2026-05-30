@@ -252,9 +252,9 @@ end
 
 """
 Rename symbols in a polynomial. `rename_map` is a `Dict{Symbol, Symbol}`;
-absent keys are left unchanged. Used to alias non-representative kinetic-group
-parameter symbols to their representative (e.g., `K2 → K1` when steps 1 and 2
-share a kinetic group).
+absent keys are left unchanged. Used by the allosteric derivation to rename
+A-state symbols to their I-state counterparts when building the inactive-
+state polynomial (e.g., `:K_A_ATP_E → :K_I_ATP_E`).
 """
 function _rename_symbols(p::POLY, rename_map::AbstractDict{Symbol, Symbol})
     isempty(rename_map) && return p

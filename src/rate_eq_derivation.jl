@@ -758,7 +758,7 @@ corners and return the max.
         name(p_A, am) => name(p_I, am)
         for (p_A, p_I) in _I_rename_parameters(am))
     # Pass 2: dep RHSes referencing a `:NonequalAI` symbol pick up an
-    # I-state name. Mirrors `_dependent_param_exprs` Stage 4.2 logic.
+    # I-state name. Mirrors `_dependent_param_exprs` Pass 2 below.
     dep_A_all, _ = _dependent_param_exprs_allosteric(am)
     _add_case_b_renames!(rename_I, dep_A_all, am)
     num_I_poly = _rename_symbols(
@@ -1435,7 +1435,7 @@ function _build_dep_assignments(
         name(p_A, am) => name(p_I, am)
         for (p_A, p_I) in _I_rename_parameters(am))
     # Pass 2: dep RHSes referencing a `:NonequalAI` symbol need their own
-    # I-state name. Mirrors `_dependent_param_exprs` Stage 4.2 logic; the
+    # I-state name. Mirrors `_dependent_param_exprs` Pass 2; the
     # synthesized entries here are the same ones the rate-equation body
     # consumes via `i_names_set`.
     renamed_set = _add_case_b_renames!(rename_I, dep_A, am)
@@ -1551,7 +1551,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         for (p_A, p_I) in _I_rename_parameters(am))
     # Pass 2: dep RHSes referencing a `:NonequalAI` symbol need their own
     # I-state name so the polynomial rename covers synthesized deps.
-    # Mirrors the second pass in `_dependent_param_exprs` (Stage 4.2).
+    # Mirrors the second pass in `_dependent_param_exprs`.
     dep_A_all, _ = _dependent_param_exprs_allosteric(am)
     _add_case_b_renames!(rename_I, dep_A_all, am)
 

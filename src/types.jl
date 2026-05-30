@@ -44,7 +44,7 @@ Base.hash(r::Residual, h::UInt) =
     hash(r.subtracted, hash(r.added, hash(:Residual, h)))
 
 # §5.3 — Species: an enzyme form. `bound` is sorted by name; the
-# rendered Symbol name reads `:E` / `:E_A_B` / `:Estar...` / `:E_A_B_res...`.
+# rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATPres_+P`.
 struct Species
     bound::Vector{Metabolite}
     conformation::Symbol
@@ -1408,7 +1408,7 @@ end
 
 # Regulator-site parameter: state tag + ligand name + "reg". No site index —
 # the AllostericMechanism constructor enforces that each ligand appears at most
-# once across all sites (same-ligand-two-sites collision check added in Stage 7a).
+# once across all sites.
 name(p::Kreg, ::Union{AllostericMechanism, AllostericEnzymeMechanism}) =
     Symbol("K_", _state_tag(p.state), String(name(p.ligand)), "reg")
 

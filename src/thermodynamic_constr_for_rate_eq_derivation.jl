@@ -223,17 +223,17 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     rename = _build_kinetic_rename_map(M)
     dep_exprs, indep = _dependent_param_exprs_kernel(M, rename)
     # Filter Pass-2-absorbed symbols out of indep. Pass 2 of
-    # `_build_kinetic_rename_map` adds entries like `K9 => K4` when
-    # Wegscheider ties two binding-K group reps. After the merge, the
-    # absorbed symbol (K9) doesn't appear in the v polynomial — its
-    # column has been folded into the target (K4). But K9 is still a
-    # kinetic-group rep in the mechanism's type, so `_raw_param_symbols`
-    # emits it and the kernel keeps it in `indep`. Without this filter,
-    # `fitted_params` exposes K9 as fittable, the fitter explores an
-    # extra dummy dimension that doesn't affect the loss, and finite-
-    # restart convergence suffers (the same rate equation can land at
-    # noticeably different fitted losses depending on which absorbed
-    # symbol got the dummy slot).
+    # `_build_wegscheider_rename_map` adds entries like `K_P_E => K_S_E`
+    # when a Wegscheider tie collapses two binding-K group reps to the
+    # same name. After the merge, the absorbed symbol doesn't appear in
+    # the v polynomial — its column has been folded into the target.
+    # But the absorbed symbol is still a kinetic-group rep in the
+    # mechanism, so `_raw_param_symbols` emits it and the kernel keeps it
+    # in `indep`. Without this filter, `fitted_params` exposes a fittable
+    # dummy dimension that doesn't affect the loss, and finite-restart
+    # convergence suffers (the same rate equation can land at noticeably
+    # different fitted losses depending on which absorbed symbol got
+    # the dummy slot).
     indep = Tuple(p for p in indep if get(rename, p, p) == p)
     return dep_exprs, indep
 end
