@@ -1778,39 +1778,17 @@ _regulatory_site_canonical_key(site::RegulatorySite) =
      multiplicity(site),
      Tuple(allo_states(site)))
 
-function dedup!(cache::Dict{Int, Vector{Mechanism}})
-    for (pc, mechs) in cache
-        for m in mechs
-            _canonicalize_mechanism!(m)
-        end
-        unique!(mechs)
-        isempty(mechs) && delete!(cache, pc)
-    end
-    cache
-end
-
-function dedup!(cache::Dict{Int, Vector{AllostericMechanism}})
-    for (pc, mechs) in cache
-        for m in mechs
-            _canonicalize_mechanism!(m)
-        end
-        unique!(mechs)
-        isempty(mechs) && delete!(cache, pc)
-    end
-    cache
-end
-
 """
-    dedup!(cache::Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}})
+    dedup!(cache::Dict{Int, <:Vector})
 
-Heterogeneous-bucket dedup for the `identify_rate_equation` pipeline,
-which stores allosteric promotions alongside non-allosteric mechanisms
-in the same param-count bucket. Canonicalizes each mechanism in place
-via the type-specific `_canonicalize_mechanism!` overload, then runs
-`unique!` so structurally-equivalent mechanisms collapse.
+Canonicalize each mechanism in place via the type-specific
+`_canonicalize_mechanism!` overload, then run `unique!` so
+structurally-equivalent mechanisms collapse. Works for any element
+type — `Mechanism`, `AllostericMechanism`, or
+`Union{Mechanism, AllostericMechanism}` — because
+`_canonicalize_mechanism!` dispatches at runtime.
 """
-function dedup!(cache::Dict{Int,
-                            Vector{Union{Mechanism, AllostericMechanism}}})
+function dedup!(cache::Dict{Int, <:Vector})
     for (pc, mechs) in cache
         for m in mechs
             _canonicalize_mechanism!(m)
