@@ -156,10 +156,8 @@ end
 """
 Per-step side breakdown for the rate equation derivation. Returns
 `(from_species_sym, to_species_sym, m_lhs_syms, m_rhs_syms)` for the step
-at flat source position `src_idx`. The metabolite-side info (which side
-of the SOURCE tuple carried the metabolite) is read from the original
-reactions tuple — under Option D the Step itself does not carry that
-info because both `bound` lists are empty.
+at flat position `idx`. Direction comes from `rxns` (built from the Step's
+canonical storage), so LHS/from is the binding/physical-forward side.
 """
 function _step_sides(rxns, src_idx::Int, enz_set)
     lhs, rhs, _, _ = rxns[src_idx]
