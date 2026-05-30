@@ -152,10 +152,48 @@ end
 
 """
 Per-step side breakdown for the rate equation derivation. Returns
-`(from_species_sym, to_species_sym, m_lhs_syms, m_rhs_syms)` for the step
-at flat position `idx`. Direction comes from `rxns` (built from the Step's
-canonical storage), so LHS/from is the binding/physical-forward side.
+`(from_species_sym, to_species_sym, m_lhs_syms, m_rhs_syms)` for a
+single `Step`. The metabolite-on-which-side projection mirrors what
+`_step_tuple_from_sig` (types.jl:1093-1116) emits at @generated time,
+but reads from Step fields directly. The five-branch logic is
+load-bearing — in particular, SS catalytic-release steps where the
+bound metabolite is a Product that doesn't appear in either bound
+list (the "SS dissociation rule" per the
+`project-ss-dissociation-reconstruction-rule` memory) put the
+metabolite on m_rhs, not m_lhs.
 """
+function _step_sides(s::Step)
+    e_lhs = name(from_species(s))
+    e_rhs = name(to_species(s))
+    is_iso(s) && return (e_lhs, e_rhs, Symbol[], Symbol[])
+    bm = bound_metabolite(s)
+    bm_name = name(bm)
+    from_bound_names = Set{Symbol}(name(m) for m in bound(from_species(s)))
+    to_bound_names = Set{Symbol}(name(m) for m in bound(to_species(s)))
+    if bm_name in to_bound_names
+        # Canonical binding: bound met on to_species → emit on m_lhs
+        return (e_lhs, e_rhs, Symbol[bm_name], Symbol[])
+    elseif bm_name in from_bound_names
+        # Reverse-canonical (defensive: ctor swap should have prevented this)
+        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
+    elseif !is_equilibrium(s) && bm isa Product &&
+           !(isempty(from_bound_names) && isempty(to_bound_names))
+        # SS dissociation rule: bound_metabolite is a Product released
+        # in an SS catalytic step; not in either bound list (because the
+        # Species canonicalization moved it). Emit on m_rhs to match
+        # _step_tuple_from_sig L1109-1113.
+        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
+    elseif length(from_bound_names) > length(to_bound_names)
+        # Bound-list-size fallback (mirrors _step_tuple_from_sig L1112)
+        return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
+    else
+        return (e_lhs, e_rhs, Symbol[bm_name], Symbol[])
+    end
+end
+
+# TEMPORARY shim for the rxns-based callers; deleted in Task 2.5 when
+# _raw_symbolic_rate_polys / _compute_alpha / _compute_numerator switch
+# to flat-Step iteration.
 function _step_sides(rxns, src_idx::Int, enz_set)
     lhs, rhs, _, _ = rxns[src_idx]
     e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
