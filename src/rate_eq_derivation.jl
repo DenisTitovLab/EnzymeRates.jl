@@ -122,18 +122,15 @@ directly, so Source-C duplicates (split kinetic groups that
 Wegscheider ties back together) collapse at hash time.
 """
 function _build_wegscheider_rename_map(M::Type{<:EnzymeMechanism})
-    m = M()
-    mech = Mechanism(m)
+    mech = Mechanism(M())
     rename = Dict{Symbol, Symbol}()
-    rxns = reactions(m)
-    eq = equilibrium_steps(m)
-    enz_set = Set(enzyme_forms(m))
     step_params = _step_parameters(mech)
-    # binding-K set: value-context rep name of each RE binding group.
+    # binding-K set: value-context rep name of each RE binding step. Walk
+    # Mechanism.steps directly — an RE step carrying a bound metabolite is
+    # a binding step; step_params is indexed in the same flat order.
     binding_set = Set{Symbol}()
-    for (idx, (lhs, _, _, _)) in enumerate(rxns)
-        eq[idx] || continue
-        any(s ∉ enz_set for s in lhs) || continue
+    for (idx, (s, _)) in enumerate(_flat_steps(mech))
+        is_equilibrium(s) && is_binding(s) || continue
         push!(binding_set, name(step_params[idx][1], mech))
     end
     # Pass 2: single-symbol Wegscheider RE ties between two binding K's.
