@@ -1024,11 +1024,10 @@ end
 
 # ─── Accessors ─────────────────────────────────────────────────
 #
-# Accessors on `EnzymeMechanism{Sig}` walk the `(reaction_sig,
-# steps_sig)` encoding produced by `_sig_of`. `Sig[1]` is the
-# EnzymeReaction encoding (reactants + regulators + mults), where
-# each reactant slot is `((kind::Symbol, name::Symbol), atoms_tuple)`;
-# `Sig[2]` is the per-step encoding.
+# Accessors on `EnzymeMechanism` lift to `Mechanism(em)` and walk the
+# concrete `reaction` / `steps` fields. Return shapes (tuples of
+# `Symbol`s, the `Matrix{Int}` stoichiometry, ranges) are the contract
+# consumed by the @generated rate-equation body builders.
 
 """Walk the steps of `Mechanism(em)` in flat order, yielding
 `(step::Step, kinetic_group::Int)` pairs."""
@@ -1044,33 +1043,21 @@ end
 
 
 """Return substrates as a tuple of `Symbol` names."""
-@generated function substrates(::EnzymeMechanism{Sig}) where {Sig}
-    names = Symbol[]
-    for entry in Sig[1][1]
-        kind, nm = entry[1]
-        kind === :Substrate && push!(names, nm)
-    end
-    return Tuple(names)
+function substrates(em::EnzymeMechanism)
+    m = Mechanism(em)
+    Tuple(name(s) for s in substrates(reaction(m)))
 end
 
 """Return products as a tuple of `Symbol` names."""
-@generated function products(::EnzymeMechanism{Sig}) where {Sig}
-    names = Symbol[]
-    for entry in Sig[1][1]
-        kind, nm = entry[1]
-        kind === :Product && push!(names, nm)
-    end
-    return Tuple(names)
+function products(em::EnzymeMechanism)
+    m = Mechanism(em)
+    Tuple(name(p) for p in products(reaction(m)))
 end
 
 """Return regulators as a tuple of `Symbol` names."""
-@generated function regulators(::EnzymeMechanism{Sig}) where {Sig}
-    names = Symbol[]
-    for entry in Sig[1][2]
-        _kind, nm = entry[1]
-        push!(names, nm)
-    end
-    return Tuple(names)
+function regulators(em::EnzymeMechanism)
+    m = Mechanism(em)
+    Tuple(name(regulator(rm)) for rm in regulators(reaction(m)))
 end
 
 """
@@ -1079,6 +1066,10 @@ end
 Return distinct metabolite names (substrates ∪ products ∪ regulators) as a tuple
 of `Symbol`s in declaration order, deduplicated.
 """
+# Kept `@generated` (unlike the other demoted accessors): `loss!` uses
+# `metabolites(m)` as a compile-time-constant tuple to build the
+# per-datapoint `NamedTuple{MetNames}` concs on the fitting hot path. A
+# runtime body would make that NamedTuple type-unstable and allocate.
 @generated function metabolites(::EnzymeMechanism{Sig}) where {Sig}
     # Substrates first (from reactants Substrate entries),
     # then products, then regulators.
@@ -1101,94 +1092,36 @@ of `Symbol`s in declaration order, deduplicated.
     return Tuple(names)
 end
 
-"""Synthesize the enzyme-form name from a Species sig
-`(bound_sigs, conformation, residual_sig)` — mirrors `name(::Species)`.
-Bound order matches `Species.bound`, which is sorted by name in the
-struct constructor and preserved by `_to_sig`."""
-function _species_name_from_sig(species_sig)
-    bound_sigs, conformation, residual_sig = species_sig
-    added_sig, sub_sig = residual_sig
-    has_res = !(isempty(added_sig) && isempty(sub_sig))
-    if isempty(bound_sigs) && !has_res
-        return conformation
-    end
-    head = String(conformation)
-    for b in bound_sigs
-        head *= b[1] === :CompetitiveInhibitor ?
-                String(b[2]) * "inh" : String(b[2])
-    end
-    parts = String[head]
-    if has_res
-        push!(parts, "res")
-        for a in added_sig
-            push!(parts, "+" * String(a[2]))
-        end
-        for r in sub_sig
-            push!(parts, "-" * String(r[2]))
-        end
-    end
-    Symbol(join(parts, "_"))
-end
-
-"""Build a (lhs, rhs, is_eq, g) tuple from a Sig step at @generated time.
-The bound metabolite's side is set by its bound-list membership: present in
-the to-species' bound list ⇒ it binds (lhs); present in the from-species'
-list ⇒ it releases (rhs). When it is in neither list, an **SS** step on a
-**decomposed** form (at least one side has a non-empty bound list) carrying a
-product is a fused catalytic release — the product is produced by the step
-(dissociation, rhs), since a retained metabolite would appear in a bound list.
-Opaque forms (both bound lists empty — RE steps, or SS steps from RE→SS
-enumeration moves) are canonicalized metabolite-on-binding-side, so they bind
-via the bound-list-size heuristic; the non-empty-bounds guard keeps the
-dissociation rule from mis-releasing those."""
-function _step_tuple_from_sig(step_sig, g::Int)
-    from_sig, to_sig, met_sig, is_eq = step_sig
-    e_from = _species_name_from_sig(from_sig)
-    e_to   = _species_name_from_sig(to_sig)
-    if met_sig === nothing
-        return ((e_from,), (e_to,), is_eq, g)
-    end
-    met_name = met_sig[2]
-    from_bound = from_sig[1]
-    to_bound   = to_sig[1]
-    bound_in_to   = any(b -> b == met_sig, to_bound)
-    bound_in_from = any(b -> b == met_sig, from_bound)
-    if bound_in_to
-        return ((e_from, met_name), (e_to,), is_eq, g)
-    elseif bound_in_from
-        return ((e_from,), (e_to, met_name), is_eq, g)
-    elseif !is_eq && met_sig[1] === :Product &&
-           !(isempty(from_bound) && isempty(to_bound))
-        return ((e_from,), (e_to, met_name), is_eq, g)
-    elseif length(from_bound) > length(to_bound)
-        return ((e_from,), (e_to, met_name), is_eq, g)
-    end
-    ((e_from, met_name), (e_to,), is_eq, g)
-end
-
-"""Return the reactions tuple `((lhs, rhs, is_eq, kinetic_group), ...)`."""
-@generated function reactions(::EnzymeMechanism{Sig}) where {Sig}
+"""Return the reactions tuple `((lhs, rhs, is_eq, kinetic_group), ...)`.
+Each step's metabolite is projected onto the binding (lhs) or release (rhs)
+side via `_step_sides`, the canonical Step-based side projection."""
+function reactions(em::EnzymeMechanism)
+    m = Mechanism(em)
     tuples = Any[]
-    for (g, group) in enumerate(Sig[2])
-        for step_sig in group
-            push!(tuples, _step_tuple_from_sig(step_sig, g))
+    for (g, group) in enumerate(steps(m))
+        for s in group
+            e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(s)
+            push!(tuples,
+                  ((e_lhs, m_lhs...), (e_rhs, m_rhs...), is_equilibrium(s), g))
         end
     end
     return Tuple(tuples)
 end
 
 """Return the equilibrium-step flags (`true` = rapid-equilibrium, `false` = steady-state)."""
-@generated function equilibrium_steps(::EnzymeMechanism{Sig}) where {Sig}
-    return Tuple(step[4] for group in Sig[2] for step in group)
+function equilibrium_steps(em::EnzymeMechanism)
+    m = Mechanism(em)
+    Tuple(is_equilibrium(s) for group in steps(m) for s in group)
 end
 
 """Number of steps in the mechanism."""
-function n_steps(::EnzymeMechanism{Sig}) where {Sig}
-    sum(length(group) for group in Sig[2]; init=0)
+function n_steps(em::EnzymeMechanism)
+    m = Mechanism(em)
+    sum(length, steps(m); init=0)
 end
 
 """Kinetic group of step `idx`."""
-function kinetic_group(em::EnzymeMechanism{Sig}, idx::Int) where {Sig}
+function kinetic_group(em::EnzymeMechanism, idx::Int)
     flat = _flat_steps(Mechanism(em))
     1 ≤ idx ≤ length(flat) ||
         error("kinetic_group: step index $idx out of range 1:$(length(flat))")
@@ -1196,25 +1129,17 @@ function kinetic_group(em::EnzymeMechanism{Sig}, idx::Int) where {Sig}
 end
 
 """Sorted tuple of distinct kinetic group ids."""
-@generated function kinetic_groups(::EnzymeMechanism{Sig}) where {Sig}
-    return Tuple(1:length(Sig[2]))
+function kinetic_groups(em::EnzymeMechanism)
+    m = Mechanism(em)
+    Tuple(1:length(steps(m)))
 end
 
-"""Indices of steps belonging to kinetic group `G`."""
-@generated function steps_in_group(
-    ::EnzymeMechanism{Sig}, ::Val{G},
-) where {Sig, G}
-    idxs = Int[]
-    flat = 0
-    for (g, group) in enumerate(Sig[2])
-        for _ in group
-            flat += 1
-            g == G && push!(idxs, flat)
-        end
-    end
-    return Tuple(idxs)
+"""Indices of steps belonging to kinetic group `g`."""
+function steps_in_group(em::EnzymeMechanism, g::Int)
+    flat = _flat_steps(Mechanism(em))
+    Tuple(i for (i, (_, gid)) in enumerate(flat) if gid == g)
 end
-steps_in_group(m::EnzymeMechanism, g::Int) = steps_in_group(m, Val(g))
+steps_in_group(em::EnzymeMechanism, ::Val{G}) where {G} = steps_in_group(em, G)
 
 """
     enzyme_forms(m::EnzymeMechanism) → Tuple{Symbol,...}
@@ -1222,27 +1147,19 @@ steps_in_group(m::EnzymeMechanism, g::Int) = steps_in_group(m, Val(g))
 Return distinct enzyme-form names (any symbol appearing in a step that is not a
 metabolite) as a tuple of `Symbol`s in step-order, deduplicated.
 """
-@generated function enzyme_forms(::EnzymeMechanism{Sig}) where {Sig}
+function enzyme_forms(em::EnzymeMechanism)
     # Collect metabolite names so a Species whose synthesized name
     # coincidentally matches a metabolite (e.g., bare `:S` conformation)
     # is excluded.
-    met_names = Set{Symbol}()
-    for entry in Sig[1][1]
-        push!(met_names, entry[1][2])
-    end
-    for entry in Sig[1][2]
-        push!(met_names, entry[1][2])
-    end
+    m = Mechanism(em)
+    met_names = Set(metabolites(em))
     seen = Set{Symbol}()
     forms = Symbol[]
-    for group in Sig[2]
-        for step_sig in group
-            from_sig, to_sig, _, _ = step_sig
-            for sp_sig in (from_sig, to_sig)
-                nm = _species_name_from_sig(sp_sig)
-                nm ∉ met_names && nm ∉ seen &&
-                    (push!(seen, nm); push!(forms, nm))
-            end
+    for group in steps(m), s in group
+        for sp in (from_species(s), to_species(s))
+            nm = name(sp)
+            nm ∉ met_names && nm ∉ seen &&
+                (push!(seen, nm); push!(forms, nm))
         end
     end
     return Tuple(forms)
@@ -1262,12 +1179,9 @@ Positive = produced; negative = consumed in the forward direction.
 Enzyme-row columns sum to zero by construction (each step has one
 enzyme on each side).
 """
-@generated function stoich_matrix(::EnzymeMechanism{Sig}) where {Sig}
-    # Walk via the accessors at body-build time and
-    # constant-fold the resulting matrix into the generated body.
-    em_inst = EnzymeMechanism{Sig}()
-    Rxns = reactions(em_inst)
-    species = (enzyme_forms(em_inst)..., metabolites(em_inst)...)
+function stoich_matrix(em::EnzymeMechanism)
+    Rxns = reactions(em)
+    species = (enzyme_forms(em)..., metabolites(em)...)
     sp_idx = Dict(s => i for (i, s) in enumerate(species))
     S = zeros(Int, length(species), length(Rxns))
     for (j, (lhs, rhs, _, _)) in enumerate(Rxns)

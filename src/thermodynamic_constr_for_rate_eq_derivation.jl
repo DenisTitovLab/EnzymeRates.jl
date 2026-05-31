@@ -163,8 +163,8 @@ function _thermodynamic_constraints(mech::Mechanism)
     # the metabolite-row walk of stoich_matrix(em): a metabolite gets its
     # stoichiometry solely from the canonical reaction tuple — m_lhs
     # contributes -1 (consumed from the free pool), m_rhs contributes +1
-    # (produced). `_step_sides(s)` reconstructs that projection from Step
-    # fields (mirroring _step_tuple_from_sig's branch logic).
+    # (produced). `_step_sides(s)` computes that projection from Step
+    # fields (the canonical metabolite-on-which-side branch logic).
     #
     # Iso steps carry no metabolite in their reaction tuple — their bound
     # content is encoded in the enzyme-form identity, not in the free

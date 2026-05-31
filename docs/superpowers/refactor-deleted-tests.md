@@ -385,3 +385,24 @@ contract.
 - **Why changed**: the `EnzymeMechanism(::Mechanism)` lift renumbers `source_idx` group-major, so rep-step naming follows kinetic-group sizes. `ldh_m_a` and `ldh_m_b` are graph-distinct but v-equivalent (same canonical hash) with different group-size sequences, so they expose different raw param symbols (`:K3` vs `:K4`). Raw-tuple equality was an artifact of the old representation, not the fit-reuse contract.
 - **Replacement (stronger-aligned, not weaker)**: asserts the property fit reuse actually relies on — `_project_cached_params` maps params across hash-equivalent mechanisms through the canonical `name_map`, so the test now asserts both mechanisms' fitted params map to the same multiset of canonical tokens. The two hash assertions (`==` for the equivalent pair, `!=` for the `ldh_m_c` negative control) are unchanged.
 - **Note**: the underlying group-major-vs-source-order rep-naming tension lives in the canonical-hash / fit-reuse machinery, deferred to the derivation-back-end-unification phase.
+
+## Concrete-types refactor — F-007 accessor demotion — commit TBD
+
+### test_accessors.jl `@testset "Accessor performance"`
+- **Removed**: the 0-allocation / sub-100ns perf gate over the 14
+  `@generated` accessors (`substrates`/`products`/`regulators`/
+  `enzyme_forms`/`reactions`/`n_states`/`n_steps`/`parameters`/
+  `metabolites`/`stoich_matrix`/`equilibrium_steps`) plus its
+  `best_ns_per_call` helper. (1 outer + 11 nested @testsets.)
+- **Why**: per Q-005 (2026-05-30 audit) none of these accessors are on
+  rate_equation's runtime hot path — they were @generated, so 0-alloc
+  was an implementation artifact. F-007 demotes them to plain functions
+  that lift to Mechanism(em) (which allocates), so the perf gate no
+  longer holds and never tested a user-facing contract.
+- **Replacement / preserved coverage**: NONE NEEDED for perf — the only
+  user-facing perf contract is `test_rate_equation_performance` in
+  test/test_rate_eq_derivation.jl (0-alloc/<100ns for rate_equation),
+  which is preserved and unchanged. Accessor CORRECTNESS remains covered
+  by the surviving `@testset "parameters API symmetry"` and
+  `@testset "added field accessors: cat_allo_states"` in this same file,
+  plus every functional test that consumes the accessors.

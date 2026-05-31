@@ -153,12 +153,13 @@ end
 """
 Per-step side breakdown for the rate equation derivation. Returns
 `(from_species_sym, to_species_sym, m_lhs_syms, m_rhs_syms)` for a
-single `Step`. The metabolite-on-which-side projection mirrors what
-`_step_tuple_from_sig` (types.jl:1093-1116) emits at @generated time,
-but reads from Step fields directly. The five-branch logic is
-load-bearing — in particular, SS catalytic-release steps where the
-bound metabolite is a Product that doesn't appear in either bound
-list (the "SS dissociation rule" per the
+single `Step`. This is the canonical metabolite-on-which-side
+projection: it reads Step fields directly, placing the bound
+metabolite on the binding (m_lhs) or release (m_rhs) side from the
+canonical metabolite-on-`to_species` placement plus the SS-dissociation
+rule. The five-branch logic is load-bearing — in particular, SS
+catalytic-release steps where the bound metabolite is a Product that
+doesn't appear in either bound list (the "SS dissociation rule" per the
 `project-ss-dissociation-reconstruction-rule` memory) put the
 metabolite on m_rhs, not m_lhs.
 """
@@ -180,11 +181,11 @@ function _step_sides(s::Step)
            !(isempty(from_bound_names) && isempty(to_bound_names))
         # SS dissociation rule: bound_metabolite is a Product released
         # in an SS catalytic step; not in either bound list (because the
-        # Species canonicalization moved it). Emit on m_rhs to match
-        # _step_tuple_from_sig L1109-1113.
+        # Species canonicalization moved it). Emit on m_rhs.
         return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
     elseif length(from_bound_names) > length(to_bound_names)
-        # Bound-list-size fallback (mirrors _step_tuple_from_sig L1112)
+        # Bound-list-size fallback: the side with fewer bound metabolites
+        # is the release side, so the metabolite goes on m_rhs.
         return (e_lhs, e_rhs, Symbol[], Symbol[bm_name])
     else
         return (e_lhs, e_rhs, Symbol[bm_name], Symbol[])
