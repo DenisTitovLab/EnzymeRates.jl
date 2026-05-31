@@ -897,3 +897,54 @@ The audit's deliverable is the honest measured number. If Denis wants to push hi
 - Should we accept reduced test coverage on private helpers to land Cluster C / F-043 with less ceremony?
 - Should we adopt F-014's Approach C (aggressive parser-tighten with Call-head constraint change)?
 - Should the `@generated`-driven derivation itself be reconsidered (different refactor — out of this audit's scope)?
+
+---
+
+## Implementation outcome — 2026-05-30
+
+Implemented in waves on branch `refactor-to-concrete-types-instead-of-symbols`.
+This section records what *actually* happened, including where the plan was
+wrong and where scope was deliberately changed after discussion with Denis.
+
+### Goal, as clarified mid-implementation
+Denis confirmed the goal is **simplify the code + remove redundancy**, NOT
+delete the `@generated` machinery (which "works great" and stays) and NOT the
+`Sig`/singleton apparatus (F-002, see below). The deliverable is dead-code /
+redundancy removal and finishing the struct-native migration cleanly.
+
+### LOC outcome (honest)
+Non-comment-non-doc src: **5,706 → 5,570 (−136 LOC, ~2.4%)**; total src
+8,456 → 8,397. This is far below the plan's optimistic ~660-LOC estimate. The
+per-wave estimates ran ~3–5× high throughout; most "merges" traded duplicate
+code for one body + new docstrings, and the largest line items (F-002, the
+Sig bridge) were never in scope. The real value delivered is *structural*: the
+rate-equation derivation back-end no longer touches the opaque `reactions()`
+tuple path at all, and a batch of genuinely-dead code is gone.
+
+### What landed
+- **Wave 1** (8 commits): stale stage/phase comment trims, `_build_kinetic_rename_map`→`_build_wegscheider_rename_map`, factor `_a_only_syms`/`_a_to_i_rename`, inline `_canonical_rate_eq_hash_data`, merge 3 `dedup!`/2 `_canonicalize_for_hash`/6 `_parameter_canonical_key` methods, inline `_assert_no_opaque_terms`.
+- **Wave 2** (6 commits): the entire rate-equation derivation back-end now walks `Mechanism.steps` via `_step_sides` — `_raw_symbolic_rate_polys`, `_compute_alpha`, `_compute_numerator`, `_thermodynamic_constraints`, `_dependent_param_exprs_kernel`, `_free_enz_set`, plus `_emit_cat_params_for_rep` extraction. The opaque `rxns` shuffle is gone from derivation.
+- **Wave 3 (partial)** (9 commits): `_with_*` builder helpers; collapsed the expansion-move dual dispatches; demoted 13 of 14 `@generated` accessors to plain functions and deleted `_species_name_from_sig`/`_step_tuple_from_sig`; added `Mechanism`/`AllostericMechanism` convenience methods to the rate-eq API + `FittingProblem`; consolidated the `AllostericEnzymeMechanism` forwarder block via `@eval`; doc clarifications.
+- **Completeness sweep** (2 commits, beyond the plan's tasks): deleted genuinely-dead code the per-finding tasks left behind — `competitive_inhibitors(::AllostericMechanism)`, `catalytic_inhibitors`, `regulatory_site_ligands`/`regulatory_site_multiplicity`, the `stoich_matrix`/`enzyme_row_range`/`metabolite_row_range` family (last opaque-tuple rebuilder outside display, 0 src callers), and the orphaned `_split_reaction_side`; migrated `_build_wegscheider_rename_map` off `reactions()`. After this, **`reactions()` is used only by display code + test oracles** — the opaque path is gone from all production derivation.
+- **Wave 4** (1 commit so far): converted ~23 function-leading `#`-comments to docstrings (dsl.jl, sym_poly).
+
+### Deliberate scope changes / deviations (discussed with Denis)
+- **F-002 (delete Sig bridge): DEFERRED — infeasible.** `EnzymeMechanism{Sig}` is the per-mechanism specialization key for the `@generated rate_equation` body that delivers the 0-alloc/<100 ns invariant. Deleting `Sig` means deriving at runtime (allocations). Out of scope, and Denis confirmed `@generated` stays.
+- **F-055 (delete `compile_mechanism`): NO CHANGE** — kept as the explicit hot-path lift.
+- **Tasks 3.10 / 3.11 (flip `@enzyme_mechanism` to return bare `Mechanism`; subtype under `AbstractEnzymeMechanism`; delete the 4 `compile_mechanism` lifts): NOT DONE — skipped after discussion.** They net ~10 LOC, don't remove redundancy, change a public-API return type, and introduce a per-call-allocation footgun (`Mechanism` becomes the default but the hot path needs the singleton). The macros still return the compiled `EnzymeMechanism` (hot-path-ready); the concrete `Mechanism` is used throughout enumeration and reachable via the convenience methods.
+- **Q-005 was WRONG for two accessors.** `metabolites` and `fitted_params` are on the *fitting* hot path (`loss!` uses them as compile-time-constant `NamedTuple` type parameters); demoting them allocates (caught by `test_fitting`). Both were **kept `@generated`** — only the other accessors demoted.
+- **F-053, F-054, F-058, F-062: skipped** (low value / deferred per the plan's out-of-scope list).
+- **Cluster F: REMAINS DEFERRED** (needs the direction-symmetry refactor).
+- **F-014 Approach C: not taken** (Approach B sufficed).
+- **Task 3.14 (`show` walks Step fields): skipped** — its only payoff was deleting `reactions()`, which is kept (test oracles use it as an independent representation); the plan's `show` code also had a metabolite-placement bug. `show` continues to use `reactions()` (a legitimate kept accessor).
+
+### Plan bugs found and fixed during implementation
+The plan was unreliable in the derivation area — five latent bugs were caught by verification and corrected:
+1. Task 2.3: the plan's `_step_sides` rxns-shim wasn't byte-identical to the old body.
+2. Task 2.6: the plan's "BLOCKING bug #3" guidance was itself wrong — it told the implementer to add a `from_bound`/`to_bound` diff for iso steps, which double-counts metabolites → `1/Keq²` instead of `1/Keq` (33 test failures). Iso steps contribute **zero** metabolite stoich (matching the old `stoich_matrix` reaction-tuple walk).
+3. Task 3.5: the plan's `reactions()` rewrite placed the bound metabolite on the lhs unconditionally (would corrupt SS product-release stoich); rebuilt on `_step_sides`.
+4. Task 3.6: JET caught that `FittingProblem` also needed a `Mechanism` method.
+5. Task 3.14: the plan's `show` code dropped metabolites on SS steps (skipped anyway, see above).
+
+### Verification
+Full suite green throughout (0 fail / 0 error; the 1 `@test_broken` is pre-existing on the branch). `rate_equation` 0-alloc/<100 ns perf gate green at every commit. `scripts/check_test_integrity.sh` Check 1 (file deletion) and Check 2 (`@testset` count, HEAD 288 ≥ adjusted base 226) pass; Check 3 (`@test_broken` vs main) is a pre-existing branch condition unrelated to this work.
