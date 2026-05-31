@@ -226,6 +226,14 @@ struct ReactantAtoms
     atoms::Vector{Pair{Symbol,Int}}
     function ReactantAtoms(metabolite::Reactant,
                            atoms::Vector{<:Pair{Symbol,<:Integer}})
+        isempty(atoms) && error(
+            "ReactantAtoms: $(name(metabolite)) has no declared atoms; atoms " *
+            "are mandatory (use `[C…]` bracket syntax in @enzyme_reaction).")
+        for (elem, count) in atoms
+            (count isa Bool || count ≤ 0) &&
+                error("ReactantAtoms: $(name(metabolite)) atom count for " *
+                      "element $elem must be a positive integer, got $count.")
+        end
         new(metabolite, sort(Vector{Pair{Symbol,Int}}(atoms); by=first))
     end
 end

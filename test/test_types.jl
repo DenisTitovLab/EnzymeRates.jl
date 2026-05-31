@@ -807,6 +807,24 @@
         @test ra1 != ra_p
     end
 
+    @testset "ReactantAtoms validation" begin
+        # Mandatory atoms: empty atom list is rejected.
+        @test_throws ErrorException EnzymeRates.ReactantAtoms(
+            EnzymeRates.Substrate(:S), Pair{Symbol,Int}[])
+        # Positive counts: zero / negative rejected.
+        @test_throws ErrorException EnzymeRates.ReactantAtoms(
+            EnzymeRates.Substrate(:S), [:C => 0])
+        @test_throws ErrorException EnzymeRates.ReactantAtoms(
+            EnzymeRates.Substrate(:S), [:C => -1])
+        # Bool is not a valid count. Use untyped vector so Bool survives to
+        # the constructor (Pair{Symbol,Int}[:C => true] would convert true→1).
+        @test_throws ErrorException EnzymeRates.ReactantAtoms(
+            EnzymeRates.Substrate(:S), [:C => true])
+        # Valid construction still works.
+        ra = EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 6, :H => 12])
+        @test EnzymeRates.atoms(ra) == [:C => 6, :H => 12]
+    end
+
     @testset "RegulatorMults canonicalizes ordering + validates" begin
         rm1 = EnzymeRates.RegulatorMults(
             EnzymeRates.AllostericRegulator(:A), [4, 1, 2])
