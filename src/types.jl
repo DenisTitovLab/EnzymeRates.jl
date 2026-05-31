@@ -703,8 +703,11 @@ EnzymeMechanism(m::Mechanism) =
 # A regulator declared on the reaction that no step actually binds does
 # not belong in the compiled catalytic mechanism's `regulators` list
 # (e.g. a dead-end inhibitor before any expansion move binds it). Drop
-# such regulators so they neither show up in `regulators(em)` nor get a
-# parameter. Substrates/products are never dropped.
+# such regulators at the `compile_mechanism` boundary so they neither
+# show up in `regulators(em)` nor get a parameter; substrates/products
+# are never dropped. `Mechanism` (the working representation used during
+# enumeration) intentionally KEEPS unbound regulators — expansion moves
+# bind them later.
 function _drop_unbound_regulators(m::Mechanism)
     bound_names = Set{Symbol}()
     for group in steps(m), s in group
