@@ -403,6 +403,14 @@ Base.:(==)(a::Mechanism, b::Mechanism) =
 Base.hash(m::Mechanism, h::UInt) =
     hash(m.steps, hash(m.reaction, hash(:Mechanism, h)))
 
+"""
+Return a new Mechanism with `new_steps` but the same reaction. Used by
+expansion moves to swap step structure while preserving the rest of
+the mechanism's shape.
+"""
+_with_steps(m::Mechanism, new_steps::Vector{Vector{Step}}) =
+    Mechanism(reaction(m), new_steps)
+
 # §5.8 — AllostericMechanism: a multi-subunit MWC enzyme. Each catalytic
 # kinetic group carries an allosteric-state tag (`:OnlyA`, `:EqualAI`, or
 # `:NonequalAI` — `:OnlyI` is rejected by the active-state convention).
@@ -496,6 +504,49 @@ Base.hash(m::AllostericMechanism, h::UInt) =
                    hash(m.cat_steps,
                         hash(m.reaction,
                              hash(:AllostericMechanism, h))))))
+
+"""
+Return a new AllostericMechanism with `new_steps` but otherwise
+identical fields.
+"""
+_with_steps(am::AllostericMechanism, new_steps::Vector{Vector{Step}}) =
+    AllostericMechanism(reaction(am), new_steps,
+                        copy(cat_allo_states(am)),
+                        catalytic_multiplicity(am),
+                        copy(regulatory_sites(am)))
+
+"""
+Return a new AllostericMechanism with `new_cat_allo_states` but
+otherwise identical fields.
+"""
+_with_cat_allo_states(am::AllostericMechanism, new_cat_allo_states::Vector{Symbol}) =
+    AllostericMechanism(reaction(am), copy(steps(am)),
+                        new_cat_allo_states,
+                        catalytic_multiplicity(am),
+                        copy(regulatory_sites(am)))
+
+"""
+Return a new AllostericMechanism with `new_reg_sites` but otherwise
+identical fields.
+"""
+_with_reg_sites(am::AllostericMechanism, new_reg_sites::Vector{RegulatorySite}) =
+    AllostericMechanism(reaction(am), copy(steps(am)),
+                        copy(cat_allo_states(am)),
+                        catalytic_multiplicity(am),
+                        new_reg_sites)
+
+"""
+Return a new AllostericMechanism with both new_steps AND new_cat_allo_states.
+Useful for expansion moves that split a kinetic group (which adds a
+state for the new group).
+"""
+_with_steps_and_cat_states(am::AllostericMechanism,
+                            new_steps::Vector{Vector{Step}},
+                            new_cat_allo_states::Vector{Symbol}) =
+    AllostericMechanism(reaction(am), new_steps,
+                        new_cat_allo_states,
+                        catalytic_multiplicity(am),
+                        copy(regulatory_sites(am)))
 
 # ─── Mechanism ↔ Sig (parametric ↔ non-parametric) conversion ──
 #
