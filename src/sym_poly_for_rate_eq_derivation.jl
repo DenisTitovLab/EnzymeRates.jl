@@ -1,5 +1,5 @@
-# Lightweight symbolic polynomial type for compile-time rate equation derivation.
-# All computation happens on POLY values. Conversion to Expr happens once at the end.
+# ABOUTME: Lightweight symbolic polynomial type (POLY = Dict{MONO, Rational{Int}})
+# ABOUTME: for compile-time rate equation derivation.
 
 # Maximum raw polynomial terms allowed in a rate equation.
 # Equations exceeding this limit would take too long to compile
@@ -50,9 +50,11 @@ function _poly_div_mono(p::POLY, divisor::POLY)::POLY
     POLY(_mono_div(k, m) => v for (k, v) in p)
 end
 
-# Cofactor determinant expansion for symbolic matrices.
-# Checks intermediate term count against MAX_RATE_EQUATION_TERMS to
-# abort early for mechanisms whose rate equations would be too large.
+"""
+Cofactor determinant expansion for symbolic matrices. Checks
+intermediate term count against `MAX_RATE_EQUATION_TERMS` to abort
+early for mechanisms whose rate equations would be too large.
+"""
 function sym_det(M::Matrix{POLY}, n::Int)
     n == 0 && return poly_one()
     n == 1 && return M[1,1]
@@ -81,7 +83,7 @@ function sym_det(M::Matrix{POLY}, n::Int)
     result
 end
 
-# Convert POLY to a Julia Expr for @generated function bodies (bare symbols).
+"""Convert `POLY` to a Julia `Expr` for `@generated` function bodies (bare symbols)."""
 function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol})
     isempty(p) && return 0
     pos, neg = Any[], Any[]
@@ -234,7 +236,7 @@ function _expr_references_any(expr, syms::Set{Symbol})
     false
 end
 
-# Substitute symbols in an Expr tree (bare symbol matching)
+"""Substitute symbols in an `Expr` tree (bare symbol matching)."""
 function substitute_params_expr(expr, subs::AbstractDict)
     if expr isa Symbol
         get(subs, expr, expr)

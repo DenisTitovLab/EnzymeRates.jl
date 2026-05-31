@@ -729,27 +729,11 @@ Mechanism(em::EnzymeMechanism{Sig}) where {Sig} = _mechanism_from_sig(Sig)
 """
     AllostericEnzymeMechanism{CatalyticMech, CatSites, RegSites}
 
-Multi-subunit MWC allosteric enzyme. `CatalyticMech` is an
-`EnzymeMechanism` describing one catalytic subunit's cycle.
-
-# Type parameters
-- `CatSites`: `(multiplicity::Int, cat_allo_states::Tuple{Symbol...})`.
-  `cat_allo_states[g]` is the allosteric state of catalytic kinetic
-  group `g` (1-indexed, dense — every group must have an entry).
-  Allowed values: `:EqualAI`, `:NonequalAI`, `:OnlyA`. `:OnlyI`
-  catalytic groups error during construction (active-state
-  convention).
-- `RegSites`: tuple of regulator-site entries
-  `(ligands::Tuple{Symbol...}, multiplicity::Int,
-   reg_allo_states::Tuple{Symbol...})` where `reg_allo_states` is
-  parallel to `ligands`. Allowed values: all four states
-  (`:EqualAI`, `:NonequalAI`, `:OnlyA`, `:OnlyI`).
-
-Constructor validates:
-- Catalytic state count matches kinetic-group count.
-- Regulator state tuple length matches ligand tuple length at each site.
-- No catalytic group has `:OnlyI` state.
-- At least one ligand at each reg site is non-`:EqualAI`.
+Internal singleton type used by `@generated rate_equation` for
+allosteric MWC enzymes. User code constructs and inspects via
+`AllostericMechanism`; `compile_mechanism(am)` produces this opaque
+fast-path handle. The three type parameters encode the catalytic
+mechanism plus per-site allosteric data.
 """
 # The three type parameters cannot be folded into a single value-tuple `Sig`
 # (as EnzymeMechanism{Sig} does): the first slot is a DataType (an

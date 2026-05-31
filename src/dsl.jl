@@ -33,15 +33,6 @@ macro enzyme_reaction(block)
     )))
 end
 
-# Parse the @enzyme_reaction body. Returns a NamedTuple:
-#   subs  ::Vector{Tuple{Symbol, Expr}}  — (name, atoms-tuple-Expr)
-#   prods ::Vector{Tuple{Symbol, Expr}}
-#   regs  ::Vector{Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}}}
-#                                         — (name, kind, mults) where
-#                                           kind ∈ (:competitive, :allosteric)
-#                                           and mults is nothing if omitted.
-#   mults ::Union{Nothing, Vector{Int}}   — allowed catalytic multiplicities;
-#                                           nothing → default (1,).
 const _VALID_REACTION_LABELS = Set([
     :substrates, :products,
     :dead_end_inhibitors, :competitive_inhibitors,
@@ -49,6 +40,16 @@ const _VALID_REACTION_LABELS = Set([
     :allowed_catalytic_multiplicities, :oligomeric_state,
 ])
 
+"""
+Parse the `@enzyme_reaction` body. Returns a `NamedTuple`:
+- `subs  ::Vector{Tuple{Symbol, Expr}}` — `(name, atoms-tuple-Expr)`
+- `prods ::Vector{Tuple{Symbol, Expr}}`
+- `regs  ::Vector{Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}}}` —
+  `(name, kind, mults)` where `kind ∈ (:competitive, :allosteric)` and
+  `mults` is `nothing` if omitted.
+- `mults ::Union{Nothing, Vector{Int}}` — allowed catalytic multiplicities;
+  `nothing` → default `(1,)`.
+"""
 function _parse_reaction_block(block)
     block isa Expr && block.head === :block ||
         error("@enzyme_reaction: expected a `begin ... end` block, got $block")
@@ -93,8 +94,10 @@ function _parse_reaction_block(block)
     (; subs, prods, regs, mults)
 end
 
-# Parse `S[C6H12O6]` / `B[N, P]` entries. Returns Vector{Tuple{Symbol, Expr}}
-# where the Expr is a tuple of `(elem, count)` pairs.
+"""
+Parse `S[C6H12O6]` / `B[N, P]` entries. Returns `Vector{Tuple{Symbol, Expr}}`
+where the `Expr` is a tuple of `(elem, count)` pairs.
+"""
 function _parse_atom_bracket_entries(values, label)
     out = Tuple{Symbol, Expr}[]
     for v in values
@@ -134,9 +137,11 @@ function _parse_chemical_formula(s::String)
     atoms
 end
 
-# Parse `R`, `R(1, 2)`, or `R(4)` entries. Bare `R` produces `nothing` mults
-# (filled by the macro from `allowed_catalytic_multiplicities` for competitive
-# entries; rejected at emit time for allosteric entries).
+"""
+Parse `R`, `R(1, 2)`, or `R(4)` entries. Bare `R` produces `nothing` mults
+(filled by the macro from `allowed_catalytic_multiplicities` for competitive
+entries; rejected at emit time for allosteric entries).
+"""
 function _parse_regulator_entries(values, kind::Symbol)
     out = Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}}[]
     for v in values
@@ -161,7 +166,7 @@ function _parse_regulator_entries(values, kind::Symbol)
     out
 end
 
-# Parse `(1, 2, 4)` or `4` into Vector{Int}.
+"""Parse `(1, 2, 4)` or `4` into `Vector{Int}`."""
 function _parse_multiplicity_tuple(values, label)
     length(values) == 1 ||
         error("@enzyme_reaction: `$label:` takes a single tuple, got $values.")
@@ -183,8 +188,10 @@ function _parse_multiplicity_tuple(values, label)
     error("@enzyme_reaction: `$label:` must be a tuple of positive Ints, got $v.")
 end
 
-# Build the reactants vector Expr: each entry is
-# `ReactantAtoms(<Substrate|Product>(:Name), [:elem => count, ...])`.
+"""
+Build the reactants vector `Expr`: each entry is
+`ReactantAtoms(<Substrate|Product>(:Name), [:elem => count, ...])`.
+"""
 function _build_reactants_expr(subs, prods)
     entries = Expr[]
     for (n, atoms) in subs
@@ -202,7 +209,7 @@ function _build_reactants_expr(subs, prods)
     :([$(entries...)])
 end
 
-# Convert a `(elem, count)` tuple Expr into a `[Symbol => Int, ...]` Vector Expr.
+"""Convert a `(elem, count)` tuple `Expr` into a `[Symbol => Int, ...]` `Vector` `Expr`."""
 function _atoms_pairs_expr(atoms::Expr)
     pairs = Expr[]
     for atom in atoms.args
@@ -214,10 +221,12 @@ function _atoms_pairs_expr(atoms::Expr)
     :(Pair{Symbol,Int}[$(pairs...)])
 end
 
-# Build the regulators vector Expr: each entry is
-# `RegulatorMults(<CompetitiveInhibitor|AllostericRegulator>(:Name), [m1, m2, ...])`.
-# Bare entries (mults === nothing) inherit `default_mults` (the parsed
-# `allowed_catalytic_multiplicities` or its default of `[1]`).
+"""
+Build the regulators vector `Expr`: each entry is
+`RegulatorMults(<CompetitiveInhibitor|AllostericRegulator>(:Name), [m1, m2, ...])`.
+Bare entries (`mults === nothing`) inherit `default_mults` (the parsed
+`allowed_catalytic_multiplicities` or its default of `[1]`).
+"""
 function _build_regulators_expr(regs, default_mults)
     entries = Expr[]
     default_mults_resolved = default_mults === nothing ? Int[1] : default_mults
@@ -243,8 +252,10 @@ function _build_catalytic_mults_expr(mults)
     :(Int[$(mults...)])
 end
 
-# Parse one step side into a Vector{_StepSideTerm}, preserving structural
-# info (Call-form decomposition, declared-metabolite role) for emission.
+"""
+Parse one step side into a `Vector{_StepSideTerm}`, preserving structural
+info (Call-form decomposition, declared-metabolite role) for emission.
+"""
 function _parse_step_side_terms(expr, declared_mets::Set{Symbol})
     if expr isa Expr && expr.head == :call && expr.args[1] == :+
         return _StepSideTerm[
@@ -254,7 +265,7 @@ function _parse_step_side_terms(expr, declared_mets::Set{Symbol})
     _StepSideTerm[_step_side_term_info(expr, declared_mets)]
 end
 
-# Build a `_StepSideTerm` for a single term on a step side.
+"""Build a `_StepSideTerm` for a single term on a step side."""
 function _step_side_term_info(expr, declared_mets::Set{Symbol})
     if expr isa Symbol
         return expr in declared_mets ?
@@ -279,9 +290,11 @@ function _step_side_term_info(expr, declared_mets::Set{Symbol})
     error("Expected metabolite Symbol or species expression on step side; got $expr")
 end
 
-# Build a `_StepSideTerm` for a Call-form species `E(S, ATP)` /
-# `Estar(B; residual = A - P)`, decomposing it into the conformation
-# label, bound metabolites (with roles), and residual atom deltas.
+"""
+Build a `_StepSideTerm` for a Call-form species `E(S, ATP)` /
+`Estar(B; residual = A - P)`, decomposing it into the conformation
+label, bound metabolites (with roles), and residual atom deltas.
+"""
 function _call_form_term_info(expr::Expr, declared_mets::Set{Symbol})
     conformation = expr.args[1]::Symbol
     conformation in declared_mets &&
@@ -338,18 +351,19 @@ function _call_form_term_info(expr::Expr, declared_mets::Set{Symbol})
                   added_syms, subtracted_syms, :default)
 end
 
-# Structural side-term record collected during step parsing. Carries the
-# decomposed-Species info needed to emit `Mechanism(...)` directly.
-#
-# `kind`:
-#   :metabolite   — bare Symbol matching a declared metabolite (`S`).
-#   :bare_enzyme  — bare Symbol enzyme-form name. Reclassified to
-#                   :conformation or :opaque after all steps parsed,
-#                   based on whether it appears as a Call-head elsewhere
-#                   or matches the single-cap-then-lower conformation
-#                   shape (`E`, `Estar`, `Eprime`).
-#   :call         — call-form `E(S)` / `Estar(B; residual=A-P)`. Always
-#                   decomposed-compatible; carries bound + residual data.
+"""
+Structural side-term record collected during step parsing. Carries the
+decomposed-Species info needed to emit `Mechanism(...)` directly.
+
+`kind`:
+- `:metabolite`  — bare `Symbol` matching a declared metabolite (`S`).
+- `:bare_enzyme` — bare `Symbol` enzyme-form name. Reclassified to
+  `:conformation` or `:opaque` after all steps parsed, based on whether
+  it appears as a Call-head elsewhere or matches the single-cap-then-lower
+  conformation shape (`E`, `Estar`, `Eprime`).
+- `:call`        — call-form `E(S)` / `Estar(B; residual=A-P)`. Always
+  decomposed-compatible; carries bound + residual data.
+"""
 struct _StepSideTerm
     sym::Symbol                          # metabolite/enzyme name, or :call conformation
     kind::Symbol
@@ -366,18 +380,22 @@ _term_metabolite(sym::Symbol, role::Symbol = :default) = _StepSideTerm(
 _term_bare_enzyme(sym::Symbol) = _StepSideTerm(
     sym, :bare_enzyme, sym, Symbol[], Symbol[], Symbol[], Symbol[], :default)
 
-# A bare Symbol is "conformation-shaped" iff it starts with a single
-# capital letter followed by any mix of lowercase letters, digits, and
-# underscore-separated lowercase/digit run: :E, :Estar, :Estar2, :E_c,
-# :E_secondary. Multi-capital Symbols (:ES, :EAB) and underscore-then-
-# uppercase Symbols (:E_S, :Estar_A_B) are opaque bound-form names —
-# rejected in favor of decomposed call notation.
+"""
+A bare `Symbol` is "conformation-shaped" iff it starts with a single
+capital letter followed by any mix of lowercase letters, digits, and
+underscore-separated lowercase/digit runs: `:E`, `:Estar`, `:Estar2`, `:E_c`,
+`:E_secondary`. Multi-capital `Symbol`s (`:ES`, `:EAB`) and underscore-then-
+uppercase `Symbol`s (`:E_S`, `:Estar_A_B`) are opaque bound-form names —
+rejected in favor of decomposed call notation.
+"""
 _is_conformation_shape(sym::Symbol) =
     occursin(r"^[A-Z][a-z0-9]*(_[a-z0-9]+)*$", String(sym))
 
 
-# Walk a residual arithmetic expression (`A`, `A - P`, `S1 + S2 - P1 - P3`, etc.)
-# and classify each metabolite Symbol as added (positive) or subtracted (negative).
+"""
+Walk a residual arithmetic expression (`A`, `A - P`, `S1 + S2 - P1 - P3`, etc.)
+and classify each metabolite `Symbol` as added (positive) or subtracted (negative).
+"""
 function _walk_residual_expr(e, sign_positive, added, subtracted, declared_mets)
     if e isa Symbol
         e in declared_mets ||
@@ -569,12 +587,14 @@ function _parse_plain_mechanism_body(block)
                                  role_of, side_terms_per_step)
 end
 
-# Build the `EnzymeMechanism(Mechanism(reaction, grouped_steps))` Expr
-# from the structural per-step records collected during parsing.
-#
-# Atoms for each declared metabolite default to `[:C => 1]` — a
-# placeholder. Real atom payloads live at the @enzyme_reaction
-# level, not @enzyme_mechanism.
+"""
+Build the `EnzymeMechanism(Mechanism(reaction, grouped_steps))` `Expr`
+from the structural per-step records collected during parsing.
+
+Atoms for each declared metabolite default to `[:C => 1]` — a
+placeholder. Real atom payloads live at the `@enzyme_reaction`
+level, not `@enzyme_mechanism`.
+"""
 function _build_mechanism_expr(subs_list, prods_list, regs_list,
                                role_of::Dict{Symbol,Symbol},
                                side_terms_per_step)
@@ -633,10 +653,12 @@ function _build_mechanism_expr(subs_list, prods_list, regs_list,
         EnzymeRates.Mechanism($reaction_expr, $groups_expr)))
 end
 
-# Build a `Step(from_species, to_species, bound_metabolite, is_eq)` Expr
-# from one step's LHS/RHS structural terms. Each side has exactly one
-# enzyme-form term (bare conformation OR call-form) and zero or one
-# metabolite terms.
+"""
+Build a `Step(from_species, to_species, bound_metabolite, is_eq)` `Expr`
+from one step's LHS/RHS structural terms. Each side has exactly one
+enzyme-form term (bare conformation OR call-form) and zero or one
+metabolite terms.
+"""
 function _build_step_expr(lhs::Vector{_StepSideTerm},
                           rhs::Vector{_StepSideTerm},
                           is_eq::Bool,
@@ -653,9 +675,11 @@ function _build_step_expr(lhs::Vector{_StepSideTerm},
     :(EnzymeRates.Step($from_expr, $to_expr, $met_expr, $is_eq))
 end
 
-# Split a step side into its (enzyme_term, optional_metabolite_term).
-# Errors if there is not exactly one enzyme term or more than one
-# metabolite term.
+"""
+Split a step side into its `(enzyme_term, optional_metabolite_term)`.
+Errors if there is not exactly one enzyme term or more than one
+metabolite term.
+"""
 function _split_side(side::Vector{_StepSideTerm})
     enzyme_term = nothing
     met_term = nothing
@@ -681,8 +705,10 @@ function _split_side(side::Vector{_StepSideTerm})
     enzyme_term, met_term
 end
 
-# Build a `Species(bound, conformation, residual)` Expr from an enzyme-
-# form `_StepSideTerm` (either bare conformation or Call-form).
+"""
+Build a `Species(bound, conformation, residual)` `Expr` from an enzyme-form
+`_StepSideTerm` (either bare conformation or Call-form).
+"""
 function _species_expr_from_term(t::_StepSideTerm,
                                  role_of::Dict{Symbol,Symbol})
     bound_entries = Expr[
@@ -707,8 +733,10 @@ function _species_expr_from_term(t::_StepSideTerm,
                           $residual_expr))
 end
 
-# Build an Expr that constructs the appropriate `Metabolite` subtype for
-# a declared name. The role is looked up from `role_of`.
+"""
+Build an `Expr` that constructs the appropriate `Metabolite` subtype for
+a declared name. The role is looked up from `role_of`.
+"""
 function _metabolite_expr(name::Symbol, role_of::Dict{Symbol,Symbol},
                           override::Symbol = :default)
     if override === :inh
