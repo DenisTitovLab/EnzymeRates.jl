@@ -406,3 +406,20 @@ contract.
   by the surviving `@testset "parameters API symmetry"` and
   `@testset "added field accessors: cat_allo_states"` in this same file,
   plus every functional test that consumes the accessors.
+
+---
+
+## Completeness sweep — dead-accessor removal — commit TBD
+
+### test_types.jl `@testset "stoich_matrix has expected enzyme/metabolite rows"`
+- **Removed**: the testset exercising `stoich_matrix` / `enzyme_row_range` /
+  `metabolite_row_range` over an `EnzymeMechanism`.
+- **Why**: those three accessors are unexported and have ZERO `src/` callers
+  after Wave 2 (`_thermodynamic_constraints` builds its stoichiometry matrix
+  directly from `_step_sides` now). They were the last opaque-tuple
+  rebuilder outside display code; deleted as dead code. The testset pinned
+  only those deleted functions.
+- **Replacement / preserved coverage**: NONE NEEDED — net-reaction
+  stoichiometry is exercised end-to-end by the Haldane/Wegscheider constraint
+  tests (`test_rate_eq_derivation.jl` "Constraints") and `test_dep_set_invariance.jl`,
+  which is what consumed the stoichiometry in production.

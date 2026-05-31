@@ -487,11 +487,6 @@ function allosteric_regulators(m::AllostericMechanism)
     seen
 end
 
-function competitive_inhibitors(m::AllostericMechanism)
-    CompetitiveInhibitor[regulator(rm) for rm in regulators(reaction(m))
-                         if regulator(rm) isa CompetitiveInhibitor]
-end
-
 Base.:(==)(a::AllostericMechanism, b::AllostericMechanism) =
     a.reaction == b.reaction && a.cat_steps == b.cat_steps &&
     a.cat_allo_states == b.cat_allo_states &&
@@ -1171,33 +1166,6 @@ end
 """Number of distinct enzyme states."""
 n_states(m::EnzymeMechanism) = length(enzyme_forms(m))
 
-"""
-    stoich_matrix(m::EnzymeMechanism) → Matrix{Int}
-
-Full stoichiometry matrix. Rows are species in the order
-`(enzyme_forms..., metabolites...)` (use `enzyme_row_range(m)` and
-`metabolite_row_range(m)` to slice). Columns are step indices.
-Positive = produced; negative = consumed in the forward direction.
-
-Enzyme-row columns sum to zero by construction (each step has one
-enzyme on each side).
-"""
-function stoich_matrix(em::EnzymeMechanism)
-    Rxns = reactions(em)
-    species = (enzyme_forms(em)..., metabolites(em)...)
-    sp_idx = Dict(s => i for (i, s) in enumerate(species))
-    S = zeros(Int, length(species), length(Rxns))
-    for (j, (lhs, rhs, _, _)) in enumerate(Rxns)
-        for s in lhs; S[sp_idx[s], j] -= 1; end
-        for s in rhs; S[sp_idx[s], j] += 1; end
-    end
-    return S
-end
-
-enzyme_row_range(m::EnzymeMechanism) = 1:n_states(m)
-metabolite_row_range(m::EnzymeMechanism) =
-    (n_states(m) + 1):(n_states(m) + length(metabolites(m)))
-
 # ─── AllostericEnzymeMechanism Accessors ────────────────────────
 
 catalytic_mechanism(::AllostericEnzymeMechanism{CM}) where {CM} = CM()
@@ -1212,8 +1180,7 @@ end
 # These accessors forward to the catalytic_mechanism. Generated en masse
 # to avoid 13 lines of boilerplate.
 for fn in (:substrates, :products, :reactions, :equilibrium_steps,
-           :n_steps, :enzyme_forms, :n_states, :kinetic_groups,
-           :stoich_matrix, :enzyme_row_range, :metabolite_row_range)
+           :n_steps, :enzyme_forms, :n_states, :kinetic_groups)
     @eval $fn(m::AllostericEnzymeMechanism) = $fn(catalytic_mechanism(m))
 end
 kinetic_group(m::AllostericEnzymeMechanism, i::Int) =
@@ -1258,20 +1225,7 @@ allosteric_regulators(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS
     Tuple(result)
 end
 
-catalytic_inhibitors(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = begin
-    rs_names = Set{Symbol}()
-    for (ligs, _, _) in RS
-        for l in ligs; push!(rs_names, l); end
-    end
-    cat_regs = regulators(CM())
-    Tuple(r for r in cat_regs if r ∉ rs_names)
-end
-
 regulatory_sites(::AllostericEnzymeMechanism{CM, CS, RS}) where {CM, CS, RS} = RS
-regulatory_site_ligands(m::AllostericEnzymeMechanism, i::Int)     =
-    regulatory_sites(m)[i][1]
-regulatory_site_multiplicity(m::AllostericEnzymeMechanism, i::Int) =
-    regulatory_sites(m)[i][2]
 
 """Return the allosteric state of regulator ligand `lig` at site `site_idx`."""
 function reg_allo_state(

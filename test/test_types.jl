@@ -68,24 +68,6 @@
         @test EnzymeRates.n_steps(m)    == 3
     end
 
-    @testset "stoich_matrix has expected enzyme/metabolite rows" begin
-        m = @enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-            end
-        end
-        S = EnzymeRates.stoich_matrix(m)
-
-        enz_idx = EnzymeRates.enzyme_row_range(m)
-        met_idx = EnzymeRates.metabolite_row_range(m)
-        @test all(sum(S[enz_idx, j]) == 0 for j in 1:size(S, 2))   # enzyme conservation
-        @test size(S[met_idx, :]) == (2, 3)                          # 2 metabolites × 3 steps
-    end
-
     @testset "EnzymeMechanism constructor" begin
         m = @enzyme_mechanism begin
             substrates: S
@@ -419,7 +401,7 @@
         end
         # No :NonequalAI ligand silently hidden from reg-site display
         for (i, _) in enumerate(EnzymeRates.regulatory_sites(m))
-            for lig in EnzymeRates.regulatory_site_ligands(m, i)
+            for lig in EnzymeRates.regulatory_sites(m)[i][1]
                 state = EnzymeRates.reg_allo_state(m, i, lig)
                 @test occursin("$lig::$state", s)
             end

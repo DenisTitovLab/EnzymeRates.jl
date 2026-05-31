@@ -155,17 +155,6 @@ _build_wegscheider_rename_map(m::EnzymeMechanism) = _build_wegscheider_rename_ma
 # ─── RE Group Helpers ───────────────────────────────────────
 
 """
-Split a reaction side into `(enzyme_sym, metabolite_syms)`. Used
-by the thermodynamic-constraint kernel (`_dependent_param_exprs_kernel`)
-and as the underlying helper for `_step_sides` below.
-"""
-function _split_reaction_side(side, enz_set)
-    enzyme_sym = first(s for s in side if s in enz_set)
-    met_syms = Symbol[s for s in side if s ∉ enz_set]
-    return enzyme_sym, met_syms
-end
-
-"""
 Per-step side breakdown for the rate equation derivation. Returns
 `(from_species_sym, to_species_sym, m_lhs_syms, m_rhs_syms)` for a
 single `Step`. This is the canonical metabolite-on-which-side

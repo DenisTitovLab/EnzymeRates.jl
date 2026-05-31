@@ -159,20 +159,17 @@ function _thermodynamic_constraints(mech::Mechanism)
         B[i_to,   j] += 1
     end
 
-    # Stoichiometry matrix (rows = metabolites, cols = steps). Mirrors
-    # the metabolite-row walk of stoich_matrix(em): a metabolite gets its
-    # stoichiometry solely from the canonical reaction tuple — m_lhs
-    # contributes -1 (consumed from the free pool), m_rhs contributes +1
-    # (produced). `_step_sides(s)` computes that projection from Step
-    # fields (the canonical metabolite-on-which-side branch logic).
+    # Stoichiometry matrix (rows = metabolites, cols = steps). A
+    # metabolite gets its stoichiometry solely from the canonical
+    # reaction tuple via `_step_sides(s)`: m_lhs contributes -1 (consumed
+    # from the free pool), m_rhs contributes +1 (produced).
     #
-    # Iso steps carry no metabolite in their reaction tuple — their bound
-    # content is encoded in the enzyme-form identity, not in the free
-    # pool — so `_step_sides` returns empty metabolite lists and they
-    # contribute zero, exactly as stoich_matrix's metabolite rows do.
-    # Do NOT add a from_bound/to_bound diff for iso steps: that double-
-    # counts metabolites already accounted for by the binding/release
-    # steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
+    # Iso steps carry no free-pool metabolite — their bound content is
+    # encoded in the enzyme-form identity — so `_step_sides` returns empty
+    # metabolite lists and they contribute zero. Do NOT add a
+    # from_bound/to_bound diff for iso steps: that double-counts
+    # metabolites already accounted for by the binding/release steps and
+    # inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
     met_idx = Dict(n => i for (i, n) in enumerate(met_names))
     stoich_mat = zeros(Int, length(met_names), nsteps)
     for (j, (s, _)) in enumerate(flat)
