@@ -1605,18 +1605,13 @@ steps, multiplicity, and untouched tags are preserved.
 function _expand_change_allo_state(am::AllostericMechanism)
     results = AllostericMechanism[]
 
-    # Catalytic-group tag relaxations: cat_allo_states[g] :…→ :NonequalAI.
     for g in 1:length(cat_allo_states(am))
         cat_allo_states(am)[g] == :NonequalAI && continue
         new_states = copy(cat_allo_states(am))
         new_states[g] = :NonequalAI
-        push!(results, AllostericMechanism(
-            reaction(am), copy(steps(am)), new_states,
-            catalytic_multiplicity(am),
-            copy(regulatory_sites(am))))
+        push!(results, _with_cat_allo_states(am, new_states))
     end
 
-    # Regulatory-ligand tag relaxations: walk each (site, ligand) pair.
     for (si, site) in enumerate(regulatory_sites(am))
         for (li, _) in enumerate(ligands(site))
             allo_states(site)[li] == :NonequalAI && continue
@@ -1624,14 +1619,8 @@ function _expand_change_allo_state(am::AllostericMechanism)
             new_states = copy(allo_states(site))
             new_states[li] = :NonequalAI
             new_sites[si] = RegulatorySite(
-                copy(ligands(site)),
-                multiplicity(site),
-                new_states)
-            push!(results, AllostericMechanism(
-                reaction(am), copy(steps(am)),
-                copy(cat_allo_states(am)),
-                catalytic_multiplicity(am),
-                new_sites))
+                copy(ligands(site)), multiplicity(site), new_states)
+            push!(results, _with_reg_sites(am, new_sites))
         end
     end
 
