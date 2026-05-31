@@ -1089,8 +1089,7 @@ end
 # ─── Expansion Moves ─────────────────────────────────────────
 
 """
-    _expand_re_to_ss(m::Mechanism) → Vector{Mechanism}
-    _expand_re_to_ss(m::AllostericMechanism) → Vector{AllostericMechanism}
+    _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
 
 Mechanism-native overload of the RE→SS expansion move. For each
 catalytic kinetic group whose members are all RE, produce a variant
@@ -1098,26 +1097,11 @@ with that entire group flipped to SS (atomic per group). All other
 groups, the reaction, and (for allosteric) the catalytic-allo tags,
 multiplicity, and regulatory sites are preserved verbatim.
 """
-function _expand_re_to_ss(m::Mechanism)
-    results = Mechanism[]
+function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
+    results = typeof(m)[]
     for g in kinetic_groups(m)
         all(is_equilibrium, steps(m)[g]) || continue
-        push!(results, Mechanism(reaction(m),
-            _flip_group_to_ss(steps(m), g)))
-    end
-    results
-end
-
-function _expand_re_to_ss(m::AllostericMechanism)
-    results = AllostericMechanism[]
-    for g in kinetic_groups(m)
-        all(is_equilibrium, steps(m)[g]) || continue
-        push!(results, AllostericMechanism(
-            reaction(m),
-            _flip_group_to_ss(steps(m), g),
-            copy(cat_allo_states(m)),
-            catalytic_multiplicity(m),
-            copy(regulatory_sites(m))))
+        push!(results, _with_steps(m, _flip_group_to_ss(steps(m), g)))
     end
     results
 end
@@ -1160,8 +1144,7 @@ function _expand_split_kinetic_group(m::Mechanism)
     for g in kinetic_groups(m)
         length(steps(m)[g]) >= 2 || continue
         for split_idx in 1:length(steps(m)[g])
-            push!(results, Mechanism(reaction(m),
-                _split_one_step(steps(m), g, split_idx)))
+            push!(results, _with_steps(m, _split_one_step(steps(m), g, split_idx)))
         end
     end
     results
@@ -1173,14 +1156,8 @@ function _expand_split_kinetic_group(am::AllostericMechanism)
         length(steps(am)[g]) >= 2 || continue
         for split_idx in 1:length(steps(am)[g])
             new_groups = _split_one_step(steps(am), g, split_idx)
-            new_states = vcat(cat_allo_states(am),
-                              [cat_allo_states(am)[g]])
-            push!(results, AllostericMechanism(
-                reaction(am),
-                new_groups,
-                new_states,
-                catalytic_multiplicity(am),
-                copy(regulatory_sites(am))))
+            new_states = vcat(cat_allo_states(am), [cat_allo_states(am)[g]])
+            push!(results, _with_steps_and_cat_states(am, new_groups, new_states))
         end
     end
     results
