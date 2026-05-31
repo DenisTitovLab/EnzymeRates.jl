@@ -92,6 +92,21 @@ end
     indep
 end
 
+# Convenience methods for the concrete Mechanism / AllostericMechanism
+# working representation: lift to the compiled singleton via
+# `compile_mechanism`, then dispatch to the singleton method. Callers that
+# hold a `Mechanism` (e.g. the `identify_rate_equation` pipeline) use these
+# without an explicit lift. `compile_mechanism` does Sig conversion (it
+# allocates) — it is NOT the rate_equation hot path. Pass an
+# `EnzymeMechanism` / `AllostericEnzymeMechanism` for the 0-alloc/<100ns
+# `rate_equation` guarantee.
+parameters(m::Union{Mechanism, AllostericMechanism},
+           mode::AbstractRateEquationMode) =
+    parameters(compile_mechanism(m), mode)
+parameters(m::Union{Mechanism, AllostericMechanism}) = parameters(m, Reduced)
+fitted_params(m::Union{Mechanism, AllostericMechanism}) =
+    fitted_params(compile_mechanism(m))
+
 """
 Build a renaming map for single-symbol Wegscheider RE ties between two
 binding K's. Calls `_dependent_param_exprs_kernel` to discover
@@ -523,6 +538,14 @@ function rate_equation end
 
 rate_equation(m::_AnyMechanism, concs, params) = rate_equation(m, concs, params, Reduced)
 
+# Concrete-mechanism convenience: lift to the singleton (see the note on
+# the parameters/fitted_params methods above — allocates, not the hot path).
+rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params,
+              mode::AbstractRateEquationMode) =
+    rate_equation(compile_mechanism(m), concs, params, mode)
+rate_equation(m::Union{Mechanism, AllostericMechanism}, concs, params) =
+    rate_equation(m, concs, params, Reduced)
+
 @generated function rate_equation(
     m::M, concs::NamedTuple, params::NamedTuple, ::FullMode,
 ) where {M <: EnzymeMechanism}
@@ -546,6 +569,13 @@ Return a string representation of the rate equation.
 function rate_equation_string end
 
 rate_equation_string(m::_AnyMechanism) = rate_equation_string(m, Reduced)
+
+# Concrete-mechanism convenience: lift to the singleton.
+rate_equation_string(m::Union{Mechanism, AllostericMechanism},
+                     mode::AbstractRateEquationMode) =
+    rate_equation_string(compile_mechanism(m), mode)
+rate_equation_string(m::Union{Mechanism, AllostericMechanism}) =
+    rate_equation_string(m, Reduced)
 
 """Build the `v = E_total * (num) / (den)` line from the raw symbolic rate polys."""
 function _rate_v_line(M::Type{<:EnzymeMechanism})
