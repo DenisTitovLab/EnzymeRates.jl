@@ -1206,22 +1206,17 @@ function cat_allo_state(::AllostericEnzymeMechanism{CM, CS, RS}, g::Int) where {
     return states[g]
 end
 
-substrates(m::AllostericEnzymeMechanism)         = substrates(catalytic_mechanism(m))
-products(m::AllostericEnzymeMechanism)           = products(catalytic_mechanism(m))
-reactions(m::AllostericEnzymeMechanism)          = reactions(catalytic_mechanism(m))
-equilibrium_steps(m::AllostericEnzymeMechanism)  = equilibrium_steps(catalytic_mechanism(m))
-n_steps(m::AllostericEnzymeMechanism)            = n_steps(catalytic_mechanism(m))
-enzyme_forms(m::AllostericEnzymeMechanism)       = enzyme_forms(catalytic_mechanism(m))
-n_states(m::AllostericEnzymeMechanism)           = n_states(catalytic_mechanism(m))
+# These accessors forward to the catalytic_mechanism. Generated en masse
+# to avoid 13 lines of boilerplate.
+for fn in (:substrates, :products, :reactions, :equilibrium_steps,
+           :n_steps, :enzyme_forms, :n_states, :kinetic_groups,
+           :stoich_matrix, :enzyme_row_range, :metabolite_row_range)
+    @eval $fn(m::AllostericEnzymeMechanism) = $fn(catalytic_mechanism(m))
+end
 kinetic_group(m::AllostericEnzymeMechanism, i::Int) =
     kinetic_group(catalytic_mechanism(m), i)
-kinetic_groups(m::AllostericEnzymeMechanism)     = kinetic_groups(catalytic_mechanism(m))
-steps_in_group(m::AllostericEnzymeMechanism, g)  =
+steps_in_group(m::AllostericEnzymeMechanism, g) =
     steps_in_group(catalytic_mechanism(m), g)
-stoich_matrix(m::AllostericEnzymeMechanism)      = stoich_matrix(catalytic_mechanism(m))
-enzyme_row_range(m::AllostericEnzymeMechanism)   = enzyme_row_range(catalytic_mechanism(m))
-metabolite_row_range(m::AllostericEnzymeMechanism) =
-    metabolite_row_range(catalytic_mechanism(m))
 
 # Returns ONLY reg-site ligands, NOT a union with catalytic_mechanism's
 # regulators. Downstream rate-equation code reads `regulators(m)` to find
