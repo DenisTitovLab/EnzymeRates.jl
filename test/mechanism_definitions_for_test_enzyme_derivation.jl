@@ -1096,7 +1096,7 @@ function build_mechanism_test_specs()
     end
 
     # 23. Non-essential activator + competitive inhibitor:
-    #     Combines spec 25 (non-essential activator) with competitive inhibition.
+    #     Combines non-essential activation with competitive inhibition.
     #     A modifies catalysis but isn't required (binds E, E_S, E_P with same K).
     #     I binds only free E (competitive dead-end).
     #     Forms: E, E_S, E_P, E_A, E_S_A, E_P_A, E_I
@@ -1171,10 +1171,10 @@ function build_mechanism_test_specs()
     #                   (k_cat_R*S/Ks_R - k_rev_R*P/Kp_R)*(1 + S/Ks_R + P/Kp_R) +
     #                   L*(k_cat_T*S/Ks_T - k_rev_T*P/Kp_T)*(1 + S/Ks_T + P/Kp_T)
     #                 )
-    # Spec #24 (flat homodimer "MWC Dimer") removed per Task 2.6: the
-    # AllostericEnzymeMechanism sibling (#24B below) is the canonical form.
+    # The explicit flat homodimer fixture is intentionally omitted; the
+    # AllostericEnzymeMechanism form below is the canonical representation.
 
-    # 24B. AllostericEnzymeMechanism equivalent of MWC Dimer (spec #24)
+    # 24B. AllostericEnzymeMechanism MWC Dimer
     #      2 catalytic sites × 2 conformations (R/T). No explicit equality constraints
     #      needed — symmetric subunits are captured by the site multiplicity.
     #      Conformational equilibrium: L (= K37 in the EnzymeMechanism above).
@@ -1226,11 +1226,10 @@ function build_mechanism_test_specs()
     # These mechanisms test factoring patterns not covered by the classical
     # inhibitor/activator mechanisms above.
 
-    # Spec #25 (flat homodimer "Homodimer + Non-competitive Inhibitor")
-    # removed per Task 2.6: the AllostericEnzymeMechanism sibling (#25B
-    # below) is the canonical form.
+    # The explicit flat homodimer inhibitor fixture is intentionally omitted;
+    # the AllostericEnzymeMechanism form below is canonical.
 
-    # 25B. AllostericEnzymeMechanism equivalent of Homodimer + Non-competitive Inhibitor (spec #25)
+    # 25B. AllostericEnzymeMechanism Homodimer + Non-competitive Inhibitor
     #      I binds all enzyme forms independently with the same Ki (enzyme-level).
     #      sigma = Q_cat^2 * (1 + I/K_I_reg1)  (multiplicative factor).
     let
@@ -1286,11 +1285,10 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # Spec #26 (flat homodimer "MWC Dimer + Independent Inhibitor")
-    # removed per Task 2.6: the AllostericEnzymeMechanism sibling (#26B
-    # below) is the canonical form.
+    # The explicit flat MWC inhibitor fixture is intentionally omitted; the
+    # AllostericEnzymeMechanism form below is canonical.
 
-    # 26B. AllostericEnzymeMechanism equivalent of MWC Dimer + Independent Inhibitor (spec #26)
+    # 26B. AllostericEnzymeMechanism MWC Dimer + Independent Inhibitor
     #      The Wegscheider constraint K80 = K47*K37/K38 (R_00I ⇌ T_00I equilibrium)
     #      is automatically satisfied by the conformational assembly formula — no
     #      explicit constraint needed in the AllostericEnzymeMechanism DSL.
@@ -2259,4 +2257,3 @@ const pfk_mechanism = _spec_by_name("PFK-1").mechanism
 const pfk_rate_analytical = _spec_by_name("PFK-1").analytical_rate_fn
 const hk_mechanism = _spec_by_name("HK").mechanism
 const hk_rate_analytical = _spec_by_name("HK").analytical_rate_fn
-

@@ -492,7 +492,7 @@
         @test !occursin("cat_allo_states:", s)
     end
 
-    # ─── Concrete type hierarchy (spec §5.1–5.7) ──────────────────────
+    # ─── Concrete type hierarchy ──────────────────────────────────────
 
     @testset "Metabolite hierarchy: Substrate / Product / Regulators" begin
         s = EnzymeRates.Substrate(:ATP)
@@ -1357,7 +1357,7 @@
         ps = EnzymeRates.parameters(m)
         # SS iso forward step E(S) → E(P) must appear as :k_ES_to_EP
         @test :k_ES_to_EP in ps
-        # No positional index names (old scheme: k2f, K1, etc.)
+        # No positional index names such as k2f or K1.
         @test !any(p -> occursin(r"^k[0-9]", String(p)), ps)
         @test !any(p -> occursin(r"^K[0-9]", String(p)), ps)
     end

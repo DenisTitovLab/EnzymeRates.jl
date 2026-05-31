@@ -1,12 +1,8 @@
 # NonequalAI Validity — Rank/Nullspace Algorithm — Design Knowledge
 
 **Date:** 2026-05-29
-**Status:** Design knowledge for a FUTURE follow-up PR (after the parent
-structural-parameter-names refactor lands). Not implemented here.
+**Status:** Design knowledge for a future follow-up PR. Not implemented here.
 **Companions:**
-- `2026-05-29-equalai-nonequalai-coupling-design.md` — the *contained* fix
-  that ships first (makes current configs *compute*; does **not** address
-  degeneracy).
 - `2026-05-29-direction-symmetry-constraint-resolution.md` — *how* a
   constraint is resolved (derivation mechanics; complementary to this doc).
 
@@ -15,10 +11,10 @@ structural-parameter-names refactor lands). Not implemented here.
 Determine **which `:NonequalAI` tag configurations are non-degenerate** — i.e.
 configurations in which every `:NonequalAI` group's active/inactive split is a
 *genuinely free* parameter, not one the thermodynamics forces to zero. This is
-a **validity / enumeration** concern, separate from:
-- the **contained fix** (which makes configs compute but would happily emit a
-  phantom `K_T` fit parameter forced to equal `K_A`), and
-- the **symmetry principle** (which decides *how* a constraint is resolved).
+a **validity / enumeration** concern, separate from the **symmetry principle**
+(which decides *how* a constraint is resolved). Without this validation, a
+degenerate config can still emit a phantom `K_T` fit parameter forced to equal
+`K_A`.
 
 It serves two consumers:
 1. **Constructor validator** — reject (or normalize) a degenerate
@@ -57,14 +53,14 @@ whole configuration is valid iff every `:NonequalAI` group passes. Equivalently,
 the valid `:NonequalAI` sets are the **unions of circuits** of the column
 matroid of `C_live[:, F]`.
 
-### Why `F` must include SS groups (the bug in the first draft)
+### Why `F` must include SS groups
 
-An earlier version restricted `F` to `:NonequalAI` columns only and therefore
+The naive version restricted `F` to `:NonequalAI` columns only and therefore
 declared PK invalid (lone NonequalAI PEP). That was wrong: the catalytic
 reverse `k5r`/`k5r_T` is an SS-group absorber that makes PEP's split free.
 With SS groups in `F`, PK is correctly **valid**.
 
-## What it catches (and the contained fix does not)
+## What it catches
 
 1. **Lone NonequalAI binding K trapped in a pure-RE Wegscheider loop** — the
    canonical fixture is the existing **"Random-order Bi-Bi"** test mechanism
@@ -77,10 +73,10 @@ With SS groups in `F`, PK is correctly **valid**.
    Wegscheider row is `[c·g1, 0]` — the SS reverse is not in the binding loop,
    so it cannot help — forcing `d_g1 = 0` → **degenerate** → reject. The SS
    reverse rescues a lone NonequalAI in a *Haldane* cycle (why PK is valid) but
-   never in a pure-RE *Wegscheider* loop. The **contained fix instead silently
-   promotes** the Wegscheider-dependent `:EqualAI` binding K to absorb the
-   split (computes zero at equilibrium, over-parametrized) — exactly the sneaky
-   behavior this rejection replaces. The symmetry rewrite cannot rescue it
+   never in a pure-RE *Wegscheider* loop. A permissive implementation can
+   silently promote the Wegscheider-dependent `:EqualAI` binding K to absorb
+   the split (computes zero at equilibrium, over-parametrized); this rejection
+   replaces that behavior. The symmetry rewrite cannot rescue it
    either (no speed DOF in a pure-RE loop). Only this rank test flags it.
 2. **Full-rank multi-cycle (including Haldane-containing) mechanisms** —
    interlocking Haldane + Wegscheider cycles where the free-absorber columns are
@@ -134,7 +130,7 @@ absorbers), replacing the incorrect "+1 per NonequalAI group."
 - The validator error message names the degenerate group(s) and the remedy
   (tag `:EqualAI`, or give it a co-cyclic absorber / NonequalAI partner).
 
-## Tests (true TDD — pre-derive expected values independently)
+## Tests
 
 Anchor on real mechanisms with multi-cycle structure (random-order bi-bi, PK,
 random-order ter, pyruvate dehydrogenase/carboxylase); derive expected
@@ -144,8 +140,7 @@ cross-checks for the small mechanisms. Where a config is degenerate, also assert
 the physical symptom (a phantom parameter that does not change the fitted rate
 curve, or — if mis-resolved — a nonzero rate at chemical equilibrium).
 
-## Sequencing (decided)
+## Implementation Target
 
-Follow-up PR, after the parent structural-parameter-names refactor — naturally
-alongside or after the symmetry-principle rewrite (they share
-`_thermodynamic_cycles`). **Not** part of the contained fix.
+Implement as a future feature alongside or after the symmetry-principle
+rewrite. Both features share `_thermodynamic_cycles`.

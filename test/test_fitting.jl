@@ -176,8 +176,8 @@ using Tables
     end
 
     # ── Test 6b: All-mismatch group has positive loss ─────────────────────────
-    # Regression test: previously, when all predictions in a group were sign-
-    # mismatches, the centering step zeroed every deviation (10-mean(10)=0).
+    # Regression test for all-mismatch groups: when every prediction in a
+    # group is a sign mismatch, centering must not zero every deviation.
     # The loss must be nonzero to distinguish a bad mechanism from a perfect one.
     # Three sub-cases exercise each path that sets buf[i] = 10.0:
     #   (i)  pred == 0.0            (S=0, P=0)

@@ -158,11 +158,9 @@ single `Step`. This is the canonical metabolite-on-which-side
 projection: it reads Step fields directly, placing the bound
 metabolite on the binding (m_lhs) or release (m_rhs) side from the
 canonical metabolite-on-`to_species` placement plus the SS-dissociation
-rule. The five-branch logic is load-bearing — in particular, SS
-catalytic-release steps where the bound metabolite is a Product that
-doesn't appear in either bound list (the "SS dissociation rule" per the
-`project-ss-dissociation-reconstruction-rule` memory) put the
-metabolite on m_rhs, not m_lhs.
+rule. The five-branch logic is load-bearing: SS catalytic-release steps
+where the bound metabolite is a Product that doesn't appear in either
+bound list put the metabolite on m_rhs, not m_lhs.
 """
 function _step_sides(s::Step)
     e_lhs = name(from_species(s))
@@ -989,7 +987,7 @@ end
 Set of A-state catalytic parameter Symbol names for an
 `AllostericMechanism`. Cached helper for the four call sites in
 `_kcat_forward`, `_dependent_param_exprs`, `_build_dep_assignments`,
-and `_allosteric_num_den_exprs` that each previously rebuilt this set.
+and `_allosteric_num_den_exprs` so the set is assembled in one place.
 """
 _a_only_syms(am::AllostericMechanism) =
     Set{Symbol}(name(p, am) for p in _onlyA_parameters(am))
@@ -1706,4 +1704,3 @@ function rate_equation_string(
     push!(lines, v_line)
     join(lines, "\n")
 end
-

@@ -243,12 +243,12 @@ monolithic pipeline:
   steps. Steps that bind the same metabolite share a kinetic group, so
   the parameter count starts at the smallest physically meaningful
   value.
-- `expand_mechanisms(specs, reaction)` applies a fixed set of
-  single-move expansions to each spec — converting an RE step to SS,
+- `expand_mechanisms(mechanisms, reaction)` applies a fixed set of
+  single-move expansions to each mechanism — converting an RE step to SS,
   splitting a kinetic group, adding a dead-end regulator, becoming
   allosteric, changing an allosteric state — and returns the expanded
   candidates keyed by their estimated parameter count.
-- `dedup!(cache)` canonicalizes specs (sorted steps; renumbered kinetic
+- `dedup!(cache)` canonicalizes mechanisms (sorted steps; renumbered kinetic
   groups by first occurrence) and removes structural duplicates.
 
 The enumeration is grounded in chemical reasoning rather than blind
@@ -267,7 +267,7 @@ size, and substrate participation are emitted.
    `loss_rel_threshold * best_loss + loss_abs_threshold`,
    or always at least the top `min_beam_width` by loss
    (whichever set is larger).
-3. Apply `expand_mechanisms` to surviving specs to produce candidates
+3. Apply `expand_mechanisms` to surviving mechanisms to produce candidates
    at the next parameter-count level.
 4. `dedup!` and fit; rank by training loss.
 5. Repeat until no new candidates appear or `max_param_count` is

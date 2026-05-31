@@ -4,10 +4,3 @@ Manifest.toml
 test/outcmaes/
 outcmaes/
 .claude/scheduled_tasks.lock
-
-# Workspace artifacts
-test/Project.toml
-2026-05-02_identify_ldh_results/
-
-# Refactor audit scratch (Pass 1 catalog; deleted at end of audit)
-docs/superpowers/scratch-refactor-audit-notes.md

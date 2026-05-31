@@ -1,5 +1,5 @@
-# ABOUTME: Regression test that no `Symbol("[KkVL]…")` literal is constructed
-# ABOUTME: outside `name(...)` / `_param_symbol(...)` chokepoint bodies.
+# ABOUTME: Regression test that no `Symbol("[KkVL]...")` literal is constructed
+# ABOUTME: outside parameter-name rendering bodies.
 using Test
 using EnzymeRates
 
@@ -32,10 +32,8 @@ function _sig_first_arg_str(sig)
     return string(pos_args[1])
 end
 
-# A method definition is a chokepoint body iff its name is `name` or
-# `_param_symbol` and its first positional arg signature mentions
-# Parameter / ::K[a-z] / ::Type{ — i.e., it dispatches on a Parameter
-# subtype value OR a Parameter type.
+# A method definition is a chokepoint body iff it is a `name` method
+# dispatching on a Parameter subtype value.
 function _is_chokepoint_def(expr)
     expr isa Expr || return false
     sig = if expr.head === :function && length(expr.args) >= 1
@@ -47,9 +45,9 @@ function _is_chokepoint_def(expr)
         return false
     end
     fn_name = _sig_fn_name(sig)
-    fn_name in (:name, :_param_symbol) || return false
+    fn_name === :name || return false
     arg_str = _sig_first_arg_str(sig)
-    return occursin(r"Parameter|::K[a-z]|::Type\{", arg_str)
+    return occursin(r"Parameter|::K[a-z]", arg_str)
 end
 
 # Reconstruct the string content of a `Symbol("...")` call. Supports
@@ -88,7 +86,7 @@ function _walk_violations!(expr, in_chokepoint::Bool, out::Vector{String})
     end
 end
 
-@testset "chokepoint: no Symbol(\"[KkVL]…\") outside name()/_param_symbol bodies" begin
+@testset "chokepoint: no Symbol(\"[KkVL]...\") outside parameter-name renderers" begin
     src_dir = joinpath(dirname(@__DIR__), "src")
     for f in readdir(src_dir; join=true)
         endswith(f, ".jl") || continue

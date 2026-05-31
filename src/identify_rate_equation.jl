@@ -196,7 +196,7 @@ function identify_rate_equation(
             "to avoid mixing results.")
     end
 
-    specs, df = _beam_search(prob;
+    mechanisms, df = _beam_search(prob;
         min_beam_width, loss_rel_threshold,
         loss_abs_threshold,
         max_param_count, save_dir,
@@ -204,7 +204,7 @@ function identify_rate_equation(
         fitting_kwargs...)
 
     return _cv_model_selection(
-        specs, df, prob;
+        mechanisms, df, prob;
         n_cv_candidates, se_threshold, perm_p_threshold,
         pmap_function, optimizer, fitting_kwargs...)
 end
@@ -212,7 +212,7 @@ end
 """
 Convert result row NamedTuples to a DataFrame.
 Row order is preserved (no sorting) to maintain
-alignment with the specs vector.
+alignment with the mechanism vector.
 """
 function _rows_to_dataframe(rows)
     isempty(rows) && return DataFrame()
@@ -304,8 +304,8 @@ end
 - `first_seen_n_actual`: `length(fitted_params(m))` at first fit.
 - `first_seen_eq_hash`: 16-char hex display string of the hash.
 - `canon_to_rep`: pre-inverted `canonical_token => rep_orig_key`
-  map, computed once at cache-insert. Spec members of the same
-  hash group reuse this; avoids O(N) re-inversion per spec.
+  map, computed once at cache-insert. Mechanisms in the same hash
+  group reuse this; avoids O(N) re-inversion per mechanism.
 """
 struct _CachedFitResult
     loss::Float64
@@ -316,12 +316,12 @@ struct _CachedFitResult
     first_seen_eq_hash::String
 end
 
-"""Stage 1 result: uniform per-mechanism record so the `pmap` return
+"""Uniform per-mechanism compilation/hash record so the `pmap` return
 is concretely-typed. The `mech` field is a `Union` of mechanism types
 (level vectors mix `Mechanism` and `AllostericMechanism`, so we can't
 tighten the type without splitting the pipeline). On failure, every
 non-mech field has a sentinel value and `ok=false`."""
-struct _Stage1Result
+struct _CompiledMechanismResult
     mech::Union{Mechanism, AllostericMechanism}
     eq_text::String
     h_full::UInt64
@@ -334,48 +334,48 @@ struct _Stage1Result
 end
 
 """Empty-failure sentinel."""
-_Stage1Failure(m::Union{Mechanism, AllostericMechanism}) =
-    _Stage1Result(
+_CompiledMechanismFailure(m::Union{Mechanism, AllostericMechanism}) =
+    _CompiledMechanismResult(
         m, "", zero(UInt64), "", 0, "",
         Dict{String,String}(), (), false)
 
 """
-Project cached params (keyed by rep spec's `fitted_params`
-symbols) onto a target spec's own `fitted_params` keys, preserving
-canonical-position values. Two specs in the same hash group have
+Project cached params (keyed by the representative mechanism's
+`fitted_params` symbols) onto a target mechanism's own `fitted_params`
+keys, preserving canonical-position values. Two mechanisms in the same hash group have
 isomorphic rate equations modulo parameter renaming; this function
 applies the canonical position bijection
-(rep_fitted_key → canonical_token → spec_fitted_key) to relabel
+(rep_fitted_key → canonical_token → target_fitted_key) to relabel
 values without changing them.
 
 `canon_to_rep` is the pre-inverted `canonical_token => rep_orig_key`
 map (computed once at cache-insert from the rep's name_map).
-`spec_name_map` is the spec's `orig_string => canonical_token` Dict
+`target_name_map` is the target's `orig_string => canonical_token` Dict
 produced by the canonicalizer over `parameters(m, Full)`. They
 include BOTH independent and dependent parameter names. We
 restrict the projection to FITTED (independent) keys only —
 `cached_params` is keyed by `fitted_params(rep_m)`, which doesn't
-contain dep names. Iterating `keys(spec_name_map)` directly would
+contain dep names. Iterating `keys(target_name_map)` directly would
 cause `KeyError` for any dep name (e.g., `:k10r`, `:K1_T` for
 `:EqualAI` mirrors).
 
-The return is a NamedTuple keyed by `fitted_params(spec_m)`.
+The return is a NamedTuple keyed by `fitted_params(target_m)`.
 """
 function _project_cached_params(
     cached_params::NamedTuple,
     canon_to_rep::Dict{String,String},
-    spec_name_map::Dict{String,String},
-    spec_fitted_keys::Tuple{Vararg{Symbol}},
+    target_name_map::Dict{String,String},
+    target_fitted_keys::Tuple{Vararg{Symbol}},
 )
     # Defensive lookup: a fitted key may not appear in the body
     # (e.g., a parameter on a zeroed `:NonequalAI` path), in which
-    # case `spec_name_map` has no entry. Fall back to the spec key
+    # case `target_name_map` has no entry. Fall back to the target key
     # itself in cached_params if both maps lack the canonical token;
     # if even that misses, use NaN as a sentinel that downstream
     # loss/CV will surface.
     function _proj(k::Symbol)
         s = String(k)
-        canon = get(spec_name_map, s, nothing)
+        canon = get(target_name_map, s, nothing)
         if canon !== nothing && haskey(canon_to_rep, canon)
             rep_key = Symbol(canon_to_rep[canon])
             haskey(cached_params, rep_key) &&
@@ -385,8 +385,8 @@ function _project_cached_params(
         return NaN
     end
 
-    NamedTuple{spec_fitted_keys}(
-        Tuple(_proj(k) for k in spec_fitted_keys))
+    NamedTuple{target_fitted_keys}(
+        Tuple(_proj(k) for k in target_fitted_keys))
 end
 
 function _beam_search(
@@ -418,7 +418,7 @@ function _beam_search(
                      Union{Mechanism, AllostericMechanism}[])
         isempty(level) && (isempty(cache) ? break : continue)
 
-        # ── Stage 1 (parallel): compile + hash ──
+        # ── Parallel compile + hash ──
         compiled = pmap_function(level) do mech
             try
                 m = compile_mechanism(mech)
@@ -428,13 +428,13 @@ function _beam_search(
                 fkeys = fitted_params(m)
                 n_actual = length(fkeys)
                 mech_type_str = string(typeof(m))
-                _Stage1Result(mech, eq_text, h_full, h_short,
-                              n_actual, mech_type_str, name_map,
-                              fkeys, true)
+                _CompiledMechanismResult(
+                    mech, eq_text, h_full, h_short,
+                    n_actual, mech_type_str, name_map, fkeys, true)
             catch e
                 @debug("Mechanism compilation failed",
                        exception=(e, catch_backtrace()))
-                _Stage1Failure(mech)
+                _CompiledMechanismFailure(mech)
             end
         end
         filter!(c -> c.ok, compiled)
@@ -446,14 +446,14 @@ function _beam_search(
             push!(new_hashes, c.h_full)
         end
 
-        reps_by_hash = Dict{UInt64, _Stage1Result}()
+        reps_by_hash = Dict{UInt64, _CompiledMechanismResult}()
         for c in compiled
             c.h_full in new_hashes || continue
             haskey(reps_by_hash, c.h_full) && continue
             reps_by_hash[c.h_full] = c
         end
 
-        # ── Stage 2 (parallel): worker-side recompile + fit ──
+        # ── Parallel representative fit ──
         rep_results = pmap_function(
             collect(values(reps_by_hash))
         ) do rep
@@ -481,8 +481,8 @@ function _beam_search(
                 pc, r.n_actual, r.h_short)
         end
 
-        # ── Stage 3 (master): build ONE row per mechanism ──
-        # Use Stage 1's captured `fitted_keys` (computed once on
+        # ── Build ONE row per mechanism ──
+        # Use the compile/hash pass's captured `fitted_keys` (computed once on
         # the worker that compiled) instead of recompiling on
         # master — saves a serial compile per mechanism.
         level_rows = NamedTuple[]

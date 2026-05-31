@@ -19,9 +19,8 @@ const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 2.1   # baseline 2026-05-20: 1.03s; b
 # etc.) which would create dependency-noise false positives.
 #
 # Intentionally NOT a suffix enumeration — that approach silently
-# misses renamed or newly-introduced internal helpers during the
-# refactor. The module-prefix anchor catches everything in our
-# namespace automatically.
+# misses renamed or newly-introduced internal helpers. The module-prefix
+# anchor catches everything in our namespace automatically.
 const RELEVANT_PRECOMPILE_PATTERN = r"EnzymeRates\."
 
 function _count_relevant_precompiles(runner_script::String)

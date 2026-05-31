@@ -254,9 +254,8 @@ using OptimizationPyCMA
                 propertynames(results.cv_results)
         end
 
-        # CSV-roundtrip: spec acceptance criterion #7 says cv_results
-        # is CSV-serializable. Verify by writing and re-reading; check
-        # column-name preservation and row count.
+        # CSV-roundtrip: cv_results must be CSV-serializable. Verify by
+        # writing and re-reading; check column-name preservation and row count.
         buf = IOBuffer()
         CSV.write(buf, results.cv_results)
         seekstart(buf)
@@ -330,10 +329,9 @@ using OptimizationPyCMA
         # mechanism prone to Haldane-collapse hash hits) or a
         # `_beam_search` unit test with a recording fit-wrapper.
         # The greedy-beam smoke settings here (min_beam_width=1)
-        # don't reliably produce inherited rows. The spec's
-        # demanded "recording wrapper" approach is left as
-        # follow-up work; the loop above still catches invalid
-        # `fit_inherited_from_estimate` references when present.
+        # don't reliably produce inherited rows. A recording fit-wrapper
+        # would make that positive path deterministic; the loop above
+        # catches invalid `fit_inherited_from_estimate` references when present.
     end
 
     @testset "save_dir non-empty check" begin
@@ -459,7 +457,7 @@ end
 end
 
 @testset "beam_fraction kwarg removed: passing it errors" begin
-    # The legacy `beam_fraction` kwarg was replaced by
+    # The removed `beam_fraction` kwarg was replaced by
     # `loss_rel_threshold` + `loss_abs_threshold` + `min_beam_width`.
     # No alias / deprecation shim — passing it must error.
     rxn = @enzyme_reaction begin
@@ -800,5 +798,3 @@ end
     @test "cv_fold_c,d" in names(roundtrip)
     @test "cv_fold_x y" in names(roundtrip)
 end
-
-

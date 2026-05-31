@@ -2,7 +2,7 @@
 # ABOUTME: Provides init_mechanisms, expand_mechanisms, dedup! building blocks
 
 
-# ─── Stage 1: Catalytic Topologies ───────────────────────────
+# ─── Catalytic topologies ─────────────────────────────────────────────
 
 """
 Build a `Species` from sorted bound substrate / product names plus an
@@ -929,7 +929,7 @@ function _expand_substrate_product_dead_ends(
 
             # Add binding steps for active dead-ends.
             # Each binding step is an equivalence-eligible
-            # candidate, but at this stage every binding
+            # candidate, but during initialization every binding
             # step gets its own fresh group (init_mechanisms
             # later applies same-metabolite grouping).
             for de_name in sort(collect(active_de))
@@ -1039,7 +1039,7 @@ end
     _n_fit_params_estimate(m::Mechanism)
     _n_fit_params_estimate(am::AllostericMechanism)
 
-Upper-bound estimate of the fittable parameter count for a `Mechanism`
+Raw estimate of the fittable parameter count for a `Mechanism`
 or `AllostericMechanism`. Counts kinetic GROUPS (one K per RE group,
 two k per SS group) and subtracts the number of independent thermodynamic
 cycles (Haldane + Wegscheider) bound by the enzyme-form graph. The
@@ -1466,7 +1466,7 @@ end
         → Vector{AllostericMechanism}
 
 `AllostericMechanism` input is already allosteric — no-op move.
-Matches the spec overload's empty-vector return.
+Only non-allosteric mechanisms can be promoted by this move.
 """
 _expand_to_allosteric(::AllostericMechanism, ::EnzymeReaction) =
     AllostericMechanism[]
@@ -1585,7 +1585,7 @@ end
     _expand_add_allosteric_regulator(m::Mechanism, rxn::EnzymeReaction)
         → Vector{AllostericMechanism}
 
-Non-allosteric input: no-op (matches the spec overload's empty return).
+Non-allosteric input: no-op; this move only extends allosteric mechanisms.
 The dispatch shape here ensures callers walking a mixed Mechanism /
 AllostericMechanism collection don't need to type-check.
 """
@@ -1630,7 +1630,7 @@ end
 """
     _expand_change_allo_state(m::Mechanism) → Vector{AllostericMechanism}
 
-Non-allosteric input: no-op (matches the spec overload's empty return).
+Non-allosteric input: no-op; this move only relaxes allosteric state tags.
 """
 _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
@@ -1642,14 +1642,11 @@ _expand_change_allo_state(::Mechanism) =
 Apply all expansion moves to each input mechanism (RE→SS, split
 kinetic group, add dead-end regulator, to-allosteric, add allosteric
 regulator, change allo state) and bucket results by their
-`_n_fit_params_estimate` upper bound.
+`_n_fit_params_estimate` value.
 
 Accepts a heterogeneous mix of `Mechanism` and `AllostericMechanism`
 inputs because `_expand_to_allosteric` promotes a `Mechanism` to an
-`AllostericMechanism`. The reaction argument may be either a concrete
-`EnzymeReaction` or the legacy parametric form (the per-move helpers
-dispatch on `EnzymeReaction`; the boundary adapter at the bottom of
-this file forwards from legacy).
+`AllostericMechanism`.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
@@ -1906,9 +1903,8 @@ projection via `_project_cached_params`.
 For an `AllostericMechanism`, also adds entries for synthesized dep
 I-names (LHSes that have no Parameter struct because they're derived
 deps with an inactive-state suffix appended at render time). The
-synth-dep token is the A-state token with `_T` suffix (a legacy
-cache-token literal from the old R/T allosteric naming, kept for
-cross-mechanism cache compatibility — see Step 9). This preserves
+synth-dep token is the A-state token with an inactive-state suffix.
+This preserves
 A↔I correspondence across equivalent mechanisms.
 """
 function _build_name_map(em::AbstractEnzymeMechanism,
@@ -1933,7 +1929,7 @@ function _build_name_map(em::AbstractEnzymeMechanism,
             tok === nothing && continue
             i_str = String(name(_flip_to_inactive(_param_for_symbol(m, a_name)), m))
             haskey(name_map, i_str) && continue
-            name_map[i_str] = tok * "_T"  # "_T" is the legacy cache-token suffix; kept for cross-mechanism cache compatibility
+            name_map[i_str] = tok * "_T"
         end
     end
     name_map

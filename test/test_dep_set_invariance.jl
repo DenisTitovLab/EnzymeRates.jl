@@ -1,19 +1,18 @@
-# ABOUTME: Decision-1 guard for the kinetic-group name-rep refactor.
+# ABOUTME: Guard for the kinetic-group naming representative.
 # ABOUTME: Proves the Haldane/Wegscheider dependent-parameter CHOICE is
 # ABOUTME: invariant to which step represents a kinetic group.
 
-# The Phase 4 refactor changed the kinetic-group naming representative from
-# `first(group)` to the structurally-primary step (`_group_rep`). Decision 1
-# (locked): this must NOT change WHICH kinetic group becomes the Haldane
-# elimination's dependent parameter — only the rendered name of the rep.
+# The kinetic-group naming representative must not change WHICH kinetic group
+# becomes the Haldane elimination's dependent parameter — only the rendered
+# name of the representative.
 #
 # A dependent parameter names a kinetic GROUP. We identify each group
 # structurally and order-independently (sorted member step-hashes), so the
 # key is invariant to step order within the group — and therefore invariant
 # to the rep choice. Permuting the step order inside every group (reversing
 # it) changes the rep (and thus the rendered Symbol) but MUST leave the set
-# of dependent groups untouched. If the refactor had accidentally made the
-# dep CHOICE depend on naming/order, this set would differ.
+# of dependent groups untouched. If the dependent-parameter choice depends on
+# naming/order, this set differs.
 
 """
 Structural, order-independent identity of the dependent parameter `sym`:
@@ -52,7 +51,7 @@ function _dep_struct_key_set(mech::EnzymeRates.Mechanism)
     return Set(_dep_struct_key(sym, mech) for sym in keys(dep_exprs))
 end
 
-@testset "Decision-1: dependent-param CHOICE invariant to group-rep" begin
+@testset "dependent-param choice invariant to group-rep" begin
     for spec in MECHANISM_TEST_SPECS
         spec.mechanism isa EnzymeRates.EnzymeMechanism || continue
         @testset "$(spec.name)" begin

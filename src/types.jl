@@ -1,6 +1,6 @@
-# ─── Concrete type hierarchy (spec §5.1–5.7) ──────────────────────────
+# ─── Concrete type hierarchy ──────────────────────────────────────────
 
-# §5.1 — Metabolite / Reactant / Regulator hierarchy.
+# Metabolite / Reactant / Regulator hierarchy.
 abstract type Metabolite end
 abstract type Reactant <: Metabolite end
 abstract type Regulator <: Metabolite end
@@ -23,7 +23,7 @@ name(p::Product)              = p.name
 name(a::AllostericRegulator)  = a.name
 name(c::CompetitiveInhibitor) = c.name
 
-# §5.2 — Residual: substrates added + products subtracted from the enzyme
+# Residual: substrates added + products subtracted from the enzyme
 # (e.g., a covalent adduct after a ping-pong half-reaction). Empty
 # `Residual()` means no covalent residue.
 struct Residual
@@ -43,7 +43,7 @@ Base.:(==)(a::Residual, b::Residual) =
 Base.hash(r::Residual, h::UInt) =
     hash(r.subtracted, hash(r.added, hash(:Residual, h)))
 
-# §5.3 — Species: an enzyme form. `bound` is sorted by name; the
+# Species: an enzyme form. `bound` is sorted by name; the
 # rendered Symbol name reads `:E` / `:EATP` / `:Estar...` / `:EATPres_+P`.
 struct Species
     bound::Vector{Metabolite}
@@ -93,7 +93,7 @@ function name(s::Species)
     Symbol(join(parts, "_"))
 end
 
-# §5.5 — RegulatorySite: a binding site (possibly multimeric) for one or
+# RegulatorySite: a binding site (possibly multimeric) for one or
 # more allosteric ligands. `ligands[i]` and `allo_states[i]` are parallel;
 # ordering is meaningful (canonicalize at the call site if needed).
 struct RegulatorySite
@@ -126,7 +126,7 @@ Base.hash(s::RegulatorySite, h::UInt) =
     hash(s.allo_states, hash(s.multiplicity,
         hash(s.ligands, hash(:RegulatorySite, h))))
 
-# §5.4 — Step: one elementary transition. Binding steps carry
+# Step: one elementary transition. Binding steps carry
 # `bound_metabolite`; iso steps carry `nothing`. All binding steps (RE and
 # SS) canonicalize here (metabolite on the `from_species` side). All iso
 # steps (RE and SS) canonicalize in the Mechanism constructor via
@@ -173,7 +173,7 @@ Base.hash(s::Step, h::UInt) =
     hash(s.is_equilibrium, hash(s.bound_metabolite,
         hash(s.to_species, hash(s.from_species, hash(:Step, h)))))
 
-# §5.6 — Parameter family.
+# Parameter family.
 abstract type Parameter end
 
 # Step-bound RE parameters
@@ -218,7 +218,7 @@ Base.:(==)(a::Kreg, b::Kreg) =
 Base.hash(p::Kreg, h::UInt) =
     hash(p.state, hash(p.ligand, hash(p.site, hash(:Kreg, h))))
 
-# §5.7 — Per-reactant and per-regulator bundling structs. Canonical
+# Per-reactant and per-regulator bundling structs. Canonical
 # ordering of atoms / multiplicities so two equivalent constructions
 # compare equal under `==` / `hash`.
 struct ReactantAtoms
@@ -258,7 +258,7 @@ Base.hash(r::RegulatorMults, h::UInt) =
     hash(r.allowed_multiplicities,
          hash(r.regulator, hash(:RegulatorMults, h)))
 
-# §5.7 — EnzymeReaction: the public concrete reaction descriptor. Holds
+# EnzymeReaction: the public concrete reaction descriptor. Holds
 # reactants (substrate + product atom payload), regulators (with allowed
 # multiplicity sets), and the catalytic multiplicities the enumerator is
 # allowed to consider. Canonical ordering is enforced so two equivalent
@@ -372,7 +372,7 @@ function _canonical_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol}
     string(name(f)) ≤ string(name(t)) ? s : Step(t, f, nothing, is_equilibrium(s))
 end
 
-# §5.8 — Mechanism: groups elementary steps by kinetic group (outer
+# Mechanism: groups elementary steps by kinetic group (outer
 # vector). All steps within a group share kinetic parameters. The
 # constructor canonicalizes iso-step direction and stores the steps;
 # parameter naming and step ordering derive purely from structure and
@@ -411,7 +411,7 @@ the mechanism's shape.
 _with_steps(m::Mechanism, new_steps::Vector{Vector{Step}}) =
     Mechanism(reaction(m), new_steps)
 
-# §5.8 — AllostericMechanism: a multi-subunit MWC enzyme. Each catalytic
+# AllostericMechanism: a multi-subunit MWC enzyme. Each catalytic
 # kinetic group carries an allosteric-state tag (`:OnlyA`, `:EqualAI`, or
 # `:NonequalAI` — `:OnlyI` is rejected by the active-state convention).
 const _VALID_CAT_ALLO_STATES = (:OnlyA, :EqualAI, :NonequalAI)

@@ -1,11 +1,10 @@
 # Direction-Symmetry Principle for Thermodynamic Constraint Resolution — Design Knowledge
 
 **Date:** 2026-05-29
-**Status:** Design knowledge for a FUTURE follow-up PR (after the parent
-structural-parameter-names refactor lands). Not implemented here. This
-document exists so the reasoning is not lost.
-**Companion:** `2026-05-29-equalai-nonequalai-coupling-design.md` (the
-*contained* fix that ships first).
+**Status:** Design knowledge for a future follow-up PR. Not implemented here.
+This document exists so the reasoning is not lost.
+**Companion:** `2026-05-29-nonequalai-rank-validity.md` covers the related
+rank/nullspace validity algorithm.
 
 ## Why this document exists
 
@@ -25,16 +24,14 @@ distributing any forced difference by the unique minimum-norm symmetric
 solution. The current code instead drops one rate constant (e.g. `k_rev`),
 which silently privileges the user's arbitrary forward/reverse labeling.
 
-This is a major refactor (it touches the constraint-resolution core *and*
+This is a major change (it touches the constraint-resolution core *and*
 every hand-written analytical formula, which gain `√` terms) but also a
-major **unification and correctness fix**. It is too large and too entangled
-with the parent refactor's derivation core to implement now. Denis's
-decision: ship the contained fix now, finish the parent refactor, then do
-this as its own (large) PR.
+major **unification and correctness fix**. It should be implemented as its
+own large feature.
 
 The allosteric (A/I) case below is the most *visible* manifestation (it
 changes the model, not just the parametrization), but the principle is
-general — see §5a.
+general — see "The principle is general" below.
 
 ## 1. The physical model (corrected)
 
@@ -75,14 +72,14 @@ catalysis `:EqualAI`; the catalytic reverse `k5r`/`k5r_T` absorbs the
 PEP-affinity split). An earlier "≥2 NonequalAI per cycle" rule was wrong
 because it omitted dependent (SS-reverse) absorbers from the accounting.
 
-### Degeneracy / rank test (its own spec)
+### Degeneracy / rank test (companion document)
 
 A NonequalAI group buys a *genuine* free parameter only when its split can be
 nonzero given the free absorbers (`F = {NonequalAI RE groups} ∪ {SS groups in
 the cycle}`). The clearest degenerate case is a **lone NonequalAI binding K in
 a pure-RE Wegscheider loop with no SS step to absorb the split**; full-rank
 multi-cycle mechanisms can also force a split to zero even with SS absorbers
-present. This **validity/degeneracy algorithm is captured in its own spec**,
+present. This **validity/degeneracy algorithm is captured in its own document**,
 `2026-05-29-nonequalai-rank-validity.md` — a distinct, durable concern (config
 validity / enumeration) that remains necessary even after this
 symmetric-resolution rewrite, since a pure-RE loop has no speed DOF to absorb a
@@ -208,24 +205,19 @@ chokepoint for both.
 2. **Re-founds `_dependent_param_exprs_kernel`.** Single-pivot Gaussian
    elimination → symmetric (pseudoinverse / projection) resolution that
    splits ratio-differences in the (speed, ratio) basis. This is the *core*
-   of the derivation and the **parent refactor's active code** — must be
-   coordinated, not smuggled in.
+   of the derivation and must be coordinated with the current constraint
+   machinery.
 3. **kcat / Vmax normalization interacts.** kcat is defined from the SS
    forward rates, which option (c) makes state-dependent (`k_f^A ≠ k_f^I`).
    Re-check the normalization invariants (kcat homogeneity, scale
    invariance) under speed-sharing.
 4. **Parameter naming chokepoint.** The free SS symbol becomes a *speed*
-   with derived per-state `k_f/k_r`; new symbols/derivations flow through
-   `name(...)` / `_param_symbol`. This is the parent refactor's chokepoint
-   territory.
+   with derived per-state `k_f/k_r`; new parameter symbols must flow through
+   the `Parameter` family and `name(p, m)` naming chokepoint.
 
-## 7. Sequencing (decided)
+## 7. Implementation Target
 
-1. **Now:** contained fix (companion doc) — repair the synth-dep overwrite
-   so PK / `m_mixed` compute consistently under the current option-(a)
-   convention; unblock the parent session. No representation change.
-2. **Parent refactor finishes** (structural parameter names).
-3. **Then:** this principle as its own (large) PR — re-found the constraint
-   resolution on the symmetric (speed, ratio) basis, accept `√` in rate
-   equations, update analytical formulas, re-verify kcat normalization, and
-   fold the rank-based degeneracy rejection into the new foundation.
+Implement this principle as its own large feature: re-found constraint
+resolution on the symmetric (speed, ratio) basis, accept `√` in rate
+equations, update analytical formulas, re-verify kcat normalization, and fold
+the rank-based degeneracy rejection into the same foundation.

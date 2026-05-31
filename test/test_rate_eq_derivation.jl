@@ -17,9 +17,8 @@ function reference_qssa(
     params::NamedTuple,
     concs::NamedTuple,
 )
-    # Walk reactions via accessor so this helper works for both legacy
-    # `(mets, rxns)` Sig shapes and the new `(reaction_sig, steps_sig)`
-    # shape produced by `EnzymeMechanism(::Mechanism)`.
+    # Walk reactions via accessor so this helper follows the compiled
+    # mechanism representation.
     Reactions = EnzymeRates.reactions(m)
     enz_names = EnzymeRates.enzyme_forms(m)
     n = length(enz_names)
@@ -508,8 +507,8 @@ function build_ode_rhs(
     m::EnzymeMechanism,
     params, concs,
 )
-    # Walk reactions via accessor so this helper works for both legacy
-    # and new Sig shapes.
+    # Walk reactions via accessor so this helper follows the compiled
+    # mechanism representation.
     Reactions = EnzymeRates.reactions(m)
     enz_names = EnzymeRates.enzyme_forms(m)
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
@@ -956,14 +955,11 @@ end
     end
 end
 
-# Deferred: `parameters(m, Full)` is not injective for Case-B allosteric
-# shapes — an `:EqualAI` group whose reverse rate is a Haldane-dependent
-# constant emits the base I-state name AND a synth-dep name that coincide
-# (e.g. PK's `:k_I_EATPPyruvate_to_EADPPEP`). Full mode's only consumer is
-# the not-yet-implemented identify_rate_equation canonicalizer, so this is
-# harmless today. Tracked here so the deferral surfaces in CI rather than
-# only in prose; resolve in the direction-symmetry / nonequalai-rank-validity
-# follow-up PRs, then promote to @test.
+# `parameters(m, Full)` is not injective for Case-B allosteric shapes: an
+# `:EqualAI` group whose reverse rate is Haldane-dependent can emit a base
+# I-state name and a synth-dep name that coincide. Keep this visible until
+# direction-symmetry constraint resolution and NonequalAI rank validation
+# make the duplicate impossible.
 @testset "parameters(Full) Case-B duplicate (deferred)" begin
     pk = only(s for s in MECHANISM_TEST_SPECS if s.name == "PK")
     @test_broken allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
@@ -976,8 +972,7 @@ end
     # polynomial body emitted by _poly_to_expr (via _nest_binary) MUST
     # have exactly 2 operands per +/* call so LLVM inlines the binary
     # Float64 path; n-ary varargs above ~30 terms boxes the argument
-    # tuple and turns 100ns/0B into 1µs/2KB per call. See
-    # docs/superpowers/specs/2026-05-11-rate-eq-emission-perf-fix-design.md.
+    # tuple and turns 100ns/0B into 1µs/2KB per call.
     spec = only(s for s in MECHANISM_TEST_SPECS
                 if s.name == "Random-order Bi-Bi")
     rate_expr, _, _ = EnzymeRates._raw_rate_expr_and_symbols(
