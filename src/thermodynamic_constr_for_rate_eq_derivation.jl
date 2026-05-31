@@ -234,11 +234,6 @@ function _thermodynamic_constraints(mech::Mechanism)
     return C, rhs_coeffs
 end
 
-# Type-dispatching wrapper kept until the kernel is migrated — preserves
-# the existing @generated callers in _dependent_param_exprs_kernel.
-_thermodynamic_constraints(M::Type{<:EnzymeMechanism}) =
-    _thermodynamic_constraints(Mechanism(M()))
-
 # Walk Mechanism.steps; emit distinct enzyme-form Symbol names in
 # step-walk order. Used by _thermodynamic_constraints and friends.
 function _enumerate_species_names(mech::Mechanism)
@@ -297,19 +292,13 @@ Pass-1-only rename to keep absorbed ties visible under the
 `# Wegscheider constraints:` section.
 """
 function _dependent_param_exprs_kernel(
-    M::Type{<:EnzymeMechanism},
+    mech::Mechanism,
     rename::AbstractDict{Symbol, Symbol},
 )
-    m = M()
-    mech = Mechanism(m)
-    rxns = reactions(m)
-    eq_steps = equilibrium_steps(m)
-    enz_names = enzyme_forms(m)
-    enz_set = Set(enz_names)
-
+    flat = _flat_steps(mech)
     free_enz_set = _free_enz_set(mech)
 
-    C, rhs_coeffs = _thermodynamic_constraints(M)
+    C, rhs_coeffs = _thermodynamic_constraints(mech)
     all_params = _raw_param_symbols(mech)
     nc = size(C, 1)
     nsteps = size(C, 2)
@@ -319,7 +308,7 @@ function _dependent_param_exprs_kernel(
     sym_col = Dict(p => i for (i, p) in enumerate(all_params))
     n_vars = length(all_params)
 
-    # For each step's source-index, the Parameter(s) governing it.
+    # For each step (in flat-iteration order), the Parameter(s) governing it.
     # `name(p, mech)` renders to the rep-renamed Symbol (Pass-1
     # kinetic-group rename is folded into the chokepoint); `rename` then
     # applies any Pass-2 single-symbol Wegscheider ties on top.
@@ -334,9 +323,8 @@ function _dependent_param_exprs_kernel(
     # Binding K's are Kd in the polynomial; cycle products use 1/Kd, so
     # binding-K column entries get a sign flip on top of the cycle incidence.
     binding_K_set = Set{Symbol}()
-    for (j, (lhs, _, _, _)) in enumerate(rxns)
-        eq_steps[j] || continue
-        any(s ∉ enz_set for s in lhs) || continue
+    for (j, (s, _)) in enumerate(flat)
+        is_equilibrium(s) && is_binding(s) || continue
         push!(binding_K_set, step_name(step_params[j][1]))
     end
 
@@ -344,7 +332,7 @@ function _dependent_param_exprs_kernel(
     rhs = Rational{BigInt}.(rhs_coeffs)
     for i in 1:nc, j in 1:nsteps
         C[i, j] == 0 && continue
-        if eq_steps[j]
+        if is_equilibrium(flat[j][1])
             sym = step_name(step_params[j][1])
             sign_factor = sym in binding_K_set ? -1 : 1
             A[i, sym_col[sym]] += sign_factor * C[i, j]
@@ -364,7 +352,7 @@ function _dependent_param_exprs_kernel(
     for j in 1:nsteps
         step = step_params[j][1].step
         base = _step_priority(step, free_enz_set)
-        if eq_steps[j]
+        if is_equilibrium(flat[j][1])
             s = step_name(step_params[j][1])
             haskey(sym_col, s) && (priority[sym_col[s]] = base)
         else
@@ -423,6 +411,12 @@ function _dependent_param_exprs_kernel(
     dep_set = Set(keys(dep_exprs))
     return dep_exprs, Tuple(p for p in all_params if p ∉ dep_set)
 end
+
+# Type-dispatching wrapper preserves the existing call sites in
+# _dependent_param_exprs and _build_kinetic_rename_map / _build_wegscheider_rename_map.
+_dependent_param_exprs_kernel(M::Type{<:EnzymeMechanism},
+                              rename::AbstractDict{Symbol, Symbol}) =
+    _dependent_param_exprs_kernel(Mechanism(M()), rename)
 
 # ─── Preamble Building Helpers ───────────────────────────────────
 
