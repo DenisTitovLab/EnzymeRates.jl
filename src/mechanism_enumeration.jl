@@ -1260,11 +1260,11 @@ function _expand_add_dead_end_regulator(
     m::Mechanism, rxn::EnzymeReaction;
     exclude_regs::Set{Symbol}=Set{Symbol}(),
 )
-    _expand_add_dead_end_regulator_native(
+    raw = _expand_add_dead_end_regulator_native(
         m, rxn, Set{Symbol}();
-        exclude_regs=exclude_regs,
-        wrap=(new_groups, new_g, new_reaction) ->
-            Mechanism(new_reaction, new_groups))
+        exclude_regs=exclude_regs)
+    [Mechanism(new_reaction, new_groups)
+     for (new_groups, _, new_reaction) in raw]
 end
 
 function _expand_add_dead_end_regulator(
@@ -1277,31 +1277,31 @@ function _expand_add_dead_end_regulator(
     for site in regulatory_sites(am), lig in ligands(site)
         push!(allo_ligands, name(lig))
     end
-    _expand_add_dead_end_regulator_native(
+    raw = _expand_add_dead_end_regulator_native(
         am, rxn, allo_ligands;
-        exclude_regs=exclude_regs,
-        wrap=(new_groups, new_g, new_reaction) -> AllostericMechanism(
-            new_reaction, new_groups,
-            vcat(cat_allo_states(am), [:EqualAI]),
-            catalytic_multiplicity(am),
-            copy(regulatory_sites(am))))
+        exclude_regs=exclude_regs)
+    [AllostericMechanism(new_reaction, new_groups,
+                         vcat(cat_allo_states(am), [:EqualAI]),
+                         catalytic_multiplicity(am),
+                         copy(regulatory_sites(am)))
+     for (new_groups, _, new_reaction) in raw]
 end
 
 """
 Shared kernel for the Mechanism / AllostericMechanism dead-end
 expansion. `additional_excluded` carries allosteric ligand names that
-should not be eligible (empty for plain `Mechanism`). `wrap` constructs
-the result from the assembled step groups, the new regulator's kinetic
-group index, and the new reaction.
+should not be eligible (empty for plain `Mechanism`). Returns raw
+`(new_groups, new_regulator_group_index, new_reaction)` tuples; the
+top-level methods construct the typed result.
 """
 function _expand_add_dead_end_regulator_native(
     m::Union{Mechanism, AllostericMechanism},
     rxn::EnzymeReaction,
     additional_excluded::Set{Symbol};
     exclude_regs::Set{Symbol},
-    wrap,
 )
-    isempty(regulators(rxn)) && return typeof(m)[]
+    isempty(regulators(rxn)) &&
+        return Tuple{Vector{Vector{Step}}, Int, EnzymeReaction}[]
 
     sub_names = Set(name(s) for s in substrates(rxn))
     prod_names = Set(name(p) for p in products(rxn))
@@ -1322,7 +1322,8 @@ function _expand_add_dead_end_regulator_native(
         push!(eligible_regs, name(reg))
     end
     sort!(eligible_regs)
-    isempty(eligible_regs) && return typeof(m)[]
+    isempty(eligible_regs) &&
+        return Tuple{Vector{Vector{Step}}, Int, EnzymeReaction}[]
 
     form_sp = Dict{Symbol, Species}()
     for group in steps(m), s in group
@@ -1332,7 +1333,7 @@ function _expand_add_dead_end_regulator_native(
     cat_forms = Set(keys(form_sp))
 
     n_groups_before = length(steps(m))
-    results = typeof(m)[]
+    results = Tuple{Vector{Vector{Step}}, Int, EnzymeReaction}[]
 
     boundmap = _bound_at_forms(m)
 
@@ -1423,8 +1424,7 @@ function _expand_add_dead_end_regulator_native(
             push!(new_groups, reg_group_steps)
 
             new_reaction = _add_competitive_inhibitor(rxn, reg_name)
-            push!(results, wrap(new_groups, n_groups_before + 1,
-                                new_reaction))
+            push!(results, (new_groups, n_groups_before + 1, new_reaction))
         end
     end
     results
