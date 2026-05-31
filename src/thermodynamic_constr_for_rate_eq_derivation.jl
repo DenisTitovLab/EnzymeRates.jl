@@ -141,26 +141,48 @@ function _integer_nullspace(A::Matrix{Int})
     result
 end
 
-function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
-    m = M()
-    enz_names = enzyme_forms(m)
-    enz_set = Set(enz_names)
-    rxns = reactions(m)
-    stoich_mat = stoich_matrix(m)[metabolite_row_range(m), :]
-    met_names = collect(metabolites(m))
-    subs_species = substrates(m)
-    prods_species = products(m)
+function _thermodynamic_constraints(mech::Mechanism)
+    flat = _flat_steps(mech)
+    enz_names = collect(_enumerate_species_names(mech))
+    enz_name_to_idx = Dict(n => i for (i, n) in enumerate(enz_names))
+    nsteps = length(flat)
+    met_names = Symbol[name(metabolite(ra)) for ra in reactants(mech.reaction)]
+    subs_species = Symbol[name(s) for s in substrates(mech.reaction)]
+    prods_species = Symbol[name(p) for p in products(mech.reaction)]
 
-    # Enzyme incidence matrix: rows = enzyme forms, cols = steps;
-    # entries are −1 / +1 depending on which side an enzyme form
-    # appears on.
-    N = length(enz_names)
-    B = zeros(Int, N, length(rxns))
-    for (j, (lhs, rhs, _, _)) in enumerate(rxns)
-        e_lhs, _ = _split_reaction_side(lhs, enz_set)
-        e_rhs, _ = _split_reaction_side(rhs, enz_set)
-        B[findfirst(==(e_lhs), enz_names), j] -= 1
-        B[findfirst(==(e_rhs), enz_names), j] += 1
+    # Enzyme incidence matrix
+    B = zeros(Int, length(enz_names), nsteps)
+    for (j, (s, _)) in enumerate(flat)
+        i_from = enz_name_to_idx[name(from_species(s))]
+        i_to   = enz_name_to_idx[name(to_species(s))]
+        B[i_from, j] -= 1
+        B[i_to,   j] += 1
+    end
+
+    # Stoichiometry matrix (rows = metabolites, cols = steps). Mirrors
+    # the metabolite-row walk of stoich_matrix(em): a metabolite gets its
+    # stoichiometry solely from the canonical reaction tuple — m_lhs
+    # contributes -1 (consumed from the free pool), m_rhs contributes +1
+    # (produced). `_step_sides(s)` reconstructs that projection from Step
+    # fields (mirroring _step_tuple_from_sig's branch logic).
+    #
+    # Iso steps carry no metabolite in their reaction tuple — their bound
+    # content is encoded in the enzyme-form identity, not in the free
+    # pool — so `_step_sides` returns empty metabolite lists and they
+    # contribute zero, exactly as stoich_matrix's metabolite rows do.
+    # Do NOT add a from_bound/to_bound diff for iso steps: that double-
+    # counts metabolites already accounted for by the binding/release
+    # steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
+    met_idx = Dict(n => i for (i, n) in enumerate(met_names))
+    stoich_mat = zeros(Int, length(met_names), nsteps)
+    for (j, (s, _)) in enumerate(flat)
+        _, _, m_lhs, m_rhs = _step_sides(s)
+        for m in m_lhs
+            haskey(met_idx, m) && (stoich_mat[met_idx[m], j] -= 1)
+        end
+        for m in m_rhs
+            haskey(met_idx, m) && (stoich_mat[met_idx[m], j] += 1)
+        end
     end
 
     NS = _integer_nullspace(B)
@@ -168,11 +190,11 @@ function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
     nc == 0 && return zeros(Int, 0, size(B, 2)), Int[]
 
     nu_net = zeros(Int, length(met_names))
-    for name in subs_species
-        nu_net[findfirst(==(name), met_names)] -= 1
+    for nm in subs_species
+        nu_net[met_idx[nm]] -= 1
     end
-    for name in prods_species
-        nu_net[findfirst(==(name), met_names)] += 1
+    for nm in prods_species
+        nu_net[met_idx[nm]] += 1
     end
 
     # Classify each null-space cycle as Haldane (proportional to the
@@ -210,6 +232,24 @@ function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
     C = NS'
     rhs_coeffs = [classify_cycle(stoich_mat * C[i, :], i) for i in 1:nc]
     return C, rhs_coeffs
+end
+
+# Type-dispatching wrapper kept until the kernel is migrated — preserves
+# the existing @generated callers in _dependent_param_exprs_kernel.
+_thermodynamic_constraints(M::Type{<:EnzymeMechanism}) =
+    _thermodynamic_constraints(Mechanism(M()))
+
+# Walk Mechanism.steps; emit distinct enzyme-form Symbol names in
+# step-walk order. Used by _thermodynamic_constraints and friends.
+function _enumerate_species_names(mech::Mechanism)
+    seen = Symbol[]
+    for group in steps(mech), s in group
+        for sp in (from_species(s), to_species(s))
+            nm = name(sp)
+            nm in seen || push!(seen, nm)
+        end
+    end
+    seen
 end
 
 """
