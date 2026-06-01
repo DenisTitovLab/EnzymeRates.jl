@@ -423,6 +423,19 @@ function _canonical_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol}
     string(name(f)) ≤ string(name(t)) ? s : Step(t, f, nothing, is_equilibrium(s))
 end
 
+# Canonicalize iso-step storage direction (RE + SS) to physical-forward for
+# every group. Shared by the `Mechanism` and `AllostericMechanism`
+# constructors so the Canonical Step Form invariant cannot drift between them.
+function _canonicalize_iso_groups(reaction::EnzymeReaction,
+                                  groups::Vector{Vector{Step}})
+    subs  = Set{Symbol}(name(s) for s in substrates(reaction))
+    prods = Set{Symbol}(name(s) for s in products(reaction))
+    flat0 = Step[s for group in groups for s in group]
+    binding_steps = filter(is_binding, flat0)
+    [[_canonical_iso_direction(s, subs, prods, binding_steps)
+      for s in group] for group in groups]
+end
+
 # Mechanism: groups elementary steps by kinetic group (outer
 # vector). All steps within a group share kinetic parameters. The
 # constructor canonicalizes iso-step direction and stores the steps;
@@ -433,12 +446,7 @@ struct Mechanism
     steps::Vector{Vector{Step}}
     function Mechanism(reaction::EnzymeReaction,
                        steps::Vector{Vector{Step}})
-        subs  = Set{Symbol}(name(s) for s in substrates(reaction))
-        prods = Set{Symbol}(name(s) for s in products(reaction))
-        flat0 = Step[s for group in steps for s in group]
-        binding_steps = filter(is_binding, flat0)
-        steps = [[_canonical_iso_direction(s, subs, prods, binding_steps)
-                  for s in group] for group in steps]
+        steps = _canonicalize_iso_groups(reaction, steps)
         new(reaction, steps)
     end
 end
@@ -493,14 +501,7 @@ struct AllostericMechanism
                       "$_VALID_CAT_ALLO_STATES); :OnlyI is rejected for " *
                       "catalytic groups (active-state-active convention)")
         end
-        # Canonicalize iso-step storage direction (RE + SS) to physical-
-        # forward, mirroring the non-allosteric `Mechanism` constructor.
-        subs  = Set{Symbol}(name(s) for s in substrates(reaction))
-        prods = Set{Symbol}(name(s) for s in products(reaction))
-        flat0 = Step[s for group in cat_steps for s in group]
-        binding_steps = filter(is_binding, flat0)
-        cat_steps = [[_canonical_iso_direction(s, subs, prods, binding_steps)
-                      for s in group] for group in cat_steps]
+        cat_steps = _canonicalize_iso_groups(reaction, cat_steps)
         # Detect Kreg name collision: a ligand in two distinct regulatory
         # sites would produce identical rendered Kreg names (no site
         # discriminator). Not enumerated; constructor rejects it.
