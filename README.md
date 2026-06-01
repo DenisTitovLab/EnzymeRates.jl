@@ -138,16 +138,17 @@ chemistry from Section 2, declared as a *reaction*:
 rxn = @enzyme_reaction begin
     substrates: S[C]
     products:   P[C]
-    competitive_inhibitors: A
+    allosteric_regulators: A
     oligomeric_state: 2
 end
 ```
 
-`competitive_inhibitors: A` declares `A` as a catalytic-site binder;
-the search enumerates dead-end-inhibitor and allosteric variants and
-selects between them on cross-validation score. (If you already know
-`A` is allosteric, declare it with `allosteric_regulators: A` instead
-and the search skips dead-end variants.)
+`allosteric_regulators: A` declares `A` as an allosteric effector; the search
+enumerates MWC allosteric variants (which conformations `A` binds and which
+kinetic groups are state-dependent) and selects among them by cross-validation
+score. (To instead model `A` as a dead-end catalytic-site binder, declare it
+with `competitive_inhibitors: A`; the search then enumerates dead-end inhibitor
+variants.)
 
 ```julia
 prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
