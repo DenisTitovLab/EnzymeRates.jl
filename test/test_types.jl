@@ -1,5 +1,5 @@
 @testset "Types" begin
-    @testset "EnzymeMechanism struct + accessors (new design)" begin
+    @testset "EnzymeMechanism struct + accessors" begin
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -123,7 +123,7 @@
         @test EnzymeRates.kinetic_group(m_g, 4) == EnzymeRates.kinetic_group(m_g, 5)
     end
 
-    @testset "AllostericEnzymeMechanism (new design)" begin
+    @testset "AllostericEnzymeMechanism struct + accessors" begin
         cm = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -319,16 +319,15 @@
         ])
         @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_unused)
 
-        # NOTE: "Duplicate reactions" and "Unreachable enzyme form" tests
-        # were dropped — the new design accepts both. Two reactions with
-        # the same (lhs, rhs) but distinct kinetic_groups are valid (they
-        # represent dead-end mirrors with different parameters in the OLD
-        # design's terms; in the new design, the kinetic_group integer
-        # disambiguates). And the new constructor doesn't enforce a
-        # connectivity invariant — enzyme forms are inferred from steps,
-        # so an "unreachable" form simply has its own steps in isolation,
-        # which is structurally valid (graph connectivity is a downstream
-        # concern caught by Wegscheider analysis if it matters).
+        # NOTE: duplicate reactions and unreachable enzyme forms are both
+        # accepted. Two reactions with the same (lhs, rhs) but distinct
+        # kinetic_groups are valid (they represent dead-end mirrors with
+        # different parameters, disambiguated by the kinetic_group integer).
+        # The constructor does not enforce a connectivity invariant —
+        # enzyme forms are inferred from steps, so an "unreachable" form
+        # simply has its own steps in isolation, which is structurally
+        # valid (graph connectivity is a downstream concern caught by
+        # Wegscheider analysis if it matters).
     end
 
     @testset "EnzymeMechanism valid with reachable enzyme forms" begin
@@ -485,7 +484,7 @@
         m = EnzymeRates.AllostericEnzymeMechanism(am)
         s = repr(m)
 
-        # Old summary line gone:
+        # No cat_allo_states: summary line — tags are shown inline instead:
         @test !occursin("cat_allo_states:", s)
         # Inline ::Tag annotations on each step or step group:
         @test occursin(":: EqualAI", s)
@@ -913,7 +912,7 @@
               EnzymeRates.CompetitiveInhibitor(:I)
     end
 
-    @testset "EnzymeReaction (new concrete)" begin
+    @testset "EnzymeReaction struct + accessors" begin
         r = EnzymeReaction(
             [EnzymeRates.ReactantAtoms(
                  EnzymeRates.Substrate(:ATP), [:C => 10]),

@@ -94,7 +94,7 @@
         @test m isa EnzymeRates.EnzymeMechanism
     end
 
-    @testset "@enzyme_mechanism (new grammar)" begin
+    @testset "@enzyme_mechanism decomposed-Species grammar" begin
         m = @enzyme_mechanism begin
             substrates: S
             products:   P

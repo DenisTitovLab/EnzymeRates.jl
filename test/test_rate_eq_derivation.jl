@@ -418,7 +418,7 @@ end
 
 """
 Generate random independent params + Keq + E_total for testing.
-Also returns all_params (old-style with all k's + E_total) for reference comparison.
+Also returns all_params (the full set of k's + E_total) for reference comparison.
 """
 function random_independent_params_concs(
     m, met_names::Vector{Symbol}; rng=Random.default_rng()
