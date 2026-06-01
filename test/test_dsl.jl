@@ -357,6 +357,28 @@
         end))
     end
 
+    @testset "@allosteric_mechanism opaque rejection names itself" begin
+        err = try
+            eval(:(@allosteric_mechanism begin
+                substrates: S
+                products: P
+                allosteric_regulators: I::OnlyI
+                catalytic_steps: begin
+                    E + S <--> ES :: EqualAI
+                    ES <--> E + P :: EqualAI
+                end
+            end))
+            nothing
+        catch e
+            e
+        end
+        @test err !== nothing
+        msg = err isa LoadError ? sprint(showerror, err.error) :
+              sprint(showerror, err)
+        @test occursin("@allosteric_mechanism", msg)
+        @test !occursin("@enzyme_mechanism", msg)
+    end
+
     @testset "@enzyme_reaction with oligomeric_state" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
