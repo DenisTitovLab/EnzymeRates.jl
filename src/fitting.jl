@@ -82,6 +82,13 @@ function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
     )
 end
 
+# Accept the concrete working-representation mechanism: compile to the
+# singleton once at construction so `loss!`'s hot path operates on the
+# @generated `EnzymeMechanism` / `AllostericEnzymeMechanism` (0-alloc).
+FittingProblem(mechanism::Union{Mechanism, AllostericMechanism}, table;
+        Keq::Real) =
+    FittingProblem(compile_mechanism(mechanism), table; Keq=Keq)
+
 """
     loss!(x::AbstractVector, fp::FittingProblem)
 

@@ -1,3 +1,5 @@
+# ABOUTME: Code-quality and static-analysis checks for EnzymeRates via
+# ABOUTME: Aqua (package hygiene) and JET (type/inference analysis).
 using Aqua
 using JET
 

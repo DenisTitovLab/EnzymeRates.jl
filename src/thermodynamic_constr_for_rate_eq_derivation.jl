@@ -1,3 +1,6 @@
+# ABOUTME: Haldane/Wegscheider thermodynamic constraints for enzyme mechanisms.
+# ABOUTME: Finds cycles, selects dependent params, builds @generated rate-eq preambles.
+
 """
 Haldane and Wegscheider thermodynamic constraints for enzyme mechanisms,
 plus preamble building helpers for @generated rate equation bodies.
@@ -13,22 +16,95 @@ the equilibrium constant Keq.
 
 """
 Collect raw parameter symbols (K_i for RE, k_if/k_ir for SS) for the
-representative step of each kinetic group, in step-order.
+representative step of each kinetic group, in step-order. Routes
+Symbol production through the `name(p::Parameter, m)` chokepoint via
+`_enumerate_parameters_full`.
 """
-function _raw_param_symbols(m::EnzymeMechanism)
-    eq = equilibrium_steps(m)
-    ps = Symbol[]
-    for g in kinetic_groups(m)
-        rep = first(steps_in_group(m, g))
-        if eq[rep]
-            push!(ps, Symbol("K$rep"))
-        else
-            push!(ps, Symbol("k$(rep)f"))
-            push!(ps, Symbol("k$(rep)r"))
-        end
-    end
-    ps
+function _raw_param_symbols(m::Mechanism)
+    Symbol[name(p, m) for p in _enumerate_parameters_full(m)]
 end
+
+_raw_param_symbols(m::EnzymeMechanism) = _raw_param_symbols(Mechanism(m))
+
+"""
+For each step in `m` (in flat-iteration order), yield the Parameter
+instances that govern that step: `[Kd|Kiso]` for an RE step, `[Kon|Kfor,
+Koff|Krev]` for an SS step. Each Parameter is anchored on the original
+step (not the rep), so `name(p, m)` renders to the rep's structural
+Symbol via the value-context chokepoint, collapsing kinetic-group members.
+"""
+function _step_parameters(m::Mechanism)
+    out = Vector{Vector{Parameter}}()
+    for (s, _) in _flat_steps(m)
+        params = is_equilibrium(s) ?
+            Parameter[is_binding(s) ? Kd(s, :None) : Kiso(s, :None)] :
+            Parameter[is_binding(s) ? Kon(s, :None)  : Kfor(s, :None),
+                      is_binding(s) ? Koff(s, :None) : Krev(s, :None)]
+        push!(out, params)
+    end
+    out
+end
+
+# ─── Structural primacy: free-enzyme set + step priority ─────────
+
+"""
+Set of enzyme-form names that are NOT the RHS of any canonical RE
+binding step `F + met… ⇌ F_bound`. Walks `Mechanism.steps` directly:
+for each RE binding step, the canonical form puts the bound metabolite
+on `to_species`, so `to_species`'s name is excluded from the free set.
+Iso steps don't determine binding state. SS steps' direction is not
+canonicalized so they don't participate.
+
+Shared by the kinetic-group name representative and the Haldane
+elimination pivot.
+"""
+function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
+    enz_names = Set{Symbol}()
+    for group in steps(m), s in group
+        push!(enz_names, name(from_species(s)))
+        push!(enz_names, name(to_species(s)))
+    end
+    free_enz_set = copy(enz_names)
+    for group in steps(m), s in group
+        is_equilibrium(s) || continue
+        is_binding(s) || continue
+        # Canonical: bound metabolite resides on to_species. The from-side
+        # is the "free + met" reactant; the to-side is the bound form.
+        delete!(free_enz_set, name(to_species(s)))
+    end
+    free_enz_set
+end
+
+"""
+Structural primacy base score for a step (lower = more primary / less
+eliminable). Free-enzyme RE binding (-1) < free-enzyme SS binding (0) <
+non-free metabolite step (10) < internal isomerization (20). Shared by the
+kinetic-group name representative (argmin) and the Haldane elimination pivot
+(argmax, which adds a +0/+1 forward/reverse offset per rate constant).
+"""
+function _step_priority(s::Step, free_enz_set::Set{Symbol})
+    has_met = is_binding(s)
+    is_free = (name(from_species(s)) in free_enz_set) ||
+              (name(to_species(s))   in free_enz_set)
+    is_equilibrium(s) && has_met && is_free && return -1
+    return !has_met ? 20 : is_free ? 0 : 10
+end
+
+"""
+Total lexical tiebreak for two distinct steps in the same kinetic group:
+species pair + bound metabolite + RE/SS flag.
+"""
+_step_lex_key(s::Step) =
+    (String(name(from_species(s))), String(name(to_species(s))),
+     String(bound_metabolite(s) === nothing ? "" : name(bound_metabolite(s))),
+     is_equilibrium(s))
+
+"""
+Kinetic-group naming representative: the structurally-primary step
+(`argmin _step_priority`), with a deterministic lexical tiebreak.
+"""
+_group_rep(group::Vector{Step}, free_enz_set::Set{Symbol}) =
+    argmin(s -> (_step_priority(s, free_enz_set), _step_lex_key(s)), group)
 
 # ─── Thermodynamic Constraint Infrastructure ─────────────────────
 
@@ -68,26 +144,45 @@ function _integer_nullspace(A::Matrix{Int})
     result
 end
 
-function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
-    m = M()
-    enz_names = enzyme_forms(m)
-    enz_set = Set(enz_names)
-    rxns = reactions(m)
-    stoich_mat = stoich_matrix(m)[metabolite_row_range(m), :]
-    met_names = collect(metabolites(m))
-    subs_species = substrates(m)
-    prods_species = products(m)
+function _thermodynamic_constraints(mech::Mechanism)
+    flat = _flat_steps(mech)
+    enz_names = collect(_enumerate_species_names(mech))
+    enz_name_to_idx = Dict(n => i for (i, n) in enumerate(enz_names))
+    nsteps = length(flat)
+    met_names = Symbol[name(metabolite(ra)) for ra in reactants(mech.reaction)]
+    subs_species = Symbol[name(s) for s in substrates(mech.reaction)]
+    prods_species = Symbol[name(p) for p in products(mech.reaction)]
 
-    # Enzyme incidence matrix: rows = enzyme forms, cols = steps;
-    # entries are −1 / +1 depending on which side an enzyme form
-    # appears on.
-    N = length(enz_names)
-    B = zeros(Int, N, length(rxns))
-    for (j, (lhs, rhs, _, _)) in enumerate(rxns)
-        e_lhs, _ = _split_reaction_side(lhs, enz_set)
-        e_rhs, _ = _split_reaction_side(rhs, enz_set)
-        B[findfirst(==(e_lhs), enz_names), j] -= 1
-        B[findfirst(==(e_rhs), enz_names), j] += 1
+    # Enzyme incidence matrix
+    B = zeros(Int, length(enz_names), nsteps)
+    for (j, (s, _)) in enumerate(flat)
+        i_from = enz_name_to_idx[name(from_species(s))]
+        i_to   = enz_name_to_idx[name(to_species(s))]
+        B[i_from, j] -= 1
+        B[i_to,   j] += 1
+    end
+
+    # Stoichiometry matrix (rows = metabolites, cols = steps). A
+    # metabolite gets its stoichiometry solely from the canonical
+    # reaction tuple via `_step_sides(s)`: m_lhs contributes -1 (consumed
+    # from the free pool), m_rhs contributes +1 (produced).
+    #
+    # Iso steps carry no free-pool metabolite — their bound content is
+    # encoded in the enzyme-form identity — so `_step_sides` returns empty
+    # metabolite lists and they contribute zero. Do NOT add a
+    # from_bound/to_bound diff for iso steps: that double-counts
+    # metabolites already accounted for by the binding/release steps and
+    # inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
+    met_idx = Dict(n => i for (i, n) in enumerate(met_names))
+    stoich_mat = zeros(Int, length(met_names), nsteps)
+    for (j, (s, _)) in enumerate(flat)
+        _, _, m_lhs, m_rhs = _step_sides(s)
+        for m in m_lhs
+            haskey(met_idx, m) && (stoich_mat[met_idx[m], j] -= 1)
+        end
+        for m in m_rhs
+            haskey(met_idx, m) && (stoich_mat[met_idx[m], j] += 1)
+        end
     end
 
     NS = _integer_nullspace(B)
@@ -95,11 +190,11 @@ function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
     nc == 0 && return zeros(Int, 0, size(B, 2)), Int[]
 
     nu_net = zeros(Int, length(met_names))
-    for name in subs_species
-        nu_net[findfirst(==(name), met_names)] -= 1
+    for nm in subs_species
+        nu_net[met_idx[nm]] -= 1
     end
-    for name in prods_species
-        nu_net[findfirst(==(name), met_names)] += 1
+    for nm in prods_species
+        nu_net[met_idx[nm]] += 1
     end
 
     # Classify each null-space cycle as Haldane (proportional to the
@@ -139,6 +234,19 @@ function _thermodynamic_constraints(M::Type{<:EnzymeMechanism})
     return C, rhs_coeffs
 end
 
+# Walk Mechanism.steps; emit distinct enzyme-form Symbol names in
+# step-walk order. Used by _thermodynamic_constraints and friends.
+function _enumerate_species_names(mech::Mechanism)
+    seen = Symbol[]
+    for group in steps(mech), s in group
+        for sp in (from_species(s), to_species(s))
+            nm = name(sp)
+            nm in seen || push!(seen, nm)
+        end
+    end
+    seen
+end
+
 """
     _dependent_param_exprs(M::Type{<:EnzymeMechanism}) → (dep_exprs, indep_params)
 
@@ -148,25 +256,25 @@ kinetic group share parameters: their cycle-incidence columns are merged
 into the representative step's column before Gaussian elimination, so
 `dep_exprs` and `indep_params` are keyed only on representatives.
 
-The wrapper calls `_build_kinetic_rename_map(M)` to obtain the full
-rename map (user-defined kinetic-group merges plus absorbed single-symbol
-Wegscheider RE ties) and forwards to `_dependent_param_exprs_kernel`.
+The wrapper calls `_build_wegscheider_rename_map(M)` to obtain the
+rename map for absorbed single-symbol Wegscheider RE ties and forwards
+to `_dependent_param_exprs_kernel`.
 """
 function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
-    rename = _build_kinetic_rename_map(M)
+    rename = _build_wegscheider_rename_map(M)
     dep_exprs, indep = _dependent_param_exprs_kernel(M, rename)
     # Filter Pass-2-absorbed symbols out of indep. Pass 2 of
-    # `_build_kinetic_rename_map` adds entries like `K9 => K4` when
-    # Wegscheider ties two binding-K group reps. After the merge, the
-    # absorbed symbol (K9) doesn't appear in the v polynomial — its
-    # column has been folded into the target (K4). But K9 is still a
-    # kinetic-group rep in the mechanism's type, so `_raw_param_symbols`
-    # emits it and the kernel keeps it in `indep`. Without this filter,
-    # `fitted_params` exposes K9 as fittable, the fitter explores an
-    # extra dummy dimension that doesn't affect the loss, and finite-
-    # restart convergence suffers (the same rate equation can land at
-    # noticeably different fitted losses depending on which absorbed
-    # symbol got the dummy slot).
+    # `_build_wegscheider_rename_map` adds entries like `K_P_E => K_S_E`
+    # when a Wegscheider tie collapses two binding-K group reps to the
+    # same name. After the merge, the absorbed symbol doesn't appear in
+    # the v polynomial — its column has been folded into the target.
+    # But the absorbed symbol is still a kinetic-group rep in the
+    # mechanism, so `_raw_param_symbols` emits it and the kernel keeps it
+    # in `indep`. Without this filter, `fitted_params` exposes a fittable
+    # dummy dimension that doesn't affect the loss, and finite-restart
+    # convergence suffers (the same rate equation can land at noticeably
+    # different fitted losses depending on which absorbed symbol got
+    # the dummy slot).
     indep = Tuple(p for p in indep if get(rename, p, p) == p)
     return dep_exprs, indep
 end
@@ -177,37 +285,21 @@ the rename map as a parameter so callers can supply either the
 user-defined kinetic-group rename (Pass 1 only) or the full rename map
 that also absorbs single-symbol Wegscheider RE ties (Pass 1 + Pass 2).
 
-Pass 2 of `_build_kinetic_rename_map` calls this kernel with the
+Pass 2 of `_build_wegscheider_rename_map` calls this kernel with the
 Pass-1-only rename to discover which single-symbol ties to absorb; the
 display path in `rate_equation_string` likewise calls it with the
 Pass-1-only rename to keep absorbed ties visible under the
 `# Wegscheider constraints:` section.
 """
 function _dependent_param_exprs_kernel(
-    M::Type{<:EnzymeMechanism},
+    mech::Mechanism,
     rename::AbstractDict{Symbol, Symbol},
 )
-    m = M()
-    rxns = reactions(m)
-    eq_steps = equilibrium_steps(m)
-    enz_names = enzyme_forms(m)
-    enz_set = Set(enz_names)
+    flat = _flat_steps(mech)
+    free_enz_set = _free_enz_set(mech)
 
-    # Free enzyme is any form that's never the RHS of a canonical RE binding
-    # step `F + met... ⇌ F_bound`. SS steps don't determine binding state
-    # (their direction isn't canonicalized). Used for pivot priority.
-    free_enz_set = Set{Symbol}(enz_names)
-    for (lhs, rhs, is_eq, _) in rxns
-        is_eq || continue
-        _, m_l = _split_reaction_side(lhs, enz_set)
-        e_r, m_r = _split_reaction_side(rhs, enz_set)
-        if !isempty(m_l) && isempty(m_r)
-            delete!(free_enz_set, e_r)
-        end
-    end
-
-    C, rhs_coeffs = _thermodynamic_constraints(M)
-    all_params = _raw_param_symbols(m)
+    C, rhs_coeffs = _thermodynamic_constraints(mech)
+    all_params = _raw_param_symbols(mech)
     nc = size(C, 1)
     nsteps = size(C, 2)
     nc == 0 && return (Dict{Symbol, Union{Symbol, Expr}}(),
@@ -216,64 +308,58 @@ function _dependent_param_exprs_kernel(
     sym_col = Dict(p => i for (i, p) in enumerate(all_params))
     n_vars = length(all_params)
 
+    # For each step (in flat-iteration order), the Parameter(s) governing it.
+    # `name(p, mech)` renders to the rep-renamed Symbol (Pass-1
+    # kinetic-group rename is folded into the chokepoint); `rename` then
+    # applies any Pass-2 single-symbol Wegscheider ties on top.
+    step_params = _step_parameters(mech)
+    step_name(p::Parameter) = get(rename, name(p, mech), name(p, mech))
+
     # Translate cycle-incidence columns into the merged-parameter A matrix.
     # Non-representative steps' columns are folded into their representative
-    # via the rename map; this is mathematically equivalent to a kinetic-group
+    # via the chokepoint; this is mathematically equivalent to a kinetic-group
     # equality constraint (K_idx = K_rep, k_idx_f = k_rep_f, ...).
     #
     # Binding K's are Kd in the polynomial; cycle products use 1/Kd, so
     # binding-K column entries get a sign flip on top of the cycle incidence.
     binding_K_set = Set{Symbol}()
-    for (j, (lhs, _, _, _)) in enumerate(rxns)
-        eq_steps[j] || continue
-        any(s ∉ enz_set for s in lhs) || continue
-        sym = Symbol("K$j")
-        push!(binding_K_set, get(rename, sym, sym))
+    for (j, (s, _)) in enumerate(flat)
+        is_equilibrium(s) && is_binding(s) || continue
+        push!(binding_K_set, step_name(step_params[j][1]))
     end
 
     A = zeros(Rational{BigInt}, nc, n_vars)
     rhs = Rational{BigInt}.(rhs_coeffs)
     for i in 1:nc, j in 1:nsteps
         C[i, j] == 0 && continue
-        if eq_steps[j]
-            sym = Symbol("K$j")
-            sym = get(rename, sym, sym)
+        if is_equilibrium(flat[j][1])
+            sym = step_name(step_params[j][1])
             sign_factor = sym in binding_K_set ? -1 : 1
             A[i, sym_col[sym]] += sign_factor * C[i, j]
         else
-            kf = Symbol("k$(j)f"); kr = Symbol("k$(j)r")
-            kf = get(rename, kf, kf); kr = get(rename, kr, kr)
+            kf = step_name(step_params[j][1])
+            kr = step_name(step_params[j][2])
             A[i, sym_col[kf]] += C[i, j]
             A[i, sym_col[kr]] -= C[i, j]
         end
     end
 
     # Pivot priority: internal isomerizations > metabolite steps
-    #                 > free-enzyme binding. Inherits from the representative
-    #                 step (first in the kinetic group).
+    #                 > free-enzyme binding (argmax picks most eliminable).
+    #                 Same `_step_priority` scoring feeds the group-naming rep
+    #                 (argmin). SS steps add a +0/+1 forward/reverse offset.
     priority = zeros(Int, n_vars)
-    for (j, (lhs, rhs_rxn, _, _)) in enumerate(rxns)
-        e_lhs, m_lhs = _split_reaction_side(lhs, enz_set)
-        e_rhs, m_rhs = _split_reaction_side(rhs_rxn, enz_set)
-        has_met = !isempty(m_lhs) || !isempty(m_rhs)
-        is_free = (e_lhs in free_enz_set ||
-                   e_rhs in free_enz_set)
-        if !has_met
-            base = 20
-        elseif is_free
-            base = 0
+    for j in 1:nsteps
+        step = step_params[j][1].step
+        base = _step_priority(step, free_enz_set)
+        if is_equilibrium(flat[j][1])
+            s = step_name(step_params[j][1])
+            haskey(sym_col, s) && (priority[sym_col[s]] = base)
         else
-            base = 10
-        end
-        if eq_steps[j]
-            s = Symbol("K$j")
-            haskey(sym_col, s) && (priority[sym_col[s]] =
-                (is_free && has_met) ? -1 : base)
-        else
-            for (suffix, offset) in (("f", 0), ("r", 1))
-                s = Symbol("k$(j)$suffix")
+            for (offset, p) in enumerate(step_params[j])
+                s = step_name(p)
                 haskey(sym_col, s) &&
-                    (priority[sym_col[s]] = base + offset)
+                    (priority[sym_col[s]] = base + offset - 1)
             end
         end
     end
@@ -325,6 +411,12 @@ function _dependent_param_exprs_kernel(
     dep_set = Set(keys(dep_exprs))
     return dep_exprs, Tuple(p for p in all_params if p ∉ dep_set)
 end
+
+# Type-dispatching wrapper preserves the existing call sites in
+# _dependent_param_exprs and _build_kinetic_rename_map / _build_wegscheider_rename_map.
+_dependent_param_exprs_kernel(M::Type{<:EnzymeMechanism},
+                              rename::AbstractDict{Symbol, Symbol}) =
+    _dependent_param_exprs_kernel(Mechanism(M()), rename)
 
 # ─── Preamble Building Helpers ───────────────────────────────────
 

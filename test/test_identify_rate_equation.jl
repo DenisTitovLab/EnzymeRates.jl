@@ -17,44 +17,32 @@ using OptimizationPyCMA
     test_rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
-        regulators: R
+        competitive_inhibitors: R
     end
 
     # Build the constrained allosteric mechanism: K-type
-    # allosteric with S, P only in R-state (`:OnlyR` group
-    # tags) and R only in T-state (`:OnlyT` ligand tag).
-    _init = EnzymeRates.init_mechanisms(test_rxn)
-    _base_spec = _init[1]
-    # Find S-binding and P-binding kinetic groups by their
-    # metabolite (single-step groups in init).
-    _g_s = first(s.kinetic_group for s in _base_spec.steps
-                 if EnzymeRates.step_metabolite(s) === :S)
-    _g_p = first(s.kinetic_group for s in _base_spec.steps
-                 if EnzymeRates.step_metabolite(s) === :P)
-    _used_groups = sort!(collect(
-        Set(s.kinetic_group for s in _base_spec.steps)))
-    _group_tags = Dict{Int,Symbol}(
-        g => :NonequalRT for g in _used_groups)
-    _group_tags[_g_s] = :OnlyR
-    _group_tags[_g_p] = :OnlyR
-    _allo_spec =
-        EnzymeRates.AllostericMechanismSpec(
-            _base_spec,
-            1,                # catalytic_n
-            [[:R]],           # reg sites
-            [1],              # multiplicities
-            _group_tags,
-            Dict(:R => :OnlyT),
-            8)                # n_fit_params_estimate
-    test_mechanism =
-        EnzymeRates.AllostericEnzymeMechanism(
-            _allo_spec)
+    # allosteric with S, P only in R-state (`:OnlyA` group
+    # tags) and R only in T-state (`:OnlyI` ligand tag).
+    _base = first(EnzymeRates.init_mechanisms(test_rxn))
+    _cat_allo_states = Symbol[]
+    for g in EnzymeRates.kinetic_groups(_base)
+        rep = EnzymeRates.rep_step(_base, g)
+        met = EnzymeRates.bound_metabolite(rep)
+        tag = (met isa EnzymeRates.Reactant) ? :OnlyA : :NonequalAI
+        push!(_cat_allo_states, tag)
+    end
+    _site = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:R)], 1, [:OnlyI])
+    _am = EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(_base), copy(EnzymeRates.steps(_base)),
+        _cat_allo_states, 1, [_site])
+    test_mechanism = EnzymeRates.AllostericEnzymeMechanism(_am)
 
     Keq_val = 2.0
-    # 5 fitted params + 1 zeroed-path param (k3f_T)
+    # 5 fitted params: K_A_P_E, K_A_S_E, k_A_ES_to_EP, K_I_Rreg, L
     true_params = (
-        K1 = 1.0, K2 = 0.5, k3f = 5.0,
-        k3f_T = 1.0, K_R_T_reg1 = 2.0, L = 0.1,
+        K_A_P_E = 1.0, K_A_S_E = 0.5, k_A_ES_to_EP = 5.0,
+        K_I_Rreg = 2.0, L = 0.1,
         Keq = Keq_val, E_total = 1.0)
 
     function make_test_data(
@@ -266,9 +254,8 @@ using OptimizationPyCMA
                 propertynames(results.cv_results)
         end
 
-        # CSV-roundtrip: spec acceptance criterion #7 says cv_results
-        # is CSV-serializable. Verify by writing and re-reading; check
-        # column-name preservation and row count.
+        # CSV-roundtrip: cv_results must be CSV-serializable. Verify by
+        # writing and re-reading; check column-name preservation and row count.
         buf = IOBuffer()
         CSV.write(buf, results.cv_results)
         seekstart(buf)
@@ -342,10 +329,9 @@ using OptimizationPyCMA
         # mechanism prone to Haldane-collapse hash hits) or a
         # `_beam_search` unit test with a recording fit-wrapper.
         # The greedy-beam smoke settings here (min_beam_width=1)
-        # don't reliably produce inherited rows. The spec's
-        # demanded "recording wrapper" approach is left as
-        # follow-up work; the loop above still catches invalid
-        # `fit_inherited_from_estimate` references when present.
+        # don't reliably produce inherited rows. A recording fit-wrapper
+        # would make that positive path deterministic; the loop above
+        # catches invalid `fit_inherited_from_estimate` references when present.
     end
 
     @testset "save_dir non-empty check" begin
@@ -372,8 +358,8 @@ using OptimizationPyCMA
             substrates: S[C]
             products: P[C]
         end
-        init = EnzymeRates.init_mechanisms(rxn)
-        m = EnzymeRates.EnzymeMechanism(first(init))
+        m = EnzymeRates.EnzymeMechanism(
+            first(EnzymeRates.init_mechanisms(rxn)))
 
         # 3 groups × 2 rows each so per-fold fits aren't degenerate
         data = DataFrame(
@@ -471,7 +457,7 @@ end
 end
 
 @testset "beam_fraction kwarg removed: passing it errors" begin
-    # The legacy `beam_fraction` kwarg was replaced by
+    # The removed `beam_fraction` kwarg was replaced by
     # `loss_rel_threshold` + `loss_abs_threshold` + `min_beam_width`.
     # No alias / deprecation shim — passing it must error.
     rxn = @enzyme_reaction begin
@@ -813,4 +799,62 @@ end
     @test "cv_fold_x y" in names(roundtrip)
 end
 
+@testset "canonical-hash partition stability" begin
+    # Representative reactions exercising the canonicalizer's edge cases:
+    # - uni_uni: trivial structural equivalence
+    # - bi_bi:   substituted-into-v ties across multiple kinetic groups
+    # ter-ter intentionally omitted — `rate_equation` compilation is
+    # extremely slow for mechanisms with >~30 enzyme forms (CLAUDE.md
+    # "Known Issues"), and the canonical hasher invokes that path per
+    # candidate. The bi-bi enumeration already covers every structural
+    # symmetry the canonicalizer collapses.
+    test_reactions = [
+        ("uni_uni", @enzyme_reaction(begin
+            substrates: S[C]
+            products:   P[C]
+        end)),
+        ("bi_bi", @enzyme_reaction(begin
+            substrates: A[C], B[N]
+            products:   P[C], Q[N]
+        end)),
+    ]
 
+    # Expected partition sizes per reaction. These are the number of DISTINCT
+    # rate equations the init-level enumeration produces — verified directly:
+    # the 77 bi_bi init mechanisms yield exactly 21 distinct
+    # `rate_equation_string` outputs, and the canonical hasher produces exactly
+    # 21 classes, with zero over-collapse (no hash bucket mixes distinct rate
+    # equations) and zero under-collapse (no two equal rate equations land in
+    # different buckets). Under structural parameter names the hash partitions
+    # exactly by rate-equation equivalence. (The earlier frozen `23` was an
+    # over-count from the retired positional-token renumbering, whose
+    # first-occurrence `p_$i` assignment was monomial-order-sensitive and
+    # failed to collapse two pairs of genuinely rate-equivalent mechanisms.)
+    # If these counts change in a future commit, the canonical hasher's
+    # equivalence classes have shifted — investigate before merging.
+    expected_n_classes = Dict(
+        "uni_uni" => 1,
+        "bi_bi"   => 21,
+    )
+
+    for (label, reaction) in test_reactions
+        # init_mechanisms only — skip expand_mechanisms. The init level
+        # already produces multiple structurally-equivalent variants
+        # (mirror-step orderings, kinetic-group renumberings) that
+        # exercise the canonicalizer's collapse rules. expand_mechanisms
+        # adds variants at higher param counts whose canonicalizer
+        # behavior is the same modulo size, at exponential compile cost.
+        all_mechs = EnzymeRates.init_mechanisms(reaction)
+
+        new_buckets = Dict{UInt64, Vector{Int}}()
+        for (i, m) in enumerate(all_mechs)
+            em = EnzymeRates.compile_mechanism(m)
+            h = EnzymeRates._canonical_rate_eq_hash(em)
+            push!(get!(new_buckets, h, Int[]), i)
+            # Determinism: same input, same hash across invocations.
+            @test EnzymeRates._canonical_rate_eq_hash(em) === h
+        end
+
+        @test length(new_buckets) == expected_n_classes[label]
+    end
+end

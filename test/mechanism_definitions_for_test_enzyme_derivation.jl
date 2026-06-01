@@ -1,6 +1,5 @@
-# Test specifications for all enzyme mechanisms
-# Each mechanism is defined inline with its expected properties
-# for easy side-by-side comparison
+# ABOUTME: Shared mechanism test specifications used across the derivation tests.
+# ABOUTME: Each mechanism is defined inline with its expected properties.
 
 using LinearAlgebra
 using Random
@@ -24,7 +23,9 @@ Base.@kwdef struct MechanismTestSpec
 
     # Constraint expectations
     expected_n_haldane_constraints::Int       # RHS references Keq (catalytic-cycle closure)
-    expected_n_mirror_constraints::Int        # RHS is a single Symbol (allosteric :EqualRT rename)
+    expected_n_mirror_constraints::Int        # RHS is a single Symbol (allosteric :EqualAI rename)
+    # NOTE: largely vestigial under structural naming — mostly 0, only nonzero for :EqualAI
+    # reg ligands; candidate for repurposing-or-removal in the structural-naming cleanup.
     expected_n_wegscheider_constraints::Int   # RHS Expr without Keq (multi-cycle futile-cycle closure)
     expected_n_independent_params::Int        # 2*n_steps - n_constraints
 
@@ -59,8 +60,8 @@ function build_mechanism_test_specs()
             substrates: S
             products: P
             steps: begin
-                E + S <--> ES
-                ES <--> E + P
+                E + S <--> E(S)
+                E(S) <--> E + P
             end
         end
         push!(specs, MechanismTestSpec(
@@ -89,9 +90,9 @@ function build_mechanism_test_specs()
             substrates: A
             products: P
             steps: begin
-                E + A <--> EA
-                EA <--> EP
-                EP <--> E + P
+                E + A <--> E(A)
+                E(A) <--> E(P)
+                E(P) <--> E + P
             end
         end
 
@@ -128,9 +129,9 @@ function build_mechanism_test_specs()
             substrates: A
             products: P
             steps: begin
-                E + A <--> EA
-                EA <--> EP
-                EP <--> F + P
+                E + A <--> E(A)
+                E(A) <--> E(P)
+                E(P) <--> F + P
                 F <--> E
             end
         end
@@ -169,9 +170,9 @@ function build_mechanism_test_specs()
             substrates: A
             products: P, Q
             steps: begin
-                E + A <--> EAEPQ
-                EAEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E(A) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
@@ -212,10 +213,10 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABEPQ
-                EABEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
@@ -254,54 +255,6 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # 6. Segel Theorell-Chance Bi Bi (new): E + A ⇌ EA + B ⇌ EQ + P ⇌ E + Q
-    #    Reference: Segel, Enzyme Kinetics, Eq. IX-122
-    let
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A <--> EA
-                EA + B <--> EQ + P
-                EQ <--> E + Q
-            end
-        end
-
-        # Segel Eq. IX-122: Theorell-Chance Bi Bi steady-state rate
-        function rate_theorell_chance_bi_bi(params, concs)
-            (; k1f, k1r, k2f, k2r, k3f, k3r, Etotal) = params
-            (; A, B, P, Q) = concs
-            num = k1f * k2f * k3f * A * B - k1r * k2r * k3r * P * Q
-            denom = k1r * k3f +
-                    k1f * k3f * A +
-                    k2f * k3f * B +
-                    k1r * k2r * P +
-                    k1r * k3r * Q +
-                    k1f * k2f * A * B +
-                    k1f * k2r * A * P +
-                    k2f * k3r * B * Q +
-                    k2r * k3r * P * Q
-            return Etotal * num / denom
-        end
-
-        push!(specs, MechanismTestSpec(
-            name="Segel Theorell-Chance Bi Bi",
-            mechanism=m,
-            metabolite_names=[:A, :B, :P, :Q],
-            expected_n_states=3,
-            expected_n_steps=3,
-            expected_n_metabolites=4,
-            expected_n_haldane_constraints=1,
-            expected_n_mirror_constraints=0,
-            expected_n_wegscheider_constraints=0,
-            expected_n_independent_params=5,
-            analytical_rate_fn=(p, c) ->
-                rate_theorell_chance_bi_bi(
-                    merge(p, (Etotal=p.Et,)), c),
-            analytical_kcat_fn=p -> p.k3f,
-        ))
-    end
-
     # 7. Segel Ping Pong Bi Bi (replaces Ping-Pong Bi-Bi):
     #    E + A ⇌ (EA≡FP) ⇌ F + P, F + B ⇌ (FB≡EQ) ⇌ E + Q
     #    Reference: Segel, Enzyme Kinetics, Eq. IX-140
@@ -310,10 +263,10 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> EAFP
-                EAFP <--> F + P
-                F + B <--> FBEQ
-                FBEQ <--> E + Q
+                E + A <--> E(A)
+                E(A) <--> F + P
+                F + B <--> F(B)
+                F(B) <--> E + Q
             end
         end
 
@@ -359,11 +312,11 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q
             steps: begin
-                E + A <--> EA
-                EA + B <--> EAB
-                EAB + C <--> EABCEPQ
-                EABCEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) + C <--> E(A, B, C)
+                E(A, B, C) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
@@ -422,12 +375,12 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                E + A <--> EA
-                EA + B <--> EAB
-                EAB + C <--> EABCEPQR
-                EABCEPQR <--> EQR + P
-                EQR <--> ER + Q
-                ER <--> E + R
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) + C <--> E(A, B, C)
+                E(A, B, C) <--> E(Q, R) + P
+                E(Q, R) <--> E(R) + Q
+                E(R) <--> E + R
             end
         end
 
@@ -498,11 +451,11 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABFP
-                EABFP <--> F + P
-                F + C <--> FCEQ
-                FCEQ <--> E + Q
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> F + P
+                F + C <--> F(C)
+                F(C) <--> E + Q
             end
         end
 
@@ -555,13 +508,13 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> EA
-                E + B <--> EB
-                EA + B <--> EAB
-                EB + A <--> EAB
-                EAB <--> EPQ
-                EPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E + B <--> E(B)
+                E(A) + B <--> E(A, B)
+                E(B) + A <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
         push!(specs, MechanismTestSpec(
@@ -587,12 +540,12 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABFP
-                EABFP <--> F + P
-                F + C <--> FCEQR
-                FCEQR <--> ER + Q
-                ER <--> E + R
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> F + P
+                F + C <--> F(C)
+                F(C) <--> E(R) + Q
+                E(R) <--> E + R
             end
         end
 
@@ -656,12 +609,12 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABFPQ
-                EABFPQ <--> FQ + P
-                FQ <--> F + Q
-                F + C <--> FCER
-                FCER <--> E + R
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> F(Q) + P
+                F(Q) <--> F + Q
+                F + C <--> F(C)
+                F(C) <--> E + R
             end
         end
 
@@ -725,12 +678,12 @@ function build_mechanism_test_specs()
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                E + A <--> EAFP
-                EAFP <--> F + P
-                F + B <--> FBGQ
-                FBGQ <--> G + Q
-                G + C <--> GCER
-                GCER <--> E + R
+                E + A <--> E(A)
+                E(A) <--> F + P
+                F + B <--> F(B)
+                F(B) <--> G + Q
+                G + C <--> G(C)
+                G(C) <--> E + R
             end
         end
 
@@ -788,8 +741,8 @@ function build_mechanism_test_specs()
             substrates: A
             products: P
             steps: begin
-                E + A ⇌ EA
-                EA <--> E + P
+                E + A ⇌ E(A)
+                E(A) <--> E + P
             end
         end
 
@@ -826,10 +779,10 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ EA
-                EA + B ⇌ EABEPQ
-                EABEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A ⇌ E(A)
+                E(A) + B ⇌ E(A, B)
+                E(A, B) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
@@ -872,13 +825,13 @@ function build_mechanism_test_specs()
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ EA
-                E + B ⇌ EB
-                EA + B <--> EAB
-                EB + A <--> EAB
-                EAB <--> EPQ
-                EPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A ⇌ E(A)
+                E + B ⇌ E(B)
+                E(A) + B <--> E(A, B)
+                E(B) + A <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
         push!(specs, MechanismTestSpec(
@@ -907,10 +860,10 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E + S ⇌ ES        # K1
-                ES <--> EP        # k2f, k2r (SS)
-                EP ⇌ E + P        # K3
-                E + R ⇌ ER        # K4
+                E + S ⇌ E(S)      # K1
+                E(S) <--> E(P)    # k2f, k2r (SS)
+                E(P) ⇌ E + P      # K3
+                E + R ⇌ E(R)      # K4
             end
         end
 
@@ -939,9 +892,9 @@ function build_mechanism_test_specs()
             analytical_kcat_fn=p -> p.k2f,
             # Textbook: flat sum denominator (no Cartesian product structure)
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + S / K1 + P / K3 + R / K4",
+            "1 + P / K_P_E + R / K_Rinh_E + S / K_S_E",
         ))
     end
 
@@ -954,11 +907,11 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E + S ⇌ E_S        # K1
-                E_S <--> E_P       # k2f, k2r (SS)
-                E + P ⇌ E_P        # K3
-                (E + R ⇌ E_R, E_S + R ⇌ E_S_R)  # K4 = K5 (R binding shared)
-                E_R + S ⇌ E_S_R    # K6
+                E + S ⇌ E(S)        # K1
+                E(S) <--> E(P)      # k2f, k2r (SS)
+                E + P ⇌ E(P)        # K3
+                (E + R ⇌ E(R), E(S) + R ⇌ E(S, R))  # K4 = K5 (R binding shared)
+                E(R) + S ⇌ E(S, R)  # K6
             end
         end
 
@@ -985,9 +938,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) -> rate_noncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + S / K1 + P / K3 + R / K4 + R * S / (K1 * K4)",
+            "1 + P / K_P_E + R / K_Rinh_E + S / K_S_E + R * S / (K_Rinh_E * K_S_E)",
         ))
     end
 
@@ -1000,10 +953,10 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E + S ⇌ E_S        # K1
-                E_S <--> E_P       # k2f, k2r (SS)
-                E + P ⇌ E_P        # K3
-                E_S + R ⇌ E_S_R    # K4
+                E + S ⇌ E(S)        # K1
+                E(S) <--> E(P)      # k2f, k2r (SS)
+                E + P ⇌ E(P)        # K3
+                E(S) + R ⇌ E(S, R)  # K4
             end
         end
 
@@ -1030,9 +983,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) -> rate_uncompetitive_inh(
                 merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + S / K1 + P / K3 + R * S / (K1 * K4)",
+            "1 + P / K_P_E + S / K_S_E + R * S / (K_Rinh_ES * K_S_E)",
         ))
     end
 
@@ -1046,10 +999,10 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E_R + S ⇌ E_S_R    # K1
-                E_S_R <--> E_P_R   # k2f, k2r (SS)
-                E_R + P ⇌ E_P_R    # K3
-                E + R ⇌ E_R        # K4
+                E(R) + S ⇌ E(S, R)    # K1
+                E(S, R) <--> E(P, R)  # k2f, k2r (SS)
+                E(R) + P ⇌ E(P, R)    # K3
+                E + R ⇌ E(R)          # K4
             end
         end
 
@@ -1077,12 +1030,12 @@ function build_mechanism_test_specs()
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
             # Mathematically equivalent factoring: numerator and denominator
-            # are both multiplied by R/K4 in the alternative form. The
+            # are both multiplied by R/K_Rinh_E in the alternative form. The
             # derivation now produces this form directly.
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ERinhS_to_EPRinh * S / K_S_ERinh - k_EPRinh_to_ERinhS * P / K_P_ERinh",
             expected_factored_denom=
-            "K4 / R + 1 + S / K1 + P / K3",
+            "K_Rinh_E / R + 1 + P / K_P_ERinh + S / K_S_ERinh",
         ))
     end
 
@@ -1097,15 +1050,15 @@ function build_mechanism_test_specs()
             products: P
             regulators: R
             steps: begin
-                E + S ⇌ E_S          # K1
-                E_S <--> E_P         # k2f, k2r (SS)
-                E + P ⇌ E_P          # K3
-                E_R + S ⇌ E_S_R      # K4
-                E_S_R <--> E_P_R     # k5f, k5r (SS)
-                E_R + P ⇌ E_P_R      # K6
-                (E + R ⇌ E_R,         # K7 = K8 = K9 (R binding shared)
-                 E_S + R ⇌ E_S_R,
-                 E_P + R ⇌ E_P_R)
+                E + S ⇌ E(S)            # K1
+                E(S) <--> E(P)          # k2f, k2r (SS)
+                E + P ⇌ E(P)            # K3
+                E(R) + S ⇌ E(S, R)      # K4
+                E(S, R) <--> E(P, R)    # k5f, k5r (SS)
+                E(R) + P ⇌ E(P, R)      # K6
+                (E + R ⇌ E(R),          # K7 = K8 = K9 (R binding shared)
+                 E(S) + R ⇌ E(S, R),
+                 E(P) + R ⇌ E(P, R))
             end
         end
 
@@ -1135,14 +1088,14 @@ function build_mechanism_test_specs()
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> max(p.k2f, p.k5f),
             expected_factored_num=
-            "k2f * S / K1 + k5f * R * S / (K1 * K7) - (k2r * P / K3 + k5r * P * R / (K3 * K7))",
+            "k_ES_to_EP * S / K_S_E + k_ERinhS_to_EPRinh * R * S / (K_Rinh_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EPRinh_to_ERinhS * P * R / (K_P_E * K_Rinh_E))",
             expected_factored_denom=
-            "1 + S / K1 + P / K3 + R / K7 + R * S / (K1 * K7) + P * R / (K3 * K7)",
+            "1 + P / K_P_E + R / K_Rinh_E + S / K_S_E + P * R / (K_P_E * K_Rinh_E) + R * S / (K_Rinh_E * K_S_E)",
         ))
     end
 
     # 23. Non-essential activator + competitive inhibitor:
-    #     Combines spec 25 (non-essential activator) with competitive inhibition.
+    #     Combines non-essential activation with competitive inhibition.
     #     A modifies catalysis but isn't required (binds E, E_S, E_P with same K).
     #     I binds only free E (competitive dead-end).
     #     Forms: E, E_S, E_P, E_A, E_S_A, E_P_A, E_I
@@ -1156,16 +1109,16 @@ function build_mechanism_test_specs()
             products: P
             regulators: A, I
             steps: begin
-                E + S ⇌ E_S          # K1
-                E_S <--> E_P         # k2f, k2r (SS)
-                E + P ⇌ E_P          # K3
-                E_A + S ⇌ E_S_A      # K4
-                E_S_A <--> E_P_A     # k5f, k5r (SS)
-                E_A + P ⇌ E_P_A      # K6
-                (E + A ⇌ E_A,         # K7 = K8 = K9 (A binding shared)
-                 E_S + A ⇌ E_S_A,
-                 E_P + A ⇌ E_P_A)
-                E + I ⇌ E_I          # K10
+                E + S ⇌ E(S)            # K1
+                E(S) <--> E(P)          # k2f, k2r (SS)
+                E + P ⇌ E(P)            # K3
+                E(A) + S ⇌ E(A, S)      # K4
+                E(A, S) <--> E(A, P)    # k5f, k5r (SS)
+                E(A) + P ⇌ E(A, P)      # K6
+                (E + A ⇌ E(A),          # K7 = K8 = K9 (A binding shared)
+                 E(S) + A ⇌ E(A, S),
+                 E(P) + A ⇌ E(A, P))
+                E + I ⇌ E(I)            # K10
             end
         end
 
@@ -1198,9 +1151,9 @@ function build_mechanism_test_specs()
             # Denom has both multiplicative (activator) and additive
             # (inhibitor) structure
             expected_factored_num=
-            "k2f * S / K1 + k5f * A * S / (K1 * K7) - (k2r * P / K3 + k5r * A * P / (K3 * K7))",
+            "k_ES_to_EP * S / K_S_E + k_EAinhS_to_EAinhP * A * S / (K_Ainh_E * K_S_E) - (k_EP_to_ES * P / K_P_E + k_EAinhP_to_EAinhS * A * P / (K_Ainh_E * K_P_E))",
             expected_factored_denom=
-            "1 + A / K7 + I / K10 + S / K1 + P / K3 + A * S / (K1 * K7) + A * P / (K3 * K7)",
+            "1 + A / K_Ainh_E + I / K_Iinh_E + P / K_P_E + S / K_S_E + A * P / (K_Ainh_E * K_P_E) + A * S / (K_Ainh_E * K_S_E)",
         ))
     end
 
@@ -1217,10 +1170,10 @@ function build_mechanism_test_specs()
     #                   (k_cat_R*S/Ks_R - k_rev_R*P/Kp_R)*(1 + S/Ks_R + P/Kp_R) +
     #                   L*(k_cat_T*S/Ks_T - k_rev_T*P/Kp_T)*(1 + S/Ks_T + P/Kp_T)
     #                 )
-    # Spec #24 (flat homodimer "MWC Dimer") removed per Task 2.6: the
-    # AllostericEnzymeMechanism sibling (#24B below) is the canonical form.
+    # The explicit flat homodimer fixture is intentionally omitted; the
+    # AllostericEnzymeMechanism form below is the canonical representation.
 
-    # 24B. AllostericEnzymeMechanism equivalent of MWC Dimer (spec #24)
+    # 24B. AllostericEnzymeMechanism MWC Dimer
     #      2 catalytic sites × 2 conformations (R/T). No explicit equality constraints
     #      needed — symmetric subunits are captured by the site multiplicity.
     #      Conformational equilibrium: L (= K37 in the EnzymeMechanism above).
@@ -1228,12 +1181,11 @@ function build_mechanism_test_specs()
         m = @allosteric_mechanism begin
             substrates: S
             products: P
-            site(:catalytic, 2): begin
-                steps: begin
-                    E_c + S ⇌ E_S    :: NonequalRT
-                    E_c + P ⇌ E_P    :: NonequalRT
-                    E_S <--> E_P     :: NonequalRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)    :: NonequalAI
+                E + P ⇌ E(P)    :: NonequalAI
+                E(S) <--> E(P)  :: NonequalAI
             end
         end
 
@@ -1262,10 +1214,10 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_oligo,
             expected_factored_num=
-            "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2)" *
-            " + L * (S * k3f_T / K1_T - P * k3r_T / K2_T) * (1 + S / K1_T + P / K2_T))",
+            "2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E)" *
+            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E))",
             expected_factored_denom=
-            "(1 + S / K1 + P / K2) ^ 2 + L * (1 + S / K1_T + P / K2_T) ^ 2",
+            "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2",
         ))
     end
 
@@ -1273,26 +1225,24 @@ function build_mechanism_test_specs()
     # These mechanisms test factoring patterns not covered by the classical
     # inhibitor/activator mechanisms above.
 
-    # Spec #25 (flat homodimer "Homodimer + Non-competitive Inhibitor")
-    # removed per Task 2.6: the AllostericEnzymeMechanism sibling (#25B
-    # below) is the canonical form.
+    # The explicit flat homodimer inhibitor fixture is intentionally omitted;
+    # the AllostericEnzymeMechanism form below is canonical.
 
-    # 25B. AllostericEnzymeMechanism equivalent of Homodimer + Non-competitive Inhibitor (spec #25)
+    # 25B. AllostericEnzymeMechanism Homodimer + Non-competitive Inhibitor
     #      I binds all enzyme forms independently with the same Ki (enzyme-level).
     #      sigma = Q_cat^2 * (1 + I/K_I_reg1)  (multiplicative factor).
     let
         m = @allosteric_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: I::NonequalRT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E_c + S ⇌ E_S    :: NonequalRT
-                    E_c + P ⇌ E_P    :: NonequalRT
-                    E_S <--> E_P     :: NonequalRT
-                end
+            allosteric_regulators: I::NonequalAI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)    :: NonequalAI
+                E + P ⇌ E(P)    :: NonequalAI
+                E(S) <--> E(P)  :: NonequalAI
             end
-            site(:regulatory, 1): begin
+            regulatory_site(multiplicity = 1): begin
                 ligands: I
             end
         end
@@ -1326,19 +1276,18 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
             expected_factored_num=
-            "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2) * (1 + I / K_I_reg1)" *
-            " + L * (S * k3f_T / K1_T - P * k3r_T / K2_T) * (1 + S / K1_T + P / K2_T) * (1 + I / K_I_T_reg1))",
+            "2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
+            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg))",
             expected_factored_denom=
-            "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
-            " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
+            "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + I / K_A_Ireg)" *
+            " + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + I / K_I_Ireg)",
         ))
     end
 
-    # Spec #26 (flat homodimer "MWC Dimer + Independent Inhibitor")
-    # removed per Task 2.6: the AllostericEnzymeMechanism sibling (#26B
-    # below) is the canonical form.
+    # The explicit flat MWC inhibitor fixture is intentionally omitted; the
+    # AllostericEnzymeMechanism form below is canonical.
 
-    # 26B. AllostericEnzymeMechanism equivalent of MWC Dimer + Independent Inhibitor (spec #26)
+    # 26B. AllostericEnzymeMechanism MWC Dimer + Independent Inhibitor
     #      The Wegscheider constraint K80 = K47*K37/K38 (R_00I ⇌ T_00I equilibrium)
     #      is automatically satisfied by the conformational assembly formula — no
     #      explicit constraint needed in the AllostericEnzymeMechanism DSL.
@@ -1346,15 +1295,14 @@ function build_mechanism_test_specs()
         m = @allosteric_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: I::NonequalRT
-            site(:catalytic, 2): begin
-                steps: begin
-                    E_c + S ⇌ E_S    :: NonequalRT
-                    E_c + P ⇌ E_P    :: NonequalRT
-                    E_S <--> E_P     :: NonequalRT
-                end
+            allosteric_regulators: I::NonequalAI
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)    :: NonequalAI
+                E + P ⇌ E(P)    :: NonequalAI
+                E(S) <--> E(P)  :: NonequalAI
             end
-            site(:regulatory, 1): begin
+            regulatory_site(multiplicity = 1): begin
                 ligands: I
             end
         end
@@ -1388,11 +1336,11 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_inh_oligo,
             expected_factored_num=
-            "2 * ((k3f * S / K1 - k3r * P / K2) * (1 + S / K1 + P / K2) * (1 + I / K_I_reg1)" *
-            " + L * (S * k3f_T / K1_T - P * k3r_T / K2_T) * (1 + S / K1_T + P / K2_T) * (1 + I / K_I_T_reg1))",
+            "2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
+            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg))",
             expected_factored_denom=
-            "(1 + S / K1 + P / K2) ^ 2 * (1 + I / K_I_reg1)" *
-            " + L * (1 + S / K1_T + P / K2_T) ^ 2 * (1 + I / K_I_T_reg1)",
+            "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + I / K_A_Ireg)" *
+            " + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + I / K_I_Ireg)",
         ))
     end
 
@@ -1406,11 +1354,11 @@ function build_mechanism_test_specs()
             products: P
             regulators: I1, I2
             steps: begin
-                E + S ⇌ E_S
-                E_S <--> E_P
-                E + P ⇌ E_P
-                E + I1 ⇌ E_I1
-                E + I2 ⇌ E_I2
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
+                E + I1 ⇌ E(I1)
+                E + I2 ⇌ E(I2)
             end
         end
 
@@ -1436,9 +1384,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K4 + I2 / K5 + S / K1 + P / K3",
+            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E",
         ))
     end
 
@@ -1453,30 +1401,30 @@ function build_mechanism_test_specs()
             regulators: I1, I2
             steps: begin
                 # S binding (shared K1)
-                (E + S ⇌ E_S,
-                 E_I1 + S ⇌ E_S_I1,
-                 E_I2 + S ⇌ E_S_I2,
-                 E_I1_I2 + S ⇌ E_S_I1_I2)
-                E_S <--> E_P
+                (E + S ⇌ E(S),
+                 E(I1) + S ⇌ E(S, I1),
+                 E(I2) + S ⇌ E(S, I2),
+                 E(I1, I2) + S ⇌ E(S, I1, I2))
+                E(S) <--> E(P)
                 # P binding (shared K3)
-                (E + P ⇌ E_P,
-                 E_I1 + P ⇌ E_P_I1,
-                 E_I2 + P ⇌ E_P_I2,
-                 E_I1_I2 + P ⇌ E_P_I1_I2)
+                (E + P ⇌ E(P),
+                 E(I1) + P ⇌ E(P, I1),
+                 E(I2) + P ⇌ E(P, I2),
+                 E(I1, I2) + P ⇌ E(P, I1, I2))
                 # I1 binding (shared K4)
-                (E + I1 ⇌ E_I1,
-                 E_S + I1 ⇌ E_S_I1,
-                 E_P + I1 ⇌ E_P_I1,
-                 E_I2 + I1 ⇌ E_I1_I2,
-                 E_S_I2 + I1 ⇌ E_S_I1_I2,
-                 E_P_I2 + I1 ⇌ E_P_I1_I2)
+                (E + I1 ⇌ E(I1),
+                 E(S) + I1 ⇌ E(S, I1),
+                 E(P) + I1 ⇌ E(P, I1),
+                 E(I2) + I1 ⇌ E(I1, I2),
+                 E(S, I2) + I1 ⇌ E(S, I1, I2),
+                 E(P, I2) + I1 ⇌ E(P, I1, I2))
                 # I2 binding (shared K7)
-                (E + I2 ⇌ E_I2,
-                 E_S + I2 ⇌ E_S_I2,
-                 E_P + I2 ⇌ E_P_I2,
-                 E_I1 + I2 ⇌ E_I1_I2,
-                 E_S_I1 + I2 ⇌ E_S_I1_I2,
-                 E_P_I1 + I2 ⇌ E_P_I1_I2)
+                (E + I2 ⇌ E(I2),
+                 E(S) + I2 ⇌ E(S, I2),
+                 E(P) + I2 ⇌ E(P, I2),
+                 E(I1) + I2 ⇌ E(I1, I2),
+                 E(S, I1) + I2 ⇌ E(S, I1, I2),
+                 E(P, I1) + I2 ⇌ E(P, I1, I2))
             end
         end
 
@@ -1505,9 +1453,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_noncomp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k5f * S / K1 - k5r * P / K6",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K10 + I2 / K16 + S / K1 + P / K6 + I1 * I2 / (K10 * K16) + I1 * S / (K1 * K10) + I1 * P / (K10 * K6) + I2 * S / (K1 * K16) + I2 * P / (K16 * K6) + I1 * I2 * S / (K1 * K10 * K16) + I1 * I2 * P / (K10 * K16 * K6)",
+            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * I2 / (K_I1inh_E * K_I2inh_E) + I1 * P / (K_I1inh_E * K_P_E) + I1 * S / (K_I1inh_E * K_S_E) + I2 * P / (K_I2inh_E * K_P_E) + I2 * S / (K_I2inh_E * K_S_E) + I1 * I2 * P / (K_I1inh_E * K_I2inh_E * K_P_E) + I1 * I2 * S / (K_I1inh_E * K_I2inh_E * K_S_E)",
         ))
     end
 
@@ -1523,15 +1471,15 @@ function build_mechanism_test_specs()
             regulators: I1, I2
             steps: begin
                 # S binding (shared K1)
-                (E + S ⇌ E_S, E_I1 + S ⇌ E_S_I1)
-                E_S <--> E_P
+                (E + S ⇌ E(S), E(I1) + S ⇌ E(S, I1))
+                E(S) <--> E(P)
                 # P binding (shared K3)
-                (E + P ⇌ E_P, E_I1 + P ⇌ E_P_I1)
+                (E + P ⇌ E(P), E(I1) + P ⇌ E(P, I1))
                 # I1 binding (shared K4)
-                (E + I1 ⇌ E_I1,
-                 E_S + I1 ⇌ E_S_I1,
-                 E_P + I1 ⇌ E_P_I1)
-                E + I2 ⇌ E_I2
+                (E + I1 ⇌ E(I1),
+                 E(S) + I1 ⇌ E(S, I1),
+                 E(P) + I1 ⇌ E(P, I1))
+                E + I2 ⇌ E(I2)
             end
         end
 
@@ -1560,9 +1508,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_noncomp_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k3f * S / K1 - k3r * P / K4",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K6 + I2 / K9 + S / K1 + P / K4 + I1 * S / (K1 * K6) + I1 * P / (K4 * K6)",
+            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1inh_E * K_P_E) + I1 * S / (K_I1inh_E * K_S_E)",
         ))
     end
 
@@ -1576,11 +1524,11 @@ function build_mechanism_test_specs()
             products: P
             regulators: I1, I2
             steps: begin
-                E + S ⇌ E_S
-                E_S <--> E_P
-                E + P ⇌ E_P
-                E_S + I1 ⇌ E_S_I1
-                E + I2 ⇌ E_I2
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
+                E(S) + I1 ⇌ E(S, I1)
+                E + I2 ⇌ E(I2)
             end
         end
 
@@ -1607,9 +1555,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_uncomp_comp_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k2f * S / K1 - k2r * P / K3",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I2 / K5 + S / K1 + P / K3 + I1 * S / (K1 * K4)",
+            "1 + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * S / (K_I1inh_ES * K_S_E)",
         ))
     end
 
@@ -1625,22 +1573,22 @@ function build_mechanism_test_specs()
             regulators: I1, I2
             steps: begin
                 # S binding (shared K1)
-                (E + S ⇌ E_S,
-                 E_I1 + S ⇌ E_S_I1,
-                 E_I2 + S ⇌ E_S_I2)
-                E_S <--> E_P
+                (E + S ⇌ E(S),
+                 E(I1) + S ⇌ E(S, I1),
+                 E(I2) + S ⇌ E(S, I2))
+                E(S) <--> E(P)
                 # P binding (shared K3)
-                (E + P ⇌ E_P,
-                 E_I1 + P ⇌ E_P_I1,
-                 E_I2 + P ⇌ E_P_I2)
+                (E + P ⇌ E(P),
+                 E(I1) + P ⇌ E(P, I1),
+                 E(I2) + P ⇌ E(P, I2))
                 # I1 binding (shared K4)
-                (E + I1 ⇌ E_I1,
-                 E_S + I1 ⇌ E_S_I1,
-                 E_P + I1 ⇌ E_P_I1)
+                (E + I1 ⇌ E(I1),
+                 E(S) + I1 ⇌ E(S, I1),
+                 E(P) + I1 ⇌ E(P, I1))
                 # I2 binding (shared K9)
-                (E + I2 ⇌ E_I2,
-                 E_S + I2 ⇌ E_S_I2,
-                 E_P + I2 ⇌ E_P_I2)
+                (E + I2 ⇌ E(I2),
+                 E(S) + I2 ⇌ E(S, I2),
+                 E(P) + I2 ⇌ E(P, I2))
             end
         end
 
@@ -1669,9 +1617,9 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) ->
                 rate_two_samesite_inh(merge(p, (Et=p.Et,)), c),
             expected_factored_num=
-            "k4f * S / K1 - k4r * P / K5",
+            "k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E",
             expected_factored_denom=
-            "1 + I1 / K8 + I2 / K11 + S / K1 + P / K5 + I1 * S / (K1 * K8) + I1 * P / (K5 * K8) + I2 * S / (K1 * K11) + I2 * P / (K11 * K5)",
+            "1 + I1 / K_I1inh_E + I2 / K_I2inh_E + P / K_P_E + S / K_S_E + I1 * P / (K_I1inh_E * K_P_E) + I1 * S / (K_I1inh_E * K_S_E) + I2 * P / (K_I2inh_E * K_P_E) + I2 * S / (K_I2inh_E * K_S_E)",
         ))
     end
 
@@ -1728,32 +1676,31 @@ function build_mechanism_test_specs()
         m = @allosteric_mechanism begin
             substrates: S1, S2
             products: P1, P2
-            allosteric_regulators: R1::NonequalRT, R2::NonequalRT, R3::NonequalRT
-            site(:catalytic, 4): begin
-                steps: begin
-                    # S1 binding (shared K)
-                    (E_c + S1 ⇌ E_S1,
-                     E_S2 + S1 ⇌ E_S1S2,
-                     E_P2 + S1 ⇌ E_S1P2) :: NonequalRT
-                    # P1 binding (shared K)
-                    (E_c + P1 ⇌ E_P1,
-                     E_S2 + P1 ⇌ E_P1S2,
-                     E_P2 + P1 ⇌ E_P1P2) :: NonequalRT
-                    # S2 binding (shared K)
-                    (E_c + S2 ⇌ E_S2,
-                     E_S1 + S2 ⇌ E_S1S2,
-                     E_P1 + S2 ⇌ E_P1S2) :: NonequalRT
-                    # P2 binding (shared K)
-                    (E_c + P2 ⇌ E_P2,
-                     E_S1 + P2 ⇌ E_S1P2,
-                     E_P1 + P2 ⇌ E_P1P2) :: NonequalRT
-                    E_S1S2 <--> E_P1P2 :: NonequalRT
-                end
+            allosteric_regulators: R1::NonequalAI, R2::NonequalAI, R3::NonequalAI
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                # S1 binding (shared K)
+                (E + S1 ⇌ E(S1),
+                 E(S2) + S1 ⇌ E(S1, S2),
+                 E(P2) + S1 ⇌ E(S1, P2)) :: NonequalAI
+                # P1 binding (shared K)
+                (E + P1 ⇌ E(P1),
+                 E(S2) + P1 ⇌ E(P1, S2),
+                 E(P2) + P1 ⇌ E(P1, P2)) :: NonequalAI
+                # S2 binding (shared K)
+                (E + S2 ⇌ E(S2),
+                 E(S1) + S2 ⇌ E(S1, S2),
+                 E(P1) + S2 ⇌ E(P1, S2)) :: NonequalAI
+                # P2 binding (shared K)
+                (E + P2 ⇌ E(P2),
+                 E(S1) + P2 ⇌ E(S1, P2),
+                 E(P1) + P2 ⇌ E(P1, P2)) :: NonequalAI
+                E(S1, S2) <--> E(P1, P2) :: NonequalAI
             end
-            site(:regulatory, 4): begin
+            regulatory_site(multiplicity = 4): begin
                 ligands: R1, R2
             end
-            site(:regulatory, 4): begin
+            regulatory_site(multiplicity = 4): begin
                 ligands: R3
             end
         end
@@ -1830,26 +1777,25 @@ function build_mechanism_test_specs()
 
     # ── PFK-1 hand-verified mechanism ───────────────────────────────────────
     # Reaction: F6P + ATP ⇌ F16BP + ADP, 4 catalytic subunits, 2 conformations.
-    # F6P binding is :OnlyR — T-state can't bind F6P, so the T-state cycle is
+    # F6P binding is :OnlyA — T-state can't bind F6P, so the T-state cycle is
     # broken in both directions and N_cat_T = 0. ATP appears as both
     # substrate and allosteric regulator (different tags per context).
     let
         m = @allosteric_mechanism begin
             substrates: F6P, ATP
             products:   F16BP, ADP
-            allosteric_regulators: Pi::EqualRT, ATP::OnlyT, ADP::OnlyR, Citrate::OnlyT, F26BP::NonequalRT
+            allosteric_regulators: Pi::EqualAI, ATP::OnlyI, ADP::OnlyA, Citrate::OnlyI, F26BP::NonequalAI
 
-            site(:catalytic, 4): begin
-                steps: begin
-                    (E + F6P ⇌ E_F6P, E_ATP + F6P ⇌ E_F6P_ATP)      :: OnlyR
-                    (E + ATP ⇌ E_ATP, E_F6P + ATP ⇌ E_F6P_ATP)      :: EqualRT
-                    E_F6P_ATP <--> E_F16BP_ADP                         :: EqualRT
-                    (E_F16BP_ADP ⇌ E_ADP + F16BP, E_F16BP ⇌ E + F16BP) :: EqualRT
-                    (E_F16BP_ADP ⇌ E_F16BP + ADP, E_ADP ⇌ E + ADP)     :: EqualRT
-                end
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                (E + F6P ⇌ E(F6P), E(ATP) + F6P ⇌ E(F6P, ATP))           :: OnlyA
+                (E + ATP ⇌ E(ATP), E(F6P) + ATP ⇌ E(F6P, ATP))           :: EqualAI
+                E(F6P, ATP) <--> E(F16BP, ADP)                            :: EqualAI
+                (E(F16BP, ADP) ⇌ E(ADP) + F16BP, E(F16BP) ⇌ E + F16BP)   :: EqualAI
+                (E(F16BP, ADP) ⇌ E(F16BP) + ADP, E(ADP) ⇌ E + ADP)       :: EqualAI
             end
 
-            site(:regulatory, 4): begin
+            regulatory_site(multiplicity = 4): begin
                 ligands: Pi, ATP
             end
         end
@@ -1867,7 +1813,7 @@ function build_mechanism_test_specs()
                       F16BP/K6 + ADP/K8 + F16BP*ADP/(K6*K8)
             Q_cat_T = 1 + ATP/K3 + F16BP/K6 + ADP/K8 + F16BP*ADP/(K6*K8)
 
-            # N_cat_T = 0: T-state cycle is broken (F6P binding :OnlyR), so
+            # N_cat_T = 0: T-state cycle is broken (F6P binding :OnlyA), so
             # the Cha-nominal reverse term -k5r*F16BP*ADP/(K6*K8) is
             # non-physical at steady state.
             N_cat_R = k5f * F6P * ATP / (K1 * K3) - k5r * F16BP * ADP / (K6 * K8)
@@ -1902,7 +1848,7 @@ function build_mechanism_test_specs()
             expected_n_independent_params=12,
             run_ode_test=false,
             analytical_rate_fn=pfk_rate_analytical,
-            # F6P binding (group 3) is :OnlyR → the Glucose·ATP saturating
+            # F6P binding (group 3) is :OnlyA → the Glucose·ATP saturating
             # pattern is unreachable in T-state, so kcat = catN · k5f
             # for every regulator corner. Regression test for the
             # `t_pattern_dead` branch in `_kcat_forward`.
@@ -1926,46 +1872,45 @@ function build_mechanism_test_specs()
     #      the same site, so there are no E_ATP_G6Pi or E_ADP_G6Pi forms.
     #
     #   3. Allosteric site: G6P competes with Pi at a separate regulatory
-    #      site — site(:regulatory, 2) with G6P::OnlyT and Pi::EqualRT.
+    #      site — regulatory_site(multiplicity = 2) with G6P::OnlyI and Pi::EqualAI.
     #
-    # ATP binding (group 2) is :OnlyR — T-state can't bind ATP, so the
+    # ATP binding (group 2) is :OnlyA — T-state can't bind ATP, so the
     # catalytic cycle is broken and N_cat_T = 0.
     let
         m = @allosteric_mechanism begin
             substrates: Glucose, ATP
             products:   G6P, ADP
-            allosteric_regulators: G6P::OnlyT, Pi::EqualRT
+            allosteric_regulators: G6P::OnlyI, Pi::EqualAI
             catalytic_inhibitors:  G6P
 
-            site(:catalytic, 2): begin
-                steps: begin
-                    # Group 1 (Glucose binding at catalytic site, EqualRT)
-                    (E + Glucose ⇌ E_Glc,
-                     E_ATP + Glucose ⇌ E_Glc_ATP,
-                     E_G6Pi + Glucose ⇌ E_Glc_G6Pi)    :: EqualRT
-                    # Group 2 (ATP binding at nucleotide pocket, OnlyR —
-                    # T-state can't bind ATP)
-                    (E + ATP ⇌ E_ATP,
-                     E_Glc + ATP ⇌ E_Glc_ATP)           :: OnlyR
-                    # Group 3 (catalysis SS, EqualRT)
-                    E_Glc_ATP <--> E_G6P_ADP            :: EqualRT
-                    # Group 4 (G6P binding/release at catalytic site, EqualRT)
-                    (E_G6P_ADP ⇌ E_ADP + G6P,
-                     E_G6P ⇌ E + G6P,
-                     E_G6P_G6Pi ⇌ E_G6Pi + G6P)         :: EqualRT
-                    # Group 5 (ADP release, EqualRT)
-                    (E_G6P_ADP ⇌ E_G6P + ADP,
-                     E_ADP ⇌ E + ADP)                   :: EqualRT
-                    # Group 6 (G6P binding at INHIBITORY site, EqualRT) —
-                    # G6P at site 2 competes with ATP/ADP, can co-bind with
-                    # Glucose at site 1 or G6P at site 1.
-                    (E + G6P ⇌ E_G6Pi,
-                     E_Glc + G6P ⇌ E_Glc_G6Pi,
-                     E_G6P + G6P ⇌ E_G6P_G6Pi)          :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                # Group 1 (Glucose binding at catalytic site, EqualAI)
+                (E + Glucose ⇌ E(Glucose),
+                 E(ATP) + Glucose ⇌ E(Glucose, ATP),
+                 E(G6P::Inh) + Glucose ⇌ E(Glucose, G6P::Inh))    :: EqualAI
+                # Group 2 (ATP binding at nucleotide pocket, OnlyA —
+                # T-state can't bind ATP)
+                (E + ATP ⇌ E(ATP),
+                 E(Glucose) + ATP ⇌ E(Glucose, ATP))              :: OnlyA
+                # Group 3 (catalysis SS, EqualAI)
+                E(Glucose, ATP) <--> E(G6P, ADP)                  :: EqualAI
+                # Group 4 (G6P binding/release at catalytic site, EqualAI)
+                (E(G6P, ADP) ⇌ E(ADP) + G6P,
+                 E(G6P) ⇌ E + G6P,
+                 E(G6P, G6P::Inh) ⇌ E(G6P::Inh) + G6P)            :: EqualAI
+                # Group 5 (ADP release, EqualAI)
+                (E(G6P, ADP) ⇌ E(G6P) + ADP,
+                 E(ADP) ⇌ E + ADP)                                :: EqualAI
+                # Group 6 (G6P binding at INHIBITORY site, EqualAI) —
+                # G6P at site 2 competes with ATP/ADP, can co-bind with
+                # Glucose at site 1 or G6P at site 1.
+                (E + G6P::Inh ⇌ E(G6P::Inh),
+                 E(Glucose) + G6P::Inh ⇌ E(Glucose, G6P::Inh),
+                 E(G6P) + G6P::Inh ⇌ E(G6P, G6P::Inh))            :: EqualAI
             end
 
-            site(:regulatory, 2): begin
+            regulatory_site(multiplicity = 2): begin
                 ligands: G6P, Pi
             end
         end
@@ -1996,7 +1941,7 @@ function build_mechanism_test_specs()
                       G6P / K12 +
                       Glucose * G6P / (K1 * K12) +
                       G6P^2 / (K7 * K12)
-            # T-state: ATP group :OnlyR → zero ATP terms.
+            # T-state: ATP group :OnlyA → zero ATP terms.
             Q_cat_T = 1 +
                       Glucose / K1 +
                       G6P * ADP / (K7 * K10) +
@@ -2006,7 +1951,7 @@ function build_mechanism_test_specs()
                       Glucose * G6P / (K1 * K12) +
                       G6P^2 / (K7 * K12)
 
-            # N_cat_T = 0: T-state cycle is broken (ATP binding :OnlyR).
+            # N_cat_T = 0: T-state cycle is broken (ATP binding :OnlyA).
             N_cat_R = k6f * Glucose * ATP / (K1 * K4) -
                       k6r * G6P * ADP / (K7 * K10)
             N_cat_T = 0.0
@@ -2034,7 +1979,7 @@ function build_mechanism_test_specs()
             expected_n_independent_params=9,
             run_ode_test=false,
             analytical_rate_fn=hk_rate_analytical,
-            # ATP binding (group 2) is :OnlyR → the Glucose·ATP saturating
+            # ATP binding (group 2) is :OnlyA → the Glucose·ATP saturating
             # pattern is unreachable in T-state, so kcat = catN · k6f
             # for every regulator corner. Regression test for the
             # `t_pattern_dead` branch in `_kcat_forward`.
@@ -2046,12 +1991,12 @@ function build_mechanism_test_specs()
 
     # ── Pyruvate kinase (PK) hand-verified mechanism ──────────────────────────
     # Reaction: PEP + ADP ⇌ Pyruvate + ATP, 4 catalytic subunits.
-    # PEP binding is :NonequalRT (independent K_R and K_T) so the T-state
-    # cycle is alive. Catalysis (groups 2-5) are :EqualRT; k5r and k5r_T both
+    # PEP binding is :NonequalAI (independent K_R and K_T) so the T-state
+    # cycle is alive. Catalysis (groups 2-5) are :EqualAI; k5r and k5r_T both
     # derive from the shared k5f via per-state Haldanes (R-state uses K1, T-state
     # uses K1_T). Reg sites have MISMATCHED multiplicities:
-    #   ATP::OnlyT at mult 2
-    #   F16BP::OnlyR at mult 4 (matches catalytic mult)
+    #   ATP::OnlyI at mult 2
+    #   F16BP::OnlyA at mult 4 (matches catalytic mult)
     # This exercises the symmetric all-reg-sites contribution to both numerator
     # and denominator.
     # Independent parameters (9): K1, K1_T, K3, k5f, K6, K8,
@@ -2060,40 +2005,39 @@ function build_mechanism_test_specs()
         m = @allosteric_mechanism begin
             substrates: PEP, ADP
             products:   Pyruvate, ATP
-            allosteric_regulators: ATP::OnlyT, F16BP::OnlyR
+            allosteric_regulators: ATP::OnlyI, F16BP::OnlyA
 
-            site(:catalytic, 4): begin
-                steps: begin
-                    (E + PEP ⇌ E_PEP,
-                     E_ADP + PEP ⇌ E_PEP_ADP)              :: NonequalRT
-                    (E + ADP ⇌ E_ADP,
-                     E_PEP + ADP ⇌ E_PEP_ADP)              :: EqualRT
-                    E_PEP_ADP <--> E_Pyr_ATP               :: EqualRT
-                    (E_Pyr_ATP ⇌ E_ATP + Pyruvate,
-                     E_Pyr ⇌ E + Pyruvate)                  :: EqualRT
-                    (E_Pyr_ATP ⇌ E_Pyr + ATP,
-                     E_ATP ⇌ E + ATP)                       :: EqualRT
-                end
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                (E + PEP ⇌ E(PEP),
+                 E(ADP) + PEP ⇌ E(PEP, ADP))                          :: NonequalAI
+                (E + ADP ⇌ E(ADP),
+                 E(PEP) + ADP ⇌ E(PEP, ADP))                          :: EqualAI
+                E(PEP, ADP) <--> E(Pyruvate, ATP)                     :: EqualAI
+                (E(Pyruvate, ATP) ⇌ E(ATP) + Pyruvate,
+                 E(Pyruvate) ⇌ E + Pyruvate)                          :: EqualAI
+                (E(Pyruvate, ATP) ⇌ E(Pyruvate) + ATP,
+                 E(ATP) ⇌ E + ATP)                                    :: EqualAI
             end
 
-            site(:regulatory, 2): begin
+            regulatory_site(multiplicity = 2): begin
                 ligands: ATP
             end
-            site(:regulatory, 4): begin
+            regulatory_site(multiplicity = 4): begin
                 ligands: F16BP
             end
         end
 
         # Param mapping:
-        #   K1, K1_T : PEP binding (group 1, NonequalRT)
-        #   K3       : ADP binding (group 2, EqualRT)
-        #   k5f      : catalysis SS forward rate (group 3, EqualRT)
-        #   K6       : Pyruvate release (group 4, EqualRT)
-        #   K8       : ATP release (group 5, EqualRT)
+        #   K1, K1_T : PEP binding (group 1, NonequalAI)
+        #   K3       : ADP binding (group 2, EqualAI)
+        #   k5f      : catalysis SS forward rate (group 3, EqualAI)
+        #   K6       : Pyruvate release (group 4, EqualAI)
+        #   K8       : ATP release (group 5, EqualAI)
         #
         # k5r derives via R-state Haldane: k5r = k5f·K6·K8/(Keq·K1·K3).
         # The framework auto-synthesizes k5r_T because k5r's RHS
-        # references K1 (a :NonequalRT symbol with T-rename K1_T):
+        # references K1 (a :NonequalAI symbol with T-rename K1_T):
         #   k5r_T = k5f·K6·K8/(Keq·K1_T·K3).
         # Both Haldanes share the forward k5f — at saturation, forward
         # kcat = catN·k5f (shared between R and T).
@@ -2114,9 +2058,9 @@ function build_mechanism_test_specs()
             N_R = k5f * PEP * ADP / (K1   * K3) - k5r   * Pyruvate * ATP / (K6 * K8)
             N_T = k5f * PEP * ADP / (K1_T * K3) - k5r_T * Pyruvate * ATP / (K6 * K8)
 
-            Q_reg1_R = 1                                     # ATP::OnlyT, no R term
+            Q_reg1_R = 1                                     # ATP::OnlyI, no R term
             Q_reg1_T = 1 + ATP / K_ATP_T_reg1
-            Q_reg2_R = 1 + F16BP / K_F16BP_reg2               # F16BP::OnlyR, no T term
+            Q_reg2_R = 1 + F16BP / K_F16BP_reg2               # F16BP::OnlyA, no T term
             Q_reg2_T = 1
 
             num_R = N_R * Q_cat_R^3 * Q_reg1_R^2 * Q_reg2_R^4
@@ -2135,7 +2079,8 @@ function build_mechanism_test_specs()
             expected_n_steps=9,
             expected_n_metabolites=5,
             expected_n_haldane_constraints=2,
-            expected_n_mirror_constraints=4,
+            # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror
+            expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=9,
             run_ode_test=false,
@@ -2146,11 +2091,11 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # ── m_all: NonequalRT coverage on substrate + catalysis + product ───────
-    # Two-substrate two-product reaction with explicit :NonequalRT on
+    # ── m_all: NonequalAI coverage on substrate + catalysis + product ───────
+    # Two-substrate two-product reaction with explicit :NonequalAI on
     # S1 binding (group 1), catalysis (group 3), and P1 release (group 4),
-    # and a 2-ligand mixed-state reg site (R1::NonequalRT + R2::EqualRT).
-    # Catalysis :NonequalRT combined with :NonequalRT substrate yields
+    # and a 2-ligand mixed-state reg site (R1::NonequalAI + R2::EqualAI).
+    # Catalysis :NonequalAI combined with :NonequalAI substrate yields
     # independent R-state and T-state Haldanes (one per state).
     # Independent parameters (12): K1, K1_T, K3, k5f, k5f_T, K6, K6_T, K8,
     # K_R1_reg1, K_R1_T_reg1, K_R2_reg1, L
@@ -2158,33 +2103,32 @@ function build_mechanism_test_specs()
         m = @allosteric_mechanism begin
             substrates: S1, S2
             products:   P1, P2
-            allosteric_regulators: R1::NonequalRT, R2::EqualRT
+            allosteric_regulators: R1::NonequalAI, R2::EqualAI
 
-            site(:catalytic, 2): begin
-                steps: begin
-                    (E + S1 ⇌ E_S1,
-                     E_S2 + S1 ⇌ E_S1_S2)      :: NonequalRT
-                    (E + S2 ⇌ E_S2,
-                     E_S1 + S2 ⇌ E_S1_S2)      :: EqualRT
-                    E_S1_S2 <--> E_P1_P2      :: NonequalRT
-                    (E_P1_P2 ⇌ E_P2 + P1,
-                     E_P1 ⇌ E + P1)             :: NonequalRT
-                    (E_P1_P2 ⇌ E_P1 + P2,
-                     E_P2 ⇌ E + P2)             :: EqualRT
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                (E + S1 ⇌ E(S1),
+                 E(S2) + S1 ⇌ E(S1, S2))    :: NonequalAI
+                (E + S2 ⇌ E(S2),
+                 E(S1) + S2 ⇌ E(S1, S2))    :: EqualAI
+                E(S1, S2) <--> E(P1, P2)    :: NonequalAI
+                (E(P1, P2) ⇌ E(P2) + P1,
+                 E(P1) ⇌ E + P1)            :: NonequalAI
+                (E(P1, P2) ⇌ E(P1) + P2,
+                 E(P2) ⇌ E + P2)            :: EqualAI
             end
 
-            site(:regulatory, 2): begin
+            regulatory_site(multiplicity = 2): begin
                 ligands: R1, R2
             end
         end
 
         # Param mapping (kinetic-group representative-step convention):
-        #   K1, K1_T : S1 binding (group 1, NonequalRT)
-        #   K3       : S2 binding (group 2, EqualRT)
-        #   k5f, k5f_T : catalysis SS (group 3, NonequalRT)
-        #   K6, K6_T : P1 release (group 4, NonequalRT)
-        #   K8       : P2 release (group 5, EqualRT)
+        #   K1, K1_T : S1 binding (group 1, NonequalAI)
+        #   K3       : S2 binding (group 2, EqualAI)
+        #   k5f, k5f_T : catalysis SS (group 3, NonequalAI)
+        #   K6, K6_T : P1 release (group 4, NonequalAI)
+        #   K8       : P2 release (group 5, EqualAI)
         function m_all_rate_analytical(params, concs)
             (; K1, K1_T, K3, k5f, k5f_T, K6, K6_T, K8,
                K_R1_reg1, K_R1_T_reg1, K_R2_reg1,
@@ -2219,19 +2163,20 @@ function build_mechanism_test_specs()
             expected_n_steps=9,
             expected_n_metabolites=6,
             expected_n_haldane_constraints=2,
-            expected_n_mirror_constraints=3,
+            # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror
+            expected_n_mirror_constraints=1,
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=12,
             run_ode_test=false,
             analytical_rate_fn=m_all_rate_analytical,
-            analytical_kcat_fn=nothing,      # cat is :NonequalRT → kcat L-dependent
+            analytical_kcat_fn=nothing,      # cat is :NonequalAI → kcat L-dependent
             expected_factored_num=nothing,
             expected_factored_denom=nothing,
         ))
     end
 
-    # ── m_OnlyR_prod: single product :OnlyR (T-state cycle dead) ────────────
-    # Exercises `_t_state_dead` detection for product-binding :OnlyR groups.
+    # ── m_OnlyA_prod: single product :OnlyA (T-state cycle dead) ────────────
+    # Exercises `_i_state_dead` detection for product-binding :OnlyA groups.
     # The T-state cycle is broken at product release; with t_state_dead = true,
     # N_T is forced to 0 and the L*num_T branch is dropped. Analytical
     # kcat = 2·k2f/(1+L) — L-dependent because the saturating R-state
@@ -2242,30 +2187,29 @@ function build_mechanism_test_specs()
             substrates: S
             products:   P
 
-            site(:catalytic, 2): begin
-                steps: begin
-                    E + S ⇌ E_S    :: EqualRT      # group 1, K1
-                    E_S <--> E_P  :: EqualRT      # group 2, k2f catalysis
-                    E + P ⇌ E_P    :: OnlyR        # group 3, K3 (P binding)
-                end
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)    :: EqualAI      # group 1, K1
+                E(S) <--> E(P)  :: EqualAI      # group 2, k2f catalysis
+                E + P ⇌ E(P)    :: OnlyA        # group 3, K3 (P binding)
             end
         end
 
         # Param mapping:
-        #   K1   : S binding (group 1, EqualRT)
-        #   k2f  : catalysis SS (group 2, EqualRT, k2r derived via Haldane)
-        #   K3   : P release (group 3, OnlyR)
-        function m_OnlyR_prod_rate_analytical(params, concs)
+        #   K1   : S binding (group 1, EqualAI)
+        #   k2f  : catalysis SS (group 2, EqualAI, k2r derived via Haldane)
+        #   K3   : P release (group 3, OnlyA)
+        function m_OnlyA_prod_rate_analytical(params, concs)
             (; K1, k2f, K3, L, Keq, Et) = params
             (; S, P) = concs
 
             k2r = k2f * K3 / (Keq * K1)
 
             Q_cat_R = 1 + S/K1 + P/K3
-            Q_cat_T = 1 + S/K1                    # P/K3 monomial dropped (OnlyR group 3)
+            Q_cat_T = 1 + S/K1                    # P/K3 monomial dropped (OnlyA group 3)
 
             N_R = k2f * S/K1 - k2r * P/K3
-            # N_T = 0 forced (t_state_dead via group 3 :OnlyR)
+            # N_T = 0 forced (t_state_dead via group 3 :OnlyA)
 
             num = N_R * Q_cat_R                   # L*N_T*Q_cat_T term elided
             den = Q_cat_R^2 + L * Q_cat_T^2
@@ -2274,7 +2218,7 @@ function build_mechanism_test_specs()
         end
 
         push!(specs, MechanismTestSpec(
-            name="m_OnlyR_prod",
+            name="m_OnlyA_prod",
             mechanism=m,
             metabolite_names=[:S, :P],
             expected_n_states=3,                  # E, E_S, E_P
@@ -2285,7 +2229,7 @@ function build_mechanism_test_specs()
             expected_n_wegscheider_constraints=0,
             expected_n_independent_params=4,
             run_ode_test=false,
-            analytical_rate_fn=m_OnlyR_prod_rate_analytical,
+            analytical_rate_fn=m_OnlyA_prod_rate_analytical,
             # kcat at saturating S, zero P:
             #   A_R = k2f/K1², B_R = 1/K1², B_T = 1/K1² (T-state pattern same as R)
             #   kcat = catN · A_R / (B_R + L · B_T) = 2 · k2f / (1 + L)
@@ -2312,4 +2256,3 @@ const pfk_mechanism = _spec_by_name("PFK-1").mechanism
 const pfk_rate_analytical = _spec_by_name("PFK-1").analytical_rate_fn
 const hk_mechanism = _spec_by_name("HK").mechanism
 const hk_rate_analytical = _spec_by_name("HK").analytical_rate_fn
-

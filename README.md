@@ -27,8 +27,8 @@ Pkg.add(url="https://github.com/DenisTitovLab/EnzymeRates.jl")
 
 The running example is a uni-uni reaction `S ⇌ P` catalyzed by an MWC
 homodimer with V-type allosteric activation. Substrate and product
-bind both conformations with the same affinity (`:EqualRT`), but only
-the R conformation catalyzes (`:OnlyR`); an allosteric activator `A`
+bind both conformations with the same affinity (`:EqualAI`), but only
+the R conformation catalyzes (`:OnlyA`); an allosteric activator `A`
 binds R preferentially and shifts the population from the catalytically
 silent T toward R.
 
@@ -38,14 +38,13 @@ using EnzymeRates
 m = @allosteric_mechanism begin
     substrates: S
     products:   P
-    allosteric_regulators: A::OnlyR
+    catalytic_multiplicity: 2
+    allosteric_regulators: A::OnlyA
 
-    site(:catalytic, 2): begin
-        steps: begin
-            E + S ⇌ ES      :: EqualRT
-            ES <--> EP     :: OnlyR
-            EP ⇌ E + P      :: EqualRT
-        end
+    catalytic_steps: begin
+        E + S ⇌ E(S)         :: EqualAI
+        E(S) <--> E(P)       :: OnlyA
+        E(P) ⇌ E + P         :: EqualAI
     end
 end
 ```
@@ -53,9 +52,9 @@ end
 The two `⇌` steps mark binding events at rapid equilibrium (one
 binding constant `K` per step); the `<-->` step marks a steady-state
 catalytic interconversion (independent forward and reverse rate
-constants `kf`, `kr`). The `::EqualRT` annotation says the
-corresponding K is shared between R and T conformations; `::OnlyR`
-says the catalytic step fires only in R; and the `A::OnlyR` regulator
+constants `kf`, `kr`). The `::EqualAI` annotation says the
+corresponding K is shared between R and T conformations; `::OnlyA`
+says the catalytic step fires only in R; and the `A::OnlyA` regulator
 means the activator binds R only.
 
 `parameters(m)` lists the names the framework needs at evaluation
@@ -78,11 +77,11 @@ using OptimizationPyCMA, Random
 Random.seed!(42)
 
 true_params = (
-    K1 = 1e-4,           # S binding K (shared R/T)
-    k2f = 100.0,         # catalytic SS forward rate (R only)
-    K3 = 1e-3,           # P binding K (shared R/T)
-    K_A_reg1 = 1e-5,     # activator binding K (R only)
-    L = 10000.0,         # conformational [T]/[R] for free enzyme
+    K_S_E = 1e-4,           # S binding K (shared R/T)
+    k_A_ES_to_EP = 100.0,   # catalytic SS forward rate (R only)
+    K_P_E = 1e-3,           # P binding K (shared R/T)
+    K_A_Areg = 1e-5,        # activator binding K (R only)
+    L = 10000.0,            # conformational [T]/[R] for free enzyme
     Keq = 2.0,
     E_total = 1.0,
 )
@@ -94,9 +93,9 @@ logu(K) = K * 10.0 ^ (rand() * 4 - 2)
 data_rows = NamedTuple[]
 for grp in 1:5
     for _ in 1:10
-        S = logu(true_params.K1)
-        P = logu(true_params.K3)
-        A = logu(true_params.K_A_reg1)
+        S = logu(true_params.K_S_E)
+        P = logu(true_params.K_P_E)
+        A = logu(true_params.K_A_Areg)
         v_true = rate_equation(m, (S=S, P=P, A=A), true_params)
         v_obs = v_true * exp(0.05 * randn())   # 5% multiplicative log-normal noise
         push!(data_rows, (group="G$grp", Rate=v_obs, S=S, P=P, A=A))
@@ -121,8 +120,8 @@ separately measured kcat.
 fp = FittingProblem(m, data; Keq=2.0)
 result = fit_rate_equation(fp, PyCMAOpt();
     n_restarts=3, maxtime=5.0, popsize=50)
-result.params       # K1, K3, K_A_reg1, L recover near true.
-                    # k2f is normalized so kcat = 1.0 (its true
+result.params       # K_S_E, K_P_E, K_A_Areg, L recover near true.
+                    # k_A_ES_to_EP is normalized so kcat = 1.0 (its true
                     # value 100.0 is the kcat scale).
 result.loss         # final loss value (~5% noise floor)
 ```
@@ -139,16 +138,17 @@ chemistry from Section 2, declared as a *reaction*:
 rxn = @enzyme_reaction begin
     substrates: S[C]
     products:   P[C]
-    regulators: A
+    allosteric_regulators: A
     oligomeric_state: 2
 end
 ```
 
-`regulators: A` declares `A` with an unspecified role; the search
-enumerates dead-end-inhibitor and allosteric variants and selects
-between them on cross-validation score. (If you already know `A` is
-allosteric, declare it with `allosteric_regulators: A` instead and the
-search skips dead-end variants.)
+`allosteric_regulators: A` declares `A` as an allosteric effector; the search
+enumerates MWC allosteric variants (which conformations `A` binds and which
+kinetic groups are state-dependent) and selects among them by cross-validation
+score. (To instead model `A` as a dead-end catalytic-site binder, declare it
+with `competitive_inhibitors: A`; the search then enumerates dead-end inhibitor
+variants.)
 
 ```julia
 prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
@@ -210,23 +210,23 @@ two-state model: the enzyme exists in an active R conformation and an
 inactive T conformation, with `L = [T]/[R]` the conformational
 equilibrium for the bare enzyme and the same `L` propagating to all
 ligand-bound species. Each kinetic group (binding step, catalytic
-interconversion) can be `:OnlyR`, `:EqualRT`, or `:NonequalRT`; each
-regulatory ligand can additionally be `:OnlyT`. The four tags:
+interconversion) can be `:OnlyA`, `:EqualAI`, or `:NonequalAI`; each
+regulatory ligand can additionally be `:OnlyI`. The four tags:
 
-- `:OnlyR` — the symbol exists in R only; T-state contributions are
-  zero. A `:OnlyR` activator binds R preferentially and shifts the
+- `:OnlyA` — the symbol exists in R only; T-state contributions are
+  zero. A `:OnlyA` activator binds R preferentially and shifts the
   population toward R.
-- `:OnlyT` — symbol exists in T only. A `:OnlyT` regulator binds T
+- `:OnlyI` — symbol exists in T only. A `:OnlyI` regulator binds T
   preferentially and shifts the population toward T (a typical
   allosteric inhibitor).
-- `:EqualRT` — same `K` (or `kf`, `kr`) in both conformations. Useful
+- `:EqualAI` — same `K` (or `kf`, `kr`) in both conformations. Useful
   for ligands that bind without conformational preference.
-- `:NonequalRT` — independent R and T parameters (`K_R`, `K_T`).
+- `:NonequalAI` — independent R and T parameters (`K_R`, `K_T`).
 
 The full rate equation is then the sum of R-state and T-state numerator
 terms, weighted by the partition function `(R-state polynomial)^n +
 L*(T-state polynomial)^n`, where `n` is the oligomeric state. The
-example mechanism above uses `:OnlyR` everywhere — the T-state
+example mechanism above uses `:OnlyA` everywhere — the T-state
 contributions vanish and the printed rate equation simplifies
 accordingly.
 
@@ -244,12 +244,12 @@ monolithic pipeline:
   steps. Steps that bind the same metabolite share a kinetic group, so
   the parameter count starts at the smallest physically meaningful
   value.
-- `expand_mechanisms(specs, reaction)` applies a fixed set of
-  single-move expansions to each spec — converting an RE step to SS,
+- `expand_mechanisms(mechanisms, reaction)` applies a fixed set of
+  single-move expansions to each mechanism — converting an RE step to SS,
   splitting a kinetic group, adding a dead-end regulator, becoming
   allosteric, changing an allosteric state — and returns the expanded
   candidates keyed by their estimated parameter count.
-- `dedup!(cache)` canonicalizes specs (sorted steps; renumbered kinetic
+- `dedup!(cache)` canonicalizes mechanisms (sorted steps; renumbered kinetic
   groups by first occurrence) and removes structural duplicates.
 
 The enumeration is grounded in chemical reasoning rather than blind
@@ -268,7 +268,7 @@ size, and substrate participation are emitted.
    `loss_rel_threshold * best_loss + loss_abs_threshold`,
    or always at least the top `min_beam_width` by loss
    (whichever set is larger).
-3. Apply `expand_mechanisms` to surviving specs to produce candidates
+3. Apply `expand_mechanisms` to surviving mechanisms to produce candidates
    at the next parameter-count level.
 4. `dedup!` and fit; rank by training loss.
 5. Repeat until no new candidates appear or `max_param_count` is

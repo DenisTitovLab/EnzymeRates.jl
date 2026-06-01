@@ -1,5 +1,5 @@
-# Lightweight symbolic polynomial type for compile-time rate equation derivation.
-# All computation happens on POLY values. Conversion to Expr happens once at the end.
+# ABOUTME: Lightweight symbolic polynomial type (POLY = Dict{MONO, Rational{Int}})
+# ABOUTME: for compile-time rate equation derivation.
 
 # Maximum raw polynomial terms allowed in a rate equation.
 # Equations exceeding this limit would take too long to compile
@@ -50,9 +50,11 @@ function _poly_div_mono(p::POLY, divisor::POLY)::POLY
     POLY(_mono_div(k, m) => v for (k, v) in p)
 end
 
-# Cofactor determinant expansion for symbolic matrices.
-# Checks intermediate term count against MAX_RATE_EQUATION_TERMS to
-# abort early for mechanisms whose rate equations would be too large.
+"""
+Cofactor determinant expansion for symbolic matrices. Checks
+intermediate term count against `MAX_RATE_EQUATION_TERMS` to abort
+early for mechanisms whose rate equations would be too large.
+"""
 function sym_det(M::Matrix{POLY}, n::Int)
     n == 0 && return poly_one()
     n == 1 && return M[1,1]
@@ -81,7 +83,7 @@ function sym_det(M::Matrix{POLY}, n::Int)
     result
 end
 
-# Convert POLY to a Julia Expr for @generated function bodies (bare symbols).
+"""Convert `POLY` to a Julia `Expr` for `@generated` function bodies (bare symbols)."""
 function _poly_to_expr(p::POLY, param_syms::Set{Symbol}, conc_syms::Set{Symbol})
     isempty(p) && return 0
     pos, neg = Any[], Any[]
@@ -185,13 +187,6 @@ function _expr_to_string(x)
     end
 end
 
-"""Check if a symbol is a rate/equilibrium parameter (k or K), not Keq or E_total."""
-function is_k_parameter(sym::Symbol)
-    sym in (:Keq, :E_total) && return false
-    s = string(sym)
-    startswith(s, "k") || (startswith(s, "K") && length(s) > 1 && isdigit(s[2]))
-end
-
 """
     build_power_expr(keq_exp::Rational, factors)
 
@@ -241,7 +236,7 @@ function _expr_references_any(expr, syms::Set{Symbol})
     false
 end
 
-# Substitute symbols in an Expr tree (bare symbol matching)
+"""Substitute symbols in an `Expr` tree (bare symbol matching)."""
 function substitute_params_expr(expr, subs::AbstractDict)
     if expr isa Symbol
         get(subs, expr, expr)
@@ -259,9 +254,9 @@ end
 
 """
 Rename symbols in a polynomial. `rename_map` is a `Dict{Symbol, Symbol}`;
-absent keys are left unchanged. Used to alias non-representative kinetic-group
-parameter symbols to their representative (e.g., `K2 → K1` when steps 1 and 2
-share a kinetic group).
+absent keys are left unchanged. Used by the allosteric derivation to rename
+A-state symbols to their I-state counterparts when building the inactive-
+state polynomial (e.g., `:K_A_ATP_E → :K_I_ATP_E`).
 """
 function _rename_symbols(p::POLY, rename_map::AbstractDict{Symbol, Symbol})
     isempty(rename_map) && return p
@@ -297,22 +292,22 @@ function _zero_symbols_in_poly(p::POLY, sym_set::Set{Symbol})
 end
 
 """
-Set of symbols that survive the T-state masking applied by
-`_zero_symbols_in_poly(_, r_only_syms)`. A symbol `s` survives iff it
-appears in at least one monomial of `num_R ∪ den_R` that contains
-NO symbol from `r_only_syms` (those monomials are the ones that remain
-non-zero in the T-state polynomial).
+Set of symbols that survive the inactive-state masking applied by
+`_zero_symbols_in_poly(_, a_only_syms)`. A symbol `s` survives iff it
+appears in at least one monomial of `num_A ∪ den_A` that contains
+NO symbol from `a_only_syms` (those monomials are the ones that remain
+non-zero in the inactive-state polynomial).
 
 Used by the AllostericEnzymeMechanism dep-exprs filter to avoid declaring
-`:NonequalRT` T-state parameters that never appear in the rate equation
-body — a phantom-parameter case where `p` is only present in R-state
-monomials that get zeroed when constructing the T-state polynomial.
+`:NonequalAI` I-state parameters that never appear in the rate equation
+body — a phantom-parameter case where `p` is only present in active-state
+monomials that get zeroed when constructing the inactive-state polynomial.
 """
-function _t_state_surviving_syms(num_R::POLY, den_R::POLY, r_only_syms::Set{Symbol})
+function _i_state_surviving_syms(num_A::POLY, den_A::POLY, a_only_syms::Set{Symbol})
     surviving = Set{Symbol}()
-    for poly in (num_R, den_R)
+    for poly in (num_A, den_A)
         for mono in keys(poly)
-            any(s ∈ r_only_syms for (s, _) in mono) && continue
+            any(s ∈ a_only_syms for (s, _) in mono) && continue
             for (s, _) in mono
                 push!(surviving, s)
             end

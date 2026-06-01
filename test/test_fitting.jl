@@ -1,3 +1,5 @@
+# ABOUTME: Tests for fitting rate equations to data via FittingProblem and
+# ABOUTME: fit_rate_equation, including loss evaluation and parameter recovery.
 using Tables
 
 @testset "Fitting" begin
@@ -7,8 +9,8 @@ using Tables
         substrates: S
         products:   P
         steps: begin
-            E + S <--> ES
-            ES <--> E + P
+            E + S <--> E(S)
+            E(S) <--> E + P
         end
     end
 
@@ -45,7 +47,7 @@ using Tables
     # ── Test 2: FittingProblem construction ───────────────────────────────────
     @testset "Construction" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -65,7 +67,7 @@ using Tables
     # ── Test 3: Loss function correctness ─────────────────────────────────────
     @testset "Loss at true params is zero" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -86,7 +88,7 @@ using Tables
     # ── Test 4: Per-group centering invariance ───────────────────────────────
     @testset "Centering invariance" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -117,7 +119,7 @@ using Tables
     # ── Test 5: Multi-group centering invariance ─────────────────────────────
     @testset "Multi-group centering invariance" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -159,12 +161,12 @@ using Tables
         )
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
-        # Use params that produce negative predictions (very large k2r relative to k2f)
+        # Use params that produce negative predictions (very large koff_P_ES relative to kon_P_ES)
         pn = EnzymeRates.fitted_params(uni_uni)
         np = length(pn)
         x_bad = zeros(np)
         for (i, p) in enumerate(pn)
-            if p == :k2r
+            if p == :koff_P_ES
                 x_bad[i] = 15.0  # exp(15) ≈ 3.3M
             else
                 x_bad[i] = -15.0  # exp(-15) ≈ 3e-7
@@ -176,8 +178,8 @@ using Tables
     end
 
     # ── Test 6b: All-mismatch group has positive loss ─────────────────────────
-    # Regression test: previously, when all predictions in a group were sign-
-    # mismatches, the centering step zeroed every deviation (10-mean(10)=0).
+    # Regression test for all-mismatch groups: when every prediction in a
+    # group is a sign mismatch, centering must not zero every deviation.
     # The loss must be nonzero to distinguish a bad mechanism from a perfect one.
     # Three sub-cases exercise each path that sets buf[i] = 10.0:
     #   (i)  pred == 0.0            (S=0, P=0)
@@ -237,7 +239,7 @@ using Tables
     # ── Test 7: Zero allocations ──────────────────────────────────────────────
     @testset "Zero allocations" begin
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
@@ -252,14 +254,18 @@ using Tables
     # ── Test 8: Speed benchmark ───────────────────────────────────────────────
     @testset "Speed" begin
         # Build a larger mechanism: Ordered Bi-Bi
+        # Decomposed ordered bi-bi: the central complex EAB↔EPQ becomes an
+        # explicit iso step E(A, B) <--> E(P, Q). 5 steps total (was 4 in
+        # the lumped-central-complex form); fitter recovers k1-k5 params.
         ordered_bi_bi = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
             steps: begin
-                E + A <--> EA
-                EA + B <--> EABEPQ
-                EABEPQ <--> EQ + P
-                EQ <--> E + Q
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
             end
         end
 
@@ -298,7 +304,7 @@ using Tables
     @testset "kcat normalization" begin
         using OptimizationBBO
         Keq_val = 2.0
-        true_params = (k1f = 10.0, k2f = 5.0, k2r = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
