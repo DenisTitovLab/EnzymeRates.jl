@@ -285,6 +285,49 @@ struct EnzymeReaction
         all(m -> m ≥ 1, sorted_mults) ||
             error("EnzymeReaction: allowed_catalytic_multiplicities must " *
                   "all be ≥ 1, got $allowed_catalytic_multiplicities")
+
+        subs = [metabolite(ra) for ra in sorted_reactants
+                if metabolite(ra) isa Substrate]
+        prods = [metabolite(ra) for ra in sorted_reactants
+                 if metabolite(ra) isa Product]
+        isempty(subs)  && error("EnzymeReaction: substrates must not be empty")
+        isempty(prods) && error("EnzymeReaction: products must not be empty")
+
+        sub_names  = Symbol[name(m) for m in subs]
+        prod_names = Symbol[name(m) for m in prods]
+        reg_names  = Symbol[name(regulator(rm)) for rm in sorted_regulators]
+        length(sub_names)  == length(Set(sub_names))  ||
+            error("EnzymeReaction: duplicate substrate names")
+        length(prod_names) == length(Set(prod_names)) ||
+            error("EnzymeReaction: duplicate product names")
+        length(reg_names)  == length(Set(reg_names))  ||
+            error("EnzymeReaction: duplicate regulator names")
+
+        # A regulator MAY share a substrate/product name: the `::Inh` role tag
+        # lets one metabolite bind as a CompetitiveInhibitor under its real
+        # name (so `concs.X` drives every role). Cross-category names are not
+        # required to be unique.
+
+        # Atom mass-balance: per-element sum over substrate vs product
+        # reactants. Dispatch by metabolite TYPE (not name) so a substrate and
+        # product sharing a name route to the correct side.
+        sub_atoms  = Dict{Symbol,Int}()
+        prod_atoms = Dict{Symbol,Int}()
+        for ra in sorted_reactants
+            tgt = metabolite(ra) isa Substrate ? sub_atoms : prod_atoms
+            for (elem, c) in atoms(ra)
+                tgt[elem] = get(tgt, elem, 0) + c
+            end
+        end
+        for elem in union(keys(sub_atoms), keys(prod_atoms))
+            s_c = get(sub_atoms, elem, 0)
+            p_c = get(prod_atoms, elem, 0)
+            s_c == p_c || error(
+                "EnzymeReaction: atom imbalance — element $elem appears " *
+                "$s_c time(s) on substrate side and $p_c on product side. " *
+                "Declared atoms must balance.")
+        end
+
         new(sorted_reactants, sorted_regulators, sorted_mults)
     end
 end

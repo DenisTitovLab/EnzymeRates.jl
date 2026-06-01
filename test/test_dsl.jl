@@ -76,6 +76,24 @@
         @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES])
     end
 
+    @testset "@enzyme_mechanism multi-product balances placeholders" begin
+        # Uni-bi (1 substrate, 2 products) — asymmetric reactant counts.
+        # The placeholder atoms emitted by the macro must balance across
+        # the substrate/product sides so the EnzymeReaction atom-balance
+        # check passes.
+        m = @enzyme_mechanism begin
+            substrates: A
+            products:   P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+        @test m isa EnzymeRates.EnzymeMechanism
+    end
+
     @testset "@enzyme_mechanism (new grammar)" begin
         m = @enzyme_mechanism begin
             substrates: S

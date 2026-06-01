@@ -1228,6 +1228,7 @@ multiplicities). `EnzymeReaction`'s inner constructor canonicalizes the
 regulator order.
 """
 function _add_competitive_inhibitor(rxn::EnzymeReaction, reg_name::Symbol)
+    any(rm -> name(regulator(rm)) == reg_name, regulators(rxn)) && return rxn
     new_regs = copy(regulators(rxn))
     push!(new_regs, RegulatorMults(CompetitiveInhibitor(reg_name), Int[1]))
     EnzymeReaction(copy(reactants(rxn)), new_regs,

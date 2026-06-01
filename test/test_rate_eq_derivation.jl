@@ -1290,9 +1290,10 @@ end
     end))
 
     # Stoichiometric infeasibility: Q listed as product but never appears
-    # in any reaction step → invariant check rejects.
+    # in any reaction step → invariant check rejects. (S carries both atoms
+    # so the declared reaction balances; the step list omits Q on purpose.)
     rxn_no_q = @enzyme_reaction begin
-        substrates: S[C]
+        substrates: S[CN]
         products:   P[C], Q[N]
     end
     s_q1 = EnzymeRates.Step(EnzymeRates.Species(EnzymeRates.Metabolite[], :E),

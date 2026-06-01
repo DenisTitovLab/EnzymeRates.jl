@@ -825,6 +825,43 @@
         @test EnzymeRates.atoms(ra) == [:C => 6, :H => 12]
     end
 
+    @testset "EnzymeReaction validation" begin
+        S = EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1])
+        P = EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])
+        P2 = EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])
+        Punbal = EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 2])
+        noregs = EnzymeRates.RegulatorMults[]
+        regS = EnzymeRates.RegulatorMults(EnzymeRates.CompetitiveInhibitor(:S), [1])
+        regA = EnzymeRates.RegulatorMults(EnzymeRates.CompetitiveInhibitor(:A), [1])
+        regA2 = EnzymeRates.RegulatorMults(EnzymeRates.CompetitiveInhibitor(:A), [1])
+
+        # Empty substrate set rejected (only a product in reactants).
+        @test_throws ErrorException EnzymeRates.EnzymeReaction([P], noregs, Int[1])
+        # Empty product set rejected (only a substrate in reactants).
+        @test_throws ErrorException EnzymeRates.EnzymeReaction([S], noregs, Int[1])
+        # Duplicate product names rejected.
+        @test_throws ErrorException EnzymeRates.EnzymeReaction([S, P, P2], noregs, Int[1])
+        # Atom imbalance rejected (S has 1 C, Punbal has 2 C).
+        @test_throws ErrorException EnzymeRates.EnzymeReaction([S, Punbal], noregs, Int[1])
+        # Duplicate regulator names rejected.
+        @test_throws ErrorException EnzymeRates.EnzymeReaction(
+            [S, P], [regA, regA2], Int[1])
+        # A regulator MAY share a substrate/product name (`::Inh` role tag:
+        # one metabolite binds as a CompetitiveInhibitor under its real name).
+        rxn_inh = EnzymeRates.EnzymeReaction([S, P], [regS], Int[1])
+        @test :S in EnzymeRates.name.(EnzymeRates.substrates(rxn_inh))
+        # Valid balanced reaction with a distinct-named regulator still constructs.
+        rxn = EnzymeRates.EnzymeReaction([S, P], [regA], Int[1])
+        @test EnzymeRates.name.(EnzymeRates.substrates(rxn)) == [:S]
+        @test EnzymeRates.name.(EnzymeRates.products(rxn)) == [:P]
+        # Balance dispatches by metabolite TYPE, not name: a substrate and a
+        # product sharing a name (X→X, 2 C each) balances and is not misrouted.
+        Xs = EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:X), [:C => 2])
+        Xp = EnzymeRates.ReactantAtoms(EnzymeRates.Product(:X), [:C => 2])
+        @test EnzymeRates.EnzymeReaction([Xs, Xp], noregs, Int[1]) isa
+              EnzymeRates.EnzymeReaction
+    end
+
     @testset "RegulatorMults canonicalizes ordering + validates" begin
         rm1 = EnzymeRates.RegulatorMults(
             EnzymeRates.AllostericRegulator(:A), [4, 1, 2])
@@ -1169,16 +1206,15 @@
     end
 
     @testset "_sig_of / _mechanism_from_sig roundtrip" begin
-        # Use real atom data to catch type-parameter validity issues.
+        # Multi-element atom data exercises type-parameter validity:
         # Pair{Symbol,Int} is NOT a valid type-parameter value; encoding
-        # must use Tuple{Symbol,Int} leaves.
+        # must use Tuple{Symbol,Int} leaves. Substrate and product carry the
+        # same atom totals so the declared reaction balances (this test checks
+        # Sig round-trip + type-param leaves, not reaction chemistry).
+        atoms = [:C => 10, :H => 16, :N => 5, :O => 13, :P => 3]
         r = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:ATP),
-                                        [:C => 10, :H => 16, :N => 5,
-                                         :O => 13, :P => 3]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:ADP),
-                                        [:C => 10, :H => 15, :N => 5,
-                                         :O => 10, :P => 2])],
+            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:ATP), atoms),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:ADP), copy(atoms))],
             EnzymeRates.RegulatorMults[],
             [1],
         )

@@ -591,25 +591,30 @@ end
 Build the `EnzymeMechanism(Mechanism(reaction, grouped_steps))` `Expr`
 from the structural per-step records collected during parsing.
 
-Atoms for each declared metabolite default to `[:C => 1]` — a
-placeholder. Real atom payloads live at the `@enzyme_reaction`
-level, not `@enzyme_mechanism`.
+Atoms for each declared metabolite are balanced placeholders: each
+substrate carries `n_prods` carbons and each product carries `n_subs`
+carbons, so total carbon is `n_subs * n_prods` on both sides and the
+`EnzymeReaction` atom-balance check passes for any substrate/product
+counts. Real atom payloads live at the `@enzyme_reaction` level, not
+`@enzyme_mechanism`.
 """
 function _build_mechanism_expr(subs_list, prods_list, regs_list,
                                role_of::Dict{Symbol,Symbol},
                                side_terms_per_step)
+    n_subs  = length(subs_list)
+    n_prods = length(prods_list)
     reactants_entries = Expr[]
     for s in subs_list
         push!(reactants_entries,
               :(EnzymeRates.ReactantAtoms(
                     EnzymeRates.Substrate($(QuoteNode(s))),
-                    Pair{Symbol,Int}[:C => 1])))
+                    Pair{Symbol,Int}[:C => $n_prods])))
     end
     for p in prods_list
         push!(reactants_entries,
               :(EnzymeRates.ReactantAtoms(
                     EnzymeRates.Product($(QuoteNode(p))),
-                    Pair{Symbol,Int}[:C => 1])))
+                    Pair{Symbol,Int}[:C => $n_subs])))
     end
     reactants_expr = :(EnzymeRates.ReactantAtoms[$(reactants_entries...)])
 
