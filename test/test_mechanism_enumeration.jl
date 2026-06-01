@@ -2851,8 +2851,21 @@ end
         @test mults == Set([2, 4])
 
         # Each multiplicity gets the full per-group variant set.
-        n_groups = length(m.steps)
+        n_groups = length(EnzymeRates.steps(m))
         @test length(allo) == 2 * (n_groups + 1)
+
+        # Each multiplicity carries the same allo-state set: one all-:EqualAI
+        # baseline plus one variant per group with exactly one :OnlyA.
+        for cn in (2, 4)
+            cn_variants = filter(
+                am -> EnzymeRates.catalytic_multiplicity(am) == cn, allo)
+            @test count(
+                am -> all(==(:EqualAI), EnzymeRates.cat_allo_states(am)),
+                cn_variants) == 1
+            @test count(
+                am -> count(==(:OnlyA), EnzymeRates.cat_allo_states(am)) == 1,
+                cn_variants) == n_groups
+        end
 
         # Single-valued case unchanged (regression guard).
         rxn1 = EnzymeRates.EnzymeReaction(
