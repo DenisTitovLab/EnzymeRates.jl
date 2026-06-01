@@ -368,8 +368,8 @@ function Base.show(io::IO, r::EnzymeReaction)
 end
 
 # Classify how a species participates in BINDING steps (RE or SS) as the
-# FREE side (canonical binding puts the metabolite on the from_species side,
-# so the free side IS from_species). Used by `_canonical_iso_direction`
+# FREE side (canonical binding puts the bound metabolite on the to_species
+# side, so the free form IS from_species). Used by `_canonical_iso_direction`
 # Tier 2 to decide direction for pure-conformational iso steps where Tier 1
 # ties.
 #
