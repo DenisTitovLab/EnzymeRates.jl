@@ -1,3 +1,6 @@
+# ABOUTME: Haldane/Wegscheider thermodynamic constraints for enzyme mechanisms.
+# ABOUTME: Finds cycles, selects dependent params, builds @generated rate-eq preambles.
+
 """
 Haldane and Wegscheider thermodynamic constraints for enzyme mechanisms,
 plus preamble building helpers for @generated rate equation bodies.

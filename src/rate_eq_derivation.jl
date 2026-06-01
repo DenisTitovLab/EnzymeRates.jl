@@ -1,3 +1,6 @@
+# ABOUTME: King-Altman/Cha rate equation derivation via @generated functions.
+# ABOUTME: Parameters API, kcat computation, and MWC allosteric rate assembly.
+
 # ─── Parameters API ─────────────────────────────────────────
 
 const _AnyMechanism = AbstractEnzymeMechanism

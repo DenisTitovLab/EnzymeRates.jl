@@ -1,3 +1,5 @@
+# ABOUTME: Top-level module; defines the public API and include order.
+# ABOUTME: Exports the 18 public names and wires together src/ source files.
 module EnzymeRates
 
 # Types

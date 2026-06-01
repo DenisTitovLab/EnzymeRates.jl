@@ -1,3 +1,6 @@
+# ABOUTME: DSL macros @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism.
+# ABOUTME: Parse reaction/mechanism declarations into concrete struct constructors.
+
 """
     @enzyme_reaction begin
         substrates: S[C6H12O6], ATP[C10H16N5O13P3]

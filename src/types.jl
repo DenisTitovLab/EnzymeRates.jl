@@ -1,3 +1,6 @@
+# ABOUTME: Core concrete types (EnzymeReaction, Mechanism, Step, Species,
+# ABOUTME: Parameter family) plus the Mechanism↔Sig bridge and name(p,m) chokepoint.
+
 # ─── Concrete type hierarchy ──────────────────────────────────────────
 
 # Metabolite / Reactant / Regulator hierarchy.
