@@ -86,6 +86,15 @@
         @test EnzymeRates.n_steps(m)    == 3
     end
 
+    @testset "_to_sig metabolite encoding round-trips" begin
+        for M in (EnzymeRates.Substrate, EnzymeRates.Product,
+                  EnzymeRates.AllostericRegulator, EnzymeRates.CompetitiveInhibitor)
+            sig = EnzymeRates._to_sig(M(:X))
+            @test sig == (nameof(M), :X)
+            @test EnzymeRates._metabolite_from_sig(sig) == M(:X)
+        end
+    end
+
     @testset "EnzymeMechanism constructor" begin
         m = @enzyme_mechanism begin
             substrates: S

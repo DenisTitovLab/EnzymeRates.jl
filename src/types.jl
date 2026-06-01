@@ -605,10 +605,10 @@ _with_steps_and_cat_states(am::AllostericMechanism,
 # One polymorphic `_to_sig` with a method per source type; the matching
 # `_*_from_sig` family reconstructs the corresponding type.
 
-_to_sig(s::Substrate)            = (:Substrate, name(s))
-_to_sig(p::Product)              = (:Product, name(p))
-_to_sig(r::AllostericRegulator)  = (:AllostericRegulator, name(r))
-_to_sig(c::CompetitiveInhibitor) = (:CompetitiveInhibitor, name(c))
+# One encoder for every Metabolite leaf: (TypeTag, name). The tag Symbol is
+# `nameof(typeof(m))`, identical to the four hand-written tags it replaces, so
+# the Sig layout is unchanged and `_metabolite_from_sig` still decodes it.
+_to_sig(m::Metabolite) = (nameof(typeof(m)), name(m))
 
 _to_sig(r::Residual) = (
     Tuple(_to_sig(m) for m in added(r)),
