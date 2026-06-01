@@ -1436,28 +1436,30 @@ end
         → Vector{AllostericMechanism}
 
 Mechanism-native overload: convert a non-allosteric `Mechanism` into
-allosteric variants. Emits the all-`:EqualAI` baseline plus one
-variant per kinetic group with that group set to `:OnlyA`
-(`n_groups + 1` variants total). The new mechanism inherits `rxn`'s
-oligomeric state as `catalytic_multiplicity`; regulatory_sites is
-empty (allosteric regulators are added later via
+allosteric variants. For each value in `rxn`'s
+`allowed_catalytic_multiplicities`, emits the variant set: the
+all-`:EqualAI` baseline plus one variant per kinetic group with that
+group set to `:OnlyA` (`n_groups + 1` variants per multiplicity). The
+multiplicity becomes the variant's `catalytic_multiplicity`;
+regulatory_sites is empty (allosteric regulators are added later via
 `_expand_add_allosteric_regulator`). Steps are reused by reference.
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
-    cn = only(allowed_catalytic_multiplicities(rxn))
     n_g = length(steps(m))
     base_tags = Symbol[:EqualAI for _ in 1:n_g]
     empty_sites = RegulatorySite[]
     results = AllostericMechanism[]
-    push!(results, AllostericMechanism(
-        reaction(m), copy(steps(m)), copy(base_tags),
-        cn, copy(empty_sites)))
-    for g in 1:n_g
-        new_tags = copy(base_tags)
-        new_tags[g] = :OnlyA
+    for cn in allowed_catalytic_multiplicities(rxn)
         push!(results, AllostericMechanism(
-            reaction(m), copy(steps(m)), new_tags,
+            reaction(m), copy(steps(m)), copy(base_tags),
             cn, copy(empty_sites)))
+        for g in 1:n_g
+            new_tags = copy(base_tags)
+            new_tags[g] = :OnlyA
+            push!(results, AllostericMechanism(
+                reaction(m), copy(steps(m)), new_tags,
+                cn, copy(empty_sites)))
+        end
     end
     results
 end

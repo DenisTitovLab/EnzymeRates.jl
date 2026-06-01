@@ -2838,6 +2838,31 @@ end
         end
     end
 
+    @testset "Mechanism — enumerates all allowed multiplicities" begin
+        # Multi-valued allowed_catalytic_multiplicities → the variant set
+        # (baseline + per-group :OnlyA) is emitted once per multiplicity.
+        S = EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1])
+        P = EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])
+        rxn = EnzymeRates.EnzymeReaction(
+            [S, P], EnzymeRates.RegulatorMults[], Int[2, 4])
+        m = first(EnzymeRates.init_mechanisms(rxn))
+        allo = EnzymeRates._expand_to_allosteric(m, rxn)
+        mults = Set(EnzymeRates.catalytic_multiplicity(am) for am in allo)
+        @test mults == Set([2, 4])
+
+        # Each multiplicity gets the full per-group variant set.
+        n_groups = length(m.steps)
+        @test length(allo) == 2 * (n_groups + 1)
+
+        # Single-valued case unchanged (regression guard).
+        rxn1 = EnzymeRates.EnzymeReaction(
+            [S, P], EnzymeRates.RegulatorMults[], Int[2])
+        allo1 = EnzymeRates._expand_to_allosteric(
+            first(EnzymeRates.init_mechanisms(rxn1)), rxn1)
+        @test all(
+            EnzymeRates.catalytic_multiplicity(am) == 2 for am in allo1)
+    end
+
     @testset "AllostericMechanism — no-op (negative)" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
