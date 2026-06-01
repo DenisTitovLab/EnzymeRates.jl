@@ -52,15 +52,25 @@ name-uniqueness, which also fixes finding #2's regulator/substrate name collisio
   over product `ReactantAtoms`, element by element. Reuse the existing atom payload on
   `ReactantAtoms` (no new `_sum_atoms` helper on `Tuple` needed — sum directly over the
   `atoms` vectors of `substrates(r)` / `products(r)`).
-- **no name collision across categories:** the set of regulator names must be disjoint
-  from substrate ∪ product names. At the mechanism level names are identities (`concs.S`
-  drives exactly one species); a regulator sharing a substrate/product name is ill-formed.
+- ~~no name collision across categories~~ — **DROPPED during implementation.** This check
+  was proposed here as a structural fix for finding #2, but it directly contradicts the
+  documented `::Inh` role-tag feature: a metabolite may legitimately bind as a
+  `CompetitiveInhibitor` under its real name (e.g. G6P is both a product AND a competitive
+  inhibitor in the Hexokinase fixture, driven by one `concs.G6P`). `main` never had this
+  check (it validated only *within*-category duplicates). So `EnzymeReaction` restores
+  exactly `main`'s four checks: non-empty subs/prods, intra-category duplicate names, atom
+  balance — NOT cross-category uniqueness.
 
-This last check is the structural fix for finding #2's `_drop_unbound_regulators`
-(`types.jl:706`) collision: a substrate and a competitive inhibitor both named `:S`
-becomes illegal at construction, so the bare-`Symbol` bound-name set can never confuse
-them. `_drop_unbound_regulators` itself is left as-is (its name-based logic is correct
-once names are guaranteed unique across categories).
+Finding #2's regulator-duplication is fixed entirely by A3 (idempotent
+`_add_competitive_inhibitor`), not by a cross-category check. **A2 and A3 are
+interdependent and must land in one commit:** restoring the `EnzymeReaction` duplicate-
+regulator check (A2) exposes that `expand_mechanisms` → `_add_competitive_inhibitor`
+re-adds an already-declared dead-end regulator, which the hardened ctor then rejects. A3's
+idempotency guard is what keeps enumeration working. (On this branch `EnzymeReaction(...)`
+is an internal reconstruction chokepoint — called by Sig round-trip,
+`_drop_unbound_regulators` on every `compile_mechanism`, and the enumeration moves — unlike
+`main` where it was user-facing only. That is why ctor validation has broad reach and why
+two deliberately-unbalanced toy test fixtures had to be balanced.)
 
 **`_add_competitive_inhibitor` (`mechanism_enumeration.jl:1230`) — make idempotent:** if
 `reg_name` already names a regulator on `rxn`, return `rxn` unchanged rather than pushing a
