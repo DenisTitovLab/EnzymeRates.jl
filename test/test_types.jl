@@ -47,17 +47,22 @@
         @test EnzymeRates.steps_in_group(m2, 1) == (1, 2)
     end
 
-    @testset "metabolites() lift matches declaration order" begin
+    @testset "metabolites() lift covers all three loops + dedup" begin
+        # Substrate, product, AND regulator so the lift exercises every loop
+        # (substrates, then products, then regulators) and the dedup `seen`
+        # set — coverage the plain S/P accessor tests do not reach.
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
+            regulators: I
             steps: begin
                 E + S ⇌ E(S)
+                E(S) + I ⇌ E(S, I)
                 E(S) <--> E(P)
                 E(P) ⇌ E + P
             end
         end
-        @test EnzymeRates.metabolites(m) == (:S, :P)
+        @test EnzymeRates.metabolites(m) == (:S, :P, :I)
     end
 
     @testset "EnzymeMechanism Sig repack" begin
