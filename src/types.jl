@@ -1425,18 +1425,7 @@ function _onlyA_parameters_for_sym(am::AllostericMechanism)
     fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
         st = cat_allo_state(am, g) === :EqualAI ? :EqualAI : :A
-        rep = _group_rep(group, fes)
-        if is_equilibrium(rep)
-            push!(out, is_binding(rep) ? Kd(rep, st) : Kiso(rep, st))
-        else
-            if is_binding(rep)
-                push!(out, Kon(rep, st))
-                push!(out, Koff(rep, st))
-            else
-                push!(out, Kfor(rep, st))
-                push!(out, Krev(rep, st))
-            end
-        end
+        append!(out, _emit_cat_params_for_rep(_group_rep(group, fes), st))
     end
     out
 end
@@ -1447,18 +1436,7 @@ function _all_params_for_sym(am::AllostericMechanism)
     fes = _free_enz_set(am)
     for (g, group) in enumerate(steps(am))
         cat_allo_state(am, g) === :OnlyA && continue
-        rep = _group_rep(group, fes)
-        if is_equilibrium(rep)
-            push!(out, is_binding(rep) ? Kd(rep, :I) : Kiso(rep, :I))
-        else
-            if is_binding(rep)
-                push!(out, Kon(rep, :I))
-                push!(out, Koff(rep, :I))
-            else
-                push!(out, Kfor(rep, :I))
-                push!(out, Krev(rep, :I))
-            end
-        end
+        append!(out, _emit_cat_params_for_rep(_group_rep(group, fes), :I))
     end
     for site in regulatory_sites(am)
         for (lig, tag) in zip(ligands(site), allo_states(site))
@@ -1481,18 +1459,28 @@ function _enumerate_parameters_full(m::Mechanism)
     out = Parameter[]
     fes = _free_enz_set(m)
     for group in steps(m)
-        rep = _group_rep(group, fes)
-        if is_equilibrium(rep)
-            push!(out, is_binding(rep) ? Kd(rep, :None) : Kiso(rep, :None))
-        else
-            if is_binding(rep)
-                push!(out, Kon(rep, :None))
-                push!(out, Koff(rep, :None))
-            else
-                push!(out, Kfor(rep, :None))
-                push!(out, Krev(rep, :None))
-            end
-        end
+        append!(out, _emit_cat_params_for_rep(_group_rep(group, fes), :None))
     end
     out
+end
+
+"""
+Emit the Parameter(s) governing a single kinetic-group representative
+step with the given allosteric state. The 4-way switch on
+`is_equilibrium(rep)` × `is_binding(rep)` is the shared core that every
+Step→Parameter walker routes through: `_enumerate_parameters_full`,
+`_onlyA_parameters_for_sym`, `_all_params_for_sym` (catalytic part),
+`_onlyA_parameters`, and `_ss_rate_constant_names`.
+
+Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
+steps (`Kon`+`Koff` or `Kfor`+`Krev`).
+"""
+function _emit_cat_params_for_rep(rep::Step, state::Symbol)
+    if is_equilibrium(rep)
+        return Parameter[is_binding(rep) ? Kd(rep, state) : Kiso(rep, state)]
+    end
+    if is_binding(rep)
+        return Parameter[Kon(rep, state), Koff(rep, state)]
+    end
+    Parameter[Kfor(rep, state), Krev(rep, state)]
 end

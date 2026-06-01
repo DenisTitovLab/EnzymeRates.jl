@@ -1003,27 +1003,6 @@ _a_to_i_rename(am::AllostericMechanism) =
         for (p_A, p_I) in _I_rename_parameters(am))
 
 """
-Emit the Parameter(s) governing a single kinetic-group representative
-step with the given allosteric state. The 4-way switch on
-`is_equilibrium(rep)` × `is_binding(rep)` is the shared core that
-`_onlyA_parameters`, `_all_i_state_parameters`,
-`_enumerate_parameters_full_allosteric`, and `_ss_rate_constant_names`
-all duplicate. Centralizing here.
-
-Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
-steps (`Kon`+`Koff` or `Kfor`+`Krev`).
-"""
-function _emit_cat_params_for_rep(rep::Step, state::Symbol)
-    if is_equilibrium(rep)
-        return Parameter[is_binding(rep) ? Kd(rep, state) : Kiso(rep, state)]
-    end
-    if is_binding(rep)
-        return Parameter[Kon(rep, state), Koff(rep, state)]
-    end
-    Parameter[Kfor(rep, state), Krev(rep, state)]
-end
-
-"""
 Catalytic-cycle `Parameter`s zeroed in the I-state branch (one entry per
 `:OnlyA` kinetic group). Per kinetic group, the representative step's
 binding/iso × equilibrium/steady-state pair determines the emitted
