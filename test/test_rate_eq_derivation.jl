@@ -332,8 +332,20 @@ Must be a standalone function to avoid @testset closure boxing.
 function test_rate_equation_performance(m, params, concs)
     rate_equation(m, concs, params) # warmup/compile
     allocs = @allocated rate_equation(m, concs, params)
-    t = @elapsed for _ in 1:10_000; rate_equation(m, concs, params); end
-    return allocs, t / 10_000
+    # Minimum over several batches defeats the GC/scheduling inflation a
+    # single mean suffers; accumulating into `acc` (and observing it via the
+    # finite-result check) prevents the optimizer from eliding the calls.
+    best = Inf
+    acc = 0.0
+    for _ in 1:5
+        acc = 0.0
+        t = @elapsed for _ in 1:10_000
+            acc += rate_equation(m, concs, params)
+        end
+        best = min(best, t / 10_000)
+    end
+    isfinite(acc) || error("rate_equation produced a non-finite result")
+    return allocs, best
 end
 
 """
