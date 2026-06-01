@@ -1,3 +1,5 @@
+# ABOUTME: Tests for the core EnzymeRates types (Mechanism, Step, Species,
+# ABOUTME: Parameter family) and their constructors, accessors, and equality.
 @testset "Types" begin
     @testset "EnzymeMechanism struct + accessors" begin
         m = @enzyme_mechanism begin

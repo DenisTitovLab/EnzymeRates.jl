@@ -1,6 +1,5 @@
-# Tests for enzyme rate equation derivation
-# Validates structure, constraints,
-# and correctness of derived rate equations
+# ABOUTME: Tests for rate-equation derivation (King-Altman/Cha), the parameters
+# ABOUTME: API, kcat/rescaling, rate-equation strings, and the per-call perf gate.
 
 using OrdinaryDiffEqFIRK
 

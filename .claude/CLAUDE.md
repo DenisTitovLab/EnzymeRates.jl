@@ -193,7 +193,7 @@ EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given
 ## API Design
 
 - **18 exported public names**: 6 types, 3 macros, 2 constants (`Full`, `Reduced`), 7 functions.
-- `compile_mechanism` is NOT exported (internal). The concrete enumeration types `Mechanism` / `AllostericMechanism` are the public mechanism-construction surface (e.g., `init_mechanisms(rxn) → Vector{Mechanism}`); their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
+- `compile_mechanism` is NOT exported (internal). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
 - The enumeration pipeline operates end-to-end on the decomposed concrete types `Mechanism` / `AllostericMechanism` (built from `Step` / `Species`) — there is no separate working representation.
 - Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
 - Cross-validation: leave-one-group-out
@@ -300,7 +300,7 @@ parameters are stateless.
 - `AllostericMechanism` has 5 fields: `reaction, cat_steps::Vector{Vector{Step}}, cat_allo_states::Vector{Symbol}, catalytic_multiplicity::Int, regulatory_sites::Vector{RegulatorySite}`. `RegulatorySite` carries its own ligands + multiplicity + per-ligand allo-state.
 - `_n_fit_params_estimate` is a raw enumeration bucket estimate; callers that need a safe bound apply the `n_subs + n_prods + 1` floor, and exact counts come from `length(fitted_params(compile_mechanism(m)))`.
 - `init_mechanisms` / `expand_mechanisms` build `Mechanism` / `AllostericMechanism` directly from decomposed `Step` / `Species` — no intermediate working representation.
-- `oligomeric_state` from `EnzymeReaction` sets `catalytic_n` and all regulator site multiplicities (not enumerated).
+- `_expand_to_allosteric` enumerates over `EnzymeReaction`'s `allowed_catalytic_multiplicities`, emitting one allosteric variant set per allowed value (that value becomes the variant's `catalytic_multiplicity`). `oligomeric_state: N` is the single-value shorthand (a 1-element list → one multiplicity, unchanged behavior). All regulator site multiplicities are set from `oligomeric_state` (not enumerated).
 - `EnzymeMechanism(m::Mechanism)` and `AllostericEnzymeMechanism(am::AllostericMechanism)` lift a decomposed mechanism to its singleton derivation type (`compile_mechanism` wraps both).
 - Same-site regulators share a `(1 + R1/K_R1 + R2/K_R2)^m` denominator factor.
 - Allosteric state taxonomy (per kinetic group, per regulatory ligand): `:OnlyA`, `:OnlyI`, `:EqualAI`, `:NonequalAI`. `:OnlyA` / `:OnlyI` symbols are zeroed in the opposite state's polynomial; `:NonequalAI` symbols are renamed to I-suffixed counterparts in the inactive-state poly; `:EqualAI` symbols pass through unchanged.

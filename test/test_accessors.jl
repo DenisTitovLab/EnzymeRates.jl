@@ -1,3 +1,5 @@
+# ABOUTME: Tests for the mechanism/parameter accessor API and its symmetry
+# ABOUTME: across the concrete and singleton mechanism representations.
 @testset "parameters API symmetry" begin
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]

@@ -1,3 +1,5 @@
+# ABOUTME: Tests for the @enzyme_reaction / @enzyme_mechanism DSL parsing,
+# ABOUTME: including decomposed-Species notation and opaque-form rejection.
 @testset "DSL" begin
     @testset "DSL: decomposed-Species notation parses to Mechanism" begin
         # Decomposed call-form on every step → parser emits a structured

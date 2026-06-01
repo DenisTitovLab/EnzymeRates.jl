@@ -1,3 +1,5 @@
+# ABOUTME: Tests for fitting rate equations to data via FittingProblem and
+# ABOUTME: fit_rate_equation, including loss evaluation and parameter recovery.
 using Tables
 
 @testset "Fitting" begin

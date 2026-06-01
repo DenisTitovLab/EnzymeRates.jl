@@ -128,7 +128,7 @@ Base.hash(s::RegulatorySite, h::UInt) =
 
 # Step: one elementary transition. Binding steps carry
 # `bound_metabolite`; iso steps carry `nothing`. All binding steps (RE and
-# SS) canonicalize here (metabolite on the `from_species` side). All iso
+# SS) canonicalize here (bound metabolite on the `to_species` side). All iso
 # steps (RE and SS) canonicalize in the Mechanism constructor via
 # `_canonical_iso_direction`. After Mechanism construction, every Step is
 # canonicalized.
@@ -399,7 +399,7 @@ end
 # `from` is further from product-release / closer to substrate-binding.
 # Applies to RE iso AND SS iso — the direction question is identical;
 # only the parameter count differs. (All binding steps — RE and SS —
-# are canonicalized metabolite-on-`from` by the Step constructor; this
+# are canonicalized bound-metabolite-on-`to` by the Step constructor; this
 # function only handles iso steps.)
 function _canonical_iso_direction(s::Step, subs::Set{Symbol}, prods::Set{Symbol},
                                   all_binding_steps::Vector{Step})
@@ -914,7 +914,7 @@ abstract type AbstractRateEquationMode end
 """
     FullMode <: AbstractRateEquationMode
 
-Full rate equation mode using all 2N microscopic rate constants (k1f, k1r, k2f, k2r, ...).
+Full rate equation mode using all 2N microscopic rate constants (k_ES_to_EP, k_EP_to_ES, ...).
 No thermodynamic constraints applied. Parameters: all k's + E_total.
 """
 struct FullMode <: AbstractRateEquationMode end

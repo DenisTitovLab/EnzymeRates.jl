@@ -1,3 +1,5 @@
+# ABOUTME: Top-level test entry point that wires up shared fixtures and
+# ABOUTME: includes every EnzymeRates test file.
 using Test
 using EnzymeRates
 using LinearAlgebra

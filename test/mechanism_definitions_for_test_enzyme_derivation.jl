@@ -1,6 +1,5 @@
-# Test specifications for all enzyme mechanisms
-# Each mechanism is defined inline with its expected properties
-# for easy side-by-side comparison
+# ABOUTME: Shared mechanism test specifications used across the derivation tests.
+# ABOUTME: Each mechanism is defined inline with its expected properties.
 
 using LinearAlgebra
 using Random
