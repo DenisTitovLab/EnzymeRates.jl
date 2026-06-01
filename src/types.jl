@@ -108,9 +108,9 @@ struct RegulatorySite
         multiplicity ≥ 1 ||
             error("RegulatorySite: multiplicity must be ≥ 1, got $multiplicity")
         for st in allo_states
-            st in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI) ||
+            st in _VALID_REG_ALLO_STATES ||
                 error("RegulatorySite: allo state $st must be one of " *
-                      ":OnlyA, :OnlyI, :EqualAI, :NonequalAI")
+                      "$_VALID_REG_ALLO_STATES")
         end
         new(ligands, multiplicity, allo_states)
     end
@@ -474,6 +474,7 @@ _with_steps(m::Mechanism, new_steps::Vector{Vector{Step}}) =
 # kinetic group carries an allosteric-state tag (`:OnlyA`, `:EqualAI`, or
 # `:NonequalAI` — `:OnlyI` is rejected by the active-state convention).
 const _VALID_CAT_ALLO_STATES = (:OnlyA, :EqualAI, :NonequalAI)
+const _VALID_REG_ALLO_STATES = (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
 
 struct AllostericMechanism
     reaction::EnzymeReaction
@@ -819,9 +820,9 @@ function AllostericEnzymeMechanism(
                   "active branch is the active state by convention. Relabel " *
                   "your mechanism so the active branch is A (use :OnlyA " *
                   "instead).")
-        st in (:OnlyA, :EqualAI, :NonequalAI) ||
+        st in _VALID_CAT_ALLO_STATES ||
             error("Catalytic kinetic group $g has unknown allo state $st; " *
-                  "must be one of (:OnlyA, :EqualAI, :NonequalAI)")
+                  "must be one of $_VALID_CAT_ALLO_STATES")
     end
 
     for (i, entry) in enumerate(reg_sites)
@@ -837,7 +838,7 @@ function AllostericEnzymeMechanism(
             error("Reg site $i: reg_allo_states length $(length(reg_allo_states)) " *
                   "does not match ligand count $(length(ligands))")
         for (k, st) in enumerate(reg_allo_states)
-            st in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI) ||
+            st in _VALID_REG_ALLO_STATES ||
                 error("Reg site $i, ligand $(ligands[k]): unknown allo state $st")
         end
         # All-:EqualAI site cancels identically — error
