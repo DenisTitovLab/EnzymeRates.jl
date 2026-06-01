@@ -47,6 +47,19 @@
         @test EnzymeRates.steps_in_group(m2, 1) == (1, 2)
     end
 
+    @testset "metabolites() lift matches declaration order" begin
+        m = @enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end
+        @test EnzymeRates.metabolites(m) == (:S, :P)
+    end
+
     @testset "EnzymeMechanism Sig repack" begin
         m = @enzyme_mechanism begin
             substrates: S

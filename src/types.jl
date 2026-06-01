@@ -1104,23 +1104,18 @@ of `Symbol`s in declaration order, deduplicated.
 # per-datapoint `NamedTuple{MetNames}` concs on the fitting hot path. A
 # runtime body would make that NamedTuple type-unstable and allocate.
 @generated function metabolites(::EnzymeMechanism{Sig}) where {Sig}
-    # Substrates first (from reactants Substrate entries),
-    # then products, then regulators.
+    m = Mechanism(EnzymeMechanism{Sig}())
+    rxn = reaction(m)
     names = Symbol[]
     seen = Set{Symbol}()
-    for entry in Sig[1][1]
-        kind, nm = entry[1]
-        kind === :Substrate && nm ∉ seen &&
-            (push!(seen, nm); push!(names, nm))
+    for s in substrates(rxn)
+        nm = name(s); nm ∉ seen && (push!(seen, nm); push!(names, nm))
     end
-    for entry in Sig[1][1]
-        kind, nm = entry[1]
-        kind === :Product && nm ∉ seen &&
-            (push!(seen, nm); push!(names, nm))
+    for p in products(rxn)
+        nm = name(p); nm ∉ seen && (push!(seen, nm); push!(names, nm))
     end
-    for entry in Sig[1][2]
-        kind, nm = entry[1]
-        nm ∉ seen && (push!(seen, nm); push!(names, nm))
+    for rm in regulators(rxn)
+        nm = name(regulator(rm)); nm ∉ seen && (push!(seen, nm); push!(names, nm))
     end
     return Tuple(names)
 end
