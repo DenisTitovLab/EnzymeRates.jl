@@ -71,10 +71,10 @@ All changes in `src/identify_rate_equation.jl` and `src/mechanism_enumeration.jl
 Replace the canonical-hash machinery with:
 
 ```julia
-# Dedup key for a rate equation: the rendered string with provenance comments
-# removed (the choice of which dependent K was eliminated is cosmetic — it is
-# already substituted into v). Two mechanisms with the same key compute the
-# identical rate function. Hashed for compact storage / CSV column.
+# Equation identity key: the rendered string with provenance comments removed
+# (the choice of which dependent K was eliminated is cosmetic — it is already
+# substituted into v). Two mechanisms with the same key compute the identical
+# rate function. Used as a CSV column tag and the CV-candidate selection key.
 function _rate_eq_dedup_key(eq_text::AbstractString)
     kept = Iterators.filter(split(eq_text, '\n')) do ln
         l = strip(ln)
@@ -84,85 +84,84 @@ function _rate_eq_dedup_key(eq_text::AbstractString)
 end
 ```
 
+`eq_hash` is **not** a collapse key. Every structurally-distinct mechanism is fit and its
+row kept (with its own fitted params — no projection/copying). `eq_hash` serves two purposes
+only: a CSV column for downstream grouping in analysis, and the LOOCV candidate-selection key
+(pick N *distinct* equations per param count, not N best mechanisms). The search loop never
+dedups by `eq_hash`; the only mechanism-collapsing dedup is the structural `_dedup_flat`.
+
 **Delete entirely:** `_canonical_rate_eq_hash_data`, `_canonical_rate_eq_hash`,
 `_canonicalize_for_hash`, `_build_name_map`, `_dep_exprs_canonical`, `_synth_dep_a_names`,
 `_expr_canonical_via_name_map` (and any helper used only by them), `_project_cached_params`,
-the whole `_CachedFitResult` struct (replaced by `BatchEntry` + `seen_keys`), and the
-inherited-row path. (Grep `_canonical_rate_eq_hash`, `_project_cached_params`, `name_map`,
-`canon_to_rep`, `_CachedFitResult` to confirm no remaining src callers.)
+the whole `_CachedFitResult` struct (replaced by `BatchEntry`), and the inherited-row path.
+(Grep `_canonical_rate_eq_hash`, `_project_cached_params`, `name_map`, `canon_to_rep`,
+`_CachedFitResult` to confirm no remaining src callers.)
 
 The `eq_hash` CSV column stays, now holding `_rate_eq_dedup_key(eq_text)` rendered as a hex
-string. The `fit_inherited_from_estimate` column is **removed** (no inherited rows).
+string. The `fit_inherited_from_estimate` column is **removed** (no inherited rows, no
+cross-mechanism projection).
 
 ### 4. `_process_batch` — one pmap pass, compile+fit fused per worker
 
 **Cluster rationale (comment 2):** compile and fit happen on the **same worker** for each
 mechanism, in a single `pmap`. Splitting compile into its own pass would re-pay the
 `@generated` JIT on whichever worker later draws the fit (Julia can't ship a compiled
-specialization between processes), and would re-compile every representative a second time.
-Fusing them means each surviving mechanism is compiled exactly once, on the worker that
-fits it.
+specialization between processes) — every fitted mechanism would compile twice. Fusing them
+means each surviving mechanism is compiled exactly once, on the worker that fits it.
 
 ```
-_process_batch(mechs, prob, seen_keys; pmap_function, optimizer, max_param_count, kwargs...)
-    → Vector{BatchEntry}     # one per NEW distinct equation
+_process_batch(mechs, prob; pmap_function, optimizer, max_param_count, kwargs...)
+    → Vector{BatchEntry}     # one per fitted mechanism
 ```
 
-`mechs` is already structurally pre-deduped on the master (`_dedup_flat`). The function takes
-an immutable **snapshot** of `seen_keys` (equation keys fit in *prior* iterations) and ships
-that snapshot to the workers — never mutated inside the `pmap` — then updates the persistent
-`seen_keys` on the master after results return.
+`mechs` is already structurally pre-deduped on the master (`_dedup_flat`). There is **no**
+`seen_keys` and **no** equation collapse — every structurally-distinct mechanism that fits
+within the cap gets its own `BatchEntry`.
 
 Each worker, for one mechanism, runs the full chain locally:
 1. `em = compile_mechanism(m)`; `n = length(fitted_params(em))`. (compile failure → skip)
 2. **Cap filter, before fitting:** `n > max_param_count` → skip.
-3. `key = _rate_eq_dedup_key(rate_equation_string(em))`. If `key ∈ seen_snapshot` → skip
-   (this equation was already fit in an earlier iteration — don't refit).
-4. Otherwise **fit** `FittingProblem(em, prob.data; Keq)` and return
-   `(mech=m, n_params=n, eq_key=key, loss, params, eq_text)`.
+3. **Fit** `FittingProblem(em, prob.data; Keq)`; compute `eq_hash =
+   _rate_eq_dedup_key(rate_equation_string(em))`.
+4. Return `(mech=m, n_params=n, eq_hash, loss, params, eq_text)`.
 
-On the **master**, after the `pmap` returns:
-- drop skips;
-- **within-batch dedup by `eq_key`** — when two structurally-distinct mechanisms in the same
-  batch produced the same equation, keep the lowest-loss result (one `BatchEntry` per
-  `eq_key`), discard the rest;
-- add the surviving keys to the persistent `seen_keys` (so the *next* iteration's snapshot
-  excludes them);
-- build one row + `BatchEntry` per surviving equation.
+On the **master**, after the `pmap` returns: drop skips, build one row + `BatchEntry` per
+fitted mechanism (each carrying its *own* fitted params and `eq_hash`). No collapse, no
+projection.
 
-**The race Denis flagged is avoided by construction:** `seen_keys` is only written on the
-master, *between* iterations — never inside a `pmap`. Cross-iteration duplicates are filtered
-by the read-only snapshot; same-iteration duplicates (workers can't see each other's
-in-flight fits) are resolved by the master-side dedup after results return. The cost is a
-small number of redundant fits *within* a batch — the probe measured ~8/512 (≈1.6%) for LDH,
-and 0 across iterations. That waste is accepted in exchange for single-pass simplicity and
-no cross-worker recompilation.
+This is why fusing compile+fit is clean here: with no cross-worker dedup to coordinate, each
+worker is a self-contained compile→cap→fit unit, and the only shared state is the immutable
+`prob`. The race condition from earlier designs is gone because there is no shared write at
+all. Equation-level redundancy (the ~1.6% same-equation-different-structure mechanisms) is
+intentionally kept — both rows are written (tagged by `eq_hash`) and both are eligible to
+expand, since their structural expansions differ.
 
-`seen_keys::Set{UInt64}` is the only persistent dedup state — tiny (one hash per distinct
-equation), replaces the old params-carrying `fit_cache`. No cross-mechanism param projection.
-
-`BatchEntry` is a small new struct `(mech, n_params::Int, loss::Float64, eq_key::UInt64, row::NamedTuple)`.
+`BatchEntry` is a small new struct
+`(mech, n_params::Int, loss::Float64, eq_hash::UInt64, row::NamedTuple)`.
 
 `_dedup_flat(ms)::Vector` is a new helper applying the same structural canonicalization +
 `unique!` as `dedup!` to a flat vector (factor the per-bucket body out of `dedup!(::Dict)`
-and call it from both). It is the cheap pre-compile dedup that drops structural twins before
-the expensive compile pass; `_rate_eq_dedup_key` is the post-compile equation dedup.
+and call it from both). It is the **only** mechanism-collapsing dedup — cheap, pre-compile,
+dropping exact structural twins before the expensive compile pass.
 
 ### 5. `_beam_search` rewrite — ascending actual-count loop
 
 State:
-- `seen_keys::Set{UInt64}` — equations already fit/recorded.
 - `frontier::Dict{Int, Vector{BatchEntry}}` — unexpanded fit entries, keyed by **actual**
-  `n_params`. The live work queue.
-- `cv_pool::Dict{Int, Vector{BatchEntry}}` — top `n_cv_candidates` by loss per param count,
-  accumulated across iterations. The *only* thing retained for final CV.
+  `n_params`. The live work queue. Holds *all* structurally-distinct mechanisms (no eq-dedup).
+- `cv_pool::Dict{Int, Vector{BatchEntry}}` — top `n_cv_candidates` **distinct equations**
+  (by `eq_hash`, lowest loss each) per param count, accumulated across iterations. The *only*
+  thing retained for final CV.
 - `best_loss_by_count::Dict{Int, Float64}` — beam-cutoff reference per count.
 - `high_water::Int` — highest count whose tier has been processed.
+
+No `seen_keys` / persistent fit cache. Termination is guaranteed by monotonic expansion +
+the `max_param_count` cap, not a seen-set.
 
 Flow:
 ```
 base = _dedup_flat(collect(init_mechanisms(prob.reaction)))   # structural pre-dedup
-base_entries = _process_batch(base, prob, seen_keys; max_param_count, …)
+base_entries = _process_batch(base, prob; max_param_count, …)
 _save_initial_csv(save_dir, [e.row for e in base_entries])    # mandatory
 _ingest!(frontier, cv_pool, best_loss_by_count, base_entries; n_cv_candidates)
 
@@ -182,7 +181,7 @@ while any nonempty vector in frontier:
     high_water = max(high_water, maximum(tiers))
 
     children = _dedup_flat(expand_mechanisms([e.mech for e in to_expand], prob.reaction))
-    child_entries = _process_batch(children, prob, seen_keys; max_param_count, …)
+    child_entries = _process_batch(children, prob; max_param_count, …)
     iteration += 1
     _save_iteration_csv(save_dir, [e.row for e in child_entries], iteration)
     _ingest!(frontier, cv_pool, best_loss_by_count, child_entries; n_cv_candidates)
@@ -199,21 +198,28 @@ return cv_pool flattened → (candidate_mechs, candidate_df)
 - **`_select_beam` change:** add a `best_override` kwarg so the cutoff is computed against the
   best-ever loss at that count (`best_loss_by_count[c]`), not just the min of the current
   group — so a late straggler is judged against its tier's real best.
-- **Termination:** structural + equation dedup (`seen_keys`) guarantee no equation is
-  re-expanded; finitely many distinct mechanisms ≤ cap ⇒ the loop terminates.
+- **Termination:** every expansion move strictly adds ≥1 parameter (monotonic) and
+  `max_param_count` caps the count — so mechanisms grow until they exceed the cap and are
+  dropped at the fit filter. No seen-set is needed to guarantee the loop ends.
 
 ### 6. `_ingest!` — bounded memory (comment 2)
 
 For each new `BatchEntry`:
-- push into `frontier[n_params]` (unexpanded work);
-- update `best_loss_by_count[n_params]`;
-- insert into `cv_pool[n_params]`, then truncate that vector to the `n_cv_candidates` lowest
-  losses — **dropping the `Mechanism` objects that fall out.** (Equation-dedup already
-  happened via `seen_keys`, so the pool holds distinct equations.)
+- push into `frontier[n_params]` (unexpanded work — **all** structurally-distinct mechanisms,
+  no eq-dedup, so both members of a same-equation pair stay eligible to expand);
+- update `best_loss_by_count[n_params]` to the running min;
+- offer it to `cv_pool[n_params]`, which keeps the top `n_cv_candidates` **distinct
+  equations** by loss: if the entry's `eq_hash` is already present, keep the lower-loss one;
+  else if fewer than `n_cv_candidates` distinct equations are held, add it; else if it beats
+  the worst-loss held entry, replace that entry. **Mechanisms that fall out are dropped.**
 
-Steady-state memory ≈ `(#distinct param counts) × n_cv_candidates` mechanisms + the live
-frontier (bounded by expansion fan-out × beam width) + `seen_keys` (hashes only) —
-independent of iteration count.
+The `cv_pool`'s distinct-`eq_hash` rule is exactly the LOOCV requirement ("N different
+equations, not N best mechanisms") computed incrementally, so `_cv_model_selection` consumes
+the pool directly. Steady-state memory ≈ `(#distinct param counts) × n_cv_candidates`
+mechanisms + the live frontier (bounded by beam width × expansion fan-out) — independent of
+iteration count. (The frontier carries the ~1.6% same-equation redundancy; it does not
+compound unboundedly because each generation is structurally pre-deduped and the beam is
+size-capped.)
 
 ### 7. CSV outputs + `_cv_model_selection`
 
@@ -240,9 +246,11 @@ independent of iteration count.
   `initial_mechanisms.csv` and `_save_iteration_csv(dir, rows, iteration)` writing
   `equation_search_iteration_$(iteration).csv` (`iteration` is a sequential counter, **not** a
   param count — real count is the `n_params` column).
-- `_cv_model_selection` now receives the already-bounded `cv_pool` (its internal
-  "top-N per `(n_params, eq_hash)`" selection at `:1061-1069` becomes a no-op / is removed —
-  the pool is already that set, keyed on the comment-stripped `eq_hash`).
+- `_cv_model_selection` receives the already-bounded `cv_pool`. Its distinct-`eq_hash`
+  candidate selection (`:1061-1069`) is **kept** — LOOCV must evaluate N *different equations*
+  per param count, not N best mechanisms — but it now operates on the small pool (which was
+  built by the same distinct-equation rule during ingest) instead of the full result set, and
+  reads the comment-stripped `eq_hash`.
 - `max_param_count` is documented as a cap on **actual fitted** parameters; base topologies
   are never excluded by it (they are the seed), only expansion depth is capped. Default base
   set is **uncapped** (YAGNI; add an explicit `max_base_topologies` that `log()`s drops only
@@ -258,8 +266,9 @@ test→implement. Per-function unit tests:
 
 - **`_rate_eq_dedup_key`** — (a) two rate-equation strings differing only in `# …` headers or
   `(substituted into v)` lines hash equal; (b) strings differing in a Haldane definition or a
-  `v=` term hash *unequal*; (c) on the LDH expand-round-1 fixture it collapses the 8 known
-  equation-dups (4 byte-identical + 4 comment-only) and makes **no false merges**.
+  `v=` term hash *unequal*; (c) on the LDH expand-round-1 fixture the 8 known equation-dups
+  (4 byte-identical + 4 comment-only) share a key and there are **no false merges** (every
+  key collision has byte-identical params-decl + Haldane + `v=`).
 - **`_dedup_flat`** — a vector with a structural twin collapses to one; an empty vector and an
   all-distinct vector are unchanged; result matches `dedup!` on the single-bucket dict form.
 - **`_default_save_dir`** — returns `<today>_results` when absent; returns `…_results_2`,
@@ -271,20 +280,25 @@ test→implement. Per-function unit tests:
   entries pass the cutoff than without it; `min_beam_width` still honored; no override
   reproduces current behavior (regression-pins existing callers).
 - **`_process_batch`** — on a tiny dataset: (a) compiles+fits and returns one `BatchEntry` per
-  distinct equation; (b) an over-`max_param_count` mechanism is **never fit** (assert via a
-  spy `pmap`/optimizer or a fit-count probe); (c) a `seen_snapshot` key is skipped (not
-  refit); (d) two same-equation mechanisms in one batch yield a single `BatchEntry` (lowest
-  loss) and add one key to `seen_keys`.
-- **`_ingest!`** — pushes to frontier, updates `best_loss_by_count` to the min, truncates
-  `cv_pool[n]` to `n_cv_candidates` lowest-loss entries and drops the overflow mechanisms.
+  fitted mechanism, each with its own `eq_hash` and fitted params; (b) an
+  over-`max_param_count` mechanism is **never fit** (assert via a spy `pmap`/optimizer or a
+  fit-count probe); (c) two structurally-distinct same-equation mechanisms in one batch yield
+  **two** `BatchEntry`s sharing one `eq_hash` (no collapse).
+- **`_ingest!`** — pushes every entry to `frontier[n]` (both members of a same-equation pair
+  stay); updates `best_loss_by_count` to the min; `cv_pool[n]` keeps the top
+  `n_cv_candidates` **distinct `eq_hash`** by loss (a same-equation entry replaces only its
+  own hash's slot, never consuming a second slot) and drops overflow mechanisms.
+- **`_cv_model_selection`** — given a pool where one param count holds several mechanisms with
+  a repeated `eq_hash`, the selected CV candidates are N *distinct* equations (no equation
+  CV-evaluated twice); fed by the bounded pool, not the full result set.
 - **`expand_mechanisms`** — returns a flat `Vector{Union{Mechanism,AllostericMechanism}}`
   (contract change from `Dict`).
 - **`_beam_search` integration** — end-to-end on a tiny dataset with an explicit `save_dir`:
   output dir contains exactly `initial_mechanisms.csv` + sequential
   `equation_search_iteration_N.csv` (no gaps); `initial_mechanisms.csv` row count ==
-  `length(_dedup_flat(init_mechanisms(rxn)))`; every `n_params` ≤ `max_param_count`; the
-  returned CV pool size ≤ `(#param counts) × n_cv_candidates` (memory bound — confirms rows
-  are not all accumulated).
+  `length(_dedup_flat(init_mechanisms(rxn)))`; every CSV row carries an `eq_hash` column;
+  every `n_params` ≤ `max_param_count`; the returned CV pool size ≤
+  `(#param counts) × n_cv_candidates` (memory bound — confirms rows are not all accumulated).
 
 **Delete:**
 - `_n_fit_params_estimate` delta tests (`test/test_mechanism_enumeration.jl` ~1466/1521/1692/1835)
