@@ -52,6 +52,38 @@ _form_species(t::Vector{EnzymeRates.Step}) = Dict{Symbol, EnzymeRates.Species}(
 _flat_topo(m) = EnzymeRates.Step[
     s for g in EnzymeRates.Mechanism(m).steps for s in g]
 
+# Connectivity invariant: two enzyme forms identical in conformation+residual
+# whose bound-metabolite sets differ by exactly one metabolite MUST be joined by
+# a binding step. Returns the list of (formA, formB) pairs that violate it.
+# Accepts a flat `Vector{Step}` (a topology) or a `Vector{Vector{Step}}`
+# (a Mechanism's kinetic groups).
+function _connectivity_violations(steps)
+    flat = eltype(steps) <: AbstractVector ?
+           collect(Iterators.flatten(steps)) : steps
+    _bset(sp) = Set(EnzymeRates.name(m) for m in EnzymeRates.bound(sp))
+    _key(sp) = (EnzymeRates.conformation(sp), EnzymeRates.residual(sp),
+                Tuple(sort(collect(_bset(sp)))))
+    forms = Dict{Any,Any}()
+    edges = Set{Tuple{Any,Any}}()
+    for s in flat
+        a, b = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+        forms[_key(a)] = a; forms[_key(b)] = b
+        push!(edges, (_key(a), _key(b))); push!(edges, (_key(b), _key(a)))
+    end
+    viol = Tuple{Symbol,Symbol}[]
+    fv = collect(values(forms))
+    for s1 in fv, s2 in fv
+        (EnzymeRates.conformation(s1) == EnzymeRates.conformation(s2) &&
+         EnzymeRates.residual(s1) == EnzymeRates.residual(s2)) || continue
+        b1, b2 = _bset(s1), _bset(s2)
+        if length(b2) == length(b1) + 1 && issubset(b1, b2) &&
+           !((_key(s1), _key(s2)) in edges)
+            push!(viol, (EnzymeRates.name(s1), EnzymeRates.name(s2)))
+        end
+    end
+    viol
+end
+
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
     products: P[C]
