@@ -52,6 +52,38 @@ _form_species(t::Vector{EnzymeRates.Step}) = Dict{Symbol, EnzymeRates.Species}(
 _flat_topo(m) = EnzymeRates.Step[
     s for g in EnzymeRates.Mechanism(m).steps for s in g]
 
+# Connectivity invariant: two enzyme forms identical in conformation+residual
+# whose bound-metabolite sets differ by exactly one metabolite MUST be joined by
+# a binding step. Returns the list of (formA, formB) pairs that violate it.
+# Accepts a flat `Vector{Step}` (a topology) or a `Vector{Vector{Step}}`
+# (a Mechanism's kinetic groups).
+function _connectivity_violations(steps)
+    flat = eltype(steps) <: AbstractVector ?
+           collect(Iterators.flatten(steps)) : steps
+    _bset(sp) = Set(EnzymeRates.name(m) for m in EnzymeRates.bound(sp))
+    _key(sp) = (EnzymeRates.conformation(sp), EnzymeRates.residual(sp),
+                Tuple(sort(collect(_bset(sp)))))
+    forms = Dict{Any,Any}()
+    edges = Set{Tuple{Any,Any}}()
+    for s in flat
+        a, b = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+        forms[_key(a)] = a; forms[_key(b)] = b
+        push!(edges, (_key(a), _key(b))); push!(edges, (_key(b), _key(a)))
+    end
+    viol = Tuple{Symbol,Symbol}[]
+    fv = collect(values(forms))
+    for s1 in fv, s2 in fv
+        (EnzymeRates.conformation(s1) == EnzymeRates.conformation(s2) &&
+         EnzymeRates.residual(s1) == EnzymeRates.residual(s2)) || continue
+        b1, b2 = _bset(s1), _bset(s2)
+        if length(b2) == length(b1) + 1 && issubset(b1, b2) &&
+           !((_key(s1), _key(s2)) in edges)
+            push!(viol, (EnzymeRates.name(s1), EnzymeRates.name(s2)))
+        end
+    end
+    viol
+end
+
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
     products: P[C]
@@ -230,6 +262,7 @@ end
 
     @testset "Uni-Uni" begin
         topos = EnzymeRates._catalytic_topologies(uni_uni_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
         @test length(topos) == 1
         # Every topology has exactly one SS step (the iso).
         for t in topos
@@ -240,6 +273,7 @@ end
 
     @testset "Uni-Bi" begin
         topos = EnzymeRates._catalytic_topologies(uni_bi_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
         @test length(topos) == 3
         for t in topos
             @test count(
@@ -251,6 +285,7 @@ end
 
     @testset "Bi-Bi" begin
         topos = EnzymeRates._catalytic_topologies(bi_bi_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
         # 11 = 9 sequential + 2 empty-residual ping-pong
         @test length(topos) == 11
         for t in topos
@@ -262,6 +297,7 @@ end
     @testset "Bi-Bi Ping-Pong" begin
         topos = EnzymeRates._catalytic_topologies(
             bi_bi_pp_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
         @test length(topos) == 10
         for t in topos
             @test count(
@@ -272,6 +308,7 @@ end
     @testset "Ter-Ter" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
         @test length(topos) == 283
         for t in topos
             @test count(
@@ -282,6 +319,7 @@ end
     @testset "Ter-Bi" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_bi_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
         # 51 = 39 sequential + 6 nonempty-residual +
         # 6 empty-residual ping-pong
         @test length(topos) == 51
@@ -297,6 +335,7 @@ end
             products: P[C], Q[N], R[X]
         end
         topos = EnzymeRates._catalytic_topologies(ter_ter)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
         has_estar = any(topos) do spec
             any(spec) do s
                 any(
@@ -319,16 +358,19 @@ end
         end
         topos = EnzymeRates._catalytic_topologies(
             bi_bi_rxn_test)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
         @test length(topos) == 11
 
         topos_tt = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos_tt)
         @test length(topos_tt) == 283
     end
 
     @testset "isomerization constraints" begin
         topos = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
 
         met_names = Set([:A, :B, :D, :P, :Q, :R])
         sub_names_set = Set([:A, :B, :D])
@@ -394,6 +436,7 @@ end
     @testset "pyruvate carboxylase mechanism" begin
         topos = EnzymeRates._catalytic_topologies(
             pyruvate_carboxylase_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
 
         # Known mechanism: ATP+HCO3 → ADP+Pi (CO2 residual),
         # then Pyr+CO2 → OAA
@@ -437,6 +480,7 @@ end
     @testset "pyruvate dehydrogenase mechanism" begin
         topos = EnzymeRates._catalytic_topologies(
             pyruvate_dehydrogenase_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
 
         # Known mechanism: Pyr→CO2 (residual C2H3O),
         # CoA+residual→AcCoA (residual H),
@@ -488,6 +532,7 @@ end
             products: P[C], Q[N], R[X], S[Y]
         end
         topos = EnzymeRates._catalytic_topologies(quad_rxn)
+        @test all(isempty(_connectivity_violations(t)) for t in topos)
         @test length(topos) > 0
         # Every topology must have ≥ 2 iso steps (no 4→4)
         for spec in topos
@@ -783,6 +828,8 @@ end
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo],uni_uni_rxn)
+        @test all(isempty(_connectivity_violations(steps))
+                  for (steps, _groups) in result)
         @test length(result) == 1
     end
 
@@ -821,6 +868,8 @@ end
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo],bi_bi_rxn)
+        @test all(isempty(_connectivity_violations(steps))
+                  for (steps, _groups) in result)
         # 4 unique dead-end forms, 7 competition patterns,
         # all 7 produce distinct dead-end sets → 7 variants
         @test length(result) == 7
@@ -845,6 +894,8 @@ end
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo],uni_bi_rxn)
+        @test all(isempty(_connectivity_violations(steps))
+                  for (steps, _groups) in result)
         @test length(result) == 1
     end
 
@@ -869,6 +920,8 @@ end
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
                 [topo],bi_bi_pp_rxn)
+        @test all(isempty(_connectivity_violations(steps))
+                  for (steps, _groups) in result)
         # 5 dead-end forms (E_A_P, E_A_Q, E_B_Q from
         # E-side + Estar_B_P, Estar_B_Q from
         # Estar-side), competition-filtered
@@ -918,6 +971,8 @@ end
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [topo_bb],bi_bi_rxn)
+            @test all(isempty(_connectivity_violations(steps))
+                      for (steps, _groups) in result)
             # Complete pattern {A↔P,A↔Q,B↔P,B↔Q} forbids
             # all dead-end forms → 1 variant has no dead-end
             # steps (same step count as original)
@@ -931,6 +986,8 @@ end
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
                     [topo_bb],bi_bi_rxn)
+            @test all(isempty(_connectivity_violations(steps))
+                      for (steps, _groups) in result)
             # Diagonal patterns {A↔P,B↔Q} and {A↔Q,B↔P}
             # each allow exactly 2 dead-end forms.
             two_de = filter(result) do r
@@ -953,6 +1010,8 @@ end
                 result =
                     EnzymeRates._expand_substrate_product_dead_ends(
                         [topo], ter_ter_rxn)
+                @test all(isempty(_connectivity_violations(steps))
+                          for (steps, _groups) in result)
                 # Competition patterns reduce 2^27 to
                 # ≤265 variants per topology
                 @test length(result) > 0
@@ -1056,6 +1115,8 @@ end
             (bi_bi_pp_rxn, 2, 2),
         ]
             specs = EnzymeRates.init_mechanisms(rxn)
+            @test all(isempty(_connectivity_violations(
+                EnzymeRates.steps(m))) for m in specs)
             min_pc = n_s + n_p + 1
             # The raw group-count estimate may dip below the floor for
             # dead-end-bearing mechanisms; the upper bound callers use is
@@ -1074,6 +1135,8 @@ end
         # length(fitted_params(m)) for uni-uni init = 3 (K1, K2, k3f).
         # Estimate must equal actual on the simplest case.
         init_specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in init_specs)
         @test !isempty(init_specs)
         spec = first(init_specs)
         m = EnzymeRates.compile_mechanism(spec)
@@ -1089,6 +1152,8 @@ end
         # Cap compiled mechanisms to keep @generated cost bounded.
         cap = 30
         init_mechs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in init_mechs)
         for m in init_mechs[1:min(cap, end)]
             em = EnzymeRates.compile_mechanism(m)
             @test EnzymeRates._n_fit_params_estimate(m) >=
@@ -1115,6 +1180,8 @@ end
         for rxn in [uni_uni_rxn, uni_bi_rxn,
                     bi_bi_rxn, bi_bi_pp_rxn]
             specs = EnzymeRates.init_mechanisms(rxn)
+            @test all(isempty(_connectivity_violations(
+                EnzymeRates.steps(m))) for m in specs)
             for s in specs
                 @test count(st -> !st.is_equilibrium,
                             Iterators.flatten(s.steps)) == 1
@@ -1128,6 +1195,8 @@ end
         # For bi-bi, metabolites like :B appear in multiple binding steps
         # (e.g. E+B⇌E_B and E_A+B⇌E_A_B) — these must share one kinetic_group.
         specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in specs)
         @test !isempty(specs)
         n_assertions_fired = 0
         for spec in specs
@@ -1158,6 +1227,8 @@ end
         # (none possible — see test_expand_substrate_product_dead_ends
         # uni-uni case). Hence init produces exactly 1 mechanism.
         specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in specs)
         @test length(specs) == 1
     end
 
@@ -1167,6 +1238,8 @@ end
         # Tests first 5 mechanisms per reaction to cap @generated cost.
         for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
             specs = EnzymeRates.init_mechanisms(rxn)
+            @test all(isempty(_connectivity_violations(
+                EnzymeRates.steps(m))) for m in specs)
             floor_pc = length(EnzymeRates.substrates(rxn)) +
                        length(EnzymeRates.products(rxn)) + 1
             for spec in first(specs, 5)
@@ -1180,8 +1253,10 @@ end
 
     @testset "bi-bi exit gate: init mechanisms derive (subset)" begin
         mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        @test length(mechs) == 77
-        # Derive a small subset only — full-77 derivation is ~86s. Pick the 5
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in mechs)
+        @test length(mechs) == 69
+        # Derive a small subset only — full-69 derivation is slow. Pick the 5
         # smallest by step count (cheapest to compile).
         by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
         for m in by_size[1:5]
@@ -1197,6 +1272,8 @@ end
         # built. After expand_mechanisms adds the dead-end regulator, it
         # should appear.
         init_mechs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in init_mechs)
         @test !isempty(init_mechs)
         for m in init_mechs
             em = EnzymeRates.compile_mechanism(m)
@@ -1227,6 +1304,8 @@ end
             products: D_Ala[CHN]
         end
         specs = EnzymeRates.init_mechanisms(rxn)
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in specs)
         @test !isempty(specs)
         for spec in first(specs, min(3, length(specs)))
             m = EnzymeMechanism(spec)
@@ -1246,6 +1325,8 @@ end
             dead_end_inhibitors: I
         end
         specs = EnzymeRates.init_mechanisms(rxn)
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in specs)
         floor_pc = 2 + 2 + 1   # n_subs + n_prods + 1
         # The upper bound callers use, max(estimate, floor), must respect
         # the floor for every init mechanism.
@@ -4020,10 +4101,17 @@ end
     end
 
     @testset "Mechanism — Bi-bi full enumeration" begin
-        # Sample-based per bucket. The raw group-count formula can
-        # underestimate for bi-bi, so this test applies the same
-        # `n_subs + n_prods + 1` floor used by production callers when it
-        # needs a safe bound. Cap at `max_params=4` to keep test time bounded.
+        # Sample-based per bucket. `_n_fit_params_estimate` (the bucket key
+        # `pc`) relates to the real fitted-parameter count differently per
+        # mechanism kind:
+        #   - plain Mechanism: the group-count formula UNDER-counts — it is a
+        #     conservative lower bound (thermodynamic cycles make parameters
+        #     dependent, e.g. a 6-param mechanism with estimate 4), so assert
+        #     `pc <= fitted`.
+        #   - AllostericMechanism: the per-tag estimate (floored at
+        #     `n_subs + n_prods + 1`) is an upper bound here, so assert
+        #     `fitted <= max(estimate, floor_pc)`.
+        # Cap at `max_params=4` to keep test time bounded.
         floor_pc = length(EnzymeRates.substrates(bi_bi_rxn)) +
                    length(EnzymeRates.products(bi_bi_rxn)) + 1
         results = enumerate_all_mechanism(bi_bi_rxn; max_params=4)
@@ -4034,8 +4122,7 @@ end
             for m in sample
                 if m isa EnzymeRates.Mechanism
                     em = EnzymeRates.compile_mechanism(m)
-                    @test length(EnzymeRates.fitted_params(em)) <=
-                        max(pc, floor_pc)
+                    @test pc <= length(EnzymeRates.fitted_params(em))
                 elseif m isa EnzymeRates.AllostericMechanism
                     allo_count += 1
                     allo_count > 3 && continue
