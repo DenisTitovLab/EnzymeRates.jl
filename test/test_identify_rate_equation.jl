@@ -819,22 +819,21 @@ end
         end)),
     ]
 
-    # Expected partition sizes per reaction. These are the number of DISTINCT
-    # rate equations the init-level enumeration produces — verified directly:
-    # the 77 bi_bi init mechanisms yield exactly 21 distinct
-    # `rate_equation_string` outputs, and the canonical hasher produces exactly
-    # 21 classes, with zero over-collapse (no hash bucket mixes distinct rate
-    # equations) and zero under-collapse (no two equal rate equations land in
-    # different buckets). Under structural parameter names the hash partitions
-    # exactly by rate-equation equivalence. (The earlier frozen `23` was an
-    # over-count from the retired positional-token renumbering, whose
-    # first-occurrence `p_$i` assignment was monomial-order-sensitive and
-    # failed to collapse two pairs of genuinely rate-equivalent mechanisms.)
+    # Expected partition sizes per reaction = the number of DISTINCT rate
+    # equations the init-level enumeration produces. After the catalytic-
+    # topology connectivity fix, the 69 bi_bi init mechanisms are all
+    # structurally distinct AND each yields a distinct `rate_equation_string`,
+    # and the canonical hasher produces exactly 69 classes (verified directly:
+    # distinct hashes == distinct rate-equation strings == 69, i.e. zero over-
+    # and zero under-collapse). The fix removed the dangling-form / binding-
+    # order rapid-equilibrium twins that previously collapsed the (buggy) 77
+    # mechanisms to 21 classes: clean topologies have distinct enzyme-form
+    # sets, hence distinct rate equations.
     # If these counts change in a future commit, the canonical hasher's
-    # equivalence classes have shifted — investigate before merging.
+    # equivalence classes (or the enumeration) have shifted — investigate.
     expected_n_classes = Dict(
         "uni_uni" => 1,
-        "bi_bi"   => 21,
+        "bi_bi"   => 69,
     )
 
     for (label, reaction) in test_reactions

@@ -1255,8 +1255,8 @@ end
         mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
         @test all(isempty(_connectivity_violations(
             EnzymeRates.steps(m))) for m in mechs)
-        @test length(mechs) == 77
-        # Derive a small subset only — full-77 derivation is ~86s. Pick the 5
+        @test length(mechs) == 69
+        # Derive a small subset only — full-69 derivation is slow. Pick the 5
         # smallest by step count (cheapest to compile).
         by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
         for m in by_size[1:5]
@@ -4101,10 +4101,17 @@ end
     end
 
     @testset "Mechanism — Bi-bi full enumeration" begin
-        # Sample-based per bucket. The raw group-count formula can
-        # underestimate for bi-bi, so this test applies the same
-        # `n_subs + n_prods + 1` floor used by production callers when it
-        # needs a safe bound. Cap at `max_params=4` to keep test time bounded.
+        # Sample-based per bucket. `_n_fit_params_estimate` (the bucket key
+        # `pc`) relates to the real fitted-parameter count differently per
+        # mechanism kind:
+        #   - plain Mechanism: the group-count formula UNDER-counts — it is a
+        #     conservative lower bound (thermodynamic cycles make parameters
+        #     dependent, e.g. a 6-param mechanism with estimate 4), so assert
+        #     `pc <= fitted`.
+        #   - AllostericMechanism: the per-tag estimate (floored at
+        #     `n_subs + n_prods + 1`) is an upper bound here, so assert
+        #     `fitted <= max(estimate, floor_pc)`.
+        # Cap at `max_params=4` to keep test time bounded.
         floor_pc = length(EnzymeRates.substrates(bi_bi_rxn)) +
                    length(EnzymeRates.products(bi_bi_rxn)) + 1
         results = enumerate_all_mechanism(bi_bi_rxn; max_params=4)
@@ -4115,8 +4122,7 @@ end
             for m in sample
                 if m isa EnzymeRates.Mechanism
                     em = EnzymeRates.compile_mechanism(m)
-                    @test length(EnzymeRates.fitted_params(em)) <=
-                        max(pc, floor_pc)
+                    @test pc <= length(EnzymeRates.fitted_params(em))
                 elseif m isa EnzymeRates.AllostericMechanism
                     allo_count += 1
                     allo_count > 3 && continue
