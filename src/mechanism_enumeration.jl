@@ -154,6 +154,35 @@ function _release_products!(
     )
 end
 
+# Substrate bound-metabolite names in route (path) order.
+_binding_order(path::Vector{Step}) =
+    Symbol[name(bound_metabolite(s)) for s in path
+           if is_binding(s) && bound_metabolite(s) isa Substrate]
+
+# Product bound-metabolite names in route (path) order.
+_release_order(path::Vector{Step}) =
+    Symbol[name(bound_metabolite(s)) for s in path
+           if is_binding(s) && bound_metabolite(s) isa Product]
+
+# True iff `order` is a linearization of weak ordering `wo` (a vector of
+# levels): every metabolite of `wo` appears exactly once in `order`, and the
+# level index along `order` is non-decreasing (earlier levels strictly before
+# later levels; any order within a level).
+function _linearizes(order::Vector{Symbol}, wo::Vector{Vector{Symbol}})
+    level = Dict{Symbol,Int}()
+    for (i, lvl) in enumerate(wo), m in lvl
+        level[m] = i
+    end
+    length(order) == length(level) || return false
+    prev = 0
+    for m in order
+        haskey(level, m) || return false
+        level[m] < prev && return false
+        prev = level[m]
+    end
+    true
+end
+
 """
     _catalytic_topologies(reaction) -> Vector{Vector{Step}}
 
@@ -560,52 +589,17 @@ function _catalytic_topologies(
         end
     end
 
-    # Select binding steps whose source species' bound mets
-    # are reachable under the cumulative weak ordering.
-    # `met_filter` selects which side (substrates / products)
-    # this ordering covers; `bound_filter` restricts the
-    # source species' bound multiset to that same side so
-    # ping-pong substrate-bound iso products don't gate on
-    # product orderings (or vice versa).
-    function _steps_for_ordering(
-        all_group_steps, ordering, bound_filter,
-    )
-        selected = Set{Step}()
-        accessible = Set{Symbol}()
-        for level in ordering
-            allowed = union(accessible, Set(level))
-            for met in level
-                for step in all_group_steps
-                    is_binding(step) || continue
-                    bm = bound_metabolite(step)
-                    name(bm) == met || continue
-                    src = from_species(step)
-                    src_mets = Symbol[
-                        name(m) for m in bound(src)
-                        if bound_filter(m)
-                    ]
-                    if all(m ∈ allowed for m in src_mets)
-                        push!(selected, step)
-                    end
-                end
-            end
-            union!(accessible, level)
-        end
-        selected
-    end
-
-    # --- Build topologies ---
-    sub_met_set = Set(sub_names)
-    prod_met_set = Set(prod_names)
-    is_sub(m::Metabolite) = name(m) in sub_met_set
-    is_prod(m::Metabolite) = name(m) in prod_met_set
-
-    # Iterate iso_groups in a deterministic order: prefer
-    # smaller iso-step counts first (sequential before
-    # ping-pong), then by sorted iso-step names. This stabilizes
-    # the topology output order so test ordering invariants hold
-    # — `Set{Step}` hashing is not value-stable, so unordered
-    # iteration would reorder topologies.
+    # --- Build topologies: union whole paths consistent with each
+    # (substrate weak-ordering, product weak-ordering). Unioning complete
+    # paths (rather than cherry-picking steps) keeps every form connected to
+    # the catalytic complex — paths consistent with one weak ordering never
+    # carry contradictory binding orders, so no dangling single-metabolite
+    # forms arise. Binding history is read from the path, so ping-pong (where
+    # a consumed substrate leaves the bound set) is handled correctly.
+    #
+    # Iterate iso_groups deterministically (smaller iso-step counts first,
+    # then by sorted iso-step names) so topology output order is stable —
+    # `Set{Step}` hashing is not value-stable.
     sorted_iso_pats = sort(collect(keys(iso_groups));
         by = pat -> (
             length(pat),
@@ -617,18 +611,10 @@ function _catalytic_topologies(
     result = Vector{Step}[]
     for iso_pat in sorted_iso_pats
         group_paths = iso_groups[iso_pat]
-        all_group_steps = Set{Step}()
-        for path in group_paths
-            union!(all_group_steps, path)
-        end
-
-        # Always include all isomerization steps
-        iso_steps_set = Set{Step}(
-            s for s in all_group_steps if is_iso(s))
 
         sub_binding_mets = Set{Symbol}()
         prod_binding_mets = Set{Symbol}()
-        for step in all_group_steps
+        for path in group_paths, step in path
             is_binding(step) || continue
             bm = bound_metabolite(step)
             if bm isa Substrate
@@ -645,12 +631,15 @@ function _catalytic_topologies(
 
         seen_topos = Set{Set{Step}}()
         for sub_ord in sub_orderings, prod_ord in prod_orderings
-            sub_keys = _steps_for_ordering(
-                all_group_steps, sub_ord, is_sub)
-            prod_keys = _steps_for_ordering(
-                all_group_steps, prod_ord, is_prod)
-            topo_keys = union(iso_steps_set, sub_keys,
-                prod_keys)
+            topo_keys = Set{Step}()
+            matched = false
+            for path in group_paths
+                _linearizes(_binding_order(path), sub_ord) || continue
+                _linearizes(_release_order(path), prod_ord) || continue
+                union!(topo_keys, path)
+                matched = true
+            end
+            matched || continue
             topo_keys ∈ seen_topos && continue
             push!(seen_topos, topo_keys)
 
@@ -660,9 +649,6 @@ function _catalytic_topologies(
                 string(name(to_species(s))),
             ))
 
-            # The first iso step is the (single) SS step; every other
-            # step is RE. Rebuild each Step with that tag (Step is
-            # immutable; direction is unaffected by is_equilibrium).
             iso_idx = findfirst(is_iso, steps)
             push!(result, Step[
                 Step(from_species(s), to_species(s),
