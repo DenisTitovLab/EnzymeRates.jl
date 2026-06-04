@@ -952,6 +952,40 @@ function _expand_substrate_product_dead_ends(
                 end
             end
 
+            # Fully connect the enzyme-form graph: any two present forms that
+            # are identical except for one bound metabolite must be joined by a
+            # binding step. The dead-end + mirror steps above only cover
+            # single-bystander cases; this fills multi-bystander gaps (e.g. a
+            # dead-end form adjacent to another dead-end form). Added edges are
+            # RE bindings on the differing metabolite — the equivalence grouping
+            # folds them into that metabolite's kinetic group, and under rapid
+            # equilibrium the extra edge is a thermodynamically-dependent cycle
+            # that adds no free parameter. A no-op when no gaps exist (e.g.
+            # bi-bi), so already-connected mechanisms are unaffected.
+            present = Dict{Symbol, Species}()
+            have_edge = Set{Tuple{Symbol, Symbol}}()
+            for s in steps
+                fr, to = from_species(s), to_species(s)
+                present[name(fr)] = fr
+                present[name(to)] = to
+                push!(have_edge, (name(fr), name(to)))
+                push!(have_edge, (name(to), name(fr)))
+            end
+            forms_list = collect(values(present))
+            for sp1 in forms_list, sp2 in forms_list
+                conformation(sp1) == conformation(sp2) || continue
+                residual(sp1) == residual(sp2) || continue
+                b1 = Set(name(mb) for mb in bound(sp1))
+                b2 = Set(name(mb) for mb in bound(sp2))
+                (length(b2) == length(b1) + 1 && issubset(b1, b2)) || continue
+                (name(sp1), name(sp2)) in have_edge && continue
+                met = only(setdiff(b2, b1))
+                push!(steps, Step(sp1, sp2, _role(met), true))
+                push!(groups, next_g); next_g += 1
+                push!(have_edge, (name(sp1), name(sp2)))
+                push!(have_edge, (name(sp2), name(sp1)))
+            end
+
             push!(result, (steps, groups))
         end
     end
