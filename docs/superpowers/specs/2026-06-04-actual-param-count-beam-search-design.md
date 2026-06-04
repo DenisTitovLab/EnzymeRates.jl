@@ -3,10 +3,6 @@
 **Date:** 2026-06-04
 **Status:** design approved, pending spec review → implementation plan
 
-Supersedes the recommendation in `.claude/2026-06-03-base-tier-fit-all-and-iteration-naming.md`
-(that plan kept `_n_fit_params_estimate` as a pre-filter and kept the canonical-hash
-machinery; this design removes both, based on the empirical probe results recorded below).
-
 ---
 
 ## Goal
@@ -31,8 +27,11 @@ compile pass. Three coupled changes:
   them by parameter count is the wrong axis (compulsory-ordered vs rapid-equilibrium-random
   differ in count by a thermodynamic identification, not by elaboration).
 - `_n_fit_params_estimate` collapsed after #40's equivalence-grouping (a 5-param mechanism
-  estimates as 1), which is the root cause of the `identify_ldh.jl` regression
-  (`.claude/2026-06-03-identify-ldh-regression-findings.md`).
+  estimates as 1): the estimate counts kinetic *groups* while the thermodynamic term still
+  uses the full *step* count, so the most-merged mechanisms estimate far below their real
+  fitted count. That mislabels the per-level CSVs and applies `max_param_count` in
+  estimate-space (admitting far more complex mechanisms than intended) — the observed
+  `identify_ldh.jl` regression.
 - **Dedup probe (632 mechanisms across LDH non-allosteric + allosteric expansion):**
   - Structural dedup (`dedup!`) removes the bulk of duplicates (76 / 258 / 12 per round) but
     cannot catch structurally-distinct-but-equation-identical mechanisms.
@@ -95,24 +94,49 @@ inherited-row path. (Grep `_canonical_rate_eq_hash`, `_project_cached_params`, `
 The `eq_hash` CSV column stays, now holding `_rate_eq_dedup_key(eq_text)` rendered as a hex
 string. The `fit_inherited_from_estimate` column is **removed** (no inherited rows).
 
-### 4. `_process_batch` (extracted, reusable)
+### 4. `_process_batch` — one pmap pass, compile+fit fused per worker
 
-Extract today's inlined compile→dedup→fit→row body (`identify_rate_equation.jl:668-762`) into:
+**Cluster rationale (comment 2):** compile and fit happen on the **same worker** for each
+mechanism, in a single `pmap`. Splitting compile into its own pass would re-pay the
+`@generated` JIT on whichever worker later draws the fit (Julia can't ship a compiled
+specialization between processes), and would re-compile every representative a second time.
+Fusing them means each surviving mechanism is compiled exactly once, on the worker that
+fits it.
 
 ```
 _process_batch(mechs, prob, seen_keys; pmap_function, optimizer, max_param_count, kwargs...)
     → Vector{BatchEntry}     # one per NEW distinct equation
 ```
 
-Steps:
-1. **Parallel compile** each mechanism → `(mech, n_params, eq_text, eq_key)` (drop compile
-   failures). `n_params = length(fitted_params(m))`; `eq_key = _rate_eq_dedup_key(eq_text)`.
-2. **Cap filter (right before fit):** drop entries with `n_params > max_param_count`.
-3. **Dedup:** drop entries whose `eq_key ∈ seen_keys` (already fit in an earlier batch) and
-   collapse same-`eq_key` entries within this batch to one representative. Add survivors'
-   keys to `seen_keys`.
-4. **Parallel fit** one representative per surviving `eq_key`.
-5. Build one row + `BatchEntry(mech, n_params, loss, eq_key, row)` per representative.
+`mechs` is already structurally pre-deduped on the master (`_dedup_flat`). The function takes
+an immutable **snapshot** of `seen_keys` (equation keys fit in *prior* iterations) and ships
+that snapshot to the workers — never mutated inside the `pmap` — then updates the persistent
+`seen_keys` on the master after results return.
+
+Each worker, for one mechanism, runs the full chain locally:
+1. `em = compile_mechanism(m)`; `n = length(fitted_params(em))`. (compile failure → skip)
+2. **Cap filter, before fitting:** `n > max_param_count` → skip.
+3. `key = _rate_eq_dedup_key(rate_equation_string(em))`. If `key ∈ seen_snapshot` → skip
+   (this equation was already fit in an earlier iteration — don't refit).
+4. Otherwise **fit** `FittingProblem(em, prob.data; Keq)` and return
+   `(mech=m, n_params=n, eq_key=key, loss, params, eq_text)`.
+
+On the **master**, after the `pmap` returns:
+- drop skips;
+- **within-batch dedup by `eq_key`** — when two structurally-distinct mechanisms in the same
+  batch produced the same equation, keep the lowest-loss result (one `BatchEntry` per
+  `eq_key`), discard the rest;
+- add the surviving keys to the persistent `seen_keys` (so the *next* iteration's snapshot
+  excludes them);
+- build one row + `BatchEntry` per surviving equation.
+
+**The race Denis flagged is avoided by construction:** `seen_keys` is only written on the
+master, *between* iterations — never inside a `pmap`. Cross-iteration duplicates are filtered
+by the read-only snapshot; same-iteration duplicates (workers can't see each other's
+in-flight fits) are resolved by the master-side dedup after results return. The cost is a
+small number of redundant fits *within* a batch — the probe measured ~8/512 (≈1.6%) for LDH,
+and 0 across iterations. That waste is accepted in exchange for single-pass simplicity and
+no cross-worker recompilation.
 
 `seen_keys::Set{UInt64}` is the only persistent dedup state — tiny (one hash per distinct
 equation), replaces the old params-carrying `fit_cache`. No cross-mechanism param projection.
@@ -193,8 +217,25 @@ independent of iteration count.
 
 ### 7. CSV outputs + `_cv_model_selection`
 
-- `save_dir::String` is **required** (drop the `Union{Nothing,String}`; keep the
-  "directory already contains CSVs" guard at `identify_rate_equation.jl:190-198`).
+- `save_dir::String` always points at a real directory — it gets a **computed default** so a
+  run always writes results. Default = `_default_save_dir()`:
+
+  ```julia
+  # First non-existent "<date>_results[_N]" dir in the cwd, e.g.
+  # 2026_06_04_results, then 2026_06_04_results_2, _3, …
+  function _default_save_dir()
+      base = string(Dates.format(Dates.today(), "yyyy_mm_dd"), "_results")
+      isdir(base) || return base
+      n = 2
+      while isdir(string(base, "_", n)); n += 1; end
+      string(base, "_", n)
+  end
+  ```
+
+  Evaluated per-call as the default argument, so each run picks the next free suffix. An
+  explicitly-passed `save_dir` is used verbatim; the "directory already contains CSVs" guard
+  (`identify_rate_equation.jl:190-198`) still fires for an explicit dir that holds prior CSVs
+  (the auto-suffixed default never collides). Requires `using Dates` (already a stdlib dep).
 - `_save_level_csv(…, pc)` → split into `_save_initial_csv(dir, rows)` writing
   `initial_mechanisms.csv` and `_save_iteration_csv(dir, rows, iteration)` writing
   `equation_search_iteration_$(iteration).csv` (`iteration` is a sequential counter, **not** a
@@ -209,7 +250,41 @@ independent of iteration count.
 
 ---
 
-## Tests
+## Tests — TDD, one unit test (set) per new/changed function
+
+Every new or modified function gets its own failing test written **first**, then just enough
+code to pass (CLAUDE.md TDD). The implementation plan sequences each function as
+test→implement. Per-function unit tests:
+
+- **`_rate_eq_dedup_key`** — (a) two rate-equation strings differing only in `# …` headers or
+  `(substituted into v)` lines hash equal; (b) strings differing in a Haldane definition or a
+  `v=` term hash *unequal*; (c) on the LDH expand-round-1 fixture it collapses the 8 known
+  equation-dups (4 byte-identical + 4 comment-only) and makes **no false merges**.
+- **`_dedup_flat`** — a vector with a structural twin collapses to one; an empty vector and an
+  all-distinct vector are unchanged; result matches `dedup!` on the single-bucket dict form.
+- **`_default_save_dir`** — returns `<today>_results` when absent; returns `…_results_2`,
+  `…_3` when prior dirs exist (use a temp cwd with pre-made dirs).
+- **`_save_initial_csv` / `_save_iteration_csv`** — write the expected filenames; the
+  iteration writer name encodes the sequential counter, not a param count; round-trips the
+  rows DataFrame.
+- **`_select_beam` (`best_override`)** — with an override lower than the group min, fewer
+  entries pass the cutoff than without it; `min_beam_width` still honored; no override
+  reproduces current behavior (regression-pins existing callers).
+- **`_process_batch`** — on a tiny dataset: (a) compiles+fits and returns one `BatchEntry` per
+  distinct equation; (b) an over-`max_param_count` mechanism is **never fit** (assert via a
+  spy `pmap`/optimizer or a fit-count probe); (c) a `seen_snapshot` key is skipped (not
+  refit); (d) two same-equation mechanisms in one batch yield a single `BatchEntry` (lowest
+  loss) and add one key to `seen_keys`.
+- **`_ingest!`** — pushes to frontier, updates `best_loss_by_count` to the min, truncates
+  `cv_pool[n]` to `n_cv_candidates` lowest-loss entries and drops the overflow mechanisms.
+- **`expand_mechanisms`** — returns a flat `Vector{Union{Mechanism,AllostericMechanism}}`
+  (contract change from `Dict`).
+- **`_beam_search` integration** — end-to-end on a tiny dataset with an explicit `save_dir`:
+  output dir contains exactly `initial_mechanisms.csv` + sequential
+  `equation_search_iteration_N.csv` (no gaps); `initial_mechanisms.csv` row count ==
+  `length(_dedup_flat(init_mechanisms(rxn)))`; every `n_params` ≤ `max_param_count`; the
+  returned CV pool size ≤ `(#param counts) × n_cv_candidates` (memory bound — confirms rows
+  are not all accumulated).
 
 **Delete:**
 - `_n_fit_params_estimate` delta tests (`test/test_mechanism_enumeration.jl` ~1466/1521/1692/1835)
@@ -217,18 +292,6 @@ independent of iteration count.
 - Tests consuming `expand_mechanisms` as a `Dict` / asserting bucket keys.
 - Canonical-hash tests and `_project_cached_params` tests.
 - Tests asserting `params_estimate_*` filenames.
-
-**Add:**
-- `expand_mechanisms` returns a flat `Vector`.
-- `_rate_eq_dedup_key`: on the LDH expand-round-1 set, collapses the 8 known equation-dups
-  (4 byte-identical + 4 comment-only) and produces **no false merges** (every collision has a
-  byte-identical params-decl + Haldane + `v=`). Small, fixture-based.
-- End-to-end on a tiny dataset with `save_dir`: output dir contains exactly
-  `initial_mechanisms.csv` + sequential `equation_search_iteration_N.csv` (no gaps);
-  `initial_mechanisms.csv` row count == `length(_dedup_flat(init_mechanisms(rxn)))`; every
-  `n_params` ≤ `max_param_count`; no over-cap equation is ever fit.
-- Memory bound: after a multi-iteration run, the in-memory CV pool size ≤
-  `(#param counts) × n_cv_candidates` (assert we did not accumulate all rows).
 
 **Unchanged / must stay green:** `rate_equation` perf gate (alloc-free, <100 ns) and the
 flat-string / Expr-shape regression tests in `test/test_rate_eq_derivation.jl` — the
