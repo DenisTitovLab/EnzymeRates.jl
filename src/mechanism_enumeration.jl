@@ -649,6 +649,9 @@ function _catalytic_topologies(
                 string(name(to_species(s))),
             ))
 
+            # The first iso step is the (single) SS step; every other step is
+            # RE. Rebuild each Step with that tag (Step is immutable; direction
+            # is unaffected by is_equilibrium).
             iso_idx = findfirst(is_iso, steps)
             push!(result, Step[
                 Step(from_species(s), to_species(s),
@@ -971,7 +974,10 @@ function _expand_substrate_product_dead_ends(
                 push!(have_edge, (name(fr), name(to)))
                 push!(have_edge, (name(to), name(fr)))
             end
-            forms_list = collect(values(present))
+            # Sort for deterministic edge/group order (Dict value order is not
+            # guaranteed); matches the defensive sorting used when assembling
+            # topologies above.
+            forms_list = sort(collect(values(present)); by = name)
             for sp1 in forms_list, sp2 in forms_list
                 conformation(sp1) == conformation(sp2) || continue
                 residual(sp1) == residual(sp2) || continue
