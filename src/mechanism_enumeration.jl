@@ -154,20 +154,26 @@ function _release_products!(
     )
 end
 
-# Substrate bound-metabolite names in route (path) order.
+"""
+Substrate bound-metabolite names in route (path) order.
+"""
 _binding_order(path::Vector{Step}) =
     Symbol[name(bound_metabolite(s)) for s in path
            if is_binding(s) && bound_metabolite(s) isa Substrate]
 
-# Product bound-metabolite names in route (path) order.
+"""
+Product bound-metabolite names in route (path) order.
+"""
 _release_order(path::Vector{Step}) =
     Symbol[name(bound_metabolite(s)) for s in path
            if is_binding(s) && bound_metabolite(s) isa Product]
 
-# True iff `order` is a linearization of weak ordering `wo` (a vector of
-# levels): every metabolite of `wo` appears exactly once in `order`, and the
-# level index along `order` is non-decreasing (earlier levels strictly before
-# later levels; any order within a level).
+"""
+True iff `order` is a linearization of weak ordering `wo` (a vector of
+levels): every metabolite of `wo` appears exactly once in `order`, and the
+level index along `order` is non-decreasing (earlier levels strictly before
+later levels; any order within a level).
+"""
 function _linearizes(order::Vector{Symbol}, wo::Vector{Vector{Symbol}})
     level = Dict{Symbol,Int}()
     for (i, lvl) in enumerate(wo), m in lvl
