@@ -143,7 +143,6 @@ using OptimizationPyCMA
             fitted_param_names = (:a, :b),
             fitted_param_values = (1.0, 2.0),
             eq_hash = "0123456789abcdef",
-            fit_inherited_from_estimate = missing,
         )]
         df = EnzymeRates._rows_to_dataframe(
             rows)
@@ -151,12 +150,30 @@ using OptimizationPyCMA
         @test "a" in names(df)
         @test "b" in names(df)
         @test "eq_hash" in names(df)
-        @test "fit_inherited_from_estimate" in names(df)
+        @test !("fit_inherited_from_estimate" in names(df))
 
         # Empty rows
         df2 = EnzymeRates._rows_to_dataframe(
             NamedTuple[])
         @test nrow(df2) == 0
+    end
+
+    @testset "_rate_eq_dedup_key" begin
+        base = "(; K_a, k_b) = params\n(; A) = concs\n" *
+               "# Haldane constraints:\nk_r = (1/Keq)*K_a\nv = k_b*A/K_a"
+        # differs only in a comment header + a substituted-into-v provenance line:
+        a = "# Wegscheider constraints:\nK_x = K_a  (substituted into v)\n" * base
+        b = "# Wegscheider constraints:\nK_y = K_a  (substituted into v)\n" * base
+        @test EnzymeRates._rate_eq_dedup_key(a) ==
+              EnzymeRates._rate_eq_dedup_key(b)
+        # differs in a Haldane definition -> different key:
+        c = replace(base, "k_r = (1/Keq)*K_a" => "k_r = (2/Keq)*K_a")
+        @test EnzymeRates._rate_eq_dedup_key(base) !=
+              EnzymeRates._rate_eq_dedup_key(c)
+        # differs in the v= line -> different key:
+        d = replace(base, "v = k_b*A/K_a" => "v = k_b*A/(K_a + A)")
+        @test EnzymeRates._rate_eq_dedup_key(base) !=
+              EnzymeRates._rate_eq_dedup_key(d)
     end
 
     # ── Run pipeline ONCE, test everything ───────────
@@ -273,65 +290,27 @@ using OptimizationPyCMA
         @test length(req) > 0
     end
 
-    @testset "CSV output" begin
-        csv_files = filter(
-            f -> endswith(f, ".csv"),
-            readdir(save_dir))
-        @test length(csv_files) > 0
-        # Per-level filename uses the estimate-level naming.
-        for fname in csv_files
-            @test startswith(fname, "params_estimate_")
-        end
-
-        first_csv = CSV.read(
-            joinpath(
-                save_dir, csv_files[1]),
-            DataFrame)
-        @test "n_params" in names(first_csv)
-        @test "loss" in names(first_csv)
-        @test "mechanism_type" in names(
-            first_csv)
-        @test nrow(first_csv) > 0
-
-        # eq_hash column: 16-char hex, no missing values.
-        for fname in csv_files
-            df_file = CSV.read(
-                joinpath(save_dir, fname), DataFrame)
+    @testset "CSV output (new schema)" begin
+        files = sort(filter(f -> endswith(f, ".csv"), readdir(save_dir)))
+        @test "initial_mechanisms.csv" in files
+        @test !any(startswith(f, "params_estimate_") for f in files)
+        iters = filter(f -> startswith(f, "equation_search_iteration_"), files)
+        @test !isempty(iters)
+        nums = sort(parse.(Int, replace.(iters,
+            "equation_search_iteration_" => "", ".csv" => "")))
+        @test nums == collect(1:length(nums))      # sequential, no gaps
+        init_df = CSV.read(joinpath(save_dir, "initial_mechanisms.csv"), DataFrame)
+        @test nrow(init_df) == length(EnzymeRates._dedup_flat!(
+            collect(EnzymeRates.init_mechanisms(prob.reaction))))
+        @test "eq_hash" in names(init_df)
+        @test !("fit_inherited_from_estimate" in names(init_df))
+        for f in files
+            df_file = CSV.read(joinpath(save_dir, f), DataFrame)
             @test "eq_hash" in names(df_file)
             @test all(.!ismissing.(df_file.eq_hash))
-            @test all(length.(df_file.eq_hash) .== 16)
+            @test all(length.(string.(df_file.eq_hash)) .== 16)
+            @test all(<=(8), df_file.n_params)     # max_param_count=8
         end
-
-        # Cross-level fit-inheritance chain: rows with non-
-        # missing `fit_inherited_from_estimate` must point to
-        # an existing level whose CSV contains a row with the
-        # same `eq_hash`.
-        all_rows_by_level = Dict{Int, DataFrame}()
-        for fname in csv_files
-            est = parse(Int, replace(fname,
-                "params_estimate_" => "", ".csv" => ""))
-            all_rows_by_level[est] = CSV.read(
-                joinpath(save_dir, fname), DataFrame)
-        end
-        for (_, df_lvl) in all_rows_by_level
-            for row in eachrow(df_lvl)
-                ismissing(row.fit_inherited_from_estimate) &&
-                    continue
-                src = row.fit_inherited_from_estimate
-                @test haskey(all_rows_by_level, src)
-                @test row.eq_hash in
-                    all_rows_by_level[src].eq_hash
-            end
-        end
-        # NOTE: a true positive-path test of the cross-level fit
-        # cache (asserting at least one inherited row is produced)
-        # would require either a richer fixture (e.g., a bi-bi
-        # mechanism prone to Haldane-collapse hash hits) or a
-        # `_beam_search` unit test with a recording fit-wrapper.
-        # The greedy-beam smoke settings here (min_beam_width=1)
-        # don't reliably produce inherited rows. A recording fit-wrapper
-        # would make that positive path deterministic; the loop above
-        # catches invalid `fit_inherited_from_estimate` references when present.
     end
 
     @testset "save_dir non-empty check" begin
@@ -388,23 +367,24 @@ using OptimizationPyCMA
 
 end
 
-@testset "save_level_csv uses estimate-level filename" begin
+@testset "csv writers" begin
+    rows = [(
+        n_params = 5, loss = 1.0, mechanism_type = "M",
+        rate_equation = "v = 1", fitted_param_names = (:K_a,),
+        fitted_param_values = (2.0,), eq_hash = "abc",
+    )]
     mktempdir() do tmp
-        rows = [(n_params=3, loss=1.0,
-                 mechanism_type="m1", rate_equation="eq1",
-                 fitted_param_names=(:K1, :K2, :k3f),
-                 fitted_param_values=(1.0, 2.0, 3.0),
-                 eq_hash="0123456789abcdef",
-                 fit_inherited_from_estimate=missing)]
-        # Caller passes the estimate-level pc (e.g., 5) — could
-        # diverge from the row's actual n_params=3 due to Haldane
-        # reduction. Filename must reflect the estimate.
-        EnzymeRates._save_level_csv(tmp, rows, 5)
-        @test isfile(joinpath(tmp, "params_estimate_5.csv"))
-        @test !isfile(joinpath(tmp, "params_5.csv"))
-        df = CSV.read(joinpath(tmp, "params_estimate_5.csv"),
-                      DataFrame)
-        @test df.n_params == [3]
+        EnzymeRates._save_initial_csv(tmp, rows)
+        @test isfile(joinpath(tmp, "initial_mechanisms.csv"))
+        EnzymeRates._save_iteration_csv(tmp, rows, 3)
+        @test isfile(joinpath(tmp, "equation_search_iteration_3.csv"))
+        df = CSV.read(joinpath(tmp, "equation_search_iteration_3.csv"), DataFrame)
+        @test df.n_params == [5]
+        @test "eq_hash" in names(df)
+        # dir-creation branch: save_dir does not exist yet
+        subdir = joinpath(tmp, "made")
+        EnzymeRates._save_initial_csv(subdir, rows)
+        @test isfile(joinpath(subdir, "initial_mechanisms.csv"))
     end
 end
 
@@ -457,9 +437,12 @@ end
 end
 
 @testset "beam_fraction kwarg removed: passing it errors" begin
-    # The removed `beam_fraction` kwarg was replaced by
-    # `loss_rel_threshold` + `loss_abs_threshold` + `min_beam_width`.
-    # No alias / deprecation shim — passing it must error.
+    # `beam_fraction` is not a recognized kwarg; it is forwarded to
+    # `Optimization.solve`, which rejects it. Per-mechanism fit failures
+    # are isolated in `_process_batch`, so an unknown optimizer kwarg
+    # fails every fit; the base tier is then empty and the pipeline raises
+    # the "no mechanisms fitted" `ErrorException`. The contract under test
+    # is that passing it errors (no silent acceptance).
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -469,7 +452,7 @@ end
             S = [1.0, 2.0, 3.0, 4.0],
             P = [0.1, 0.2, 0.3, 0.4])
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-    @test_throws MethodError identify_rate_equation(
+    @test_throws ErrorException identify_rate_equation(
         prob; beam_fraction=0.5,
         optimizer=PyCMAOpt(),
         n_restarts=1, maxtime=1.0)
@@ -799,15 +782,29 @@ end
     @test "cv_fold_x y" in names(roundtrip)
 end
 
-@testset "canonical-hash partition stability" begin
-    # Representative reactions exercising the canonicalizer's edge cases:
+@testset "_default_save_dir" begin
+    mktempdir() do tmp
+        cd(tmp) do
+            d1 = EnzymeRates._default_save_dir()
+            @test occursin(r"^\d{4}_\d{2}_\d{2}_results$", d1)
+            mkpath(d1)
+            d2 = EnzymeRates._default_save_dir()
+            @test d2 == d1 * "_2"
+            mkpath(d2)
+            @test EnzymeRates._default_save_dir() == d1 * "_3"
+        end
+    end
+end
+
+@testset "rate-eq dedup-key partition stability" begin
+    # Representative reactions exercising the dedup key's edge cases:
     # - uni_uni: trivial structural equivalence
     # - bi_bi:   substituted-into-v ties across multiple kinetic groups
-    # ter-ter intentionally omitted — `rate_equation` compilation is
+    # ter-ter intentionally omitted — `rate_equation_string` derivation is
     # extremely slow for mechanisms with >~30 enzyme forms (CLAUDE.md
-    # "Known Issues"), and the canonical hasher invokes that path per
+    # "Known Issues"), and the dedup key renders that string per
     # candidate. The bi-bi enumeration already covers every structural
-    # symmetry the canonicalizer collapses.
+    # symmetry the dedup key collapses.
     test_reactions = [
         ("uni_uni", @enzyme_reaction(begin
             substrates: S[C]
@@ -823,13 +820,13 @@ end
     # equations the init-level enumeration produces. After the catalytic-
     # topology connectivity fix, the 69 bi_bi init mechanisms are all
     # structurally distinct AND each yields a distinct `rate_equation_string`,
-    # and the canonical hasher produces exactly 69 classes (verified directly:
-    # distinct hashes == distinct rate-equation strings == 69, i.e. zero over-
+    # so the comment-stripped string key produces exactly 69 classes
+    # (distinct keys == distinct rate-equation strings == 69, i.e. zero over-
     # and zero under-collapse). The fix removed the dangling-form / binding-
     # order rapid-equilibrium twins that previously collapsed the (buggy) 77
     # mechanisms to 21 classes: clean topologies have distinct enzyme-form
     # sets, hence distinct rate equations.
-    # If these counts change in a future commit, the canonical hasher's
+    # If these counts change in a future commit, the dedup key's
     # equivalence classes (or the enumeration) have shifted — investigate.
     expected_n_classes = Dict(
         "uni_uni" => 1,
@@ -840,20 +837,86 @@ end
         # init_mechanisms only — skip expand_mechanisms. The init level
         # already produces multiple structurally-equivalent variants
         # (mirror-step orderings, kinetic-group renumberings) that
-        # exercise the canonicalizer's collapse rules. expand_mechanisms
-        # adds variants at higher param counts whose canonicalizer
+        # exercise the dedup key's collapse rules. expand_mechanisms
+        # adds variants at higher param counts whose dedup-key
         # behavior is the same modulo size, at exponential compile cost.
         all_mechs = EnzymeRates.init_mechanisms(reaction)
 
         new_buckets = Dict{UInt64, Vector{Int}}()
         for (i, m) in enumerate(all_mechs)
             em = EnzymeRates.compile_mechanism(m)
-            h = EnzymeRates._canonical_rate_eq_hash(em)
+            h = EnzymeRates._rate_eq_dedup_key(rate_equation_string(em))
             push!(get!(new_buckets, h, Int[]), i)
-            # Determinism: same input, same hash across invocations.
-            @test EnzymeRates._canonical_rate_eq_hash(em) === h
+            # Determinism: same input, same key across invocations.
+            @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(em)) === h
         end
 
         @test length(new_buckets) == expected_n_classes[label]
     end
+end
+
+@testset "_select_beam best_override" begin
+    losses = [1.0, 1.5, 3.0]
+    kw = (loss_rel_threshold=1.2, loss_abs_threshold=0.0, min_beam_width=1)
+    # without override: best = min = 1.0, cutoff = 1.2 -> only index 1
+    @test EnzymeRates._select_beam(losses; kw...) == [1]
+    # override best = 2.0 -> cutoff 2.4 -> indices 1 and 2
+    @test EnzymeRates._select_beam(losses; kw..., best_override=2.0) == [1, 2]
+    # min_beam_width still honored
+    @test EnzymeRates._select_beam(losses;
+        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        min_beam_width=2, best_override=0.0) == [1, 2]
+end
+
+@testset "_process_batch" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    data = DataFrame(
+        S = [1.0, 2.0, 3.0, 4.0],
+        P = [0.1, 0.2, 0.3, 0.4],
+        Rate = [0.5, 0.8, 1.0, 1.1],
+        group = [1, 1, 2, 2],
+    )
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    ms = EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(rxn)))
+    entries = EnzymeRates._process_batch(ms, prob;
+        pmap_function=map, optimizer=PyCMAOpt(),
+        max_param_count=20, n_restarts=1, maxtime=1.0)
+    @test !isempty(entries)
+    @test all(e -> e isa EnzymeRates.BatchEntry, entries)
+    @test all(e -> e.n_params == length(e.row.fitted_param_names), entries)
+    @test all(e -> occursin(r"^[0-9a-f]{16}$", e.row.eq_hash), entries)
+    # cap filter: nothing over the cap is fit
+    capped = EnzymeRates._process_batch(ms, prob;
+        pmap_function=map, optimizer=PyCMAOpt(),
+        max_param_count=0, n_restarts=1, maxtime=1.0)
+    @test isempty(capped)
+end
+
+@testset "_ingest! and cv pool" begin
+    mk(n, loss, h) = EnzymeRates.BatchEntry(
+        first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
+            substrates:S[C]; products:P[C] end)),
+        n, loss, hash(h),
+        (n_params=n, loss=loss, mechanism_type="M",
+         rate_equation="v", fitted_param_names=(:K,),
+         fitted_param_values=(1.0,), eq_hash=string(hash(h),base=16,pad=16)))
+    frontier = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
+    cv_pool  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
+    best     = Dict{Int,Float64}()
+    # two distinct equations + one duplicate-eq with worse loss, n_cv=2
+    EnzymeRates._ingest!(frontier, cv_pool, best,
+        [mk(5,2.0,:a), mk(5,1.0,:b), mk(5,3.0,:a)]; n_cv_candidates=2)
+    @test length(frontier[5]) == 3            # frontier keeps ALL
+    @test best[5] == 1.0                       # running min
+    @test length(cv_pool[5]) == 2              # bounded, distinct eq_hash
+    # the kept :a entry is the lower-loss one (2.0, not 3.0);
+    # BatchEntry.eq_hash is a UInt64, so compare against hash(:a), not hex:
+    a = only(filter(e -> e.eq_hash == hash(:a), cv_pool[5]))
+    @test a.loss == 2.0
+    # n=0 must not panic on the empty pool (n_cv_candidates is public)
+    @test EnzymeRates._offer_cv!(EnzymeRates.BatchEntry[], mk(5,1.0,:a), 0) ==
+          EnzymeRates.BatchEntry[]
 end

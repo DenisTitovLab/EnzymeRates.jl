@@ -22,6 +22,7 @@ export fit_rate_equation
 export identify_rate_equation
 
 
+using Dates
 using Tables
 using Optimization
 using Distributed

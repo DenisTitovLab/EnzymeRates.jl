@@ -272,7 +272,7 @@ parameters are stateless.
 
 ### Parameter naming convention
 - `parameters(m)` returns structural symbols derived from the representative step of each kinetic group. Binding constants use metabolite/form names such as `:K_S_E`; SS iso rates use directed species names such as `:k_ES_to_EP` and `:k_EP_to_ES`; inactive-state symbols use the `I_` state token such as `:K_I_S_E`.
-- This is consistent across `parameters`, `_dependent_param_exprs`, `rate_equation_string`, `_kcat_forward`, and canonical hashing.
+- This is consistent across `parameters`, `_dependent_param_exprs`, `rate_equation_string`, and `_kcat_forward`.
 
 ### Catalytic topology constraints
 - `_catalytic_topologies(reaction)` generates biochemically plausible catalytic
@@ -294,12 +294,12 @@ parameters are stateless.
 ### Mechanism enumeration building blocks
 - Three composable functions, no monolithic pipeline. Caller owns the loop and cache.
 - `init_mechanisms(reaction::EnzymeReaction)` → `Vector{Mechanism}` at minimum param count. Enumerates catalytic topologies × dead-end subsets (competition-filtered), 1 SS step. Same-metabolite + RE/SS catalytic-cycle binding steps share a kinetic_group; dead-end mirror steps inherit their catalytic counterpart's kinetic_group at generation time.
-- `expand_mechanisms(mechs::Vector{<:Union{Mechanism, AllostericMechanism}}, reaction::EnzymeReaction)` → `Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}` keyed by `_n_fit_params_estimate`. Applies expansion moves: RE→SS (atomic per group), split kinetic group, add dead-end regulator, add allosteric regulator, change group/ligand allosteric state, allosteric conversion.
-- `dedup!(cache::Dict{Int, Vector{...}})` → canonicalizes mechanisms (sorted steps; renumbered kinetic_groups by first-occurrence) and removes structural duplicates via struct `==`/`hash`.
+- `expand_mechanisms(mechs::Vector{<:Union{Mechanism, AllostericMechanism}}, reaction::EnzymeReaction)` → `Vector{Union{Mechanism, AllostericMechanism}}` (flat). Applies expansion moves: RE→SS (atomic per group), split kinetic group, add dead-end regulator, add allosteric regulator, change group/ligand allosteric state, allosteric conversion. Bucketing by parameter count is the caller's job (the beam search buckets by actual fitted-param count), not enumeration's.
+- `_dedup_flat!(mechs::Vector)` → canonicalizes mechanisms in place (sorted steps; renumbered kinetic_groups by first-occurrence) and removes structural duplicates via struct `==`/`hash`.
 - `Step` has 4 fields: `from_species::Species, to_species::Species, bound_metabolite::Union{Metabolite,Nothing}, is_equilibrium::Bool`. Steps in the same `Mechanism.steps` inner vector share kinetic parameters.
 - `Mechanism` has 2 fields: `reaction::EnzymeReaction, steps::Vector{Vector{Step}}`. Outer vector = kinetic groups, inner = steps sharing a group.
 - `AllostericMechanism` has 5 fields: `reaction, cat_steps::Vector{Vector{Step}}, cat_allo_states::Vector{Symbol}, catalytic_multiplicity::Int, regulatory_sites::Vector{RegulatorySite}`. `RegulatorySite` carries its own ligands + multiplicity + per-ligand allo-state.
-- `_n_fit_params_estimate` is a raw enumeration bucket estimate; callers that need a safe bound apply the `n_subs + n_prods + 1` floor, and exact counts come from `length(fitted_params(compile_mechanism(m)))`.
+- Exact fitted-param counts come from `length(fitted_params(compile_mechanism(m)))`; the beam search buckets by this actual count. There is no pre-fit structural estimate.
 - `init_mechanisms` / `expand_mechanisms` build `Mechanism` / `AllostericMechanism` directly from decomposed `Step` / `Species` — no intermediate working representation.
 - `_expand_to_allosteric` enumerates over `EnzymeReaction`'s `allowed_catalytic_multiplicities`, emitting one allosteric variant set per allowed value (that value becomes the variant's `catalytic_multiplicity`). `oligomeric_state: N` is the single-value shorthand (a 1-element list → one multiplicity, unchanged behavior). All regulator site multiplicities are set from `oligomeric_state` (not enumerated).
 - `EnzymeMechanism(m::Mechanism)` and `AllostericEnzymeMechanism(am::AllostericMechanism)` lift a decomposed mechanism to its singleton derivation type (`compile_mechanism` wraps both).
@@ -315,8 +315,8 @@ parameters are stateless.
 - `src/rate_eq_derivation.jl` — King-Altman/Cha rate equation derivation via `@generated` functions; parameters API; kcat computation (`_is_ss_rate_constant`, `_kcat_forward`); `rescale_parameter_values`; AllostericEnzymeMechanism MWC rate equation assembly (`_build_allosteric_rate_body`, `rate_equation_string`); helpers for allosteric symbol selection, renaming, and dependent-parameter assignments. Parameter-symbol rendering goes through `name(p, m)` — no direct `Symbol("K…")` literals.
 - `src/thermodynamic_constr_for_rate_eq_derivation.jl` — Haldane/Wegscheider thermodynamic constraints; `_dependent_param_exprs` builds the kinetic-group merge map up front and applies column merging before Gaussian elimination (no `csub` log-space coefficient tracking).
 - `src/fitting.jl` — `FittingProblem`, `loss!`, `fit_rate_equation` using Optimization.jl.
-- `src/identify_rate_equation.jl` — `IdentifyRateEquationProblem{R<:EnzymeReaction, D<:NamedTuple}` (single constructor on `EnzymeReaction`); `identify_rate_equation(prob)` beam search + LOOCV; canonical rate-equation hashing; `_project_cached_params` for fit reuse across hash-equivalent mechanisms.
-- `src/mechanism_enumeration.jl` — Building blocks: `init_mechanisms(reaction::EnzymeReaction)` → `Vector{Mechanism}`, `expand_mechanisms` → `Dict{Int, Vector{...}}`, `dedup!`; native expansion moves (`_expand_re_to_ss`, `_expand_split_kinetic_group`, `_expand_add_dead_end_regulator`, `_expand_to_allosteric`, `_expand_add_allosteric_regulator`, `_expand_change_allo_state`) — each dispatches on `Mechanism` / `AllostericMechanism`; mirror propagation implicit in kinetic-group atomicity. The pipeline builds decomposed `Mechanism` / `AllostericMechanism` directly (topologies → `_make_species` → `Step` → `_to_group_list`).
+- `src/identify_rate_equation.jl` — `IdentifyRateEquationProblem{R<:EnzymeReaction, D<:NamedTuple}` (single constructor on `EnzymeReaction`); `identify_rate_equation(prob)` advancing-target beam search over actual fitted-param count + LOOCV. `_process_batch` fuses compile+cap+fit per worker into `BatchEntry`s; `_ingest!` maintains the frontier + bounded CV pool; equation dedup is the comment-stripped `_rate_eq_dedup_key` (a CSV `eq_hash` tag + the LOOCV distinct-equation key). `save_dir` is mandatory (default `_default_save_dir()`), writing `initial_mechanisms.csv` + `equation_search_iteration_N.csv`; `max_param_count` caps actual fitted params.
+- `src/mechanism_enumeration.jl` — Building blocks: `init_mechanisms(reaction::EnzymeReaction)` → `Vector{Mechanism}`, `expand_mechanisms` → `Vector{Union{Mechanism, AllostericMechanism}}` (flat), `_dedup_flat!`; native expansion moves (`_expand_re_to_ss`, `_expand_split_kinetic_group`, `_expand_add_dead_end_regulator`, `_expand_to_allosteric`, `_expand_add_allosteric_regulator`, `_expand_change_allo_state`) — each dispatches on `Mechanism` / `AllostericMechanism`; mirror propagation implicit in kinetic-group atomicity. The pipeline builds decomposed `Mechanism` / `AllostericMechanism` directly (topologies → `_make_species` → `Step` → `_to_group_list`).
 
 ## Vmax Normalization (kcat factoring) — IMPLEMENTED
 
@@ -339,14 +339,14 @@ parameters are stateless.
 - For mechanisms with many enzyme forms/steps, compilation can be extremely slow, exhaust memory, or StackOverflow
 - This is inherent to the type-parameter-based architecture: each unique `EnzymeMechanism` type triggers full symbolic derivation at compile time
 - Workaround in tests: only the simplest mechanisms (first 10 by form count) are tested with `rate_equation`; larger mechanisms are tested only for enumeration correctness
-- Future fix: `identify_rate_equation` should order candidates by `n_fit_params_estimate` (ascending) and skip mechanisms that exceed a time/memory budget
+- `identify_rate_equation` processes candidates by actual fitted-param count (ascending advancing-target sweep) and caps expansion at `max_param_count`; this bounds search depth but not per-mechanism compile cost, so a single very large mechanism can still be slow to compile
 
 ## Testing
 
 - Tests include Aqua (quality) and JET (static analysis)
 - Don't leave profiling deps (SnoopCompile) in Project.toml — Aqua stale deps check will fail
 - `test/mechanism_definitions_for_test_enzyme_derivation.jl` defines shared mechanisms used by multiple test files — must be included before those tests
-- Mechanism enumeration tests (`test/test_mechanism_enumeration.jl`): unit tests per expansion move using `@enzyme_mechanism` definitions, integration tests via `enumerate_all` helper loop. Use compiled `fitted_params` for exact counts; floor `_n_fit_params_estimate` before treating it as a bound.
+- Mechanism enumeration tests (`test/test_mechanism_enumeration.jl`): unit tests per expansion move using `@enzyme_mechanism` definitions, integration tests via the `enumerate_all_mechanism` helper loop (buckets by actual `fitted_params` count via the advancing-target sweep).
 - `MechanismTestSpec` has optional `analytical_kcat_fn` field for per-mechanism kcat formula validation
 - kcat/rescaling tests (scale invariance, rate proportionality, V≈1, custom target) run for all shared mechanism fixtures in the main `run_all_tests` loop — not in a separate file
 

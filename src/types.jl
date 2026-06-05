@@ -1322,13 +1322,6 @@ _rep_step(step::Step, m::EnzymeMechanism) = _rep_step(step, Mechanism(m))
 _rep_step(step::Step, m::AllostericEnzymeMechanism) =
     _rep_step(step, AllostericMechanism(m))
 
-# Bridge: parametric AllostericEnzymeMechanism → non-parametric
-# AllostericMechanism. Used by chokepoint dispatch (`name(p::Parameter,
-# m::AllostericEnzymeMechanism)`) so a single Mechanism-family
-# implementation handles both forms. Symmetric with
-# `Mechanism(::EnzymeMechanism)`.
-_to_mechanism(m::EnzymeMechanism)           = Mechanism(m)
-_to_mechanism(m::AllostericEnzymeMechanism) = AllostericMechanism(m)
 
 const _AnyMech =
     Union{Mechanism, EnzymeMechanism, AllostericMechanism, AllostericEnzymeMechanism}

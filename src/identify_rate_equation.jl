@@ -1,6 +1,6 @@
 # ABOUTME: Beam-search pipeline to identify the best rate equation.
-# ABOUTME: Enumerates mechanisms, fits each, selects via CV; canonical
-# ABOUTME: rate-equation hashing groups equivalent mechanisms for fit reuse.
+# ABOUTME: Enumerates mechanisms, fits each, selects via CV; a comment-
+# ABOUTME: stripped rate-equation string key dedups equivalent equations.
 
 using DataFrames
 using CSV
@@ -93,7 +93,7 @@ and data using beam search.
 
 # Keyword Arguments
 - `min_beam_width::Int = 50`: minimum mechanisms
-  to keep per level
+  to keep per param-count tier
 - `loss_rel_threshold::Float64 = 2.0`: relative tolerance
   for beam selection (see "Beam selection" below)
 - `loss_abs_threshold::Float64 = 0.01`: absolute tolerance
@@ -120,7 +120,8 @@ and data using beam search.
   permutation p-value for model selection. Simpler-model
   bucket accepted iff `p > perm_p_threshold` under the
   sign-flip null. Default 0.16 matches paired 1-SE empirically.
-- `save_dir`: directory for per-level CSV files
+- `save_dir::String = _default_save_dir()`: output directory for the
+  search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`)
 - `pmap_function::Function = pmap`: parallelism
   function (Distributed.pmap by default)
 - Extra kwargs are forwarded to `fit_rate_equation`
@@ -177,7 +178,7 @@ function identify_rate_equation(
     se_threshold::Float64 = 1.0,
     perm_p_threshold::Float64 = 0.16,
     # Output & parallelism
-    save_dir::Union{Nothing,String} = nothing,
+    save_dir::String = _default_save_dir(),
     pmap_function::Function = pmap,
     # Extra fitting/optimizer kwargs
     optim_kwargs...
@@ -187,7 +188,7 @@ function identify_rate_equation(
         maxiters, popsize, verbose,
         optim_kwargs...)
 
-    if save_dir !== nothing && isdir(save_dir)
+    if isdir(save_dir)
         existing = filter(
             f -> endswith(f, ".csv"),
             readdir(save_dir))
@@ -201,7 +202,7 @@ function identify_rate_equation(
         min_beam_width, loss_rel_threshold,
         loss_abs_threshold,
         max_param_count, save_dir,
-        pmap_function, optimizer,
+        pmap_function, optimizer, n_cv_candidates,
         fitting_kwargs...)
 
     return _cv_model_selection(
@@ -209,6 +210,25 @@ function identify_rate_equation(
         n_cv_candidates, se_threshold, perm_p_threshold,
         pmap_function, optimizer, fitting_kwargs...)
 end
+
+# Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent.
+function _write_rows_csv(save_dir::String, filename::String, rows)
+    isdir(save_dir) || mkpath(save_dir)
+    CSV.write(joinpath(save_dir, filename), _rows_to_dataframe(rows))
+end
+
+"""Save the base-tier fit (all init mechanisms) to `initial_mechanisms.csv`."""
+_save_initial_csv(save_dir::String, rows) =
+    _write_rows_csv(save_dir, "initial_mechanisms.csv", rows)
+
+"""
+Save one expansion iteration to `equation_search_iteration_<iteration>.csv`.
+`iteration` is a 1-based sequential counter, NOT a parameter count — the
+real fitted count is the `n_params` column of each row.
+"""
+_save_iteration_csv(save_dir::String, rows, iteration::Int) =
+    _write_rows_csv(
+        save_dir, "equation_search_iteration_$(iteration).csv", rows)
 
 """
 Convert result row NamedTuples to a DataFrame.
@@ -231,8 +251,6 @@ function _rows_to_dataframe(rows)
         mechanism_type = [r.mechanism_type for r in rows],
         rate_equation = [r.rate_equation for r in rows],
         eq_hash = [r.eq_hash for r in rows],
-        fit_inherited_from_estimate = [
-            r.fit_inherited_from_estimate for r in rows],
     )
     for pn in sorted_pnames
         df[!, pn] = [
@@ -247,21 +265,18 @@ function _rows_to_dataframe(rows)
 end
 
 """
-Save results for one beam level to a CSV file. The filename
-encodes the level's `n_fit_params_estimate`; the actual `n_params`
-of each row may be smaller (Haldane reduction collapses some
-declared kinetic groups). Users wanting one file per actual
-`n_params` value can post-process by reading and re-grouping.
+Equation-identity key: the rendered rate-equation string with provenance
+removed — `# …` header lines and Wegscheider `(substituted into v)` lines
+(the choice of which dependent K was eliminated is cosmetic; it is already
+substituted into v). Two mechanisms with the same key compute the identical
+rate function. Used as a CSV tag and the LOOCV distinct-equation key.
 """
-function _save_level_csv(
-    save_dir::String, rows, n_fit_params_estimate::Int
-)
-    isdir(save_dir) || mkpath(save_dir)
-    path = joinpath(
-        save_dir,
-        "params_estimate_$(n_fit_params_estimate).csv")
-    df = _rows_to_dataframe(rows)
-    CSV.write(path, df)
+function _rate_eq_dedup_key(eq_text::AbstractString)
+    kept = Iterators.filter(split(eq_text, '\n')) do ln
+        l = strip(ln)
+        !startswith(l, "#") && !occursin(ANNOTATION_SUBSTITUTED, l)
+    end
+    hash(join(kept, '\n'))
 end
 
 """
@@ -279,12 +294,13 @@ function _select_beam(
     loss_rel_threshold::Float64,
     loss_abs_threshold::Float64,
     min_beam_width::Int,
+    best_override::Union{Nothing,Float64}=nothing,
 )
     finite_idx = [i for i in eachindex(losses) if isfinite(losses[i])]
     isempty(finite_idx) && return Int[]
 
     perm = sort(finite_idx; by=i -> losses[i])
-    best = losses[perm[1]]
+    best = best_override === nothing ? losses[perm[1]] : best_override
     cutoff = loss_rel_threshold * best + loss_abs_threshold
     selected = Int[]
     for (rank, idx) in enumerate(perm)
@@ -298,492 +314,168 @@ function _select_beam(
     sort!(selected)
 end
 
-# ─── Rate-equation canonical hash ──────────────────────────────────────
-
-# ─── Struct-based canonical-hash implementation ───────────────────────
-#
-# Walks the Parameter family + symbolic numerator/denominator Exprs
-# directly, producing a canonical key per Parameter from `Step` /
-# `RegulatorySite` / `AllostericRegulator` identity rather than from
-# rendered symbol strings. The rate-equation numerator/denominator
-# Exprs (from `_poly_to_expr`) and the Wegscheider/Haldane dep_exprs
-# are canonicalized by substituting per-Parameter Symbol leaves with
-# their canonical tokens. Two mechanisms with the same rate equation
-# but different kinetic-group numbering (and therefore different
-# positional symbol names like K1/K2/K3) produce the same canonical
-# Expr tree because their Parameter canonical keys coincide and the
-# `_poly_to_expr` monomial sort agrees once substitution is applied.
-
-"""
-Per-Parameter canonical key independent of mechanism position. Steps
-hash structurally, so two Parameters bound to the same chemistry across
-two mechanisms produce the same key.
-"""
-_parameter_canonical_key(p::StepBoundParameter) =
-    (nameof(typeof(p)), hash(p.step), p.state)
-_parameter_canonical_key(p::Kreg) =
-    (:Kreg, hash(p.site), hash(p.ligand), p.state)
-_parameter_canonical_key(::Keq)   = (:Keq,)
-_parameter_canonical_key(::Etot)  = (:Etot,)
-_parameter_canonical_key(::Lallo) = (:Lallo,)
-
-"""
-Every Parameter the canonicalizer needs a stable canonical token for.
-Mirrors the Parameter set covered by `parameters(m, Full)` minus
-`:E_total` (invariant across mechanisms, never appears in the
-rate-equation body). Includes `Keq()` because Haldane dep-expr RHSes
-reference `:Keq`.
-"""
-_enumerate_all_parameters_with_i_state(m::Mechanism) =
-    Parameter[_enumerate_parameters_full(m)..., Keq()]
-
-_enumerate_all_parameters_with_i_state(am::AllostericMechanism) =
-    Parameter[_enumerate_parameters_full_allosteric(am)..., Keq()]
-
-"""
-Walk `expr` replacing Symbol leaves found in `name_map` with their
-canonical-token Symbols. Non-parameter Symbols (metabolite names, math
-operators, callable heads) pass through unchanged.
-"""
-function _expr_canonical_via_name_map(expr, name_map::Dict{String,String})
-    if expr isa Symbol
-        s = String(expr)
-        haskey(name_map, s) && return Symbol(name_map[s])
-        return expr
-    end
-    expr isa Expr || return expr
-    Expr(expr.head,
-         Any[_expr_canonical_via_name_map(a, name_map)
-             for a in expr.args]...)
-end
-
-"""
-Type-specific (num_expr, den_expr) for the canonical-hash trunk.
-- For non-allosteric: builds POLYs via `_raw_symbolic_rate_polys` and
-  renders via `_poly_to_expr`.
-- For allosteric: uses `_allosteric_num_den_exprs` which returns the
-  full MWC Exprs directly.
-"""
-function _num_den_exprs(em::AbstractEnzymeMechanism, ::Mechanism)
-    M = typeof(em)
-    num, den = _raw_symbolic_rate_polys(M)
-    pset = Set{Symbol}(_raw_param_symbols(em))
-    cset = Set{Symbol}(metabolites(em))
-    (_poly_to_expr(num, pset, cset), _poly_to_expr(den, pset, cset))
-end
-
-function _num_den_exprs(em::AbstractEnzymeMechanism, ::AllostericMechanism)
-    em isa AllostericEnzymeMechanism || error(
-        "_num_den_exprs: AllostericMechanism requires " *
-        "AllostericEnzymeMechanism, got $(typeof(em))")
-    _allosteric_num_den_exprs(typeof(em))
-end
-
-"""
-Type-specific canon-tuple suffix for allosteric mechanisms. Empty
-tuple for non-allosteric; for allosteric, includes catalytic state
-tags, multiplicity, and regulator site shape so two allosteric
-mechanisms differing only in those scalars hash distinctly.
-"""
-_allosteric_canon_suffix(::Mechanism) = ()
-
-function _allosteric_canon_suffix(m::AllostericMechanism)
-    cat_tags_canon = Tuple(cat_allo_states(m))
-    cat_mult = catalytic_multiplicity(m)
-    site_entries = Tuple[]
-    for site in regulatory_sites(m)
-        push!(site_entries,
-              (Tuple(hash(l) for l in ligands(site)),
-               multiplicity(site),
-               Tuple(allo_states(site))))
-    end
-    site_canon = Tuple(sort(site_entries; by = repr))
-    (cat_tags_canon, cat_mult, site_canon)
-end
-
-"""
-Canonical form for a mechanism plus its `name_map::Dict{String,String}`.
-Walks the Parameter family + symbolic numerator/denominator Exprs
-directly, producing a canonical key per Parameter from `Step` /
-`RegulatorySite` / `AllostericRegulator` identity rather than from
-rendered symbol strings.
-
-Two mechanisms with the same rate equation but different kinetic-group
-numbering (and therefore different positional symbol names) produce the
-same canonical Expr tree because their Parameter canonical keys
-coincide and the `_poly_to_expr` monomial sort agrees once substitution
-is applied. For allosteric mechanisms, additional canon slots
-(catalytic state tags, catalytic multiplicity, regulator site shape)
-ensure mechanisms differing only in those scalars hash distinctly.
-"""
-function _canonicalize_for_hash(em::AbstractEnzymeMechanism,
-                                m::Union{Mechanism, AllostericMechanism})
-    name_map = _build_name_map(em, m)
-    dep_canon = _dep_exprs_canonical(em, name_map)
-    num, den = _num_den_exprs(em, m)
-    num_canon = _expr_canonical_via_name_map(num, name_map)
-    den_canon = _expr_canonical_via_name_map(den, name_map)
-    canon = m isa AllostericMechanism ?
-        ((:Allosteric,), num_canon, den_canon,
-         _allosteric_canon_suffix(m)..., dep_canon) :
-        ((:NonAllosteric,), num_canon, den_canon, dep_canon)
-    (canon, name_map)
-end
-
-"""
-Build the per-mechanism Symbol → canonical-token map. Used both by the
-canonical-form construction (substitutes Symbols in POLYs / Exprs) and
-returned through `_canonical_rate_eq_hash_data` for downstream
-projection via `_project_cached_params`.
-
-For an `AllostericMechanism`, also adds entries for synthesized dep
-I-names (LHSes that have no Parameter struct because they're derived
-deps with an inactive-state suffix appended at render time). The
-synth-dep token is the A-state token with an inactive-state suffix.
-This preserves
-A↔I correspondence across equivalent mechanisms.
-"""
-function _build_name_map(em::AbstractEnzymeMechanism,
-                         m::Union{Mechanism, AllostericMechanism})
-    all_params = _enumerate_all_parameters_with_i_state(m)
-    canon_keys = Tuple[_parameter_canonical_key(p) for p in all_params]
-    sorted_keys = sort!(unique(canon_keys); by = repr)
-    key_to_token = Dict{Tuple, String}(
-        k => "p_$i" for (i, k) in enumerate(sorted_keys))
-
-    name_map = Dict{String, String}()
-    for p in all_params
-        sym = name(p, m)
-        token = key_to_token[_parameter_canonical_key(p)]
-        name_map[String(sym)] = token
-    end
-
-    if m isa AllostericMechanism
-        for a_name in _synth_dep_a_names(em, m)
-            a_str = String(a_name)
-            tok = get(name_map, a_str, nothing)
-            tok === nothing && continue
-            i_str = String(name(_flip_to_inactive(_param_for_symbol(m, a_name)), m))
-            haskey(name_map, i_str) && continue
-            name_map[i_str] = tok * "_T"
-        end
-    end
-    name_map
-end
-
-"""
-Canonical, deterministic representation of the mechanism's
-Wegscheider/Haldane dep-expr set after `name_map` substitution. LHSes
-and RHSes both go through `name_map`, so two equivalent mechanisms
-produce equal `dep_canon` regardless of which raw step index played a
-given role.
-"""
-function _dep_exprs_canonical(em::AbstractEnzymeMechanism,
-                              name_map::Dict{String,String})
-    dep_exprs, _ = _dependent_param_exprs(typeof(em))
-    list = Tuple[]
-    for (sym, expr) in dep_exprs
-        lhs_tok = get(name_map, String(sym), String(sym))
-        rhs_canon = _expr_canonical_via_name_map(expr, name_map)
-        push!(list, (lhs_tok, rhs_canon))
-    end
-    sort!(list; by = repr)
-    Tuple(list)
-end
-
-"""
-A-state symbol names whose Wegscheider/Haldane RHS references a
-`:NonequalAI` catalytic symbol, so the assignment is mirrored into a
-synthesized `<sym>_T` dep entry. Mirrors the loop in
-`_dependent_param_exprs(::AllostericEnzymeMechanism)` Pass 2; the
-canonicalizer recovers just the A-state name set so it can register
-matching I-suffixed name_map entries. Returns an empty Vector when the
-I-state cycle is dead (no I-state mirrors get emitted).
-"""
-function _synth_dep_a_names(em::AllostericEnzymeMechanism,
-                            am::AllostericMechanism)
-    _i_state_dead(em) && return Symbol[]
-    CM = typeof(catalytic_mechanism(em))
-    dep_A_all, _ = _dependent_param_exprs(CM)
-    rename_I_keys = Set{Symbol}(
-        name(p_A, am) for (p_A, _) in _I_rename_parameters(am))
-    isempty(rename_I_keys) && return Symbol[]
-    out = Symbol[]
-    for (k, v) in dep_A_all
-        k in rename_I_keys && continue
-        _expr_references_any(v, rename_I_keys) || continue
-        push!(out, k)
-    end
-    out
-end
-
-"""
-Compute the canonical rate-equation hash for `em`. Walks
-`Mechanism` / `AllostericMechanism` structural fields directly via
-`_canonicalize_for_hash`. Returns `(UInt64 hash, 16-char hex display
-string, name_map)`. The `name_map::Dict{String,String}` satisfies the
-projection contract used by `_project_cached_params`: two
-hash-equivalent mechanisms produce maps that send corresponding
-parameter Symbols to the same canonical token.
-
-Hash collision probability over 10⁴ mechanisms is ~10⁻¹² with
-Julia's built-in `hash(::UInt64)::UInt64`.
-"""
-function _canonical_rate_eq_hash_data(em::AbstractEnzymeMechanism)
-    m = _to_mechanism(em)
-    canonical, name_map = _canonicalize_for_hash(em, m)
-    h = hash(canonical)
-    (h, string(h, base=16, pad=16), name_map)
-end
-
-"""
-Hash a mechanism's canonicalized rate equation. Returns the
-`UInt64` hash.
-"""
-function _canonical_rate_eq_hash(m::AbstractEnzymeMechanism)
-    first(_canonical_rate_eq_hash_data(m))
-end
-
-"""Cached fit result keyed by canonical rate-equation hash.
-- `first_seen_estimate`: the beam-search level (the `pc` loop
-  iteration value, equal to `n_fit_params_estimate`) at which
-  this hash's fit was first performed.
-- `first_seen_n_actual`: `length(fitted_params(m))` at first fit.
-- `first_seen_eq_hash`: 16-char hex display string of the hash.
-- `canon_to_rep`: pre-inverted `canonical_token => rep_orig_key`
-  map, computed once at cache-insert. Mechanisms in the same hash
-  group reuse this; avoids O(N) re-inversion per mechanism.
-"""
-struct _CachedFitResult
-    loss::Float64
-    params::NamedTuple
-    canon_to_rep::Dict{String,String}
-    first_seen_estimate::Int
-    first_seen_n_actual::Int
-    first_seen_eq_hash::String
-end
-
-"""Uniform per-mechanism compilation/hash record so the `pmap` return
-is concretely-typed. The `mech` field is a `Union` of mechanism types
-(level vectors mix `Mechanism` and `AllostericMechanism`, so we can't
-tighten the type without splitting the pipeline). On failure, every
-non-mech field has a sentinel value and `ok=false`."""
-struct _CompiledMechanismResult
+"""One fitted mechanism: its own params + eq_hash + the CSV row."""
+struct BatchEntry
     mech::Union{Mechanism, AllostericMechanism}
-    eq_text::String
-    h_full::UInt64
-    h_short::String
-    n_actual::Int
-    mech_type_str::String
-    name_map::Dict{String,String}
-    fitted_keys::Tuple{Vararg{Symbol}}
-    ok::Bool
+    n_params::Int
+    loss::Float64
+    eq_hash::UInt64
+    row::NamedTuple
 end
 
-"""Empty-failure sentinel."""
-_CompiledMechanismFailure(m::Union{Mechanism, AllostericMechanism}) =
-    _CompiledMechanismResult(
-        m, "", zero(UInt64), "", 0, "",
-        Dict{String,String}(), (), false)
-
 """
-Project cached params (keyed by the representative mechanism's
-`fitted_params` symbols) onto a target mechanism's own `fitted_params`
-keys, preserving canonical-position values. Two mechanisms in the same hash group have
-isomorphic rate equations modulo parameter renaming; this function
-applies the canonical position bijection
-(rep_fitted_key → canonical_token → target_fitted_key) to relabel
-values without changing them.
-
-`canon_to_rep` is the pre-inverted `canonical_token => rep_orig_key`
-map (computed once at cache-insert from the rep's name_map).
-`target_name_map` is the target's `orig_string => canonical_token` Dict
-produced by the canonicalizer over `parameters(m, Full)`. They
-include BOTH independent and dependent parameter names. We
-restrict the projection to FITTED (independent) keys only —
-`cached_params` is keyed by `fitted_params(rep_m)`, which doesn't
-contain dep names. Iterating `keys(target_name_map)` directly would
-cause `KeyError` for any dep name (e.g., `:k10r`, `:K1_T` for
-`:EqualAI` mirrors).
-
-The return is a NamedTuple keyed by `fitted_params(target_m)`.
+Compile + cap-check + fit every mechanism in `mechs`, one `pmap` pass with
+compile and fit fused on the same worker. Returns one `BatchEntry` per
+fitted mechanism (each keeping its OWN fitted params and `eq_hash`). A
+mechanism whose actual fitted-param count exceeds `max_param_count` is
+dropped BEFORE fitting; compile/fit failures are dropped. No dedup here —
+`mechs` is already structurally deduped by the caller (`_dedup_flat!`).
 """
-function _project_cached_params(
-    cached_params::NamedTuple,
-    canon_to_rep::Dict{String,String},
-    target_name_map::Dict{String,String},
-    target_fitted_keys::Tuple{Vararg{Symbol}},
+function _process_batch(
+    mechs, prob::IdentifyRateEquationProblem;
+    pmap_function, optimizer, max_param_count, kwargs...
 )
-    # Defensive lookup: a fitted key may not appear in the body
-    # (e.g., a parameter on a zeroed `:NonequalAI` path), in which
-    # case `target_name_map` has no entry. Fall back to the target key
-    # itself in cached_params if both maps lack the canonical token;
-    # if even that misses, use NaN as a sentinel that downstream
-    # loss/CV will surface.
-    function _proj(k::Symbol)
-        s = String(k)
-        canon = get(target_name_map, s, nothing)
-        if canon !== nothing && haskey(canon_to_rep, canon)
-            rep_key = Symbol(canon_to_rep[canon])
-            haskey(cached_params, rep_key) &&
-                return cached_params[rep_key]
+    results = pmap_function(mechs) do m
+        try
+            em = compile_mechanism(m)
+            fkeys = fitted_params(em)
+            n = length(fkeys)
+            n > max_param_count && return nothing
+            eq_text = rate_equation_string(em)
+            key = _rate_eq_dedup_key(eq_text)
+            fp = FittingProblem(em, prob.data; Keq=prob.Keq)
+            fit = fit_rate_equation(fp, optimizer; kwargs...)
+            row = (
+                n_params = n,
+                loss = fit.loss,
+                mechanism_type = string(typeof(em)),
+                rate_equation = eq_text,
+                fitted_param_names = fkeys,
+                fitted_param_values =
+                    Tuple(fit.params[k] for k in fkeys),
+                eq_hash = string(key, base=16, pad=16),
+            )
+            BatchEntry(m, n, fit.loss, key, row)
+        catch e
+            @debug("_process_batch: compile or fit failed",
+                   exception=(e, catch_backtrace()))
+            nothing
         end
-        haskey(cached_params, k) && return cached_params[k]
-        return NaN
     end
+    BatchEntry[r for r in results if r !== nothing]
+end
 
-    NamedTuple{target_fitted_keys}(
-        Tuple(_proj(k) for k in target_fitted_keys))
+"""
+Fold a batch of `BatchEntry`s into the search state: every entry joins the
+`frontier` (the unexpanded work queue — ALL structurally-distinct
+mechanisms, no eq-dedup); `best_loss_by_count` tracks the per-count running
+min (the beam-cutoff reference); `cv_pool` keeps the top `n_cv_candidates`
+DISTINCT equations (by `eq_hash`, lowest loss each) per param count.
+"""
+function _ingest!(frontier, cv_pool, best_loss_by_count, entries;
+                  n_cv_candidates)
+    for e in entries
+        push!(get!(frontier, e.n_params, BatchEntry[]), e)
+        if !haskey(best_loss_by_count, e.n_params) ||
+                e.loss < best_loss_by_count[e.n_params]
+            best_loss_by_count[e.n_params] = e.loss
+        end
+        _offer_cv!(get!(cv_pool, e.n_params, BatchEntry[]),
+                   e, n_cv_candidates)
+    end
+    nothing
+end
+
+"""
+Keep `pool` at the top `n` distinct-`eq_hash` entries by loss. A repeat
+`eq_hash` only ever updates its own slot (to the lower loss); it never
+consumes a second slot.
+"""
+function _offer_cv!(pool::Vector{BatchEntry}, e::BatchEntry, n::Int)
+    n == 0 && return pool
+    idx = findfirst(p -> p.eq_hash == e.eq_hash, pool)
+    if idx !== nothing
+        e.loss < pool[idx].loss && (pool[idx] = e)
+        return pool
+    end
+    if length(pool) < n
+        push!(pool, e)
+    else
+        worst = argmax([p.loss for p in pool])
+        e.loss < pool[worst].loss && (pool[worst] = e)
+    end
+    pool
 end
 
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,
     max_param_count, save_dir, pmap_function,
-    optimizer, kwargs...
+    optimizer, n_cv_candidates, kwargs...
 )
-    # Persistent cross-level cache keyed by canonical hash.
-    fit_cache = Dict{UInt64, _CachedFitResult}()
+    frontier = Dict{Int, Vector{BatchEntry}}()
+    cv_pool  = Dict{Int, Vector{BatchEntry}}()
+    best_loss_by_count = Dict{Int, Float64}()
 
-    cache = Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}()
-    for m in init_mechanisms(prob.reaction)
-        push!(get!(cache, _n_fit_params_estimate(m),
-                   Union{Mechanism, AllostericMechanism}[]),
-              m)
-    end
-    dedup!(cache)
+    # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
+    base = _dedup_flat!(collect(init_mechanisms(prob.reaction)))
+    base_entries = _process_batch(base, prob;
+        pmap_function, optimizer, max_param_count, kwargs...)
+    isempty(base_entries) && return (
+        Union{Mechanism, AllostericMechanism}[],
+        _rows_to_dataframe(NamedTuple[]))
+    _save_initial_csv(save_dir, [e.row for e in base_entries])
+    _ingest!(frontier, cv_pool, best_loss_by_count,
+             base_entries; n_cv_candidates)
 
-    all_mechs = Union{Mechanism, AllostericMechanism}[]
-    all_rows  = NamedTuple[]
-
-    isempty(cache) && return (
-        all_mechs, _rows_to_dataframe(all_rows))
-
-    min_pc = minimum(keys(cache))
-    for pc in min_pc:max_param_count
-        level = pop!(cache, pc,
-                     Union{Mechanism, AllostericMechanism}[])
-        isempty(level) && (isempty(cache) ? break : continue)
-
-        # ── Parallel compile + hash ──
-        compiled = pmap_function(level) do mech
-            try
-                m = compile_mechanism(mech)
-                eq_text = rate_equation_string(m)
-                h_full, h_short, name_map =
-                    _canonical_rate_eq_hash_data(m)
-                fkeys = fitted_params(m)
-                n_actual = length(fkeys)
-                mech_type_str = string(typeof(m))
-                _CompiledMechanismResult(
-                    mech, eq_text, h_full, h_short,
-                    n_actual, mech_type_str, name_map, fkeys, true)
-            catch e
-                @debug("Mechanism compilation failed",
-                       exception=(e, catch_backtrace()))
-                _CompiledMechanismFailure(mech)
-            end
-        end
-        filter!(c -> c.ok, compiled)
-        isempty(compiled) && continue
-
-        new_hashes = Set{UInt64}()
-        for c in compiled
-            haskey(fit_cache, c.h_full) && continue
-            push!(new_hashes, c.h_full)
+    # ── Advancing-target sweep over actual param counts ──
+    iteration = 0
+    target = minimum(keys(frontier))
+    while !isempty(frontier)
+        # Sweep this tier plus any same-or-lower-count stragglers.
+        swept = BatchEntry[]
+        for c in collect(keys(frontier))
+            c <= target && append!(swept, pop!(frontier, c))
         end
 
-        reps_by_hash = Dict{UInt64, _CompiledMechanismResult}()
-        for c in compiled
-            c.h_full in new_hashes || continue
-            haskey(reps_by_hash, c.h_full) && continue
-            reps_by_hash[c.h_full] = c
+        to_expand = BatchEntry[]
+        for c in unique(e.n_params for e in swept)
+            entries_at_count = [e for e in swept if e.n_params == c]
+            sel = _select_beam([e.loss for e in entries_at_count];
+                loss_rel_threshold, loss_abs_threshold,
+                min_beam_width, best_override = best_loss_by_count[c])
+            append!(to_expand, entries_at_count[sel])
         end
 
-        # ── Parallel representative fit ──
-        rep_results = pmap_function(
-            collect(values(reps_by_hash))
-        ) do rep
-            try
-                m = compile_mechanism(rep.mech)
-                fp = FittingProblem(m, prob.data; Keq=prob.Keq)
-                fit = fit_rate_equation(
-                    fp, optimizer; kwargs...)
-                (h_full=rep.h_full, h_short=rep.h_short,
-                 n_actual=rep.n_actual,
-                 name_map=rep.name_map,
-                 loss=fit.loss, params=fit.params, ok=true)
-            catch e
-                @debug("Rep fit failed",
-                       exception=(e, catch_backtrace()))
-                (h_full=rep.h_full, ok=false)
+        if !isempty(to_expand)
+            # Typed for dispatch: expand_mechanisms needs a concrete
+            # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
+            parents = Union{Mechanism, AllostericMechanism}[
+                e.mech for e in to_expand]
+            children = _dedup_flat!(
+                expand_mechanisms(parents, prob.reaction))
+            child_entries = _process_batch(children, prob;
+                pmap_function, optimizer, max_param_count, kwargs...)
+            if !isempty(child_entries)
+                # Count only iterations that fit children, so the
+                # equation_search_iteration_N CSVs are gap-free.
+                iteration += 1
+                _save_iteration_csv(save_dir,
+                    [e.row for e in child_entries], iteration)
+                _ingest!(frontier, cv_pool, best_loss_by_count,
+                         child_entries; n_cv_candidates)
             end
         end
 
-        for r in rep_results
-            r.ok || continue
-            canon_to_rep = Dict(v => k for (k, v) in r.name_map)
-            fit_cache[r.h_full] = _CachedFitResult(
-                r.loss, r.params, canon_to_rep,
-                pc, r.n_actual, r.h_short)
-        end
-
-        # ── Build ONE row per mechanism ──
-        # Use the compile/hash pass's captured `fitted_keys` (computed once on
-        # the worker that compiled) instead of recompiling on
-        # master — saves a serial compile per mechanism.
-        level_rows = NamedTuple[]
-        level_mechs = Union{Mechanism, AllostericMechanism}[]
-        for c in compiled
-            haskey(fit_cache, c.h_full) || continue
-            cached = fit_cache[c.h_full]
-            is_inherited = !(c.h_full in new_hashes)
-            mech_params = _project_cached_params(
-                cached.params, cached.canon_to_rep,
-                c.name_map, c.fitted_keys)
-            row = (
-                n_params = c.n_actual,
-                loss = cached.loss,
-                mechanism_type = c.mech_type_str,
-                rate_equation = c.eq_text,
-                fitted_param_names = c.fitted_keys,
-                fitted_param_values =
-                    Tuple(values(mech_params)),
-                eq_hash = cached.first_seen_eq_hash,
-                fit_inherited_from_estimate =
-                    is_inherited ? cached.first_seen_estimate :
-                                   missing,
-            )
-            push!(level_rows, row)
-            push!(level_mechs, c.mech)
-        end
-
-        append!(all_mechs, level_mechs)
-        append!(all_rows,  level_rows)
-
-        if save_dir !== nothing && !isempty(level_rows)
-            _save_level_csv(save_dir, level_rows, pc)
-        end
-
-        sel = _select_beam(
-            [r.loss for r in level_rows];
-            loss_rel_threshold=loss_rel_threshold,
-            loss_abs_threshold=loss_abs_threshold,
-            min_beam_width=min_beam_width)
-        beam_mechs = level_mechs[sel]
-
-        new_cache = expand_mechanisms(beam_mechs, prob.reaction)
-        for (target_pc, mechs) in new_cache
-            target_pc > max_param_count && continue
-            append!(get!(cache, target_pc,
-                         Union{Mechanism, AllostericMechanism}[]),
-                    mechs)
-        end
-        dedup!(cache)
+        isempty(frontier) && break
+        target = max(target + 1, minimum(keys(frontier)))
     end
 
-    df = _rows_to_dataframe(all_rows)
-    return all_mechs, df
+    pool_entries = BatchEntry[e for v in values(cv_pool) for e in v]
+    mechs = Union{Mechanism, AllostericMechanism}[
+        e.mech for e in pool_entries]
+    df = _rows_to_dataframe([e.row for e in pool_entries])
+    return mechs, df
 end
 
 """
@@ -1130,4 +822,16 @@ function _cv_model_selection(
 
     select!(cv_df, Not(:cv_fold_scores))
     return IdentifyRateEquationResults(best_mechanism, cv_df)
+end
+
+"""
+Default results directory: the first non-existent `<date>_results[_N]`
+directory in the cwd (e.g. `YYYY_MM_DD_results`, then `…_results_2`, `_3`).
+"""
+function _default_save_dir()
+    base = string(Dates.format(Dates.today(), "yyyy_mm_dd"), "_results")
+    isdir(base) || return base
+    n = 2
+    while isdir(string(base, "_", n)); n += 1; end
+    string(base, "_", n)
 end

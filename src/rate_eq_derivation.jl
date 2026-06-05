@@ -9,8 +9,8 @@ const _AnyMechanism = AbstractEnzymeMechanism
 Suffix appended to single-symbol equality lines whose LHS got folded
 into the kinetic-group rename map. Both display sites (User defined
 kinetic-group merges and absorbed single-symbol Wegscheider ties) emit
-this exact string so the eq_hash canonicalizer in
-`identify_rate_equation.jl` can normalize them with a single regex.
+this exact string so the rate-equation dedup key in
+`identify_rate_equation.jl` can strip these provenance lines.
 """
 const ANNOTATION_SUBSTITUTED = "  (substituted into v)"
 
@@ -30,11 +30,10 @@ Return the parameter names required for the given mode as a tuple of Symbols.
   `AllostericEnzymeMechanism` it composes the catalytic raw A-state
   symbols + every I-state mirror (catalytic + regulatory + synthesized
   dep) + reg-site A-state K's (skipping `:OnlyI` ligands) + `:L` +
-  `:E_total`. The allosteric Full mode is used as a name source by the
-  rate-equation canonicalizer in `identify_rate_equation`; no
-  `rate_equation` method is defined for
+  `:E_total`. The allosteric Full mode enumerates the complete raw-symbol
+  set; no `rate_equation` method is defined for
   `(::AllostericEnzymeMechanism, ::FullMode)`, so this mode is for
-  canonicalization, not runtime evaluation.
+  symbol enumeration, not runtime evaluation.
 """
 function parameters end
 
@@ -1149,7 +1148,7 @@ end
 
 """
 Enumerate every raw rate-constant `Parameter` for an `AllostericMechanism`
-that the canonicalizer needs as a rename source. Order is:
+(the complete Full-mode symbol set). Order is:
 
 1. Catalytic A-state Parameter per kinetic group (every group). `:OnlyA`
    and `:NonequalAI` use `state = :A`; `:EqualAI` uses `state = :EqualAI`
@@ -1167,10 +1166,9 @@ Synthesized-dep I-symbols (derived deps whose RHS references a
 representation and are emitted Symbol-level by the caller.
 
 Non-appearing names (e.g., a catalytic I-state mirror that's elided in
-a `t_state_dead` mechanism) are harmless to include: downstream
-`_expr_canonical_via_name_map` only substitutes Symbols that actually
-appear in the rate-equation Exprs, so unused name_map entries are
-inert. This enumeration intentionally over-emits.
+a `t_state_dead` mechanism) are harmless to include: unused names are
+inert — nothing consumes a name that does not appear in the
+rate-equation Exprs. This enumeration intentionally over-emits.
 """
 function _enumerate_parameters_full_allosteric(am::AllostericMechanism)
     out = Parameter[]
@@ -1198,7 +1196,7 @@ references a `:NonequalAI` catalytic symbol. These symbols have no
 Parameter struct representation (they're derived deps from
 Wegscheider/Haldane elimination, not base k/K/Kreg), so they are
 produced Symbol-level. Used by `parameters(Full)` to ensure the
-canonicalizer's rename source covers them.
+complete symbol set covers them.
 
 When the I-state cycle is dead (any `:OnlyA` catalytic group present)
 the rate-equation body elides every I-state constraint assignment, so

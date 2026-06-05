@@ -1,5 +1,5 @@
 # ABOUTME: Mechanism enumeration by incremental parameter count growth
-# ABOUTME: Provides init_mechanisms, expand_mechanisms, dedup! building blocks
+# ABOUTME: Provides init_mechanisms, expand_mechanisms, _dedup_flat! building blocks
 
 
 # ─── Catalytic topologies ─────────────────────────────────────────────
@@ -1067,57 +1067,6 @@ end
 
 # ─── Expansion-Move Helpers ──────────────────────────────────
 
-"""
-    _n_fit_params_estimate(m::Mechanism)
-    _n_fit_params_estimate(am::AllostericMechanism)
-
-Raw estimate of the fittable parameter count for a `Mechanism`
-or `AllostericMechanism`. Counts kinetic GROUPS (one K per RE group,
-two k per SS group) and subtracts the number of independent thermodynamic
-cycles (Haldane + Wegscheider) bound by the enzyme-form graph. The
-allosteric variant adds the per-tag bookkeeping plus +1 for `L`.
-
-This is the raw group-count formula and can underestimate when dead-end
-mirror cycles add non-constraining cycles; callers that need a safe
-upper bound floor it at `n_subs + n_prods + 1` at the call site.
-"""
-function _n_fit_params_estimate(m::Mechanism)
-    n_steps = sum(length, steps(m); init = 0)
-    n_re_groups = 0
-    n_ss_groups = 0
-    form_names = Set{Symbol}()
-    for group in steps(m)
-        isempty(group) && continue
-        is_re = is_equilibrium(first(group))
-        is_re ? (n_re_groups += 1) : (n_ss_groups += 1)
-        for s in group
-            push!(form_names, name(from_species(s)))
-            push!(form_names, name(to_species(s)))
-        end
-    end
-    n_thermo = n_steps - length(form_names) + 1
-    n_re_groups + 2 * n_ss_groups - n_thermo
-end
-
-function _n_fit_params_estimate(am::AllostericMechanism)
-    base = _n_fit_params_estimate(Mechanism(reaction(am), steps(am)))
-    # +1 for L (A/I equilibrium constant), plus per-tag bookkeeping:
-    # :NonequalAI catalytic groups double; :NonequalAI regulator ligands
-    # also double; per-site Kreg adds a K per ligand.
-    tag_extra = 0
-    for tag in cat_allo_states(am)
-        tag == :NonequalAI && (tag_extra += 1)
-    end
-    reg_extra = 0
-    for site in regulatory_sites(am)
-        for (lig, st) in zip(ligands(site), allo_states(site))
-            reg_extra += 1
-            st == :NonequalAI && (reg_extra += 1)
-        end
-    end
-    base + 1 + tag_extra + reg_extra
-end
-
 # ─── Expansion Moves ─────────────────────────────────────────
 
 """
@@ -1671,22 +1620,17 @@ _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
 """
-    expand_mechanisms(mechs::Vector, reaction)
-        → Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
+    expand_mechanisms(mechs, reaction) -> Vector{Union{Mechanism, AllostericMechanism}}
 
-Apply all expansion moves to each input mechanism (RE→SS, split
-kinetic group, add dead-end regulator, to-allosteric, add allosteric
-regulator, change allo state) and bucket results by their
-`_n_fit_params_estimate` value.
-
-Accepts a heterogeneous mix of `Mechanism` and `AllostericMechanism`
-inputs because `_expand_to_allosteric` promotes a `Mechanism` to an
-`AllostericMechanism`.
+Apply all expansion moves (RE→SS, split kinetic group, add dead-end
+regulator, to-allosteric, add allosteric regulator, change allo state) to
+each input mechanism and return the children as a flat vector. Bucketing by
+parameter count is the caller's job, not enumeration's.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
     rxn::EnzymeReaction)
-    result = Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}()
+    result = Union{Mechanism, AllostericMechanism}[]
     for m in mechs
         _add_expansions_mech!(result, m, rxn)
     end
@@ -1694,35 +1638,15 @@ function expand_mechanisms(
 end
 
 function _add_expansions_mech!(
-    result::Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}},
+    result::Vector{Union{Mechanism, AllostericMechanism}},
     m::Union{Mechanism, AllostericMechanism},
     rxn::EnzymeReaction)
-    for s in _expand_re_to_ss(m)
-        _push_mech!(result, s)
-    end
-    for s in _expand_split_kinetic_group(m)
-        _push_mech!(result, s)
-    end
-    for s in _expand_add_dead_end_regulator(m, rxn)
-        _push_mech!(result, s)
-    end
-    for s in _expand_to_allosteric(m, rxn)
-        _push_mech!(result, s)
-    end
-    for s in _expand_add_allosteric_regulator(m, rxn)
-        _push_mech!(result, s)
-    end
-    for s in _expand_change_allo_state(m)
-        _push_mech!(result, s)
-    end
-end
-
-function _push_mech!(
-    result::Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}},
-    m::Union{Mechanism, AllostericMechanism})
-    pc = _n_fit_params_estimate(m)
-    push!(get!(result, pc,
-               Union{Mechanism, AllostericMechanism}[]), m)
+    append!(result, _expand_re_to_ss(m))
+    append!(result, _expand_split_kinetic_group(m))
+    append!(result, _expand_add_dead_end_regulator(m, rxn))
+    append!(result, _expand_to_allosteric(m, rxn))
+    append!(result, _expand_add_allosteric_regulator(m, rxn))
+    append!(result, _expand_change_allo_state(m))
 end
 
 # --- Dedup ---
@@ -1777,25 +1701,22 @@ _regulatory_site_canonical_key(site::RegulatorySite) =
      Tuple(allo_states(site)))
 
 """
-    dedup!(cache::Dict{Int, <:Vector})
+    _dedup_flat!(mechs::Vector)
 
-Canonicalize each mechanism in place via the type-specific
-`_canonicalize_mechanism!` overload, then run `unique!` so
-structurally-equivalent mechanisms collapse. Works for any element
-type — `Mechanism`, `AllostericMechanism`, or
-`Union{Mechanism, AllostericMechanism}` — because
-`_canonicalize_mechanism!` dispatches at runtime.
+Canonicalize each mechanism in place via `_canonicalize_mechanism!`, then
+`unique!` so structurally-equivalent mechanisms collapse. Works for any
+element type — `Mechanism`, `AllostericMechanism`, or
+`Union{Mechanism, AllostericMechanism}` — because `_canonicalize_mechanism!`
+dispatches at runtime.
 """
-function dedup!(cache::Dict{Int, <:Vector})
-    for (pc, mechs) in cache
-        for m in mechs
-            _canonicalize_mechanism!(m)
-        end
-        unique!(mechs)
-        isempty(mechs) && delete!(cache, pc)
+function _dedup_flat!(mechs::Vector)
+    for m in mechs
+        _canonicalize_mechanism!(m)
     end
-    cache
+    unique!(mechs)
+    mechs
 end
+
 
 """
     init_mechanisms(reaction::EnzymeReaction) -> Vector{Mechanism}
