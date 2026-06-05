@@ -344,8 +344,8 @@ using Tables
         @test avg_us < 50  # < 50 μs per call for 500 datapoints (~5 μs typical)
     end
 
-    # ── Test 9: kcat normalization in fit_rate_equation ───────────────
-    @testset "kcat normalization" begin
+    # ── Test 9: scale_k_to_kcat normalization + retcode ────────────────
+    @testset "scale_k_to_kcat normalization" begin
         using OptimizationBBO
         Keq_val = 2.0
         true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
@@ -356,24 +356,29 @@ using Tables
             (S = 0.5, P = 0.5), (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
         ]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
-        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
-        # Default kcat=1.0: returned params should have kcat ≈ 1
+        # Default scale_k_to_kcat=1.0: returned params have kcat ≈ 1.
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
         result = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
             n_restarts=3, maxtime=5.0)
         full = merge(result.params, (Keq = Keq_val, E_total = 1.0))
         @test EnzymeRates._kcat_forward(uni_uni, full) ≈ 1.0 rtol=0.01
+        @test result.retcode isa Symbol
 
-        # Custom kcat target
-        result2 = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
-            n_restarts=3, maxtime=5.0, kcat=42.0)
+        # Custom target set on the FittingProblem.
+        fp42 = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=42.0)
+        result2 = fit_rate_equation(fp42, BBO_adaptive_de_rand_1_bin_radiuslimited();
+            n_restarts=3, maxtime=5.0)
         full2 = merge(result2.params, (Keq = Keq_val, E_total = 1.0))
         @test EnzymeRates._kcat_forward(uni_uni, full2) ≈ 42.0 rtol=0.01
+        @test result2.retcode isa Symbol
 
-        # kcat=nothing: raw params (no normalization guarantee)
-        result3 = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
-            n_restarts=3, maxtime=5.0, kcat=nothing)
+        # scale_k_to_kcat=nothing: raw params (no rescale), retcode still present.
+        fpN = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        result3 = fit_rate_equation(fpN, BBO_adaptive_de_rand_1_bin_radiuslimited();
+            n_restarts=3, maxtime=5.0)
         @test haskey(result3, :params)
+        @test result3.retcode isa Symbol
     end
 
     # ── Test 10: Validation errors ─────────────────────────────────────────────

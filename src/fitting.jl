@@ -184,7 +184,6 @@ end
 """
     fit_rate_equation(fp::FittingProblem, optimizer;
         n_restarts=20, maxtime=60.0,
-        kcat=1.0,
         lb=fill(-15.0, length(fitted_params(fp.mechanism))),
         ub=fill(15.0, length(fitted_params(fp.mechanism))),
         kwargs...)
@@ -194,18 +193,22 @@ Fit rate constants by minimizing `loss!` using Optimization.jl.
 Runs `n_restarts` independent optimizations from random initial points and returns
 the best result.
 
-When `kcat` is not `nothing`, the returned parameters are rescaled so that
-`_kcat_forward(mechanism, params) ≈ kcat`. Pass `kcat=nothing` to get raw
-(unrescaled) parameters.
+Rescaling is driven by `fp.scale_k_to_kcat`: when it is a `Real`, the returned
+parameters are rescaled so that `_kcat_forward(mechanism, params) ≈
+fp.scale_k_to_kcat`; when it is `nothing`, the raw (unrescaled) parameters are
+returned (the data fixes the absolute scale).
 
-Returns a NamedTuple `(params, loss)` where:
+Returns a NamedTuple `(params, loss, retcode)` where:
 - `params`: fitted rate constants as a NamedTuple
 - `loss`: the best loss value achieved
+- `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
+  `:Success` indicates the optimizer converged on its own criteria; any other
+  value (e.g. `:MaxTime` — hit the time budget; `:Failure`) means the fit should
+  be treated as un-converged (check `retcode !== :Success`).
 """
 function fit_rate_equation(fp::FittingProblem, optimizer;
     n_restarts::Int=20,
     maxtime::Real=60.0,
-    kcat::Union{Real,Nothing}=1.0,
     lb=fill(-15.0, length(fitted_params(fp.mechanism))),
     ub=fill(15.0, length(fitted_params(fp.mechanism))),
     kwargs...
@@ -215,6 +218,7 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
 
     best_x = zeros(np)
     best_loss = Inf
+    best_retcode = :Default
 
     for _ in 1:n_restarts
         x0 = clamp.(randn(np) .* 2.0, lb, ub)
@@ -223,19 +227,20 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
         if sol.objective < best_loss
             best_loss = sol.objective
             best_x .= sol.u
+            best_retcode = Symbol(sol.retcode)
         end
     end
 
     pnames = fitted_params(fp.mechanism)
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(length(pnames))))
-    if kcat !== nothing
-        fp_full = merge(result_params, (Keq = fp.Keq, E_total = 1.0))
+    if fp.scale_k_to_kcat !== nothing
+        full = merge(result_params, (Keq = fp.Keq, E_total = 1.0))
         rp = rescale_parameter_values(
-            fp.mechanism, fp_full; kcat=Float64(kcat),
+            fp.mechanism, full; scale_k_to_kcat=fp.scale_k_to_kcat,
         )
         result_params = NamedTuple{pnames}(
             ntuple(i -> rp[pnames[i]], Val(length(pnames))),
         )
     end
-    return (params = result_params, loss = best_loss)
+    return (params = result_params, loss = best_loss, retcode = best_retcode)
 end

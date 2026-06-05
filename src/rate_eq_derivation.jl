@@ -939,16 +939,16 @@ end
 # ─── Public API: rescale_parameter_values ──────────────────────────
 
 """
-    rescale_parameter_values(m, params::NamedTuple; kcat=1.0)
+    rescale_parameter_values(m, params::NamedTuple; scale_k_to_kcat=1.0)
 
-Rescale SS rate constants so that `_kcat_forward(m, result) ≈ kcat`.
+Rescale SS rate constants so that `_kcat_forward(m, result) ≈ scale_k_to_kcat`.
 Non-SS parameters (K's, Keq, E_total, L, regulatory K's) are unchanged.
 """
 function rescale_parameter_values(
-    m::_AnyMechanism, params::NamedTuple; kcat=1.0,
+    m::_AnyMechanism, params::NamedTuple; scale_k_to_kcat=1.0,
 )
     kcat_current = _kcat_forward(m, params)
-    scale = kcat / kcat_current
+    scale = scale_k_to_kcat / kcat_current
     ss_names = _ss_rate_constant_names(m)
     NamedTuple{keys(params)}(Tuple(
         k in ss_names ? v * scale : v
