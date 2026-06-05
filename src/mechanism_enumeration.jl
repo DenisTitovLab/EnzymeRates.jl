@@ -1067,57 +1067,6 @@ end
 
 # ─── Expansion-Move Helpers ──────────────────────────────────
 
-"""
-    _n_fit_params_estimate(m::Mechanism)
-    _n_fit_params_estimate(am::AllostericMechanism)
-
-Raw estimate of the fittable parameter count for a `Mechanism`
-or `AllostericMechanism`. Counts kinetic GROUPS (one K per RE group,
-two k per SS group) and subtracts the number of independent thermodynamic
-cycles (Haldane + Wegscheider) bound by the enzyme-form graph. The
-allosteric variant adds the per-tag bookkeeping plus +1 for `L`.
-
-This is the raw group-count formula and can underestimate when dead-end
-mirror cycles add non-constraining cycles; callers that need a safe
-upper bound floor it at `n_subs + n_prods + 1` at the call site.
-"""
-function _n_fit_params_estimate(m::Mechanism)
-    n_steps = sum(length, steps(m); init = 0)
-    n_re_groups = 0
-    n_ss_groups = 0
-    form_names = Set{Symbol}()
-    for group in steps(m)
-        isempty(group) && continue
-        is_re = is_equilibrium(first(group))
-        is_re ? (n_re_groups += 1) : (n_ss_groups += 1)
-        for s in group
-            push!(form_names, name(from_species(s)))
-            push!(form_names, name(to_species(s)))
-        end
-    end
-    n_thermo = n_steps - length(form_names) + 1
-    n_re_groups + 2 * n_ss_groups - n_thermo
-end
-
-function _n_fit_params_estimate(am::AllostericMechanism)
-    base = _n_fit_params_estimate(Mechanism(reaction(am), steps(am)))
-    # +1 for L (A/I equilibrium constant), plus per-tag bookkeeping:
-    # :NonequalAI catalytic groups double; :NonequalAI regulator ligands
-    # also double; per-site Kreg adds a K per ligand.
-    tag_extra = 0
-    for tag in cat_allo_states(am)
-        tag == :NonequalAI && (tag_extra += 1)
-    end
-    reg_extra = 0
-    for site in regulatory_sites(am)
-        for (lig, st) in zip(ligands(site), allo_states(site))
-            reg_extra += 1
-            st == :NonequalAI && (reg_extra += 1)
-        end
-    end
-    base + 1 + tag_extra + reg_extra
-end
-
 # ─── Expansion Moves ─────────────────────────────────────────
 
 """

@@ -160,37 +160,42 @@ end
     enumerate_all_mechanism(rxn::EnzymeReaction; max_params::Int=typemax(Int))
         -> Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
 
-Run the full enumeration loop on the Mechanism path: init → dedup →
-expand → dedup, processing buckets in ascending param-count order.
-`max_params` caps the search depth — levels with
-`_n_fit_params_estimate > max_params` are not processed, and child
-expansions exceeding the cap are dropped on insertion.
+Enumerate all mechanisms reachable by init → expand, bucketed by ACTUAL
+fitted-parameter count. `max_params` caps the search: mechanisms whose
+actual fitted count exceeds it are dropped. Uses the same advancing-target
+sweep as `_beam_search` (but expands every swept mechanism — no beam
+selection) so Δ=0 expansion children (same param count as the parent) are
+not lost.
 """
 function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
     M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
-    cache = Dict{Int, Vector{M}}()
-    for m in EnzymeRates.init_mechanisms(rxn)
-        pc = EnzymeRates._n_fit_params_estimate(m)
-        pc <= max_params || continue
-        push!(get!(cache, pc, M[]), m)
+    actual(m) = length(
+        EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(m)))
+    frontier = Dict{Int, Vector{M}}()
+    function add!(m)
+        pc = actual(m)
+        pc <= max_params && push!(get!(frontier, pc, M[]), m)
+    end
+    for m in EnzymeRates._dedup_flat(collect(EnzymeRates.init_mechanisms(rxn)))
+        add!(m)
     end
     results = Dict{Int, Vector{M}}()
-    while !isempty(cache)
-        pc = minimum(keys(cache))
-        pc > max_params && break
-        # dedup! operates on a Dict slice — wrap and unwrap:
-        slice = Dict(pc => pop!(cache, pc))
-        EnzymeRates.dedup!(slice)
-        level = slice[pc]
-        results[pc] = level
-        # Expand one level at a time, sorted by param-count to feed
-        # the cache in ascending order.
-        children = EnzymeRates.expand_mechanisms(level, rxn)
-        for child in children
-            cpc = EnzymeRates._n_fit_params_estimate(child)
-            (cpc > pc && cpc <= max_params) || continue
-            push!(get!(cache, cpc, M[]), child)
+    isempty(frontier) && return results
+    target = minimum(keys(frontier))
+    while !isempty(frontier)
+        swept = M[]
+        for c in collect(keys(frontier))
+            c <= target && append!(swept, pop!(frontier, c))
         end
+        swept = EnzymeRates._dedup_flat(swept)
+        for m in swept
+            push!(get!(results, actual(m), M[]), m)
+        end
+        for child in EnzymeRates.expand_mechanisms(swept, rxn)
+            add!(child)
+        end
+        isempty(frontier) && break
+        target = max(target + 1, minimum(keys(frontier)))
     end
     results
 end
@@ -1017,17 +1022,6 @@ end
                 # ≤265 variants per topology
                 @test length(result) > 0
                 @test length(result) <= 265
-                floor_pc = length(EnzymeRates.substrates(ter_ter_rxn)) +
-                           length(EnzymeRates.products(ter_ter_rxn)) + 1
-                for (steps, groups) in result
-                    mg, gg = EnzymeRates._apply_equivalence_grouping(
-                        steps, groups)
-                    m = EnzymeRates.Mechanism(
-                        ter_ter_rxn, EnzymeRates._to_group_list(mg, gg))
-                    # The floored upper bound respects the floor.
-                    @test max(EnzymeRates._n_fit_params_estimate(m),
-                              floor_pc) >= floor_pc
-                end
             end
         end
     end
@@ -1101,14 +1095,7 @@ end
 # ─── init_mechanisms ───────────────────────────────────────────────────
 @testset "init_mechanisms" begin
 
-    @testset "min param count floor: subs + prods + 1" begin
-        # Floor invariant: n_fit_params_estimate ≥ n_subs + n_prods + 1.
-        # Derivation: every init mechanism has 1 SS step (the iso) plus
-        # n_subs RE binding groups for substrates and n_prods for products.
-        # The kinetic-group count = n_subs + n_prods (RE) + 1 (SS), and
-        # n_thermo subtracts off based on cycle counts. The minimum after
-        # subtractions equals exactly n_subs + n_prods + 1 for the simplest
-        # topology with no dead-ends.
+    @testset "init mechanisms are connected" begin
         for (rxn, n_s, n_p) in [
             (uni_uni_rxn, 1, 1),
             (uni_bi_rxn, 1, 2),
@@ -1118,54 +1105,6 @@ end
             specs = EnzymeRates.init_mechanisms(rxn)
             @test all(isempty(_connectivity_violations(
                 EnzymeRates.steps(m))) for m in specs)
-            min_pc = n_s + n_p + 1
-            # The raw group-count estimate may dip below the floor for
-            # dead-end-bearing mechanisms; the upper bound callers use is
-            # max(estimate, n_subs+n_prods+1), which must respect the floor.
-            for s in specs
-                @test max(EnzymeRates._n_fit_params_estimate(s),
-                          min_pc) >= min_pc
-            end
-        end
-    end
-
-    @testset "n_fit_params_estimate matches fitted_params for uni-uni init" begin
-        # Uni-uni: 3 forms (E, E_S, E_P), 3 steps. n_thermo = 3 - 3 + 1 = 1
-        # (one independent thermodynamic constraint = Keq).
-        # Formula: n_re_groups + 2*n_ss_groups - n_thermo = 2 + 2 - 1 = 3.
-        # length(fitted_params(m)) for uni-uni init = 3 (K1, K2, k3f).
-        # Estimate must equal actual on the simplest case.
-        init_specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
-        @test all(isempty(_connectivity_violations(
-            EnzymeRates.steps(m))) for m in init_specs)
-        @test !isempty(init_specs)
-        spec = first(init_specs)
-        m = EnzymeRates.compile_mechanism(spec)
-        n_actual = length(EnzymeRates.fitted_params(m))
-        @test EnzymeRates._n_fit_params_estimate(spec) == n_actual
-    end
-
-    @testset "n_fit_params_estimate floored bound for dead-end mirrors" begin
-        # When dead-end mirror cycles exist, the formula can underestimate
-        # the true thermodynamic-constraint count, so the floor in
-        # _apply_equivalence_grouping ensures pc ≥ n_subs + n_prods + 1.
-        # This guards the upper-bound invariant: estimate ≥ actual.
-        # Cap compiled mechanisms to keep @generated cost bounded.
-        cap = 30
-        init_mechs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
-        @test all(isempty(_connectivity_violations(
-            EnzymeRates.steps(m))) for m in init_mechs)
-        for m in init_mechs[1:min(cap, end)]
-            em = EnzymeRates.compile_mechanism(m)
-            @test EnzymeRates._n_fit_params_estimate(m) >=
-                length(EnzymeRates.fitted_params(em))
-        end
-        expanded_mechs = EnzymeRates.expand_mechanisms(
-            init_mechs, uni_uni_with_reg)
-        for m in expanded_mechs[1:min(cap, end)]
-            em = EnzymeRates.compile_mechanism(m)
-            @test EnzymeRates._n_fit_params_estimate(m) >=
-                length(EnzymeRates.fitted_params(em))
         end
     end
 
@@ -1229,20 +1168,15 @@ end
     end
 
     @testset "Init compiles for all small reactions" begin
-        # Every init mechanism must compile to a valid EnzymeMechanism, and
-        # the actual fitted-param count must respect the floored bound.
+        # Every init mechanism must compile to a valid EnzymeMechanism.
         # Tests first 5 mechanisms per reaction to cap @generated cost.
         for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
             specs = EnzymeRates.init_mechanisms(rxn)
             @test all(isempty(_connectivity_violations(
                 EnzymeRates.steps(m))) for m in specs)
-            floor_pc = length(EnzymeRates.substrates(rxn)) +
-                       length(EnzymeRates.products(rxn)) + 1
             for spec in first(specs, 5)
                 m = EnzymeMechanism(spec)
                 @test m isa EnzymeMechanism
-                @test length(EnzymeRates.fitted_params(m)) <=
-                    max(EnzymeRates._n_fit_params_estimate(spec), floor_pc)
             end
         end
     end
@@ -1306,30 +1240,6 @@ end
         end
     end
 
-    @testset "_apply_equivalence_grouping floor activates for mirror cycles" begin
-        # Per src/mechanism_enumeration.jl, the floor
-        # pc = max(formula, n_subs + n_prods + 1) fires when mirror cycles
-        # cause the formula to underestimate. We verify that for bi-bi with
-        # a dead-end inhibitor I, at least one init mechanism has pc EQUAL to
-        # the floor (proving the floor was the binding constraint).
-        rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            dead_end_inhibitors: I
-        end
-        specs = EnzymeRates.init_mechanisms(rxn)
-        @test all(isempty(_connectivity_violations(
-            EnzymeRates.steps(m))) for m in specs)
-        floor_pc = 2 + 2 + 1   # n_subs + n_prods + 1
-        # The upper bound callers use, max(estimate, floor), must respect
-        # the floor for every init mechanism.
-        pcs = [max(EnzymeRates._n_fit_params_estimate(spec), floor_pc)
-               for spec in specs]
-        @test all(>=(floor_pc), pcs)
-        # At least one mechanism's raw estimate is <= floor, so the floor is the
-        # binding constraint (its floored pc EQUALS the floor).
-        @test any(==(floor_pc), pcs)
-    end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1512,11 +1422,10 @@ end
         end
     end
 
-    @testset "Mechanism — :EqualAI group: Δ=+1" begin
+    @testset "Mechanism — :EqualAI group: RE→SS preserves tag" begin
         # SEED: uni-uni allosteric with all catalytic groups :EqualAI.
         # _expand_re_to_ss fires per all-RE group → 2 variants. Each
-        # converted group is :EqualAI, so Δ in _n_fit_params_estimate = +1
-        # (cheap-tag conversion: RE K → SS (kf, kr), shared R/T).
+        # converted group stays :EqualAI (RE K → SS (kf, kr), shared R/T).
         em_seed = @allosteric_mechanism begin
             substrates: S
             products: P
@@ -1535,20 +1444,14 @@ end
         # 1. count: 2 all-RE groups; iso SS. → 2.
         @test length(result) == 2
 
-        # 2. Δ params: :EqualAI is cheap → +1 per variant.
-        for r in result
-            @test EnzymeRates._n_fit_params_estimate(r) ==
-                EnzymeRates._n_fit_params_estimate(am) + 1
-        end
-
-        # 3. compilability — must produce AllostericEnzymeMechanism.
+        # 2. compilability — must produce AllostericEnzymeMechanism.
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 4. exactly one group newly all-SS; all cat_allo_states preserved.
+        # 3. exactly one group newly all-SS; all cat_allo_states preserved.
         for r in result
             n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
                 all(EnzymeRates.is_equilibrium, old) &&
@@ -1558,7 +1461,7 @@ end
             @test r.cat_allo_states == am.cat_allo_states
         end
 
-        # 5. preservation: multiplicity, reg sites, reaction untouched.
+        # 4. preservation: multiplicity, reg sites, reaction untouched.
         for r in result
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
             @test r.regulatory_sites == am.regulatory_sites
@@ -1566,11 +1469,10 @@ end
         end
     end
 
-    @testset "Mechanism — :OnlyA group: Δ=+1" begin
+    @testset "Mechanism — :OnlyA group: RE→SS preserves tag" begin
         # SEED: uni-uni allosteric with one :OnlyA group (S-binding,
         # group 2), others :EqualAI. :OnlyA groups live in the R-state
-        # only; T-state contributes no kf_T/kr_T after RE→SS. Both
-        # :OnlyA and :EqualAI are "cheap tags" → Δ = +1 either way.
+        # only; T-state contributes no kf_T/kr_T after RE→SS.
         em_seed = @allosteric_mechanism begin
             substrates: S
             products: P
@@ -1590,20 +1492,14 @@ end
         # Iso SS. → 2 variants.
         @test length(result) == 2
 
-        # 2. Δ params: both groups carry cheap tags → +1 per variant.
-        for r in result
-            @test EnzymeRates._n_fit_params_estimate(r) ==
-                EnzymeRates._n_fit_params_estimate(am) + 1
-        end
-
-        # 3. compilability
+        # 2. compilability
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 4. exactly one group flipped to SS; ALL cat_allo_states preserved
+        # 3. exactly one group flipped to SS; ALL cat_allo_states preserved
         # (including the converted group's :OnlyA — move MUST NOT change
         # R/T-state semantics).
         for r in result
@@ -1615,7 +1511,7 @@ end
             @test r.cat_allo_states == am.cat_allo_states
         end
 
-        # 5. preservation
+        # 4. preservation
         for r in result
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
             @test r.regulatory_sites == am.regulatory_sites
@@ -1623,7 +1519,7 @@ end
         end
     end
 
-    @testset "Mechanism — :NonequalAI group: Δ=+2" begin
+    @testset "Mechanism — :NonequalAI group: RE→SS adds 2 params" begin
         # SEED: uni-uni allosteric with one :NonequalAI group (S-binding),
         # others :EqualAI. When RE→SS converts a :NonequalAI group, BOTH
         # the R-state K and the T-state K_T must split into (kf, kr) and
@@ -1649,9 +1545,7 @@ end
 
         # 2. Δ params: P-binding :EqualAI → +1; S-binding :NonequalAI → +2.
         # Measured against the actual compiled fitted-param count (ground
-        # truth). `_n_fit_params_estimate(am::AllostericMechanism)` is an
-        # upper-bound estimate during enumeration but UNDER-counts SS
-        # :NonequalAI (which adds kf_T, kr_T on top of the R-state pair).
+        # truth): SS :NonequalAI adds kf_T, kr_T on top of the R-state pair.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         deltas = sort([length(EnzymeRates.fitted_params(
@@ -1763,8 +1657,6 @@ end
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates._n_fit_params_estimate(r) ==
-                EnzymeRates._n_fit_params_estimate(am) + 1
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
@@ -1874,14 +1766,13 @@ end
 # ─── _expand_split_kinetic_group ───────────────────────────────────────
 @testset "_expand_split_kinetic_group" begin
 
-    @testset "Mechanism — mixed RE/SS group sizes: deltas differ" begin
+    @testset "Mechanism — mixed RE/SS multi-step groups split per member" begin
         # SEED: bi-bi random where the A-binding kinetic group is SS
         # (size-2, both SS) and the B-binding kinetic group is RE
         # (size-2, both RE). The remaining P-binding (size-2 RE),
         # Q-binding (size-2 RE), and iso (singleton SS) groups are
-        # unchanged. Total: 9 steps, 5 kinetic groups. Splitting an RE
-        # multi-step group adds +1 (one new K). Splitting an SS multi-
-        # step group adds +2 (one new kf AND one new kr).
+        # unchanged. Total: 9 steps, 5 kinetic groups. Each multi-step
+        # group splits per member, peeling one step into a new group.
         m_seed = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -1902,35 +1793,26 @@ end
         # Each can split per member → 4 × 2 = 8 variants.
         @test length(result) == 8
 
-        # 2. Δ params: split on an RE group → +1 (one new K). Split on an
-        # SS group → +2 (one new kf + one new kr). The seed has 1 SS multi-
-        # step group (A) and 3 RE multi-step groups (B, P, Q). Per-member
-        # splits give 2 SS splits at +2 each and 6 RE splits at +1 each.
-        base_est = EnzymeRates._n_fit_params_estimate(m)
-        deltas = sort([EnzymeRates._n_fit_params_estimate(r) - base_est
-                       for r in result])
-        @test deltas == [1, 1, 1, 1, 1, 1, 2, 2]
-
-        # 3. compilability
+        # 2. compilability
         for r in result
             @test r isa EnzymeRates.Mechanism
             EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
         end
 
-        # 4. property-style: each result introduces exactly one new
+        # 3. property-style: each result introduces exactly one new
         # trailing kinetic group with exactly one step in it.
         for r in result
             @test length(r.steps) == length(m.steps) + 1
             @test length(last(r.steps)) == 1
         end
 
-        # 5. total step count preserved across the split.
+        # 4. total step count preserved across the split.
         for r in result
             @test EnzymeRates.n_steps(r) == EnzymeRates.n_steps(m)
         end
 
-        # 6. preservation
+        # 5. preservation
         for r in result
             @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
         end
@@ -2160,11 +2042,8 @@ end
         @test length(result) == 4
 
         # 2. Δ params: +1 each (one new K_I parameter), measured against
-        # ground-truth `fitted_params(compile_mechanism(...))`.
-        # `_n_fit_params_estimate` reads `form_names` from rendered Species
-        # names and can under-count when a dead-end variant binds at multiple
-        # forms whose mirror steps land on already-counted forms, so compiled
-        # `fitted_params` is the canonical source for exact counts.
+        # ground-truth `fitted_params(compile_mechanism(...))` — the
+        # canonical source for exact parameter counts.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         for r in result
@@ -2223,9 +2102,8 @@ end
         @test length(result) == 9
 
         # 2. Δ params: +1 each (one new K_I parameter), measured against
-        # ground-truth `fitted_params(compile_mechanism(...))`.
-        # `_n_fit_params_estimate` can under-count when mirror steps inflate
-        # `n_thermo`, so exact assertions use compiled `fitted_params`.
+        # ground-truth `fitted_params(compile_mechanism(...))` — exact
+        # parameter counts come from the compiled mechanism.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         for r in result
@@ -2537,9 +2415,8 @@ end
         @test length(result) == 1
 
         # 2. Δ params: +1 (:EqualAI new group → one shared K), measured
-        # against ground-truth `fitted_params(compile_mechanism(...))`.
-        # `_n_fit_params_estimate(::AllostericMechanism)` may diverge from
-        # the post-compile count in cases involving dead-end mirror steps.
+        # against ground-truth `fitted_params(compile_mechanism(...))` —
+        # exact parameter counts come from the compiled mechanism.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         for r in result
@@ -2805,15 +2682,7 @@ end
         # 1. count: 5 kinetic groups → 1 + 5 = 6 variants.
         @test length(result) == 6
 
-        # 2. Δ params: +1 per variant (just L). All emitted variants are
-        # all-:EqualAI or single-:OnlyA — no :NonequalAI tags — so the
-        # AllostericMechanism estimator collapses to base + 1.
-        for r in result
-            @test EnzymeRates._n_fit_params_estimate(r) ==
-                EnzymeRates._n_fit_params_estimate(m) + 1
-        end
-
-        # 3. compilability — must produce AllostericEnzymeMechanism.
+        # 2. compilability — must produce AllostericEnzymeMechanism.
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
@@ -2851,15 +2720,7 @@ end
         n_groups = length(m.steps)
         @test length(result) == n_groups + 1
 
-        # 2. Δ params: +1 (just L) per variant. All emitted variants are
-        # all-:EqualAI or single-:OnlyA — no :NonequalAI tags — so the
-        # AllostericMechanism estimator collapses to base + 1.
-        for r in result
-            @test EnzymeRates._n_fit_params_estimate(r) ==
-                EnzymeRates._n_fit_params_estimate(m) + 1
-        end
-
-        # 3. compilability
+        # 2. compilability
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
@@ -2991,15 +2852,7 @@ end
         # ligand" → not applicable here.
         @test length(result) == 3
 
-        # 2. Δ params: cost of new R-binding K (+1) plus per-tag delta vs
-        # :EqualAI base. :OnlyA/:OnlyI cheap → +1 total. :NonequalAI → +2
-        # (K_R + K_T). `_n_fit_params_estimate` matches the compiled
-        # parameter delta for these tag/site combos.
-        deltas = sort([EnzymeRates._n_fit_params_estimate(r) -
-                       EnzymeRates._n_fit_params_estimate(am) for r in result])
-        @test deltas == [1, 1, 2]
-
-        # 3. equivalence-style structural: each variant has exactly one
+        # 2. equivalence-style structural: each variant has exactly one
         # regulatory site holding the single ligand :R; tags across the 3
         # variants are exactly {:OnlyA, :OnlyI, :NonequalAI}. This captures
         # the same contract without depending on type-parameter encoding;
@@ -3019,14 +2872,14 @@ end
             ([:R], [:NonequalAI], am.catalytic_multiplicity),
         ])
 
-        # 4. compilability + invariants on each variant.
+        # 3. compilability + invariants on each variant.
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 5. preservation: catalytic side and cat_allo_states untouched;
+        # 4. preservation: catalytic side and cat_allo_states untouched;
         # new-site multiplicity inherits am.catalytic_multiplicity.
         for r in result
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
@@ -3088,16 +2941,7 @@ end
         # (gated on R1 being non-:EqualAI). → 7.
         @test length(result) == 7
 
-        # 2. Δ params: 5 ones + 2 twos.
-        # :OnlyA/:OnlyI at any site → +1 (×4). :EqualAI at existing site → +1.
-        # :NonequalAI at any site → +2 (×2). Sorted: [1,1,1,1,1,2,2].
-        # Mechanism-side estimator agrees because every variant adds exactly
-        # one ligand at known multiplicity; per-tag bookkeeping matches.
-        deltas = sort([EnzymeRates._n_fit_params_estimate(r) -
-                       EnzymeRates._n_fit_params_estimate(am) for r in result])
-        @test deltas == [1, 1, 1, 1, 1, 2, 2]
-
-        # 4. structural: every result has :R2 in some regulatory site.
+        # 2. structural: every result has :R2 in some regulatory site.
         for r in result
             has_r2 = any(r.regulatory_sites) do site
                 any(l -> EnzymeRates.name(l) === :R2,
@@ -3106,14 +2950,14 @@ end
             @test has_r2
         end
 
-        # 4b. compilability + invariants.
+        # 3. compilability + invariants.
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 5. preservation: catalytic side and cat_allo_states untouched.
+        # 4. preservation: catalytic side and cat_allo_states untouched.
         for r in result
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
             @test r.cat_allo_states == am.cat_allo_states
@@ -3190,19 +3034,14 @@ end
         # 1. count: 3 non-:EqualAI × 2 sites + 1 :EqualAI-at-existing = 7.
         @test length(result) == 7
 
-        # 2. Δ params: same multiset as the :OnlyA seed — [1,1,1,1,1,2,2].
-        deltas = sort([EnzymeRates._n_fit_params_estimate(r) -
-                       EnzymeRates._n_fit_params_estimate(am) for r in result])
-        @test deltas == [1, 1, 1, 1, 1, 2, 2]
-
-        # 3. compilability
+        # 2. compilability
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 4. property: at least one variant has :R2 :EqualAI at site 1
+        # 3. property: at least one variant has :R2 :EqualAI at site 1
         # (the :EqualAI-at-existing branch, gated on R1 being non-:EqualAI).
         has_eq_at_site1 = any(result) do r
             length(r.regulatory_sites) == 1 || return false
@@ -3244,12 +3083,7 @@ end
         # reg sites → 3 non-:EqualAI tags × 1 site = 3. → 3.
         @test length(result) == 3
 
-        # 2. Δ params: same as the first-allo-regulator R case — [1, 1, 2].
-        deltas = sort([EnzymeRates._n_fit_params_estimate(r) -
-                       EnzymeRates._n_fit_params_estimate(am) for r in result])
-        @test deltas == [1, 1, 2]
-
-        # 4. structural: :S appears in some regulatory site of every result.
+        # 2. structural: :S appears in some regulatory site of every result.
         # :S still plays its catalytic substrate role in the base mechanism.
         for r in result
             has_s = any(r.regulatory_sites) do site
@@ -3259,14 +3093,14 @@ end
             @test has_s
         end
 
-        # 4b. compilability + invariants (explicit since dual-role is unusual).
+        # 3. compilability + invariants (explicit since dual-role is unusual).
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 5. preservation
+        # 4. preservation
         for r in result
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
             @test r.cat_allo_states == am.cat_allo_states
@@ -3339,19 +3173,14 @@ end
         # 1. count: 3 non-:EqualAI tags × 1 new site = 3 variants.
         @test length(result) == 3
 
-        # 2. Δ params: [1, 1, 2] (2 cheap + 1 :NonequalAI).
-        deltas = sort([EnzymeRates._n_fit_params_estimate(r) -
-                       EnzymeRates._n_fit_params_estimate(am) for r in result])
-        @test deltas == [1, 1, 2]
-
-        # 3. compilability
+        # 2. compilability
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 4. property: :P appears in some regulatory site of every result.
+        # 3. property: :P appears in some regulatory site of every result.
         for r in result
             @test any(r.regulatory_sites) do site
                 any(l -> EnzymeRates.name(l) === :P,
@@ -3469,12 +3298,9 @@ end
         end
         @test length(r_removal) == 1
 
-        # 3. ground-truth Δ params via compiled `fitted_params`. The
-        # mechanism-side `_n_fit_params_estimate` collapses every tag
-        # relaxation to Δ=+1 uniformly (no RE/SS factor distinction); the
-        # compiled rate equation agrees: `fitted_params` returns the
-        # identical Δ=+1 for the R-ligand :OnlyA → :NonequalAI flip. The
-        # assertion uses compiled truth so it is estimator-independent.
+        # 3. ground-truth Δ params via compiled `fitted_params`: the
+        # R-ligand :OnlyA → :NonequalAI flip adds exactly one new
+        # independent parameter (Δ=+1).
         seed_truth = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         @test length(EnzymeRates.fitted_params(
@@ -3512,10 +3338,9 @@ end
         # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation.
         @test length(result) == 4
 
-        # 2. ground-truth Δ multiset via `fitted_params`.
-        # `_n_fit_params_estimate` does not apply an SS-iso factor and the
-        # compiled rate equation likewise: every tag relaxation contributes
-        # exactly one new independent parameter. Truth: `[1, 1, 1, 1]`.
+        # 2. ground-truth Δ multiset via `fitted_params`: every tag
+        # relaxation contributes exactly one new independent parameter.
+        # Truth: `[1, 1, 1, 1]`.
         seed_truth = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         truth_deltas = sort([
@@ -3566,10 +3391,9 @@ end
         # 1. count: 3 cat-group relaxations + 2 reg-ligand relaxations = 5.
         @test length(result) == 5
 
-        # 2. ground-truth Δ multiset via `fitted_params`.
-        # `_n_fit_params_estimate` and the compiled rate equation agree
-        # that every tag relaxation contributes exactly one new independent
-        # parameter. Truth: `[1, 1, 1, 1, 1]`.
+        # 2. ground-truth Δ multiset via `fitted_params`: every tag
+        # relaxation contributes exactly one new independent parameter.
+        # Truth: `[1, 1, 1, 1, 1]`.
         seed_truth = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         truth_deltas = sort([
@@ -3816,7 +3640,7 @@ end
         # Surviving Mechanisms must be pairwise distinct under
         # compile-time equality (EnzymeMechanism singleton type).
         mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        pc = 5  # arbitrary bucket key (init mechanisms all share params)
+        pc = 5  # arbitrary bucket label; dedup! ignores the key value
         cache = Dict(pc => collect(mechs))
         EnzymeRates.dedup!(cache)
         compiled = Set(EnzymeRates.EnzymeMechanism(m) for m in cache[pc])
@@ -3851,7 +3675,7 @@ end
         # therefore a no-op on the count, and the post-dedup bucket equals
         # the input count.
         mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        pc = EnzymeRates._n_fit_params_estimate(first(mechs))
+        pc = 5
         mech_cache = Dict(pc => collect(mechs))
         EnzymeRates.dedup!(mech_cache)
         @test length(mech_cache[pc]) == length(mechs)
@@ -3872,7 +3696,7 @@ end
         am_ba = EnzymeRates.AllostericMechanism(
             EnzymeRates.reaction(base),
             [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
-        pc = EnzymeRates._n_fit_params_estimate(am_ab)
+        pc = 5
         cache = Dict(pc =>
             EnzymeRates.AllostericMechanism[am_ab, am_ba])
         EnzymeRates.dedup!(cache)
@@ -3931,7 +3755,7 @@ end
     end
 
     @testset "Mechanism — Returns flat vector" begin
-        # SEED: uni-uni RE-only, 3 singleton kinetic groups → base_pc = 3.
+        # SEED: uni-uni RE-only, 3 singleton kinetic groups.
         em_seed = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -3943,12 +3767,10 @@ end
         end
         m = EnzymeRates.Mechanism(em_seed)
         EnzymeRates._assert_mechanism_invariants(m)
-        base_pc = EnzymeRates._n_fit_params_estimate(m)
         result = EnzymeRates.expand_mechanisms([m], uni_uni_rxn)
         @test result isa Vector{Union{
             EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}}
-        @test any(EnzymeRates._n_fit_params_estimate(child) == base_pc + 1
-                  for child in result)
+        @test !isempty(result)
     end
 
     @testset "Mechanism — Allosteric expansion included" begin
@@ -3974,27 +3796,6 @@ end
         # AllostericMechanism output from a plain Mechanism, so at least 4
         # exist.
         @test allo_count >= 4
-    end
-
-    @testset "Mechanism — No self-expansion to same param count" begin
-        # SEED: uni-uni RE-only, base_pc = 3. All children in the result
-        # must have strictly greater param count than base_pc.
-        em_seed = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E(P)
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        base_pc = EnzymeRates._n_fit_params_estimate(m)
-        result = EnzymeRates.expand_mechanisms([m], uni_uni_rxn)
-        for child in result
-            @test EnzymeRates._n_fit_params_estimate(child) > base_pc
-        end
     end
 
     @testset "AllostericMechanism — rewrap preserves structure" begin
@@ -4063,68 +3864,45 @@ end
 @testset "Integration" begin
 
     @testset "Mechanism — Uni-uni full enumeration" begin
-        # Uses enumerate_all_mechanism with max_params=8. For uni-uni,
-        # the raw mechanism estimate and the floored bound both bottom out
-        # at pc=3, so the bound is equivalent here.
+        # enumerate_all_mechanism buckets by ACTUAL fitted-parameter count,
+        # so each bucket key `pc` must equal every member's fitted count.
         results = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
         @test !isempty(results)
         pcs = sort(collect(keys(results)))
         @test issorted(pcs)
-        allo_count = 0
         for (pc, mechs) in results
             for m in mechs
-                if m isa EnzymeRates.Mechanism
-                    em = EnzymeRates.compile_mechanism(m)
-                    @test length(EnzymeRates.fitted_params(em)) <= pc
-                elseif m isa EnzymeRates.AllostericMechanism
-                    allo_count += 1
-                    allo_count > 3 && continue
-                    aem = EnzymeRates.compile_mechanism(m)
-                    @test length(EnzymeRates.fitted_params(aem)) <=
-                        EnzymeRates._n_fit_params_estimate(m)
-                end
+                @test length(EnzymeRates.fitted_params(
+                    EnzymeRates.compile_mechanism(m))) == pc
             end
         end
     end
 
-    @testset "Mechanism — Bi-bi full enumeration" begin
-        # Sample-based per bucket. `_n_fit_params_estimate` (the bucket key
-        # `pc`) relates to the real fitted-parameter count differently per
-        # mechanism kind:
-        #   - plain Mechanism: the group-count formula UNDER-counts — it is a
-        #     conservative lower bound (thermodynamic cycles make parameters
-        #     dependent, e.g. a 6-param mechanism with estimate 4), so assert
-        #     `pc <= fitted`.
-        #   - AllostericMechanism: the per-tag estimate (floored at
-        #     `n_subs + n_prods + 1`) is an upper bound here, so assert
-        #     `fitted <= max(estimate, floor_pc)`.
-        # Cap at `max_params=4` to keep test time bounded.
-        floor_pc = length(EnzymeRates.substrates(bi_bi_rxn)) +
-                   length(EnzymeRates.products(bi_bi_rxn)) + 1
-        results = enumerate_all_mechanism(bi_bi_rxn; max_params=4)
-        @test !isempty(results)
-        allo_count = 0
-        for (pc, mechs) in results
-            sample = first(mechs, 5)
-            for m in sample
-                if m isa EnzymeRates.Mechanism
-                    em = EnzymeRates.compile_mechanism(m)
-                    @test pc <= length(EnzymeRates.fitted_params(em))
-                elseif m isa EnzymeRates.AllostericMechanism
-                    allo_count += 1
-                    allo_count > 3 && continue
-                    aem = EnzymeRates.compile_mechanism(m)
-                    @test length(EnzymeRates.fitted_params(aem)) <=
-                        max(EnzymeRates._n_fit_params_estimate(m),
-                            floor_pc)
-                end
-            end
+    @testset "Mechanism — Bi-bi init-tier (actual-count buckets)" begin
+        # Full multi-tier bi-bi enumeration would have to compile every
+        # reachable mechanism to bucket it by actual fitted count (hundreds
+        # of @generated derivations) — too slow for the suite. The init tier
+        # suffices to verify bi-bi enumeration produces mechanisms that
+        # compile and that their actual fitted-param counts fall in the
+        # expected {5,6} band. (Multi-tier actual-count enumeration is
+        # exercised by the uni-uni / dead-end / allosteric callers below.)
+        init = EnzymeRates._dedup_flat(
+            collect(EnzymeRates.init_mechanisms(bi_bi_rxn)))
+        @test !isempty(init)
+        counts = Set{Int}()
+        for m in init
+            em = EnzymeRates.compile_mechanism(m)
+            push!(counts, length(EnzymeRates.fitted_params(em)))
         end
+        # {5,6}: ordered binding identifies one more thermodynamic
+        # constraint than random binding, so it fits one fewer parameter.
+        @test issubset(counts, Set([5, 6]))
+        @test 5 in counts
     end
 
     @testset "Mechanism — With allosteric regulators" begin
-        # Sample-based per bucket. For a uni-uni allosteric reaction, the raw
-        # `_n_fit_params_estimate` floor matches the safe bound.
+        # Sample-based per bucket on a uni-uni allosteric reaction. The
+        # bucket key `pc` IS the actual fitted-parameter count.
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -4136,20 +3914,10 @@ end
             any(s isa EnzymeRates.AllostericMechanism for s in mechs)
             for (_, mechs) in results)
         @test has_allo
-        allo_count = 0
         for (pc, mechs) in results
-            sample = first(mechs, 5)
-            for m in sample
-                if m isa EnzymeRates.Mechanism
-                    em = EnzymeRates.compile_mechanism(m)
-                    @test length(EnzymeRates.fitted_params(em)) <= pc
-                elseif m isa EnzymeRates.AllostericMechanism
-                    allo_count += 1
-                    allo_count > 3 && continue
-                    aem = EnzymeRates.compile_mechanism(m)
-                    @test length(EnzymeRates.fitted_params(aem)) <=
-                        EnzymeRates._n_fit_params_estimate(m)
-                end
+            for m in first(mechs, 5)
+                @test length(EnzymeRates.fitted_params(
+                    EnzymeRates.compile_mechanism(m))) == pc
             end
         end
     end
@@ -4206,8 +3974,6 @@ end
         end)
         m = EnzymeRates.compile_mechanism(only_r)
         params = parameters(m)
-        @test length(EnzymeRates.fitted_params(m)) ==
-            EnzymeRates._n_fit_params_estimate(only_r)
         t_params = filter(
             p -> endswith(string(p), "_T"), params)
         @test isempty(t_params)
@@ -4225,8 +3991,6 @@ end
         end)
         m = EnzymeRates.compile_mechanism(only_r_iso)
         params = parameters(m)
-        @test length(EnzymeRates.fitted_params(m)) ==
-            EnzymeRates._n_fit_params_estimate(only_r_iso)
         t_k_params = filter(
             p -> contains(string(p), "f_T") ||
                  contains(string(p), "r_T"), params)
