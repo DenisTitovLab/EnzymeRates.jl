@@ -1777,21 +1777,30 @@ _regulatory_site_canonical_key(site::RegulatorySite) =
      Tuple(allo_states(site)))
 
 """
+    _dedup_flat(mechs::Vector)
+
+Canonicalize each mechanism in place via `_canonicalize_mechanism!`, then
+`unique!` so structurally-equivalent mechanisms collapse. Works for any
+element type — `Mechanism`, `AllostericMechanism`, or
+`Union{Mechanism, AllostericMechanism}` — because `_canonicalize_mechanism!`
+dispatches at runtime.
+"""
+function _dedup_flat(mechs::Vector)
+    for m in mechs
+        _canonicalize_mechanism!(m)
+    end
+    unique!(mechs)
+    mechs
+end
+
+"""
     dedup!(cache::Dict{Int, <:Vector})
 
-Canonicalize each mechanism in place via the type-specific
-`_canonicalize_mechanism!` overload, then run `unique!` so
-structurally-equivalent mechanisms collapse. Works for any element
-type — `Mechanism`, `AllostericMechanism`, or
-`Union{Mechanism, AllostericMechanism}` — because
-`_canonicalize_mechanism!` dispatches at runtime.
+Apply `_dedup_flat` to each bucket; drop emptied buckets.
 """
 function dedup!(cache::Dict{Int, <:Vector})
     for (pc, mechs) in cache
-        for m in mechs
-            _canonicalize_mechanism!(m)
-        end
-        unique!(mechs)
+        _dedup_flat(mechs)
         isempty(mechs) && delete!(cache, pc)
     end
     cache

@@ -4556,3 +4556,17 @@ end
     @test mech_keys == golden          # permanent structural regression gate
     @test length(init) == length(golden)   # init_mechanisms count invariant
 end
+
+@testset "_dedup_flat" begin
+    rxn = @enzyme_reaction begin
+        substrates:S[C]
+        products:P[C]
+    end
+    ms = collect(EnzymeRates.init_mechanisms(rxn))
+    dup = vcat(ms, deepcopy(ms))          # every mechanism twice
+    out = EnzymeRates._dedup_flat(dup)
+    @test length(out) == length(EnzymeRates._dedup_flat(collect(ms)))
+    @test length(out) <= length(dup)
+    @test EnzymeRates._dedup_flat(Union{EnzymeRates.Mechanism,
+        EnzymeRates.AllostericMechanism}[]) == []
+end
