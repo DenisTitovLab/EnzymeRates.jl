@@ -1,5 +1,5 @@
 # ABOUTME: Mechanism enumeration by incremental parameter count growth
-# ABOUTME: Provides init_mechanisms, expand_mechanisms, _dedup_flat building blocks
+# ABOUTME: Provides init_mechanisms, expand_mechanisms, _dedup_flat! building blocks
 
 
 # ─── Catalytic topologies ─────────────────────────────────────────────
@@ -1701,7 +1701,7 @@ _regulatory_site_canonical_key(site::RegulatorySite) =
      Tuple(allo_states(site)))
 
 """
-    _dedup_flat(mechs::Vector)
+    _dedup_flat!(mechs::Vector)
 
 Canonicalize each mechanism in place via `_canonicalize_mechanism!`, then
 `unique!` so structurally-equivalent mechanisms collapse. Works for any
@@ -1709,7 +1709,7 @@ element type — `Mechanism`, `AllostericMechanism`, or
 `Union{Mechanism, AllostericMechanism}` — because `_canonicalize_mechanism!`
 dispatches at runtime.
 """
-function _dedup_flat(mechs::Vector)
+function _dedup_flat!(mechs::Vector)
     for m in mechs
         _canonicalize_mechanism!(m)
     end

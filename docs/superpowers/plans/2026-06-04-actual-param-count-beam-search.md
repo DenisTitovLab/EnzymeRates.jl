@@ -4,7 +4,7 @@
 
 **Goal:** Replace the parameter-*estimate*-driven beam search with one keyed on the **actual** fitted-param count, bound its memory (mandatory CSVs + top-N-per-count CV pool), and replace the ~200-line canonical-rate-eq-hash machinery with a ~5-line comment-stripped string key.
 
-**Architecture:** `init_mechanisms` are all fit up front (`initial_mechanisms.csv`); an ascending **advancing-target sweep** then expands mechanisms by actual param count — each iteration pops all unexpanded entries at count ≤ a monotonic `target`, beam-selects per count, expands as one batch, fits children, and writes `equation_search_iteration_N.csv`. Each worker does compile→cap-check→fit locally (one `pmap`, no cross-worker recompile). Dedup is structural-only (`_dedup_flat`); `eq_hash` is a CSV tag + the LOOCV distinct-equation key. Termination rests on move irreversibility + the param cap.
+**Architecture:** `init_mechanisms` are all fit up front (`initial_mechanisms.csv`); an ascending **advancing-target sweep** then expands mechanisms by actual param count — each iteration pops all unexpanded entries at count ≤ a monotonic `target`, beam-selects per count, expands as one batch, fits children, and writes `equation_search_iteration_N.csv`. Each worker does compile→cap-check→fit locally (one `pmap`, no cross-worker recompile). Dedup is structural-only (`_dedup_flat!`); `eq_hash` is a CSV tag + the LOOCV distinct-equation key. Termination rests on move irreversibility + the param cap.
 
 **Tech Stack:** Julia 1.9+, package `EnzymeRates` at `~/.julia/dev/EnzymeRates/`. Full suite: `julia --project -e 'using Pkg; Pkg.test()'` from the package root. Single-test-file runs are NOT supported standalone (shared fixtures via `runtests.jl`); for fast inner-loop checks use `julia --project -e '<snippet>'`.
 
@@ -20,7 +20,7 @@
 ## File Structure
 
 - **`src/identify_rate_equation.jl`** — new: `_rate_eq_dedup_key`, `_default_save_dir`, `_save_initial_csv`, `_save_iteration_csv`, `BatchEntry`, `_process_batch`, `_ingest!`, `_offer_cv!`; rewritten: `_beam_search`, `_select_beam` (adds `best_override`), `_rows_to_dataframe` (drops a column), `identify_rate_equation` (save_dir default); deleted: canonical-hash machinery, `_project_cached_params`, `_CachedFitResult`, `_CompiledMechanismResult`, `_save_level_csv`.
-- **`src/mechanism_enumeration.jl`** — new: `_dedup_flat`; rewritten: `expand_mechanisms`, `_add_expansions_mech!` (flat vector); deleted: `_push_mech!`, `_n_fit_params_estimate` (both overloads).
+- **`src/mechanism_enumeration.jl`** — new: `_dedup_flat!`; rewritten: `expand_mechanisms`, `_add_expansions_mech!` (flat vector); deleted: `_push_mech!`, `_n_fit_params_estimate` (both overloads).
 - **`src/EnzymeRates.jl`** — add `using Dates`.
 - **`src/rate_eq_derivation.jl`** — fix one stale doc comment (`:1171`) referencing a deleted helper.
 - **`test/test_identify_rate_equation.jl`** / **`test/test_mechanism_enumeration.jl`** — migrate (new CSV names, flat `expand_mechanisms`, drop estimate/canonical tests, add per-function unit tests).
@@ -116,10 +116,10 @@ git commit -m "Add _rate_eq_dedup_key (comment-stripped equation key)"
 
 ---
 
-## Task 2: `_dedup_flat`
+## Task 2: `_dedup_flat!`
 
 **Files:**
-- Modify: `src/mechanism_enumeration.jl:1789-1798` (refactor `dedup!`, add `_dedup_flat`)
+- Modify: `src/mechanism_enumeration.jl:1789-1798` (refactor `dedup!`, add `_dedup_flat!`)
 - Test: `test/test_mechanism_enumeration.jl`
 
 - [ ] **Step 1: Write the failing test**
@@ -127,39 +127,39 @@ git commit -m "Add _rate_eq_dedup_key (comment-stripped equation key)"
 Add a `@testset` to `test/test_mechanism_enumeration.jl`:
 
 ```julia
-@testset "_dedup_flat" begin
+@testset "_dedup_flat!" begin
     rxn = @enzyme_reaction begin
         substrates:S[C]
         products:P[C]
     end
     ms = collect(EnzymeRates.init_mechanisms(rxn))
     dup = vcat(ms, deepcopy(ms))          # every mechanism twice
-    out = EnzymeRates._dedup_flat(dup)
-    @test length(out) == length(EnzymeRates._dedup_flat(collect(ms)))
+    out = EnzymeRates._dedup_flat!(dup)
+    @test length(out) == length(EnzymeRates._dedup_flat!(collect(ms)))
     @test length(out) <= length(dup)
-    @test EnzymeRates._dedup_flat(Union{EnzymeRates.Mechanism,
+    @test EnzymeRates._dedup_flat!(Union{EnzymeRates.Mechanism,
         EnzymeRates.AllostericMechanism}[]) == []
 end
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `julia --project -e 'using EnzymeRates; EnzymeRates._dedup_flat([])'`
-Expected: FAIL — `UndefVarError: _dedup_flat`.
+Run: `julia --project -e 'using EnzymeRates; EnzymeRates._dedup_flat!([])'`
+Expected: FAIL — `UndefVarError: _dedup_flat!`.
 
 - [ ] **Step 3: Implement**
 
-In `src/mechanism_enumeration.jl`, replace the body of `dedup!` (currently `src/mechanism_enumeration.jl:1789-1798`) and add `_dedup_flat` just above it:
+In `src/mechanism_enumeration.jl`, replace the body of `dedup!` (currently `src/mechanism_enumeration.jl:1789-1798`) and add `_dedup_flat!` just above it:
 
 ```julia
 """
-    _dedup_flat(mechs::Vector)
+    _dedup_flat!(mechs::Vector)
 
 Canonicalize each mechanism in place via `_canonicalize_mechanism!`, then
 `unique!` so structurally-equivalent mechanisms collapse. The cheap,
 pre-compile dedup used on both the base set and every expansion batch.
 """
-function _dedup_flat(mechs::Vector)
+function _dedup_flat!(mechs::Vector)
     for m in mechs
         _canonicalize_mechanism!(m)
     end
@@ -170,11 +170,11 @@ end
 """
     dedup!(cache::Dict{Int, <:Vector})
 
-Apply `_dedup_flat` to each bucket; drop emptied buckets.
+Apply `_dedup_flat!` to each bucket; drop emptied buckets.
 """
 function dedup!(cache::Dict{Int, <:Vector})
     for (pc, mechs) in cache
-        _dedup_flat(mechs)
+        _dedup_flat!(mechs)
         isempty(mechs) && delete!(cache, pc)
     end
     cache
@@ -186,14 +186,14 @@ end
 Run: `julia --project -e 'using EnzymeRates; const E=EnzymeRates;
 rxn=E.@enzyme_reaction begin; substrates:S[C]; products:P[C]; end;
 ms=collect(E.init_mechanisms(rxn));
-println(length(E._dedup_flat(vcat(ms,deepcopy(ms)))) == length(E._dedup_flat(copy(ms))))'`
+println(length(E._dedup_flat!(vcat(ms,deepcopy(ms)))) == length(E._dedup_flat!(copy(ms))))'`
 Expected: `true`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/mechanism_enumeration.jl test/test_mechanism_enumeration.jl
-git commit -m "Factor _dedup_flat out of dedup!"
+git commit -m "Factor _dedup_flat! out of dedup!"
 ```
 
 ---
@@ -438,7 +438,7 @@ Self-contained (build a tiny uni-uni `prob` + `PyCMAOpt()`, mirroring the `_looc
         group = [1, 1, 2, 2],
     )
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-    ms = EnzymeRates._dedup_flat(collect(EnzymeRates.init_mechanisms(rxn)))
+    ms = EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(rxn)))
     entries = EnzymeRates._process_batch(ms, prob;
         pmap_function=map, optimizer=PyCMAOpt(),
         max_param_count=20, n_restarts=1, maxtime=1.0)
@@ -479,7 +479,7 @@ compile and fit fused on the same worker. Returns one `BatchEntry` per
 fitted mechanism (each keeping its OWN fitted params and `eq_hash`). A
 mechanism whose actual fitted-param count exceeds `max_param_count` is
 dropped BEFORE fitting; compile/fit failures are dropped. No dedup here —
-`mechs` is already structurally deduped by the caller (`_dedup_flat`).
+`mechs` is already structurally deduped by the caller (`_dedup_flat!`).
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
@@ -755,7 +755,7 @@ These edits all live in `test/test_identify_rate_equation.jl`. The pipeline is a
             "equation_search_iteration_" => "", ".csv" => "")))
         @test nums == collect(1:length(nums))      # sequential, no gaps
         init_df = CSV.read(joinpath(save_dir, "initial_mechanisms.csv"), DataFrame)
-        @test nrow(init_df) == length(EnzymeRates._dedup_flat(
+        @test nrow(init_df) == length(EnzymeRates._dedup_flat!(
             collect(EnzymeRates.init_mechanisms(prob.reaction))))
         @test "eq_hash" in names(init_df)
         @test !("fit_inherited_from_estimate" in names(init_df))
@@ -805,7 +805,7 @@ function _beam_search(
     best_loss_by_count = Dict{Int, Float64}()
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
-    base = _dedup_flat(collect(init_mechanisms(prob.reaction)))
+    base = _dedup_flat!(collect(init_mechanisms(prob.reaction)))
     base_entries = _process_batch(base, prob;
         pmap_function, optimizer, max_param_count, kwargs...)
     isempty(base_entries) && return (
@@ -834,7 +834,7 @@ function _beam_search(
         end
 
         if !isempty(to_expand)
-            children = _dedup_flat(expand_mechanisms(
+            children = _dedup_flat!(expand_mechanisms(
                 [e.mech for e in to_expand], prob.reaction))
             child_entries = _process_batch(children, prob;
                 pmap_function, optimizer, max_param_count, kwargs...)
@@ -992,7 +992,7 @@ git commit -m "Delete canonical-hash machinery, projection, and dead records"
 In `.claude/CLAUDE.md`:
 - The `expand_mechanisms` description (the "Mechanism enumeration building blocks" section and the Source Layout entry for `mechanism_enumeration.jl`) says it returns `Dict{Int, Vector{...}}` keyed by `_n_fit_params_estimate`. Change to: returns `Vector{Union{Mechanism, AllostericMechanism}}`; bucketing by **actual** fitted-param count now lives in `identify_rate_equation.jl`'s beam search.
 - Remove `_n_fit_params_estimate` from the building-blocks list and from `_push_mech!`/floor mentions.
-- In the `identify_rate_equation.jl` Source Layout entry, replace the canonical-rate-equation-hashing description with: structural dedup (`_dedup_flat`) + a comment-stripped `_rate_eq_dedup_key` used as a CSV tag and the LOOCV distinct-equation key; the beam search is an advancing-target sweep over actual param counts with mandatory CSV output (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`) and `max_param_count` capping **actual fitted** params.
+- In the `identify_rate_equation.jl` Source Layout entry, replace the canonical-rate-equation-hashing description with: structural dedup (`_dedup_flat!`) + a comment-stripped `_rate_eq_dedup_key` used as a CSV tag and the LOOCV distinct-equation key; the beam search is an advancing-target sweep over actual param counts with mandatory CSV output (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`) and `max_param_count` capping **actual fitted** params.
 - Remove references to the deleted `_canonical_rate_eq_hash` / `_project_cached_params` as the dedup/fit-reuse mechanism.
 
 - [ ] **Step 2: Verify**
@@ -1032,7 +1032,7 @@ end
 # tiny stub data: reuse a fixture or a few rows with a `group` column.
 # Build prob + run with a small cap and pmap_function=map, then:
 #   readdir(save_dir)  ==>  initial_mechanisms.csv + equation_search_iteration_1.csv, _2.csv, …
-#   every CSV n_params <= cap ; initial row count == length(_dedup_flat(init_mechanisms(rxn)))
+#   every CSV n_params <= cap ; initial row count == length(_dedup_flat!(init_mechanisms(rxn)))
 '
 ```
 Expected: `initial_mechanisms.csv` present with all deduped init mechanisms at their real 5–6 params; `equation_search_iteration_N.csv` sequential with no gaps; no `params_estimate_*.csv`; `n_params` never exceeds the cap.
@@ -1053,6 +1053,6 @@ git commit -m "Final cleanup for actual-param-count beam search" || echo "nothin
 
 ## Self-Review checklist (run before handing off)
 
-- **Spec coverage:** every spec section maps to a task — `_rate_eq_dedup_key` (T1), `_dedup_flat` (T2), `_default_save_dir` (T3), CSV writers (T4), `_select_beam` override (T5), `_process_batch` (T6), `_ingest!`/cv_pool (T7), flat `expand_mechanisms` (T8), `_beam_search`/`_rows_to_dataframe`/`identify_rate_equation` (T9), delete estimate (T10), delete canonical machinery (T11), docs (T12), verify (T13).
+- **Spec coverage:** every spec section maps to a task — `_rate_eq_dedup_key` (T1), `_dedup_flat!` (T2), `_default_save_dir` (T3), CSV writers (T4), `_select_beam` override (T5), `_process_batch` (T6), `_ingest!`/cv_pool (T7), flat `expand_mechanisms` (T8), `_beam_search`/`_rows_to_dataframe`/`identify_rate_equation` (T9), delete estimate (T10), delete canonical machinery (T11), docs (T12), verify (T13).
 - **No new `Sig` types** introduced — derivation untouched. Perf + compile-budget gates verified in T0 and T13.
 - **Type consistency:** `BatchEntry` fields (`mech`, `n_params`, `loss`, `eq_hash::UInt64`, `row`) are used identically in `_process_batch`, `_ingest!`, `_offer_cv!`, and `_beam_search`; the row NamedTuple schema (`n_params`, `loss`, `mechanism_type`, `rate_equation`, `fitted_param_names`, `fitted_param_values`, `eq_hash`) matches `_rows_to_dataframe` after the column drop.

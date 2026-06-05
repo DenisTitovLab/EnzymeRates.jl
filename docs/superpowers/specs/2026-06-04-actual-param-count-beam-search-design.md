@@ -88,7 +88,7 @@ end
 row kept (with its own fitted params — no projection/copying). `eq_hash` serves two purposes
 only: a CSV column for downstream grouping in analysis, and the LOOCV candidate-selection key
 (pick N *distinct* equations per param count, not N best mechanisms). The search loop never
-dedups by `eq_hash`; the only mechanism-collapsing dedup is the structural `_dedup_flat`.
+dedups by `eq_hash`; the only mechanism-collapsing dedup is the structural `_dedup_flat!`.
 
 **Delete entirely:** `_canonical_rate_eq_hash_data`, `_canonical_rate_eq_hash`,
 `_canonicalize_for_hash`, `_build_name_map`, `_dep_exprs_canonical`, `_synth_dep_a_names`,
@@ -114,7 +114,7 @@ _process_batch(mechs, prob; pmap_function, optimizer, max_param_count, kwargs...
     → Vector{BatchEntry}     # one per fitted mechanism
 ```
 
-`mechs` is already structurally pre-deduped on the master (`_dedup_flat`). There is **no**
+`mechs` is already structurally pre-deduped on the master (`_dedup_flat!`). There is **no**
 `seen_keys` and **no** equation collapse — every structurally-distinct mechanism that fits
 within the cap gets its own `BatchEntry`.
 
@@ -139,7 +139,7 @@ expand, since their structural expansions differ.
 `BatchEntry` is a small new struct
 `(mech, n_params::Int, loss::Float64, eq_hash::UInt64, row::NamedTuple)`.
 
-`_dedup_flat(ms)::Vector` is a new helper applying the same structural canonicalization +
+`_dedup_flat!(ms)::Vector` is a new helper applying the same structural canonicalization +
 `unique!` as `dedup!` to a flat vector (factor the per-bucket body out of `dedup!(::Dict)`
 and call it from both). It is the **only** mechanism-collapsing dedup — cheap, pre-compile,
 dropping exact structural twins before the expensive compile pass.
@@ -168,7 +168,7 @@ so structure strictly elaborates along every path, the reachable structure space
 
 Flow:
 ```
-base = _dedup_flat(collect(init_mechanisms(prob.reaction)))   # structural pre-dedup
+base = _dedup_flat!(collect(init_mechanisms(prob.reaction)))   # structural pre-dedup
 base_entries = _process_batch(base, prob; max_param_count, …)
 _save_initial_csv(save_dir, [e.row for e in base_entries])    # mandatory
 _ingest!(frontier, cv_pool, best_loss_by_count, base_entries; n_cv_candidates)
@@ -190,7 +190,7 @@ while !isempty(frontier):
     end
 
     if !isempty(to_expand)
-        children = _dedup_flat(
+        children = _dedup_flat!(
             expand_mechanisms([e.mech for e in to_expand], prob.reaction))
         child_entries = _process_batch(children, prob; max_param_count, …)
         iteration += 1
@@ -283,7 +283,7 @@ test→implement. Per-function unit tests:
   `v=` term hash *unequal*; (c) on the LDH expand-round-1 fixture the 8 known equation-dups
   (4 byte-identical + 4 comment-only) share a key and there are **no false merges** (every
   key collision has byte-identical params-decl + Haldane + `v=`).
-- **`_dedup_flat`** — a vector with a structural twin collapses to one; an empty vector and an
+- **`_dedup_flat!`** — a vector with a structural twin collapses to one; an empty vector and an
   all-distinct vector are unchanged; result matches `dedup!` on the single-bucket dict form.
 - **`_default_save_dir`** — returns `<today>_results` when absent; returns `…_results_2`,
   `…_3` when prior dirs exist (use a temp cwd with pre-made dirs).
@@ -312,7 +312,7 @@ test→implement. Per-function unit tests:
   test of the irreversibility/advancing-sweep termination argument — LDH expansion has ~16%
   Δ=0 children, so a real run exercises same-count stragglers); output dir contains exactly
   `initial_mechanisms.csv` + sequential `equation_search_iteration_N.csv` (no gaps);
-  `initial_mechanisms.csv` row count == `length(_dedup_flat(init_mechanisms(rxn)))`; every CSV
+  `initial_mechanisms.csv` row count == `length(_dedup_flat!(init_mechanisms(rxn)))`; every CSV
   row carries an `eq_hash` column; every `n_params` ≤ `max_param_count`; the returned CV pool
   size ≤ `(#param counts) × n_cv_candidates` (memory bound — confirms rows are not all
   accumulated). Because `target` only advances, no `equation_search_iteration_N.csv` is a

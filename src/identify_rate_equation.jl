@@ -329,7 +329,7 @@ compile and fit fused on the same worker. Returns one `BatchEntry` per
 fitted mechanism (each keeping its OWN fitted params and `eq_hash`). A
 mechanism whose actual fitted-param count exceeds `max_param_count` is
 dropped BEFORE fitting; compile/fit failures are dropped. No dedup here —
-`mechs` is already structurally deduped by the caller (`_dedup_flat`).
+`mechs` is already structurally deduped by the caller (`_dedup_flat!`).
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
@@ -418,7 +418,7 @@ function _beam_search(
     best_loss_by_count = Dict{Int, Float64}()
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
-    base = _dedup_flat(collect(init_mechanisms(prob.reaction)))
+    base = _dedup_flat!(collect(init_mechanisms(prob.reaction)))
     base_entries = _process_batch(base, prob;
         pmap_function, optimizer, max_param_count, kwargs...)
     isempty(base_entries) && return (
@@ -452,7 +452,7 @@ function _beam_search(
             # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
             parents = Union{Mechanism, AllostericMechanism}[
                 e.mech for e in to_expand]
-            children = _dedup_flat(
+            children = _dedup_flat!(
                 expand_mechanisms(parents, prob.reaction))
             child_entries = _process_batch(children, prob;
                 pmap_function, optimizer, max_param_count, kwargs...)

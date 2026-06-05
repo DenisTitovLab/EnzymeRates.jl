@@ -176,7 +176,7 @@ function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
         pc = actual(m)
         pc <= max_params && push!(get!(frontier, pc, M[]), m)
     end
-    for m in EnzymeRates._dedup_flat(collect(EnzymeRates.init_mechanisms(rxn)))
+    for m in EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(rxn)))
         add!(m)
     end
     results = Dict{Int, Vector{M}}()
@@ -187,7 +187,7 @@ function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
         for c in collect(keys(frontier))
             c <= target && append!(swept, pop!(frontier, c))
         end
-        swept = EnzymeRates._dedup_flat(swept)
+        swept = EnzymeRates._dedup_flat!(swept)
         for m in swept
             push!(get!(results, actual(m), M[]), m)
         end
@@ -3637,7 +3637,7 @@ end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
-# 5. Composition (_dedup_flat, expand_mechanisms)
+# 5. Composition (_dedup_flat!, expand_mechanisms)
 # ═══════════════════════════════════════════════════════════════════════
 
 # ─── _canonicalize! ────────────────────────────────────────────────────
@@ -3646,7 +3646,7 @@ end
     # Test 1: outer kinetic-group order does not matter post-canonicalization.
     # Build two Mechanisms from the same init seed but with the outer step
     # groups in opposite orders; after _canonicalize_mechanism! both must be
-    # struct-equal (the basis for _dedup_flat's `unique!(mechs)`).
+    # struct-equal (the basis for _dedup_flat!'s `unique!(mechs)`).
     m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
     EnzymeRates._assert_mechanism_invariants(m_seed)
     m_perm = EnzymeRates.Mechanism(
@@ -3682,7 +3682,7 @@ end
 # ─── _dedup_key ────────────────────────────────────────────────────────
 
 # Mechanism dedup keys: struct equality after canonicalization.
-# `_dedup_flat` canonicalizes in place via
+# `_dedup_flat!` canonicalizes in place via
 # `_canonicalize_mechanism!` and then calls `unique!(mechs)`, which relies
 # on `Base.==` / `Base.hash` on the struct itself. This testset locks in
 # the struct-equality contract that powers that dedup.
@@ -3719,7 +3719,7 @@ end
     @test am_m2 != am_m4
 end
 
-# ─── _dedup_flat ───────────────────────────────────────────────────────
+# ─── _dedup_flat! ───────────────────────────────────────────────────────
 @testset "Dedup" begin
 
     @testset "Mechanism — same physics, different group order" begin
@@ -3732,7 +3732,7 @@ end
         m_perm = EnzymeRates.Mechanism(
             EnzymeRates.reaction(m_seed), permuted_steps)
         v = EnzymeRates.Mechanism[m_seed, m_perm]
-        EnzymeRates._dedup_flat(v)
+        EnzymeRates._dedup_flat!(v)
         @test length(v) == 1
     end
 
@@ -3740,7 +3740,7 @@ end
         # Surviving Mechanisms must be pairwise distinct under
         # compile-time equality (EnzymeMechanism singleton type).
         mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-        EnzymeRates._dedup_flat(mechs)
+        EnzymeRates._dedup_flat!(mechs)
         compiled = Set(EnzymeRates.EnzymeMechanism(m) for m in mechs)
         @test length(mechs) == length(compiled)
         @test length(mechs) >= 2
@@ -3748,19 +3748,19 @@ end
 
     @testset "Mechanism — idempotent" begin
         mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-        EnzymeRates._dedup_flat(mechs)
+        EnzymeRates._dedup_flat!(mechs)
         n1 = length(mechs)
-        EnzymeRates._dedup_flat(mechs)
+        EnzymeRates._dedup_flat!(mechs)
         @test length(mechs) == n1
     end
 
     @testset "Mechanism — bi-bi init: dedup leaves canonical seeds intact" begin
         # init_mechanisms produces mechanisms that are already in canonical
-        # form (no two are presentation-variants of each other). _dedup_flat
+        # form (no two are presentation-variants of each other). _dedup_flat!
         # is therefore a no-op on the count.
         mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
         n = length(mechs)
-        EnzymeRates._dedup_flat(mechs)
+        EnzymeRates._dedup_flat!(mechs)
         @test length(mechs) == n
     end
 
@@ -3780,18 +3780,18 @@ end
             EnzymeRates.reaction(base),
             [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
         v = EnzymeRates.AllostericMechanism[am_ab, am_ba]
-        EnzymeRates._dedup_flat(v)
+        EnzymeRates._dedup_flat!(v)
         @test length(v) == 1
     end
 
     @testset "Mechanism — inter-move overlap: dedup actually fires" begin
         # Run expand_mechanisms on a bi-bi init seed (Mechanism path), then
-        # _dedup_flat. Assert that the flat vector shrinks, proving that two
+        # _dedup_flat!. Assert that the flat vector shrinks, proving that two
         # different expansion paths produced equivalent Mechanisms.
         init_mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
         expanded = EnzymeRates.expand_mechanisms(init_mechs, bi_bi_rxn)
         pre = length(expanded)
-        EnzymeRates._dedup_flat(expanded)
+        EnzymeRates._dedup_flat!(expanded)
         # dedup fired: two different expansion paths produced equivalent
         # Mechanisms, so the flat vector shrank.
         @test length(expanded) < pre
@@ -3800,7 +3800,7 @@ end
     @testset "Mechanism — permuted groups collapse via canonicalization" begin
         # Two Mechanisms with the same physics but with their outer
         # kinetic-group order arbitrarily rearranged should collapse to one
-        # after _dedup_flat. This exercises _canonicalize_mechanism!'s
+        # after _dedup_flat!. This exercises _canonicalize_mechanism!'s
         # outer-group sort path with a non-trivial permutation, confirming
         # that any permutation of the outer Vector canonicalizes back to the
         # same struct.
@@ -3814,7 +3814,7 @@ end
         m_rotated = EnzymeRates.Mechanism(
             EnzymeRates.reaction(m_seed), m_seed.steps[perm])
         v = EnzymeRates.Mechanism[m_seed, m_rotated]
-        EnzymeRates._dedup_flat(v)
+        EnzymeRates._dedup_flat!(v)
         @test length(v) == 1
     end
 end
@@ -3990,7 +3990,7 @@ end
         # compile and that their actual fitted-param counts fall in the
         # expected {5,6} band. (Multi-tier actual-count enumeration is
         # exercised by the uni-uni / dead-end / allosteric callers below.)
-        init = EnzymeRates._dedup_flat(
+        init = EnzymeRates._dedup_flat!(
             collect(EnzymeRates.init_mechanisms(bi_bi_rxn)))
         @test !isempty(init)
         counts = Set{Int}()
@@ -4323,16 +4323,16 @@ end
     @test length(init) == length(golden)   # init_mechanisms count invariant
 end
 
-@testset "_dedup_flat" begin
+@testset "_dedup_flat!" begin
     rxn = @enzyme_reaction begin
         substrates:S[C]
         products:P[C]
     end
     ms = collect(EnzymeRates.init_mechanisms(rxn))
     dup = vcat(ms, deepcopy(ms))          # every mechanism twice
-    out = EnzymeRates._dedup_flat(dup)
-    @test length(out) == length(EnzymeRates._dedup_flat(collect(ms)))
+    out = EnzymeRates._dedup_flat!(dup)
+    @test length(out) == length(EnzymeRates._dedup_flat!(collect(ms)))
     @test length(out) <= length(dup)
-    @test EnzymeRates._dedup_flat(Union{EnzymeRates.Mechanism,
+    @test EnzymeRates._dedup_flat!(Union{EnzymeRates.Mechanism,
         EnzymeRates.AllostericMechanism}[]) == []
 end

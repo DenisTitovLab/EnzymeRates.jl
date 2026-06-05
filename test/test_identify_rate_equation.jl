@@ -300,7 +300,7 @@ using OptimizationPyCMA
             "equation_search_iteration_" => "", ".csv" => "")))
         @test nums == collect(1:length(nums))      # sequential, no gaps
         init_df = CSV.read(joinpath(save_dir, "initial_mechanisms.csv"), DataFrame)
-        @test nrow(init_df) == length(EnzymeRates._dedup_flat(
+        @test nrow(init_df) == length(EnzymeRates._dedup_flat!(
             collect(EnzymeRates.init_mechanisms(prob.reaction))))
         @test "eq_hash" in names(init_df)
         @test !("fit_inherited_from_estimate" in names(init_df))
@@ -880,7 +880,7 @@ end
         group = [1, 1, 2, 2],
     )
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-    ms = EnzymeRates._dedup_flat(collect(EnzymeRates.init_mechanisms(rxn)))
+    ms = EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(rxn)))
     entries = EnzymeRates._process_batch(ms, prob;
         pmap_function=map, optimizer=PyCMAOpt(),
         max_param_count=20, n_restarts=1, maxtime=1.0)
