@@ -722,6 +722,48 @@ function _process_batch(
     BatchEntry[r for r in results if r !== nothing]
 end
 
+"""
+Fold a batch of `BatchEntry`s into the search state: every entry joins the
+`frontier` (the unexpanded work queue — ALL structurally-distinct
+mechanisms, no eq-dedup); `best_loss_by_count` tracks the per-count running
+min (the beam-cutoff reference); `cv_pool` keeps the top `n_cv_candidates`
+DISTINCT equations (by `eq_hash`, lowest loss each) per param count.
+"""
+function _ingest!(frontier, cv_pool, best_loss_by_count, entries;
+                  n_cv_candidates)
+    for e in entries
+        push!(get!(frontier, e.n_params, BatchEntry[]), e)
+        if !haskey(best_loss_by_count, e.n_params) ||
+                e.loss < best_loss_by_count[e.n_params]
+            best_loss_by_count[e.n_params] = e.loss
+        end
+        _offer_cv!(get!(cv_pool, e.n_params, BatchEntry[]),
+                   e, n_cv_candidates)
+    end
+    nothing
+end
+
+"""
+Keep `pool` at the top `n` distinct-`eq_hash` entries by loss. A repeat
+`eq_hash` only ever updates its own slot (to the lower loss); it never
+consumes a second slot.
+"""
+function _offer_cv!(pool::Vector{BatchEntry}, e::BatchEntry, n::Int)
+    n == 0 && return pool
+    idx = findfirst(p -> p.eq_hash == e.eq_hash, pool)
+    if idx !== nothing
+        e.loss < pool[idx].loss && (pool[idx] = e)
+        return pool
+    end
+    if length(pool) < n
+        push!(pool, e)
+    else
+        worst = argmax([p.loss for p in pool])
+        e.loss < pool[worst].loss && (pool[worst] = e)
+    end
+    pool
+end
+
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,

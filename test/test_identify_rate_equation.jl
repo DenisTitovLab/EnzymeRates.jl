@@ -951,3 +951,29 @@ end
         max_param_count=0, n_restarts=1, maxtime=1.0)
     @test isempty(capped)
 end
+
+@testset "_ingest! and cv pool" begin
+    mk(n, loss, h) = EnzymeRates.BatchEntry(
+        first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
+            substrates:S[C]; products:P[C] end)),
+        n, loss, hash(h),
+        (n_params=n, loss=loss, mechanism_type="M",
+         rate_equation="v", fitted_param_names=(:K,),
+         fitted_param_values=(1.0,), eq_hash=string(hash(h),base=16,pad=16)))
+    frontier = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
+    cv_pool  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
+    best     = Dict{Int,Float64}()
+    # two distinct equations + one duplicate-eq with worse loss, n_cv=2
+    EnzymeRates._ingest!(frontier, cv_pool, best,
+        [mk(5,2.0,:a), mk(5,1.0,:b), mk(5,3.0,:a)]; n_cv_candidates=2)
+    @test length(frontier[5]) == 3            # frontier keeps ALL
+    @test best[5] == 1.0                       # running min
+    @test length(cv_pool[5]) == 2              # bounded, distinct eq_hash
+    # the kept :a entry is the lower-loss one (2.0, not 3.0);
+    # BatchEntry.eq_hash is a UInt64, so compare against hash(:a), not hex:
+    a = only(filter(e -> e.eq_hash == hash(:a), cv_pool[5]))
+    @test a.loss == 2.0
+    # n=0 must not panic on the empty pool (n_cv_candidates is public)
+    @test EnzymeRates._offer_cv!(EnzymeRates.BatchEntry[], mk(5,1.0,:a), 0) ==
+          EnzymeRates.BatchEntry[]
+end
