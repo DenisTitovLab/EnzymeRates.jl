@@ -12,6 +12,8 @@ rate constants.
 - `data`: `NamedTuple` of column vectors (via `Tables.columntable`)
 - `group_point_indexes`: row indices grouped by unique `group` values
 - `Keq`: fixed equilibrium constant
+- `scale_k_to_kcat`: a positive `Real` selects relative mode (per-group-centered
+  loss); `nothing` selects absolute per-enzyme-turnover mode (uncentered loss)
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
 """
@@ -20,12 +22,14 @@ struct FittingProblem{M<:AbstractEnzymeMechanism, D<:NamedTuple}
     data::D
     group_point_indexes::Vector{Vector{Int}}
     Keq::Float64
+    scale_k_to_kcat::Union{Float64,Nothing}
     log_abs_rates::Vector{Float64}
     log_ratios_buffer::Vector{Float64}
 end
 
 """
-    FittingProblem(mechanism::AbstractEnzymeMechanism, table; Keq::Real)
+    FittingProblem(mechanism::AbstractEnzymeMechanism, table;
+        Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0)
 
 Construct a `FittingProblem` from an enzyme mechanism and tabular data.
 
@@ -33,10 +37,16 @@ The table must have columns: `group`, `Rate`, and one column per
 metabolite matching `metabolites(mechanism)`. Uses
 `Tables.columntable` for conversion.
 
+`scale_k_to_kcat` selects the loss mode: a positive `Real` (default `1.0`)
+treats the data as relative (per-group-centered loss); `nothing` treats it as
+absolute per-enzyme turnover (uncentered loss).
+
 Rate values must be nonzero (zero rates produce `-Inf` in log space).
 """
 function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
-        Keq::Real)
+        Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0)
+    scale_k_to_kcat !== nothing && scale_k_to_kcat <= 0 && error(
+        "scale_k_to_kcat must be positive (or nothing); got $scale_k_to_kcat")
     data = Tables.columntable(table)
 
     mnames = metabolites(mechanism)
@@ -76,8 +86,9 @@ function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
     # Allocate working buffer
     log_ratios_buffer = Vector{Float64}(undef, n)
 
+    sk = scale_k_to_kcat === nothing ? nothing : Float64(scale_k_to_kcat)
     FittingProblem{typeof(mechanism), typeof(data)}(
-        mechanism, data, group_point_indexes, Float64(Keq),
+        mechanism, data, group_point_indexes, Float64(Keq), sk,
         log_abs_rates, log_ratios_buffer
     )
 end
@@ -86,24 +97,26 @@ end
 # singleton once at construction so `loss!`'s hot path operates on the
 # @generated `EnzymeMechanism` / `AllostericEnzymeMechanism` (0-alloc).
 FittingProblem(mechanism::Union{Mechanism, AllostericMechanism}, table;
-        Keq::Real) =
-    FittingProblem(compile_mechanism(mechanism), table; Keq=Keq)
+        Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0) =
+    FittingProblem(compile_mechanism(mechanism), table;
+        Keq=Keq, scale_k_to_kcat=scale_k_to_kcat)
 
 """
     loss!(x::AbstractVector, fp::FittingProblem)
 
-Compute the per-group-centered log-ratio loss. Zero-allocation on the
-hot path.
+Compute the log-ratio loss. Zero-allocation on the hot path.
 
 Parameters in `x` are in log-space (i.e., actual rate constants =
-`exp.(x)`). Each group's log-ratios are centered (mean-subtracted)
-before squaring, making the loss invariant to per-group E_total
-scaling.
+`exp.(x)`). When `fp.scale_k_to_kcat` is a `Real`, each group's
+log-ratios are centered (mean-subtracted) before squaring, making the
+loss invariant to per-group E_total scaling (relative data). When it is
+`nothing`, the log-ratios are squared without centering, so the absolute
+magnitude is scored (absolute per-enzyme turnover data).
 
 Sign mismatches (predicted vs measured rate sign) incur a flat penalty
-of 100.0 per point, accumulated after the centering loop. This
-prevents all-mismatch groups from contributing zero loss (a uniform
-sentinel would cancel under mean-subtraction).
+of 100.0 per point, accumulated after the per-point loop. In the
+centered mode this prevents all-mismatch groups from contributing zero
+loss (a uniform sentinel would cancel under mean-subtraction).
 """
 function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
     buf = fp.log_ratios_buffer
@@ -131,25 +144,35 @@ function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
         end
     end
 
-    # Pass 2: per-group centered loss
+    # Pass 2: loss. Relative (scale_k_to_kcat isa Real) → per-group mean-
+    # centered, removing each group's arbitrary scale. Absolute
+    # (scale_k_to_kcat === nothing) → uncentered: the y-axis is absolute
+    # per-enzyme turnover, so the absolute magnitude is meaningful.
     total_loss = 0.0
-    @inbounds for grp_idx in fp.group_point_indexes
-        n_grp = length(grp_idx)
-        mean_lr = 0.0
-        for j in grp_idx
-            mean_lr += buf[j]
+    if fp.scale_k_to_kcat === nothing
+        @inbounds for i in 1:n_data
+            total_loss += buf[i] * buf[i]
         end
-        mean_lr /= n_grp
-        for j in grp_idx
-            d = buf[j] - mean_lr
-            total_loss += d * d
+    else
+        @inbounds for grp_idx in fp.group_point_indexes
+            n_grp = length(grp_idx)
+            mean_lr = 0.0
+            for j in grp_idx
+                mean_lr += buf[j]
+            end
+            mean_lr /= n_grp
+            for j in grp_idx
+                d = buf[j] - mean_lr
+                total_loss += d * d
+            end
         end
     end
 
-    # Flat penalty for sign mismatches, applied after centering so it cannot be
-    # cancelled. When all points in a group share the sentinel value (10.0),
-    # mean-subtraction zeros every deviation; the post-hoc penalty ensures such
-    # groups still contribute positively to the loss.
+    # Flat penalty for sign mismatches. In centered mode an all-mismatch group
+    # would otherwise contribute zero loss (the uniform 10.0 sentinel cancels
+    # under mean-subtraction); the post-hoc penalty keeps it positive. In
+    # uncentered mode the sentinel already contributes 100.0 per point, so this
+    # adds a second 100.0 (stronger steering away from sign flips, intentional).
     n_mismatch = 0
     @inbounds for i in 1:n_data
         buf[i] == 10.0 && (n_mismatch += 1)

@@ -149,6 +149,44 @@ using Tables
         end
     end
 
+    # ── Absolute mode: uncentered loss (scale_k_to_kcat=nothing) ──────────────
+    @testset "Absolute mode uncentered loss" begin
+        Keq_val = 2.0
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        concs_list = [
+            (S = 1.0, P = 0.1), (S = 2.0, P = 0.1), (S = 5.0, P = 0.1),
+            (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
+        ]
+        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        pn = EnzymeRates.fitted_params(uni_uni)
+        x_true = [log(true_params[p]) for p in pn]
+
+        fp_rel = FittingProblem(uni_uni, data; Keq=Keq_val)                        # default 1.0
+        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+
+        # At true params both modes are ~0 (predictions match data exactly).
+        @test EnzymeRates.loss!(x_true, fp_rel) ≈ 0.0 atol=1e-20
+        @test EnzymeRates.loss!(x_true, fp_abs) ≈ 0.0 atol=1e-20
+
+        # Scale every rate by 3 (a pure per-group offset). Relative loss is
+        # invariant (centering removes it); absolute loss sees it: every
+        # residual becomes log(3), so absolute loss = log(3)^2.
+        data3 = merge(data, (Rate = data.Rate .* 3.0,))
+        fp_rel3 = FittingProblem(uni_uni, data3; Keq=Keq_val)
+        fp_abs3 = FittingProblem(uni_uni, data3; Keq=Keq_val, scale_k_to_kcat=nothing)
+        @test EnzymeRates.loss!(x_true, fp_rel3) ≈ 0.0 atol=1e-20
+        @test EnzymeRates.loss!(x_true, fp_abs3) ≈ log(3.0)^2 rtol=1e-8
+    end
+
+    # ── scale_k_to_kcat validation ────────────────────────────────────────────
+    @testset "scale_k_to_kcat validation" begin
+        ok_data = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
+        @test_throws ErrorException FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=0.0)
+        @test_throws ErrorException FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=-5.0)
+        @test FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=nothing) isa FittingProblem
+        @test FittingProblem(uni_uni, ok_data; Keq=1.0) isa FittingProblem  # default 1.0
+    end
+
     # ── Test 6: Sign-mismatch penalty ─────────────────────────────────────────
     @testset "Sign mismatch penalty" begin
         Keq_val = 2.0
@@ -249,6 +287,12 @@ using Tables
         EnzymeRates.loss!(x, fp)  # warmup
         allocs = @allocated EnzymeRates.loss!(x, fp)
         @test allocs == 0
+
+        # Absolute mode (uncentered branch) is equally allocation-free.
+        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        EnzymeRates.loss!(x, fp_abs)  # warmup
+        allocs_abs = @allocated EnzymeRates.loss!(x, fp_abs)
+        @test allocs_abs == 0
     end
 
     # ── Test 8: Speed benchmark ───────────────────────────────────────────────
