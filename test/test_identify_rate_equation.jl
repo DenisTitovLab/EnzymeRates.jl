@@ -143,7 +143,6 @@ using OptimizationPyCMA
             fitted_param_names = (:a, :b),
             fitted_param_values = (1.0, 2.0),
             eq_hash = "0123456789abcdef",
-            fit_inherited_from_estimate = missing,
         )]
         df = EnzymeRates._rows_to_dataframe(
             rows)
@@ -151,7 +150,7 @@ using OptimizationPyCMA
         @test "a" in names(df)
         @test "b" in names(df)
         @test "eq_hash" in names(df)
-        @test "fit_inherited_from_estimate" in names(df)
+        @test !("fit_inherited_from_estimate" in names(df))
 
         # Empty rows
         df2 = EnzymeRates._rows_to_dataframe(
@@ -291,65 +290,27 @@ using OptimizationPyCMA
         @test length(req) > 0
     end
 
-    @testset "CSV output" begin
-        csv_files = filter(
-            f -> endswith(f, ".csv"),
-            readdir(save_dir))
-        @test length(csv_files) > 0
-        # Per-level filename uses the estimate-level naming.
-        for fname in csv_files
-            @test startswith(fname, "params_estimate_")
-        end
-
-        first_csv = CSV.read(
-            joinpath(
-                save_dir, csv_files[1]),
-            DataFrame)
-        @test "n_params" in names(first_csv)
-        @test "loss" in names(first_csv)
-        @test "mechanism_type" in names(
-            first_csv)
-        @test nrow(first_csv) > 0
-
-        # eq_hash column: 16-char hex, no missing values.
-        for fname in csv_files
-            df_file = CSV.read(
-                joinpath(save_dir, fname), DataFrame)
+    @testset "CSV output (new schema)" begin
+        files = sort(filter(f -> endswith(f, ".csv"), readdir(save_dir)))
+        @test "initial_mechanisms.csv" in files
+        @test !any(startswith(f, "params_estimate_") for f in files)
+        iters = filter(f -> startswith(f, "equation_search_iteration_"), files)
+        @test !isempty(iters)
+        nums = sort(parse.(Int, replace.(iters,
+            "equation_search_iteration_" => "", ".csv" => "")))
+        @test nums == collect(1:length(nums))      # sequential, no gaps
+        init_df = CSV.read(joinpath(save_dir, "initial_mechanisms.csv"), DataFrame)
+        @test nrow(init_df) == length(EnzymeRates._dedup_flat(
+            collect(EnzymeRates.init_mechanisms(prob.reaction))))
+        @test "eq_hash" in names(init_df)
+        @test !("fit_inherited_from_estimate" in names(init_df))
+        for f in files
+            df_file = CSV.read(joinpath(save_dir, f), DataFrame)
             @test "eq_hash" in names(df_file)
             @test all(.!ismissing.(df_file.eq_hash))
-            @test all(length.(df_file.eq_hash) .== 16)
+            @test all(length.(string.(df_file.eq_hash)) .== 16)
+            @test all(<=(8), df_file.n_params)     # max_param_count=8
         end
-
-        # Cross-level fit-inheritance chain: rows with non-
-        # missing `fit_inherited_from_estimate` must point to
-        # an existing level whose CSV contains a row with the
-        # same `eq_hash`.
-        all_rows_by_level = Dict{Int, DataFrame}()
-        for fname in csv_files
-            est = parse(Int, replace(fname,
-                "params_estimate_" => "", ".csv" => ""))
-            all_rows_by_level[est] = CSV.read(
-                joinpath(save_dir, fname), DataFrame)
-        end
-        for (_, df_lvl) in all_rows_by_level
-            for row in eachrow(df_lvl)
-                ismissing(row.fit_inherited_from_estimate) &&
-                    continue
-                src = row.fit_inherited_from_estimate
-                @test haskey(all_rows_by_level, src)
-                @test row.eq_hash in
-                    all_rows_by_level[src].eq_hash
-            end
-        end
-        # NOTE: a true positive-path test of the cross-level fit
-        # cache (asserting at least one inherited row is produced)
-        # would require either a richer fixture (e.g., a bi-bi
-        # mechanism prone to Haldane-collapse hash hits) or a
-        # `_beam_search` unit test with a recording fit-wrapper.
-        # The greedy-beam smoke settings here (min_beam_width=1)
-        # don't reliably produce inherited rows. A recording fit-wrapper
-        # would make that positive path deterministic; the loop above
-        # catches invalid `fit_inherited_from_estimate` references when present.
     end
 
     @testset "save_dir non-empty check" begin
@@ -497,9 +458,12 @@ end
 end
 
 @testset "beam_fraction kwarg removed: passing it errors" begin
-    # The removed `beam_fraction` kwarg was replaced by
-    # `loss_rel_threshold` + `loss_abs_threshold` + `min_beam_width`.
-    # No alias / deprecation shim — passing it must error.
+    # `beam_fraction` is not a recognized kwarg; it is forwarded to
+    # `Optimization.solve`, which rejects it. Per-mechanism fit failures
+    # are isolated in `_process_batch`, so an unknown optimizer kwarg
+    # fails every fit; the base tier is then empty and the pipeline raises
+    # the "no mechanisms fitted" `ErrorException`. The contract under test
+    # is that passing it errors (no silent acceptance).
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -509,7 +473,7 @@ end
             S = [1.0, 2.0, 3.0, 4.0],
             P = [0.1, 0.2, 0.3, 0.4])
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-    @test_throws MethodError identify_rate_equation(
+    @test_throws ErrorException identify_rate_equation(
         prob; beam_fraction=0.5,
         optimizer=PyCMAOpt(),
         n_restarts=1, maxtime=1.0)

@@ -177,7 +177,7 @@ function identify_rate_equation(
     se_threshold::Float64 = 1.0,
     perm_p_threshold::Float64 = 0.16,
     # Output & parallelism
-    save_dir::Union{Nothing,String} = nothing,
+    save_dir::String = _default_save_dir(),
     pmap_function::Function = pmap,
     # Extra fitting/optimizer kwargs
     optim_kwargs...
@@ -187,7 +187,7 @@ function identify_rate_equation(
         maxiters, popsize, verbose,
         optim_kwargs...)
 
-    if save_dir !== nothing && isdir(save_dir)
+    if isdir(save_dir)
         existing = filter(
             f -> endswith(f, ".csv"),
             readdir(save_dir))
@@ -201,7 +201,7 @@ function identify_rate_equation(
         min_beam_width, loss_rel_threshold,
         loss_abs_threshold,
         max_param_count, save_dir,
-        pmap_function, optimizer,
+        pmap_function, optimizer, n_cv_candidates,
         fitting_kwargs...)
 
     return _cv_model_selection(
@@ -250,8 +250,6 @@ function _rows_to_dataframe(rows)
         mechanism_type = [r.mechanism_type for r in rows],
         rate_equation = [r.rate_equation for r in rows],
         eq_hash = [r.eq_hash for r in rows],
-        fit_inherited_from_estimate = [
-            r.fit_inherited_from_estimate for r in rows],
     )
     for pn in sorted_pnames
         df[!, pn] = [
@@ -768,149 +766,71 @@ function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,
     max_param_count, save_dir, pmap_function,
-    optimizer, kwargs...
+    optimizer, n_cv_candidates, kwargs...
 )
-    # Persistent cross-level cache keyed by canonical hash.
-    fit_cache = Dict{UInt64, _CachedFitResult}()
+    frontier = Dict{Int, Vector{BatchEntry}}()
+    cv_pool  = Dict{Int, Vector{BatchEntry}}()
+    best_loss_by_count = Dict{Int, Float64}()
 
-    cache = Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}()
-    for m in init_mechanisms(prob.reaction)
-        push!(get!(cache, _n_fit_params_estimate(m),
-                   Union{Mechanism, AllostericMechanism}[]),
-              m)
-    end
-    dedup!(cache)
+    # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
+    base = _dedup_flat(collect(init_mechanisms(prob.reaction)))
+    base_entries = _process_batch(base, prob;
+        pmap_function, optimizer, max_param_count, kwargs...)
+    isempty(base_entries) && return (
+        Union{Mechanism, AllostericMechanism}[],
+        _rows_to_dataframe(NamedTuple[]))
+    _save_initial_csv(save_dir, [e.row for e in base_entries])
+    _ingest!(frontier, cv_pool, best_loss_by_count,
+             base_entries; n_cv_candidates)
 
-    all_mechs = Union{Mechanism, AllostericMechanism}[]
-    all_rows  = NamedTuple[]
-
-    isempty(cache) && return (
-        all_mechs, _rows_to_dataframe(all_rows))
-
-    min_pc = minimum(keys(cache))
-    for pc in min_pc:max_param_count
-        level = pop!(cache, pc,
-                     Union{Mechanism, AllostericMechanism}[])
-        isempty(level) && (isempty(cache) ? break : continue)
-
-        # ── Parallel compile + hash ──
-        compiled = pmap_function(level) do mech
-            try
-                m = compile_mechanism(mech)
-                eq_text = rate_equation_string(m)
-                h_full, h_short, name_map =
-                    _canonical_rate_eq_hash_data(m)
-                fkeys = fitted_params(m)
-                n_actual = length(fkeys)
-                mech_type_str = string(typeof(m))
-                _CompiledMechanismResult(
-                    mech, eq_text, h_full, h_short,
-                    n_actual, mech_type_str, name_map, fkeys, true)
-            catch e
-                @debug("Mechanism compilation failed",
-                       exception=(e, catch_backtrace()))
-                _CompiledMechanismFailure(mech)
-            end
-        end
-        filter!(c -> c.ok, compiled)
-        isempty(compiled) && continue
-
-        new_hashes = Set{UInt64}()
-        for c in compiled
-            haskey(fit_cache, c.h_full) && continue
-            push!(new_hashes, c.h_full)
+    # ── Advancing-target sweep over actual param counts ──
+    iteration = 0
+    target = minimum(keys(frontier))
+    while !isempty(frontier)
+        # Sweep this tier plus any same-or-lower-count stragglers.
+        swept = BatchEntry[]
+        for c in collect(keys(frontier))
+            c <= target && append!(swept, pop!(frontier, c))
         end
 
-        reps_by_hash = Dict{UInt64, _CompiledMechanismResult}()
-        for c in compiled
-            c.h_full in new_hashes || continue
-            haskey(reps_by_hash, c.h_full) && continue
-            reps_by_hash[c.h_full] = c
+        to_expand = BatchEntry[]
+        for c in unique(e.n_params for e in swept)
+            entries_at_count = [e for e in swept if e.n_params == c]
+            sel = _select_beam([e.loss for e in entries_at_count];
+                loss_rel_threshold, loss_abs_threshold,
+                min_beam_width, best_override = best_loss_by_count[c])
+            append!(to_expand, entries_at_count[sel])
         end
 
-        # ── Parallel representative fit ──
-        rep_results = pmap_function(
-            collect(values(reps_by_hash))
-        ) do rep
-            try
-                m = compile_mechanism(rep.mech)
-                fp = FittingProblem(m, prob.data; Keq=prob.Keq)
-                fit = fit_rate_equation(
-                    fp, optimizer; kwargs...)
-                (h_full=rep.h_full, h_short=rep.h_short,
-                 n_actual=rep.n_actual,
-                 name_map=rep.name_map,
-                 loss=fit.loss, params=fit.params, ok=true)
-            catch e
-                @debug("Rep fit failed",
-                       exception=(e, catch_backtrace()))
-                (h_full=rep.h_full, ok=false)
+        if !isempty(to_expand)
+            # Typed for dispatch: expand_mechanisms needs a concrete
+            # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
+            parents = Union{Mechanism, AllostericMechanism}[
+                e.mech for e in to_expand]
+            children = _dedup_flat(
+                expand_mechanisms(parents, prob.reaction))
+            child_entries = _process_batch(children, prob;
+                pmap_function, optimizer, max_param_count, kwargs...)
+            if !isempty(child_entries)
+                # Count only iterations that fit children, so the
+                # equation_search_iteration_N CSVs are gap-free.
+                iteration += 1
+                _save_iteration_csv(save_dir,
+                    [e.row for e in child_entries], iteration)
+                _ingest!(frontier, cv_pool, best_loss_by_count,
+                         child_entries; n_cv_candidates)
             end
         end
 
-        for r in rep_results
-            r.ok || continue
-            canon_to_rep = Dict(v => k for (k, v) in r.name_map)
-            fit_cache[r.h_full] = _CachedFitResult(
-                r.loss, r.params, canon_to_rep,
-                pc, r.n_actual, r.h_short)
-        end
-
-        # ── Build ONE row per mechanism ──
-        # Use the compile/hash pass's captured `fitted_keys` (computed once on
-        # the worker that compiled) instead of recompiling on
-        # master — saves a serial compile per mechanism.
-        level_rows = NamedTuple[]
-        level_mechs = Union{Mechanism, AllostericMechanism}[]
-        for c in compiled
-            haskey(fit_cache, c.h_full) || continue
-            cached = fit_cache[c.h_full]
-            is_inherited = !(c.h_full in new_hashes)
-            mech_params = _project_cached_params(
-                cached.params, cached.canon_to_rep,
-                c.name_map, c.fitted_keys)
-            row = (
-                n_params = c.n_actual,
-                loss = cached.loss,
-                mechanism_type = c.mech_type_str,
-                rate_equation = c.eq_text,
-                fitted_param_names = c.fitted_keys,
-                fitted_param_values =
-                    Tuple(values(mech_params)),
-                eq_hash = cached.first_seen_eq_hash,
-                fit_inherited_from_estimate =
-                    is_inherited ? cached.first_seen_estimate :
-                                   missing,
-            )
-            push!(level_rows, row)
-            push!(level_mechs, c.mech)
-        end
-
-        append!(all_mechs, level_mechs)
-        append!(all_rows,  level_rows)
-
-        if save_dir !== nothing && !isempty(level_rows)
-            _save_level_csv(save_dir, level_rows, pc)
-        end
-
-        sel = _select_beam(
-            [r.loss for r in level_rows];
-            loss_rel_threshold=loss_rel_threshold,
-            loss_abs_threshold=loss_abs_threshold,
-            min_beam_width=min_beam_width)
-        beam_mechs = level_mechs[sel]
-
-        for child in expand_mechanisms(beam_mechs, prob.reaction)
-            pc = _n_fit_params_estimate(child)
-            pc > max_param_count && continue
-            push!(get!(cache, pc,
-                       Union{Mechanism, AllostericMechanism}[]), child)
-        end
-        dedup!(cache)
+        isempty(frontier) && break
+        target = max(target + 1, minimum(keys(frontier)))
     end
 
-    df = _rows_to_dataframe(all_rows)
-    return all_mechs, df
+    pool_entries = BatchEntry[e for v in values(cv_pool) for e in v]
+    mechs = Union{Mechanism, AllostericMechanism}[
+        e.mech for e in pool_entries]
+    df = _rows_to_dataframe([e.row for e in pool_entries])
+    return mechs, df
 end
 
 """
