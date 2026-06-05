@@ -1671,22 +1671,17 @@ _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
 """
-    expand_mechanisms(mechs::Vector, reaction)
-        → Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
+    expand_mechanisms(mechs, reaction) -> Vector{Union{Mechanism, AllostericMechanism}}
 
-Apply all expansion moves to each input mechanism (RE→SS, split
-kinetic group, add dead-end regulator, to-allosteric, add allosteric
-regulator, change allo state) and bucket results by their
-`_n_fit_params_estimate` value.
-
-Accepts a heterogeneous mix of `Mechanism` and `AllostericMechanism`
-inputs because `_expand_to_allosteric` promotes a `Mechanism` to an
-`AllostericMechanism`.
+Apply all expansion moves (RE→SS, split kinetic group, add dead-end
+regulator, to-allosteric, add allosteric regulator, change allo state) to
+each input mechanism and return the children as a flat vector. Bucketing by
+parameter count is the caller's job, not enumeration's.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
     rxn::EnzymeReaction)
-    result = Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}()
+    result = Union{Mechanism, AllostericMechanism}[]
     for m in mechs
         _add_expansions_mech!(result, m, rxn)
     end
@@ -1694,35 +1689,15 @@ function expand_mechanisms(
 end
 
 function _add_expansions_mech!(
-    result::Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}},
+    result::Vector{Union{Mechanism, AllostericMechanism}},
     m::Union{Mechanism, AllostericMechanism},
     rxn::EnzymeReaction)
-    for s in _expand_re_to_ss(m)
-        _push_mech!(result, s)
-    end
-    for s in _expand_split_kinetic_group(m)
-        _push_mech!(result, s)
-    end
-    for s in _expand_add_dead_end_regulator(m, rxn)
-        _push_mech!(result, s)
-    end
-    for s in _expand_to_allosteric(m, rxn)
-        _push_mech!(result, s)
-    end
-    for s in _expand_add_allosteric_regulator(m, rxn)
-        _push_mech!(result, s)
-    end
-    for s in _expand_change_allo_state(m)
-        _push_mech!(result, s)
-    end
-end
-
-function _push_mech!(
-    result::Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}},
-    m::Union{Mechanism, AllostericMechanism})
-    pc = _n_fit_params_estimate(m)
-    push!(get!(result, pc,
-               Union{Mechanism, AllostericMechanism}[]), m)
+    append!(result, _expand_re_to_ss(m))
+    append!(result, _expand_split_kinetic_group(m))
+    append!(result, _expand_add_dead_end_regulator(m, rxn))
+    append!(result, _expand_to_allosteric(m, rxn))
+    append!(result, _expand_add_allosteric_regulator(m, rxn))
+    append!(result, _expand_change_allo_state(m))
 end
 
 # --- Dedup ---

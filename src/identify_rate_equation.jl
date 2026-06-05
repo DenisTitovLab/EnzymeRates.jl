@@ -900,12 +900,11 @@ function _beam_search(
             min_beam_width=min_beam_width)
         beam_mechs = level_mechs[sel]
 
-        new_cache = expand_mechanisms(beam_mechs, prob.reaction)
-        for (target_pc, mechs) in new_cache
-            target_pc > max_param_count && continue
-            append!(get!(cache, target_pc,
-                         Union{Mechanism, AllostericMechanism}[]),
-                    mechs)
+        for child in expand_mechanisms(beam_mechs, prob.reaction)
+            pc = _n_fit_params_estimate(child)
+            pc > max_param_count && continue
+            push!(get!(cache, pc,
+                       Union{Mechanism, AllostericMechanism}[]), child)
         end
         dedup!(cache)
     end
