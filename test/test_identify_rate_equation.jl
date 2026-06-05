@@ -426,6 +426,28 @@ end
     end
 end
 
+@testset "csv writers" begin
+    rows = [(
+        n_params = 5, loss = 1.0, mechanism_type = "M",
+        rate_equation = "v = 1", fitted_param_names = (:K_a,),
+        fitted_param_values = (2.0,), eq_hash = "abc",
+        fit_inherited_from_estimate = missing,
+    )]
+    mktempdir() do tmp
+        EnzymeRates._save_initial_csv(tmp, rows)
+        @test isfile(joinpath(tmp, "initial_mechanisms.csv"))
+        EnzymeRates._save_iteration_csv(tmp, rows, 3)
+        @test isfile(joinpath(tmp, "equation_search_iteration_3.csv"))
+        df = CSV.read(joinpath(tmp, "equation_search_iteration_3.csv"), DataFrame)
+        @test df.n_params == [5]
+        @test "eq_hash" in names(df)
+        # dir-creation branch: save_dir does not exist yet
+        subdir = joinpath(tmp, "made")
+        EnzymeRates._save_initial_csv(subdir, rows)
+        @test isfile(joinpath(subdir, "initial_mechanisms.csv"))
+    end
+end
+
 @testset "beam selection: loss thresholds + min_beam_width floor" begin
     losses = [1.0, 1.5, 2.5, 5.0, 10.0]
     sel = EnzymeRates._select_beam(

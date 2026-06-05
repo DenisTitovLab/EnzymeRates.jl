@@ -210,6 +210,25 @@ function identify_rate_equation(
         pmap_function, optimizer, fitting_kwargs...)
 end
 
+# Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent.
+function _write_rows_csv(save_dir::String, filename::String, rows)
+    isdir(save_dir) || mkpath(save_dir)
+    CSV.write(joinpath(save_dir, filename), _rows_to_dataframe(rows))
+end
+
+"""Save the base-tier fit (all init mechanisms) to `initial_mechanisms.csv`."""
+_save_initial_csv(save_dir::String, rows) =
+    _write_rows_csv(save_dir, "initial_mechanisms.csv", rows)
+
+"""
+Save one expansion iteration to `equation_search_iteration_<iteration>.csv`.
+`iteration` is a 1-based sequential counter, NOT a parameter count — the
+real fitted count is the `n_params` column of each row.
+"""
+_save_iteration_csv(save_dir::String, rows, iteration::Int) =
+    _write_rows_csv(
+        save_dir, "equation_search_iteration_$(iteration).csv", rows)
+
 """
 Convert result row NamedTuples to a DataFrame.
 Row order is preserved (no sorting) to maintain
