@@ -313,12 +313,13 @@ function _select_beam(
     loss_rel_threshold::Float64,
     loss_abs_threshold::Float64,
     min_beam_width::Int,
+    best_override::Union{Nothing,Float64}=nothing,
 )
     finite_idx = [i for i in eachindex(losses) if isfinite(losses[i])]
     isempty(finite_idx) && return Int[]
 
     perm = sort(finite_idx; by=i -> losses[i])
-    best = losses[perm[1]]
+    best = best_override === nothing ? losses[perm[1]] : best_override
     cutoff = loss_rel_threshold * best + loss_abs_threshold
     selected = Int[]
     for (rank, idx) in enumerate(perm)

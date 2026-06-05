@@ -911,3 +911,16 @@ end
         @test length(new_buckets) == expected_n_classes[label]
     end
 end
+
+@testset "_select_beam best_override" begin
+    losses = [1.0, 1.5, 3.0]
+    kw = (loss_rel_threshold=1.2, loss_abs_threshold=0.0, min_beam_width=1)
+    # without override: best = min = 1.0, cutoff = 1.2 -> only index 1
+    @test EnzymeRates._select_beam(losses; kw...) == [1]
+    # override best = 2.0 -> cutoff 2.4 -> indices 1 and 2
+    @test EnzymeRates._select_beam(losses; kw..., best_override=2.0) == [1, 2]
+    # min_beam_width still honored
+    @test EnzymeRates._select_beam(losses;
+        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        min_beam_width=2, best_override=0.0) == [1, 2]
+end
