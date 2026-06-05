@@ -817,6 +817,20 @@ end
     @test "cv_fold_x y" in names(roundtrip)
 end
 
+@testset "_default_save_dir" begin
+    mktempdir() do tmp
+        cd(tmp) do
+            d1 = EnzymeRates._default_save_dir()
+            @test occursin(r"^\d{4}_\d{2}_\d{2}_results$", d1)
+            mkpath(d1)
+            d2 = EnzymeRates._default_save_dir()
+            @test d2 == d1 * "_2"
+            mkpath(d2)
+            @test EnzymeRates._default_save_dir() == d1 * "_3"
+        end
+    end
+end
+
 @testset "canonical-hash partition stability" begin
     # Representative reactions exercising the canonicalizer's edge cases:
     # - uni_uni: trivial structural equivalence

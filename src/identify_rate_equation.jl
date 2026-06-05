@@ -1146,3 +1146,15 @@ function _cv_model_selection(
     select!(cv_df, Not(:cv_fold_scores))
     return IdentifyRateEquationResults(best_mechanism, cv_df)
 end
+
+"""
+Default results directory: the first non-existent `<date>_results[_N]`
+directory in the cwd (e.g. `YYYY_MM_DD_results`, then `…_results_2`, `_3`).
+"""
+function _default_save_dir()
+    base = string(Dates.format(Dates.today(), "yyyy_mm_dd"), "_results")
+    isdir(base) || return base
+    n = 2
+    while isdir(string(base, "_", n)); n += 1; end
+    string(base, "_", n)
+end
