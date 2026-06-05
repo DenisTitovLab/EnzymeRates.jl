@@ -159,6 +159,24 @@ using OptimizationPyCMA
         @test nrow(df2) == 0
     end
 
+    @testset "_rate_eq_dedup_key" begin
+        base = "(; K_a, k_b) = params\n(; A) = concs\n" *
+               "# Haldane constraints:\nk_r = (1/Keq)*K_a\nv = k_b*A/K_a"
+        # differs only in a comment header + a substituted-into-v provenance line:
+        a = "# Wegscheider constraints:\nK_x = K_a  (substituted into v)\n" * base
+        b = "# Wegscheider constraints:\nK_y = K_a  (substituted into v)\n" * base
+        @test EnzymeRates._rate_eq_dedup_key(a) ==
+              EnzymeRates._rate_eq_dedup_key(b)
+        # differs in a Haldane definition -> different key:
+        c = replace(base, "k_r = (1/Keq)*K_a" => "k_r = (2/Keq)*K_a")
+        @test EnzymeRates._rate_eq_dedup_key(base) !=
+              EnzymeRates._rate_eq_dedup_key(c)
+        # differs in the v= line -> different key:
+        d = replace(base, "v = k_b*A/K_a" => "v = k_b*A/(K_a + A)")
+        @test EnzymeRates._rate_eq_dedup_key(base) !=
+              EnzymeRates._rate_eq_dedup_key(d)
+    end
+
     # ── Run pipeline ONCE, test everything ───────────
     prob = IdentifyRateEquationProblem(
         test_rxn, test_data; Keq=Keq_val)
