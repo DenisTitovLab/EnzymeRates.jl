@@ -671,6 +671,57 @@ function _project_cached_params(
         Tuple(_proj(k) for k in target_fitted_keys))
 end
 
+"""One fitted mechanism: its own params + eq_hash + the CSV row."""
+struct BatchEntry
+    mech::Union{Mechanism, AllostericMechanism}
+    n_params::Int
+    loss::Float64
+    eq_hash::UInt64
+    row::NamedTuple
+end
+
+"""
+Compile + cap-check + fit every mechanism in `mechs`, one `pmap` pass with
+compile and fit fused on the same worker. Returns one `BatchEntry` per
+fitted mechanism (each keeping its OWN fitted params and `eq_hash`). A
+mechanism whose actual fitted-param count exceeds `max_param_count` is
+dropped BEFORE fitting; compile/fit failures are dropped. No dedup here —
+`mechs` is already structurally deduped by the caller (`_dedup_flat`).
+"""
+function _process_batch(
+    mechs, prob::IdentifyRateEquationProblem;
+    pmap_function, optimizer, max_param_count, kwargs...
+)
+    results = pmap_function(mechs) do m
+        try
+            em = compile_mechanism(m)
+            fkeys = fitted_params(em)
+            n = length(fkeys)
+            n > max_param_count && return nothing
+            eq_text = rate_equation_string(em)
+            key = _rate_eq_dedup_key(eq_text)
+            fp = FittingProblem(em, prob.data; Keq=prob.Keq)
+            fit = fit_rate_equation(fp, optimizer; kwargs...)
+            row = (
+                n_params = n,
+                loss = fit.loss,
+                mechanism_type = string(typeof(em)),
+                rate_equation = eq_text,
+                fitted_param_names = fkeys,
+                fitted_param_values =
+                    Tuple(fit.params[k] for k in fkeys),
+                eq_hash = string(key, base=16, pad=16),
+            )
+            BatchEntry(m, n, fit.loss, key, row)
+        catch e
+            @debug("_process_batch: compile or fit failed",
+                   exception=(e, catch_backtrace()))
+            nothing
+        end
+    end
+    BatchEntry[r for r in results if r !== nothing]
+end
+
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,

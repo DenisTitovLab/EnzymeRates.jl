@@ -924,3 +924,30 @@ end
         loss_rel_threshold=1.0, loss_abs_threshold=0.0,
         min_beam_width=2, best_override=0.0) == [1, 2]
 end
+
+@testset "_process_batch" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    data = DataFrame(
+        S = [1.0, 2.0, 3.0, 4.0],
+        P = [0.1, 0.2, 0.3, 0.4],
+        Rate = [0.5, 0.8, 1.0, 1.1],
+        group = [1, 1, 2, 2],
+    )
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    ms = EnzymeRates._dedup_flat(collect(EnzymeRates.init_mechanisms(rxn)))
+    entries = EnzymeRates._process_batch(ms, prob;
+        pmap_function=map, optimizer=PyCMAOpt(),
+        max_param_count=20, n_restarts=1, maxtime=1.0)
+    @test !isempty(entries)
+    @test all(e -> e isa EnzymeRates.BatchEntry, entries)
+    @test all(e -> e.n_params == length(e.row.fitted_param_names), entries)
+    @test all(e -> occursin(r"^[0-9a-f]{16}$", e.row.eq_hash), entries)
+    # cap filter: nothing over the cap is fit
+    capped = EnzymeRates._process_batch(ms, prob;
+        pmap_function=map, optimizer=PyCMAOpt(),
+        max_param_count=0, n_restarts=1, maxtime=1.0)
+    @test isempty(capped)
+end
