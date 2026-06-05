@@ -93,7 +93,7 @@ and data using beam search.
 
 # Keyword Arguments
 - `min_beam_width::Int = 50`: minimum mechanisms
-  to keep per level
+  to keep per param-count tier
 - `loss_rel_threshold::Float64 = 2.0`: relative tolerance
   for beam selection (see "Beam selection" below)
 - `loss_abs_threshold::Float64 = 0.01`: absolute tolerance
@@ -120,7 +120,8 @@ and data using beam search.
   permutation p-value for model selection. Simpler-model
   bucket accepted iff `p > perm_p_threshold` under the
   sign-flip null. Default 0.16 matches paired 1-SE empirically.
-- `save_dir`: directory for per-level CSV files
+- `save_dir::String = _default_save_dir()`: output directory for the
+  search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`)
 - `pmap_function::Function = pmap`: parallelism
   function (Distributed.pmap by default)
 - Extra kwargs are forwarded to `fit_rate_equation`
