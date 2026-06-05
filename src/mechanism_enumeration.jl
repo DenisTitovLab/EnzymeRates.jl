@@ -1,5 +1,5 @@
 # ABOUTME: Mechanism enumeration by incremental parameter count growth
-# ABOUTME: Provides init_mechanisms, expand_mechanisms, dedup! building blocks
+# ABOUTME: Provides init_mechanisms, expand_mechanisms, _dedup_flat building blocks
 
 
 # ─── Catalytic topologies ─────────────────────────────────────────────
@@ -1717,18 +1717,6 @@ function _dedup_flat(mechs::Vector)
     mechs
 end
 
-"""
-    dedup!(cache::Dict{Int, <:Vector})
-
-Apply `_dedup_flat` to each bucket; drop emptied buckets.
-"""
-function dedup!(cache::Dict{Int, <:Vector})
-    for (pc, mechs) in cache
-        _dedup_flat(mechs)
-        isempty(mechs) && delete!(cache, pc)
-    end
-    cache
-end
 
 """
     init_mechanisms(reaction::EnzymeReaction) -> Vector{Mechanism}

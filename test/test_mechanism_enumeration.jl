@@ -3537,7 +3537,7 @@ end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
-# 5. Composition (dedup!, expand_mechanisms)
+# 5. Composition (_dedup_flat, expand_mechanisms)
 # ═══════════════════════════════════════════════════════════════════════
 
 # ─── _canonicalize! ────────────────────────────────────────────────────
@@ -3546,7 +3546,7 @@ end
     # Test 1: outer kinetic-group order does not matter post-canonicalization.
     # Build two Mechanisms from the same init seed but with the outer step
     # groups in opposite orders; after _canonicalize_mechanism! both must be
-    # struct-equal (the basis for dedup!'s `unique!(mechs)`).
+    # struct-equal (the basis for _dedup_flat's `unique!(mechs)`).
     m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
     EnzymeRates._assert_mechanism_invariants(m_seed)
     m_perm = EnzymeRates.Mechanism(
@@ -3582,7 +3582,7 @@ end
 # ─── _dedup_key ────────────────────────────────────────────────────────
 
 # Mechanism dedup keys: struct equality after canonicalization.
-# `dedup!(::Dict{Int, Vector{Mechanism}})` canonicalizes in place via
+# `_dedup_flat` canonicalizes in place via
 # `_canonicalize_mechanism!` and then calls `unique!(mechs)`, which relies
 # on `Base.==` / `Base.hash` on the struct itself. This testset locks in
 # the struct-equality contract that powers that dedup.
@@ -3619,7 +3619,7 @@ end
     @test am_m2 != am_m4
 end
 
-# ─── dedup! ────────────────────────────────────────────────────────────
+# ─── _dedup_flat ───────────────────────────────────────────────────────
 @testset "Dedup" begin
 
     @testset "Mechanism — same physics, different group order" begin
@@ -3631,54 +3631,37 @@ end
         permuted_steps = reverse(m_seed.steps)
         m_perm = EnzymeRates.Mechanism(
             EnzymeRates.reaction(m_seed), permuted_steps)
-        cache = Dict(5 => EnzymeRates.Mechanism[m_seed, m_perm])
-        EnzymeRates.dedup!(cache)
-        @test length(cache[5]) == 1
+        v = EnzymeRates.Mechanism[m_seed, m_perm]
+        EnzymeRates._dedup_flat(v)
+        @test length(v) == 1
     end
 
     @testset "Mechanism — different mechanisms preserved" begin
         # Surviving Mechanisms must be pairwise distinct under
         # compile-time equality (EnzymeMechanism singleton type).
-        mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        pc = 5  # arbitrary bucket label; dedup! ignores the key value
-        cache = Dict(pc => collect(mechs))
-        EnzymeRates.dedup!(cache)
-        compiled = Set(EnzymeRates.EnzymeMechanism(m) for m in cache[pc])
-        @test length(cache[pc]) == length(compiled)
-        @test length(cache[pc]) >= 2
+        mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
+        EnzymeRates._dedup_flat(mechs)
+        compiled = Set(EnzymeRates.EnzymeMechanism(m) for m in mechs)
+        @test length(mechs) == length(compiled)
+        @test length(mechs) >= 2
     end
 
     @testset "Mechanism — idempotent" begin
-        mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        cache = Dict(5 => collect(mechs))
-        EnzymeRates.dedup!(cache)
-        n1 = length(cache[5])
-        EnzymeRates.dedup!(cache)
-        @test length(cache[5]) == n1
-    end
-
-    @testset "Mechanism — empty input" begin
-        cache = Dict{Int, Vector{EnzymeRates.Mechanism}}()
-        EnzymeRates.dedup!(cache)
-        @test isempty(cache)
-    end
-
-    @testset "Mechanism — empty bucket deleted" begin
-        cache = Dict(5 => EnzymeRates.Mechanism[])
-        EnzymeRates.dedup!(cache)
-        @test !haskey(cache, 5)
+        mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
+        EnzymeRates._dedup_flat(mechs)
+        n1 = length(mechs)
+        EnzymeRates._dedup_flat(mechs)
+        @test length(mechs) == n1
     end
 
     @testset "Mechanism — bi-bi init: dedup leaves canonical seeds intact" begin
         # init_mechanisms produces mechanisms that are already in canonical
-        # form (no two are presentation-variants of each other). dedup! is
-        # therefore a no-op on the count, and the post-dedup bucket equals
-        # the input count.
-        mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        pc = 5
-        mech_cache = Dict(pc => collect(mechs))
-        EnzymeRates.dedup!(mech_cache)
-        @test length(mech_cache[pc]) == length(mechs)
+        # form (no two are presentation-variants of each other). _dedup_flat
+        # is therefore a no-op on the count.
+        mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
+        n = length(mechs)
+        EnzymeRates._dedup_flat(mechs)
+        @test length(mechs) == n
     end
 
     @testset "AllostericMechanism — same physics, site permutation" begin
@@ -3696,17 +3679,9 @@ end
         am_ba = EnzymeRates.AllostericMechanism(
             EnzymeRates.reaction(base),
             [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
-        pc = 5
-        cache = Dict(pc =>
-            EnzymeRates.AllostericMechanism[am_ab, am_ba])
-        EnzymeRates.dedup!(cache)
-        @test length(cache[pc]) == 1
-    end
-
-    @testset "AllostericMechanism — empty input" begin
-        cache = Dict{Int, Vector{EnzymeRates.AllostericMechanism}}()
-        EnzymeRates.dedup!(cache)
-        @test isempty(cache)
+        v = EnzymeRates.AllostericMechanism[am_ab, am_ba]
+        EnzymeRates._dedup_flat(v)
+        @test length(v) == 1
     end
 
     @testset "Mechanism — inter-move overlap: dedup actually fires" begin
@@ -3725,9 +3700,10 @@ end
     @testset "Mechanism — permuted groups collapse via canonicalization" begin
         # Two Mechanisms with the same physics but with their outer
         # kinetic-group order arbitrarily rearranged should collapse to one
-        # after dedup!. This exercises _canonicalize_mechanism!'s outer-group
-        # sort path with a non-trivial permutation, confirming that any
-        # permutation of the outer Vector canonicalizes back to the same struct.
+        # after _dedup_flat. This exercises _canonicalize_mechanism!'s
+        # outer-group sort path with a non-trivial permutation, confirming
+        # that any permutation of the outer Vector canonicalizes back to the
+        # same struct.
         m_seed = first(EnzymeRates.init_mechanisms(bi_bi_rxn))
         EnzymeRates._assert_mechanism_invariants(m_seed)
         n_groups = length(m_seed.steps)
@@ -3737,10 +3713,9 @@ end
         perm = vcat(2:n_groups, 1)
         m_rotated = EnzymeRates.Mechanism(
             EnzymeRates.reaction(m_seed), m_seed.steps[perm])
-        pc = 5
-        cache = Dict(pc => EnzymeRates.Mechanism[m_seed, m_rotated])
-        EnzymeRates.dedup!(cache)
-        @test length(cache[pc]) == 1
+        v = EnzymeRates.Mechanism[m_seed, m_rotated]
+        EnzymeRates._dedup_flat(v)
+        @test length(v) == 1
     end
 end
 

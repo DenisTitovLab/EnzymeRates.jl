@@ -1187,12 +1187,6 @@
 
         # Idempotent: two calls give equal results
         @test EnzymeRates.AllostericMechanism(aem) == am
-
-        # _to_mechanism bridge dispatches to AllostericMechanism
-        @test EnzymeRates._to_mechanism(aem) == am
-        @test EnzymeRates._to_mechanism(aem) isa EnzymeRates.AllostericMechanism
-        # And matches the non-allosteric side too
-        @test EnzymeRates._to_mechanism(cm) == EnzymeRates.Mechanism(cm)
     end
 
     @testset "name(p, ::AllostericEnzymeMechanism) chokepoint overloads" begin
