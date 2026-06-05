@@ -152,11 +152,19 @@ State:
 - `cv_pool::Dict{Int, Vector{BatchEntry}}` — top `n_cv_candidates` **distinct equations**
   (by `eq_hash`, lowest loss each) per param count, accumulated across iterations. The *only*
   thing retained for final CV.
-- `best_loss_by_count::Dict{Int, Float64}` — beam-cutoff reference per count.
-- `high_water::Int` — highest count whose tier has been processed.
+- `best_loss_by_count::Dict{Int, Float64}` — per-count best-ever loss, the beam-cutoff
+  reference (a count's best may be an already-expanded entry, so it's tracked separately).
+- `target::Int` — a monotonically-increasing sweep pointer (the highest count tier admitted
+  so far).
 
-No `seen_keys` / persistent fit cache. Termination is guaranteed by monotonic expansion +
-the `max_param_count` cap, not a seen-set.
+No `seen_keys` / persistent fit cache. **Expansion moves are not param-count-monotonic** — a
+move can produce a child with the *same* (Δ=0, ≈16% of LDH expansions) or even fewer params
+than its parent, because a Haldane/Wegscheider constraint absorbs the added structural
+parameter. Termination instead rests on **irreversibility**: every move (`_expand_re_to_ss`,
+`_expand_split_kinetic_group`, `_expand_add_dead_end_regulator`, `_expand_to_allosteric`,
+`_expand_add_allosteric_regulator`, `_expand_change_allo_state`) is add-only with no inverse,
+so structure strictly elaborates along every path, the reachable structure space under
+`max_param_count` is finite, and the search cannot cycle.
 
 Flow:
 ```
@@ -166,41 +174,47 @@ _save_initial_csv(save_dir, [e.row for e in base_entries])    # mandatory
 _ingest!(frontier, cv_pool, best_loss_by_count, base_entries; n_cv_candidates)
 
 iteration = 0
-while any nonempty vector in frontier:
-    # sweep the next tier PLUS any stragglers below high_water into one batch
-    counts   = sort(collect(keys(frontier) with nonempty unexpanded))
-    k        = first(counts)                       # min unexpanded count
-    tiers    = [c for c in counts if c == k || c < high_water]   # k + stragglers
-    to_expand = BatchEntry[]
-    for c in tiers
-        grp = pop!(frontier, c)
-        sel = _select_beam([e.loss for e in grp];
-                 best_override = best_loss_by_count[c], thresholds…, min_beam_width)
-        append!(to_expand, grp[sel])              # non-selected are pruned (dropped)
+target = minimum(keys(frontier))                  # lowest count present
+while !isempty(frontier):
+    # Sweep this tier PLUS every same-or-lower-count straggler into one batch.
+    group = BatchEntry[]
+    for c in collect(keys(frontier))
+        c <= target && append!(group, pop!(frontier, c))
     end
-    high_water = max(high_water, maximum(tiers))
+    to_expand = BatchEntry[]
+    for c in unique(e.n_params for e in group)    # beam-select PER count
+        ec  = [e for e in group if e.n_params == c]
+        sel = _select_beam([e.loss for e in ec];
+                 best_override = best_loss_by_count[c], thresholds…, min_beam_width)
+        append!(to_expand, ec[sel])               # non-selected are pruned (dropped)
+    end
 
-    children = _dedup_flat(expand_mechanisms([e.mech for e in to_expand], prob.reaction))
-    child_entries = _process_batch(children, prob; max_param_count, …)
-    iteration += 1
-    _save_iteration_csv(save_dir, [e.row for e in child_entries], iteration)
-    _ingest!(frontier, cv_pool, best_loss_by_count, child_entries; n_cv_candidates)
-    # per-iteration rows are now only in the CSV + cv_pool; nothing else retained
+    if !isempty(to_expand)
+        children = _dedup_flat(
+            expand_mechanisms([e.mech for e in to_expand], prob.reaction))
+        child_entries = _process_batch(children, prob; max_param_count, …)
+        iteration += 1
+        _save_iteration_csv(save_dir, [e.row for e in child_entries], iteration)
+        _ingest!(frontier, cv_pool, best_loss_by_count, child_entries; n_cv_candidates)
+    end
 
-return cv_pool flattened → (candidate_mechs, candidate_df)
+    isempty(frontier) && break
+    target = max(target + 1, minimum(keys(frontier)))   # advance; jump over gaps
 ```
 
-- **Straggler handling (comment 1):** a child landing at a count `< high_water` is swept into
-  the *next* iteration's combined batch via the `c < high_water` clause — it never triggers a
-  lonely 1-mechanism fit pass. With today's strictly-additive expansion moves this branch
-  never fires; a straggler, if it ever appears, is visible in the CSV as a row whose
-  `n_params` is below the iteration's stage (no separate log needed).
+- **Advancing-sweep / straggler handling:** `target` only increases, so a Δ≤0 child (same or
+  lower count than the tier that produced it) lands at a count `≤ target` and is swept into
+  the **next** iteration's batch — pooled with the next higher tier, never expanded in a lonely
+  small pass. This is robust to Δ<0 for free. Δ=0 is common (~16% on LDH), so this matters in
+  practice, not just defensively. A child's anomalous low `n_params` is visible directly in
+  `equation_search_iteration_N.csv` (no separate log).
 - **`_select_beam` change:** add a `best_override` kwarg so the cutoff is computed against the
-  best-ever loss at that count (`best_loss_by_count[c]`), not just the min of the current
-  group — so a late straggler is judged against its tier's real best.
-- **Termination:** every expansion move strictly adds ≥1 parameter (monotonic) and
-  `max_param_count` caps the count — so mechanisms grow until they exceed the cap and are
-  dropped at the fit filter. No seen-set is needed to guarantee the loop ends.
+  per-count best-ever loss (`best_loss_by_count[c]`), not just the min of the current group —
+  so a straggler swept in later is judged against its tier's real best.
+- **Termination:** irreversible structural elaboration + the `max_param_count` cap (over-cap
+  children are dropped at the fit filter) ⇒ a finite reachable structure space ⇒ the loop
+  ends. `target` strictly increases each iteration, guaranteeing forward progress. (No
+  seen-set: YAGNI, justified by the irreversibility of every current move.)
 
 ### 6. `_ingest!` — bounded memory (comment 2)
 
@@ -293,12 +307,16 @@ test→implement. Per-function unit tests:
   CV-evaluated twice); fed by the bounded pool, not the full result set.
 - **`expand_mechanisms`** — returns a flat `Vector{Union{Mechanism,AllostericMechanism}}`
   (contract change from `Dict`).
-- **`_beam_search` integration** — end-to-end on a tiny dataset with an explicit `save_dir`:
-  output dir contains exactly `initial_mechanisms.csv` + sequential
-  `equation_search_iteration_N.csv` (no gaps); `initial_mechanisms.csv` row count ==
-  `length(_dedup_flat(init_mechanisms(rxn)))`; every CSV row carries an `eq_hash` column;
-  every `n_params` ≤ `max_param_count`; the returned CV pool size ≤
-  `(#param counts) × n_cv_candidates` (memory bound — confirms rows are not all accumulated).
+- **`_beam_search` integration** — end-to-end on a small LDH-like dataset with an explicit
+  `save_dir` and a low `max_param_count`. Asserts: the run **terminates** (this is the real
+  test of the irreversibility/advancing-sweep termination argument — LDH expansion has ~16%
+  Δ=0 children, so a real run exercises same-count stragglers); output dir contains exactly
+  `initial_mechanisms.csv` + sequential `equation_search_iteration_N.csv` (no gaps);
+  `initial_mechanisms.csv` row count == `length(_dedup_flat(init_mechanisms(rxn)))`; every CSV
+  row carries an `eq_hash` column; every `n_params` ≤ `max_param_count`; the returned CV pool
+  size ≤ `(#param counts) × n_cv_candidates` (memory bound — confirms rows are not all
+  accumulated). Because `target` only advances, no `equation_search_iteration_N.csv` is a
+  lonely single-mechanism file purely from a Δ=0 child.
 
 **Delete:**
 - `_n_fit_params_estimate` delta tests (`test/test_mechanism_enumeration.jl` ~1466/1521/1692/1835)
