@@ -4002,9 +4002,7 @@ end
         # `_i_state_dead == true`), but binding steps are :NonequalAI.
         # When `_i_state_dead == true`, the binding partition function
         # for :NonequalAI groups must still emit K1_T / K2_T in `den_T`
-        # so the canonicalizer can rename them; otherwise structurally
-        # equivalent mechanisms with different representative steps would hash
-        # differently.
+        # so they appear in the rate-equation body and in parameters(Full).
         m = @allosteric_mechanism begin
             substrates: S
             products: P
@@ -4029,10 +4027,10 @@ end
 end # top-level testset
 
 # ═══════════════════════════════════════════════════════════════════════
-# Rate-equation canonical hash dedup
+# Rate-equation dedup key
 # ═══════════════════════════════════════════════════════════════════════
 
-@testset "Rate-equation canonical hash dedup" begin
+@testset "Rate-equation dedup key" begin
     let
         # Shared exemplars used by multiple testsets below.
 
@@ -4092,27 +4090,11 @@ end # top-level testset
             end
         end
 
-        @testset "Hash is deterministic across repeated calls" begin
-            h1 = EnzymeRates._canonical_rate_eq_hash(uni_uni_3step)
-            h2 = EnzymeRates._canonical_rate_eq_hash(uni_uni_3step)
-            @test h1 == h2
-            @test h1 isa UInt64
-        end
-
-        @testset "Hash hex string is 16 lowercase hex chars" begin
-            h_full, h_hex, name_map =
-                EnzymeRates._canonical_rate_eq_hash_data(uni_uni_3step)
-            @test h_full isa UInt64
-            @test length(h_hex) == 16
-            @test all(c -> c in "0123456789abcdef", h_hex)
-            @test name_map isa Dict{String, String}
-        end
-
-        @testset "Distinct mechanisms produce distinct hashes" begin
+        @testset "Distinct mechanisms produce distinct dedup keys" begin
             # Ordered binding (A-first only) vs random binding (both A-first
             # and B-first paths). Same substrate set, same product set, but
             # the random mechanism has a different enzyme-form graph. The
-            # canonicalizer must produce different hashes.
+            # dedup key must differ.
             m_ordered = @enzyme_mechanism begin
                 substrates: A, B
                 products: P
@@ -4135,32 +4117,13 @@ end # top-level testset
                     E + P ⇌ E(P)
                 end
             end
-            @test EnzymeRates._canonical_rate_eq_hash(m_ordered) !=
-                  EnzymeRates._canonical_rate_eq_hash(m_random)
+            @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(m_ordered)) !=
+                  EnzymeRates._rate_eq_dedup_key(rate_equation_string(m_random))
         end
 
-        @testset "kinetic-group merge: name_map covers every raw param" begin
-            # biuni_mirror: both A-binding steps share kg=1, both B-binding
-            # steps share kg=2. Structural names collapse group members to
-            # their rep's name via the value-context chokepoint — no separate
-            # "User defined constraints:" section is emitted.
-            s = rate_equation_string(biuni_mirror)
-            @test !occursin("# User defined constraints:", s)
-
-            # name_map invariant: every symbol the mechanism's Full parameters
-            # expose has a canonical p_i token, so substitution into the
-            # rate-equation Exprs leaves no raw parameter symbols behind.
-            _, _, name_map =
-                EnzymeRates._canonical_rate_eq_hash_data(biuni_mirror)
-            for p in EnzymeRates.parameters(biuni_mirror, Full)
-                p === :E_total && continue
-                @test haskey(name_map, String(p))
-            end
-        end
-
-        @testset "LDH Pattern-A: graph-distinct mechanisms with equivalent v hash equally" begin
-            @test EnzymeRates._canonical_rate_eq_hash(ldh_m_a) ==
-                  EnzymeRates._canonical_rate_eq_hash(ldh_m_b)
+        @testset "LDH Pattern-A: graph-distinct mechanisms with equivalent v share a dedup key" begin
+            @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(ldh_m_a)) ==
+                  EnzymeRates._rate_eq_dedup_key(rate_equation_string(ldh_m_b))
 
             # Negative control: ldh_m_b with the E_NAD+Lactate step's
             # kinetic_group changed from 1 to 12 breaks the Lactate-
@@ -4178,42 +4141,8 @@ end # top-level testset
                     E(NADH, Pyruvate) <--> E(Lactate, NAD)
                 end
             end
-            @test EnzymeRates._canonical_rate_eq_hash(ldh_m_a) !=
-                  EnzymeRates._canonical_rate_eq_hash(ldh_m_c)
-        end
-
-        @testset "Allosteric I-state tokens covered by name_map" begin
-            # K-type allosteric uni-uni: catalytic step is :OnlyA
-            # (`_i_state_dead == true`), but binding steps are :NonequalAI,
-            # so K_I_S_E_c and K_I_P_E_c live in `den_T` of the rate equation body.
-            # Canonicalizer invariant: every I-state token must have a
-            # canonical entry so substitution into the rate-equation
-            # Exprs leaves no raw parameter symbols behind.
-            m = @allosteric_mechanism begin
-                substrates: S
-                products: P
-                catalytic_multiplicity: 2
-                catalytic_steps: begin
-                    E_c + S ⇌ E_c(S)      :: NonequalAI
-                    E_c + P ⇌ E_c(P)      :: NonequalAI
-                    E_c(S) <--> E_c(P)    :: OnlyA
-                end
-            end
-            # Pre-assertion: the raw body actually contains I-state tokens
-            # (structural naming: K_I_ prefix for inactive-state params).
-            # Otherwise the name_map's I-token coverage would be trivially
-            # satisfied by a mechanism that lacks an I-state body altogether.
-            @test occursin("K_I_", rate_equation_string(m))
-
-            _, _, name_map = EnzymeRates._canonical_rate_eq_hash_data(m)
-            # Every raw K_I_ or k_I_ key the rate-equation body could
-            # reference must be present in name_map.
-            i_keys = filter(k -> contains(k, "K_I_") || contains(k, "k_I_"),
-                            collect(keys(name_map)))
-            @test !isempty(i_keys)
-            for k in i_keys
-                @test occursin(r"^(K_I_|k_I_)", k)
-            end
+            @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(ldh_m_a)) !=
+                  EnzymeRates._rate_eq_dedup_key(rate_equation_string(ldh_m_c))
         end
 
         @testset "rate_equation_string emits section labels" begin
@@ -4252,24 +4181,6 @@ end # top-level testset
             end
             s_weg = rate_equation_string(m_weg)
             @test occursin("# Wegscheider constraints:", s_weg)
-        end
-
-        @testset "Hash-equivalent mechanisms share fitted_params" begin
-            # Fit reuse (`_project_cached_params`) maps cached params across
-            # hash-equivalent mechanisms through the canonical name_map
-            # (orig_string => canonical_token), not by raw fitted_params
-            # symbol identity. The contract is that each mechanism's fitted
-            # params map to the same multiset of canonical tokens — so a fit
-            # cached on one projects onto the other. Raw symbol names can
-            # differ: rep-step naming follows kinetic-group sizes, which two
-            # graph-distinct but v-equivalent mechanisms need not share.
-            fp_a = EnzymeRates.fitted_params(ldh_m_a)
-            fp_b = EnzymeRates.fitted_params(ldh_m_b)
-            _, _, nm_a = EnzymeRates._canonical_rate_eq_hash_data(ldh_m_a)
-            _, _, nm_b = EnzymeRates._canonical_rate_eq_hash_data(ldh_m_b)
-            canon_tokens(fp, nm) =
-                sort!([get(nm, String(p), String(p)) for p in fp])
-            @test canon_tokens(fp_a, nm_a) == canon_tokens(fp_b, nm_b)
         end
 
     end # let

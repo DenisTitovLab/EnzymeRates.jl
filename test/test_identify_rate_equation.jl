@@ -367,32 +367,11 @@ using OptimizationPyCMA
 
 end
 
-@testset "save_level_csv uses estimate-level filename" begin
-    mktempdir() do tmp
-        rows = [(n_params=3, loss=1.0,
-                 mechanism_type="m1", rate_equation="eq1",
-                 fitted_param_names=(:K1, :K2, :k3f),
-                 fitted_param_values=(1.0, 2.0, 3.0),
-                 eq_hash="0123456789abcdef",
-                 fit_inherited_from_estimate=missing)]
-        # Caller passes the estimate-level pc (e.g., 5) — could
-        # diverge from the row's actual n_params=3 due to Haldane
-        # reduction. Filename must reflect the estimate.
-        EnzymeRates._save_level_csv(tmp, rows, 5)
-        @test isfile(joinpath(tmp, "params_estimate_5.csv"))
-        @test !isfile(joinpath(tmp, "params_5.csv"))
-        df = CSV.read(joinpath(tmp, "params_estimate_5.csv"),
-                      DataFrame)
-        @test df.n_params == [3]
-    end
-end
-
 @testset "csv writers" begin
     rows = [(
         n_params = 5, loss = 1.0, mechanism_type = "M",
         rate_equation = "v = 1", fitted_param_names = (:K_a,),
         fitted_param_values = (2.0,), eq_hash = "abc",
-        fit_inherited_from_estimate = missing,
     )]
     mktempdir() do tmp
         EnzymeRates._save_initial_csv(tmp, rows)
@@ -817,15 +796,15 @@ end
     end
 end
 
-@testset "canonical-hash partition stability" begin
-    # Representative reactions exercising the canonicalizer's edge cases:
+@testset "rate-eq dedup-key partition stability" begin
+    # Representative reactions exercising the dedup key's edge cases:
     # - uni_uni: trivial structural equivalence
     # - bi_bi:   substituted-into-v ties across multiple kinetic groups
-    # ter-ter intentionally omitted — `rate_equation` compilation is
+    # ter-ter intentionally omitted — `rate_equation_string` derivation is
     # extremely slow for mechanisms with >~30 enzyme forms (CLAUDE.md
-    # "Known Issues"), and the canonical hasher invokes that path per
+    # "Known Issues"), and the dedup key renders that string per
     # candidate. The bi-bi enumeration already covers every structural
-    # symmetry the canonicalizer collapses.
+    # symmetry the dedup key collapses.
     test_reactions = [
         ("uni_uni", @enzyme_reaction(begin
             substrates: S[C]
@@ -841,13 +820,13 @@ end
     # equations the init-level enumeration produces. After the catalytic-
     # topology connectivity fix, the 69 bi_bi init mechanisms are all
     # structurally distinct AND each yields a distinct `rate_equation_string`,
-    # and the canonical hasher produces exactly 69 classes (verified directly:
-    # distinct hashes == distinct rate-equation strings == 69, i.e. zero over-
+    # so the comment-stripped string key produces exactly 69 classes
+    # (distinct keys == distinct rate-equation strings == 69, i.e. zero over-
     # and zero under-collapse). The fix removed the dangling-form / binding-
     # order rapid-equilibrium twins that previously collapsed the (buggy) 77
     # mechanisms to 21 classes: clean topologies have distinct enzyme-form
     # sets, hence distinct rate equations.
-    # If these counts change in a future commit, the canonical hasher's
+    # If these counts change in a future commit, the dedup key's
     # equivalence classes (or the enumeration) have shifted — investigate.
     expected_n_classes = Dict(
         "uni_uni" => 1,
@@ -858,18 +837,18 @@ end
         # init_mechanisms only — skip expand_mechanisms. The init level
         # already produces multiple structurally-equivalent variants
         # (mirror-step orderings, kinetic-group renumberings) that
-        # exercise the canonicalizer's collapse rules. expand_mechanisms
-        # adds variants at higher param counts whose canonicalizer
+        # exercise the dedup key's collapse rules. expand_mechanisms
+        # adds variants at higher param counts whose dedup-key
         # behavior is the same modulo size, at exponential compile cost.
         all_mechs = EnzymeRates.init_mechanisms(reaction)
 
         new_buckets = Dict{UInt64, Vector{Int}}()
         for (i, m) in enumerate(all_mechs)
             em = EnzymeRates.compile_mechanism(m)
-            h = EnzymeRates._canonical_rate_eq_hash(em)
+            h = EnzymeRates._rate_eq_dedup_key(rate_equation_string(em))
             push!(get!(new_buckets, h, Int[]), i)
-            # Determinism: same input, same hash across invocations.
-            @test EnzymeRates._canonical_rate_eq_hash(em) === h
+            # Determinism: same input, same key across invocations.
+            @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(em)) === h
         end
 
         @test length(new_buckets) == expected_n_classes[label]
