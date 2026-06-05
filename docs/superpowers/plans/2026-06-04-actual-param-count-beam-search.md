@@ -546,7 +546,7 @@ git commit -m "Add BatchEntry and _process_batch (fused compile+fit)"
         n, loss, hash(h),
         (n_params=n, loss=loss, mechanism_type="M",
          rate_equation="v", fitted_param_names=(:K,),
-         fitted_param_values=(1.0,), eq_hash=string(hash(h),base=16)))
+         fitted_param_values=(1.0,), eq_hash=string(hash(h),base=16,pad=16)))
     frontier = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     cv_pool  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     best     = Dict{Int,Float64}()
@@ -556,8 +556,9 @@ git commit -m "Add BatchEntry and _process_batch (fused compile+fit)"
     @test length(frontier[5]) == 3            # frontier keeps ALL
     @test best[5] == 1.0                       # running min
     @test length(cv_pool[5]) == 2              # bounded, distinct eq_hash
-    # the kept :a entry is the lower-loss one (2.0, not 3.0):
-    a = only(filter(e -> e.eq_hash == string(hash(:a),base=16), cv_pool[5]))
+    # the kept :a entry is the lower-loss one (2.0, not 3.0);
+    # BatchEntry.eq_hash is a UInt64, so compare against hash(:a), not hex:
+    a = only(filter(e -> e.eq_hash == hash(:a), cv_pool[5]))
     @test a.loss == 2.0
 end
 ```
