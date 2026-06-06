@@ -336,12 +336,20 @@ using Tables
         fp = FittingProblem(ordered_bi_bi, data; Keq=Keq_val)
 
         x = randn(length(EnzymeRates.fitted_params(ordered_bi_bi)))
-        EnzymeRates.loss!(x, fp)  # warmup
+        EnzymeRates.loss!(x, fp)  # warmup/compile
 
-        # Time 1000 calls
-        t = @elapsed for _ in 1:1000; EnzymeRates.loss!(x, fp); end
-        avg_us = t / 1000 * 1e6
-        @test avg_us < 50  # < 50 μs per call for 500 datapoints (~5 μs typical)
+        # Minimum over several batches defeats the GC/scheduling inflation a
+        # single mean suffers (matches test_rate_equation_performance); the
+        # accumulator's finiteness check keeps the calls from being elided.
+        best_us = Inf
+        acc = 0.0
+        for _ in 1:5
+            acc = 0.0
+            t = @elapsed for _ in 1:2000; acc += EnzymeRates.loss!(x, fp); end
+            best_us = min(best_us, t / 2000 * 1e6)
+        end
+        isfinite(acc) || error("loss! produced a non-finite result")
+        @test best_us < 50  # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
     end
 
     # ── Test 9: scale_k_to_kcat normalization + retcode ────────────────

@@ -6,7 +6,7 @@ using EnzymeRates
 using Random
 
 @testset "README runs" begin
-    md = read(joinpath(@__DIR__, "..", "README.md"), String)
+    md = replace(read(joinpath(@__DIR__, "..", "README.md"), String), "\r\n" => "\n")
     blocks = String[]
     for m in eachmatch(r"```julia\n(.*?)\n```"s, md)
         block = m.captures[1]
