@@ -340,9 +340,8 @@ using OptimizationPyCMA
         for f in files
             df_file = CSV.read(joinpath(save_dir, f), DataFrame)
             @test "eq_hash" in names(df_file)
-            @test all(.!ismissing.(df_file.eq_hash))
-            @test all(length.(string.(df_file.eq_hash)) .== 16)
-            @test all(<=(8), df_file.n_params)     # max_param_count=8
+            @test all(length.(string.(skipmissing(df_file.eq_hash))) .== 16)
+            @test all(<=(8), skipmissing(df_file.n_params))     # max_param_count=8
         end
     end
 
@@ -915,18 +914,33 @@ end
     )
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
     ms = EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(rxn)))
-    entries = EnzymeRates._process_batch(ms, prob;
+
+    entries, failures = EnzymeRates._process_batch(ms, prob;
         pmap_function=map, optimizer=PyCMAOpt(),
         max_param_count=20, n_restarts=1, maxtime=1.0)
     @test !isempty(entries)
+    @test isempty(failures)
     @test all(e -> e isa EnzymeRates.BatchEntry, entries)
+    @test all(e -> e.retcode isa Symbol, entries)
     @test all(e -> e.n_params == length(e.row.fitted_param_names), entries)
     @test all(e -> occursin(r"^[0-9a-f]{16}$", e.row.eq_hash), entries)
-    # cap filter: nothing over the cap is fit
-    capped = EnzymeRates._process_batch(ms, prob;
+
+    # cap filter: nothing over the cap is fit (and it is not a failure).
+    capped_entries, capped_failures = EnzymeRates._process_batch(ms, prob;
         pmap_function=map, optimizer=PyCMAOpt(),
         max_param_count=0, n_restarts=1, maxtime=1.0)
-    @test isempty(capped)
+    @test isempty(capped_entries)
+    @test isempty(capped_failures)
+
+    # config error (unknown optimizer kwarg) → every fit throws → all failures,
+    # no entries; each failure carries a non-empty error string.
+    fail_entries, fail_failures = EnzymeRates._process_batch(ms, prob;
+        pmap_function=map, optimizer=PyCMAOpt(),
+        max_param_count=20, n_restarts=1, maxtime=1.0, beam_fraction=0.5)
+    @test isempty(fail_entries)
+    @test !isempty(fail_failures)
+    @test all(f -> f isa EnzymeRates.FitFailure, fail_failures)
+    @test all(f -> !isempty(f.error), fail_failures)
 end
 
 @testset "_ingest! and cv pool" begin

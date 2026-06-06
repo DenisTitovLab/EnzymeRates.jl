@@ -333,13 +333,43 @@ struct BatchEntry
     row::NamedTuple
 end
 
+"""A mechanism that failed to compile or fit, with the exception message
+captured as a string. Kept for the CSV + summary."""
+struct FitFailure
+    mech::Union{Mechanism, AllostericMechanism}
+    error::String
+end
+
+# Compact, CSV-safe rendering of a thrown exception: type + truncated message.
+_exc_string(e) = first(sprint(showerror, e), 200)
+
+# CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
+# with `missing` wherever the value is unavailable (compile/fit never produced it).
+# `mechanism_type` is the uncompiled concrete type (`Mechanism`/`AllostericMechanism`),
+# since compilation — which yields the singleton type recorded for fitted rows — may
+# itself have been the step that failed.
+function _failure_row(f::FitFailure)
+    (n_params = missing,
+     loss = missing,
+     mechanism_type = string(typeof(f.mech)),
+     rate_equation = missing,
+     retcode = missing,
+     error = f.error,
+     fitted_param_names = (),
+     fitted_param_values = (),
+     eq_hash = missing)
+end
+
 """
 Compile + cap-check + fit every mechanism in `mechs`, one `pmap` pass with
-compile and fit fused on the same worker. Returns one `BatchEntry` per
-fitted mechanism (each keeping its OWN fitted params and `eq_hash`). A
-mechanism whose actual fitted-param count exceeds `max_param_count` is
-dropped BEFORE fitting; compile/fit failures are dropped. No dedup here —
-`mechs` is already structurally deduped by the caller (`_dedup_flat!`).
+compile and fit fused on the same worker. Returns `(entries, failures)`:
+`entries::Vector{BatchEntry}` are the fitted mechanisms (each keeping its OWN
+fitted params, `retcode`, and `eq_hash`); `failures::Vector{FitFailure}` are
+mechanisms that threw (StackOverflow/OOM at compile, an unsupported-kwarg error,
+etc.) — captured WITH the exception text, never silently swallowed. A mechanism
+whose actual fitted-param count exceeds `max_param_count` is dropped BEFORE
+fitting (a cap skip, not a failure). No dedup here — `mechs` is already
+structurally deduped by the caller (`_dedup_flat!`).
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
@@ -353,7 +383,8 @@ function _process_batch(
             n > max_param_count && return nothing
             eq_text = rate_equation_string(em)
             key = _rate_eq_dedup_key(eq_text)
-            fp = FittingProblem(em, prob.data; Keq=prob.Keq)
+            fp = FittingProblem(em, prob.data;
+                Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
             fit = fit_rate_equation(fp, optimizer; kwargs...)
             row = (
                 n_params = n,
@@ -369,12 +400,12 @@ function _process_batch(
             )
             BatchEntry(m, n, fit.loss, fit.retcode, key, row)
         catch e
-            @debug("_process_batch: compile or fit failed",
-                   exception=(e, catch_backtrace()))
-            nothing
+            FitFailure(m, _exc_string(e))
         end
     end
-    BatchEntry[r for r in results if r !== nothing]
+    entries  = BatchEntry[r for r in results if r isa BatchEntry]
+    failures = FitFailure[r for r in results if r isa FitFailure]
+    return entries, failures
 end
 
 """
@@ -431,12 +462,20 @@ function _beam_search(
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
     base = _dedup_flat!(collect(init_mechanisms(prob.reaction)))
-    base_entries = _process_batch(base, prob;
+    base_entries, base_failures = _process_batch(base, prob;
         pmap_function, optimizer, max_param_count, kwargs...)
-    isempty(base_entries) && return (
-        Union{Mechanism, AllostericMechanism}[],
-        _rows_to_dataframe(NamedTuple[]))
-    _save_initial_csv(save_dir, [e.row for e in base_entries])
+    if isempty(base_entries)
+        isempty(base_failures) && return (
+            Union{Mechanism, AllostericMechanism}[],
+            _rows_to_dataframe(NamedTuple[]))
+        error("Every base-tier fit failed ($(length(base_failures)) " *
+              "mechanisms). This usually indicates an optimizer/solver " *
+              "configuration problem (e.g. an unsupported kwarg). First " *
+              "failure: $(base_failures[1].error)")
+    end
+    _save_initial_csv(save_dir,
+        vcat([e.row for e in base_entries],
+             [_failure_row(f) for f in base_failures]))
     _ingest!(frontier, cv_pool, best_loss_by_count,
              base_entries; n_cv_candidates)
 
@@ -466,17 +505,20 @@ function _beam_search(
                 e.mech for e in to_expand]
             children = _dedup_flat!(
                 expand_mechanisms(parents, prob.reaction))
-            child_entries = _process_batch(children, prob;
+            child_entries, child_failures = _process_batch(children, prob;
                 pmap_function, optimizer, max_param_count, kwargs...)
-            if !isempty(child_entries)
-                # Count only iterations that fit children, so the
+            if !isempty(child_entries) || !isempty(child_failures)
+                # Count only iterations that produced rows, so the
                 # equation_search_iteration_N CSVs are gap-free.
                 iteration += 1
                 _save_iteration_csv(save_dir,
-                    [e.row for e in child_entries], iteration)
-                _ingest!(frontier, cv_pool, best_loss_by_count,
-                         child_entries; n_cv_candidates)
+                    vcat([e.row for e in child_entries],
+                         [_failure_row(f) for f in child_failures]),
+                    iteration)
             end
+            !isempty(child_entries) && _ingest!(
+                frontier, cv_pool, best_loss_by_count,
+                child_entries; n_cv_candidates)
         end
 
         isempty(frontier) && break
