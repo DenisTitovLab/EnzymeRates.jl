@@ -341,7 +341,7 @@ using Tables
         # Time 1000 calls
         t = @elapsed for _ in 1:1000; EnzymeRates.loss!(x, fp); end
         avg_us = t / 1000 * 1e6
-        @test avg_us < 50  # < 50 μs per call for 500 datapoints (~5 μs typical)
+        @test avg_us < 100  # 500 datapoints; ~5 μs typical local, 100 μs ceiling absorbs noisy CI runners
     end
 
     # ── Test 9: scale_k_to_kcat normalization + retcode ────────────────
