@@ -544,26 +544,28 @@ end
 
 """
 Evaluate loss of a mechanism on data with given
-params.
+params and scaling mode.
 """
 function _evaluate_loss(
-    mechanism, data, params, Keq
+    mechanism, data, params, Keq, scale_k_to_kcat
 )
     pnames = fitted_params(mechanism)
     x = [log(params[p]) for p in pnames]
-    fp = FittingProblem(mechanism, data; Keq=Keq)
+    fp = FittingProblem(mechanism, data; Keq=Keq, scale_k_to_kcat=scale_k_to_kcat)
     return loss!(x, fp)
 end
 
 """
     _loocv(mechanism, prob; optimizer, kwargs...)
 
-Leave-one-group-out cross-validation. Returns `Vector{Float64}`
-of per-fold test losses (one per held-out group). Each score is
-floored at `eps(Float64)` so `log(score)` is finite — the
-selection rules in `_select_best_n_params` operate in log space.
-On any internal failure (compile error, fit failure, etc.),
-returns an empty `Float64[]`.
+Leave-one-group-out cross-validation. Returns `Vector{Float64}` of per-fold
+test losses (one per held-out group). Each score is floored at `eps(Float64)`
+so `log(score)` is finite — the selection rules operate in log space.
+
+Loud by design: a fold fit that throws propagates, and a non-finite fold test
+loss raises (naming the held-out group). A corrupted CV invalidates model
+selection, and CV is cheap to recompute from the saved search CSVs — so the
+pipeline aborts rather than silently dropping the candidate.
 """
 function _loocv(
     mechanism::AbstractEnzymeMechanism,
@@ -573,44 +575,28 @@ function _loocv(
     groups = unique(prob.data.group)
     scores = Float64[]
 
-    try
-        for held_out in groups
-            train_mask =
-                prob.data.group .!= held_out
-            test_mask =
-                prob.data.group .== held_out
+    for held_out in groups
+        train_mask = prob.data.group .!= held_out
+        test_mask  = prob.data.group .== held_out
 
-            train_data = _subset_data(
-                prob.data, train_mask)
-            test_data = _subset_data(
-                prob.data, test_mask)
+        train_data = _subset_data(prob.data, train_mask)
+        test_data  = _subset_data(prob.data, test_mask)
 
-            fp_train = FittingProblem(
-                mechanism, train_data;
-                Keq=prob.Keq)
-            fit = fit_rate_equation(
-                fp_train, optimizer;
-                kwargs...)
+        fp_train = FittingProblem(mechanism, train_data;
+            Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
+        fit = fit_rate_equation(fp_train, optimizer; kwargs...)
 
-            test_loss = _evaluate_loss(
-                mechanism, test_data,
-                fit.params, prob.Keq)
-            # Treat NaN or Inf as a fold-failure and abort the
-            # entire LOOCV. `max(NaN, eps) === NaN` (NaN is not
-            # ordered), so a non-finite test_loss would otherwise
-            # bypass the floor and silently corrupt downstream
-            # `cv_score = mean(v)` and `argmin(...)` selection.
-            isfinite(test_loss) || return Float64[]
-            # Floor at eps so log(score) is finite. The centered-
-            # residuals loss can be exactly 0 (e.g. single-row
-            # held-out group, or all residuals equal post-centering).
-            push!(scores,
-                  max(test_loss, eps(Float64)))
-        end
-    catch e
-        @debug("LOOCV failed",
-            exception=(e, catch_backtrace()))
-        return Float64[]
+        test_loss = _evaluate_loss(mechanism, test_data,
+            fit.params, prob.Keq, prob.scale_k_to_kcat)
+        # A non-finite fold loss means the fit is unusable; aborting model
+        # selection is correct (re-run CV from the saved CSVs after fixing
+        # the fit). max(NaN, eps) === NaN, so the floor below would not catch it.
+        isfinite(test_loss) || error(
+            "LOOCV produced a non-finite test loss for held-out group " *
+            "$held_out — the fit is unusable; aborting model selection.")
+        # Floor at eps so log(score) is finite. The centered-residuals loss
+        # can be exactly 0 (e.g. a single-row held-out group).
+        push!(scores, max(test_loss, eps(Float64)))
     end
 
     scores
@@ -827,15 +813,7 @@ function _cv_model_selection(
 
     cv_df = copy(candidate_rows)
     cv_df.cv_fold_scores = collect(fold_scores_per_candidate)
-    cv_df.cv_score = [isempty(v) ? Inf : mean(log.(v))
-                      for v in cv_df.cv_fold_scores]
-
-    all(!isfinite, cv_df.cv_score) && error(
-        "All LOOCV scores are non-finite — every fold's fit " *
-        "failed. The pipeline cannot select a best mechanism. " *
-        "Inspect optimizer settings (n_restarts, maxtime), " *
-        "data quality, or compile failures (run with " *
-        "ENV[\"JULIA_DEBUG\"] = \"EnzymeRates\").")
+    cv_df.cv_score = [mean(log.(v)) for v in cv_df.cv_fold_scores]
 
     sel = _select_best_n_params(
         cv_df;
@@ -868,10 +846,7 @@ function _cv_model_selection(
     groups = unique(prob.data.group)
     for (i, g) in enumerate(groups)
         col = Symbol("cv_fold_$g")
-        cv_df[!, col] = [
-            isempty(v) ? missing : v[i]
-            for v in cv_df.cv_fold_scores
-        ]
+        cv_df[!, col] = [v[i] for v in cv_df.cv_fold_scores]
     end
 
     select!(cv_df, Not(:cv_fold_scores))

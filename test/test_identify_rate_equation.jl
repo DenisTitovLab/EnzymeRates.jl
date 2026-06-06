@@ -397,6 +397,27 @@ using OptimizationPyCMA
         @test all(isfinite, scores)
     end
 
+    @testset "_loocv is loud on fit failure" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+        end
+        m = EnzymeRates.EnzymeMechanism(
+            first(EnzymeRates.init_mechanisms(rxn)))
+        data = DataFrame(
+            S    = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            P    = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
+            group = [1, 1, 2, 2, 3, 3],
+        )
+        prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+        # An unsupported optimizer kwarg makes every fold fit throw; _loocv
+        # must NOT swallow it (the old behavior returned Float64[]).
+        @test_throws Exception EnzymeRates._loocv(
+            m, prob; optimizer=PyCMAOpt(),
+            n_restarts=1, maxtime=1.0, beam_fraction=0.5)
+    end
+
 end
 
 @testset "csv writers" begin
