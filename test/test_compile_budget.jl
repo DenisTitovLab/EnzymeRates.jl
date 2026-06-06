@@ -9,7 +9,7 @@ using EnzymeRates
 # struct + @generated accessor specializations (EnzymeReaction is
 # non-parametric, so there is no per-arity reaction-type specialization).
 const INIT_TRACE_BUDGET                  = 100   # baseline 2026-05-27: 47; budget ≈ 2×
-const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 2.1   # baseline 2026-05-20: 1.03s; budget = 2×
+const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 6.0   # CI-runner baseline ~2.8s (local ~1.03s); budget = 2× CI
 
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
@@ -192,9 +192,10 @@ end
               "uni_cold=$(round(t_uni_cold; digits=2))s  " *
               "uni_warm=$(round(t_uni_warm * 1e6; digits=1))µs  " *
               "warm/cold=$(round(t_uni_warm / t_uni_cold; sigdigits=2))"
-        # ter-ter cold-compile ceiling (~2× the 2026-05-27 baseline of ~15 s).
+        # ter-ter cold-compile ceiling. CI-runner baseline ~34 s (local
+        # baseline ~15 s); budget = 2× CI.
         @test isfinite(t_ter)
-        @test t_ter < 30.0
+        @test t_ter < 70.0
         # Warm uni-uni must be near-instant relative to cold: ter-ter already
         # compiled the superset. Observed warm/cold ≈ 5e-5; the < 1e-3 gate
         # keeps a ~20× margin and is insensitive to machine speed.
