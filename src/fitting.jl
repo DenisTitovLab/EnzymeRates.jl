@@ -12,6 +12,8 @@ rate constants.
 - `data`: `NamedTuple` of column vectors (via `Tables.columntable`)
 - `group_point_indexes`: row indices grouped by unique `group` values
 - `Keq`: fixed equilibrium constant
+- `scale_k_to_kcat`: a positive `Real` selects relative mode (per-group-centered
+  loss); `nothing` selects absolute per-enzyme-turnover mode (uncentered loss)
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
 """
@@ -20,12 +22,14 @@ struct FittingProblem{M<:AbstractEnzymeMechanism, D<:NamedTuple}
     data::D
     group_point_indexes::Vector{Vector{Int}}
     Keq::Float64
+    scale_k_to_kcat::Union{Float64,Nothing}
     log_abs_rates::Vector{Float64}
     log_ratios_buffer::Vector{Float64}
 end
 
 """
-    FittingProblem(mechanism::AbstractEnzymeMechanism, table; Keq::Real)
+    FittingProblem(mechanism::AbstractEnzymeMechanism, table;
+        Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0)
 
 Construct a `FittingProblem` from an enzyme mechanism and tabular data.
 
@@ -33,10 +37,16 @@ The table must have columns: `group`, `Rate`, and one column per
 metabolite matching `metabolites(mechanism)`. Uses
 `Tables.columntable` for conversion.
 
+`scale_k_to_kcat` selects the loss mode: a positive `Real` (default `1.0`)
+treats the data as relative (per-group-centered loss); `nothing` treats it as
+absolute per-enzyme turnover (uncentered loss).
+
 Rate values must be nonzero (zero rates produce `-Inf` in log space).
 """
 function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
-        Keq::Real)
+        Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0)
+    scale_k_to_kcat !== nothing && scale_k_to_kcat <= 0 && error(
+        "scale_k_to_kcat must be positive (or nothing); got $scale_k_to_kcat")
     data = Tables.columntable(table)
 
     mnames = metabolites(mechanism)
@@ -76,8 +86,9 @@ function FittingProblem(mechanism::AbstractEnzymeMechanism, table;
     # Allocate working buffer
     log_ratios_buffer = Vector{Float64}(undef, n)
 
+    sk = scale_k_to_kcat === nothing ? nothing : Float64(scale_k_to_kcat)
     FittingProblem{typeof(mechanism), typeof(data)}(
-        mechanism, data, group_point_indexes, Float64(Keq),
+        mechanism, data, group_point_indexes, Float64(Keq), sk,
         log_abs_rates, log_ratios_buffer
     )
 end
@@ -86,24 +97,26 @@ end
 # singleton once at construction so `loss!`'s hot path operates on the
 # @generated `EnzymeMechanism` / `AllostericEnzymeMechanism` (0-alloc).
 FittingProblem(mechanism::Union{Mechanism, AllostericMechanism}, table;
-        Keq::Real) =
-    FittingProblem(compile_mechanism(mechanism), table; Keq=Keq)
+        Keq::Real, scale_k_to_kcat::Union{Real,Nothing}=1.0) =
+    FittingProblem(compile_mechanism(mechanism), table;
+        Keq=Keq, scale_k_to_kcat=scale_k_to_kcat)
 
 """
     loss!(x::AbstractVector, fp::FittingProblem)
 
-Compute the per-group-centered log-ratio loss. Zero-allocation on the
-hot path.
+Compute the log-ratio loss. Zero-allocation on the hot path.
 
 Parameters in `x` are in log-space (i.e., actual rate constants =
-`exp.(x)`). Each group's log-ratios are centered (mean-subtracted)
-before squaring, making the loss invariant to per-group E_total
-scaling.
+`exp.(x)`). When `fp.scale_k_to_kcat` is a `Real`, each group's
+log-ratios are centered (mean-subtracted) before squaring, making the
+loss invariant to per-group E_total scaling (relative data). When it is
+`nothing`, the log-ratios are squared without centering, so the absolute
+magnitude is scored (absolute per-enzyme turnover data).
 
 Sign mismatches (predicted vs measured rate sign) incur a flat penalty
-of 100.0 per point, accumulated after the centering loop. This
-prevents all-mismatch groups from contributing zero loss (a uniform
-sentinel would cancel under mean-subtraction).
+of 100.0 per point, accumulated after the per-point loop. In the
+centered mode this prevents all-mismatch groups from contributing zero
+loss (a uniform sentinel would cancel under mean-subtraction).
 """
 function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
     buf = fp.log_ratios_buffer
@@ -131,25 +144,35 @@ function loss!(x::AbstractVector, fp::FittingProblem{M,D}) where {M,D}
         end
     end
 
-    # Pass 2: per-group centered loss
+    # Pass 2: loss. Relative (scale_k_to_kcat isa Real) → per-group mean-
+    # centered, removing each group's arbitrary scale. Absolute
+    # (scale_k_to_kcat === nothing) → uncentered: the y-axis is absolute
+    # per-enzyme turnover, so the absolute magnitude is meaningful.
     total_loss = 0.0
-    @inbounds for grp_idx in fp.group_point_indexes
-        n_grp = length(grp_idx)
-        mean_lr = 0.0
-        for j in grp_idx
-            mean_lr += buf[j]
+    if fp.scale_k_to_kcat === nothing
+        @inbounds for i in 1:n_data
+            total_loss += buf[i] * buf[i]
         end
-        mean_lr /= n_grp
-        for j in grp_idx
-            d = buf[j] - mean_lr
-            total_loss += d * d
+    else
+        @inbounds for grp_idx in fp.group_point_indexes
+            n_grp = length(grp_idx)
+            mean_lr = 0.0
+            for j in grp_idx
+                mean_lr += buf[j]
+            end
+            mean_lr /= n_grp
+            for j in grp_idx
+                d = buf[j] - mean_lr
+                total_loss += d * d
+            end
         end
     end
 
-    # Flat penalty for sign mismatches, applied after centering so it cannot be
-    # cancelled. When all points in a group share the sentinel value (10.0),
-    # mean-subtraction zeros every deviation; the post-hoc penalty ensures such
-    # groups still contribute positively to the loss.
+    # Flat penalty for sign mismatches. In centered mode an all-mismatch group
+    # would otherwise contribute zero loss (the uniform 10.0 sentinel cancels
+    # under mean-subtraction); the post-hoc penalty keeps it positive. In
+    # uncentered mode the sentinel already contributes 100.0 per point, so this
+    # adds a second 100.0 (stronger steering away from sign flips, intentional).
     n_mismatch = 0
     @inbounds for i in 1:n_data
         buf[i] == 10.0 && (n_mismatch += 1)
@@ -161,7 +184,6 @@ end
 """
     fit_rate_equation(fp::FittingProblem, optimizer;
         n_restarts=20, maxtime=60.0,
-        kcat=1.0,
         lb=fill(-15.0, length(fitted_params(fp.mechanism))),
         ub=fill(15.0, length(fitted_params(fp.mechanism))),
         kwargs...)
@@ -171,18 +193,22 @@ Fit rate constants by minimizing `loss!` using Optimization.jl.
 Runs `n_restarts` independent optimizations from random initial points and returns
 the best result.
 
-When `kcat` is not `nothing`, the returned parameters are rescaled so that
-`_kcat_forward(mechanism, params) ≈ kcat`. Pass `kcat=nothing` to get raw
-(unrescaled) parameters.
+Rescaling is driven by `fp.scale_k_to_kcat`: when it is a `Real`, the returned
+parameters are rescaled so that `_kcat_forward(mechanism, params) ≈
+fp.scale_k_to_kcat`; when it is `nothing`, the raw (unrescaled) parameters are
+returned (the data fixes the absolute scale).
 
-Returns a NamedTuple `(params, loss)` where:
+Returns a NamedTuple `(params, loss, retcode)` where:
 - `params`: fitted rate constants as a NamedTuple
 - `loss`: the best loss value achieved
+- `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
+  `:Success` indicates the optimizer converged on its own criteria; any other
+  value (e.g. `:MaxTime` — hit the time budget; `:Failure`) means the fit should
+  be treated as un-converged (check `retcode !== :Success`).
 """
 function fit_rate_equation(fp::FittingProblem, optimizer;
     n_restarts::Int=20,
     maxtime::Real=60.0,
-    kcat::Union{Real,Nothing}=1.0,
     lb=fill(-15.0, length(fitted_params(fp.mechanism))),
     ub=fill(15.0, length(fitted_params(fp.mechanism))),
     kwargs...
@@ -192,6 +218,11 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
 
     best_x = zeros(np)
     best_loss = Inf
+    # Sentinel for "no restart produced a finite objective" (loss stays Inf, so
+    # the fit is dropped by the beam's non-finite filter). Deliberately NOT a
+    # real SciMLBase ReturnCode name — `Symbol(ReturnCode.Default) === :Default`,
+    # so `:Default` here would be indistinguishable from a genuine solver return.
+    best_retcode = :NoFiniteLoss
 
     for _ in 1:n_restarts
         x0 = clamp.(randn(np) .* 2.0, lb, ub)
@@ -200,19 +231,20 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
         if sol.objective < best_loss
             best_loss = sol.objective
             best_x .= sol.u
+            best_retcode = Symbol(sol.retcode)
         end
     end
 
     pnames = fitted_params(fp.mechanism)
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(length(pnames))))
-    if kcat !== nothing
-        fp_full = merge(result_params, (Keq = fp.Keq, E_total = 1.0))
+    if fp.scale_k_to_kcat !== nothing
+        full = merge(result_params, (Keq = fp.Keq, E_total = 1.0))
         rp = rescale_parameter_values(
-            fp.mechanism, fp_full; kcat=Float64(kcat),
+            fp.mechanism, full; scale_k_to_kcat=fp.scale_k_to_kcat,
         )
         result_params = NamedTuple{pnames}(
             ntuple(i -> rp[pnames[i]], Val(length(pnames))),
         )
     end
-    return (params = result_params, loss = best_loss)
+    return (params = result_params, loss = best_loss, retcode = best_retcode)
 end

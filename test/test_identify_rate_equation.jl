@@ -89,6 +89,14 @@ using OptimizationPyCMA
         @test length(
             unique(prob.data.group)) == 5
 
+        # scale_k_to_kcat field: default 1.0, settable to nothing, validated.
+        @test prob.scale_k_to_kcat == 1.0
+        prob_abs = IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        @test prob_abs.scale_k_to_kcat === nothing
+        @test_throws ErrorException IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val, scale_k_to_kcat=0.0)
+
         # Missing metabolite column
         @test_throws(
             ErrorException,
@@ -140,6 +148,8 @@ using OptimizationPyCMA
             loss = 0.5,
             mechanism_type = "test",
             rate_equation = "v = ...",
+            retcode = "Success",
+            error = missing,
             fitted_param_names = (:a, :b),
             fitted_param_values = (1.0, 2.0),
             eq_hash = "0123456789abcdef",
@@ -150,12 +160,35 @@ using OptimizationPyCMA
         @test "a" in names(df)
         @test "b" in names(df)
         @test "eq_hash" in names(df)
+        @test "retcode" in names(df)
+        @test "error" in names(df)
         @test !("fit_inherited_from_estimate" in names(df))
 
         # Empty rows
         df2 = EnzymeRates._rows_to_dataframe(
             NamedTuple[])
         @test nrow(df2) == 0
+    end
+
+    @testset "_rows_to_dataframe with failure row" begin
+        rows = [
+            (n_params = 3, loss = 0.5, mechanism_type = "M",
+             rate_equation = "v = ...", retcode = "Success", error = missing,
+             fitted_param_names = (:a,), fitted_param_values = (1.0,),
+             eq_hash = "0123456789abcdef"),
+            (n_params = missing, loss = missing, mechanism_type = "M",
+             rate_equation = missing, retcode = missing,
+             error = "StackOverflowError: ", fitted_param_names = (),
+             fitted_param_values = (), eq_hash = missing),
+        ]
+        df = EnzymeRates._rows_to_dataframe(rows)
+        @test nrow(df) == 2
+        @test ismissing(df.loss[2])
+        @test df.error[2] == "StackOverflowError: "
+        @test ismissing(df.retcode[2])
+        @test ismissing(df.eq_hash[2])
+        @test "a" in names(df)              # param column still built from row 1
+        @test ismissing(df.a[2])            # failure row contributes no param value
     end
 
     @testset "_rate_eq_dedup_key" begin
@@ -293,6 +326,8 @@ using OptimizationPyCMA
     @testset "CSV output (new schema)" begin
         files = sort(filter(f -> endswith(f, ".csv"), readdir(save_dir)))
         @test "initial_mechanisms.csv" in files
+        @test isfile(joinpath(save_dir, "progress.log"))
+        @test filesize(joinpath(save_dir, "progress.log")) > 0
         @test !any(startswith(f, "params_estimate_") for f in files)
         iters = filter(f -> startswith(f, "equation_search_iteration_"), files)
         @test !isempty(iters)
@@ -307,9 +342,8 @@ using OptimizationPyCMA
         for f in files
             df_file = CSV.read(joinpath(save_dir, f), DataFrame)
             @test "eq_hash" in names(df_file)
-            @test all(.!ismissing.(df_file.eq_hash))
-            @test all(length.(string.(df_file.eq_hash)) .== 16)
-            @test all(<=(8), df_file.n_params)     # max_param_count=8
+            @test all(length.(string.(skipmissing(df_file.eq_hash))) .== 16)
+            @test all(<=(8), skipmissing(df_file.n_params))     # max_param_count=8
         end
     end
 
@@ -365,12 +399,34 @@ using OptimizationPyCMA
         @test all(isfinite, scores)
     end
 
+    @testset "_loocv is loud on fit failure" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+        end
+        m = EnzymeRates.EnzymeMechanism(
+            first(EnzymeRates.init_mechanisms(rxn)))
+        data = DataFrame(
+            S    = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            P    = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
+            group = [1, 1, 2, 2, 3, 3],
+        )
+        prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+        # An unsupported optimizer kwarg makes every fold fit throw; _loocv
+        # must NOT swallow it (the old behavior returned Float64[]).
+        @test_throws Exception EnzymeRates._loocv(
+            m, prob; optimizer=PyCMAOpt(),
+            n_restarts=1, maxtime=1.0, beam_fraction=0.5)
+    end
+
 end
 
 @testset "csv writers" begin
     rows = [(
         n_params = 5, loss = 1.0, mechanism_type = "M",
-        rate_equation = "v = 1", fitted_param_names = (:K_a,),
+        rate_equation = "v = 1", retcode = "Success", error = missing,
+        fitted_param_names = (:K_a,),
         fitted_param_values = (2.0,), eq_hash = "abc",
     )]
     mktempdir() do tmp
@@ -440,9 +496,10 @@ end
     # `beam_fraction` is not a recognized kwarg; it is forwarded to
     # `Optimization.solve`, which rejects it. Per-mechanism fit failures
     # are isolated in `_process_batch`, so an unknown optimizer kwarg
-    # fails every fit; the base tier is then empty and the pipeline raises
-    # the "no mechanisms fitted" `ErrorException`. The contract under test
-    # is that passing it errors (no silent acceptance).
+    # fails every fit; the base tier is then empty and the pipeline raises.
+    # The contract under test is that passing it errors (no silent
+    # acceptance), AND that the all-base-fail path persists the failure
+    # rows to `initial_mechanisms.csv` before raising (for cluster debugging).
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -452,10 +509,18 @@ end
             S = [1.0, 2.0, 3.0, 4.0],
             P = [0.1, 0.2, 0.3, 0.4])
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    tmp = mktempdir()
     @test_throws ErrorException identify_rate_equation(
         prob; beam_fraction=0.5,
         optimizer=PyCMAOpt(),
-        n_restarts=1, maxtime=1.0)
+        n_restarts=1, maxtime=1.0, save_dir=tmp)
+    # Failure rows were written before the re-raise: a CSV exists whose rows
+    # are all failures (non-missing `error`, missing `eq_hash`).
+    @test isfile(joinpath(tmp, "initial_mechanisms.csv"))
+    fail_df = CSV.read(joinpath(tmp, "initial_mechanisms.csv"), DataFrame)
+    @test nrow(fail_df) >= 1
+    @test all(.!ismissing.(fail_df.error))
+    @test all(ismissing.(fail_df.eq_hash))
 end
 
 @testset "_onesided_permutation_p" begin
@@ -716,16 +781,6 @@ end
 end
 
 @testset "_select_best_n_params: edge cases" begin
-    # All rows have empty fold scores → error.
-    cv_df_empty = DataFrame(
-        n_params       = [3, 5],
-        cv_score       = [Inf, Inf],
-        loss           = [0.0, 0.0],
-        cv_fold_scores = [Float64[], Float64[]],
-    )
-    @test_throws ErrorException EnzymeRates._select_best_n_params(
-        cv_df_empty)
-
     # Length mismatch between buckets → error. Fold-count must be
     # uniform across buckets because pairs (same held-out group →
     # same fold index) are required for the paired diffs.
@@ -740,20 +795,6 @@ end
     )
     @test_throws ErrorException EnzymeRates._select_best_n_params(
         cv_df_mismatch)
-
-    # Partial bucket failure: one row in bucket-3 failed (empty fold
-    # scores), another row valid → bucket retained via rep selection.
-    cv_df_partial = DataFrame(
-        n_params       = [3, 3, 5],
-        cv_score       = [Inf, 0.115, 0.115],
-        loss           = [0.0, 0.0, 0.0],
-        cv_fold_scores = [
-            Float64[],
-            exp.([0.10, 0.12, 0.11, 0.13]),
-            exp.([0.10, 0.12, 0.11, 0.13]),
-        ],
-    )
-    @test EnzymeRates._select_best_n_params(cv_df_partial).best_n == 3
 end
 
 @testset "cv_results: exotic group labels survive CSV roundtrip" begin
@@ -868,6 +909,54 @@ end
         min_beam_width=2, best_override=0.0) == [1, 2]
 end
 
+@testset "_progress" begin
+    mktempdir() do tmp
+        # show_progress=true: writes to progress.log AND to stdout.
+        out_file = joinpath(tmp, "stdout.txt")
+        open(out_file, "w") do io
+            redirect_stdout(io) do
+                EnzymeRates._progress(tmp, true, "stage one")
+            end
+        end
+        @test occursin("stage one", read(out_file, String))
+        @test isfile(joinpath(tmp, "progress.log"))
+        @test occursin("stage one", read(joinpath(tmp, "progress.log"), String))
+
+        # show_progress=false: writes neither.
+        out_file2 = joinpath(tmp, "stdout2.txt")
+        open(out_file2, "w") do io
+            redirect_stdout(io) do
+                EnzymeRates._progress(tmp, false, "silent line")
+            end
+        end
+        @test !occursin("silent line", read(out_file2, String))
+        @test !occursin("silent line", read(joinpath(tmp, "progress.log"), String))
+    end
+
+    # show_progress=false has no side effect: a non-existent save_dir is NOT
+    # created (the early return precedes the mkpath).
+    mktempdir() do tmp2
+        ghost = joinpath(tmp2, "ghost_dir")
+        EnzymeRates._progress(ghost, false, "no side effects")
+        @test !isdir(ghost)
+    end
+
+    # _batch_summary reports the three buckets with the right denominator.
+    mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
+        substrates: S[C]; products: P[C] end))
+    row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
+           retcode="Success", error=missing, fitted_param_names=(:K,),
+           fitted_param_values=(1.0,), eq_hash="abc")
+    e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
+    e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
+    f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
+    s = EnzymeRates._batch_summary([e_succ, e_mt], [f])
+    @test occursin("2 fitted", s)
+    @test occursin("Success 33.3%", s)            # 1 of 3 total
+    @test occursin("non-Success retcode 33.3%", s)
+    @test occursin("errored 33.3%", s)
+end
+
 @testset "_process_batch" begin
     rxn = @enzyme_reaction begin
         substrates: S[C]
@@ -881,27 +970,43 @@ end
     )
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
     ms = EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(rxn)))
-    entries = EnzymeRates._process_batch(ms, prob;
+
+    entries, failures = EnzymeRates._process_batch(ms, prob;
         pmap_function=map, optimizer=PyCMAOpt(),
         max_param_count=20, n_restarts=1, maxtime=1.0)
     @test !isempty(entries)
+    @test isempty(failures)
     @test all(e -> e isa EnzymeRates.BatchEntry, entries)
+    @test all(e -> e.retcode isa Symbol, entries)
     @test all(e -> e.n_params == length(e.row.fitted_param_names), entries)
     @test all(e -> occursin(r"^[0-9a-f]{16}$", e.row.eq_hash), entries)
-    # cap filter: nothing over the cap is fit
-    capped = EnzymeRates._process_batch(ms, prob;
+
+    # cap filter: nothing over the cap is fit (and it is not a failure).
+    capped_entries, capped_failures = EnzymeRates._process_batch(ms, prob;
         pmap_function=map, optimizer=PyCMAOpt(),
         max_param_count=0, n_restarts=1, maxtime=1.0)
-    @test isempty(capped)
+    @test isempty(capped_entries)
+    @test isempty(capped_failures)
+
+    # config error (unknown optimizer kwarg) → every fit throws → all failures,
+    # no entries; each failure carries a non-empty error string.
+    fail_entries, fail_failures = EnzymeRates._process_batch(ms, prob;
+        pmap_function=map, optimizer=PyCMAOpt(),
+        max_param_count=20, n_restarts=1, maxtime=1.0, beam_fraction=0.5)
+    @test isempty(fail_entries)
+    @test !isempty(fail_failures)
+    @test all(f -> f isa EnzymeRates.FitFailure, fail_failures)
+    @test all(f -> !isempty(f.error), fail_failures)
 end
 
 @testset "_ingest! and cv pool" begin
     mk(n, loss, h) = EnzymeRates.BatchEntry(
         first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
             substrates:S[C]; products:P[C] end)),
-        n, loss, hash(h),
+        n, loss, :Success, hash(h),
         (n_params=n, loss=loss, mechanism_type="M",
-         rate_equation="v", fitted_param_names=(:K,),
+         rate_equation="v", retcode="Success", error=missing,
+         fitted_param_names=(:K,),
          fitted_param_values=(1.0,), eq_hash=string(hash(h),base=16,pad=16)))
     frontier = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     cv_pool  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()

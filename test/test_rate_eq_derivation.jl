@@ -900,7 +900,7 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
 
         # Custom kcat target
         kcat_target = 0.1 + 9.9 * rand(rng)
-        norm_custom = rescale_parameter_values(m, params; kcat=kcat_target)
+        norm_custom = rescale_parameter_values(m, params; scale_k_to_kcat=kcat_target)
         @test EnzymeRates._kcat_forward(m, norm_custom) ≈
             kcat_target rtol=1e-10
 

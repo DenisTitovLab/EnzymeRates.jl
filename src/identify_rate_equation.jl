@@ -17,6 +17,8 @@ constant for rate equation identification.
 - `data`: `NamedTuple` of column vectors with `:group`,
   `:Rate`, and metabolite columns
 - `Keq`: fixed equilibrium constant
+- `scale_k_to_kcat`: target kcat for SS-rate rescaling
+  before fitting (`nothing` = no rescaling, positive Float64 = target)
 """
 struct IdentifyRateEquationProblem{
     R<:EnzymeReaction, D<:NamedTuple
@@ -24,11 +26,15 @@ struct IdentifyRateEquationProblem{
     reaction::R
     data::D
     Keq::Float64
+    scale_k_to_kcat::Union{Float64,Nothing}
 end
 
 function IdentifyRateEquationProblem(
-    reaction::EnzymeReaction, table; Keq::Real
+    reaction::EnzymeReaction, table; Keq::Real,
+    scale_k_to_kcat::Union{Real,Nothing}=1.0
 )
+    scale_k_to_kcat !== nothing && scale_k_to_kcat <= 0 && error(
+        "scale_k_to_kcat must be positive (or nothing); got $scale_k_to_kcat")
     data = Tables.columntable(table)
     col_names = keys(data)
 
@@ -64,9 +70,10 @@ function IdentifyRateEquationProblem(
         "Need at least 2 unique groups for " *
         "cross-validation, got $n_groups")
 
+    sk = scale_k_to_kcat === nothing ? nothing : Float64(scale_k_to_kcat)
     IdentifyRateEquationProblem{
         typeof(reaction),typeof(data)
-    }(reaction, data, Float64(Keq))
+    }(reaction, data, Float64(Keq), sk)
 end
 
 """
@@ -179,6 +186,7 @@ function identify_rate_equation(
     perm_p_threshold::Float64 = 0.16,
     # Output & parallelism
     save_dir::String = _default_save_dir(),
+    show_progress::Bool = true,
     pmap_function::Function = pmap,
     # Extra fitting/optimizer kwargs
     optim_kwargs...
@@ -201,14 +209,17 @@ function identify_rate_equation(
     mechanisms, df = _beam_search(prob;
         min_beam_width, loss_rel_threshold,
         loss_abs_threshold,
-        max_param_count, save_dir,
+        max_param_count, save_dir, show_progress,
         pmap_function, optimizer, n_cv_candidates,
         fitting_kwargs...)
 
-    return _cv_model_selection(
+    result = _cv_model_selection(
         mechanisms, df, prob;
         n_cv_candidates, se_threshold, perm_p_threshold,
-        pmap_function, optimizer, fitting_kwargs...)
+        pmap_function, optimizer, save_dir, show_progress,
+        fitting_kwargs...)
+    _progress(save_dir, show_progress, "Done. Results saved to $save_dir")
+    return result
 end
 
 # Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent.
@@ -250,6 +261,8 @@ function _rows_to_dataframe(rows)
         loss = [r.loss for r in rows],
         mechanism_type = [r.mechanism_type for r in rows],
         rate_equation = [r.rate_equation for r in rows],
+        retcode = Union{Missing,String}[r.retcode for r in rows],
+        error = Union{Missing,String}[r.error for r in rows],
         eq_hash = [r.eq_hash for r in rows],
     )
     for pn in sorted_pnames
@@ -314,22 +327,89 @@ function _select_beam(
     sort!(selected)
 end
 
-"""One fitted mechanism: its own params + eq_hash + the CSV row."""
+"""One fitted mechanism: its own params + retcode + eq_hash + the CSV row."""
 struct BatchEntry
     mech::Union{Mechanism, AllostericMechanism}
     n_params::Int
     loss::Float64
+    retcode::Symbol
     eq_hash::UInt64
     row::NamedTuple
 end
 
+"""A mechanism that failed to compile or fit, with the exception message
+captured as a string. Kept for the CSV + summary."""
+struct FitFailure
+    mech::Union{Mechanism, AllostericMechanism}
+    error::String
+end
+
+# Compact, CSV-safe rendering of a thrown exception: type + truncated message.
+_exc_string(e) = first(sprint(showerror, e), 200)
+
+# CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
+# with `missing` wherever the value is unavailable (compile/fit never produced it).
+# `mechanism_type` is the uncompiled concrete type (`Mechanism`/`AllostericMechanism`),
+# since compilation — which yields the singleton type recorded for fitted rows — may
+# itself have been the step that failed.
+function _failure_row(f::FitFailure)
+    (n_params = missing,
+     loss = missing,
+     mechanism_type = string(typeof(f.mech)),
+     rate_equation = missing,
+     retcode = missing,
+     error = f.error,
+     fitted_param_names = (),
+     fitted_param_values = (),
+     eq_hash = missing)
+end
+
+"""
+Emit one progress line to flushed stdout AND append it to
+`<save_dir>/progress.log`. Gated by `show_progress`. The explicit flush makes
+lines appear in a redirected cluster job log (otherwise stdout is block-buffered
+when redirected and withholds output until the process exits).
+"""
+function _progress(save_dir::AbstractString, show_progress::Bool, msg::AbstractString)
+    show_progress || return nothing
+    println(msg)
+    flush(stdout)
+    isdir(save_dir) || mkpath(save_dir)
+    open(joinpath(save_dir, "progress.log"), "a") do io
+        println(io, msg)
+    end
+    nothing
+end
+
+"""
+One-line summary of a fitted batch: count + the three retcode/error buckets
+(% Success / % non-Success retcode / % errored) and the best loss. Denominator
+is fitted + errored mechanisms for the batch.
+"""
+function _batch_summary(entries::Vector{BatchEntry}, failures::Vector{FitFailure})
+    n_fit   = length(entries)
+    n_err   = length(failures)
+    total   = n_fit + n_err
+    n_succ  = count(e -> e.retcode === :Success, entries)
+    n_other = n_fit - n_succ
+    pct(x)  = total == 0 ? 0.0 : round(100 * x / total; digits=1)
+    best    = isempty(entries) ? NaN : minimum(e -> e.loss, entries)
+    string(n_fit, " fitted | Success ", pct(n_succ),
+           "% | non-Success retcode ", pct(n_other),
+           "% | errored ", pct(n_err), "% | best loss ",
+           isnan(best) ? "n/a" : round(best; sigdigits=4))
+end
+
 """
 Compile + cap-check + fit every mechanism in `mechs`, one `pmap` pass with
-compile and fit fused on the same worker. Returns one `BatchEntry` per
-fitted mechanism (each keeping its OWN fitted params and `eq_hash`). A
-mechanism whose actual fitted-param count exceeds `max_param_count` is
-dropped BEFORE fitting; compile/fit failures are dropped. No dedup here —
-`mechs` is already structurally deduped by the caller (`_dedup_flat!`).
+compile and fit fused on the same worker. Returns `(entries, failures)`:
+`entries::Vector{BatchEntry}` are the fitted mechanisms (each keeping its OWN
+fitted params, `retcode`, and `eq_hash`); `failures::Vector{FitFailure}` are
+mechanisms that threw (StackOverflow/OOM at compile, an unsupported-kwarg error,
+etc.) — captured WITH the exception text, never silently swallowed. A mechanism
+whose actual fitted-param count exceeds `max_param_count` is dropped BEFORE
+fitting (a cap skip, not a failure). No dedup here — `mechs` is already
+structurally deduped by the caller (`_dedup_flat!`).
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
@@ -343,26 +423,29 @@ function _process_batch(
             n > max_param_count && return nothing
             eq_text = rate_equation_string(em)
             key = _rate_eq_dedup_key(eq_text)
-            fp = FittingProblem(em, prob.data; Keq=prob.Keq)
+            fp = FittingProblem(em, prob.data;
+                Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
             fit = fit_rate_equation(fp, optimizer; kwargs...)
             row = (
                 n_params = n,
                 loss = fit.loss,
                 mechanism_type = string(typeof(em)),
                 rate_equation = eq_text,
+                retcode = string(fit.retcode),
+                error = missing,
                 fitted_param_names = fkeys,
                 fitted_param_values =
                     Tuple(fit.params[k] for k in fkeys),
                 eq_hash = string(key, base=16, pad=16),
             )
-            BatchEntry(m, n, fit.loss, key, row)
+            BatchEntry(m, n, fit.loss, fit.retcode, key, row)
         catch e
-            @debug("_process_batch: compile or fit failed",
-                   exception=(e, catch_backtrace()))
-            nothing
+            FitFailure(m, _exc_string(e))
         end
     end
-    BatchEntry[r for r in results if r !== nothing]
+    entries  = BatchEntry[r for r in results if r isa BatchEntry]
+    failures = FitFailure[r for r in results if r isa FitFailure]
+    return entries, failures
 end
 
 """
@@ -410,7 +493,7 @@ end
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,
-    max_param_count, save_dir, pmap_function,
+    max_param_count, save_dir, show_progress, pmap_function,
     optimizer, n_cv_candidates, kwargs...
 )
     frontier = Dict{Int, Vector{BatchEntry}}()
@@ -418,15 +501,30 @@ function _beam_search(
     best_loss_by_count = Dict{Int, Float64}()
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
+    _progress(save_dir, show_progress, "Enumerating initial mechanisms…")
     base = _dedup_flat!(collect(init_mechanisms(prob.reaction)))
-    base_entries = _process_batch(base, prob;
+    _progress(save_dir, show_progress,
+        "Fitting $(length(base)) initial mechanisms…")
+    base_entries, base_failures = _process_batch(base, prob;
         pmap_function, optimizer, max_param_count, kwargs...)
-    isempty(base_entries) && return (
-        Union{Mechanism, AllostericMechanism}[],
-        _rows_to_dataframe(NamedTuple[]))
-    _save_initial_csv(save_dir, [e.row for e in base_entries])
+    if isempty(base_entries)
+        isempty(base_failures) && return (
+            Union{Mechanism, AllostericMechanism}[],
+            _rows_to_dataframe(NamedTuple[]))
+        _save_initial_csv(save_dir, [_failure_row(f) for f in base_failures])
+        error("Every base-tier fit failed ($(length(base_failures)) " *
+              "mechanisms; failure rows written to " *
+              "$(joinpath(save_dir, "initial_mechanisms.csv"))). This usually " *
+              "indicates an optimizer/solver configuration problem (e.g. an " *
+              "unsupported kwarg). First failure: $(base_failures[1].error)")
+    end
+    _save_initial_csv(save_dir,
+        vcat([e.row for e in base_entries],
+             [_failure_row(f) for f in base_failures]))
     _ingest!(frontier, cv_pool, best_loss_by_count,
              base_entries; n_cv_candidates)
+    _progress(save_dir, show_progress,
+        "Base tier: " * _batch_summary(base_entries, base_failures))
 
     # ── Advancing-target sweep over actual param counts ──
     iteration = 0
@@ -454,17 +552,24 @@ function _beam_search(
                 e.mech for e in to_expand]
             children = _dedup_flat!(
                 expand_mechanisms(parents, prob.reaction))
-            child_entries = _process_batch(children, prob;
+            child_entries, child_failures = _process_batch(children, prob;
                 pmap_function, optimizer, max_param_count, kwargs...)
-            if !isempty(child_entries)
-                # Count only iterations that fit children, so the
+            if !isempty(child_entries) || !isempty(child_failures)
+                # Count only iterations that produced rows, so the
                 # equation_search_iteration_N CSVs are gap-free.
                 iteration += 1
                 _save_iteration_csv(save_dir,
-                    [e.row for e in child_entries], iteration)
-                _ingest!(frontier, cv_pool, best_loss_by_count,
-                         child_entries; n_cv_candidates)
+                    vcat([e.row for e in child_entries],
+                         [_failure_row(f) for f in child_failures]),
+                    iteration)
+                _progress(save_dir, show_progress,
+                    "Iteration $iteration (target n_params=$target): " *
+                    "$(length(parents)) parents → $(length(children)) children | " *
+                    _batch_summary(child_entries, child_failures))
             end
+            !isempty(child_entries) && _ingest!(
+                frontier, cv_pool, best_loss_by_count,
+                child_entries; n_cv_candidates)
         end
 
         isempty(frontier) && break
@@ -490,26 +595,28 @@ end
 
 """
 Evaluate loss of a mechanism on data with given
-params.
+params and scaling mode.
 """
 function _evaluate_loss(
-    mechanism, data, params, Keq
+    mechanism, data, params, Keq, scale_k_to_kcat
 )
     pnames = fitted_params(mechanism)
     x = [log(params[p]) for p in pnames]
-    fp = FittingProblem(mechanism, data; Keq=Keq)
+    fp = FittingProblem(mechanism, data; Keq=Keq, scale_k_to_kcat=scale_k_to_kcat)
     return loss!(x, fp)
 end
 
 """
     _loocv(mechanism, prob; optimizer, kwargs...)
 
-Leave-one-group-out cross-validation. Returns `Vector{Float64}`
-of per-fold test losses (one per held-out group). Each score is
-floored at `eps(Float64)` so `log(score)` is finite — the
-selection rules in `_select_best_n_params` operate in log space.
-On any internal failure (compile error, fit failure, etc.),
-returns an empty `Float64[]`.
+Leave-one-group-out cross-validation. Returns `Vector{Float64}` of per-fold
+test losses (one per held-out group). Each score is floored at `eps(Float64)`
+so `log(score)` is finite — the selection rules operate in log space.
+
+Loud by design: a fold fit that throws propagates, and a non-finite fold test
+loss raises (naming the held-out group). A corrupted CV invalidates model
+selection, and CV is cheap to recompute from the saved search CSVs — so the
+pipeline aborts rather than silently dropping the candidate.
 """
 function _loocv(
     mechanism::AbstractEnzymeMechanism,
@@ -519,44 +626,28 @@ function _loocv(
     groups = unique(prob.data.group)
     scores = Float64[]
 
-    try
-        for held_out in groups
-            train_mask =
-                prob.data.group .!= held_out
-            test_mask =
-                prob.data.group .== held_out
+    for held_out in groups
+        train_mask = prob.data.group .!= held_out
+        test_mask  = prob.data.group .== held_out
 
-            train_data = _subset_data(
-                prob.data, train_mask)
-            test_data = _subset_data(
-                prob.data, test_mask)
+        train_data = _subset_data(prob.data, train_mask)
+        test_data  = _subset_data(prob.data, test_mask)
 
-            fp_train = FittingProblem(
-                mechanism, train_data;
-                Keq=prob.Keq)
-            fit = fit_rate_equation(
-                fp_train, optimizer;
-                kwargs...)
+        fp_train = FittingProblem(mechanism, train_data;
+            Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
+        fit = fit_rate_equation(fp_train, optimizer; kwargs...)
 
-            test_loss = _evaluate_loss(
-                mechanism, test_data,
-                fit.params, prob.Keq)
-            # Treat NaN or Inf as a fold-failure and abort the
-            # entire LOOCV. `max(NaN, eps) === NaN` (NaN is not
-            # ordered), so a non-finite test_loss would otherwise
-            # bypass the floor and silently corrupt downstream
-            # `cv_score = mean(v)` and `argmin(...)` selection.
-            isfinite(test_loss) || return Float64[]
-            # Floor at eps so log(score) is finite. The centered-
-            # residuals loss can be exactly 0 (e.g. single-row
-            # held-out group, or all residuals equal post-centering).
-            push!(scores,
-                  max(test_loss, eps(Float64)))
-        end
-    catch e
-        @debug("LOOCV failed",
-            exception=(e, catch_backtrace()))
-        return Float64[]
+        test_loss = _evaluate_loss(mechanism, test_data,
+            fit.params, prob.Keq, prob.scale_k_to_kcat)
+        # A non-finite fold loss means the fit is unusable; aborting model
+        # selection is correct (re-run CV from the saved CSVs after fixing
+        # the fit). max(NaN, eps) === NaN, so the floor below would not catch it.
+        isfinite(test_loss) || error(
+            "LOOCV produced a non-finite test loss for held-out group " *
+            "$held_out — the fit is unusable; aborting model selection.")
+        # Floor at eps so log(score) is finite. The centered-residuals loss
+        # can be exactly 0 (e.g. a single-row held-out group).
+        push!(scores, max(test_loss, eps(Float64)))
     end
 
     scores
@@ -651,9 +742,9 @@ have diagnostics computed but are never selected.
 Tiebreak: when two buckets tie on `mean(log_scores)`, `n_min` resolves to
 the smallest `n_params` (parsimony).
 
-Errors if:
-  * no bucket has any non-empty `cv_fold_scores` row;
-  * any bucket's fold-score length differs from `n_min`'s.
+Errors if any bucket's fold-score length differs from `n_min`'s. (Every
+`cv_fold_scores` row is non-empty — `_loocv` returns a full per-fold vector or
+raises — so there is no empty-input case to handle.)
 
 When `n_folds_min == 1` the SE is undefined; the selection loop is
 skipped and `n_min` is returned. Diagnostics are still populated with
@@ -665,10 +756,7 @@ function _select_best_n_params(
     se_threshold::Float64 = 1.0,
     perm_p_threshold::Float64 = 0.16,
 )
-    valid = filter(row -> !isempty(row.cv_fold_scores), cv_df)
-    isempty(valid) && error(
-        "no finite LOOCV scores in cv_df")
-    sorted = sort(valid, [:n_params, :cv_score])
+    sorted = sort(cv_df, [:n_params, :cv_score])
     reps = combine(groupby(sorted, :n_params), first)
 
     log_scores = Dict(
@@ -736,6 +824,7 @@ function _cv_model_selection(
     n_cv_candidates, pmap_function, optimizer,
     se_threshold::Float64,
     perm_p_threshold::Float64,
+    save_dir, show_progress,
     kwargs...
 )
     isempty(mechs) && error(
@@ -764,6 +853,8 @@ function _cv_model_selection(
     candidate_mechs = mechs[candidate_indices]
     candidate_rows = df[candidate_indices, :]
 
+    _progress(save_dir, show_progress,
+        "Cross-validating $(length(candidate_mechs)) candidate equations (LOOCV)…")
     fold_scores_per_candidate = pmap_function(
         candidate_mechs
     ) do mech
@@ -773,15 +864,7 @@ function _cv_model_selection(
 
     cv_df = copy(candidate_rows)
     cv_df.cv_fold_scores = collect(fold_scores_per_candidate)
-    cv_df.cv_score = [isempty(v) ? Inf : mean(log.(v))
-                      for v in cv_df.cv_fold_scores]
-
-    all(!isfinite, cv_df.cv_score) && error(
-        "All LOOCV scores are non-finite — every fold's fit " *
-        "failed. The pipeline cannot select a best mechanism. " *
-        "Inspect optimizer settings (n_restarts, maxtime), " *
-        "data quality, or compile failures (run with " *
-        "ENV[\"JULIA_DEBUG\"] = \"EnzymeRates\").")
+    cv_df.cv_score = [mean(log.(v)) for v in cv_df.cv_fold_scores]
 
     sel = _select_best_n_params(
         cv_df;
@@ -814,12 +897,12 @@ function _cv_model_selection(
     groups = unique(prob.data.group)
     for (i, g) in enumerate(groups)
         col = Symbol("cv_fold_$g")
-        cv_df[!, col] = [
-            isempty(v) ? missing : v[i]
-            for v in cv_df.cv_fold_scores
-        ]
+        cv_df[!, col] = [v[i] for v in cv_df.cv_fold_scores]
     end
 
+    _progress(save_dir, show_progress,
+        "Selected: $(nameof(typeof(best_mechanism))) " *
+        "(eq_hash=$(cv_df.eq_hash[best_row_idx])), n_params=$(sel.best_n)")
     select!(cv_df, Not(:cv_fold_scores))
     return IdentifyRateEquationResults(best_mechanism, cv_df)
 end

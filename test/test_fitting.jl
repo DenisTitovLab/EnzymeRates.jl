@@ -149,6 +149,44 @@ using Tables
         end
     end
 
+    # ── Absolute mode: uncentered loss (scale_k_to_kcat=nothing) ──────────────
+    @testset "Absolute mode uncentered loss" begin
+        Keq_val = 2.0
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        concs_list = [
+            (S = 1.0, P = 0.1), (S = 2.0, P = 0.1), (S = 5.0, P = 0.1),
+            (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
+        ]
+        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        pn = EnzymeRates.fitted_params(uni_uni)
+        x_true = [log(true_params[p]) for p in pn]
+
+        fp_rel = FittingProblem(uni_uni, data; Keq=Keq_val)                        # default 1.0
+        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+
+        # At true params both modes are ~0 (predictions match data exactly).
+        @test EnzymeRates.loss!(x_true, fp_rel) ≈ 0.0 atol=1e-20
+        @test EnzymeRates.loss!(x_true, fp_abs) ≈ 0.0 atol=1e-20
+
+        # Scale every rate by 3 (a pure per-group offset). Relative loss is
+        # invariant (centering removes it); absolute loss sees it: every
+        # residual becomes log(3), so absolute loss = log(3)^2.
+        data3 = merge(data, (Rate = data.Rate .* 3.0,))
+        fp_rel3 = FittingProblem(uni_uni, data3; Keq=Keq_val)
+        fp_abs3 = FittingProblem(uni_uni, data3; Keq=Keq_val, scale_k_to_kcat=nothing)
+        @test EnzymeRates.loss!(x_true, fp_rel3) ≈ 0.0 atol=1e-20
+        @test EnzymeRates.loss!(x_true, fp_abs3) ≈ log(3.0)^2 rtol=1e-8
+    end
+
+    # ── scale_k_to_kcat validation ────────────────────────────────────────────
+    @testset "scale_k_to_kcat validation" begin
+        ok_data = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
+        @test_throws ErrorException FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=0.0)
+        @test_throws ErrorException FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=-5.0)
+        @test FittingProblem(uni_uni, ok_data; Keq=1.0, scale_k_to_kcat=nothing) isa FittingProblem
+        @test FittingProblem(uni_uni, ok_data; Keq=1.0) isa FittingProblem  # default 1.0
+    end
+
     # ── Test 6: Sign-mismatch penalty ─────────────────────────────────────────
     @testset "Sign mismatch penalty" begin
         Keq_val = 2.0
@@ -249,6 +287,12 @@ using Tables
         EnzymeRates.loss!(x, fp)  # warmup
         allocs = @allocated EnzymeRates.loss!(x, fp)
         @test allocs == 0
+
+        # Absolute mode (uncentered branch) is equally allocation-free.
+        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        EnzymeRates.loss!(x, fp_abs)  # warmup
+        allocs_abs = @allocated EnzymeRates.loss!(x, fp_abs)
+        @test allocs_abs == 0
     end
 
     # ── Test 8: Speed benchmark ───────────────────────────────────────────────
@@ -300,8 +344,8 @@ using Tables
         @test avg_us < 50  # < 50 μs per call for 500 datapoints (~5 μs typical)
     end
 
-    # ── Test 9: kcat normalization in fit_rate_equation ───────────────
-    @testset "kcat normalization" begin
+    # ── Test 9: scale_k_to_kcat normalization + retcode ────────────────
+    @testset "scale_k_to_kcat normalization" begin
         using OptimizationBBO
         Keq_val = 2.0
         true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
@@ -312,24 +356,29 @@ using Tables
             (S = 0.5, P = 0.5), (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
         ]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
-        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
-        # Default kcat=1.0: returned params should have kcat ≈ 1
+        # Default scale_k_to_kcat=1.0: returned params have kcat ≈ 1.
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
         result = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
             n_restarts=3, maxtime=5.0)
         full = merge(result.params, (Keq = Keq_val, E_total = 1.0))
         @test EnzymeRates._kcat_forward(uni_uni, full) ≈ 1.0 rtol=0.01
+        @test result.retcode isa Symbol
 
-        # Custom kcat target
-        result2 = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
-            n_restarts=3, maxtime=5.0, kcat=42.0)
+        # Custom target set on the FittingProblem.
+        fp42 = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=42.0)
+        result2 = fit_rate_equation(fp42, BBO_adaptive_de_rand_1_bin_radiuslimited();
+            n_restarts=3, maxtime=5.0)
         full2 = merge(result2.params, (Keq = Keq_val, E_total = 1.0))
         @test EnzymeRates._kcat_forward(uni_uni, full2) ≈ 42.0 rtol=0.01
+        @test result2.retcode isa Symbol
 
-        # kcat=nothing: raw params (no normalization guarantee)
-        result3 = fit_rate_equation(fp, BBO_adaptive_de_rand_1_bin_radiuslimited();
-            n_restarts=3, maxtime=5.0, kcat=nothing)
+        # scale_k_to_kcat=nothing: raw params (no rescale), retcode still present.
+        fpN = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        result3 = fit_rate_equation(fpN, BBO_adaptive_de_rand_1_bin_radiuslimited();
+            n_restarts=3, maxtime=5.0)
         @test haskey(result3, :params)
+        @test result3.retcode isa Symbol
     end
 
     # ── Test 10: Validation errors ─────────────────────────────────────────────
