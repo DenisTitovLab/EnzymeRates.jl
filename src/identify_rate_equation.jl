@@ -257,6 +257,8 @@ function _rows_to_dataframe(rows)
         loss = [r.loss for r in rows],
         mechanism_type = [r.mechanism_type for r in rows],
         rate_equation = [r.rate_equation for r in rows],
+        retcode = Union{Missing,String}[r.retcode for r in rows],
+        error = Union{Missing,String}[r.error for r in rows],
         eq_hash = [r.eq_hash for r in rows],
     )
     for pn in sorted_pnames
@@ -321,11 +323,12 @@ function _select_beam(
     sort!(selected)
 end
 
-"""One fitted mechanism: its own params + eq_hash + the CSV row."""
+"""One fitted mechanism: its own params + retcode + eq_hash + the CSV row."""
 struct BatchEntry
     mech::Union{Mechanism, AllostericMechanism}
     n_params::Int
     loss::Float64
+    retcode::Symbol
     eq_hash::UInt64
     row::NamedTuple
 end
@@ -357,12 +360,14 @@ function _process_batch(
                 loss = fit.loss,
                 mechanism_type = string(typeof(em)),
                 rate_equation = eq_text,
+                retcode = string(fit.retcode),
+                error = missing,
                 fitted_param_names = fkeys,
                 fitted_param_values =
                     Tuple(fit.params[k] for k in fkeys),
                 eq_hash = string(key, base=16, pad=16),
             )
-            BatchEntry(m, n, fit.loss, key, row)
+            BatchEntry(m, n, fit.loss, fit.retcode, key, row)
         catch e
             @debug("_process_batch: compile or fit failed",
                    exception=(e, catch_backtrace()))

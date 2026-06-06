@@ -148,6 +148,8 @@ using OptimizationPyCMA
             loss = 0.5,
             mechanism_type = "test",
             rate_equation = "v = ...",
+            retcode = "Success",
+            error = missing,
             fitted_param_names = (:a, :b),
             fitted_param_values = (1.0, 2.0),
             eq_hash = "0123456789abcdef",
@@ -158,12 +160,35 @@ using OptimizationPyCMA
         @test "a" in names(df)
         @test "b" in names(df)
         @test "eq_hash" in names(df)
+        @test "retcode" in names(df)
+        @test "error" in names(df)
         @test !("fit_inherited_from_estimate" in names(df))
 
         # Empty rows
         df2 = EnzymeRates._rows_to_dataframe(
             NamedTuple[])
         @test nrow(df2) == 0
+    end
+
+    @testset "_rows_to_dataframe with failure row" begin
+        rows = [
+            (n_params = 3, loss = 0.5, mechanism_type = "M",
+             rate_equation = "v = ...", retcode = "Success", error = missing,
+             fitted_param_names = (:a,), fitted_param_values = (1.0,),
+             eq_hash = "0123456789abcdef"),
+            (n_params = missing, loss = missing, mechanism_type = "M",
+             rate_equation = missing, retcode = missing,
+             error = "StackOverflowError: ", fitted_param_names = (),
+             fitted_param_values = (), eq_hash = missing),
+        ]
+        df = EnzymeRates._rows_to_dataframe(rows)
+        @test nrow(df) == 2
+        @test ismissing(df.loss[2])
+        @test df.error[2] == "StackOverflowError: "
+        @test ismissing(df.retcode[2])
+        @test ismissing(df.eq_hash[2])
+        @test "a" in names(df)              # param column still built from row 1
+        @test ismissing(df.a[2])            # failure row contributes no param value
     end
 
     @testset "_rate_eq_dedup_key" begin
@@ -378,7 +403,8 @@ end
 @testset "csv writers" begin
     rows = [(
         n_params = 5, loss = 1.0, mechanism_type = "M",
-        rate_equation = "v = 1", fitted_param_names = (:K_a,),
+        rate_equation = "v = 1", retcode = "Success", error = missing,
+        fitted_param_names = (:K_a,),
         fitted_param_values = (2.0,), eq_hash = "abc",
     )]
     mktempdir() do tmp
@@ -907,9 +933,10 @@ end
     mk(n, loss, h) = EnzymeRates.BatchEntry(
         first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
             substrates:S[C]; products:P[C] end)),
-        n, loss, hash(h),
+        n, loss, :Success, hash(h),
         (n_params=n, loss=loss, mechanism_type="M",
-         rate_equation="v", fitted_param_names=(:K,),
+         rate_equation="v", retcode="Success", error=missing,
+         fitted_param_names=(:K,),
          fitted_param_values=(1.0,), eq_hash=string(hash(h),base=16,pad=16)))
     frontier = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     cv_pool  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
