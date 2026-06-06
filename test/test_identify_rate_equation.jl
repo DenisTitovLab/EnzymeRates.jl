@@ -496,9 +496,10 @@ end
     # `beam_fraction` is not a recognized kwarg; it is forwarded to
     # `Optimization.solve`, which rejects it. Per-mechanism fit failures
     # are isolated in `_process_batch`, so an unknown optimizer kwarg
-    # fails every fit; the base tier is then empty and the pipeline raises
-    # the "no mechanisms fitted" `ErrorException`. The contract under test
-    # is that passing it errors (no silent acceptance).
+    # fails every fit; the base tier is then empty and the pipeline raises.
+    # The contract under test is that passing it errors (no silent
+    # acceptance), AND that the all-base-fail path persists the failure
+    # rows to `initial_mechanisms.csv` before raising (for cluster debugging).
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -508,10 +509,18 @@ end
             S = [1.0, 2.0, 3.0, 4.0],
             P = [0.1, 0.2, 0.3, 0.4])
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    tmp = mktempdir()
     @test_throws ErrorException identify_rate_equation(
         prob; beam_fraction=0.5,
         optimizer=PyCMAOpt(),
-        n_restarts=1, maxtime=1.0, save_dir=mktempdir())
+        n_restarts=1, maxtime=1.0, save_dir=tmp)
+    # Failure rows were written before the re-raise: a CSV exists whose rows
+    # are all failures (non-missing `error`, missing `eq_hash`).
+    @test isfile(joinpath(tmp, "initial_mechanisms.csv"))
+    fail_df = CSV.read(joinpath(tmp, "initial_mechanisms.csv"), DataFrame)
+    @test nrow(fail_df) >= 1
+    @test all(.!ismissing.(fail_df.error))
+    @test all(ismissing.(fail_df.eq_hash))
 end
 
 @testset "_onesided_permutation_p" begin
@@ -772,16 +781,6 @@ end
 end
 
 @testset "_select_best_n_params: edge cases" begin
-    # All rows have empty fold scores → error.
-    cv_df_empty = DataFrame(
-        n_params       = [3, 5],
-        cv_score       = [Inf, Inf],
-        loss           = [0.0, 0.0],
-        cv_fold_scores = [Float64[], Float64[]],
-    )
-    @test_throws ErrorException EnzymeRates._select_best_n_params(
-        cv_df_empty)
-
     # Length mismatch between buckets → error. Fold-count must be
     # uniform across buckets because pairs (same held-out group →
     # same fold index) are required for the paired diffs.
@@ -796,20 +795,6 @@ end
     )
     @test_throws ErrorException EnzymeRates._select_best_n_params(
         cv_df_mismatch)
-
-    # Partial bucket failure: one row in bucket-3 failed (empty fold
-    # scores), another row valid → bucket retained via rep selection.
-    cv_df_partial = DataFrame(
-        n_params       = [3, 3, 5],
-        cv_score       = [Inf, 0.115, 0.115],
-        loss           = [0.0, 0.0, 0.0],
-        cv_fold_scores = [
-            Float64[],
-            exp.([0.10, 0.12, 0.11, 0.13]),
-            exp.([0.10, 0.12, 0.11, 0.13]),
-        ],
-    )
-    @test EnzymeRates._select_best_n_params(cv_df_partial).best_n == 3
 end
 
 @testset "cv_results: exotic group labels survive CSV roundtrip" begin

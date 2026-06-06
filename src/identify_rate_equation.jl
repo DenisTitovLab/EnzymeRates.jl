@@ -511,10 +511,12 @@ function _beam_search(
         isempty(base_failures) && return (
             Union{Mechanism, AllostericMechanism}[],
             _rows_to_dataframe(NamedTuple[]))
+        _save_initial_csv(save_dir, [_failure_row(f) for f in base_failures])
         error("Every base-tier fit failed ($(length(base_failures)) " *
-              "mechanisms). This usually indicates an optimizer/solver " *
-              "configuration problem (e.g. an unsupported kwarg). First " *
-              "failure: $(base_failures[1].error)")
+              "mechanisms; failure rows written to " *
+              "$(joinpath(save_dir, "initial_mechanisms.csv"))). This usually " *
+              "indicates an optimizer/solver configuration problem (e.g. an " *
+              "unsupported kwarg). First failure: $(base_failures[1].error)")
     end
     _save_initial_csv(save_dir,
         vcat([e.row for e in base_entries],
@@ -740,9 +742,9 @@ have diagnostics computed but are never selected.
 Tiebreak: when two buckets tie on `mean(log_scores)`, `n_min` resolves to
 the smallest `n_params` (parsimony).
 
-Errors if:
-  * no bucket has any non-empty `cv_fold_scores` row;
-  * any bucket's fold-score length differs from `n_min`'s.
+Errors if any bucket's fold-score length differs from `n_min`'s. (Every
+`cv_fold_scores` row is non-empty — `_loocv` returns a full per-fold vector or
+raises — so there is no empty-input case to handle.)
 
 When `n_folds_min == 1` the SE is undefined; the selection loop is
 skipped and `n_min` is returned. Diagnostics are still populated with
@@ -754,10 +756,7 @@ function _select_best_n_params(
     se_threshold::Float64 = 1.0,
     perm_p_threshold::Float64 = 0.16,
 )
-    valid = filter(row -> !isempty(row.cv_fold_scores), cv_df)
-    isempty(valid) && error(
-        "no finite LOOCV scores in cv_df")
-    sorted = sort(valid, [:n_params, :cv_score])
+    sorted = sort(cv_df, [:n_params, :cv_score])
     reps = combine(groupby(sorted, :n_params), first)
 
     log_scores = Dict(
