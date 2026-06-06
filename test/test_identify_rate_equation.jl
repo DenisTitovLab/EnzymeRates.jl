@@ -326,6 +326,8 @@ using OptimizationPyCMA
     @testset "CSV output (new schema)" begin
         files = sort(filter(f -> endswith(f, ".csv"), readdir(save_dir)))
         @test "initial_mechanisms.csv" in files
+        @test isfile(joinpath(save_dir, "progress.log"))
+        @test filesize(joinpath(save_dir, "progress.log")) > 0
         @test !any(startswith(f, "params_estimate_") for f in files)
         iters = filter(f -> startswith(f, "equation_search_iteration_"), files)
         @test !isempty(iters)
@@ -509,7 +511,7 @@ end
     @test_throws ErrorException identify_rate_equation(
         prob; beam_fraction=0.5,
         optimizer=PyCMAOpt(),
-        n_restarts=1, maxtime=1.0)
+        n_restarts=1, maxtime=1.0, save_dir=mktempdir())
 end
 
 @testset "_onesided_permutation_p" begin
@@ -920,6 +922,54 @@ end
     @test EnzymeRates._select_beam(losses;
         loss_rel_threshold=1.0, loss_abs_threshold=0.0,
         min_beam_width=2, best_override=0.0) == [1, 2]
+end
+
+@testset "_progress" begin
+    mktempdir() do tmp
+        # show_progress=true: writes to progress.log AND to stdout.
+        out_file = joinpath(tmp, "stdout.txt")
+        open(out_file, "w") do io
+            redirect_stdout(io) do
+                EnzymeRates._progress(tmp, true, "stage one")
+            end
+        end
+        @test occursin("stage one", read(out_file, String))
+        @test isfile(joinpath(tmp, "progress.log"))
+        @test occursin("stage one", read(joinpath(tmp, "progress.log"), String))
+
+        # show_progress=false: writes neither.
+        out_file2 = joinpath(tmp, "stdout2.txt")
+        open(out_file2, "w") do io
+            redirect_stdout(io) do
+                EnzymeRates._progress(tmp, false, "silent line")
+            end
+        end
+        @test !occursin("silent line", read(out_file2, String))
+        @test !occursin("silent line", read(joinpath(tmp, "progress.log"), String))
+    end
+
+    # show_progress=false has no side effect: a non-existent save_dir is NOT
+    # created (the early return precedes the mkpath).
+    mktempdir() do tmp2
+        ghost = joinpath(tmp2, "ghost_dir")
+        EnzymeRates._progress(ghost, false, "no side effects")
+        @test !isdir(ghost)
+    end
+
+    # _batch_summary reports the three buckets with the right denominator.
+    mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
+        substrates: S[C]; products: P[C] end))
+    row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
+           retcode="Success", error=missing, fitted_param_names=(:K,),
+           fitted_param_values=(1.0,), eq_hash="abc")
+    e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
+    e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
+    f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
+    s = EnzymeRates._batch_summary([e_succ, e_mt], [f])
+    @test occursin("2 fitted", s)
+    @test occursin("Success 33.3%", s)            # 1 of 3 total
+    @test occursin("non-Success retcode 33.3%", s)
+    @test occursin("errored 33.3%", s)
 end
 
 @testset "_process_batch" begin

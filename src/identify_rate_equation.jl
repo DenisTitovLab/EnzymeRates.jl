@@ -186,6 +186,7 @@ function identify_rate_equation(
     perm_p_threshold::Float64 = 0.16,
     # Output & parallelism
     save_dir::String = _default_save_dir(),
+    show_progress::Bool = true,
     pmap_function::Function = pmap,
     # Extra fitting/optimizer kwargs
     optim_kwargs...
@@ -208,14 +209,17 @@ function identify_rate_equation(
     mechanisms, df = _beam_search(prob;
         min_beam_width, loss_rel_threshold,
         loss_abs_threshold,
-        max_param_count, save_dir,
+        max_param_count, save_dir, show_progress,
         pmap_function, optimizer, n_cv_candidates,
         fitting_kwargs...)
 
-    return _cv_model_selection(
+    result = _cv_model_selection(
         mechanisms, df, prob;
         n_cv_candidates, se_threshold, perm_p_threshold,
-        pmap_function, optimizer, fitting_kwargs...)
+        pmap_function, optimizer, save_dir, show_progress,
+        fitting_kwargs...)
+    _progress(save_dir, show_progress, "Done. Results saved to $save_dir")
+    return result
 end
 
 # Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent.
@@ -361,6 +365,42 @@ function _failure_row(f::FitFailure)
 end
 
 """
+Emit one progress line to flushed stdout AND append it to
+`<save_dir>/progress.log`. Gated by `show_progress`. The explicit flush makes
+lines appear in a redirected cluster job log (otherwise stdout is block-buffered
+when redirected and withholds output until the process exits).
+"""
+function _progress(save_dir::AbstractString, show_progress::Bool, msg::AbstractString)
+    show_progress || return nothing
+    println(msg)
+    flush(stdout)
+    isdir(save_dir) || mkpath(save_dir)
+    open(joinpath(save_dir, "progress.log"), "a") do io
+        println(io, msg)
+    end
+    nothing
+end
+
+"""
+One-line summary of a fitted batch: count + the three retcode/error buckets
+(% Success / % non-Success retcode / % errored) and the best loss. Denominator
+is fitted + errored mechanisms for the batch.
+"""
+function _batch_summary(entries::Vector{BatchEntry}, failures::Vector{FitFailure})
+    n_fit   = length(entries)
+    n_err   = length(failures)
+    total   = n_fit + n_err
+    n_succ  = count(e -> e.retcode === :Success, entries)
+    n_other = n_fit - n_succ
+    pct(x)  = total == 0 ? 0.0 : round(100 * x / total; digits=1)
+    best    = isempty(entries) ? NaN : minimum(e -> e.loss, entries)
+    string(n_fit, " fitted | Success ", pct(n_succ),
+           "% | non-Success retcode ", pct(n_other),
+           "% | errored ", pct(n_err), "% | best loss ",
+           isnan(best) ? "n/a" : round(best; sigdigits=4))
+end
+
+"""
 Compile + cap-check + fit every mechanism in `mechs`, one `pmap` pass with
 compile and fit fused on the same worker. Returns `(entries, failures)`:
 `entries::Vector{BatchEntry}` are the fitted mechanisms (each keeping its OWN
@@ -453,7 +493,7 @@ end
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,
-    max_param_count, save_dir, pmap_function,
+    max_param_count, save_dir, show_progress, pmap_function,
     optimizer, n_cv_candidates, kwargs...
 )
     frontier = Dict{Int, Vector{BatchEntry}}()
@@ -461,7 +501,10 @@ function _beam_search(
     best_loss_by_count = Dict{Int, Float64}()
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
+    _progress(save_dir, show_progress, "Enumerating initial mechanisms…")
     base = _dedup_flat!(collect(init_mechanisms(prob.reaction)))
+    _progress(save_dir, show_progress,
+        "Fitting $(length(base)) initial mechanisms…")
     base_entries, base_failures = _process_batch(base, prob;
         pmap_function, optimizer, max_param_count, kwargs...)
     if isempty(base_entries)
@@ -478,6 +521,8 @@ function _beam_search(
              [_failure_row(f) for f in base_failures]))
     _ingest!(frontier, cv_pool, best_loss_by_count,
              base_entries; n_cv_candidates)
+    _progress(save_dir, show_progress,
+        "Base tier: " * _batch_summary(base_entries, base_failures))
 
     # ── Advancing-target sweep over actual param counts ──
     iteration = 0
@@ -515,6 +560,10 @@ function _beam_search(
                     vcat([e.row for e in child_entries],
                          [_failure_row(f) for f in child_failures]),
                     iteration)
+                _progress(save_dir, show_progress,
+                    "Iteration $iteration (target n_params=$target): " *
+                    "$(length(parents)) parents → $(length(children)) children | " *
+                    _batch_summary(child_entries, child_failures))
             end
             !isempty(child_entries) && _ingest!(
                 frontier, cv_pool, best_loss_by_count,
@@ -776,6 +825,7 @@ function _cv_model_selection(
     n_cv_candidates, pmap_function, optimizer,
     se_threshold::Float64,
     perm_p_threshold::Float64,
+    save_dir, show_progress,
     kwargs...
 )
     isempty(mechs) && error(
@@ -804,6 +854,8 @@ function _cv_model_selection(
     candidate_mechs = mechs[candidate_indices]
     candidate_rows = df[candidate_indices, :]
 
+    _progress(save_dir, show_progress,
+        "Cross-validating $(length(candidate_mechs)) candidate equations (LOOCV)…")
     fold_scores_per_candidate = pmap_function(
         candidate_mechs
     ) do mech
@@ -849,6 +901,9 @@ function _cv_model_selection(
         cv_df[!, col] = [v[i] for v in cv_df.cv_fold_scores]
     end
 
+    _progress(save_dir, show_progress,
+        "Selected: $(nameof(typeof(best_mechanism))) " *
+        "(eq_hash=$(cv_df.eq_hash[best_row_idx])), n_params=$(sel.best_n)")
     select!(cv_df, Not(:cv_fold_scores))
     return IdentifyRateEquationResults(best_mechanism, cv_df)
 end
