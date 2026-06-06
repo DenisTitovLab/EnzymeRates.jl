@@ -89,6 +89,14 @@ using OptimizationPyCMA
         @test length(
             unique(prob.data.group)) == 5
 
+        # scale_k_to_kcat field: default 1.0, settable to nothing, validated.
+        @test prob.scale_k_to_kcat == 1.0
+        prob_abs = IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        @test prob_abs.scale_k_to_kcat === nothing
+        @test_throws ErrorException IdentifyRateEquationProblem(
+            test_rxn, test_data; Keq=Keq_val, scale_k_to_kcat=0.0)
+
         # Missing metabolite column
         @test_throws(
             ErrorException,

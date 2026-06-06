@@ -17,6 +17,8 @@ constant for rate equation identification.
 - `data`: `NamedTuple` of column vectors with `:group`,
   `:Rate`, and metabolite columns
 - `Keq`: fixed equilibrium constant
+- `scale_k_to_kcat`: target kcat for SS-rate rescaling
+  before fitting (`nothing` = no rescaling, positive Float64 = target)
 """
 struct IdentifyRateEquationProblem{
     R<:EnzymeReaction, D<:NamedTuple
@@ -24,11 +26,15 @@ struct IdentifyRateEquationProblem{
     reaction::R
     data::D
     Keq::Float64
+    scale_k_to_kcat::Union{Float64,Nothing}
 end
 
 function IdentifyRateEquationProblem(
-    reaction::EnzymeReaction, table; Keq::Real
+    reaction::EnzymeReaction, table; Keq::Real,
+    scale_k_to_kcat::Union{Real,Nothing}=1.0
 )
+    scale_k_to_kcat !== nothing && scale_k_to_kcat <= 0 && error(
+        "scale_k_to_kcat must be positive (or nothing); got $scale_k_to_kcat")
     data = Tables.columntable(table)
     col_names = keys(data)
 
@@ -64,9 +70,10 @@ function IdentifyRateEquationProblem(
         "Need at least 2 unique groups for " *
         "cross-validation, got $n_groups")
 
+    sk = scale_k_to_kcat === nothing ? nothing : Float64(scale_k_to_kcat)
     IdentifyRateEquationProblem{
         typeof(reaction),typeof(data)
-    }(reaction, data, Float64(Keq))
+    }(reaction, data, Float64(Keq), sk)
 end
 
 """
