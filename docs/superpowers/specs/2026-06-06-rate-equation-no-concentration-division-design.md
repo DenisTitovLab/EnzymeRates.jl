@@ -26,8 +26,10 @@ Four parts:
 
 *Simplification:* the PR removes overengineering debt — the `is_estar` conformation plumbing
 (Part 1), the mutating `_canonicalize_mechanism!` (Part 3; canonicalization moves into the
-constructors, dedup becomes `unique!`), and the `G==1`-only `normalize` special-case (Part 2;
-replaced by a unified big-K normalization for all `G`, which also removes the
+constructors, dedup becomes `unique!`), and the entire common-denominator apparatus in
+the derivation (Part 2; the `alpha_num`/`alpha_den` split, `sigma_num`/`sigma_den`, the
+`normalize` flag, and the `_poly_div_mono` clearing — replaced by computing directly in
+fractional/Laurent form, which the `POLY` type already supports, also removing the
 high-rate-constant-power form that `G>1` mechanisms currently leak).
 
 ## Evidence (LDH: `substrates NADH, Pyruvate; products Lactate, NAD; oligomeric_state 4`)
@@ -112,24 +114,25 @@ parameters — that could drop a fitted parameter). For sequential mechanisms th
 identity (they already have a constant term); for ping-pong it clears the coupling and
 yields the standard no-constant-term ping-pong form.
 
-**Big-K normalization, unified across all `G`** (replaces the `G==1`-only `normalize`).
-Express the denominator in Cha's partition-function form `Σ_g σ_g · D_g`, where
-`σ_g = Σ_{i∈g} α_i` is each enzyme form's population relative to the segment's free enzyme
-(the readable `1 + [S]/K_S` terms) and `D_g` is the King-Altman determinant in the SS rate
-constants. This **normalizes out the big-K equilibrium constants** (`∏ alpha_den` — the RE
-dissociation/iso constants) while **keeping the small-k SS rate constants** intact: `[S]/K_S`
-carries clear biochemical meaning and the kcat/flux structure lives in the `k`'s, so
-normalizing by `k` would not help.
+**Compute in fractional (Laurent) form — no linearization, no normalization pass.** The
+natural Cha quantities are the fractional populations `α_i = [bound metabolites] / [path
+big-K's]` (e.g. `[S]/K_S`); the denominator is `Σ_g (Σ_{i∈g} α_i)·D_g` and the numerator the
+matching flux, with the small-k SS rate constants kept in the King-Altman determinants `D_g`.
 
-The high-rate-constant-power form (e.g. `K_NADH_E^3·K_NAD_E^3·… + …`) is **not fundamental** —
-it is the *common-denominator intermediate* the King-Altman/Cha computation uses to keep the
-determinant polynomial (it multiplies the big-K denominators onto a common denominator). The
-current code divides it back only for `G==1` (the `normalize` flag), so `G>1` (expansion)
-mechanisms leak the messy form. Unifying applies the big-K normalization for **all `G`**:
-build `num`/`den` from the per-form fractional `α_i` rather than the common-denominator
-`sigma_num`/`sigma_den`. This removes the `G==1` special-case and the sometimes-unused
-`sigma_num`/`sigma_den` split and gives every mechanism the clean form. The concentration-GCD
-post-pass then clears the residual concentration division for ping-pong.
+The current code instead **linearizes** — it multiplies everything onto the common big-K
+denominator `∏ alpha_den` to keep `sym_det` a plain polynomial (this multiplied-out product is
+the `K_NADH_E^3·K_NAD_E^3·…` bloat) — then divides it back only for `G==1` (the `normalize`
+flag), so `G>1` (expansion) mechanisms leak the bloat. But `POLY` is **already a Laurent
+polynomial type**: `MONO` exponents may be negative, every op (`poly_mul/add/sub`, `sym_det`)
+handles them, and `_poly_to_expr` renders negative exponents as denominators. So the
+linearization is unnecessary. Computing `α_i`/`D_g`/`num`/`den` directly as Laurent
+polynomials yields the clean `[S]/K_S` form for every `G` in one pass and **removes the entire
+common-denominator apparatus**: the `alpha_num`/`alpha_den` split (→ a single `α_i`),
+`sigma_num`/`sigma_den`, the `normalize` flag + its `G==1` special-case, and the
+`_poly_div_mono` clearing multiplications in `_ss_contrib`. `[S]/K_S` carries clear
+biochemical meaning while the kcat/flux structure stays in the `k`'s. Term *count* is
+unchanged (a common monomial factor adds no terms), so `MAX_RATE_EQUATION_TERMS`/compile
+budget is unaffected.
 
 - **kcat is unaffected.** `_kcat_forward` (`:699`) reads the same polys and takes ratios at
   matching concentration patterns; a common monomial factor cancels, so kcat is invariant.
@@ -195,21 +198,22 @@ post-pass then clears the residual concentration division for ping-pong.
 - Threading the metabolite-level residual through `backtrack!`/`_release_products!` and
   confirming derivation handles residual-bearing forms end-to-end (the `name` chokepoint
   already renders residuals).
-- Unified big-K normalization (Part 2) is a moderate refactor of the Cha assembly — build
-  `num`/`den` from the per-form fractional `α_i` (clean big-K structure, small-k kept) for all
-  `G`, not the common-denominator `sigma_num`. Risk to watch: `sym_det` / term-count behavior
-  on fractional (negative-big-K-power) polynomials against `MAX_RATE_EQUATION_TERMS` and the
-  compile budget; guardrails are the existing `G>1` mechanism tests + kcat + perf. Settle the
-  exact assembly form in TDD.
+- Fractional/Laurent derivation (Part 2) is a moderate refactor of the Cha assembly — compute
+  `α_i`/`D_g`/`num`/`den` as Laurent polynomials and delete the common-denominator apparatus.
+  Verify early in TDD: `sym_det` correctness on Laurent polys; `_kcat_forward` pattern-grouping
+  on Laurent (ratios should cancel big-K powers); `rate_equation` perf (the `1/K` divisions
+  already exist in today's normalized `1 + [S]/K` form). Fall back to an explicit
+  normalization pass only if a guardrail (existing `G>1` mechanism tests + kcat + perf) can't
+  be met.
 
 ## TDD order
 
 1. Add the division-freeness + atom-conservation regression tests (fail today).
 2. Part 1: residual-bearing enumeration + `Step` atom-conservation invariant; recompute and
    update mechanism counts.
-3. Part 2: free-enzyme reference + unified big-K normalization (Cha partition-function form
-   `Σ_g σ_g·D_g` for all `G`) + `_reduce_conc_lowest_terms`; make division tests pass; confirm
-   kcat/perf/Aqua green; regenerate snapshots.
+3. Part 2: free-enzyme reference + fractional/Laurent derivation (delete the common-denominator
+   apparatus; verify `sym_det`/kcat/perf on Laurent early) + `_reduce_conc_lowest_terms`; make
+   division tests pass; confirm kcat/perf/Aqua green; regenerate snapshots.
 4. Part 3: canonicalize in constructors; `_dedup_flat!`→`unique!`; oracle permutation bridge;
    add representation-independence tests.
 5. Confirm on the LDH `identify_rate_equation` run that reverse-direction mechanisms now fit.
