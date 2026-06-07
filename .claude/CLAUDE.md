@@ -285,10 +285,10 @@ parameters are stateless.
   - **Substrate participation** (C7): every isomerization requires ≥1 substrate bound
   - **Product-only iso forms** (C8): iso product forms are built constructively via `_make_species` (decomposed `Species`) with only products bound, no substrates
   - **Multi-product release** (C9): isomerization can produce multiple products (released one at a time)
-  - **Empty-residual ping-pong** (C4): Estar conformation without covalent atoms is valid
+  - **Admissible residual** (C4): a ping-pong covalent intermediate must carry a genuine non-empty residual (atoms remain on the enzyme between the producing and consuming steps). A degenerate empty-residue "ping-pong" would return the enzyme to apo `E` mid-cycle, splitting the reaction into disconnected half-cycles — these are rejected in `backtrack!`. Covalent intermediates live on conformation `:E` carrying a `Residual`, never a separate conformation.
   - **Connectivity** (C10): the enzyme-form graph is fully connected — any two forms identical in conformation/residual that differ by exactly one bound metabolite are joined by a binding step (no single-metabolite dead-ends). Topologies are assembled by **whole-path union** per (substrate, product) weak ordering (not per-step selection); `_expand_substrate_product_dead_ends` runs a completion pass so multi-bystander dead-ends stay connected. Enforced by the `_connectivity_violations` test predicate across `_catalytic_topologies`, `init_mechanisms`, and `_expand_substrate_product_dead_ends`.
-- Verified topology counts: bi-bi=11, ter-ter=283, pyruvate carboxylase=312, pyruvate dehydrogenase=334
-- `has_residual` parameter in `backtrack!` means "enzyme is in Estar conformation" (not just "has atoms") — covers empty-residual ping-pong
+- Verified topology counts: bi-bi=9, ter-ter=223, pyruvate carboxylase=312, pyruvate dehydrogenase=334
+- `has_residual` parameter in `backtrack!` means "enzyme is in a ping-pong covalent-intermediate state"; the intermediate's covalent residue is stored as a `Residual` on conformation `:E` via `_residual_for`
 - Bystander mechanisms not needed at init level (same K gives identical rate equation; deferred to `expand_mechanisms`)
 
 ### Mechanism enumeration building blocks

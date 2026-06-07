@@ -333,8 +333,10 @@ end
     @testset "Bi-Bi" begin
         topos = EnzymeRates._catalytic_topologies(bi_bi_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        # 11 = 9 sequential + 2 empty-residual ping-pong
-        @test length(topos) == 11
+        # 9 sequential topologies. A[C]→P[C] and B[N]→Q[N] each leave no
+        # covalent residue, so the only ping-pong is degenerate
+        # (empty-residue) and is rejected by the admissible-residual rule.
+        @test length(topos) == 9
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t) == 1
@@ -356,7 +358,7 @@ end
         topos = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) == 283
+        @test length(topos) == 223
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t) == 1
@@ -367,38 +369,51 @@ end
         topos = EnzymeRates._catalytic_topologies(
             ter_bi_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        # 51 = 39 sequential + 6 nonempty-residual +
-        # 6 empty-residual ping-pong
-        @test length(topos) == 51
+        # 45 = 39 sequential + 6 genuine-residual ping-pong. P[CN] combines
+        # A+B, so ping-pong covalent residuals persist on :E; the degenerate
+        # empty-residue variants are rejected by the admissible-residual rule.
+        @test length(topos) == 45
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t) == 1
         end
     end
 
-    @testset "empty-residual ping-pong" begin
+    @testset "admissible-residual ping-pong" begin
+        # The admissible-residual rule rejects degenerate empty-residue
+        # ping-pong (which would return the enzyme to apo E mid-cycle,
+        # splitting the reaction into disconnected half-cycles). A genuine
+        # ping-pong intermediate carries a non-empty covalent residual,
+        # always on conformation :E (never a separate conformation). For
+        # ter-ter, residues form by combining substrates (e.g. bind A+B,
+        # release P[C] leaving an N residue), so ping-pong topologies survive.
         ter_ter = @enzyme_reaction begin
             substrates: A[C], B[N], D[X]
             products: P[C], Q[N], R[X]
         end
         topos = EnzymeRates._catalytic_topologies(ter_ter)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        has_estar = any(topos) do spec
-            any(spec) do s
-                any(
-                    sym -> startswith(
-                        string(sym), "Estar"),
-                    Iterators.flatten(
-                        (_t_reactants(s), _t_products(s))),
-                )
-            end
+        # Every enzyme form lives on conformation :E.
+        for t in topos, s in t,
+            sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s))
+            @test EnzymeRates.conformation(sp) === :E
         end
-        @test has_estar
+        # Surviving ping-pong topologies each carry a genuine (non-empty)
+        # covalent intermediate — no empty-residue ping-pong remains.
+        pingpong = filter(t -> count(EnzymeRates.is_iso, t) >= 2, topos)
+        @test !isempty(pingpong)
+        for t in pingpong
+            @test any(
+                EnzymeRates.has_residual(sp)
+                for s in t
+                for sp in (EnzymeRates.from_species(s),
+                           EnzymeRates.to_species(s)))
+        end
     end
 
     @testset "weak-ordering combining" begin
-        # For bi-bi: 9 sequential + 2 empty-residual
-        # ping-pong = 11
+        # For bi-bi: 9 sequential (the degenerate empty-residue ping-pong
+        # is rejected by the admissible-residual rule).
         bi_bi_rxn_test = @enzyme_reaction begin
             substrates: A[C], B[N]
             products: P[C], Q[N]
@@ -406,12 +421,12 @@ end
         topos = EnzymeRates._catalytic_topologies(
             bi_bi_rxn_test)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) == 11
+        @test length(topos) == 9
 
         topos_tt = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos_tt)
-        @test length(topos_tt) == 283
+        @test length(topos_tt) == 223
     end
 
     @testset "isomerization constraints" begin
@@ -485,40 +500,43 @@ end
             pyruvate_carboxylase_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
 
-        # Known mechanism: ATP+HCO3 → ADP+Pi (CO2 residual),
-        # then Pyr+CO2 → OAA
+        # Known mechanism: ATP+HCO3 → ADP+Pi leaving a CO2 covalent
+        # residual on :E, then Pyr+CO2 → OAA. The carboxylation iso converts
+        # the {ATP,HCO3}-bound form into a residual-bearing form; the
+        # carboxyl-transfer iso converts a residual-bearing Pyr form into the
+        # bare E(OAA).
+        _bset(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
         found = false
         for spec in topos
-            iso_steps = [
-                (sort(_t_reactants(s)), sort(_t_products(s)))
-                for s in spec
-                if length(_t_reactants(s)) == 1 &&
-                    length(_t_products(s)) == 1
-            ]
-            has_atp_hco3_iso = any(iso_steps) do (r, p)
-                r == [Symbol("EATPHCO3")] &&
-                    p == [Symbol("EstarADPPi")]
+            has_carboxylation = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:ATP, :HCO3]) &&
+                    !EnzymeRates.has_residual(f) &&
+                    EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:ATP, :HCO3]) &&
+                    !EnzymeRates.has_residual(t) &&
+                    EnzymeRates.has_residual(f))
             end
-            has_pyr_iso = any(iso_steps) do (r, p)
-                r == [Symbol("EstarPyr")] &&
-                    p == [Symbol("EOAA")]
+            has_carboxyl_transfer = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:OAA]) && !EnzymeRates.has_residual(f) &&
+                    :Pyr in _bset(t) && EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:OAA]) && !EnzymeRates.has_residual(t) &&
+                    :Pyr in _bset(f) && EnzymeRates.has_residual(f))
             end
-            if has_atp_hco3_iso && has_pyr_iso
+            if has_carboxylation && has_carboxyl_transfer
                 found = true
                 break
             end
         end
         @test found
 
-        # 312 = 169 seq + 143 pp
+        # 312 = 169 seq + 143 pp. Sequential topologies have exactly one
+        # (SS) iso step; ping-pong topologies have ≥2.
         @test length(topos) == 312
-        seq_count = count(topos) do spec
-            !any(spec) do s
-                any(sym -> startswith(string(sym), "Estar"),
-                    Iterators.flatten(
-                        (_t_reactants(s), _t_products(s))))
-            end
-        end
+        seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
         pp_count = length(topos) - seq_count
         @test seq_count == 169
         @test pp_count == 143
@@ -529,25 +547,36 @@ end
             pyruvate_dehydrogenase_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
 
-        # Known mechanism: Pyr→CO2 (residual C2H3O),
-        # CoA+residual→AcCoA (residual H),
-        # NAD+residual→NADH (no residual)
+        # Known mechanism, with covalent residuals on :E:
+        # Pyr→CO2 (leaves an acetyl residual),
+        # CoA+acetyl→AcCoA (leaves a hydride residual),
+        # NAD+hydride→NADH (residual cancels → bare E(NADH)).
+        _bset(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
         found = false
         for spec in topos
-            iso_steps = [
-                (sort(_t_reactants(s)), sort(_t_products(s)))
-                for s in spec
-                if length(_t_reactants(s)) == 1 &&
-                    length(_t_products(s)) == 1
-            ]
-            has_pyr = any(iso_steps) do (r, p)
-                r == [:EPyr] && p == [:EstarCO2]
+            has_pyr = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:Pyr]) && !EnzymeRates.has_residual(f) &&
+                    _bset(t) == Set([:CO2]) && EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:Pyr]) && !EnzymeRates.has_residual(t) &&
+                    _bset(f) == Set([:CO2]) && EnzymeRates.has_residual(f))
             end
-            has_coa = any(iso_steps) do (r, p)
-                r == [:EstarCoA] && p == [:EstarAcCoA]
+            has_coa = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:CoA]) && EnzymeRates.has_residual(f) &&
+                    _bset(t) == Set([:AcCoA]) && EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:CoA]) && EnzymeRates.has_residual(t) &&
+                    _bset(f) == Set([:AcCoA]) && EnzymeRates.has_residual(f))
             end
-            has_nad = any(iso_steps) do (r, p)
-                r == [:EstarNAD] && p == [:ENADH]
+            has_nad = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:NAD]) && EnzymeRates.has_residual(f) &&
+                    _bset(t) == Set([:NADH]) && !EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:NAD]) && EnzymeRates.has_residual(t) &&
+                    _bset(f) == Set([:NADH]) && !EnzymeRates.has_residual(f))
             end
             if has_pyr && has_coa && has_nad
                 found = true
@@ -556,15 +585,10 @@ end
         end
         @test found
 
-        # 334 = 169 seq + 165 pp
+        # 334 = 169 seq + 165 pp. Sequential topologies have exactly one
+        # (SS) iso step; ping-pong topologies have ≥2.
         @test length(topos) == 334
-        seq_count = count(topos) do spec
-            !any(spec) do s
-                any(sym -> startswith(string(sym), "Estar"),
-                    Iterators.flatten(
-                        (_t_reactants(s), _t_products(s))))
-            end
-        end
+        seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
         pp_count = length(topos) - seq_count
         @test seq_count == 169
         @test pp_count == 165
@@ -1051,7 +1075,7 @@ end
             # on representative ter-ter topologies.
             topos = EnzymeRates._catalytic_topologies(
                 ter_ter_rxn)
-            @test length(topos) == 283
+            @test length(topos) == 223
             # Test first (random, most forms) and last topology
             for topo in [topos[1], topos[end]]
                 result =
@@ -1226,8 +1250,8 @@ end
         mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
         @test all(isempty(_connectivity_violations(
             EnzymeRates.steps(m))) for m in mechs)
-        @test length(mechs) == 69
-        # Derive a small subset only — full-69 derivation is slow. Pick the 5
+        @test length(mechs) == 55
+        # Derive a small subset only — full derivation is slow. Pick the 5
         # smallest by step count (cheapest to compile).
         by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
         for m in by_size[1:5]

@@ -858,20 +858,17 @@ end
     ]
 
     # Expected partition sizes per reaction = the number of DISTINCT rate
-    # equations the init-level enumeration produces. After the catalytic-
-    # topology connectivity fix, the 69 bi_bi init mechanisms are all
-    # structurally distinct AND each yields a distinct `rate_equation_string`,
-    # so the comment-stripped string key produces exactly 69 classes
-    # (distinct keys == distinct rate-equation strings == 69, i.e. zero over-
-    # and zero under-collapse). The fix removed the dangling-form / binding-
-    # order rapid-equilibrium twins that previously collapsed the (buggy) 77
-    # mechanisms to 21 classes: clean topologies have distinct enzyme-form
-    # sets, hence distinct rate equations.
+    # equations the init-level enumeration produces. The 55 bi_bi init
+    # mechanisms are all structurally distinct AND each yields a distinct
+    # `rate_equation_string`, so the comment-stripped string key produces
+    # exactly 55 classes (zero over- and zero under-collapse): clean
+    # topologies have distinct enzyme-form sets, hence distinct rate
+    # equations.
     # If these counts change in a future commit, the dedup key's
     # equivalence classes (or the enumeration) have shifted — investigate.
     expected_n_classes = Dict(
         "uni_uni" => 1,
-        "bi_bi"   => 69,
+        "bi_bi"   => 55,
     )
 
     for (label, reaction) in test_reactions
