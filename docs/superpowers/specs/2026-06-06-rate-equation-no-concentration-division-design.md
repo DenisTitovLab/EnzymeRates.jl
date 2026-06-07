@@ -25,9 +25,10 @@ Four parts:
    and representation-independence.
 
 *Simplification:* the PR removes overengineering debt — the `is_estar` conformation plumbing
-(Part 1) and the mutating `_canonicalize_mechanism!` (Part 3; canonicalization moves into the
-constructors, dedup becomes `unique!`). `normalize` was investigated and is **kept** — it is
-load-bearing for readability (Part 2).
+(Part 1), the mutating `_canonicalize_mechanism!` (Part 3; canonicalization moves into the
+constructors, dedup becomes `unique!`), and the `G==1`-only `normalize` special-case (Part 2;
+replaced by a unified big-K normalization for all `G`, which also removes the
+high-rate-constant-power form that `G>1` mechanisms currently leak).
 
 ## Evidence (LDH: `substrates NADH, Pyruvate; products Lactate, NAD; oligomeric_state 4`)
 
@@ -111,13 +112,24 @@ parameters — that could drop a fitted parameter). For sequential mechanisms th
 identity (they already have a constant term); for ping-pong it clears the coupling and
 yields the standard no-constant-term ping-pong form.
 
-**`normalize` is kept — verified load-bearing for readability.** It re-expresses the
-King-Altman denominator as a sum of fractional enzyme-form populations (free enzyme = 1) —
-the readable `1 + [S]/K` form. Removing it is value-correct (0 mismatches across the LDH set)
-but yields high-rate-constant-power equations (e.g. `K_NADH_E^3·K_NAD_E^3·… + …`),
-unreadable. With a free-enzyme reference it gives the textbook form for sequential
-mechanisms; the concentration-GCD post-pass then clears the residual concentration division
-that `normalize` introduces for ping-pong.
+**Big-K normalization, unified across all `G`** (replaces the `G==1`-only `normalize`).
+Express the denominator in Cha's partition-function form `Σ_g σ_g · D_g`, where
+`σ_g = Σ_{i∈g} α_i` is each enzyme form's population relative to the segment's free enzyme
+(the readable `1 + [S]/K_S` terms) and `D_g` is the King-Altman determinant in the SS rate
+constants. This **normalizes out the big-K equilibrium constants** (`∏ alpha_den` — the RE
+dissociation/iso constants) while **keeping the small-k SS rate constants** intact: `[S]/K_S`
+carries clear biochemical meaning and the kcat/flux structure lives in the `k`'s, so
+normalizing by `k` would not help.
+
+The high-rate-constant-power form (e.g. `K_NADH_E^3·K_NAD_E^3·… + …`) is **not fundamental** —
+it is the *common-denominator intermediate* the King-Altman/Cha computation uses to keep the
+determinant polynomial (it multiplies the big-K denominators onto a common denominator). The
+current code divides it back only for `G==1` (the `normalize` flag), so `G>1` (expansion)
+mechanisms leak the messy form. Unifying applies the big-K normalization for **all `G`**:
+build `num`/`den` from the per-form fractional `α_i` rather than the common-denominator
+`sigma_num`/`sigma_den`. This removes the `G==1` special-case and the sometimes-unused
+`sigma_num`/`sigma_den` split and gives every mechanism the clean form. The concentration-GCD
+post-pass then clears the residual concentration division for ping-pong.
 
 - **kcat is unaffected.** `_kcat_forward` (`:699`) reads the same polys and takes ratios at
   matching concentration patterns; a common monomial factor cancels, so kcat is invariant.
@@ -183,19 +195,21 @@ that `normalize` introduces for ping-pong.
 - Threading the metabolite-level residual through `backtrack!`/`_release_products!` and
   confirming derivation handles residual-bearing forms end-to-end (the `name` chokepoint
   already renders residuals).
-- `normalize` stays (verified load-bearing). Mild related debt, possible follow-up cleanup
-  (out of scope unless we decide otherwise): it's a `G==1`-only special-case, so
-  `sigma_num`/`sigma_den` are each computed-but-sometimes-unused and `G>1` mechanisms get a
-  different (un-normalized) form; unifying the fractional-population form across all `G` would
-  be cleaner. In this PR, verify the GCD post-pass clears ping-pong without disturbing the 55.
+- Unified big-K normalization (Part 2) is a moderate refactor of the Cha assembly — build
+  `num`/`den` from the per-form fractional `α_i` (clean big-K structure, small-k kept) for all
+  `G`, not the common-denominator `sigma_num`. Risk to watch: `sym_det` / term-count behavior
+  on fractional (negative-big-K-power) polynomials against `MAX_RATE_EQUATION_TERMS` and the
+  compile budget; guardrails are the existing `G>1` mechanism tests + kcat + perf. Settle the
+  exact assembly form in TDD.
 
 ## TDD order
 
 1. Add the division-freeness + atom-conservation regression tests (fail today).
 2. Part 1: residual-bearing enumeration + `Step` atom-conservation invariant; recompute and
    update mechanism counts.
-3. Part 2: free-enzyme reference + `_reduce_conc_lowest_terms`; make division tests pass;
-   confirm kcat/perf/Aqua green; regenerate snapshots.
+3. Part 2: free-enzyme reference + unified big-K normalization (Cha partition-function form
+   `Σ_g σ_g·D_g` for all `G`) + `_reduce_conc_lowest_terms`; make division tests pass; confirm
+   kcat/perf/Aqua green; regenerate snapshots.
 4. Part 3: canonicalize in constructors; `_dedup_flat!`→`unique!`; oracle permutation bridge;
    add representation-independence tests.
 5. Confirm on the LDH `identify_rate_equation` run that reverse-direction mechanisms now fit.
