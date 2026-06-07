@@ -24,6 +24,11 @@ Four parts:
 4. **Regression tests** lock in atom conservation, division-freeness at zero concentration,
    and representation-independence.
 
+*Simplification:* the PR removes overengineering debt — the `is_estar` conformation plumbing
+(Part 1) and the mutating `_canonicalize_mechanism!` (Part 3; canonicalization moves into the
+constructors, dedup becomes `unique!`). `normalize` was investigated and is **kept** — it is
+load-bearing for readability (Part 2).
+
 ## Evidence (LDH: `substrates NADH, Pyruvate; products Lactate, NAD; oligomeric_state 4`)
 
 - Deduped `init` set (what `identify_rate_equation` fits): **69/69** equations divide by a
@@ -71,6 +76,11 @@ residual, and emits atom-non-conserving steps. (The residual atoms are tracked i
   - iso step (`bound_metabolite === nothing`): `to.units − from.units == ∅`
   This is cheap (metabolite counting, no reaction-atom lookup) and errors on violation, so
   the broken `ENADH → EstarLactate` (`to−from = {Lactate}−{NADH} ≠ ∅`) can never be built.
+- **Admissible residuals (ping-pong well-formedness).** A residual is generated only if it is
+  both **produced** by a step (a substrate consumed → ≥1 product released, residual formed)
+  **and consumed** by a step (residual + a substrate → ≥1 product released, optionally a new
+  residual). This keeps every residual a genuine, fully-cycled covalent intermediate — never
+  dangling — and is what bounds which ping-pong topologies enumeration emits.
 
 **Effect:** the previously-broken ping-pong forms become valid, atom-conserving,
 residual-bearing forms (conformation `:E`), still RE / `init` / single-RE-group. The
@@ -101,9 +111,13 @@ parameters — that could drop a fitted parameter). For sequential mechanisms th
 identity (they already have a constant term); for ping-pong it clears the coupling and
 yields the standard no-constant-term ping-pong form.
 
-The existing `normalize` step is kept — with a free-enzyme reference it produces the
-textbook `1 + [S]/K` form for sequential mechanisms; the concentration-GCD post-pass clears
-the residual concentration division that `normalize` introduces for ping-pong.
+**`normalize` is kept — verified load-bearing for readability.** It re-expresses the
+King-Altman denominator as a sum of fractional enzyme-form populations (free enzyme = 1) —
+the readable `1 + [S]/K` form. Removing it is value-correct (0 mismatches across the LDH set)
+but yields high-rate-constant-power equations (e.g. `K_NADH_E^3·K_NAD_E^3·… + …`),
+unreadable. With a free-enzyme reference it gives the textbook form for sequential
+mechanisms; the concentration-GCD post-pass then clears the residual concentration division
+that `normalize` introduces for ping-pong.
 
 - **kcat is unaffected.** `_kcat_forward` (`:699`) reads the same polys and takes ratios at
   matching concentration patterns; a common monomial factor cancels, so kcat is invariant.
@@ -138,10 +152,10 @@ the residual concentration division that `normalize` introduces for ping-pong.
   params/concs; for each metabolite set just that one to 0 and assert `rate_equation` is
   **finite and nonzero** (nonzero guards the spurious-`0.0`-from-`1/Inf` regression). Covers
   allosteric fixtures too.
-- **Enumeration coverage**, folded into the existing enumeration loop and kept small (cap
-  `rate_equation` compile cost by the established simplest-N-by-form-count pattern): for a
-  small reaction's full `init` set, each metabolite zeroed → finite/nonzero. *(Open: confirm
-  whether `bibi_ping_pong` is a specific fixture; otherwise cap by form count.)*
+- **Enumeration coverage** on the existing `bi_bi_pp_rxn` fixture
+  (`test/test_mechanism_enumeration.jl:102`; `A[CX], B[N] → P[C], Q[NX]` — ping-pong-capable,
+  the minimal analogue of the LDH reaction that surfaced these bugs): its full `init` set,
+  each metabolite zeroed → finite/nonzero, folded into the existing enumeration loop.
 - **Atom conservation**: every Step in every `init`/`expand` mechanism satisfies the
   signed-metabolite-unit invariant (Part 1) — and the `Step` constructor errors otherwise.
 - **Canonicalization / representation-independence**: the same mechanism written in two step
@@ -169,9 +183,11 @@ the residual concentration division that `normalize` introduces for ping-pong.
 - Threading the metabolite-level residual through `backtrack!`/`_release_products!` and
   confirming derivation handles residual-bearing forms end-to-end (the `name` chokepoint
   already renders residuals).
-- `normalize` vs concentration-GCD interplay — keep `normalize` for the textbook form and
-  verify the GCD post-pass clears ping-pong cleanly without disturbing the 55; settle the
-  exact ordering in TDD against the test suite.
+- `normalize` stays (verified load-bearing). Mild related debt, possible follow-up cleanup
+  (out of scope unless we decide otherwise): it's a `G==1`-only special-case, so
+  `sigma_num`/`sigma_den` are each computed-but-sometimes-unused and `G>1` mechanisms get a
+  different (un-normalized) form; unifying the fractional-population form across all `G` would
+  be cleaner. In this PR, verify the GCD post-pass clears ping-pong without disturbing the 55.
 
 ## TDD order
 
