@@ -74,6 +74,83 @@ function _add_atoms(
     result
 end
 
+# ─── Atom-conservation validation ────────────────────────────
+
+"""Add `sign * d` into the signed accumulator `acc` in place."""
+function _accumulate_atoms!(acc::Dict{Symbol,Int}, d::Dict{Symbol,Int}, sign::Int)
+    for (a, c) in d
+        acc[a] = get(acc, a, 0) + sign * c
+    end
+    acc
+end
+
+"""Drop zero entries from a signed atom dict."""
+_nonzero_atoms(d::Dict{Symbol,Int}) = filter(kv -> kv.second != 0, d)
+
+"""
+Net atom multiset carried by a `Species`: atoms of its bound metabolites
+plus atoms of `residual.added` minus atoms of `residual.subtracted`, read
+from the reaction's per-metabolite inventory via `_atoms_dict`.
+"""
+function _species_atoms(reaction::EnzymeReaction, sp::Species)
+    acc = Dict{Symbol,Int}()
+    for m in bound(sp)
+        _accumulate_atoms!(acc, _atoms_dict(reaction, name(m)), 1)
+    end
+    for a in added(residual(sp))
+        _accumulate_atoms!(acc, _atoms_dict(reaction, name(a)), 1)
+    end
+    for p in subtracted(residual(sp))
+        _accumulate_atoms!(acc, _atoms_dict(reaction, name(p)), -1)
+    end
+    _nonzero_atoms(acc)
+end
+
+"""
+Assert one `Step` conserves atoms: a binding step must move exactly the
+bound metabolite's atoms onto the enzyme (`atoms(to) − atoms(from) ==
+atoms(bound_metabolite)`); an iso step must leave the atom multiset
+unchanged (`atoms(to) == atoms(from)`). Errors naming the offending step.
+"""
+function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
+    diff = Dict{Symbol,Int}()
+    _accumulate_atoms!(diff, _species_atoms(reaction, to_species(s)), 1)
+    _accumulate_atoms!(diff, _species_atoms(reaction, from_species(s)), -1)
+    diff = _nonzero_atoms(diff)
+    bm = bound_metabolite(s)
+    expected = bm === nothing ? Dict{Symbol,Int}() :
+        _nonzero_atoms(copy(_atoms_dict(reaction, name(bm))))
+    diff == expected || error(
+        "atom-non-conserving step $(name(from_species(s))) → " *
+        "$(name(to_species(s))) (bound " *
+        "$(bm === nothing ? "—" : name(bm))): Δatoms $diff ≠ $expected")
+    nothing
+end
+
+"""
+    _assert_atom_conserving(m::Mechanism)
+    _assert_atom_conserving(am::AllostericMechanism)
+
+Assert every step of an enumerated mechanism conserves atoms (see
+`_assert_step_atom_conserving`). This is the enumeration-path guardrail
+against atom-non-conserving covalent intermediates; it is intentionally
+NOT a `Step` / `Mechanism` constructor check, since hand-written
+`@enzyme_mechanism` fixtures use placeholder atoms and folded steps.
+"""
+function _assert_atom_conserving(m::Mechanism)
+    for group in steps(m), s in group
+        _assert_step_atom_conserving(reaction(m), s)
+    end
+    nothing
+end
+
+function _assert_atom_conserving(am::AllostericMechanism)
+    for group in steps(am), s in group
+        _assert_step_atom_conserving(reaction(am), s)
+    end
+    nothing
+end
+
 """Generate all combinations of `k` elements from `arr`."""
 function _combinations(arr, k)
     n = length(arr)

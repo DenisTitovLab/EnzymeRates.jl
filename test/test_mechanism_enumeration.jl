@@ -257,6 +257,47 @@ end
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mixed)
 end
 
+@testset "_assert_atom_conserving" begin
+    # Lactate dehydrogenase: NADH + Pyr ⇌ Lac + NAD. The substrate and
+    # product atom inventories differ per metabolite (NADH ≠ Lac), so an iso
+    # that transmutes bound NADH directly into bound Lac with no residual is
+    # atom-non-conserving and MUST be rejected.
+    ldh_rxn = @enzyme_reaction begin
+        substrates: NADH[C21H29N7O14P2], Pyr[C3H3O3]
+        products:   Lac[C3H5O3], NAD[C21H27N7O14P2]
+    end
+
+    # NEGATIVE: bound NADH → bound Lac, no residual (atoms don't balance).
+    bad_iso = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:NADH)], :E),
+        EnzymeRates.Species([EnzymeRates.Product(:Lac)], :E),
+        nothing, false)
+    bad_m = EnzymeRates.Mechanism(ldh_rxn, [[bad_iso]])
+    @test_throws ErrorException EnzymeRates._assert_atom_conserving(bad_m)
+
+    # POSITIVE: the bi-bi ping-pong worked example carries a real covalent
+    # residual (+A −P) on conformation :E; every step conserves atoms.
+    A = EnzymeRates.Substrate(:A); B = EnzymeRates.Substrate(:B)
+    P = EnzymeRates.Product(:P);   Q = EnzymeRates.Product(:Q)
+    res_AP = EnzymeRates.Residual([A], [P])
+    E       = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+    E_A     = EnzymeRates.Species([A], :E)
+    E_P_res = EnzymeRates.Species(EnzymeRates.Metabolite[P], :E, res_AP)
+    F       = EnzymeRates.Species(EnzymeRates.Metabolite[], :E, res_AP)
+    E_B_res = EnzymeRates.Species(EnzymeRates.Metabolite[B], :E, res_AP)
+    E_Q     = EnzymeRates.Species([Q], :E)
+    good_steps = [
+        [EnzymeRates.Step(E, E_A, A, true)],
+        [EnzymeRates.Step(E_A, E_P_res, nothing, false)],
+        [EnzymeRates.Step(E_P_res, F, P, true)],
+        [EnzymeRates.Step(F, E_B_res, B, true)],
+        [EnzymeRates.Step(E_B_res, E_Q, nothing, true)],
+        [EnzymeRates.Step(E_Q, E, Q, true)],
+    ]
+    good_m = EnzymeRates.Mechanism(bi_bi_pp_rxn, good_steps)
+    @test EnzymeRates._assert_atom_conserving(good_m) === nothing
+end
+
 @testset "Mechanism Enumeration" begin
 
 # ═══════════════════════════════════════════════════════════════════════
