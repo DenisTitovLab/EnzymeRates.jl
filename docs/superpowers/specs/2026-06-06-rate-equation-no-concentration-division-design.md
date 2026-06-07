@@ -1,232 +1,185 @@
-# Representation-Independent Rate-Equation Derivation — Design
+# Representation-Correct, Division-Free Rate-Equation Derivation — Design
 
-**Date:** 2026-06-06 (revised 2026-06-07 after review)
+**Date:** 2026-06-06 (rev. 2026-06-07 after review)
 **Status:** design proposed, pending spec review → implementation plan
 
 ---
 
 ## Goal
 
-A mechanism's derived rate equation should depend only on *what the mechanism is*,
-never on *how its steps happen to be written or ordered*. Two coupled problems break
-that today:
+A mechanism's rate equation must depend only on *what the mechanism is*, never on how its
+steps are written, and must be finite wherever a real measurement is defined. Several
+coupled bugs break this; this PR fixes them together (they must ship together because the
+mutating dedup makes *every* equation fail, not just the ping-pong ones).
 
-1. **Division by concentration.** Many derived equations contain `1/[conc]` terms (e.g.
-   `… / (NADH * Pyruvate)`). When a data point sets that metabolite to `0` — which real
-   datasets do constantly, since each measurement uses only a subset of metabolites —
-   `rate_equation` returns `NaN`/`Inf` (and, for some topologies, a spurious `0.0`), so
-   the mechanism cannot be fit and is silently dropped from identification.
-2. **Mutating canonicalization.** `_dedup_flat!` rewrites mechanisms in place to compare
-   them; that mutation is dangerous and is also what turns problem 1 from a 14/69 issue
-   into a 69/69 issue (it relocates the derivation's reference form onto a bound complex).
+Four parts:
 
-The fix has two complementary parts: **(A)** emit each equation as a reduced polynomial
-ratio with no concentration in any denominator, making the *derivation* independent of
-step order; and **(B)** make mechanisms canonical *by construction*, making the *struct*
-unique so dedup compares without mutating and nothing downstream depends on step order.
+1. **Enumeration represents ping-pong with residuals, not conformations**, and only emits
+   **atom-conserving** steps.
+2. **Derivation references each rapid-equilibrium segment to its free enzyme**, and reduces
+   the result to lowest terms over concentrations (**minimal concentration-GCD**) so no
+   concentration ever sits in a denominator.
+3. **Mechanisms are canonical by construction**; dedup stops mutating; derivation no longer
+   depends on step index. Textbook oracles are bridged so they need no rewrite.
+4. **Regression tests** lock in atom conservation, division-freeness at zero concentration,
+   and representation-independence.
 
-## Evidence (LDH, `substrates: NADH, Pyruvate; products: Lactate, NAD; oligomeric_state: 4`)
+## Evidence (LDH: `substrates NADH, Pyruvate; products Lactate, NAD; oligomeric_state 4`)
 
-- **As-written `init_mechanisms` (no dedup mutation):** 14/69 equations divide by a
-  concentration.
-- **After `_dedup_flat!` (what `identify_rate_equation` fits):** **69/69** divide by a
-  concentration (`NADH` 17, `Pyruvate` 38, `Lactate`&`NAD` 4, `NADH`&`Pyruvate` 10). The
-  dedup canonicalization sorts steps so a bound complex becomes the reference form.
-- **Ideal reference (free enzyme, BFS reseeded):** still 14/69 — multi-valley topologies
-  (free `E` and covalent `Estar` reachable only *through* a binding step) cannot avoid the
-  division by any reference choice.
-- Current `rate_equation` on the deduped set, count non-finite: reverse initial velocity
-  (`NADH = Pyruvate = 0`) **65/69**; forward (`Lactate = NAD = 0`) 4/69; single
-  `Pyruvate = 0` 48/69; single `NADH = 0` 27/69. Baseline (all conc > 0): all finite — the
-  equations are correct for nonzero concentrations; only the zero-concentration evaluation
-  breaks.
-
-These show why both parts are needed: choosing/fixing the reference (Part B's
-canonicalization) caps the symptom at the 14 irreducible cases; the reduction (Part A)
-fixes all of them and removes the order-dependence entirely.
+- Deduped `init` set (what `identify_rate_equation` fits): **69/69** equations divide by a
+  concentration. Reverse initial velocity (`NADH=Pyruvate=0`) makes **65/69** non-finite.
+- The division is *not* intrinsic: it comes from the derivation referencing each RE segment
+  to `group[1]` (after `_dedup_flat!` sorts steps, a bound complex). **Free-enzyme reference
+  cleans 55/69** and yields the textbook form, e.g.
+  `den = 1 + NADH/K_NADH_E + NAD/K_NAD_E + Lactate·NADH/(K_Lactate_ENAD·K_NADH_E) + …`.
+- The residual 14 are a single RE group with **two zero-bound forms** (`E` and `Estar`),
+  both with **empty residual** — i.e. enumeration tagged a second *conformation* with no
+  covalent residue. They are also **atom-non-conserving**: e.g. the step
+  `ENADH → EstarLactate` turns bound NADH into bound Lactate with nothing to balance it
+  (would need a chemically-absurd `C18H23N7O11P2` residual). 0/69 forms carry any residual.
+- A correct ping-pong (Segel Ping-Pong Bi-Bi fixture) derives **division-free**; with
+  residuals it is a valid minimum-parameter `init` mechanism (RE steps), still a single RE
+  group, so it still needs the concentration-GCD step.
 
 ---
 
-## Part A — Reduced polynomial form (eliminates division by concentration)
+## Part 1 — Enumeration: residuals (not conformations) + atom-conserving steps
 
-### Root cause
+**Today (bug):** `_make_species` (`src/mechanism_enumeration.jl:13-20`) builds
+`Species(mets, is_estar ? :Estar : :E)` with the 2-arg constructor — an **empty residual** —
+and the ping-pong-isomerize branch (`backtrack!` Option 2, ~lines 333-379) passes
+`is_estar=true`. So enumeration encodes ping-pong as a bare `:Estar` *conformation* with no
+residual, and emits atom-non-conserving steps. (The residual atoms are tracked in the
+`residual_atoms` bookkeeping dict but never stored on the form.) This is the documented
+"empty-residual ping-pong" (CLAUDE.md constraint C4), now being reversed.
 
-`rate_equation` and `rate_equation_string` both flow through `_raw_symbolic_rate_polys`
-(`src/rate_eq_derivation.jl`). Within a rapid-equilibrium group, the Cha method expresses
-each enzyme form's relative population **relative to a chosen reference form** — the first
-form in step order. When that reference is a loaded complex, expressing the free enzyme
-requires dividing out the bound substrates:
+**Change:**
 
-```
-[E] / [E·NADH·Pyruvate]  =  (K_NADH · K_Pyruvate) / (NADH · Pyruvate)
-```
+- **Residuals, not conformations.** `_make_species` always uses conformation `:E` and
+  stores the covalent residue as a `Residual`. The residual at any intermediate is, at the
+  metabolite level, `Residual(added = consumed_subs, subtracted = released_prods)` — both
+  already threaded through `backtrack!` / `_release_products!`. The `:Estar` tag and the
+  `is_estar` plumbing are removed.
+- **Conformations stay a `Species` field** and derivation keeps supporting them, but
+  enumeration generates **no** conformation-changing steps in this PR. (Adding conformation
+  steps — with rules for what must occur between conformations — is a separate future PR.)
+- **Atom-conservation invariant in the `Step` constructor** (`src/types.jl`). Define a
+  species' *units* as the signed metabolite multiset `bound ∪ residual.added −
+  residual.subtracted`. After the constructor's canonical-direction normalization, a valid
+  Step must satisfy:
+  - binding step: `to.units − from.units == {bound_metabolite}`
+  - iso step (`bound_metabolite === nothing`): `to.units − from.units == ∅`
+  This is cheap (metabolite counting, no reaction-atom lookup) and errors on violation, so
+  the broken `ENADH → EstarLactate` (`to−from = {Lactate}−{NADH} ≠ ∅`) can never be built.
 
-The `normalize` step (`src/rate_eq_derivation.jl:373-389`, the `G == 1` case every
-unicyclic init mechanism hits) bakes this in: it divides the numerator by `sigma_den[1]`
-and each denominator term by `alpha_den[i]`, and those divisors carry concentrations
-whenever the reference is loaded. At `[conc] = 0` numerator and denominator each blow up
-and `∞/∞ = NaN` — a **removable** singularity (the limit is finite).
+**Effect:** the previously-broken ping-pong forms become valid, atom-conserving,
+residual-bearing forms (conformation `:E`), still RE / `init` / single-RE-group. The
+exact `init` mechanism counts may change; **we recompute them empirically during
+implementation** (they may stay near 69 if the 14 become valid residual ping-pong, or
+change — to be measured, not assumed).
 
-### The fix
+## Part 2 — Derivation: free-enzyme reference + minimal concentration-GCD
 
-A fraction's value is unchanged by multiplying numerator and denominator by the same
-thing. The current code already divides (that is what `normalize` does) — it just divides
-by the **wrong** factor (`sigma_den`, one form's population, which contains concentrations
-the other terms don't all share, manufacturing the `1/[conc]` terms). Divide by the
-**right** factor instead — the one common to every term:
+**Reference choice.** `_compute_alpha` (`src/rate_eq_derivation.jl:250-310`) seeds its
+per-segment BFS at `group[1]` (the first form in step order — order-dependent, and a bound
+complex after dedup). Change the seed to the **free enzyme of the segment**: the form with
+the fewest bound metabolites, tie-broken toward no residual (the true apoenzyme), then a
+deterministic key. This is chosen by *content*, so the derivation becomes
+**order-independent on its own** (Part 3 reinforces it but is no longer load-bearing for
+correctness), and it yields interpretable dissociation constants (`1 + [S]/K + …`). It
+cleans every single-valley mechanism (the 55) with no further work.
 
-1. **Drop `normalize`.** Build the denominator from `sigma_num[g]` for all groups (the
-   path already used when `G > 1`) and leave the numerator undivided. So built, `N` and `D`
-   are plain polynomials with **non-negative** concentration powers — but they share a
-   common concentration factor (from the reference choice), which would give `0/0`.
-2. **Reduce the pair to lowest terms over concentrations.** Divide both `N` and `D` by
-   their concentration monomial GCD: for each metabolite symbol, the smallest power it has
-   across all terms of `N ∪ D`; divide it out of every term. Because we only ever divide by
-   the minimum power present, no term can go negative — no concentration denominator
-   appears — and the least-loaded form's term becomes the constant denominator term that
-   keeps the rate finite at `[conc] = 0`.
+**Concentration-GCD.** A `G=1` ping-pong has two zero-bound forms (apo `E` and the
+residual form) in one segment; referenced to apo `E`, the residual form's population is
+genuinely concentration-coupled (`[E·resid]/[E] ∝ [NADH]/(K·[NAD])`), so a `1/[conc]` term
+survives. As the final step of `_raw_symbolic_rate_polys`, reduce the numerator/denominator
+to **lowest terms over concentrations**: for each metabolite, shift its exponent so the
+minimum across all terms of `N ∪ D` is 0. No term can go negative → no concentration
+denominator. New helper `_reduce_conc_lowest_terms(num, den, conc_set)` in
+`src/sym_poly_for_rate_eq_derivation.jl`; reduce over **concentrations only** (never
+parameters — that could drop a fitted parameter). For sequential mechanisms this is the
+identity (they already have a constant term); for ping-pong it clears the coupling and
+yields the standard no-constant-term ping-pong form.
 
-The GCD step is load-bearing, not cosmetic: skipping `normalize` *without* it leaves the
-common factor and reproduces the original failures exactly (reverse 65/69). Reduction is
-over **concentrations only**, never parameters — reducing a parameter common to every
-term would silently drop a fitted parameter from the equation; concentration-only
-reduction cannot (verified: 0 parameters dropped).
+The existing `normalize` step is kept — with a free-enzyme reference it produces the
+textbook `1 + [S]/K` form for sequential mechanisms; the concentration-GCD post-pass clears
+the residual concentration division that `normalize` introduces for ping-pong.
 
-### Validation (deduped LDH set, 69 mechanisms)
+- **kcat is unaffected.** `_kcat_forward` (`:699`) reads the same polys and takes ratios at
+  matching concentration patterns; a common monomial factor cancels, so kcat is invariant.
+  Existing kcat/rescaling/scale-invariance tests are the gate.
+- **Allosteric path:** `_allosteric_num_den_exprs` (`:1518`) assembles from the per-state
+  catalytic polys (now clean) by multiply/add only, so no concentration denominator appears.
+- **Note for a later PR:** once we can see the real reduced equations, we may revisit the
+  GCD form for biochemical readability. Out of scope here — minimal concentration-GCD only.
 
-- **0** rate-value mismatches vs. the current derivation for random conc > 0 (69 × 3 draws).
-- **0** equations with division by concentration.
-- **0** fitted parameters dropped.
-- **0** non-finite for every realistic zero-pattern (each metabolite zeroed, forward,
-  reverse).
+## Part 3 — Canonical by construction + non-mutating dedup + oracle bridge
 
-### Code changes
+- **Canonicalize in the constructors.** Move the step/group sorting in
+  `_canonicalize_mechanism!` (`src/mechanism_enumeration.jl:1670-1693`) into the `Mechanism`
+  / `AllostericMechanism` constructors (`src/types.jl`), beside the existing iso-direction
+  canonicalization. Every mechanism is then canonical at construction; two step orderings
+  produce the identical struct. `_canonicalize_mechanism!` is deleted.
+- **Non-mutating dedup.** `_dedup_flat!` (`:1712`) collapses to `unique!(mechs)` — pure
+  comparison, no mutation.
+- **Derivation independent of step index.** With Part 2's content-based reference and
+  canonical construction, nothing in derivation depends on the position of a step.
+- **Oracle bridge (no oracle rewrites).** Textbook oracles key parameters by flat step
+  position (`positional_params`, `test/test_rate_eq_derivation.jl:113`). Keep oracles in
+  as-written order; record each oracle's as-written→canonical **permutation** (recoverable
+  by matching as-written steps to the canonical `steps(m)`, since `Step` compares
+  structurally) and have `positional_params` apply it. The `@enzyme_mechanism` block stays
+  the human-readable record of "step 1, step 2, …".
 
-- `src/sym_poly_for_rate_eq_derivation.jl`: add
-  `_reduce_conc_lowest_terms(num::POLY, den::POLY, conc::Set{Symbol}) -> (POLY, POLY)`.
-- `src/rate_eq_derivation.jl` `_raw_symbolic_rate_polys` (5-arg, lines 333-399): delete the
-  `normalize` flag and `_poly_div_mono(num, sigma_den[1])`; the denominator loop always uses
-  `sigma_num[g]`; final step (after the `rename_map` pass) call
-  `_reduce_conc_lowest_terms(num, den, conc_set)` with the mechanism's metabolite symbols.
-- `src/rate_eq_derivation.jl` `_compute_alpha` (250-310): drop the now-dead `sigma_den`
-  (its only uses were the deleted `normalize` lines); return `(alpha_num, alpha_den, sigma_num)`.
+## Part 4 — Regression tests
 
-### kcat is unaffected
-
-`_kcat_forward` (`src/rate_eq_derivation.jl:699`) groups by concentration pattern and takes
-the **ratio** `num_k/den_k` at matching patterns. Skipping `normalize` and reducing both
-multiply `N`/`D` by a common monomial; concentration patterns shift uniformly (matching
-preserved, patterns stay distinct) and the parameter parts cancel in the ratio. kcat is
-invariant. The existing kcat / rescaling / scale-invariance tests are the gate.
-
-### Allosteric path
-
-`_allosteric_num_den_exprs` (`src/rate_eq_derivation.jl:1518`) takes its per-state
-catalytic polys from `_raw_symbolic_rate_polys` (now reduced) and assembles the MWC
-numerator/denominator by multiplication and addition only — which cannot introduce a
-concentration denominator. The allosteric regression tests are the gate; a residual common
-concentration factor in the combined form is not expected but would be caught there.
-
-### Residual: all-metabolites-zero (out of scope)
-
-14/69 still give `0/0` when *every* metabolite is `0` (multi-valley topologies with no
-concentration-independent enzyme population, so no constant denominator term). There is
-genuinely no steady state there and it is never a real data row; we document it and the
-regression tests do not assert finiteness at all-zero.
-
----
-
-## Part B — Canonical by construction + non-mutating dedup
-
-### Change
-
-Move the canonicalization currently performed by `_canonicalize_mechanism!`
-(`src/mechanism_enumeration.jl:1670-1693` — sort steps within each group, sort groups by
-their representative step, and for `AllostericMechanism` permute the parallel
-`cat_allo_states` and sort `regulatory_sites`) **into the `Mechanism` and
-`AllostericMechanism` constructors** (`src/types.jl`), alongside the iso-direction
-canonicalization they already do (`_canonicalize_iso_groups`). Then:
-
-- Every `Mechanism`/`AllostericMechanism` is canonical the moment it exists; writing the
-  same steps in any order yields the **identical struct**.
-- `_dedup_flat!` (`src/mechanism_enumeration.jl:1712`) collapses to `unique!(mechs)` —
-  pure comparison, **no mutation**.
-- `_canonicalize_mechanism!` is deleted.
-
-### Why both Part A and Part B
-
-Part A already makes the *rate* identical regardless of step order (the reduced form is
-the canonical rational function), so "rewriting steps doesn't change the derivation" is
-secured by Part A alone. Part B adds "rewriting steps doesn't change the *struct*"
-(uniqueness), removes the dangerous in-place mutation from the dedup pass, and forecloses
-a class of future order-dependence bugs. With Part A in place, the canonicalization need
-only be *deterministic* (for dedup), not *derivation-aware* — the two concerns are fully
-decoupled.
-
----
-
-## Part C — Oracle bridge (canonizer info)
-
-Hand-derived textbook oracles key parameters by **flat step position** (`K1`, `k2f`, …;
-`positional_params`, `test/test_rate_eq_derivation.jl:113`). Once the constructor
-canonicalizes step order, an oracle written in textbook (as-written) order would index the
-wrong steps. Rather than rewrite oracles, **bridge** them:
-
-- Oracles stay in as-written textbook order — the `@enzyme_mechanism` block remains the
-  readable record of which step is "1", "2", ….
-- Each oracle carries its as-written→canonical step **permutation** ("canonizer info"),
-  recoverable by matching the as-written flat steps to the canonical `steps(m)` (`Step`
-  compares structurally).
-- `positional_params` applies the permutation so textbook `K1` resolves to the parameter
-  of whatever canonical slot that step landed in.
-
-No oracle formula changes; `positional_params` gains a permutation argument (or computes it
-from a recorded as-written step list on the test spec). Exact plumbing is deferred to the
-plan.
-
----
-
-## Testing
-
-1. **Shared fixtures** (`run_all_tests(spec)` over `MECHANISM_TEST_SPECS`, which already
-   compiles `rate_equation` per fixture — true piggyback). For each fixture: random positive
-   params and concentrations; for each metabolite, set just that one to `0.0` and assert
-   `rate_equation` is **finite and nonzero** (the nonzero check guards the
-   spurious-`0.0`-from-`1/Inf` regression). Covers allosteric fixtures too.
-2. **Enumerated mechanisms** (folded into the existing enumeration loop). Run full
-   `init_mechanisms` on a **small** reaction and `rate_equation`-test each (each metabolite
-   zeroed → finite/nonzero), capping `rate_equation` compile cost by the established
-   simplest-N-by-form-count pattern. **Open:** confirm what `bibi_ping_pong` refers to — a
-   specific small fixture/reaction, or "a bi-bi reaction" (whose full init is 69, too heavy
-   to compile in full → cap by form count). Will use the named fixture if one exists.
-3. **Canonicalization** (`test/test_mechanism_enumeration.jl` / `test_types.jl`): the same
-   mechanism written in two different step orders constructs to the **identical struct**;
-   `_dedup_flat!` does not mutate its inputs (inputs equal their pre-call selves) and still
-   collapses duplicates.
-4. **Snapshot updates.** The 20 `expected_factored_num`/`expected_factored_denom` snapshots
-   and the Expr-shape / flat-string regression tests change to the reduced forms; regenerate
-   and eyeball. The textbook oracle tests must pass via the Part C bridge.
-5. **Must stay green unchanged.** `test_rate_equation_performance` (allocation-free,
-   sub-100 ns); kcat / rescaling / scale-invariance; Aqua/JET.
+- **Division-freeness (the headline test).** Inside `run_all_tests(spec)` over
+  `MECHANISM_TEST_SPECS` (already compiles `rate_equation`, true piggyback): random positive
+  params/concs; for each metabolite set just that one to 0 and assert `rate_equation` is
+  **finite and nonzero** (nonzero guards the spurious-`0.0`-from-`1/Inf` regression). Covers
+  allosteric fixtures too.
+- **Enumeration coverage**, folded into the existing enumeration loop and kept small (cap
+  `rate_equation` compile cost by the established simplest-N-by-form-count pattern): for a
+  small reaction's full `init` set, each metabolite zeroed → finite/nonzero. *(Open: confirm
+  whether `bibi_ping_pong` is a specific fixture; otherwise cap by form count.)*
+- **Atom conservation**: every Step in every `init`/`expand` mechanism satisfies the
+  signed-metabolite-unit invariant (Part 1) — and the `Step` constructor errors otherwise.
+- **Canonicalization / representation-independence**: the same mechanism written in two step
+  orders constructs to the identical struct; `_dedup_flat!` does not mutate its inputs and
+  still collapses duplicates.
+- **Must stay green unchanged**: `test_rate_equation_performance` (allocation-free,
+  sub-100 ns); kcat / rescaling / scale-invariance; Aqua/JET. The 20
+  `expected_factored_num`/`expected_factored_denom` snapshots and Expr-shape/flat-string
+  tests will change to the reduced forms (regenerate + eyeball); oracle tests pass via the
+  Part 3 bridge.
 
 ## Non-goals
 
-- **Not** abandoning Cha rapid-equilibrium lumping for full steady-state King-Altman
-  (parameter-count and compile-cost explosion). The `1/[conc]` artifact is inherent to the
-  Cha intermediate algebra here; we cancel it in the reduced form rather than avoid forming it.
-- **Not** guaranteeing finiteness at the all-metabolites-zero point.
-- **Not** changing the parameter API, the thermodynamic-constraint machinery, or the
-  fitting loop.
+- **Conformation-changing steps** in enumeration (a future PR with its own rules); the
+  `Species.conformation` field and derivation support for it stay.
+- **Biochemical refinement of the GCD form** (a future PR after we see the equations).
+- **Steady-state ping-pong at `init`** — SS steps are added in `expand_mechanisms`; `init`
+  ping-pong is rapid-equilibrium and legitimately needs the concentration-GCD.
+- No change to the parameter API, thermodynamic-constraint machinery, or fitting loop.
 
-## TDD order (for the plan)
+## Open questions / risks
 
-1. Add the zero-concentration tests (fixtures + small enumeration) — fail today.
-2. Part A: add `_reduce_conc_lowest_terms`; rewire `_raw_symbolic_rate_polys`; drop
-   `sigma_den` from `_compute_alpha`. Make the new tests pass; regenerate snapshots; confirm
-   kcat/perf/Aqua/JET green.
-3. Part B: add the canonicalization "same mechanism, two orders → identical struct" and
-   "dedup does not mutate" tests — fail today. Move canonicalization into the constructors;
-   reduce `_dedup_flat!` to `unique!`; delete `_canonicalize_mechanism!`.
-4. Part C: make the textbook oracle tests pass through the permutation bridge.
-5. Confirm on the LDH `identify_rate_equation` run that reverse-direction mechanisms now fit
-   instead of dropping out.
+- Exact `init`/`expand` mechanism counts after Part 1 — measure, then update the count
+  assertions and the CLAUDE.md "verified topology counts" note.
+- Threading the metabolite-level residual through `backtrack!`/`_release_products!` and
+  confirming derivation handles residual-bearing forms end-to-end (the `name` chokepoint
+  already renders residuals).
+- `normalize` vs concentration-GCD interplay — keep `normalize` for the textbook form and
+  verify the GCD post-pass clears ping-pong cleanly without disturbing the 55; settle the
+  exact ordering in TDD against the test suite.
+
+## TDD order
+
+1. Add the division-freeness + atom-conservation regression tests (fail today).
+2. Part 1: residual-bearing enumeration + `Step` atom-conservation invariant; recompute and
+   update mechanism counts.
+3. Part 2: free-enzyme reference + `_reduce_conc_lowest_terms`; make division tests pass;
+   confirm kcat/perf/Aqua green; regenerate snapshots.
+4. Part 3: canonicalize in constructors; `_dedup_flat!`→`unique!`; oracle permutation bridge;
+   add representation-independence tests.
+5. Confirm on the LDH `identify_rate_equation` run that reverse-direction mechanisms now fit.
