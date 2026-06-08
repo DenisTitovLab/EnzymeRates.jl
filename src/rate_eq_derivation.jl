@@ -274,7 +274,7 @@ are physical-forward (canonicalized in the Mechanism constructor).
 `step_to_K[idx]` is the parameter Symbol for the RE step at flat
 position `idx` (rep-renamed via the `name(p, m)` chokepoint).
 """
-function _compute_alpha(mech::Mechanism, enz_species, enz_set,
+function _compute_alpha(mech::Mechanism, enz_species,
                         enz_name_to_form, groups, step_to_K)
     N = length(enz_species)
     alpha = Vector{POLY}(fill(poly_one(), N))
@@ -339,14 +339,13 @@ applies any single-symbol Wegscheider ties as a post-pass.
 function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
                                   subs_species, prods_species)
     enz_species, groups, form_to_group = _compute_re_groups(mech)
-    enz_set = Set(name(es) for es in enz_species)
     enz_name_to_form = Dict{Symbol, Int}(
         name(es) => i for (i, es) in enumerate(enz_species))
     flat = _flat_steps(mech)
     step_to_K = Dict{Int, Symbol}(
         i => name(step_params[i][1], mech)
         for i in eachindex(flat) if is_equilibrium(flat[i][1]))
-    alpha = _compute_alpha(mech, enz_species, enz_set,
+    alpha = _compute_alpha(mech, enz_species,
                            enz_name_to_form, groups, step_to_K)
     G = length(groups)
 
@@ -383,8 +382,8 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
     end
 
     num, nu_ref = _compute_numerator(
-        mech, enz_set, enz_name_to_form, step_params,
-        alpha, form_to_group, groups,
+        mech, enz_name_to_form, step_params,
+        alpha, form_to_group,
         D, subs_species, prods_species)
 
     abs_nu = abs(nu_ref)
@@ -417,8 +416,8 @@ Compute the numerator polynomial by selecting an appropriate metabolite
 to track through SS steps. Returns `(num::POLY, nu_ref::Int)`.
 """
 function _compute_numerator(
-    mech::Mechanism, enz_set, enz_name_to_form, step_params,
-    alpha, form_to_group, groups,
+    mech::Mechanism, enz_name_to_form, step_params,
+    alpha, form_to_group,
     D, subs_species, prods_species,
 )
     ref_name = subs_species[1]

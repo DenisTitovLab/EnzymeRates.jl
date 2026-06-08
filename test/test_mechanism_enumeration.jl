@@ -4386,6 +4386,10 @@ end
 @testset "init division-freeness (bi_bi_pp)" begin
     # Every enumerated init mechanism's derived rate equation must stay finite
     # when any single metabolite concentration is zero (real data has zeros).
+    # `isfinite` suffices here: a residual coupling that survived the
+    # concentration-GCD would put the same 1/conc factor in BOTH numerator and
+    # denominator, so a zeroed metabolite yields Inf/Inf = NaN, which isfinite
+    # catches (no separate != 0 check needed).
     mets = [:A, :B, :P, :Q]
     for m in EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(bi_bi_pp_rxn)))
         cm = EnzymeRates.compile_mechanism(m)
