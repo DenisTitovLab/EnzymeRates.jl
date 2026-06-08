@@ -47,7 +47,7 @@ using Tables
     # ── Test 2: FittingProblem construction ───────────────────────────────────
     @testset "Construction" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_S_E = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -67,7 +67,7 @@ using Tables
     # ── Test 3: Loss function correctness ─────────────────────────────────────
     @testset "Loss at true params is zero" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_S_E = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -88,7 +88,7 @@ using Tables
     # ── Test 4: Per-group centering invariance ───────────────────────────────
     @testset "Centering invariance" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_S_E = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -119,7 +119,7 @@ using Tables
     # ── Test 5: Multi-group centering invariance ─────────────────────────────
     @testset "Multi-group centering invariance" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_S_E = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 1.0, P = 0.1),
@@ -152,7 +152,7 @@ using Tables
     # ── Absolute mode: uncentered loss (scale_k_to_kcat=nothing) ──────────────
     @testset "Absolute mode uncentered loss" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_S_E = 1.0, Keq = Keq_val, E_total = 1.0)
         concs_list = [
             (S = 1.0, P = 0.1), (S = 2.0, P = 0.1), (S = 5.0, P = 0.1),
             (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
@@ -190,26 +190,20 @@ using Tables
     # ── Test 6: Sign-mismatch penalty ─────────────────────────────────────────
     @testset "Sign mismatch penalty" begin
         Keq_val = 2.0
-        # Create data with positive rates
+        # Data labelled with positive rates, but measured where S < P/Keq, so
+        # the thermodynamically-consistent model predicts a NEGATIVE rate (the
+        # reverse direction dominates) — a sign mismatch the loss must penalize.
         data = (
             group = ["G1", "G1", "G1"],
             Rate = [1.0, 2.0, 3.0],
-            S = [1.0, 2.0, 3.0],
-            P = [0.1, 0.1, 0.1],
+            S = [0.01, 0.01, 0.01],
+            P = [1.0, 1.0, 1.0],
         )
         fp = FittingProblem(uni_uni, data; Keq=Keq_val)
 
-        # Use params that produce negative predictions (very large koff_P_ES relative to kon_P_ES)
-        pn = EnzymeRates.fitted_params(uni_uni)
-        np = length(pn)
-        x_bad = zeros(np)
-        for (i, p) in enumerate(pn)
-            if p == :koff_P_ES
-                x_bad[i] = 15.0  # exp(15) ≈ 3.3M
-            else
-                x_bad[i] = -15.0  # exp(-15) ≈ 3e-7
-            end
-        end
+        # Any valid params produce a negative prediction here (sign set by the
+        # S − P/Keq data factor, not by the fitted parameters).
+        x_bad = zeros(length(EnzymeRates.fitted_params(uni_uni)))
         l = EnzymeRates.loss!(x_bad, fp)
         @test isfinite(l)
         @test l > 0.0
@@ -277,7 +271,7 @@ using Tables
     # ── Test 7: Zero allocations ──────────────────────────────────────────────
     @testset "Zero allocations" begin
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_S_E = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
         data = make_synthetic_data(uni_uni, true_params, concs_list)
@@ -356,7 +350,7 @@ using Tables
     @testset "scale_k_to_kcat normalization" begin
         using OptimizationBBO
         Keq_val = 2.0
-        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0, Keq = Keq_val, E_total = 1.0)
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_S_E = 1.0, Keq = Keq_val, E_total = 1.0)
 
         concs_list = [
             (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),

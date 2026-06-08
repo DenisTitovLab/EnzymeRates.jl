@@ -244,7 +244,10 @@ function build_power_expr(keq_exp::Rational, factors)
     end
     terms = Any[]
     keq_exp != 0 && push!(terms, _pa(:Keq, keq_exp))
-    for (sym, exp) in factors
+    # Sort factors by name so the rendered power product is content-canonical
+    # (independent of the order factors were collected during elimination):
+    # two mechanisms with the same constraint produce the identical RHS string.
+    for (sym, exp) in sort(collect(factors); by = x -> string(first(x)))
         exp != 0 && push!(terms, _pa(sym, exp))
     end
     if isempty(terms)

@@ -1995,20 +1995,19 @@ end
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 4. tag inheritance: split's new trailing group inherits parent's
-        # tag (cat_allo_states is extended by one entry per split).
+        # 4. tag inheritance: each result group inherits the tag of the parent
+        # group whose steps contain it. A split subdivides one group into two;
+        # both halves carry that group's tag, and every other group keeps its
+        # own. Group ORDER is canonical (not source-preserved), so match each
+        # result group to its parent by step content rather than by position.
         for r in result
             @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
-            # existing tags preserved
-            for g in 1:length(am.cat_allo_states)
-                @test r.cat_allo_states[g] == am.cat_allo_states[g]
+            for (g, grp) in enumerate(r.cat_steps)
+                sset = Set(grp)
+                parent = only(ag for ag in 1:length(am.cat_steps)
+                              if sset ⊆ Set(am.cat_steps[ag]))
+                @test r.cat_allo_states[g] == am.cat_allo_states[parent]
             end
-            # parent = the only group whose size shrank
-            parent_g = only(g for g in 1:length(am.cat_steps)
-                            if length(r.cat_steps[g]) <
-                               length(am.cat_steps[g]))
-            new_g = length(r.cat_allo_states)
-            @test r.cat_allo_states[new_g] == am.cat_allo_states[parent_g]
         end
 
         # 5. preservation

@@ -924,8 +924,12 @@ function test_analytical_kcat(spec::MechanismTestSpec; seed=42)
         rng = Random.MersenneTwister(seed)
         params = random_reduced_params(m; rng)
         kcat = EnzymeRates._kcat_forward(m, params)
+        # The oracle's positional formula may reference a forward rate that is
+        # Haldane-DEPENDENT under the canonical step order (absent from the
+        # reduced params), so bridge the FULL param set (dependent values
+        # included) to positional names.
         p = merge(analytical_oracle_params(
-                      m, params;
+                      m, compute_all_params(m, params);
                       source_steps=spec.source_steps,
                       source_reg_sites=spec.source_reg_sites),
                   (Et=params.E_total,))

@@ -276,6 +276,11 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     # different fitted losses depending on which absorbed symbol got
     # the dummy slot).
     indep = Tuple(p for p in indep if get(rename, p, p) == p)
+    # Sort by name so `fitted_params` / the params destructuring is
+    # content-canonical: two mechanisms with the same independent set (e.g.
+    # graph-distinct but rate-equivalent ones) produce the identical rate
+    # equation string and therefore the same dedup key.
+    indep = Tuple(sort(collect(indep); by = string))
     return dep_exprs, indep
 end
 
