@@ -939,6 +939,32 @@ function test_kcat_rescaling(spec::MechanismTestSpec; seed=100)
 end
 
 """
+Assert `rate_equation` stays finite when any single metabolite concentration
+is zero (real kinetic data routinely has zeros). For a substrate or product,
+zeroing one of them must still leave a nonzero net rate — the opposite-
+direction metabolites keep driving flux — so a `0.0` there signals a `1/conc`
+term that blew the denominator to `Inf`. A regulator zero may legitimately
+zero the rate (essential activator), so only finiteness is required there.
+"""
+function test_zero_metabolite_finite(spec::MechanismTestSpec)
+    m = spec.mechanism
+    @testset "Zero-metabolite finiteness" begin
+        rng = Random.MersenneTwister(777 + hash(spec.name) % 1000)
+        mets = collect(metabolites(m))
+        sub_prod = Set{Symbol}(EnzymeRates.substrates(m))
+        union!(sub_prod, EnzymeRates.products(m))
+        params = random_reduced_params(m; rng)
+        for zeroed in mets
+            cvals = Tuple(n == zeroed ? 0.0 : 0.5 + rand(rng) for n in mets)
+            concs = NamedTuple{Tuple(mets)}(cvals)
+            v = rate_equation(m, concs, params)
+            @test isfinite(v)
+            zeroed in sub_prod && @test v != 0.0
+        end
+    end
+end
+
+"""
 Run all tests for a mechanism specification.
 Organizes tests by mechanism: all tests for one mechanism together.
 """
@@ -952,6 +978,7 @@ function run_all_tests(spec::MechanismTestSpec)
         test_performance(spec)
         test_rate_equation_string(spec)
         test_factored_form(spec)        # Only runs if expected strings provided
+        test_zero_metabolite_finite(spec)
         spec.run_ode_test && test_ode_steadystate(spec)
         test_analytical_kcat(spec)      # Only runs if analytical_kcat_fn provided
         test_kcat_rescaling(spec)

@@ -4382,3 +4382,19 @@ end
     @test EnzymeRates._dedup_flat!(Union{EnzymeRates.Mechanism,
         EnzymeRates.AllostericMechanism}[]) == []
 end
+
+@testset "init division-freeness (bi_bi_pp)" begin
+    # Every enumerated init mechanism's derived rate equation must stay finite
+    # when any single metabolite concentration is zero (real data has zeros).
+    mets = [:A, :B, :P, :Q]
+    for m in EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(bi_bi_pp_rxn)))
+        cm = EnzymeRates.compile_mechanism(m)
+        params = random_reduced_params(cm; rng = Random.MersenneTwister(1))
+        for zeroed in mets
+            cvals = Tuple(n == zeroed ? 0.0 : 1.0 for n in mets)
+            concs = NamedTuple{Tuple(mets)}(cvals)
+            v = rate_equation(cm, concs, params)
+            @test isfinite(v)
+        end
+    end
+end
