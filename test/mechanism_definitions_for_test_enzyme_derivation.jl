@@ -47,6 +47,55 @@ Base.@kwdef struct MechanismTestSpec
     # Expected numerator/denominator from rate_equation_string output
     expected_factored_num::Union{String,Nothing} = nothing
     expected_factored_denom::Union{String,Nothing} = nothing
+
+    # As-written (source) catalytic-step / regulatory-site order, captured
+    # before the constructor canonicalizes. Positional textbook oracles number
+    # k1,k2,… (and reg1,reg2,…) by source order; the bridge in
+    # `analytical_oracle_params` uses these to remap onto canonical stored
+    # order. Populated only for oracle-bearing fixtures via `@..._src` macros.
+    source_steps::Union{Vector{Vector{EnzymeRates.Step}},Nothing} = nothing
+    source_reg_sites::Union{Vector{EnzymeRates.RegulatorySite},Nothing} = nothing
+end
+
+# Companion macros: expand exactly like `@enzyme_mechanism` /
+# `@allosteric_mechanism` but ALSO return the as-written source-order step
+# groups (and, for allosteric, regulatory sites), captured before the
+# constructor canonicalizes. Used to populate `MechanismTestSpec.source_steps`
+# / `source_reg_sites` so positional oracles bridge to canonical stored order.
+macro enzyme_mechanism_src(block)
+    EnzymeRates._reject_allosteric_syntax!(block)
+    mech_expr, groups_expr = EnzymeRates._parse_plain_mechanism_body(block)
+    esc(:(($mech_expr, $groups_expr)))
+end
+
+macro allosteric_mechanism_src(block)
+    mech_expr, groups_expr, reg_sites_expr =
+        EnzymeRates._parse_allosteric_mechanism_body(block)
+    esc(:(($mech_expr, $groups_expr, $reg_sites_expr)))
+end
+
+# Build an AllostericEnzymeMechanism binding catalytic allosteric states to the
+# catalytic steps AS WRITTEN (source order). `cm_src` is an
+# `@enzyme_mechanism_src` result `(cm, source_groups)`. Routing through
+# AllostericMechanism canonicalizes catalytic steps and their allosteric tags
+# together, so each tag stays on its intended step (the 3-arg
+# AllostericEnzymeMechanism ctor instead indexes tags by canonical group
+# order). `cat_sites`/`reg_sites` use the same tuple shapes that ctor accepts:
+# `cat_sites = (multiplicity, cat_allo_states)`,
+# `reg_sites = ((ligands, multiplicity, ligand_states), …)`.
+function allo_from_source(cm_src, cat_sites, reg_sites)
+    cm, src = cm_src
+    mult, cat_states = cat_sites
+    sites = EnzymeRates.RegulatorySite[
+        EnzymeRates.RegulatorySite(
+            EnzymeRates.AllostericRegulator[
+                EnzymeRates.AllostericRegulator(l) for l in ligs],
+            m, collect(Symbol, states))
+        for (ligs, m, states) in reg_sites]
+    EnzymeRates.AllostericEnzymeMechanism(
+        EnzymeRates.AllostericMechanism(
+            EnzymeRates.reaction(EnzymeRates.Mechanism(cm)),
+            src, collect(Symbol, cat_states), mult, sites))
 end
 
 # ── Mechanism test specifications ───────────────────────────────────────────
@@ -56,7 +105,7 @@ function build_mechanism_test_specs()
 
     # 1. Uni-Uni (simplest): E + S ⇌ ES ⇌ E + P
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             steps: begin
@@ -67,6 +116,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Uni-Uni",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P],
             expected_n_states=2,
             expected_n_steps=2,
@@ -86,7 +136,7 @@ function build_mechanism_test_specs()
     # 2. Segel Uni Uni (replaces Three-Step Iso): E + A ⇌ EA ⇌ EP ⇌ E + P
     #    Reference: Segel, Enzyme Kinetics, Eq. IX-8
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A
             products: P
             steps: begin
@@ -110,6 +160,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Uni Uni",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :P],
             expected_n_states=3,
             expected_n_steps=3,
@@ -125,7 +176,7 @@ function build_mechanism_test_specs()
     # 3. Segel Iso Uni Uni (new): E + A ⇌ EA ⇌ EP ⇌ F + P, F ⇌ E
     #    Reference: Segel, Enzyme Kinetics, Eq. IX-45
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A
             products: P
             steps: begin
@@ -151,6 +202,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Iso Uni Uni",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :P],
             expected_n_states=4,
             expected_n_steps=4,
@@ -166,7 +218,7 @@ function build_mechanism_test_specs()
     # 4. Segel Ordered Uni Bi (replaces Seq Uni-Bi): E + A ⇌ (EA≡EPQ) ⇌ EQ + P ⇌ E + Q
     #    Reference: Segel, Enzyme Kinetics, Eq. IX-60
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A
             products: P, Q
             steps: begin
@@ -193,6 +245,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Ordered Uni Bi",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :P, :Q],
             expected_n_states=3,
             expected_n_steps=3,
@@ -209,7 +262,7 @@ function build_mechanism_test_specs()
     #    E + A ⇌ EA + B ⇌ (EAB≡EPQ) ⇌ EQ + P ⇌ E + Q
     #    Reference: Segel, Enzyme Kinetics, Eq. IX-87
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -242,6 +295,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Ordered Bi Bi",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :P, :Q],
             expected_n_states=4,
             expected_n_steps=4,
@@ -259,7 +313,7 @@ function build_mechanism_test_specs()
     #    E + A ⇌ (EA≡FP) ⇌ F + P, F + B ⇌ (FB≡EQ) ⇌ E + Q
     #    Reference: Segel, Enzyme Kinetics, Eq. IX-140
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -289,6 +343,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Ping Pong Bi Bi",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :P, :Q],
             expected_n_states=4,
             expected_n_steps=4,
@@ -308,7 +363,7 @@ function build_mechanism_test_specs()
     #     E + A ⇌ EA + B ⇌ EAB + C ⇌ (EABC≡EPQ) ⇌ EQ + P ⇌ E + Q
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-195
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B, C
             products: P, Q
             steps: begin
@@ -355,6 +410,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Ordered Ter Bi",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :C, :P, :Q],
             expected_n_states=5,
             expected_n_steps=5,
@@ -371,7 +427,7 @@ function build_mechanism_test_specs()
     #     E + A ⇌ EA + B ⇌ EAB + C ⇌ (EABC≡EPQR) ⇌ EQR + P ⇌ ER + Q ⇌ E + R
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-261
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
@@ -429,6 +485,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Ordered Ter Ter",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :C, :P, :Q, :R],
             expected_n_states=6,
             expected_n_steps=6,
@@ -447,7 +504,7 @@ function build_mechanism_test_specs()
     #     E + A ⇌ EA + B ⇌ (EAB≡FP) ⇌ F + P, F + C ⇌ (FC≡EQ) ⇌ E + Q
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-228
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B, C
             products: P, Q
             steps: begin
@@ -488,6 +545,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Bi Uni Uni Uni PP Ter Bi",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :C, :P, :Q],
             expected_n_states=5,
             expected_n_steps=5,
@@ -504,7 +562,7 @@ function build_mechanism_test_specs()
 
     # 11. Random-order Bi-Bi (branched): Two substrate binding orders converge
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -520,6 +578,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Random-order Bi-Bi",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :P, :Q],
             expected_n_states=6,
             expected_n_steps=7,
@@ -536,7 +595,7 @@ function build_mechanism_test_specs()
     #     E + A ⇌ EA + B ⇌ (EAB≡FP) ⇌ F + P, F + C ⇌ (FC≡EQR) ⇌ ER + Q ⇌ E + R
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-278
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
@@ -587,6 +646,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Bi Uni Uni Bi PP Ter Ter",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :C, :P, :Q, :R],
             expected_n_states=6,
             expected_n_steps=6,
@@ -605,7 +665,7 @@ function build_mechanism_test_specs()
     #     E + A ⇌ EA + B ⇌ (EAB≡FPQ) ⇌ FQ + P, FQ ⇌ F + Q, F + C ⇌ (FC≡ER) ⇌ E + R
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-288
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
@@ -656,6 +716,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Bi Bi Uni Uni PP Ter Ter",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :C, :P, :Q, :R],
             expected_n_states=6,
             expected_n_steps=6,
@@ -674,7 +735,7 @@ function build_mechanism_test_specs()
     #     E + A ⇌ (EA≡FP) ⇌ F + P, F + B ⇌ (FB≡GQ) ⇌ G + Q, G + C ⇌ (GC≡ER) ⇌ E + R
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-308
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
@@ -718,6 +779,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Segel Hexa Uni Ping Pong",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :C, :P, :Q, :R],
             expected_n_states=6,
             expected_n_steps=6,
@@ -737,7 +799,7 @@ function build_mechanism_test_specs()
     # 15. RE Uni-Uni: E + A ⇌_RE EA <-->_SS E + P
     #     Rapid-equilibrium substrate binding, steady-state catalysis
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A
             products: P
             steps: begin
@@ -759,6 +821,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="RE Uni-Uni",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :P],
             expected_n_states=2,
             expected_n_steps=2,
@@ -775,7 +838,7 @@ function build_mechanism_test_specs()
     # 16. RE Ordered Bi-Bi: substrate binding is RE, catalysis and product release are SS
     #     E + A ⇌_RE EA, EA + B ⇌_RE EAB, (EAB≡EPQ) <-->_SS EQ + P, EQ <-->_SS E + Q
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -805,6 +868,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="RE Ordered Bi-Bi",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :P, :Q],
             expected_n_states=4,
             expected_n_steps=4,
@@ -821,7 +885,7 @@ function build_mechanism_test_specs()
     #     E + A ⇌_RE EA, E + B ⇌_RE EB, EA + B <-->_SS EAB, EB + A <-->_SS EAB,
     #     EAB <-->_SS EPQ, EPQ <-->_SS EQ + P, EQ <-->_SS E + Q
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -837,6 +901,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="RE Random Bi-Bi",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:A, :B, :P, :Q],
             expected_n_states=6,
             expected_n_steps=7,
@@ -855,7 +920,7 @@ function build_mechanism_test_specs()
     #     Dead-end inhibitor R binds free enzyme only.
     #     No Cartesian product structure → flat sum denominator.
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: R
@@ -879,6 +944,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Competitive Inhibitor",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :R],
             expected_n_states=4,
             expected_n_steps=4,
@@ -902,7 +968,7 @@ function build_mechanism_test_specs()
     #     Forms: E, E_S, E_P, E_R, E_S_R; SS: E_S↔E_P; K5=K4
     #     Denom factors as (1+R/K4)*(1+S/K1) + P/K3
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: R
@@ -927,6 +993,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Non-competitive Inhibitor",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :R],
             expected_n_states=5,
             expected_n_steps=6,
@@ -948,7 +1015,7 @@ function build_mechanism_test_specs()
     #     Forms: E, E_S, E_P, E_S_R; SS: E_S↔E_P; No extra constraints
     #     Denom: 1 + P/K3 + S/K1*(1+R/K4)
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: R
@@ -972,6 +1039,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Uncompetitive Inhibitor",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :R],
             expected_n_states=4,
             expected_n_steps=4,
@@ -994,7 +1062,7 @@ function build_mechanism_test_specs()
     #     Num: R/K4 * (k2f*S/K1 - k2r*P/K3)
     #     Denom: 1 + R/K4*(1+S/K1+P/K3)
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: R
@@ -1018,6 +1086,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Essential Activator",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :R],
             expected_n_states=4,
             expected_n_steps=4,
@@ -1042,7 +1111,7 @@ function build_mechanism_test_specs()
     #     K8=K7, K9=K7 (R binding independent of S/P)
     #     K4=K1 and K6=K3 are implied by Wegscheider relations
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: R
@@ -1073,6 +1142,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Non-essential Activator",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :R],
             expected_n_states=6,
             expected_n_steps=9,
@@ -1101,7 +1171,7 @@ function build_mechanism_test_specs()
     #     Wegscheider gives K4=K1, K6=K3
     #     Denom: (1+S/K1+P/K3)*(1+A/K7) + I/K10
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: A, I
@@ -1134,6 +1204,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Activator + Competitive Inhibitor",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :A, :I],
             expected_n_states=7,
             expected_n_steps=10,
@@ -1175,7 +1246,7 @@ function build_mechanism_test_specs()
     #      needed — symmetric subunits are captured by the site multiplicity.
     #      Conformational equilibrium: L (= K37 in the EnzymeMechanism above).
     let
-        m = @allosteric_mechanism begin
+        m, src, src_reg = @allosteric_mechanism_src begin
             substrates: S
             products: P
             catalytic_multiplicity: 2
@@ -1200,6 +1271,8 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="MWC Dimer [AllostericEnzymeMechanism]",
             mechanism=m,
+            source_steps=src,
+            source_reg_sites=src_reg,
             metabolite_names=[:S, :P],
             expected_n_states=3,          # catalytic subunit: E_c, E_S, E_P
             expected_n_steps=3,           # 2 RE + 1 SS per subunit
@@ -1229,7 +1302,7 @@ function build_mechanism_test_specs()
     #      I binds all enzyme forms independently with the same Ki (enzyme-level).
     #      sigma = Q_cat^2 * (1 + I/K_I_reg1)  (multiplicative factor).
     let
-        m = @allosteric_mechanism begin
+        m, src, src_reg = @allosteric_mechanism_src begin
             substrates: S
             products: P
             allosteric_regulators: I::NonequalAI
@@ -1262,6 +1335,8 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]",
             mechanism=m,
+            source_steps=src,
+            source_reg_sites=src_reg,
             metabolite_names=[:S, :P, :I],
             expected_n_states=3,
             expected_n_steps=3,
@@ -1289,7 +1364,7 @@ function build_mechanism_test_specs()
     #      is automatically satisfied by the conformational assembly formula — no
     #      explicit constraint needed in the AllostericEnzymeMechanism DSL.
     let
-        m = @allosteric_mechanism begin
+        m, src, src_reg = @allosteric_mechanism_src begin
             substrates: S
             products: P
             allosteric_regulators: I::NonequalAI
@@ -1322,6 +1397,8 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="MWC Dimer + Independent Inhibitor [AllostericEnzymeMechanism]",
             mechanism=m,
+            source_steps=src,
+            source_reg_sites=src_reg,
             metabolite_names=[:S, :P, :I],
             expected_n_states=3,
             expected_n_steps=3,
@@ -1346,7 +1423,7 @@ function build_mechanism_test_specs()
     #     I1 and I2 both bind only free E (competitive with S/P and each other).
     #     Denom: 1 + S/K1 + P/K3 + I1/K4 + I2/K5
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: I1, I2
@@ -1370,6 +1447,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Two Competitive Inhibitors",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :I1, :I2],
             expected_n_states=5,
             expected_n_steps=5,
@@ -1392,7 +1470,7 @@ function build_mechanism_test_specs()
     #     I1 and I2 bind independently to all forms (E, ES, EP) at separate sites.
     #     Denom: (1+S/K1+P/K3) * (1+I1/K4) * (1+I2/K7)
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: I1, I2
@@ -1439,6 +1517,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Two Non-competitive Inhibitors",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :I1, :I2],
             expected_n_states=12,
             expected_n_steps=21,
@@ -1462,7 +1541,7 @@ function build_mechanism_test_specs()
     #     I2 binds only free E (competitive).
     #     Denom: (1+S/K1+P/K3)*(1+I1/K4) + I2/K9
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: I1, I2
@@ -1494,6 +1573,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Non-competitive + Competitive Inhibitor",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :I1, :I2],
             expected_n_states=7,
             expected_n_steps=9,
@@ -1516,7 +1596,7 @@ function build_mechanism_test_specs()
     #     I1 binds only ES (uncompetitive). I2 binds only free E (competitive).
     #     Denom: 1 + I2/K5 + P/K3 + (S/K1)*(1+I1/K4)
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: I1, I2
@@ -1541,6 +1621,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Uncompetitive + Competitive Inhibitor",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :I1, :I2],
             expected_n_states=5,
             expected_n_steps=5,
@@ -1564,7 +1645,7 @@ function build_mechanism_test_specs()
     #     Both bind independently of S/P (non-competitive).
     #     Denom: (1+S/K1+P/K3) * (1+I1/K4+I2/K9)
     let
-        m = @enzyme_mechanism begin
+        m, src = @enzyme_mechanism_src begin
             substrates: S
             products: P
             regulators: I1, I2
@@ -1603,6 +1684,7 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="Two Same-site Inhibitors",
             mechanism=m,
+            source_steps=src,
             metabolite_names=[:S, :P, :I1, :I2],
             expected_n_states=9,
             expected_n_steps=13,
@@ -1670,7 +1752,7 @@ function build_mechanism_test_specs()
     #   Reg site 2 T: K_R3_T_reg2
     #   Conformational equilibrium: L
     let
-        m = @allosteric_mechanism begin
+        m, src, src_reg = @allosteric_mechanism_src begin
             substrates: S1, S2
             products: P1, P2
             allosteric_regulators: R1::NonequalAI, R2::NonequalAI, R3::NonequalAI
@@ -1757,6 +1839,8 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites",
             mechanism=m,
+            source_steps=src,
+            source_reg_sites=src_reg,
             metabolite_names=[:S1, :S2, :P1, :P2, :R1, :R2, :R3],
             expected_n_states=9,           # catalytic subunit states
             expected_n_steps=13,           # catalytic subunit steps
@@ -1778,7 +1862,7 @@ function build_mechanism_test_specs()
     # broken in both directions and N_cat_T = 0. ATP appears as both
     # substrate and allosteric regulator (different tags per context).
     let
-        m = @allosteric_mechanism begin
+        m, src, src_reg = @allosteric_mechanism_src begin
             substrates: F6P, ATP
             products:   F16BP, ADP
             allosteric_regulators: Pi::EqualAI, ATP::OnlyI, ADP::OnlyA, Citrate::OnlyI, F26BP::NonequalAI
@@ -1835,6 +1919,8 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="PFK-1",
             mechanism=m,
+            source_steps=src,
+            source_reg_sites=src_reg,
             metabolite_names=[:F6P, :ATP, :F16BP, :ADP, :Pi, :Citrate, :F26BP],
             expected_n_states=7,
             expected_n_steps=9,
@@ -1874,7 +1960,7 @@ function build_mechanism_test_specs()
     # ATP binding (group 2) is :OnlyA — T-state can't bind ATP, so the
     # catalytic cycle is broken and N_cat_T = 0.
     let
-        m = @allosteric_mechanism begin
+        m, src, src_reg = @allosteric_mechanism_src begin
             substrates: Glucose, ATP
             products:   G6P, ADP
             allosteric_regulators: G6P::OnlyI, Pi::EqualAI
@@ -1966,6 +2052,8 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="HK",
             mechanism=m,
+            source_steps=src,
+            source_reg_sites=src_reg,
             metabolite_names=[:Glucose, :ATP, :G6P, :ADP, :Pi],
             expected_n_states=10,    # 7 catalytic-cycle + 3 G6Pi dead-end
             expected_n_steps=14,     # 3+2+1+3+2+3
@@ -1999,7 +2087,7 @@ function build_mechanism_test_specs()
     # Independent parameters (9): K1, K1_T, K3, k5f, K6, K8,
     # K_ATP_T_reg1, K_F16BP_reg2, L
     let
-        m = @allosteric_mechanism begin
+        m, src, src_reg = @allosteric_mechanism_src begin
             substrates: PEP, ADP
             products:   Pyruvate, ATP
             allosteric_regulators: ATP::OnlyI, F16BP::OnlyA
@@ -2071,6 +2159,8 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="PK",
             mechanism=m,
+            source_steps=src,
+            source_reg_sites=src_reg,
             metabolite_names=[:PEP, :ADP, :Pyruvate, :ATP, :F16BP],
             expected_n_states=7,           # E, E_PEP, E_ADP, E_PEP_ADP, E_Pyr_ATP, E_Pyr, E_ATP
             expected_n_steps=9,
@@ -2097,7 +2187,7 @@ function build_mechanism_test_specs()
     # Independent parameters (12): K1, K1_T, K3, k5f, k5f_T, K6, K6_T, K8,
     # K_R1_reg1, K_R1_T_reg1, K_R2_reg1, L
     let
-        m = @allosteric_mechanism begin
+        m, src, src_reg = @allosteric_mechanism_src begin
             substrates: S1, S2
             products:   P1, P2
             allosteric_regulators: R1::NonequalAI, R2::EqualAI
@@ -2155,6 +2245,8 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="m_all",
             mechanism=m,
+            source_steps=src,
+            source_reg_sites=src_reg,
             metabolite_names=[:S1, :S2, :P1, :P2, :R1, :R2],
             expected_n_states=7,
             expected_n_steps=9,
@@ -2180,7 +2272,7 @@ function build_mechanism_test_specs()
     # pattern (S only) IS reachable in T-state (Q_cat_T at sat S = S/K1,
     # same as Q_cat_R), so B_T ≠ 0 and the 1/(1+L) factor appears.
     let
-        m = @allosteric_mechanism begin
+        m, src, src_reg = @allosteric_mechanism_src begin
             substrates: S
             products:   P
 
@@ -2217,6 +2309,8 @@ function build_mechanism_test_specs()
         push!(specs, MechanismTestSpec(
             name="m_OnlyA_prod",
             mechanism=m,
+            source_steps=src,
+            source_reg_sites=src_reg,
             metabolite_names=[:S, :P],
             expected_n_states=3,                  # E, E_S, E_P
             expected_n_steps=3,

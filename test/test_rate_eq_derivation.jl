@@ -100,6 +100,67 @@ end
 # ── Parameter generation helpers ────────────────────────────────────────────
 
 """
+Per-step flat index for positional oracle naming. `source_steps === nothing`
+keys each canonical step on its canonical stored flat position (group-major) —
+self-consistent for the ODE/QSSA cross-checks. When the as-written source-order
+step groups are supplied, each canonical step instead keys on the SOURCE flat
+index of its structurally-matching as-written step, so positional textbook
+oracles (numbered k1,k2,… in source order) line up after the constructor
+canonicalizes step order.
+"""
+function _positional_flat_idx(mech, source_steps)
+    if source_steps === nothing
+        flat_idx = Vector{Vector{Int}}()
+        pos = 0
+        for group in EnzymeRates.steps(mech)
+            idxs = Int[]
+            for _ in group
+                pos += 1
+                push!(idxs, pos)
+            end
+            push!(flat_idx, idxs)
+        end
+        return flat_idx
+    end
+    # Match canonical steps to as-written steps by structural `Step ==`. The
+    # source groups are iso-canonicalized so their stored direction matches the
+    # mechanism's; group/within-group order is preserved, so flat position in
+    # `src_flat` IS the as-written step index the oracle numbers k1,k2,….
+    src_canon = EnzymeRates._canonicalize_iso_groups(
+        EnzymeRates.reaction(mech), source_steps)
+    src_flat = EnzymeRates.Step[s for g in src_canon for s in g]
+    used = falses(length(src_flat))
+    flat_idx = Vector{Vector{Int}}()
+    for group in EnzymeRates.steps(mech)
+        idxs = Int[]
+        for s in group
+            j = findfirst(k -> !used[k] && src_flat[k] == s, eachindex(src_flat))
+            j === nothing && error(
+                "positional_params bridge: canonical step $s has no as-written match")
+            used[j] = true
+            push!(idxs, j)
+        end
+        push!(flat_idx, idxs)
+    end
+    flat_idx
+end
+
+"""
+As-written index of canonical regulatory site `site` (at canonical position
+`pos`). `source_reg_sites === nothing` returns the canonical position; otherwise
+matches by ligand-name set so positional Kreg names (`:K_<lig>_reg{site}`) keep
+the oracle's source site numbering after canonical site reordering.
+"""
+function _positional_site_idx(site, pos, source_reg_sites)
+    source_reg_sites === nothing && return pos
+    want = Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(site))
+    j = findfirst(source_reg_sites) do ss
+        Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(ss)) == want
+    end
+    j === nothing ? pos : j
+end
+
+"""
 Re-key a structural-named parameter NamedTuple to the **per-step** positional
 names (`K1`, `k1f`, `k1r`, …) that hand-derived analytical oracles destructure.
 Walks every kinetic group; for allosteric mechanisms also emits the T-state
@@ -108,9 +169,12 @@ structural keys (`:K_A_<lig>reg`, `:K_I_<lig>reg`, `:K_<lig>reg`) are mapped
 to positional keys (`:K_<lig>_reg{site}`, `:K_<lig>_T_reg{site}`). Any
 remaining keys (L, Keq, E_total, etc.) are passed through unchanged.
 Permanent test utility — oracles are inherently positional and index by
-flat-iteration order.
+flat-iteration order. `source_steps`/`source_reg_sites` (the as-written orders)
+bridge the oracle's source numbering to canonical stored order; omitting them
+keeps the canonical numbering the ODE/QSSA cross-checks rely on.
 """
-function positional_params(m, nt::NamedTuple)
+function positional_params(m, nt::NamedTuple;
+                           source_steps=nothing, source_reg_sites=nothing)
     mech = m isa EnzymeRates.Mechanism             ? m :
            m isa EnzymeRates.AllostericMechanism   ? m :
            m isa EnzymeRates.AllostericEnzymeMechanism ?
@@ -120,19 +184,7 @@ function positional_params(m, nt::NamedTuple)
     names = Symbol[]
     vals  = Any[]
 
-    # Flat-iteration index of each step (group-major). The positional
-    # oracle parameter names key on this flat position.
-    flat_idx = Vector{Vector{Int}}()
-    let pos = 0
-        for group in EnzymeRates.steps(mech)
-            idxs = Int[]
-            for _ in group
-                pos += 1
-                push!(idxs, pos)
-            end
-            push!(flat_idx, idxs)
-        end
-    end
+    flat_idx = _positional_flat_idx(mech, source_steps)
 
     fes = EnzymeRates._free_enz_set(mech)
     for (g, group) in enumerate(EnzymeRates.steps(mech))
@@ -209,7 +261,8 @@ function positional_params(m, nt::NamedTuple)
 
     # Kreg: emit positional :K_<lig>_reg{site} / :K_<lig>_T_reg{site} keys.
     if is_allo
-        for (site_idx, site) in enumerate(EnzymeRates.regulatory_sites(mech))
+        for (pos, site) in enumerate(EnzymeRates.regulatory_sites(mech))
+            site_idx = _positional_site_idx(site, pos, source_reg_sites)
             for (lig, tag) in zip(EnzymeRates.ligands(site),
                                   EnzymeRates.allo_states(site))
                 lig_str = String(EnzymeRates.name(lig))
@@ -276,20 +329,23 @@ steps so the oracle's forward keeps its release meaning. (The QSSA / ODE
 oracles read the canonical stored direction directly and need the un-swapped
 `positional_params`.)
 """
-function analytical_oracle_params(m, nt::NamedTuple)
+function analytical_oracle_params(m, nt::NamedTuple;
+                                  source_steps=nothing, source_reg_sites=nothing)
     mech = m isa EnzymeRates.AllostericEnzymeMechanism ?
                EnzymeRates.AllostericMechanism(m) :
            m isa EnzymeRates.EnzymeMechanism ? EnzymeRates.Mechanism(m) : m
-    pos = positional_params(m, nt)
+    pos = positional_params(m, nt; source_steps=source_steps,
+                            source_reg_sites=source_reg_sites)
+    # swap_idxs must live in the SAME index space as `pos`'s positional keys —
+    # the as-written source index when bridged, canonical position otherwise.
+    flat_idx = _positional_flat_idx(mech, source_steps)
     swap_idxs = Set{Int}()
-    i = 0
-    for group in EnzymeRates.steps(mech)
-        for s in group
-            i += 1
+    for (g, group) in enumerate(EnzymeRates.steps(mech))
+        for (within, s) in enumerate(group)
             bm = EnzymeRates.bound_metabolite(s)
             if bm isa EnzymeRates.Product &&
                bm in EnzymeRates.bound(EnzymeRates.to_species(s))
-                push!(swap_idxs, i)
+                push!(swap_idxs, flat_idx[g][within])
             end
         end
     end
@@ -572,7 +628,10 @@ function ode_steady_state_flux(
 
     rhs! = build_ode_rhs(m, params, concs)
     prob = ODEProblem(rhs!, u0, (0.0, 1e6))
-    sol = solve(prob, RadauIIA9(); abstol=1e-12, reltol=1e-12)
+    # 1e-13 (vs 1e-12) keeps the stiff multi-step solves converged to the
+    # exact rate equation regardless of catalytic-step storage order; at 1e-12
+    # a ter-bi corner drifts to ~1e-6, exceeding the cross-check rtol.
+    sol = solve(prob, RadauIIA9(); abstol=1e-13, reltol=1e-13)
     u_ss = sol.u[end]
 
     name_to_idx = Dict(nm => i for (i, nm) in enumerate(enz_names))
@@ -712,7 +771,11 @@ function test_analytical_rate(spec::MechanismTestSpec; n_trials=20, seed=1001)
                 random_independent_params_concs(
                     m, met_names; rng=rng)
             Et = 0.1 + 9.9 * rand(rng)
-            p = merge(analytical_oracle_params(m, all_params), (Et=Et,))
+            p = merge(analytical_oracle_params(
+                          m, all_params;
+                          source_steps=spec.source_steps,
+                          source_reg_sites=spec.source_reg_sites),
+                      (Et=Et,))
             p_pkg = merge(new_params, (E_total=Et,))
             isapprox(
                 rate_equation(m, concs, p_pkg),
@@ -861,7 +924,11 @@ function test_analytical_kcat(spec::MechanismTestSpec; seed=42)
         rng = Random.MersenneTwister(seed)
         params = random_reduced_params(m; rng)
         kcat = EnzymeRates._kcat_forward(m, params)
-        p = merge(analytical_oracle_params(m, params), (Et=params.E_total,))
+        p = merge(analytical_oracle_params(
+                      m, params;
+                      source_steps=spec.source_steps,
+                      source_reg_sites=spec.source_reg_sites),
+                  (Et=params.E_total,))
         @test kcat ≈ spec.analytical_kcat_fn(p) rtol=1e-10
     end
 end
@@ -991,6 +1058,22 @@ end
     for spec in MECHANISM_TEST_SPECS
         run_all_tests(spec)
     end
+end
+
+# Canonicalizing catalytic-step order in the Mechanism constructor must keep
+# each catalytic kinetic group's allosteric-state tag bound to the SAME
+# physical step. HK declares ATP binding as :OnlyA; after construction the
+# unique :OnlyA group must still be the ATP-binding group (not some other
+# group that canonical reordering happened to move into ATP's source slot).
+@testset "Allosteric cat_allo_state stays bound to its step" begin
+    hk = only(s for s in MECHANISM_TEST_SPECS if s.name == "HK")
+    am = EnzymeRates.AllostericMechanism(hk.mechanism)
+    onlyA_groups = [g for g in EnzymeRates.kinetic_groups(am)
+                    if EnzymeRates.cat_allo_state(am, g) === :OnlyA]
+    @test length(onlyA_groups) == 1
+    rep = EnzymeRates.rep_step(am, only(onlyA_groups))
+    bm = EnzymeRates.bound_metabolite(rep)
+    @test bm !== nothing && EnzymeRates.name(bm) === :ATP
 end
 
 # `parameters(m, Full)` is not injective for Case-B allosteric shapes: an
@@ -1371,7 +1454,7 @@ end
     # as `K_T * met` (Ka) instead of `met / K_T` (Kd), silently producing
     # wrong rates whenever a mechanism mixes these two tags. Regression
     # for src/rate_eq_derivation.jl:1395-1396.
-    cm_mix = @enzyme_mechanism begin
+    cm_mix, src_mix = @enzyme_mechanism_src begin
         substrates: S
         products:   P
         steps: begin
@@ -1380,11 +1463,11 @@ end
             E(P) ⇌ E + P
         end
     end
-    m_mix = EnzymeRates.AllostericEnzymeMechanism(
-        cm_mix,
-        (2, (:NonequalAI, :OnlyA, :NonequalAI)),
-        (((:I,), 2, (:OnlyI,)),),
-    )
+    # Bind allosteric states to the steps AS WRITTEN: S binding :NonequalAI,
+    # catalysis :OnlyA, P binding :NonequalAI.
+    m_mix = allo_from_source(
+        (cm_mix, src_mix), (2, (:NonequalAI, :OnlyA, :NonequalAI)),
+        (((:I,), 2, (:OnlyI,)),))
     p_mix = (K_A_S_E=0.1, k_A_ES_to_EP=10.0, K_A_P_E=0.5,
              K_I_S_E=10.0, K_I_P_E=10.0,
              K_I_Ireg=1.0, L=1.0, Keq=1000.0, E_total=1.0)
@@ -1402,7 +1485,7 @@ end
     # Haldane (k2r_T) from the :EqualAI k2f because the dep expression
     # for k2r references :NonequalAI K1, so the dep-assignment builder
     # synthesizes a T-name for k2r and substitutes it into N_T.
-    cm_mixed = @enzyme_mechanism begin
+    cm_mixed, src_mixed = @enzyme_mechanism_src begin
         substrates: S
         products:   P
         steps: begin
@@ -1411,11 +1494,11 @@ end
             E + P ⇌ E(P)
         end
     end
-    m_mixed = EnzymeRates.AllostericEnzymeMechanism(
-        cm_mixed,
-        (2, (:NonequalAI, :EqualAI, :EqualAI)),
-        (((:I,), 2, (:NonequalAI,)),),
-    )
+    # S binding :NonequalAI, catalysis + P binding :EqualAI — bound to the
+    # steps AS WRITTEN.
+    m_mixed = allo_from_source(
+        (cm_mixed, src_mixed), (2, (:NonequalAI, :EqualAI, :EqualAI)),
+        (((:I,), 2, (:NonequalAI,)),))
     Keq_val = 5.0
     p_eq = (K_A_S_E=0.3, k_ES_to_EP=8.0, K_P_E=0.7,
             K_I_S_E=2.5,
@@ -1445,7 +1528,7 @@ end
     # deps. Asserts the mechanism-agnostic invariant: zero net rate at chemical
     # equilibrium. (Over-parametrized; rejection is a follow-up PR — see
     # docs/superpowers/specs/2026-05-29-nonequalai-rank-validity.md.)
-    cm_ro = @enzyme_mechanism begin
+    cm_ro, src_ro = @enzyme_mechanism_src begin
         substrates: A, B
         products:   P, Q
         steps: begin
@@ -1458,21 +1541,26 @@ end
             E(Q) <--> E + Q
         end
     end
-    m_ro = EnzymeRates.AllostericEnzymeMechanism(
-        cm_ro,
-        (2, (:EqualAI, :NonequalAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI)),
-        (((:I,), 2, (:NonequalAI,)),),
-    )
+    # B binding (step 2) :NonequalAI, rest :EqualAI — bound to the steps AS WRITTEN.
+    m_ro = allo_from_source(
+        (cm_ro, src_ro),
+        (2, (:EqualAI, :NonequalAI, :EqualAI, :EqualAI,
+             :EqualAI, :EqualAI, :EqualAI)),
+        (((:I,), 2, (:NonequalAI,)),))
     # Overall A + B ⇌ P + Q, so Keq = P·Q/(A·B).
     Keq_ro = 4.0
     A_eq, B_eq = 1.5, 2.0
     P_eq = 3.0
     Q_eq = Keq_ro * A_eq * B_eq / P_eq
-    p_ro = (kon_A_E=1.2, kon_A_B_E=0.9, koff_A_B_E=1.5, kon_B_EA=1.1, koff_B_EA=0.8,
-            kon_A_EB=1.3, koff_A_EB=0.7, k_EAB_to_EPQ=6.0, kon_P_EQ=1.4,
-            koff_P_EQ=0.6, kon_Q_E=1.0, koff_Q_E=0.9, kon_I_B_E=0.5,
-            koff_I_B_E=1.7, K_A_Ireg=1.0, K_I_Ireg=4.0, L=2.0, Keq=Keq_ro,
-            E_total=1.0)
+    # This degenerate over-parametrized Wegscheider cycle has an ambiguous
+    # independent-parameter basis (which koff is Wegscheider-dependent can
+    # shift). Generate the param values from the mechanism's actual
+    # fitted_params so the Haldane property (zero net rate at equilibrium)
+    # is verified regardless of the basis the derivation selects.
+    fp_ro = EnzymeRates.fitted_params(m_ro)
+    rng_ro = Random.MersenneTwister(123)
+    p_ro = NamedTuple{(fp_ro..., :Keq, :E_total)}(
+        (ntuple(_ -> 0.5 + rand(rng_ro), length(fp_ro))..., Keq_ro, 1.0))
     @test isapprox(
         rate_equation(m_ro, (A=A_eq, B=B_eq, P=P_eq, Q=Q_eq, I=0.5), p_ro), 0.0;
         atol=1e-9)
@@ -1499,7 +1587,7 @@ end
     # reverse is the dep whose Haldane RHS references the :NonequalAI
     # S-binding K. _flip_to_inactive is a no-op on the :EqualAI dep, so
     # _dep_inactive_name must fall back to the forced :I name (distinct).
-    cm_mixed = @enzyme_mechanism begin
+    cm_mixed, src_mixed = @enzyme_mechanism_src begin
         substrates: S
         products:   P
         steps: begin
@@ -1508,11 +1596,11 @@ end
             E + P ⇌ E(P)
         end
     end
-    m_mixed = EnzymeRates.AllostericEnzymeMechanism(
-        cm_mixed,
-        (2, (:NonequalAI, :EqualAI, :EqualAI)),
-        (((:I,), 2, (:NonequalAI,)),),
-    )
+    # S binding :NonequalAI, catalysis + P binding :EqualAI — bound to the
+    # steps AS WRITTEN.
+    m_mixed = allo_from_source(
+        (cm_mixed, src_mixed), (2, (:NonequalAI, :EqualAI, :EqualAI)),
+        (((:I,), 2, (:NonequalAI,)),))
     am = EnzymeRates.AllostericMechanism(m_mixed)
     dep_R, _ = EnzymeRates._dependent_param_exprs_allosteric(am)
     nonequalai = Set(EnzymeRates.name(p_R, am)
@@ -1547,7 +1635,7 @@ v = E_total * (2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * 
 end
 
 @testset "Parameter-struct allosteric helpers" begin
-    cm = @enzyme_mechanism begin
+    cm_src = @enzyme_mechanism_src begin
         substrates: S
         products:   P
         steps: begin
@@ -1559,8 +1647,8 @@ end
 
     @testset "_onlyA_parameters" begin
         # One :OnlyA catalytic group (RE binding) → single Kd(_, :A).
-        aem = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:OnlyA, :EqualAI, :EqualAI)),
+        aem = allo_from_source(
+            cm_src, (2, (:OnlyA, :EqualAI, :EqualAI)),
             (((:I,), 1, (:OnlyI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
@@ -1570,8 +1658,8 @@ end
         @test rendered == Set([:K_A_S_E])
 
         # SS iso group with :OnlyA → Kfor + Krev pair.
-        aem_ss = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:EqualAI, :OnlyA, :EqualAI)),
+        aem_ss = allo_from_source(
+            cm_src, (2, (:EqualAI, :OnlyA, :EqualAI)),
             (((:I,), 1, (:OnlyI,)),),
         )
         am_ss = EnzymeRates.AllostericMechanism(aem_ss)
@@ -1582,8 +1670,8 @@ end
         @test rendered_ss == Set([:k_A_ES_to_EP, :k_A_EP_to_ES])
 
         # No :OnlyA groups → empty.
-        aem_none = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:EqualAI, :EqualAI, :EqualAI)),
+        aem_none = allo_from_source(
+            cm_src, (2, (:EqualAI, :EqualAI, :EqualAI)),
             (((:I,), 1, (:OnlyI,)),),
         )
         @test isempty(EnzymeRates._onlyA_parameters(
@@ -1592,8 +1680,8 @@ end
 
     @testset "_I_rename_parameters" begin
         # Mix of :NonequalAI (rename), :EqualAI (skip), :OnlyA (skip).
-        aem = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
+        aem = allo_from_source(
+            cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
             (((:I,), 1, (:OnlyI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
@@ -1610,8 +1698,8 @@ end
         @test rendered == Dict(:K_A_S_E => :K_I_S_E, :K_A_P_E => :K_I_P_E)
 
         # Empty case: no :NonequalAI groups → empty rename.
-        aem_none = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:OnlyA, :EqualAI, :EqualAI)),
+        aem_none = allo_from_source(
+            cm_src, (2, (:OnlyA, :EqualAI, :EqualAI)),
             (((:I,), 1, (:OnlyI,)),),
         )
         @test isempty(EnzymeRates._I_rename_parameters(
@@ -1620,8 +1708,8 @@ end
 
     @testset "_all_i_state_parameters" begin
         # :NonequalAI cat group + :NonequalAI reg ligand → both contribute.
-        aem = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
+        aem = allo_from_source(
+            cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
             (((:R,), 1, (:NonequalAI,)),),
         )
         am = EnzymeRates.AllostericMechanism(aem)
@@ -1638,8 +1726,8 @@ end
         @test :K_I_Rreg in rendered
 
         # :OnlyA cat group + :OnlyA reg ligand are skipped.
-        aem_skip = EnzymeRates.AllostericEnzymeMechanism(
-            cm, (2, (:OnlyA, :NonequalAI, :EqualAI)),
+        aem_skip = allo_from_source(
+            cm_src, (2, (:OnlyA, :NonequalAI, :EqualAI)),
             (((:R,), 1, (:OnlyA,)),),
         )
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
