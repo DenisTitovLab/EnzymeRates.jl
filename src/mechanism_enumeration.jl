@@ -161,16 +161,9 @@ against atom-non-conserving covalent intermediates; it is intentionally
 NOT a `Step` / `Mechanism` constructor check, since hand-written
 `@enzyme_mechanism` fixtures use placeholder atoms and folded steps.
 """
-function _assert_atom_conserving(m::Mechanism)
+function _assert_atom_conserving(m::Union{Mechanism, AllostericMechanism})
     for group in steps(m), s in group
         _assert_step_atom_conserving(reaction(m), s)
-    end
-    nothing
-end
-
-function _assert_atom_conserving(am::AllostericMechanism)
-    for group in steps(am), s in group
-        _assert_step_atom_conserving(reaction(am), s)
     end
     nothing
 end
@@ -192,7 +185,7 @@ end
 
 """
 Release products one at a time after a multi-product isomerization, then
-continue backtracking. `has_residual` is the ping-pong control flag
+continue backtracking. `pingpong_intermediate` is the ping-pong control flag
 threaded to `backtrack!`; each released form carries the covalent
 residual derived from the consumed/released history via `_residual_for`.
 `residual_atoms` is the covalent residue remaining after the whole
@@ -207,7 +200,7 @@ function _release_products!(
     prod_subset::Vector{Symbol},
     sub_atoms::Dict{Symbol,Dict{Symbol,Int}},
     prod_atoms::Dict{Symbol,Dict{Symbol,Int}},
-    has_residual::Bool,
+    pingpong_intermediate::Bool,
     steps::Vector{Step},
 )
     # Generate all release orderings of products
@@ -222,7 +215,7 @@ function _release_products!(
                 cur, residual_atoms,
                 consumed_subs, rel_so_far,
                 Symbol[], Symbol[],
-                has_residual, false, steps
+                pingpong_intermediate, false, steps
             )
             return
         end
@@ -316,8 +309,8 @@ function _catalytic_topologies(
     # - on_enzyme_subs: substrates currently bound
     # - on_enzyme_prods: products currently bound
     #     (post-final-isomerize)
-    # - has_residual: enzyme carries leftover atoms from
-    #     ping-pong
+    # - pingpong_intermediate: enzyme is in a ping-pong
+    #     covalent-intermediate state (carries a residual)
     # - post_final: in product-release phase after final
     #     isomerization
     # - steps: path of Step accumulated so far
@@ -328,12 +321,11 @@ function _catalytic_topologies(
         released_prods::Vector{Symbol},
         on_enzyme_subs::Vector{Symbol},
         on_enzyme_prods::Vector{Symbol},
-        # has_residual: true when enzyme is in Estar
-        # conformation (ping-pong intermediate), even if
-        # no residual atoms remain (empty-residual pp).
-        # Controls both conformation tagging and branch
-        # selection.
-        has_residual::Bool,
+        # pingpong_intermediate: true when the enzyme is in a
+        # ping-pong covalent-intermediate state. Selects the
+        # bind-only / iso branches below (the covalent residue
+        # itself is stored on the form as a Residual).
+        pingpong_intermediate::Bool,
         post_final::Bool,
         steps::Vector{Step},
     )
@@ -382,7 +374,7 @@ function _catalytic_topologies(
             return
         end
 
-        if isempty(on_enzyme_subs) && !has_residual
+        if isempty(on_enzyme_subs) && !pingpong_intermediate
             # Free enzyme: bind any remaining substrate
             for s in remaining_subs
                 new_on = [on_enzyme_subs; s]
@@ -404,7 +396,7 @@ function _catalytic_topologies(
                 )
                 pop!(steps)
             end
-        elseif !isempty(on_enzyme_subs) && !has_residual
+        elseif !isempty(on_enzyme_subs) && !pingpong_intermediate
             # Substrates bound, no residual
             # Option 1: bind another substrate (C5)
             if length(on_enzyme_subs) < max_bound
@@ -528,7 +520,7 @@ function _catalytic_topologies(
                     pop!(steps)
                 end
             end
-        elseif isempty(on_enzyme_subs) && has_residual
+        elseif isempty(on_enzyme_subs) && pingpong_intermediate
             # C7: residual-bearing form with no subs — only bind, no iso
             for s in remaining_subs
                 new_on = [s]
@@ -551,7 +543,7 @@ function _catalytic_topologies(
                 )
                 pop!(steps)
             end
-        elseif !isempty(on_enzyme_subs) && has_residual
+        elseif !isempty(on_enzyme_subs) && pingpong_intermediate
             # Residual + substrates bound
             # Option 1: bind another substrate (C5)
             if length(on_enzyme_subs) < max_bound
@@ -632,9 +624,12 @@ function _catalytic_topologies(
                         )
                         pop!(steps)
                     else
-                        can_cont = has_more ||
-                            !isempty(remaining_subs)
-                        can_cont || continue
+                        # Admissible-residual rule (mirrors the no-residual
+                        # ping-pong branch): a non-final ping-pong iso must
+                        # leave a genuine covalent residue. Without one the
+                        # enzyme returns to apo E mid-cycle while substrates
+                        # remain — a disconnected half-cycle.
+                        has_more || continue
                         # C8: product-only iso form
                         iso_species = _make_species(
                             Symbol[],

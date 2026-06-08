@@ -434,23 +434,14 @@ end
             ter_ter_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
 
-        met_names = Set([:A, :B, :D, :P, :Q, :R])
         sub_names_set = Set([:A, :B, :D])
 
-        # C5: max bound metabolites = max(3,3) = 3
+        # C5: at most max(n_subs, n_prods) = 3 metabolites bound on any form.
         for spec in topos
             for s in spec
-                for sym_list in (_t_reactants(s), _t_products(s))
-                    for sym in sym_list
-                        str = replace(
-                            string(sym),
-                            "Estar" => "E")
-                        parts = split(str, "_")
-                        n_mets = count(
-                            p -> Symbol(p) ∈ met_names,
-                            parts)
-                        @test n_mets <= 3
-                    end
+                for sp in (EnzymeRates.from_species(s),
+                           EnzymeRates.to_species(s))
+                    @test length(EnzymeRates.bound(sp)) <= 3
                 end
             end
         end
@@ -472,24 +463,14 @@ end
             end
         end
 
-        # C8: iso product forms should not contain
-        # substrate names
+        # C8: an iso's product-side (destination) form is built with only
+        # products bound, never substrates.
         for spec in topos
             for s in spec
-                if length(_t_reactants(s)) == 1 &&
-                        length(_t_products(s)) == 1
-                    dst = string(_t_products(s)[1])
-                    if startswith(dst, "Estar") && dst != "Estar"
-                        # Estar-bound form: conformation "Estar" followed by
-                        # concatenated metabolite names (no separator). The
-                        # suffix is the metabolite portion of the form name.
-                        suffix = dst[6:end]
-                        # Check each metabolite name doesn't appear as a full
-                        # word in the suffix by checking against known sub names.
-                        for sub_name in sub_names_set
-                            @test !contains(suffix, string(sub_name))
-                        end
-                    end
+                EnzymeRates.is_iso(s) || continue
+                dst = _iso_orient(s)[2]
+                for b in EnzymeRates.bound(dst)
+                    @test !(EnzymeRates.name(b) ∈ sub_names_set)
                 end
             end
         end
