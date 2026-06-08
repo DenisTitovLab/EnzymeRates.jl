@@ -1029,13 +1029,10 @@ function build_mechanism_test_specs()
             analytical_rate_fn=(p, c) -> rate_essential_activator(
                 merge(p, (Et=p.Et,)), c),
             analytical_kcat_fn=p -> p.k2f,
-            # Mathematically equivalent factoring: numerator and denominator
-            # are both multiplied by R/K_Rinh_E in the alternative form. The
-            # derivation now produces this form directly.
             expected_factored_num=
-            "k_ERinhS_to_EPRinh * S / K_S_ERinh - k_EPRinh_to_ERinhS * P / K_P_ERinh",
+            "k_ERinhS_to_EPRinh * R * S / (K_Rinh_E * K_S_ERinh) - k_EPRinh_to_ERinhS * P * R / (K_P_ERinh * K_Rinh_E)",
             expected_factored_denom=
-            "K_Rinh_E / R + 1 + P / K_P_ERinh + S / K_S_ERinh",
+            "1 + R / K_Rinh_E + P * R / (K_P_ERinh * K_Rinh_E) + R * S / (K_Rinh_E * K_S_ERinh)",
         ))
     end
 

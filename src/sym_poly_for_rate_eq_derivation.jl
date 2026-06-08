@@ -42,12 +42,42 @@ function _mono_op(a::MONO, b::MONO, sign::Int)
     sort!(MONO(collect(d)); by=first)
 end
 _mono_mul(a::MONO, b::MONO) = _mono_op(a, b, 1)
-_mono_div(a::MONO, b::MONO) = _mono_op(a, b, -1)
 
-"""Divide POLY by a single-term POLY (exact division, assumes divisibility)."""
-function _poly_div_mono(p::POLY, divisor::POLY)::POLY
-    m = first(keys(divisor))
-    POLY(_mono_div(k, m) => v for (k, v) in p)
+"""
+Reduce num/den to lowest terms over concentrations only. For each concentration
+symbol, shift its exponent in every monomial of num ∪ den so the minimum exponent
+across all those monomials is 0 — clears any 1/conc coupling without ever
+touching a parameter symbol. A concentration absent from a monomial counts as
+exponent 0, so the shift is the identity unless the symbol appears in *every*
+monomial (min > 0) or with a negative exponent somewhere (min < 0). Identity for
+sequential mechanisms (constant term present); for a 1/conc-coupled mechanism it
+clears the coupling, yielding the standard division-free form.
+"""
+function _reduce_conc_lowest_terms(num::POLY, den::POLY, conc_set::Set{Symbol})
+    isempty(conc_set) && return num, den
+    mins = Dict{Symbol,Int}()
+    for p in (num, den), mono in keys(p)
+        present = Dict{Symbol,Int}(s => e for (s, e) in mono if s in conc_set)
+        for s in conc_set
+            e = get(present, s, 0)
+            mins[s] = haskey(mins, s) ? min(mins[s], e) : e
+        end
+    end
+    filter!(p -> p.second != 0, mins)
+    isempty(mins) && return num, den
+    function shift(p)
+        out = POLY()
+        for (mono, v) in p
+            md = Dict{Symbol,Int}(mono)
+            for (s, mn) in mins
+                md[s] = get(md, s, 0) - mn
+            end
+            filter!(pr -> pr.second != 0, md)
+            out[sort!(MONO(collect(md)); by=first)] = v
+        end
+        out
+    end
+    shift(num), shift(den)
 end
 
 """
