@@ -1781,68 +1781,17 @@ end
 
 # --- Dedup ---
 
-# ─── Mechanism-based dedup ─────────────────────────────────────────────
-#
-# Canonical key for a `Step`. The key tuple's sole job is to give
-# `sort!` a deterministic ordering so two physically-equivalent
-# `Mechanism`s end up with identical step storage and therefore
-# identical struct-based `hash` / `==`.
-_step_canonical_key(s::Step) =
-    (hash(from_species(s)), hash(to_species(s)),
-     hash(bound_metabolite(s)), is_equilibrium(s))
-
-"""
-Sort steps within each kinetic group by `_step_canonical_key`, then
-sort the outer group vector by the canonical key of its first step.
-Mutates the inner vectors of `m.steps` (and the outer vector itself)
-in place; only storage order changes.
-"""
-function _canonicalize_mechanism!(m::Mechanism)
-    for group in steps(m)
-        sort!(group; by = _step_canonical_key)
-    end
-    sort!(steps(m); by = group -> _step_canonical_key(first(group)))
-    m
-end
-
-function _canonicalize_mechanism!(am::AllostericMechanism)
-    # Catalytic-side step storage is canonicalized identically to
-    # `Mechanism`; the regulatory side is also canonicalized so two
-    # `AllostericMechanism`s differing only in site presentation order
-    # collapse. Ligand order within a site is fixed by the
-    # `RegulatorySite` constructor, so only the outer site vector and
-    # the parallel `cat_allo_states` vector need reordering. The inner
-    # sort must run BEFORE computing the outer permutation so the
-    # per-group "first step" key reflects the canonical inner order.
-    for group in steps(am)
-        sort!(group; by = _step_canonical_key)
-    end
-    perm = sortperm(1:length(steps(am));
-                    by = g -> _step_canonical_key(first(steps(am)[g])))
-    permute!(steps(am), perm)
-    permute!(cat_allo_states(am), perm)
-    sort!(regulatory_sites(am); by = _regulatory_site_canonical_key)
-    am
-end
-
-_regulatory_site_canonical_key(site::RegulatorySite) =
-    (Tuple(hash(l) for l in ligands(site)),
-     multiplicity(site),
-     Tuple(allo_states(site)))
-
 """
     _dedup_flat!(mechs::Vector)
 
-Canonicalize each mechanism in place via `_canonicalize_mechanism!`, then
-`unique!` so structurally-equivalent mechanisms collapse. Works for any
-element type — `Mechanism`, `AllostericMechanism`, or
-`Union{Mechanism, AllostericMechanism}` — because `_canonicalize_mechanism!`
-dispatches at runtime.
+`unique!` so structurally-equivalent mechanisms collapse. Mechanisms are
+canonical at construction (steps/groups/regulatory sites are sorted in the
+`Mechanism` / `AllostericMechanism` constructors), so two physically-
+equivalent mechanisms already share identical struct-based `hash` / `==`;
+no per-mechanism canonicalization is needed here. Works for any element
+type — `Mechanism`, `AllostericMechanism`, or their `Union`.
 """
 function _dedup_flat!(mechs::Vector)
-    for m in mechs
-        _canonicalize_mechanism!(m)
-    end
     unique!(mechs)
     mechs
 end

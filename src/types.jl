@@ -439,6 +439,32 @@ function _canonicalize_iso_groups(reaction::EnzymeReaction,
       for s in group] for group in groups]
 end
 
+# Canonical key for a `Step`. Gives `sort!` a deterministic ordering so two
+# physically-equivalent `Mechanism`s end up with identical step storage and
+# therefore identical struct-based `hash` / `==`.
+_step_canonical_key(s::Step) =
+    (hash(from_species(s)), hash(to_species(s)),
+     hash(bound_metabolite(s)), is_equilibrium(s))
+
+# Canonical key for a `RegulatorySite`. Orders the outer site vector so two
+# `AllostericMechanism`s differing only in site presentation order collapse.
+_regulatory_site_canonical_key(site::RegulatorySite) =
+    (Tuple(hash(l) for l in ligands(site)),
+     multiplicity(site),
+     Tuple(allo_states(site)))
+
+# Sort steps within each group by `_step_canonical_key`, then return the
+# group order (a permutation of 1:length) that sorts the outer vector by the
+# canonical key of each group's first step. The inner sort must run BEFORE
+# computing the outer permutation so each group's "first step" key reflects
+# the canonical inner order. Operates on fresh vectors (callers pass copies).
+function _canonical_group_order!(groups::Vector{Vector{Step}})
+    for group in groups
+        sort!(group; by = _step_canonical_key)
+    end
+    sortperm(groups; by = group -> _step_canonical_key(first(group)))
+end
+
 # Mechanism: groups elementary steps by kinetic group (outer
 # vector). All steps within a group share kinetic parameters. The
 # constructor canonicalizes iso-step direction and stores the steps;
@@ -450,6 +476,7 @@ struct Mechanism
     function Mechanism(reaction::EnzymeReaction,
                        steps::Vector{Vector{Step}})
         steps = _canonicalize_iso_groups(reaction, steps)
+        permute!(steps, _canonical_group_order!(steps))
         new(reaction, steps)
     end
 end
@@ -506,6 +533,15 @@ struct AllostericMechanism
                       "catalytic groups (active-state-active convention)")
         end
         cat_steps = _canonicalize_iso_groups(reaction, cat_steps)
+        # cat_steps and cat_allo_states are parallel — permute both with the
+        # same group order. regulatory_sites canonicalizes independently. All
+        # operate on fresh vectors so the caller's inputs are not mutated
+        # (cat_steps is fresh from _canonicalize_iso_groups; copy the rest).
+        perm = _canonical_group_order!(cat_steps)
+        permute!(cat_steps, perm)
+        cat_allo_states = permute!(copy(cat_allo_states), perm)
+        regulatory_sites =
+            sort(regulatory_sites; by = _regulatory_site_canonical_key)
         # Detect Kreg name collision: a ligand in two distinct regulatory
         # sites would produce identical rendered Kreg names (no site
         # discriminator). Not enumerated; constructor rejects it.

@@ -200,6 +200,47 @@ function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
     results
 end
 
+@testset "Canonical-by-construction representation independence" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C], A[N]
+        products:   P[CN]
+    end
+    # One kinetic group holding two binding steps + a second group with an
+    # iso step. Built two ways: reversed outer group order AND swapped inner
+    # step order. Canonical-by-construction must collapse them to one struct.
+    bind_S = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
+        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+        EnzymeRates.Substrate(:S), true)
+    bind_A = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
+        EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
+        EnzymeRates.Substrate(:A), true)
+    iso = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+        EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
+        nothing, false)
+
+    m_orderA = EnzymeRates.Mechanism(rxn, [[bind_S, bind_A], [iso]])
+    m_orderB = EnzymeRates.Mechanism(rxn, [[iso], [bind_A, bind_S]])
+    @test m_orderA == m_orderB
+    @test hash(m_orderA) == hash(m_orderB)
+
+    # _dedup_flat! collapses duplicates and does NOT mutate its inputs.
+    # m_split groups the two binding steps separately, so it is structurally
+    # distinct and survives alongside the collapsed orderA/orderB.
+    m_split = EnzymeRates.Mechanism(rxn, [[bind_S], [bind_A], [iso]])
+    mechs = [m_orderA, m_split, m_orderB]
+    snapshot = deepcopy(mechs)
+    result = EnzymeRates._dedup_flat!(mechs)
+    @test length(result) == 2
+    @test all(r -> any(==(r), snapshot), result)
+    @test m_orderA == snapshot[1]
+    @test m_split  == snapshot[2]
+    @test m_orderB == snapshot[3]
+    @test EnzymeRates.steps(m_orderA) == EnzymeRates.steps(snapshot[1])
+end
+
 @testset "_assert_mechanism_invariants on uni-uni init" begin
     rxn = @enzyme_reaction begin
         substrates: S[C]
@@ -1108,8 +1149,14 @@ end
             E(S) <--> E(P)           :: NonequalAI
         end
     end
-    @test EnzymeRates.cat_allo_state(m_compiled, 1) == :EqualAI
-    @test EnzymeRates.cat_allo_state(m_compiled, 2) == :OnlyA
+    # Group order is canonical; allosteric tags stay bound to their steps.
+    am = EnzymeRates.AllostericMechanism(m_compiled)
+    state_of(pred) = EnzymeRates.cat_allo_state(am,
+        only(g for g in EnzymeRates.kinetic_groups(am)
+             if pred(EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g)))))
+    @test state_of(bm -> bm isa EnzymeRates.Substrate) == :EqualAI
+    @test state_of(bm -> bm isa EnzymeRates.Product) == :OnlyA
+    @test state_of(bm -> bm === nothing) == :NonequalAI
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2076,21 +2123,18 @@ end
             @test r.regulatory_sites == am.regulatory_sites
         end
 
-        # 3. tag inheritance: new trailing group tag matches the
-        # parent group's tag. The parent is identifiable as the
-        # only group whose size dropped.
+        # 3. tag inheritance: splitting a group preserves every step's tag,
+        # so the split-off step inherits its parent group's tag. Verified
+        # per-step because both mechanisms store groups in canonical order.
+        am_tag_of = Dict{EnzymeRates.Step, Symbol}()
+        for (g, grp) in enumerate(am.cat_steps), s in grp
+            am_tag_of[s] = am.cat_allo_states[g]
+        end
         for r in result
             @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
-            # existing tags preserved
-            for g in 1:length(am.cat_allo_states)
-                @test r.cat_allo_states[g] == am.cat_allo_states[g]
+            for (g, grp) in enumerate(r.cat_steps), s in grp
+                @test r.cat_allo_states[g] == am_tag_of[s]
             end
-            # parent = the only group whose size shrank
-            parent_g = only(g for g in 1:length(am.cat_steps)
-                            if length(r.cat_steps[g]) <
-                               length(am.cat_steps[g]))
-            new_g = length(r.cat_allo_states)
-            @test r.cat_allo_states[new_g] == am.cat_allo_states[parent_g]
         end
     end
 end
@@ -3686,26 +3730,22 @@ end
 # 5. Composition (_dedup_flat!, expand_mechanisms)
 # ═══════════════════════════════════════════════════════════════════════
 
-# ─── _canonicalize! ────────────────────────────────────────────────────
+# ─── canonical by construction ─────────────────────────────────────────
 
-@testset "Mechanism — _canonicalize_mechanism!" begin
-    # Test 1: outer kinetic-group order does not matter post-canonicalization.
-    # Build two Mechanisms from the same init seed but with the outer step
-    # groups in opposite orders; after _canonicalize_mechanism! both must be
-    # struct-equal (the basis for _dedup_flat!'s `unique!(mechs)`).
+@testset "Mechanism — canonical by construction" begin
+    # Test 1: outer kinetic-group order does not matter. Building from the
+    # same steps with the outer groups in reversed order yields a
+    # struct-equal Mechanism (the basis for _dedup_flat!'s `unique!(mechs)`).
     m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
     EnzymeRates._assert_mechanism_invariants(m_seed)
     m_perm = EnzymeRates.Mechanism(
         EnzymeRates.reaction(m_seed), reverse(m_seed.steps))
-    EnzymeRates._canonicalize_mechanism!(m_seed)
-    EnzymeRates._canonicalize_mechanism!(m_perm)
     @test m_seed == m_perm
 
     # Test 2: AllostericMechanism — site permutation with DISTINCT
-    # multiplicities. The canonicalizer must permute cat_allo_states
-    # alongside cat_steps (catalytic side) and produce the same
-    # regulatory_sites ordering (regulatory side) regardless of input
-    # site order.
+    # multiplicities. The constructor must permute cat_allo_states alongside
+    # cat_steps (catalytic side) and produce the same regulatory_sites
+    # ordering (regulatory side) regardless of input site order.
     base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
     cat_states = [:EqualAI for _ in base.steps]
     site_a = EnzymeRates.RegulatorySite(
@@ -3720,18 +3760,15 @@ end
         [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
     EnzymeRates._assert_mechanism_invariants(am_ab)
     EnzymeRates._assert_mechanism_invariants(am_ba)
-    EnzymeRates._canonicalize_mechanism!(am_ab)
-    EnzymeRates._canonicalize_mechanism!(am_ba)
     @test am_ab == am_ba
 end
 
 # ─── _dedup_key ────────────────────────────────────────────────────────
 
-# Mechanism dedup keys: struct equality after canonicalization.
-# `_dedup_flat!` canonicalizes in place via
-# `_canonicalize_mechanism!` and then calls `unique!(mechs)`, which relies
-# on `Base.==` / `Base.hash` on the struct itself. This testset locks in
-# the struct-equality contract that powers that dedup.
+# Mechanism dedup keys: struct equality. Mechanisms are canonical at
+# construction, so `_dedup_flat!` is just `unique!(mechs)`, which relies on
+# `Base.==` / `Base.hash` on the struct itself. This testset locks in the
+# struct-equality contract that powers that dedup.
 @testset "Mechanism — dedup key via struct equality" begin
     # Same content → equal (and equal hashes).
     m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
@@ -3739,8 +3776,6 @@ end
     m_copy = EnzymeRates.Mechanism(
         EnzymeRates.reaction(m_seed),
         Vector{EnzymeRates.Step}[copy(g) for g in m_seed.steps])
-    EnzymeRates._canonicalize_mechanism!(m_seed)
-    EnzymeRates._canonicalize_mechanism!(m_copy)
     @test m_seed == m_copy
     @test hash(m_seed) == hash(m_copy)
 
@@ -3760,8 +3795,6 @@ end
             [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])])
     EnzymeRates._assert_mechanism_invariants(am_m2)
     EnzymeRates._assert_mechanism_invariants(am_m4)
-    EnzymeRates._canonicalize_mechanism!(am_m2)
-    EnzymeRates._canonicalize_mechanism!(am_m4)
     @test am_m2 != am_m4
 end
 
@@ -3846,10 +3879,10 @@ end
     @testset "Mechanism — permuted groups collapse via canonicalization" begin
         # Two Mechanisms with the same physics but with their outer
         # kinetic-group order arbitrarily rearranged should collapse to one
-        # after _dedup_flat!. This exercises _canonicalize_mechanism!'s
-        # outer-group sort path with a non-trivial permutation, confirming
-        # that any permutation of the outer Vector canonicalizes back to the
-        # same struct.
+        # after _dedup_flat!. This exercises the constructor's outer-group
+        # sort with a non-trivial permutation, confirming that any
+        # permutation of the outer Vector canonicalizes back to the same
+        # struct.
         m_seed = first(EnzymeRates.init_mechanisms(bi_bi_rxn))
         EnzymeRates._assert_mechanism_invariants(m_seed)
         n_groups = length(m_seed.steps)

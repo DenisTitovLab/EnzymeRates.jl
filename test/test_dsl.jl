@@ -17,7 +17,9 @@
         end
         mech = EnzymeRates.Mechanism(m)
         @test length(mech.steps) == 3
-        es_step = first(mech.steps)[1]                  # E + S ⇌ E(S)
+        # Steps are canonicalized; pick each by content, not position.
+        es_step = only(s for g in mech.steps for s in g           # E + S ⇌ E(S)
+            if EnzymeRates.bound_metabolite(s) == EnzymeRates.Substrate(:S))
         @test EnzymeRates.conformation(es_step.to_species) == :E
         @test EnzymeRates.bound(es_step.to_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
@@ -29,7 +31,8 @@
         # canonicalizes iso direction physical-forward (substrate-bound
         # `from`, product-bound `to`) via `_canonical_iso_direction`, so
         # `E_S` is `from_species` and `E_P` is `to_species`.
-        iso_step = mech.steps[2][1]
+        iso_step = only(s for g in mech.steps for s in g
+                        if EnzymeRates.bound_metabolite(s) === nothing)
         @test EnzymeRates.bound(iso_step.from_species) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:S)]
         @test EnzymeRates.bound(iso_step.to_species) ==
@@ -51,13 +54,20 @@
             end
         end
         mech_multi = EnzymeRates.Mechanism(m_multi)
-        eab = mech_multi.steps[2][1].to_species         # E(A, B)
+        eab = only(EnzymeRates.to_species(s)            # E(A, B)
+            for g in mech_multi.steps for s in g
+            if Set(EnzymeRates.name(b)
+                   for b in EnzymeRates.bound(EnzymeRates.to_species(s))) ==
+               Set([:A, :B]))
         @test EnzymeRates.conformation(eab) == :E
         @test EnzymeRates.bound(eab) ==
               EnzymeRates.Metabolite[EnzymeRates.Substrate(:A),
                                      EnzymeRates.Substrate(:B)]
         # Dead-end inhibitor lookup picks the correct Metabolite subtype.
-        ei = mech_multi.steps[5][1].to_species          # E(I)
+        ei = only(EnzymeRates.to_species(s)             # E(I)
+            for g in mech_multi.steps for s in g
+            if EnzymeRates.bound_metabolite(s) ==
+               EnzymeRates.CompetitiveInhibitor(:I))
         @test EnzymeRates.bound(ei) ==
               EnzymeRates.Metabolite[
                   EnzymeRates.CompetitiveInhibitor(:I)]
@@ -112,8 +122,10 @@
         @test EnzymeRates.substrates(m) == (:S,)
         @test EnzymeRates.products(m) == (:P,)
         @test EnzymeRates.regulators(m) == (:I,)
-        @test EnzymeRates.kinetic_group(m, 1) == EnzymeRates.kinetic_group(m, 2)
-        @test EnzymeRates.kinetic_group(m, 3) != EnzymeRates.kinetic_group(m, 4)
+        # One shared 2-step kinetic group (the S-binding pair) + 3 singletons →
+        # 5 steps, 4 groups (order-independent: canonicalization reorders steps).
+        @test length(unique(EnzymeRates.kinetic_group(m, i)
+                            for i in 1:EnzymeRates.n_steps(m))) == 4
 
         # Function-call species notation: E(S) ≡ species with conformation :E
         # and bound metabolite :S. Synthesized form name is :ES
@@ -506,8 +518,10 @@
             end
         end
         @test m isa EnzymeMechanism
-        @test EnzymeRates.kinetic_group(m, 1) == EnzymeRates.kinetic_group(m, 2)
-        @test EnzymeRates.kinetic_group(m, 3) != EnzymeRates.kinetic_group(m, 1)
+        # One shared 2-step kinetic group (the A-binding pair) + 5 singletons →
+        # 7 steps, 6 groups (order-independent: canonicalization reorders steps).
+        @test length(unique(EnzymeRates.kinetic_group(m, i)
+                            for i in 1:EnzymeRates.n_steps(m))) == 6
     end
 
     @testset "::Inh role tag: product that also competitively inhibits" begin
@@ -546,7 +560,9 @@
             end
         end
         rxns = EnzymeRates.reactions(m)
-        mid = rxns[2]            # (lhs, rhs, is_eq, g) for E(A) <--> E(Q) + P
+        # The P-releasing step (canonical order, so found by content):
+        # E(A) <--> E(Q) + P.
+        mid = only(r for r in rxns if :P in r[1] || :P in r[2])
         @test mid[1] == (:EA,)  # lhs: only the enzyme form
         @test :P in mid[2]       # P released (rhs)
         @test :P ∉ mid[1]        # P not consumed (lhs)

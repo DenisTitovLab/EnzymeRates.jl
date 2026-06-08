@@ -495,7 +495,7 @@ Conformation labels cannot shadow declared metabolite names.
 """
 macro enzyme_mechanism(block)
     _reject_allosteric_syntax!(block)
-    return esc(_parse_plain_mechanism_body(block))
+    return esc(_parse_plain_mechanism_body(block)[1])
 end
 
 function _reject_allosteric_syntax!(block)
@@ -589,13 +589,23 @@ function _parse_plain_mechanism_body(block)
         _parse_steps_block_with_groups(steps_block, declared_mets)
 
     _reject_opaque_bound_forms(side_terms_per_step, "@enzyme_mechanism")
-    return _build_mechanism_expr(subs_list, prods_list, regs_list,
-                                 role_of, side_terms_per_step)
+    reaction_expr, groups_expr = _build_mechanism_expr(
+        subs_list, prods_list, regs_list, role_of, side_terms_per_step)
+    mech_expr = :(EnzymeRates.EnzymeMechanism(
+        EnzymeRates.Mechanism($reaction_expr, $groups_expr)))
+    # Second value is the SOURCE-order step groups (before the constructor
+    # canonicalizes), for positional-oracle tests to bridge as-written step
+    # indices to canonical stored order.
+    (mech_expr, groups_expr)
 end
 
 """
-Build the `EnzymeMechanism(Mechanism(reaction, grouped_steps))` `Expr`
-from the structural per-step records collected during parsing.
+Build the `(reaction_expr, grouped_steps_expr)` pair from the structural
+per-step records collected during parsing. `@enzyme_mechanism` wraps these
+into `EnzymeMechanism(Mechanism(reaction, grouped_steps))`;
+`@allosteric_mechanism` feeds the SAME source-order groups into
+`AllostericMechanism`, which canonicalizes catalytic steps and allosteric
+states together.
 
 Atoms for each declared metabolite are balanced placeholders: each
 substrate carries `n_prods` carbons and each product carries `n_subs`
@@ -660,8 +670,7 @@ function _build_mechanism_expr(subs_list, prods_list, regs_list,
     end
     groups_expr = :(Vector{EnzymeRates.Step}[$(group_exprs...)])
 
-    :(EnzymeRates.EnzymeMechanism(
-        EnzymeRates.Mechanism($reaction_expr, $groups_expr)))
+    (reaction_expr, groups_expr)
 end
 
 """
@@ -959,7 +968,7 @@ Build an `AllostericEnzymeMechanism` (MWC, two conformations).
   site at the catalytic multiplicity.
 """
 macro allosteric_mechanism(block)
-    return esc(_parse_allosteric_mechanism_body(block))
+    return esc(_parse_allosteric_mechanism_body(block)[1])
 end
 
 const _ALLOSTERIC_REG_STATES = Set([:OnlyA, :OnlyI, :EqualAI, :NonequalAI])
@@ -1039,9 +1048,9 @@ function _match_regulatory_site_line(arg)
 end
 
 """
-Build the `RegSites` tuple expression. Each entry is
-`(ligand_tuple, multiplicity, reg_allo_states)` where `reg_allo_states`
-is a dense `Tuple{Symbol...}` parallel to `ligands`. Ligands not assigned
+Build the `Vector{RegulatorySite}` expression for the `AllostericMechanism`
+constructor. Each site wraps its ligands (as `AllostericRegulator`s) with a
+dense `Vector{Symbol}` of per-ligand allosteric states. Ligands not assigned
 to any explicit `regulatory_site(...):` block become their own single-ligand
 site at multiplicity `cat_n`.
 """
@@ -1071,20 +1080,20 @@ function _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
 
     entries = Expr[]
     for (mult, ligs) in sites
-        ligs_tuple = Expr(:tuple, QuoteNode.(ligs)...)
-        states_tuple = Expr(:tuple, (QuoteNode(tag_of[l]) for l in ligs)...)
-        entry = Expr(:tuple, ligs_tuple, mult, states_tuple)
-        push!(entries, entry)
+        ligs_vec = :(EnzymeRates.AllostericRegulator[
+            $((:(EnzymeRates.AllostericRegulator($(QuoteNode(l)))) for l in ligs)...)])
+        states_vec = :(Symbol[$((QuoteNode(tag_of[l]) for l in ligs)...)])
+        push!(entries, :(EnzymeRates.RegulatorySite($ligs_vec, $mult, $states_vec)))
     end
-    Expr(:tuple, entries...)
+    :(EnzymeRates.RegulatorySite[$(entries...)])
 end
 
 """
-Build the `CatSites` expression `(multiplicity, cat_allo_states)` for
-the macro. `cat_allo_states` is a dense `Tuple{Symbol...}` with one
-entry per kinetic group in source order.
+Build the `cat_allo_states` `Vector{Symbol}` expression for the
+`AllostericMechanism` constructor: a dense vector with one entry per
+catalytic kinetic group in source order (default `:NonequalAI`).
 """
-function _build_cat_sites_expr(cat_n, group_tags)
+function _build_cat_allo_states_expr(group_tags)
     for (_, tag) in group_tags
         tag in _ALLOSTERIC_REG_STATES ||
             error("@allosteric_mechanism: catalytic step tag :$tag not in " *
@@ -1092,9 +1101,7 @@ function _build_cat_sites_expr(cat_n, group_tags)
     end
     tag_of = Dict{Int,Symbol}(group_tags)
     n_groups = isempty(group_tags) ? 0 : maximum(g for (g, _) in group_tags)
-    states_tuple = Expr(:tuple,
-        (QuoteNode(get(tag_of, g, :NonequalAI)) for g in 1:n_groups)...)
-    Expr(:tuple, cat_n, states_tuple)
+    :(Symbol[$((QuoteNode(get(tag_of, g, :NonequalAI)) for g in 1:n_groups)...)])
 end
 
 function _parse_allosteric_mechanism_body(block)
@@ -1167,11 +1174,21 @@ function _parse_allosteric_mechanism_body(block)
     )
 
     _reject_opaque_bound_forms(side_terms_per_step, "@allosteric_mechanism")
-    cm_expr = _build_mechanism_expr(subs_list, prods_list, cat_inhibitors,
-                                    role_of, side_terms_per_step)
+    reaction_expr, groups_expr = _build_mechanism_expr(
+        subs_list, prods_list, cat_inhibitors, role_of, side_terms_per_step)
 
-    cat_sites_expr = _build_cat_sites_expr(cat_n, group_tags)
+    cat_allo_states_expr = _build_cat_allo_states_expr(group_tags)
     reg_sites_expr = _build_reg_sites_expr(allo_regs, reg_site_specs, cat_n)
 
-    :(AllostericEnzymeMechanism($cm_expr, $cat_sites_expr, $reg_sites_expr))
+    # Route through AllostericMechanism so catalytic steps and their
+    # allosteric-state tags canonicalize together; the lift back to
+    # AllostericEnzymeMechanism keeps that alignment in the singleton.
+    mech_expr = :(EnzymeRates.AllostericEnzymeMechanism(
+        EnzymeRates.AllostericMechanism(
+            $reaction_expr, $groups_expr, $cat_allo_states_expr,
+            $cat_n, $reg_sites_expr)))
+    # Extra values are SOURCE-order catalytic step groups and regulatory
+    # sites (before the constructor canonicalizes), for positional-oracle
+    # tests to bridge as-written indices to canonical stored order.
+    (mech_expr, groups_expr, reg_sites_expr)
 end
