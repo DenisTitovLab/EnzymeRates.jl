@@ -1350,6 +1350,11 @@ function _dependent_param_exprs(
     end
 
     merged_dep = merge(dep_A, dep_I)
+    # No final name-sort here (unlike the non-allosteric path): each component
+    # is already content-canonical — `indep_A` inherits the sorted catalytic
+    # `_dependent_param_exprs`, and the reg params follow the canonical
+    # `regulatory_sites` order — so rate-equivalent allosteric mechanisms still
+    # render identical strings.
     merged_indep = (indep_A..., indep_I_list...,
                     reg_params_a..., reg_params_i_indep..., :L)
     return merged_dep, merged_indep

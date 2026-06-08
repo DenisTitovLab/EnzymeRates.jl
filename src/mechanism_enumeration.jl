@@ -1150,9 +1150,8 @@ compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
 
 Partition a flat `Vector{Step}` into kinetic groups by the parallel
 `groups` id vector, ordered by first occurrence of each group id in the
-flat step list (source order), so the resulting group order — and hence
-the group-major rep-index parameter naming — matches the source order
-of the catalytic topology, dead-end, and mirror steps.
+flat step list. (The `Mechanism` constructor then canonicalizes group and
+step order, so this ordering is not load-bearing downstream.)
 """
 function _to_group_list(steps::Vector{Step}, groups::Vector{Int})
     order = Int[]
