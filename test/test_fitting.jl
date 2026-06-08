@@ -188,28 +188,6 @@ using Tables
     end
 
     # ── Test 6: Sign-mismatch penalty ─────────────────────────────────────────
-    @testset "Sign mismatch penalty" begin
-        Keq_val = 2.0
-        # Data labelled with positive rates, but measured where S < P/Keq, so
-        # the thermodynamically-consistent model predicts a NEGATIVE rate (the
-        # reverse direction dominates) — a sign mismatch the loss must penalize.
-        data = (
-            group = ["G1", "G1", "G1"],
-            Rate = [1.0, 2.0, 3.0],
-            S = [0.01, 0.01, 0.01],
-            P = [1.0, 1.0, 1.0],
-        )
-        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
-
-        # Any valid params produce a negative prediction here (sign set by the
-        # S − P/Keq data factor, not by the fitted parameters).
-        x_bad = zeros(length(EnzymeRates.fitted_params(uni_uni)))
-        l = EnzymeRates.loss!(x_bad, fp)
-        @test isfinite(l)
-        @test l > 0.0
-    end
-
-    # ── Test 6b: All-mismatch group has positive loss ─────────────────────────
     # Regression test for all-mismatch groups: when every prediction in a
     # group is a sign mismatch, centering must not zero every deviation.
     # The loss must be nonzero to distinguish a bad mechanism from a perfect one.

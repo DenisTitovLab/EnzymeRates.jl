@@ -1,5 +1,5 @@
 # ABOUTME: Mechanism enumeration by incremental parameter count growth
-# ABOUTME: Provides init_mechanisms, expand_mechanisms, _dedup_flat! building blocks
+# ABOUTME: Provides init_mechanisms, expand_mechanisms building blocks
 
 
 # ─── Catalytic topologies ─────────────────────────────────────────────
@@ -1779,21 +1779,6 @@ function _add_expansions_mech!(
 end
 
 # --- Dedup ---
-
-"""
-    _dedup_flat!(mechs::Vector)
-
-`unique!` so structurally-equivalent mechanisms collapse. Mechanisms are
-canonical at construction (steps/groups/regulatory sites are sorted in the
-`Mechanism` / `AllostericMechanism` constructors), so two physically-
-equivalent mechanisms already share identical struct-based `hash` / `==`;
-no per-mechanism canonicalization is needed here. Works for any element
-type — `Mechanism`, `AllostericMechanism`, or their `Union`.
-"""
-function _dedup_flat!(mechs::Vector)
-    unique!(mechs)
-    mechs
-end
 
 
 """

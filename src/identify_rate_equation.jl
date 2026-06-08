@@ -409,7 +409,7 @@ mechanisms that threw (StackOverflow/OOM at compile, an unsupported-kwarg error,
 etc.) — captured WITH the exception text, never silently swallowed. A mechanism
 whose actual fitted-param count exceeds `max_param_count` is dropped BEFORE
 fitting (a cap skip, not a failure). No dedup here — `mechs` is already
-structurally deduped by the caller (`_dedup_flat!`).
+structurally deduped by the caller (`unique!`).
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
@@ -502,7 +502,7 @@ function _beam_search(
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
     _progress(save_dir, show_progress, "Enumerating initial mechanisms…")
-    base = _dedup_flat!(collect(init_mechanisms(prob.reaction)))
+    base = unique!(collect(init_mechanisms(prob.reaction)))
     _progress(save_dir, show_progress,
         "Fitting $(length(base)) initial mechanisms…")
     base_entries, base_failures = _process_batch(base, prob;
@@ -550,7 +550,7 @@ function _beam_search(
             # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
             parents = Union{Mechanism, AllostericMechanism}[
                 e.mech for e in to_expand]
-            children = _dedup_flat!(
+            children = unique!(
                 expand_mechanisms(parents, prob.reaction))
             child_entries, child_failures = _process_batch(children, prob;
                 pmap_function, optimizer, max_param_count, kwargs...)
