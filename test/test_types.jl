@@ -233,10 +233,9 @@
         @test contains(s, "E + A <--> EA")
         @test contains(s, "E + Q <--> EQ")
 
-        # Catalytic 3-cycle. The constructor canonicalizes step order, which
-        # opens the cycle at the free enzyme on the product side, so the
-        # compact chain-walk falls back to multi-line. The rendered reactions
-        # (canonical binding direction, any order) must contain all three steps.
+        # Catalytic 3-cycle. The compact chain-walk follows the enzyme-form
+        # graph (not stored order) and starts at the free enzyme, binding the
+        # substrate first, so it renders as a single substrate→product chain.
         m_re = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -246,10 +245,8 @@
                 E(P) ⇌ E + P
             end
         end
-        s_re = sprint(show, m_re)
-        @test contains(s_re, "E + S ⇌ ES")
-        @test contains(s_re, "ES <--> EP")
-        @test contains(s_re, "E + P ⇌ EP")
+        @test sprint(show, m_re) ==
+            "EnzymeMechanism: E + S ⇌ ES <--> EP ⇌ E + P"
 
         # Mechanism with regulators: appended at end.
         m_reg = @enzyme_mechanism begin

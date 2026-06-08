@@ -982,36 +982,66 @@ function Base.show(io::IO, m::EnzymeMechanism)
     enz_set = Set(enzyme_forms(m))
     _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
 
-    # Walk the steps in source order. Each step shares one enzyme form with
-    # the previous step's "outgoing" form; the other side is the new
-    # outgoing form. If any step has no shared form, the mechanism is
-    # branched and we fall back to multi-line rendering. RE binding
-    # canonicalization may put a step's "outgoing" side on the LHS — we
-    # detect that case and emit the LHS instead of the RHS.
+    # Render the steps as a single chain by walking the enzyme-form graph
+    # (stored order is canonical, not chain order). Each step is an edge
+    # between its two enzyme forms; start at a path endpoint (a degree-1
+    # form) if any, else the free enzyme `:E`, else any form, then follow
+    # edges and emit each step's far side. If the walk can't consume every
+    # step the mechanism is branched → multi-line rendering below.
+    _enz_forms(lhs, rhs) = (first(s for s in lhs if s in enz_set),
+                            first(s for s in rhs if s in enz_set))
+    degree = Dict{Symbol,Int}()
+    for (lhs, rhs, _, _) in Rxns
+        a, b = _enz_forms(lhs, rhs)
+        degree[a] = get(degree, a, 0) + 1
+        degree[b] = get(degree, b, 0) + 1
+    end
+    start = nothing
+    for (lhs, rhs, _, _) in Rxns
+        a, b = _enz_forms(lhs, rhs)
+        degree[a] == 1 && (start = a; break)
+        degree[b] == 1 && (start = b; break)
+    end
+    start === nothing && :E in enz_set && (start = :E)
+    start === nothing && !isempty(Rxns) &&
+        (start = _enz_forms(Rxns[1][1], Rxns[1][2])[1])
+
+    # A single chain exists iff every enzyme form has degree ≤ 2 (a simple
+    # path or cycle); a higher-degree form is a branch point → multi-line.
     chain_segments = String[]
     chain_arrows = String[]
-    is_linear = !isempty(Rxns)
-    current = nothing
-    for (i, (lhs, rhs, is_eq, _)) in enumerate(Rxns)
-        e_l = first(s for s in lhs if s in enz_set)
-        e_r = first(s for s in rhs if s in enz_set)
-        if i == 1
-            push!(chain_segments, join(lhs, " + "))
+    is_linear = !isempty(Rxns) && all(<=(2), values(degree))
+    if is_linear
+        subs = Set{Symbol}(substrates(m))
+        remaining = collect(Rxns)
+        current = start
+        while !isempty(remaining)
+            idx = nothing
+            if isempty(chain_segments)
+                # First step: prefer to leave `current` by binding a substrate,
+                # so a reversible cycle renders substrate→product.
+                idx = findfirst(remaining) do rxn
+                    fs = _enz_forms(rxn[1], rxn[2])
+                    current in fs &&
+                        any(x -> x in subs, current == fs[1] ? rxn[1] : rxn[2])
+                end
+            end
+            if idx === nothing
+                idx = findfirst(
+                    rxn -> current in _enz_forms(rxn[1], rxn[2]), remaining)
+            end
+            idx === nothing && (is_linear = false; break)
+            lhs, rhs, is_eq, _ = remaining[idx]
+            deleteat!(remaining, idx)
+            a, b = _enz_forms(lhs, rhs)
+            in_side  = current == a ? join(lhs, " + ") : join(rhs, " + ")
+            out_side = current == a ? join(rhs, " + ") : join(lhs, " + ")
+            isempty(chain_segments) && push!(chain_segments, in_side)
             push!(chain_arrows, _arrow(is_eq))
-            push!(chain_segments, join(rhs, " + "))
-            current = e_r
-        elseif current == e_l
-            push!(chain_arrows, _arrow(is_eq))
-            push!(chain_segments, join(rhs, " + "))
-            current = e_r
-        elseif current == e_r
-            push!(chain_arrows, _arrow(is_eq))
-            push!(chain_segments, join(lhs, " + "))
-            current = e_l
-        else
-            is_linear = false
-            break
+            push!(chain_segments, out_side)
+            current = current == a ? b : a
         end
+        !isempty(remaining) && (is_linear = false)
     end
 
     if is_linear
