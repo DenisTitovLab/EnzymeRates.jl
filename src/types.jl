@@ -440,16 +440,23 @@ function _canonicalize_iso_groups(reaction::EnzymeReaction,
 end
 
 # Canonical key for a `Step`. Gives `sort!` a deterministic ordering so two
-# physically-equivalent `Mechanism`s end up with identical step storage and
-# therefore identical struct-based `hash` / `==`.
+# physically-equivalent `Mechanism`s end up with identical step storage.
+# Keyed on the species' rendered NAMES (not `hash`): `Substrate`/`Product`
+# use Julia's default struct hash, which mixes in the type's `objectid` and so
+# is NOT stable across precompile sessions — a hash key would make the canonical
+# order (and thus `fitted_params` / the reduced rate equation / dedup keys)
+# non-deterministic. Names are derived purely from metabolite names, so the
+# ordering is fixed and reproducible.
 _step_canonical_key(s::Step) =
-    (hash(from_species(s)), hash(to_species(s)),
-     hash(bound_metabolite(s)), is_equilibrium(s))
+    (String(name(from_species(s))), String(name(to_species(s))),
+     bound_metabolite(s) === nothing ? "" : String(name(bound_metabolite(s))),
+     is_equilibrium(s))
 
 # Canonical key for a `RegulatorySite`. Orders the outer site vector so two
 # `AllostericMechanism`s differing only in site presentation order collapse.
+# Keyed on ligand names (stable) rather than `hash` for the same reason.
 _regulatory_site_canonical_key(site::RegulatorySite) =
-    (Tuple(hash(l) for l in ligands(site)),
+    (Tuple(String(name(l)) for l in ligands(site)),
      multiplicity(site),
      Tuple(allo_states(site)))
 
