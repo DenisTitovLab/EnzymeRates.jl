@@ -64,10 +64,11 @@ the workflow-level `on:` block (push `main` + tags, `pull_request`,
 
 **Auth:** pass both `DOCUMENTER_KEY` and `GITHUB_TOKEN` as env on the
 docdeploy step. Documenter prefers the SSH key and falls back to the token.
-`DOCUMENTER_KEY` is already referenced in CompatHelper.yml and TagBot.yml, so
-the keypair almost certainly exists — but verify the first merge actually
-publishes to gh-pages, since the secret's validity could not be confirmed
-without reading it.
+`DOCUMENTER_KEY` is referenced in CompatHelper.yml and TagBot.yml but is **not
+yet created** as a repo secret (confirmed with Denis). Denis will generate and
+install it (via `DocumenterTools.genkeys`) in Phase 0; until then `GITHUB_TOKEN`
+is the working fallback. Passing both is safe before the key exists — an unset
+secret resolves to empty and Documenter falls back to the token.
 
 **Build vs deploy:** `makedocs` builds on every trigger and turns a PR check
 red on a broken page or failing doctest. `deploydocs` self-gates: it pushes to
@@ -84,9 +85,9 @@ Deriving rate equations
 ├─ Rate equations from textbooks   — rate_equation_string tutorial
 ├─ Rapid equilibrium vs steady state
 ├─ The Cha / King–Altman algorithm — division-free, per-segment derivation
+├─ Thermodynamic constraints       — Haldane / Wegscheider, parameter reduction
 ├─ Ping-pong mechanisms            — residual-on-:E representation
 ├─ Dead-end inhibitor binding      — the all-RE assumption
-├─ Thermodynamic constraints       — Haldane / Wegscheider, parameter reduction
 └─ MWC allostery                   — RE ligand binding & A/I transitions, 4-tag taxonomy
 
 Fitting rate equations
@@ -360,8 +361,10 @@ Each phase ends green (tests pass, docs build passes).
 
 - **Phase 0 — Infra scaffold.** `docs/` subproject; `make.jl`; `refs.bib`
   (DOIs gathered via a verification workflow); `docs` job in `CI.yml`; a
-  minimal Home plus empty section stubs. **Exit:** docs build green locally and
-  in CI; first gh-pages deploy eyeballed.
+  minimal Home plus empty section stubs. Denis generates and installs the
+  `DOCUMENTER_KEY` repo secret (`DocumenterTools.genkeys`) before the first
+  deploy. **Exit:** docs build green locally and in CI; first gh-pages deploy
+  eyeballed.
 - **Phase 1 — Docstring gaps + API page.** Write the `EnzymeReaction`
   docstring; fix the `metabolites` detachment; expand the terse deterministic-
   function docstrings with their `jldoctest` blocks; build the consolidated API
