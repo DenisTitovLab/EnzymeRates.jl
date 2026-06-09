@@ -439,6 +439,39 @@ function _canonicalize_iso_groups(reaction::EnzymeReaction,
       for s in group] for group in groups]
 end
 
+# Canonical key for a `Step`. Gives `sort!` a deterministic ordering so two
+# physically-equivalent `Mechanism`s end up with identical step storage.
+# Keyed on the species' rendered NAMES (not `hash`): `Substrate`/`Product`
+# use Julia's default struct hash, which mixes in the type's `objectid` and so
+# is NOT stable across precompile sessions — a hash key would make the canonical
+# order (and thus `fitted_params` / the reduced rate equation / dedup keys)
+# non-deterministic. Names are derived purely from metabolite names, so the
+# ordering is fixed and reproducible.
+_step_canonical_key(s::Step) =
+    (String(name(from_species(s))), String(name(to_species(s))),
+     bound_metabolite(s) === nothing ? "" : String(name(bound_metabolite(s))),
+     is_equilibrium(s))
+
+# Canonical key for a `RegulatorySite`. Orders the outer site vector so two
+# `AllostericMechanism`s differing only in site presentation order collapse.
+# Keyed on ligand names (stable) rather than `hash` for the same reason.
+_regulatory_site_canonical_key(site::RegulatorySite) =
+    (Tuple(String(name(l)) for l in ligands(site)),
+     multiplicity(site),
+     Tuple(allo_states(site)))
+
+# Sort steps within each group by `_step_canonical_key`, then return the
+# group order (a permutation of 1:length) that sorts the outer vector by the
+# canonical key of each group's first step. The inner sort must run BEFORE
+# computing the outer permutation so each group's "first step" key reflects
+# the canonical inner order. Operates on fresh vectors (callers pass copies).
+function _canonical_group_order!(groups::Vector{Vector{Step}})
+    for group in groups
+        sort!(group; by = _step_canonical_key)
+    end
+    sortperm(groups; by = group -> _step_canonical_key(first(group)))
+end
+
 # Mechanism: groups elementary steps by kinetic group (outer
 # vector). All steps within a group share kinetic parameters. The
 # constructor canonicalizes iso-step direction and stores the steps;
@@ -450,6 +483,7 @@ struct Mechanism
     function Mechanism(reaction::EnzymeReaction,
                        steps::Vector{Vector{Step}})
         steps = _canonicalize_iso_groups(reaction, steps)
+        permute!(steps, _canonical_group_order!(steps))
         new(reaction, steps)
     end
 end
@@ -506,6 +540,15 @@ struct AllostericMechanism
                       "catalytic groups (active-state-active convention)")
         end
         cat_steps = _canonicalize_iso_groups(reaction, cat_steps)
+        # cat_steps and cat_allo_states are parallel — permute both with the
+        # same group order. regulatory_sites canonicalizes independently. All
+        # operate on fresh vectors so the caller's inputs are not mutated
+        # (cat_steps is fresh from _canonicalize_iso_groups; copy the rest).
+        perm = _canonical_group_order!(cat_steps)
+        permute!(cat_steps, perm)
+        cat_allo_states = permute!(copy(cat_allo_states), perm)
+        regulatory_sites =
+            sort(regulatory_sites; by = _regulatory_site_canonical_key)
         # Detect Kreg name collision: a ligand in two distinct regulatory
         # sites would produce identical rendered Kreg names (no site
         # discriminator). Not enumerated; constructor rejects it.
@@ -946,36 +989,66 @@ function Base.show(io::IO, m::EnzymeMechanism)
     enz_set = Set(enzyme_forms(m))
     _arrow(is_eq) = is_eq ? " ⇌ " : " <--> "
 
-    # Walk the steps in source order. Each step shares one enzyme form with
-    # the previous step's "outgoing" form; the other side is the new
-    # outgoing form. If any step has no shared form, the mechanism is
-    # branched and we fall back to multi-line rendering. RE binding
-    # canonicalization may put a step's "outgoing" side on the LHS — we
-    # detect that case and emit the LHS instead of the RHS.
+    # Render the steps as a single chain by walking the enzyme-form graph
+    # (stored order is canonical, not chain order). Each step is an edge
+    # between its two enzyme forms; start at a path endpoint (a degree-1
+    # form) if any, else the free enzyme `:E`, else any form, then follow
+    # edges and emit each step's far side. If the walk can't consume every
+    # step the mechanism is branched → multi-line rendering below.
+    _enz_forms(lhs, rhs) = (first(s for s in lhs if s in enz_set),
+                            first(s for s in rhs if s in enz_set))
+    degree = Dict{Symbol,Int}()
+    for (lhs, rhs, _, _) in Rxns
+        a, b = _enz_forms(lhs, rhs)
+        degree[a] = get(degree, a, 0) + 1
+        degree[b] = get(degree, b, 0) + 1
+    end
+    start = nothing
+    for (lhs, rhs, _, _) in Rxns
+        a, b = _enz_forms(lhs, rhs)
+        degree[a] == 1 && (start = a; break)
+        degree[b] == 1 && (start = b; break)
+    end
+    start === nothing && :E in enz_set && (start = :E)
+    start === nothing && !isempty(Rxns) &&
+        (start = _enz_forms(Rxns[1][1], Rxns[1][2])[1])
+
+    # A single chain exists iff every enzyme form has degree ≤ 2 (a simple
+    # path or cycle); a higher-degree form is a branch point → multi-line.
     chain_segments = String[]
     chain_arrows = String[]
-    is_linear = !isempty(Rxns)
-    current = nothing
-    for (i, (lhs, rhs, is_eq, _)) in enumerate(Rxns)
-        e_l = first(s for s in lhs if s in enz_set)
-        e_r = first(s for s in rhs if s in enz_set)
-        if i == 1
-            push!(chain_segments, join(lhs, " + "))
+    is_linear = !isempty(Rxns) && all(<=(2), values(degree))
+    if is_linear
+        subs = Set{Symbol}(substrates(m))
+        remaining = collect(Rxns)
+        current = start
+        while !isempty(remaining)
+            idx = nothing
+            if isempty(chain_segments)
+                # First step: prefer to leave `current` by binding a substrate,
+                # so a reversible cycle renders substrate→product.
+                idx = findfirst(remaining) do rxn
+                    fs = _enz_forms(rxn[1], rxn[2])
+                    current in fs &&
+                        any(x -> x in subs, current == fs[1] ? rxn[1] : rxn[2])
+                end
+            end
+            if idx === nothing
+                idx = findfirst(
+                    rxn -> current in _enz_forms(rxn[1], rxn[2]), remaining)
+            end
+            idx === nothing && (is_linear = false; break)
+            lhs, rhs, is_eq, _ = remaining[idx]
+            deleteat!(remaining, idx)
+            a, b = _enz_forms(lhs, rhs)
+            in_side  = current == a ? join(lhs, " + ") : join(rhs, " + ")
+            out_side = current == a ? join(rhs, " + ") : join(lhs, " + ")
+            isempty(chain_segments) && push!(chain_segments, in_side)
             push!(chain_arrows, _arrow(is_eq))
-            push!(chain_segments, join(rhs, " + "))
-            current = e_r
-        elseif current == e_l
-            push!(chain_arrows, _arrow(is_eq))
-            push!(chain_segments, join(rhs, " + "))
-            current = e_r
-        elseif current == e_r
-            push!(chain_arrows, _arrow(is_eq))
-            push!(chain_segments, join(lhs, " + "))
-            current = e_l
-        else
-            is_linear = false
-            break
+            push!(chain_segments, out_side)
+            current = current == a ? b : a
         end
+        !isempty(remaining) && (is_linear = false)
     end
 
     if is_linear

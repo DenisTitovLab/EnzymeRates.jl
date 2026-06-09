@@ -203,8 +203,9 @@ Returns a NamedTuple `(params, loss, retcode)` where:
 - `loss`: the best loss value achieved
 - `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
   `:Success` indicates the optimizer converged on its own criteria; any other
-  value (e.g. `:MaxTime` — hit the time budget; `:Failure`) means the fit should
-  be treated as un-converged (check `retcode !== :Success`).
+  value (e.g. `:MaxTime` — hit the time budget; `:Failure`; `:Default` — ran but
+  did not flag success) means the fit should be treated as un-converged (check
+  `retcode !== :Success`).
 """
 function fit_rate_equation(fp::FittingProblem, optimizer;
     n_restarts::Int=20,
@@ -221,7 +222,8 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
     # Sentinel for "no restart produced a finite objective" (loss stays Inf, so
     # the fit is dropped by the beam's non-finite filter). Deliberately NOT a
     # real SciMLBase ReturnCode name — `Symbol(ReturnCode.Default) === :Default`,
-    # so `:Default` here would be indistinguishable from a genuine solver return.
+    # so `:NoFiniteLoss` stays distinct from a genuine `:Default` solver return
+    # (which only fires when a restart achieves a finite objective).
     best_retcode = :NoFiniteLoss
 
     for _ in 1:n_restarts

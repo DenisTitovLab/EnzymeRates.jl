@@ -240,6 +240,33 @@ function _enumerate_species(m::Mechanism)
 end
 
 """
+Concentration symbols (substrates ∪ products ∪ regulators) that may appear in
+the rate-equation polynomials — the same set `_poly_to_expr` treats as
+concentrations and the only symbols `_reduce_conc_lowest_terms` is allowed to
+shift. Parameter symbols are never in this set, so the concentration-GCD can
+never drop a fitted parameter.
+"""
+function _concentration_symbols(mech::Mechanism)
+    rxn = reaction(mech)
+    cs = Set{Symbol}(name(s) for s in substrates(rxn))
+    for p in products(rxn);    push!(cs, name(p)); end
+    for rm in regulators(rxn); push!(cs, name(regulator(rm))); end
+    cs
+end
+
+"""
+Free enzyme of a rapid-equilibrium segment: the form with the fewest bound
+metabolites, tie-broken toward no covalent residual, then a deterministic
+name. Referencing each segment's alphas to this form makes the derivation
+independent of the step order and yields the readable `1 + [S]/K + …` form.
+"""
+function _segment_root(group, enz_species)
+    argmin(i -> (length(bound(enz_species[i])),
+                 has_residual(enz_species[i]) ? 1 : 0,
+                 string(name(enz_species[i]))), group)
+end
+
+"""
 Compute alpha factors (relative concentrations within RE groups) as POLY
 values. Iterates `mech.steps` directly. Binding steps' direction comes
 from the canonical Step form (metabolite-on-`to_species`); iso steps
@@ -247,17 +274,17 @@ are physical-forward (canonicalized in the Mechanism constructor).
 `step_to_K[idx]` is the parameter Symbol for the RE step at flat
 position `idx` (rep-renamed via the `name(p, m)` chokepoint).
 """
-function _compute_alpha(mech::Mechanism, enz_species, enz_set,
+function _compute_alpha(mech::Mechanism, enz_species,
                         enz_name_to_form, groups, step_to_K)
     N = length(enz_species)
-    alpha_num = Vector{POLY}(fill(poly_one(), N))
-    alpha_den = Vector{POLY}(fill(poly_one(), N))
+    alpha = Vector{POLY}(fill(poly_one(), N))
     flat = _flat_steps(mech)
 
     for group in groups
         length(group) == 1 && continue
-        visited = Set{Int}([group[1]])
-        queue = [group[1]]
+        root = _segment_root(group, enz_species)
+        visited = Set{Int}([root])
+        queue = [root]
         while !isempty(queue)
             cur = popfirst!(queue)
             for (idx, (s, _)) in enumerate(flat)
@@ -265,60 +292,39 @@ function _compute_alpha(mech::Mechanism, enz_species, enz_set,
                 e_l, e_r, m_l, m_r = _step_sides(s)
                 i_f = enz_name_to_form[e_l]
                 j_f = enz_name_to_form[e_r]
-                K = poly_sym(step_to_K[idx])
+                Ksym = step_to_K[idx]
+                Kp = poly_sym(Ksym)
+                Kinv = POLY(_mono(Ksym => -1) => 1)
                 is_iso = isempty(m_l) && isempty(m_r)
                 if i_f == cur && j_f ∉ visited
                     if is_iso
-                        alpha_num[j_f] = poly_mul(alpha_num[cur], K)
-                        alpha_den[j_f] = alpha_den[cur]
+                        alpha[j_f] = poly_mul(alpha[cur], Kp)
                     else
-                        alpha_num[j_f] = poly_mul(alpha_num[cur], poly_sym(m_l[1]))
-                        alpha_den[j_f] = poly_mul(alpha_den[cur], K)
+                        f = poly_mul(poly_sym(m_l[1]), Kinv)
                         isempty(m_r) ||
-                            (alpha_den[j_f] = poly_mul(alpha_den[j_f], poly_sym(m_r[1])))
+                            (f = poly_mul(f, POLY(_mono(m_r[1] => -1) => 1)))
+                        alpha[j_f] = poly_mul(alpha[cur], f)
                     end
                     push!(visited, j_f); push!(queue, j_f)
                 elseif j_f == cur && i_f ∉ visited
                     if is_iso
-                        alpha_num[i_f] = alpha_num[cur]
-                        alpha_den[i_f] = poly_mul(alpha_den[cur], K)
+                        alpha[i_f] = poly_mul(alpha[cur], Kinv)
                     else
-                        alpha_num[i_f] = poly_mul(alpha_num[cur], K)
-                        alpha_den[i_f] = poly_mul(alpha_den[cur], poly_sym(m_l[1]))
+                        f = poly_mul(Kp, POLY(_mono(m_l[1] => -1) => 1))
+                        alpha[i_f] = poly_mul(alpha[cur], f)
                     end
                     push!(visited, i_f); push!(queue, i_f)
                 end
             end
         end
     end
-
-    # Compute sigma per group: sum of alpha_i with cleared denominators
-    sigma_num = Vector{POLY}(undef, length(groups))
-    sigma_den = Vector{POLY}(undef, length(groups))
-    for (g, group) in enumerate(groups)
-        if length(group) == 1
-            sigma_num[g] = sigma_den[g] = poly_one()
-        else
-            sigma_den[g] = reduce(poly_mul, alpha_den[i] for i in group)
-            sigma_num[g] = reduce(poly_add,
-                poly_mul(alpha_num[i],
-                    reduce(poly_mul, (alpha_den[j] for j in group if j != i);
-                        init=poly_one()))
-                for i in group)
-        end
-    end
-    alpha_num, alpha_den, sigma_num, sigma_den
+    alpha
 end
 
-"""Build rate poly for one SS step direction, clearing alpha denominators within group."""
-function _ss_contrib(k_poly, mets, i_form, alpha_num, alpha_den, group)
+"""Build rate poly for one SS step direction in Laurent (fractional) form."""
+function _ss_contrib(k_poly, mets, i_form, alpha)
     r = isempty(mets) ? k_poly : poly_mul(k_poly, reduce(poly_mul, poly_sym.(mets)))
-    r = poly_mul(r, alpha_num[i_form])
-    for k in group
-        k == i_form && continue
-        r = poly_mul(r, alpha_den[k])
-    end
-    r
+    poly_mul(r, alpha[i_form])
 end
 
 # ─── Raw Rate Equation Derivation (Unified Cha / King-Altman) ───
@@ -333,16 +339,14 @@ applies any single-symbol Wegscheider ties as a post-pass.
 function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
                                   subs_species, prods_species)
     enz_species, groups, form_to_group = _compute_re_groups(mech)
-    enz_set = Set(name(es) for es in enz_species)
     enz_name_to_form = Dict{Symbol, Int}(
         name(es) => i for (i, es) in enumerate(enz_species))
     flat = _flat_steps(mech)
     step_to_K = Dict{Int, Symbol}(
         i => name(step_params[i][1], mech)
         for i in eachindex(flat) if is_equilibrium(flat[i][1]))
-    alpha_num, alpha_den, sigma_num, sigma_den =
-        _compute_alpha(mech, enz_species, enz_set,
-                       enz_name_to_form, groups, step_to_K)
+    alpha = _compute_alpha(mech, enz_species,
+                           enz_name_to_form, groups, step_to_K)
     G = length(groups)
 
     R = [poly_zero() for _ in 1:G, _ in 1:G]
@@ -355,9 +359,9 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
         kf_poly = poly_sym(name(step_params[idx][1], mech))
         kr_poly = poly_sym(name(step_params[idx][2], mech))
         R[g1, g2] = poly_add(R[g1, g2],
-            _ss_contrib(kf_poly, m_lhs, i_form, alpha_num, alpha_den, groups[g1]))
+            _ss_contrib(kf_poly, m_lhs, i_form, alpha))
         R[g2, g1] = poly_add(R[g2, g1],
-            _ss_contrib(kr_poly, m_rhs, j_form, alpha_num, alpha_den, groups[g2]))
+            _ss_contrib(kr_poly, m_rhs, j_form, alpha))
     end
 
     L = [i == j ? poly_zero() : poly_neg(R[i,j])
@@ -370,23 +374,17 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
         isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
-    normalize = G == 1 && sigma_den[1] != poly_one()
     den = poly_zero()
     for g in 1:G
-        raw_sigma = if normalize
-            reduce(poly_add, (_poly_div_mono(alpha_num[i], alpha_den[i]) for i in groups[g]))
-        else
-            sigma_num[g]
-        end
-        csigma = _rename_symbols(raw_sigma, rename_map)
+        sigma = reduce(poly_add, (alpha[i] for i in groups[g]); init=poly_zero())
+        csigma = _rename_symbols(sigma, rename_map)
         den = poly_add(den, poly_mul(csigma, D[g]))
     end
 
     num, nu_ref = _compute_numerator(
-        mech, enz_set, enz_name_to_form, step_params,
-        alpha_num, alpha_den, form_to_group, groups,
+        mech, enz_name_to_form, step_params,
+        alpha, form_to_group,
         D, subs_species, prods_species)
-    normalize && (num = _poly_div_mono(num, sigma_den[1]))
 
     abs_nu = abs(nu_ref)
     if abs_nu != 1
@@ -395,6 +393,8 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
 
     num = _rename_symbols(num, rename_map)
     den = _rename_symbols(den, rename_map)
+    conc_set = _concentration_symbols(mech)
+    num, den = _reduce_conc_lowest_terms(num, den, conc_set)
     num, den
 end
 
@@ -416,8 +416,8 @@ Compute the numerator polynomial by selecting an appropriate metabolite
 to track through SS steps. Returns `(num::POLY, nu_ref::Int)`.
 """
 function _compute_numerator(
-    mech::Mechanism, enz_set, enz_name_to_form, step_params,
-    alpha_num, alpha_den, form_to_group, groups,
+    mech::Mechanism, enz_name_to_form, step_params,
+    alpha, form_to_group,
     D, subs_species, prods_species,
 )
     ref_name = subs_species[1]
@@ -462,12 +462,10 @@ function _compute_numerator(
         j_form = enz_name_to_form[e_rhs]
         g1, g2 = form_to_group[i_form], form_to_group[j_form]
         rf = _ss_contrib(
-            poly_sym(name(step_params[idx][1], mech)), m_lhs, i_form,
-            alpha_num, alpha_den, groups[g1],
+            poly_sym(name(step_params[idx][1], mech)), m_lhs, i_form, alpha,
         )
         rr = _ss_contrib(
-            poly_sym(name(step_params[idx][2], mech)), m_rhs, j_form,
-            alpha_num, alpha_den, groups[g2],
+            poly_sym(name(step_params[idx][2], mech)), m_rhs, j_form, alpha,
         )
         flux = poly_sub(poly_mul(rf, D[g1]), poly_mul(rr, D[g2]))
         if met_name === nothing
@@ -1352,6 +1350,11 @@ function _dependent_param_exprs(
     end
 
     merged_dep = merge(dep_A, dep_I)
+    # No final name-sort here (unlike the non-allosteric path): each component
+    # is already content-canonical — `indep_A` inherits the sorted catalytic
+    # `_dependent_param_exprs`, and the reg params follow the canonical
+    # `regulatory_sites` order — so rate-equivalent allosteric mechanisms still
+    # render identical strings.
     merged_indep = (indep_A..., indep_I_list...,
                     reg_params_a..., reg_params_i_indep..., :L)
     return merged_dep, merged_indep

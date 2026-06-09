@@ -335,7 +335,7 @@ using OptimizationPyCMA
             "equation_search_iteration_" => "", ".csv" => "")))
         @test nums == collect(1:length(nums))      # sequential, no gaps
         init_df = CSV.read(joinpath(save_dir, "initial_mechanisms.csv"), DataFrame)
-        @test nrow(init_df) == length(EnzymeRates._dedup_flat!(
+        @test nrow(init_df) == length(unique!(
             collect(EnzymeRates.init_mechanisms(prob.reaction))))
         @test "eq_hash" in names(init_df)
         @test !("fit_inherited_from_estimate" in names(init_df))
@@ -858,20 +858,17 @@ end
     ]
 
     # Expected partition sizes per reaction = the number of DISTINCT rate
-    # equations the init-level enumeration produces. After the catalytic-
-    # topology connectivity fix, the 69 bi_bi init mechanisms are all
-    # structurally distinct AND each yields a distinct `rate_equation_string`,
-    # so the comment-stripped string key produces exactly 69 classes
-    # (distinct keys == distinct rate-equation strings == 69, i.e. zero over-
-    # and zero under-collapse). The fix removed the dangling-form / binding-
-    # order rapid-equilibrium twins that previously collapsed the (buggy) 77
-    # mechanisms to 21 classes: clean topologies have distinct enzyme-form
-    # sets, hence distinct rate equations.
+    # equations the init-level enumeration produces. The 55 bi_bi init
+    # mechanisms are all structurally distinct AND each yields a distinct
+    # `rate_equation_string`, so the comment-stripped string key produces
+    # exactly 55 classes (zero over- and zero under-collapse): clean
+    # topologies have distinct enzyme-form sets, hence distinct rate
+    # equations.
     # If these counts change in a future commit, the dedup key's
     # equivalence classes (or the enumeration) have shifted — investigate.
     expected_n_classes = Dict(
         "uni_uni" => 1,
-        "bi_bi"   => 69,
+        "bi_bi"   => 55,
     )
 
     for (label, reaction) in test_reactions
@@ -969,7 +966,7 @@ end
         group = [1, 1, 2, 2],
     )
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-    ms = EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(rxn)))
+    ms = unique!(collect(EnzymeRates.init_mechanisms(rxn)))
 
     entries, failures = EnzymeRates._process_batch(ms, prob;
         pmap_function=map, optimizer=PyCMAOpt(),

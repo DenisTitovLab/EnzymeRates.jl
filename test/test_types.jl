@@ -16,19 +16,18 @@
         @test EnzymeRates.products(m) == (:P,)
         @test EnzymeRates.regulators(m) == ()
         @test EnzymeRates.metabolites(m) == (:S, :P)
-        @test EnzymeRates.reactions(m) == (
-            ((:E, :S), (:ES,), true,  1),
-            ((:ES,),   (:EP,), false, 2),
-            ((:E, :P), (:EP,), true,  3),
-        )
-        @test EnzymeRates.equilibrium_steps(m) == (true, false, true)
+        # Steps are canonicalized at construction, so compare content
+        # order-independently (the 4th tuple element is the flat index).
+        @test Set((r[1], r[2], r[3]) for r in EnzymeRates.reactions(m)) == Set([
+            ((:E, :S), (:ES,), true),
+            ((:ES,),   (:EP,), false),
+            ((:E, :P), (:EP,), true),
+        ])
+        @test sort(collect(EnzymeRates.equilibrium_steps(m))) == [false, true, true]
         @test EnzymeRates.n_steps(m) == 3
-        @test EnzymeRates.kinetic_group(m, 1) == 1
-        @test EnzymeRates.kinetic_group(m, 2) == 2
-        @test EnzymeRates.kinetic_group(m, 3) == 3
         @test EnzymeRates.kinetic_groups(m) == (1, 2, 3)
         @test EnzymeRates.steps_in_group(m, 1) == (1,)
-        @test EnzymeRates.enzyme_forms(m) == (:E, :ES, :EP)
+        @test Set(EnzymeRates.enzyme_forms(m)) == Set([:E, :ES, :EP])
         @test EnzymeRates.n_states(m) == 3
 
         # Shared kinetic-group: two steps in group 1 (regulator R binds
@@ -44,9 +43,13 @@
                 E(P) ⇌ E + P
             end
         end
-        @test EnzymeRates.kinetic_group(m2, 1) == 1
-        @test EnzymeRates.kinetic_group(m2, 2) == 1
-        @test EnzymeRates.steps_in_group(m2, 1) == (1, 2)
+        # Steps are canonicalized; the two R-binding steps share one kinetic
+        # group → 5 steps, 4 groups (one 2-step group binding R).
+        @test length(unique(EnzymeRates.kinetic_group(m2, i)
+                            for i in 1:EnzymeRates.n_steps(m2))) == 4
+        shared = only(g for g in EnzymeRates.Mechanism(m2).steps if length(g) == 2)
+        @test all(EnzymeRates.bound_metabolite(s) ==
+                  EnzymeRates.CompetitiveInhibitor(:R) for s in shared)
     end
 
     @testset "metabolites() lift covers all three loops + dedup" begin
@@ -122,7 +125,10 @@
                 (E + R ⇌ E(R), E(S) + R ⇌ E(S, R))
             end
         end
-        @test EnzymeRates.kinetic_group(m_g, 4) == EnzymeRates.kinetic_group(m_g, 5)
+        # The two R-binding steps share one kinetic group → 5 steps, 4 groups
+        # (order-independent: canonicalization reorders the flat step list).
+        @test length(unique(EnzymeRates.kinetic_group(m_g, i)
+                            for i in 1:EnzymeRates.n_steps(m_g))) == 4
     end
 
     @testset "AllostericEnzymeMechanism struct + accessors" begin
@@ -183,8 +189,15 @@
             end
         end
         @test EnzymeRates.catalytic_multiplicity(m) == 2
-        @test EnzymeRates.cat_allo_state(m, 1) == :EqualAI
-        @test EnzymeRates.cat_allo_state(m, 2) == :OnlyA
+        # Catalysis (iso step) is :OnlyA, both bindings :EqualAI. Group order is
+        # canonical, so identify the tagged group by its step, not its position.
+        am_c = EnzymeRates.AllostericMechanism(m)
+        onlyA_g = only(g for g in EnzymeRates.kinetic_groups(am_c)
+                       if EnzymeRates.cat_allo_state(am_c, g) === :OnlyA)
+        @test EnzymeRates.bound_metabolite(
+                  EnzymeRates.rep_step(am_c, onlyA_g)) === nothing
+        @test all(EnzymeRates.cat_allo_state(am_c, g) === :EqualAI
+                  for g in EnzymeRates.kinetic_groups(am_c) if g != onlyA_g)
         @test EnzymeRates.allosteric_regulators(m) == ((:I, :OnlyI),)
     end
 
@@ -220,8 +233,9 @@
         @test contains(s, "E + A <--> EA")
         @test contains(s, "E + Q <--> EQ")
 
-        # Linear chain with canonical RE binding: chain-walk renders the
-        # release step in reverse so the chain stays linear.
+        # Catalytic 3-cycle. The compact chain-walk follows the enzyme-form
+        # graph (not stored order) and starts at the free enzyme, binding the
+        # substrate first, so it renders as a single substrate→product chain.
         m_re = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -992,10 +1006,13 @@
 
         m = EnzymeRates.Mechanism(r, [[s_bind], [s_iso], [s_rel]])
         @test EnzymeRates.reaction(m) == r
-        @test EnzymeRates.steps(m) == [[s_bind], [s_iso], [s_rel]]
+        # Steps are canonicalized at construction → compare as a set.
+        @test Set(only(g) for g in EnzymeRates.steps(m)) ==
+              Set([s_bind, s_iso, s_rel])
         @test EnzymeRates.kinetic_groups(m) == 1:3
         @test EnzymeRates.n_steps(m) == 3
-        @test EnzymeRates.rep_step(m, 2) == s_iso
+        @test s_iso in (EnzymeRates.rep_step(m, g)
+                        for g in EnzymeRates.kinetic_groups(m))
 
         m2 = EnzymeRates.Mechanism(r, [[s_bind], [s_iso], [s_rel]])
         @test m == m2
@@ -1047,7 +1064,7 @@
         @test EnzymeRates.name(EnzymeRates.to_species(iso))   == :E  # substrate-entry
     end
 
-    @testset "Mechanism stores steps in flat order" begin
+    @testset "Mechanism canonicalizes step order" begin
         r = EnzymeReaction(
             [EnzymeRates.ReactantAtoms(
                  EnzymeRates.Substrate(:S), [:C => 1]),
@@ -1066,8 +1083,11 @@
 
         m = EnzymeRates.Mechanism(r, [[s1], [s2], [s3]])
         flat = EnzymeRates._flat_steps(m)
-        @test [s for (s, _) in flat] == [s1, s2, s3]
+        @test Set(s for (s, _) in flat) == Set([s1, s2, s3])
         @test [g for (_, g) in flat] == [1, 2, 3]
+        # Canonical by construction: a permuted input yields identical storage.
+        m_perm = EnzymeRates.Mechanism(r, [[s3], [s1], [s2]])
+        @test EnzymeRates._flat_steps(m) == EnzymeRates._flat_steps(m_perm)
     end
 
     @testset "AllostericMechanism (non-parametric)" begin
@@ -1094,14 +1114,21 @@
             [site])
 
         @test EnzymeRates.reaction(m) == r
-        @test EnzymeRates.steps(m) == [[s_bind], [s_iso], [s_rel]]
-        @test EnzymeRates.cat_allo_state(m, 1) == :EqualAI
-        @test EnzymeRates.cat_allo_state(m, 3) == :OnlyA
+        # Steps canonicalized; allosteric tags stay bound to their steps.
+        @test Set(only(g) for g in EnzymeRates.steps(m)) ==
+              Set([s_bind, s_iso, s_rel])
+        state_of(step) = EnzymeRates.cat_allo_state(m,
+            only(g for g in EnzymeRates.kinetic_groups(m)
+                 if EnzymeRates.rep_step(m, g) == step))
+        @test state_of(s_bind) == :EqualAI
+        @test state_of(s_iso)  == :NonequalAI
+        @test state_of(s_rel)  == :OnlyA
         @test EnzymeRates.catalytic_multiplicity(m) == 2
         @test EnzymeRates.regulatory_sites(m) == [site]
         @test EnzymeRates.kinetic_groups(m) == 1:3
         @test EnzymeRates.n_steps(m) == 3
-        @test EnzymeRates.rep_step(m, 2) == s_iso
+        @test s_iso in (EnzymeRates.rep_step(m, g)
+                        for g in EnzymeRates.kinetic_groups(m))
         @test EnzymeRates.allosteric_regulators(m) ==
               [EnzymeRates.AllostericRegulator(:I)]
 
@@ -1205,15 +1232,21 @@
         )
         am = EnzymeRates.AllostericMechanism(aem)
 
-        # Step-bound parameters: AEM dispatch matches AM dispatch
-        rep_bind = first(EnzymeRates.steps(am)[1])
+        # Step-bound parameters: AEM dispatch matches AM dispatch. Group order
+        # is canonical, so pick the substrate-binding and iso steps by content.
+        rep_bind = only(EnzymeRates.rep_step(am, g)
+            for g in EnzymeRates.kinetic_groups(am)
+            if EnzymeRates.bound_metabolite(
+                   EnzymeRates.rep_step(am, g)) isa EnzymeRates.Substrate)
         @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), aem) ==
               EnzymeRates.name(EnzymeRates.Kd(rep_bind, :None), am)
         @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) ==
               EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), am)
         @test EnzymeRates.name(EnzymeRates.Kd(rep_bind, :I), aem) === :K_I_S_E
 
-        rep_iso  = first(EnzymeRates.steps(am)[2])
+        rep_iso  = only(EnzymeRates.rep_step(am, g)
+            for g in EnzymeRates.kinetic_groups(am)
+            if EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g)) === nothing)
         @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) ==
               EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), am)
         @test EnzymeRates.name(EnzymeRates.Kfor(rep_iso, :None), aem) === :k_ES_to_EP

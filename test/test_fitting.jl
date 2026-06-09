@@ -188,34 +188,6 @@ using Tables
     end
 
     # ── Test 6: Sign-mismatch penalty ─────────────────────────────────────────
-    @testset "Sign mismatch penalty" begin
-        Keq_val = 2.0
-        # Create data with positive rates
-        data = (
-            group = ["G1", "G1", "G1"],
-            Rate = [1.0, 2.0, 3.0],
-            S = [1.0, 2.0, 3.0],
-            P = [0.1, 0.1, 0.1],
-        )
-        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
-
-        # Use params that produce negative predictions (very large koff_P_ES relative to kon_P_ES)
-        pn = EnzymeRates.fitted_params(uni_uni)
-        np = length(pn)
-        x_bad = zeros(np)
-        for (i, p) in enumerate(pn)
-            if p == :koff_P_ES
-                x_bad[i] = 15.0  # exp(15) ≈ 3.3M
-            else
-                x_bad[i] = -15.0  # exp(-15) ≈ 3e-7
-            end
-        end
-        l = EnzymeRates.loss!(x_bad, fp)
-        @test isfinite(l)
-        @test l > 0.0
-    end
-
-    # ── Test 6b: All-mismatch group has positive loss ─────────────────────────
     # Regression test for all-mismatch groups: when every prediction in a
     # group is a sign mismatch, centering must not zero every deviation.
     # The loss must be nonzero to distinguish a bad mechanism from a perfect one.

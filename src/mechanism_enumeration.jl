@@ -1,23 +1,47 @@
 # ABOUTME: Mechanism enumeration by incremental parameter count growth
-# ABOUTME: Provides init_mechanisms, expand_mechanisms, _dedup_flat! building blocks
+# ABOUTME: Provides init_mechanisms, expand_mechanisms building blocks
 
 
 # ─── Catalytic topologies ─────────────────────────────────────────────
 
 """
-Build a `Species` from sorted bound substrate / product names plus an
-`is_estar` flag. Names map to `Substrate` / `Product` structs;
-conformation is `:Estar` when `is_estar`, else `:E`. Bound list is
-sorted by name (Species inner constructor enforces this).
+Build a `Species` on conformation `:E` from sorted bound substrate /
+product names plus the covalent `residual`. Names map to `Substrate` /
+`Product` structs; the bound list is sorted by name (Species inner
+constructor enforces this).
 """
 function _make_species(
     bound_subs::Vector{Symbol},
     bound_prods::Vector{Symbol},
-    is_estar::Bool,
+    residual::Residual,
 )
     mets = Metabolite[Substrate.(bound_subs)...,
                       Product.(bound_prods)...]
-    Species(mets, is_estar ? :Estar : :E)
+    Species(mets, :E, residual)
+end
+
+"""
+Covalent residual at an enzyme form: `added` = consumed substrates not
+currently bound, `subtracted` = released products plus currently-bound
+products. Reduced to `Residual()` exactly when the added/subtracted atom
+multisets cancel (no covalent residue remains).
+"""
+function _residual_for(
+    consumed::Vector{Symbol},
+    on_subs::Vector{Symbol},
+    released::Vector{Symbol},
+    on_prods::Vector{Symbol},
+    sub_atoms::Dict{Symbol,Dict{Symbol,Int}},
+    prod_atoms::Dict{Symbol,Dict{Symbol,Int}},
+)
+    add_names = setdiff(consumed, on_subs)
+    sub_names = vcat(released, on_prods)
+    add_at = reduce(_add_atoms, [sub_atoms[s] for s in add_names];
+                    init=Dict{Symbol,Int}())
+    sub_at = reduce(_add_atoms, [prod_atoms[p] for p in sub_names];
+                    init=Dict{Symbol,Int}())
+    _nonzero_atoms(add_at) == _nonzero_atoms(sub_at) && return Residual()
+    Residual(Substrate.(add_names), Product.(sub_names))
 end
 
 """Extract atom counts as Dict{Symbol,Int} for a metabolite."""
@@ -74,6 +98,76 @@ function _add_atoms(
     result
 end
 
+# ─── Atom-conservation validation ────────────────────────────
+
+"""Add `sign * d` into the signed accumulator `acc` in place."""
+function _accumulate_atoms!(acc::Dict{Symbol,Int}, d::Dict{Symbol,Int}, sign::Int)
+    for (a, c) in d
+        acc[a] = get(acc, a, 0) + sign * c
+    end
+    acc
+end
+
+"""Drop zero entries from a signed atom dict."""
+_nonzero_atoms(d::Dict{Symbol,Int}) = filter(kv -> kv.second != 0, d)
+
+"""
+Net atom multiset carried by a `Species`: atoms of its bound metabolites
+plus atoms of `residual.added` minus atoms of `residual.subtracted`, read
+from the reaction's per-metabolite inventory via `_atoms_dict`.
+"""
+function _species_atoms(reaction::EnzymeReaction, sp::Species)
+    acc = Dict{Symbol,Int}()
+    for m in bound(sp)
+        _accumulate_atoms!(acc, _atoms_dict(reaction, name(m)), 1)
+    end
+    for a in added(residual(sp))
+        _accumulate_atoms!(acc, _atoms_dict(reaction, name(a)), 1)
+    end
+    for p in subtracted(residual(sp))
+        _accumulate_atoms!(acc, _atoms_dict(reaction, name(p)), -1)
+    end
+    _nonzero_atoms(acc)
+end
+
+"""
+Assert one `Step` conserves atoms: a binding step must move exactly the
+bound metabolite's atoms onto the enzyme (`atoms(to) − atoms(from) ==
+atoms(bound_metabolite)`); an iso step must leave the atom multiset
+unchanged (`atoms(to) == atoms(from)`). Errors naming the offending step.
+"""
+function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
+    diff = Dict{Symbol,Int}()
+    _accumulate_atoms!(diff, _species_atoms(reaction, to_species(s)), 1)
+    _accumulate_atoms!(diff, _species_atoms(reaction, from_species(s)), -1)
+    diff = _nonzero_atoms(diff)
+    bm = bound_metabolite(s)
+    expected = bm === nothing ? Dict{Symbol,Int}() :
+        _nonzero_atoms(copy(_atoms_dict(reaction, name(bm))))
+    diff == expected || error(
+        "atom-non-conserving step $(name(from_species(s))) → " *
+        "$(name(to_species(s))) (bound " *
+        "$(bm === nothing ? "—" : name(bm))): Δatoms $diff ≠ $expected")
+    nothing
+end
+
+"""
+    _assert_atom_conserving(m::Mechanism)
+    _assert_atom_conserving(am::AllostericMechanism)
+
+Assert every step of an enumerated mechanism conserves atoms (see
+`_assert_step_atom_conserving`). This is the enumeration-path guardrail
+against atom-non-conserving covalent intermediates; it is intentionally
+NOT a `Step` / `Mechanism` constructor check, since hand-written
+`@enzyme_mechanism` fixtures use placeholder atoms and folded steps.
+"""
+function _assert_atom_conserving(m::Union{Mechanism, AllostericMechanism})
+    for group in steps(m), s in group
+        _assert_step_atom_conserving(reaction(m), s)
+    end
+    nothing
+end
+
 """Generate all combinations of `k` elements from `arr`."""
 function _combinations(arr, k)
     n = length(arr)
@@ -90,10 +184,12 @@ function _combinations(arr, k)
 end
 
 """
-Release products one at a time after a multi-product
-isomerization, then continue backtracking.
-`is_estar` controls conformation tagging (Estar prefix).
-`has_residual_atoms` tracks whether residual atoms remain.
+Release products one at a time after a multi-product isomerization, then
+continue backtracking. `pingpong_intermediate` is the ping-pong control flag
+threaded to `backtrack!`; each released form carries the covalent
+residual derived from the consumed/released history via `_residual_for`.
+`residual_atoms` is the covalent residue remaining after the whole
+`prod_subset` is released (passed to `backtrack!` as the enzyme's atoms).
 """
 function _release_products!(
     all_paths, backtrack!,
@@ -102,15 +198,14 @@ function _release_products!(
     consumed_subs::Vector{Symbol},
     released_prods::Vector{Symbol},
     prod_subset::Vector{Symbol},
+    sub_atoms::Dict{Symbol,Dict{Symbol,Int}},
     prod_atoms::Dict{Symbol,Dict{Symbol,Int}},
-    is_estar::Bool,
-    has_residual_atoms::Bool,
+    pingpong_intermediate::Bool,
     steps::Vector{Step},
 )
     # Generate all release orderings of products
     function _release_recurse!(
         cur::Species,
-        cur_atoms::Dict{Symbol,Int},
         unreleased::Vector{Symbol},
         rel_so_far::Vector{Symbol},
     )
@@ -120,38 +215,28 @@ function _release_products!(
                 cur, residual_atoms,
                 consumed_subs, rel_so_far,
                 Symbol[], Symbol[],
-                is_estar, false, steps
+                pingpong_intermediate, false, steps
             )
             return
         end
         for p in copy(unreleased)
             new_unreleased = filter(!=(p), unreleased)
             new_species = _make_species(
-                Symbol[], new_unreleased, is_estar)
+                Symbol[], new_unreleased,
+                _residual_for(consumed_subs, Symbol[],
+                              [rel_so_far; p], new_unreleased,
+                              sub_atoms, prod_atoms))
             rel_step = Step(
                 cur, new_species, Product(p), true)
             push!(steps, rel_step)
             _release_recurse!(
-                new_species,
-                _subtract_atoms(
-                    cur_atoms, prod_atoms[p]),
-                new_unreleased,
-                [rel_so_far; p],
-            )
+                new_species, new_unreleased, [rel_so_far; p])
             pop!(steps)
         end
     end
 
     _release_recurse!(
-        iso_species,
-        _add_atoms(
-            residual_atoms,
-            reduce(_add_atoms,
-                [prod_atoms[p] for p in prod_subset];
-                init=Dict{Symbol,Int}())),
-        collect(prod_subset),
-        copy(released_prods),
-    )
+        iso_species, collect(prod_subset), copy(released_prods))
 end
 
 """
@@ -224,8 +309,8 @@ function _catalytic_topologies(
     # - on_enzyme_subs: substrates currently bound
     # - on_enzyme_prods: products currently bound
     #     (post-final-isomerize)
-    # - has_residual: enzyme carries leftover atoms from
-    #     ping-pong
+    # - pingpong_intermediate: enzyme is in a ping-pong
+    #     covalent-intermediate state (carries a residual)
     # - post_final: in product-release phase after final
     #     isomerization
     # - steps: path of Step accumulated so far
@@ -236,12 +321,11 @@ function _catalytic_topologies(
         released_prods::Vector{Symbol},
         on_enzyme_subs::Vector{Symbol},
         on_enzyme_prods::Vector{Symbol},
-        # has_residual: true when enzyme is in Estar
-        # conformation (ping-pong intermediate), even if
-        # no residual atoms remain (empty-residual pp).
-        # Controls both conformation tagging and branch
-        # selection.
-        has_residual::Bool,
+        # pingpong_intermediate: true when the enzyme is in a
+        # ping-pong covalent-intermediate state. Selects the
+        # bind-only / iso branches below (the covalent residue
+        # itself is stored on the form as a Residual).
+        pingpong_intermediate::Bool,
         post_final::Bool,
         steps::Vector{Step},
     )
@@ -268,7 +352,10 @@ function _catalytic_topologies(
                 new_on_prods = filter(!=(p), on_enzyme_prods)
                 new_released = [released_prods; p]
                 new_species = _make_species(
-                    Symbol[], new_on_prods, false)
+                    Symbol[], new_on_prods,
+                    _residual_for(consumed_subs, Symbol[],
+                                  new_released, new_on_prods,
+                                  sub_atoms, prod_atoms))
                 step = Step(
                     cur_species, new_species, Product(p), true)
                 push!(steps, step)
@@ -287,13 +374,16 @@ function _catalytic_topologies(
             return
         end
 
-        if isempty(on_enzyme_subs) && !has_residual
+        if isempty(on_enzyme_subs) && !pingpong_intermediate
             # Free enzyme: bind any remaining substrate
             for s in remaining_subs
                 new_on = [on_enzyme_subs; s]
                 new_consumed = [consumed_subs; s]
                 new_species = _make_species(
-                    new_on, Symbol[], false)
+                    new_on, Symbol[],
+                    _residual_for(new_consumed, new_on,
+                                  released_prods, Symbol[],
+                                  sub_atoms, prod_atoms))
                 step = Step(
                     cur_species, new_species, Substrate(s), true)
                 push!(steps, step)
@@ -306,7 +396,7 @@ function _catalytic_topologies(
                 )
                 pop!(steps)
             end
-        elseif !isempty(on_enzyme_subs) && !has_residual
+        elseif !isempty(on_enzyme_subs) && !pingpong_intermediate
             # Substrates bound, no residual
             # Option 1: bind another substrate (C5)
             if length(on_enzyme_subs) < max_bound
@@ -314,7 +404,10 @@ function _catalytic_topologies(
                     new_on = [on_enzyme_subs; s]
                     new_consumed = [consumed_subs; s]
                     new_species = _make_species(
-                        new_on, Symbol[], false)
+                        new_on, Symbol[],
+                        _residual_for(new_consumed, new_on,
+                                      released_prods, Symbol[],
+                                      sub_atoms, prod_atoms))
                     step = Step(
                         cur_species, new_species,
                         Substrate(s), true)
@@ -347,8 +440,17 @@ function _catalytic_topologies(
                         residual = _subtract_atoms(
                             acc_atoms, need
                         )
-                        n_prods_eff = k + (
-                            isempty(residual) ? 0 : 1)
+                        # Admissible-residual rule: a ping-pong
+                        # continuation must form a genuine covalent
+                        # residue. An empty residue means the enzyme
+                        # returns to apo E mid-cycle while substrates
+                        # remain unbound, splitting the reaction into
+                        # disconnected half-cycles — not a valid
+                        # mechanism. The final isomerization (Option 3,
+                        # all substrates consumed) handles the
+                        # legitimate return to apo E.
+                        isempty(residual) && continue
+                        n_prods_eff = k + 1
                         # C6: iso size limit
                         length(on_enzyme_subs) > 3 &&
                             continue
@@ -357,21 +459,25 @@ function _catalytic_topologies(
                         iso_species = _make_species(
                             Symbol[],
                             collect(prod_subset),
-                            true)
+                            _residual_for(
+                                consumed_subs, Symbol[],
+                                released_prods,
+                                collect(prod_subset),
+                                sub_atoms, prod_atoms))
                         step = Step(
                             cur_species, iso_species,
                             nothing, true)
                         push!(steps, step)
-                        # Release products one at a time
-                        # Ping-pong from free enzyme
-                        # always creates Estar
+                        # Release products one at a time. This
+                        # ping-pong continuation carries a genuine
+                        # covalent residual (the empty-residue case is
+                        # filtered above), so the control bool is true.
                         _release_products!(
                             all_paths, backtrack!,
                             iso_species, residual,
                             consumed_subs, released_prods,
-                            prod_subset, prod_atoms,
-                            true, !isempty(residual),
-                            steps
+                            prod_subset, sub_atoms, prod_atoms,
+                            true, steps
                         )
                         pop!(steps)
                     end
@@ -394,7 +500,12 @@ function _catalytic_topologies(
                             acc_atoms, all_prod_atoms)
                     new_species = _make_species(
                         Symbol[],
-                        copy(remaining_prods), false)
+                        copy(remaining_prods),
+                        _residual_for(
+                            consumed_subs, Symbol[],
+                            released_prods,
+                            copy(remaining_prods),
+                            sub_atoms, prod_atoms))
                     step = Step(
                         cur_species, new_species,
                         nothing, true)
@@ -409,13 +520,16 @@ function _catalytic_topologies(
                     pop!(steps)
                 end
             end
-        elseif isempty(on_enzyme_subs) && has_residual
-            # C7: Estar with no subs — only bind, no iso
+        elseif isempty(on_enzyme_subs) && pingpong_intermediate
+            # C7: residual-bearing form with no subs — only bind, no iso
             for s in remaining_subs
                 new_on = [s]
                 new_consumed = [consumed_subs; s]
                 new_species = _make_species(
-                    new_on, Symbol[], true)
+                    new_on, Symbol[],
+                    _residual_for(new_consumed, new_on,
+                                  released_prods, Symbol[],
+                                  sub_atoms, prod_atoms))
                 step = Step(
                     cur_species, new_species,
                     Substrate(s), true)
@@ -429,7 +543,7 @@ function _catalytic_topologies(
                 )
                 pop!(steps)
             end
-        elseif !isempty(on_enzyme_subs) && has_residual
+        elseif !isempty(on_enzyme_subs) && pingpong_intermediate
             # Residual + substrates bound
             # Option 1: bind another substrate (C5)
             if length(on_enzyme_subs) < max_bound
@@ -437,7 +551,10 @@ function _catalytic_topologies(
                     new_on = [on_enzyme_subs; s]
                     new_consumed = [consumed_subs; s]
                     new_species = _make_species(
-                        new_on, Symbol[], true)
+                        new_on, Symbol[],
+                        _residual_for(new_consumed, new_on,
+                                      released_prods, Symbol[],
+                                      sub_atoms, prod_atoms))
                     step = Step(
                         cur_species, new_species,
                         Substrate(s), true)
@@ -488,7 +605,11 @@ function _catalytic_topologies(
                         new_species = _make_species(
                             Symbol[],
                             copy(remaining_prods),
-                            false)
+                            _residual_for(
+                                consumed_subs, Symbol[],
+                                released_prods,
+                                copy(remaining_prods),
+                                sub_atoms, prod_atoms))
                         step = Step(
                             cur_species, new_species,
                             nothing, true)
@@ -503,14 +624,21 @@ function _catalytic_topologies(
                         )
                         pop!(steps)
                     else
-                        can_cont = has_more ||
-                            !isempty(remaining_subs)
-                        can_cont || continue
+                        # Admissible-residual rule (mirrors the no-residual
+                        # ping-pong branch): a non-final ping-pong iso must
+                        # leave a genuine covalent residue. Without one the
+                        # enzyme returns to apo E mid-cycle while substrates
+                        # remain — a disconnected half-cycle.
+                        has_more || continue
                         # C8: product-only iso form
                         iso_species = _make_species(
                             Symbol[],
                             collect(prod_subset),
-                            has_more)
+                            _residual_for(
+                                consumed_subs, Symbol[],
+                                released_prods,
+                                collect(prod_subset),
+                                sub_atoms, prod_atoms))
                         step = Step(
                             cur_species, iso_species,
                             nothing, true)
@@ -520,9 +648,8 @@ function _catalytic_topologies(
                             iso_species, residual_atoms,
                             consumed_subs,
                             released_prods,
-                            prod_subset, prod_atoms,
-                            has_more, has_more,
-                            steps
+                            prod_subset, sub_atoms, prod_atoms,
+                            has_more, steps
                         )
                         pop!(steps)
                     end
@@ -1023,9 +1150,8 @@ compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
 
 Partition a flat `Vector{Step}` into kinetic groups by the parallel
 `groups` id vector, ordered by first occurrence of each group id in the
-flat step list (source order), so the resulting group order — and hence
-the group-major rep-index parameter naming — matches the source order
-of the catalytic topology, dead-end, and mirror steps.
+flat step list. (The `Mechanism` constructor then canonicalizes group and
+step order, so this ordering is not load-bearing downstream.)
 """
 function _to_group_list(steps::Vector{Step}, groups::Vector{Int})
     order = Int[]
@@ -1634,6 +1760,9 @@ function expand_mechanisms(
     for m in mechs
         _add_expansions_mech!(result, m, rxn)
     end
+    for child in result
+        _assert_atom_conserving(child)
+    end
     result
 end
 
@@ -1650,72 +1779,6 @@ function _add_expansions_mech!(
 end
 
 # --- Dedup ---
-
-# ─── Mechanism-based dedup ─────────────────────────────────────────────
-#
-# Canonical key for a `Step`. The key tuple's sole job is to give
-# `sort!` a deterministic ordering so two physically-equivalent
-# `Mechanism`s end up with identical step storage and therefore
-# identical struct-based `hash` / `==`.
-_step_canonical_key(s::Step) =
-    (hash(from_species(s)), hash(to_species(s)),
-     hash(bound_metabolite(s)), is_equilibrium(s))
-
-"""
-Sort steps within each kinetic group by `_step_canonical_key`, then
-sort the outer group vector by the canonical key of its first step.
-Mutates the inner vectors of `m.steps` (and the outer vector itself)
-in place; only storage order changes.
-"""
-function _canonicalize_mechanism!(m::Mechanism)
-    for group in steps(m)
-        sort!(group; by = _step_canonical_key)
-    end
-    sort!(steps(m); by = group -> _step_canonical_key(first(group)))
-    m
-end
-
-function _canonicalize_mechanism!(am::AllostericMechanism)
-    # Catalytic-side step storage is canonicalized identically to
-    # `Mechanism`; the regulatory side is also canonicalized so two
-    # `AllostericMechanism`s differing only in site presentation order
-    # collapse. Ligand order within a site is fixed by the
-    # `RegulatorySite` constructor, so only the outer site vector and
-    # the parallel `cat_allo_states` vector need reordering. The inner
-    # sort must run BEFORE computing the outer permutation so the
-    # per-group "first step" key reflects the canonical inner order.
-    for group in steps(am)
-        sort!(group; by = _step_canonical_key)
-    end
-    perm = sortperm(1:length(steps(am));
-                    by = g -> _step_canonical_key(first(steps(am)[g])))
-    permute!(steps(am), perm)
-    permute!(cat_allo_states(am), perm)
-    sort!(regulatory_sites(am); by = _regulatory_site_canonical_key)
-    am
-end
-
-_regulatory_site_canonical_key(site::RegulatorySite) =
-    (Tuple(hash(l) for l in ligands(site)),
-     multiplicity(site),
-     Tuple(allo_states(site)))
-
-"""
-    _dedup_flat!(mechs::Vector)
-
-Canonicalize each mechanism in place via `_canonicalize_mechanism!`, then
-`unique!` so structurally-equivalent mechanisms collapse. Works for any
-element type — `Mechanism`, `AllostericMechanism`, or
-`Union{Mechanism, AllostericMechanism}` — because `_canonicalize_mechanism!`
-dispatches at runtime.
-"""
-function _dedup_flat!(mechs::Vector)
-    for m in mechs
-        _canonicalize_mechanism!(m)
-    end
-    unique!(mechs)
-    mechs
-end
 
 
 """
@@ -1735,8 +1798,9 @@ function init_mechanisms(r::EnzymeReaction)
     for (steps, groups) in expanded
         merged_steps, merged_groups =
             _apply_equivalence_grouping(steps, groups)
-        push!(mechs, Mechanism(
-            r, _to_group_list(merged_steps, merged_groups)))
+        m = Mechanism(r, _to_group_list(merged_steps, merged_groups))
+        _assert_atom_conserving(m)
+        push!(mechs, m)
     end
     mechs
 end

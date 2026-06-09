@@ -176,7 +176,7 @@ function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
         pc = actual(m)
         pc <= max_params && push!(get!(frontier, pc, M[]), m)
     end
-    for m in EnzymeRates._dedup_flat!(collect(EnzymeRates.init_mechanisms(rxn)))
+    for m in unique!(collect(EnzymeRates.init_mechanisms(rxn)))
         add!(m)
     end
     results = Dict{Int, Vector{M}}()
@@ -187,7 +187,7 @@ function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
         for c in collect(keys(frontier))
             c <= target && append!(swept, pop!(frontier, c))
         end
-        swept = EnzymeRates._dedup_flat!(swept)
+        swept = unique!(swept)
         for m in swept
             push!(get!(results, actual(m), M[]), m)
         end
@@ -198,6 +198,47 @@ function enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
         target = max(target + 1, minimum(keys(frontier)))
     end
     results
+end
+
+@testset "Canonical-by-construction representation independence" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C], A[N]
+        products:   P[CN]
+    end
+    # One kinetic group holding two binding steps + a second group with an
+    # iso step. Built two ways: reversed outer group order AND swapped inner
+    # step order. Canonical-by-construction must collapse them to one struct.
+    bind_S = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E),
+        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+        EnzymeRates.Substrate(:S), true)
+    bind_A = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
+        EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E_A),
+        EnzymeRates.Substrate(:A), true)
+    iso = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E_S),
+        EnzymeRates.Species([EnzymeRates.Product(:P)], :E_P),
+        nothing, false)
+
+    m_orderA = EnzymeRates.Mechanism(rxn, [[bind_S, bind_A], [iso]])
+    m_orderB = EnzymeRates.Mechanism(rxn, [[iso], [bind_A, bind_S]])
+    @test m_orderA == m_orderB
+    @test hash(m_orderA) == hash(m_orderB)
+
+    # unique! collapses the duplicate orderings; the mechanisms are not mutated.
+    # m_split groups the two binding steps separately, so it is structurally
+    # distinct and survives alongside the collapsed orderA/orderB.
+    m_split = EnzymeRates.Mechanism(rxn, [[bind_S], [bind_A], [iso]])
+    mechs = [m_orderA, m_split, m_orderB]
+    snapshot = deepcopy(mechs)
+    result = unique!(mechs)
+    @test length(result) == 2
+    @test all(r -> any(==(r), snapshot), result)
+    @test m_orderA == snapshot[1]
+    @test m_split  == snapshot[2]
+    @test m_orderB == snapshot[3]
+    @test EnzymeRates.steps(m_orderA) == EnzymeRates.steps(snapshot[1])
 end
 
 @testset "_assert_mechanism_invariants on uni-uni init" begin
@@ -257,6 +298,47 @@ end
     @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mixed)
 end
 
+@testset "_assert_atom_conserving" begin
+    # Lactate dehydrogenase: NADH + Pyr ⇌ Lac + NAD. The substrate and
+    # product atom inventories differ per metabolite (NADH ≠ Lac), so an iso
+    # that transmutes bound NADH directly into bound Lac with no residual is
+    # atom-non-conserving and MUST be rejected.
+    ldh_rxn = @enzyme_reaction begin
+        substrates: NADH[C21H29N7O14P2], Pyr[C3H3O3]
+        products:   Lac[C3H5O3], NAD[C21H27N7O14P2]
+    end
+
+    # NEGATIVE: bound NADH → bound Lac, no residual (atoms don't balance).
+    bad_iso = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:NADH)], :E),
+        EnzymeRates.Species([EnzymeRates.Product(:Lac)], :E),
+        nothing, false)
+    bad_m = EnzymeRates.Mechanism(ldh_rxn, [[bad_iso]])
+    @test_throws ErrorException EnzymeRates._assert_atom_conserving(bad_m)
+
+    # POSITIVE: the bi-bi ping-pong worked example carries a real covalent
+    # residual (+A −P) on conformation :E; every step conserves atoms.
+    A = EnzymeRates.Substrate(:A); B = EnzymeRates.Substrate(:B)
+    P = EnzymeRates.Product(:P);   Q = EnzymeRates.Product(:Q)
+    res_AP = EnzymeRates.Residual([A], [P])
+    E       = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+    E_A     = EnzymeRates.Species([A], :E)
+    E_P_res = EnzymeRates.Species(EnzymeRates.Metabolite[P], :E, res_AP)
+    F       = EnzymeRates.Species(EnzymeRates.Metabolite[], :E, res_AP)
+    E_B_res = EnzymeRates.Species(EnzymeRates.Metabolite[B], :E, res_AP)
+    E_Q     = EnzymeRates.Species([Q], :E)
+    good_steps = [
+        [EnzymeRates.Step(E, E_A, A, true)],
+        [EnzymeRates.Step(E_A, E_P_res, nothing, false)],
+        [EnzymeRates.Step(E_P_res, F, P, true)],
+        [EnzymeRates.Step(F, E_B_res, B, true)],
+        [EnzymeRates.Step(E_B_res, E_Q, nothing, true)],
+        [EnzymeRates.Step(E_Q, E, Q, true)],
+    ]
+    good_m = EnzymeRates.Mechanism(bi_bi_pp_rxn, good_steps)
+    @test EnzymeRates._assert_atom_conserving(good_m) === nothing
+end
+
 @testset "Mechanism Enumeration" begin
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -292,8 +374,10 @@ end
     @testset "Bi-Bi" begin
         topos = EnzymeRates._catalytic_topologies(bi_bi_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        # 11 = 9 sequential + 2 empty-residual ping-pong
-        @test length(topos) == 11
+        # 9 sequential topologies. A[C]→P[C] and B[N]→Q[N] each leave no
+        # covalent residue, so the only ping-pong is degenerate
+        # (empty-residue) and is rejected by the admissible-residual rule.
+        @test length(topos) == 9
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t) == 1
@@ -315,7 +399,7 @@ end
         topos = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) == 283
+        @test length(topos) == 223
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t) == 1
@@ -326,38 +410,51 @@ end
         topos = EnzymeRates._catalytic_topologies(
             ter_bi_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        # 51 = 39 sequential + 6 nonempty-residual +
-        # 6 empty-residual ping-pong
-        @test length(topos) == 51
+        # 45 = 39 sequential + 6 genuine-residual ping-pong. P[CN] combines
+        # A+B, so ping-pong covalent residuals persist on :E; the degenerate
+        # empty-residue variants are rejected by the admissible-residual rule.
+        @test length(topos) == 45
         for t in topos
             @test count(
                 !s.is_equilibrium for s in t) == 1
         end
     end
 
-    @testset "empty-residual ping-pong" begin
+    @testset "admissible-residual ping-pong" begin
+        # The admissible-residual rule rejects degenerate empty-residue
+        # ping-pong (which would return the enzyme to apo E mid-cycle,
+        # splitting the reaction into disconnected half-cycles). A genuine
+        # ping-pong intermediate carries a non-empty covalent residual,
+        # always on conformation :E (never a separate conformation). For
+        # ter-ter, residues form by combining substrates (e.g. bind A+B,
+        # release P[C] leaving an N residue), so ping-pong topologies survive.
         ter_ter = @enzyme_reaction begin
             substrates: A[C], B[N], D[X]
             products: P[C], Q[N], R[X]
         end
         topos = EnzymeRates._catalytic_topologies(ter_ter)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        has_estar = any(topos) do spec
-            any(spec) do s
-                any(
-                    sym -> startswith(
-                        string(sym), "Estar"),
-                    Iterators.flatten(
-                        (_t_reactants(s), _t_products(s))),
-                )
-            end
+        # Every enzyme form lives on conformation :E.
+        for t in topos, s in t,
+            sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s))
+            @test EnzymeRates.conformation(sp) === :E
         end
-        @test has_estar
+        # Surviving ping-pong topologies each carry a genuine (non-empty)
+        # covalent intermediate — no empty-residue ping-pong remains.
+        pingpong = filter(t -> count(EnzymeRates.is_iso, t) >= 2, topos)
+        @test !isempty(pingpong)
+        for t in pingpong
+            @test any(
+                EnzymeRates.has_residual(sp)
+                for s in t
+                for sp in (EnzymeRates.from_species(s),
+                           EnzymeRates.to_species(s)))
+        end
     end
 
     @testset "weak-ordering combining" begin
-        # For bi-bi: 9 sequential + 2 empty-residual
-        # ping-pong = 11
+        # For bi-bi: 9 sequential (the degenerate empty-residue ping-pong
+        # is rejected by the admissible-residual rule).
         bi_bi_rxn_test = @enzyme_reaction begin
             substrates: A[C], B[N]
             products: P[C], Q[N]
@@ -365,12 +462,12 @@ end
         topos = EnzymeRates._catalytic_topologies(
             bi_bi_rxn_test)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) == 11
+        @test length(topos) == 9
 
         topos_tt = EnzymeRates._catalytic_topologies(
             ter_ter_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos_tt)
-        @test length(topos_tt) == 283
+        @test length(topos_tt) == 223
     end
 
     @testset "isomerization constraints" begin
@@ -378,23 +475,14 @@ end
             ter_ter_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
 
-        met_names = Set([:A, :B, :D, :P, :Q, :R])
         sub_names_set = Set([:A, :B, :D])
 
-        # C5: max bound metabolites = max(3,3) = 3
+        # C5: at most max(n_subs, n_prods) = 3 metabolites bound on any form.
         for spec in topos
             for s in spec
-                for sym_list in (_t_reactants(s), _t_products(s))
-                    for sym in sym_list
-                        str = replace(
-                            string(sym),
-                            "Estar" => "E")
-                        parts = split(str, "_")
-                        n_mets = count(
-                            p -> Symbol(p) ∈ met_names,
-                            parts)
-                        @test n_mets <= 3
-                    end
+                for sp in (EnzymeRates.from_species(s),
+                           EnzymeRates.to_species(s))
+                    @test length(EnzymeRates.bound(sp)) <= 3
                 end
             end
         end
@@ -416,24 +504,14 @@ end
             end
         end
 
-        # C8: iso product forms should not contain
-        # substrate names
+        # C8: an iso's product-side (destination) form is built with only
+        # products bound, never substrates.
         for spec in topos
             for s in spec
-                if length(_t_reactants(s)) == 1 &&
-                        length(_t_products(s)) == 1
-                    dst = string(_t_products(s)[1])
-                    if startswith(dst, "Estar") && dst != "Estar"
-                        # Estar-bound form: conformation "Estar" followed by
-                        # concatenated metabolite names (no separator). The
-                        # suffix is the metabolite portion of the form name.
-                        suffix = dst[6:end]
-                        # Check each metabolite name doesn't appear as a full
-                        # word in the suffix by checking against known sub names.
-                        for sub_name in sub_names_set
-                            @test !contains(suffix, string(sub_name))
-                        end
-                    end
+                EnzymeRates.is_iso(s) || continue
+                dst = _iso_orient(s)[2]
+                for b in EnzymeRates.bound(dst)
+                    @test !(EnzymeRates.name(b) ∈ sub_names_set)
                 end
             end
         end
@@ -444,40 +522,45 @@ end
             pyruvate_carboxylase_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
 
-        # Known mechanism: ATP+HCO3 → ADP+Pi (CO2 residual),
-        # then Pyr+CO2 → OAA
+        # Known mechanism: ATP+HCO3 → ADP+Pi leaving a CO2 covalent
+        # residual on :E, then Pyr+CO2 → OAA. The carboxylation iso converts
+        # the {ATP,HCO3}-bound form into a residual-bearing form; the
+        # carboxyl-transfer iso converts a residual-bearing Pyr form into the
+        # bare E(OAA).
+        _bset(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
         found = false
         for spec in topos
-            iso_steps = [
-                (sort(_t_reactants(s)), sort(_t_products(s)))
-                for s in spec
-                if length(_t_reactants(s)) == 1 &&
-                    length(_t_products(s)) == 1
-            ]
-            has_atp_hco3_iso = any(iso_steps) do (r, p)
-                r == [Symbol("EATPHCO3")] &&
-                    p == [Symbol("EstarADPPi")]
+            has_carboxylation = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:ATP, :HCO3]) &&
+                    !EnzymeRates.has_residual(f) &&
+                    EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:ATP, :HCO3]) &&
+                    !EnzymeRates.has_residual(t) &&
+                    EnzymeRates.has_residual(f))
             end
-            has_pyr_iso = any(iso_steps) do (r, p)
-                r == [Symbol("EstarPyr")] &&
-                    p == [Symbol("EOAA")]
+            has_carboxyl_transfer = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:OAA]) && !EnzymeRates.has_residual(f) &&
+                    :Pyr in _bset(t) && EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:OAA]) && !EnzymeRates.has_residual(t) &&
+                    :Pyr in _bset(f) && EnzymeRates.has_residual(f))
             end
-            if has_atp_hco3_iso && has_pyr_iso
+            if has_carboxylation && has_carboxyl_transfer
                 found = true
                 break
             end
         end
         @test found
 
-        # 312 = 169 seq + 143 pp
+        # 312 = 169 seq + 143 pp, classified by iso-step count: sequential
+        # topologies have one iso step, ping-pong ≥2. Every topology (seq or
+        # pp) has exactly one SS step — for ping-pong only one of the iso
+        # steps is steady-state, the rest are rapid-equilibrium.
         @test length(topos) == 312
-        seq_count = count(topos) do spec
-            !any(spec) do s
-                any(sym -> startswith(string(sym), "Estar"),
-                    Iterators.flatten(
-                        (_t_reactants(s), _t_products(s))))
-            end
-        end
+        seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
         pp_count = length(topos) - seq_count
         @test seq_count == 169
         @test pp_count == 143
@@ -488,25 +571,36 @@ end
             pyruvate_dehydrogenase_rxn)
         @test all(isempty(_connectivity_violations(t)) for t in topos)
 
-        # Known mechanism: Pyr→CO2 (residual C2H3O),
-        # CoA+residual→AcCoA (residual H),
-        # NAD+residual→NADH (no residual)
+        # Known mechanism, with covalent residuals on :E:
+        # Pyr→CO2 (leaves an acetyl residual),
+        # CoA+acetyl→AcCoA (leaves a hydride residual),
+        # NAD+hydride→NADH (residual cancels → bare E(NADH)).
+        _bset(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
         found = false
         for spec in topos
-            iso_steps = [
-                (sort(_t_reactants(s)), sort(_t_products(s)))
-                for s in spec
-                if length(_t_reactants(s)) == 1 &&
-                    length(_t_products(s)) == 1
-            ]
-            has_pyr = any(iso_steps) do (r, p)
-                r == [:EPyr] && p == [:EstarCO2]
+            has_pyr = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:Pyr]) && !EnzymeRates.has_residual(f) &&
+                    _bset(t) == Set([:CO2]) && EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:Pyr]) && !EnzymeRates.has_residual(t) &&
+                    _bset(f) == Set([:CO2]) && EnzymeRates.has_residual(f))
             end
-            has_coa = any(iso_steps) do (r, p)
-                r == [:EstarCoA] && p == [:EstarAcCoA]
+            has_coa = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:CoA]) && EnzymeRates.has_residual(f) &&
+                    _bset(t) == Set([:AcCoA]) && EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:CoA]) && EnzymeRates.has_residual(t) &&
+                    _bset(f) == Set([:AcCoA]) && EnzymeRates.has_residual(f))
             end
-            has_nad = any(iso_steps) do (r, p)
-                r == [:EstarNAD] && p == [:ENADH]
+            has_nad = any(spec) do s
+                EnzymeRates.is_iso(s) || return false
+                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+                (_bset(f) == Set([:NAD]) && EnzymeRates.has_residual(f) &&
+                    _bset(t) == Set([:NADH]) && !EnzymeRates.has_residual(t)) ||
+                (_bset(t) == Set([:NAD]) && EnzymeRates.has_residual(t) &&
+                    _bset(f) == Set([:NADH]) && !EnzymeRates.has_residual(f))
             end
             if has_pyr && has_coa && has_nad
                 found = true
@@ -515,15 +609,12 @@ end
         end
         @test found
 
-        # 334 = 169 seq + 165 pp
+        # 334 = 169 seq + 165 pp, classified by iso-step count: sequential
+        # topologies have one iso step, ping-pong ≥2. Every topology (seq or
+        # pp) has exactly one SS step — for ping-pong only one of the iso
+        # steps is steady-state, the rest are rapid-equilibrium.
         @test length(topos) == 334
-        seq_count = count(topos) do spec
-            !any(spec) do s
-                any(sym -> startswith(string(sym), "Estar"),
-                    Iterators.flatten(
-                        (_t_reactants(s), _t_products(s))))
-            end
-        end
+        seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
         pp_count = length(topos) - seq_count
         @test seq_count == 169
         @test pp_count == 165
@@ -1010,7 +1101,7 @@ end
             # on representative ter-ter topologies.
             topos = EnzymeRates._catalytic_topologies(
                 ter_ter_rxn)
-            @test length(topos) == 283
+            @test length(topos) == 223
             # Test first (random, most forms) and last topology
             for topo in [topos[1], topos[end]]
                 result =
@@ -1062,8 +1153,14 @@ end
             E(S) <--> E(P)           :: NonequalAI
         end
     end
-    @test EnzymeRates.cat_allo_state(m_compiled, 1) == :EqualAI
-    @test EnzymeRates.cat_allo_state(m_compiled, 2) == :OnlyA
+    # Group order is canonical; allosteric tags stay bound to their steps.
+    am = EnzymeRates.AllostericMechanism(m_compiled)
+    state_of(pred) = EnzymeRates.cat_allo_state(am,
+        only(g for g in EnzymeRates.kinetic_groups(am)
+             if pred(EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g)))))
+    @test state_of(bm -> bm isa EnzymeRates.Substrate) == :EqualAI
+    @test state_of(bm -> bm isa EnzymeRates.Product) == :OnlyA
+    @test state_of(bm -> bm === nothing) == :NonequalAI
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1185,8 +1282,8 @@ end
         mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
         @test all(isempty(_connectivity_violations(
             EnzymeRates.steps(m))) for m in mechs)
-        @test length(mechs) == 69
-        # Derive a small subset only — full-69 derivation is slow. Pick the 5
+        @test length(mechs) == 55
+        # Derive a small subset only — full derivation is slow. Pick the 5
         # smallest by step count (cheapest to compile).
         by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
         for m in by_size[1:5]
@@ -1902,20 +1999,19 @@ end
             @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
         end
 
-        # 4. tag inheritance: split's new trailing group inherits parent's
-        # tag (cat_allo_states is extended by one entry per split).
+        # 4. tag inheritance: each result group inherits the tag of the parent
+        # group whose steps contain it. A split subdivides one group into two;
+        # both halves carry that group's tag, and every other group keeps its
+        # own. Group ORDER is canonical (not source-preserved), so match each
+        # result group to its parent by step content rather than by position.
         for r in result
             @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
-            # existing tags preserved
-            for g in 1:length(am.cat_allo_states)
-                @test r.cat_allo_states[g] == am.cat_allo_states[g]
+            for (g, grp) in enumerate(r.cat_steps)
+                sset = Set(grp)
+                parent = only(ag for ag in 1:length(am.cat_steps)
+                              if sset ⊆ Set(am.cat_steps[ag]))
+                @test r.cat_allo_states[g] == am.cat_allo_states[parent]
             end
-            # parent = the only group whose size shrank
-            parent_g = only(g for g in 1:length(am.cat_steps)
-                            if length(r.cat_steps[g]) <
-                               length(am.cat_steps[g]))
-            new_g = length(r.cat_allo_states)
-            @test r.cat_allo_states[new_g] == am.cat_allo_states[parent_g]
         end
 
         # 5. preservation
@@ -2030,21 +2126,18 @@ end
             @test r.regulatory_sites == am.regulatory_sites
         end
 
-        # 3. tag inheritance: new trailing group tag matches the
-        # parent group's tag. The parent is identifiable as the
-        # only group whose size dropped.
+        # 3. tag inheritance: splitting a group preserves every step's tag,
+        # so the split-off step inherits its parent group's tag. Verified
+        # per-step because both mechanisms store groups in canonical order.
+        am_tag_of = Dict{EnzymeRates.Step, Symbol}()
+        for (g, grp) in enumerate(am.cat_steps), s in grp
+            am_tag_of[s] = am.cat_allo_states[g]
+        end
         for r in result
             @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
-            # existing tags preserved
-            for g in 1:length(am.cat_allo_states)
-                @test r.cat_allo_states[g] == am.cat_allo_states[g]
+            for (g, grp) in enumerate(r.cat_steps), s in grp
+                @test r.cat_allo_states[g] == am_tag_of[s]
             end
-            # parent = the only group whose size shrank
-            parent_g = only(g for g in 1:length(am.cat_steps)
-                            if length(r.cat_steps[g]) <
-                               length(am.cat_steps[g]))
-            new_g = length(r.cat_allo_states)
-            @test r.cat_allo_states[new_g] == am.cat_allo_states[parent_g]
         end
     end
 end
@@ -3637,29 +3730,25 @@ end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
-# 5. Composition (_dedup_flat!, expand_mechanisms)
+# 5. Composition (dedup, expand_mechanisms)
 # ═══════════════════════════════════════════════════════════════════════
 
-# ─── _canonicalize! ────────────────────────────────────────────────────
+# ─── canonical by construction ─────────────────────────────────────────
 
-@testset "Mechanism — _canonicalize_mechanism!" begin
-    # Test 1: outer kinetic-group order does not matter post-canonicalization.
-    # Build two Mechanisms from the same init seed but with the outer step
-    # groups in opposite orders; after _canonicalize_mechanism! both must be
-    # struct-equal (the basis for _dedup_flat!'s `unique!(mechs)`).
+@testset "Mechanism — canonical by construction" begin
+    # Test 1: outer kinetic-group order does not matter. Building from the
+    # same steps with the outer groups in reversed order yields a
+    # struct-equal Mechanism (the basis for dedup via `unique!`).
     m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
     EnzymeRates._assert_mechanism_invariants(m_seed)
     m_perm = EnzymeRates.Mechanism(
         EnzymeRates.reaction(m_seed), reverse(m_seed.steps))
-    EnzymeRates._canonicalize_mechanism!(m_seed)
-    EnzymeRates._canonicalize_mechanism!(m_perm)
     @test m_seed == m_perm
 
     # Test 2: AllostericMechanism — site permutation with DISTINCT
-    # multiplicities. The canonicalizer must permute cat_allo_states
-    # alongside cat_steps (catalytic side) and produce the same
-    # regulatory_sites ordering (regulatory side) regardless of input
-    # site order.
+    # multiplicities. The constructor must permute cat_allo_states alongside
+    # cat_steps (catalytic side) and produce the same regulatory_sites
+    # ordering (regulatory side) regardless of input site order.
     base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
     cat_states = [:EqualAI for _ in base.steps]
     site_a = EnzymeRates.RegulatorySite(
@@ -3674,18 +3763,15 @@ end
         [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
     EnzymeRates._assert_mechanism_invariants(am_ab)
     EnzymeRates._assert_mechanism_invariants(am_ba)
-    EnzymeRates._canonicalize_mechanism!(am_ab)
-    EnzymeRates._canonicalize_mechanism!(am_ba)
     @test am_ab == am_ba
 end
 
 # ─── _dedup_key ────────────────────────────────────────────────────────
 
-# Mechanism dedup keys: struct equality after canonicalization.
-# `_dedup_flat!` canonicalizes in place via
-# `_canonicalize_mechanism!` and then calls `unique!(mechs)`, which relies
-# on `Base.==` / `Base.hash` on the struct itself. This testset locks in
-# the struct-equality contract that powers that dedup.
+# Mechanism dedup keys: struct equality. Mechanisms are canonical at
+# construction, so dedup is just `unique!`, which relies on
+# `Base.==` / `Base.hash` on the struct itself. This testset locks in the
+# struct-equality contract that powers that dedup.
 @testset "Mechanism — dedup key via struct equality" begin
     # Same content → equal (and equal hashes).
     m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
@@ -3693,8 +3779,6 @@ end
     m_copy = EnzymeRates.Mechanism(
         EnzymeRates.reaction(m_seed),
         Vector{EnzymeRates.Step}[copy(g) for g in m_seed.steps])
-    EnzymeRates._canonicalize_mechanism!(m_seed)
-    EnzymeRates._canonicalize_mechanism!(m_copy)
     @test m_seed == m_copy
     @test hash(m_seed) == hash(m_copy)
 
@@ -3714,12 +3798,10 @@ end
             [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])])
     EnzymeRates._assert_mechanism_invariants(am_m2)
     EnzymeRates._assert_mechanism_invariants(am_m4)
-    EnzymeRates._canonicalize_mechanism!(am_m2)
-    EnzymeRates._canonicalize_mechanism!(am_m4)
     @test am_m2 != am_m4
 end
 
-# ─── _dedup_flat! ───────────────────────────────────────────────────────
+# ─── mechanism dedup (unique!) ──────────────────────────────────────────
 @testset "Dedup" begin
 
     @testset "Mechanism — same physics, different group order" begin
@@ -3732,7 +3814,7 @@ end
         m_perm = EnzymeRates.Mechanism(
             EnzymeRates.reaction(m_seed), permuted_steps)
         v = EnzymeRates.Mechanism[m_seed, m_perm]
-        EnzymeRates._dedup_flat!(v)
+        unique!(v)
         @test length(v) == 1
     end
 
@@ -3740,7 +3822,7 @@ end
         # Surviving Mechanisms must be pairwise distinct under
         # compile-time equality (EnzymeMechanism singleton type).
         mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-        EnzymeRates._dedup_flat!(mechs)
+        unique!(mechs)
         compiled = Set(EnzymeRates.EnzymeMechanism(m) for m in mechs)
         @test length(mechs) == length(compiled)
         @test length(mechs) >= 2
@@ -3748,19 +3830,19 @@ end
 
     @testset "Mechanism — idempotent" begin
         mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-        EnzymeRates._dedup_flat!(mechs)
+        unique!(mechs)
         n1 = length(mechs)
-        EnzymeRates._dedup_flat!(mechs)
+        unique!(mechs)
         @test length(mechs) == n1
     end
 
     @testset "Mechanism — bi-bi init: dedup leaves canonical seeds intact" begin
         # init_mechanisms produces mechanisms that are already in canonical
-        # form (no two are presentation-variants of each other). _dedup_flat!
+        # form (no two are presentation-variants of each other). unique!
         # is therefore a no-op on the count.
         mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
         n = length(mechs)
-        EnzymeRates._dedup_flat!(mechs)
+        unique!(mechs)
         @test length(mechs) == n
     end
 
@@ -3780,18 +3862,18 @@ end
             EnzymeRates.reaction(base),
             [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
         v = EnzymeRates.AllostericMechanism[am_ab, am_ba]
-        EnzymeRates._dedup_flat!(v)
+        unique!(v)
         @test length(v) == 1
     end
 
     @testset "Mechanism — inter-move overlap: dedup actually fires" begin
         # Run expand_mechanisms on a bi-bi init seed (Mechanism path), then
-        # _dedup_flat!. Assert that the flat vector shrinks, proving that two
+        # unique!. Assert that the flat vector shrinks, proving that two
         # different expansion paths produced equivalent Mechanisms.
         init_mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
         expanded = EnzymeRates.expand_mechanisms(init_mechs, bi_bi_rxn)
         pre = length(expanded)
-        EnzymeRates._dedup_flat!(expanded)
+        unique!(expanded)
         # dedup fired: two different expansion paths produced equivalent
         # Mechanisms, so the flat vector shrank.
         @test length(expanded) < pre
@@ -3800,10 +3882,10 @@ end
     @testset "Mechanism — permuted groups collapse via canonicalization" begin
         # Two Mechanisms with the same physics but with their outer
         # kinetic-group order arbitrarily rearranged should collapse to one
-        # after _dedup_flat!. This exercises _canonicalize_mechanism!'s
-        # outer-group sort path with a non-trivial permutation, confirming
-        # that any permutation of the outer Vector canonicalizes back to the
-        # same struct.
+        # after unique!. This exercises the constructor's outer-group
+        # sort with a non-trivial permutation, confirming that any
+        # permutation of the outer Vector canonicalizes back to the same
+        # struct.
         m_seed = first(EnzymeRates.init_mechanisms(bi_bi_rxn))
         EnzymeRates._assert_mechanism_invariants(m_seed)
         n_groups = length(m_seed.steps)
@@ -3814,7 +3896,7 @@ end
         m_rotated = EnzymeRates.Mechanism(
             EnzymeRates.reaction(m_seed), m_seed.steps[perm])
         v = EnzymeRates.Mechanism[m_seed, m_rotated]
-        EnzymeRates._dedup_flat!(v)
+        unique!(v)
         @test length(v) == 1
     end
 end
@@ -3990,7 +4072,7 @@ end
         # compile and that their actual fitted-param counts fall in the
         # expected {5,6} band. (Multi-tier actual-count enumeration is
         # exercised by the uni-uni / dead-end / allosteric callers below.)
-        init = EnzymeRates._dedup_flat!(
+        init = unique!(
             collect(EnzymeRates.init_mechanisms(bi_bi_rxn)))
         @test !isempty(init)
         counts = Set{Int}()
@@ -4323,16 +4405,36 @@ end
     @test length(init) == length(golden)   # init_mechanisms count invariant
 end
 
-@testset "_dedup_flat!" begin
+@testset "mechanism dedup via unique!" begin
     rxn = @enzyme_reaction begin
         substrates:S[C]
         products:P[C]
     end
     ms = collect(EnzymeRates.init_mechanisms(rxn))
     dup = vcat(ms, deepcopy(ms))          # every mechanism twice
-    out = EnzymeRates._dedup_flat!(dup)
-    @test length(out) == length(EnzymeRates._dedup_flat!(collect(ms)))
+    out = unique!(dup)
+    @test length(out) == length(unique!(collect(ms)))
     @test length(out) <= length(dup)
-    @test EnzymeRates._dedup_flat!(Union{EnzymeRates.Mechanism,
+    @test unique!(Union{EnzymeRates.Mechanism,
         EnzymeRates.AllostericMechanism}[]) == []
+end
+
+@testset "init division-freeness (bi_bi_pp)" begin
+    # Every enumerated init mechanism's derived rate equation must stay finite
+    # when any single metabolite concentration is zero (real data has zeros).
+    # `isfinite` suffices here: a residual coupling that survived the
+    # concentration-GCD would put the same 1/conc factor in BOTH numerator and
+    # denominator, so a zeroed metabolite yields Inf/Inf = NaN, which isfinite
+    # catches (no separate != 0 check needed).
+    mets = [:A, :B, :P, :Q]
+    for m in unique!(collect(EnzymeRates.init_mechanisms(bi_bi_pp_rxn)))
+        cm = EnzymeRates.compile_mechanism(m)
+        params = random_reduced_params(cm; rng = Random.MersenneTwister(1))
+        for zeroed in mets
+            cvals = Tuple(n == zeroed ? 0.0 : 1.0 for n in mets)
+            concs = NamedTuple{Tuple(mets)}(cvals)
+            v = rate_equation(cm, concs, params)
+            @test isfinite(v)
+        end
+    end
 end
