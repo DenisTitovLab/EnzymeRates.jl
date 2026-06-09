@@ -203,10 +203,9 @@ Returns a NamedTuple `(params, loss, retcode)` where:
 - `loss`: the best loss value achieved
 - `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
   `:Success` indicates the optimizer converged on its own criteria; any other
-  value means the fit should be treated as un-converged (check
-  `retcode !== :Success`). The opaque SciMLBase `:Default` (optimizer ended
-  without flagging success) is relabeled `:Unconverged`; informative codes
-  (`:MaxTime` — hit the time budget; `:Failure`; …) pass through unchanged.
+  value (e.g. `:MaxTime` — hit the time budget; `:Failure`; `:Default` — ran but
+  did not flag success) means the fit should be treated as un-converged (check
+  `retcode !== :Success`).
 """
 function fit_rate_equation(fp::FittingProblem, optimizer;
     n_restarts::Int=20,
@@ -221,8 +220,10 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
     best_x = zeros(np)
     best_loss = Inf
     # Sentinel for "no restart produced a finite objective" (loss stays Inf, so
-    # the fit is dropped by the beam's non-finite filter). Distinct from any
-    # SciMLBase ReturnCode name so it can't be confused with a solver return.
+    # the fit is dropped by the beam's non-finite filter). Deliberately NOT a
+    # real SciMLBase ReturnCode name — `Symbol(ReturnCode.Default) === :Default`,
+    # so `:NoFiniteLoss` stays distinct from a genuine `:Default` solver return
+    # (which only fires when a restart achieves a finite objective).
     best_retcode = :NoFiniteLoss
 
     for _ in 1:n_restarts
@@ -232,11 +233,7 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
         if sol.objective < best_loss
             best_loss = sol.objective
             best_x .= sol.u
-            rc = Symbol(sol.retcode)
-            # SciMLBase's `ReturnCode.Default` (the optimizer stopped without
-            # flagging success or a specific failure) is meaningless to users;
-            # relabel it so the saved retcode says the fit did not converge.
-            best_retcode = rc === :Default ? :Unconverged : rc
+            best_retcode = Symbol(sol.retcode)
         end
     end
 
