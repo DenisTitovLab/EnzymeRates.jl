@@ -21,16 +21,12 @@ expressed as a ratio to the root.
 Referencing to the free-enzyme form is what produces the readable
 `1 + S / K_S_E + P / K_P_E` denominator in the final equation.
 
-<!-- verified: _segment_root at src/rate_eq_derivation.jl:263-267 -->
-<!-- verified: _compute_alpha at src/rate_eq_derivation.jl:277-322 -->
 
 **Across segments**, the SS steps form an inter-segment rate matrix.
 The Cha numerator and denominator come from cofactor determinants of that
 matrix, with each diagonal entry weighted by the sigma sum of alpha factors
 for its segment.
 
-<!-- verified: _raw_symbolic_rate_polys at src/rate_eq_derivation.jl:339-399 -->
-<!-- verified: sym_det at src/sym_poly_for_rate_eq_derivation.jl:88-114 -->
 
 ## Symbolic algebra: Laurent polynomials
 
@@ -39,7 +35,6 @@ a monomial is a sorted list of `(Symbol, Int)` exponent pairs (exponents may
 be negative), and a polynomial is a `Dict` mapping monomials to
 `Rational{Int}` coefficients.
 
-<!-- verified: MONO, POLY at src/sym_poly_for_rate_eq_derivation.jl:9-10 -->
 
 Alpha factors and the numerator/denominator are maintained as fractional
 Laurent POLYs throughout — the package never forms a common denominator or
@@ -68,8 +63,6 @@ the shift factors it out, giving a cleaner expression.
 The shift acts **only on concentration symbols**, never on parameter symbols,
 so it cannot drop a fitted parameter.
 
-<!-- verified: _reduce_conc_lowest_terms at src/sym_poly_for_rate_eq_derivation.jl:56-81 -->
-<!-- verified: _concentration_symbols at src/rate_eq_derivation.jl:249-255 -->
 
 ## Seeing it in action
 
@@ -118,8 +111,6 @@ To prevent unbounded compilation, the package aborts if the intermediate
 determinant expansion exceeds `MAX_RATE_EQUATION_TERMS = 5000` polynomial
 terms.
 
-<!-- verified: MAX_RATE_EQUATION_TERMS at src/sym_poly_for_rate_eq_derivation.jl:7 -->
-<!-- verified: sym_det term-count check at src/sym_poly_for_rate_eq_derivation.jl:102-111 -->
 
 ## Zero-allocation runtime
 
@@ -131,4 +122,3 @@ chain exceeds roughly 30 terms.
 The balanced tree avoids that path entirely, keeping every [`rate_equation`](@ref)
 call allocation-free and sub-100 ns regardless of mechanism size.
 
-<!-- verified: _nest_binary at src/sym_poly_for_rate_eq_derivation.jl:162-170 -->

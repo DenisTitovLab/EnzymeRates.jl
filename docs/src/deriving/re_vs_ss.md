@@ -7,7 +7,6 @@ while SS steps cost two.
 
 ## The flag in the DSL
 
-<!-- verified: Step.is_equilibrium at src/types.jl:142; _step_struct_info parses ⇌/↔ at src/dsl.jl -->
 
 In [`@enzyme_mechanism`](@ref), `⇌` marks a step as rapid equilibrium and
 `<-->` marks it as steady state.
@@ -15,7 +14,6 @@ The distinction is stored on each `Step` as the `is_equilibrium` field.
 
 ## Parameter count per step
 
-<!-- verified: _step_parameters at src/thermodynamic_constr_for_rate_eq_derivation.jl:36-46 -->
 
 - An **RE binding step** contributes one parameter: a dissociation constant
   `Kd`, rendered as `K_<metabolite>_<form>` (for example, `K_S_E`).
