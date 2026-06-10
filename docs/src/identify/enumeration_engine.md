@@ -1,20 +1,3 @@
-<!--
-VERIFY-DURING-WRITING: before stating any per-move parameter delta below,
-confirm it against the code. Do not assume +1.
-  - _expand_re_to_ss: SS adds a reverse rate, BUT a Haldane/Wegscheider
-    constraint may make it dependent (net +0). Confirm via
-    fitted_params(compile_mechanism(child)) vs the parent.
-  - _expand_split_kinetic_group: +1 (a previously-shared K/k splits in two).
-  - _expand_add_dead_end_regulator: +1 (one K_R per regulator group).
-  - _expand_to_allosteric: +1 (just L); :OnlyA-per-group variant zeros the
-    opposite state, no extra param.
-  - _expand_add_allosteric_regulator: +1 (one K_R), or +2 for a NonequalAI
-    ligand (independent A/I K).
-  - _expand_change_allo_state to NonequalAI: +1 for an RE binding K
-    (K_A, K_I), +2 for an SS group (kf, kr each split A/I).
-Confirm each delta empirically with fitted_params before writing the number.
--->
-
 # The enumeration engine
 
 The mechanism search is built from three composable functions, not a

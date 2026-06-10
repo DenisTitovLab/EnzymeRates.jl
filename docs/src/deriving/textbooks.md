@@ -60,7 +60,6 @@ In `Reduced` mode the string has four sections:
 
 ## Mapping package names to textbook symbols
 
-<!-- verified against: name(p, m) chokepoint at src/types.jl; _dependent_param_exprs at src/thermodynamic_constr_for_rate_eq_derivation.jl -->
 
 | Package symbol | Textbook equivalent | Role |
 |:---|:---|:---|

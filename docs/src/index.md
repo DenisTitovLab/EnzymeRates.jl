@@ -17,8 +17,10 @@ Pkg.add(url = "https://github.com/DenisTitovLab/EnzymeRates.jl")
 
 - [Getting Started](@ref) — an end-to-end example from reaction to identified
   rate equation.
-- **Deriving rate equations** — how the package turns a mechanism into a
-  symbolic rate law.
-- **Fitting rate equations** — fitting a rate equation to kinetic data.
-- **Identifying the best rate equation** — the model-selection search.
+- [Deriving rate equations](deriving/textbooks.md) — how the package turns a
+  mechanism into a symbolic rate law.
+- [Fitting rate equations](fitting/tutorial.md) — fitting a rate equation to
+  kinetic data.
+- [Identifying the best rate equation](identify/tutorial.md) — the
+  model-selection search.
 - [API Reference](@ref) — every exported name.
