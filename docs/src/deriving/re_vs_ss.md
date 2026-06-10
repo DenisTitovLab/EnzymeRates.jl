@@ -19,7 +19,9 @@ The distinction is stored on each `Step` as the `is_equilibrium` field.
 
 - An **RE binding step** contributes one parameter: a dissociation constant
   `Kd`, rendered as `K_<metabolite>_<form>` (for example, `K_S_E`).
-- An **RE isomerization step** contributes one parameter: `Kiso`.
+- An **RE isomerization step** contributes one parameter: an isomerization
+  constant `Kiso`, rendered as `Kiso_<from>_to_<to>` (for example,
+  `Kiso_ES_to_EP`).
 - An **SS binding step** contributes two rate constants: `kon_<met>_<form>`
   and `koff_<met>_<form>`.
 - An **SS isomerization step** contributes two directed rate constants:
