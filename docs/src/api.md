@@ -1,3 +1,5 @@
 # API Reference
 
-Coming soon.
+```@autodocs
+Modules = [EnzymeRates]
+```
