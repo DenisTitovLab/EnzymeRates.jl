@@ -6,10 +6,6 @@ product concentrations, the package enumerates the biochemically valid
 mechanisms, fits each to the data, and selects the simplest equation that
 describes the data.
 
-!!! warning "Documentation under construction"
-    This site is being built out. Pages currently marked *Coming soon* are
-    placeholders; their content arrives in later phases.
-
 ## Installation
 
 ```julia
