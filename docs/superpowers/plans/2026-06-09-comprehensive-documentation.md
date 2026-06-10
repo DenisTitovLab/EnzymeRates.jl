@@ -610,9 +610,10 @@ This task is **not** executable by the agent — it requires Denis's GitHub repo
   Expected: `[ Info: Documenter: rendering done.`, exit 0, no doctest failures, no `checkdocs` failures, `deploydocs` reports `Skipping deployment` locally.
 
 - [ ] **Step 2: Confirm the main test suite is untouched/green**
-  Phase 0 adds no `src/` or `test/` changes, but confirm nothing regressed:
+  Phase 0 adds no `src/` or `test/` changes, but confirm nothing regressed. The `docs-comprehensive` branch is based on `rate-equation-no-concentration-division` (NOT `main`), so diff against the branch's own start point, not `main`:
   ```bash
-  git diff --stat main -- src test
+  base=$(git merge-base HEAD rate-equation-no-concentration-division)
+  git diff --stat "$base"..HEAD -- src test
   ```
   Expected: empty output (no `src/` or `test/` changes in this phase). No need to run the slow full suite for an infra-only phase; the CLAUDE.md "run tests before committing" rule is satisfied for docs-only changes by the green `docs/make.jl` build, since Phase 0 touches no package code.
 
