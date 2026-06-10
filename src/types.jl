@@ -294,25 +294,18 @@ by name in the constructor, so two equivalent declarations compare equal
 under `==`/`hash`.
 
 ```jldoctest
+julia> using EnzymeRates
+
 julia> rxn = @enzyme_reaction begin
            substrates: S[C]
            products:   P[C]
        end;
-ERROR: LoadError: UndefVarError: `@enzyme_reaction` not defined in `Main`
-Suggestion: check for spelling errors or missing imports.
-Hint: a global variable of this name also exists in EnzymeRates.
-in expression starting at none:1
 
 julia> rxn isa EnzymeReaction
-ERROR: UndefVarError: `rxn` not defined in `Main`
-Suggestion: check for spelling errors or missing imports.
-Stacktrace:
- [1] top-level scope
-   @ none:1
+true
 
 julia> rxn
-ERROR: UndefVarError: `rxn` not defined in `Main`
-Suggestion: check for spelling errors or missing imports.
+EnzymeReaction: S ⇌ P
 ```
 """
 struct EnzymeReaction
@@ -1236,13 +1229,31 @@ end
     metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}
 
 Return distinct metabolite names (substrates ∪ products ∪ regulators) as a tuple
-of `Symbol`s in declaration order, deduplicated.
+of `Symbol`s in declaration order, deduplicated. The fitter uses this as the
+key set for the per-datapoint concentration `NamedTuple` passed to
+[`rate_equation`](@ref).
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           steps: begin
+               E + S <--> E(S)
+               E(S) <--> E + P
+           end
+       end;
+
+julia> metabolites(m)
+(:S, :P)
+```
 """
-# Kept `@generated` (unlike the other demoted accessors): `loss!` uses
-# `metabolites(m)` as a compile-time-constant tuple to build the
-# per-datapoint `NamedTuple{MetNames}` concs on the fitting hot path. A
-# runtime body would make that NamedTuple type-unstable and allocate.
 @generated function metabolites(::EnzymeMechanism{Sig}) where {Sig}
+    # Kept `@generated` (unlike the other demoted accessors): `loss!` uses
+    # `metabolites(m)` as a compile-time-constant tuple to build the
+    # per-datapoint `NamedTuple{MetNames}` concs on the fitting hot path. A
+    # runtime body would make that NamedTuple type-unstable and allocate.
     m = Mechanism(EnzymeMechanism{Sig}())
     rxn = reaction(m)
     names = Symbol[]
