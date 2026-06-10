@@ -40,7 +40,7 @@ independent cycles. The computation uses `Rational{BigInt}` throughout — no
 floating point — so each null-space vector is reduced to a primitive integer
 vector with an exact sign convention.
 
-Each cycle is then classified (`classify_cycle`): if its stoichiometry vector is
+Each cycle is then classified by its stoichiometry: if its stoichiometry vector is
 proportional to the net reaction's stoichiometry, it is a Haldane cycle; if its
 stoichiometry is zero, it is a Wegscheider cycle. Any other result is a hard
 error — the mechanism is thermodynamically contradictory and the package raises

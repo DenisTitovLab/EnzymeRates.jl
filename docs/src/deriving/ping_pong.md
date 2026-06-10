@@ -80,11 +80,12 @@ end
 residual_forms
 ```
 
-The residual-bearing forms appear as `:E_res_+A_-Q`, `:EB_res_+A_-Q`, and
-`:EQ_res_+A_-Q`. All three sit on conformation `:E`; the `+A_-Q` suffix records
-that the enzyme carries the atoms of substrate `A` and is committed to releasing
-product `Q`. The `EB_res_+A_-Q` form has substrate `B` additionally bound —
-this is the moment just before the second half-reaction.
+The three residual-bearing forms all sit on conformation `:E`:
+`E_res_+A_-Q` (the free enzyme carrying the residual), `EB_res_+A_-Q`
+(substrate `B` additionally bound — the moment just before the second
+half-reaction), and `EQ_res_+A_-Q` (product `Q` bound). The `+A_-Q` suffix
+records that the enzyme carries the atoms of substrate `A` and is committed to
+releasing product `Q`.
 
 Note that `init_mechanisms`, `steps`, `from_species`, `has_residual`, and `name`
 are reached as `EnzymeRates.<name>` because they are internal-but-usable
