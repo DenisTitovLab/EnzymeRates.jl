@@ -122,7 +122,3 @@ LOOCV (default `n_cv_candidates=5`, a kwarg of `identify_rate_equation`).
 Distinctness is by `eq_hash`.
 
 ---
-
-*This page supersedes the README's model-selection description, which
-incorrectly described the CV score as a plain mean of losses and selection
-as a plain argmin.*
