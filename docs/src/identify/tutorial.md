@@ -127,9 +127,14 @@ results.best
 print(rate_equation_string(results.best))
 ```
 
-The equation holds the same kinetic information as the generating mechanism
-(the same simplified fractional form), which is why the search recovers it on
-noiseless data.
+On noiseless data the search returns the simplest rate equation consistent with
+the data — here a minimal three-parameter, rapid-equilibrium form (`K_P_E`,
+`K_S_E`, `k_ES_to_EP`). That equation is a reparametrization of the steady-state
+mechanism that generated the data: the same fractional rate law, written with
+fewer independent parameters. The search recovers the *functional form* and
+picks its most parsimonious parameterization — it does not reconstruct the exact
+generating mechanism, and cross-validation cannot distinguish reparametrizations
+of one rate law.
 
 `results.cv_results` is a `DataFrame` with one row per candidate equation that
 entered cross-validation:
