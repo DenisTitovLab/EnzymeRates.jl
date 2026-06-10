@@ -117,29 +117,38 @@ den =          Q_A^cat_n * W_A           + L * Q_I^cat_n           * W_I
   inactive-enzyme population and the allosteric coupling.
 
 In the rendered equation above, `cat_n = 2`. The active branch carries
-`(1 + A / K_A_Areg) ^ 2` (activator favors A-state), the inactive branch
-carries `(1 + I / K_I_Ireg) ^ 2` (inhibitor favors I-state), and each
-partition function appears squared in the denominator.
+`(1 + A / K_A_Areg) ^ 2 * 1 ^ 2` — the activator site's factor squared, times a
+trivial `1 ^ 2` from the inhibitor site (whose `:OnlyI` ligand is absent in the
+active state). The inactive branch mirrors this as
+`1 ^ 2 * (1 + I / K_I_Ireg) ^ 2`. Each partition function appears squared
+(`cat_n = 2`) in the denominator.
 
 When any catalytic group is `:OnlyA`, the inactive catalytic cycle cannot
 close. The package forces `N_I = 0` in that case to maintain Haldane
 thermodynamic consistency — the inactive branch still contributes to the
 denominator as enzyme mass, but carries no forward flux.
 
-## Known rendering quirk in Haldane constraints
+## The printed allosteric equation is illustrative, not runnable
 
-In the Haldane-constraint lines at the top of the rendered equation, the
-right-hand side may reference a bare active-state base name rather than the
-A-suffixed symbol listed in `params`. In the example above:
+For a non-allosteric mechanism the printed `Reduced` string is a runnable
+transcript: its `# Haldane constraints:` lines are assignments consistent with
+the `v` line. For an **allosteric** mechanism this does not hold. The constraint
+section displays each Haldane relation using the catalytic sub-mechanism's
+*un-prefixed* base names:
 
 ```
 k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
 ```
 
-Here `k_ES_to_EP` is the un-prefixed base name, even though the independent
-parameter list uses `k_A_ES_to_EP`. The numerical result is identical because
-the assignment block sets `k_ES_to_EP` from `k_A_ES_to_EP` before evaluating
-this line. This is confirmed behavior; the rendered string is correct.
+while the `v` expression uses the fully A/I-tokened names (`k_A_ES_to_EP`,
+`k_A_EP_to_ES`, `k_I_ES_to_EP`, `k_I_EP_to_ES`). The two do not line up, so read
+the printed allosteric string as showing the *form* of each Haldane relation,
+not as code to paste and run.
+
+The compiled [`rate_equation`](@ref) is unaffected: it applies the A/I renaming
+internally and evaluates correctly against the `parameters` set above. The
+mismatch lives only in how `rate_equation_string` renders allosteric
+mechanisms.
 
 ## See also
 
