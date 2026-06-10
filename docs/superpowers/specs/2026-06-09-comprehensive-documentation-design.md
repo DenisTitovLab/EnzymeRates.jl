@@ -62,13 +62,18 @@ PkgTemplates default. The job uses `julia-actions/julia-docdeploy@v1`, reuses
 the workflow-level `on:` block (push `main` + tags, `pull_request`,
 `workflow_dispatch`), and grants `permissions: { contents: write }`.
 
-**Auth:** pass both `DOCUMENTER_KEY` and `GITHUB_TOKEN` as env on the
-docdeploy step. Documenter prefers the SSH key and falls back to the token.
-`DOCUMENTER_KEY` is referenced in CompatHelper.yml and TagBot.yml but is **not
-yet created** as a repo secret (confirmed with Denis). Denis will generate and
-install it (via `DocumenterTools.genkeys`) in Phase 0; until then `GITHUB_TOKEN`
-is the working fallback. Passing both is safe before the key exists — an unset
-secret resolves to empty and Documenter falls back to the token.
+**Auth:** pass `GITHUB_TOKEN` only as env on the docdeploy step, with
+`permissions: contents: write`. The deploy is same-repo, so the token both
+authenticates the `gh-pages` push and serves it — a token-pushed `gh-pages`
+rebuilds under the classic "Deploy from a branch" Pages source. The old
+Documenter "GITHUB_TOKEN doesn't trigger the Pages build" caveat was removed in
+PR #1517 after GitHub fixed the trigger, and this is verified live on
+DataDrivenEnzymeRateEqs.jl, which deploys token-only. **No `DOCUMENTER_KEY`
+secret is created.** The one exception is versioned **release** docs: a tag made
+by TagBot with only `GITHUB_TOKEN` cannot trigger the docs workflow, so
+tagged-release docs additionally need `DOCUMENTER_KEY` on `TagBot.yml` —
+deferred until the first tagged release. Denis flips the repo Pages source to
+the `gh-pages` branch once the first CI deploy creates it.
 
 **Build vs deploy:** `makedocs` builds on every trigger and turns a PR check
 red on a broken page or failing doctest. `deploydocs` self-gates: it pushes to
@@ -360,11 +365,11 @@ Defaults, overridable at spec review:
 Each phase ends green (tests pass, docs build passes).
 
 - **Phase 0 — Infra scaffold.** `docs/` subproject; `make.jl`; `refs.bib`
-  (DOIs gathered via a verification workflow); `docs` job in `CI.yml`; a
-  minimal Home plus empty section stubs. Denis generates and installs the
-  `DOCUMENTER_KEY` repo secret (`DocumenterTools.genkeys`) before the first
-  deploy. **Exit:** docs build green locally and in CI; first gh-pages deploy
-  eyeballed.
+  (DOIs gathered via a verification workflow); `docs` job in `CI.yml`
+  (`GITHUB_TOKEN` only); a minimal Home plus empty section stubs. After the
+  first CI deploy creates `gh-pages`, Denis sets the repo Pages source to that
+  branch (no `DOCUMENTER_KEY`). **Exit:** docs build green locally and in CI;
+  first gh-pages deploy eyeballed.
 - **Phase 1 — Docstring gaps + API page.** Write the `EnzymeReaction`
   docstring; fix the `metabolites` detachment; expand the terse deterministic-
   function docstrings with their `jldoctest` blocks; build the consolidated API
