@@ -581,9 +581,47 @@ end
 # ─── String Representation ────────────────────────────────────
 
 """
-    rate_equation_string(m, [mode])
+    rate_equation_string(m, [mode]) -> String
 
-Return a string representation of the rate equation.
+Return the symbolic rate equation for mechanism `m` as a multi-line
+`String` (it returns the text — it does not print). `mode` is `Reduced`
+(default) or `Full`; pass a concrete `Mechanism` / `AllostericMechanism`
+or its compiled [`EnzymeMechanism`](@ref) singleton.
+
+The string is a runnable transcript of how [`rate_equation`](@ref)
+evaluates: a `(; …) = params` destructure line, a `(; …) = concs`
+destructure line, then the `v = E_total * (num) / (den)` line. In
+`Reduced` mode, dependent rate constants are listed first under
+`# Wegscheider constraints:` and `# Haldane constraints:` headers — the
+thermodynamic identities that eliminate parameters — and only the
+independent set appears in the `params` destructure. In `Full` mode every
+rate constant is independent, so there is no constraint section. `Full`
+mode is defined for `EnzymeMechanism` only; an `AllostericEnzymeMechanism`
+supports `Reduced` mode only.
+
+Use `print` on the result to see the multi-line layout without escaped
+newlines.
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           steps: begin
+               E + S ⇌ E(S)
+               E(S) <--> E(P)
+               E(P) ⇌ E + P
+           end
+       end;
+
+julia> print(rate_equation_string(m))
+(; K_P_E, K_S_E, k_ES_to_EP, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
+v = E_total * (k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E) / (1 + P / K_P_E + S / K_S_E)
+```
 """
 function rate_equation_string end
 
