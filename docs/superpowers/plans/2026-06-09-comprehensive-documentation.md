@@ -39,7 +39,7 @@
 
 **Modified**
 
-- `.github/workflows/CI.yml` — append a `docs` job (sibling of `test`) running setup-julia/cache/buildpkg/julia-docdeploy with `contents: write`, passing both `DOCUMENTER_KEY` and `GITHUB_TOKEN`, plus a doctest step.
+- `.github/workflows/CI.yml` — append a `docs` job (sibling of `test`) running setup-julia/cache/buildpkg/julia-docdeploy with `contents: write`, passing `GITHUB_TOKEN` only (same-repo deploy, no `DOCUMENTER_KEY`), plus a doctest step.
 - `.gitignore` — append `docs/build/` (and rely on the existing `Manifest.toml` rule for `docs/Manifest.toml`).
 - `src/types.jl` — add/repair docstrings: write the `EnzymeReaction` type docstring, reattach the `metabolites` docstring (move the `@generated`-rationale comment into the body), add `Step` and `Mechanism` docstrings (and verify `AllostericEnzymeMechanism`).
 - `src/rate_eq_derivation.jl` — expand the `rate_equation_string` docstring (mode, multi-line format, Full-mode restriction, `jldoctest`).
@@ -54,7 +54,7 @@ I have everything I need. The branch is `docs-comprehensive`, `docs/src` is empt
 
 ## Phase 0 — Infrastructure Scaffold
 
-This phase stands up the `docs/` subproject and proves the entire Documenter + doctest + citation + CI/deploy pipeline end-to-end *before* any real content exists. The deliverable is a documentation site that builds green locally and in CI off placeholder stub pages, with citations resolving, doctests running (none yet, but the machinery is live), and a `docs` CI job wired into the existing `.github/workflows/CI.yml`. The only out-of-band step is Denis generating and installing the `DOCUMENTER_KEY` repo secret; everything else the executor does. We are already on the `docs-comprehensive` branch with an empty `docs/src/`, so no branch creation is needed. Exit criteria: `julia --project=docs docs/make.jl` builds clean locally, `docs/build/` is gitignored, the CI job is present, and the secret-install checklist is recorded.
+This phase stands up the `docs/` subproject and proves the entire Documenter + doctest + citation + CI/deploy pipeline end-to-end *before* any real content exists. The deliverable is a documentation site that builds green locally and in CI off placeholder stub pages, with citations resolving, doctests running (none yet, but the machinery is live), and a `docs` CI job wired into the existing `.github/workflows/CI.yml`. The only out-of-band step is Denis flipping the repo Pages source to the `gh-pages` branch after the first CI deploy creates it (no `DOCUMENTER_KEY` secret is needed — `GITHUB_TOKEN` authenticates the same-repo push). We are already on the `docs-comprehensive` branch with an empty `docs/src/`, so no branch creation is needed. Exit criteria: `julia --project=docs docs/make.jl` builds clean locally, `docs/build/` is gitignored, the CI job is present, and the Pages-enable checklist is recorded.
 
 ### Task 0.1: docs/ subproject and dependency instantiation
 
@@ -481,7 +481,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   This confirms the `test` job ends here and the new `docs` job appends at the same indentation level as `test:` (2 spaces).
 
 - [ ] **Step 2: Append the `docs` job**
-  Edit `/home/denis.linux/.julia/dev/EnzymeRates/.github/workflows/CI.yml`, adding the following block as the last content of the file (it sits under the top-level `jobs:` key, a sibling of `test:`). The job uses `julia-actions/julia-docdeploy@v1`, grants `contents: write`, runs a "Configure doc environment" step that `dev`s the package into the docs env, and runs doctests as a separate step. Both `DOCUMENTER_KEY` and `GITHUB_TOKEN` are passed; an unset `DOCUMENTER_KEY` resolves to empty and Documenter falls back to the token (spec section 1).
+  Edit `/home/denis.linux/.julia/dev/EnzymeRates/.github/workflows/CI.yml`, adding the following block as the last content of the file (it sits under the top-level `jobs:` key, a sibling of `test:`). The job uses `julia-actions/julia-docdeploy@v1`, grants `contents: write`, runs a "Configure doc environment" step that `dev`s the package into the docs env, and runs doctests as a separate step. Only `GITHUB_TOKEN` is passed — for a same-repo deploy that is sufficient and matches the working DataDrivenEnzymeRateEqs.jl docs job (no `DOCUMENTER_KEY` secret is created). `contents: write` is the load-bearing line that lets the token push `gh-pages`.
 
   Append exactly (note the leading two-space indent on `docs:`):
 
@@ -509,7 +509,6 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
       - name: Run doctests
         shell: julia --project=docs --color=yes {0}
         run: |
@@ -578,33 +577,25 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   ```
   If `git status --short` shows nothing, skip the commit — the file is already current.
 
-### Task 0.8: Denis's manual step — DOCUMENTER_KEY repo secret (checklist)
+### Task 0.8: Denis's manual step — enable GitHub Pages (checklist)
 
 **Files:**
-- (no file changes; this is a hand-off checklist for Denis, recorded so the deploy can succeed)
+- (no file changes; this is a hand-off checklist for Denis, recorded so the deploy can serve)
 
-This task is **not** executable by the agent — it requires Denis's GitHub repo-admin access. The agent's job is to surface the exact commands and confirm the prerequisite. `DOCUMENTER_KEY` is referenced in `CompatHelper.yml`/`TagBot.yml` but is not yet a repo secret (spec section 1); until it exists, `GITHUB_TOKEN` is the working fallback and the `docs` CI job still builds/verifies on PRs.
+This task is **not** executable by the agent — it requires Denis's GitHub repo-admin access. No `DOCUMENTER_KEY` secret is needed: the deploy is same-repo, so `GITHUB_TOKEN` authenticates the `gh-pages` push, and a token-pushed `gh-pages` branch rebuilds and serves under the classic "Deploy from a branch" Pages source (the old Documenter caveat to the contrary was removed in Documenter PR #1517 after GitHub fixed the trigger; verified live on DataDrivenEnzymeRateEqs.jl, which deploys token-only). The one action is flipping the Pages source, and it can only happen after the first `docs` CI run on `main` creates the `gh-pages` branch.
 
-- [ ] **Step 1: Confirm `DocumenterTools` is available to generate the key**
+- [ ] **Step 1: Let the `docs` job run once on `main`**
+  After the `docs-comprehensive` PR merges to `main`, the `docs` job runs `julia-actions/julia-docdeploy@v1`, which creates the `gh-pages` branch and pushes the `dev/` build. Confirm the branch exists:
   ```bash
-  julia -e 'import Pkg; Pkg.activate(temp=true); Pkg.add("DocumenterTools"); using DocumenterTools; println("DocumenterTools ready")'
+  git ls-remote --heads origin gh-pages
   ```
-  Expected: prints `DocumenterTools ready`. (This uses a temp environment so it does not touch the docs or main project.)
+  Expected: one line ending in `refs/heads/gh-pages`. If empty, the docs job has not deployed yet — check the Actions run for the `docs` job.
 
-- [ ] **Step 2: Hand off to Denis with the exact key-generation command**
-  Tell Denis to run, from the repo root:
-  ```julia
-  using DocumenterTools
-  DocumenterTools.genkeys(user = "DenisTitovLab", repo = "EnzymeRates.jl")
-  ```
-  This prints two blocks:
-  1. A **public** deploy key → Denis installs it under GitHub repo **Settings → Deploy keys → Add deploy key**, with **"Allow write access" checked**, name e.g. `documenter`.
-  2. A **private** key (base64) → Denis installs it under **Settings → Secrets and variables → Actions → New repository secret**, named exactly **`DOCUMENTER_KEY`**.
+- [ ] **Step 2: Hand off to Denis — set the Pages source**
+  Tell Denis to set, one time, in the GitHub web UI: **Settings → Pages → Build and deployment → Source = "Deploy from a branch" → Branch = `gh-pages`, folder = `/ (root)` → Save.** Do **not** pick "GitHub Actions" as the source. The site then serves at `https://denistitovlab.github.io/EnzymeRates.jl/dev/`.
 
-  Denis confirms back when both are installed. Until then the `docs` job deploys via `GITHUB_TOKEN` fallback.
-
-- [ ] **Step 3: Record the hand-off in the journal**
-  Tell Denis (in the agent's final report, not a committed file): DOCUMENTER_KEY generation/installation is pending Denis's manual action per spec section 1 and Phase 0 exit criteria; the first gh-pages deploy should be eyeballed after merge to `main`. (Per CLAUDE.md, do not write a summary `.md`; surface this in the return message.)
+- [ ] **Step 3: Surface the deferred tagged-docs note**
+  Tell Denis (in the agent's final report, not a committed file): the `dev`/`main` site needs no `DOCUMENTER_KEY`. Versioned **release** docs (`stable/`, `vX.Y.Z/`) are the one exception — a tag created by Julia TagBot with only `GITHUB_TOKEN` cannot trigger the `docs` workflow, so when Denis cuts the first tagged release he must add `ssh: ${{ secrets.DOCUMENTER_KEY }}` under `TagBot.yml`'s `with:` and create the `DOCUMENTER_KEY` secret then (`DocumenterTools.genkeys`). Out of scope for this phase. (Per CLAUDE.md, do not write a summary `.md`; surface this in the return message.)
 
 ### Task 0.9: Phase 0 exit gate
 
@@ -630,7 +621,7 @@ This task is **not** executable by the agent — it requires Denis's GitHub repo
   ```
   Expected: `git status --short` prints nothing (all Phase 0 work committed; `docs/build/` and `docs/Manifest.toml` gitignored); branch is `docs-comprehensive`.
 
-**Phase 0 exit (per spec section 11):** docs build green locally; `docs` CI job present in `CI.yml` (green on the PR is verified once pushed); `DOCUMENTER_KEY` hand-off recorded (Task 0.8); first gh-pages deploy to be eyeballed after the `docs-comprehensive` PR merges to `main`. No package code changed, so the full suite is unaffected.
+**Phase 0 exit (per spec section 11):** docs build green locally; `docs` CI job present in `CI.yml` (green on the PR is verified once pushed); Pages-enable hand-off recorded (Task 0.8); first gh-pages deploy to be eyeballed after the `docs-comprehensive` PR merges to `main` and Denis sets the Pages source. No package code changed, so the full suite is unaffected.
 
 I have all the verified facts. Now I'll write the Phase 1 section. I have confirmed:
 
@@ -2902,7 +2893,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 The plan is complete when every spec exit criterion holds:
 
 - **`make.jl` builds clean locally.** `julia --project=docs docs/make.jl` runs to `[ Info: Documenter: rendering done` and exits 0, with no warnings, no missing-page errors, and (locally) `deploydocs` reporting `Skipping deployment`.
-- **The `docs` CI job is green and deploys on merge.** The `docs` job in `.github/workflows/CI.yml` passes as a PR check (PRs verify, never publish) and, on merge to `main`, deploys to gh-pages via `julia-actions/julia-docdeploy@v1`; the first deploy is eyeballed after the `docs-comprehensive` PR merges (gated on Denis installing the `DOCUMENTER_KEY` secret; `GITHUB_TOKEN` is the working fallback until then).
+- **The `docs` CI job is green and deploys on merge.** The `docs` job in `.github/workflows/CI.yml` passes as a PR check (PRs verify, never publish) and, on merge to `main`, deploys to gh-pages via `julia-actions/julia-docdeploy@v1` using `GITHUB_TOKEN` (same-repo, no `DOCUMENTER_KEY`); the first deploy is eyeballed after the `docs-comprehensive` PR merges and Denis sets the Pages source to the `gh-pages` branch.
 - **`checkdocs = :exports` passes.** Every exported name has an attached docstring — the `EnzymeReaction` and `metabolites` gaps are closed and no export is flagged.
 - **Every `jldoctest` passes and every `@example` runs.** All output-checked doctests (in `rate_equation_string`, `parameters`, `metabolites`, `rate_equation`, and the page-level deterministic blocks) match byte-for-byte under `doctest = true`; every `@example` block on every tutorial page executes without error.
 - **The fast identify tutorial recovers its mechanism in seconds.** The width-1-beam `identify_rate_equation` example (`min_beam_width = 1`, `loss_rel_threshold = 1.0`, `loss_abs_threshold = 0.0`, low `max_param_count`, serial `pmap_function = map`) runs in seconds on noiseless data and `results.best` recovers the generating mechanism.
