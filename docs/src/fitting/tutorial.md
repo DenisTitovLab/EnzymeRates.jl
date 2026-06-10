@@ -96,9 +96,10 @@ and returns the best. Because the optimizer is stochastic, `result.params` and
 `result.loss` vary from run to run.
 
 Check `result.retcode === :Success` to confirm the optimizer converged on its
-own criteria. Any other value — `:MaxTime`, `:Failure`, `:NoFiniteLoss` — means
-the fit is un-converged. When time or restart budgets are tight, `:MaxTime` is
-common; increase `n_restarts` and `maxtime` for production fits.
+own criteria. Any other value — `:Default`, `:MaxTime`, `:Failure`,
+`:NoFiniteLoss` — means the fit is un-converged. When time or restart budgets
+are tight, `:MaxTime` is common; increase `n_restarts` and `maxtime` for
+production fits.
 
 The returned `params` reflect kcat normalization: with the default
 `scale_k_to_kcat = 1.0`, the SS rate constants are rescaled so that kcat = 1.
