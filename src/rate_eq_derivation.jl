@@ -25,8 +25,8 @@ Return the parameter names required for the given mode as a tuple of Symbols.
   symbols the user supplies to evaluate the Haldane-reduced rate
   equation. Returned for both `EnzymeMechanism` and
   `AllostericEnzymeMechanism`.
-- `Full`: all raw rate-constant symbols + E_total. For
-  `EnzymeMechanism` this is "all 2N k's + E_total." For
+- `Full`: all raw rate-constant symbols + `E_total`. For
+  `EnzymeMechanism` this is "all 2N k's + `E_total`." For
   `AllostericEnzymeMechanism` it composes the catalytic raw A-state
   symbols + every I-state mirror (catalytic + regulatory + synthesized
   dep) + reg-site A-state K's (skipping `:OnlyI` ligands) + `:L` +

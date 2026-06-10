@@ -99,7 +99,7 @@ Changes one `:EqualAI` or `:OnlyA`/`:OnlyI` allosteric-state tag to
 group independent parameters. No-op on a non-allosteric input.
 
 **Parameter delta:**
-- RE binding group: **+1** (one shared K splits into K_A and K_I).
+- RE binding group: **+1** (one shared K splits into `K_A` and `K_I`).
 - SS rate group: **+2** (each SS rate `kf` and `kr` splits into A/I pairs,
   adding two new independent constants).
 
