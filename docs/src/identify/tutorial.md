@@ -8,7 +8,8 @@ This page walks through a fast, fully runnable example. The example uses
 noiseless data and a collapsed width-1 beam to finish in seconds; the full
 production search uses the wider defaults (`min_beam_width=50`,
 `loss_rel_threshold=2.0`, `loss_abs_threshold=0.01`, `max_param_count=20`)
-and typically runs for roughly an hour.
+and would often run for many hours and require the use of High Performance
+Compute Clusters (see [Running in parallel](parallel.md)).
 
 ```@setup identify_fast
 using EnzymeRates
@@ -110,7 +111,7 @@ single-path trace through the mechanism space.
 The full production search uses the wider defaults (`min_beam_width=50`,
 `loss_rel_threshold=2.0`, `loss_abs_threshold=0.01`, `max_param_count=20`,
 `n_restarts=20`, `maxtime=60.0`) and explores far more candidates in
-parallel via `pmap_function=pmap`.
+parallel via `pmap_function=pmap` (see [Running in parallel](parallel.md)).
 
 ## Read the result
 

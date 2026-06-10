@@ -34,6 +34,7 @@ makedocs(;
         ],
         "Identifying the best rate equation" => [
             "Identify tutorial" => "identify/tutorial.md",
+            "Running in parallel" => "identify/parallel.md",
             "Model selection" => "identify/model_selection.md",
             "The enumeration engine" => "identify/enumeration_engine.md",
         ],
