@@ -4,3 +4,4 @@ Manifest.toml
 test/outcmaes/
 outcmaes/
 .claude/scheduled_tasks.lock
+docs/build/
