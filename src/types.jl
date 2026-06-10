@@ -135,6 +135,16 @@ Base.hash(s::RegulatorySite, h::UInt) =
 # steps (RE and SS) canonicalize in the Mechanism constructor via
 # `_canonical_iso_direction`. After Mechanism construction, every Step is
 # canonicalized.
+"""
+    Step
+
+One elementary transition between two enzyme `Species`. A binding step carries
+the bound `Metabolite` in `bound_metabolite` (iso steps store `nothing`).
+`is_equilibrium` flags a rapid-equilibrium step (`true`) versus a steady-state
+step (`false`). Every `Step` is stored in canonical form: binding steps place
+the bound metabolite on `to_species`, and iso-step direction is fixed by the
+`Mechanism`/`AllostericMechanism` constructor.
+"""
 struct Step
     from_species::Species
     to_species::Species
@@ -511,6 +521,17 @@ end
 # constructor canonicalizes iso-step direction and stores the steps;
 # parameter naming and step ordering derive purely from structure and
 # flat iteration order.
+"""
+    Mechanism
+
+A non-allosteric enzyme mechanism: a `reaction::EnzymeReaction` plus
+`steps::Vector{Vector{Step}}`, where the outer vector is kinetic groups and
+each inner vector holds the steps that share that group's kinetic parameters.
+The constructor canonicalizes iso-step direction and sorts steps and groups,
+so two mechanisms that differ only in how their steps were written collapse to
+the same struct. Lift to the singleton derivation type with
+`EnzymeRates.compile_mechanism(m)` or `EnzymeMechanism(m)`.
+"""
 struct Mechanism
     reaction::EnzymeReaction
     steps::Vector{Vector{Step}}
