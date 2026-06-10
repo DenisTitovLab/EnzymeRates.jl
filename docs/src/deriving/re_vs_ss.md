@@ -30,49 +30,66 @@ metabolite and form names rather than arbitrary indices.
 
 ## A concrete comparison
 
-The textbook reversible Michaelis–Menten mechanism has RE binding steps and
-one SS catalytic step:
+A one-substrate reaction barely distinguishes the two assumptions — the
+rapid-equilibrium and steady-state rate laws differ only in how three or four
+constants are named. The gap becomes dramatic for a two-substrate mechanism.
+Take an ordered bi-uni reaction — `A` binds, then `B`, the complex isomerizes,
+and `P` leaves — first as a rapid-equilibrium mechanism with steady-state
+catalysis:
 
 ```@example revss
 using EnzymeRates
 re = @enzyme_mechanism begin
-    substrates: S
+    substrates: A, B
     products:   P
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
+        E + A ⇌ E(A)
+        E(A) + B ⇌ E(A, B)
+        E(A, B) <--> E(P)
         E(P) ⇌ E + P
     end
 end
 parameters(re)
 ```
 
-The same skeleton with all steps made steady state:
+Six parameters, and a compact rate law:
+
+```@example revss
+print(rate_equation_string(re))
+```
+
+Now the same skeleton with every step made steady state:
 
 ```@example revss
 ss = @enzyme_mechanism begin
-    substrates: S
+    substrates: A, B
     products:   P
     steps: begin
-        E + S <--> E(S)
-        E(S) <--> E(P)
+        E + A <--> E(A)
+        E(A) + B <--> E(A, B)
+        E(A, B) <--> E(P)
         E(P) <--> E + P
     end
 end
 parameters(ss)
 ```
 
-The RE form fits five parameters: `(:K_P_E, :K_S_E, :k_ES_to_EP, :Keq,
-:E_total)`.
-The SS form fits seven: `(:k_ES_to_EP, :koff_P_E, :koff_S_E, :kon_P_E,
-:kon_S_E, :Keq, :E_total)`.
-Each binding step that switches from RE to SS gains a separate on-rate and
-off-rate in place of the single equilibrium constant.
+Nine parameters — each binding step trades its single `K` for an independent
+`kon`/`koff` pair — and the rate law is far larger:
 
-After thermodynamic reduction, one rate constant per independent cycle is
-eliminated by the Haldane/Wegscheider constraint — but SS steps still add
-more *independent* parameters before that reduction, because they start with
-two rate constants each.
+```@example revss
+print(rate_equation_string(ss))
+```
+
+The contrast is structural, not cosmetic. In the rapid-equilibrium form every
+binding step factors out as a pre-equilibrium segment, so the denominator
+collapses to one term per reachable enzyme form: `1`, `A`, `A·B`, and `P` —
+four terms. In the steady-state form nothing factors out — the King–Altman
+treatment keeps a term for every enzyme-form pattern, giving a denominator with
+many more terms and products of on/off rates throughout. After thermodynamic
+reduction one rate constant per cycle is eliminated in both, but the
+steady-state mechanism starts with two rate constants per binding step, so it
+keeps more independent parameters and a much bushier rate law.
 
 ## The RE assumption
 
@@ -85,11 +102,3 @@ The [The Cha / King–Altman algorithm](@ref) solves the full Cha steady state
 regardless of whether individual steps are RE or SS; RE steps simply factor
 out of the rate matrix as pre-equilibrium segments, giving the familiar
 `K_met_form` notation in the denominator.
-
-## The RE→SS expansion move
-
-When the package searches for the best rate equation, it can promote a whole
-kinetic group from RE to SS atomically — every step sharing that group
-converts together.
-This expansion is one of the moves in the enumeration engine.
-See the enumeration engine page for details.
