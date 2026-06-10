@@ -269,11 +269,52 @@ Base.hash(r::RegulatorMults, h::UInt) =
     hash(r.allowed_multiplicities,
          hash(r.regulator, hash(:RegulatorMults, h)))
 
-# EnzymeReaction: the public concrete reaction descriptor. Holds
-# reactants (substrate + product atom payload), regulators (with allowed
-# multiplicity sets), and the catalytic multiplicities the enumerator is
-# allowed to consider. Canonical ordering is enforced so two equivalent
-# constructions compare equal under `==` / `hash`.
+"""
+    EnzymeReaction
+
+The public concrete reaction descriptor: substrates, products, optional
+regulators, and the set of catalytic multiplicities the mechanism
+enumerator is allowed to consider. It is the entry point to the package —
+pair it with rate data in an [`IdentifyRateEquationProblem`](@ref), or pass
+it to `EnzymeRates.init_mechanisms` to enumerate candidate mechanisms.
+
+# Fields
+- `reactants::Vector{ReactantAtoms}` — substrates and products, each
+  carrying its per-atom inventory (used for ping-pong residual bookkeeping
+  and atom conservation across steps).
+- `regulators::Vector{RegulatorMults}` — competitive inhibitors and
+  allosteric regulators, each with its allowed oligomeric multiplicities.
+- `allowed_catalytic_multiplicities::Vector{Int}` — the oligomeric states
+  the allosteric enumerator may assign to the catalytic core.
+
+Construct one with the [`@enzyme_reaction`](@ref) DSL. Each reactant takes
+an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
+ping-pong and multi-substrate reactions. Reactants and regulators are sorted
+by name in the constructor, so two equivalent declarations compare equal
+under `==`/`hash`.
+
+```jldoctest
+julia> rxn = @enzyme_reaction begin
+           substrates: S[C]
+           products:   P[C]
+       end;
+ERROR: LoadError: UndefVarError: `@enzyme_reaction` not defined in `Main`
+Suggestion: check for spelling errors or missing imports.
+Hint: a global variable of this name also exists in EnzymeRates.
+in expression starting at none:1
+
+julia> rxn isa EnzymeReaction
+ERROR: UndefVarError: `rxn` not defined in `Main`
+Suggestion: check for spelling errors or missing imports.
+Stacktrace:
+ [1] top-level scope
+   @ none:1
+
+julia> rxn
+ERROR: UndefVarError: `rxn` not defined in `Main`
+Suggestion: check for spelling errors or missing imports.
+```
+"""
 struct EnzymeReaction
     reactants::Vector{ReactantAtoms}
     regulators::Vector{RegulatorMults}
