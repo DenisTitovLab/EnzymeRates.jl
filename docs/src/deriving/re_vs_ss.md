@@ -79,24 +79,19 @@ Nine parameters — each binding step trades its single `K` for an independent
 print(rate_equation_string(ss))
 ```
 
-The contrast is structural, not cosmetic. In the rapid-equilibrium form every
-binding step factors out as a pre-equilibrium segment, so the denominator
-collapses to one term per reachable enzyme form: `1`, `A`, `A·B`, and `P` —
-four terms. In the steady-state form nothing factors out — the King–Altman
-treatment keeps a term for every enzyme-form pattern, giving a denominator with
-many more terms and products of on/off rates throughout. After thermodynamic
-reduction one rate constant per cycle is eliminated in both, but the
-steady-state mechanism starts with two rate constants per binding step, so it
-keeps more independent parameters and a much bushier rate law.
-
-The difference is qualitative, not just a matter of size. The steady-state
-denominator carries cross-concentration terms such as `P·B` that are absent
-from the rapid-equilibrium denominator, so the two equations have genuinely
-different functional forms rather than the same form with renamed constants.
-Mechanisms with **random-order** binding diverge even more sharply — their
-steady-state rate equations can carry *squared* concentration terms, which you
-can confirm for yourself by building a random-order mechanism and printing its
-rate equation.
+The contrast is structural, not cosmetic. The rapid-equilibrium denominator has
+one term per reachable enzyme form — `1`, `A`, `A·B`, and `P`, four terms —
+because every binding step factors out as a pre-equilibrium segment. The
+steady-state denominator keeps those same four terms but adds new ones in `B`
+and `B·P`: nothing factors out, so the King–Altman treatment carries a term for
+every enzyme-form pattern, with products of on/off rates throughout. Those extra
+terms give the steady-state equation qualitatively different behaviour — not the
+same form with renamed constants — and after thermodynamic reduction it still
+keeps more independent parameters, because each binding step starts with two
+rate constants instead of one. Mechanisms with **random-order** binding diverge
+even more drastically: their steady-state rate equations can carry *squared*
+concentration terms, which you can confirm for yourself by building a
+random-order mechanism and printing its rate equation.
 
 ## The RE assumption
 
