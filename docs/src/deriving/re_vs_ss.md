@@ -25,14 +25,12 @@ The distinction is stored on each `Step` as the `is_equilibrium` field.
 - An **SS isomerization step** contributes two directed rate constants:
   `k_<from>_to_<to>` and `k_<to>_to_<from>`.
 
-All parameter names flow through the `name(p, m)` chokepoint, which uses
-metabolite and form names rather than arbitrary indices.
-
 ## A concrete comparison
 
 A one-substrate reaction barely distinguishes the two assumptions — the
 rapid-equilibrium and steady-state rate laws differ only in how three or four
-constants are named. The gap becomes dramatic for a two-substrate mechanism.
+constants are named. The difference becomes obvious for even the simplest
+mechanisms with more than one substrate or product.
 Take an ordered bi-uni reaction — `A` binds, then `B`, the complex isomerizes,
 and `P` leaves — first as a rapid-equilibrium mechanism with steady-state
 catalysis:
@@ -90,6 +88,15 @@ many more terms and products of on/off rates throughout. After thermodynamic
 reduction one rate constant per cycle is eliminated in both, but the
 steady-state mechanism starts with two rate constants per binding step, so it
 keeps more independent parameters and a much bushier rate law.
+
+The difference is qualitative, not just a matter of size. The steady-state
+denominator carries cross-concentration terms such as `P·B` that are absent
+from the rapid-equilibrium denominator, so the two equations have genuinely
+different functional forms rather than the same form with renamed constants.
+Mechanisms with **random-order** binding diverge even more sharply — their
+steady-state rate equations can carry *squared* concentration terms, which you
+can confirm for yourself by building a random-order mechanism and printing its
+rate equation.
 
 ## The RE assumption
 
