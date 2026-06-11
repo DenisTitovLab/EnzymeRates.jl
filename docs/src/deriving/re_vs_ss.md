@@ -90,7 +90,7 @@ same form with renamed constants — and after thermodynamic reduction it still
 keeps more independent parameters, because each binding step starts with two
 rate constants instead of one. Mechanisms with **random-order** binding diverge
 even more drastically: their steady-state rate equations can carry *squared*
-concentration terms, which you can confirm for yourself by building a
+concentration terms, which users can confirm for themselves by building a
 random-order mechanism and printing its rate equation.
 
 ## The RE assumption
