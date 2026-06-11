@@ -58,23 +58,18 @@ In `Reduced` mode the string has four sections:
    and the independent parameters.
 4. The final `v = E_total * (num) / (den)` line.
 
-## Mapping package names to textbook symbols
+## Meaning of parameter names
 
-
-| Package symbol | Textbook equivalent | Role |
+| Package symbol | Role | Units |
 |:---|:---|:---|
-| `K_S_E` | *Km* (substrate) | Michaelis constant for S |
-| `K_P_E` | *Kp* (product) | Michaelis constant for P |
-| `k_ES_to_EP` | *kcat* | forward catalytic rate constant |
-| `k_EP_to_ES` | *kcat / Keq × …* | Haldane-derived reverse rate constant |
-
-The denominator `1 + S / K_S_E + P / K_P_E` is the standard reversible
-Michaelis–Menten form from the enzyme-kinetics literature.
-
-In `Reduced` mode, `k_EP_to_ES` is **not** an independent fitted parameter:
-it is fixed by `Keq` and the two binding constants via the Haldane constraint
-shown above.  `Keq` is always user-supplied; the package never estimates it
-from data.
+| `K_S_E` | Dissociation constant of substrate `S` from the `E`–`S` complex. For a one-substrate, one-product Michaelis–Menten enzyme it is analogous to the Michaelis constant `Km` under the rapid-equilibrium approximation, but it is not the same as `Km` for more complex mechanisms. | M |
+| `K_P_E` | Dissociation constant of product `P` from the `E`–`P` complex. | M |
+| `k_ES_to_EP` | Rate of conversion of enzyme species `ES` to enzyme species `EP`. | 1/s |
+| `k_EP_to_ES` | Rate of the reverse conversion, `EP` to `ES`. | 1/s |
+| `kon_S_E` | Rate constant for binding of `S` to `E`. | 1/(s·M) |
+| `koff_S_E` | Rate of dissociation of `S` from `ES`. | 1/s |
+| `Keq` | Equilibrium constant of the overall reaction; always user-supplied. | unitless |
+| `E_total` | Total enzyme concentration. | M |
 
 ## Inspecting parameters and metabolites
 
