@@ -42,7 +42,7 @@ mechanism structure is an unreadable string, so `isa` is the useful check.
 
 ---
 
-## Derive: parameters, metabolites, and rate equation
+## Derive the rate equation
 
 [Rate equations from textbooks](@ref) and the other deriving pages cover all
 mechanism forms in depth.
@@ -60,8 +60,11 @@ print(rate_equation_string(m))
 ```
 
 `parameters(m)` returns the independent parameter symbols. `metabolites(m)`
-returns the concentration symbols the rate equation expects. `Keq` is always
-user-supplied — the package never estimates it from data.
+returns the concentration symbols the rate equation expects. `Keq` is the
+**equilibrium constant** of the overall reaction — the ratio of product to
+substrate concentrations once the reaction has reached equilibrium, fixed by
+the reaction's thermodynamics. It is always user-supplied; the package never
+estimates it from data.
 
 ---
 
@@ -84,7 +87,7 @@ rate_equation(m, concs, params)
 
 ---
 
-## Fit: estimate parameters from data
+## Estimate kinetic parameters from data
 
 [Fitting tutorial & data format](@ref) covers the data format, loss function,
 and optimizer options in depth.
@@ -113,13 +116,11 @@ retcode
 The data table has a `group` column identifying measurement batches that share
 one `E_total`, a `Rate` column with measured rates, and one column per
 metabolite or regulator name (here `S` and `P`). `Keq` is a required keyword,
-always user-supplied. The fit is a random multi-start result, so only the
-shape and keys of `fitted_params` are stable across runs — which is why this
-page uses `@example` rather than `jldoctest`.
+always user-supplied.
 
 ---
 
-## Identify: find the best mechanism automatically
+## Identify the enzyme mechanism from data
 
 [Identify tutorial](@ref) covers the full beam search, cross-validation, and
 production settings.
@@ -150,6 +151,7 @@ print(rate_equation_string(results.best))
 one survivor per parameter-count level, making the search fast and
 deterministic. The full production search uses the wider defaults
 (`min_beam_width=50`, `loss_rel_threshold=2.0`, `loss_abs_threshold=0.01`,
-`max_param_count=20`) and typically runs for roughly an hour on a realistic
-dataset. `save_dir` is mandatory; the search writes progress and results CSV
-files there.
+`max_param_count=20`) and would often run for many hours and require a High
+Performance Compute cluster (see [Running in parallel](identify/parallel.md)).
+`save_dir` is mandatory; the search writes progress and results CSV files
+there.

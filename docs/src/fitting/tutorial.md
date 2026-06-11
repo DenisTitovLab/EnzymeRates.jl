@@ -59,8 +59,10 @@ data = (
 fp = FittingProblem(uni_uni, data; Keq = 2.0)
 ```
 
-`Keq` is a required keyword argument and is always user-supplied — the package
-never estimates it from data. The constructor also accepts a concrete
+`Keq`, the **equilibrium constant** of the overall reaction (the
+product-to-substrate concentration ratio at equilibrium, fixed by reaction
+thermodynamics), is a required keyword argument and is always user-supplied —
+the package never estimates it from data. The constructor also accepts a concrete
 `Mechanism` or `AllostericMechanism` and compiles it once at construction, so
 the fitting hot path pays no compilation overhead.
 
