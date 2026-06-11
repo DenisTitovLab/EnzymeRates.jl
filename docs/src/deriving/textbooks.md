@@ -67,7 +67,7 @@ In `Reduced` mode the string has four sections:
 | `k_ES_to_EP` | Rate of conversion of enzyme species `ES` to enzyme species `EP`. | 1/s |
 | `k_EP_to_ES` | Rate of the reverse conversion, `EP` to `ES`. | 1/s |
 | `kon_S_E` | Rate constant for binding of `S` to `E`. | 1/(s·M) |
-| `koff_S_E` | Rate of dissociation of `S` from `ES`. | 1/s |
+| `koff_S_E` | Rate of dissociation of `S` from the `E`–`S` complex. | 1/s |
 | `Keq` | Equilibrium constant of the overall reaction; always user-supplied. | unitless |
 | `E_total` | Total enzyme concentration. | M |
 
