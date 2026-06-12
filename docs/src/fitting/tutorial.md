@@ -13,9 +13,9 @@ vectors. The required columns are:
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `group` | any | Groups rows that share the same `E_total`. Leave-one-group-out cross-validation folds on this column. |
+| `group` | any | One independent experiment — rates measured with the same amount of enzyme at varying metabolite concentrations (a single kinetic-data figure from a paper is a typical group). Leave-one-group-out cross-validation folds on this column. |
 | `Rate` | nonzero `Real` | Measured reaction rate. Must be nonzero — the loss works in log space. |
-| one per metabolite | `Real` | Concentration of each metabolite. Column names must match `metabolites(mechanism)` exactly. |
+| one per metabolite | `Real` | Concentration of each metabolite, in molar (M) — use M for every metabolite so the fitted kinetic constants stay interpretable. Column names must match `metabolites(mechanism)` exactly. |
 
 Call `metabolites(mechanism)` to find which concentration columns your data
 needs before constructing the problem.
@@ -62,7 +62,9 @@ fp = FittingProblem(uni_uni, data; Keq = 2.0)
 `Keq`, the **equilibrium constant** of the overall reaction (the
 product-to-substrate concentration ratio at equilibrium, fixed by reaction
 thermodynamics), is a required keyword argument and is always user-supplied —
-the package never estimates it from data. The constructor also accepts a concrete
+the package never estimates it from data. For most enzyme reactions `Keq` is
+known — measured directly, or computed from a resource such as
+[eQuilibrator](https://equilibrator.weizmann.ac.il). The constructor also accepts a concrete
 `Mechanism` or `AllostericMechanism` and compiles it once at construction, so
 the fitting hot path pays no compilation overhead.
 
@@ -94,8 +96,12 @@ result.params
 ```
 
 The fit runs `n_restarts` independent optimizations from random initial points
-and returns the best. Because the optimizer is stochastic, `result.params` and
-`result.loss` vary from run to run.
+and returns the best. Multiple restarts are necessary because finding the global
+minimum of an enzyme rate-equation fit is NP-hard — any single optimization can
+settle in a local minimum — and because the optimizer is stochastic,
+`result.params` and `result.loss` vary from run to run. Increase `n_restarts`
+until the fit returns the same loss on every run; empirically, 10–20 restarts is
+enough for many complex rate equations.
 
 Check `result.retcode === :Success` to confirm the optimizer converged on its
 own criteria. Any other value — `:Default`, `:MaxTime`, `:Failure`,
