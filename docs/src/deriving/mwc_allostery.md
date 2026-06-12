@@ -81,10 +81,11 @@ site the oligomer carries, raising the site's binding factor to the power `m`. I
 the example both are `2` — a homodimer with two copies of each regulatory site.
 
 !!! note
-    The present derivation raises each conformation's catalytic partition
-    function to `catalytic_multiplicity`, giving a whole-oligomer rate (the `^2`
-    in the equation above). A future version will express the rate per monomer
-    instead, at which point that exponent goes away.
+    The present derivation multiplies the rate by `catalytic_multiplicity`,
+    giving the rate of the whole oligomer — the leading `2 *` in the numerator
+    above. A future version will report the rate **per monomer**, which is
+    `1 / catalytic_multiplicity` of the oligomer's (half, for this dimer). It is
+    that leading multiplier that goes away, not the partition-function exponents.
 
 The independent parameters the mechanism fits:
 
