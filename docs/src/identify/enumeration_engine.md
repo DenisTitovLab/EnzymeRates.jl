@@ -25,6 +25,14 @@ and collapses binding steps that share the same `(metabolite, RE/SS)` class
 into a single kinetic group. The result is the lowest-parameter starting point
 for the beam search.
 
+When a reaction's atom inventory allows a covalent fragment to persist between
+half-reactions, `init_mechanisms` also builds ping-pong mechanisms. The modified
+enzyme stays on conformation `:E` carrying a residual rather than a separate
+conformation label, and a step that would return the enzyme to free `:E` with an
+empty residual mid-cycle is rejected — it would split the reaction into two
+disconnected half-cycles. See [Ping-pong mechanisms](@ref) for the resulting
+rate-equation form.
+
 ## The six expansion moves
 
 `expand_mechanisms(mechs, rxn)` applies all six moves to every input

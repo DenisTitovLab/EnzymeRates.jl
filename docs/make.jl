@@ -24,7 +24,7 @@ makedocs(;
             "The Cha / King–Altman algorithm" => "deriving/cha_king_altman.md",
             "Thermodynamic constraints" => "deriving/thermodynamic_constraints.md",
             "Ping-pong mechanisms" => "deriving/ping_pong.md",
-            "Dead-end inhibitor binding" => "deriving/dead_end.md",
+            "Mechanisms with regulators" => "deriving/regulators.md",
             "MWC allostery" => "deriving/mwc_allostery.md",
         ],
         "Fitting rate equations" => [
