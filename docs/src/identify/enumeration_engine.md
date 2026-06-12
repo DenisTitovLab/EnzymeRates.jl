@@ -14,18 +14,16 @@ Deduplication is `unique!` on the raw `Vector` — no separate canonicalization
 pass. The `Mechanism` and `AllostericMechanism` constructors canonicalize step
 order, group order, and regulatory-site order at construction time, so two
 mechanistically identical structs built in any order compare equal and hash
-identically. `_dedup_flat!` mentioned in some internal specs is `unique!`:
-the name was proposed but never added to the source; the live code calls
-`unique!` directly.
+identically. Structural duplicates are removed by exact equality.
 
 ## `init_mechanisms`
 
 `init_mechanisms(reaction)` returns a `Vector{Mechanism}` at minimum
-parameter count. For each catalytic topology from `_catalytic_topologies`, it
-enumerates all substrate/product dead-end subsets, assigns one steady-state
-catalytic step, and collapses binding steps that share the same `(metabolite,
-RE/SS)` class into a single kinetic group. The result is the lowest-parameter
-starting point for the beam search.
+parameter count. For each catalytic topology, it enumerates all
+substrate/product dead-end subsets, assigns one steady-state catalytic step,
+and collapses binding steps that share the same `(metabolite, RE/SS)` class
+into a single kinetic group. The result is the lowest-parameter starting point
+for the beam search.
 
 ## The six expansion moves
 
@@ -35,9 +33,9 @@ AllostericMechanism}}`. Bucketing by parameter count is the caller's job.
 
 Every child is asserted atom-conserving before being returned.
 
-The six moves, dispatched in `_add_expansions_mech!` order:
+The six moves:
 
-### 1. `_expand_re_to_ss` — flip a rapid-equilibrium group to steady state
+### 1. Flip a rapid-equilibrium group to steady state
 
 Flips one entire kinetic group from rapid equilibrium (RE) to steady state
 (SS), atomically — all steps in the group convert together. The move is a
@@ -48,7 +46,7 @@ independent parameter). A Haldane/Wegscheider constraint can make the reverse
 rate dependent on existing parameters, giving a net **+0**. This is precisely
 why the search buckets by actual fitted-param count rather than assuming +1.
 
-### 2. `_expand_split_kinetic_group` — give one step its own kinetic group
+### 2. Give one step its own kinetic group
 
 For each kinetic group with two or more steps, carves one step into a fresh
 singleton group. The split step then has an independent rate constant rather
@@ -57,7 +55,7 @@ than sharing one with its former group members.
 **Parameter delta:** +1 — a single previously-shared constant becomes two
 independent ones.
 
-### 3. `_expand_add_dead_end_regulator` — add a competitive inhibitor binding site
+### 3. Add a competitive inhibitor binding site
 
 Adds binding steps for a `CompetitiveInhibitor` declared in the reaction.
 The new steps form one fresh kinetic group (one new dissociation constant
@@ -65,7 +63,7 @@ The new steps form one fresh kinetic group (one new dissociation constant
 
 **Parameter delta:** +1 per competitive-inhibitor group added.
 
-### 4. `_expand_to_allosteric` — promote a non-allosteric mechanism to MWC
+### 4. Promote a non-allosteric mechanism to MWC
 
 Converts a `Mechanism` to an `AllostericMechanism` variant set. The baseline
 variant uses the all-`:EqualAI` state (all groups have the same binding
@@ -82,7 +80,7 @@ package uses A/I throughout.
 sole new parameter. `:OnlyA` variants zero out the I-state, not adding
 parameters.
 
-### 5. `_expand_add_allosteric_regulator` — add an allosteric ligand
+### 5. Add an allosteric ligand
 
 Adds one `AllostericRegulator` at a new or an existing regulatory site, with
 an allosteric-state tag drawn from `{:OnlyA, :OnlyI, :NonequalAI}` (plus
@@ -92,7 +90,7 @@ an allosteric-state tag drawn from `{:OnlyA, :OnlyI, :NonequalAI}` (plus
 - `:OnlyA` or `:OnlyI` tag: **+1** (one binding constant `K_A` or `K_I`).
 - `:NonequalAI` tag: **+2** (independent `K_A` and `K_I`).
 
-### 6. `_expand_change_allo_state` — relax an `:EqualAI` group to independent A/I states
+### 6. Relax an `:EqualAI` group to independent A/I states
 
 Changes one `:EqualAI` or `:OnlyA`/`:OnlyI` allosteric-state tag to
 `:NonequalAI`, giving the active-state and inactive-state versions of the
@@ -106,11 +104,11 @@ group independent parameters. No-op on a non-allosteric input.
 ## Actual-count bucketing and `max_param_count`
 
 Exact fitted-parameter counts come from
-`length(fitted_params(compile_mechanism(m)))`, called per child inside
-`_process_batch`. The beam search buckets by this actual count, not by a
-structural estimate. A child whose actual count exceeds `max_param_count` is
-dropped before fitting — this caps search depth without bounding per-mechanism
-compile cost.
+`length(fitted_params(compile_mechanism(m)))`, evaluated per child during
+fitting. The beam search buckets by this actual count, not by a structural
+estimate. A child whose actual count exceeds `max_param_count` is dropped
+before fitting — this caps search depth without bounding per-mechanism compile
+cost.
 
 ## Loud failures and artifacts
 

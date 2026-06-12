@@ -28,9 +28,8 @@ to releasing product `Q`.
 
 When the package enumerates mechanisms via `init_mechanisms`, every covalent
 intermediate lives on conformation `:E` carrying a `Residual` — never on a
-separate conformation label. The enumerator builds all enzyme forms through
-`_make_species` (always conformation `:E`) and computes each form's residual from
-the consumed-substrate and released-product history via `_residual_for`. The
+separate conformation label. The enumerator builds every enzyme form on conformation `:E` and computes each
+form's residual from the consumed-substrate and released-product history. The
 backtracking engine rejects a degenerate "ping-pong" step that would return
 the enzyme to apo `E` with an empty residual mid-cycle: such a step would
 split the reaction into two disconnected half-cycles, which is not a valid

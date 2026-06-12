@@ -13,10 +13,9 @@ leaving one group out estimates how well a mechanism predicts a new
 experimental condition — a new enzyme batch, a different dilution, or a
 distinct assay plate.
 
-For each fold, `_loocv` (`src/identify_rate_equation.jl`) fits the mechanism
-on all other groups and evaluates the test loss on the held-out group. It then
-floors each fold score at `eps(Float64)` so the log is finite even when a
-single-row held-out group fits exactly.
+For each fold, the mechanism is fit on all other groups and scored on the
+held-out group. Each fold score is floored at `eps(Float64)` so the log is
+finite even when a single-row held-out group fits exactly.
 
 ### The CV score
 
@@ -41,9 +40,9 @@ them is cheap once the root cause is resolved.
 ## Model-selection rule
 
 Let `n_min` be the parameter count with the lowest mean log CV score (with a
-parsimony tiebreak to the smaller count). `_select_best_n_params`
-(`src/identify_rate_equation.jl`) then checks each simpler bucket (ascending
-`n_params < n_min`). A simpler bucket is accepted only if it passes **both**:
+parsimony tiebreak to the smaller count). The selection rule then checks each
+simpler bucket (ascending `n_params < n_min`). A simpler bucket is accepted
+only if it passes **both**:
 
 1. **Paired 1-SE rule** [Hastie2009](@cite): the mean of the paired
    log-fold-loss differences (`simpler − n_min`) must not exceed
@@ -64,32 +63,19 @@ Both `se_threshold` and `perm_p_threshold` are tunable kwargs of
 
 ### Within-bucket selection
 
-Within the chosen bucket, the mechanism with the lowest **training loss** wins
-(`src/identify_rate_equation.jl`). CV scores rank buckets; training loss
-resolves ties inside a bucket.
+Within the chosen bucket, the mechanism with the lowest **training loss** wins.
+CV scores rank buckets; training loss resolves ties inside a bucket.
 
 ## The permutation test, exactly
 
 For a small paired-difference vector the permutation p-value is computed by
-exact enumeration of all `2^n` sign-flips — pure and reproducible:
-
-```jldoctest
-julia> using EnzymeRates
-
-julia> EnzymeRates._onesided_permutation_p([0.1, 0.2, 0.3, 0.4])
-0.0625
-```
-
-With four elements, there are `2^4 = 16` sign patterns; exactly one of them
-(the identity) has a mean at or above the observed mean of 0.25, so the
-p-value is `1/16 = 0.0625`.
-
-For `n > 20` folds the function switches to a Monte Carlo estimate
+exact enumeration of all `2^n` sign-flips — pure and reproducible. For
+`n > 20` folds the computation switches to a Monte Carlo estimate
 (`mc_samples = 10^6` random sign-flips).
 
-`_onesided_permutation_p` and `_select_best_n_params` are internal helpers
-shown here only to make the rule concrete. Users call `identify_rate_equation`
-and read `results.cv_results`.
+The permutation test asks how often a random sign-flip of the per-fold loss
+differences would look at least as favorable to the simpler model; a high
+p-value means the simpler model is not meaningfully worse.
 
 ## The `cv_results` DataFrame
 
