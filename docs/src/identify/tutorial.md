@@ -102,8 +102,8 @@ nothing # hide
 ```
 
 With `loss_rel_threshold=1.0` and `loss_abs_threshold=0.0`, the beam cutoff
-equals the best loss at each parameter-count level (`_select_beam` in
-`src/identify_rate_equation.jl`), keeping exactly one survivor per level.
+equals the best loss at each parameter-count level, keeping exactly one
+survivor per level.
 `min_beam_width=1` reinforces this: even if the cutoff would admit zero
 survivors, one is kept. Together, they collapse the search to a deterministic
 single-path trace through the mechanism space.
