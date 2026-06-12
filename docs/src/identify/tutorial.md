@@ -44,6 +44,12 @@ The mechanism is all-steady-state with three independent parameters:
 `koff_P_ES`, `kon_P_ES`, `kon_S_E`; `Keq` is supplied by the user and
 `E_total` is absorbed into the rate scale.
 
+Each substrate and product declares its **atom inventory** in the bracket:
+`S[C]` is a substrate with one carbon, and `A[C2N1]` would be two carbons and one
+nitrogen. These counts let the enumerator enforce atom conservation across steps
+and recognise covalent (ping-pong) intermediates; for a simple transfer like this
+uni-uni reaction a single `[C]` placeholder is enough.
+
 ## Simulate noiseless data
 
 ```@example identify_fast
