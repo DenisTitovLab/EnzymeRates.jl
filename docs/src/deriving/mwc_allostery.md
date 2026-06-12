@@ -45,6 +45,12 @@ end
 print(rate_equation_string(allo))
 ```
 
+The independent parameters the mechanism fits:
+
+```@example mwc
+parameters(allo)
+```
+
 !!! warning "Known rendering bug"
     For an allosteric mechanism, `rate_equation_string` currently renders the
     **active-state** Haldane constraint lines with un-prefixed names — for example
@@ -86,12 +92,6 @@ the example both are `2` — a homodimer with two copies of each regulatory site
     above. A future version will report the rate **per monomer**, which is
     `1 / catalytic_multiplicity` of the oligomer's (half, for this dimer). It is
     that leading multiplier that goes away, not the partition-function exponents.
-
-The independent parameters the mechanism fits:
-
-```@example mwc
-parameters(allo)
-```
 
 ## Derivation of the MWC rate equation
 
