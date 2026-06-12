@@ -9,95 +9,102 @@ guaranteeing that every fitted equation is thermodynamically consistent.
 
 ## Haldane and Wegscheider relations
 
-Two kinds of constraint arise [Haldane1930](@cite) [Wegscheider1901](@cite):
+Two kinds of constraint arise [Haldane1930](@cite) [Wegscheider1901](@cite), one
+for each kind of cycle.
 
-- A **Haldane constraint** appears when a cycle's net metabolite change is
-  proportional to the overall reaction. The dependent rate constant is expressed
-  as a power product involving `Keq`. For example, in the textbook reversible
-  Michaelis–Menten mechanism the reverse SS rate is fully determined by `Keq`,
-  the two binding constants, and the forward SS rate:
+A **Haldane constraint** comes from a cycle whose net change matches the overall
+reaction — there is one per independent cycle that turns substrate into product.
+Its dependent rate constant is a power product that **carries `Keq`**, so the
+forward and reverse rates around the cycle cannot be chosen independently of the
+equilibrium constant. For the reversible Michaelis–Menten mechanism the reverse
+catalytic rate is fixed by `Keq`, the two binding constants, and the forward
+rate:
 
-  ```
-  k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
-  ```
+```
+k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
+```
 
-- A **Wegscheider constraint** appears when a cycle is closed internally (zero
-  net metabolite change). The dependent rate constant is expressed as a pure
-  power product of other rate constants, with no `Keq` factor. Wegscheider
-  constraints arise in mechanisms where two thermodynamically equivalent binding
-  paths exist — for example, when the same enzyme form is reachable by binding
-  either substrate first. When only two binding constants are linked, the
-  constraint collapses to a direct equality (`K_A_EQ = K_A_E`), and the
-  absorbed symbol is substituted silently into the rate equation.
+A **Wegscheider constraint** comes from a cycle that closes on itself with zero
+net metabolite change — one per independent internal loop. Its dependent rate
+constant is a power product of the others **with no `Keq` factor**. These appear
+when the same enzyme form can be reached by more than one binding order:
+detailed balance forces the binding constants around the loop to multiply
+consistently. For a random-order mechanism in which substrates `A` and `B` can
+bind in either order, the four binding constants are tied:
+
+```
+K_A_E * K_B_EA = K_B_E * K_A_EB
+```
 
 ## How the constraints are found
 
-The package represents each step as a column in the **enzyme incidence matrix**,
-where rows are enzyme forms. Each column has `+1` at the to-form and `-1` at the
-from-form. The **exact-integer null space** of this matrix (`_integer_nullspace`,
-`src/thermodynamic_constr_for_rate_eq_derivation.jl`) gives a basis of
-independent cycles. The computation uses `Rational{BigInt}` throughout — no
-floating point — so each null-space vector is reduced to a primitive integer
-vector with an exact sign convention.
+The package builds the enzyme-form **incidence matrix** — one column per step,
+with `+1` at the step's to-form and `-1` at its from-form — and computes its
+exact-integer null space. Each null-space basis vector is one independent cycle,
+so the constraints come out **linearly independent by construction**; there is
+no redundant set to thin down. The whole computation uses exact rational
+arithmetic, never floating point, so the same cycles are reproduced exactly every
+time.
 
-Each cycle is then classified by its stoichiometry: if its stoichiometry vector is
-proportional to the net reaction's stoichiometry, it is a Haldane cycle; if its
-stoichiometry is zero, it is a Wegscheider cycle. Any other result is a hard
-error — the mechanism is thermodynamically contradictory and the package raises
-rather than producing a silent or wrong equation.
+Each cycle is then classified by its net metabolite change: proportional to the
+overall reaction makes it a Haldane cycle, zero makes it a Wegscheider cycle. If
+a mechanism is thermodynamically infeasible — a cycle whose constraint reduces to
+`0 = c · log(Keq)` with `c ≠ 0` — the package raises an error rather than
+emitting a silent or wrong equation.
 
-## Which constant is made dependent
+## The choice of independent vs dependent parameters
 
-Gaussian elimination selects one rate constant per cycle to eliminate. The pivot
-priority (`_step_priority`) places internal isomerizations first (most
-eliminable), then metabolite steps on non-free enzyme forms, then free-enzyme SS
-binding steps, and finally free-enzyme RE binding steps (least eliminable, since
-they are the structurally primary parameters). Because step order is
-canonicalized in the `Mechanism` constructor, the dependent-parameter choice is
-deterministic: two mechanisms with the same structure but written in different
-step order produce the identical reduced equation.
+Each cycle costs one rate constant, and the package chooses which constant to
+keep and which to express in terms of the others by a fixed priority, designed to
+keep the **biochemically meaningful** parameters independent:
 
-A thermodynamically contradictory mechanism — where elimination reduces a
-constraint row to `0 = c * log(Keq)` with `c ≠ 0` — raises an error
-immediately.
+1. **Free-enzyme binding constants** — the affinity of a substrate or product for
+   the free enzyme, such as `K_S_E` — are kept independent whenever possible.
+   These are the quantities an experimentalist measures and reports.
+2. Binding steps on already-occupied enzyme forms are eliminated next, when a
+   cycle needs them.
+3. **Internal isomerization rates** are made dependent first: they are the most
+   eliminable and the least directly measurable.
+
+Within a steady-state step, the reverse rate is preferred dependent over the
+forward rate. Because step and group order are canonicalized when a mechanism is
+constructed, this choice is deterministic: two mechanisms with the same structure
+written in a different step order produce the identical reduced equation.
 
 ## A concrete example
+
+A random-order mechanism — two substrates that can bind in either order — carries
+**both** kinds of constraint at once: a Wegscheider tie among its binding
+constants and a Haldane tie on its catalytic step.
 
 ```@example thermo
 using EnzymeRates
 m = @enzyme_mechanism begin
-    substrates: S
+    substrates: A, B
     products:   P
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
+        E + A ⇌ E(A)
+        E + B ⇌ E(B)
+        E(A) + B ⇌ E(A, B)
+        E(B) + A ⇌ E(A, B)
+        E(A, B) <--> E(P)
         E(P) ⇌ E + P
     end
 end
 print(rate_equation_string(m))
 ```
 
-The `# Haldane constraints:` section shows that `k_EP_to_ES` is eliminated: the
-reverse isomerization rate is determined by `Keq`, the two binding constants,
-and the forward rate `k_ES_to_EP`. The parameter list therefore omits
-`k_EP_to_ES` — it is not a fitted parameter. `parameters(m)` confirms:
+The `# Wegscheider constraints:` section ties the binding constants of the two
+orders together (no `Keq`), and the `# Haldane constraints:` section fixes the
+reverse catalytic rate from `Keq` and the forward constants. Two rate constants
+are therefore dependent and do not appear in the fitted-parameter list:
 
 ```@example thermo
 parameters(m)
 ```
 
-This is the Haldane relation [Haldane1930](@cite): for a reversible enzyme, the
-ratio of forward to reverse catalytic rates must equal the overall equilibrium
-constant scaled by the binding affinity ratio. Any mechanism where this relation
-is violated cannot be in thermodynamic equilibrium.
-
-## Wegscheider constraints in expanded mechanisms
-
-Mechanisms with multiple substrate- or product-binding orders can contain
-Wegscheider cycles in addition to Haldane cycles. The `# Wegscheider
-constraints:` section of [`rate_equation_string`](@ref) lists each such tie.
-Entries marked `(substituted into v)` have been absorbed directly into the rate
-equation; only entries with a multi-parameter right-hand side appear as explicit
-assignments.
+Both eliminated constants are absent from `parameters(m)`, so the fit explores
+only the thermodynamically independent directions — every candidate equation the
+fitter evaluates already satisfies detailed balance.
 
 See also: [`parameters`](@ref), [`rate_equation_string`](@ref).
