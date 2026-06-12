@@ -5,7 +5,8 @@ being consumed by the reaction. The derivation treats regulators no differently
 from substrates and products: it walks whatever enzyme-form graph the steps
 define and reads the rate law off it. A regulator's *kind* — competitive
 inhibitor, essential activator, general modifier — is therefore not a setting you
-choose but an emergent consequence of **where** it binds.
+choose but an emergent consequence of **where** it binds and how the kinetics of
+regulator-bound enzyme species change.
 
 This makes the derivation more general than the automatic search. When
 [`identify_rate_equation`](@ref) enumerates mechanisms it adds only competitive
