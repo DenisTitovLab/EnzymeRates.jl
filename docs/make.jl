@@ -25,7 +25,7 @@ makedocs(;
             "Thermodynamic constraints" => "deriving/thermodynamic_constraints.md",
             "Ping-pong mechanisms" => "deriving/ping_pong.md",
             "Mechanisms with regulators" => "deriving/regulators.md",
-            "MWC allostery" => "deriving/mwc_allostery.md",
+            "Mechanisms with allosteric regulators" => "deriving/mwc_allostery.md",
         ],
         "Fitting rate equations" => [
             "Fitting tutorial & data format" => "fitting/tutorial.md",
