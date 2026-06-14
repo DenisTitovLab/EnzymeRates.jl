@@ -183,15 +183,25 @@ end
 
 """
     fit_rate_equation(fp::FittingProblem, optimizer;
-        n_restarts=20, maxtime=60.0,
+        n_restarts=20, maxtime=60.0, maxiters=10_000_000,
+        abstol=nothing, reltol=nothing, callback=nothing,
         lb=fill(-15.0, length(fitted_params(fp.mechanism))),
         ub=fill(15.0, length(fitted_params(fp.mechanism))),
-        kwargs...)
+        solver_kwargs=(;))
 
 Fit rate constants by minimizing `loss!` using Optimization.jl.
 
 Runs `n_restarts` independent optimizations from random initial points and returns
 the best result.
+
+`maxtime` and `maxiters` are Optimization.jl common solver options forwarded to
+every `Optimization.solve` call. `abstol`, `reltol`, and `callback` are common
+options forwarded only when set (otherwise each solver uses its own default).
+`solver_kwargs` is a `NamedTuple` of solver-specific options forwarded verbatim
+to `solve` (e.g. `(; popsize=200)` for a CMA-ES solver that supports it). A key
+present in both a named common option and `solver_kwargs` takes the
+`solver_kwargs` value. `lb`/`ub` are the log-space bounds passed to the
+`OptimizationProblem`.
 
 Rescaling is driven by `fp.scale_k_to_kcat`: when it is a `Real`, the returned
 parameters are rescaled so that `_kcat_forward(mechanism, params) ≈
@@ -210,12 +220,25 @@ Returns a NamedTuple `(params, loss, retcode)` where:
 function fit_rate_equation(fp::FittingProblem, optimizer;
     n_restarts::Int=20,
     maxtime::Real=60.0,
+    maxiters::Integer=10_000_000,
+    abstol::Union{Real,Nothing}=nothing,
+    reltol::Union{Real,Nothing}=nothing,
+    callback=nothing,
     lb=fill(-15.0, length(fitted_params(fp.mechanism))),
     ub=fill(15.0, length(fitted_params(fp.mechanism))),
-    kwargs...
+    solver_kwargs=(;),
 )
     obj = Optimization.OptimizationFunction((x, p) -> loss!(x, p))
     np = length(fitted_params(fp.mechanism))
+
+    # Common solver options: maxtime/maxiters always forwarded; the optional
+    # ones only when set, so each solver keeps its own default otherwise.
+    # solver_kwargs is forwarded verbatim and wins on key conflicts.
+    common = (; maxtime, maxiters)
+    abstol   === nothing || (common = (; common..., abstol))
+    reltol   === nothing || (common = (; common..., reltol))
+    callback === nothing || (common = (; common..., callback))
+    solve_kwargs = merge(common, solver_kwargs)
 
     best_x = zeros(np)
     best_loss = Inf
@@ -229,7 +252,7 @@ function fit_rate_equation(fp::FittingProblem, optimizer;
     for _ in 1:n_restarts
         x0 = clamp.(randn(np) .* 2.0, lb, ub)
         prob = Optimization.OptimizationProblem(obj, x0, fp; lb=lb, ub=ub)
-        sol = Optimization.solve(prob, optimizer; maxtime=maxtime, kwargs...)
+        sol = Optimization.solve(prob, optimizer; solve_kwargs...)
         if sol.objective < best_loss
             best_loss = sol.objective
             best_x .= sol.u
