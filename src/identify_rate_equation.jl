@@ -107,7 +107,7 @@ and data using beam search.
   for beam selection
 - `max_param_count::Int = 20`: stop expanding beyond
 - `optimizer`: Optimization.jl optimizer (required).
-  Recommended: `PyCMAOpt()` from OptimizationPyCMAES.
+  Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
 - `n_restarts::Int = 20`: multi-start restarts per fit
 - `maxtime::Real = 60.0`: max time per fit (seconds; common solver
   option, forwarded to `Optimization.solve`)

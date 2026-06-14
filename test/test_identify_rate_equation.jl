@@ -493,12 +493,12 @@ end
 end
 
 @testset "all base fits fail: failure CSV written, then raises" begin
-    # A `solver_kwargs` option the optimizer rejects (`popsize` is
-    # unsupported by CMAEvolutionStrategy) is forwarded verbatim to
-    # `Optimization.solve` and makes every fit throw. Per-mechanism fit
-    # failures are isolated in `_process_batch`, so the base tier is then
-    # empty and the pipeline raises. The contract under test is that the
-    # all-base-fail path persists the failure rows to
+    # A `solver_kwargs` option no optimizer recognizes is forwarded
+    # verbatim to `Optimization.solve` and makes every fit throw (a bogus
+    # name keeps this independent of whether any real option is supported).
+    # Per-mechanism fit failures are isolated in `_process_batch`, so the
+    # base tier is then empty and the pipeline raises. The contract under
+    # test is that the all-base-fail path persists the failure rows to
     # `initial_mechanisms.csv` before raising (for cluster debugging).
     rxn = @enzyme_reaction begin
         substrates: S[C]
@@ -511,7 +511,7 @@ end
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
     tmp = mktempdir()
     @test_throws ErrorException identify_rate_equation(
-        prob; solver_kwargs=(; popsize=200),
+        prob; solver_kwargs=(; not_a_real_solver_option=1),
         optimizer=CMAEvolutionStrategyOpt(),
         n_restarts=1, maxtime=1.0, save_dir=tmp)
     # Failure rows were written before the re-raise: a CSV exists whose rows
@@ -990,7 +990,7 @@ end
     fail_entries, fail_failures = EnzymeRates._process_batch(ms, prob;
         pmap_function=map, optimizer=CMAEvolutionStrategyOpt(),
         max_param_count=20, n_restarts=1, maxtime=1.0,
-        solver_kwargs=(; popsize=200))
+        solver_kwargs=(; not_a_real_solver_option=1))
     @test isempty(fail_entries)
     @test !isempty(fail_failures)
     @test all(f -> f isa EnzymeRates.FitFailure, fail_failures)
