@@ -188,39 +188,49 @@ optimizer; PyCMA is dropped from the docs.
 
 ## Testing
 
-Goal: prove solver-agnosticism across multiple solvers, and prove the
-forwarding/clean-break boundary. Add `OptimizationCMAEvolutionStrategy`
-to `test/Project.toml` (and the `test` target list) so the recommended
-path is exercised.
+Goal: prove solver-agnosticism and the forwarding / clean-break boundary
+**without PyCMA**. `test/Project.toml` drops `OptimizationPyCMA` (Python
+setup/precompile cost is too high for CI) and adds
+`OptimizationCMAEvolutionStrategy`. The two test solvers are
+`CMAEvolutionStrategyOpt` (recommended path; rejects `popsize`) and
+`BBO_adaptive_de_rand_1_bin_radiuslimited` (already a test dep — a
+distinct, non-CMA solver).
 
 1. **Recommended-path / regression (the bug):** `fit_rate_equation` and
    `identify_rate_equation` run to success with `CMAEvolutionStrategyOpt()`
-   and **default** (empty) `solver_kwargs`. This fails on `main` today
-   (force-injected `popsize=200`), so it is the core regression test.
-2. **Forwarding to a supporting solver:** a `PyCMAOpt()` test passing
-   `solver_kwargs=(; popsize=…, verbose=-9)` succeeds — proves the bag is
-   forwarded and honored where supported. (Keep OptimizationPyCMA as a
-   test-only dep; the Python dep is acceptable in CI even though it is
-   being dropped from user-facing docs.)
-3. **Verbatim forwarding / wrapper limitation:** passing
+   and **default** (empty) `solver_kwargs`. Fails on `main` today
+   (force-injected `popsize=200` → wrapper error), so this is the core
+   regression.
+2. **Second solver (agnosticism):** `fit_rate_equation` runs to success
+   with `BBO_…()` and default `solver_kwargs` — a non-CMA solver. The
+   existing BBO fit tests already cover this; they now also receive the
+   always-forwarded `maxiters` (a common option, safe on BBO) and must
+   stay green.
+3. **Verbatim forwarding + wrapper limitation:**
    `solver_kwargs=(; popsize=200)` to `CMAEvolutionStrategyOpt()` raises
    the expected "unsupported keyword argument" error — proves the bag is
-   forwarded unmodified and documents the wrapper gap.
-4. **Clean break:** passing `popsize=…`/`verbose=…` as **top-level**
-   kwargs to `identify_rate_equation` now raises "unsupported keyword
-   argument" (they are no longer accepted there).
-5. **Existing call-site migration:**
-   - `test/test_identify_rate_equation.jl:250` `popsize=200` →
-     `solver_kwargs=(; popsize=200)`.
-   - `test/test_identify_rate_equation.jl:389-390`
-     `maxiters=500, popsize=40, verbose=-9` →
-     `maxiters=500, solver_kwargs=(; popsize=40, verbose=-9)`.
-   - The `BBO_…` `fit_rate_equation` tests (`test/test_fitting.jl`) and
-     all default-path identify tests need no kwarg changes; they already
-     pass only `n_restarts`/`maxtime`. They additionally serve as
-     non-CMA solver coverage.
-6. **README test:** the in-test README block must use
-   `CMAEvolutionStrategyOpt` and the migrated kwargs and stay green.
+   forwarded unmodified and documents the wrapper gap. (This is the
+   positive proof that `solver_kwargs` reaches `solve`.)
+4. **Merge semantics:** supplying a key in *both* the named arg and
+   `solver_kwargs` (e.g. `maxtime`) does **not** raise a
+   duplicate-keyword error and the `solver_kwargs` value wins — proves
+   the `merge(...)` forwarding (a naive double-splat would throw
+   "keyword argument maxtime repeated").
+5. **Clean break:** passing `popsize=…`/`verbose=…` as **top-level**
+   kwargs to `identify_rate_equation` (and `fit_rate_equation`) now
+   raises "unsupported keyword argument" — they are no longer accepted.
+6. **Existing call-site migration (PyCMA → CMAEvolutionStrategy):** every
+   `PyCMAOpt()` in `test/test_identify_rate_equation.jl` becomes
+   `CMAEvolutionStrategyOpt()`. The two solver-specific call-sites lose
+   their now-unsupported kwargs (this solver rejects them):
+   - `:250` `popsize=200` → dropped (default population).
+   - `:389-390` `maxiters=500, popsize=40, verbose=-9` → `maxiters=500`
+     (drop `popsize`/`verbose`).
+   These exercise fit/LOOCV mechanics, not `popsize` specifically; any
+   tolerance / `n_restarts` / `maxtime` adjustment needed for the default
+   population to still satisfy the assertions is an implementation detail.
+7. **README test:** the in-test README block uses
+   `CMAEvolutionStrategyOpt` and the migrated kwargs and stays green.
 
 ## Files touched
 
@@ -230,7 +240,9 @@ path is exercised.
   (drop `popsize`/`verbose`/`optim_kwargs`, add common kwargs +
   `solver_kwargs`); `fitting_kwargs` assembly; docstring. No changes to
   `_process_batch`/`_loocv`/`_beam_search`/`_cv_model_selection`.
-- `test/Project.toml` — add `OptimizationCMAEvolutionStrategy`.
+- `test/Project.toml` — add `OptimizationCMAEvolutionStrategy`; remove
+  `OptimizationPyCMA` (drop the Python dependency — its setup/precompile
+  cost is too high for CI). Keep `OptimizationBBO`.
 - `test/test_fitting.jl`, `test/test_identify_rate_equation.jl` — new
   solver-agnostic tests; migrate the `popsize`/`verbose` call-sites.
 - `README.md` — switch to `CMAEvolutionStrategyOpt`; migrate kwargs;
