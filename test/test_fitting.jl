@@ -361,6 +361,49 @@ using Tables
         @test result3.retcode isa Symbol
     end
 
+    # ── Test: solver-option forwarding (named commons + solver_kwargs) ──
+    @testset "solver kwarg forwarding" begin
+        using OptimizationCMAEvolutionStrategy
+        Keq_val = 2.0
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0,
+            Keq = Keq_val, E_total = 1.0)
+        concs_list = [
+            (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
+            (S = 5.0, P = 0.1), (S = 10.0, P = 0.1),
+        ]
+        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
+
+        # Default (empty) solver_kwargs runs on a solver that rejects unknown
+        # options — no solver-specific option is force-injected.
+        res = fit_rate_equation(fp, CMAEvolutionStrategyOpt();
+            n_restarts=1, maxtime=1.0)
+        @test haskey(res, :params)
+        @test res.retcode isa Symbol
+
+        # solver_kwargs is forwarded verbatim: an option no optimizer
+        # recognizes surfaces as an error (proves the bag reaches `solve`);
+        # a bogus name keeps this independent of any real option's support.
+        @test_throws Exception fit_rate_equation(
+            fp, CMAEvolutionStrategyOpt();
+            n_restarts=1, maxtime=1.0,
+            solver_kwargs=(; not_a_real_solver_option=1))
+
+        # Merge semantics: the same key in both a named common option and
+        # solver_kwargs does NOT raise a duplicate-keyword error (a naive
+        # double-splat would); solver_kwargs wins.
+        res2 = fit_rate_equation(
+            fp, CMAEvolutionStrategyOpt();
+            n_restarts=1, maxtime=60.0, solver_kwargs=(; maxtime=1.0))
+        @test haskey(res2, :params)
+
+        # Clean break: popsize/verbose are no longer accepted named kwargs.
+        @test_throws Exception fit_rate_equation(
+            fp, CMAEvolutionStrategyOpt(); n_restarts=1, maxtime=1.0, popsize=200)
+        @test_throws Exception fit_rate_equation(
+            fp, CMAEvolutionStrategyOpt(); n_restarts=1, maxtime=1.0, verbose=-9)
+    end
+
     # ── Test 10: Validation errors ─────────────────────────────────────────────
     @testset "Validation errors" begin
         # Missing Rate column
