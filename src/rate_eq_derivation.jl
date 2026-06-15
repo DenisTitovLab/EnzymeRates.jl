@@ -1716,14 +1716,19 @@ function rate_equation_string(
 
     # Active-state Wegscheider/Haldane: single-symbol entries get the
     # substituted-into-v annotation; multi-symbol RHSes get runtime
-    # assignment in `_build_rate_body` (no annotation).
+    # assignment in `_build_rate_body` (no annotation). The kernel emits
+    # `:None`-state names; rename them to the `:A`-state names the rate
+    # body uses so each constraint line matches the symbols it defines.
+    rename_A = _A_rename_parameters(AllostericMechanism(m))
     dep_A_raw, _ = _dependent_param_exprs_kernel(CMT, Dict{Symbol, Symbol}())
     keq_set = Set([:Keq])
     weg_lines, hal_lines = String[], String[]
     for (sym, expr) in sort(collect(dep_A_raw); by=p -> string(p[1]))
-        is_haldane = _expr_references_any(expr, keq_set)
-        suffix = expr isa Symbol ? ANNOTATION_SUBSTITUTED : ""
-        line = "$sym = $(string(expr))$suffix"
+        sym_A = get(rename_A, sym, sym)
+        expr_A = substitute_params_expr(expr, rename_A)
+        is_haldane = _expr_references_any(expr_A, keq_set)
+        suffix = expr_A isa Symbol ? ANNOTATION_SUBSTITUTED : ""
+        line = "$sym_A = $(string(expr_A))$suffix"
         push!(is_haldane ? hal_lines : weg_lines, line)
     end
 
