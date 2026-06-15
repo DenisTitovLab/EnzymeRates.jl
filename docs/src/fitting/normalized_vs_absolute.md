@@ -1,8 +1,19 @@
 # Normalized vs absolute rate
 
-The single `scale_k_to_kcat` field on `FittingProblem` controls two things at
-once: which loss formula the fitter uses, and how it normalizes the returned
-parameters.
+Enzyme kinetic data is often reported on an arbitrary rate scale. The enzyme
+concentration in the assay may be unknown, and figures from different
+preparations may reflect different states of purity, so the absolute value of a
+measured rate carries no reliable meaning. What survives is the *shape* of the
+response: changing the amount of enzyme scales every rate by the same factor and
+leaves that shape intact.
+
+EnzymeRates.jl handles both cases through one `FittingProblem` field,
+`scale_k_to_kcat`. For a trustworthy per-enzyme turnover scale, set it to
+`nothing`; the fit then scores absolute magnitudes. For an arbitrary scale, set
+it to a number — the enzyme's kcat if you know it, or simply `1`; the fit then
+becomes invariant to that arbitrary factor and pins the returned turnover to the
+number you chose. That single field controls two things at once: which loss
+formula the fitter uses, and how it normalizes the returned parameters.
 
 ## The two modes
 
@@ -36,38 +47,25 @@ Pass `nothing`. In absolute mode:
 Absolute mode is the right choice when your data is in units of
 turnover-per-enzyme and you have reliable `E_total` measurements.
 
-A non-positive `Real` (e.g. `scale_k_to_kcat = 0.0`) raises an error at
-construction.
-
-## Confirming the default
-
-```jldoctest
-julia> using EnzymeRates
-
-julia> m = @enzyme_mechanism begin
-           substrates: S
-           products:   P
-           steps: begin
-               E + S <--> E(S)
-               E(S) <--> E + P
-           end
-       end;
-
-julia> data = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1]);
-
-julia> FittingProblem(m, data; Keq = 2.0).scale_k_to_kcat === 1.0
-true
-```
-
 ## Rescaling after the fact
 
 `rescale_parameter_values(mechanism, params; scale_k_to_kcat)` is the public
-API for kcat normalization. It rescales only the SS rate constants — the
-`Kon`, `Koff`, `Kfor`, `Krev` family — while leaving RE binding constants,
-`Keq`, `E_total`, allosteric `L`, and regulatory K values unchanged. kcat is
-homogeneous degree-1 in the SS rate constants and independent of the RE K's,
-so rescaling the SS k's uniformly sets kcat to any target without disturbing
-anything else.
+API for kcat normalization. It rescales only the rate constants — the
+lowercase-`k` parameters (`kon_…`, `koff_…`, and the steady-state
+interconversion `k_…`) — while leaving the binding constants `K`, `Keq`,
+`E_total`, the allosteric `L`, and regulatory K values unchanged.
+
+The rate constants are the only parameters that carry time in their units, and
+the measured rate is the only thing that supplies a time scale, so it can pin
+down only what lives in them. The binding constants, `Keq`, and `E_total` are
+concentrations or concentration ratios, and `L` is a pure number — none carry a
+time dimension, so the rate constrains them only as far as the response shape
+already does. Multiplying every rate constant by a common factor scales kcat by
+that factor (kcat is homogeneous of degree one in them), and the K's stay put: a
+rapid-equilibrium step stores its binding constant directly, so the rescaling
+never touches it, while a steady-state binding constant is the ratio `koff/kon`,
+in which the common factor cancels. One uniform rescaling therefore sets kcat to
+any target while leaving every other parameter fixed.
 
 `fit_rate_equation` calls this function internally in relative mode. You can
 also call it directly on any parameter `NamedTuple` to renormalize after the
@@ -92,7 +90,7 @@ rescaled = rescale_parameter_values(uni_uni, params; scale_k_to_kcat = 1.0)
 rescaled
 ```
 
-Notice that only the SS rate constants changed (`koff_P_ES`, `kon_P_ES`,
+Notice that only the rate constants changed (`koff_P_ES`, `kon_P_ES`,
 `kon_S_E`); `Keq` and `E_total` are unchanged. Calling
 `rescale_parameter_values` again on `rescaled` with `scale_k_to_kcat = 1.0`
 returns the same values — the internal kcat computation on `rescaled` gives
