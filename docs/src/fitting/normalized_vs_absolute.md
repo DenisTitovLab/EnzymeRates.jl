@@ -32,7 +32,7 @@ Pass a positive `Real` — the default is `1.0`. In relative mode:
 
 Relative mode is the right choice when your data reports relative rates
 (arbitrary units, percent activity, or values normalized per some `E_total`
-estimate that you do not trust to three significant figures).
+estimate that you do not trust).
 
 ### Absolute mode
 
@@ -44,8 +44,17 @@ Pass `nothing`. In absolute mode:
 - **Output**: the raw fitted parameters are returned without kcat
   normalization. The data fixes the absolute scale.
 
-Absolute mode is the right choice when your data is in units of
-turnover-per-enzyme and you have reliable `E_total` measurements.
+Absolute mode is the right choice when your data is already on a per-enzyme
+turnover basis.
+
+!!! note "The fitter has no `E_total` input"
+    Every prediction is evaluated at `E_total = 1`, so the loss compares your
+    measured `Rate` against the per-enzyme turnover — in effect it fits
+    `Rate / E_total`. The data table carries no `E_total` column, and the fitter
+    ignores one if present. Relative mode makes this moot: per-group centering
+    cancels any constant factor, `E_total` included. Absolute mode does not, so
+    the measured `Rate` must already be per-enzyme — divide rates recorded at a
+    known enzyme amount by that amount before fitting.
 
 ## Rescaling after the fact
 
