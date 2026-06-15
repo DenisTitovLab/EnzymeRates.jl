@@ -93,7 +93,12 @@ struct IdentifyRateEquationResults
 end
 
 """
-    identify_rate_equation(prob; kwargs...)
+    identify_rate_equation(prob; optimizer,
+        min_beam_width=50, loss_rel_threshold=2.0, loss_abs_threshold=0.01,
+        max_param_count=20, n_restarts=20, maxtime=60.0, maxiters=10_000_000,
+        abstol=nothing, reltol=nothing, callback=nothing, solver_kwargs=(;),
+        n_cv_candidates=5, se_threshold=1.0, perm_p_threshold=0.16,
+        save_dir=_default_save_dir(), show_progress=true, pmap_function=pmap)
 
 Find the best rate equation for the given reaction
 and data using beam search.

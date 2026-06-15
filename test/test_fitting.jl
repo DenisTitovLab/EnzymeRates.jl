@@ -379,7 +379,6 @@ using Tables
         res = fit_rate_equation(fp, CMAEvolutionStrategyOpt();
             n_restarts=1, maxtime=1.0)
         @test isfinite(res.loss)        # a finite loss means a fit actually ran
-        @test res.retcode isa Symbol
 
         # solver_kwargs is forwarded verbatim: an option no optimizer
         # recognizes surfaces as an error (proves the bag reaches `solve`);

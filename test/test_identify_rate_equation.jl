@@ -412,9 +412,9 @@ using OptimizationCMAEvolutionStrategy
             group = [1, 1, 2, 2, 3, 3],
         )
         prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-        # An unrecognized kwarg (`beam_fraction`) is rejected by
-        # `fit_rate_equation` per fold; _loocv must NOT swallow that error
-        # (the old behavior returned Float64[]).
+        # An unrecognized kwarg (`beam_fraction`) makes every fold's
+        # `fit_rate_equation` call throw; _loocv must propagate that error,
+        # not swallow it (a corrupted CV must abort model selection).
         @test_throws Exception EnzymeRates._loocv(
             m, prob; optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
@@ -1024,11 +1024,11 @@ end
           EnzymeRates.BatchEntry[]
 end
 
-@testset "identify runs on a solver that rejects popsize (regression)" begin
-    # On the pre-fix source, identify_rate_equation force-injected
-    # popsize=200, which CMAEvolutionStrategy rejects → every base fit
-    # failed → ErrorException. The default path must now run cleanly on a
-    # solver that does not accept popsize.
+@testset "identify runs on a solver that rejects popsize" begin
+    # identify_rate_equation must run end-to-end with only default
+    # solver_kwargs on a solver that does not accept solver-specific
+    # options — it injects no solver-specific option of its own.
+    # (CMAEvolutionStrategy rejects unknown options such as popsize.)
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
