@@ -20,6 +20,14 @@ vectors. The required columns are:
 Call `metabolites(mechanism)` to find which concentration columns your data
 needs before constructing the problem.
 
+!!! note "No `E_total` column"
+    The fitter evaluates every prediction at `E_total = 1`, comparing your
+    `Rate` against the per-enzyme turnover — in effect it fits `Rate / E_total`.
+    The default relative mode needs no action here: per-group centering cancels
+    each group's enzyme amount. For absolute mode (`scale_k_to_kcat = nothing`),
+    first divide each rate by the enzyme amount used in its group. See
+    [Normalized vs absolute rate](@ref) for the full explanation.
+
 ```@example fitting
 using EnzymeRates
 
