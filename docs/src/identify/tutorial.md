@@ -1,15 +1,17 @@
 # Identify tutorial
 
 `identify_rate_equation` takes an `EnzymeReaction` and rate data, enumerates
-all biochemically valid mechanisms, fits each to data, and returns the
-simplest one that generalizes by leave-one-group-out cross-validation.
+biochemically valid mechanisms, and fits a beam of the most promising
+candidates at each parameter count — fitting every mechanism is far too
+expensive — returning the simplest one that generalizes by leave-one-group-out
+cross-validation.
 
-This page walks through a fast, fully runnable example. The example uses
-noiseless data and a collapsed width-1 beam to finish in seconds; the full
-production search uses the wider defaults (`min_beam_width=50`,
-`loss_rel_threshold=2.0`, `loss_abs_threshold=0.01`, `max_param_count=20`)
-and would often run for many hours and require the use of High Performance
-Compute Clusters (see [Running in parallel](parallel.md)).
+This page walks through a fully runnable example: an MWC allosteric enzyme,
+recovered from noiseless data in about a minute. The full production search
+widens the beam to the defaults (`min_beam_width=50`, `loss_rel_threshold=2.0`,
+`loss_abs_threshold=0.01`, `max_param_count=20`) and would often run for many
+hours and require a High Performance Compute cluster (see
+[Running in parallel](@ref)).
 
 ```@setup identify_fast
 using EnzymeRates
@@ -17,22 +19,32 @@ using EnzymeRates
 
 ## A reaction and a generating mechanism
 
+The example is a reversible uni-uni reaction `S ⇌ P` run by a dimeric enzyme
+with an allosteric activator `A`. The reaction declares the regulator and the
+oligomeric state; from these [The enumeration engine](@ref) builds the MWC
+variants the search fits.
+
 ```@example identify_fast
 using EnzymeRates
 
-# The reaction: a reversible uni-uni S ⇌ P.
 rxn = @enzyme_reaction begin
     substrates: S[C]
     products:   P[C]
+    allosteric_regulators: A
+    oligomeric_state: 2
 end
 
-# A concrete, non-degenerate uni-uni mechanism to generate the data.
-generator = @enzyme_mechanism begin
+# A concrete MWC mechanism to generate the data. A binds only the active
+# conformation (:OnlyA), which makes it an allosteric activator.
+generator = @allosteric_mechanism begin
     substrates: S
     products:   P
-    steps: begin
-        E + S <--> E(S)
-        E(S) <--> E + P
+    catalytic_multiplicity: 2
+    allosteric_regulators: A::OnlyA
+    catalytic_steps: begin
+        E + S ⇌ E(S)         :: EqualAI
+        E(S) <--> E(P)       :: OnlyA
+        E(P) ⇌ E + P         :: EqualAI
     end
 end
 
@@ -40,37 +52,48 @@ println("fitted params: ", EnzymeRates.fitted_params(generator))
 println("metabolites:   ", metabolites(generator))
 ```
 
-The mechanism is all-steady-state with three independent parameters:
-`koff_P_ES`, `kon_P_ES`, `kon_S_E`; `Keq` is supplied by the user and
-`E_total` is absorbed into the rate scale.
+The mechanism has five independent parameters: the binding constants `K_S_E`
+and `K_P_E` (shared by both conformations, `:EqualAI`), the active-state
+catalytic constant `k_A_ES_to_EP` (`:OnlyA`), the activator binding constant
+`K_A_Areg`, and the conformational equilibrium `L = [T]/[R]`. `Keq` is
+user-supplied and `E_total` is absorbed into the rate scale.
+[Mechanisms with allosteric regulators](@ref) covers the allosteric-state tags
+and the partition-function structure.
 
 Each substrate and product declares its **atom inventory** in the bracket:
-`S[C]` is a substrate with one carbon, and `A[C2N1]` would be two carbons and one
-nitrogen. These counts let the enumerator enforce atom conservation across steps
-and recognise covalent (ping-pong) intermediates; for a simple transfer like this
-uni-uni reaction a single `[C]` placeholder is enough.
+`S[C]` is one carbon, and `A[C2N1]` would be two carbons and one nitrogen.
+These counts let the enumerator enforce atom conservation across steps and
+recognise covalent (ping-pong) intermediates; a single `[C]` placeholder is
+enough for this transfer.
 
 ## Simulate noiseless data
 
+We evaluate the generator on a concentration grid. The activator `A` spans well
+below to well above its binding constant, so the allosteric response is fully
+sampled, and `Keq = 10` keeps every net rate strictly positive — a rate of
+exactly zero has no logarithm, and the loss works in log space.
+
 ```@example identify_fast
-Keq = 2.0
-true_params = (koff_P_ES = 2.5, kon_P_ES = 5.0, kon_S_E = 10.0,
-               Keq = Keq, E_total = 1.0)
+Keq = 10.0
+true_params = (K_S_E = 1.0, K_P_E = 1.0, k_A_ES_to_EP = 5.0,
+               K_A_Areg = 1.0, L = 100.0, Keq = Keq, E_total = 1.0)
 
-# Two measurement groups — the minimum for leave-one-group-out CV.
-concs  = [(S = 1.0, P = 0.1), (S = 2.0, P = 0.1), (S = 5.0, P = 0.1),
-          (S = 1.0, P = 0.5), (S = 2.0, P = 0.5), (S = 5.0, P = 0.5)]
-groups = ["G1", "G1", "G1", "G2", "G2", "G2"]
+concs = [(S = s, P = p, A = a)
+         for s in (0.3, 1.0, 3.0, 10.0) for p in (0.1, 0.5)
+         for a in (0.03, 0.3, 3.0, 30.0)]
+groups = [i ≤ length(concs) ÷ 2 ? "G1" : "G2" for i in eachindex(concs)]
 
-rates = [rate_equation(generator, c, true_params) for c in concs]
-data  = (group = groups, Rate = rates,
-         S = [c.S for c in concs], P = [c.P for c in concs])
+data = (group = groups,
+        Rate  = [rate_equation(generator, c, true_params) for c in concs],
+        S = [c.S for c in concs],
+        P = [c.P for c in concs],
+        A = [c.A for c in concs])
 nothing # hide
 ```
 
 The `data` table has a `:group` column, a `:Rate` column, and one column per
-metabolite. Each unique `group` value becomes one cross-validation fold, so at
-least two groups are required.
+metabolite — substrate, product, and the regulator `A`. Each unique `group`
+value becomes one cross-validation fold, so at least two groups are required.
 
 ## The data contract
 
@@ -83,41 +106,36 @@ least two groups are required.
 - At least two distinct `group` values are required for cross-validation.
 
 `Keq` is a required keyword argument, always user-supplied; the package never
-estimates it from data.
+estimates it from data. Most enzyme reactions have a known `Keq` — measure it
+directly, or compute it from a resource such as
+[eQuilibrator](https://equilibrator.weizmann.ac.il).
 
-## Run the fast search
+## Run the search
 
 ```@example identify_fast
-using OptimizationCMAEvolutionStrategy
+using OptimizationCMAEvolutionStrategy, Random
+Random.seed!(123)   # reproducible multi-start fits
 
 prob = IdentifyRateEquationProblem(rxn, data; Keq = Keq)
 
 results = identify_rate_equation(prob;
-    optimizer          = CMAEvolutionStrategyOpt(),
-    loss_rel_threshold = 1.0,    # cutoff == best loss …
-    loss_abs_threshold = 0.0,    # … no additive slack …
-    min_beam_width     = 1,      # … so exactly one survivor per level.
-    max_param_count    = 4,      # small cap ⇒ seconds, not hours
-    n_restarts         = 3,
-    maxtime            = 5.0,
-    pmap_function      = map,    # serial; pass `pmap` to distribute
-    show_progress      = false,
-    save_dir           = mktempdir(),
+    optimizer       = CMAEvolutionStrategyOpt(),
+    min_beam_width  = 10,
+    max_param_count = 5,
+    n_restarts      = 5,
+    maxtime         = 4.0,
 )
 nothing # hide
 ```
 
-With `loss_rel_threshold=1.0` and `loss_abs_threshold=0.0`, the beam cutoff
-equals the best loss at each parameter-count level, keeping exactly one
-survivor per level.
-`min_beam_width=1` reinforces this: even if the cutoff would admit zero
-survivors, one is kept. Together, they collapse the search to a deterministic
-single-path trace through the mechanism space.
-
-The full production search uses the wider defaults (`min_beam_width=50`,
-`loss_rel_threshold=2.0`, `loss_abs_threshold=0.01`, `max_param_count=20`,
-`n_restarts=20`, `maxtime=60.0`) and explores far more candidates in
-parallel via `pmap_function=pmap` (see [Running in parallel](parallel.md)).
+The progress lines above trace the search. It walks parameter counts in
+ascending order: at each count it fits the candidates, keeps a beam of the
+most promising (here `min_beam_width = 10`), and expands the survivors into the
+next count. `max_param_count = 5` stops at the generating mechanism's size to
+keep the example quick. [Model selection](@ref) details the beam cutoff and the
+cross-validation rule that picks the winner. The production search widens the
+beam to 50 and the cap to 20, and distributes the fits across workers via
+`pmap_function = pmap` (see [Running in parallel](@ref)).
 
 ## Read the result
 
@@ -134,25 +152,17 @@ results.best
 print(rate_equation_string(results.best))
 ```
 
-On noiseless data the search returns the simplest rate equation consistent with
-the data — here a minimal three-parameter, rapid-equilibrium form (`K_P_E`,
-`K_S_E`, `k_ES_to_EP`). That equation is a reparametrization of the steady-state
-mechanism that generated the data: the same fractional rate law, written with
-fewer independent parameters. The search recovers the *functional form* and
-picks its most parsimonious parameterization — it does not reconstruct the exact
-generating mechanism, and cross-validation cannot distinguish reparametrizations
-of one rate law.
+On noiseless data the search recovers the generating MWC mechanism. The active
+and inactive conformations enter as a partition function,
+`(active polynomial)² + L·(inactive polynomial)²` — squared because the enzyme
+is a dimer — the activator contributes `(1 + A/K_A_Areg)²` to the active state,
+and the Haldane constraint fixes the dependent reverse rate `k_A_EP_to_ES` from
+`Keq` and the independent constants.
 
 `results.cv_results` is a `DataFrame` with one row per candidate equation that
-entered cross-validation:
+entered cross-validation, scored as detailed on the [Model selection](@ref)
+page:
 
 ```@example identify_fast
 first(results.cv_results, 5)
 ```
-
-The schema of `cv_results` — its columns, the CV score definition, and the
-two-test model-selection rule — is detailed on the [Model selection](@ref)
-page.
-
-The enumeration strategy — `init_mechanisms`, the six expansion moves, and
-deduplication — is described on the [The enumeration engine](@ref) page.
