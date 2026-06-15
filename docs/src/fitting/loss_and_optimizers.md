@@ -35,7 +35,7 @@ mismatched point is added to the total. In centered mode this prevents an
 all-mismatch group from contributing zero loss (the uniform sentinel would
 cancel under mean-subtraction); the post-hoc penalty keeps it positive.
 
-!!! note "When the sign penalty can bite"
+!!! note "Sign penalty with all reactants present"
     This penalty is harmless for most enzyme kinetic data. An assay usually
     omits at least one substrate or one product, so the net rate keeps one sign
     across the whole dataset and stays clear of zero. When every substrate and
