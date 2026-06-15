@@ -162,6 +162,12 @@ allocation or microsecond-scale overhead makes the package unusable in
 practice. If a change would force `rate_equation` to allocate or slow down,
 stop and discuss before implementing.
 
+`loss!` is held to the same standard. `FittingProblem` pre-allocates the
+`log_ratios_buffer` once at construction, and `loss!` reuses it on every call,
+so the fitter's inner loop allocates nothing. Combined with the `rate_equation`
+contract above, this is what makes multi-start fitting over millions of loss
+evaluations practical.
+
 ---
 
 ## Source layout
