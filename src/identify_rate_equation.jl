@@ -93,7 +93,12 @@ struct IdentifyRateEquationResults
 end
 
 """
-    identify_rate_equation(prob; kwargs...)
+    identify_rate_equation(prob; optimizer,
+        min_beam_width=50, loss_rel_threshold=2.0, loss_abs_threshold=0.01,
+        max_param_count=20, n_restarts=20, maxtime=60.0, maxiters=10_000_000,
+        abstol=nothing, reltol=nothing, callback=nothing, solver_kwargs=(;),
+        n_cv_candidates=5, se_threshold=1.0, perm_p_threshold=0.16,
+        save_dir=_default_save_dir(), show_progress=true, pmap_function=pmap)
 
 Find the best rate equation for the given reaction
 and data using beam search.
@@ -107,15 +112,17 @@ and data using beam search.
   for beam selection
 - `max_param_count::Int = 20`: stop expanding beyond
 - `optimizer`: Optimization.jl optimizer (required).
-  Recommended: `PyCMAOpt()` from OptimizationPyCMAES.
+  Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
 - `n_restarts::Int = 20`: multi-start restarts per fit
-- `maxtime::Real = 60.0`: max time per fit (seconds)
-- `maxiters::Int = 10_000_000`: max iterations per
-  optimizer run (forwarded to `Optimization.solve`)
-- `popsize::Int = 200`: population size for optimizer
-  (forwarded to `Optimization.solve`)
-- `verbose::Int = -9`: optimizer verbosity
-  (forwarded to `Optimization.solve`)
+- `maxtime::Real = 60.0`: max time per fit (seconds; common solver
+  option, forwarded to `Optimization.solve`)
+- `maxiters::Integer = 10_000_000`: max iterations per optimizer run
+  (common solver option, forwarded to `Optimization.solve`)
+- `abstol`/`reltol`/`callback = nothing`: Optimization.jl common solver
+  options, forwarded to `Optimization.solve` only when set
+- `solver_kwargs::NamedTuple = (;)`: solver-specific options forwarded
+  verbatim to `Optimization.solve` (e.g. `(; popsize=200)` for a CMA-ES
+  solver that supports it); the caller matches its contents to `optimizer`
 - `n_cv_candidates::Int = 5`: LOOCV top N
   **unique-rate-equation** candidates per param count
 - `se_threshold::Float64 = 1.0`: paired 1-SE multiplier for
@@ -131,8 +138,6 @@ and data using beam search.
   search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`)
 - `pmap_function::Function = pmap`: parallelism
   function (Distributed.pmap by default)
-- Extra kwargs are forwarded to `fit_rate_equation`
-  and then to `Optimization.solve`.
 
 # Beam selection
 
@@ -177,9 +182,11 @@ function identify_rate_equation(
     optimizer,
     n_restarts::Int = 20,
     maxtime::Real = 60.0,
-    maxiters::Int = 10_000_000,
-    popsize::Int = 200,
-    verbose::Int = -9,
+    maxiters::Integer = 10_000_000,
+    abstol::Union{Real,Nothing} = nothing,
+    reltol::Union{Real,Nothing} = nothing,
+    callback = nothing,
+    solver_kwargs = (;),
     # Model selection
     n_cv_candidates::Int = 5,
     se_threshold::Float64 = 1.0,
@@ -188,13 +195,10 @@ function identify_rate_equation(
     save_dir::String = _default_save_dir(),
     show_progress::Bool = true,
     pmap_function::Function = pmap,
-    # Extra fitting/optimizer kwargs
-    optim_kwargs...
 )
     fitting_kwargs = (;
-        n_restarts, maxtime,
-        maxiters, popsize, verbose,
-        optim_kwargs...)
+        n_restarts, maxtime, maxiters,
+        abstol, reltol, callback, solver_kwargs)
 
     if isdir(save_dir)
         existing = filter(

@@ -6,7 +6,7 @@ using DataFrames
 using CSV
 using Random
 using Statistics
-using OptimizationPyCMA
+using OptimizationCMAEvolutionStrategy
 
 @testset "identify_rate_equation" begin
 
@@ -78,7 +78,7 @@ using OptimizationPyCMA
     test_data = make_test_data(
         test_mechanism, true_params)
 
-    pycma_opt = PyCMAOpt()
+    cmaes_opt = CMAEvolutionStrategyOpt()
 
     # ── Construction validation ──────────────────────
     @testset "construction" begin
@@ -226,7 +226,7 @@ using OptimizationPyCMA
         n_cv_candidates=1,
         save_dir=save_dir,
         pmap_function=map,
-        optimizer=pycma_opt,
+        optimizer=cmaes_opt,
         n_restarts=1, maxtime=1.0)
 
     @testset "mechanism recovery" begin
@@ -245,9 +245,8 @@ using OptimizationPyCMA
             results.best, test_data;
             Keq=Keq_val)
         fit_best = fit_rate_equation(
-            fp_best, pycma_opt;
-            n_restarts=3, maxtime=10.0,
-            popsize=200)
+            fp_best, cmaes_opt;
+            n_restarts=3, maxtime=10.0)
         @test fit_best.loss < 0.01
     end
 
@@ -362,7 +361,7 @@ using OptimizationPyCMA
                 n_cv_candidates=1,
                 save_dir=save_dir,
                 pmap_function=map,
-                optimizer=pycma_opt,
+                optimizer=cmaes_opt,
                 n_restarts=1, maxtime=1.0))
     end
 
@@ -385,9 +384,9 @@ using OptimizationPyCMA
 
         scores = EnzymeRates._loocv(
             m, prob;
-            optimizer=PyCMAOpt(),
+            optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=2, maxtime=2.0,
-            maxiters=500, popsize=40, verbose=-9)
+            maxiters=500)
 
         @test scores isa Vector{Float64}
         # Require the success path: fitting MUST converge on
@@ -413,10 +412,11 @@ using OptimizationPyCMA
             group = [1, 1, 2, 2, 3, 3],
         )
         prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-        # An unsupported optimizer kwarg makes every fold fit throw; _loocv
-        # must NOT swallow it (the old behavior returned Float64[]).
+        # An unrecognized kwarg (`beam_fraction`) makes every fold's
+        # `fit_rate_equation` call throw; _loocv must propagate that error,
+        # not swallow it (a corrupted CV must abort model selection).
         @test_throws Exception EnzymeRates._loocv(
-            m, prob; optimizer=PyCMAOpt(),
+            m, prob; optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
     end
 
@@ -492,14 +492,14 @@ end
     @test sel == [2, 4]   # input-order, not [2, 4] sorted by loss
 end
 
-@testset "beam_fraction kwarg removed: passing it errors" begin
-    # `beam_fraction` is not a recognized kwarg; it is forwarded to
-    # `Optimization.solve`, which rejects it. Per-mechanism fit failures
-    # are isolated in `_process_batch`, so an unknown optimizer kwarg
-    # fails every fit; the base tier is then empty and the pipeline raises.
-    # The contract under test is that passing it errors (no silent
-    # acceptance), AND that the all-base-fail path persists the failure
-    # rows to `initial_mechanisms.csv` before raising (for cluster debugging).
+@testset "all base fits fail: failure CSV written, then raises" begin
+    # A `solver_kwargs` option no optimizer recognizes is forwarded
+    # verbatim to `Optimization.solve` and makes every fit throw (a bogus
+    # name keeps this independent of whether any real option is supported).
+    # Per-mechanism fit failures are isolated in `_process_batch`, so the
+    # base tier is then empty and the pipeline raises. The contract under
+    # test is that the all-base-fail path persists the failure rows to
+    # `initial_mechanisms.csv` before raising (for cluster debugging).
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -511,8 +511,8 @@ end
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
     tmp = mktempdir()
     @test_throws ErrorException identify_rate_equation(
-        prob; beam_fraction=0.5,
-        optimizer=PyCMAOpt(),
+        prob; solver_kwargs=(; not_a_real_solver_option=1),
+        optimizer=CMAEvolutionStrategyOpt(),
         n_restarts=1, maxtime=1.0, save_dir=tmp)
     # Failure rows were written before the re-raise: a CSV exists whose rows
     # are all failures (non-missing `error`, missing `eq_hash`).
@@ -969,7 +969,7 @@ end
     ms = unique!(collect(EnzymeRates.init_mechanisms(rxn)))
 
     entries, failures = EnzymeRates._process_batch(ms, prob;
-        pmap_function=map, optimizer=PyCMAOpt(),
+        pmap_function=map, optimizer=CMAEvolutionStrategyOpt(),
         max_param_count=20, n_restarts=1, maxtime=1.0)
     @test !isempty(entries)
     @test isempty(failures)
@@ -980,16 +980,17 @@ end
 
     # cap filter: nothing over the cap is fit (and it is not a failure).
     capped_entries, capped_failures = EnzymeRates._process_batch(ms, prob;
-        pmap_function=map, optimizer=PyCMAOpt(),
+        pmap_function=map, optimizer=CMAEvolutionStrategyOpt(),
         max_param_count=0, n_restarts=1, maxtime=1.0)
     @test isempty(capped_entries)
     @test isempty(capped_failures)
 
-    # config error (unknown optimizer kwarg) → every fit throws → all failures,
-    # no entries; each failure carries a non-empty error string.
+    # config error (solver rejects an option) → every fit throws → all
+    # failures, no entries; each failure carries a non-empty error string.
     fail_entries, fail_failures = EnzymeRates._process_batch(ms, prob;
-        pmap_function=map, optimizer=PyCMAOpt(),
-        max_param_count=20, n_restarts=1, maxtime=1.0, beam_fraction=0.5)
+        pmap_function=map, optimizer=CMAEvolutionStrategyOpt(),
+        max_param_count=20, n_restarts=1, maxtime=1.0,
+        solver_kwargs=(; not_a_real_solver_option=1))
     @test isempty(fail_entries)
     @test !isempty(fail_failures)
     @test all(f -> f isa EnzymeRates.FitFailure, fail_failures)
@@ -1021,4 +1022,49 @@ end
     # n=0 must not panic on the empty pool (n_cv_candidates is public)
     @test EnzymeRates._offer_cv!(EnzymeRates.BatchEntry[], mk(5,1.0,:a), 0) ==
           EnzymeRates.BatchEntry[]
+end
+
+@testset "identify runs on a solver that rejects popsize" begin
+    # identify_rate_equation must run end-to-end with only default
+    # solver_kwargs on a solver that does not accept solver-specific
+    # options — it injects no solver-specific option of its own.
+    # (CMAEvolutionStrategy rejects unknown options such as popsize.)
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    data = (group = ["G1", "G1", "G2", "G2"],
+            Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0],
+            P = [0.1, 0.2, 0.3, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    tmp = mktempdir()
+    results = identify_rate_equation(prob;
+        optimizer=CMAEvolutionStrategyOpt(),
+        min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        max_param_count=6, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
+        pmap_function=map, save_dir=tmp, show_progress=false)
+    @test results isa IdentifyRateEquationResults
+end
+
+@testset "removed kwargs error at the identify boundary" begin
+    # popsize/verbose are no longer named kwargs and there is no catch-all,
+    # so they are rejected immediately at the call boundary (before any
+    # fitting or CSV write) — distinct from a solver-rejected solver_kwargs
+    # option, which fails inside fitting.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    data = (group = ["G1", "G1", "G2", "G2"],
+            Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0],
+            P = [0.1, 0.2, 0.3, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    @test_throws Exception identify_rate_equation(
+        prob; popsize=200, optimizer=CMAEvolutionStrategyOpt(),
+        n_restarts=1, maxtime=1.0, save_dir=mktempdir())
+    @test_throws Exception identify_rate_equation(
+        prob; verbose=-9, optimizer=CMAEvolutionStrategyOpt(),
+        n_restarts=1, maxtime=1.0, save_dir=mktempdir())
 end

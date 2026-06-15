@@ -78,7 +78,7 @@ the same `E_total`; the framework's loss function is invariant to a
 per-group `E_total` rescaling.
 
 ```julia
-using OptimizationPyCMA, Random
+using OptimizationCMAEvolutionStrategy, Random
 Random.seed!(42)
 
 true_params = (
@@ -115,21 +115,28 @@ data = (
 )
 ```
 
-The fit runs `fit_rate_equation` on a `FittingProblem`, using the PyCMA
-optimizer (multi-start CMA-ES) recommended for rate-equation fitting.
+The fit runs `fit_rate_equation` on a `FittingProblem`, using the
+CMAEvolutionStrategy optimizer (multi-start CMA-ES) recommended for
+rate-equation fitting.
 Fitted rate constants are returned with kcat normalized to 1.0 by
 default — the absolute scale is recovered by multiplying with a
 separately measured kcat.
 
 ```julia
 fp = FittingProblem(m, data; Keq=2.0)
-result = fit_rate_equation(fp, PyCMAOpt();
-    n_restarts=3, maxtime=5.0, popsize=50)
+result = fit_rate_equation(fp, CMAEvolutionStrategyOpt();
+    n_restarts=3, maxtime=5.0)
 result.params       # K_S_E, K_P_E, K_A_Areg, L recover near true.
                     # k_A_ES_to_EP is normalized so kcat = 1.0 (its true
                     # value 100.0 is the kcat scale).
 result.loss         # final loss value (~5% noise floor)
 ```
+
+Solver-specific options are passed through `solver_kwargs`, a `NamedTuple`
+forwarded verbatim to `Optimization.solve`; the Optimization.jl common
+options `maxtime`, `maxiters`, `abstol`, `reltol`, and `callback` are named
+keyword arguments. Match `solver_kwargs` keys to your chosen optimizer's
+accepted options.
 
 ## Recover the mechanism with `identify_rate_equation`
 
@@ -167,7 +174,7 @@ if you just want to read along, or run it when you have time.
 ```julia
 # README-SKIP-IN-TEST
 results = identify_rate_equation(prob;
-    optimizer=PyCMAOpt(),
+    optimizer=CMAEvolutionStrategyOpt(),
     max_param_count=10,
     pmap_function=map,            # serial; pass `pmap` for distributed
 )
