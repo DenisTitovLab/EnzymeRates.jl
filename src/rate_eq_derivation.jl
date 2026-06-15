@@ -72,6 +72,10 @@ end
     # tuple.
     synth_names = _synthesized_dep_i_names(typeof(catalytic_mechanism(aem)),
                                             am)
+    # A Case-B synth-dep name can coincide with a base I-state mirror already
+    # in `names` (an `:EqualAI` group whose Haldane-dependent reverse rate
+    # references a `:NonequalAI` symbol). Keep the union, not a duplicate.
+    filter!(n -> !(n in names), synth_names)
     if !isempty(synth_names)
         insert_pos = findfirst(p -> p isa Union{Kreg, Lallo}, params)
         idx = insert_pos === nothing ? length(names) + 1 : insert_pos

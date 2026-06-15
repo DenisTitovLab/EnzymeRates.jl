@@ -1080,14 +1080,15 @@ end
     @test bm !== nothing && EnzymeRates.name(bm) === :ATP
 end
 
-# `parameters(m, Full)` is not injective for Case-B allosteric shapes: an
-# `:EqualAI` group whose reverse rate is Haldane-dependent can emit a base
-# I-state name and a synth-dep name that coincide. Keep this visible until
-# direction-symmetry constraint resolution and NonequalAI rank validation
-# make the duplicate impossible.
-@testset "parameters(Full) Case-B duplicate (deferred)" begin
+# `parameters(m, Full)` is injective. For Case-B allosteric shapes an
+# `:EqualAI` group whose Haldane-dependent reverse rate references a
+# `:NonequalAI` symbol emits the same I-state name from two paths — the base
+# I-state mirror and the synthesized dep — so `parameters(Full)` takes their
+# union rather than listing the name twice (PK is the only such mechanism in
+# the fixtures).
+@testset "parameters(Full) injective for Case-B allosteric shapes" begin
     pk = only(s for s in MECHANISM_TEST_SPECS if s.name == "PK")
-    @test_broken allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
+    @test allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
 end
 
 # ── Standalone kcat tests ──────────────────────────────────────────────────────
