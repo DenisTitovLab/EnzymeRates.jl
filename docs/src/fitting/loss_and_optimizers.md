@@ -6,14 +6,13 @@ to choose an optimization algorithm through Optimization.jl.
 ## The loss function
 
 `loss!(x, fp)` computes a **log-ratio loss**. Parameters in `x` are in log
-space — the actual rate constants are `exp.(x)`. For each data point the loss
-uses the squared log-ratio:
+space — the actual rate constants are `exp.(x)`. For each of the `N` data points
+it squares the log-ratio of predicted to measured rate, then sums over all
+points and divides by `N`:
 
 ```
-(log(|predicted rate|) − log(|measured rate|))²
+loss = (1/N) Σᵢ (log(|predicted rateᵢ|) − log(|measured rateᵢ|))²
 ```
-
-The loss is the mean of these squared log-ratios over all data points.
 
 ### Centered vs uncentered
 
@@ -36,13 +35,14 @@ mismatched point is added to the total. In centered mode this prevents an
 all-mismatch group from contributing zero loss (the uniform sentinel would
 cancel under mean-subtraction); the post-hoc penalty keeps it positive.
 
-This penalty is harmless for most enzyme kinetic data. An assay usually omits
-at least one substrate or one product, so the net rate stays strictly positive
-(or strictly negative) across the whole dataset and never nears a sign change.
-When every substrate and product is present, though, the net rate can pass
-through zero, and the penalty can steer the fit toward parameters that merely
-reproduce the sign of near-zero rates while fitting the rest of the data poorly.
-Watch for this when your measurements straddle the reaction's equilibrium.
+!!! note "When the sign penalty can bite"
+    This penalty is harmless for most enzyme kinetic data. An assay usually
+    omits at least one substrate or one product, so the net rate keeps one sign
+    across the whole dataset and stays clear of zero. When every substrate and
+    product is present, though, the net rate can pass through zero, and the
+    penalty can steer the fit toward parameters that reproduce the sign of
+    near-zero rates and fit the rest of the data poorly. Watch for this when
+    your measurements straddle the reaction's equilibrium.
 
 ## Optimizers
 
@@ -88,12 +88,3 @@ is NP-hard, so any single run can settle in a local minimum; restarting from
 independent points raises the chance of reaching the global optimum. In our
 tests on complex rate equations with datasets of 500–1000 points,
 `n_restarts = 10–20` returned the same loss on every run.
-
-```julia
-result = fit_rate_equation(
-    fp, CMAEvolutionStrategyOpt();
-    n_restarts    = 10,      # independent multi-start optimizations
-    maxtime       = 60.0,    # common option, forwarded to every solve
-    solver_kwargs = (;),     # solver-specific options (none here)
-)
-```
