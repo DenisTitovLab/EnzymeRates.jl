@@ -51,16 +51,6 @@ The independent parameters the mechanism fits:
 parameters(allo)
 ```
 
-!!! warning "Known rendering bug"
-    For an allosteric mechanism, `rate_equation_string` currently renders the
-    **active-state** Haldane constraint lines with un-prefixed names — for example
-    `k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP` — instead of the
-    active-state names `k_A_EP_to_ES` and `k_A_ES_to_EP`. Those names appear in
-    neither the `params` list nor the `v` expression, so the printed allosteric
-    string is not directly runnable. The compiled [`rate_equation`](@ref) is
-    unaffected — it computes the dependent constants correctly — so this is purely
-    a display bug in `rate_equation_string`, and it will be fixed.
-
 Each catalytic kinetic group and each regulator carries one of four tags that
 controls how its A- and I-state symbols are rendered:
 
