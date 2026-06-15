@@ -22,10 +22,10 @@ usual — `pmap` distributes the work across the workers automatically.
 using Distributed
 addprocs(8)                                        # 8 worker processes
 
-@everywhere using EnzymeRates, OptimizationPyCMA   # load on every worker
+@everywhere using EnzymeRates, OptimizationCMAEvolutionStrategy   # load on every worker
 
 results = identify_rate_equation(prob;
-    optimizer = PyCMAOpt(),
+    optimizer = CMAEvolutionStrategyOpt(),
     # pmap_function = pmap is the default: candidate fits and CV folds
     # are now spread across the 8 workers.
 )
@@ -46,9 +46,9 @@ allocation and starts one worker per task:
 using Distributed, SlurmClusterManager
 addprocs(SlurmManager())                           # one worker per Slurm task
 
-@everywhere using EnzymeRates, OptimizationPyCMA
+@everywhere using EnzymeRates, OptimizationCMAEvolutionStrategy
 
-results = identify_rate_equation(prob; optimizer = PyCMAOpt())
+results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
 ```
 
 Run this from inside a Slurm allocation (`salloc`, or a script submitted with
@@ -65,7 +65,7 @@ is not worth it, and for the fast example in the [Identify tutorial](@ref).
 
 ```julia
 results = identify_rate_equation(prob;
-    optimizer = PyCMAOpt(),
+    optimizer = CMAEvolutionStrategyOpt(),
     pmap_function = map,    # single process, no Distributed workers
 )
 ```

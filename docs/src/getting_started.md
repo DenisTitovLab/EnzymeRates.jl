@@ -95,7 +95,7 @@ and optimizer options in depth.
 Generate noiseless synthetic data from the mechanism above:
 
 ```@example getting-started
-using OptimizationPyCMA, Random
+using OptimizationCMAEvolutionStrategy, Random
 Random.seed!(1)
 
 groups = String[]; Rate = Float64[]; Svals = Float64[]; Pvals = Float64[]
@@ -109,7 +109,7 @@ end
 data = (group = groups, Rate = Rate, S = Svals, P = Pvals)
 
 fp = FittingProblem(m, data; Keq = 2.0)
-fitted_params, loss, retcode = fit_rate_equation(fp, PyCMAOpt(); n_restarts = 1, maxtime = 2.0)
+fitted_params, loss, retcode = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1, maxtime = 2.0)
 retcode
 ```
 
@@ -140,7 +140,7 @@ results = identify_rate_equation(prob;
     n_cv_candidates = 1,
     save_dir = mktempdir(),
     pmap_function = map,
-    optimizer = PyCMAOpt(),
+    optimizer = CMAEvolutionStrategyOpt(),
     n_restarts = 1, maxtime = 1.0,
     show_progress = false)
 

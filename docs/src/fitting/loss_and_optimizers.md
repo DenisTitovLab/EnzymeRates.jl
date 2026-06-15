@@ -51,36 +51,34 @@ multi-start fitting over millions of loss evaluations practical.
 **EnzymeRates depends only on `Optimization.jl`; it ships no solver backend.**
 
 `fit_rate_equation` wraps `loss!` into an `Optimization.OptimizationFunction`,
-constructs an `OptimizationProblem`, and calls `Optimization.solve(prob,
-optimizer; maxtime, kwargs...)`. The `optimizer` argument is whatever
-Optimization.jl solver object the caller supplies. Install one of the
-Optimization.jl solver sub-packages and pass its optimizer object.
-
-Install one of these — `OptimizationPyCMA` (the recommended choice; needs
-Python and `pycma`) or `OptimizationBBO` (a tested, pure-Julia alternative):
+builds an `OptimizationProblem`, and calls `Optimization.solve(prob, optimizer;
+…)`. The `optimizer` argument is any Optimization.jl solver object the caller
+supplies. Install one of the Optimization.jl solver sub-packages and pass its
+optimizer object — `OptimizationCMAEvolutionStrategy` (recommended) or
+`OptimizationBBO` (a tested alternative), both pure Julia:
 
 ```julia
-] add OptimizationPyCMA   # CMA-ES — recommended; requires Python and pycma
-] add OptimizationBBO     # BBO differential evolution — pure Julia, no Python needed
+] add OptimizationCMAEvolutionStrategy   # CMA-ES — recommended, pure Julia
+] add OptimizationBBO                     # BBO differential evolution — pure Julia
 ```
 
-### Recommended: `PyCMAOpt()` from `OptimizationPyCMA`
+### Recommended: `CMAEvolutionStrategyOpt()` from `OptimizationCMAEvolutionStrategy`
 
 CMA-ES (Covariance Matrix Adaptation Evolution Strategy) is the recommended
-optimizer for rate-equation fitting and the one the identify pipeline uses.
-It handles the correlated, non-convex landscapes that arise from the
-Haldane/Wegscheider parameter reduction well. It requires Python with
-`pycma` installed, which `OptimizationPyCMA` arranges via `CondaPkg.jl`.
+optimizer for rate-equation fitting and the one the
+[`identify_rate_equation`](@ref) search uses. It handles the correlated,
+non-convex landscapes that the Haldane/Wegscheider parameter reduction
+produces. The package is pure Julia, with no Python or external runtime.
 
 ### Alternative: `BBO_adaptive_de_rand_1_bin_radiuslimited()` from `OptimizationBBO`
 
-A pure-Julia differential-evolution optimizer with no Python dependency. A
-good choice for environments where Python is unavailable.
+A pure-Julia differential-evolution optimizer. A good second choice when you
+want to cross-check a fit against an independent global optimizer.
 
 ## Example: running a fit
 
 ```@example optimizers
-using EnzymeRates, OptimizationPyCMA
+using EnzymeRates, OptimizationCMAEvolutionStrategy
 
 uni_uni = @enzyme_mechanism begin
     substrates: S
@@ -103,14 +101,14 @@ data = (
 fp = FittingProblem(uni_uni, data; Keq = 2.0)
 
 result = fit_rate_equation(
-    fp, PyCMAOpt();
+    fp, CMAEvolutionStrategyOpt();
     n_restarts = 3, maxtime = 10.0,
 )
 
 (keys(result), result.retcode isa Symbol)
 ```
 
-The same call with the pure-Julia BBO optimizer (no Python needed):
+The same call with the BBO optimizer:
 
 ```julia
 using OptimizationBBO
@@ -121,20 +119,35 @@ result = fit_rate_equation(
 )
 ```
 
-## Passing solver-specific options
+## Passing solver options
 
-Solver keywords flow through `fit_rate_equation`'s `kwargs...` directly to
-`Optimization.solve`. `maxtime` and `n_restarts` are arguments of
-`fit_rate_equation` itself; solver-specific knobs such as `popsize` and
-`maxiters` go in `kwargs`:
+`fit_rate_equation` separates two kinds of solver options:
+
+- **Common options** are named keyword arguments: `maxtime`, `maxiters`,
+  `abstol`, `reltol`, and `callback`. These are the
+  [Optimization.jl common solver options](https://docs.sciml.ai/Optimization/stable/API/solve/)
+  every solver understands. `maxtime` and `maxiters` are always forwarded to
+  `Optimization.solve`; `abstol`, `reltol`, and `callback` are forwarded only
+  when set, so each solver keeps its own default otherwise.
+- **Solver-specific options** go in `solver_kwargs`, a `NamedTuple` forwarded
+  verbatim to `Optimization.solve`. When a key appears in both a named common
+  option and `solver_kwargs`, the `solver_kwargs` value wins.
+
+`n_restarts` is separate from both: it is the number of independent multi-start
+optimizations `fit_rate_equation` runs, not a solver option.
 
 ```julia
 result = fit_rate_equation(
-    fp, PyCMAOpt();
-    n_restarts = 10, maxtime = 60.0, popsize = 50,
+    fp, CMAEvolutionStrategyOpt();
+    n_restarts    = 10,      # independent multi-start optimizations
+    maxtime       = 60.0,    # common option, forwarded to every solve
+    solver_kwargs = (;),     # solver-specific options (none here)
 )
 ```
 
-`n_restarts` and `maxtime` are the primary budget controls. `popsize` is
-CMA-ES-specific and controls the population size per generation; larger values
-slow each generation but improve coverage of high-dimensional spaces.
+Match `solver_kwargs` keys to the options your chosen optimizer accepts.
+Because the bag reaches `Optimization.solve` unchanged, a key the optimizer
+does not recognize surfaces as an error from the solver. `fit_rate_equation`
+has no catch-all keyword: passing an unrecognized argument to it directly
+errors at the call boundary, so every solver-specific knob must go in
+`solver_kwargs`.

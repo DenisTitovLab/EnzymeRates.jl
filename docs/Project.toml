@@ -3,11 +3,11 @@ Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DocumenterCitations = "daee34ce-89f3-4625-b898-19384cb65244"
 EnzymeRates = "e7a1c2d3-4b5f-6a7e-8c9d-0e1f2a3b4c5d"
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
-OptimizationPyCMA = "fb0822aa-1fe5-41d8-99a6-e7bf6c238d3b"
+OptimizationCMAEvolutionStrategy = "bd407f91-200f-4536-9381-e4ba712f53f8"
 
 [compat]
 Documenter = "1"
 DocumenterCitations = "1"
 Optimization = "4, 5"
-OptimizationPyCMA = "1"
+OptimizationCMAEvolutionStrategy = "0.3"
 julia = "1.9"

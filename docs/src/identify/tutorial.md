@@ -88,12 +88,12 @@ estimates it from data.
 ## Run the fast search
 
 ```@example identify_fast
-using OptimizationPyCMA
+using OptimizationCMAEvolutionStrategy
 
 prob = IdentifyRateEquationProblem(rxn, data; Keq = Keq)
 
 results = identify_rate_equation(prob;
-    optimizer          = PyCMAOpt(),
+    optimizer          = CMAEvolutionStrategyOpt(),
     loss_rel_threshold = 1.0,    # cutoff == best loss …
     loss_abs_threshold = 0.0,    # … no additive slack …
     min_beam_width     = 1,      # … so exactly one survivor per level.

@@ -72,15 +72,15 @@ the fitting hot path pays no compilation overhead.
 
 `fit_rate_equation` requires an explicit optimizer — the base package depends
 only on `Optimization.jl` and ships no solver backend. Install
-`OptimizationPyCMA` (the recommended choice; needs Python and `pycma`) or
-`OptimizationBBO` (a pure-Julia alternative) and pass its optimizer object. See
-[Loss & optimizers](@ref) for details.
+`OptimizationCMAEvolutionStrategy` (the recommended choice; a pure-Julia
+CMA-ES) or `OptimizationBBO` (a pure-Julia differential-evolution alternative)
+and pass its optimizer object. See [Loss & optimizers](@ref) for details.
 
 ```@example fitting
-using OptimizationPyCMA
+using OptimizationCMAEvolutionStrategy
 
 result = fit_rate_equation(
-    fp, PyCMAOpt();
+    fp, CMAEvolutionStrategyOpt();
     n_restarts = 3, maxtime = 10.0,
 )
 
