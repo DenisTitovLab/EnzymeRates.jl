@@ -378,7 +378,7 @@ using Tables
         # options — no solver-specific option is force-injected.
         res = fit_rate_equation(fp, CMAEvolutionStrategyOpt();
             n_restarts=1, maxtime=1.0)
-        @test haskey(res, :params)
+        @test isfinite(res.loss)        # a finite loss means a fit actually ran
         @test res.retcode isa Symbol
 
         # solver_kwargs is forwarded verbatim: an option no optimizer
@@ -391,11 +391,13 @@ using Tables
 
         # Merge semantics: the same key in both a named common option and
         # solver_kwargs does NOT raise a duplicate-keyword error (a naive
-        # double-splat would); solver_kwargs wins.
+        # double-splat would). The override value taking effect is guaranteed
+        # by `merge(common, solver_kwargs)` in fit_rate_equation; here we
+        # assert the call succeeds and produces a finite-loss fit.
         res2 = fit_rate_equation(
             fp, CMAEvolutionStrategyOpt();
             n_restarts=1, maxtime=60.0, solver_kwargs=(; maxtime=1.0))
-        @test haskey(res2, :params)
+        @test isfinite(res2.loss)
 
         # Clean break: popsize/verbose are no longer accepted named kwargs.
         @test_throws Exception fit_rate_equation(
