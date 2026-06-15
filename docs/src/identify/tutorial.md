@@ -63,15 +63,15 @@ and the partition-function structure.
 Each substrate and product declares its **atom inventory** in the bracket:
 `S[C]` is one carbon, and `A[C2N1]` would be two carbons and one nitrogen.
 These counts let the enumerator enforce atom conservation across steps and
-recognise covalent (ping-pong) intermediates; a single `[C]` placeholder is
-enough for this transfer.
+recognise covalent (ping-pong) intermediates; this transfer needs only a single
+`[C]` placeholder.
 
 ## Simulate noiseless data
 
 We evaluate the generator on a concentration grid. The activator `A` spans well
-below to well above its binding constant, so the allosteric response is fully
-sampled, and `Keq = 10` keeps every net rate strictly positive — a rate of
-exactly zero has no logarithm, and the loss works in log space.
+below to well above its binding constant, so the grid fully samples the
+allosteric response, and `Keq = 10` keeps every net rate strictly positive — a
+rate of exactly zero has no logarithm, and the loss works in log space.
 
 ```@example identify_fast
 Keq = 10.0
@@ -130,8 +130,8 @@ nothing # hide
 
 The progress lines above trace the search. It walks parameter counts in
 ascending order: at each count it fits the candidates, keeps a beam of the
-most promising (here `min_beam_width = 10`), and expands the survivors into the
-next count. `max_param_count = 5` stops at the generating mechanism's size to
+most promising candidates (here `min_beam_width = 10`), and expands the
+survivors into the next count. `max_param_count = 5` stops at the generating mechanism's size to
 keep the example quick. [Model selection](@ref) details the beam cutoff and the
 cross-validation rule that picks the winner. The production search widens the
 beam to 50 and the cap to 20, and distributes the fits across workers via
