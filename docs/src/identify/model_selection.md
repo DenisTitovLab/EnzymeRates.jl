@@ -1,17 +1,28 @@
 # Model selection
 
 After beam search fits all candidate mechanisms, `identify_rate_equation`
-selects the simplest one that generalizes. It does this by leave-one-group-out
-cross-validation followed by a two-test rule that guards against choosing an
-over-simple model whose better CV score is within noise.
+selects the simplest one that generalizes: the rate equation with the fewest
+parameters that best predicts kinetic data it was never fit on. This is the
+[bias–variance tradeoff](https://en.wikipedia.org/wiki/Bias%E2%80%93variance_tradeoff)
+— adding parameters always improves the fit to the data in hand, but past a
+point the extra freedom tracks noise rather than signal and predicts new
+measurements worse, while too few parameters miss real structure.
+Cross-validation finds the balance by scoring each candidate on data held out
+from fitting.
+
+`identify_rate_equation` uses leave-one-group-out cross-validation followed by a
+two-test rule that guards against choosing an over-simple model whose better CV
+score is within noise.
 
 ## Leave-one-group-out cross-validation
 
-Each unique value in the `:group` column is one fold. A `group` collects
-measurements that share the same total enzyme concentration `E_total`, so
-leaving one group out estimates how well a mechanism predicts a new
-experimental condition — a new enzyme batch, a different dilution, or a
-distinct assay plate.
+Each unique value in the `:group` column is one fold. A `group` is one
+independent experiment — rates measured at a single enzyme amount across varying
+metabolite concentrations. Because the fitter works on `Rate / E_total` and
+removes each group's overall rate scale (see [Normalized vs absolute rate](@ref)),
+a group need only share one common scale, not a specific `E_total` value. Leaving
+one group out estimates how well a mechanism predicts a new experiment — a new
+enzyme batch, a different dilution, or a distinct assay plate.
 
 For each fold, the mechanism is fit on all other groups and scored on the
 held-out group. Each fold score is floored at `eps(Float64)` so the log is
@@ -28,14 +39,6 @@ cv_score = mean(log.(fold_scores))
 This is not the mean of raw fold losses. Working in log space puts all fold
 scores on a comparable scale regardless of the absolute rate magnitudes and
 penalises extreme fold misses more gracefully than a linear mean would.
-
-### Loud CV
-
-A fold fit that throws propagates immediately. A non-finite fold test loss
-raises with the name of the held-out group. The pipeline aborts rather than
-silently dropping the candidate, because a corrupted CV invalidates model
-selection. The saved CSVs contain every fitted mechanism; re-running CV from
-them is cheap once the root cause is resolved.
 
 ## Model-selection rule
 
