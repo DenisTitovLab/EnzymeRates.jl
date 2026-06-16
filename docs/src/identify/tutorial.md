@@ -134,8 +134,8 @@ most promising candidates (here `min_beam_width = 10`), and expands the
 survivors into the next count. `max_param_count = 5` stops at the generating mechanism's size to
 keep the example quick. [Model selection](@ref) details the beam cutoff and the
 cross-validation rule that picks the winner. The production search widens the
-beam to 50 and the cap to 20, and distributes the fits across workers via
-`pmap_function = pmap` (see [Running in parallel](@ref)).
+beam to 50 and the cap to 20, and distributes the fits across workers (see
+[Running in parallel](@ref)).
 
 ## Read the result
 

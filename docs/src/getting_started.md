@@ -139,7 +139,6 @@ results = identify_rate_equation(prob;
     max_param_count = 6,
     n_cv_candidates = 1,
     save_dir = mktempdir(),
-    pmap_function = map,
     optimizer = CMAEvolutionStrategyOpt(),
     n_restarts = 1, maxtime = 1.0,
     show_progress = false)

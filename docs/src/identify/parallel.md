@@ -11,13 +11,12 @@ covers the parallelism.
 
 The search is embarrassingly parallel: every candidate equation is compiled and
 fit independently, and every leave-one-group-out cross-validation fold is
-independent too. `identify_rate_equation` farms both out through its
-`pmap_function` argument, which defaults to `Distributed.pmap`. The same call
+independent too. `identify_rate_equation` runs both through `Distributed.pmap`. The same call
 scales from one core to a whole high-performance compute (HPC) cluster — you add
 worker processes and change nothing else. With no workers, `pmap` runs every fit
 on the main process, so the call already works on a laptop.
 
-## One machine, many cores
+## Running on a local machine with several cores
 
 Add local workers with `addprocs`, load the package and your optimizer on every
 worker with `@everywhere`, then load the data and run the search on the main
@@ -42,6 +41,11 @@ end
 prob = IdentifyRateEquationProblem(rxn, data; Keq = 5.0)
 
 results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
+
+# Clean up the workers when the run finishes
+for p in workers()
+    rmprocs(p)
+end
 ```
 
 The `@everywhere using` line is required: each worker compiles and fits
@@ -51,7 +55,7 @@ The data file is read once on the main process and converted to a plain
 so the workers need no data-loading packages. The main process collects the
 results and writes the CSV outputs to `save_dir`; the workers write nothing.
 
-## A cluster: many machines
+## Running on a compute cluster with many machines
 
 On a cluster, swap the `addprocs` line for a cluster manager that starts workers
 across the allocated nodes — the rest of the script is identical. For Slurm,
@@ -75,6 +79,11 @@ end
 prob = IdentifyRateEquationProblem(rxn, data; Keq = 5.0)
 
 results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
+
+# Clean up the workers when the run finishes
+for p in workers()
+    rmprocs(p)
+end
 ```
 
 Submit the script with `sbatch`: the batch script requests the allocation and
@@ -109,10 +118,11 @@ module purge
 /PATH/TO/USER/.juliaup/bin/julia YOUR_IDENTIFY_RATE_EQUATION_CODE.jl
 ```
 
-Replace the placeholders with your account, partition, and paths, and point the
-last line at your script. Run Julia in the project where `EnzymeRates` and your
-optimizer are installed — add `--project=/path/to/project` if it is not the
-default. The worker count follows the allocation, so widening the search means
-requesting more nodes. Other schedulers work the same way through
+Save this batch script with a `.slurm` extension and submit it with `sbatch
+identify.slurm`. Replace the placeholders with your account, partition, and
+paths, and point the last line at your Julia script — run Julia in the project
+where `EnzymeRates` and your optimizer are installed (add
+`--project=/path/to/project` if it is not the default). The worker count follows
+the allocation, so widening the search means requesting more nodes. Other schedulers work the same way through
 `ClusterManagers.jl` (PBS, SGE, LSF) or `MPIClusterManagers.jl` (MPI); only the
 `addprocs` line changes.
