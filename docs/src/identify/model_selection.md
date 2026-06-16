@@ -18,17 +18,12 @@ score is within noise.
 
 Each unique value in the `:group` column is one fold. A `group` is one
 independent experiment — rates measured at a single enzyme amount across varying
-metabolite concentrations. Because the fitter works on `Rate / E_total` and
-removes each group's overall rate scale (see [Normalized vs absolute rate](@ref)),
-a group need only share one common scale, not a specific `E_total` value. Leaving
-one group out estimates how well a mechanism predicts a new experiment — a new
-enzyme batch, a different dilution, or a distinct assay plate.
-
-For each fold, the mechanism is fit on all other groups and scored on the
-held-out group. Each fold score is floored at `eps(Float64)` so the log is
-finite even when a single-row held-out group fits exactly.
-
-### The CV score
+metabolite concentrations. For each fold the mechanism is fit on all other
+groups and scored on the held-out group, with the fold score floored at
+`eps(Float64)` so the log stays finite even when a single-row group fits
+exactly. Leaving one group out this way estimates how well the mechanism
+predicts a new experiment — a new enzyme batch, a different dilution, or a
+distinct assay plate.
 
 The CV score for a mechanism is the **mean of the log per-fold losses**:
 
@@ -55,30 +50,18 @@ only if it passes **both**:
 2. **One-sided sign-flip permutation test**: the p-value `Pr(perm_mean ≥
    observed)` under the sign-flip null must exceed `perm_p_threshold`. The
    default `perm_p_threshold=0.16` matches the paired 1-SE criterion
-   empirically.
+   empirically. The test asks how often a random sign-flip of the per-fold
+   loss differences would look at least as favorable to the simpler model; a
+   high p-value means the simpler model is not meaningfully worse.
 
 The function returns the **smallest** `n_params` that passes both tests, or
 `n_min` if none pass. When there is only one fold (one group), the SE is
-undefined and the loop is skipped, so `n_min` is always returned.
+undefined and the loop is skipped, so `n_min` is always returned. Within the
+chosen bucket, the mechanism with the lowest **training loss** wins — CV scores
+rank buckets, training loss resolves ties inside a bucket.
 
 Both `se_threshold` and `perm_p_threshold` are tunable kwargs of
 `identify_rate_equation`.
-
-### Within-bucket selection
-
-Within the chosen bucket, the mechanism with the lowest **training loss** wins.
-CV scores rank buckets; training loss resolves ties inside a bucket.
-
-## The permutation test, exactly
-
-For a small paired-difference vector the permutation p-value is computed by
-exact enumeration of all `2^n` sign-flips — pure and reproducible. For
-`n > 20` folds the computation switches to a Monte Carlo estimate
-(`mc_samples = 10^6` random sign-flips).
-
-The permutation test asks how often a random sign-flip of the per-fold loss
-differences would look at least as favorable to the simpler model; a high
-p-value means the simpler model is not meaningfully worse.
 
 ## The `cv_results` DataFrame
 
