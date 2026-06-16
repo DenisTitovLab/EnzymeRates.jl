@@ -49,10 +49,12 @@ only if it passes **both**:
 
 2. **One-sided sign-flip permutation test**: the p-value `Pr(perm_mean ≥
    observed)` under the sign-flip null must exceed `perm_p_threshold`. The
-   default `perm_p_threshold=0.16` matches the paired 1-SE criterion
-   empirically. The test asks how often a random sign-flip of the per-fold
-   loss differences would look at least as favorable to the simpler model; a
-   high p-value means the simpler model is not meaningfully worse.
+   default `perm_p_threshold=0.16` matches the paired 1-SE criterion: under a
+   normal approximation a ±1-SE band covers 68.3% of the distribution, leaving
+   1 − 0.683 = 0.317 in the two tails and ≈ 0.16 in the single tail the
+   one-sided test uses. The test asks how often a random sign-flip of the
+   per-fold loss differences would look at least as favorable to the simpler
+   model; a high p-value means the simpler model is not meaningfully worse.
 
 The function returns the **smallest** `n_params` that passes both tests, or
 `n_min` if none pass. When there is only one fold (one group), the SE is
