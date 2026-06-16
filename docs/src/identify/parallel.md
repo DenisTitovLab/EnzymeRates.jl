@@ -11,10 +11,10 @@ covers the parallelism.
 
 The search is embarrassingly parallel: every candidate equation is compiled and
 fit independently, and every leave-one-group-out cross-validation fold is
-independent too. `identify_rate_equation` runs both through `Distributed.pmap`. The same call
-scales from one core to a whole high-performance compute (HPC) cluster — you add
-worker processes and change nothing else. With no workers, `pmap` runs every fit
-on the main process, so the call already works on a laptop.
+independent too. `identify_rate_equation` runs both through `Distributed.pmap`.
+The same call scales from one core to a whole high-performance compute (HPC)
+cluster — you add worker processes and change nothing else. With no workers,
+`pmap` runs every fit on the main process, so the call already works on a laptop.
 
 ## Running on a local machine with several cores
 
@@ -123,6 +123,6 @@ identify.slurm`. Replace the placeholders with your account, partition, and
 paths, and point the last line at your Julia script — run Julia in the project
 where `EnzymeRates` and your optimizer are installed (add
 `--project=/path/to/project` if it is not the default). The worker count follows
-the allocation, so widening the search means requesting more nodes. Other schedulers work the same way through
-`ClusterManagers.jl` (PBS, SGE, LSF) or `MPIClusterManagers.jl` (MPI); only the
-`addprocs` line changes.
+the allocation, so widening the search means requesting more nodes. Other
+schedulers work the same way through `ClusterManagers.jl` (PBS, SGE, LSF) or
+`MPIClusterManagers.jl` (MPI); only the `addprocs` line changes.
