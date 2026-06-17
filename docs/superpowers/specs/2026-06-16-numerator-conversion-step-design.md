@@ -107,10 +107,21 @@ intermediates, where there is no "all-substrate-bound" form but the iso step's
 endpoints still sit on every turnover.
 
 ```
-NUM = Σ oriented flux over the USABLE candidate with the FEWEST steps (simplest
-numerator; all usable cuts give the identical equation); tie-break toward the
-chemistry/iso cut (standard Vmax·(S−P/Keq) form). No stoichiometric normalisation —
-the cut is crossed once per turnover, so the sum IS v·DEN/E_total.
+NUM = Σ oriented flux over the chosen usable candidate. Selection order:
+  (1) prefer a METABOLITE cut over a central-species cut, then
+  (2) fewest steps, then
+  (3) a chemistry/iso cut (standard Vmax·(S−P/Keq) form), then
+  (4) sorted step indices (deterministic across precompile sessions).
+A metabolite cut is ALWAYS complete (its metabolite is consumed/produced once per
+turnover, summed over all parallel routes). A central-species cut can be INCOMPLETE
+when parallel routes pass through different iso endpoints (e.g. a free `E(P)` and a
+regulator-bound `E(P,R)`) — "produce `E(P)`" would then capture only the free route —
+so central cuts are the fallback, used only when chemistry is RE and no metabolite cut
+is all-SS. No stoichiometric normalisation — the cut is crossed once per turnover, so
+the sum IS v·DEN/E_total. Orientation sign: bind/chem keep the canonical from→to flux;
+product release flips ONLY when stored as product-binding (`E+P→EP`, product on
+`m_lhs`); a release stored as SS-dissociation (`EA→E+P`, product on `m_rhs`) is already
+forward, no flip.
 If NO candidate is usable → raise: equivalent to "a complete all-RE catalytic cycle
 exists ⇒ Vmax→∞ ⇒ no finite RE rate" (proven below). No free-E reference anywhere, so
 the rule is robust to multiple free-enzyme conformations.
