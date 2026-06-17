@@ -591,6 +591,99 @@ function build_mechanism_test_specs()
         ))
     end
 
+    # 11b. Random-order, chemistry-SS Bi-Bi: two substrate binding orders,
+    #      a steady-state chemistry step, single product. ODE is ground truth.
+    let
+        m = @enzyme_mechanism begin
+            substrates: S1, S2
+            products: P
+            steps: begin
+                E + S1 ⇌ E(S1)
+                E + S2 ⇌ E(S2)
+                E(S1) + S2 <--> E(S1, S2)
+                E(S2) + S1 <--> E(S1, S2)
+                E(S1, S2) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end
+        push!(specs, MechanismTestSpec(
+            name="Numerator: random chem-SS (RE/SS)",
+            mechanism=m,
+            metabolite_names=[:S1, :S2, :P],
+            expected_n_states=5,
+            expected_n_steps=6,
+            expected_n_metabolites=3,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=1,
+            expected_n_independent_params=7,
+            analytical_rate_fn=nothing
+        ))
+    end
+
+    # 11c. Catalytic isomerization RE, binding+release SS: random-order binding
+    #      and product release around a rapid-equilibrium chemistry step.
+    let
+        m = @enzyme_mechanism begin
+            substrates: S1, S2
+            products: P1, P2
+            steps: begin
+                E + S1 ⇌ E(S1)
+                E + S2 ⇌ E(S2)
+                E(S1) + S2 <--> E(S1, S2)
+                E(S2) + S1 <--> E(S1, S2)
+                E(S1, S2) ⇌ E(P1, P2)
+                E(P1, P2) <--> E(P1) + P2
+                E(P1, P2) <--> E(P2) + P1
+                E(P1) ⇌ E + P1
+                E(P2) ⇌ E + P2
+            end
+        end
+        push!(specs, MechanismTestSpec(
+            name="Numerator: RE-chemistry",
+            mechanism=m,
+            metabolite_names=[:S1, :S2, :P1, :P2],
+            expected_n_states=7,
+            expected_n_steps=9,
+            expected_n_metabolites=4,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=2,
+            expected_n_independent_params=10,
+            analytical_rate_fn=nothing
+        ))
+    end
+
+    # 11d. Single-RE-segment with a redundant SS binding branch (one branch
+    #      RE, one SS). ODE is ground truth.
+    let
+        m = @enzyme_mechanism begin
+            substrates: S1, S2
+            products: P
+            steps: begin
+                E + S1 <--> E(S1)
+                E + S2 ⇌ E(S2)
+                E(S1) + S2 ⇌ E(S1, S2)
+                E(S2) + S1 ⇌ E(S1, S2)
+                E(S1, S2) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end
+        push!(specs, MechanismTestSpec(
+            name="Numerator: redundant SS-bind",
+            mechanism=m,
+            metabolite_names=[:S1, :S2, :P],
+            expected_n_states=5,
+            expected_n_steps=6,
+            expected_n_metabolites=3,
+            expected_n_haldane_constraints=1,
+            expected_n_mirror_constraints=0,
+            expected_n_wegscheider_constraints=1,
+            expected_n_independent_params=6,
+            analytical_rate_fn=nothing
+        ))
+    end
+
     # 12. Segel Bi Uni Uni Bi Ping Pong Ter Ter (new):
     #     E + A ⇌ EA + B ⇌ (EAB≡FP) ⇌ F + P, F + C ⇌ (FC≡EQR) ⇌ ER + Q ⇌ E + R
     #     Reference: Segel, Enzyme Kinetics, Eq. IX-278

@@ -375,8 +375,9 @@
         m_diffmet = EnzymeRates.Mechanism(rxn_two, [[g1_s, g1_a], [g2_iso]])
         @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_diffmet)
 
-        # Group mixing RE and SS → error (re-pointed). Same metabolite, one
-        # RE binding step and one SS binding step share a kinetic group.
+        # Group mixing RE and SS → error. Same metabolite, one RE binding
+        # step and one SS binding step share a kinetic group. The constructor
+        # rejects this via _assert_no_re_ss_duplicate before invariants are checked.
         rxn_uni = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
@@ -384,8 +385,7 @@
         s_re = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)
         s_ss = EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), false)
         s_rel = EnzymeRates.Step(e, e_p2, EnzymeRates.Product(:P), true)
-        m_mix = EnzymeRates.Mechanism(rxn_uni, [[s_re, s_ss], [s_rel]])
-        @test_throws ErrorException EnzymeRates._assert_mechanism_invariants(m_mix)
+        @test_throws ErrorException EnzymeRates.Mechanism(rxn_uni, [[s_re, s_ss], [s_rel]])
     end
 
     @testset "AllostericEnzymeMechanism constructor validators" begin
@@ -1537,6 +1537,24 @@
         @test EnzymeRates._force_inactive(p_eq) == EnzymeRates.Krev(s, :I)
         p_a = EnzymeRates.Krev(s, :A)
         @test EnzymeRates._force_inactive(p_a) == EnzymeRates.Krev(s, :I)
+    end
+
+    @testset "reject same reaction as both RE and SS" begin
+        err = try
+            @enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S <--> E(S)
+                    E + S ⇌ E(S)
+                    E(S) ⇌ E(P)
+                    E(P) ⇌ E + P
+                end
+            end
+            nothing
+        catch e; e end
+        @test err isa ErrorException
+        @test occursin("both rapid-equilibrium and steady-state", err.msg)
     end
 end
 

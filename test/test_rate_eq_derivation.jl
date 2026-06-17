@@ -1254,6 +1254,61 @@ end
     @test t_compile < 20.0
 end
 
+@testset "Numerator: all-RE catalytic cycle raises" begin
+    # Binding stage mixed (S2 SS, S1 RE), release stage mixed (P1 SS, P2 RE),
+    # chemistry RE ⇒ a complete all-RE catalytic cycle exists ⇒ no finite rate.
+    m_allre = @enzyme_mechanism begin
+        substrates: S1, S2
+        products: P1, P2
+        steps: begin
+            E + S1 ⇌ E(S1)
+            E + S2 ⇌ E(S2)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S2) + S1 ⇌ E(S1, S2)
+            E(S1, S2) ⇌ E(P1, P2)
+            E(P1, P2) ⇌ E(P1) + P2
+            E(P1, P2) <--> E(P2) + P1
+            E(P1) ⇌ E + P1
+            E(P2) ⇌ E + P2
+        end
+    end
+    err = try
+        rate_equation_string(m_allre); nothing
+    catch e; e end
+    @test err isa ErrorException
+    @test occursin("all-RE catalytic cycle", err.msg)
+end
+
+@testset "Numerator: ambiguous central cut (regulator sibling) raises" begin
+    # Non-essential activator with free + activator-bound parallel routes, where
+    # chemistry is RE, the FREE product release is SS, and the ACTIVATOR product
+    # release is RE. No metabolite cut is all-SS (release-P is mixed SS/RE), so the
+    # numerator falls to the central cut "consume E(P)". But E(P) has a
+    # regulator-variant sibling E(P,R) — a parallel route the single-form cut would
+    # undercount — so it must raise rather than return a silently-wrong rate.
+    m_sib = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        regulators: R
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) ⇌ E(P)
+            E + P <--> E(P)
+            E(R) + S ⇌ E(S, R)
+            E(S, R) ⇌ E(P, R)
+            E(R) + P ⇌ E(P, R)
+            (E + R ⇌ E(R),
+             E(S) + R ⇌ E(S, R),
+             E(P) + R ⇌ E(P, R))
+        end
+    end
+    err = try
+        rate_equation_string(m_sib); nothing
+    catch e; e end
+    @test err isa ErrorException
+    @test occursin("ambiguous central-complex cut", err.msg)
+end
+
 @testset "Rate equation too large error" begin
     # Manually defined mechanism (11 forms, 16 steps, ~29k terms)
     # triggers the post-hoc check in _raw_symbolic_rate_polys.
