@@ -412,84 +412,121 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
 end
 
 """
-Compute the numerator polynomial by selecting an appropriate metabolite
-to track through SS steps. Returns `(num::POLY, nu_ref::Int)`.
+Forward-reaction endpoints and type of a step as `(from::Species, to::Species,
+type::Symbol)`, or `nothing` if the step does not advance the reaction (binds an
+inhibitor/regulator). `type` is `:chem` (iso substrate→product), `:bind`
+(substrate from solution), or `:release` (product to solution). Product-release
+steps are stored canonically as product *binding*, so their forward direction is
+`to→from`. NB: a step binding a *substrate* to a regulator-bound enzyme is `:bind`
+(its bound metabolite is the substrate) — regulator-bound parallel routes are kept.
+"""
+function _reaction_step(s::Step)
+    bm = bound_metabolite(s)
+    bm === nothing      && return (from_species(s), to_species(s), :chem)
+    bm isa Substrate    && return (from_species(s), to_species(s), :bind)
+    bm isa Product      && return (to_species(s), from_species(s), :release)
+    return nothing
+end
+
+"""
+A substrate-product *mixed complex*: a form carrying at least one bound `Substrate`
+AND one bound `Product` simultaneously. Such forms are off the catalytic path
+(reached only by product rebinding to a substrate complex, or vice versa) and carry
+zero net flux; steps touching them are dead-ends and are excluded from cuts. A
+regulator does not make a form mixed; ping-pong intermediates hold a `Residual`,
+not bound substrate+product, so are not mixed.
+"""
+_is_mixed_complex(f::Species) =
+    any(m -> m isa Substrate, bound(f)) && any(m -> m isa Product, bound(f))
+
+"""
+Numerator = net flux across one complete steady-state reaction-cut. Each
+per-turnover-conserved "event" is a candidate cut whose SS-step fluxes sum to v:
+metabolite cuts (bind a substrate / release a product / iso-convert a substrate /
+iso-produce a product) and central-species cuts (produce / consume an iso-step
+endpoint form). Dead-end steps (touching a substrate-product mixed complex) are
+excluded. A candidate is usable iff all its steps are SS. A metabolite cut is
+always a complete cut (its metabolite is consumed/produced once per turnover,
+summed over all parallel routes); a central-species cut is complete only when its
+form lies on every turnover, which fails under parallel routes through different
+iso endpoints — so metabolite cuts are preferred and central cuts are the fallback
+(needed when chemistry is RE and no metabolite cut is all-SS). NUM = oriented-flux
+sum over the chosen usable cut (prefer metabolite class, then fewest steps, then a
+chemistry/iso cut). No usable candidate ⇒ a complete all-RE catalytic cycle ⇒ no
+finite rate ⇒ raise. Returns `(num, 1)`.
 """
 function _compute_numerator(
     mech::Mechanism, enz_name_to_form, step_params,
-    alpha, form_to_group,
-    D, subs_species, prods_species,
+    alpha, form_to_group, D, subs_species, prods_species,
 )
-    ref_name = subs_species[1]
-    nu_ref = (count(==(ref_name), prods_species) -
-              count(==(ref_name), subs_species))
-
     flat = _flat_steps(mech)
-
-    # Classify metabolites into SS vs RE step sets
-    ss_mets, re_mets = Set{Symbol}(), Set{Symbol}()
-    for (s, _) in flat
-        _, _, m_lhs, m_rhs = _step_sides(s)
-        target = is_equilibrium(s) ? re_mets : ss_mets
-        for met in m_lhs; push!(target, met); end
-        for met in m_rhs; push!(target, met); end
-    end
-
-    # Choose tracking metabolite: prefer ref in SS-only, then alternate SS met
-    met_name = nothing  # nothing = sum all SS fluxes (G=1 fallback)
-    nu_met = nu_ref
-    if ref_name ∈ ss_mets && ref_name ∉ re_mets
-        met_name = ref_name
-    elseif !isempty(ss_mets)
-        all_mets = Dict{Symbol, Int}()
-        for n in subs_species; all_mets[n] = get(all_mets, n, 0) - 1; end
-        for n in prods_species; all_mets[n] = get(all_mets, n, 0) + 1; end
-        ss_only = setdiff(ss_mets, re_mets)
-        search = isempty(ss_only) ? ss_mets : ss_only
-        met_name = something(
-            iterate(m for m in search if get(all_mets, m, 0) != 0),
-            (first(ss_mets),),
-        )[1]
-        nu_met = get(all_mets, met_name, 0)
-    end
-
-    # Compute flux through SS steps
-    result = poly_zero()
+    # Forward-oriented, non-dead-end reaction steps.
+    rsteps = NamedTuple[]
     for (idx, (s, _)) in enumerate(flat)
-        is_equilibrium(s) && continue
-        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(s)
-        i_form = enz_name_to_form[e_lhs]
-        j_form = enz_name_to_form[e_rhs]
+        r = _reaction_step(s); r === nothing && continue
+        ff, ft, typ = r
+        (_is_mixed_complex(ff) || _is_mixed_complex(ft)) && continue
+        push!(rsteps, (idx = idx, ff = ff, ft = ft, typ = typ, s = s))
+    end
+    subs_in(f)  = Set(name(m) for m in bound(f) if m isa Substrate)
+    prods_in(f) = Set(name(m) for m in bound(f) if m isa Product)
+
+    # Candidate cuts: each `(steps::Vector{Int}, is_central::Bool)`. `steps`
+    # indexes into `rsteps`.
+    cands = Tuple{Vector{Int}, Bool}[]
+    add_cand!(is_central, pred) =
+        (g = [k for k in eachindex(rsteps) if pred(rsteps[k])];
+         isempty(g) || push!(cands, (g, is_central)))
+    for S in subs_species   # metabolite: bind S, or iso-convert S
+        add_cand!(false, r -> r.typ === :bind && name(bound_metabolite(r.s)) == S)
+        add_cand!(false, r -> r.typ === :chem && S in subs_in(r.ff) && !(S in subs_in(r.ft)))
+    end
+    for P in prods_species  # metabolite: release P, or iso-produce P
+        add_cand!(false, r -> r.typ === :release && name(bound_metabolite(r.s)) == P)
+        add_cand!(false, r -> r.typ === :chem && P in prods_in(r.ft) && !(P in prods_in(r.ff)))
+    end
+    central = Set{Species}()  # iso-step endpoint forms
+    for r in rsteps; r.typ === :chem && (push!(central, r.ff); push!(central, r.ft)); end
+    # Deterministic order (Set iteration order is NOT stable across precompile
+    # sessions; non-determinism here would make the chosen cut — and the equation
+    # string — vary per compile). Sort central species by name.
+    for X in sort(collect(central); by = x -> string(name(x)))
+        add_cand!(true, r -> r.ft == X)   # produce X
+        add_cand!(true, r -> r.ff == X)   # consume X
+    end
+
+    is_ss(r) = !is_equilibrium(r.s)
+    usable = [c for c in cands if all(is_ss(rsteps[k]) for k in c[1])]
+    isempty(usable) && error(
+        "rate_equation: no rapid-equilibrium-consistent reaction cut — a complete " *
+        "all-RE catalytic cycle exists, so the mechanism has no finite rate.")
+
+    # Prefer a metabolite cut (always complete); then fewest steps; then a
+    # chemistry/iso cut; final tie-break on sorted step indices so the choice is
+    # fully deterministic.
+    has_chem(c) = any(rsteps[k].typ === :chem for k in c[1])
+    best = usable[argmin(
+        i -> (usable[i][2] ? 1 : 0, length(usable[i][1]),
+              has_chem(usable[i]) ? 0 : 1,
+              sort([rsteps[k].idx for k in usable[i][1]])),
+        eachindex(usable))][1]
+    num = poly_zero()
+    for k in best
+        r = rsteps[k]; idx = r.idx
+        e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(r.s)
+        i_form = enz_name_to_form[e_lhs]; j_form = enz_name_to_form[e_rhs]
         g1, g2 = form_to_group[i_form], form_to_group[j_form]
-        rf = _ss_contrib(
-            poly_sym(name(step_params[idx][1], mech)), m_lhs, i_form, alpha,
-        )
-        rr = _ss_contrib(
-            poly_sym(name(step_params[idx][2], mech)), m_rhs, j_form, alpha,
-        )
-        flux = poly_sub(poly_mul(rf, D[g1]), poly_mul(rr, D[g2]))
-        if met_name === nothing
-            result = poly_add(result, flux)
-        else
-            met_f = isempty(m_lhs) ? nothing : first(m_lhs)
-            met_r = isempty(m_rhs) ? nothing : first(m_rhs)
-            (met_f !== met_name && met_r !== met_name) && continue
-            result = met_f === met_name ?
-                poly_add(result, flux) : poly_sub(result, flux)
-        end
+        rf = _ss_contrib(poly_sym(name(step_params[idx][1], mech)), m_lhs, i_form, alpha)
+        rr = _ss_contrib(poly_sym(name(step_params[idx][2], mech)), m_rhs, j_form, alpha)
+        canon = poly_sub(poly_mul(rf, D[g1]), poly_mul(rr, D[g2]))
+        # `canon` is the net flux in `_step_sides`' canonical from→to direction.
+        # Reaction-forward is from→to for bind/chem and for a product-release
+        # stored as SS-dissociation (product on m_rhs: `EA→E+P`). A product-binding
+        # release (`E+P→EP`, product on m_lhs) stores the reverse reaction, so flip.
+        flip = r.typ === :release && !isempty(m_lhs)
+        num = poly_add(num, flip ? poly_neg(canon) : canon)
     end
-
-    # Adjust for stoichiometric ratio between tracked and reference metabolite
-    if nu_met != 0 && nu_met != nu_ref
-        ratio = nu_ref // nu_met
-        if ratio == -1
-            result = poly_neg(result)
-        elseif ratio != 1
-            error("Non-unit stoichiometric ratio not supported")
-        end
-    end
-
-    result, nu_ref
+    num, 1
 end
 
 # ─── Expr generation from POLY ──────────────────────────────
