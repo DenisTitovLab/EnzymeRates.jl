@@ -207,9 +207,12 @@ function _compute_numerator(
     end
     central = Set{Species}()  # iso-step endpoint forms
     for r in rsteps; r.typ === :chem && (push!(central, r.ff); push!(central, r.ft)); end
-    for X in central        # central-species: produce X (ft==X) / consume X (ff==X)
-        add_cand!(r -> r.ft == X)
-        add_cand!(r -> r.ff == X)
+    # Deterministic order (Set iteration order is NOT stable across precompile
+    # sessions; non-determinism here would make the chosen cut — and the equation
+    # string — vary per compile). Sort central species by name.
+    for X in sort(collect(central); by = x -> string(name(x)))
+        add_cand!(r -> r.ft == X)   # produce X
+        add_cand!(r -> r.ff == X)   # consume X
     end
 
     is_ss(r) = !is_equilibrium(r.s)
@@ -218,9 +221,13 @@ function _compute_numerator(
         "rate_equation: no rapid-equilibrium-consistent reaction cut — a complete " *
         "all-RE catalytic cycle exists, so the mechanism has no finite rate.")
 
+    # Fewest steps; prefer a chemistry/iso cut; final tie-break on sorted step
+    # indices so the choice is fully deterministic.
     has_chem(c) = any(rsteps[k].typ === :chem for k in c)
-    best = usable[argmin(i -> (length(usable[i]), has_chem(usable[i]) ? 0 : 1),
-                         eachindex(usable))]
+    best = usable[argmin(
+        i -> (length(usable[i]), has_chem(usable[i]) ? 0 : 1,
+              sort([rsteps[k].idx for k in usable[i]])),
+        eachindex(usable))]
     num = poly_zero()
     for k in best
         r = rsteps[k]; idx = r.idx
