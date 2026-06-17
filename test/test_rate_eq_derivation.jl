@@ -1317,6 +1317,31 @@ end
     end
 end
 
+@testset "Numerator: all-RE catalytic cycle raises" begin
+    # Binding stage mixed (S2 SS, S1 RE), release stage mixed (P1 SS, P2 RE),
+    # chemistry RE ⇒ a complete all-RE catalytic cycle exists ⇒ no finite rate.
+    m_allre = @enzyme_mechanism begin
+        substrates: S1, S2
+        products: P1, P2
+        steps: begin
+            E + S1 ⇌ E(S1)
+            E + S2 ⇌ E(S2)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S2) + S1 ⇌ E(S1, S2)
+            E(S1, S2) ⇌ E(P1, P2)
+            E(P1, P2) ⇌ E(P1) + P2
+            E(P1, P2) <--> E(P2) + P1
+            E(P1) ⇌ E + P1
+            E(P2) ⇌ E + P2
+        end
+    end
+    err = try
+        rate_equation_string(m_allre); nothing
+    catch e; e end
+    @test err isa ErrorException
+    @test occursin("all-RE catalytic cycle", err.msg)
+end
+
 @testset "Rate equation too large error" begin
     # Manually defined mechanism (11 forms, 16 steps, ~29k terms)
     # triggers the post-hoc check in _raw_symbolic_rate_polys.
