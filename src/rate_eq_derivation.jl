@@ -485,12 +485,17 @@ function _compute_numerator(
     alpha, form_to_group, D, subs_species, prods_species,
 )
     flat = _flat_steps(mech)
-    # Forward-oriented, non-dead-end reaction steps.
+    # Forward-oriented reaction steps. A binding/release step touching a
+    # substrate-product mixed complex is a product-rebinding dead-end (off the
+    # catalytic path, zero net flux) and is dropped; a CHEMISTRY step is never a
+    # dead-end (it always advances the reaction), so it is kept even when it
+    # produces a mixed complex — that is exactly a ping-pong covalent intermediate
+    # carrying a substrate and the just-formed product at once.
     rsteps = NamedTuple[]
     for (idx, (s, _)) in enumerate(flat)
         r = _reaction_step(s); r === nothing && continue
         ff, ft, typ = r
-        (_is_mixed_complex(ff) || _is_mixed_complex(ft)) && continue
+        typ !== :chem && (_is_mixed_complex(ff) || _is_mixed_complex(ft)) && continue
         push!(rsteps, (idx = idx, ff = ff, ft = ft, typ = typ, s = s))
     end
     subs_in(f)  = Set(name(m) for m in bound(f) if m isa Substrate)
