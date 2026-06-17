@@ -402,9 +402,9 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     mech = Mechanism(M())
     step_params = _step_parameters(mech)
     rename_map = _build_wegscheider_rename_map(M)
-    # CRITICAL: substrates(::EnzymeReaction) returns Vector{Substrate}
-    # (concrete metabolite structs); _compute_numerator expects Symbols
-    # (ref_name comparisons via ==). Wrap explicitly.
+    # substrates(::EnzymeReaction) returns Vector{Substrate} (concrete metabolite
+    # structs); _compute_numerator compares them as Symbols (`name(...) == S`,
+    # `S in subs_in(...)`). Wrap explicitly.
     subs_syms = Symbol[name(s) for s in substrates(mech.reaction)]
     prods_syms = Symbol[name(p) for p in products(mech.reaction)]
     _raw_symbolic_rate_polys(mech, step_params, rename_map,
