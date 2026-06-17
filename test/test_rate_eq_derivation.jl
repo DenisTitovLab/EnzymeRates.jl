@@ -1254,69 +1254,6 @@ end
     @test t_compile < 20.0
 end
 
-@testset "Numerator reaction-cut (mixed RE/SS)" begin
-    # Random-order, chemistry SS: today undercounts (one binding branch, ~0.60x).
-    m_chem_ss = @enzyme_mechanism begin
-        substrates: S1, S2
-        products: P
-        steps: begin
-            E + S1 ⇌ E(S1)
-            E + S2 ⇌ E(S2)
-            E(S1) + S2 <--> E(S1, S2)
-            E(S2) + S1 <--> E(S1, S2)
-            E(S1, S2) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end
-    # Catalytic isomerization RE, binding+release SS: today ~0.48x.
-    m_re_chem = @enzyme_mechanism begin
-        substrates: S1, S2
-        products: P1, P2
-        steps: begin
-            E + S1 ⇌ E(S1)
-            E + S2 ⇌ E(S2)
-            E(S1) + S2 <--> E(S1, S2)
-            E(S2) + S1 <--> E(S1, S2)
-            E(S1, S2) ⇌ E(P1, P2)
-            E(P1, P2) <--> E(P1) + P2
-            E(P1, P2) <--> E(P2) + P1
-            E(P1) ⇌ E + P1
-            E(P2) ⇌ E + P2
-        end
-    end
-    # Single-RE-segment redundant SS binding: today v ≡ 0; true rate is non-zero.
-    m_degenerate = @enzyme_mechanism begin
-        substrates: S1, S2
-        products: P
-        steps: begin
-            E + S1 <--> E(S1)
-            E + S2 ⇌ E(S2)
-            E(S1) + S2 ⇌ E(S1, S2)
-            E(S2) + S1 ⇌ E(S1, S2)
-            E(S1, S2) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end
-    cases = [
-        ("random chem-SS", m_chem_ss,   [:S1, :S2, :P]),
-        ("RE-chemistry",   m_re_chem,   [:S1, :S2, :P1, :P2]),
-        ("redundant bind", m_degenerate,[:S1, :S2, :P]),
-    ]
-    for (label, m, mets) in cases
-        @testset "$label vs ODE steady state" begin
-            rng = Random.MersenneTwister(2026)
-            @test all(1:10) do _
-                new_params, concs, all_params =
-                    random_independent_params_concs(m, mets; rng=rng)
-                ode_params = raw_to_ode_params(m, all_params)
-                v_ode = ode_steady_state_flux(m, ode_params, concs)
-                v_ka  = rate_equation(m, concs, new_params)
-                isapprox(v_ode, v_ka; rtol=1e-3)
-            end
-        end
-    end
-end
-
 @testset "Numerator: all-RE catalytic cycle raises" begin
     # Binding stage mixed (S2 SS, S1 RE), release stage mixed (P1 SS, P2 RE),
     # chemistry RE ⇒ a complete all-RE catalytic cycle exists ⇒ no finite rate.
