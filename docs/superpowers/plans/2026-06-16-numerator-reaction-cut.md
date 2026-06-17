@@ -4,7 +4,7 @@
 
 **Goal:** Fix `_compute_numerator` so the rate-equation numerator is the net flux across one complete steady-state reaction-cut (parallel routes summed, series routes counted once), instead of tracking one metabolite through SS steps.
 
-**Architecture:** Replace the metabolite-tracking numerator with a reaction-progress cut. Assign each enzyme form a forward-event level ρ via BFS from free E; group SS reaction-steps by `(from-level, type)`; a group is a usable cut iff no RE step shares that key; the numerator is the oriented-flux sum over the fewest-step usable cut. No all-SS cut ⇒ a complete all-RE catalytic cycle exists (no finite rate) ⇒ raise. The same fix repairs the allosteric path and kcat (both consume this numerator). A separate construction guard forbids one reaction being both RE and SS.
+**Architecture:** Replace the metabolite-tracking numerator with a reaction-cut. Classify each reaction step (`:bind`/`:chem`/`:release`) and give it a mirror key `(level, type)`, where `level` is a local metabolite count on the step's reaction-from form (committed substrates for bind/chem, committed products for release — bound plus `Residual`). Group SS steps by this key; a group is a usable cut iff no RE step shares the key (no parallel rapid-equilibrium "mirror"); the numerator is the oriented-flux sum over the fewest-step usable cut (tie-break → chemistry). No usable cut ⇒ a complete all-RE catalytic cycle exists (no finite rate) ⇒ raise. No graph traversal, no gradedness assumption. The same fix repairs the allosteric path and kcat (both consume this numerator). A separate construction guard forbids one reaction being both RE and SS.
 
 **Tech Stack:** Julia, `@generated` King-Altman/Cha derivation in `src/rate_eq_derivation.jl`, POLY Laurent algebra, exact-steady-state ODE oracle already present in `test/test_rate_eq_derivation.jl`.
 
@@ -14,7 +14,7 @@ Full design + per-class verification: `docs/superpowers/specs/2026-06-16-numerat
 
 ## File Structure
 
-- `src/rate_eq_derivation.jl` — replace `_compute_numerator` (lines ~414-493); add helpers `_reaction_step` and `_progress_levels`. This is the whole numerator fix; the allosteric path and kcat call through it unchanged.
+- `src/rate_eq_derivation.jl` — replace `_compute_numerator` (lines ~414-493); add helpers `_reaction_step`, `_n_substrates_committed`, `_n_products_committed`. This is the whole numerator fix; the allosteric path and kcat call through it unchanged.
 - `src/types.jl` — add a construction-time duplicate-step guard in the `Mechanism` (line ~483) and `AllostericMechanism` (line ~523) inner constructors.
 - `test/test_rate_eq_derivation.jl` — add two top-level `@testset`s (mixed-RE/SS exact-rate cases; all-RE-cycle raises). Reuses the existing `ode_steady_state_flux`, `raw_to_ode_params`, `random_independent_params_concs` helpers in this file.
 - `test/test_types.jl` — add a test for the duplicate-step construction guard.
@@ -127,9 +127,9 @@ git commit -m "test: rate_equation must match exact steady state for mixed RE/SS
 **Files:**
 - Modify: `src/rate_eq_derivation.jl` (replace `_compute_numerator`, lines ~414-493; add two helpers just above it)
 
-- [ ] **Step 1: Add the orientation + ρ-level helpers**
+- [ ] **Step 1: Add the orientation + committed-count helpers**
 
-Insert immediately before `_compute_numerator` in `src/rate_eq_derivation.jl`:
+Insert immediately before `_compute_numerator` in `src/rate_eq_derivation.jl`. First verify the residual accessor: `grep -n "residual(" src/types.jl` — there is a `residual(s::Species) = s.residual` accessor returning a `Residual{added::Vector{Substrate}, subtracted::Vector{Product}}`. If only the field exists, use `from.residual` instead of `residual(from)` below.
 
 ```julia
 """
@@ -149,38 +149,15 @@ function _reaction_step(s::Step)
 end
 
 """
-Reaction-progress level ρ(form) = number of forward elementary events (bind /
-isomerize / release) from free E, via BFS over the forward-oriented reaction
-steps. Free E is the form with no bound metabolites and no residual. The cycle's
-closing edge back to free E is not used to assign levels. Raises if a form is
-reachable at two different levels (mechanism not graded).
+Reaction-stage level of a form: how many substrates (for bind/chem cuts) or
+products (for release cuts) the form has already committed — bound plus covalently
+held in the `Residual`. This is a local metabolite count, no graph traversal: two
+reaction steps are mirrors (same cut) iff they share `(level, type)`.
 """
-function _progress_levels(mech::Mechanism)
-    species = _enumerate_species(mech)
-    root = species[something(
-        findfirst(s -> isempty(bound(s)) && !has_residual(s), species),
-        error("rate_equation: mechanism has no free-enzyme form"))]
-    rho = Dict{Species, Int}(root => 0)
-    queue = Species[root]
-    flat = _flat_steps(mech)
-    while !isempty(queue)
-        cur = popfirst!(queue)
-        for (s, _) in flat
-            r = _reaction_step(s); r === nothing && continue
-            ff, ft, _ = r
-            (ff == cur && ft != root) || continue
-            if haskey(rho, ft)
-                rho[ft] == rho[cur] + 1 || error(
-                    "rate_equation: mechanism is not graded ($(name(ft)) at " *
-                    "conflicting reaction-progress levels)")
-            else
-                rho[ft] = rho[cur] + 1
-                push!(queue, ft)
-            end
-        end
-    end
-    rho
-end
+_n_substrates_committed(f::Species) =
+    count(m -> m isa Substrate, bound(f)) + length(residual(f).added)
+_n_products_committed(f::Species) =
+    count(m -> m isa Product, bound(f)) + length(residual(f).subtracted)
 ```
 
 - [ ] **Step 2: Replace `_compute_numerator`**
@@ -190,26 +167,26 @@ Replace the whole `_compute_numerator` function body with:
 ```julia
 """
 Numerator = net flux across one complete steady-state reaction-cut. Group SS
-reaction-steps by `(from-level, type)`; that key is a usable cut iff no RE step
-shares it (otherwise a parallel rapid-equilibrium route would make the SS-only
-sum an undercount). The numerator is the oriented-flux sum over the usable cut
-with the fewest steps (simplest numerator; all cuts give the identical equation),
-breaking ties toward chemistry. No usable cut ⇒ a complete all-RE catalytic cycle
-exists ⇒ no finite rate ⇒ raise. Returns `(num, 1)`.
+reaction-steps by `(level, type)` (the mirror key); that key is a usable cut iff no
+RE step shares it (otherwise a parallel rapid-equilibrium route would make the
+SS-only sum an undercount). The numerator is the oriented-flux sum over the usable
+cut with the fewest steps (simplest numerator; all cuts give the identical
+equation), breaking ties toward chemistry. No usable cut ⇒ a complete all-RE
+catalytic cycle exists ⇒ no finite rate ⇒ raise. Returns `(num, 1)`.
 """
 function _compute_numerator(
     mech::Mechanism, enz_name_to_form, step_params,
     alpha, form_to_group, D, subs_species, prods_species,
 )
-    rho = _progress_levels(mech)
     flat = _flat_steps(mech)
     groups = Dict{Tuple{Int, Symbol}, Vector{POLY}}()
     re_keys = Set{Tuple{Int, Symbol}}()
     for (idx, (s, _)) in enumerate(flat)
         r = _reaction_step(s); r === nothing && continue
-        ff, ft, typ = r
-        (haskey(rho, ff) && haskey(rho, ft)) || continue
-        key = (rho[ff], typ)
+        ff, _ft, typ = r
+        level = typ === :release ?
+            _n_products_committed(ff) : _n_substrates_committed(ff)
+        key = (level, typ)
         if is_equilibrium(s)
             push!(re_keys, key)
             continue
@@ -293,7 +270,7 @@ Add to `test/test_rate_eq_derivation.jl`:
 
 ```julia
 @testset "Numerator: all-RE catalytic cycle raises" begin
-    # Binding boundary mixed (S2 SS, S1 RE), release boundary mixed (P1 SS, P2 RE),
+    # Binding stage mixed (S2 SS, S1 RE), release stage mixed (P1 SS, P2 RE),
     # chemistry RE ⇒ a complete all-RE catalytic cycle exists ⇒ no finite rate.
     m_allre = @enzyme_mechanism begin
         substrates: S1, S2
@@ -425,6 +402,6 @@ git commit -m "fix: reject a reaction declared both rapid-equilibrium and steady
 
 **Placeholder scan:** No TBD/“handle edge cases”/“similar to” — every code step is complete.
 
-**Type consistency:** `_reaction_step` returns `(Species, Species, Symbol)` consumed by `_progress_levels` and `_compute_numerator`; `groups` is `Dict{Tuple{Int,Symbol}, Vector{POLY}}`; `re_keys` is `Set{Tuple{Int,Symbol}}`; `_compute_numerator` returns `(POLY, Int)` matching the existing caller. `_assert_no_re_ss_duplicate` takes `Vector{Vector{Step}}` (the ctor's `steps`/`cat_steps`).
+**Type consistency:** `_reaction_step` returns `(Species, Species, Symbol)`; `_n_substrates_committed`/`_n_products_committed` take a `Species` and return `Int`; `groups` is `Dict{Tuple{Int,Symbol}, Vector{POLY}}`; `re_keys` is `Set{Tuple{Int,Symbol}}`; `_compute_numerator` returns `(POLY, Int)` matching the existing caller. `_assert_no_re_ss_duplicate` takes `Vector{Vector{Step}}` (the ctor's `steps`/`cat_steps`). Note `subs_species`/`prods_species` are now unused parameters of `_compute_numerator` — keep them in the signature (the caller passes them) but they are no longer read.
 
-**Known limitation (documented, no current trigger):** the cut grouping assumes reaction steps that bind substrates / release products lie on the catalytic cycle (no SS substrate/product *dead-end* steps — inhibitor dead-ends bind `CompetitiveInhibitor` and are skipped). No oracle spec or bug case has an SS substrate/product dead-end; if one arises, exclude off-cycle cuts before the fewest-step selection. Gradedness holds for every spec with an oracle; non-graded mechanisms (no oracle) raise in `_progress_levels`.
+**Known limitation (documented, no current trigger):** the mirror grouping assumes reaction steps that bind substrates / release products lie on a single catalytic cycle (no SS substrate/product *dead-end* steps — inhibitor dead-ends bind `CompetitiveInhibitor` and are skipped). No oracle spec or bug case has an SS substrate/product dead-end; if one arises, exclude off-cycle cuts before the fewest-step selection. The committed-metabolite `level` correctly separates series steps for every single-cycle mechanism (the residual term handles ping-pong covalent intermediates); a mechanism that revisits the same committed-count at two genuinely-series stages would need a finer key.
