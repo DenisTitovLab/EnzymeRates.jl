@@ -70,6 +70,17 @@ numerator is the oriented-flux sum over one complete cut. Each conserved per-tur
 to v). A candidate is **usable** iff *all* its forward reaction steps are SS (any RE
 step in the event would make the SS-only sum an undercount).
 
+**Exclude dead-end steps** when collecting a candidate's steps (from both the all-SS
+check and the flux sum): a step touching a *substrate–product mixed complex* — a form
+with **both** a bound `Substrate` and a bound `Product` — is off the catalytic path
+(reached only by product rebinding to a substrate complex, or substrate binding to a
+product complex) and carries zero net flux, so a dead-end RE step must not disqualify an
+otherwise-all-SS cut. **Regulator-bound forms are NOT mixed** (a regulator is neither a
+substrate nor a product), so steps binding S / releasing P on a regulator-bound enzyme
+are kept — they are genuine parallel catalytic routes, and their RE-ness *should* count.
+The central complexes stay valid (`E(S1,S2)` is pure-substrate, `E(P1,P2)` pure-product);
+ping-pong intermediates carry a `Residual`, not bound substrate+product, so are not flagged.
+
 **Why two kinds of candidate are needed.** A single metabolite's consumption can span
 several stages (`bind S1 to E` and `bind S1 to E(S2)`) — a *metabolite* cut. A single
 stage can span several metabolites (two different products leaving `E(P1,P2)`) — a
