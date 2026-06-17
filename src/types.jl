@@ -472,6 +472,24 @@ function _canonical_group_order!(groups::Vector{Vector{Step}})
     sortperm(groups; by = group -> _step_canonical_key(first(group)))
 end
 
+"""
+Reject a mechanism that contains the same physical reaction as both a
+rapid-equilibrium and a steady-state step (e.g. `E + S <--> E(S)` AND
+`E + S ⇌ E(S)`): a single reaction cannot be both fast and slow.
+"""
+function _assert_no_re_ss_duplicate(steps::Vector{Vector{Step}})
+    seen = Dict{Tuple{Species, Species, Union{Metabolite, Nothing}}, Bool}()
+    for group in steps, s in group
+        k = (from_species(s), to_species(s), bound_metabolite(s))
+        if haskey(seen, k) && seen[k] != is_equilibrium(s)
+            error("Mechanism: reaction $(name(from_species(s))) → " *
+                  "$(name(to_species(s))) appears as both rapid-equilibrium " *
+                  "and steady-state; a reaction cannot be both.")
+        end
+        seen[k] = is_equilibrium(s)
+    end
+end
+
 # Mechanism: groups elementary steps by kinetic group (outer
 # vector). All steps within a group share kinetic parameters. The
 # constructor canonicalizes iso-step direction and stores the steps;
@@ -484,6 +502,7 @@ struct Mechanism
                        steps::Vector{Vector{Step}})
         steps = _canonicalize_iso_groups(reaction, steps)
         permute!(steps, _canonical_group_order!(steps))
+        _assert_no_re_ss_duplicate(steps)
         new(reaction, steps)
     end
 end
@@ -546,6 +565,7 @@ struct AllostericMechanism
         # (cat_steps is fresh from _canonicalize_iso_groups; copy the rest).
         perm = _canonical_group_order!(cat_steps)
         permute!(cat_steps, perm)
+        _assert_no_re_ss_duplicate(cat_steps)
         cat_allo_states = permute!(copy(cat_allo_states), perm)
         regulatory_sites =
             sort(regulatory_sites; by = _regulatory_site_canonical_key)
