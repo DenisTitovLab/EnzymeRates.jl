@@ -381,15 +381,10 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
         den = poly_add(den, poly_mul(csigma, D[g]))
     end
 
-    num, nu_ref = _compute_numerator(
+    num = _compute_numerator(
         mech, enz_name_to_form, step_params,
         alpha, form_to_group,
         D, subs_species, prods_species)
-
-    abs_nu = abs(nu_ref)
-    if abs_nu != 1
-        den = poly_mul(den, poly_const(abs_nu))
-    end
 
     num = _rename_symbols(num, rename_map)
     den = _rename_symbols(den, rename_map)
@@ -412,136 +407,114 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
 end
 
 """
-Forward-reaction endpoints and type of a step as `(from::Species, to::Species,
-type::Symbol)`, or `nothing` if the step does not advance the reaction (binds an
-inhibitor/regulator, or is a pure conformational iso). `type` is `:chem` (iso
-substrate→product), `:bind` (substrate from solution), or `:release` (product to
-solution). A product release stored as product *binding* (`E+P→EP`) has physical
-forward direction `to→from`; one stored as SS-dissociation (`EA→E+P`) has it
-`from→to` — orient by storage form via `_step_sides`. NB: a step binding a
-*substrate* to a regulator-bound enzyme is `:bind` (its bound metabolite is the
-substrate) — regulator-bound parallel routes are kept.
-"""
-function _reaction_step(s::Step)
-    bm = bound_metabolite(s)
-    bm === nothing   && return _iso_reaction_step(s)
-    bm isa Substrate && return (from_species(s), to_species(s), :bind)
-    if bm isa Product
-        _, _, m_lhs, _ = _step_sides(s)
-        # SS-dissociation storage (`EA→E+P`, product on m_rhs ⇒ m_lhs empty): the
-        # physical release is canonical from→to. Product-binding storage
-        # (`E+P→EP`, product on m_lhs): physical release is the reverse, to→from.
-        return isempty(m_lhs) ?
-            (from_species(s), to_species(s), :release) :
-            (to_species(s),   from_species(s), :release)
-    end
-    return nothing
-end
-
-"""
-Forward-reaction endpoints and type of an isomerization step. A `:chem` iso step
-actually converts substrate→product (or changes the covalent `Residual`). A pure
-conformational iso (identical bound metabolites and residual on both endpoints)
-advances no reaction event and is not a cut-generating step → `nothing`.
-"""
-function _iso_reaction_step(s::Step)
-    f, t = from_species(s), to_species(s)
-    same = Set(name(m) for m in bound(f)) == Set(name(m) for m in bound(t)) &&
-           residual(f) == residual(t)
-    return same ? nothing : (f, t, :chem)
-end
-
-"""
-A substrate-product *mixed complex*: a form carrying at least one bound `Substrate`
-AND one bound `Product` simultaneously. Such forms are off the catalytic path
-(reached only by product rebinding to a substrate complex, or vice versa) and carry
-zero net flux; steps touching them are dead-ends and are excluded from cuts. A
-regulator does not make a form mixed; ping-pong intermediates hold a `Residual`,
-not bound substrate+product, so are not mixed.
-"""
-_is_mixed_complex(f::Species) =
-    any(m -> m isa Substrate, bound(f)) && any(m -> m isa Product, bound(f))
-
-"""
 Numerator = net flux across one complete steady-state reaction-cut. Each
 per-turnover-conserved "event" is a candidate cut whose SS-step fluxes sum to v:
 metabolite cuts (bind a substrate / release a product / iso-convert a substrate /
 iso-produce a product) and central-species cuts (produce / consume an iso-step
-endpoint form). Pure conformational isos generate no central species (they are not
-`:chem`). Dead-end steps (touching a substrate-product mixed complex) are excluded.
-A candidate is usable iff all its steps are SS. A metabolite cut is always a
-complete cut (its metabolite is consumed/produced once per turnover, summed over
-all parallel routes), so metabolite cuts are preferred. Central-species cuts are
-the fallback used only when chemistry is RE and no metabolite cut is all-SS: they
-are valid when the central form lies on every turnover — true for the
-substrate/product complexes of a genuine chemistry step — but are not a complete
-cut under parallel routes through different iso endpoints. NUM = oriented-flux sum
-over the chosen usable cut (prefer metabolite class, then fewest steps, then a
-chemistry/iso cut). No usable candidate ⇒ a complete all-RE catalytic cycle ⇒ no
-finite rate ⇒ raise. Returns `(num, 1)`.
+endpoint form). Dead-end binding/release steps touching a substrate-product mixed
+complex are excluded (a chemistry step producing such a complex — a ping-pong
+covalent intermediate — is kept). A candidate is usable iff all its steps are SS;
+NUM = oriented-flux sum over the chosen cut (prefer a metabolite cut — always
+complete — over a central-species cut, then fewest steps, then a chemistry cut,
+then sorted indices). No usable candidate ⇒ a complete all-RE catalytic cycle ⇒
+no finite rate ⇒ raise. A central-species cut is trusted only when its form is
+unique up to bound regulators; a regulator-variant sibling is a parallel route the
+single-form cut would undercount, so raise rather than return a wrong rate.
 """
 function _compute_numerator(
     mech::Mechanism, enz_name_to_form, step_params,
     alpha, form_to_group, D, subs_species, prods_species,
 )
-    flat = _flat_steps(mech)
-    # Forward-oriented reaction steps. A binding/release step touching a
-    # substrate-product mixed complex is a product-rebinding dead-end (off the
-    # catalytic path, zero net flux) and is dropped; a CHEMISTRY step is never a
-    # dead-end (it always advances the reaction), so it is kept even when it
-    # produces a mixed complex — that is exactly a ping-pong covalent intermediate
-    # carrying a substrate and the just-formed product at once.
-    rsteps = NamedTuple[]
-    for (idx, (s, _)) in enumerate(flat)
-        r = _reaction_step(s); r === nothing && continue
-        ff, ft, typ = r
-        typ !== :chem && (_is_mixed_complex(ff) || _is_mixed_complex(ft)) && continue
-        push!(rsteps, (idx = idx, ff = ff, ft = ft, typ = typ, s = s))
-    end
+    is_mixed_substrate_product_complex(f) =
+        any(m -> m isa Substrate, bound(f)) && any(m -> m isa Product, bound(f))
     subs_in(f)  = Set(name(m) for m in bound(f) if m isa Substrate)
     prods_in(f) = Set(name(m) for m in bound(f) if m isa Product)
 
-    # Candidate cuts: each `(steps::Vector{Int}, is_central::Bool)`. `steps`
-    # indexes into `rsteps`.
-    cands = Tuple{Vector{Int}, Bool}[]
-    add_cand!(is_central, pred) =
-        (g = [k for k in eachindex(rsteps) if pred(rsteps[k])];
-         isempty(g) || push!(cands, (g, is_central)))
-    for S in subs_species   # metabolite: bind S, or iso-convert S
-        add_cand!(false, r -> r.typ === :bind && name(bound_metabolite(r.s)) == S)
-        add_cand!(false, r -> r.typ === :chem && S in subs_in(r.ff) && !(S in subs_in(r.ft)))
-    end
-    for P in prods_species  # metabolite: release P, or iso-produce P
-        add_cand!(false, r -> r.typ === :release && name(bound_metabolite(r.s)) == P)
-        add_cand!(false, r -> r.typ === :chem && P in prods_in(r.ft) && !(P in prods_in(r.ff)))
-    end
-    central = Set{Species}()  # iso-step endpoint forms
-    for r in rsteps; r.typ === :chem && (push!(central, r.ff); push!(central, r.ft)); end
-    # Deterministic order (Set iteration order is NOT stable across precompile
-    # sessions; non-determinism here would make the chosen cut — and the equation
-    # string — vary per compile). Sort central species by name.
-    for X in sort(collect(central); by = x -> string(name(x)))
-        add_cand!(true, r -> r.ft == X)   # produce X
-        add_cand!(true, r -> r.ff == X)   # consume X
+    # Forward-oriented reaction steps (skip inhibitor/regulator binding, pure
+    # conformational isos, and product-rebinding dead-ends). For each: type ∈
+    # {:bind,:chem,:release}; (ff,ft) = forward (from,to). A product release stored
+    # as product-binding (`E+P→EP`, product on m_lhs) is the reverse reaction, so
+    # its forward direction swaps the endpoints; an SS-dissociation release
+    # (`EA→E+P`, product on m_rhs) is already forward.
+    rsteps = NamedTuple[]
+    for (idx, (s, _)) in enumerate(_flat_steps(mech))
+        bm = bound_metabolite(s)
+        local ff, ft, typ
+        if bm === nothing                                   # iso step
+            f, t = from_species(s), to_species(s)
+            (Set(name(m) for m in bound(f)) == Set(name(m) for m in bound(t)) &&
+             residual(f) == residual(t)) && continue        # pure conformational iso
+            ff, ft, typ = f, t, :chem
+        elseif bm isa Substrate
+            ff, ft, typ = from_species(s), to_species(s), :bind
+        elseif bm isa Product
+            _, _, m_lhs, _ = _step_sides(s)
+            rev = !isempty(m_lhs)                           # product-binding storage
+            ff = rev ? to_species(s) : from_species(s)
+            ft = rev ? from_species(s) : to_species(s)
+            typ = :release
+        else
+            continue                                        # inhibitor / regulator
+        end
+        typ !== :chem &&
+            (is_mixed_substrate_product_complex(ff) ||
+             is_mixed_substrate_product_complex(ft)) && continue
+        push!(rsteps, (idx = idx, ff = ff, ft = ft, typ = typ, s = s))
     end
 
-    is_ss(r) = !is_equilibrium(r.s)
-    usable = [c for c in cands if all(is_ss(rsteps[k]) for k in c[1])]
+    # Candidate cuts: (steps into rsteps, central form or `nothing` for metabolite).
+    cands = Tuple{Vector{Int}, Union{Species, Nothing}}[]
+    add_cand!(central, pred) = (g = [k for k in eachindex(rsteps) if pred(rsteps[k])];
+                                isempty(g) || push!(cands, (g, central)))
+    for S in subs_species
+        add_cand!(nothing, r -> r.typ === :bind && name(bound_metabolite(r.s)) == S)
+        add_cand!(nothing, r -> r.typ === :chem && S in subs_in(r.ff) && !(S in subs_in(r.ft)))
+    end
+    for P in prods_species
+        add_cand!(nothing, r -> r.typ === :release && name(bound_metabolite(r.s)) == P)
+        add_cand!(nothing, r -> r.typ === :chem && P in prods_in(r.ft) && !(P in prods_in(r.ff)))
+    end
+    central_forms = Set{Species}()      # iso-step endpoints
+    for r in rsteps
+        r.typ === :chem && (push!(central_forms, r.ff); push!(central_forms, r.ft))
+    end
+    for X in sort(collect(central_forms); by = x -> string(name(x)))  # sorted: precompile-stable
+        add_cand!(X, r -> r.ft == X)    # produce X
+        add_cand!(X, r -> r.ff == X)    # consume X
+    end
+
+    usable = [c for c in cands if all(!is_equilibrium(rsteps[k].s) for k in c[1])]
     isempty(usable) && error(
         "rate_equation: no rapid-equilibrium-consistent reaction cut — a complete " *
         "all-RE catalytic cycle exists, so the mechanism has no finite rate.")
 
-    # Prefer a metabolite cut (always complete); then fewest steps; then a
-    # chemistry/iso cut; final tie-break on sorted step indices so the choice is
-    # fully deterministic.
+    # Prefer a metabolite cut (central === nothing) over a central-species cut, then
+    # fewest steps, then a chemistry cut, then sorted indices (precompile-stable).
     has_chem(c) = any(rsteps[k].typ === :chem for k in c[1])
-    best = usable[argmin(
-        i -> (usable[i][2] ? 1 : 0, length(usable[i][1]),
-              has_chem(usable[i]) ? 0 : 1,
-              sort([rsteps[k].idx for k in usable[i][1]])),
-        eachindex(usable))][1]
+    steps, central = usable[argmin(
+        i -> (usable[i][2] === nothing ? 0 : 1, length(usable[i][1]),
+              has_chem(usable[i]) ? 0 : 1, sort([rsteps[k].idx for k in usable[i][1]])),
+        eachindex(usable))]
+
+    # A central-species cut is complete only when its form is unique up to bound
+    # regulators; a regulator-variant sibling is a parallel route this cut would
+    # undercount, so raise rather than return a wrong rate.
+    if central !== nothing
+        xs = sort!([name(m) for m in bound(central) if m isa Substrate])
+        xp = sort!([name(m) for m in bound(central) if m isa Product])
+        for Y in _enumerate_species(mech)
+            Y == central && continue
+            sort!([name(m) for m in bound(Y) if m isa Substrate]) == xs &&
+                sort!([name(m) for m in bound(Y) if m isa Product]) == xp &&
+                residual(Y) == residual(central) && error(
+                "rate_equation: ambiguous central-complex cut on $(name(central)) — " *
+                "the regulator-variant form $(name(Y)) is a parallel route this cut " *
+                "would undercount; cannot derive a unique rate.")
+        end
+    end
+
     num = poly_zero()
-    for k in best
+    for k in steps
         r = rsteps[k]; idx = r.idx
         e_lhs, e_rhs, m_lhs, m_rhs = _step_sides(r.s)
         i_form = enz_name_to_form[e_lhs]; j_form = enz_name_to_form[e_rhs]
@@ -549,14 +522,9 @@ function _compute_numerator(
         rf = _ss_contrib(poly_sym(name(step_params[idx][1], mech)), m_lhs, i_form, alpha)
         rr = _ss_contrib(poly_sym(name(step_params[idx][2], mech)), m_rhs, j_form, alpha)
         canon = poly_sub(poly_mul(rf, D[g1]), poly_mul(rr, D[g2]))
-        # `canon` is the net flux in `_step_sides`' canonical from→to direction.
-        # Reaction-forward is from→to for bind/chem and for a product-release
-        # stored as SS-dissociation (product on m_rhs: `EA→E+P`). A product-binding
-        # release (`E+P→EP`, product on m_lhs) stores the reverse reaction, so flip.
-        flip = r.typ === :release && !isempty(m_lhs)
-        num = poly_add(num, flip ? poly_neg(canon) : canon)
+        num = poly_add(num, (r.typ === :release && !isempty(m_lhs)) ? poly_neg(canon) : canon)
     end
-    num, 1
+    num
 end
 
 # ─── Expr generation from POLY ──────────────────────────────
