@@ -58,9 +58,15 @@ series edges count once.
 ### Orientation of an SS step (forward reaction)
 
 - substrate-binding step → forward = canonical from→to (substrate consumed)
-- product-release step (stored canonically as product-binding `E+P→EP`) → forward =
-  canonical to→from (product released)
-- chemistry/iso step → forward = canonical from→to (physical-forward, already canon)
+- product-release step → forward depends on storage form: a product-*binding* storage
+  (`E+P→EP`, product on `m_lhs`) stores the reverse reaction → forward = canonical
+  to→from; an SS-*dissociation* storage (`EA→E+P`, product on `m_rhs`) already stores
+  the release → forward = canonical from→to. (The endpoints `(ff,ft)` used for
+  central-species cuts AND the flux sign must both respect this.)
+- chemistry/iso step → forward = canonical from→to. An iso step counts as chemistry
+  ONLY if it changes bound substrate/product content or the covalent `Residual`; a pure
+  conformational iso (identical bound metabolites and residual on both endpoints) is not
+  a reaction-progress step and generates no cut (its endpoints are not central species).
 
 ### The cut algorithm: metabolite cuts + central-species cuts
 
