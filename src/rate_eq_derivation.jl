@@ -414,18 +414,41 @@ end
 """
 Forward-reaction endpoints and type of a step as `(from::Species, to::Species,
 type::Symbol)`, or `nothing` if the step does not advance the reaction (binds an
-inhibitor/regulator). `type` is `:chem` (iso substrate→product), `:bind`
-(substrate from solution), or `:release` (product to solution). Product-release
-steps are stored canonically as product *binding*, so their forward direction is
-`to→from`. NB: a step binding a *substrate* to a regulator-bound enzyme is `:bind`
-(its bound metabolite is the substrate) — regulator-bound parallel routes are kept.
+inhibitor/regulator, or is a pure conformational iso). `type` is `:chem` (iso
+substrate→product), `:bind` (substrate from solution), or `:release` (product to
+solution). A product release stored as product *binding* (`E+P→EP`) has physical
+forward direction `to→from`; one stored as SS-dissociation (`EA→E+P`) has it
+`from→to` — orient by storage form via `_step_sides`. NB: a step binding a
+*substrate* to a regulator-bound enzyme is `:bind` (its bound metabolite is the
+substrate) — regulator-bound parallel routes are kept.
 """
 function _reaction_step(s::Step)
     bm = bound_metabolite(s)
-    bm === nothing      && return (from_species(s), to_species(s), :chem)
-    bm isa Substrate    && return (from_species(s), to_species(s), :bind)
-    bm isa Product      && return (to_species(s), from_species(s), :release)
+    bm === nothing   && return _iso_reaction_step(s)
+    bm isa Substrate && return (from_species(s), to_species(s), :bind)
+    if bm isa Product
+        _, _, m_lhs, _ = _step_sides(s)
+        # SS-dissociation storage (`EA→E+P`, product on m_rhs ⇒ m_lhs empty): the
+        # physical release is canonical from→to. Product-binding storage
+        # (`E+P→EP`, product on m_lhs): physical release is the reverse, to→from.
+        return isempty(m_lhs) ?
+            (from_species(s), to_species(s), :release) :
+            (to_species(s),   from_species(s), :release)
+    end
     return nothing
+end
+
+"""
+Forward-reaction endpoints and type of an isomerization step. A `:chem` iso step
+actually converts substrate→product (or changes the covalent `Residual`). A pure
+conformational iso (identical bound metabolites and residual on both endpoints)
+advances no reaction event and is not a cut-generating step → `nothing`.
+"""
+function _iso_reaction_step(s::Step)
+    f, t = from_species(s), to_species(s)
+    same = Set(name(m) for m in bound(f)) == Set(name(m) for m in bound(t)) &&
+           residual(f) == residual(t)
+    return same ? nothing : (f, t, :chem)
 end
 
 """
@@ -444,14 +467,16 @@ Numerator = net flux across one complete steady-state reaction-cut. Each
 per-turnover-conserved "event" is a candidate cut whose SS-step fluxes sum to v:
 metabolite cuts (bind a substrate / release a product / iso-convert a substrate /
 iso-produce a product) and central-species cuts (produce / consume an iso-step
-endpoint form). Dead-end steps (touching a substrate-product mixed complex) are
-excluded. A candidate is usable iff all its steps are SS. A metabolite cut is
-always a complete cut (its metabolite is consumed/produced once per turnover,
-summed over all parallel routes); a central-species cut is complete only when its
-form lies on every turnover, which fails under parallel routes through different
-iso endpoints — so metabolite cuts are preferred and central cuts are the fallback
-(needed when chemistry is RE and no metabolite cut is all-SS). NUM = oriented-flux
-sum over the chosen usable cut (prefer metabolite class, then fewest steps, then a
+endpoint form). Pure conformational isos generate no central species (they are not
+`:chem`). Dead-end steps (touching a substrate-product mixed complex) are excluded.
+A candidate is usable iff all its steps are SS. A metabolite cut is always a
+complete cut (its metabolite is consumed/produced once per turnover, summed over
+all parallel routes), so metabolite cuts are preferred. Central-species cuts are
+the fallback used only when chemistry is RE and no metabolite cut is all-SS: they
+are valid when the central form lies on every turnover — true for the
+substrate/product complexes of a genuine chemistry step — but are not a complete
+cut under parallel routes through different iso endpoints. NUM = oriented-flux sum
+over the chosen usable cut (prefer metabolite class, then fewest steps, then a
 chemistry/iso cut). No usable candidate ⇒ a complete all-RE catalytic cycle ⇒ no
 finite rate ⇒ raise. Returns `(num, 1)`.
 """
