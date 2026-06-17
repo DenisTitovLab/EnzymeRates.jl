@@ -62,50 +62,56 @@ series edges count once.
   canonical to→from (product released)
 - chemistry/iso step → forward = canonical from→to (physical-forward, already canon)
 
-### The cut algorithm: SS steps grouped by mirror, RE-mirror check
+### The cut algorithm: metabolite cuts + central-species cuts
 
-A **reaction cut** is a set of SS steps that one turnover crosses exactly once. The
-numerator is the oriented-flux sum over one complete cut. Two reaction steps are
-**mirrors** (belong to the same cut) iff they have the same `(level, type)`, where
-`type ∈ {:bind, :chem, :release}` and `level` is a *local* property of the step's
-reaction-from form:
+A **reaction cut** is a set of SS steps that one turnover crosses exactly once; the
+numerator is the oriented-flux sum over one complete cut. Each conserved per-turnover
+"event" is a candidate cut (its steps all carry that event once, so the net flux sums
+to v). A candidate is **usable** iff *all* its forward reaction steps are SS (any RE
+step in the event would make the SS-only sum an undercount).
 
-```
-level(bind step)    = #substrates committed in its from-form
-level(chem step)    = #substrates committed in its from-form
-level(release step) = #products  committed in its from-form
-  #substrates committed(form) = count(Substrate in bound(form)) + length(residual.added)
-  #products  committed(form)  = count(Product  in bound(form)) + length(residual.subtracted)
-```
+**Why two kinds of candidate are needed.** A single metabolite's consumption can span
+several stages (`bind S1 to E` and `bind S1 to E(S2)`) — a *metabolite* cut. A single
+stage can span several metabolites (two different products leaving `E(P1,P2)`) — a
+*species* cut. Neither subsumes the other (verified by counterexample), so we generate
+both. Restricting species cuts to **iso-step-endpoint** forms keeps them valid (those
+forms lie on every turnover's path) and avoids the *branch trap* (e.g. "produce
+`E(S1)` = {one SS step}" is all-SS but wrong, because `E(S1)` is a bypassed side branch
+— `E(S1)` is not an iso endpoint, so it is never offered as a cut).
 
-(Reaction-from form: bind/chem use canonical `from`; release uses canonical `to` —
-the fuller complex — because release is stored as product *binding*.)
-
-`level` is just "how far into the reaction this step's starting form is" without any
-graph traversal. Mirrors are the parallel alternatives at one stage: random-order
-first binding `E+S1` / `E+S2` are both `(0, :bind)`; second binding `ES1+S2` / `ES2+S1`
-are both `(1, :bind)`; the two product releases from `E(P1,P2)` are both
-`(2, :release)`. The `residual` terms keep ping-pong's second substrate (its from-form
-carries the first substrate covalently in `residual.added`) from colliding with the
-first.
+Candidate cuts (forward-oriented; usable iff every step is SS):
 
 ```
-For each reaction step compute (level, type); record RE keys and SS keys separately.
-A cut (level, type) is USABLE iff it has SS steps and NO RE step shares its key
-(no parallel rapid-equilibrium "mirror" route — else the SS-only sum undercounts).
-NUM = Σ oriented flux over the USABLE cut with the FEWEST steps (simplest numerator;
-all usable cuts give the identical equation); tie-break toward chemistry (standard
-Vmax·(S−P/Keq) form). No stoichiometric normalisation — the cut is crossed once per
-turnover, so the sum IS v·DEN/E_total.
-If NO cut is usable (every reaction step has an RE mirror) → raise: proven below to be
-equivalent to "a complete all-RE catalytic cycle exists ⇒ Vmax→∞ ⇒ no finite RE rate".
+Metabolite cuts
+  per substrate S:  {steps that BIND S}            or {iso steps that CONVERT S → residual/product}
+  per product   P:  {steps that RELEASE P}         or {iso steps that PRODUCE P from substrate/residual}
+Central-species cuts   (X = from- or to-form of any ISO step; the chemistry endpoints)
+  per such X:       {steps that PRODUCE X}          or {steps that CONSUME X}
 ```
 
-This needs no reaction-progress BFS and makes no gradedness assumption — `level` is a
-direct metabolite count on each form, so it is robust to interleaved-release /
-Theorell-Chance / ping-pong mechanisms. `example_1`'s redundant `E+S1<-->E(S1)` (SS)
-is killed because the RE `E+S2⇌E(S2)` shares its `(0, :bind)` key, so the algorithm
-falls through to the chemistry cut and yields the correct non-zero rate.
+(Forward orientation: bind/chem = canonical from→to; release = canonical to→from, since
+release is stored as product binding.) Central species are the substrate/residual-side
+and product/residual-side forms of iso steps — this covers ping-pong covalent
+intermediates, where there is no "all-substrate-bound" form but the iso step's
+endpoints still sit on every turnover.
+
+```
+NUM = Σ oriented flux over the USABLE candidate with the FEWEST steps (simplest
+numerator; all usable cuts give the identical equation); tie-break toward the
+chemistry/iso cut (standard Vmax·(S−P/Keq) form). No stoichiometric normalisation —
+the cut is crossed once per turnover, so the sum IS v·DEN/E_total.
+If NO candidate is usable → raise: equivalent to "a complete all-RE catalytic cycle
+exists ⇒ Vmax→∞ ⇒ no finite RE rate" (proven below). No free-E reference anywhere, so
+the rule is robust to multiple free-enzyme conformations.
+```
+
+Worked cases: `example_1` → convert-S1 / consume-`E(S1,S2)` = {chem} (metabolite-S1
+*binding* is mixed RE/SS → skipped) → correct non-zero; divergence (S1 binds SS to both
+`E` and `E(S2)`) → bind-S1 = {step1, step4}; the RE-chemistry mechanism (no metabolite
+all-SS) → consume-`E(P1,P2)` = {step6, step7}; ping-pong → bind-A or its iso-endpoint
+central species. Completeness caveat: a mechanism whose only SS bottleneck is neither a
+metabolite's full bind/release/convert set nor an iso-endpoint's full produce/consume
+set is not provably covered; it would `raise` rather than mis-derive (none constructed).
 
 ### Construction guard (separate, small): forbid a reaction being both RE and SS
 
@@ -113,37 +119,39 @@ falls through to the chemistry cut and yields the correct non-zero rate.
 arrows, e.g. `E + S <--> E(S)` AND `E + S ⇌ E(S)` — representable only because `Step`
 carries `is_equilibrium` in its identity, so the duplicates aren't `==` and both survive
 `unique!`. Such a mechanism is nonsensical (a step can't be slow and fast). The numerator
-algorithm already raises on it (all-RE cycle ⇒ rule (4)), but it should be rejected at
+algorithm already raises on it (no usable cut ⇒ all-RE cycle), but it should be rejected at
 construction: the `Mechanism`/`AllostericMechanism` ctor must reject any two steps with the
 same `(from_species, to_species, bound_metabolite)` differing only in `is_equilibrium`.
 This is a small standalone validation, distinct from the numerator fix; broader
 "mirror via different bystanders" handling stays with #1.
 
-Why this is exactly right: parallel routes (random order) share a mirror key → summed.
-Series routes (ordered) have different keys (different committed-metabolite counts) →
-never summed. A redundant internal-SS binding (the `example_1/2` degeneracy) shares its
-key with a parallel RE step (same stage, other metabolite) → that cut is skipped,
-falling through to the chemistry cut → correct non-zero rate.
+Why this is exactly right: each candidate is a per-turnover-conserved event, so its
+SS steps' fluxes sum to v (parallel routes within the event are summed; the event is
+crossed once, so series steps live in *different* candidates and are never summed). A
+redundant internal-SS binding (the `example_1/2` degeneracy) has an RE step in its
+metabolite-binding event (`bind S1` includes an RE route) → that candidate is skipped,
+falling through to the convert-S1 / consume-`E(S1,S2)` candidate → correct non-zero.
 
-### Per-class walkthrough (`(level, type)` mirror keys; **bold** = chosen cut)
+### Per-class walkthrough (usable candidate cut in **bold**)
 
-| Mechanism | reaction-step keys (SS unless noted RE) | chosen cut | NUM | vs exact |
+| Mechanism | usable candidate cuts | chosen | NUM | vs exact |
 |---|---|---|---|---|
-| **Uni-Uni RE** (bind RE, chem SS, rel RE) | (0,bind)RE; **(1,chem)**; (1,rel)RE | (1,chem) | flux(chem) | ✓ (= today) |
-| **Ordered Bi-Bi all-SS** | (0,bind); (1,bind); **(2,chem)**; (2,rel) | (2,chem) — tie-break | flux(chem) | ✓ value (string moves bindA→chem) |
-| **RE Ordered Bi-Bi** (bind RE, chem+rel SS) | (0,bind)RE,(1,bind)RE; **(2,chem)**; (2,rel) | (2,chem) | flux(chem) | ✓ value (string may move rel→chem) |
-| **Ping-pong Bi-Bi** (all SS, concerted release) | **(0,bind)**; (0,rel); (1,bind); (1,rel) | (0,bind) — no chem, bind<rel | flux(bindA) | ✓ (= today) |
-| **`m_RE` random, chem SS** (G=2) | (0,bind)RE×2; (1,bind)×2; **(2,chem)** | (2,chem) — 1 step < 2 | flux(chem) | ✓ (today: one branch → 0.60×) |
-| **Denise RE-chem** (G=2, iso RE) | (1,bind): S2 SS+S1 RE → skip; (2,chem)RE; **(2,rel)×2** | (2,rel) {6,7} | flux(6)+flux(7) | ✓ (today: 0.48×) |
-| **`example_1/2` degenerate** (G=1) | (0,bind): S1 SS+S2 RE → skip; (1,bind)RE; **(2,chem)** | (2,chem) | flux(chem) | ✓ non-zero (today: 0) |
-| **mixed-binding, all-SS release** (G=1) | (1,bind): S2 SS+S1 RE → skip; (2,chem)RE; **(2,rel)×2** | (2,rel) {6,7} | flux(6)+flux(7) | ✓ (today 0.48×; denom faithful) |
-| **no usable cut** (all-RE catalytic cycle) | every key has an RE mirror | — | **raise** | diverges (Vmax→∞); today v≡0 |
+| **Uni-Uni RE** (bind RE, chem SS, rel RE) | **convert-S = {chem}** | {chem} | flux(chem) | ✓ (= today) |
+| **Ordered Bi-Bi all-SS** | bind-A, bind-B, **convert = {chem}**, release | {chem} — tie-break | flux(chem) | ✓ value (string moves bindA→chem) |
+| **RE Ordered Bi-Bi** (bind RE, chem+rel SS) | **convert = {chem}**, release-P | {chem} | flux(chem) | ✓ value (string may move) |
+| **Ping-pong Bi-Bi** (concerted release) | **bind-A**, bind-B, convert(iso) | bind-A (fewest, no separate chem) | flux(bindA) | ✓ (= today) |
+| **`m_RE` random, chem SS** (G=2) | bind-S1/S2 (2 steps), **convert = {chem}** | {chem} — 1 step | flux(chem) | ✓ (today one branch → 0.60×) |
+| **Denise RE-chem** (G=2, iso RE) | bind/release all mixed; convert(iso) RE; **consume-`E(P1,P2)` = {6,7}** | {6,7} | flux6+flux7 | ✓ (today 0.48×) |
+| **`example_1/2` degenerate** (G=1) | bind-S1 mixed → skip; **convert-S1 = {chem}** | {chem} | flux(chem) | ✓ non-zero (today 0) |
+| **mixed-binding, all-SS release** (G=1) | bind mixed; convert RE; **consume-`E(P1,P2)` = {6,7}** | {6,7} | flux6+flux7 | ✓ (today 0.48×; denom faithful) |
+| **divergence** (S1 binds SS to E & ES2) | **bind-S1 = {step1,step4}** (convert/consume all RE) | {step1,step4} | flux1+flux4 | ✓ |
+| **no usable candidate** (all-RE catalytic cycle) | — | — | **raise** | diverges (Vmax→∞); today v≡0 |
 
-### "No usable cut → raise" is correct, not too aggressive (resolved)
+### "No usable candidate → raise" is correct, not too aggressive (resolved)
 
-**No usable cut ⟺ a complete all-RE catalytic cycle exists ⟺ Vmax → ∞.**
-Proof: if every reaction step has an RE mirror (same `(level, type)`), then at every
-reaction stage some route is RE; choosing the RE route at each stage gives an all-RE
+**No usable candidate ⟺ a complete all-RE catalytic cycle exists ⟺ Vmax → ∞.**
+Proof: if every candidate cut contains an RE step, then every conserved event has an
+RE route; stringing those RE routes together gives an all-RE
 path around one full turnover — an all-RE catalytic cycle. In the RE limit that cycle
 carries flux ∝ M (the RE rate), so turnover diverges and the mechanism has no finite
 rapid-equilibrium rate. Verified numerically: a mechanism with binding stage mixed AND
@@ -171,10 +179,10 @@ denominator, no substrate saturation**. This was verified to equal the exact
 full-network steady state in the RE limit to 6 digits: it is **faithful, not a bug**.
 The mechanism is degenerate (the lone SS step is a redundant binding internal to one
 RE segment; chemistry+release drain `E(S)` infinitely fast so it never accumulates →
-Vmax → ∞). The reaction-cut algorithm reproduces this faithful rate: its only usable cut
-is the `(0,bind)` binding step (no parallel RE mirror), so NUM = flux of that step.
-**The derivation must NOT special-case or raise on these** — they are removed by the
-enumeration guard (#1, separate work).
+Vmax → ∞). The reaction-cut algorithm reproduces this faithful rate: its only usable
+candidate is bind-S = {the lone SS binding step} (no RE step in that event), so NUM =
+flux of that step. **The derivation must NOT special-case or raise on these** — they
+are removed by the enumeration guard (#1, separate work).
 
 This sharpens the taxonomy — two different problems, two different fixes:
 - **Genuine numerator bug** (`m_RE` random chem-SS; RE-chemistry bi-bi; `example_1/2`):
@@ -183,15 +191,17 @@ This sharpens the taxonomy — two different problems, two different fixes:
 - **Faithful-but-degenerate** (the uni-uni above): current code = exact, but the
   mechanism has no saturation. → **#1 prunes; derivation already correct.**
 
-### Oracle safety (no graph traversal; side-branches)
+### Oracle safety (no free-E split; side-branches)
 
-- **No gradedness assumption.** `level` is a direct metabolite count on each form, so
-  the rule needs no reaction-progress BFS and is robust to interleaved-release /
-  Theorell-Chance / ping-pong mechanisms. The committed-count (with the `residual`
-  term) separates series steps for every single-cycle mechanism.
+- **No free-enzyme reference.** Candidates are anchored at metabolites and iso-step
+  endpoints, never at "free E about to bind vs having released", so the rule is robust
+  to mechanisms with multiple free-enzyme conformations (`E`, `E*`).
+- **Branch trap avoided.** Species cuts are restricted to iso-step-endpoint forms,
+  which lie on every turnover's path; a bypassed side branch like `E(S1)` is never an
+  iso endpoint, so "produce `E(S1)` = {one SS step}" is never offered as a candidate.
 - **Side-branches** (dead-end inhibitors, bystanders): inhibitor/regulator binding is
   not a reaction step (`_reaction_step` returns `nothing`), so those forms never form a
-  cut. The inhibitor specs reduce to a single SS chemistry cut → correct.
+  cut. The inhibitor specs reduce to a single SS chemistry/convert cut → correct.
 
 ### Edge cases / open risks (validate in TDD)
 
