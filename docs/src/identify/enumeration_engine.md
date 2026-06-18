@@ -17,41 +17,33 @@ through a fixed set of single moves, each taking a mechanism and returning
 slightly more complex children: splitting a shared rate constant, flipping a
 rapid-equilibrium step to steady state, adding a regulator, making the enzyme
 allosteric, and so on. After every step the candidates are deduplicated, since
-different move sequences often reach the same mechanism. Both functions are
-internal — not exported, so you never call them directly
-([`identify_rate_equation`](@ref) drives the loop) — but understanding them
-explains exactly which equations the search can reach.
-
-Deduplication is `unique!` on the raw `Vector` — no separate canonicalization
-pass. The `Mechanism` and `AllostericMechanism` constructors canonicalize step
-order, group order, and regulatory-site order at construction time, so two
-mechanistically identical structs built in any order compare equal and hash
-identically. Structural duplicates are removed by exact equality.
+different move sequences can sometimes reach the same mechanism. Both functions
+are internal, but understanding them explains exactly which equations the search
+can reach.
 
 ## `EnzymeRates.init_mechanisms`
 
-`EnzymeRates.init_mechanisms(reaction)` returns a `Vector{Mechanism}` at minimum
-parameter count. For each catalytic topology, it enumerates all
-substrate/product dead-end subsets, assigns one steady-state catalytic step,
-and collapses binding steps that share the same `(metabolite, RE/SS)` class
-into a single kinetic group. The result is the lowest-parameter starting point
-for the beam search.
-
-When a reaction's atom inventory allows a covalent fragment to persist between
-half-reactions, `EnzymeRates.init_mechanisms` also builds ping-pong mechanisms. The modified
-enzyme stays on conformation `:E` carrying a residual rather than a separate
-conformation label, and a step that would return the enzyme to free `:E` with an
-empty residual mid-cycle is rejected — it would split the reaction into two
-disconnected half-cycles. See [Ping-pong mechanisms](@ref) for the resulting
-rate-equation form.
+`EnzymeRates.init_mechanisms(reaction)` returns the minimum-parameter mechanisms
+for a reaction. For each catalytic topology it enumerates all substrate/product
+dead-end subsets, assigns one steady-state catalytic step, and collapses binding
+steps that share the same `(metabolite, RE/SS)` class into a single kinetic
+group — the lowest-parameter starting point for the beam search. When a
+reaction's atom inventory allows a covalent fragment to persist between
+half-reactions, it also builds ping-pong mechanisms: the modified enzyme stays
+on conformation `:E` carrying a residual rather than a separate conformation
+label, and a step that would return the enzyme to free `:E` with an empty
+residual mid-cycle is rejected, since it would split the reaction into two
+disconnected half-cycles. See [Ping-pong mechanisms](@ref) for detail on these
+mechanisms.
 
 ## The six expansion moves
 
 `EnzymeRates.expand_mechanisms(mechs, rxn)` applies all six moves to every input
-mechanism and returns the children as a flat `Vector{Union{Mechanism,
-AllostericMechanism}}`. Bucketing by parameter count is the caller's job.
-
-Every child is asserted atom-conserving before being returned.
+mechanism and returns the resulting child mechanisms pooled into one list. Each
+move is applied in every applicable way, so one input mechanism yields many
+children — every rapid-equilibrium group that can flip to steady state, every
+step that can be split into its own group, every way an inhibitor can bind, and
+so on. Every child is checked to conserve atoms before it is returned.
 
 The six moves:
 
@@ -63,8 +55,9 @@ no-op for a group already in SS.
 
 **Parameter delta:** +1 for most groups (the SS reverse rate is a new
 independent parameter). A Haldane/Wegscheider constraint can make the reverse
-rate dependent on existing parameters, giving a net **+0**. This is precisely
-why the search buckets by actual fitted-param count rather than assuming +1.
+rate dependent on existing parameters, giving a net **+0** — which is why the
+search counts each mechanism's actual fitted parameters rather than assuming a
+fixed +1 per move.
 
 ### 2. Give one step its own kinetic group
 
@@ -77,13 +70,15 @@ independent ones.
 
 ### 3. Add a competitive inhibitor binding site
 
-Adds binding steps for a `CompetitiveInhibitor` declared in the reaction.
+Adds binding steps for a `CompetitiveInhibitor` declared in the reaction, as a
+dead-end complex with the enzyme. The move enumerates the combinations of enzyme
+species the inhibitor can bind, emitting one child mechanism per combination.
 The new steps form one fresh kinetic group (one new dissociation constant
 `K_R`); mirror steps share their catalytic counterpart's kinetic group.
 
 **Parameter delta:** +1 per competitive-inhibitor group added.
 
-### 4. Promote a non-allosteric mechanism to MWC
+### 4. Promote a non-allosteric to allosteric mechanism
 
 Converts a `Mechanism` to an `AllostericMechanism` variant set. The baseline
 variant uses the all-`:EqualAI` state (all groups have the same binding
@@ -121,26 +116,10 @@ group independent parameters. No-op on a non-allosteric input.
 - SS rate group: **+2** (each SS rate `kf` and `kr` splits into A/I pairs,
   adding two new independent constants).
 
-## Actual-count bucketing and `max_param_count`
-
-Exact fitted-parameter counts come from
-`length(fitted_params(compile_mechanism(m)))`, evaluated per child during
-fitting. The beam search buckets by this actual count, not by a structural
-estimate. A child whose actual count exceeds `max_param_count` is dropped
-before fitting — this caps search depth without bounding per-mechanism compile
-cost.
-
-## Loud failures and artifacts
+## Loud failures
 
 A mechanism that throws during compilation or fitting becomes a `FitFailure`
 carrying the exception text. Failures are never silently discarded: they appear
 in the CSV rows with `retcode` and `error` columns populated. If every
 mechanism in the base tier fails, the search re-raises the first exception —
 an unsupported optimizer kwarg or a memory overflow surfaces immediately.
-
-`save_dir` defaults to a dated results directory; the search writes:
-- `initial_mechanisms.csv` — all base-tier fits plus any failures.
-- `equation_search_iteration_N.csv` — one file per expansion iteration that
-  produced at least one row.
-- `progress.log` — one line per master-level stage, appended and
-  flushed after each write so cluster job logs stay current.
