@@ -1,4 +1,4 @@
-# Rate equations from textbooks
+# Derivation tutorial
 
 This tutorial shows how to define the reversible Michaelis–Menten mechanism
 and derive its rate equation as a `String`. After reading it, you will
@@ -109,3 +109,39 @@ parameters(m, Full)
 so there is no constraint section.
 See [Rapid equilibrium vs steady state](@ref) for the contrast between RE and
 SS parameters, and how adding SS steps changes this list.
+
+## Kinetic groups
+
+A mechanism usually has fewer parameters than steps, because steps that are
+chemically equivalent share one constant. The package calls such a set of steps
+a **kinetic group**: every step in the group is described by the same parameter.
+Binding steps that add the same metabolite to the enzyme in the same regime
+(rapid equilibrium or steady state) fall into one group and share a single
+dissociation constant, however many enzyme forms that metabolite can bind.
+
+A random-order mechanism makes this visible. Substrate `A` can bind before or
+after `B`, so the mechanism has two `A`-binding steps and two `B`-binding steps:
+
+```@example kingroups
+using EnzymeRates
+m = @enzyme_mechanism begin
+    substrates: A, B
+    products:   P
+    steps: begin
+        E + A ⇌ E(A)
+        E + B ⇌ E(B)
+        E(A) + B ⇌ E(A, B)
+        E(B) + A ⇌ E(A, B)
+        E(A, B) <--> E + P
+    end
+end
+parameters(m)
+```
+
+The four binding steps collapse to just `K_A_E` and `K_B_E` — one dissociation
+constant per metabolite, not per step — because the two ways of binding `A`
+share a kinetic group and the two ways of binding `B` share another. This
+collapsing is what keeps the parameter count at the lowest physically meaningful
+value: [The enumeration engine](@ref) starts there and uses moves such as
+"give one step its own kinetic group" to add parameters only as the data
+warrant.

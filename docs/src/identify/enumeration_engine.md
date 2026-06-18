@@ -115,11 +115,3 @@ group independent parameters. No-op on a non-allosteric input.
 - RE binding group: **+1** (one shared K splits into `K_A` and `K_I`).
 - SS rate group: **+2** (each SS rate `kf` and `kr` splits into A/I pairs,
   adding two new independent constants).
-
-## Loud failures
-
-A mechanism that throws during compilation or fitting becomes a `FitFailure`
-carrying the exception text. Failures are never silently discarded: they appear
-in the CSV rows with `retcode` and `error` columns populated. If every
-mechanism in the base tier fails, the search re-raises the first exception —
-an unsupported optimizer kwarg or a memory overflow surfaces immediately.

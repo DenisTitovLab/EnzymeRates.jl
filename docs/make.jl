@@ -19,7 +19,7 @@ makedocs(;
         "Home" => "index.md",
         "Getting Started" => "getting_started.md",
         "Deriving rate equations" => [
-            "Rate equations from textbooks" => "deriving/textbooks.md",
+            "Derivation tutorial" => "deriving/textbooks.md",
             "Rapid equilibrium vs steady state" => "deriving/re_vs_ss.md",
             "The Cha / King–Altman algorithm" => "deriving/cha_king_altman.md",
             "Thermodynamic constraints" => "deriving/thermodynamic_constraints.md",

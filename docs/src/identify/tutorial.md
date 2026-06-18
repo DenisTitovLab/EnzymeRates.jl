@@ -166,3 +166,12 @@ page:
 ```@example identify_fast
 first(results.cv_results, 5)
 ```
+
+## Loud failures
+
+A mechanism that throws during compilation or fitting becomes a `FitFailure`
+carrying the exception text. Failures are never silently discarded — they appear
+in `cv_results` (and the saved CSVs) with the `retcode` and `error` columns
+populated. If every mechanism in the base tier fails, the search re-raises the
+first exception, so an unsupported optimizer keyword or a memory overflow
+surfaces immediately rather than being swallowed.

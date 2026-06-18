@@ -44,7 +44,7 @@ mechanism structure is an unreadable string, so `isa` is the useful check.
 
 ## Derive the rate equation
 
-[Rate equations from textbooks](@ref) and the other deriving pages cover all
+[Derivation tutorial](@ref) and the other deriving pages cover all
 mechanism forms in depth.
 
 ```@example getting-started
