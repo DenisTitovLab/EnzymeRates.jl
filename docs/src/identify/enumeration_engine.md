@@ -1,14 +1,26 @@
 # The enumeration engine
 
-The mechanism search is built from three composable functions, not a
-monolithic pipeline. The caller owns the expansion loop and the beam; the
-enumeration functions produce the candidates.
+The enumeration engine is the core of EnzymeRates.jl: it defines the *universe*
+of enzyme mechanisms that [`identify_rate_equation`](@ref) can sample. The
+engine starts from the simplest mechanisms and applies a fixed set of moves that
+each turn one mechanism into a slightly more complex one, so the search visits
+candidates in order of increasing complexity. This reachability is decisive — a
+rate equation the engine cannot construct is never fit, and so can never be
+selected, however well it would describe the data. Knowing what the engine can
+and cannot build is knowing what the package can find.
 
-```
-init_mechanisms(rxn)           → Vector{Mechanism}
-expand_mechanisms(mechs, rxn)  → Vector{Union{Mechanism, AllostericMechanism}}
-unique!(children)              → same vector, structurally deduped
-```
+At a high level the engine has two halves. `EnzymeRates.init_mechanisms` builds
+the starting set: the minimum-parameter catalytic mechanisms for a reaction —
+each binding order, with optional dead-end substrate and product inhibition — at
+their lowest parameter count. `EnzymeRates.expand_mechanisms` then grows the set
+through a fixed set of single moves, each taking a mechanism and returning
+slightly more complex children: splitting a shared rate constant, flipping a
+rapid-equilibrium step to steady state, adding a regulator, making the enzyme
+allosteric, and so on. After every step the candidates are deduplicated, since
+different move sequences often reach the same mechanism. Both functions are
+internal — not exported, so you never call them directly
+([`identify_rate_equation`](@ref) drives the loop) — but understanding them
+explains exactly which equations the search can reach.
 
 Deduplication is `unique!` on the raw `Vector` — no separate canonicalization
 pass. The `Mechanism` and `AllostericMechanism` constructors canonicalize step
@@ -16,9 +28,9 @@ order, group order, and regulatory-site order at construction time, so two
 mechanistically identical structs built in any order compare equal and hash
 identically. Structural duplicates are removed by exact equality.
 
-## `init_mechanisms`
+## `EnzymeRates.init_mechanisms`
 
-`init_mechanisms(reaction)` returns a `Vector{Mechanism}` at minimum
+`EnzymeRates.init_mechanisms(reaction)` returns a `Vector{Mechanism}` at minimum
 parameter count. For each catalytic topology, it enumerates all
 substrate/product dead-end subsets, assigns one steady-state catalytic step,
 and collapses binding steps that share the same `(metabolite, RE/SS)` class
@@ -26,7 +38,7 @@ into a single kinetic group. The result is the lowest-parameter starting point
 for the beam search.
 
 When a reaction's atom inventory allows a covalent fragment to persist between
-half-reactions, `init_mechanisms` also builds ping-pong mechanisms. The modified
+half-reactions, `EnzymeRates.init_mechanisms` also builds ping-pong mechanisms. The modified
 enzyme stays on conformation `:E` carrying a residual rather than a separate
 conformation label, and a step that would return the enzyme to free `:E` with an
 empty residual mid-cycle is rejected — it would split the reaction into two
@@ -35,7 +47,7 @@ rate-equation form.
 
 ## The six expansion moves
 
-`expand_mechanisms(mechs, rxn)` applies all six moves to every input
+`EnzymeRates.expand_mechanisms(mechs, rxn)` applies all six moves to every input
 mechanism and returns the children as a flat `Vector{Union{Mechanism,
 AllostericMechanism}}`. Bucketing by parameter count is the caller's job.
 
@@ -126,39 +138,9 @@ in the CSV rows with `retcode` and `error` columns populated. If every
 mechanism in the base tier fails, the search re-raises the first exception —
 an unsupported optimizer kwarg or a memory overflow surfaces immediately.
 
-`save_dir` is mandatory. The search writes:
+`save_dir` defaults to a dated results directory; the search writes:
 - `initial_mechanisms.csv` — all base-tier fits plus any failures.
 - `equation_search_iteration_N.csv` — one file per expansion iteration that
   produced at least one row.
 - `progress.log` — one line per master-level stage, appended and
   flushed after each write so cluster job logs stay current.
-
-## Enumeration in practice
-
-`init_mechanisms` produces the minimum-parameter mechanisms for a reaction:
-
-```@example enum
-using EnzymeRates
-
-rxn = @enzyme_reaction begin
-    substrates: S[C]
-    products:   P[C]
-end
-
-mechs = EnzymeRates.init_mechanisms(rxn)
-(count = length(mechs), eltype = eltype(mechs), nonempty = !isempty(mechs))
-```
-
-Applying the expansion moves grows the candidate set; `expand_mechanisms`
-returns a flat vector of `Mechanism` / `AllostericMechanism`, which `unique!`
-collapses to the structurally distinct ones:
-
-```@example enum
-children = EnzymeRates.expand_mechanisms(mechs, rxn)
-unique!(children)
-(eltype = eltype(children), nonempty = !isempty(children))
-```
-
-The result is a non-empty `Union{Mechanism, AllostericMechanism}` vector. The
-exact counts vary with the enumeration rules; the invariants — non-empty,
-correct eltype, no structural duplicates — do not.
