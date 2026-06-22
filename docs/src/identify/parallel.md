@@ -4,9 +4,10 @@ A reaction as ordinary as two substrates and two products has more than 100,000
 biochemically valid rate equations: the order substrates bind and products
 leave, the rapid-equilibrium-versus-steady-state choice at each step, and the
 dead-end complexes that can form all combine into a vast space.
-[`identify_rate_equation`](@ref) makes this tractable two ways. A beam search
-keeps only the promising candidates at each parameter count instead of fitting
-the whole space, and the candidates it does fit run in parallel. This page
+[`identify_rate_equation`](@ref) makes this tractable two ways. The
+rate-equation search keeps only the promising candidates at each parameter count
+instead of fitting the whole space, and the candidates it does fit run in
+parallel. This page
 covers the parallelism.
 
 The search is embarrassingly parallel: every candidate equation is compiled and

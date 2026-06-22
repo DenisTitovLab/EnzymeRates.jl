@@ -1,9 +1,9 @@
 # Identify tutorial
 
 `identify_rate_equation` takes an `EnzymeReaction` and rate data, enumerates
-biochemically valid mechanisms, and fits a beam of the most promising
-candidates at each parameter count — fitting every mechanism is far too
-expensive — returning the simplest one that generalizes by leave-one-group-out
+biochemically valid mechanisms, and fits the most promising candidates at each
+parameter count — fitting every mechanism is far too expensive — returning the
+simplest one that generalizes by leave-one-group-out
 cross-validation.
 
 This page walks through a fully runnable example: an MWC allosteric enzyme,
@@ -128,13 +128,14 @@ results = identify_rate_equation(prob;
 nothing # hide
 ```
 
-The progress lines above trace the search. It walks parameter counts in
-ascending order: at each count it fits the candidates, keeps a beam of the
-most promising candidates (here `min_beam_width = 10`), and expands the
-survivors into the next count. `max_param_count = 5` stops at the generating mechanism's size to
-keep the example quick. [Model selection](@ref) details the beam cutoff and the
-cross-validation rule that picks the winner. The production search widens the
-beam to 50 and the cap to 20, and distributes the fits across workers (see
+The progress lines above trace the search, which is a *beam search*: it walks
+parameter counts in ascending order, and at each count it fits the candidates,
+keeps the most promising (the beam — here `min_beam_width = 10`), and expands
+the survivors into the next count. `max_param_count = 5` stops at the generating
+mechanism's size to keep the example quick. [Model selection](@ref) details the
+selection cutoff and the cross-validation rule that picks the winner. The
+production search widens the beam to 50 and the cap to 20, and distributes the
+fits across workers (see
 [Running in parallel](@ref)).
 
 ## Read the result

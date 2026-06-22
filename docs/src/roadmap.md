@@ -13,6 +13,18 @@ between two states in concert. A Koshland–Némethy–Filmer (sequential) model
 would allow subunits to change conformation individually, capturing a broader
 class of cooperative behavior.
 
+## V-type allosteric mechanisms
+
+The enumeration cannot currently reach a purely V-type allosteric mechanism —
+one where only the catalytic step differs between conformations, so the inactive
+state binds substrate but cannot turn it over. The move that makes a mechanism
+allosteric can set the catalytic step to `:OnlyA`, but without a regulator the
+conformational equilibrium `L` only rescales the rate and is non-identifiable,
+so the search prunes that intermediate before a regulator is added (see
+[The enumeration engine](@ref)). A planned `+2` move would add an `:OnlyA`
+catalytic step together with a regulator in one step, so the regulator makes `L`
+identifiable and the V-type mechanism becomes reachable.
+
 ## Parameter identifiability
 
 The search selects the best model from data but does not yet report which

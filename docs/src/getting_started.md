@@ -122,7 +122,7 @@ always user-supplied.
 
 ## Identify the enzyme mechanism from data
 
-[Identify tutorial](@ref) covers the full beam search, cross-validation, and
+[Identify tutorial](@ref) covers the full rate-equation search, cross-validation, and
 production settings.
 
 Build an `IdentifyRateEquationProblem` from the reaction and data, then run

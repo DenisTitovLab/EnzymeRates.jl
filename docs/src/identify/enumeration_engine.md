@@ -27,7 +27,7 @@ can reach.
 for a reaction. For each catalytic topology it enumerates all substrate/product
 dead-end subsets, assigns one steady-state catalytic step, and collapses binding
 steps that share the same `(metabolite, RE/SS)` class into a single kinetic
-group — the lowest-parameter starting point for the beam search. When a
+group — the lowest-parameter starting point for the rate-equation search. When a
 reaction's atom inventory allows a covalent fragment to persist between
 half-reactions, it also builds ping-pong mechanisms: the modified enzyme stays
 on conformation `:E` carrying a residual rather than a separate conformation
@@ -65,16 +65,28 @@ For each kinetic group with two or more steps, carves one step into a fresh
 singleton group. The split step then has an independent rate constant rather
 than sharing one with its former group members.
 
-**Parameter delta:** +1 — a single previously-shared constant becomes two
-independent ones.
+**Parameter delta:** +1 in the simplest case — the split-off constant becomes
+independent. As with the RE→SS move, a Haldane/Wegscheider constraint can make
+that constant dependent instead, giving a net **+0**; the search counts each
+mechanism's actual fitted parameters rather than assuming +1.
 
 ### 3. Add a competitive inhibitor binding site
 
 Adds binding steps for a `CompetitiveInhibitor` declared in the reaction, as a
 dead-end complex with the enzyme. The move enumerates the combinations of enzyme
-species the inhibitor can bind, emitting one child mechanism per combination.
-The new steps form one fresh kinetic group (one new dissociation constant
-`K_R`); mirror steps share their catalytic counterpart's kinetic group.
+species the inhibitor can bind, emitting one child mechanism per combination,
+subject to two rules:
+
+- **Binding capacity.** An enzyme form holds at most as many metabolites as the
+  larger of the substrate and product counts, `max(#substrates, #products)`, so
+  the inhibitor is not added to a form already at capacity.
+- **Mirror steps.** If the inhibitor binds two enzyme forms that a catalytic
+  step already connects, a mirror step is added between the two inhibitor-bound
+  forms, so the inhibitor-bound branch stays connected to the cycle. Each mirror
+  inherits its catalytic counterpart's kinetic group and adds no parameter.
+
+The inhibitor's own binding steps form one fresh kinetic group (one new
+dissociation constant `K_R`).
 
 **Parameter delta:** +1 per competitive-inhibitor group added.
 
@@ -94,6 +106,17 @@ package uses A/I throughout.
 **Parameter delta:** +1 — the conformational equilibrium constant `L` is the
 sole new parameter. `:OnlyA` variants zero out the I-state, not adding
 parameters.
+
+!!! note "Known gap: V-type allostery"
+    A purely V-type allosteric mechanism — only the catalytic step is `:OnlyA`,
+    so the inactive conformation still binds substrate but cannot turn it over —
+    is currently unreachable. This move can set the catalytic group to `:OnlyA`,
+    but with no regulator present the conformational equilibrium `L` only
+    rescales the rate and cannot be identified from data, so that intermediate
+    fits no better than the non-allosteric mechanism and the search discards it
+    before move 5 can add a regulator. Reaching a useful V-type mechanism needs a
+    single move that adds an `:OnlyA` catalytic step together with a regulator —
+    a planned **+2** move (see the [Roadmap](@ref)).
 
 ### 5. Add an allosteric ligand
 

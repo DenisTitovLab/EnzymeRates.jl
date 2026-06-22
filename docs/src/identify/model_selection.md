@@ -1,6 +1,6 @@
 # Model selection
 
-After beam search fits all candidate mechanisms, `identify_rate_equation`
+After the rate-equation search fits all candidate mechanisms, `identify_rate_equation`
 selects the simplest one that generalizes: the rate equation with the fewest
 parameters that best predicts kinetic data it was never fit on. This is the
 [bias–variance tradeoff](https://en.wikipedia.org/wiki/Bias%E2%80%93variance_tradeoff)
