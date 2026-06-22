@@ -2,11 +2,11 @@
 
 A **kinetic group** is a set of steps that share one kinetic parameter. The
 point is parsimony: when several steps are chemically the same — the same
-metabolite binding the enzyme, or the same chemical conversion happening in
-more than one place in the mechanism — there is no reason for each to carry its
-own constant. Putting them in one group makes the model say they behave
-identically, and the rate equation then carries a single parameter for the
-whole set instead of one per step.
+metabolite binding the enzyme, or the same chemical conversion happening in more
+than one place — there is no reason for each to carry its own constant. Putting
+them in one group makes the model say they behave identically, and the rate
+equation then carries a single parameter for the whole set instead of one per
+step.
 
 By default `@enzyme_mechanism` keeps each step in its own group. To declare that
 several steps share a parameter, wrap them in **parentheses** — a parenthesized
@@ -14,72 +14,87 @@ step-group binds the steps into one kinetic group:
 
 ```julia
 steps: begin
-    E + S ⇌ E(S)
-    (E + I ⇌ E(I), E(P) + I ⇌ E(P, I))   # these two share one constant
+    (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))   # both Q-binding steps share one constant
     ...
 end
 ```
 
-The thermodynamic reduction ([Thermodynamic constraints](@ref)) also removes
-parameters, but it does so only when a Haldane or Wegscheider relation *forces*
-two constants to be equal. Kinetic grouping is a separate, modeling choice: it
-ties steps together that the thermodynamics leaves independent.
+This is a modeling choice, distinct from the thermodynamic reduction
+([Thermodynamic constraints](@ref)). The reduction also removes parameters, but
+only when a Haldane or Wegscheider relation *forces* two constants to be equal.
+Kinetic grouping is a decision you make: it ties together steps the
+thermodynamics leaves independent.
 
-## An example: a dead-end inhibitor on two enzyme forms
+## An example: a two-substrate, two-product mechanism
 
-Take a reversible uni-uni mechanism with a dead-end inhibitor `I` that can bind
-both the free enzyme `E` and the `E(P)` complex. Each `I`-binding step is in its
-own group, so each gets its own dissociation constant:
+Consider a random-order reaction `A + B ⇌ P + Q` with two abortive (dead-end)
+complexes: `E(A, Q)`, where the enzyme binds substrate `A` together with the
+product `Q` of the other half-reaction, and `E(B, P)`, its mirror. Each
+metabolite binds the enzyme in several places — `A` binds free `E` and the
+`E(B)` complex; the product `Q` binds free `E`, the catalytic `E(P)` form, and
+abortively to `E(A)`.
+
+With every step in its own group, each of those bindings gets its own constant:
 
 ```@example kingroups
 using EnzymeRates
 ungrouped = @enzyme_mechanism begin
-    substrates: S
-    products:   P
-    regulators: I
+    substrates: A, B
+    products:   P, Q
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
+        E + A ⇌ E(A)
+        E + B ⇌ E(B)
+        E(A) + B ⇌ E(A, B)
+        E(B) + A ⇌ E(A, B)
+        E(A, B) <--> E(P, Q)
+        E(P, Q) ⇌ E(P) + Q
+        E(P, Q) ⇌ E(Q) + P
         E(P) ⇌ E + P
-        E + I ⇌ E(I)
-        E(P) + I ⇌ E(P, I)
+        E(Q) ⇌ E + Q
+        E(A) + Q ⇌ E(A, Q)
+        E(B) + P ⇌ E(B, P)
     end
 end
 print(rate_equation_string(ungrouped))
 ```
 
-The denominator carries two inhibitor constants: `K_Iinh_E` in the `I / K_Iinh_E`
-term (`I` on free `E`) and a distinct `K_Iinh_EP` in the
-`I * P / (K_Iinh_EP * K_P_E)` term (`I` on `E(P)`). Nothing forces these equal —
-the two are independent dead-end branches, and the thermodynamic reduction
-leaves both in the parameter list.
+There are nine independent constants, with form-specific names: `K_A_E` and
+`K_A_EB` for `A` on two forms, `K_P_E`, `K_P_EB`, and `K_P_EQ` for `P` on three.
+Two of the remaining bindings are fixed by Wegscheider relations rather than fit
+(`K_B_EA` and `K_Q_EP`), since they close thermodynamic loops.
 
-Now group the two `I`-binding steps by wrapping them in parentheses. This
-asserts that `I` binds `E` and `E(P)` with the *same* affinity:
+Now group every binding of a given metabolite together — all `A`-binding steps
+in one group, all `B`-binding in another, and likewise for `P` and `Q`. Each
+metabolite then has a single binding constant:
 
 ```@example kingroups
 grouped = @enzyme_mechanism begin
-    substrates: S
-    products:   P
-    regulators: I
+    substrates: A, B
+    products:   P, Q
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
-        E(P) ⇌ E + P
-        (E + I ⇌ E(I), E(P) + I ⇌ E(P, I))
+        (E + A ⇌ E(A),       E(B) + A ⇌ E(A, B))
+        (E + B ⇌ E(B),       E(A) + B ⇌ E(A, B))
+        E(A, B) <--> E(P, Q)
+        (E(P, Q) ⇌ E(Q) + P, E(P) ⇌ E + P, E(B) + P ⇌ E(B, P))
+        (E(P, Q) ⇌ E(P) + Q, E(Q) ⇌ E + Q, E(A) + Q ⇌ E(A, Q))
     end
 end
 print(rate_equation_string(grouped))
 ```
 
-`K_Iinh_EP` is gone. Both inhibitor terms now use the single shared constant
-`K_Iinh_E`, so the `E(P)` term reads `I * P / (K_Iinh_E * K_P_E)`. The grouped
-mechanism has one fewer parameter:
+The parameter list collapses from nine constants to five — one binding constant
+per metabolite (`K_A_E`, `K_B_E`, `K_P_E`, `K_Q_E`) plus the catalytic
+`k_EAB_to_EPQ`:
 
 ```@example kingroups
 (ungrouped = parameters(ungrouped), grouped = parameters(grouped))
 ```
 
-Grouping is how the mechanism enumeration keeps the parameter count at its
-lowest physically meaningful value and adds parameters only as the data warrant;
-see [The enumeration engine](@ref).
+The denominator becomes symmetric: the two abortive complexes read
+`A * Q / (K_A_E * K_Q_E)` and `B * P / (K_B_E * K_P_E)`, with no form-specific
+suffixes. The Wegscheider section is gone, too — once each metabolite has a
+single binding constant, the loop-closing relations become identities and drop
+out. Grouping did the collapsing the thermodynamics could not: it is what keeps
+the parameter count at the lowest physically meaningful value, and the mechanism
+enumeration starts there, splitting groups back apart only as the data warrant
+(see [The enumeration engine](@ref)).
