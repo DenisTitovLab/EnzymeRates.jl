@@ -4,10 +4,8 @@ The enumeration engine is the core of EnzymeRates.jl: it defines the *universe*
 of enzyme mechanisms that [`identify_rate_equation`](@ref) can sample. The
 engine starts from the simplest mechanisms and applies a fixed set of moves that
 each turn one mechanism into a slightly more complex one, so the search visits
-candidates in order of increasing complexity. This reachability is decisive — a
-rate equation the engine cannot construct is never fit, and so can never be
-selected, however well it would describe the data. Knowing what the engine can
-and cannot build is knowing what the package can find.
+candidates in order of increasing complexity. A rate equation the engine cannot
+construct is never fit, and so can never be selected.
 
 At a high level the engine has two halves. `EnzymeRates.init_mechanisms` builds
 the starting set: the minimum-parameter catalytic mechanisms for a reaction —
@@ -113,8 +111,8 @@ parameters.
     is currently unreachable. This move can set the catalytic group to `:OnlyA`,
     but with no regulator present the conformational equilibrium `L` only
     rescales the rate and cannot be identified from data, so that intermediate
-    fits no better than the non-allosteric mechanism and the search discards it
-    before move 5 can add a regulator. Reaching a useful V-type mechanism needs a
+    fits no better than the non-allosteric mechanism and the search may discard
+    it before move 5 can add a regulator. Reaching a useful V-type mechanism needs a
     single move that adds an `:OnlyA` catalytic step together with a regulator —
     a planned **+2** move (see the [Roadmap](@ref)).
 
