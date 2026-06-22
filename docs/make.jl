@@ -23,6 +23,7 @@ makedocs(;
             "Rapid equilibrium vs steady state" => "deriving/re_vs_ss.md",
             "The Cha / King–Altman algorithm" => "deriving/cha_king_altman.md",
             "Thermodynamic constraints" => "deriving/thermodynamic_constraints.md",
+            "Kinetic groups" => "deriving/kinetic_groups.md",
             "Ping-pong mechanisms" => "deriving/ping_pong.md",
             "Iso mechanisms" => "deriving/iso.md",
             "Mechanisms with regulators" => "deriving/regulators.md",
