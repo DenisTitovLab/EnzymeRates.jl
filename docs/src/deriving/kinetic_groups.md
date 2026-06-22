@@ -27,12 +27,13 @@ thermodynamics leaves independent.
 
 ## An example: a two-substrate, two-product mechanism
 
-Consider a random-order reaction `A + B ⇌ P + Q` with two abortive (dead-end)
-complexes: `E(A, Q)`, where the enzyme binds substrate `A` together with the
-product `Q` of the other half-reaction, and `E(B, P)`, its mirror. Each
-metabolite binds the enzyme in several places — `A` binds free `E` and the
-`E(B)` complex; the product `Q` binds free `E`, the catalytic `E(P)` form, and
-abortively to `E(A)`.
+Consider a random-order reaction `A + B ⇌ P + Q` with two abortive complexes:
+`E(A, Q)`, where the enzyme binds substrate `A` together with the product `Q` of
+the other half-reaction, and `E(B, P)`, its mirror. Like the catalytic
+complexes, each abortive complex forms either way — `E(A, Q)` by `Q` binding
+`E(A)` or `A` binding `E(Q)`. Every metabolite therefore binds the enzyme in
+several places: `A` binds free `E`, the `E(B)` complex, and `E(Q)`, and the same
+holds for `B`, `P`, and `Q`.
 
 With every step in its own group, each of those bindings gets its own constant:
 
@@ -52,16 +53,19 @@ ungrouped = @enzyme_mechanism begin
         E(P) ⇌ E + P
         E(Q) ⇌ E + Q
         E(A) + Q ⇌ E(A, Q)
+        E(Q) + A ⇌ E(A, Q)
         E(B) + P ⇌ E(B, P)
+        E(P) + B ⇌ E(B, P)
     end
 end
 print(rate_equation_string(ungrouped))
 ```
 
-There are nine independent constants, with form-specific names: `K_A_E` and
-`K_A_EB` for `A` on two forms, `K_P_E`, `K_P_EB`, and `K_P_EQ` for `P` on three.
-Two of the remaining bindings are fixed by Wegscheider relations rather than fit
-(`K_B_EA` and `K_Q_EP`), since they close thermodynamic loops.
+There are nine independent constants, with form-specific names: `K_A_E`,
+`K_A_EB`, and `K_A_EQ` for `A` on three different forms, and similar families for
+the others. Four more bindings are not fit at all but fixed by Wegscheider
+relations (`K_B_EA`, `K_P_EB`, `K_Q_EA`, `K_Q_EP`), since each catalytic and
+abortive loop closes a thermodynamic cycle.
 
 Now group every binding of a given metabolite together — all `A`-binding steps
 in one group, all `B`-binding in another, and likewise for `P` and `Q`. Each
@@ -72,8 +76,8 @@ grouped = @enzyme_mechanism begin
     substrates: A, B
     products:   P, Q
     steps: begin
-        (E + A ⇌ E(A),       E(B) + A ⇌ E(A, B))
-        (E + B ⇌ E(B),       E(A) + B ⇌ E(A, B))
+        (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(Q) + A ⇌ E(A, Q))
+        (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(P) + B ⇌ E(B, P))
         E(A, B) <--> E(P, Q)
         (E(P, Q) ⇌ E(Q) + P, E(P) ⇌ E + P, E(B) + P ⇌ E(B, P))
         (E(P, Q) ⇌ E(P) + Q, E(Q) ⇌ E + Q, E(A) + Q ⇌ E(A, Q))
