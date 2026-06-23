@@ -182,7 +182,7 @@ YOU MUST follow this debugging framework for ANY technical issue:
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Package architecture and how-it-works — the derivation, fitting, and identification pipelines, the enumeration engine, and maintainer internals (the `name(p, m)` parameter chokepoint, Canonical Step Form, the `EnzymeMechanism{Sig}` lift, source layout) — are documented at <https://DenisTitovLab.github.io/EnzymeRates.jl/>; the Developer page covers the internals.
+Package architecture and how-it-works — the derivation, fitting, and identification pipelines, the enumeration engine, and maintainer internals (Canonical Step Form, the `EnzymeMechanism{Sig}` lift, the derivation/enumeration/optimization architecture) — are documented at <https://DenisTitovLab.github.io/EnzymeRates.jl/>; the Developer page covers the internals.
 
 ## Package Goal
 
@@ -222,7 +222,7 @@ julia --project -e 'using Pkg; Pkg.test()'
 
 ### Parameter naming chokepoint (guard)
 
-All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker test at `test/test_types.jl:1577-1644` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer. See the Developer page in the docs for the full rationale.
+All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker test at `test/test_types.jl:1577-1644` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer.
 
 ### Canonical Step Form (load-bearing guard)
 Step direction, step order, and group order are canonicalized in the `Step` and `Mechanism`/`AllostericMechanism` constructors. This is **load-bearing, not cosmetic**: the Haldane/Wegscheider reduction picks dependent parameters by step order, so `fitted_params` and the reduced rate equation depend on it; structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical. Do not relax or reorder this without reading the Developer page in the docs.
