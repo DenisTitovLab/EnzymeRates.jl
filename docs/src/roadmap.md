@@ -6,40 +6,52 @@ identifying the best mechanism by cross-validation. The directions below are
 under consideration for future development. They are not commitments and carry
 no planned schedule.
 
-## KNF allostery model
+## Support more mechanisms
 
-The existing MWC (concerted, A/I) model treats all subunits as switching
-between two states in concert. A Koshland–Némethy–Filmer (sequential) model
-would allow subunits to change conformation individually, capturing a broader
-class of cooperative behavior.
+EnzymeRates derives and identifies a broad space of mechanisms, but several
+families are not yet covered.
 
-## V-type allosteric mechanisms
+### KNF (sequential) allostery
 
-The enumeration cannot currently reach a purely V-type allosteric mechanism —
-one where only the catalytic step differs between conformations, so the inactive
-state binds substrate but cannot turn it over. The move that makes a mechanism
-allosteric can set the catalytic step to `:OnlyA`, but without a regulator the
-conformational equilibrium `L` only rescales the rate and is non-identifiable,
-so the search prunes that intermediate before a regulator is added (see
-[The enumeration engine](@ref)). A planned `+2` move would add an `:OnlyA`
-catalytic step together with a regulator in one step, so the regulator makes `L`
-identifiable and the V-type mechanism becomes reachable.
+The current MWC model treats all subunits as switching conformation in concert.
+A Koshland–Némethy–Filmer (sequential) model would let subunits change
+conformation individually, capturing a broader class of cooperative behavior.
 
-## Parameter identifiability
+### V-type allosteric mechanisms
 
-The search selects the best model from data but does not yet report which
-parameters the data actually constrain. A planned identifiability analysis
-would flag individually unidentifiable parameters and combinations of parameters
-that the data cannot separate, giving practitioners a clearer picture of what
-the experiment resolves.
+A purely V-type allosteric mechanism — one where only the catalytic step differs
+between conformations, so the inactive state binds substrate but cannot turn it
+over — is not currently reachable by the search: the intermediate that
+introduces the conformational equilibrium `L` is non-identifiable without a
+regulator (see [The enumeration engine](@ref)). A planned `+2` move would add the
+`:OnlyA` catalytic step and a regulator together, so `L` becomes identifiable and
+the V-type mechanism becomes reachable.
 
-## Iso mechanisms
+### Iso mechanisms
 
-The enumeration engine generates catalytic topologies with isomerization steps,
-but certain iso mechanism families — in particular iso mechanisms with multiple
-independent isomerization sequences — are not yet fully enumerated. Broader
-support would extend the reach of `identify_rate_equation` to enzymes where
-isomerization is known to be rate-limiting.
+The engine generates catalytic topologies with isomerization steps, but certain
+iso families — in particular mechanisms with multiple independent isomerization
+sequences — are not yet fully enumerated. Broader support would extend the reach
+of `identify_rate_equation` to enzymes where isomerization is rate-limiting.
+
+## Support more measurement types
+
+Fitting and identification currently work from reaction-rate (turnover) data — in
+effect, the catalytic `Vmax` behavior of a mechanism. A planned extension would
+support binding and affinity observables as well: the fractional binding of one
+or more metabolites to the enzyme, an apparent `Km`, or a metabolite
+dissociation constant `Kd`. A mechanism could then be derived against and
+constrained by binding measurements, not rate alone, and report these quantities
+directly.
+
+## Parameter estimation and identifiability
+
+Beyond selecting the best mechanism, a planned analysis would characterize its
+parameters. Bootstrap resampling of the data would estimate a distribution — and
+hence a confidence interval — for each fitted parameter rather than a single
+point value. An accompanying identifiability analysis would flag parameters,
+individually or in combination, that the data cannot constrain, giving a clear
+picture of what the experiment actually resolves.
 
 ## Plotting
 
