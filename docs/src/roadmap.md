@@ -3,46 +3,42 @@
 The current scope of EnzymeRates.jl covers the three pillars described in
 [Getting Started](@ref): deriving rate equations, fitting them to data, and
 identifying the best mechanism by cross-validation. The directions below are
-under consideration for future development. They are not commitments and carry
-no planned schedule.
+under consideration for future development.
 
 ## Support more mechanisms
 
 EnzymeRates derives and identifies a broad space of mechanisms, but several
 families are not yet covered.
 
-### KNF (sequential) allostery
+**KNF (sequential) allostery.** The current MWC model treats all subunits as
+switching conformation in concert. A Koshland–Némethy–Filmer (sequential) model
+would let subunits change conformation individually, capturing a complementary
+class of cooperative behavior.
 
-The current MWC model treats all subunits as switching conformation in concert.
-A Koshland–Némethy–Filmer (sequential) model would let subunits change
-conformation individually, capturing a broader class of cooperative behavior.
+**V-type allosteric mechanisms.** A purely V-type allosteric mechanism — one
+where only the catalytic step differs between conformations, so the inactive
+state binds substrate but cannot turn it over — is not currently reachable by
+the search: the intermediate that introduces the conformational equilibrium `L`
+is non-identifiable without a regulator (see [The enumeration engine](@ref)). A
+planned `+2` move would add the `:OnlyA` catalytic step and a regulator together,
+so `L` becomes identifiable and the V-type mechanism becomes reachable.
 
-### V-type allosteric mechanisms
-
-A purely V-type allosteric mechanism — one where only the catalytic step differs
-between conformations, so the inactive state binds substrate but cannot turn it
-over — is not currently reachable by the search: the intermediate that
-introduces the conformational equilibrium `L` is non-identifiable without a
-regulator (see [The enumeration engine](@ref)). A planned `+2` move would add the
-`:OnlyA` catalytic step and a regulator together, so `L` becomes identifiable and
-the V-type mechanism becomes reachable.
-
-### Iso mechanisms
-
-The engine generates catalytic topologies with isomerization steps, but certain
-iso families — in particular mechanisms with multiple independent isomerization
-sequences — are not yet fully enumerated. Broader support would extend the reach
-of `identify_rate_equation` to enzymes where isomerization is rate-limiting.
+**Iso mechanisms.** In an iso mechanism the enzyme takes on a different
+conformation as it converts from the substrate-bound to the product-bound
+species, and that conformation relaxes back to the original only through a
+separate, slow steady-state isomerization step ([Iso mechanisms](@ref) works
+through an example). The derivation already handles these, but the enumeration
+does not yet generate every iso family, so `identify_rate_equation` cannot reach
+all of them.
 
 ## Support more measurement types
 
-Fitting and identification currently work from reaction-rate (turnover) data — in
-effect, the catalytic `Vmax` behavior of a mechanism. A planned extension would
-support binding and affinity observables as well: the fractional binding of one
-or more metabolites to the enzyme, an apparent `Km`, or a metabolite
-dissociation constant `Kd`. A mechanism could then be derived against and
-constrained by binding measurements, not rate alone, and report these quantities
-directly.
+Fitting and identification currently work from reaction-rate (turnover) data. A
+planned extension would support binding and affinity observables as well: the
+fractional binding of one or more metabolites to the enzyme, an apparent `Km`,
+or a metabolite dissociation constant `Kd`. A mechanism could then be derived
+against and constrained by binding measurements, not rate alone, and report
+these quantities directly.
 
 ## Parameter estimation and identifiability
 
