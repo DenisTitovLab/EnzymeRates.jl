@@ -552,10 +552,24 @@ end
 # ─── Mode-dispatched rate_equation ────────────────────────────
 
 """
-    rate_equation(m::EnzymeMechanism, concs, params, [mode])
+    rate_equation(m, concs, params, [mode])
 
-Compute the QSSA steady-state rate. The body is generated at compile time
-as a single arithmetic expression with no allocations, loops, or matrix ops.
+Return the net reaction rate of mechanism `m` at the metabolite concentrations
+`concs` and parameters `params` (both `NamedTuple`s). The rate equation itself
+is derived from the mechanism's elementary steps by the King–Altman/Cha method:
+rapid-equilibrium steps collapse to binding constants, steady-state steps are
+assembled into the King–Altman determinant, and the two combine into the
+quasi-steady-state flux through the whole mechanism — so one call returns the
+overall turnover, not the rate of a single step.
+
+`mode` selects how parameters enter the equation. The default [`Reduced`](@ref)
+applies the Haldane/Wegscheider reduction, deriving the dependent rate constants
+from `Keq` and the independent parameters; [`Full`](@ref) instead takes every
+rate constant as independent.
+
+The derivation runs once, at compile time: the body is generated as a single
+arithmetic expression with no allocations, loops, or matrix operations. Use
+[`rate_equation_string`](@ref) to inspect the derived equation symbolically.
 """
 function rate_equation end
 
