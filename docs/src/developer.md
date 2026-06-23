@@ -57,7 +57,7 @@ one inner vector per group holding the steps that share that group's parameters.
 order or direction in which steps are written does not change the resulting
 mechanism.
 
-These are ordinary value types, and that is the point. The enumeration builds,
+These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see
 [The enumeration engine](@ref)). If each candidate were a singleton parametric
 type, merely constructing it would trigger compiler specialization — the same
