@@ -45,6 +45,27 @@ rate_equation(m, (S=1e-4, P=1e-5),        # evaluate numerically
     (K_P_E=1e-5, K_S_E=1e-4, k_ES_to_EP=100.0, Keq=2.0, E_total=1.0))
 ```
 
+Or identify the best mechanism directly from measured rates. Provide a data
+file with a `group` column, a `Rate` column, and one column per metabolite:
+
+```julia
+using EnzymeRates, OptimizationCMAEvolutionStrategy, CSV
+
+table = CSV.File("rate_data.csv")          # ← provide your own data file
+data  = (group = table.group, Rate = table.Rate, S = table.S, P = table.P)
+
+rxn = @enzyme_reaction begin
+    substrates: S[C]
+    products:   P[C]
+end
+
+prob    = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
+
+results.best                               # the identified mechanism
+print(rate_equation_string(results.best))  # its rate equation
+```
+
 ## Documentation
 
 Full documentation — tutorials for deriving, fitting, and identifying rate
