@@ -28,8 +28,8 @@ conformation as it converts from the substrate-bound to the product-bound
 species, and that conformation relaxes back to the original only through a
 separate, slow steady-state isomerization step ([Iso mechanisms](@ref) works
 through an example). The derivation already handles these, but the enumeration
-does not yet generate every iso family, so `identify_rate_equation` cannot reach
-all of them.
+does not yet generate iso mechanisms, so `identify_rate_equation` cannot reach
+them.
 
 ## Support more measurement types
 
