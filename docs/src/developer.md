@@ -13,11 +13,13 @@ The two halves and the optimizer layer are described below.
 
 A mechanism's rate equation is derived once, at compile time, by the
 King–Altman/Cha method in `@generated` functions (`src/rate_eq_derivation.jl`).
-To make that possible, a mechanism is encoded as a **singleton type** —
-`EnzymeMechanism{Sig}` or `AllostericEnzymeMechanism{CatalyticMech, CatSites,
-RegSites}` (`src/types.jl`) — that carries all of the mechanism's structure as
-Julia type parameters. The compiler specializes the derivation per type, so the
-symbolic King–Altman work runs during precompilation rather than at every call.
+To make that possible, a mechanism is encoded as a **singleton type** — the
+exported `EnzymeMechanism{Sig}` or `AllostericEnzymeMechanism{CatalyticMech,
+CatSites, RegSites}` (`src/types.jl`) — that carries all of the mechanism's
+structure as Julia type parameters, canonicalized so that the order or direction
+in which the steps were written does not change the resulting type. The compiler
+specializes the derivation per type, so the symbolic King–Altman work runs
+during precompilation rather than at every call.
 
 This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
@@ -32,22 +34,9 @@ allocation or microsecond-scale overhead would make fitting — and therefore
 `identify_rate_equation`, which fits thousands of candidates — impractical.
 `loss!` is held to the same standard: `FittingProblem` pre-allocates its
 `log_ratios_buffer` once and `loss!` reuses it, so the inner optimization loop
-allocates nothing.
-
-The cost of compile-time derivation is the flip side of its benefit. Each
-unique singleton type triggers a full symbolic derivation, and a mechanism with
-many enzyme forms or steps can be slow to compile, exhaust memory, or
-`StackOverflow`. `identify_rate_equation` caps expansion via `max_param_count`,
-which bounds search depth but not per-mechanism compile cost, so one very large
-mechanism can be slow even at a low cap.
-
-`Sig` is purely structural: two mechanisms that differ only in the order their
-steps were written collapse to the same `EnzymeMechanism` type, because the
-`Mechanism` constructor canonicalizes step and group order before `_sig_of`
-runs (see *Enumeration engine architecture* below). `AllostericEnzymeMechanism`
-uses three separate type parameters rather than one value-tuple `Sig` because
-its first slot is a `DataType` (a concrete `EnzymeMechanism` subtype), and Julia
-rejects a `DataType` in the value-tuple position of a type parameter.
+allocates nothing. The cost is the flip side of the benefit: each unique
+singleton type triggers a full symbolic derivation, and a mechanism with many
+enzyme forms or steps can be slow to compile, exhaust memory, or `StackOverflow`.
 
 `compile_mechanism` (internal) is the boundary between the two representations:
 `compile_mechanism(m::Mechanism) = EnzymeMechanism(m)` and
@@ -59,11 +48,14 @@ parameter; `Mechanism(em)` lifts back.
 ## Enumeration engine architecture
 
 Mechanism enumeration uses the **concrete types** `Mechanism` and
-`AllostericMechanism` (`src/types.jl`), built directly from `Step` and `Species`
-values. `Mechanism` has two fields: `reaction::EnzymeReaction` and
-`steps::Vector{Vector{Step}}` — kinetic groups, one inner vector per group
-holding the steps that share that group's parameters. `Step` has
-`from_species`, `to_species`, `bound_metabolite`, and `is_equilibrium`.
+`AllostericMechanism` (`src/types.jl`) — internal, not exported — built directly
+from `Step` and `Species` values. `Mechanism` has two fields:
+`reaction::EnzymeReaction` and `steps::Vector{Vector{Step}}` — kinetic groups,
+one inner vector per group holding the steps that share that group's parameters.
+`Step` has `from_species`, `to_species`, `bound_metabolite`, and
+`is_equilibrium`. Like the singleton types, these are canonicalized so that the
+order or direction in which steps are written does not change the resulting
+mechanism.
 
 These are ordinary value types, and that is the point. The enumeration builds,
 expands, and deduplicates many thousands of candidate mechanisms (see
@@ -74,24 +66,6 @@ mechanisms, which would be prohibitive. Carrying mechanism structure as runtime
 values instead means enumeration and deduplication cost no compilation at all.
 Only the candidates the search actually fits are lifted to singleton types, one
 at a time, through `compile_mechanism`.
-
-Canonicalization makes the concrete representation well-behaved, and it is
-load-bearing rather than cosmetic. The `Step` and `Mechanism` /
-`AllostericMechanism` constructors put every mechanism into a canonical form:
-binding steps store the bound metabolite on `to_species` (so a product-release
-step and a product-binding step share one representation); iso steps are
-oriented to the physical-forward direction by `_canonical_iso_direction`
-(atom balance first, then binding-graph context, then a lexical fallback); and
-steps and groups are sorted by a canonical key. Two consequences follow. First,
-deduplication is a pure `==` / `hash` comparison with no mutation, because
-construction has already normalized order. Second, the Haldane/Wegscheider
-reduction picks dependent parameters by step order, so without canonical order
-the reduced rate equation and `fitted_params` would differ between two
-mechanically identical mechanisms written in different orders.
-
-The pipeline — `init_mechanisms`, `expand_mechanisms`, and the `unique!`-based
-deduplication — runs end to end on these concrete structs; there is no separate
-intermediate representation.
 
 ## Optimization algorithm architecture
 
@@ -106,10 +80,3 @@ taking on a solver dependency or locking users into one algorithm. Optimization.
 common options (`maxtime`, `maxiters`, …) are named keyword arguments, and
 solver-specific options pass through a `solver_kwargs` named tuple; see
 [Loss & optimizers](@ref) for the user-facing view.
-
-`FittingProblem` carries `scale_k_to_kcat::Union{Real,Nothing}`: a `Real`
-selects relative data (per-group-centered loss plus rescaling of the SS rate
-constants to that kcat), and `nothing` selects absolute per-enzyme turnover
-(uncentered loss, no rescale). `fit_rate_equation` returns
-`(params, loss, retcode)`, where `retcode` is the best restart's
-`Symbol(sol.retcode)`.
