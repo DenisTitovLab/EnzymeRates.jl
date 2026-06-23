@@ -135,6 +135,16 @@ Base.hash(s::RegulatorySite, h::UInt) =
 # steps (RE and SS) canonicalize in the Mechanism constructor via
 # `_canonical_iso_direction`. After Mechanism construction, every Step is
 # canonicalized.
+"""
+    Step
+
+One elementary transition between two enzyme `Species`. A binding step carries
+the bound `Metabolite` in `bound_metabolite` (iso steps store `nothing`).
+`is_equilibrium` flags a rapid-equilibrium step (`true`) versus a steady-state
+step (`false`). Every `Step` is stored in canonical form: binding steps place
+the bound metabolite on `to_species`, and iso-step direction is fixed by the
+`Mechanism`/`AllostericMechanism` constructor.
+"""
 struct Step
     from_species::Species
     to_species::Species
@@ -269,11 +279,45 @@ Base.hash(r::RegulatorMults, h::UInt) =
     hash(r.allowed_multiplicities,
          hash(r.regulator, hash(:RegulatorMults, h)))
 
-# EnzymeReaction: the public concrete reaction descriptor. Holds
-# reactants (substrate + product atom payload), regulators (with allowed
-# multiplicity sets), and the catalytic multiplicities the enumerator is
-# allowed to consider. Canonical ordering is enforced so two equivalent
-# constructions compare equal under `==` / `hash`.
+"""
+    EnzymeReaction
+
+The public concrete reaction descriptor: substrates, products, optional
+regulators, and the set of catalytic multiplicities the mechanism
+enumerator is allowed to consider. It is the entry point to the package —
+pair it with rate data in an [`IdentifyRateEquationProblem`](@ref), or pass
+it to `EnzymeRates.init_mechanisms` to enumerate candidate mechanisms.
+
+# Fields
+- `reactants::Vector{ReactantAtoms}` — substrates and products, each
+  carrying its per-atom inventory (used for ping-pong residual bookkeeping
+  and atom conservation across steps).
+- `regulators::Vector{RegulatorMults}` — competitive inhibitors and
+  allosteric regulators, each with its allowed oligomeric multiplicities.
+- `allowed_catalytic_multiplicities::Vector{Int}` — the oligomeric states
+  the allosteric enumerator may assign to the catalytic core.
+
+Construct one with the [`@enzyme_reaction`](@ref) DSL. Each reactant takes
+an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
+ping-pong and multi-substrate reactions. Reactants and regulators are sorted
+by name in the constructor, so two equivalent declarations compare equal
+under `==`/`hash`.
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> rxn = @enzyme_reaction begin
+           substrates: S[C]
+           products:   P[C]
+       end;
+
+julia> rxn isa EnzymeReaction
+true
+
+julia> rxn
+EnzymeReaction: S ⇌ P
+```
+"""
 struct EnzymeReaction
     reactants::Vector{ReactantAtoms}
     regulators::Vector{RegulatorMults}
@@ -495,6 +539,17 @@ end
 # constructor canonicalizes iso-step direction and stores the steps;
 # parameter naming and step ordering derive purely from structure and
 # flat iteration order.
+"""
+    Mechanism
+
+A non-allosteric enzyme mechanism: a `reaction::EnzymeReaction` plus
+`steps::Vector{Vector{Step}}`, where the outer vector is kinetic groups and
+each inner vector holds the steps that share that group's kinetic parameters.
+The constructor canonicalizes iso-step direction and sorts steps and groups,
+so two mechanisms that differ only in how their steps were written collapse to
+the same struct. Lift to the singleton derivation type with
+`EnzymeRates.compile_mechanism(m)` or `EnzymeMechanism(m)`.
+"""
 struct Mechanism
     reaction::EnzymeReaction
     steps::Vector{Vector{Step}}
@@ -1195,13 +1250,31 @@ end
     metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}
 
 Return distinct metabolite names (substrates ∪ products ∪ regulators) as a tuple
-of `Symbol`s in declaration order, deduplicated.
+of `Symbol`s in declaration order, deduplicated. The fitter uses this as the
+key set for the per-datapoint concentration `NamedTuple` passed to
+[`rate_equation`](@ref).
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           steps: begin
+               E + S <--> E(S)
+               E(S) <--> E + P
+           end
+       end;
+
+julia> metabolites(m)
+(:S, :P)
+```
 """
-# Kept `@generated` (unlike the other demoted accessors): `loss!` uses
-# `metabolites(m)` as a compile-time-constant tuple to build the
-# per-datapoint `NamedTuple{MetNames}` concs on the fitting hot path. A
-# runtime body would make that NamedTuple type-unstable and allocate.
 @generated function metabolites(::EnzymeMechanism{Sig}) where {Sig}
+    # Kept `@generated` (unlike the other demoted accessors): `loss!` uses
+    # `metabolites(m)` as a compile-time-constant tuple to build the
+    # per-datapoint `NamedTuple{MetNames}` concs on the fitting hot path. A
+    # runtime body would make that NamedTuple type-unstable and allocate.
     m = Mechanism(EnzymeMechanism{Sig}())
     rxn = reaction(m)
     names = Symbol[]

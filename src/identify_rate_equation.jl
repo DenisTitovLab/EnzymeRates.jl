@@ -98,7 +98,7 @@ end
         max_param_count=20, n_restarts=20, maxtime=60.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing, solver_kwargs=(;),
         n_cv_candidates=5, se_threshold=1.0, perm_p_threshold=0.16,
-        save_dir=_default_save_dir(), show_progress=true, pmap_function=pmap)
+        save_dir=_default_save_dir(), show_progress=true)
 
 Find the best rate equation for the given reaction
 and data using beam search.
@@ -136,8 +136,6 @@ and data using beam search.
   sign-flip null. Default 0.16 matches paired 1-SE empirically.
 - `save_dir::String = _default_save_dir()`: output directory for the
   search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`)
-- `pmap_function::Function = pmap`: parallelism
-  function (Distributed.pmap by default)
 
 # Beam selection
 
@@ -194,7 +192,6 @@ function identify_rate_equation(
     # Output & parallelism
     save_dir::String = _default_save_dir(),
     show_progress::Bool = true,
-    pmap_function::Function = pmap,
 )
     fitting_kwargs = (;
         n_restarts, maxtime, maxiters,
@@ -214,13 +211,13 @@ function identify_rate_equation(
         min_beam_width, loss_rel_threshold,
         loss_abs_threshold,
         max_param_count, save_dir, show_progress,
-        pmap_function, optimizer, n_cv_candidates,
+        optimizer, n_cv_candidates,
         fitting_kwargs...)
 
     result = _cv_model_selection(
         mechanisms, df, prob;
         n_cv_candidates, se_threshold, perm_p_threshold,
-        pmap_function, optimizer, save_dir, show_progress,
+        optimizer, save_dir, show_progress,
         fitting_kwargs...)
     _progress(save_dir, show_progress, "Done. Results saved to $save_dir")
     return result
@@ -417,9 +414,9 @@ structurally deduped by the caller (`unique!`).
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
-    pmap_function, optimizer, max_param_count, kwargs...
+    optimizer, max_param_count, kwargs...
 )
-    results = pmap_function(mechs) do m
+    results = pmap(mechs) do m
         try
             em = compile_mechanism(m)
             fkeys = fitted_params(em)
@@ -497,7 +494,7 @@ end
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,
-    max_param_count, save_dir, show_progress, pmap_function,
+    max_param_count, save_dir, show_progress,
     optimizer, n_cv_candidates, kwargs...
 )
     frontier = Dict{Int, Vector{BatchEntry}}()
@@ -510,7 +507,7 @@ function _beam_search(
     _progress(save_dir, show_progress,
         "Fitting $(length(base)) initial mechanisms…")
     base_entries, base_failures = _process_batch(base, prob;
-        pmap_function, optimizer, max_param_count, kwargs...)
+        optimizer, max_param_count, kwargs...)
     if isempty(base_entries)
         isempty(base_failures) && return (
             Union{Mechanism, AllostericMechanism}[],
@@ -557,7 +554,7 @@ function _beam_search(
             children = unique!(
                 expand_mechanisms(parents, prob.reaction))
             child_entries, child_failures = _process_batch(children, prob;
-                pmap_function, optimizer, max_param_count, kwargs...)
+                optimizer, max_param_count, kwargs...)
             if !isempty(child_entries) || !isempty(child_failures)
                 # Count only iterations that produced rows, so the
                 # equation_search_iteration_N CSVs are gap-free.
@@ -825,7 +822,7 @@ end
 function _cv_model_selection(
     mechs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
-    n_cv_candidates, pmap_function, optimizer,
+    n_cv_candidates, optimizer,
     se_threshold::Float64,
     perm_p_threshold::Float64,
     save_dir, show_progress,
@@ -859,7 +856,7 @@ function _cv_model_selection(
 
     _progress(save_dir, show_progress,
         "Cross-validating $(length(candidate_mechs)) candidate equations (LOOCV)…")
-    fold_scores_per_candidate = pmap_function(
+    fold_scores_per_candidate = pmap(
         candidate_mechs
     ) do mech
         m = compile_mechanism(mech)

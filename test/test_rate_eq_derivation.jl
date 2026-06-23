@@ -1080,14 +1080,15 @@ end
     @test bm !== nothing && EnzymeRates.name(bm) === :ATP
 end
 
-# `parameters(m, Full)` is not injective for Case-B allosteric shapes: an
-# `:EqualAI` group whose reverse rate is Haldane-dependent can emit a base
-# I-state name and a synth-dep name that coincide. Keep this visible until
-# direction-symmetry constraint resolution and NonequalAI rank validation
-# make the duplicate impossible.
-@testset "parameters(Full) Case-B duplicate (deferred)" begin
+# `parameters(m, Full)` is injective. For Case-B allosteric shapes an
+# `:EqualAI` group whose Haldane-dependent reverse rate references a
+# `:NonequalAI` symbol emits the same I-state name from two paths — the base
+# I-state mirror and the synthesized dep — so `parameters(Full)` takes their
+# union rather than listing the name twice (PK is the only such mechanism in
+# the fixtures).
+@testset "parameters(Full) injective for Case-B allosteric shapes" begin
     pk = only(s for s in MECHANISM_TEST_SPECS if s.name == "PK")
-    @test_broken allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
+    @test allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
 end
 
 # ── Standalone kcat tests ──────────────────────────────────────────────────────
@@ -1687,7 +1688,7 @@ end
     expected = raw"""(; K_A_P_E, K_A_S_E, k_A_ES_to_EP, K_I_P_E, K_I_S_E, k_I_ES_to_EP, K_A_Rreg, K_I_Rreg, L, Keq, E_total) = params
 (; S, P, R) = concs
 # Haldane constraints:
-k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
+k_A_EP_to_ES = (1 / Keq) * K_A_P_E * (1 / K_A_S_E) * k_A_ES_to_EP
 k_I_EP_to_ES = (1 / Keq) * K_I_P_E * (1 / K_I_S_E) * k_I_ES_to_EP
 v = E_total * (2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + R / K_A_Rreg) ^ 2 + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + R / K_I_Rreg) ^ 2)) / ((1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + R / K_A_Rreg) ^ 2 + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + R / K_I_Rreg) ^ 2)"""
     @test actual == expected

@@ -25,8 +25,8 @@ Return the parameter names required for the given mode as a tuple of Symbols.
   symbols the user supplies to evaluate the Haldane-reduced rate
   equation. Returned for both `EnzymeMechanism` and
   `AllostericEnzymeMechanism`.
-- `Full`: all raw rate-constant symbols + E_total. For
-  `EnzymeMechanism` this is "all 2N k's + E_total." For
+- `Full`: all raw rate-constant symbols + `E_total`. For
+  `EnzymeMechanism` this is "all 2N k's + `E_total`." For
   `AllostericEnzymeMechanism` it composes the catalytic raw A-state
   symbols + every I-state mirror (catalytic + regulatory + synthesized
   dep) + reg-site A-state K's (skipping `:OnlyI` ligands) + `:L` +
@@ -72,6 +72,10 @@ end
     # tuple.
     synth_names = _synthesized_dep_i_names(typeof(catalytic_mechanism(aem)),
                                             am)
+    # A Case-B synth-dep name can coincide with a base I-state mirror already
+    # in `names` (an `:EqualAI` group whose Haldane-dependent reverse rate
+    # references a `:NonequalAI` symbol). Keep the union, not a duplicate.
+    filter!(n -> !(n in names), synth_names)
     if !isempty(synth_names)
         insert_pos = findfirst(p -> p isa Union{Kreg, Lallo}, params)
         idx = insert_pos === nothing ? length(names) + 1 : insert_pos
@@ -548,10 +552,24 @@ end
 # ─── Mode-dispatched rate_equation ────────────────────────────
 
 """
-    rate_equation(m::EnzymeMechanism, concs, params, [mode])
+    rate_equation(m, concs, params, [mode])
 
-Compute the QSSA steady-state rate. The body is generated at compile time
-as a single arithmetic expression with no allocations, loops, or matrix ops.
+Return the net reaction rate of mechanism `m` at the metabolite concentrations
+`concs` and parameters `params` (both `NamedTuple`s). The rate equation itself
+is derived from the mechanism's elementary steps by the King–Altman/Cha method:
+rapid-equilibrium steps collapse to binding constants, steady-state steps are
+assembled into the King–Altman determinant, and the two combine into the
+quasi-steady-state flux through the whole mechanism — so one call returns the
+overall turnover, not the rate of a single step.
+
+`mode` selects how parameters enter the equation. The default [`Reduced`](@ref)
+applies the Haldane/Wegscheider reduction, deriving the dependent rate constants
+from `Keq` and the independent parameters; [`Full`](@ref) instead takes every
+rate constant as independent.
+
+The derivation runs once, at compile time: the body is generated as a single
+arithmetic expression with no allocations, loops, or matrix operations. Use
+[`rate_equation_string`](@ref) to inspect the derived equation symbolically.
 """
 function rate_equation end
 
@@ -581,9 +599,47 @@ end
 # ─── String Representation ────────────────────────────────────
 
 """
-    rate_equation_string(m, [mode])
+    rate_equation_string(m, [mode]) -> String
 
-Return a string representation of the rate equation.
+Return the symbolic rate equation for mechanism `m` as a multi-line
+`String` (it returns the text — it does not print). `mode` is `Reduced`
+(default) or `Full`; pass a concrete `Mechanism` / `AllostericMechanism`
+or its compiled [`EnzymeMechanism`](@ref) singleton.
+
+The string is a runnable transcript of how [`rate_equation`](@ref)
+evaluates: a `(; …) = params` destructure line, a `(; …) = concs`
+destructure line, then the `v = E_total * (num) / (den)` line. In
+`Reduced` mode, dependent rate constants are listed first under
+`# Wegscheider constraints:` and `# Haldane constraints:` headers — the
+thermodynamic identities that eliminate parameters — and only the
+independent set appears in the `params` destructure. In `Full` mode every
+rate constant is independent, so there is no constraint section. `Full`
+mode is defined for `EnzymeMechanism` only; an `AllostericEnzymeMechanism`
+supports `Reduced` mode only.
+
+Use `print` on the result to see the multi-line layout without escaped
+newlines.
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           steps: begin
+               E + S ⇌ E(S)
+               E(S) <--> E(P)
+               E(P) ⇌ E + P
+           end
+       end;
+
+julia> print(rate_equation_string(m))
+(; K_P_E, K_S_E, k_ES_to_EP, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
+v = E_total * (k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E) / (1 + P / K_P_E + S / K_S_E)
+```
 """
 function rate_equation_string end
 
@@ -1678,14 +1734,19 @@ function rate_equation_string(
 
     # Active-state Wegscheider/Haldane: single-symbol entries get the
     # substituted-into-v annotation; multi-symbol RHSes get runtime
-    # assignment in `_build_rate_body` (no annotation).
+    # assignment in `_build_rate_body` (no annotation). The kernel emits
+    # `:None`-state names; rename them to the `:A`-state names the rate
+    # body uses so each constraint line matches the symbols it defines.
+    rename_A = _A_rename_parameters(AllostericMechanism(m))
     dep_A_raw, _ = _dependent_param_exprs_kernel(CMT, Dict{Symbol, Symbol}())
     keq_set = Set([:Keq])
     weg_lines, hal_lines = String[], String[]
     for (sym, expr) in sort(collect(dep_A_raw); by=p -> string(p[1]))
-        is_haldane = _expr_references_any(expr, keq_set)
-        suffix = expr isa Symbol ? ANNOTATION_SUBSTITUTED : ""
-        line = "$sym = $(string(expr))$suffix"
+        sym_A = get(rename_A, sym, sym)
+        expr_A = substitute_params_expr(expr, rename_A)
+        is_haldane = _expr_references_any(expr_A, keq_set)
+        suffix = expr_A isa Symbol ? ANNOTATION_SUBSTITUTED : ""
+        line = "$sym_A = $(string(expr_A))$suffix"
         push!(is_haldane ? hal_lines : weg_lines, line)
     end
 
