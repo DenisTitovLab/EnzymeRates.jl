@@ -296,8 +296,16 @@ end
 """
 Return indices into `losses` for mechanisms that qualify for the
 beam at this level. A mechanism qualifies if either:
-  • its loss ≤ loss_rel_threshold * best_loss + loss_abs_threshold,
+  • its loss ≤ cutoff, where
+    cutoff = min(loss_rel_threshold * best_loss + loss_abs_threshold,
+                 parsimony_cutoff) and the parsimony term is dropped
+    when `parsimony_cutoff === nothing`,
   • OR its rank (1-indexed by ascending loss) ≤ min_beam_width.
+
+`parsimony_cutoff` (the loss-parsimony threshold times the best loss
+at one fewer parameter) only tightens the loss cutoff. `min_beam_width`
+stays a hard floor: the top `min_beam_width` always qualify, even when
+the loss cutoff admits fewer.
 
 Mechanisms with non-finite losses (`Inf`, `NaN`) are excluded
 unconditionally — they represent failed or non-converging fits
@@ -309,6 +317,7 @@ function _select_beam(
     loss_abs_threshold::Float64,
     min_beam_width::Int,
     best_override::Union{Nothing,Float64}=nothing,
+    parsimony_cutoff::Union{Nothing,Float64}=nothing,
 )
     finite_idx = [i for i in eachindex(losses) if isfinite(losses[i])]
     isempty(finite_idx) && return Int[]
@@ -316,6 +325,7 @@ function _select_beam(
     perm = sort(finite_idx; by=i -> losses[i])
     best = best_override === nothing ? losses[perm[1]] : best_override
     cutoff = loss_rel_threshold * best + loss_abs_threshold
+    parsimony_cutoff !== nothing && (cutoff = min(cutoff, parsimony_cutoff))
     selected = Int[]
     for (rank, idx) in enumerate(perm)
         if losses[idx] <= cutoff || rank <= min_beam_width

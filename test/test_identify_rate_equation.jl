@@ -898,6 +898,37 @@ end
         min_beam_width=2, best_override=0.0) == [1, 2]
 end
 
+@testset "_select_beam parsimony_cutoff" begin
+    # Floor guarantee: a parsimony_cutoff below every loss admits nothing via
+    # the loss filter, yet min_beam_width still keeps the top-k by loss.
+    losses = [1.0, 1.5, 2.5, 5.0, 10.0]
+    @test EnzymeRates._select_beam(losses;
+        loss_rel_threshold=2.0, loss_abs_threshold=0.0,
+        min_beam_width=2, parsimony_cutoff=0.5) == [1, 2]
+
+    # Tightening: a parsimony_cutoff stricter than the rel/abs cutoff drops the
+    # mechanisms between the two cutoffs (min_beam_width=1 so the floor
+    # re-admits only the single best). Without it, rel=10 would admit all four.
+    losses = [1.0, 1.5, 2.5, 5.0]
+    @test EnzymeRates._select_beam(losses;
+        loss_rel_threshold=10.0, loss_abs_threshold=0.0,
+        min_beam_width=1, parsimony_cutoff=2.0) == [1, 2]
+
+    # No-op: parsimony_cutoff=nothing reproduces the parsimony-free selection.
+    kw = (loss_rel_threshold=2.0, loss_abs_threshold=0.0, min_beam_width=1)
+    @test EnzymeRates._select_beam(losses; kw..., parsimony_cutoff=nothing) ==
+          EnzymeRates._select_beam(losses; kw...)
+
+    # Interaction: min() picks the smaller cutoff. With best_override=2.0 the
+    # rel cutoff is 2.4 (admits 1,2); a tighter parsimony_cutoff=1.0 overrides
+    # it down to just the single best.
+    losses = [1.0, 1.5, 3.0]
+    ov = (loss_rel_threshold=1.2, loss_abs_threshold=0.0,
+          min_beam_width=1, best_override=2.0)
+    @test EnzymeRates._select_beam(losses; ov...) == [1, 2]
+    @test EnzymeRates._select_beam(losses; ov..., parsimony_cutoff=1.0) == [1]
+end
+
 @testset "_progress" begin
     mktempdir() do tmp
         # show_progress=true: writes to progress.log AND to stdout.
