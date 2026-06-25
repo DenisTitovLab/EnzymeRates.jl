@@ -374,13 +374,18 @@ _exc_string(e) = first(sprint(showerror, e), 200)
 
 # CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row,
 # with `missing` wherever the value is unavailable (compile/fit never produced it).
-# `mechanism_type` is the uncompiled concrete type (`Mechanism`/`AllostericMechanism`),
-# since compilation — which yields the singleton type recorded for fitted rows — may
-# itself have been the step that failed.
+# `mechanism_type` is the round-trippable parametric `EnzymeMechanism{Sig}` string when
+# the mechanism compiles; falls back to the bare concrete type name
+# (`"EnzymeRates.Mechanism"` / `"EnzymeRates.AllostericMechanism"`) when compilation
+# itself fails, so the row still identifies the mechanism family.
 function _failure_row(f::FitFailure)
     (n_params = missing,
      loss = missing,
-     mechanism_type = string(typeof(f.mech)),
+     mechanism_type = try
+         string(typeof(compile_mechanism(f.mech)))
+     catch
+         string(typeof(f.mech))
+     end,
      rate_equation = missing,
      retcode = missing,
      error = f.error,

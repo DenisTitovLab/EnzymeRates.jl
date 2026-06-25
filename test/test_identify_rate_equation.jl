@@ -191,6 +191,22 @@ using OptimizationCMAEvolutionStrategy
         @test ismissing(df.a[2])            # failure row contributes no param value
     end
 
+    @testset "failure row preserves round-trippable mechanism" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+        end
+        m = first(EnzymeRates.init_mechanisms(rxn))
+        f = EnzymeRates.FitFailure(m, "boom")
+        row = EnzymeRates._failure_row(f)
+        # Round-trippable parametric Sig, not the bare concrete type name.
+        @test row.mechanism_type == string(typeof(EnzymeRates.compile_mechanism(m)))
+        @test row.mechanism_type != "EnzymeRates.Mechanism"
+        T = Core.eval(EnzymeRates, Meta.parse(row.mechanism_type))
+        @test EnzymeRates.Mechanism(T()) == m
+        @test row.error == "boom"
+    end
+
     @testset "_rate_eq_dedup_key" begin
         base = "(; K_a, k_b) = params\n(; A) = concs\n" *
                "# Haldane constraints:\nk_r = (1/Keq)*K_a\nv = k_b*A/K_a"
