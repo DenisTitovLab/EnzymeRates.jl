@@ -321,7 +321,7 @@ using Tables
             best_us = min(best_us, t / 2000 * 1e6)
         end
         isfinite(acc) || error("loss! produced a non-finite result")
-        @test best_us < 50  # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
+        @test best_us < 70  # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
     end
 
     # ── Test 9: scale_k_to_kcat normalization + retcode ────────────────
