@@ -940,6 +940,9 @@ at products = 0, E_total = 1. Equals the numerical grid-peak forward rate.
                                 push!(sat_terms_A, :(inv($K_A_sym)))
                             end
                             if tag !== :OnlyA
+                                # `:EqualAI` ligands share the A-state symbol; the
+                                # body emits an `:EqualAI` ligand's I-state slot
+                                # via the A-state name (no `_T` rename).
                                 K_I_state = tag === :EqualAI ? :A : :I
                                 K_I_sym = name(Kreg(site, lig, K_I_state), am)
                                 push!(sat_terms_I, :(inv($K_I_sym)))
