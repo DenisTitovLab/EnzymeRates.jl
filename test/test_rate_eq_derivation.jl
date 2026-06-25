@@ -1963,3 +1963,61 @@ end
     concs = (A = 1.0, B = 1.0, P = 1.0, Q = 1.0)
     @test isfinite(rate_equation(m, concs, params, Reduced))
 end
+
+@testset "Fix B: _kcat_forward handles multiple saturating patterns" begin
+    # Random-order allosteric bi-bi, live I-state. Verified pre-fix to raise
+    # "multiple saturating-substrate kcat components (9 found)".
+    m = @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)        :: NonequalAI
+            E + B <--> E(B)        :: NonequalAI
+            E(A) + B <--> E(A, B)  :: NonequalAI
+            E(B) + A <--> E(A, B)  :: NonequalAI
+            E(A, B) <--> E(P, Q)   :: NonequalAI
+            E(P, Q) <--> E(P) + Q  :: NonequalAI
+            E(P, Q) <--> E(Q) + P  :: NonequalAI
+            E(P) <--> E + P        :: NonequalAI
+            E(Q) <--> E + Q        :: NonequalAI
+        end
+    end
+    rng = Random.MersenneTwister(1)
+    pn = EnzymeRates.fitted_params(m)
+    pv = NamedTuple{pn}(Tuple(0.2 + 2 * rand(rng) for _ in pn))
+    kc = EnzymeRates._kcat_forward(m, merge(pv, (Keq = 1.0,)))
+    @test isfinite(kc)
+    # Peak-productive-turnover contract: equals the numerical peak forward rate.
+    fp = merge(pv, (Keq = 1.0, E_total = 1.0))
+    vmax = maximum(rate_equation(m, (A = x, B = y, P = 0.0, Q = 0.0), fp, Reduced)
+                   for x in 10.0 .^ (0:1:9), y in 10.0 .^ (0:1:9))
+    @test kc ≈ vmax rtol = 1e-3
+end
+
+@testset "Fix B: non-allosteric random-order bi-bi kcat = peak (contract guard)" begin
+    # Already-correct non-allosteric path; pins the max contract Fix B mirrors.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)
+            E + B <--> E(B)
+            E(A) + B <--> E(A, B)
+            E(B) + A <--> E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) <--> E(P) + Q
+            E(P, Q) <--> E(Q) + P
+            E(P) <--> E + P
+            E(Q) <--> E + Q
+        end
+    end
+    rng = Random.MersenneTwister(5)
+    pn = EnzymeRates.fitted_params(m)
+    pv = NamedTuple{pn}(Tuple(0.2 + 2 * rand(rng) for _ in pn))
+    kc = EnzymeRates._kcat_forward(m, merge(pv, (Keq = 1.0,)))
+    fp = merge(pv, (Keq = 1.0, E_total = 1.0))
+    vmax = maximum(rate_equation(m, (A = x, B = y, P = 0.0, Q = 0.0), fp, Reduced)
+                   for x in 10.0 .^ (0:1:9), y in 10.0 .^ (0:1:9))
+    @test kc ≈ vmax rtol = 1e-3
+end
