@@ -153,5 +153,11 @@ deterministic. The full production search uses the wider defaults
 `loss_parsimony_threshold=1.01`, `max_param_count=20`) and would often run for
 many hours and require a High
 Performance Compute cluster (see [Running in parallel](identify/parallel.md)).
-`save_dir` is mandatory; the search writes progress and results CSV files
-there.
+`save_dir` is mandatory; the search writes its progress and results there:
+`progress.log`, `initial_mechanisms.csv`, one `equation_search_iteration_N.csv`
+per beam iteration, and — once cross-validation finishes —
+`loocv_results.csv` (the full leave-one-group-out table for every candidate that
+entered CV) and `best_equation.csv` (the single selected equation with its
+fitted parameters). The last two persist the model-selection outcome, so a
+cluster run's result is available without re-deriving it from the iteration
+files.

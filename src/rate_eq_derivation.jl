@@ -793,12 +793,17 @@ Multiple candidates arise for mechanisms with alternative catalytic pathways
     num_groups, den_groups = _kcat_groups_from_polys(num, den, k_param_names)
 
     # Build kcat candidates: for each forward numerator metabolite group
-    # with a matching denominator group, create (num_k_expr, den_k_expr)
+    # with a matching denominator group, create (num_k_expr, den_k_expr).
+    # kcat is evaluated at products = 0, so product-containing monomials are
+    # outside its domain — King–Altman net-flux cross-terms like A·B·P yield
+    # spurious candidates that can win the max. Keep substrate-only patterns.
     empty_set = Set{Symbol}()
+    prod_syms = Set{Symbol}(products(M()))
     components = Tuple{Any, Any}[]
     for (met_key, num_k) in sort!(collect(num_groups); by=first)
         den_k = get(den_groups, met_key, nothing)
         den_k === nothing && continue
+        any(first(s) in prod_syms for s in met_key) && continue
         num_expr = _poly_to_expr(num_k, empty_set, empty_set)
         den_expr = _poly_to_expr(den_k, empty_set, empty_set)
         push!(components, (num_expr, den_expr))
@@ -820,15 +825,9 @@ end
 """
     _kcat_forward(m::AllostericEnzymeMechanism, params) → Float64
 
-Compute kcat (forward) for an MWC allosteric enzyme.
-
-kcat is the maximum rate at saturating substrates, zero products,
-E_total=1, over all regulator concentration corners (each regulator
-either 0 or saturating).
-
-With regulatory sites: regulators shift A/I balance,
-so kcat depends on the regulator corner. We enumerate all 2^n_lig
-corners and return the max.
+Returns the peak achievable forward turnover: `max` over saturating
+substrate patterns and regulator corners (each regulator 0 or saturating)
+at products = 0, E_total = 1. Equals the numerical grid-peak forward rate.
 """
 @generated function _kcat_forward(
     ::AllostericEnzymeMechanism{CM,CS,RS},
@@ -874,76 +873,26 @@ corners and return the max.
     num_I_groups, den_I_groups =
         _kcat_groups_from_polys(num_I_poly, den_I_poly, i_param_names)
 
-    # Choose the saturating active-state met pattern (single component for
-    # mechanisms exercised here; assert keeps that constraint visible).
-    a_keys = sort!([k for k in keys(num_A_groups) if haskey(den_A_groups, k)])
+    # kcat = peak forward turnover at saturation: max over saturating patterns
+    # (met_key) and regulator corners. Only substrate-saturating patterns are
+    # valid at products=0; product-containing patterns are excluded.
+    prod_syms = Set{Symbol}(name(p) for p in products(am.reaction))
+    a_keys = sort!([k for k in keys(num_A_groups)
+                    if haskey(den_A_groups, k) && !any(first(s) in prod_syms for s in k)])
     isempty(a_keys) &&
         error("_kcat_forward: AllostericEnzymeMechanism produced no kcat " *
               "components — saturating-substrate pattern not found in numerator")
-    length(a_keys) == 1 ||
-        error("_kcat_forward: AllostericEnzymeMechanism with multiple " *
-              "saturating-substrate kcat components ($(length(a_keys)) found) " *
-              "is unsupported")
-    met_key = a_keys[1]
     empty_set = Set{Symbol}()
-    num_k_A_expr = _poly_to_expr(num_A_groups[met_key], empty_set, empty_set)
-    den_k_A_expr = _poly_to_expr(den_A_groups[met_key], empty_set, empty_set)
 
-    # Inactive state at the same metabolite pattern. Missing → set 0 (the
-    # saturating pattern is unreachable in the inactive state, so I contributes
-    # neither flux nor enzyme mass at saturation along that pattern).
-    num_I_p = get(num_I_groups, met_key, nothing)
-    den_I_p = get(den_I_groups, met_key, nothing)
-    num_k_I_expr = num_I_p === nothing ? 0 :
-        _poly_to_expr(num_I_p, empty_set, empty_set)
-    den_k_I_expr = den_I_p === nothing ? 0 :
-        _poly_to_expr(den_I_p, empty_set, empty_set)
-    i_pattern_dead = den_I_p === nothing
-
-    # Build dependent param assignments for active state
-    a_assignments, i_assignments_ =
-        _build_dep_assignments(M_type)
-
+    a_assignments, i_assignments_ = _build_dep_assignments(M_type)
+    # Keep inactive-state assignments unconditionally: B_I references them, and
+    # deps touching an :OnlyA symbol are already zeroed in _build_dep_assignments.
+    i_assignments = i_assignments_
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq)
-
     i_state_dead = _i_state_dead(aem)
 
-    # A_c = num_k_c * den_k_c^(CatN-1), B_c = den_k_c^CatN
-    A_A = CatN == 1 ? num_k_A_expr :
-        :($(num_k_A_expr) * $(den_k_A_expr)^$(CatN - 1))
-    B_A = :($(den_k_A_expr)^$(CatN))
-
-    # Inactive-state catalytic A/B. `A_I` is zero whenever the catalytic cycle
-    # is broken; `B_I` additionally drops to 0 if the saturating pattern is
-    # absent in the inactive state (its mass is lower-order in subs and vanishes
-    # relative to the active state at saturation).
-    if i_pattern_dead
-        A_I = 0
-        B_I = 0
-    else
-        A_I = i_state_dead ? 0 :
-              CatN == 1 ? num_k_I_expr :
-                          :($(num_k_I_expr) * $(den_k_I_expr)^$(CatN - 1))
-        B_I = :($(den_k_I_expr)^$(CatN))
-    end
-
-    # Skip inactive-state dep-assignments when the inactive state is dead (they
-    # may reference zero-valued params and cause Inf via 1/K substitutions).
-    i_assignments = (i_state_dead || i_pattern_dead) ? Expr[] : i_assignments_
-
-    if isempty(RS)
-        # No regulatory sites: single kcat value
-        result = :($(CatN) * ($(A_A) + L * $(A_I)) /
-                   ($(B_A) + L * $(B_I)))
-        return Expr(:block,
-            _destructuring_expr(hw_params, :params),
-            a_assignments...,
-            i_assignments...,
-            :(return $result))
-    end
-
-    # Enumerate all unique ligands across reg sites
+    # Regulator-corner setup (independent of the saturating pattern).
     all_ligs = AllostericRegulator[]
     for site in am.regulatory_sites
         for lig in site.ligands
@@ -953,72 +902,91 @@ corners and return the max.
     n_ligs = length(all_ligs)
     lig_idx = Dict(lig => i - 1 for (i, lig) in enumerate(all_ligs))
 
-    # For each corner (2^n_ligs), compute kcat expression
-    # At corner: each lig is either 0 or ∞.
-    # At ∞: Q_reg_c_i → sum(inv(K_j_c_i) for saturating j)
-    # At 0: Q_reg_c_i = 1
-    corner_exprs = Any[]
-    for mask in 0:(2^n_ligs - 1)
-        W_A_factors = Any[]
-        W_I_factors = Any[]
-        for (site_idx, site) in enumerate(am.regulatory_sites)
-            n_reg = site.multiplicity
-            sat_terms_A = Any[]
-            sat_terms_I = Any[]
-            for (lig, tag) in zip(site.ligands, site.allo_states)
-                if (mask >> lig_idx[lig]) & 1 == 1
-                    if tag !== :OnlyI
-                        K_A_sym = name(Kreg(site, lig, :A), am)
-                        push!(sat_terms_A, :(inv($K_A_sym)))
+    kcat_exprs = Any[]
+    for met_key in a_keys
+        num_k_A_expr = _poly_to_expr(num_A_groups[met_key], empty_set, empty_set)
+        den_k_A_expr = _poly_to_expr(den_A_groups[met_key], empty_set, empty_set)
+        num_I_p = get(num_I_groups, met_key, nothing)
+        den_I_p = get(den_I_groups, met_key, nothing)
+        num_k_I_expr = num_I_p === nothing ? 0 :
+            _poly_to_expr(num_I_p, empty_set, empty_set)
+        den_k_I_expr = den_I_p === nothing ? 0 :
+            _poly_to_expr(den_I_p, empty_set, empty_set)
+        i_pattern_dead = den_I_p === nothing
+
+        A_A = CatN == 1 ? num_k_A_expr :
+            :($(num_k_A_expr) * $(den_k_A_expr)^$(CatN - 1))
+        B_A = :($(den_k_A_expr)^$(CatN))
+        if i_pattern_dead
+            A_I = 0
+            B_I = 0
+        else
+            A_I = i_state_dead ? 0 :
+                  CatN == 1 ? num_k_I_expr :
+                              :($(num_k_I_expr) * $(den_k_I_expr)^$(CatN - 1))
+            B_I = :($(den_k_I_expr)^$(CatN))
+        end
+
+        if isempty(RS)
+            push!(kcat_exprs,
+                  :($(CatN) * ($(A_A) + L * $(A_I)) / ($(B_A) + L * $(B_I))))
+        else
+            for mask in 0:(2^n_ligs - 1)
+                W_A_factors = Any[]
+                W_I_factors = Any[]
+                for (site_idx, site) in enumerate(am.regulatory_sites)
+                    n_reg = site.multiplicity
+                    sat_terms_A = Any[]
+                    sat_terms_I = Any[]
+                    for (lig, tag) in zip(site.ligands, site.allo_states)
+                        if (mask >> lig_idx[lig]) & 1 == 1
+                            if tag !== :OnlyI
+                                K_A_sym = name(Kreg(site, lig, :A), am)
+                                push!(sat_terms_A, :(inv($K_A_sym)))
+                            end
+                            if tag !== :OnlyA
+                                # `:EqualAI` ligands share the A-state symbol; the
+                                # body emits an `:EqualAI` ligand's I-state slot
+                                # via the A-state name (no `_T` rename).
+                                K_I_state = tag === :EqualAI ? :A : :I
+                                K_I_sym = name(Kreg(site, lig, K_I_state), am)
+                                push!(sat_terms_I, :(inv($K_I_sym)))
+                            end
+                        end
                     end
-                    if tag !== :OnlyA
-                        # `:EqualAI` ligands share the A-state symbol; the
-                        # body emits an `:EqualAI` ligand's I-state slot
-                        # via the A-state name (no `_T` rename).
-                        K_I_state = tag === :EqualAI ? :A : :I
-                        K_I_sym = name(Kreg(site, lig, K_I_state), am)
-                        push!(sat_terms_I, :(inv($K_I_sym)))
+                    if !isempty(sat_terms_A)
+                        q_A = length(sat_terms_A) == 1 ?
+                            sat_terms_A[1] : _nest_binary(:+, sat_terms_A)
+                        push!(W_A_factors, _power_expr(q_A, n_reg))
+                    end
+                    if !isempty(sat_terms_I)
+                        q_I = length(sat_terms_I) == 1 ?
+                            sat_terms_I[1] : _nest_binary(:+, sat_terms_I)
+                        push!(W_I_factors, _power_expr(q_I, n_reg))
                     end
                 end
-            end
-            if !isempty(sat_terms_A)
-                q_A = length(sat_terms_A) == 1 ?
-                    sat_terms_A[1] :
-                    _nest_binary(:+, sat_terms_A)
-                push!(W_A_factors, _power_expr(q_A, n_reg))
-            end
-            if !isempty(sat_terms_I)
-                q_I = length(sat_terms_I) == 1 ?
-                    sat_terms_I[1] :
-                    _nest_binary(:+, sat_terms_I)
-                push!(W_I_factors, _power_expr(q_I, n_reg))
+                if isempty(W_A_factors) && isempty(W_I_factors)
+                    kcat_expr = :($(CatN) * ($(A_A) + L * $(A_I)) /
+                                  ($(B_A) + L * $(B_I)))
+                else
+                    W_A = isempty(W_A_factors) ? 1 :
+                        length(W_A_factors) == 1 ? W_A_factors[1] :
+                        _nest_binary(:*, W_A_factors)
+                    W_I = isempty(W_I_factors) ? 1 :
+                        length(W_I_factors) == 1 ? W_I_factors[1] :
+                        _nest_binary(:*, W_I_factors)
+                    kcat_expr = :($(CatN) *
+                        ($(A_A) * $(W_A) + L * $(A_I) * $(W_I)) /
+                        ($(B_A) * $(W_A) + L * $(B_I) * $(W_I)))
+                end
+                push!(kcat_exprs, kcat_expr)
             end
         end
-        # Build kcat at this corner. Empty W_A_factors / W_I_factors mean
-        # no saturating regulator at that conformation — they default to 1.
-        if isempty(W_A_factors) && isempty(W_I_factors)
-            # Zero regulators corner
-            kcat_expr = :($(CatN) * ($(A_A) + L * $(A_I)) /
-                          ($(B_A) + L * $(B_I)))
-        else
-            W_A = isempty(W_A_factors) ? 1 :
-                length(W_A_factors) == 1 ?
-                    W_A_factors[1] :
-                    _nest_binary(:*, W_A_factors)
-            W_I = isempty(W_I_factors) ? 1 :
-                length(W_I_factors) == 1 ?
-                    W_I_factors[1] :
-                    _nest_binary(:*, W_I_factors)
-            kcat_expr = :($(CatN) *
-                ($(A_A) * $(W_A) + L * $(A_I) * $(W_I)) /
-                ($(B_A) * $(W_A) + L * $(B_I) * $(W_I)))
-        end
-        push!(corner_exprs, kcat_expr)
     end
 
-    result = length(corner_exprs) == 1 ?
-        corner_exprs[1] : Expr(:call, :max, corner_exprs...)
-    Expr(:block,
+    result = length(kcat_exprs) == 1 ? kcat_exprs[1] :
+        Expr(:call, :max, kcat_exprs...)
+    return Expr(:block,
         _destructuring_expr(hw_params, :params),
         a_assignments...,
         i_assignments...,
@@ -1496,8 +1464,8 @@ chokepoint via `_onlyA_parameters`, `_I_rename_parameters`, and
 emitted for catalytic dep symbols mirrors the catalytic side of
 `_all_i_state_parameters` plus synthesized dep I-names (derived deps
 referencing a `:NonequalAI` symbol). When the I-state cycle is dead,
-synthesized dep I-names are elided here for the same reason the caller
-elides `i_assignments` entirely in that case.
+synthesized dep I-names are elided because the deps referencing `:OnlyA`
+symbols are already zeroed, so those Case-B names never appear in `Q_I`.
 """
 function _build_dep_assignments(
     M_type::Type{<:AllostericEnzymeMechanism},
@@ -1524,8 +1492,9 @@ function _build_dep_assignments(
     # groups when i_dead — `:EqualAI` groups share the A-state symbol so
     # emit no constraint mirror) OR was synthesized in Pass 2 above
     # (covers `:EqualAI` deps whose RHS references a `:NonequalAI`
-    # symbol). When i_dead, synthesized entries are elided since the
-    # caller elides `i_assignments` entirely in that case.
+    # symbol). When i_dead, synthesized entries are elided because their
+    # RHSes reference `:OnlyA` symbols that are zeroed, so they never
+    # appear in `Q_I`.
     i_dead = _i_state_dead(m)
     i_names_set = Set{Symbol}()
     fes = _free_enz_set(am)
@@ -1693,10 +1662,10 @@ function _build_allosteric_rate_body(M_type::Type{<:AllostericEnzymeMechanism})
     rate_expr = :(E_total * ($full_num) / ($full_den))
 
     a_assignments, i_assignments_ = _build_dep_assignments(M_type)
-    # When the I-state cycle is broken, i_assignments (I-state Haldanes
-    # and :EqualAI catalytic mirrors K_I = K) become dead code — they're
-    # only referenced from the L*num_I branch, which is now elided.
-    i_assignments = _i_state_dead(M_type()) ? Expr[] : i_assignments_
+    # Keep inactive-state assignments unconditionally: the retained Q_I
+    # (`L * den_I`) references them. Deps whose RHS touches an :OnlyA symbol
+    # are already zeroed in `_build_dep_assignments`, so nothing is undefined.
+    i_assignments = i_assignments_
 
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq, :E_total)
@@ -1755,7 +1724,7 @@ function rate_equation_string(
     # mechanisms thus use the same three-section structure as
     # non-allosteric.
     _, i_assignments_ = _build_dep_assignments(M)
-    i_assignments = _i_state_dead(m) ? Expr[] : i_assignments_
+    i_assignments = i_assignments_
     for a in i_assignments
         sym = a.args[1]
         expr = a.args[2]

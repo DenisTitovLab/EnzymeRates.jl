@@ -191,6 +191,22 @@ using OptimizationCMAEvolutionStrategy
         @test ismissing(df.a[2])            # failure row contributes no param value
     end
 
+    @testset "failure row preserves round-trippable mechanism" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products:   P[C]
+        end
+        m = first(EnzymeRates.init_mechanisms(rxn))
+        f = EnzymeRates.FitFailure(m, "boom")
+        row = EnzymeRates._failure_row(f)
+        # Round-trippable parametric Sig, not the bare concrete type name.
+        @test row.mechanism_type == string(typeof(EnzymeRates.compile_mechanism(m)))
+        @test row.mechanism_type != "EnzymeRates.Mechanism"
+        T = Core.eval(EnzymeRates, Meta.parse(row.mechanism_type))
+        @test EnzymeRates.Mechanism(T()) == m
+        @test row.error == "boom"
+    end
+
     @testset "_rate_eq_dedup_key" begin
         base = "(; K_a, k_b) = params\n(; A) = concs\n" *
                "# Haldane constraints:\nk_r = (1/Keq)*K_a\nv = k_b*A/K_a"
@@ -337,6 +353,23 @@ using OptimizationCMAEvolutionStrategy
             @test all(length.(string.(skipmissing(df_file.eq_hash))) .== 16)
             @test all(<=(8), skipmissing(df_file.n_params))     # max_param_count=8
         end
+    end
+
+    @testset "loocv_results.csv and best_equation.csv saved" begin
+        files = filter(f -> endswith(f, ".csv"), readdir(save_dir))
+        @test "loocv_results.csv" in files
+        @test "best_equation.csv" in files
+
+        cvf = CSV.read(joinpath(save_dir, "loocv_results.csv"), DataFrame)
+        @test nrow(cvf) == nrow(results.cv_results)
+        @test "cv_score" in names(cvf)
+
+        bestf = CSV.read(joinpath(save_dir, "best_equation.csv"), DataFrame)
+        @test nrow(bestf) == 1
+        best_hash = string(
+            EnzymeRates._rate_eq_dedup_key(rate_equation_string(results.best)),
+            base=16, pad=16)
+        @test string(bestf.eq_hash[1]) == best_hash
     end
 
     @testset "save_dir non-empty check" begin
