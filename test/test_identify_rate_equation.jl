@@ -898,6 +898,37 @@ end
         min_beam_width=2, best_override=0.0) == [1, 2]
 end
 
+@testset "_select_beam parsimony_cutoff" begin
+    # Floor guarantee: a parsimony_cutoff below every loss admits nothing via
+    # the loss filter, yet min_beam_width still keeps the top-k by loss.
+    losses = [1.0, 1.5, 2.5, 5.0, 10.0]
+    @test EnzymeRates._select_beam(losses;
+        loss_rel_threshold=2.0, loss_abs_threshold=0.0,
+        min_beam_width=2, parsimony_cutoff=0.5) == [1, 2]
+
+    # Tightening: a parsimony_cutoff stricter than the rel/abs cutoff lowers the
+    # combined cutoff to 2.0, so indices 1 and 2 (losses 1.0, 1.5) pass and
+    # index 3 (2.5) is dropped. Without it, rel=10 would admit all four.
+    losses = [1.0, 1.5, 2.5, 5.0]
+    @test EnzymeRates._select_beam(losses;
+        loss_rel_threshold=10.0, loss_abs_threshold=0.0,
+        min_beam_width=1, parsimony_cutoff=2.0) == [1, 2]
+
+    # No-op: parsimony_cutoff=nothing reproduces the parsimony-free selection.
+    kw = (loss_rel_threshold=2.0, loss_abs_threshold=0.0, min_beam_width=1)
+    @test EnzymeRates._select_beam(losses; kw..., parsimony_cutoff=nothing) ==
+          EnzymeRates._select_beam(losses; kw...)
+
+    # Interaction: min() picks the smaller cutoff. With best_override=2.0 the
+    # rel cutoff is 2.4 (admits 1,2); a tighter parsimony_cutoff=1.0 overrides
+    # it down to just the single best.
+    losses = [1.0, 1.5, 3.0]
+    ov = (loss_rel_threshold=1.2, loss_abs_threshold=0.0,
+          min_beam_width=1, best_override=2.0)
+    @test EnzymeRates._select_beam(losses; ov...) == [1, 2]
+    @test EnzymeRates._select_beam(losses; ov..., parsimony_cutoff=1.0) == [1]
+end
+
 @testset "_progress" begin
     mktempdir() do tmp
         # show_progress=true: writes to progress.log AND to stdout.
@@ -1036,6 +1067,28 @@ end
         min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
         max_param_count=6, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
         save_dir=tmp, show_progress=false)
+    @test results isa IdentifyRateEquationResults
+end
+
+@testset "loss_parsimony_threshold threads through identify_rate_equation" begin
+    # An unknown keyword throws at the call boundary (see the removed-kwargs
+    # test), so a clean end-to-end run with an explicit non-default value
+    # proves the keyword is accepted and forwarded to the beam.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    data = (group = ["G1", "G1", "G2", "G2"],
+            Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0],
+            P = [0.1, 0.2, 0.3, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    results = identify_rate_equation(prob;
+        optimizer=CMAEvolutionStrategyOpt(),
+        min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        loss_parsimony_threshold=2.0,
+        max_param_count=6, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
+        save_dir=mktempdir(), show_progress=false)
     @test results isa IdentifyRateEquationResults
 end
 

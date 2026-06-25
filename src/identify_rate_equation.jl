@@ -95,6 +95,7 @@ end
 """
     identify_rate_equation(prob; optimizer,
         min_beam_width=50, loss_rel_threshold=2.0, loss_abs_threshold=0.01,
+        loss_parsimony_threshold=1.01,
         max_param_count=20, n_restarts=20, maxtime=60.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing, solver_kwargs=(;),
         n_cv_candidates=5, se_threshold=1.0, perm_p_threshold=0.16,
@@ -110,6 +111,12 @@ and data using beam search.
   for beam selection (see "Beam selection" below)
 - `loss_abs_threshold::Float64 = 0.01`: absolute tolerance
   for beam selection
+- `loss_parsimony_threshold::Float64 = 1.01`: a mechanism
+  keeps expanding only if its loss is within this factor of
+  the best model with one fewer parameter — an added
+  parameter must earn its keep. Combined with the other loss
+  thresholds via `min`; `min_beam_width` stays a hard floor.
+  `Inf` disables it.
 - `max_param_count::Int = 20`: stop expanding beyond
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
@@ -139,9 +146,15 @@ and data using beam search.
 
 # Beam selection
 
-A mechanism qualifies for the next-level beam if either:
-- its loss ≤ `loss_rel_threshold * best_loss + loss_abs_threshold`,
-- OR its rank by loss (ascending) ≤ `min_beam_width`.
+A mechanism at parameter count `n` qualifies for the next-level
+beam if either:
+- its loss ≤ `min(loss_rel_threshold * best(n) + loss_abs_threshold,
+  loss_parsimony_threshold * best(n-1))`, where `best(k)` is the
+  lowest loss seen at parameter count `k`; the second term is
+  dropped at the base count (no `n-1` level),
+- OR its rank by loss (ascending) ≤ `min_beam_width`. This floor
+  always keeps the top `min_beam_width` mechanisms, even when the
+  loss cutoff admits fewer.
 
 The additive term protects against `best_loss` approaching zero
 (simulated / very-low-loss data) where a purely multiplicative
@@ -175,6 +188,7 @@ function identify_rate_equation(
     min_beam_width::Int = 50,
     loss_rel_threshold::Float64 = 2.0,
     loss_abs_threshold::Float64 = 0.01,
+    loss_parsimony_threshold::Float64 = 1.01,
     max_param_count::Int = 20,
     # Fitting
     optimizer,
@@ -209,7 +223,7 @@ function identify_rate_equation(
 
     mechanisms, df = _beam_search(prob;
         min_beam_width, loss_rel_threshold,
-        loss_abs_threshold,
+        loss_abs_threshold, loss_parsimony_threshold,
         max_param_count, save_dir, show_progress,
         optimizer, n_cv_candidates,
         fitting_kwargs...)
@@ -296,8 +310,16 @@ end
 """
 Return indices into `losses` for mechanisms that qualify for the
 beam at this level. A mechanism qualifies if either:
-  • its loss ≤ loss_rel_threshold * best_loss + loss_abs_threshold,
+  • its loss ≤ cutoff, where
+    cutoff = min(loss_rel_threshold * best_loss + loss_abs_threshold,
+                 parsimony_cutoff) and the parsimony term is dropped
+    when `parsimony_cutoff === nothing`,
   • OR its rank (1-indexed by ascending loss) ≤ min_beam_width.
+
+`parsimony_cutoff` (the loss-parsimony threshold times the best loss
+at one fewer parameter) only tightens the loss cutoff. `min_beam_width`
+stays a hard floor: the top `min_beam_width` always qualify, even when
+the loss cutoff admits fewer.
 
 Mechanisms with non-finite losses (`Inf`, `NaN`) are excluded
 unconditionally — they represent failed or non-converging fits
@@ -309,6 +331,7 @@ function _select_beam(
     loss_abs_threshold::Float64,
     min_beam_width::Int,
     best_override::Union{Nothing,Float64}=nothing,
+    parsimony_cutoff::Union{Nothing,Float64}=nothing,
 )
     finite_idx = [i for i in eachindex(losses) if isfinite(losses[i])]
     isempty(finite_idx) && return Int[]
@@ -316,6 +339,7 @@ function _select_beam(
     perm = sort(finite_idx; by=i -> losses[i])
     best = best_override === nothing ? losses[perm[1]] : best_override
     cutoff = loss_rel_threshold * best + loss_abs_threshold
+    parsimony_cutoff !== nothing && (cutoff = min(cutoff, parsimony_cutoff))
     selected = Int[]
     for (rank, idx) in enumerate(perm)
         if losses[idx] <= cutoff || rank <= min_beam_width
@@ -494,6 +518,7 @@ end
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,
+    loss_parsimony_threshold,
     max_param_count, save_dir, show_progress,
     optimizer, n_cv_candidates, kwargs...
 )
@@ -542,7 +567,10 @@ function _beam_search(
             entries_at_count = [e for e in swept if e.n_params == c]
             sel = _select_beam([e.loss for e in entries_at_count];
                 loss_rel_threshold, loss_abs_threshold,
-                min_beam_width, best_override = best_loss_by_count[c])
+                min_beam_width, best_override = best_loss_by_count[c],
+                parsimony_cutoff = haskey(best_loss_by_count, c - 1) ?
+                    loss_parsimony_threshold * best_loss_by_count[c - 1] :
+                    nothing)
             append!(to_expand, entries_at_count[sel])
         end
 
