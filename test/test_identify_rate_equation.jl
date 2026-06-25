@@ -906,9 +906,9 @@ end
         loss_rel_threshold=2.0, loss_abs_threshold=0.0,
         min_beam_width=2, parsimony_cutoff=0.5) == [1, 2]
 
-    # Tightening: a parsimony_cutoff stricter than the rel/abs cutoff drops the
-    # mechanisms between the two cutoffs (min_beam_width=1 so the floor
-    # re-admits only the single best). Without it, rel=10 would admit all four.
+    # Tightening: a parsimony_cutoff stricter than the rel/abs cutoff lowers the
+    # combined cutoff to 2.0, so indices 1 and 2 (losses 1.0, 1.5) pass and
+    # index 3 (2.5) is dropped. Without it, rel=10 would admit all four.
     losses = [1.0, 1.5, 2.5, 5.0]
     @test EnzymeRates._select_beam(losses;
         loss_rel_threshold=10.0, loss_abs_threshold=0.0,
