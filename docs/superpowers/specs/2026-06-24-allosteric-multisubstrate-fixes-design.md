@@ -106,13 +106,18 @@ levels, substrate ratios, and effector states, at products = 0. Each matched
 monomial `n_m/d_m` is the turnover in one saturation regime; `max` selects the
 best. This was verified end-to-end on a random-order steady-state bi-bi (which has
 `A·B, A²·B, A·B²` in the numerator): `_kcat_forward` equalled the numerical grid
-peak of the forward rate to 10 digits. The `max` also self-corrects three ways:
+peak of the forward rate to 10 digits. The `max` also self-corrects two ways:
 substrate-inhibition monomials are denominator-only and never match; effector
 inhibition is handled by the regulator corner-`max` (it picks the inhibitor-off
-corner — confirmed to equal the `K_reg→∞` neutralized value on a V-type PFK case);
-and product-containing matched monomials, though included, can only lower net flux
-so they never win the `max`. The non-allosteric `_kcat_forward` already does this
-`max` (lines 788–818); Fix B brings the allosteric path to parity.
+corner — confirmed to equal the `K_reg→∞` neutralized value on a V-type PFK case).
+**Product-containing matched monomials must be excluded** from the candidate set:
+`_kcat_forward` is evaluated at products = 0, so a met_key carrying a product is
+outside the evaluation domain. For non-allosteric `CatN = 1` they happen never to
+win, but for allosteric oligomers (`CatN > 1`) the per-pattern closed form can make
+a product-containing candidate exceed the true peak (observed 1.30× overestimate),
+so the allosteric `_kcat_forward` filters `a_keys` to substrate-only patterns. The
+non-allosteric `_kcat_forward` already does the `max` (lines 788–818); Fix B brings
+the allosteric path to parity and adds the products-filter.
 
 **Docstring.** State this contract on the allosteric `_kcat_forward`: kcat is the
 peak productive forward turnover (max over saturating patterns and regulator
