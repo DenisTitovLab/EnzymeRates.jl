@@ -5,8 +5,8 @@ Status: design approved; reproductions confirmed; ready for implementation (TDD)
 This spec turns the two investigation notes into an implementation plan and adds a
 third fix that surfaced during reproduction. Read first:
 
-- [`allosteric_dead_istate_undefined_param_bug.md`](allosteric_dead_istate_undefined_param_bug.md) — Family A root cause.
-- [`allosteric_multisubstrate_errors_and_fix_plan.md`](allosteric_multisubstrate_errors_and_fix_plan.md) — Families A and B at LDH scale.
+- [`allosteric_dead_istate_undefined_param_bug.md`](../../design_notes/allosteric_dead_istate_undefined_param_bug.md) — Family A root cause.
+- [`allosteric_multisubstrate_errors_and_fix_plan.md`](../../design_notes/allosteric_multisubstrate_errors_and_fix_plan.md) — Families A and B at LDH scale.
 
 ## Scope: three fixes, one PR
 
