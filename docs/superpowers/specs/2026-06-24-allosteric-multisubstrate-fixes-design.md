@@ -115,8 +115,8 @@ corner — confirmed to equal the `K_reg→∞` neutralized value on a V-type PF
 outside the evaluation domain. A product-containing candidate can over-report kcat
 in both the allosteric and non-allosteric paths (observed up to 22× non-allosteric,
 1.30× allosteric), so both `_kcat_forward` implementations filter to
-substrate-only patterns. Fix B adds the products-filter to the allosteric path
-(lines 788–818 add it to the non-allosteric path as a follow-up).
+substrate-only patterns — Fix B adds the filter to the allosteric path and the
+non-allosteric path carries the same filter.
 
 **Docstring.** State this contract on the allosteric `_kcat_forward`: kcat is the
 peak productive forward turnover (max over saturating patterns and regulator
