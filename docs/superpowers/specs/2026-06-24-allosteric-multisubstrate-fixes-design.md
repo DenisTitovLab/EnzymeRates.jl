@@ -1,6 +1,7 @@
 # Allosteric multi-substrate fixes: implementation spec
 
-Status: design approved; reproductions confirmed; ready for implementation (TDD).
+Status: design approved; reproductions confirmed; kcat semantics verified; ready
+for implementation (TDD).
 
 This spec turns the two investigation notes into an implementation plan and adds a
 third fix that surfaced during reproduction. Read first:
@@ -95,11 +96,28 @@ candidate per pattern and returns `max(...)`.
 **Change:** loop the per-pattern construction (the `met_key`-dependent block,
 lines 887–1016) over every `met_key ∈ a_keys`. Collect each pattern's
 regulator-corner expressions, then return `max` across patterns and corners.
-Semantics: kcat is the maximum forward turnover at saturation across alternative
-catalytic routes, matching the non-allosteric docstring. Keep the empty-`a_keys`
-error (lines 880–882); remove the `length(a_keys) == 1` assert. `i_pattern_dead`
-stays per-pattern inside the loop, and Fix A keeps the assignments each pattern
-needs.
+Keep the empty-`a_keys` error (lines 880–882); remove the `length(a_keys) == 1`
+assert. `i_pattern_dead` stays per-pattern inside the loop, and Fix A keeps the
+assignments each pattern needs.
+
+**`max` is the correct operation, not a heuristic.** `_kcat_forward` returns the
+*peak achievable forward turnover* — the supremum of `v/E_total` over all substrate
+levels, substrate ratios, and effector states, at products = 0. Each matched
+monomial `n_m/d_m` is the turnover in one saturation regime; `max` selects the
+best. This was verified end-to-end on a random-order steady-state bi-bi (which has
+`A·B, A²·B, A·B²` in the numerator): `_kcat_forward` equalled the numerical grid
+peak of the forward rate to 10 digits. The `max` also self-corrects three ways:
+substrate-inhibition monomials are denominator-only and never match; effector
+inhibition is handled by the regulator corner-`max` (it picks the inhibitor-off
+corner — confirmed to equal the `K_reg→∞` neutralized value on a V-type PFK case);
+and product-containing matched monomials, though included, can only lower net flux
+so they never win the `max`. The non-allosteric `_kcat_forward` already does this
+`max` (lines 788–818); Fix B brings the allosteric path to parity.
+
+**Docstring.** State this contract on the allosteric `_kcat_forward`: kcat is the
+peak productive forward turnover (max over saturating patterns and regulator
+corners); denominator-only substrate-inhibition regimes and product-present
+regimes do not inflate it.
 
 ## Fix C — record the failing mechanism
 
@@ -122,6 +140,23 @@ Leave `rate_equation = missing`: `rate_equation_string` can itself raise, and th
 Sig string already makes the mechanism reproducible. No `FitFailure` change —
 `f.mech` is already the concrete mechanism.
 
+## Considered and rejected: role-aware regulator corners
+
+We examined whether the corner-`max` mishandles a species that is both a substrate
+and an allosteric inhibitor (e.g. PFK / ATP). For a V-type inhibitor the strict
+`[S]→∞` limit is the self-inhibited rate, which the corner-`max` does *not* return
+— it returns the inhibitor-neutralized value (verified: `max` = `K_reg→∞` to 4
+digits). That is **correct** for kcat-as-normalization-anchor: kcat is the peak
+productive turnover, not the self-inhibited tail. So no "pin substrate-ligand
+corners on / product-ligand corners off" rework is needed. The only untreated edge
+is a species that is both a **product** and an allosteric **activator** (`max`
+would switch it on though products = 0); it is rare and left as a documented
+limitation, not fixed here.
+
+Anchoring kcat to a real *measured* value (rather than the analytic peak) is a
+separate enhancement — see
+[`kcat_rescale_at_measured_concentrations.md`](../../design_notes/kcat_rescale_at_measured_concentrations.md).
+
 ## Tests (TDD: write failing tests first)
 
 Add to `test/test_rate_eq_derivation.jl` (A, B) and a fitting/identify test for C.
@@ -135,7 +170,12 @@ Add to `test/test_rate_eq_derivation.jl` (A, B) and a fitting/identify test for 
   (`oligomeric_state = 2` suffices), mirroring the reproduced LDH structure. Same
   assertion; confirms the multi-symbol case.
 - **B:** a bi-substrate `oligomeric_state ≥ 2` MWC mechanism whose `_kcat_forward`
-  yields `length(a_keys) > 1`. Assert `_kcat_forward` returns a finite value.
+  yields `length(a_keys) > 1`. Assert `_kcat_forward` returns a finite value **and
+  equals the numerical peak of `rate_equation` over a substrate grid at products =
+  0** (the peak-productive-turnover contract), not just that it runs.
+- **B, kcat semantics (non-allosteric guard):** a random-order steady-state bi-bi
+  (numerator `A·B, A²·B, A·B²`). Assert `_kcat_forward` equals the numerical
+  grid-peak forward rate. Guards the `max` contract that Fix B mirrors.
 - **C:** force a `FitFailure` and assert its `_failure_row.mechanism_type`
   round-trips via `Core.eval` + `Mechanism`/`AllostericMechanism` to a mechanism
   equal to the original.
