@@ -112,12 +112,11 @@ inhibition is handled by the regulator corner-`max` (it picks the inhibitor-off
 corner — confirmed to equal the `K_reg→∞` neutralized value on a V-type PFK case).
 **Product-containing matched monomials must be excluded** from the candidate set:
 `_kcat_forward` is evaluated at products = 0, so a met_key carrying a product is
-outside the evaluation domain. For non-allosteric `CatN = 1` they happen never to
-win, but for allosteric oligomers (`CatN > 1`) the per-pattern closed form can make
-a product-containing candidate exceed the true peak (observed 1.30× overestimate),
-so the allosteric `_kcat_forward` filters `a_keys` to substrate-only patterns. The
-non-allosteric `_kcat_forward` already does the `max` (lines 788–818); Fix B brings
-the allosteric path to parity and adds the products-filter.
+outside the evaluation domain. A product-containing candidate can over-report kcat
+in both the allosteric and non-allosteric paths (observed up to 22× non-allosteric,
+1.30× allosteric), so both `_kcat_forward` implementations filter to
+substrate-only patterns. Fix B adds the products-filter to the allosteric path
+(lines 788–818 add it to the non-allosteric path as a follow-up).
 
 **Docstring.** State this contract on the allosteric `_kcat_forward`: kcat is the
 peak productive forward turnover (max over saturating patterns and regulator

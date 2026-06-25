@@ -1996,7 +1996,9 @@ end
 end
 
 @testset "Fix B: non-allosteric random-order bi-bi kcat = peak (contract guard)" begin
-    # Already-correct non-allosteric path; pins the max contract Fix B mirrors.
+    # Sweeps 40 parameter draws; product-containing King–Altman cross-terms
+    # (e.g. A·B·P monomials) are spurious candidates at products=0 and can
+    # inflate _kcat_forward by >10× before the product filter is applied.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2012,12 +2014,14 @@ end
             E(Q) <--> E + Q
         end
     end
-    rng = Random.MersenneTwister(5)
     pn = EnzymeRates.fitted_params(m)
-    pv = NamedTuple{pn}(Tuple(0.2 + 2 * rand(rng) for _ in pn))
-    kc = EnzymeRates._kcat_forward(m, merge(pv, (Keq = 1.0,)))
-    fp = merge(pv, (Keq = 1.0, E_total = 1.0))
-    vmax = maximum(rate_equation(m, (A = x, B = y, P = 0.0, Q = 0.0), fp, Reduced)
-                   for x in 10.0 .^ (0:1:9), y in 10.0 .^ (0:1:9))
-    @test kc ≈ vmax rtol = 1e-3
+    for seed in 1:40
+        rng = Random.MersenneTwister(seed)
+        pv = NamedTuple{pn}(Tuple(0.2 + 5 * rand(rng) for _ in pn))
+        kc = EnzymeRates._kcat_forward(m, merge(pv, (Keq = 1.0,)))
+        fp = merge(pv, (Keq = 1.0, E_total = 1.0))
+        vmax = maximum(rate_equation(m, (A = x, B = y, P = 0.0, Q = 0.0), fp, Reduced)
+                       for x in 10.0 .^ (0:1:9), y in 10.0 .^ (0:1:9))
+        @test kc ≈ vmax rtol = 1e-3
+    end
 end

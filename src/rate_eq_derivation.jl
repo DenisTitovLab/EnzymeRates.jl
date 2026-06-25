@@ -793,12 +793,17 @@ Multiple candidates arise for mechanisms with alternative catalytic pathways
     num_groups, den_groups = _kcat_groups_from_polys(num, den, k_param_names)
 
     # Build kcat candidates: for each forward numerator metabolite group
-    # with a matching denominator group, create (num_k_expr, den_k_expr)
+    # with a matching denominator group, create (num_k_expr, den_k_expr).
+    # kcat is evaluated at products = 0, so product-containing monomials are
+    # outside its domain — King–Altman net-flux cross-terms like A·B·P yield
+    # spurious candidates that can win the max. Keep substrate-only patterns.
     empty_set = Set{Symbol}()
+    prod_syms = Set{Symbol}(products(M()))
     components = Tuple{Any, Any}[]
     for (met_key, num_k) in sort!(collect(num_groups); by=first)
         den_k = get(den_groups, met_key, nothing)
         den_k === nothing && continue
+        any(first(s) in prod_syms for s in met_key) && continue
         num_expr = _poly_to_expr(num_k, empty_set, empty_set)
         den_expr = _poly_to_expr(den_k, empty_set, empty_set)
         push!(components, (num_expr, den_expr))
