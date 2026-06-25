@@ -132,9 +132,12 @@ nothing # hide
 The progress lines above trace the search, which is a *beam search*: it walks
 parameter counts in ascending order, and at each count it fits the candidates,
 keeps the most promising (the beam — here `min_beam_width = 10`), and expands
-the survivors into the next count. `max_param_count = 5` stops at the generating
-mechanism's size to keep the example quick. [Model selection](@ref) details the
-selection cutoff and the cross-validation rule that picks the winner. The
+the survivors into the next count. Which mechanisms stay in the beam is set by
+`min_beam_width` and the `loss_rel_threshold` / `loss_abs_threshold` /
+`loss_parsimony_threshold` cutoff — see [Best mechanism selection](@ref).
+`max_param_count = 5` stops at the generating mechanism's size to keep the
+example quick. [Best mechanism selection](@ref) also covers the cross-validation
+rule that picks the winner. The
 production search widens the beam to 50 and the cap to 20, and distributes the
 fits across workers (see
 [Running in parallel](@ref)).
@@ -162,12 +165,18 @@ and the Haldane constraint fixes the dependent reverse rate `k_A_EP_to_ES` from
 `Keq` and the independent constants.
 
 `results.cv_results` is a `DataFrame` with one row per candidate equation that
-entered cross-validation, scored as detailed on the [Model selection](@ref)
+entered cross-validation, scored as detailed on the [Best mechanism selection](@ref)
 page:
 
 ```@example identify_fast
 first(results.cv_results, 5)
 ```
+
+`results.cv_results` and the selected `results.best` are also written to
+`save_dir`, as `loocv_results.csv` (this whole table) and `best_equation.csv`
+(the winning row: equation string plus fitted parameters). They sit alongside
+the per-iteration `equation_search_iteration_N.csv` files, so a cluster run's
+model-selection outcome is saved without re-running cross-validation.
 
 ## Loud failures
 

@@ -355,6 +355,23 @@ using OptimizationCMAEvolutionStrategy
         end
     end
 
+    @testset "loocv_results.csv and best_equation.csv saved" begin
+        files = filter(f -> endswith(f, ".csv"), readdir(save_dir))
+        @test "loocv_results.csv" in files
+        @test "best_equation.csv" in files
+
+        cvf = CSV.read(joinpath(save_dir, "loocv_results.csv"), DataFrame)
+        @test nrow(cvf) == nrow(results.cv_results)
+        @test "cv_score" in names(cvf)
+
+        bestf = CSV.read(joinpath(save_dir, "best_equation.csv"), DataFrame)
+        @test nrow(bestf) == 1
+        best_hash = string(
+            EnzymeRates._rate_eq_dedup_key(rate_equation_string(results.best)),
+            base=16, pad=16)
+        @test string(bestf.eq_hash[1]) == best_hash
+    end
+
     @testset "save_dir non-empty check" begin
         # Should error before any fitting starts (the save_dir
         # validation runs up-front), so the heavy settings would

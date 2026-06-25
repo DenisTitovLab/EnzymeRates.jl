@@ -142,7 +142,10 @@ and data using beam search.
   bucket accepted iff `p > perm_p_threshold` under the
   sign-flip null. Default 0.16 matches paired 1-SE empirically.
 - `save_dir::String = _default_save_dir()`: output directory for the
-  search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`)
+  search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`),
+  plus `loocv_results.csv` (the LOOCV table for every cross-validated
+  candidate) and `best_equation.csv` (the selected equation and its
+  fitted parameters)
 
 # Beam selection
 
@@ -938,6 +941,14 @@ function _cv_model_selection(
         "Selected: $(nameof(typeof(best_mechanism))) " *
         "(eq_hash=$(cv_df.eq_hash[best_row_idx])), n_params=$(sel.best_n)")
     select!(cv_df, Not(:cv_fold_scores))
+
+    # Save the LOOCV table and the selected best equation alongside the
+    # per-iteration fit CSVs, so cluster runs persist the model-selection
+    # outcome (recoverable from the iteration CSVs, but wasteful to omit).
+    isdir(save_dir) || mkpath(save_dir)
+    CSV.write(joinpath(save_dir, "loocv_results.csv"), cv_df)
+    CSV.write(joinpath(save_dir, "best_equation.csv"), cv_df[[best_row_idx], :])
+
     return IdentifyRateEquationResults(best_mechanism, cv_df)
 end
 
