@@ -1070,6 +1070,28 @@ end
     @test results isa IdentifyRateEquationResults
 end
 
+@testset "loss_parsimony_threshold threads through identify_rate_equation" begin
+    # An unknown keyword throws at the call boundary (see the removed-kwargs
+    # test), so a clean end-to-end run with an explicit non-default value
+    # proves the keyword is accepted and forwarded to the beam.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    data = (group = ["G1", "G1", "G2", "G2"],
+            Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0],
+            P = [0.1, 0.2, 0.3, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    results = identify_rate_equation(prob;
+        optimizer=CMAEvolutionStrategyOpt(),
+        min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        loss_parsimony_threshold=2.0,
+        max_param_count=6, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
+        save_dir=mktempdir(), show_progress=false)
+    @test results isa IdentifyRateEquationResults
+end
+
 @testset "removed kwargs error at the identify boundary" begin
     # popsize/verbose are no longer named kwargs and there is no catch-all,
     # so they are rejected immediately at the call boundary (before any
