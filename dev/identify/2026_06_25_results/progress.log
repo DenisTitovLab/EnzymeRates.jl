@@ -6,4 +6,4 @@ Iteration 2 (target n_params=4): 6 parents → 30 children | 26 fitted | Success
 Iteration 3 (target n_params=5): 11 parents → 51 children | 3 fitted | Success 75.0% | non-Success retcode 0.0% | errored 25.0% | best loss 0.1354
 Cross-validating 11 candidate equations (LOOCV)…
 Selected: AllostericEnzymeMechanism (eq_hash=88187e6d0b0613cc), n_params=5
-Done. Results saved to 2026_06_23_results
+Done. Results saved to 2026_06_25_results
