@@ -1937,3 +1937,29 @@ end
         end
     end
 end
+
+@testset "Fix A: dead-inactive-state allosteric body defines all I-state symbols" begin
+    # Random-order allosteric bi-bi with an :OnlyA catalytic step → dead inactive
+    # state. Verified pre-fix to crash with `UndefVarError: koff_I_A_E`.
+    m = @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A <--> E(A)        :: NonequalAI
+            E + B <--> E(B)        :: NonequalAI
+            E(A) + B <--> E(A, B)  :: NonequalAI
+            E(B) + A <--> E(A, B)  :: NonequalAI
+            E(A, B) <--> E(P, Q)   :: OnlyA
+            E(P, Q) <--> E(P) + Q  :: NonequalAI
+            E(P, Q) <--> E(Q) + P  :: NonequalAI
+            E(P) <--> E + P        :: NonequalAI
+            E(Q) <--> E + Q        :: NonequalAI
+        end
+    end
+    pn = EnzymeRates.fitted_params(m)
+    params = merge(NamedTuple{pn}(ntuple(_ -> 1.0, length(pn))),
+                   (Keq = 1.0, E_total = 1.0))
+    concs = (A = 1.0, B = 1.0, P = 1.0, Q = 1.0)
+    @test isfinite(rate_equation(m, concs, params, Reduced))
+end

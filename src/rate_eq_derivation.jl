@@ -1496,8 +1496,8 @@ chokepoint via `_onlyA_parameters`, `_I_rename_parameters`, and
 emitted for catalytic dep symbols mirrors the catalytic side of
 `_all_i_state_parameters` plus synthesized dep I-names (derived deps
 referencing a `:NonequalAI` symbol). When the I-state cycle is dead,
-synthesized dep I-names are elided here for the same reason the caller
-elides `i_assignments` entirely in that case.
+synthesized dep I-names are elided because the deps referencing `:OnlyA`
+symbols are already zeroed, so those Case-B names never appear in `Q_I`.
 """
 function _build_dep_assignments(
     M_type::Type{<:AllostericEnzymeMechanism},
@@ -1524,8 +1524,9 @@ function _build_dep_assignments(
     # groups when i_dead — `:EqualAI` groups share the A-state symbol so
     # emit no constraint mirror) OR was synthesized in Pass 2 above
     # (covers `:EqualAI` deps whose RHS references a `:NonequalAI`
-    # symbol). When i_dead, synthesized entries are elided since the
-    # caller elides `i_assignments` entirely in that case.
+    # symbol). When i_dead, synthesized entries are elided because their
+    # RHSes reference `:OnlyA` symbols that are zeroed, so they never
+    # appear in `Q_I`.
     i_dead = _i_state_dead(m)
     i_names_set = Set{Symbol}()
     fes = _free_enz_set(am)
@@ -1693,10 +1694,10 @@ function _build_allosteric_rate_body(M_type::Type{<:AllostericEnzymeMechanism})
     rate_expr = :(E_total * ($full_num) / ($full_den))
 
     a_assignments, i_assignments_ = _build_dep_assignments(M_type)
-    # When the I-state cycle is broken, i_assignments (I-state Haldanes
-    # and :EqualAI catalytic mirrors K_I = K) become dead code — they're
-    # only referenced from the L*num_I branch, which is now elided.
-    i_assignments = _i_state_dead(M_type()) ? Expr[] : i_assignments_
+    # Keep inactive-state assignments unconditionally: the retained Q_I
+    # (`L * den_I`) references them. Deps whose RHS touches an :OnlyA symbol
+    # are already zeroed in `_build_dep_assignments`, so nothing is undefined.
+    i_assignments = i_assignments_
 
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq, :E_total)
@@ -1755,7 +1756,7 @@ function rate_equation_string(
     # mechanisms thus use the same three-section structure as
     # non-allosteric.
     _, i_assignments_ = _build_dep_assignments(M)
-    i_assignments = _i_state_dead(m) ? Expr[] : i_assignments_
+    i_assignments = i_assignments_
     for a in i_assignments
         sym = a.args[1]
         expr = a.args[2]
