@@ -441,6 +441,40 @@ using Tables
             fp, CMAEvolutionStrategyOpt(); n_restarts=1, maxtime=1.0, verbose=-9)
     end
 
+    # ── Test: maxtime forwarded from fit_rate_equation to Optimization.solve (§6) ─
+    @testset "maxtime forwarded to Optimization.solve" begin
+        using Optimization
+        using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
+
+        # A stub optimizer that records the `maxtime` kwarg it receives, so the
+        # forwarding path (fit_rate_equation -> fit_rate_equation_raw -> the
+        # `common = (; maxtime, maxiters)` merge -> Optimization.solve) can be
+        # asserted end-to-end without depending on a real solver's behavior.
+        mutable struct _MaxtimeStubOpt
+            maxtime_seen::Union{Nothing, Real}
+        end
+        _MaxtimeStubOpt() = _MaxtimeStubOpt(nothing)
+        Optimization.allowsbounds(::_MaxtimeStubOpt) = true
+        function Optimization.SciMLBase.__solve(
+                prob::Optimization.OptimizationProblem, opt::_MaxtimeStubOpt; kwargs...)
+            opt.maxtime_seen = kwargs[:maxtime]
+            u = zeros(length(prob.u0))
+            cache = DefaultOptimizationCache(prob.f, prob.p)
+            build_solution(cache, opt, u, prob.f(u, prob.p); retcode = ReturnCode.Success)
+        end
+
+        Keq_val = 2.0
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0,
+            Keq = Keq_val, E_total = 1.0)
+        concs_list = [(S = 1.0, P = 0.1), (S = 2.0, P = 0.1)]
+        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
+
+        stub = _MaxtimeStubOpt()
+        fit_rate_equation(fp, stub; n_restarts=1, maxtime=1.23)
+        @test stub.maxtime_seen == 1.23
+    end
+
     # ── Test 10: Validation errors ─────────────────────────────────────────────
     @testset "Validation errors" begin
         # Missing Rate column
