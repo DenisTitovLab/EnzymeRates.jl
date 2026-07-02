@@ -979,13 +979,6 @@ end
     @test f(Dict(5=>0.01,6=>0.04), 7, 1.01) ≈ 1.01*0.01    # non-monotone → true min
 end
 
-@testset "§3 child n_params range label" begin
-    g = EnzymeRates._np_range_label
-    @test g(NamedTuple[]) == "n/a"
-    @test g([(n_params=8,)]) == "8"
-    @test g([(n_params=7,), (n_params=13,), (n_params=9,)]) == "7-13"
-end
-
 @testset "_progress" begin
     mktempdir() do tmp
         # show_progress=true: writes to progress.log AND to stdout.
@@ -1255,26 +1248,23 @@ const _DEDUP_SIG2 =
     @test opt.count == 1
     @test length(entries) == 2
     @test isempty(failures)
-    # loss + retcode are computed pre-rescale → eq_hash-invariant → identical.
+    # loss + retcode are equation properties → eq_hash-invariant → identical.
     @test entries[1].loss == entries[2].loss
     @test entries[1].retcode === entries[2].retcode === :Success
     # Representative fit first (false); the duplicate is inherited (true).
     @test [e.row.fit_inherited for e in entries] == [false, true]
 
-    # The memo stores the RAW (pre-rescale) fit: uval=log(5) → every raw param
-    # is 5.0. Each row is that raw fit re-rescaled by ITS OWN mechanism.
-    raw = memo[key]
-    @test all(v -> v ≈ 5.0, values(raw.params))
+    # The memo stores the fit; every row sharing this eq_hash copies it verbatim,
+    # so both rows carry identical params — same equation ⟹ same fit + rescaling.
+    fit = memo[key]
     fkeys = EnzymeRates.fitted_params(em1)
-    for (e, m) in zip(entries, (m1, m2))
-        standalone = EnzymeRates._rescale_fitted(
-            EnzymeRates.compile_mechanism(m), raw.params,
-            prob.Keq, prob.scale_k_to_kcat)
-        @test e.row.fitted_param_values == Tuple(standalone[k] for k in fkeys)
+    for e in entries
+        @test e.row.fitted_param_values == Tuple(fit.params[k] for k in fkeys)
     end
-    # Rescaling actually changed the SS rate constant (raw 5.0 → kcat-anchored),
-    # proving each row is rescaled rather than the raw fit copied verbatim.
-    @test entries[1].row.fitted_param_values != Tuple(values(raw.params))
+    @test entries[1].row.fitted_param_values == entries[2].row.fitted_param_values
+    # scale_k_to_kcat=1.0 anchored kcat: the copied params are the rescaled fit,
+    # not the raw 5.0 the stub optimizer returned.
+    @test !all(v -> v ≈ 5.0, entries[1].row.fitted_param_values)
 
     # Cross-batch memo hit: a later batch with the same eq_hash refits NOTHING.
     single = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
@@ -1295,24 +1285,33 @@ const _DEDUP_SIG2 =
 end
 
 @testset "LOOCV eq_hash-uniqueness guard (§4)" begin
-    # `_cv_candidate_indices` keeps at most one row per eq_hash per param count
-    # and picks the lowest-loss row for each distinct equation.
-    df = DataFrame(
-        n_params = [3, 3, 3, 4, 4],
-        loss     = [0.5, 0.2, 0.9, 0.1, 0.3],
-        eq_hash  = ["aa", "aa", "bb", "cc", "cc"],
-    )
-    idx = EnzymeRates._cv_candidate_indices(df; n_cv_candidates=5)
-    picked = df[idx, :]
-    for g in groupby(picked, :n_params)
-        @test allunique(g.eq_hash)          # ≤1 row per eq_hash per bucket
-    end
-    @test (2 in idx) && !(1 in idx)         # "aa": row 2 (loss 0.2) beats row 1
-    @test (4 in idx) && !(5 in idx)         # "cc": row 4 (loss 0.1) beats row 5
-    # n_cv_candidates caps the number of DISTINCT equations per bucket.
-    df2 = DataFrame(n_params=[3, 3, 3], loss=[0.5, 0.2, 0.9],
-                    eq_hash=["a", "b", "c"])
-    @test length(EnzymeRates._cv_candidate_indices(df2; n_cv_candidates=2)) == 2
+    # _cv_model_selection dedups candidates by eq_hash per n_params bucket before
+    # LOOCV: same-equation twins collapse to ONE candidate (lowest loss kept), so
+    # folds are never wasted on, or biased by, textually identical equations.
+    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
+    m1 = recon(_DEDUP_SIG1); m2 = recon(_DEDUP_SIG2)   # distinct structure, same eq_hash
+    em1 = EnzymeRates.compile_mechanism(m1)
+    fkeys = EnzymeRates.fitted_params(em1)
+    h = string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)), base=16, pad=16)
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
+            P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
+    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
+    mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
+    mkrow(loss) = (n_params=length(fkeys), loss=loss, mechanism_type="M",
+        rate_equation="v", retcode="Success", error=missing,
+        fitted_param_names=Tuple(fkeys), fitted_param_values=Tuple(fill(1.0, length(fkeys))),
+        eq_hash=h, fit_inherited=false)
+    df = EnzymeRates._rows_to_dataframe([mkrow(0.5), mkrow(0.2)])  # m1 loss .5, m2 loss .2
+    res = EnzymeRates._cv_model_selection(mechs, df, prob;
+        n_cv_candidates=5, optimizer=_CountingStubOpt(; uval=log(5.0)),
+        se_threshold=1.0, perm_p_threshold=1.0, save_dir=mktempdir(),
+        show_progress=false, n_restarts=1, maxtime=1.0)
+    # The two same-eq_hash twins collapsed to a single LOOCV candidate…
+    @test nrow(res.cv_results) == 1
+    @test res.cv_results.eq_hash[1] == h
+    # …and the lower-loss twin (0.2) was the one kept.
+    @test res.cv_results.loss[1] == 0.2
 
     # `_offer_cv!` likewise keeps at most one entry per eq_hash: a repeat hash
     # updates its own slot to the lower loss, never consuming a second.

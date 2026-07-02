@@ -217,28 +217,7 @@ Returns a NamedTuple `(params, loss, retcode)` where:
   did not flag success) means the fit should be treated as un-converged (check
   `retcode !== :Success`).
 """
-function fit_rate_equation(fp::FittingProblem, optimizer; kwargs...)
-    raw = fit_rate_equation_raw(fp, optimizer; kwargs...)
-    fp.scale_k_to_kcat === nothing && return raw
-    return (params = _rescale_fitted(fp.mechanism, raw.params, fp.Keq,
-                                     fp.scale_k_to_kcat),
-            loss = raw.loss, retcode = raw.retcode)
-end
-
-"""
-    fit_rate_equation_raw(fp::FittingProblem, optimizer; kwargs...)
-
-Multi-start optimization returning the RAW (pre-rescale) fit: `(params, loss,
-retcode)` with `params` the fitted rate constants straight from the log-space
-optimum, BEFORE `rescale_parameter_values`. `loss` and `retcode` are identical
-to `fit_rate_equation`'s (rescaling touches only parameter magnitudes).
-
-Rescaling is structure-dependent (`_kcat_forward` / `_ss_rate_constant_names`
-derive from each mechanism's structure), so mechanisms that render the same
-reduced equation share this raw fit but must each re-rescale it themselves.
-Accepts the same keyword arguments as `fit_rate_equation`.
-"""
-function fit_rate_equation_raw(fp::FittingProblem, optimizer;
+function fit_rate_equation(fp::FittingProblem, optimizer;
     n_restarts::Int=20,
     maxtime::Real=60.0,
     maxiters::Integer=10_000_000,
@@ -283,18 +262,14 @@ function fit_rate_equation_raw(fp::FittingProblem, optimizer;
 
     pnames = fitted_params(fp.mechanism)
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(length(pnames))))
+    if fp.scale_k_to_kcat !== nothing
+        full = merge(result_params, (Keq = fp.Keq, E_total = 1.0))
+        rp = rescale_parameter_values(
+            fp.mechanism, full; scale_k_to_kcat=fp.scale_k_to_kcat,
+        )
+        result_params = NamedTuple{pnames}(
+            ntuple(i -> rp[pnames[i]], Val(length(pnames))),
+        )
+    end
     return (params = result_params, loss = best_loss, retcode = best_retcode)
-end
-
-"""
-Rescale a raw fitted-parameter NamedTuple so `_kcat_forward(mechanism, ·) ≈
-scale_k_to_kcat`, returning a NamedTuple with the same keys/order as `params`.
-Structure-dependent: pass the mechanism whose rescaling is wanted.
-"""
-function _rescale_fitted(mechanism, params::NamedTuple, Keq, scale_k_to_kcat)
-    pnames = keys(params)
-    full = merge(params, (Keq = Keq, E_total = 1.0))
-    rp = rescale_parameter_values(
-        mechanism, full; scale_k_to_kcat=scale_k_to_kcat)
-    NamedTuple{pnames}(ntuple(i -> rp[pnames[i]], Val(length(pnames))))
 end
