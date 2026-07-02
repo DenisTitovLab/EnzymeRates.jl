@@ -962,6 +962,14 @@ end
     @test EnzymeRates._select_beam(losses; ov..., parsimony_cutoff=1.0) == [1]
 end
 
+@testset "§1 _parsimony_cutoff = threshold * min over all counts < c" begin
+    f = EnzymeRates._parsimony_cutoff
+    @test f(Dict(5=>0.02), 5, 1.01) === nothing            # no count < c
+    @test f(Dict(5=>0.02,6=>0.05,7=>0.03), 8, 1.01) ≈ 1.01*0.02   # min over <c, not c-1
+    @test f(Dict(5=>0.02), 7, 1.01) ≈ 1.01*0.02            # count gap: c-1=6 absent
+    @test f(Dict(5=>0.01,6=>0.04), 7, 1.01) ≈ 1.01*0.01    # non-monotone → true min
+end
+
 @testset "_progress" begin
     mktempdir() do tmp
         # show_progress=true: writes to progress.log AND to stdout.

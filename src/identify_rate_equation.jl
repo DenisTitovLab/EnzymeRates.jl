@@ -310,6 +310,16 @@ function _rate_eq_dedup_key(eq_text::AbstractString)
     hash(join(kept, '\n'))
 end
 
+# Parsimony reference = threshold × best loss over ALL counts strictly below c
+# (not just c-1): an added parameter must beat the best simpler model of any size.
+# Returns nothing when no simpler tier has been fit yet.
+function _parsimony_cutoff(best_loss_by_count::Dict{Int,Float64}, c::Int,
+                           loss_parsimony_threshold::Float64)
+    prev = [best_loss_by_count[k] for k in keys(best_loss_by_count) if k < c]
+    isempty(prev) && return nothing
+    loss_parsimony_threshold * minimum(prev)
+end
+
 """
 Return indices into `losses` for mechanisms that qualify for the
 beam at this level. A mechanism qualifies if either:
@@ -576,9 +586,8 @@ function _beam_search(
             sel = _select_beam([e.loss for e in entries_at_count];
                 loss_rel_threshold, loss_abs_threshold,
                 min_beam_width, best_override = best_loss_by_count[c],
-                parsimony_cutoff = haskey(best_loss_by_count, c - 1) ?
-                    loss_parsimony_threshold * best_loss_by_count[c - 1] :
-                    nothing)
+                parsimony_cutoff = _parsimony_cutoff(
+                    best_loss_by_count, c, loss_parsimony_threshold))
             append!(to_expand, entries_at_count[sel])
         end
 
