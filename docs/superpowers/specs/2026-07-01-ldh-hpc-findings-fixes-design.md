@@ -108,14 +108,38 @@ test uses PFK-1/HK, which do not exercise this path).
 
 ### §5b — `_kcat_forward` "no components" — BLOCKED, needs a design decision
 
-**Status (2026-07-02): the original premise here was FALSIFIED during implementation; no fix
-was shipped.** The Task 2 implementer (opus) and an independent re-check proved these 28
-mechanisms have **no unique forward kcat** — the earlier "finite ~13.78 limit" was measured
-only along the diagonal path (both products → the same ε). The true multivariate limit as
-`(Lactate, NAD) → (0,0)` is **path-dependent**: with distinct params it ranges e.g. ~5.3
-(Lactate→0 faster) / ~7.1 (diagonal) / ~10.3 (NAD→0 faster). So the `NaN` at exactly
-products=0 is **mathematically correct**, and there is no single number for `_kcat_forward`
-to return.
+> **SUPERSEDED (2026-07-02) by `2026-07-02-ldh-product-only-re-segment-kcat-singularity.md`.**
+> ODE ground-truth validation overturned the "mixed 22 path-dependent / 6 unique" reading
+> below: the physical forward rate at products=0 is **finite and unique for all 28**, so
+> `NaN`@products=0 is a **derivation defect** (the rapid-equilibrium approximation breaking
+> down for a product-only RE segment), not ill-posedness. The apparent path-dependence is an
+> order-of-limits artifact of the RE approximation. Read the superseding doc for the
+> authoritative analysis; the text below is kept for provenance.
+
+**Status (2026-07-02, SUPERSEDED — see above): no fix shipped; needs a design decision.
+Deeper analysis (a 3-agent workflow + independent all-28 ray-test) refined this — the class
+is MIXED, not uniformly path-dependent.** The 28 are all structurally-distinct **rapid-equilibrium random bi-bi LDH
+mechanisms** (Cha treatment; catalytic step `E·NADH·Pyruvate → E·Lactate·NAD` is the sole SS
+step, both product releases rapid-equilibrium-random), **including the two real LDH abortive
+complexes** `E·NAD·Pyruvate` and `E·NADH·Lactate`. They are biochemically valid —
+atom-conserving, connected, forward-reachable from substrates — so the enumerator SHOULD
+produce them; do NOT reject on validity grounds. The shared quirk: the catalytic product form
+`E·Lactate·NAD` carries BOTH products and sits in an RE block with no product-free reference.
+
+Verified split (ray-test over all 28 with wild params, independently reproduced):
+- **22/28 — genuinely path-dependent, NOT a bug.** The (products=0, saturating-substrate)
+  kcat limit depends on the `[Lactate]/[NAD]` approach ratio (a Möbius function; ray spread
+  0.4–0.8), so there is no single number and the `_kcat_forward` error is correct for them.
+- **6/28 — a real (narrow) derivation bug (false negative).** These have a unique,
+  machine-precision-stable kcat (ray spread ~1e-11) that `_kcat_forward` wrongly rejects
+  (the conc-GCD reduction shifts the constant term into product-bearing monomials, so the
+  substrate-only matcher finds nothing). Structurally they differ by `E·NAD·Pyruvate` joining
+  the product-free segment → the product-exit coefficients become proportional → the Möbius
+  map collapses to a constant.
+
+Separately: the crash **drops all 28 valid, fittable mechanisms out of the search entirely**
+(loss/retcode/n_params `missing`), not merely skipping the rescale — a silent model-selection
+bias, since their `rate_equation` works at real assay concentrations.
 
 **True root cause (verified).** RE segment group {ELactate, ENAD, ENADPyruvate, ELactateNAD}
 has **no product-free reference form**; its genuine RE steps couple the two products, so
@@ -133,18 +157,24 @@ make the reduced denominator both division-free AND carry a product-free term.
 `_kcat_forward` (via `rescale_parameter_values`) throws. So the production symptom is
 exclusively the `_kcat_forward` `error` for the 28 mechanisms.
 
-**Decision required from Denis (architectural — do not decide unilaterally):**
-1. **Reject the topology** (implementer's recommendation): a derivation-time validator that
-   raises a clear error when an RE segment has no product-free reference form and couples ≥2
-   metabolites so the reduced denominator has no constant term. Mirrors existing
-   `_compute_numerator` guards. Risk: must prove it rejects none of the 21,724 passing
-   mechanisms; needs the other 27 failing mechanisms to bound the class.
-2. **Define a kcat convention** (e.g. `_kcat_forward` from the raw Laurent polys → the
-   product-free-terms ratio, the "no reverse coupling" limit). Fixes the crash, but it is a
-   semantic choice and does not make `rate_equation` finite at exactly products=0.
+**Recommended direction (both interpreter agents converge; awaiting Denis's decision):**
+1. **Fix the 6 false-negatives** (a real bug) and **make kcat extraction non-fatal**: on a
+   failed extraction, degrade to skipping the kcat rescale (fit with absolute params) rather
+   than dropping the candidate from the search.
+2. **kcat convention = peak over product-dominance corners.** Compute the forward turnover
+   as the `max` over the Lactate-dominant vs NAD-dominant corners (from the raw Laurent
+   polys). For the 6 the corners coincide → their true unique kcat (fixes the bug); for the
+   22 it yields the finite peak/supremum turnover — which matches `_kcat_forward`'s own
+   docstring ("peak achievable forward turnover"). Does not (and need not) make
+   `rate_equation` finite at exactly products=0; the assay grid never hits products=0.
+3. **Do NOT add a reject-topology validator** — the 28 are valid random bi-bi LDH mechanisms
+   (atom-conserving, connected) with the real LDH abortive complexes.
 
-Full analysis: `.superpowers/sdd/task-2-report.md`. This section supersedes the earlier
-"cancel a shared factor" framing, which is impossible here.
+The remaining genuine decision for Denis is whether the peak-over-corners convention is the
+desired kcat semantics for the 22 (vs. leaving them as a documented ill-posed-kcat case that
+merely skips rescale). Full analysis: `.superpowers/sdd/task-2-report.md` + the 3-agent
+workflow (extract + biochem + adversarial, all "mixed"). This supersedes both the earlier
+"cancel a shared factor" and the "all 28 path-dependent / reject-topology" framings.
 
 ### §1 — Parsimony filter references only `c-1`
 
