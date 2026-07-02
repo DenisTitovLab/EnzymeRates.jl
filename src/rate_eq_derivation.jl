@@ -1042,6 +1042,9 @@ function _i_state_dead(m::AllostericEnzymeMechanism)
     any(cat_allo_state(m, g) == :OnlyA for g in kinetic_groups(cm))
 end
 
+_i_state_dead(am::AllostericMechanism) =
+    any(cat_allo_state(am, g) === :OnlyA for g in kinetic_groups(am))
+
 """
 Set of A-state catalytic parameter Symbol names for an
 `AllostericMechanism`. Cached helper for the four call sites in
@@ -1255,24 +1258,25 @@ Wegscheider/Haldane elimination, not base k/K/Kreg), so they are
 produced Symbol-level. Used by `parameters(Full)` to ensure the
 complete symbol set covers them.
 
-When the I-state cycle is dead (any `:OnlyA` catalytic group present)
-the rate-equation body elides every I-state constraint assignment, so
-synthesized dep I-names never appear in the body and need not be
-emitted here.
+Only synthesized dep I-names actually referenced by the retained
+rate-equation polynomials (`_i_state_referenced_syms`) are emitted, so
+`parameters(Full)` enumerates exactly the names the rate-equation body
+assigns.
 """
 function _synthesized_dep_i_names(::Type{CM}, am::AllostericMechanism,
                                   ) where {CM <: EnzymeMechanism}
-    any(cat_allo_state(am, g) === :OnlyA for g in 1:length(steps(am))) &&
-        return Symbol[]
     dep_A_all, _ = _dependent_param_exprs_allosteric(am)
     nonequalai_set = Set{Symbol}(
         name(p, am) for (p, _) in _I_rename_parameters(am))
     isempty(nonequalai_set) && return Symbol[]
+    S_I = _i_state_referenced_syms(am)
     names = Symbol[]
     for (k, v) in sort(collect(dep_A_all); by=first)
         k in nonequalai_set && continue
         _expr_references_any(v, nonequalai_set) || continue
-        push!(names, _dep_inactive_name(am, k))
+        i_name = _dep_inactive_name(am, k)
+        i_name in S_I || continue
+        push!(names, i_name)
     end
     names
 end
@@ -1304,13 +1308,46 @@ function _add_case_b_renames!(rename_I::Dict{Symbol, Symbol}, deps, am)
 end
 
 """
+The I-state numerator and denominator polynomials `(num_i, den_i)`: zero the
+`:OnlyA` symbols in the A-state polys, then rename `:NonequalAI` (and synthesized
+Case-B) symbols to their I-suffixed counterparts. Single source of truth for both
+`S_I` (`_i_state_referenced_syms`) and the codegen (`_allosteric_num_den_exprs`);
+the two MUST build from the same polynomials or the emitted I-state parameter
+definitions desync from the polynomials referencing them (§5a `UndefVarError`).
+"""
+function _i_state_num_den_polys(am::AllostericMechanism)
+    num_A, den_A = _raw_symbolic_rate_polys_allosteric(am)
+    a_only = _a_only_syms(am)
+    rename_I = _a_to_i_rename(am)
+    dep_A, _ = _dependent_param_exprs_allosteric(am)
+    _add_case_b_renames!(rename_I, dep_A, am)
+    num_i = _rename_symbols(_zero_symbols_in_poly(num_A, a_only), rename_I)
+    den_i = _rename_symbols(_zero_symbols_in_poly(den_A, a_only), rename_I)
+    return num_i, den_i
+end
+
+"""
+I-state parameter Symbols actually referenced by the retained rate-equation
+polynomials: `den_i` always (`Q_I` is kept as enzyme mass), plus `num_i` when the
+I-state cycle is live. This is the single source of truth for which I-state names
+get defined, replacing the group-structure prediction that drifted out of sync
+with the polynomials.
+"""
+function _i_state_referenced_syms(am::AllostericMechanism)
+    num_i, den_i = _i_state_num_den_polys(am)
+    S = _poly_param_syms(den_i)
+    _i_state_dead(am) || union!(S, _poly_param_syms(num_i))
+    S
+end
+
+"""
     _dependent_param_exprs(M::Type{<:AllostericEnzymeMechanism})
 
 Return `(dep_exprs, indep_params)` for an AllostericEnzymeMechanism.
 A-state expressions come from `_dependent_param_exprs(CM)`; I-state entries
-copy A with `_I` rename, with per-group filtering (`:OnlyA` zeroed in I,
-`:EqualAI` shares A symbol).
-Adds reg site params and L to indep.
+copy A with `_I` rename, kept only for names the retained polynomials
+reference (`_i_state_referenced_syms`) plus the independent names their dep
+RHSes reference (closure). Adds reg site params and L to indep.
 
 Parameter Symbol production routes through `name(p, am)` (chokepoint),
 walking `Kd/Kiso/Kon/Koff/Kfor/Krev`/`Kreg` structs via the
@@ -1342,51 +1379,50 @@ function _dependent_param_exprs(
 
     t_state_dead_flag = _i_state_dead(aem)
 
+    # I-state names must be defined exactly when the retained polynomials
+    # reference them (`S_I`), plus the independent names those dep RHSes
+    # reference (closure). This is the same source of truth
+    # `_build_dep_assignments` uses to emit constraint LHSes, so the
+    # destructure list and the emitted assignments agree.
+    S_I = _i_state_referenced_syms(am)
+
     dep_I = Dict{Symbol, Union{Symbol, Expr}}()
     indep_I_list = Symbol[]
 
-    # Generate I-state dep entries for every A-state dep that has an
-    # I-state version per `rename_I`. Covers both Case A (dep symbol's
-    # catalytic group is `:NonequalAI` — the symbol itself is in
-    # rename_I) and Case B (dep symbol is `:EqualAI`-tagged but its RHS
-    # references a `:NonequalAI` symbol — Pass 2 above added the
-    # synthesized mapping).
+    # Generate I-state dep entries for every A-state dep whose I-name is
+    # referenced by the polynomials. Covers both Case A (dep symbol's
+    # catalytic group is `:NonequalAI` — the symbol itself is in rename_I)
+    # and Case B (dep symbol is `:EqualAI`-tagged but its RHS references a
+    # `:NonequalAI` symbol — Pass 2 above added the synthesized mapping).
+    # Collect each substituted RHS's symbols so independent I-names that
+    # appear only in a dep RHS still get destructured (closure).
+    rhs_refs = Set{Symbol}()
     for (k, v) in dep_A_all
         _expr_references_any(v, a_only_syms) && continue
         i_k = get(rename_I, k, nothing)
         i_k === nothing && continue
-        dep_I[i_k] = substitute_params_expr(v, rename_I)
+        i_k in S_I || continue
+        rhs = substitute_params_expr(v, rename_I)
+        dep_I[i_k] = rhs
+        _collect_expr_syms!(rhs, rhs_refs)
     end
 
-    # When the I-state cycle is dead (any `:OnlyA` group), skip
-    # generating `:EqualAI` mirror entries (K1_T = K1, k5f_T = k5f,
-    # etc.). They're already elided from the rate equation body in
-    # `_build_allosteric_rate_body`, so producing them here only
-    # inflates `length(dep_exprs)`.
-    #
-    # Additionally: even when `t_state_dead_flag` is false, a
-    # `:NonequalAI` symbol `p` can be "phantom" — declared as
-    # `:NonequalAI` but whose underlying `p` only appears in A-state
-    # monomials that ALSO contain a `:OnlyA` symbol. Those monomials
-    # get zeroed in the I-state polynomial (via
-    # `_zero_symbols_in_poly`), so `p` never survives I-state masking
-    # and its `_T`-suffixed name doesn't appear anywhere in the rate
-    # equation body. Adding it to indep would expose a fittable
-    # parameter the optimizer searches over but that has no effect on
-    # the loss — pure dimension bloat. Filter against the set of
-    # symbols that actually survive into the I-state polynomial.
-    num_A, den_A = _raw_symbolic_rate_polys_allosteric(am)
-    i_state_survivors = _i_state_surviving_syms(num_A, den_A, a_only_syms)
+    # Independent I-state names are destructured iff a retained polynomial
+    # references them (`S_I`) or a surviving dep RHS references them
+    # (closure). A `:NonequalAI` param carries a distinct I-name via
+    # `rename_I`; an `:EqualAI` param shares the A-state symbol (no distinct
+    # I-name) and needs no separate destructure.
     for p in indep_A_all
         p ∈ a_only_syms && continue
         if haskey(rename_I, p)
-            p ∈ i_state_survivors || continue
-            push!(indep_I_list, rename_I[p])
+            i_p = rename_I[p]
+            (i_p in S_I || i_p in rhs_refs) || continue
+            push!(indep_I_list, i_p)
         elseif !t_state_dead_flag
-            p ∈ i_state_survivors || continue
             p_inactive = _flip_to_inactive(_param_for_symbol(am, p))
             i_name = name(p_inactive, am)
             i_name == p && continue  # EqualAI: A and I share the same symbol
+            (i_name in S_I || i_name in rhs_refs) || continue
             dep_I[i_name] = p
         end
     end
@@ -1459,13 +1495,11 @@ Returns `(a_assignments::Vector{Expr}, i_assignments::Vector{Expr})`.
 Shared by `_build_allosteric_rate_body` and `rate_equation_string`.
 
 Routes all parameter Symbol production through the `name(p, am)`
-chokepoint via `_onlyA_parameters`, `_I_rename_parameters`, and
-`_all_i_state_parameters`. The set of I-state assignment LHSes that get
-emitted for catalytic dep symbols mirrors the catalytic side of
-`_all_i_state_parameters` plus synthesized dep I-names (derived deps
-referencing a `:NonequalAI` symbol). When the I-state cycle is dead,
-synthesized dep I-names are elided because the deps referencing `:OnlyA`
-symbols are already zeroed, so those Case-B names never appear in `Q_I`.
+chokepoint via `_flip_to_inactive`, `_I_rename_parameters`, and `Kreg`.
+A catalytic dep gets an I-state assignment iff its I-mirror name is
+referenced by the retained rate-equation polynomials
+(`_i_state_referenced_syms`), covering both `:NonequalAI` Case-A deps
+and synthesized Case-B I-names.
 """
 function _build_dep_assignments(
     M_type::Type{<:AllostericEnzymeMechanism},
@@ -1483,50 +1517,17 @@ function _build_dep_assignments(
     # I-state name. Mirrors `_dependent_param_exprs` Pass 2; the
     # synthesized entries here are the same ones the rate-equation body
     # consumes via `i_names_set`.
-    renamed_set = _add_case_b_renames!(rename_I, dep_A, am)
+    _add_case_b_renames!(rename_I, dep_A, am)
     I_subs = rename_I
 
-    # Catalytic I-state dep-symbol filter: a catalytic dep gets an I-state
-    # assignment if its I-mirror name appears among the catalytic I-state
-    # Parameters (every non-`:OnlyA` group when alive; only `:NonequalAI`
-    # groups when i_dead — `:EqualAI` groups share the A-state symbol so
-    # emit no constraint mirror) OR was synthesized in Pass 2 above
-    # (covers `:EqualAI` deps whose RHS references a `:NonequalAI`
-    # symbol). When i_dead, synthesized entries are elided because their
-    # RHSes reference `:OnlyA` symbols that are zeroed, so they never
-    # appear in `Q_I`.
-    i_dead = _i_state_dead(m)
-    i_names_set = Set{Symbol}()
-    fes = _free_enz_set(am)
-    for (g, group) in enumerate(steps(am))
-        tag = cat_allo_state(am, g)
-        tag === :OnlyA && continue
-        i_dead && tag !== :NonequalAI && continue
-        rep = _group_rep(group, fes)
-        if is_equilibrium(rep)
-            push!(i_names_set,
-                  name(is_binding(rep) ? Kd(rep, :I) : Kiso(rep, :I), am))
-        else
-            if is_binding(rep)
-                push!(i_names_set, name(Kon(rep, :I), am))
-                push!(i_names_set, name(Koff(rep, :I), am))
-            else
-                push!(i_names_set, name(Kfor(rep, :I), am))
-                push!(i_names_set, name(Krev(rep, :I), am))
-            end
-        end
-    end
-    if !i_dead
-        # Synthesized dep I-names: catalytic deps whose RHS references a
-        # `:NonequalAI` symbol but whose own catalytic group is NOT
-        # `:NonequalAI`. They are entries `rename_I[k]` where `k` was
-        # added in the Pass-2 loop above (i.e., not in the original
-        # `renamed_set`).
-        for (k, v) in rename_I
-            k in renamed_set && continue
-            push!(i_names_set, v)
-        end
-    end
+    # I-state dep-symbol filter: a dep gets an I-state assignment iff its
+    # I-mirror name is actually referenced by the retained rate-equation
+    # polynomials (`Q_I` always, plus `N_I` when the I-state cycle is live).
+    # `_i_state_referenced_syms` is the single source of truth for which
+    # I-state names must be defined, so the emitted assignments cover exactly
+    # the names the polynomials consume (both `:NonequalAI` Case-A deps and
+    # synthesized Case-B I-names).
+    i_names_set = _i_state_referenced_syms(am)
 
     a_assignments = Expr[Expr(:(=), sym, expr_kd) for (sym, expr_kd) in sorted_deps]
 
@@ -1590,31 +1591,14 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     cat_params = Set{Symbol}(get(rename_A, s, s) for s in _raw_param_symbols(CM()))
     cat_mets = Set{Symbol}(metabolites(CM()))
 
-    a_only_syms = _a_only_syms(am)
-    # Pass 1: base I-rename for `:NonequalAI` catalytic-group Parameters.
-    rename_I = _a_to_i_rename(am)
-    # Pass 2: dep RHSes referencing a `:NonequalAI` symbol need their own
-    # I-state name so the polynomial rename covers synthesized deps.
-    # Mirrors the second pass in `_dependent_param_exprs`.
-    dep_A_all, _ = _dependent_param_exprs_allosteric(am)
-    _add_case_b_renames!(rename_I, dep_A_all, am)
-
     N_A = _poly_to_expr(num_A_poly, cat_params, cat_mets)
     Q_A = _poly_to_expr(den_A_poly, cat_params, cat_mets)
 
-    # I-state catalytic Exprs.
-    # Zero `:OnlyA` symbols at POLY level, then rename `:NonequalAI`
-    # symbols to I-suffixed counterparts. `:EqualAI` symbols pass through
-    # unchanged (A-state binding) and resolve through dep-param assignments.
-    # When the I-state cycle is broken, force N_I = 0: the Cha framework
-    # otherwise produces a non-physical reverse flux from products that
-    # have nowhere to go.
-    num_i_poly = _rename_symbols(
-        _zero_symbols_in_poly(num_A_poly, a_only_syms),
-        rename_I)
-    den_i_poly = _rename_symbols(
-        _zero_symbols_in_poly(den_A_poly, a_only_syms),
-        rename_I)
+    # I-state catalytic Exprs from the shared I-state polynomials (`:OnlyA`
+    # symbols zeroed, `:NonequalAI`/Case-B symbols I-renamed). When the I-state
+    # cycle is broken, force N_I = 0: the Cha framework otherwise produces a
+    # non-physical reverse flux from products that have nowhere to go.
+    num_i_poly, den_i_poly = _i_state_num_den_polys(am)
     N_I = _i_state_dead(m) ? 0 :
           _poly_to_expr(num_i_poly, cat_params, cat_mets)
     Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)

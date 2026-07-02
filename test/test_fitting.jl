@@ -361,6 +361,35 @@ using Tables
         @test result3.retcode isa Symbol
     end
 
+    # ── fit_rate_equation: scale_k_to_kcat anchors kcat; nothing leaves it raw ──
+    @testset "fit_rate_equation kcat rescaling" begin
+        using OptimizationBBO
+        Keq_val = 2.0
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0,
+                       Keq = Keq_val, E_total = 1.0)
+        concs_list = [
+            (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
+            (S = 5.0, P = 0.1), (S = 10.0, P = 0.1),
+            (S = 0.5, P = 0.5), (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
+        ]
+        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        opt = BBO_adaptive_de_rand_1_bin_radiuslimited()
+
+        # scale_k_to_kcat=7.0: the returned params are anchored so kcat ≈ 7.0.
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=7.0)
+        res = fit_rate_equation(fp, opt; n_restarts=3, maxtime=5.0)
+        @test keys(res.params) == EnzymeRates.fitted_params(uni_uni)
+        @test isfinite(res.loss)
+        @test res.retcode isa Symbol
+        full_p = merge(res.params, (Keq = Keq_val, E_total = 1.0))
+        @test EnzymeRates._kcat_forward(uni_uni, full_p) ≈ 7.0 rtol=0.01
+
+        # scale_k_to_kcat=nothing: params returned verbatim (data fixes the scale).
+        fpN = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        resN = fit_rate_equation(fpN, opt; n_restarts=1, maxtime=2.0)
+        @test keys(resN.params) == EnzymeRates.fitted_params(uni_uni)
+    end
+
     # ── Test: solver-option forwarding (named commons + solver_kwargs) ──
     @testset "solver kwarg forwarding" begin
         using OptimizationCMAEvolutionStrategy
@@ -403,6 +432,40 @@ using Tables
             fp, CMAEvolutionStrategyOpt(); n_restarts=1, maxtime=1.0, popsize=200)
         @test_throws Exception fit_rate_equation(
             fp, CMAEvolutionStrategyOpt(); n_restarts=1, maxtime=1.0, verbose=-9)
+    end
+
+    # ── Test: maxtime forwarded from fit_rate_equation to Optimization.solve (§6) ─
+    @testset "maxtime forwarded to Optimization.solve" begin
+        using Optimization
+        using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
+
+        # A stub optimizer that records the `maxtime` kwarg it receives, so the
+        # forwarding path (fit_rate_equation -> the `common = (; maxtime,
+        # maxiters)` merge -> Optimization.solve) can be asserted end-to-end
+        # without depending on a real solver's behavior.
+        mutable struct _MaxtimeStubOpt
+            maxtime_seen::Union{Nothing, Real}
+        end
+        _MaxtimeStubOpt() = _MaxtimeStubOpt(nothing)
+        Optimization.allowsbounds(::_MaxtimeStubOpt) = true
+        function Optimization.SciMLBase.__solve(
+                prob::Optimization.OptimizationProblem, opt::_MaxtimeStubOpt; kwargs...)
+            opt.maxtime_seen = kwargs[:maxtime]
+            u = zeros(length(prob.u0))
+            cache = DefaultOptimizationCache(prob.f, prob.p)
+            build_solution(cache, opt, u, prob.f(u, prob.p); retcode = ReturnCode.Success)
+        end
+
+        Keq_val = 2.0
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0,
+            Keq = Keq_val, E_total = 1.0)
+        concs_list = [(S = 1.0, P = 0.1), (S = 2.0, P = 0.1)]
+        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val)
+
+        stub = _MaxtimeStubOpt()
+        fit_rate_equation(fp, stub; n_restarts=1, maxtime=1.23)
+        @test stub.maxtime_seen == 1.23
     end
 
     # ── Test 10: Validation errors ─────────────────────────────────────────────
