@@ -7,6 +7,8 @@ using CSV
 using Random
 using Statistics
 using OptimizationCMAEvolutionStrategy
+using Optimization
+using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
 
 @testset "identify_rate_equation" begin
 
@@ -153,6 +155,7 @@ using OptimizationCMAEvolutionStrategy
             fitted_param_names = (:a, :b),
             fitted_param_values = (1.0, 2.0),
             eq_hash = "0123456789abcdef",
+            fit_inherited = false,
         )]
         df = EnzymeRates._rows_to_dataframe(
             rows)
@@ -162,6 +165,8 @@ using OptimizationCMAEvolutionStrategy
         @test "eq_hash" in names(df)
         @test "retcode" in names(df)
         @test "error" in names(df)
+        @test "fit_inherited" in names(df)
+        @test df.fit_inherited == [false]
         @test !("fit_inherited_from_estimate" in names(df))
 
         # Empty rows
@@ -175,11 +180,12 @@ using OptimizationCMAEvolutionStrategy
             (n_params = 3, loss = 0.5, mechanism_type = "M",
              rate_equation = "v = ...", retcode = "Success", error = missing,
              fitted_param_names = (:a,), fitted_param_values = (1.0,),
-             eq_hash = "0123456789abcdef"),
+             eq_hash = "0123456789abcdef", fit_inherited = false),
             (n_params = missing, loss = missing, mechanism_type = "M",
              rate_equation = missing, retcode = missing,
              error = "StackOverflowError: ", fitted_param_names = (),
-             fitted_param_values = (), eq_hash = missing),
+             fitted_param_values = (), eq_hash = missing,
+             fit_inherited = missing),
         ]
         df = EnzymeRates._rows_to_dataframe(rows)
         @test nrow(df) == 2
@@ -187,6 +193,8 @@ using OptimizationCMAEvolutionStrategy
         @test df.error[2] == "StackOverflowError: "
         @test ismissing(df.retcode[2])
         @test ismissing(df.eq_hash[2])
+        @test df.fit_inherited[1] == false
+        @test ismissing(df.fit_inherited[2])
         @test "a" in names(df)              # param column still built from row 1
         @test ismissing(df.a[2])            # failure row contributes no param value
     end
@@ -453,6 +461,7 @@ end
         rate_equation = "v = 1", retcode = "Success", error = missing,
         fitted_param_names = (:K_a,),
         fitted_param_values = (2.0,), eq_hash = "abc",
+        fit_inherited = false,
     )]
     mktempdir() do tmp
         EnzymeRates._save_initial_csv(tmp, rows)
@@ -1014,7 +1023,7 @@ end
         substrates: S[C]; products: P[C] end))
     row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
            retcode="Success", error=missing, fitted_param_names=(:K,),
-           fitted_param_values=(1.0,), eq_hash="abc")
+           fitted_param_values=(1.0,), eq_hash="abc", fit_inherited=false)
     e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
@@ -1075,8 +1084,8 @@ end
         n, loss, :Success, hash(h),
         (n_params=n, loss=loss, mechanism_type="M",
          rate_equation="v", retcode="Success", error=missing,
-         fitted_param_names=(:K,),
-         fitted_param_values=(1.0,), eq_hash=string(hash(h),base=16,pad=16)))
+         fitted_param_names=(:K,), fitted_param_values=(1.0,),
+         eq_hash=string(hash(h),base=16,pad=16), fit_inherited=false))
     frontier = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     cv_pool  = Dict{Int,Vector{EnzymeRates.BatchEntry}}()
     best     = Dict{Int,Float64}()
@@ -1160,4 +1169,165 @@ end
     @test_throws Exception identify_rate_equation(
         prob; verbose=-9, optimizer=CMAEvolutionStrategyOpt(),
         n_restarts=1, maxtime=1.0, save_dir=mktempdir())
+end
+
+# ── §2 fit-dedup by eq_hash ──────────────────────────────────────────────────
+# A stub optimizer that counts `solve` invocations and returns a canned
+# log-space optimum (`uval` for every coordinate), so a batch's fits can be
+# counted exactly and the raw→rescale path exercised deterministically.
+mutable struct _CountingStubOpt
+    count::Int
+    uval::Float64
+    throwit::Bool
+end
+_CountingStubOpt(; uval=0.0, throwit=false) = _CountingStubOpt(0, uval, throwit)
+Optimization.allowsbounds(::_CountingStubOpt) = true
+function Optimization.SciMLBase.__solve(
+        prob::Optimization.OptimizationProblem, opt::_CountingStubOpt; kwargs...)
+    opt.count += 1
+    opt.throwit && error("stub solver forced failure")
+    u = fill(opt.uval, length(prob.u0))
+    cache = DefaultOptimizationCache(prob.f, prob.p)
+    build_solution(cache, opt, u, prob.f(u, prob.p); retcode = ReturnCode.Success)
+end
+
+# Two structurally-distinct bi-bi mechanisms that render the SAME reduced rate
+# equation (eq_hash 78546b5f56b20e15): identical 7-edge topology, differing only
+# in kinetic-group partitioning. Captured from the bi-bi enumeration (init ∪
+# expand) and reconstructed from their EnzymeMechanism{Sig} type, so the test is
+# self-contained and cheap (no full child enumeration, which would compile ~800
+# distinct rate equations). The test re-verifies the collision at run time.
+const _DEDUP_SIG1 =
+    "EnzymeMechanism{(((((:Substrate, :A), ((:C, 1),)), ((:Substrate, :B), ((:N" *
+    ", 1),)), ((:Product, :P), ((:C, 1),)), ((:Product, :Q), ((:N, 1),))), (), " *
+    "(1,)), (((((), :E, ((), ())), (((:Substrate, :A),), :E, ((), ())), (:Subst" *
+    "rate, :A), true), ((((:Product, :Q),), :E, ((), ())), (((:Substrate, :A), " *
+    "(:Product, :Q)), :E, ((), ())), (:Substrate, :A), true)), ((((), :E, ((), " *
+    "())), (((:Product, :Q),), :E, ((), ())), (:Product, :Q), true), ((((:Subst" *
+    "rate, :A),), :E, ((), ())), (((:Substrate, :A), (:Product, :Q)), :E, ((), " *
+    "())), (:Product, :Q), true)), (((((:Substrate, :A),), :E, ((), ())), (((:S" *
+    "ubstrate, :A), (:Substrate, :B)), :E, ((), ())), (:Substrate, :B), true),)" *
+    ", (((((:Substrate, :A), (:Substrate, :B)), :E, ((), ())), (((:Product, :P)" *
+    ", (:Product, :Q)), :E, ((), ())), nothing, false),), (((((:Product, :Q),)," *
+    " :E, ((), ())), (((:Product, :P), (:Product, :Q)), :E, ((), ())), (:Produc" *
+    "t, :P), true),)))}"
+
+const _DEDUP_SIG2 =
+    "EnzymeMechanism{(((((:Substrate, :A), ((:C, 1),)), ((:Substrate, :B), ((:N" *
+    ", 1),)), ((:Product, :P), ((:C, 1),)), ((:Product, :Q), ((:N, 1),))), (), " *
+    "(1,)), (((((), :E, ((), ())), (((:Substrate, :A),), :E, ((), ())), (:Subst" *
+    "rate, :A), true),), ((((), :E, ((), ())), (((:Product, :Q),), :E, ((), ())" *
+    "), (:Product, :Q), true), ((((:Substrate, :A),), :E, ((), ())), (((:Substr" *
+    "ate, :A), (:Product, :Q)), :E, ((), ())), (:Product, :Q), true)), (((((:Su" *
+    "bstrate, :A),), :E, ((), ())), (((:Substrate, :A), (:Substrate, :B)), :E, " *
+    "((), ())), (:Substrate, :B), true),), (((((:Substrate, :A), (:Substrate, :" *
+    "B)), :E, ((), ())), (((:Product, :P), (:Product, :Q)), :E, ((), ())), noth" *
+    "ing, false),), (((((:Product, :Q),), :E, ((), ())), (((:Substrate, :A), (:" *
+    "Product, :Q)), :E, ((), ())), (:Substrate, :A), true),), (((((:Product, :Q" *
+    "),), :E, ((), ())), (((:Product, :P), (:Product, :Q)), :E, ((), ())), (:Pr" *
+    "oduct, :P), true),)))}"
+
+@testset "fit-dedup by eq_hash in _process_batch" begin
+    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
+    m1 = recon(_DEDUP_SIG1)
+    m2 = recon(_DEDUP_SIG2)
+    em1 = EnzymeRates.compile_mechanism(m1)
+    em2 = EnzymeRates.compile_mechanism(m2)
+    key = EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1))
+    # Preconditions: distinct structure, identical eq_hash + fitted-param set
+    # (same names AND order — the reuse maps params by name directly).
+    @test m1 != m2
+    @test key == EnzymeRates._rate_eq_dedup_key(rate_equation_string(em2))
+    @test EnzymeRates.fitted_params(em1) == EnzymeRates.fitted_params(em2)
+
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
+            P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
+    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
+    pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
+
+    memo = Dict{UInt64, NamedTuple}()
+    opt = _CountingStubOpt(; uval = log(5.0))
+    entries, failures = EnzymeRates._process_batch(pair, prob;
+        optimizer=opt, max_param_count=20, n_restarts=1, maxtime=1.0, memo)
+
+    # The shared equation is fit exactly ONCE (n_restarts=1 → one solve).
+    @test opt.count == 1
+    @test length(entries) == 2
+    @test isempty(failures)
+    # loss + retcode are computed pre-rescale → eq_hash-invariant → identical.
+    @test entries[1].loss == entries[2].loss
+    @test entries[1].retcode === entries[2].retcode === :Success
+    # Representative fit first (false); the duplicate is inherited (true).
+    @test [e.row.fit_inherited for e in entries] == [false, true]
+
+    # The memo stores the RAW (pre-rescale) fit: uval=log(5) → every raw param
+    # is 5.0. Each row is that raw fit re-rescaled by ITS OWN mechanism.
+    raw = memo[key]
+    @test all(v -> v ≈ 5.0, values(raw.params))
+    fkeys = EnzymeRates.fitted_params(em1)
+    for (e, m) in zip(entries, (m1, m2))
+        standalone = EnzymeRates._rescale_fitted(
+            EnzymeRates.compile_mechanism(m), raw.params,
+            prob.Keq, prob.scale_k_to_kcat)
+        @test e.row.fitted_param_values == Tuple(standalone[k] for k in fkeys)
+    end
+    # Rescaling actually changed the SS rate constant (raw 5.0 → kcat-anchored),
+    # proving each row is rescaled rather than the raw fit copied verbatim.
+    @test entries[1].row.fitted_param_values != Tuple(values(raw.params))
+
+    # Cross-batch memo hit: a later batch with the same eq_hash refits NOTHING.
+    single = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
+    reused, _ = EnzymeRates._process_batch(single, prob;
+        optimizer=opt, max_param_count=20, n_restarts=1, maxtime=1.0, memo)
+    @test opt.count == 1                                # no new solve
+    @test [e.row.fit_inherited for e in reused] == [true]
+
+    # A representative whose fit throws fails ALL its duplicates
+    # (all-or-nothing per equation).
+    opt_bad = _CountingStubOpt(; throwit=true)
+    bad_entries, bad_failures = EnzymeRates._process_batch(pair, prob;
+        optimizer=opt_bad, max_param_count=20, n_restarts=1, maxtime=1.0,
+        memo = Dict{UInt64, NamedTuple}())
+    @test isempty(bad_entries)
+    @test length(bad_failures) == 2
+    @test all(f -> f isa EnzymeRates.FitFailure, bad_failures)
+end
+
+@testset "LOOCV eq_hash-uniqueness guard (§4)" begin
+    # `_cv_candidate_indices` keeps at most one row per eq_hash per param count
+    # and picks the lowest-loss row for each distinct equation.
+    df = DataFrame(
+        n_params = [3, 3, 3, 4, 4],
+        loss     = [0.5, 0.2, 0.9, 0.1, 0.3],
+        eq_hash  = ["aa", "aa", "bb", "cc", "cc"],
+    )
+    idx = EnzymeRates._cv_candidate_indices(df; n_cv_candidates=5)
+    picked = df[idx, :]
+    for g in groupby(picked, :n_params)
+        @test allunique(g.eq_hash)          # ≤1 row per eq_hash per bucket
+    end
+    @test (2 in idx) && !(1 in idx)         # "aa": row 2 (loss 0.2) beats row 1
+    @test (4 in idx) && !(5 in idx)         # "cc": row 4 (loss 0.1) beats row 5
+    # n_cv_candidates caps the number of DISTINCT equations per bucket.
+    df2 = DataFrame(n_params=[3, 3, 3], loss=[0.5, 0.2, 0.9],
+                    eq_hash=["a", "b", "c"])
+    @test length(EnzymeRates._cv_candidate_indices(df2; n_cv_candidates=2)) == 2
+
+    # `_offer_cv!` likewise keeps at most one entry per eq_hash: a repeat hash
+    # updates its own slot to the lower loss, never consuming a second.
+    mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
+        substrates: S[C]; products: P[C] end))
+    mkentry(loss, h) = EnzymeRates.BatchEntry(mech, 5, loss, :Success, h,
+        (n_params=5, loss=loss, mechanism_type="M", rate_equation="v",
+         retcode="Success", error=missing, fitted_param_names=(:K,),
+         fitted_param_values=(1.0,), eq_hash=string(h, base=16, pad=16),
+         fit_inherited=false))
+    pool = EnzymeRates.BatchEntry[]
+    for (loss, h) in [(1.0, UInt64(1)), (0.5, UInt64(1)), (2.0, UInt64(2))]
+        EnzymeRates._offer_cv!(pool, mkentry(loss, h), 5)
+    end
+    @test allunique([e.eq_hash for e in pool])
+    @test length(pool) == 2
+    @test only(filter(e -> e.eq_hash == UInt64(1), pool)).loss == 0.5
 end

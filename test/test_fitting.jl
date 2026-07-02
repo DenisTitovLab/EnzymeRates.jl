@@ -361,6 +361,42 @@ using Tables
         @test result3.retcode isa Symbol
     end
 
+    # ── fit_rate_equation_raw: the pre-rescale fit reused across eq_hash twins ─
+    @testset "fit_rate_equation_raw exposes the pre-rescale fit" begin
+        using OptimizationBBO
+        Keq_val = 2.0
+        true_params = (kon_S_E = 10.0, kon_P_ES = 5.0, koff_P_ES = 1.0,
+                       Keq = Keq_val, E_total = 1.0)
+        concs_list = [
+            (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
+            (S = 5.0, P = 0.1), (S = 10.0, P = 0.1),
+            (S = 0.5, P = 0.5), (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
+        ]
+        data = make_synthetic_data(uni_uni, true_params, concs_list)
+        opt = BBO_adaptive_de_rand_1_bin_radiuslimited()
+
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=7.0)
+        raw = EnzymeRates.fit_rate_equation_raw(fp, opt; n_restarts=3, maxtime=5.0)
+        @test keys(raw.params) == EnzymeRates.fitted_params(uni_uni)
+        @test isfinite(raw.loss)
+        @test raw.retcode isa Symbol
+        # The raw params are NOT kcat-anchored; rescaling them per mechanism is
+        # what anchors kcat to the target. This is the reuse path each eq_hash
+        # duplicate applies with its OWN structure.
+        rescaled = EnzymeRates._rescale_fitted(
+            fp.mechanism, raw.params, fp.Keq, fp.scale_k_to_kcat)
+        full_p = merge(rescaled, (Keq = Keq_val, E_total = 1.0))
+        @test EnzymeRates._kcat_forward(uni_uni, full_p) ≈ 7.0 rtol=0.01
+
+        # scale_k_to_kcat=nothing: fit_rate_equation returns the raw fit verbatim
+        # (no rescale), so the two share the same param set.
+        fpN = FittingProblem(uni_uni, data; Keq=Keq_val, scale_k_to_kcat=nothing)
+        rawN = EnzymeRates.fit_rate_equation_raw(fpN, opt; n_restarts=1, maxtime=2.0)
+        fullN = fit_rate_equation(fpN, opt; n_restarts=1, maxtime=2.0)
+        @test keys(rawN.params) == keys(fullN.params) ==
+              EnzymeRates.fitted_params(uni_uni)
+    end
+
     # ── Test: solver-option forwarding (named commons + solver_kwargs) ──
     @testset "solver kwarg forwarding" begin
         using OptimizationCMAEvolutionStrategy

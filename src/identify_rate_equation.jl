@@ -282,6 +282,7 @@ function _rows_to_dataframe(rows)
         retcode = Union{Missing,String}[r.retcode for r in rows],
         error = Union{Missing,String}[r.error for r in rows],
         eq_hash = [r.eq_hash for r in rows],
+        fit_inherited = Union{Missing,Bool}[r.fit_inherited for r in rows],
     )
     for pn in sorted_pnames
         df[!, pn] = [
@@ -301,6 +302,9 @@ removed — `# …` header lines and Wegscheider `(substituted into v)` lines
 (the choice of which dependent K was eliminated is cosmetic; it is already
 substituted into v). Two mechanisms with the same key compute the identical
 rate function. Used as a CSV tag and the LOOCV distinct-equation key.
+
+Exact-render identity only: it hashes the (provenance-stripped) equation string
+verbatim, so it detects textually identical equations, not algebraic equivalence.
 """
 function _rate_eq_dedup_key(eq_text::AbstractString)
     kept = Iterators.filter(split(eq_text, '\n')) do ln
@@ -404,7 +408,8 @@ function _failure_row(f::FitFailure)
      error = f.error,
      fitted_param_names = (),
      fitted_param_values = (),
-     eq_hash = missing)
+     eq_hash = missing,
+     fit_inherited = missing)
 end
 
 """
@@ -453,50 +458,128 @@ function _batch_summary(entries::Vector{BatchEntry}, failures::Vector{FitFailure
 end
 
 """
-Compile + cap-check + fit every mechanism in `mechs`, one `pmap` pass with
-compile and fit fused on the same worker. Returns `(entries, failures)`:
-`entries::Vector{BatchEntry}` are the fitted mechanisms (each keeping its OWN
-fitted params, `retcode`, and `eq_hash`); `failures::Vector{FitFailure}` are
-mechanisms that threw (StackOverflow/OOM at compile, an unsupported-kwarg error,
-etc.) — captured WITH the exception text, never silently swallowed. A mechanism
-whose actual fitted-param count exceeds `max_param_count` is dropped BEFORE
-fitting (a cap skip, not a failure). No dedup here — `mechs` is already
-structurally deduped by the caller (`unique!`).
+PASS-1 output of `_process_batch`: a mechanism that compiled and passed the
+param-count cap, carrying everything needed to build a result row once its
+`eq_hash` representative has been fit. Holds the concrete `Mechanism` (not the
+`EnzymeMechanism{Sig}` singleton — that is recompiled on the master, never
+serialized across workers) so PASS-2 can re-rescale per mechanism.
+"""
+struct CompiledMech
+    mech::Union{Mechanism, AllostericMechanism}
+    n_params::Int
+    mechanism_type::String
+    eq_text::String
+    eq_hash::UInt64
+    fitted_param_names::Tuple
+end
+
+"""
+Build a `BatchEntry` for `c` from the shared raw (pre-rescale) fit `raw`,
+applying THIS mechanism's own `rescale_parameter_values` (structure-dependent),
+so duplicates that reuse `raw` still get correctly-scaled parameters. When
+`scale_k_to_kcat === nothing` the raw params are used verbatim. `fit_inherited`
+is `false` for the representative actually fit, `true` for a reused row.
+"""
+function _batch_entry(c::CompiledMech, raw, prob; fit_inherited::Bool)
+    fkeys = c.fitted_param_names
+    pvals = if prob.scale_k_to_kcat === nothing
+        Tuple(raw.params[k] for k in fkeys)
+    else
+        rp = _rescale_fitted(compile_mechanism(c.mech), raw.params,
+                             prob.Keq, prob.scale_k_to_kcat)
+        Tuple(rp[k] for k in fkeys)
+    end
+    row = (
+        n_params = c.n_params,
+        loss = raw.loss,
+        mechanism_type = c.mechanism_type,
+        rate_equation = c.eq_text,
+        retcode = string(raw.retcode),
+        error = missing,
+        fitted_param_names = fkeys,
+        fitted_param_values = pvals,
+        eq_hash = string(c.eq_hash, base=16, pad=16),
+        fit_inherited = fit_inherited,
+    )
+    BatchEntry(c.mech, c.n_params, raw.loss, raw.retcode, c.eq_hash, row)
+end
+
+"""
+Compile + cap-check + fit every mechanism in `mechs`. Returns
+`(entries, failures)`: `entries::Vector{BatchEntry}` are the mechanisms with a
+usable fit (each keeping its OWN rescaled params, `retcode`, and `eq_hash`);
+`failures::Vector{FitFailure}` are mechanisms that threw (StackOverflow/OOM at
+compile, an unsupported-kwarg error, a degenerate `_kcat_forward`, etc.) —
+captured WITH the exception text, never silently swallowed. A mechanism whose
+actual fitted-param count exceeds `max_param_count` is dropped BEFORE fitting
+(a cap skip, not a failure).
+
+Two passes with fit-dedup by `eq_hash`. PASS-1 (`pmap`) compiles, caps, and
+renders every structurally-distinct mechanism (redundant compiles are
+unavoidable — the `eq_hash` is only known post-render). PASS-2 (master) fits ONE
+representative per unseen `eq_hash` at full budget, memoizes the RAW pre-rescale
+fit, and builds a row for every mechanism by re-rescaling that raw fit with the
+mechanism's own structure. `memo` persists across batches (threaded from
+`_beam_search`), so an `eq_hash` fit in an earlier iteration is never refit. A
+representative whose fit throws fails ALL of its duplicates (all-or-nothing per
+equation); a per-mechanism rescale that throws fails only that mechanism.
+`mechs` is already structurally deduped by the caller (`unique!`).
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
-    optimizer, max_param_count, kwargs...
+    optimizer, max_param_count,
+    memo::Dict{UInt64,NamedTuple}=Dict{UInt64,NamedTuple}(), kwargs...
 )
-    results = pmap(mechs) do m
+    # PASS 1 (workers): compile + cap-check + render. `nothing` = cap skip;
+    # `FitFailure` = threw at compile/render; else a `CompiledMech`.
+    compiled = pmap(mechs) do m
         try
             em = compile_mechanism(m)
             fkeys = fitted_params(em)
             n = length(fkeys)
             n > max_param_count && return nothing
             eq_text = rate_equation_string(em)
-            key = _rate_eq_dedup_key(eq_text)
-            fp = FittingProblem(em, prob.data;
-                Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
-            fit = fit_rate_equation(fp, optimizer; kwargs...)
-            row = (
-                n_params = n,
-                loss = fit.loss,
-                mechanism_type = string(typeof(em)),
-                rate_equation = eq_text,
-                retcode = string(fit.retcode),
-                error = missing,
-                fitted_param_names = fkeys,
-                fitted_param_values =
-                    Tuple(fit.params[k] for k in fkeys),
-                eq_hash = string(key, base=16, pad=16),
-            )
-            BatchEntry(m, n, fit.loss, fit.retcode, key, row)
+            CompiledMech(m, n, string(typeof(em)), eq_text,
+                         _rate_eq_dedup_key(eq_text), fkeys)
         catch e
             FitFailure(m, _exc_string(e))
         end
     end
-    entries  = BatchEntry[r for r in results if r isa BatchEntry]
-    failures = FitFailure[r for r in results if r isa FitFailure]
+
+    # PASS 2 (master): fit ONE representative per unseen `eq_hash`.
+    fit_error = Dict{UInt64,String}()   # eq_hash → representative fit threw
+    rep_index = Dict{UInt64,Int}()      # eq_hash → index of the rep fit here
+    for (i, c) in enumerate(compiled)
+        c isa CompiledMech || continue
+        (haskey(memo, c.eq_hash) || haskey(fit_error, c.eq_hash)) && continue
+        try
+            em = compile_mechanism(c.mech)
+            fp = FittingProblem(em, prob.data;
+                Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
+            memo[c.eq_hash] = fit_rate_equation_raw(fp, optimizer; kwargs...)
+            rep_index[c.eq_hash] = i
+        catch e
+            fit_error[c.eq_hash] = _exc_string(e)
+        end
+    end
+
+    # Build a row per compiled mechanism, reusing the memoized raw fit.
+    entries  = BatchEntry[]
+    failures = FitFailure[]
+    for (i, c) in enumerate(compiled)
+        c === nothing && continue          # cap skip
+        c isa FitFailure && (push!(failures, c); continue)
+        if haskey(fit_error, c.eq_hash)
+            push!(failures, FitFailure(c.mech, fit_error[c.eq_hash]))
+            continue
+        end
+        try
+            push!(entries, _batch_entry(c, memo[c.eq_hash], prob;
+                fit_inherited = get(rep_index, c.eq_hash, 0) != i))
+        catch e
+            push!(failures, FitFailure(c.mech, _exc_string(e)))
+        end
+    end
     return entries, failures
 end
 
@@ -552,6 +635,9 @@ function _beam_search(
     frontier = Dict{Int, Vector{BatchEntry}}()
     cv_pool  = Dict{Int, Vector{BatchEntry}}()
     best_loss_by_count = Dict{Int, Float64}()
+    # Raw pre-rescale fits keyed by `eq_hash`, shared across iterations so each
+    # distinct equation is fit exactly once over the whole search.
+    memo = Dict{UInt64,NamedTuple}()
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
     _progress(save_dir, show_progress, "Enumerating initial mechanisms…")
@@ -559,7 +645,7 @@ function _beam_search(
     _progress(save_dir, show_progress,
         "Fitting $(length(base)) initial mechanisms…")
     base_entries, base_failures = _process_batch(base, prob;
-        optimizer, max_param_count, kwargs...)
+        optimizer, max_param_count, memo, kwargs...)
     if isempty(base_entries)
         isempty(base_failures) && return (
             Union{Mechanism, AllostericMechanism}[],
@@ -608,7 +694,7 @@ function _beam_search(
             children = unique!(
                 expand_mechanisms(parents, prob.reaction))
             child_entries, child_failures = _process_batch(children, prob;
-                optimizer, max_param_count, kwargs...)
+                optimizer, max_param_count, memo, kwargs...)
             if !isempty(child_entries) || !isempty(child_failures)
                 # Count only iterations that produced rows, so the
                 # equation_search_iteration_N CSVs are gap-free.
@@ -874,20 +960,14 @@ function _select_best_n_params(
     )
 end
 
-function _cv_model_selection(
-    mechs::Vector, df::DataFrame,
-    prob::IdentifyRateEquationProblem;
-    n_cv_candidates, optimizer,
-    se_threshold::Float64,
-    perm_p_threshold::Float64,
-    save_dir, show_progress,
-    kwargs...
-)
-    isempty(mechs) && error(
-        "No mechanisms were successfully " *
-        "fitted during beam search")
-
-    # Pick top n_cv_candidates per (n_params, eq_hash) bucket.
+"""
+Row indices into `df` of the LOOCV candidates: the top `n_cv_candidates`
+DISTINCT equations (by `eq_hash`, lowest `loss` each) per `n_params` bucket.
+Deduping by `eq_hash` keeps identical equations out of LOOCV — at most one row
+per `eq_hash` per param count — so cross-validation never wastes folds on, or is
+biased by, textually identical equations.
+"""
+function _cv_candidate_indices(df::DataFrame; n_cv_candidates)
     candidate_indices = Int[]
     df_idx = DataFrame(
         row_idx = 1:nrow(df),
@@ -905,7 +985,23 @@ function _cv_model_selection(
             length(seen_hashes) >= n_cv_candidates && break
         end
     end
+    candidate_indices
+end
 
+function _cv_model_selection(
+    mechs::Vector, df::DataFrame,
+    prob::IdentifyRateEquationProblem;
+    n_cv_candidates, optimizer,
+    se_threshold::Float64,
+    perm_p_threshold::Float64,
+    save_dir, show_progress,
+    kwargs...
+)
+    isempty(mechs) && error(
+        "No mechanisms were successfully " *
+        "fitted during beam search")
+
+    candidate_indices = _cv_candidate_indices(df; n_cv_candidates)
     candidate_mechs = mechs[candidate_indices]
     candidate_rows = df[candidate_indices, :]
 
