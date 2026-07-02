@@ -2,9 +2,7 @@
 
 **Date:** 2026-07-02
 **Status:** Analysis + ODE-validated diagnosis. **No fix implemented** — the fix
-direction is a design decision (see Recommendation). Companion to the LDH HPC findings
-spec `2026-07-01-ldh-hpc-findings-fixes-design.md` (§5b), which this supersedes with the
-ODE ground truth.
+direction is a design decision (see Recommendation).
 **Scope:** 28 of 100,787 fits in the 2026-06-27 LDH `identify_rate_equation` run
 (`docs/ldh_hpc_results/2026_06_27_results`). Rare, and reached only on the allosteric path.
 
