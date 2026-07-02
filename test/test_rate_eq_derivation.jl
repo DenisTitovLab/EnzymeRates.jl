@@ -1091,6 +1091,69 @@ end
     @test allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
 end
 
+# ── §5a regression: every inactive-state parameter must be defined ──────────
+# These `mechanism_type` strings come from an LDH `identify_rate_equation` run
+# where allosteric mechanisms crashed with `UndefVarError` on undefined I-state
+# parameters — the I-state polynomials referenced names the dep-assignment and
+# destructuring machinery never emitted. They are round-trippable singleton-type
+# strings, embedded here so the regression is self-contained (the source CSVs are
+# not tracked). Each exercises a distinct trigger path:
+#   caseB_binding  — i_state_dead, previously dangled `K_I_Lactate_ENAD`
+#   caseB_reverse  — i_state_dead, previously dangled
+#                    `k_I_ELactateNAD_to_ENADHPyruvate`
+#   nonidead_multi — live I-state, previously dangled `kon_I_NAD_EPyruvate`
+const LDH_ISTATE_FAILURE_MECHS = [
+    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), false), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), false)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),)))}, (4, (:NonequalAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI)), ()}",
+    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false)), (((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),)))}, (4, (:NonequalAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI)), ()}",
+    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true),), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), false),)))}, (4, (:EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :NonequalAI)), ()}",
+]
+
+# Parameter Symbols referenced on an assignment/`v` RHS but never defined
+# (destructured from `params`/`concs` or assigned as an LHS). Empty ⟺ the
+# rendered rate equation is closed: every referenced name has a definition.
+function _undefined_rhs_symbols(s::AbstractString)
+    ident = r"[A-Za-z_][A-Za-z0-9_]*"
+    defined = Set{Symbol}()
+    referenced = Set{Symbol}()
+    for raw in split(s, '\n')
+        line = replace(raw, EnzymeRates.ANNOTATION_SUBSTITUTED => "")
+        stripped = strip(line)
+        (isempty(stripped) || startswith(stripped, "#")) && continue
+        if occursin("= params", line) || occursin("= concs", line)
+            for mt in eachmatch(ident, split(line, '=')[1])
+                push!(defined, Symbol(mt.match))
+            end
+        else
+            lhs, rhs = split(line, '='; limit=2)
+            push!(defined, Symbol(strip(lhs)))
+            for mt in eachmatch(ident, rhs)
+                push!(referenced, Symbol(mt.match))
+            end
+        end
+    end
+    setdiff(referenced, defined)
+end
+
+@testset "§5a I-state parameters are all defined (regression)" begin
+    for s in LDH_ISTATE_FAILURE_MECHS
+        em = Core.eval(EnzymeRates, Meta.parse(s))()
+        pnames = EnzymeRates.fitted_params(em)
+        mets = EnzymeRates.metabolites(em)
+        prods = Set(EnzymeRates.products(em))
+        params = merge(NamedTuple{pnames}(ntuple(_ -> 1.3, length(pnames))),
+                       (Keq = 20000.0, E_total = 1.0))
+        concs = NamedTuple{mets}(ntuple(_ -> 1.5, length(mets)))
+        # No UndefVarError: the @generated body compiles and evaluates finite.
+        @test isfinite(EnzymeRates.rate_equation(em, concs, params))
+        # Finite at products = 0 too (the kcat evaluation domain).
+        concs0 = NamedTuple{mets}(
+            ntuple(i -> mets[i] in prods ? 0.0 : 1.5, length(mets)))
+        @test isfinite(EnzymeRates.rate_equation(em, concs0, params))
+        # DEFINED ⊇ REFERENCED on the rendered transcript.
+        @test isempty(_undefined_rhs_symbols(EnzymeRates.rate_equation_string(em)))
+    end
+end
+
 # ── Standalone kcat tests ──────────────────────────────────────────────────────
 
 @testset "rate_equation polynomial body uses 2-arg +/* calls" begin

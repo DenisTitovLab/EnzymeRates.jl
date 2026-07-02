@@ -269,6 +269,18 @@ function _expr_references_any(expr, syms::Set{Symbol})
     false
 end
 
+"""Collect every Symbol leaf of an `Expr` tree into `acc`."""
+function _collect_expr_syms!(expr, acc::Set{Symbol})
+    if expr isa Symbol
+        push!(acc, expr)
+    elseif expr isa Expr
+        for a in expr.args
+            _collect_expr_syms!(a, acc)
+        end
+    end
+    acc
+end
+
 """Substitute symbols in an `Expr` tree (bare symbol matching)."""
 function substitute_params_expr(expr, subs::AbstractDict)
     if expr isa Symbol
@@ -324,27 +336,5 @@ function _zero_symbols_in_poly(p::POLY, sym_set::Set{Symbol})
     result
 end
 
-"""
-Set of symbols that survive the inactive-state masking applied by
-`_zero_symbols_in_poly(_, a_only_syms)`. A symbol `s` survives iff it
-appears in at least one monomial of `num_A ∪ den_A` that contains
-NO symbol from `a_only_syms` (those monomials are the ones that remain
-non-zero in the inactive-state polynomial).
-
-Used by the AllostericEnzymeMechanism dep-exprs filter to avoid declaring
-`:NonequalAI` I-state parameters that never appear in the rate equation
-body — a phantom-parameter case where `p` is only present in active-state
-monomials that get zeroed when constructing the inactive-state polynomial.
-"""
-function _i_state_surviving_syms(num_A::POLY, den_A::POLY, a_only_syms::Set{Symbol})
-    surviving = Set{Symbol}()
-    for poly in (num_A, den_A)
-        for mono in keys(poly)
-            any(s ∈ a_only_syms for (s, _) in mono) && continue
-            for (s, _) in mono
-                push!(surviving, s)
-            end
-        end
-    end
-    surviving
-end
+"""Set of every Symbol appearing in any monomial of a POLY (params + metabolites)."""
+_poly_param_syms(p::POLY) = Set{Symbol}(s for mono in keys(p) for (s, _) in mono)
