@@ -1308,24 +1308,35 @@ function _add_case_b_renames!(rename_I::Dict{Symbol, Symbol}, deps, am)
 end
 
 """
-I-state parameter Symbols actually referenced by the retained rate-equation
-polynomials: `den_i_poly` always (`Q_I` is kept as enzyme mass), plus
-`num_i_poly` when the I-state cycle is live. This is the single source of truth
-for which I-state names get defined, replacing the group-structure prediction
-that drifted out of sync with the polynomials.
+The I-state numerator and denominator polynomials `(num_i, den_i)`: zero the
+`:OnlyA` symbols in the A-state polys, then rename `:NonequalAI` (and synthesized
+Case-B) symbols to their I-suffixed counterparts. Single source of truth for both
+`S_I` (`_i_state_referenced_syms`) and the codegen (`_allosteric_num_den_exprs`);
+the two MUST build from the same polynomials or the emitted I-state parameter
+definitions desync from the polynomials referencing them (§5a `UndefVarError`).
 """
-function _i_state_referenced_syms(am::AllostericMechanism)
+function _i_state_num_den_polys(am::AllostericMechanism)
     num_A, den_A = _raw_symbolic_rate_polys_allosteric(am)
     a_only = _a_only_syms(am)
     rename_I = _a_to_i_rename(am)
     dep_A, _ = _dependent_param_exprs_allosteric(am)
     _add_case_b_renames!(rename_I, dep_A, am)
+    num_i = _rename_symbols(_zero_symbols_in_poly(num_A, a_only), rename_I)
     den_i = _rename_symbols(_zero_symbols_in_poly(den_A, a_only), rename_I)
+    return num_i, den_i
+end
+
+"""
+I-state parameter Symbols actually referenced by the retained rate-equation
+polynomials: `den_i` always (`Q_I` is kept as enzyme mass), plus `num_i` when the
+I-state cycle is live. This is the single source of truth for which I-state names
+get defined, replacing the group-structure prediction that drifted out of sync
+with the polynomials.
+"""
+function _i_state_referenced_syms(am::AllostericMechanism)
+    num_i, den_i = _i_state_num_den_polys(am)
     S = _poly_param_syms(den_i)
-    if !_i_state_dead(am)
-        num_i = _rename_symbols(_zero_symbols_in_poly(num_A, a_only), rename_I)
-        union!(S, _poly_param_syms(num_i))
-    end
+    _i_state_dead(am) || union!(S, _poly_param_syms(num_i))
     S
 end
 
@@ -1580,31 +1591,14 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     cat_params = Set{Symbol}(get(rename_A, s, s) for s in _raw_param_symbols(CM()))
     cat_mets = Set{Symbol}(metabolites(CM()))
 
-    a_only_syms = _a_only_syms(am)
-    # Pass 1: base I-rename for `:NonequalAI` catalytic-group Parameters.
-    rename_I = _a_to_i_rename(am)
-    # Pass 2: dep RHSes referencing a `:NonequalAI` symbol need their own
-    # I-state name so the polynomial rename covers synthesized deps.
-    # Mirrors the second pass in `_dependent_param_exprs`.
-    dep_A_all, _ = _dependent_param_exprs_allosteric(am)
-    _add_case_b_renames!(rename_I, dep_A_all, am)
-
     N_A = _poly_to_expr(num_A_poly, cat_params, cat_mets)
     Q_A = _poly_to_expr(den_A_poly, cat_params, cat_mets)
 
-    # I-state catalytic Exprs.
-    # Zero `:OnlyA` symbols at POLY level, then rename `:NonequalAI`
-    # symbols to I-suffixed counterparts. `:EqualAI` symbols pass through
-    # unchanged (A-state binding) and resolve through dep-param assignments.
-    # When the I-state cycle is broken, force N_I = 0: the Cha framework
-    # otherwise produces a non-physical reverse flux from products that
-    # have nowhere to go.
-    num_i_poly = _rename_symbols(
-        _zero_symbols_in_poly(num_A_poly, a_only_syms),
-        rename_I)
-    den_i_poly = _rename_symbols(
-        _zero_symbols_in_poly(den_A_poly, a_only_syms),
-        rename_I)
+    # I-state catalytic Exprs from the shared I-state polynomials (`:OnlyA`
+    # symbols zeroed, `:NonequalAI`/Case-B symbols I-renamed). When the I-state
+    # cycle is broken, force N_I = 0: the Cha framework otherwise produces a
+    # non-physical reverse flux from products that have nowhere to go.
+    num_i_poly, den_i_poly = _i_state_num_den_polys(am)
     N_I = _i_state_dead(m) ? 0 :
           _poly_to_expr(num_i_poly, cat_params, cat_mets)
     Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)
