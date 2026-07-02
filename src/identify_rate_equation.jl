@@ -425,6 +425,15 @@ function _progress(save_dir::AbstractString, show_progress::Bool, msg::AbstractS
 end
 
 """
+Observed `n_params` range across a batch of child entries: `"n/a"` when empty,
+a single count when uniform, `"lo-hi"` otherwise.
+"""
+_np_range_label(entries) = isempty(entries) ? "n/a" :
+    let lo = minimum(e -> e.n_params, entries), hi = maximum(e -> e.n_params, entries)
+        lo == hi ? string(lo) : "$lo-$hi"
+    end
+
+"""
 One-line summary of a fitted batch: count + the three retcode/error buckets
 (% Success / % non-Success retcode / % errored) and the best loss. Denominator
 is fitted + errored mechanisms for the batch.
@@ -609,7 +618,8 @@ function _beam_search(
                          [_failure_row(f) for f in child_failures]),
                     iteration)
                 _progress(save_dir, show_progress,
-                    "Iteration $iteration (target n_params=$target): " *
+                    "Iteration $iteration (child n_params " *
+                    "$(_np_range_label(child_entries))): " *
                     "$(length(parents)) parents → $(length(children)) children | " *
                     _batch_summary(child_entries, child_failures))
             end

@@ -970,6 +970,13 @@ end
     @test f(Dict(5=>0.01,6=>0.04), 7, 1.01) ≈ 1.01*0.01    # non-monotone → true min
 end
 
+@testset "§3 child n_params range label" begin
+    g = EnzymeRates._np_range_label
+    @test g(NamedTuple[]) == "n/a"
+    @test g([(n_params=8,)]) == "8"
+    @test g([(n_params=7,), (n_params=13,), (n_params=9,)]) == "7-13"
+end
+
 @testset "_progress" begin
     mktempdir() do tmp
         # show_progress=true: writes to progress.log AND to stdout.
