@@ -1102,6 +1102,10 @@ end
 #   caseB_reverse  — i_state_dead, previously dangled
 #                    `k_I_ELactateNAD_to_ENADHPyruvate`
 #   nonidead_multi — live I-state, previously dangled `kon_I_NAD_EPyruvate`
+# The 4th trigger path (i_dead with a phantom `kon_I_*` binding param) has no
+# embedded fixture; the two i_state_dead fixtures above exercise the dead
+# I-state branch generally, and S_I's reference-polynomial construction
+# handles phantom binding params structurally rather than case-by-case.
 const LDH_ISTATE_FAILURE_MECHS = [
     "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), false), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), false)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),)))}, (4, (:NonequalAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI)), ()}",
     "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false)), (((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),)))}, (4, (:NonequalAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI)), ()}",
@@ -1151,6 +1155,12 @@ end
         @test isfinite(EnzymeRates.rate_equation(em, concs0, params))
         # DEFINED ⊇ REFERENCED on the rendered transcript.
         @test isempty(_undefined_rhs_symbols(EnzymeRates.rate_equation_string(em)))
+        # The fixed I-state codegen must still meet the 0-alloc / sub-100ns
+        # contract (test_rate_equation_performance is the same helper used
+        # for MECHANISM_TEST_SPECS in test_performance above).
+        allocs, t = test_rate_equation_performance(em, params, concs)
+        @test allocs == 0
+        @test t < 100e-9
     end
 end
 
