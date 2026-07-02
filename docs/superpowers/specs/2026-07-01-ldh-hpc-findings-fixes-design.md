@@ -106,42 +106,45 @@ runnable-transcript test (`rate_equation_string` LHS-covers every v-line symbol)
 0-alloc / sub-100 ns assertion on one of the new LDH `i_dead` fixtures (the existing perf
 test uses PFK-1/HK, which do not exercise this path).
 
-### §5b — `_kcat_forward` "no components" and `NaN` at products=0 — derivation bug
+### §5b — `_kcat_forward` "no components" — BLOCKED, needs a design decision
 
-**Root cause (investigated directly, overturning the initial "zero-kcat" reading).** The 28
-mechanisms are **not** zero-kcat. Their forward rate at saturating substrates as
-products→0⁺ converges to a finite nonzero limit (13.78, 4.98, 4.96 for three samples);
-only at *exactly* products=0 does it evaluate to `NaN`. The derived numerator and
-denominator share an **uncancelled common factor involving products** — the denominator
-has no constant (free-enzyme `1`) term, so its reference form is product-bound. Two
-symptoms, one cause: (a) `_kcat_forward`'s substrate-only-monomial matcher finds nothing
-and hits `isempty(a_keys)` (`:882`); (b) `rate_equation` returns `0/0 = NaN` at products=0,
-which can corrupt fits on any zero-product data point. This is a division-free-derivation /
-free-enzyme-reference artifact and overlaps the existing division-free work.
+**Status (2026-07-02): the original premise here was FALSIFIED during implementation; no fix
+was shipped.** The Task 2 implementer (opus) and an independent re-check proved these 28
+mechanisms have **no unique forward kcat** — the earlier "finite ~13.78 limit" was measured
+only along the diagonal path (both products → the same ε). The true multivariate limit as
+`(Lactate, NAD) → (0,0)` is **path-dependent**: with distinct params it ranges e.g. ~5.3
+(Lactate→0 faster) / ~7.1 (diagonal) / ~10.3 (NAD→0 faster). So the `NaN` at exactly
+products=0 is **mathematically correct**, and there is no single number for `_kcat_forward`
+to return.
 
-Returning `kcat = 0.0` (an earlier proposal) is **wrong**: it would stamp kcat=0 on an
-enzyme whose kcat is ~14 and corrupt `scale_k_to_kcat` rescaling.
+**True root cause (verified).** RE segment group {ELactate, ENAD, ENADPyruvate, ELactateNAD}
+has **no product-free reference form**; its genuine RE steps couple the two products, so
+`_compute_alpha` (`rate_eq_derivation.jl:281`) emits `alpha[ENAD] ∝ NAD/Lactate`. That puts
+`NAD/Lactate` Laurent terms in the raw denominator; `_reduce_conc_lowest_terms`
+(`sym_poly_for_rate_eq_derivation.jl:56`) multiplies num & den by `Lactate` to clear the −1
+exponent, shifting the 16 free-enzyme constant terms into product-bearing ones → the reduced
+denominator has no constant term → `0/0` at products=0 and `_kcat_forward`'s substrate-only
+matcher (`:880-884`) finds nothing. This is **correct division-free behavior for a genuinely
+singular topology**, not an uncancelled-factor bug: proved that no monomial rescaling can
+make the reduced denominator both division-free AND carry a product-free term.
 
-**Fix.** Root-cause the common factor in the numerator/denominator derivation and cancel
-it (restore the free-enzyme reference / extend the conc-GCD reduction so the denominator
-regains its constant term). This simultaneously restores the substrate-only numerator
-monomial (so `_kcat_forward` works unchanged) and removes the products=0 `NaN`. The exact
-cancellation site is not yet pinned; implementation begins by locating where the
-free-enzyme-per-segment reference leaves a shared product factor for these topologies. The
-change is compile-time (derivation) only, so the runtime perf contract is not at risk, but
-it is in load-bearing code and requires full-suite TDD.
+**Scope of the real failure is narrower than first thought.** On the actual assay data
+(products never exactly 0 on the eval grid) `rate_equation` does NOT crash — only
+`_kcat_forward` (via `rescale_parameter_values`) throws. So the production symptom is
+exclusively the `_kcat_forward` `error` for the 28 mechanisms.
 
-**Acceptance criteria.** For the 28 mechanisms: `_kcat_forward` returns a finite value
-equal to the numerical grid-peak forward turnover (matching the products→0⁺ limit), and
-`rate_equation` returns a finite value at products=0. No change to any currently-working
-mechanism's rendered equation or kcat.
+**Decision required from Denis (architectural — do not decide unilaterally):**
+1. **Reject the topology** (implementer's recommendation): a derivation-time validator that
+   raises a clear error when an RE segment has no product-free reference form and couples ≥2
+   metabolites so the reduced denominator has no constant term. Mirrors existing
+   `_compute_numerator` guards. Risk: must prove it rejects none of the 21,724 passing
+   mechanisms; needs the other 27 failing mechanisms to bound the class.
+2. **Define a kcat convention** (e.g. `_kcat_forward` from the raw Laurent polys → the
+   product-free-terms ratio, the "no reverse coupling" limit). Fixes the crash, but it is a
+   semantic choice and does not make `rate_equation` finite at exactly products=0.
 
-**Tests.** **Add ≥1 of the 28 as a `MECHANISM_TEST_SPECS` entry** (via
-`@allosteric_mechanism_src`) with an `analytical_kcat_fn`, so kcat correctness is a permanent
-guard: assert `_kcat_forward` equals the numerical grid-peak forward turnover and
-`rate_equation` is finite at products=0. Plus a guard that no valid mechanism's denominator
-lacks a constant term, and `rescale_parameter_values` round-trips
-(`_kcat_forward(result) ≈ scale_k_to_kcat`).
+Full analysis: `.superpowers/sdd/task-2-report.md`. This section supersedes the earlier
+"cancel a shared factor" framing, which is impossible here.
 
 ### §1 — Parsimony filter references only `c-1`
 
