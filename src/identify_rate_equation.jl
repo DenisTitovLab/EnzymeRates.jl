@@ -461,8 +461,9 @@ end
 PASS-1 output of `_process_batch`: a mechanism that compiled and passed the
 param-count cap, carrying everything needed to build a result row once its
 `eq_hash` representative has been fit. Holds the concrete `Mechanism` (not the
-`EnzymeMechanism{Sig}` singleton — that is recompiled on the master, never
-serialized across workers) so PASS-2 can re-rescale per mechanism.
+`EnzymeMechanism{Sig}` singleton — the singleton is recompiled from it, never
+serialized) so PASS-2's `pmap` can recompile+fit a representative and the master
+can re-rescale per mechanism.
 """
 struct CompiledMech
     mech::Union{Mechanism, AllostericMechanism}
@@ -516,10 +517,11 @@ actual fitted-param count exceeds `max_param_count` is dropped BEFORE fitting
 
 Two passes with fit-dedup by `eq_hash`. PASS-1 (`pmap`) compiles, caps, and
 renders every structurally-distinct mechanism (redundant compiles are
-unavoidable — the `eq_hash` is only known post-render). PASS-2 (master) fits ONE
-representative per unseen `eq_hash` at full budget, memoizes the RAW pre-rescale
-fit, and builds a row for every mechanism by re-rescaling that raw fit with the
-mechanism's own structure. `memo` persists across batches (threaded from
+unavoidable — the `eq_hash` is only known post-render). PASS-2 (`pmap`) fits ONE
+representative per unseen `eq_hash` at full budget across all workers, memoizes
+the RAW pre-rescale fit, and the master builds a row for every mechanism by
+re-rescaling that raw fit with the mechanism's own structure. `memo` persists
+across batches (threaded from
 `_beam_search`), so an `eq_hash` fit in an earlier iteration is never refit. A
 representative whose fit throws fails ALL of its duplicates (all-or-nothing per
 equation); a per-mechanism rescale that throws fails only that mechanism.
@@ -546,20 +548,37 @@ function _process_batch(
         end
     end
 
-    # PASS 2 (master): fit ONE representative per unseen `eq_hash`.
-    fit_error = Dict{UInt64,String}()   # eq_hash → representative fit threw
-    rep_index = Dict{UInt64,Int}()      # eq_hash → index of the rep fit here
+    # PASS 2: pick ONE representative per unseen `eq_hash` on the master, then
+    # fit those representatives in PARALLEL (`pmap`). Fitting dominates cost, so
+    # it must run across all workers — a serial master loop would idle them.
+    rep_index = Dict{UInt64,Int}()      # eq_hash → index of its representative
     for (i, c) in enumerate(compiled)
         c isa CompiledMech || continue
-        (haskey(memo, c.eq_hash) || haskey(fit_error, c.eq_hash)) && continue
+        haskey(memo, c.eq_hash) && continue        # fit in an earlier batch
+        haskey(rep_index, c.eq_hash) && continue   # representative already chosen
+        rep_index[c.eq_hash] = i
+    end
+    reps = CompiledMech[compiled[i] for i in sort!(collect(values(rep_index)))]
+    rep_results = pmap(reps) do c
         try
             em = compile_mechanism(c.mech)
             fp = FittingProblem(em, prob.data;
                 Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
-            memo[c.eq_hash] = fit_rate_equation_raw(fp, optimizer; kwargs...)
-            rep_index[c.eq_hash] = i
+            (eq_hash = c.eq_hash, error = nothing,
+             raw = fit_rate_equation_raw(fp, optimizer; kwargs...))
         catch e
-            fit_error[c.eq_hash] = _exc_string(e)
+            (eq_hash = c.eq_hash, error = _exc_string(e), raw = nothing)
+        end
+    end
+
+    # Fold the parallel fits into the memo; a representative that threw marks its
+    # whole `eq_hash` failed (all-or-nothing per equation).
+    fit_error = Dict{UInt64,String}()   # eq_hash → representative fit threw
+    for r in rep_results
+        if r.error === nothing
+            memo[r.eq_hash] = r.raw
+        else
+            fit_error[r.eq_hash] = r.error
         end
     end
 
