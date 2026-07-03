@@ -226,7 +226,8 @@ git commit -m "refactor: source allosteric deps/kcat/Full-params from per-state 
 - Test: full suite
 
 **Interfaces:**
-- Removes (only if grep-confirmed unreferenced): `_A_rename_parameters`, `_a_to_i_rename`, `_I_rename_parameters`, `_raw_symbolic_rate_polys_allosteric`, `_dependent_param_exprs_allosteric`, `_i_state_num_den_polys`, `_synthesized_dep_i_names`, `_add_case_b_renames!`, `_i_state_referenced_syms`, `_all_i_state_parameters` (if now unused), `_onlyA_parameters`/`_a_only_syms` (if the `_i_state_dead` gate is replaced by native zeroing). Keep the minimal `_force_inactive`/`_dep_inactive_name` naming helper used by the Case-B rule.
+- Removes (only if grep-confirmed unreferenced): `_A_rename_parameters`, `_a_to_i_rename`, `_I_rename_parameters`, `_raw_symbolic_rate_polys_allosteric`, `_dependent_param_exprs_allosteric`, `_synthesized_dep_i_names`, `_add_case_b_renames!`, `_i_state_referenced_syms`, `_all_i_state_parameters` (if now unused). Keep the minimal `_force_inactive`/`_dep_inactive_name` naming helper used by the Case-B rule.
+- **RETAINED (do NOT delete — updated after Task 3):** `_i_state_num_den_polys` and `_i_state_dead` are load-bearing for the dead-state reachability partition (spec §3), as is whatever A→I rename helper `_i_state_num_den_polys` still calls to name its surviving binding groups (likely keeps `_onlyA_parameters`/`_a_only_syms` and part of the rename machinery alive). The grep-then-delete-only-if-unreferenced procedure is self-correcting, so this is an expectation-setting note, not a rewrite: the net deletion is smaller than the header's original estimate.
 
 - [ ] **Step 1: For each candidate function, grep the whole `src/` and `test/` for references.**
 
