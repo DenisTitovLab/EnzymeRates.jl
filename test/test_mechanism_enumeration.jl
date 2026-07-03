@@ -1598,19 +1598,20 @@ end
         # Iso SS. → 2 variants.
         @test length(result) == 2
 
-        # 2. Δ params. The P-binding RE→SS variant adds +1 (its kon/koff pair,
-        # T-state binding partition only). The S-binding (:OnlyA) RE→SS variant
-        # adds +2: because catalysis is :EqualAI, the inactive state still
-        # populates E(S) via REVERSE catalysis E(P)→E(S) even though S cannot
-        # bind directly, so the inactive-state partition Q_I carries E(S)'s
-        # SS-dependent weight (k_ES_to_EP, k_EP_to_ES) — an extra identifiable
-        # fitted param. Equilibrium flux stays 0 (thermodynamically consistent).
-        # (The old rename-reconstruction dropped E(S) from Q_I, giving [1, 1].)
+        # 2. Δ params. Connected-component pruning populates the inactive state
+        # from free E over ALL surviving steps, so because catalysis is :EqualAI
+        # the base mechanism's Q_I ALREADY carries E(S) via REVERSE catalysis
+        # E(P)→E(S) — even though S-binding is :OnlyA and cannot bind directly in
+        # the T-state. E(S) is therefore present in the inactive state of the
+        # base AND of every variant, so flipping a binding group RE→SS adds only
+        # that group's own SS rate constant (+1) — it does not introduce a new
+        # inactive-state form. Both variants → Δ=1. Equilibrium flux stays 0 for
+        # both (verified at Keq mass-action ratio, |v_eq|/|v| ~ 1e-16).
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 2]
+        @test deltas == [1, 1]
 
         # 3. compilability
         for r in result
@@ -2818,13 +2819,22 @@ end
         # 1. count: 5 kinetic groups → 1 + 5 = 6 variants.
         @test length(result) == 6
 
-        # 2. Δ params: +1 per variant (just the allosteric L). Measured
-        # against the actual compiled fitted count.
+        # 2. Δ params: +1 per variant for the allosteric L, plus +1 more when
+        # making a group :OnlyA leaves its bound form REVERSE-catalysis-populated
+        # in the inactive state. Connected-component pruning derives Q_I from
+        # free E over ALL surviving steps, so with :EqualAI catalysis a form
+        # whose direct binding is now forbidden is still reached through the
+        # catalysis step and carries an SS-dependent weight (+1 identifiable
+        # param). Of the 6 variants (baseline + 5 per-group :OnlyA), two are Δ=1
+        # (the all-:EqualAI baseline and the one :OnlyA form left genuinely
+        # disconnected from free E) and four are reverse-catalysis-populated
+        # (Δ=2). Equilibrium flux is 0 for all six (verified at the Keq
+        # mass-action ratio, |v_eq|/|v| ~ 1e-16).
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 1, 1, 1, 1]
+        @test deltas == [1, 1, 2, 2, 2, 2]
 
         # 3. compilability — must produce AllostericEnzymeMechanism.
         for r in result
@@ -2864,20 +2874,22 @@ end
         n_groups = length(m.steps)
         @test length(result) == n_groups + 1
 
-        # 2. Δ params: +1 per variant for the allosteric L, plus +1 more for
-        # the three :OnlyA variants whose inactive-state partition Q_I gains an
-        # SS-dependent form. In this ping-pong topology (:EqualAI catalysis),
-        # making a binding group :OnlyA removes that ligand's direct binding in
-        # the inactive state, but reverse catalysis can still populate the bound
-        # form, so Q_I carries its SS-dependent weight (+1 identifiable param).
-        # Four variants' :OnlyA form is genuinely unpopulated in the inactive
-        # state (Δ=1); three are reverse-catalysis-populated (Δ=2). Equilibrium
-        # flux is 0 for all seven (thermodynamically consistent).
+        # 2. Δ params: +1 per variant for the allosteric L, plus +1 more when a
+        # group's :OnlyA bound form stays REVERSE-catalysis-populated in the
+        # inactive state. Connected-component pruning derives Q_I from free E
+        # over ALL surviving steps, so in this ping-pong topology (:EqualAI
+        # catalysis) making a binding group :OnlyA forbids its direct binding but
+        # reverse catalysis still populates the bound form, so Q_I carries its
+        # SS-dependent weight (+1 identifiable param). Two variants are Δ=1 (the
+        # all-:EqualAI baseline and the one :OnlyA form left genuinely
+        # disconnected from free E); five are reverse-catalysis-populated (Δ=2).
+        # Equilibrium flux is 0 for all seven (verified at the Keq mass-action
+        # ratio, |v_eq|/|v| ~ 1e-16).
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 1, 1, 2, 2, 2]
+        @test deltas == [1, 1, 2, 2, 2, 2, 2]
 
         # 3. compilability
         for r in result

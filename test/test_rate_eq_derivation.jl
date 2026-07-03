@@ -1066,18 +1066,22 @@ end
 
 # Canonicalizing catalytic-step order in the Mechanism constructor must keep
 # each catalytic kinetic group's allosteric-state tag bound to the SAME
-# physical step. HK declares ATP binding as :OnlyA; after construction the
-# unique :OnlyA group must still be the ATP-binding group (not some other
-# group that canonical reordering happened to move into ATP's source slot).
+# physical step. HK declares BOTH ATP binding and the catalytic conversion as
+# :OnlyA; after construction the two :OnlyA tags must still sit on those two
+# physical steps (not on some other group canonical reordering moved into their
+# source slots): exactly one :OnlyA group is the ATP-binding step, and the other
+# is the metabolite-free catalytic conversion.
 @testset "Allosteric cat_allo_state stays bound to its step" begin
     hk = only(s for s in MECHANISM_TEST_SPECS if s.name == "HK")
     am = EnzymeRates.AllostericMechanism(hk.mechanism)
     onlyA_groups = [g for g in EnzymeRates.kinetic_groups(am)
                     if EnzymeRates.cat_allo_state(am, g) === :OnlyA]
-    @test length(onlyA_groups) == 1
-    rep = EnzymeRates.rep_step(am, only(onlyA_groups))
-    bm = EnzymeRates.bound_metabolite(rep)
-    @test bm !== nothing && EnzymeRates.name(bm) === :ATP
+    @test length(onlyA_groups) == 2
+    onlyA_bms = [EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g))
+                 for g in onlyA_groups]
+    @test count(bm -> bm !== nothing && EnzymeRates.name(bm) === :ATP,
+                onlyA_bms) == 1
+    @test count(isnothing, onlyA_bms) == 1
 end
 
 # `parameters(m, Full)` is injective. For Case-B allosteric shapes an
@@ -1449,7 +1453,12 @@ end
 # ── Single-feature edge cases ─────────────────────────────────────────────
 @testset "Allosteric edge cases" begin
     # OnlyA substrate: S binds only in R-state (R-state-active convention).
-    # T-state cycle is dead, so all forward catalysis happens through R.
+    # The T-state cycle carries no net flux (S cannot bind to close the loop, so
+    # N_T = 0 and all forward catalysis happens through R), but with :EqualAI
+    # catalysis connected-component pruning still populates E(S) in the T-state
+    # via REVERSE catalysis, so Q_I carries its SS-dependent weight and the
+    # Haldane-derived reverse rate `k_EP_to_ES` is a listed reduced param (its
+    # input value is inert — the equation recomputes it from the Haldane).
     # As K1 → ∞ (weaker R-state binding), rate vanishes.
     onlyR_sub = @allosteric_mechanism begin
         substrates: S
@@ -1462,7 +1471,8 @@ end
         end
     end
     concs = (S=1.0, P=0.001)
-    base_params = (k_ES_to_EP=10.0, K_P_E=0.5, L=10.0, Keq=1000.0, E_total=1.0)
+    base_params = (k_ES_to_EP=10.0, k_EP_to_ES=1.0, K_P_E=0.5, L=10.0,
+                   Keq=1000.0, E_total=1.0)
     rate_strong = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_S_E=0.01,)))
     rate_weak   = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_S_E=1e6,)))
     @test rate_strong > 1.0

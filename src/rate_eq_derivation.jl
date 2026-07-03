@@ -1027,14 +1027,12 @@ _i_state_num_zero(am::AllostericMechanism) =
     isempty(first(_state_rate_polys(am, :I)))
 
 """
-Names of enzyme forms rapid-equilibrium-reachable from a free (empty-bound)
-form over the rapid-equilibrium steps of `groups`. A form's denominator weight
-(its `alpha`) is built only from RE steps, so RE-connectivity to the free-E
-partition is what decides whether a form's A-state monomial carries a binding-K.
-Seeding from every empty-bound form covers a ping-pong covalent intermediate,
-which carries no bound metabolite and so is its own free root.
+Names of enzyme forms in the connected component of a free (empty-bound) form
+over ALL steps of `groups` (rapid-equilibrium and steady-state alike). Seeding
+from every empty-bound form covers a ping-pong covalent intermediate, which
+carries no bound metabolite and so is its own free root.
 """
-function _re_reachable_from_free(groups)
+function _reachable_from_free(groups)
     forms = Species[]
     for grp in groups, s in grp
         from_species(s) in forms || push!(forms, from_species(s))
@@ -1045,7 +1043,6 @@ function _re_reachable_from_free(groups)
     while changed
         changed = false
         for grp in groups, s in grp
-            is_equilibrium(s) || continue
             fn, tn = name(from_species(s)), name(to_species(s))
             if fn in reach && tn ∉ reach
                 push!(reach, tn); changed = true
@@ -1060,35 +1057,32 @@ end
 """
 The `AllostericMechanism` for `am` in conformational `state`: `am` itself for
 `:A`; for `:I`, a fresh `AllostericMechanism` with `:OnlyA` catalytic groups
-dropped AND every enzyme form stranded by that drop pruned at the step level. A
-form is stranded iff its ONLY rapid-equilibrium route to free E ran through an
-`:OnlyA` binding step — RE-reachable from free E over all RE steps but no longer
-RE-reachable once the `:OnlyA` steps are gone. Those are exactly the forms whose
-A-state binding monomial carries an `:OnlyA` K, so pruning them at the step
-level here yields the same effect a post-hoc monomial-zeroing would. Forms
-reached only via steady-state steps (all-SS catalytic graphs, ping-pong
-covalent intermediates) are NOT stranded — they were never in the free-E RE
-partition — so a mechanism with no `:OnlyA` catalytic group prunes nothing
+dropped AND every enzyme form disconnected from free E by that drop pruned at
+the step level. After removing the `:OnlyA` groups, a form is kept iff it lies
+in the connected component of a free (empty-bound) enzyme form over ALL
+remaining steps (rapid-equilibrium and steady-state alike); a step is kept iff
+both its endpoints are kept, so a kinetic group with all its steps dropped
+disappears. Forms whose only route back to free E ran through an `:OnlyA` group
+become disconnected and drop out; forms still reachable through the surviving
+steps — including a substrate complex repopulated by reverse catalysis — are
+retained. A mechanism with no `:OnlyA` catalytic group keeps its whole graph
 and re-derives its full native I-state.
 
-A group can straddle the boundary — PFK-1's `:EqualAI` ATP-binding group keeps
-its reachable `E+ATP⇌E(ATP)` step but drops the `E(F6P)+ATP⇌E(F6P,ATP)` step
-whose forms hang off the pruned `:OnlyA` F6P branch — so surviving steps are kept
-per step, not per group. Reachable-subgraph King–Altman then yields the same
-denominator monomial-zeroing produced, and (with no SS cut left) a zero numerator
-for a dead cycle. Routing both the derivation mechanism and the step_params
-through this one struct keeps steps and allo-state tags aligned: the
-`AllostericMechanism` constructor canonicalizes `cat_steps` and applies the SAME
-permutation to `cat_allo_states`, so pruning-induced reorder/iso-flips can't
-desync the two.
+Routing both the derivation mechanism and the step_params through this one
+struct keeps steps and allo-state tags aligned: the `AllostericMechanism`
+constructor canonicalizes `cat_steps` and applies the SAME permutation to
+`cat_allo_states`, so pruning-induced reorder/iso-flips can't desync the two.
 """
 function _state_allo_mechanism(am::AllostericMechanism, state::Symbol)
     state === :I || return am
     keepG = [g for g in eachindex(steps(am)) if cat_allo_state(am, g) !== :OnlyA]
     groups = steps(am)[keepG]
     states = cat_allo_states(am)[keepG]
-    stranded = setdiff(_re_reachable_from_free(steps(am)),
-                       _re_reachable_from_free(groups))
+    all_forms = Set{Symbol}()
+    for grp in groups, s in grp
+        push!(all_forms, name(from_species(s)), name(to_species(s)))
+    end
+    stranded = setdiff(all_forms, _reachable_from_free(groups))
     kg = Vector{Step}[]
     ks = Symbol[]
     for (grp, st) in zip(groups, states)
@@ -1135,8 +1129,9 @@ end
 """
 The catalytic `Mechanism` for `am` in conformational `state`. `:A` keeps the
 full catalytic graph; `:I` keeps only the reachable-form subgraph (`:OnlyA`
-groups and RE-unreachable forms pruned, via `_state_allo_mechanism`) so
-King–Altman re-derives the broken-cycle I-state law natively.
+groups and the forms they disconnect from free E pruned, via
+`_state_allo_mechanism`) so King–Altman re-derives the broken-cycle I-state law
+natively.
 """
 function _state_mechanism(am::AllostericMechanism, state::Symbol)
     sam = _state_allo_mechanism(am, state)
@@ -1568,8 +1563,8 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
 
     # I-state catalytic Exprs, always re-derived natively on the reachable-form
     # subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA` groups and every
-    # form left RE-unreachable). Reachable-subgraph King–Altman gives the same
-    # binding partition monomial-zeroing produced, and for a dead cycle the
+    # form they disconnect from free E). Reachable-subgraph King–Altman gives the
+    # same binding partition monomial-zeroing produced, and for a dead cycle the
     # pruned graph has no SS cut so `_compute_numerator(allow_dead=true)` returns
     # 0 natively — no forced zero needed.
     num_i_poly, den_i_poly = _state_rate_polys(am, :I)

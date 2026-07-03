@@ -1964,7 +1964,7 @@ function build_mechanism_test_specs()
             catalytic_steps: begin
                 (E + F6P ⇌ E(F6P), E(ATP) + F6P ⇌ E(F6P, ATP))           :: OnlyA
                 (E + ATP ⇌ E(ATP), E(F6P) + ATP ⇌ E(F6P, ATP))           :: EqualAI
-                E(F6P, ATP) <--> E(F16BP, ADP)                            :: EqualAI
+                E(F6P, ATP) <--> E(F16BP, ADP)                            :: OnlyA
                 (E(F16BP, ADP) ⇌ E(ADP) + F16BP, E(F16BP) ⇌ E + F16BP)   :: EqualAI
                 (E(F16BP, ADP) ⇌ E(F16BP) + ADP, E(ADP) ⇌ E + ADP)       :: EqualAI
             end
@@ -2069,8 +2069,8 @@ function build_mechanism_test_specs()
                 # T-state can't bind ATP)
                 (E + ATP ⇌ E(ATP),
                  E(Glucose) + ATP ⇌ E(Glucose, ATP))              :: OnlyA
-                # Group 3 (catalysis SS, EqualAI)
-                E(Glucose, ATP) <--> E(G6P, ADP)                  :: EqualAI
+                # Group 3 (catalysis SS, OnlyA)
+                E(Glucose, ATP) <--> E(G6P, ADP)                  :: OnlyA
                 # Group 4 (G6P binding/release at catalytic site, EqualAI)
                 (E(G6P, ADP) ⇌ E(ADP) + G6P,
                  E(G6P) ⇌ E + G6P,
@@ -2357,10 +2357,10 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # ── m_OnlyA_prod: single product :OnlyA (T-state cycle dead) ────────────
-    # Exercises `_i_state_num_zero` detection for product-binding :OnlyA groups.
-    # The T-state cycle is broken at product release; with t_state_dead = true,
-    # N_T is forced to 0 and the L*num_T branch is dropped. Analytical
+    # ── m_OnlyA_prod: catalysis :OnlyA → T-state truly inactive ─────────────
+    # Exercises `_i_state_num_zero` detection when the catalytic conversion is
+    # :OnlyA: the T-state cannot run the reaction (forward or reverse), so its
+    # cycle is dead — N_T is 0 and the L*num_T branch is dropped. Analytical
     # kcat = 2·k2f/(1+L) — L-dependent because the saturating R-state
     # pattern (S only) IS reachable in T-state (Q_cat_T at sat S = S/K1,
     # same as Q_cat_R), so B_T ≠ 0 and the 1/(1+L) factor appears.
@@ -2372,7 +2372,7 @@ function build_mechanism_test_specs()
             catalytic_multiplicity: 2
             catalytic_steps: begin
                 E + S ⇌ E(S)    :: EqualAI      # group 1, K1
-                E(S) <--> E(P)  :: EqualAI      # group 2, k2f catalysis
+                E(S) <--> E(P)  :: OnlyA        # group 2, k2f catalysis :OnlyA
                 E + P ⇌ E(P)    :: OnlyA        # group 3, K3 (P binding)
             end
         end
@@ -2388,10 +2388,10 @@ function build_mechanism_test_specs()
             k2r = k2f * K3 / (Keq * K1)
 
             Q_cat_R = 1 + S/K1 + P/K3
-            Q_cat_T = 1 + S/K1                    # P/K3 monomial dropped (OnlyA group 3)
+            Q_cat_T = 1 + S/K1                    # E(P) unreachable in T-state (catalysis + P-binding :OnlyA)
 
             N_R = k2f * S/K1 - k2r * P/K3
-            # N_T = 0 forced (t_state_dead via group 3 :OnlyA)
+            # N_T = 0 forced (t_state_dead via catalysis group 2 :OnlyA)
 
             num = N_R * Q_cat_R                   # L*N_T*Q_cat_T term elided
             den = Q_cat_R^2 + L * Q_cat_T^2
