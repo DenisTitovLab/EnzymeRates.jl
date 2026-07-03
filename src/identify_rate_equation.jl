@@ -992,6 +992,20 @@ function _select_best_n_params(
     )
 end
 
+"""
+Scatter flat `(candidate_index, group, score)` triples into one fold-score
+vector per candidate, each ordered by `groups`. Every `(ci, g)` in the grid
+appears exactly once, so every slot is written.
+"""
+function _scatter_fold_scores(flat, n_candidates::Int, groups)
+    gi = Dict(g => i for (i, g) in enumerate(groups))
+    out = [Vector{Float64}(undef, length(groups)) for _ in 1:n_candidates]
+    for (ci, g, s) in flat
+        out[ci][gi[g]] = s
+    end
+    out
+end
+
 function _cv_model_selection(
     mechs::Vector, df::DataFrame,
     prob::IdentifyRateEquationProblem;
@@ -1037,12 +1051,8 @@ function _cv_model_selection(
         m = compile_mechanism(candidate_mechs[ci])
         (ci, g, _cv_fold_loss(m, prob, g; optimizer, kwargs...))
     end
-    gi = Dict(g => i for (i, g) in enumerate(groups))
-    fold_scores_per_candidate = [Vector{Float64}(undef, length(groups))
-                                 for _ in candidate_mechs]
-    for (ci, g, s) in flat
-        fold_scores_per_candidate[ci][gi[g]] = s
-    end
+    fold_scores_per_candidate = _scatter_fold_scores(
+        flat, length(candidate_mechs), groups)
 
     cv_df = copy(candidate_rows)
     cv_df.cv_fold_scores = collect(fold_scores_per_candidate)

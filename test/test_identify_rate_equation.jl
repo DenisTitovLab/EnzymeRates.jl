@@ -457,7 +457,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
     end
 
-    @testset "_cv_fold_loss: one fold, floored + finite; _loocv loops it" begin
+    @testset "_cv_fold_loss: one fold, floored + finite" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -1429,4 +1429,14 @@ end
     serial = EnzymeRates._loocv(EnzymeRates.compile_mechanism(m1), prob;
         optimizer=_CountingStubOpt(; uval=log(5.0)), n_restarts=1, maxtime=1.0)
     @test flat == serial
+end
+
+@testset "_scatter_fold_scores places each fold at (candidate, group)" begin
+    groups = ["G1", "G2", "G3"]
+    # 2 candidates, distinct per-candidate scores, deliberately shuffled
+    flat = [(1, "G2", 0.12), (2, "G1", 0.20), (1, "G1", 0.10),
+            (2, "G3", 0.23), (1, "G3", 0.13), (2, "G2", 0.21)]
+    out = EnzymeRates._scatter_fold_scores(flat, 2, groups)
+    @test out[1] == [0.10, 0.12, 0.13]
+    @test out[2] == [0.20, 0.21, 0.23]
 end
