@@ -113,10 +113,10 @@ and data using beam search.
   for beam selection
 - `loss_parsimony_threshold::Float64 = 1.01`: a mechanism
   keeps expanding only if its loss is within this factor of
-  the best model with one fewer parameter — an added
+  the best model of any smaller parameter count — an added
   parameter must earn its keep. Combined with the other loss
-  thresholds via `min`; `min_beam_width` stays a hard floor.
-  `Inf` disables it.
+  thresholds via `min`; `min_beam_width` is a cumulative
+  per-count budget (see "Beam selection" below). `Inf` disables it.
 - `max_param_count::Int = 20`: stop expanding beyond
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
@@ -152,12 +152,14 @@ and data using beam search.
 A mechanism at parameter count `n` qualifies for the next-level
 beam if either:
 - its loss ≤ `min(loss_rel_threshold * best(n) + loss_abs_threshold,
-  loss_parsimony_threshold * best(n-1))`, where `best(k)` is the
-  lowest loss seen at parameter count `k`; the second term is
-  dropped at the base count (no `n-1` level),
-- OR its rank by loss (ascending) ≤ `min_beam_width`. This floor
-  always keeps the top `min_beam_width` mechanisms, even when the
-  loss cutoff admits fewer.
+  loss_parsimony_threshold * best(<n))`, where `best(n)` is the
+  lowest loss at parameter count `n` and `best(<n)` is the lowest
+  loss over all smaller counts; the second term is dropped at the
+  base count (no smaller level exists yet),
+- OR it falls under the `min_beam_width` budget: a cumulative
+  per-count allowance that expands at least `min_beam_width`
+  mechanisms at each count over the whole search, then stops —
+  spent once, not re-granted each time the count is revisited.
 
 The additive term protects against `best_loss` approaching zero
 (simulated / very-low-loss data) where a purely multiplicative
@@ -324,9 +326,10 @@ beam at this level. A mechanism qualifies if either:
   • OR its rank (1-indexed by ascending loss) ≤ min_beam_width.
 
 `parsimony_cutoff` (the loss-parsimony threshold times the best loss
-at one fewer parameter) only tightens the loss cutoff. `min_beam_width`
-stays a hard floor: the top `min_beam_width` always qualify, even when
-the loss cutoff admits fewer.
+over all smaller parameter counts) only tightens the loss cutoff.
+`min_beam_width` here is the number kept by the width floor for this
+call; `_select_count!` passes the remaining cumulative per-count
+budget, not a fixed per-sweep floor.
 
 Mechanisms with non-finite losses (`Inf`, `NaN`) are excluded
 unconditionally — they represent failed or non-converging fits

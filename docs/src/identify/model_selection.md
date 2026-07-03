@@ -27,14 +27,18 @@ beam if **either** condition holds:
 
   ```
   min(loss_rel_threshold * best(n) + loss_abs_threshold,
-      loss_parsimony_threshold * best(n-1))
+      loss_parsimony_threshold * best(<n))
   ```
 
-  where `best(k)` is the lowest loss seen at parameter count `k`. The
-  `best(n-1)` term is dropped at the base count (there is no `n-1` level).
-- **Width floor** — its loss-rank (ascending) is `≤ min_beam_width`, which
-  always keeps the top `min_beam_width` mechanisms even when the loss cutoff
-  would admit fewer.
+  where `best(n)` is the lowest loss at parameter count `n` and `best(<n)` is
+  the lowest loss over *all* smaller counts — an added parameter must beat the
+  best simpler model of any size. The `best(<n)` term is dropped at the base
+  count (no smaller level exists yet).
+- **Width floor** — a cumulative per-count budget. The floor keeps expanding
+  mechanisms at a parameter count until `min_beam_width` of them have been
+  expanded *over the whole search*, then stops; after that only the loss cutoff
+  admits at that count. The budget is spent once, not re-granted each time the
+  count is revisited.
 
 The four knobs, all tunable kwargs of `identify_rate_equation`:
 
@@ -42,8 +46,8 @@ The four knobs, all tunable kwargs of `identify_rate_equation`:
 |---------|---------|---------|
 | `loss_rel_threshold` | `2.0` | Relative tolerance: keep losses within this factor of `best(n)`, the best at the same parameter count. |
 | `loss_abs_threshold` | `0.01` | Additive tolerance: guards against `best(n)` approaching zero (simulated / very-low-loss data), where a purely multiplicative cutoff would collapse the beam to the single best mechanism. |
-| `loss_parsimony_threshold` | `1.01` | An added parameter must earn its keep: keep expanding only if the loss is within this factor of `best(n-1)`, the best model with one fewer parameter. Set to `Inf` to disable it. |
-| `min_beam_width` | `50` | Hard floor on the number kept per parameter count. The loss thresholds can only tighten the beam below this floor, never widen it past it. |
+| `loss_parsimony_threshold` | `1.01` | An added parameter must earn its keep: keep expanding only if the loss is within this factor of `best(<n)`, the best model of any smaller parameter count. Set to `Inf` to disable it. |
+| `min_beam_width` | `50` | Cumulative floor: expand at least this many mechanisms per parameter count over the whole search. Spent once, then only the loss cutoff admits at that count. |
 
 The beam produces the pool of fitted candidates; the cross-validation rule below
 then picks the single best among them.
