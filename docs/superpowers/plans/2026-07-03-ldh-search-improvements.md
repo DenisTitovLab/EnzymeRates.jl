@@ -651,7 +651,7 @@ using Pkg
 Pkg.activate(joinpath(@__DIR__))
 using Distributed, Dates, CSV, DataFrames
 
-addprocs(4; exeflags = ["--project"])
+addprocs(2; exeflags = ["--project"])   # 2 workers: box is memory-constrained
 @everywhere using EnzymeRates, OptimizationCMAEvolutionStrategy
 
 raw = CSV.read(joinpath(@__DIR__, "Enzyme data", "LDH_data.csv"), DataFrame)
@@ -682,10 +682,14 @@ sampler = @async while sampling[]
     sleep(5)
 end
 
-# Reduced run: small enough to finish in a few minutes, large enough to grow.
+# Reduced + FAST run. Memory growth tracks the number of distinct @generated
+# mechanisms compiled and iterations, not fit quality, so cheap fits
+# (n_restarts=2, maxtime=2.0) still exercise the code-cache/DataFrame growth
+# while keeping wall-clock to minutes. Small caps keep RAM under the box limit.
 results = identify_rate_equation(prob;
     optimizer=CMAEvolutionStrategyOpt(),
-    max_param_count=9, min_beam_width=10,
+    max_param_count=7, min_beam_width=3,
+    n_restarts=2, maxtime=2.0,
     loss_rel_threshold=1.3, loss_abs_threshold=0.001,
     loss_parsimony_threshold=1.01,
     save_dir=joinpath(@__DIR__, "memprofile_results"))
