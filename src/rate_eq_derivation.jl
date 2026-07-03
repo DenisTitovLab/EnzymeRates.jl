@@ -663,29 +663,42 @@ function rate_equation_string(::M, ::FullMode) where {M<:EnzymeMechanism}
     join(lines, "\n")
 end
 
-function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
-    m = M()
-    _, indep = _dependent_param_exprs(M)
-
-    # Wegscheider/Haldane: single-symbol entries get the substituted-into-v
-    # annotation; multi-symbol RHSes get runtime assignment in
-    # `_build_rate_body` (no annotation).
-    dep_raw, _ = _dependent_param_exprs_kernel(M, Dict{Symbol, Symbol}())
+"""
+Render each dep-map entry as a constraint line and append it to `weg_lines` or
+`hal_lines`, split by whether its RHS references `Keq` (Haldane) or not
+(Wegscheider). Single-symbol RHSes get the substituted-into-v annotation;
+multi-symbol RHSes get runtime assignment in `_build_rate_body` (no annotation).
+Entries are visited in lexicographic LHS order.
+"""
+function _partition_constraint_lines!(weg_lines, hal_lines, dep)
     keq_set = Set([:Keq])
-    weg_lines, hal_lines = String[], String[]
-    for (sym, expr) in sort(collect(dep_raw); by=p -> string(p[1]))
+    for (sym, expr) in sort(collect(dep); by=p -> string(p[1]))
         is_haldane = _expr_references_any(expr, keq_set)
         suffix = expr isa Symbol ? ANNOTATION_SUBSTITUTED : ""
-        line = "$sym = $(string(expr))$suffix"
-        push!(is_haldane ? hal_lines : weg_lines, line)
+        push!(is_haldane ? hal_lines : weg_lines, "$sym = $(string(expr))$suffix")
     end
+end
 
-    lines = ["(; $(join((indep..., :Keq, :E_total), ", "))) = params",
-             "(; $(join(metabolites(m), ", "))) = concs"]
+"""Append the `# Wegscheider constraints:` and `# Haldane constraints:` sections
+(each skipped when empty) to `lines`."""
+function _append_constraint_sections!(lines, weg_lines, hal_lines)
     isempty(weg_lines)  ||
         (push!(lines, "# Wegscheider constraints:");  append!(lines, weg_lines))
     isempty(hal_lines)  ||
         (push!(lines, "# Haldane constraints:");      append!(lines, hal_lines))
+end
+
+function rate_equation_string(::M, ::ReducedMode) where {M<:EnzymeMechanism}
+    m = M()
+    _, indep = _dependent_param_exprs(M)
+
+    dep_raw, _ = _dependent_param_exprs_kernel(M, Dict{Symbol, Symbol}())
+    weg_lines, hal_lines = String[], String[]
+    _partition_constraint_lines!(weg_lines, hal_lines, dep_raw)
+
+    lines = ["(; $(join((indep..., :Keq, :E_total), ", "))) = params",
+             "(; $(join(metabolites(m), ", "))) = concs"]
+    _append_constraint_sections!(lines, weg_lines, hal_lines)
     push!(lines, _rate_v_line(M))
     join(lines, "\n")
 end
@@ -896,22 +909,18 @@ so this carries no `catalytic_multiplicity` factor.
             _poly_to_expr(den_I_p, empty_set, empty_set)
         i_pattern_dead = den_I_p === nothing
 
-        A_A = CatN == 1 ? num_k_A_expr :
-            :($(num_k_A_expr) * $(den_k_A_expr)^$(CatN - 1))
-        B_A = :($(den_k_A_expr)^$(CatN))
+        A_A, B_A = _mwc_power_pair(num_k_A_expr, den_k_A_expr, CatN)
         if i_pattern_dead
             A_I = 0
             B_I = 0
         else
-            A_I = i_state_dead ? 0 :
-                  CatN == 1 ? num_k_I_expr :
-                              :($(num_k_I_expr) * $(den_k_I_expr)^$(CatN - 1))
-            B_I = :($(den_k_I_expr)^$(CatN))
+            A_I_live, B_I = _mwc_power_pair(num_k_I_expr, den_k_I_expr, CatN)
+            A_I = i_state_dead ? 0 : A_I_live
         end
 
         if isempty(RS)
             push!(kcat_exprs,
-                  :(($(A_A) + L * $(A_I)) / ($(B_A) + L * $(B_I))))
+                  :($(_mwc_combine(A_A, A_I)) / $(_mwc_combine(B_A, B_I))))
         else
             for mask in 0:(2^n_ligs - 1)
                 W_A_factors = Any[]
@@ -948,8 +957,8 @@ so this carries no `catalytic_multiplicity` factor.
                     end
                 end
                 if isempty(W_A_factors) && isempty(W_I_factors)
-                    kcat_expr = :(($(A_A) + L * $(A_I)) /
-                                  ($(B_A) + L * $(B_I)))
+                    kcat_expr =
+                        :($(_mwc_combine(A_A, A_I)) / $(_mwc_combine(B_A, B_I)))
                 else
                     W_A = isempty(W_A_factors) ? 1 :
                         length(W_A_factors) == 1 ? W_A_factors[1] :
@@ -1489,6 +1498,17 @@ function _power_expr(expr, n::Int)
     :(($expr)^$n)
 end
 
+"""MWC active + L·inactive state-combine `A + L * B`. Shared by `_kcat_forward`
+(numerator/denominator halves of the state ratio) and `_allosteric_num_den_exprs`
+(the retained num/den sums)."""
+_mwc_combine(a, b) = :($a + L * $b)
+
+"""MWC binding-statistics power-pair `(X * Y^(n-1), Y^n)` for a saturating pattern:
+the numerator carries one fewer denominator power than the denominator, where
+`n = catalytic_multiplicity`. Used by `_kcat_forward` per conformation."""
+_mwc_power_pair(x, y, n) =
+    (n == 1 ? x : :($x * $y^$(n - 1)), :($y^$n))
+
 """
 Build active-state and inactive-state dep-param assignment Exprs from the NATIVE
 per-state derivations. Returns `(a_assignments::Vector{Expr},
@@ -1596,15 +1616,16 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     num_A = make_num_term(N_A, Q_A, reg_Q_A)
     den_A = make_den_term(Q_A, reg_Q_A)
     den_I = make_den_term(Q_I, reg_Q_I)
+    full_den = _mwc_combine(den_A, den_I)
 
     if isempty(num_i_poly)
         # Native I-state numerator is zero (`_i_state_num_zero`): the I-state
         # cycle is dead, so drop the L*num_I term entirely (skip dead numerator
         # branch). Q_I still contributes to denominator as enzyme mass.
-        num_A, :($(den_A) + L * $(den_I))
+        num_A, full_den
     else
         num_I = make_num_term(N_I, Q_I, reg_Q_I)
-        :($(num_A) + L * $(num_I)), :($(den_A) + L * $(den_I))
+        _mwc_combine(num_A, num_I), full_den
     end
 end
 
@@ -1653,23 +1674,16 @@ function rate_equation_string(
     mets = metabolites(m)
 
     # Active-state Wegscheider/Haldane from the native A-state derivation, in
-    # `:A`-state names directly (no post-hoc rename). Single-symbol entries get
-    # the substituted-into-v annotation; multi-symbol RHSes get runtime
-    # assignment in `_build_rate_body` (no annotation).
+    # `:A`-state names directly (no post-hoc rename).
     dep_A, _ = _state_dependent_exprs(am, :A)
-    keq_set = Set([:Keq])
     weg_lines, hal_lines = String[], String[]
-    for (sym, expr) in sort(collect(dep_A); by=p -> string(p[1]))
-        is_haldane = _expr_references_any(expr, keq_set)
-        suffix = expr isa Symbol ? ANNOTATION_SUBSTITUTED : ""
-        line = "$sym = $(string(expr))$suffix"
-        push!(is_haldane ? hal_lines : weg_lines, line)
-    end
+    _partition_constraint_lines!(weg_lines, hal_lines, dep_A)
 
     # Inactive-state assignments — partitioned by Keq-reference predicate so
     # they fold into the same two sections as active-state lines. Allosteric
     # mechanisms thus use the same three-section structure as
     # non-allosteric.
+    keq_set = Set([:Keq])
     _, i_assignments_ = _build_dep_assignments(M)
     i_assignments = i_assignments_
     for a in i_assignments
@@ -1692,10 +1706,7 @@ function rate_equation_string(
 
     lines = ["(; $(join(hw_params, ", "))) = params",
              "(; $(join(mets, ", "))) = concs"]
-    isempty(weg_lines)  ||
-        (push!(lines, "# Wegscheider constraints:");  append!(lines, weg_lines))
-    isempty(hal_lines)  ||
-        (push!(lines, "# Haldane constraints:");      append!(lines, hal_lines))
+    _append_constraint_sections!(lines, weg_lines, hal_lines)
     push!(lines, v_line)
     join(lines, "\n")
 end
