@@ -359,6 +359,28 @@ function _select_beam(
     sort!(selected)
 end
 
+"""
+Select this sweep's parents at one parameter count under a *cumulative* floor
+budget, and advance the budget. `expanded[c]` tracks how many count-`c`
+mechanisms the whole search has expanded so far; the width floor may add at most
+`min_beam_width - expanded[c]` more. Once the budget is spent, only the loss
+cutoff admits at that count. Returns the selected indices (input order).
+"""
+function _select_count!(
+    expanded::Dict{Int,Int}, c::Int, losses::AbstractVector{<:Real};
+    loss_rel_threshold::Float64, loss_abs_threshold::Float64,
+    min_beam_width::Int,
+    best_override::Union{Nothing,Float64}=nothing,
+    parsimony_cutoff::Union{Nothing,Float64}=nothing,
+)
+    budget = max(0, min_beam_width - get(expanded, c, 0))
+    sel = _select_beam(losses;
+        loss_rel_threshold, loss_abs_threshold,
+        min_beam_width=budget, best_override, parsimony_cutoff)
+    expanded[c] = get(expanded, c, 0) + length(sel)
+    sel
+end
+
 """One fitted mechanism: its own params + retcode + eq_hash + the CSV row."""
 struct BatchEntry
     mech::Union{Mechanism, AllostericMechanism}
@@ -588,6 +610,9 @@ function _beam_search(
     frontier = Dict{Int, Vector{BatchEntry}}()
     cv_pool  = Dict{Int, Vector{BatchEntry}}()
     best_loss_by_count = Dict{Int, Float64}()
+    # Mechanisms expanded so far per parameter count — the cumulative floor
+    # budget. Spent once over the whole search, never re-granted per sweep.
+    expanded_by_count = Dict{Int, Int}()
     # Raw pre-rescale fits keyed by `eq_hash`, shared across iterations so each
     # distinct equation is fit exactly once over the whole search.
     memo = Dict{UInt64,NamedTuple}()
@@ -631,7 +656,8 @@ function _beam_search(
         to_expand = BatchEntry[]
         for c in unique(e.n_params for e in swept)
             entries_at_count = [e for e in swept if e.n_params == c]
-            sel = _select_beam([e.loss for e in entries_at_count];
+            sel = _select_count!(expanded_by_count, c,
+                [e.loss for e in entries_at_count];
                 loss_rel_threshold, loss_abs_threshold,
                 min_beam_width, best_override = best_loss_by_count[c],
                 parsimony_cutoff = _parsimony_cutoff(

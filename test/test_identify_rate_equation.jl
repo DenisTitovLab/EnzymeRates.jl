@@ -971,6 +971,33 @@ end
     @test EnzymeRates._select_beam(losses; ov..., parsimony_cutoff=1.0) == [1]
 end
 
+@testset "_select_count! cumulative per-count floor" begin
+    expanded = Dict{Int,Int}()
+    # Sweep 1 at count 5: rel cutoff admits only the best (loss 1.0); the
+    # floor budget (3) tops it up to the top 3 by loss. expanded[5] -> 3.
+    sel1 = EnzymeRates._select_count!(expanded, 5, [1.0, 2.0, 3.0, 4.0, 5.0];
+        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        min_beam_width=3, best_override=1.0)
+    @test sort(sel1) == [1, 2, 3]
+    @test expanded[5] == 3
+
+    # Sweep 2 at count 5: budget spent (3 of 3). New mechanisms all above the
+    # cutoff -> the floor admits NONE (unlike the old per-sweep floor, which
+    # would grant a fresh 3). expanded[5] stays 3.
+    sel2 = EnzymeRates._select_count!(expanded, 5, [10.0, 11.0, 12.0];
+        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        min_beam_width=3, best_override=1.0)
+    @test isempty(sel2)
+    @test expanded[5] == 3
+
+    # A cutoff-passer is still admitted after the floor is spent.
+    sel3 = EnzymeRates._select_count!(expanded, 5, [1.0, 20.0];
+        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        min_beam_width=3, best_override=1.0)
+    @test sel3 == [1]
+    @test expanded[5] == 4
+end
+
 @testset "§1 _parsimony_cutoff = threshold * min over all counts < c" begin
     f = EnzymeRates._parsimony_cutoff
     @test f(Dict(5=>0.02), 5, 1.01) === nothing            # no count < c
