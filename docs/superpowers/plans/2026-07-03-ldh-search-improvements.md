@@ -382,15 +382,15 @@ Add after the `_loocv is loud on fit failure` testset (after line 454, before th
         one = EnzymeRates._cv_fold_loss(m, prob, 2; kw...)
         @test one isa Float64
         @test one >= eps(Float64) && isfinite(one)
-
-        # _loocv must equal the per-group fold losses in group order (proves it
-        # is a faithful serial loop over _cv_fold_loss).
-        groups = unique(prob.data.group)
-        looped = [EnzymeRates._cv_fold_loss(m, prob, g; kw...) for g in groups]
-        serial = EnzymeRates._loocv(m, prob; kw...)
-        @test serial == looped
     end
 ```
+
+(Do NOT assert bitwise equality between two independent real-optimizer fits —
+CMA-ES draws restarts from the unseeded global RNG under a wall-clock `maxtime`,
+so `_loocv(m,prob) == [_cv_fold_loss(m,prob,g) for g]` is flaky. `_loocv`'s
+faithfulness as a serial loop over `_cv_fold_loss` is proven deterministically
+by the Step 5 flatten-equivalence test with the `_CountingStubOpt` stub, plus
+the existing `_loocv returns per-fold scores` testset.)
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -444,7 +444,7 @@ Run the Focused file run command. Expected: PASS — the new testset passes and 
 
 - [ ] **Step 5: Write the failing flatten-equivalence test**
 
-Add at file top-level after line 456 (after the outer `identify_rate_equation` testset's closing `end`):
+Add at file top-level **after the `_DEDUP_SIG1` / `_DEDUP_SIG2` / `_CountingStubOpt` definitions** (near the file end, after the `LOOCV eq_hash-uniqueness guard (§4)` testset) — this testset consumes those fixtures, and Julia evaluates the file top-to-bottom, so placing it earlier UndefVars:
 
 ```julia
 @testset "_cv_model_selection flatten reproduces serial LOOCV" begin
