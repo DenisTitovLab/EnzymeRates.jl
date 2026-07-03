@@ -1488,7 +1488,7 @@ end
     @test rate_R > 1.0
     @test rate_T < 1e-6
     # T-state numerator branch is elided when t_state_dead (any :OnlyA catalytic group);
-    # rate is E_total · catN · num_R / (Q_R^catN + L · Q_T^catN). At large L, the T-state
+    # rate is E_total · num_R / (Q_R^catN + L · Q_T^catN). At large L, the T-state
     # enzyme mass dominates the denominator → rate ∝ 1/(1+L).
     @test rate_T * 1e10 < 100.0    # bounded as L grows
 
@@ -1605,9 +1605,10 @@ end
              K_I_S_E=10.0, K_I_P_E=10.0,
              K_I_Ireg=1.0, L=1.0, Keq=1000.0, E_total=1.0)
     rate_mix = rate_equation(m_mix, (S=10.0, P=0.0, I=0.0), p_mix)
-    # With Kd convention (correct): rate ≈ 19.79 (R-state catalysis dominates).
-    # With Ka convention (bug): rate ≈ 9.9 — half the correct value.
-    @test isapprox(rate_mix, 19.79; rtol=0.05)
+    # With Kd convention (correct): rate ≈ 9.90 (R-state catalysis dominates),
+    # per active site (E_total = active-site concentration, catN = 2).
+    # With Ka convention (bug): rate ≈ 4.95 — half the correct value.
+    @test isapprox(rate_mix, 9.90; rtol=0.05)
 
     # Sanity: rate_equation_string emits Kd form for T-state K's.
     @test occursin("S / K_I_S_E", rate_equation_string(m_mix))
@@ -1763,7 +1764,7 @@ end
 # Haldane constraints:
 k_A_EP_to_ES = (1 / Keq) * K_A_P_E * (1 / K_A_S_E) * k_A_ES_to_EP
 k_I_EP_to_ES = (1 / Keq) * K_I_P_E * (1 / K_I_S_E) * k_I_ES_to_EP
-v = E_total * (2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + R / K_A_Rreg) ^ 2 + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + R / K_I_Rreg) ^ 2)) / ((1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + R / K_A_Rreg) ^ 2 + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + R / K_I_Rreg) ^ 2)"""
+v = E_total * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + R / K_A_Rreg) ^ 2 + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + R / K_I_Rreg) ^ 2) / ((1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + R / K_A_Rreg) ^ 2 + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + R / K_I_Rreg) ^ 2)"""
     @test actual == expected
 end
 

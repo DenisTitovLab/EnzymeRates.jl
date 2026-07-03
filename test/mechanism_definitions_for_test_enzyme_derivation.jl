@@ -1327,7 +1327,7 @@ function build_mechanism_test_specs()
     #     T forms: T_00, T_S0, T_0S, T_SS, T_P0, T_0P, T_SP, T_PS, T_PP (9)
     #     Total: 18 forms, 23 steps
     #     Denominator: (1 + S/Ks_R + P/Kp_R)^2 + L*(1 + S/Ks_T + P/Kp_T)^2
-    #     Numerator: 2*(
+    #     Numerator: (
     #                   (k_cat_R*S/Ks_R - k_rev_R*P/Kp_R)*(1 + S/Ks_R + P/Kp_R) +
     #                   L*(k_cat_T*S/Ks_T - k_rev_T*P/Kp_T)*(1 + S/Ks_T + P/Kp_T)
     #                 )
@@ -1357,7 +1357,7 @@ function build_mechanism_test_specs()
             t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
             r_factor = 1.0 + S / K1 + P / K2
             t_factor = 1.0 + S / K1_T + P / K2_T
-            return Et * 2.0 * (r_flux * r_factor + L * t_flux * t_factor) /
+            return Et * (r_flux * r_factor + L * t_flux * t_factor) /
                        (r_factor^2 + L * t_factor^2)
         end
 
@@ -1377,8 +1377,8 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_oligo,
             expected_factored_num=
-            "2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E)" *
-            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E))",
+            "(k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E)" *
+            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E)",
             expected_factored_denom=
             "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2",
         ))
@@ -1418,8 +1418,8 @@ function build_mechanism_test_specs()
             t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
             r_factor = 1.0 + S / K1 + P / K2
             t_factor = 1.0 + S / K1_T + P / K2_T
-            num   = 2.0 * (r_flux * r_factor * (1.0 + I / K_I_reg1) +
-                           L * t_flux * t_factor * (1.0 + I / K_I_T_reg1))
+            num   = r_flux * r_factor * (1.0 + I / K_I_reg1) +
+                    L * t_flux * t_factor * (1.0 + I / K_I_T_reg1)
             denom = r_factor^2 * (1.0 + I / K_I_reg1) +
                     L * t_factor^2 * (1.0 + I / K_I_T_reg1)
             return Et * num / denom
@@ -1441,8 +1441,8 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_homodimer_noncomp_inh_oligo,
             expected_factored_num=
-            "2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
-            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg))",
+            "(k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
+            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg)",
             expected_factored_denom=
             "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + I / K_A_Ireg)" *
             " + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + I / K_I_Ireg)",
@@ -1480,8 +1480,8 @@ function build_mechanism_test_specs()
             t_flux   = k3f_T * S / K1_T - k3r_T * P / K2_T
             r_factor = 1.0 + S / K1 + P / K2
             t_factor = 1.0 + S / K1_T + P / K2_T
-            num   = 2.0 * (r_flux * r_factor * (1.0 + I / K_I_reg1) +
-                           L * t_flux * t_factor * (1.0 + I / K_I_T_reg1))
+            num   = r_flux * r_factor * (1.0 + I / K_I_reg1) +
+                    L * t_flux * t_factor * (1.0 + I / K_I_T_reg1)
             denom = r_factor^2 * (1.0 + I / K_I_reg1) +
                     L * t_factor^2 * (1.0 + I / K_I_T_reg1)
             return Et * num / denom
@@ -1503,8 +1503,8 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=rate_mwc_dimer_inh_oligo,
             expected_factored_num=
-            "2 * ((k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
-            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg))",
+            "(k_A_ES_to_EP * S / K_A_S_E - k_A_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E) * (1 + I / K_A_Ireg)" *
+            " + L * (S * k_I_ES_to_EP / K_I_S_E - P * k_I_EP_to_ES / K_I_P_E) * (1 + P / K_I_P_E + S / K_I_S_E) * (1 + I / K_I_Ireg)",
             expected_factored_denom=
             "(1 + P / K_A_P_E + S / K_A_S_E) ^ 2 * (1 + I / K_A_Ireg)" *
             " + L * (1 + P / K_I_P_E + S / K_I_S_E) ^ 2 * (1 + I / K_I_Ireg)",
@@ -1833,8 +1833,8 @@ function build_mechanism_test_specs()
     #     Q_R = Q_cat_R^4 * Q_reg1_R^4 * Q_reg2_R^4
     #     Q_T = Q_cat_T^4 * Q_reg1_T^4 * Q_reg2_T^4
     #     Z   = Q_R + L * Q_T
-    #     Rate = Et * 4 * (N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4
-    #                    + L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4) / Z
+    #     Rate = Et * (N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4
+    #                + L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4) / Z
     #
     # Independent parameters (17, excluding Keq and Et):
     #   R-state catalytic: K1, K2, K3, K4, k13f
@@ -1926,7 +1926,7 @@ function build_mechanism_test_specs()
             num = N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4 +
                   L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4
 
-            return Et * 4.0 * num / Z
+            return Et * num / Z
         end
 
         push!(specs, MechanismTestSpec(
@@ -2006,7 +2006,7 @@ function build_mechanism_test_specs()
             Q_T = Q_cat_T^4 * Q_reg1_T^4 * Q_reg2_T^4 * Q_reg3_T^4 * Q_reg4_T^4
             num = N_cat_R * Q_cat_R^3 * Q_reg1_R^4 * Q_reg2_R^4 * Q_reg3_R^4 * Q_reg4_R^4 +
                   L * N_cat_T * Q_cat_T^3 * Q_reg1_T^4 * Q_reg2_T^4 * Q_reg3_T^4 * Q_reg4_T^4
-            return Et * 4.0 * num / (Q_R + L * Q_T)
+            return Et * num / (Q_R + L * Q_T)
         end
 
         push!(specs, MechanismTestSpec(
@@ -2025,10 +2025,10 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=pfk_rate_analytical,
             # F6P binding (group 3) is :OnlyA → the Glucose·ATP saturating
-            # pattern is unreachable in T-state, so kcat = catN · k5f
+            # pattern is unreachable in T-state, so kcat = k5f
             # for every regulator corner. Regression test for the
             # `t_pattern_dead` branch in `_kcat_forward`.
-            analytical_kcat_fn = p -> 4 * p.k5f,
+            analytical_kcat_fn = p -> p.k5f,
             expected_factored_num=nothing,
             expected_factored_denom=nothing,
         ))
@@ -2139,7 +2139,7 @@ function build_mechanism_test_specs()
             Q_T = Q_cat_T^2 * Q_reg1_T^2
             num = N_cat_R * Q_cat_R * Q_reg1_R^2 +
                   L * N_cat_T * Q_cat_T * Q_reg1_T^2
-            return Et * 2.0 * num / (Q_R + L * Q_T)
+            return Et * num / (Q_R + L * Q_T)
         end
 
         push!(specs, MechanismTestSpec(
@@ -2158,10 +2158,10 @@ function build_mechanism_test_specs()
             run_ode_test=false,
             analytical_rate_fn=hk_rate_analytical,
             # ATP binding (group 2) is :OnlyA → the Glucose·ATP saturating
-            # pattern is unreachable in T-state, so kcat = catN · k6f
+            # pattern is unreachable in T-state, so kcat = k6f
             # for every regulator corner. Regression test for the
             # `t_pattern_dead` branch in `_kcat_forward`.
-            analytical_kcat_fn = p -> 2 * p.k6f,
+            analytical_kcat_fn = p -> p.k6f,
             expected_factored_num=nothing,
             expected_factored_denom=nothing,
         ))
@@ -2218,7 +2218,7 @@ function build_mechanism_test_specs()
         # references K1 (a :NonequalAI symbol with T-rename K1_T):
         #   k5r_T = k5f·K6·K8/(Keq·K1_T·K3).
         # Both Haldanes share the forward k5f — at saturation, forward
-        # kcat = catN·k5f (shared between R and T).
+        # kcat = k5f (shared between R and T).
         function pk_rate_analytical(params, concs)
             (; K1, K1_T, K3, k5f, K6, K8,
                K_ATP_T_reg1, K_F16BP_reg2,
@@ -2246,7 +2246,7 @@ function build_mechanism_test_specs()
             den_R = Q_cat_R^4 * Q_reg1_R^2 * Q_reg2_R^4
             den_T = Q_cat_T^4 * Q_reg1_T^2 * Q_reg2_T^4
 
-            return Et * 4.0 * (num_R + L * num_T) / (den_R + L * den_T)
+            return Et * (num_R + L * num_T) / (den_R + L * den_T)
         end
 
         push!(specs, MechanismTestSpec(
@@ -2265,7 +2265,7 @@ function build_mechanism_test_specs()
             expected_n_independent_params=9,
             run_ode_test=false,
             analytical_rate_fn=pk_rate_analytical,
-            analytical_kcat_fn = p -> 4 * p.k5f,
+            analytical_kcat_fn = p -> p.k5f,
             expected_factored_num=nothing,
             expected_factored_denom=nothing,
         ))
@@ -2332,7 +2332,7 @@ function build_mechanism_test_specs()
             num = N_R * Q_cat_R   * Q_reg1_R^2 + L * N_T * Q_cat_T   * Q_reg1_T^2
             den = Q_cat_R^2 * Q_reg1_R^2       + L *      Q_cat_T^2 * Q_reg1_T^2
 
-            return Et * 2.0 * num / den
+            return Et * num / den
         end
 
         push!(specs, MechanismTestSpec(
@@ -2396,7 +2396,7 @@ function build_mechanism_test_specs()
             num = N_R * Q_cat_R                   # L*N_T*Q_cat_T term elided
             den = Q_cat_R^2 + L * Q_cat_T^2
 
-            return Et * 2.0 * num / den
+            return Et * num / den
         end
 
         push!(specs, MechanismTestSpec(
@@ -2416,8 +2416,8 @@ function build_mechanism_test_specs()
             analytical_rate_fn=m_OnlyA_prod_rate_analytical,
             # kcat at saturating S, zero P:
             #   A_R = k2f/K1², B_R = 1/K1², B_T = 1/K1² (T-state pattern same as R)
-            #   kcat = catN · A_R / (B_R + L · B_T) = 2 · k2f / (1 + L)
-            analytical_kcat_fn = p -> 2 * p.k2f / (1 + p.L),
+            #   kcat = A_R / (B_R + L · B_T) = k2f / (1 + L)
+            analytical_kcat_fn = p -> p.k2f / (1 + p.L),
             expected_factored_num=nothing,
             expected_factored_denom=nothing,
         ))

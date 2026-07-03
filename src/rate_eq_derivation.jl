@@ -828,6 +828,8 @@ end
 Returns the peak achievable forward turnover: `max` over saturating
 substrate patterns and regulator corners (each regulator 0 or saturating)
 at products = 0, E_total = 1. Equals the numerical grid-peak forward rate.
+Per active site (protomer) — `E_total` is the active-site concentration,
+so this carries no `catalytic_multiplicity` factor.
 """
 @generated function _kcat_forward(
     ::AllostericEnzymeMechanism{CM,CS,RS},
@@ -929,7 +931,7 @@ at products = 0, E_total = 1. Equals the numerical grid-peak forward rate.
 
         if isempty(RS)
             push!(kcat_exprs,
-                  :($(CatN) * ($(A_A) + L * $(A_I)) / ($(B_A) + L * $(B_I))))
+                  :(($(A_A) + L * $(A_I)) / ($(B_A) + L * $(B_I))))
         else
             for mask in 0:(2^n_ligs - 1)
                 W_A_factors = Any[]
@@ -966,7 +968,7 @@ at products = 0, E_total = 1. Equals the numerical grid-peak forward rate.
                     end
                 end
                 if isempty(W_A_factors) && isempty(W_I_factors)
-                    kcat_expr = :($(CatN) * ($(A_A) + L * $(A_I)) /
+                    kcat_expr = :(($(A_A) + L * $(A_I)) /
                                   ($(B_A) + L * $(B_I)))
                 else
                     W_A = isempty(W_A_factors) ? 1 :
@@ -975,8 +977,7 @@ at products = 0, E_total = 1. Equals the numerical grid-peak forward rate.
                     W_I = isempty(W_I_factors) ? 1 :
                         length(W_I_factors) == 1 ? W_I_factors[1] :
                         _nest_binary(:*, W_I_factors)
-                    kcat_expr = :($(CatN) *
-                        ($(A_A) * $(W_A) + L * $(A_I) * $(W_I)) /
+                    kcat_expr = :(($(A_A) * $(W_A) + L * $(A_I) * $(W_I)) /
                         ($(B_A) * $(W_A) + L * $(B_I) * $(W_I)))
                 end
                 push!(kcat_exprs, kcat_expr)
@@ -1016,9 +1017,14 @@ end
 # ═══════════════════════════════════════════════════════════════════
 # AllostericEnzymeMechanism rate equations (MWC)
 #
+# Per-active-site (per-protomer) normalization: `E_total` is the active-
+# site concentration, so the leading `cat_n` multiplicity coefficient is
+# absorbed into E_total and does not appear in the rate. The
+# `Q_cat_c^(cat_n - 1)` / `Q_cat_c^cat_n` binding-statistics powers stay.
+#
 # MWC rate formula (per conformation c, summed over conformations).
 # Let cat_n = catalytic_multiplicity(m):
-#   num = cat_n * sum_c( L_c * N_cat_c * Q_cat_c^(cat_n - 1)
+#   num = sum_c( L_c * N_cat_c * Q_cat_c^(cat_n - 1)
 #             * prod(Q_reg_i_c^n_reg_i for all regulatory sites i) )
 #   den = sum_c( L_c * Q_cat_c^cat_n * prod(Q_reg_i_c^n_reg_i for all regulatory sites i) )
 #   v = E_total * num / den
@@ -1733,8 +1739,9 @@ end
 
 """
 Assemble the MWC numerator and denominator Exprs.
-Returns `(full_num, full_den)` where the numerator already includes the
-`catalytic_multiplicity` factor.
+Returns `(full_num, full_den)`. Per-active-site normalization: the
+numerator carries no leading `catalytic_multiplicity` factor; only the
+`Q_cat^(CatN-1)` / `Q_cat^CatN` binding-statistics powers remain.
 """
 function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     m = M_type()
@@ -1796,10 +1803,10 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         # I-state cycle broken: N_I = 0, so drop the L*num_I term
         # entirely (skip dead numerator branch). Q_I still contributes
         # to denominator as enzyme mass.
-        :($(CatN) * $(num_A)), :($(den_A) + L * $(den_I))
+        num_A, :($(den_A) + L * $(den_I))
     else
         num_I = make_num_term(N_I, Q_I, reg_Q_I)
-        :($(CatN) * ($(num_A) + L * $(num_I))), :($(den_A) + L * $(den_I))
+        :($(num_A) + L * $(num_I)), :($(den_A) + L * $(den_I))
     end
 end
 
