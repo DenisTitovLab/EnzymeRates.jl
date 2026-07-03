@@ -1598,14 +1598,19 @@ end
         # Iso SS. → 2 variants.
         @test length(result) == 2
 
-        # 2. Δ params: both groups carry cheap tags (:EqualAI, :OnlyA) → +1
-        # fitted param per variant (:OnlyA lives in the R-state only, so RE→SS
-        # adds no T-state pair). Measured against the actual compiled count.
+        # 2. Δ params. The P-binding RE→SS variant adds +1 (its kon/koff pair,
+        # T-state binding partition only). The S-binding (:OnlyA) RE→SS variant
+        # adds +2: because catalysis is :EqualAI, the inactive state still
+        # populates E(S) via REVERSE catalysis E(P)→E(S) even though S cannot
+        # bind directly, so the inactive-state partition Q_I carries E(S)'s
+        # SS-dependent weight (k_ES_to_EP, k_EP_to_ES) — an extra identifiable
+        # fitted param. Equilibrium flux stays 0 (thermodynamically consistent).
+        # (The old rename-reconstruction dropped E(S) from Q_I, giving [1, 1].)
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1]
+        @test deltas == [1, 2]
 
         # 3. compilability
         for r in result
@@ -2859,13 +2864,20 @@ end
         n_groups = length(m.steps)
         @test length(result) == n_groups + 1
 
-        # 2. Δ params: +1 per variant (just the allosteric L). Measured
-        # against the actual compiled fitted count.
+        # 2. Δ params: +1 per variant for the allosteric L, plus +1 more for
+        # the three :OnlyA variants whose inactive-state partition Q_I gains an
+        # SS-dependent form. In this ping-pong topology (:EqualAI catalysis),
+        # making a binding group :OnlyA removes that ligand's direct binding in
+        # the inactive state, but reverse catalysis can still populate the bound
+        # form, so Q_I carries its SS-dependent weight (+1 identifiable param).
+        # Four variants' :OnlyA form is genuinely unpopulated in the inactive
+        # state (Δ=1); three are reverse-catalysis-populated (Δ=2). Equilibrium
+        # flux is 0 for all seven (thermodynamically consistent).
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == fill(1, n_groups + 1)
+        @test deltas == [1, 1, 1, 1, 2, 2, 2]
 
         # 3. compilability
         for r in result
