@@ -235,14 +235,15 @@ The generated `docs/build/*` files regenerate from `docs/src`; leave them.
 
 ## Implementation order
 
-1. Change 4's diagnostic run, so profiling overlaps the rest and its fix lands
-   with full context.
-2. Change 1 (cumulative floor) — the core correctness fix.
-3. Change 2 (reporting) — depends on change 1's `expanded[c]` and the ingest
+Land the correctness fixes and the docs first; profile last.
+
+1. Change 1 (cumulative floor) — the core correctness fix.
+2. Change 2 (reporting) — depends on change 1's `expanded[c]` and the ingest
    reorder.
-4. Change 3 (CV parallelism) — independent of 1–2.
-5. Change 4's fix, once the diagnostic identifies the dominant term.
-6. Change 5 (docs) — last, describing the shipped behavior.
+3. Change 3 (CV parallelism) — independent of 1–2.
+4. Change 5 (docs) — describes the shipped cumulative behavior, so it follows
+   changes 1–3.
+5. Change 4's diagnostic run, then its fix once the dominant term is identified.
 
 Each change follows TDD: a failing test first, then the change.
 
