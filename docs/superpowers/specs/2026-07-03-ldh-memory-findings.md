@@ -1,7 +1,7 @@
 # LDH memory-growth diagnostic — findings (preliminary)
 
 Diagnoses the RAM climb (~10 GB → >50 GB by iteration 14) on the 2026-07-02 LDH
-HPC run. Spec change 4 of `2026-07-03-ldh-search-improvements-design.md`.
+HPC run — the memory item from the LDH search-improvements work.
 **No fix is implemented here** — the fix is deferred pending an at-scale
 confirmation run.
 
@@ -115,10 +115,154 @@ now quantitatively consistent, not just qualitative.
    dropped), and write the per-iteration CSV without materializing the full wide
    `missing`-filled DataFrame in memory.
 
-## Artifacts
+## Artifacts — the probe scripts
 
-- `docs/ldh_hpc_results/profile_memory.jl` — full-pipeline sampler (run at scale).
-- `docs/ldh_hpc_results/profile_codecache_probe.jl` — the per-mechanism probe
-  (current RSS + full fit stack).
-- Raw samples from the reduced run are left untracked
-  (`docs/ldh_hpc_results/memprofile_samples.csv`).
+Both scripts live in the gitignored `docs/ldh_hpc_results/` working area (which
+holds the multi-GB result CSVs), so they are not tracked as files — they are
+reproduced here so the repo retains them. Raw samples from the reduced run are
+also left there untracked (`memprofile_samples.csv`).
+
+### `profile_memory.jl` — full-pipeline sampler (run this at scale)
+
+```julia
+# ABOUTME: Local memory profiler for identify_rate_equation on reduced LDH data.
+# ABOUTME: Samples master + per-worker gc_live_bytes / maxrss to a CSV (written
+# ABOUTME: incrementally) to isolate code-cache growth from data retention.
+using Pkg
+Pkg.activate(joinpath(@__DIR__))
+Pkg.instantiate()
+
+using Distributed, Dates, CSV, DataFrames
+
+addprocs(2; exeflags = ["--project"])   # 2 workers: box is memory-constrained
+@everywhere using EnzymeRates, OptimizationCMAEvolutionStrategy
+
+raw = CSV.read(joinpath(@__DIR__, "Enzyme data", "LDH_data.csv"), DataFrame)
+filter!(row -> row.Rate != 0.0, raw)
+data = (group = String.(raw.Article .* "_" .* raw.Fig),
+        Rate = Float64.(raw.Rate), NADH = Float64.(raw.NADH),
+        Pyruvate = Float64.(raw.Pyruvate), Lactate = Float64.(raw.Lactate),
+        NAD = Float64.(raw.NAD))
+rxn = @enzyme_reaction begin
+    substrates:NADH[C21H29N7O14P2], Pyruvate[C3H4O3]
+    products:Lactate[C3H6O3], NAD[C21H27N7O14P2]
+    oligomeric_state:4
+end
+prob = IdentifyRateEquationProblem(rxn, data; Keq=20000.0, scale_k_to_kcat=1.0)
+
+# Sampler: master + each worker, every 5 s, appended to a CSV as it goes so a
+# partial or OOM-killed run still yields the growth trend.
+@everywhere _mem() = (gc_live = Base.gc_live_bytes(), maxrss = Sys.maxrss())
+samples_path = joinpath(@__DIR__, "memprofile_samples.csv")
+io = open(samples_path, "w")
+println(io, "t,who,gc_live,maxrss"); flush(io)
+t0 = time()
+sampling = Ref(true)
+sample_row(t, who, m) = (println(io, "$t,$who,$(m.gc_live),$(m.maxrss)"); flush(io))
+sampler = @async while sampling[]
+    t = round(time() - t0; digits=1)
+    sample_row(t, "master", _mem())
+    for w in workers()
+        sample_row(t, "worker$w", remotecall_fetch(_mem, w))
+    end
+    sleep(5)
+end
+
+# Reduced + FAST run. Memory growth tracks the count of distinct @generated
+# mechanisms + iterations, not fit quality. For an at-scale profile, raise
+# max_param_count to 13 and use the real worker count.
+results = identify_rate_equation(prob;
+    optimizer=CMAEvolutionStrategyOpt(),
+    max_param_count=7, min_beam_width=3,
+    n_restarts=2, maxtime=2.0,
+    loss_rel_threshold=1.3, loss_abs_threshold=0.001,
+    loss_parsimony_threshold=1.01,
+    save_dir=joinpath(@__DIR__, "memprofile_results"))
+
+sampling[] = false; wait(sampler)
+
+# Does a forced GC reclaim? NOTE maxrss is a high-water mark; for a valid reclaim
+# test read current RSS (see the probe below). This sampler is for the growth
+# TREND and the per-worker vs. master split.
+GC.gc(true); GC.gc(true)
+sample_row(round(time() - t0; digits=1), "master_postGC", _mem())
+for w in workers()
+    sample_row(round(time() - t0; digits=1), "worker$(w)_postGC",
+               remotecall_fetch(() -> (GC.gc(true); _mem()), w))
+end
+close(io)
+
+allsamples = CSV.read(samples_path, DataFrame)
+mb(x) = round(x / 2^20; digits=1)
+println("=== peak maxrss (MB) ===")
+for who in unique(allsamples.who)
+    ws = allsamples[allsamples.who .== who, :]
+    println("  $who: first=", mb(first(ws.maxrss)), " peak=", mb(maximum(ws.maxrss)),
+            " gc_live first=", mb(first(ws.gc_live)), " peak=", mb(maximum(ws.gc_live)))
+end
+println("Selected: n_params=", results.cv_results.n_params[1])
+for p in workers(); rmprocs(p); end
+```
+
+### `profile_codecache_probe.jl` — per-mechanism probe (current RSS + full fit stack)
+
+Run against the LDH project (it has the optimizer):
+`julia --project=docs/ldh_hpc_results docs/ldh_hpc_results/profile_codecache_probe.jl`.
+
+```julia
+# ABOUTME: Single-process probe for the LDH RAM growth. Per distinct mechanism it
+# ABOUTME: runs the SAME stack a real worker compiles (compile + rate_equation +
+# ABOUTME: a tiny fit), tracks CURRENT RSS (VmRSS), then GCs and measures reclaim.
+# Run against the LDH project (has the optimizer): --project=docs/ldh_hpc_results.
+# NOTE: uses current RSS from /proc/self/status, NOT Sys.maxrss() — maxrss is a
+# monotonic high-water mark and cannot show reclaim.
+using Pkg
+Pkg.activate(@__DIR__)
+using EnzymeRates, OptimizationCMAEvolutionStrategy, Printf
+
+function current_rss()
+    for line in eachline("/proc/self/status")
+        startswith(line, "VmRSS:") && return parse(Int, split(line)[2]) * 1024
+    end
+    return 0
+end
+mb(x) = round(x / 2^20; digits=1)
+sample(tag) = @printf("%-26s gc_live=%7.1fMB  rss(current)=%7.1fMB\n",
+                      tag, mb(Base.gc_live_bytes()), mb(current_rss()))
+
+rxn = @enzyme_reaction begin
+    substrates:NADH[C21H29N7O14P2], Pyruvate[C3H4O3]
+    products:Lactate[C3H6O3], NAD[C21H27N7O14P2]
+    oligomeric_state:4
+end
+inits = unique!(collect(EnzymeRates.init_mechanisms(rxn)))
+# Tiny synthetic dataset so a real fit runs (fit quality is irrelevant — we only
+# want the per-mechanism compilation the optimizer stack does).
+data = (group = ["a","a","b","b"], Rate = [1.0, 2.0, 1.5, 2.5],
+        NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [1.0, 1.0, 2.0, 2.0],
+        Lactate = [0.5, 0.5, 0.5, 0.5], NAD = [0.5, 0.5, 0.5, 0.5])
+opt = CMAEvolutionStrategyOpt()
+function compile_and_fit(m)
+    try
+        em = EnzymeRates.compile_mechanism(m)
+        fp = FittingProblem(em, data; Keq = 20000.0, scale_k_to_kcat = 1.0)
+        fit_rate_equation(fp, opt; n_restarts = 1, maxtime = 0.3, maxiters = 100)
+    catch
+    end
+end
+
+n = min(40, length(inits))
+GC.gc(true); GC.gc(true)
+println("distinct init mechanisms: ", length(inits), " (probing ", n, ")")
+sample("baseline:")
+for (i, m) in enumerate(inits[1:n])
+    compile_and_fit(m)
+    (i % 10 == 0 || i == n) && sample("after $i compiled+fit:")
+end
+
+# Valid reclaim test: with CURRENT RSS, if it FALLS toward baseline after a full
+# GC the memory was reclaimable (GC.gc helps); if it stays high the retained
+# memory is non-reclaimable (compiled code) or allocator-retained.
+GC.gc(true); GC.gc(true); GC.gc(true)
+sample("after forced GC:")
+```
