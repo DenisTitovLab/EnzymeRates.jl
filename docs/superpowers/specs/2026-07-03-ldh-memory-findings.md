@@ -15,7 +15,8 @@ confirmation run.
 - **Per-distinct-mechanism compilation is the plausible primary driver.**
   Running the same stack a real worker runs per mechanism (compile + rate
   equation + a fit), each distinct mechanism costs ~0.5 MB of non-returnable
-  RSS on top of a ~267 MB one-time JIT of the optimizer stack. Spread across the
+  RSS on top of a ~267 MB one-time JIT of the derivation machinery and optimizer
+  stack. Spread across the
   run's tens of thousands of distinct mechanisms and a large worker pool, that
   reaches tens of GB — quantitatively consistent with the observed 50 GB.
 - **The cumulative-floor fix already shipped in this branch mitigates it** by
@@ -25,7 +26,7 @@ confirmation run.
 This **revises** the design doc's framing: the code/compilation hypothesis was
 right. An earlier probe here wrongly dismissed it — it used `Sys.maxrss()`
 (a monotonic high-water mark that cannot show reclaim) and skipped the fit
-stack, undercounting per-mechanism cost ~10–25×. Both were corrected; the
+stack, undercounting per-mechanism cost ~5–25×. Both were corrected; the
 numbers below are from the corrected probe.
 
 ## Method
@@ -77,14 +78,16 @@ branch did not change.)
 ## Diagnosis
 
 Per worker, RSS = baseline (~0.66 GB loaded Julia + EnzymeRates) + one-time
-optimizer-stack JIT (~0.27 GB) + ~0.5 MB of non-returnable memory per distinct
-mechanism it fits. The last term is unbounded in the number of distinct
-mechanisms and is what makes RSS *climb* across iterations.
+derivation + optimizer-stack JIT (~0.27 GB) + ~0.5 MB of non-returnable memory
+per distinct mechanism it fits. The last term is unbounded in the number of
+distinct mechanisms and is what makes RSS *climb* across iterations.
 
-The run's 50 GB is the aggregate across the worker pool:
-~50k distinct mechanisms / ~32 workers ≈ 1.5k per worker × ~0.5 MB ≈ 0.75 GB of
-per-mechanism growth per worker, plus ~0.9 GB baseline+JIT, ≈ 1.6 GB/worker
-× 32 ≈ 50 GB. Master-side retention (`frontier`/`memo`/`cv_pool` holding every
+The run's 50 GB is the aggregate across the worker pool. Its iteration CSVs
+total tens of thousands of distinct fitted equations; taking ~50k across a
+~32-core node: ≈1.5k per worker × ~0.5 MB ≈ 0.75 GB of per-mechanism growth per
+worker, plus ~0.9 GB baseline+JIT, ≈ 1.6 GB/worker × 32 ≈ 50 GB (the 50k and 32
+are the rough inputs the estimate is most sensitive to — confirm at scale).
+Master-side retention (`frontier`/`memo`/`cv_pool` holding every
 distinct mechanism with its full rendered equation string, plus the wide sparse
 per-iteration DataFrame — iteration 9's CSV was 962 MB) adds to the master's
 share but is a secondary term next to the worker aggregate.
@@ -97,7 +100,9 @@ now quantitatively consistent, not just qualitative.
 1. **Confirm the split at scale.** Run `profile_memory.jl` on a full machine at
    the real worker count and `max_param_count=13`. It already samples every
    worker via `remotecall`, so the per-worker vs. master breakdown is directly
-   readable — decide the fix from that split.
+   readable — decide the fix from that split. Add a same-mechanism control (fit
+   one mechanism many times) to confirm the per-mechanism RSS growth tracks the
+   distinct-type count rather than an allocator working-set ratchet.
 2. **Lean on the cumulative-floor fix first.** It sharply cuts the distinct-
    mechanism count and iteration count; re-measure peak RAM on the branch before
    adding anything else — it may bring the run under the RAM ceiling on its own.
