@@ -341,7 +341,8 @@ collapses kinetic-group members to their rep's name). `rename_map` then
 applies any single-symbol Wegscheider ties as a post-pass.
 """
 function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
-                                  subs_species, prods_species)
+                                  subs_species, prods_species;
+                                  allow_dead::Bool=false)
     enz_species, groups, form_to_group = _compute_re_groups(mech)
     enz_name_to_form = Dict{Symbol, Int}(
         name(es) => i for (i, es) in enumerate(enz_species))
@@ -388,7 +389,7 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
     num = _compute_numerator(
         mech, enz_name_to_form, step_params,
         alpha, form_to_group,
-        D, subs_species, prods_species)
+        D, subs_species, prods_species; allow_dead=allow_dead)
 
     num = _rename_symbols(num, rename_map)
     den = _rename_symbols(den, rename_map)
@@ -427,7 +428,8 @@ single-form cut would undercount, so raise rather than return a wrong rate.
 """
 function _compute_numerator(
     mech::Mechanism, enz_name_to_form, step_params,
-    alpha, form_to_group, D, subs_species, prods_species,
+    alpha, form_to_group, D, subs_species, prods_species;
+    allow_dead::Bool=false,
 )
     is_mixed_substrate_product_complex(f) =
         any(m -> m isa Substrate, bound(f)) && any(m -> m isa Product, bound(f))
@@ -488,9 +490,12 @@ function _compute_numerator(
     end
 
     usable = [c for c in cands if all(!is_equilibrium(rsteps[k].s) for k in c[1])]
-    isempty(usable) && error(
-        "rate_equation: no rapid-equilibrium-consistent reaction cut — a complete " *
-        "all-RE catalytic cycle exists, so the mechanism has no finite rate.")
+    if isempty(usable)
+        allow_dead && return poly_zero()
+        error(
+            "rate_equation: no rapid-equilibrium-consistent reaction cut — a complete " *
+            "all-RE catalytic cycle exists, so the mechanism has no finite rate.")
+    end
 
     # Prefer a metabolite cut (central === nothing) over a central-species cut, then
     # fewest steps, then a chemistry cut, then sorted indices (precompile-stable).
@@ -1155,17 +1160,76 @@ function _A_rename_parameters(am::AllostericMechanism)
 end
 
 """
+Names of enzyme forms rapid-equilibrium-reachable from a free (empty-bound)
+form over the rapid-equilibrium steps of `groups`. A form's denominator weight
+(its `alpha`) is built only from RE steps, so RE-connectivity to the free-E
+partition is what decides whether a form's A-state monomial carries a binding-K.
+Seeding from every empty-bound form covers a ping-pong covalent intermediate,
+which carries no bound metabolite and so is its own free root.
+"""
+function _re_reachable_from_free(groups)
+    forms = Species[]
+    for grp in groups, s in grp
+        from_species(s) in forms || push!(forms, from_species(s))
+        to_species(s)   in forms || push!(forms, to_species(s))
+    end
+    reach = Set{Symbol}(name(f) for f in forms if isempty(bound(f)))
+    changed = true
+    while changed
+        changed = false
+        for grp in groups, s in grp
+            is_equilibrium(s) || continue
+            fn, tn = name(from_species(s)), name(to_species(s))
+            if fn in reach && tn ∉ reach
+                push!(reach, tn); changed = true
+            elseif tn in reach && fn ∉ reach
+                push!(reach, fn); changed = true
+            end
+        end
+    end
+    reach
+end
+
+"""
 The `AllostericMechanism` for `am` in conformational `state`: `am` itself for
 `:A`; for `:I`, a fresh `AllostericMechanism` with `:OnlyA` catalytic groups
-pruned. Routing both the derivation mechanism and the step_params through this
-one struct keeps steps and allo-state tags aligned: the `AllostericMechanism`
-constructor canonicalizes `cat_steps` and applies the SAME permutation to
-`cat_allo_states`, so pruning-induced reorder/iso-flips can't desync the two.
+dropped AND every enzyme form stranded by that drop pruned at the step level. A
+form is stranded iff its ONLY rapid-equilibrium route to free E ran through an
+`:OnlyA` binding step — RE-reachable from free E over all RE steps but no longer
+RE-reachable once the `:OnlyA` steps are gone. Those are exactly the forms whose
+A-state binding monomial carries an `:OnlyA` K, the ones monomial-zeroing
+(`_i_state_num_den_polys`) deletes. Forms reached only via steady-state steps
+(all-SS catalytic graphs, ping-pong covalent intermediates) are NOT stranded —
+they were never in the free-E RE partition — so a mechanism with no `:OnlyA`
+catalytic group prunes nothing and re-derives its full native I-state.
+
+A group can straddle the boundary — PFK-1's `:EqualAI` ATP-binding group keeps
+its reachable `E+ATP⇌E(ATP)` step but drops the `E(F6P)+ATP⇌E(F6P,ATP)` step
+whose forms hang off the pruned `:OnlyA` F6P branch — so surviving steps are kept
+per step, not per group. Reachable-subgraph King–Altman then yields the same
+denominator monomial-zeroing produced, and (with no SS cut left) a zero numerator
+for a dead cycle. Routing both the derivation mechanism and the step_params
+through this one struct keeps steps and allo-state tags aligned: the
+`AllostericMechanism` constructor canonicalizes `cat_steps` and applies the SAME
+permutation to `cat_allo_states`, so pruning-induced reorder/iso-flips can't
+desync the two.
 """
 function _state_allo_mechanism(am::AllostericMechanism, state::Symbol)
     state === :I || return am
-    keep = [g for g in eachindex(steps(am)) if cat_allo_state(am, g) !== :OnlyA]
-    AllostericMechanism(reaction(am), steps(am)[keep], cat_allo_states(am)[keep],
+    keepG = [g for g in eachindex(steps(am)) if cat_allo_state(am, g) !== :OnlyA]
+    groups = steps(am)[keepG]
+    states = cat_allo_states(am)[keepG]
+    stranded = setdiff(_re_reachable_from_free(steps(am)),
+                       _re_reachable_from_free(groups))
+    kg = Vector{Step}[]
+    ks = Symbol[]
+    for (grp, st) in zip(groups, states)
+        kept = [s for s in grp
+                if name(from_species(s)) ∉ stranded &&
+                   name(to_species(s)) ∉ stranded]
+        isempty(kept) || (push!(kg, kept); push!(ks, st))
+    end
+    AllostericMechanism(reaction(am), kg, ks,
                         catalytic_multiplicity(am), regulatory_sites(am))
 end
 
@@ -1202,8 +1266,9 @@ end
 
 """
 The catalytic `Mechanism` for `am` in conformational `state`. `:A` keeps the
-full catalytic graph; `:I` prunes `:OnlyA` groups (via `_state_allo_mechanism`)
-so King–Altman re-derives the broken-cycle I-state law natively.
+full catalytic graph; `:I` keeps only the reachable-form subgraph (`:OnlyA`
+groups and RE-unreachable forms pruned, via `_state_allo_mechanism`) so
+King–Altman re-derives the broken-cycle I-state law natively.
 """
 function _state_mechanism(am::AllostericMechanism, state::Symbol)
     sam = _state_allo_mechanism(am, state)
@@ -1226,7 +1291,8 @@ function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     subs_syms = Symbol[name(s) for s in substrates(reaction(am))]
     prods_syms = Symbol[name(p) for p in products(reaction(am))]
     num, den = _raw_symbolic_rate_polys(cm, sp, Dict{Symbol, Symbol}(),
-                                        subs_syms, prods_syms)
+                                        subs_syms, prods_syms;
+                                        allow_dead = state === :I)
     state === :I || return num, den
     renames = _state_i_case_b_renames(am)
     _rename_symbols(num, renames), _rename_symbols(den, renames)
@@ -1758,19 +1824,14 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     N_A = _poly_to_expr(num_A_poly, cat_params, cat_mets)
     Q_A = _poly_to_expr(den_A_poly, cat_params, cat_mets)
 
-    # I-state catalytic Exprs. A live I-cycle is re-derived natively on the
-    # tagged graph (`:NonequalAI` groups I-tagged, Case-B dependents I-named).
-    # A dead I-cycle (`_i_state_dead`, an `:OnlyA` catalytic group) keeps the
-    # binding-partition Q_I from `_i_state_num_den_polys`: pruning the `:OnlyA`
-    # step opens the graph, so King–Altman would strand the downstream
-    # intermediate and its steady-state weight would carry the catalytic SS
-    # rate constants — a different, SS-dependent denominator. Zeroing the
-    # `:OnlyA` monomials instead drops that form, giving the intended MWC
-    # binding partition. N_I is forced to 0 either way (broken cycle).
-    i_dead = _i_state_dead(m)
-    num_i_poly, den_i_poly = i_dead ? _i_state_num_den_polys(am) :
-                             _state_rate_polys(am, :I)
-    N_I = i_dead ? 0 : _poly_to_expr(num_i_poly, cat_params, cat_mets)
+    # I-state catalytic Exprs, always re-derived natively on the reachable-form
+    # subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA` groups and every
+    # form left RE-unreachable). Reachable-subgraph King–Altman gives the same
+    # binding partition monomial-zeroing produced, and for a dead cycle the
+    # pruned graph has no SS cut so `_compute_numerator(allow_dead=true)` returns
+    # 0 natively — no forced zero needed.
+    num_i_poly, den_i_poly = _state_rate_polys(am, :I)
+    N_I = _poly_to_expr(num_i_poly, cat_params, cat_mets)
     Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)
 
     reg_Q_A = Any[_reg_site_expr(am, i, false) for i in eachindex(RS)]
