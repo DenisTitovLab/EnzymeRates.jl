@@ -730,6 +730,14 @@ function _beam_search(
                     _batch_summary(child_entries, child_failures;
                                    n_skipped, max_param_count),
                     "\n  ", _best_loss_line(best_loss_by_count, improved)))
+            elseif !isempty(children)
+                # Whole batch exceeded max_param_count — all cap-skipped, so it
+                # produced no rows and no CSV. Report it anyway; don't bump the
+                # iteration counter, since there are no rows to save.
+                _progress(save_dir, show_progress, string(
+                    "Expanded ", length(parents), " parents → ",
+                    length(children), " children | all ", length(children),
+                    " skipped (>", max_param_count, " params)"))
             end
         end
 
