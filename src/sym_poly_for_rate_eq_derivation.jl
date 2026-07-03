@@ -269,32 +269,6 @@ function _expr_references_any(expr, syms::Set{Symbol})
     false
 end
 
-"""Collect every Symbol leaf of an `Expr` tree into `acc`."""
-function _collect_expr_syms!(expr, acc::Set{Symbol})
-    if expr isa Symbol
-        push!(acc, expr)
-    elseif expr isa Expr
-        for a in expr.args
-            _collect_expr_syms!(a, acc)
-        end
-    end
-    acc
-end
-
-"""Substitute symbols in an `Expr` tree (bare symbol matching)."""
-function substitute_params_expr(expr, subs::AbstractDict)
-    if expr isa Symbol
-        get(subs, expr, expr)
-    elseif expr isa Expr
-        args = Any[
-            substitute_params_expr(a, subs) for a in expr.args
-        ]
-        Expr(expr.head, args...)
-    else
-        expr
-    end
-end
-
 # ─── Symbol renaming in POLY ───────────────────────────────
 
 """
