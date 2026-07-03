@@ -786,59 +786,6 @@ function _evaluate_loss(
 end
 
 """
-One LOOCV fold: fit `mechanism` on every group except `held_out`, score it on
-`held_out`, and return the test loss floored at `eps(Float64)`. A non-finite
-test loss raises (naming the held-out group) — a corrupted fold must abort model
-selection rather than propagate a bad score.
-"""
-function _cv_fold_loss(
-    mechanism::AbstractEnzymeMechanism,
-    prob::IdentifyRateEquationProblem, held_out;
-    optimizer, kwargs...)
-    train_mask = prob.data.group .!= held_out
-    test_mask  = prob.data.group .== held_out
-    train_data = _subset_data(prob.data, train_mask)
-    test_data  = _subset_data(prob.data, test_mask)
-
-    fp_train = FittingProblem(mechanism, train_data;
-        Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
-    fit = fit_rate_equation(fp_train, optimizer; kwargs...)
-
-    test_loss = _evaluate_loss(mechanism, test_data,
-        fit.params, prob.Keq, prob.scale_k_to_kcat)
-    # A non-finite fold loss means the fit is unusable; aborting model
-    # selection is correct (re-run CV from the saved CSVs after fixing
-    # the fit). max(NaN, eps) === NaN, so the floor below would not catch it.
-    isfinite(test_loss) || error(
-        "LOOCV produced a non-finite test loss for held-out group " *
-        "$held_out — the fit is unusable; aborting model selection.")
-    # Floor at eps so log(score) is finite. The centered-residuals loss
-    # can be exactly 0 (e.g. a single-row held-out group).
-    max(test_loss, eps(Float64))
-end
-
-"""
-    _loocv(mechanism, prob; optimizer, kwargs...)
-
-Leave-one-group-out cross-validation. Returns `Vector{Float64}` of per-fold
-test losses (one per held-out group). Each score is floored at `eps(Float64)`
-so `log(score)` is finite — the selection rules operate in log space.
-
-Loud by design: a fold fit that throws propagates, and a non-finite fold test
-loss raises (naming the held-out group). A corrupted CV invalidates model
-selection, and CV is cheap to recompute from the saved search CSVs — so the
-pipeline aborts rather than silently dropping the candidate.
-"""
-function _loocv(
-    mechanism::AbstractEnzymeMechanism,
-    prob::IdentifyRateEquationProblem;
-    optimizer, kwargs...
-)
-    groups = unique(prob.data.group)
-    [_cv_fold_loss(mechanism, prob, g; optimizer, kwargs...) for g in groups]
-end
-
-"""
     _onesided_permutation_p(diffs; exact_threshold=20,
                              mc_samples=10^6,
                              rng=Random.default_rng()) → Float64
@@ -928,8 +875,8 @@ Tiebreak: when two buckets tie on `mean(log_scores)`, `n_min` resolves to
 the smallest `n_params` (parsimony).
 
 Errors if any bucket's fold-score length differs from `n_min`'s. (Every
-`cv_fold_scores` row is non-empty — `_loocv` returns a full per-fold vector or
-raises — so there is no empty-input case to handle.)
+`cv_fold_scores` row is non-empty — the LOOCV grid scores every
+`(candidate, fold)` pair or raises — so there is no empty-input case to handle.)
 
 When `n_folds_min == 1` the SE is undefined; the selection loop is
 skipped and `n_min` is returned. Diagnostics are still populated with
@@ -1001,20 +948,6 @@ function _select_best_n_params(
         n_min = n_min,
         diagnostics = diagnostics,
     )
-end
-
-"""
-Scatter flat `(candidate_index, group, score)` triples into one fold-score
-vector per candidate, each ordered by `groups`. Every `(ci, g)` in the grid
-appears exactly once, so every slot is written.
-"""
-function _scatter_fold_scores(flat, n_candidates::Int, groups)
-    gi = Dict(g => i for (i, g) in enumerate(groups))
-    out = [Vector{Float64}(undef, length(groups)) for _ in 1:n_candidates]
-    for (ci, g, s) in flat
-        out[ci][gi[g]] = s
-    end
-    out
 end
 
 function _cv_model_selection(
@@ -1095,8 +1028,7 @@ function _cv_model_selection(
     end
 
     # Flatten per-fold scores into one column per held-out group.
-    # Group order matches `_loocv`'s iteration over
-    # `unique(prob.data.group)`.
+    # Group order matches the `groups = unique(prob.data.group)` iteration above.
     for (i, g) in enumerate(groups)
         col = Symbol("cv_fold_$g")
         cv_df[!, col] = [v[i] for v in cv_df.cv_fold_scores]
@@ -1115,6 +1047,52 @@ function _cv_model_selection(
     CSV.write(joinpath(save_dir, "best_equation.csv"), cv_df[[best_row_idx], :])
 
     return IdentifyRateEquationResults(best_mechanism, cv_df)
+end
+
+"""
+One LOOCV fold: fit `mechanism` on every group except `held_out`, score it on
+`held_out`, and return the test loss floored at `eps(Float64)`. A non-finite
+test loss raises (naming the held-out group) — a corrupted fold must abort model
+selection rather than propagate a bad score.
+"""
+function _cv_fold_loss(
+    mechanism::AbstractEnzymeMechanism,
+    prob::IdentifyRateEquationProblem, held_out;
+    optimizer, kwargs...)
+    train_mask = prob.data.group .!= held_out
+    test_mask  = prob.data.group .== held_out
+    train_data = _subset_data(prob.data, train_mask)
+    test_data  = _subset_data(prob.data, test_mask)
+
+    fp_train = FittingProblem(mechanism, train_data;
+        Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
+    fit = fit_rate_equation(fp_train, optimizer; kwargs...)
+
+    test_loss = _evaluate_loss(mechanism, test_data,
+        fit.params, prob.Keq, prob.scale_k_to_kcat)
+    # A non-finite fold loss means the fit is unusable; aborting model
+    # selection is correct (re-run CV from the saved CSVs after fixing
+    # the fit). max(NaN, eps) === NaN, so the floor below would not catch it.
+    isfinite(test_loss) || error(
+        "LOOCV produced a non-finite test loss for held-out group " *
+        "$held_out — the fit is unusable; aborting model selection.")
+    # Floor at eps so log(score) is finite. The centered-residuals loss
+    # can be exactly 0 (e.g. a single-row held-out group).
+    max(test_loss, eps(Float64))
+end
+
+"""
+Scatter flat `(candidate_index, group, score)` triples into one fold-score
+vector per candidate, each ordered by `groups`. Every `(ci, g)` in the grid
+appears exactly once, so every slot is written.
+"""
+function _scatter_fold_scores(flat, n_candidates::Int, groups)
+    gi = Dict(g => i for (i, g) in enumerate(groups))
+    out = [Vector{Float64}(undef, length(groups)) for _ in 1:n_candidates]
+    for (ci, g, s) in flat
+        out[ci][gi[g]] = s
+    end
+    out
 end
 
 """

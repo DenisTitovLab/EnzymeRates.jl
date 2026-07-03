@@ -402,7 +402,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
                 n_restarts=1, maxtime=1.0))
     end
 
-    @testset "_loocv returns per-fold scores, floored at eps" begin
+    @testset "_cv_fold_loss over all groups: per-fold scores, floored at eps" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -419,11 +419,10 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         )
         prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
 
-        scores = EnzymeRates._loocv(
-            m, prob;
+        groups = unique(prob.data.group)
+        scores = [EnzymeRates._cv_fold_loss(m, prob, g;
             optimizer=CMAEvolutionStrategyOpt(),
-            n_restarts=2, maxtime=2.0,
-            maxiters=500)
+            n_restarts=2, maxtime=2.0, maxiters=500) for g in groups]
 
         @test scores isa Vector{Float64}
         # Require the success path: fitting MUST converge on
@@ -435,7 +434,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         @test all(isfinite, scores)
     end
 
-    @testset "_loocv is loud on fit failure" begin
+    @testset "_cv_fold_loss is loud on fit failure" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -449,11 +448,12 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
             group = [1, 1, 2, 2, 3, 3],
         )
         prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-        # An unrecognized kwarg (`beam_fraction`) makes every fold's
-        # `fit_rate_equation` call throw; _loocv must propagate that error,
-        # not swallow it (a corrupted CV must abort model selection).
-        @test_throws Exception EnzymeRates._loocv(
-            m, prob; optimizer=CMAEvolutionStrategyOpt(),
+        # An unrecognized kwarg (`beam_fraction`) makes the fold's
+        # `fit_rate_equation` call throw; `_cv_fold_loss` must propagate that
+        # error, not swallow it (a corrupted CV must abort model selection).
+        @test_throws Exception EnzymeRates._cv_fold_loss(
+            m, prob, first(unique(prob.data.group));
+            optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
     end
 
@@ -1449,8 +1449,10 @@ end
 
     groups = unique(prob.data.group)
     flat = [res.cv_results[1, Symbol("cv_fold_$g")] for g in groups]
-    serial = EnzymeRates._loocv(EnzymeRates.compile_mechanism(m1), prob;
+    m1c = EnzymeRates.compile_mechanism(m1)
+    serial = [EnzymeRates._cv_fold_loss(m1c, prob, g;
         optimizer=_CountingStubOpt(; uval=log(5.0)), n_restarts=1, maxtime=1.0)
+        for g in groups]
     @test flat == serial
 end
 
