@@ -344,6 +344,10 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         @test "initial_mechanisms.csv" in files
         @test isfile(joinpath(save_dir, "progress.log"))
         @test filesize(joinpath(save_dir, "progress.log")) > 0
+        log_text = read(joinpath(save_dir, "progress.log"), String)
+        @test occursin("new fits", log_text)
+        @test occursin("skipped (>", log_text)
+        @test occursin("best loss by n_params:", log_text)
         @test !any(startswith(f, "params_estimate_") for f in files)
         iters = filter(f -> startswith(f, "equation_search_iteration_"), files)
         @test !isempty(iters)
@@ -1038,7 +1042,8 @@ end
         @test !isdir(ghost)
     end
 
-    # _batch_summary reports the three buckets with the right denominator.
+    # _batch_summary reports the four reconciling buckets with the right
+    # success/non-Success denominator.
     mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
         substrates: S[C]; products: P[C] end))
     row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
@@ -1047,11 +1052,24 @@ end
     e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
-    s = EnzymeRates._batch_summary([e_succ, e_mt], [f])
-    @test occursin("2 fitted", s)
-    @test occursin("Success 33.3%", s)            # 1 of 3 total
-    @test occursin("non-Success retcode 33.3%", s)
-    @test occursin("errored 33.3%", s)
+    s = EnzymeRates._batch_summary([e_succ, e_mt], [f]; n_skipped=4, max_param_count=8)
+    @test occursin("2 new fits + 0 inherited + 4 skipped (>8 params) + 1 errored", s)
+    @test occursin("Success 50.0%", s)                 # 1 of 2 fitted
+    @test occursin("non-Success retcode 50.0%", s)     # e_mt is :MaxTime
+    @test !occursin("best loss", s)                    # best loss moved to its own line
+end
+
+@testset "_best_loss_line" begin
+    line = EnzymeRates._best_loss_line(
+        Dict(5 => 0.01751, 6 => 0.009316), Set([6]))
+    @test occursin("best loss by n_params:", line)
+    @test occursin("5:0.01751 ", line)          # unimproved: no star
+    @test occursin("6:0.009316*", line)         # improved: starred
+    @test occursin("(* improved)", line)
+
+    quiet = EnzymeRates._best_loss_line(Dict(5 => 0.01751), Set{Int}())
+    @test occursin("(no improvement)", quiet)
+    @test !occursin("*", quiet)
 end
 
 @testset "_process_batch" begin

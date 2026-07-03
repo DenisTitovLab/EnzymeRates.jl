@@ -442,22 +442,41 @@ function _progress(save_dir::AbstractString, show_progress::Bool, msg::AbstractS
 end
 
 """
-One-line summary of a fitted batch: count + the three retcode/error buckets
-(% Success / % non-Success retcode / % errored) and the best loss. Denominator
-is fitted + errored mechanisms for the batch.
+One-line batch summary reconciling every child mechanism into four buckets that
+sum to the child count: `new fits` (a genuine optimizer run, `fit_inherited ==
+false`), `inherited` (a memoized fit reused, `fit_inherited == true`), `skipped`
+(dropped before fitting for exceeding `max_param_count`), and `errored`
+(compile/render/fit threw). Trailing `Success` / `non-Success retcode`
+percentages are over the fitted set (`new + inherited`).
 """
-function _batch_summary(entries::Vector{BatchEntry}, failures::Vector{FitFailure})
+function _batch_summary(
+    entries::Vector{BatchEntry}, failures::Vector{FitFailure};
+    n_skipped::Int, max_param_count::Int)
     n_fit   = length(entries)
     n_err   = length(failures)
-    total   = n_fit + n_err
+    n_new   = count(e -> !e.row.fit_inherited, entries)
+    n_inh   = n_fit - n_new
     n_succ  = count(e -> e.retcode === :Success, entries)
     n_other = n_fit - n_succ
-    pct(x)  = total == 0 ? 0.0 : round(100 * x / total; digits=1)
-    best    = isempty(entries) ? NaN : minimum(e -> e.loss, entries)
-    string(n_fit, " fitted | Success ", pct(n_succ),
-           "% | non-Success retcode ", pct(n_other),
-           "% | errored ", pct(n_err), "% | best loss ",
-           isnan(best) ? "n/a" : round(best; sigdigits=4))
+    pct(x)  = n_fit == 0 ? 0.0 : round(100 * x / n_fit; digits=1)
+    string(n_new, " new fits + ", n_inh, " inherited + ",
+           n_skipped, " skipped (>", max_param_count, " params) + ",
+           n_err, " errored | Success ", pct(n_succ),
+           "% | non-Success retcode ", pct(n_other), "%")
+end
+
+"""
+Render the running best loss per parameter count, ascending, marking the counts
+that improved this iteration with `*`. Counts read from `best_loss_by_count`;
+`improved` is the set of counts whose best strictly dropped (or first appeared)
+this iteration.
+"""
+function _best_loss_line(best_loss_by_count::Dict{Int,Float64}, improved::Set{Int})
+    parts = [string(c, ":", round(best_loss_by_count[c]; sigdigits=4),
+                    c in improved ? "*" : "")
+             for c in sort(collect(keys(best_loss_by_count)))]
+    annotation = isempty(improved) ? "   (no improvement)" : "   (* improved)"
+    string("best loss by n_params: ", join(parts, " "), annotation)
 end
 
 """
@@ -638,10 +657,16 @@ function _beam_search(
     _save_initial_csv(save_dir,
         vcat([e.row for e in base_entries],
              [_failure_row(f) for f in base_failures]))
+    pre_best = copy(best_loss_by_count)
     _ingest!(frontier, cv_pool, best_loss_by_count,
              base_entries; n_cv_candidates)
-    _progress(save_dir, show_progress,
-        "Base tier: " * _batch_summary(base_entries, base_failures))
+    improved = Set(c for c in keys(best_loss_by_count)
+                   if !haskey(pre_best, c) || best_loss_by_count[c] < pre_best[c])
+    n_skipped = length(base) - length(base_entries) - length(base_failures)
+    _progress(save_dir, show_progress, string(
+        "Base tier: ",
+        _batch_summary(base_entries, base_failures; n_skipped, max_param_count),
+        "\n  ", _best_loss_line(best_loss_by_count, improved)))
 
     # ── Advancing-target sweep over actual param counts ──
     iteration = 0
@@ -682,19 +707,27 @@ function _beam_search(
                     vcat([e.row for e in child_entries],
                          [_failure_row(f) for f in child_failures]),
                     iteration)
+                pre_best = copy(best_loss_by_count)
+                !isempty(child_entries) && _ingest!(
+                    frontier, cv_pool, best_loss_by_count,
+                    child_entries; n_cv_candidates)
+                improved = Set(c for c in keys(best_loss_by_count)
+                    if !haskey(pre_best, c) || best_loss_by_count[c] < pre_best[c])
                 np_range = isempty(child_entries) ? "n/a" :
                     let lo = minimum(e -> e.n_params, child_entries),
                         hi = maximum(e -> e.n_params, child_entries)
                         lo == hi ? string(lo) : "$lo-$hi"
                     end
-                _progress(save_dir, show_progress,
-                    "Iteration $iteration (child n_params $np_range): " *
-                    "$(length(parents)) parents → $(length(children)) children | " *
-                    _batch_summary(child_entries, child_failures))
+                n_skipped = length(children) - length(child_entries) -
+                    length(child_failures)
+                _progress(save_dir, show_progress, string(
+                    "Iteration $iteration (child n_params $np_range): ",
+                    length(parents), " parents → ", length(children),
+                    " children\n  ",
+                    _batch_summary(child_entries, child_failures;
+                                   n_skipped, max_param_count),
+                    "\n  ", _best_loss_line(best_loss_by_count, improved)))
             end
-            !isempty(child_entries) && _ingest!(
-                frontier, cv_pool, best_loss_by_count,
-                child_entries; n_cv_candidates)
         end
 
         isempty(frontier) && break
