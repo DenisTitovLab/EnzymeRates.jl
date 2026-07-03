@@ -1644,14 +1644,12 @@ end
     rate_eq = rate_equation(m_mixed, (S=S_eq, P=P_eq, I=0.5), p_eq)
     @test isapprox(rate_eq, 0.0; atol=1e-10)
 
-    # _synthesized_dep_i_names must emit the distinct I-name for a Case-B
-    # promoted :EqualAI dep (k_EP_to_ES), matching the rate body, not the
-    # self-mapped A-name that _flip_to_inactive yields for an :EqualAI dep.
-    let am_mm = EnzymeRates.AllostericMechanism(m_mixed),
-        CM_mm = typeof(EnzymeRates.catalytic_mechanism(m_mixed))
-        synth = EnzymeRates._synthesized_dep_i_names(CM_mm, am_mm)
-        @test :k_I_EP_to_ES in synth        # distinct I-name, matching the rate body
-        @test :k_EP_to_ES ∉ synth           # not the self-mapped A-name
+    # The native I-run's Case-B rename must promote k_EP_to_ES to the distinct
+    # I-name k_I_EP_to_ES, matching the rate body, not the self-mapped A-name
+    # that _flip_to_inactive yields for an :EqualAI dep.
+    let am_mm = EnzymeRates.AllostericMechanism(m_mixed)
+        renames = EnzymeRates._state_i_case_b_renames(am_mm)
+        @test get(renames, :k_EP_to_ES, nothing) == :k_I_EP_to_ES
     end
 
     # Wegscheider-cycle EqualAI×NonequalAI: the Random-order Bi-Bi mechanism has a
@@ -1736,11 +1734,18 @@ end
         (cm_mixed, src_mixed), (2, (:NonequalAI, :EqualAI, :EqualAI)),
         (((:I,), 2, (:NonequalAI,)),))
     am = EnzymeRates.AllostericMechanism(m_mixed)
-    dep_R, _ = EnzymeRates._dependent_param_exprs_allosteric(am)
-    nonequalai = Set(EnzymeRates.name(p_R, am)
-                     for (p_R, _) in EnzymeRates._I_rename_parameters(am))
+    dep_A, _ = EnzymeRates._state_raw_dependent_exprs(am, :A)
+    nonequalai = Set{Symbol}()
+    fes = EnzymeRates._free_enz_set(am)
+    for (g, group) in enumerate(EnzymeRates.steps(am))
+        EnzymeRates.cat_allo_state(am, g) === :NonequalAI || continue
+        rep = EnzymeRates._group_rep(group, fes)
+        for p in EnzymeRates._emit_cat_params_for_rep(rep, :A)
+            push!(nonequalai, EnzymeRates.name(p, am))
+        end
+    end
     # find an EqualAI dep whose RHS references a NonequalAI symbol
-    k = first(k for (k, v) in dep_R
+    k = first(k for (k, v) in dep_A
               if EnzymeRates._expr_references_any(v, nonequalai)
                  && !(k in nonequalai))
     @test EnzymeRates._dep_inactive_name(am, k) != k
@@ -1777,67 +1782,6 @@ end
             E(S) <--> E(P)
             E(P) ⇌ E + P
         end
-    end
-
-    @testset "_onlyA_parameters" begin
-        # One :OnlyA catalytic group (RE binding) → single Kd(_, :A).
-        aem = allo_from_source(
-            cm_src, (2, (:OnlyA, :EqualAI, :EqualAI)),
-            (((:I,), 1, (:OnlyI,)),),
-        )
-        am = EnzymeRates.AllostericMechanism(aem)
-        params = EnzymeRates._onlyA_parameters(am)
-        rendered = Set(EnzymeRates.name(p, am) for p in params)
-        # RE binding E+S → ES with :OnlyA → single Kd named :K_A_S_E.
-        @test rendered == Set([:K_A_S_E])
-
-        # SS iso group with :OnlyA → Kfor + Krev pair.
-        aem_ss = allo_from_source(
-            cm_src, (2, (:EqualAI, :OnlyA, :EqualAI)),
-            (((:I,), 1, (:OnlyI,)),),
-        )
-        am_ss = EnzymeRates.AllostericMechanism(aem_ss)
-        ps = EnzymeRates._onlyA_parameters(am_ss)
-        @test length(ps) == 2
-        rendered_ss = Set(EnzymeRates.name(p, am_ss) for p in ps)
-        # SS iso ES → EP with :OnlyA → k_A_ES_to_EP + k_A_EP_to_ES pair.
-        @test rendered_ss == Set([:k_A_ES_to_EP, :k_A_EP_to_ES])
-
-        # No :OnlyA groups → empty.
-        aem_none = allo_from_source(
-            cm_src, (2, (:EqualAI, :EqualAI, :EqualAI)),
-            (((:I,), 1, (:OnlyI,)),),
-        )
-        @test isempty(EnzymeRates._onlyA_parameters(
-            EnzymeRates.AllostericMechanism(aem_none)))
-    end
-
-    @testset "_I_rename_parameters" begin
-        # Mix of :NonequalAI (rename), :EqualAI (skip), :OnlyA (skip).
-        aem = allo_from_source(
-            cm_src, (2, (:NonequalAI, :EqualAI, :NonequalAI)),
-            (((:I,), 1, (:OnlyI,)),),
-        )
-        am = EnzymeRates.AllostericMechanism(aem)
-        rename = EnzymeRates._I_rename_parameters(am)
-
-        rendered = Dict{Symbol, Symbol}()
-        for (r_p, t_p) in rename
-            rendered[EnzymeRates.name(r_p, am)] =
-                EnzymeRates.name(t_p, am)
-        end
-        # Groups 1 (E+S RE binding) and 3 (E+P RE binding) are :NonequalAI →
-        # Kd(rep, :A) → Kd(rep, :I) for each. Group 2 (SS iso) is :EqualAI
-        # and is skipped.
-        @test rendered == Dict(:K_A_S_E => :K_I_S_E, :K_A_P_E => :K_I_P_E)
-
-        # Empty case: no :NonequalAI groups → empty rename.
-        aem_none = allo_from_source(
-            cm_src, (2, (:OnlyA, :EqualAI, :EqualAI)),
-            (((:I,), 1, (:OnlyI,)),),
-        )
-        @test isempty(EnzymeRates._I_rename_parameters(
-            EnzymeRates.AllostericMechanism(aem_none)))
     end
 
     @testset "_all_i_state_parameters" begin

@@ -325,16 +325,5 @@ end
 
 # ─── AllostericEnzymeMechanism POLY helpers ──────────────────────
 
-"""Remove monomials containing any of the given symbols from a POLY."""
-function _zero_symbols_in_poly(p::POLY, sym_set::Set{Symbol})
-    isempty(sym_set) && return p
-    result = POLY()
-    for (mono, coeff) in p
-        has_sym = any(s ∈ sym_set for (s, _) in mono)
-        has_sym || (result[mono] = coeff)
-    end
-    result
-end
-
 """Set of every Symbol appearing in any monomial of a POLY (params + metabolites)."""
 _poly_param_syms(p::POLY) = Set{Symbol}(s for mono in keys(p) for (s, _) in mono)

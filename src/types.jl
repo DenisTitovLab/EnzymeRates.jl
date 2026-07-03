@@ -1633,7 +1633,7 @@ step with the given allosteric state. The 4-way switch on
 `is_equilibrium(rep)` × `is_binding(rep)` is the shared core that every
 Step→Parameter walker routes through: `_enumerate_parameters_full`,
 `_onlyA_parameters_for_sym`, `_all_params_for_sym` (catalytic part),
-`_onlyA_parameters`, and `_ss_rate_constant_names`.
+and `_ss_rate_constant_names`.
 
 Returns 1 element for RE steps (`Kd` or `Kiso`) and 2 elements for SS
 steps (`Kon`+`Koff` or `Kfor`+`Krev`).
