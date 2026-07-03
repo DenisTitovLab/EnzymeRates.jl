@@ -1149,6 +1149,62 @@ function _A_rename_parameters(am::AllostericMechanism)
 end
 
 """
+State-tagged `step_params` for `am`'s catalytic mechanism in conformational
+`state` (`:A` or `:I`). Same shape as `_step_parameters(::Mechanism)` — a
+per-flat-step vector of `Parameter`s — but each catalytic group's `Parameter`s
+carry the group's state tag: a `:NonequalAI`/`:OnlyA` group is tagged with
+`state`; an `:EqualAI` group is tagged `:EqualAI` (so `name(p, am)` renders the
+shared bare Symbol in both states). For `state == :I`, steps of `:OnlyA` groups
+are pruned to match the broken-cycle graph from `_state_mechanism(am, :I)`.
+
+Each `Parameter` is anchored on its own step (not the rep), exactly as
+`_step_parameters` does, so arity follows the step's RE/SS type while
+`name(p, am)` collapses to the rep's structural Symbol via the chokepoint.
+"""
+function _state_step_params(am::AllostericMechanism, state::Symbol)
+    out = Vector{Vector{Parameter}}()
+    for (g, group) in enumerate(steps(am))
+        gstate = cat_allo_state(am, g)
+        state === :I && gstate === :OnlyA && continue
+        tag = gstate === :EqualAI ? :EqualAI : state
+        for s in group
+            params = is_equilibrium(s) ?
+                Parameter[is_binding(s) ? Kd(s, tag) : Kiso(s, tag)] :
+                Parameter[is_binding(s) ? Kon(s, tag)  : Kfor(s, tag),
+                          is_binding(s) ? Koff(s, tag) : Krev(s, tag)]
+            push!(out, params)
+        end
+    end
+    out
+end
+
+"""
+The catalytic `Mechanism` for `am` in conformational `state`. `:A` keeps the
+full catalytic graph; `:I` prunes `:OnlyA` groups so King–Altman re-derives the
+broken-cycle I-state law natively.
+"""
+function _state_mechanism(am::AllostericMechanism, state::Symbol)
+    state === :I || return Mechanism(reaction(am), steps(am))
+    kept = [group for (g, group) in enumerate(steps(am))
+            if cat_allo_state(am, g) !== :OnlyA]
+    Mechanism(reaction(am), kept)
+end
+
+"""
+Derive `(num_poly, den_poly)` for `am`'s catalytic mechanism in conformational
+`state`, natively in that state's parameter names. Runs the shared King–Altman
+engine on the state-tagged `step_params` and state graph, so no post-hoc rename
+is needed (`:EqualAI` groups render the shared bare Symbol automatically).
+"""
+function _state_rate_polys(am::AllostericMechanism, state::Symbol)
+    cm = _state_mechanism(am, state)
+    subs_syms = Symbol[name(s) for s in substrates(reaction(am))]
+    prods_syms = Symbol[name(p) for p in products(reaction(am))]
+    _raw_symbolic_rate_polys(cm, _state_step_params(am, state),
+                              Dict{Symbol, Symbol}(), subs_syms, prods_syms)
+end
+
+"""
 Apply the `:None`→`:A` rename to a raw catalytic polynomial for use in
 allosteric context. `:EqualAI` groups need no rename (both states share
 an empty state token and thus identical symbol rendering).
@@ -1586,7 +1642,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     CatN = catalytic_multiplicity(m)
     RS = regulatory_sites(am)
 
-    num_A_poly, den_A_poly = _raw_symbolic_rate_polys_allosteric(am)
+    num_A_poly, den_A_poly = _state_rate_polys(am, :A)
     rename_A = _A_rename_parameters(am)
     cat_params = Set{Symbol}(get(rename_A, s, s) for s in _raw_param_symbols(CM()))
     cat_mets = Set{Symbol}(metabolites(CM()))
