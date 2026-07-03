@@ -1149,30 +1149,46 @@ function _A_rename_parameters(am::AllostericMechanism)
 end
 
 """
+The `AllostericMechanism` for `am` in conformational `state`: `am` itself for
+`:A`; for `:I`, a fresh `AllostericMechanism` with `:OnlyA` catalytic groups
+pruned. Routing both the derivation mechanism and the step_params through this
+one struct keeps steps and allo-state tags aligned: the `AllostericMechanism`
+constructor canonicalizes `cat_steps` and applies the SAME permutation to
+`cat_allo_states`, so pruning-induced reorder/iso-flips can't desync the two.
+"""
+function _state_allo_mechanism(am::AllostericMechanism, state::Symbol)
+    state === :I || return am
+    keep = [g for g in eachindex(steps(am)) if cat_allo_state(am, g) !== :OnlyA]
+    AllostericMechanism(reaction(am), steps(am)[keep], cat_allo_states(am)[keep],
+                        catalytic_multiplicity(am), regulatory_sites(am))
+end
+
+"""
 State-tagged `step_params` for `am`'s catalytic mechanism in conformational
 `state` (`:A` or `:I`). Same shape as `_step_parameters(::Mechanism)` — a
 per-flat-step vector of `Parameter`s — but each catalytic group's `Parameter`s
 carry the group's state tag: a `:NonequalAI`/`:OnlyA` group is tagged with
 `state`; an `:EqualAI` group is tagged `:EqualAI` (so `name(p, am)` renders the
-shared bare Symbol in both states). For `state == :I`, steps of `:OnlyA` groups
-are pruned to match the broken-cycle graph from `_state_mechanism(am, :I)`.
+shared bare Symbol in both states). For `state == :I`, `:OnlyA` groups are
+already pruned from `_state_allo_mechanism(am, :I)`, matching the broken-cycle
+graph from `_state_mechanism(am, :I)`.
 
-Each `Parameter` is anchored on its own step (not the rep), exactly as
+Walks `_state_allo_mechanism`'s already-canonical, aligned steps/states so the
+per-flat-step order matches `_flat_steps(_state_mechanism(am, state))`. Each
+`Parameter` is anchored on its own step (not the rep), exactly as
 `_step_parameters` does, so arity follows the step's RE/SS type while
 `name(p, am)` collapses to the rep's structural Symbol via the chokepoint.
 """
 function _state_step_params(am::AllostericMechanism, state::Symbol)
+    sam = _state_allo_mechanism(am, state)
     out = Vector{Vector{Parameter}}()
-    for (g, group) in enumerate(steps(am))
-        gstate = cat_allo_state(am, g)
-        state === :I && gstate === :OnlyA && continue
-        tag = gstate === :EqualAI ? :EqualAI : state
+    for (g, group) in enumerate(steps(sam))
+        tag = cat_allo_state(sam, g) === :EqualAI ? :EqualAI : state
         for s in group
-            params = is_equilibrium(s) ?
+            push!(out, is_equilibrium(s) ?
                 Parameter[is_binding(s) ? Kd(s, tag) : Kiso(s, tag)] :
                 Parameter[is_binding(s) ? Kon(s, tag)  : Kfor(s, tag),
-                          is_binding(s) ? Koff(s, tag) : Krev(s, tag)]
-            push!(out, params)
+                          is_binding(s) ? Koff(s, tag) : Krev(s, tag)])
         end
     end
     out
@@ -1180,28 +1196,113 @@ end
 
 """
 The catalytic `Mechanism` for `am` in conformational `state`. `:A` keeps the
-full catalytic graph; `:I` prunes `:OnlyA` groups so King–Altman re-derives the
-broken-cycle I-state law natively.
+full catalytic graph; `:I` prunes `:OnlyA` groups (via `_state_allo_mechanism`)
+so King–Altman re-derives the broken-cycle I-state law natively.
 """
 function _state_mechanism(am::AllostericMechanism, state::Symbol)
-    state === :I || return Mechanism(reaction(am), steps(am))
-    kept = [group for (g, group) in enumerate(steps(am))
-            if cat_allo_state(am, g) !== :OnlyA]
-    Mechanism(reaction(am), kept)
+    sam = _state_allo_mechanism(am, state)
+    Mechanism(reaction(sam), steps(sam))
 end
 
 """
 Derive `(num_poly, den_poly)` for `am`'s catalytic mechanism in conformational
 `state`, natively in that state's parameter names. Runs the shared King–Altman
 engine on the state-tagged `step_params` and state graph, so no post-hoc rename
-is needed (`:EqualAI` groups render the shared bare Symbol automatically).
+is needed (`:EqualAI` groups render the shared bare Symbol automatically). For
+`:I`, applies the one-rule Case-B naming (a shared `:EqualAI` dependent whose
+Haldane RHS references a `:NonequalAI` symbol takes its distinct I-name) so the
+polynomials reference the same I-symbols the dep-assignment preamble defines.
 """
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     cm = _state_mechanism(am, state)
+    sp = _state_step_params(am, state)
+    @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
     subs_syms = Symbol[name(s) for s in substrates(reaction(am))]
     prods_syms = Symbol[name(p) for p in products(reaction(am))]
-    _raw_symbolic_rate_polys(cm, _state_step_params(am, state),
-                              Dict{Symbol, Symbol}(), subs_syms, prods_syms)
+    num, den = _raw_symbolic_rate_polys(cm, sp, Dict{Symbol, Symbol}(),
+                                        subs_syms, prods_syms)
+    state === :I || return num, den
+    renames = _state_i_case_b_renames(am)
+    _rename_symbols(num, renames), _rename_symbols(den, renames)
+end
+
+"""
+Tagged catalytic parameter symbols (the kernel's column set) for state graph
+`cm` under the state-tagged `sp`, in group order — the state-tagged analog of
+`_raw_param_symbols`. Distinct `name(p, cm)` in first-appearance order; because
+the allosteric catalytic sub-mechanism carries an empty Wegscheider rename this
+matches the group-order rep set the kernel aligns columns to `sp` with.
+"""
+function _state_all_params(cm::Mechanism, sp)
+    out = Symbol[]
+    seen = Set{Symbol}()
+    for group in sp, p in group
+        s = name(p, cm)
+        s in seen || (push!(seen, s); push!(out, s))
+    end
+    out
+end
+
+"""
+Native per-state Haldane/Wegscheider dependent-parameter expressions from the
+shared kernel, in that state's parameter names (NO Case-B rename yet). The empty
+rename map is byte-identical to today for all 9 golden specs (their catalytic
+sub-mechanisms have an empty `_build_wegscheider_rename_map`); a genuine
+catalytic binding-K Wegscheider tie is not yet collapsed under this path — a
+latent gap that no current spec triggers.
+"""
+function _state_raw_dependent_exprs(am::AllostericMechanism, state::Symbol)
+    cm = _state_mechanism(am, state)
+    sp = _state_step_params(am, state)
+    @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
+    _dependent_param_exprs_kernel(cm, Dict{Symbol, Symbol}();
+                                  step_params = sp,
+                                  all_params = _state_all_params(cm, sp))
+end
+
+"""
+Case-B rename map for the native I-run (Symbol → Symbol). A dependent whose key
+is a bare/`:EqualAI` symbol but whose derived RHS references an I-tagged
+`:NonequalAI` symbol has a genuinely different I-value and needs a distinct
+I-name (e.g. PK `k_EATPPyruvate_to_EADPPEP → k_I_EATPPyruvate_to_EADPPEP`). Deps
+already carrying the I-tag (a `:NonequalAI` dep) are left alone. Reproduces the
+naming of `_synthesized_dep_i_names` / `_add_case_b_renames!`; since Gaussian
+elimination expresses each dependent purely in terms of independents, this is
+one non-transitive pass.
+"""
+function _case_b_rename_map(dep, am::AllostericMechanism)
+    i_nonequalai = Set{Symbol}(
+        name(p_I, am) for (_, p_I) in _I_rename_parameters(am))
+    renames = Dict{Symbol, Symbol}()
+    isempty(i_nonequalai) && return renames
+    for (k, v) in dep
+        k in i_nonequalai && continue
+        _expr_references_any(v, i_nonequalai) || continue
+        renames[k] = _dep_inactive_name(am, k)
+    end
+    renames
+end
+
+"""Case-B I-rename map for `am`, derived from the native I-run deps."""
+_state_i_case_b_renames(am::AllostericMechanism) =
+    _case_b_rename_map(first(_state_raw_dependent_exprs(am, :I)), am)
+
+"""
+Native per-state dependent-parameter assignments `(dep_exprs, indep)` in that
+state's parameter names, via the shared kernel on the state graph. For `:I`,
+applies the one-rule Case-B naming so a shared `:EqualAI` dependent whose value
+differs between states gets its distinct I-name (Spec §4/§4a).
+"""
+function _state_dependent_exprs(am::AllostericMechanism, state::Symbol)
+    dep, indep = _state_raw_dependent_exprs(am, state)
+    state === :I || return dep, indep
+    renames = _case_b_rename_map(dep, am)
+    isempty(renames) && return dep, indep
+    renamed = Dict{Symbol, Union{Symbol, Expr}}()
+    for (k, v) in dep
+        renamed[get(renames, k, k)] = v
+    end
+    renamed, indep
 end
 
 """
@@ -1650,13 +1751,19 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     N_A = _poly_to_expr(num_A_poly, cat_params, cat_mets)
     Q_A = _poly_to_expr(den_A_poly, cat_params, cat_mets)
 
-    # I-state catalytic Exprs from the shared I-state polynomials (`:OnlyA`
-    # symbols zeroed, `:NonequalAI`/Case-B symbols I-renamed). When the I-state
-    # cycle is broken, force N_I = 0: the Cha framework otherwise produces a
-    # non-physical reverse flux from products that have nowhere to go.
-    num_i_poly, den_i_poly = _i_state_num_den_polys(am)
-    N_I = _i_state_dead(m) ? 0 :
-          _poly_to_expr(num_i_poly, cat_params, cat_mets)
+    # I-state catalytic Exprs. A live I-cycle is re-derived natively on the
+    # tagged graph (`:NonequalAI` groups I-tagged, Case-B dependents I-named).
+    # A dead I-cycle (`_i_state_dead`, an `:OnlyA` catalytic group) keeps the
+    # binding-partition Q_I from `_i_state_num_den_polys`: pruning the `:OnlyA`
+    # step opens the graph, so King–Altman would strand the downstream
+    # intermediate and its steady-state weight would carry the catalytic SS
+    # rate constants — a different, SS-dependent denominator. Zeroing the
+    # `:OnlyA` monomials instead drops that form, giving the intended MWC
+    # binding partition. N_I is forced to 0 either way (broken cycle).
+    i_dead = _i_state_dead(m)
+    num_i_poly, den_i_poly = i_dead ? _i_state_num_den_polys(am) :
+                             _state_rate_polys(am, :I)
+    N_I = i_dead ? 0 : _poly_to_expr(num_i_poly, cat_params, cat_mets)
     Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)
 
     reg_Q_A = Any[_reg_site_expr(am, i, false) for i in eachindex(RS)]
