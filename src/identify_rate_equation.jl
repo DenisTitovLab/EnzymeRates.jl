@@ -775,6 +775,38 @@ function _evaluate_loss(
 end
 
 """
+One LOOCV fold: fit `mechanism` on every group except `held_out`, score it on
+`held_out`, and return the test loss floored at `eps(Float64)`. A non-finite
+test loss raises (naming the held-out group) — a corrupted fold must abort model
+selection rather than propagate a bad score.
+"""
+function _cv_fold_loss(
+    mechanism::AbstractEnzymeMechanism,
+    prob::IdentifyRateEquationProblem, held_out;
+    optimizer, kwargs...)
+    train_mask = prob.data.group .!= held_out
+    test_mask  = prob.data.group .== held_out
+    train_data = _subset_data(prob.data, train_mask)
+    test_data  = _subset_data(prob.data, test_mask)
+
+    fp_train = FittingProblem(mechanism, train_data;
+        Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
+    fit = fit_rate_equation(fp_train, optimizer; kwargs...)
+
+    test_loss = _evaluate_loss(mechanism, test_data,
+        fit.params, prob.Keq, prob.scale_k_to_kcat)
+    # A non-finite fold loss means the fit is unusable; aborting model
+    # selection is correct (re-run CV from the saved CSVs after fixing
+    # the fit). max(NaN, eps) === NaN, so the floor below would not catch it.
+    isfinite(test_loss) || error(
+        "LOOCV produced a non-finite test loss for held-out group " *
+        "$held_out — the fit is unusable; aborting model selection.")
+    # Floor at eps so log(score) is finite. The centered-residuals loss
+    # can be exactly 0 (e.g. a single-row held-out group).
+    max(test_loss, eps(Float64))
+end
+
+"""
     _loocv(mechanism, prob; optimizer, kwargs...)
 
 Leave-one-group-out cross-validation. Returns `Vector{Float64}` of per-fold
@@ -792,33 +824,7 @@ function _loocv(
     optimizer, kwargs...
 )
     groups = unique(prob.data.group)
-    scores = Float64[]
-
-    for held_out in groups
-        train_mask = prob.data.group .!= held_out
-        test_mask  = prob.data.group .== held_out
-
-        train_data = _subset_data(prob.data, train_mask)
-        test_data  = _subset_data(prob.data, test_mask)
-
-        fp_train = FittingProblem(mechanism, train_data;
-            Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
-        fit = fit_rate_equation(fp_train, optimizer; kwargs...)
-
-        test_loss = _evaluate_loss(mechanism, test_data,
-            fit.params, prob.Keq, prob.scale_k_to_kcat)
-        # A non-finite fold loss means the fit is unusable; aborting model
-        # selection is correct (re-run CV from the saved CSVs after fixing
-        # the fit). max(NaN, eps) === NaN, so the floor below would not catch it.
-        isfinite(test_loss) || error(
-            "LOOCV produced a non-finite test loss for held-out group " *
-            "$held_out — the fit is unusable; aborting model selection.")
-        # Floor at eps so log(score) is finite. The centered-residuals loss
-        # can be exactly 0 (e.g. a single-row held-out group).
-        push!(scores, max(test_loss, eps(Float64)))
-    end
-
-    scores
+    [_cv_fold_loss(mechanism, prob, g; optimizer, kwargs...) for g in groups]
 end
 
 """
@@ -1022,11 +1028,20 @@ function _cv_model_selection(
 
     _progress(save_dir, show_progress,
         "Cross-validating $(length(candidate_mechs)) candidate equations (LOOCV)…")
-    fold_scores_per_candidate = pmap(
-        candidate_mechs
-    ) do mech
-        m = compile_mechanism(mech)
-        _loocv(m, prob; optimizer, kwargs...)
+    # Flatten LOOCV to a (candidate, fold) grid so all folds of all candidates
+    # run across every worker, not one candidate per worker with serial folds.
+    groups = unique(prob.data.group)
+    tasks = [(ci, g) for ci in eachindex(candidate_mechs) for g in groups]
+    flat = pmap(tasks) do task
+        ci, g = task
+        m = compile_mechanism(candidate_mechs[ci])
+        (ci, g, _cv_fold_loss(m, prob, g; optimizer, kwargs...))
+    end
+    gi = Dict(g => i for (i, g) in enumerate(groups))
+    fold_scores_per_candidate = [Vector{Float64}(undef, length(groups))
+                                 for _ in candidate_mechs]
+    for (ci, g, s) in flat
+        fold_scores_per_candidate[ci][gi[g]] = s
     end
 
     cv_df = copy(candidate_rows)
@@ -1061,7 +1076,6 @@ function _cv_model_selection(
     # Flatten per-fold scores into one column per held-out group.
     # Group order matches `_loocv`'s iteration over
     # `unique(prob.data.group)`.
-    groups = unique(prob.data.group)
     for (i, g) in enumerate(groups)
         col = Symbol("cv_fold_$g")
         cv_df[!, col] = [v[i] for v in cv_df.cv_fold_scores]

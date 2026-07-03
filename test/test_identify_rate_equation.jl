@@ -457,6 +457,27 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
     end
 
+    @testset "_cv_fold_loss: one fold, floored + finite; _loocv loops it" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+        end
+        m = EnzymeRates.EnzymeMechanism(
+            first(EnzymeRates.init_mechanisms(rxn)))
+        data = DataFrame(
+            S = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            P = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
+            group = [1, 1, 2, 2, 3, 3])
+        prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+        kw = (; optimizer=CMAEvolutionStrategyOpt(),
+                n_restarts=2, maxtime=2.0, maxiters=500)
+
+        one = EnzymeRates._cv_fold_loss(m, prob, 2; kw...)
+        @test one isa Float64
+        @test one >= eps(Float64) && isfinite(one)
+    end
+
 end
 
 @testset "csv writers" begin
@@ -1374,4 +1395,38 @@ end
     @test allunique([e.eq_hash for e in pool])
     @test length(pool) == 2
     @test only(filter(e -> e.eq_hash == UInt64(1), pool)).loss == 0.5
+end
+
+@testset "_cv_model_selection flatten reproduces serial LOOCV" begin
+    # Deterministic stub optimizer → identical fits whether folds run serially
+    # or across the flattened (candidate, fold) grid.
+    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
+    m1 = recon(_DEDUP_SIG1)
+    em1 = EnzymeRates.compile_mechanism(m1)
+    fkeys = EnzymeRates.fitted_params(em1)
+    h = string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)),
+               base=16, pad=16)
+    data = (group = ["G1", "G1", "G2", "G2", "G3", "G3"],
+            Rate = [0.5, 0.8, 1.0, 1.1, 0.9, 1.2],
+            A = [1.0, 2.0, 1.0, 2.0, 1.5, 2.5], B = [0.5, 0.5, 1.0, 1.0, 0.7, 0.7],
+            P = [0.1, 0.2, 0.1, 0.2, 0.15, 0.25], Q = [0.3, 0.3, 0.4, 0.4, 0.35, 0.35])
+    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
+    mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
+    mkrow(loss) = (n_params=length(fkeys), loss=loss, mechanism_type="M",
+        rate_equation="v", retcode="Success", error=missing,
+        fitted_param_names=Tuple(fkeys),
+        fitted_param_values=Tuple(fill(1.0, length(fkeys))),
+        eq_hash=h, fit_inherited=false)
+    df = EnzymeRates._rows_to_dataframe([mkrow(0.5)])
+
+    res = EnzymeRates._cv_model_selection(mechs, df, prob;
+        n_cv_candidates=5, optimizer=_CountingStubOpt(; uval=log(5.0)),
+        se_threshold=1.0, perm_p_threshold=1.0, save_dir=mktempdir(),
+        show_progress=false, n_restarts=1, maxtime=1.0)
+
+    groups = unique(prob.data.group)
+    flat = [res.cv_results[1, Symbol("cv_fold_$g")] for g in groups]
+    serial = EnzymeRates._loocv(EnzymeRates.compile_mechanism(m1), prob;
+        optimizer=_CountingStubOpt(; uval=log(5.0)), n_restarts=1, maxtime=1.0)
+    @test flat == serial
 end
