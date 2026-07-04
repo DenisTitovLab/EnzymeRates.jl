@@ -113,10 +113,10 @@ and data using beam search.
   for beam selection
 - `loss_parsimony_threshold::Float64 = 1.01`: a mechanism
   keeps expanding only if its loss is within this factor of
-  the best model with one fewer parameter — an added
+  the best model of any smaller parameter count — an added
   parameter must earn its keep. Combined with the other loss
-  thresholds via `min`; `min_beam_width` stays a hard floor.
-  `Inf` disables it.
+  thresholds via `min`; `min_beam_width` is a cumulative
+  per-count budget (see "Beam selection" below). `Inf` disables it.
 - `max_param_count::Int = 20`: stop expanding beyond
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
@@ -152,12 +152,14 @@ and data using beam search.
 A mechanism at parameter count `n` qualifies for the next-level
 beam if either:
 - its loss ≤ `min(loss_rel_threshold * best(n) + loss_abs_threshold,
-  loss_parsimony_threshold * best(n-1))`, where `best(k)` is the
-  lowest loss seen at parameter count `k`; the second term is
-  dropped at the base count (no `n-1` level),
-- OR its rank by loss (ascending) ≤ `min_beam_width`. This floor
-  always keeps the top `min_beam_width` mechanisms, even when the
-  loss cutoff admits fewer.
+  loss_parsimony_threshold * best(<n))`, where `best(n)` is the
+  lowest loss at parameter count `n` and `best(<n)` is the lowest
+  loss over all smaller counts; the second term is dropped at the
+  base count (no smaller level exists yet),
+- OR it falls under the `min_beam_width` budget: a cumulative
+  per-count allowance that expands at least `min_beam_width`
+  mechanisms at each count over the whole search, then stops —
+  spent once, not re-granted each time the count is revisited.
 
 The additive term protects against `best_loss` approaching zero
 (simulated / very-low-loss data) where a purely multiplicative
@@ -324,9 +326,10 @@ beam at this level. A mechanism qualifies if either:
   • OR its rank (1-indexed by ascending loss) ≤ min_beam_width.
 
 `parsimony_cutoff` (the loss-parsimony threshold times the best loss
-at one fewer parameter) only tightens the loss cutoff. `min_beam_width`
-stays a hard floor: the top `min_beam_width` always qualify, even when
-the loss cutoff admits fewer.
+over all smaller parameter counts) only tightens the loss cutoff.
+`min_beam_width` here is the number kept by the width floor for this
+call; `_select_count!` passes the remaining cumulative per-count
+budget, not a fixed per-sweep floor.
 
 Mechanisms with non-finite losses (`Inf`, `NaN`) are excluded
 unconditionally — they represent failed or non-converging fits
@@ -357,6 +360,28 @@ function _select_beam(
     # rely on the by-loss sort order, which is a side-effect of
     # the rank computation rather than part of the contract.
     sort!(selected)
+end
+
+"""
+Select this sweep's parents at one parameter count under a *cumulative* floor
+budget, and advance the budget. `expanded[c]` tracks how many count-`c`
+mechanisms the whole search has expanded so far; the width floor may add at most
+`min_beam_width - expanded[c]` more. Once the budget is spent, only the loss
+cutoff admits at that count. Returns the selected indices (input order).
+"""
+function _select_count!(
+    expanded::Dict{Int,Int}, c::Int, losses::AbstractVector{<:Real};
+    loss_rel_threshold::Float64, loss_abs_threshold::Float64,
+    min_beam_width::Int,
+    best_override::Union{Nothing,Float64}=nothing,
+    parsimony_cutoff::Union{Nothing,Float64}=nothing,
+)
+    budget = max(0, min_beam_width - get(expanded, c, 0))
+    sel = _select_beam(losses;
+        loss_rel_threshold, loss_abs_threshold,
+        min_beam_width=budget, best_override, parsimony_cutoff)
+    expanded[c] = get(expanded, c, 0) + length(sel)
+    sel
 end
 
 """One fitted mechanism: its own params + retcode + eq_hash + the CSV row."""
@@ -420,22 +445,41 @@ function _progress(save_dir::AbstractString, show_progress::Bool, msg::AbstractS
 end
 
 """
-One-line summary of a fitted batch: count + the three retcode/error buckets
-(% Success / % non-Success retcode / % errored) and the best loss. Denominator
-is fitted + errored mechanisms for the batch.
+One-line batch summary reconciling every child mechanism into four buckets that
+sum to the child count: `new fits` (a genuine optimizer run, `fit_inherited ==
+false`), `inherited` (a memoized fit reused, `fit_inherited == true`), `skipped`
+(dropped before fitting for exceeding `max_param_count`), and `errored`
+(compile/render/fit threw). Trailing `Success` / `non-Success retcode`
+percentages are over the fitted set (`new + inherited`).
 """
-function _batch_summary(entries::Vector{BatchEntry}, failures::Vector{FitFailure})
+function _batch_summary(
+    entries::Vector{BatchEntry}, failures::Vector{FitFailure};
+    n_skipped::Int, max_param_count::Int)
     n_fit   = length(entries)
     n_err   = length(failures)
-    total   = n_fit + n_err
+    n_new   = count(e -> !e.row.fit_inherited, entries)
+    n_inh   = n_fit - n_new
     n_succ  = count(e -> e.retcode === :Success, entries)
     n_other = n_fit - n_succ
-    pct(x)  = total == 0 ? 0.0 : round(100 * x / total; digits=1)
-    best    = isempty(entries) ? NaN : minimum(e -> e.loss, entries)
-    string(n_fit, " fitted | Success ", pct(n_succ),
-           "% | non-Success retcode ", pct(n_other),
-           "% | errored ", pct(n_err), "% | best loss ",
-           isnan(best) ? "n/a" : round(best; sigdigits=4))
+    pct(x)  = n_fit == 0 ? 0.0 : round(100 * x / n_fit; digits=1)
+    string(n_new, " new fits + ", n_inh, " inherited + ",
+           n_skipped, " skipped (>", max_param_count, " params) + ",
+           n_err, " errored | Success ", pct(n_succ),
+           "% | non-Success retcode ", pct(n_other), "%")
+end
+
+"""
+Render the running best loss per parameter count, ascending, marking the counts
+that improved this iteration with `*`. Counts read from `best_loss_by_count`;
+`improved` is the set of counts whose best strictly dropped (or first appeared)
+this iteration.
+"""
+function _best_loss_line(best_loss_by_count::Dict{Int,Float64}, improved::Set{Int})
+    parts = [string(c, ":", round(best_loss_by_count[c]; sigdigits=4),
+                    c in improved ? "*" : "")
+             for c in sort(collect(keys(best_loss_by_count)))]
+    annotation = isempty(improved) ? "   (no improvement)" : "   (* improved)"
+    string("best loss by n_params: ", join(parts, " "), annotation)
 end
 
 """
@@ -588,6 +632,9 @@ function _beam_search(
     frontier = Dict{Int, Vector{BatchEntry}}()
     cv_pool  = Dict{Int, Vector{BatchEntry}}()
     best_loss_by_count = Dict{Int, Float64}()
+    # Mechanisms expanded so far per parameter count — the cumulative floor
+    # budget. Spent once over the whole search, never re-granted per sweep.
+    expanded_by_count = Dict{Int, Int}()
     # Raw pre-rescale fits keyed by `eq_hash`, shared across iterations so each
     # distinct equation is fit exactly once over the whole search.
     memo = Dict{UInt64,NamedTuple}()
@@ -613,10 +660,16 @@ function _beam_search(
     _save_initial_csv(save_dir,
         vcat([e.row for e in base_entries],
              [_failure_row(f) for f in base_failures]))
+    pre_best = copy(best_loss_by_count)
     _ingest!(frontier, cv_pool, best_loss_by_count,
              base_entries; n_cv_candidates)
-    _progress(save_dir, show_progress,
-        "Base tier: " * _batch_summary(base_entries, base_failures))
+    improved = Set(c for c in keys(best_loss_by_count)
+                   if !haskey(pre_best, c) || best_loss_by_count[c] < pre_best[c])
+    n_skipped = length(base) - length(base_entries) - length(base_failures)
+    _progress(save_dir, show_progress, string(
+        "Base tier: ",
+        _batch_summary(base_entries, base_failures; n_skipped, max_param_count),
+        "\n  ", _best_loss_line(best_loss_by_count, improved)))
 
     # ── Advancing-target sweep over actual param counts ──
     iteration = 0
@@ -631,7 +684,8 @@ function _beam_search(
         to_expand = BatchEntry[]
         for c in unique(e.n_params for e in swept)
             entries_at_count = [e for e in swept if e.n_params == c]
-            sel = _select_beam([e.loss for e in entries_at_count];
+            sel = _select_count!(expanded_by_count, c,
+                [e.loss for e in entries_at_count];
                 loss_rel_threshold, loss_abs_threshold,
                 min_beam_width, best_override = best_loss_by_count[c],
                 parsimony_cutoff = _parsimony_cutoff(
@@ -656,19 +710,35 @@ function _beam_search(
                     vcat([e.row for e in child_entries],
                          [_failure_row(f) for f in child_failures]),
                     iteration)
+                pre_best = copy(best_loss_by_count)
+                !isempty(child_entries) && _ingest!(
+                    frontier, cv_pool, best_loss_by_count,
+                    child_entries; n_cv_candidates)
+                improved = Set(c for c in keys(best_loss_by_count)
+                    if !haskey(pre_best, c) || best_loss_by_count[c] < pre_best[c])
                 np_range = isempty(child_entries) ? "n/a" :
                     let lo = minimum(e -> e.n_params, child_entries),
                         hi = maximum(e -> e.n_params, child_entries)
                         lo == hi ? string(lo) : "$lo-$hi"
                     end
-                _progress(save_dir, show_progress,
-                    "Iteration $iteration (child n_params $np_range): " *
-                    "$(length(parents)) parents → $(length(children)) children | " *
-                    _batch_summary(child_entries, child_failures))
+                n_skipped = length(children) - length(child_entries) -
+                    length(child_failures)
+                _progress(save_dir, show_progress, string(
+                    "Iteration $iteration (child n_params $np_range): ",
+                    length(parents), " parents → ", length(children),
+                    " children\n  ",
+                    _batch_summary(child_entries, child_failures;
+                                   n_skipped, max_param_count),
+                    "\n  ", _best_loss_line(best_loss_by_count, improved)))
+            elseif !isempty(children)
+                # Whole batch exceeded max_param_count — all cap-skipped, so it
+                # produced no rows and no CSV. Report it anyway; don't bump the
+                # iteration counter, since there are no rows to save.
+                _progress(save_dir, show_progress, string(
+                    "Expanded ", length(parents), " parents → ",
+                    length(children), " children | all ", length(children),
+                    " skipped (>", max_param_count, " params)"))
             end
-            !isempty(child_entries) && _ingest!(
-                frontier, cv_pool, best_loss_by_count,
-                child_entries; n_cv_candidates)
         end
 
         isempty(frontier) && break
@@ -713,53 +783,6 @@ function _evaluate_loss(
     x = [log(params[p]) for p in pnames]
     fp = FittingProblem(mechanism, data; Keq=Keq, scale_k_to_kcat=scale_k_to_kcat)
     return loss!(x, fp)
-end
-
-"""
-    _loocv(mechanism, prob; optimizer, kwargs...)
-
-Leave-one-group-out cross-validation. Returns `Vector{Float64}` of per-fold
-test losses (one per held-out group). Each score is floored at `eps(Float64)`
-so `log(score)` is finite — the selection rules operate in log space.
-
-Loud by design: a fold fit that throws propagates, and a non-finite fold test
-loss raises (naming the held-out group). A corrupted CV invalidates model
-selection, and CV is cheap to recompute from the saved search CSVs — so the
-pipeline aborts rather than silently dropping the candidate.
-"""
-function _loocv(
-    mechanism::AbstractEnzymeMechanism,
-    prob::IdentifyRateEquationProblem;
-    optimizer, kwargs...
-)
-    groups = unique(prob.data.group)
-    scores = Float64[]
-
-    for held_out in groups
-        train_mask = prob.data.group .!= held_out
-        test_mask  = prob.data.group .== held_out
-
-        train_data = _subset_data(prob.data, train_mask)
-        test_data  = _subset_data(prob.data, test_mask)
-
-        fp_train = FittingProblem(mechanism, train_data;
-            Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
-        fit = fit_rate_equation(fp_train, optimizer; kwargs...)
-
-        test_loss = _evaluate_loss(mechanism, test_data,
-            fit.params, prob.Keq, prob.scale_k_to_kcat)
-        # A non-finite fold loss means the fit is unusable; aborting model
-        # selection is correct (re-run CV from the saved CSVs after fixing
-        # the fit). max(NaN, eps) === NaN, so the floor below would not catch it.
-        isfinite(test_loss) || error(
-            "LOOCV produced a non-finite test loss for held-out group " *
-            "$held_out — the fit is unusable; aborting model selection.")
-        # Floor at eps so log(score) is finite. The centered-residuals loss
-        # can be exactly 0 (e.g. a single-row held-out group).
-        push!(scores, max(test_loss, eps(Float64)))
-    end
-
-    scores
 end
 
 """
@@ -852,8 +875,8 @@ Tiebreak: when two buckets tie on `mean(log_scores)`, `n_min` resolves to
 the smallest `n_params` (parsimony).
 
 Errors if any bucket's fold-score length differs from `n_min`'s. (Every
-`cv_fold_scores` row is non-empty — `_loocv` returns a full per-fold vector or
-raises — so there is no empty-input case to handle.)
+`cv_fold_scores` row is non-empty — the LOOCV grid scores every
+`(candidate, fold)` pair or raises — so there is no empty-input case to handle.)
 
 When `n_folds_min == 1` the SE is undefined; the selection loop is
 skipped and `n_min` is returned. Diagnostics are still populated with
@@ -963,12 +986,17 @@ function _cv_model_selection(
 
     _progress(save_dir, show_progress,
         "Cross-validating $(length(candidate_mechs)) candidate equations (LOOCV)…")
-    fold_scores_per_candidate = pmap(
-        candidate_mechs
-    ) do mech
-        m = compile_mechanism(mech)
-        _loocv(m, prob; optimizer, kwargs...)
+    # Flatten LOOCV to a (candidate, fold) grid so all folds of all candidates
+    # run across every worker, not one candidate per worker with serial folds.
+    groups = unique(prob.data.group)
+    tasks = [(ci, g) for ci in eachindex(candidate_mechs) for g in groups]
+    flat = pmap(tasks) do task
+        ci, g = task
+        m = compile_mechanism(candidate_mechs[ci])
+        (ci, g, _cv_fold_loss(m, prob, g; optimizer, kwargs...))
     end
+    fold_scores_per_candidate = _scatter_fold_scores(
+        flat, length(candidate_mechs), groups)
 
     cv_df = copy(candidate_rows)
     cv_df.cv_fold_scores = collect(fold_scores_per_candidate)
@@ -1000,9 +1028,7 @@ function _cv_model_selection(
     end
 
     # Flatten per-fold scores into one column per held-out group.
-    # Group order matches `_loocv`'s iteration over
-    # `unique(prob.data.group)`.
-    groups = unique(prob.data.group)
+    # Group order matches the `groups = unique(prob.data.group)` iteration above.
     for (i, g) in enumerate(groups)
         col = Symbol("cv_fold_$g")
         cv_df[!, col] = [v[i] for v in cv_df.cv_fold_scores]
@@ -1021,6 +1047,52 @@ function _cv_model_selection(
     CSV.write(joinpath(save_dir, "best_equation.csv"), cv_df[[best_row_idx], :])
 
     return IdentifyRateEquationResults(best_mechanism, cv_df)
+end
+
+"""
+One LOOCV fold: fit `mechanism` on every group except `held_out`, score it on
+`held_out`, and return the test loss floored at `eps(Float64)`. A non-finite
+test loss raises (naming the held-out group) — a corrupted fold must abort model
+selection rather than propagate a bad score.
+"""
+function _cv_fold_loss(
+    mechanism::AbstractEnzymeMechanism,
+    prob::IdentifyRateEquationProblem, held_out;
+    optimizer, kwargs...)
+    train_mask = prob.data.group .!= held_out
+    test_mask  = prob.data.group .== held_out
+    train_data = _subset_data(prob.data, train_mask)
+    test_data  = _subset_data(prob.data, test_mask)
+
+    fp_train = FittingProblem(mechanism, train_data;
+        Keq=prob.Keq, scale_k_to_kcat=prob.scale_k_to_kcat)
+    fit = fit_rate_equation(fp_train, optimizer; kwargs...)
+
+    test_loss = _evaluate_loss(mechanism, test_data,
+        fit.params, prob.Keq, prob.scale_k_to_kcat)
+    # A non-finite fold loss means the fit is unusable; aborting model
+    # selection is correct (re-run CV from the saved CSVs after fixing
+    # the fit). max(NaN, eps) === NaN, so the floor below would not catch it.
+    isfinite(test_loss) || error(
+        "LOOCV produced a non-finite test loss for held-out group " *
+        "$held_out — the fit is unusable; aborting model selection.")
+    # Floor at eps so log(score) is finite. The centered-residuals loss
+    # can be exactly 0 (e.g. a single-row held-out group).
+    max(test_loss, eps(Float64))
+end
+
+"""
+Scatter flat `(candidate_index, group, score)` triples into one fold-score
+vector per candidate, each ordered by `groups`. Every `(ci, g)` in the grid
+appears exactly once, so every slot is written.
+"""
+function _scatter_fold_scores(flat, n_candidates::Int, groups)
+    gi = Dict(g => i for (i, g) in enumerate(groups))
+    out = [Vector{Float64}(undef, length(groups)) for _ in 1:n_candidates]
+    for (ci, g, s) in flat
+        out[ci][gi[g]] = s
+    end
+    out
 end
 
 """

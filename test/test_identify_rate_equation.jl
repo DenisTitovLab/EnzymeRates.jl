@@ -344,6 +344,10 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         @test "initial_mechanisms.csv" in files
         @test isfile(joinpath(save_dir, "progress.log"))
         @test filesize(joinpath(save_dir, "progress.log")) > 0
+        log_text = read(joinpath(save_dir, "progress.log"), String)
+        @test occursin("new fits", log_text)
+        @test occursin("skipped (>", log_text)
+        @test occursin("best loss by n_params:", log_text)
         @test !any(startswith(f, "params_estimate_") for f in files)
         iters = filter(f -> startswith(f, "equation_search_iteration_"), files)
         @test !isempty(iters)
@@ -398,7 +402,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
                 n_restarts=1, maxtime=1.0))
     end
 
-    @testset "_loocv returns per-fold scores, floored at eps" begin
+    @testset "_cv_fold_loss over all groups: per-fold scores, floored at eps" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -415,11 +419,10 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         )
         prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
 
-        scores = EnzymeRates._loocv(
-            m, prob;
+        groups = unique(prob.data.group)
+        scores = [EnzymeRates._cv_fold_loss(m, prob, g;
             optimizer=CMAEvolutionStrategyOpt(),
-            n_restarts=2, maxtime=2.0,
-            maxiters=500)
+            n_restarts=2, maxtime=2.0, maxiters=500) for g in groups]
 
         @test scores isa Vector{Float64}
         # Require the success path: fitting MUST converge on
@@ -431,7 +434,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         @test all(isfinite, scores)
     end
 
-    @testset "_loocv is loud on fit failure" begin
+    @testset "_cv_fold_loss is loud on fit failure" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -445,12 +448,34 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
             group = [1, 1, 2, 2, 3, 3],
         )
         prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-        # An unrecognized kwarg (`beam_fraction`) makes every fold's
-        # `fit_rate_equation` call throw; _loocv must propagate that error,
-        # not swallow it (a corrupted CV must abort model selection).
-        @test_throws Exception EnzymeRates._loocv(
-            m, prob; optimizer=CMAEvolutionStrategyOpt(),
+        # An unrecognized kwarg (`beam_fraction`) makes the fold's
+        # `fit_rate_equation` call throw; `_cv_fold_loss` must propagate that
+        # error, not swallow it (a corrupted CV must abort model selection).
+        @test_throws Exception EnzymeRates._cv_fold_loss(
+            m, prob, first(unique(prob.data.group));
+            optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
+    end
+
+    @testset "_cv_fold_loss: one fold, floored + finite" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+        end
+        m = EnzymeRates.EnzymeMechanism(
+            first(EnzymeRates.init_mechanisms(rxn)))
+        data = DataFrame(
+            S = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            P = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
+            group = [1, 1, 2, 2, 3, 3])
+        prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+        kw = (; optimizer=CMAEvolutionStrategyOpt(),
+                n_restarts=2, maxtime=2.0, maxiters=500)
+
+        one = EnzymeRates._cv_fold_loss(m, prob, 2; kw...)
+        @test one isa Float64
+        @test one >= eps(Float64) && isfinite(one)
     end
 
 end
@@ -971,6 +996,33 @@ end
     @test EnzymeRates._select_beam(losses; ov..., parsimony_cutoff=1.0) == [1]
 end
 
+@testset "_select_count! cumulative per-count floor" begin
+    expanded = Dict{Int,Int}()
+    # Sweep 1 at count 5: rel cutoff admits only the best (loss 1.0); the
+    # floor budget (3) tops it up to the top 3 by loss. expanded[5] -> 3.
+    sel1 = EnzymeRates._select_count!(expanded, 5, [1.0, 2.0, 3.0, 4.0, 5.0];
+        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        min_beam_width=3, best_override=1.0)
+    @test sort(sel1) == [1, 2, 3]
+    @test expanded[5] == 3
+
+    # Sweep 2 at count 5: budget spent (3 of 3). New mechanisms all above the
+    # cutoff -> the floor admits NONE (unlike the old per-sweep floor, which
+    # would grant a fresh 3). expanded[5] stays 3.
+    sel2 = EnzymeRates._select_count!(expanded, 5, [10.0, 11.0, 12.0];
+        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        min_beam_width=3, best_override=1.0)
+    @test isempty(sel2)
+    @test expanded[5] == 3
+
+    # A cutoff-passer is still admitted after the floor is spent.
+    sel3 = EnzymeRates._select_count!(expanded, 5, [1.0, 20.0];
+        loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        min_beam_width=3, best_override=1.0)
+    @test sel3 == [1]
+    @test expanded[5] == 4
+end
+
 @testset "§1 _parsimony_cutoff = threshold * min over all counts < c" begin
     f = EnzymeRates._parsimony_cutoff
     @test f(Dict(5=>0.02), 5, 1.01) === nothing            # no count < c
@@ -1011,7 +1063,8 @@ end
         @test !isdir(ghost)
     end
 
-    # _batch_summary reports the three buckets with the right denominator.
+    # _batch_summary reports the four reconciling buckets with the right
+    # success/non-Success denominator.
     mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
         substrates: S[C]; products: P[C] end))
     row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
@@ -1020,11 +1073,24 @@ end
     e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
-    s = EnzymeRates._batch_summary([e_succ, e_mt], [f])
-    @test occursin("2 fitted", s)
-    @test occursin("Success 33.3%", s)            # 1 of 3 total
-    @test occursin("non-Success retcode 33.3%", s)
-    @test occursin("errored 33.3%", s)
+    s = EnzymeRates._batch_summary([e_succ, e_mt], [f]; n_skipped=4, max_param_count=8)
+    @test occursin("2 new fits + 0 inherited + 4 skipped (>8 params) + 1 errored", s)
+    @test occursin("Success 50.0%", s)                 # 1 of 2 fitted
+    @test occursin("non-Success retcode 50.0%", s)     # e_mt is :MaxTime
+    @test !occursin("best loss", s)                    # best loss moved to its own line
+end
+
+@testset "_best_loss_line" begin
+    line = EnzymeRates._best_loss_line(
+        Dict(5 => 0.01751, 6 => 0.009316), Set([6]))
+    @test occursin("best loss by n_params:", line)
+    @test occursin("5:0.01751 ", line)          # unimproved: no star
+    @test occursin("6:0.009316*", line)         # improved: starred
+    @test occursin("(* improved)", line)
+
+    quiet = EnzymeRates._best_loss_line(Dict(5 => 0.01751), Set{Int}())
+    @test occursin("(no improvement)", quiet)
+    @test !occursin("*", quiet)
 end
 
 @testset "_process_batch" begin
@@ -1118,6 +1184,29 @@ end
         max_param_count=6, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
         save_dir=tmp, show_progress=false)
     @test results isa IdentifyRateEquationResults
+end
+
+@testset "all-cap-skipped expansion batch is reported (M2)" begin
+    # uni-uni base mechanism has 3 params; every child has 4. With
+    # max_param_count=3 the base fits but the whole expansion batch is
+    # cap-skipped — no rows, no CSV — so it must still emit a progress line.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    tmp = mktempdir()
+    identify_rate_equation(prob;
+        optimizer=CMAEvolutionStrategyOpt(),
+        min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+        max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
+        save_dir=tmp)
+    log_text = read(joinpath(tmp, "progress.log"), String)
+    @test occursin(r"all \d+ skipped \(>3 params\)", log_text)
+    # The all-skip batch produced no rows, so no iteration CSV was written.
+    @test !any(startswith(f, "equation_search_iteration_") for f in readdir(tmp))
 end
 
 @testset "loss_parsimony_threshold threads through identify_rate_equation" begin
@@ -1329,4 +1418,50 @@ end
     @test allunique([e.eq_hash for e in pool])
     @test length(pool) == 2
     @test only(filter(e -> e.eq_hash == UInt64(1), pool)).loss == 0.5
+end
+
+@testset "_cv_model_selection flatten reproduces serial LOOCV" begin
+    # Deterministic stub optimizer → identical fits whether folds run serially
+    # or across the flattened (candidate, fold) grid.
+    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
+    m1 = recon(_DEDUP_SIG1)
+    em1 = EnzymeRates.compile_mechanism(m1)
+    fkeys = EnzymeRates.fitted_params(em1)
+    h = string(EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)),
+               base=16, pad=16)
+    data = (group = ["G1", "G1", "G2", "G2", "G3", "G3"],
+            Rate = [0.5, 0.8, 1.0, 1.1, 0.9, 1.2],
+            A = [1.0, 2.0, 1.0, 2.0, 1.5, 2.5], B = [0.5, 0.5, 1.0, 1.0, 0.7, 0.7],
+            P = [0.1, 0.2, 0.1, 0.2, 0.15, 0.25], Q = [0.3, 0.3, 0.4, 0.4, 0.35, 0.35])
+    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
+    mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
+    mkrow(loss) = (n_params=length(fkeys), loss=loss, mechanism_type="M",
+        rate_equation="v", retcode="Success", error=missing,
+        fitted_param_names=Tuple(fkeys),
+        fitted_param_values=Tuple(fill(1.0, length(fkeys))),
+        eq_hash=h, fit_inherited=false)
+    df = EnzymeRates._rows_to_dataframe([mkrow(0.5)])
+
+    res = EnzymeRates._cv_model_selection(mechs, df, prob;
+        n_cv_candidates=5, optimizer=_CountingStubOpt(; uval=log(5.0)),
+        se_threshold=1.0, perm_p_threshold=1.0, save_dir=mktempdir(),
+        show_progress=false, n_restarts=1, maxtime=1.0)
+
+    groups = unique(prob.data.group)
+    flat = [res.cv_results[1, Symbol("cv_fold_$g")] for g in groups]
+    m1c = EnzymeRates.compile_mechanism(m1)
+    serial = [EnzymeRates._cv_fold_loss(m1c, prob, g;
+        optimizer=_CountingStubOpt(; uval=log(5.0)), n_restarts=1, maxtime=1.0)
+        for g in groups]
+    @test flat == serial
+end
+
+@testset "_scatter_fold_scores places each fold at (candidate, group)" begin
+    groups = ["G1", "G2", "G3"]
+    # 2 candidates, distinct per-candidate scores, deliberately shuffled
+    flat = [(1, "G2", 0.12), (2, "G1", 0.20), (1, "G1", 0.10),
+            (2, "G3", 0.23), (1, "G3", 0.13), (2, "G2", 0.21)]
+    out = EnzymeRates._scatter_fold_scores(flat, 2, groups)
+    @test out[1] == [0.10, 0.12, 0.13]
+    @test out[2] == [0.20, 0.21, 0.23]
 end
