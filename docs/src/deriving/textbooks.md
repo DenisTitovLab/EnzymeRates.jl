@@ -69,7 +69,7 @@ In `Reduced` mode the string has four sections:
 | `kon_S_E` | Rate constant for binding of `S` to `E`. | 1/(s·M) |
 | `koff_S_E` | Rate of dissociation of `S` from the `E`–`S` complex. | 1/s |
 | `Keq` | Equilibrium constant of the overall reaction; always user-supplied. | unitless |
-| `E_total` | Total enzyme concentration. | M |
+| `E_total` | Active-site (protomer) concentration. For a monomer this equals the total enzyme concentration; for an allosteric enzyme with `N` catalytic subunits it is `N` × the oligomer concentration, so allosteric `kcat` is reported per active site. | M |
 
 ## Inspecting parameters and metabolites
 

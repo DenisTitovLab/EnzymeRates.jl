@@ -269,32 +269,6 @@ function _expr_references_any(expr, syms::Set{Symbol})
     false
 end
 
-"""Collect every Symbol leaf of an `Expr` tree into `acc`."""
-function _collect_expr_syms!(expr, acc::Set{Symbol})
-    if expr isa Symbol
-        push!(acc, expr)
-    elseif expr isa Expr
-        for a in expr.args
-            _collect_expr_syms!(a, acc)
-        end
-    end
-    acc
-end
-
-"""Substitute symbols in an `Expr` tree (bare symbol matching)."""
-function substitute_params_expr(expr, subs::AbstractDict)
-    if expr isa Symbol
-        get(subs, expr, expr)
-    elseif expr isa Expr
-        args = Any[
-            substitute_params_expr(a, subs) for a in expr.args
-        ]
-        Expr(expr.head, args...)
-    else
-        expr
-    end
-end
-
 # ─── Symbol renaming in POLY ───────────────────────────────
 
 """
@@ -324,17 +298,6 @@ function _rename_symbols(p::POLY, rename_map::AbstractDict{Symbol, Symbol})
 end
 
 # ─── AllostericEnzymeMechanism POLY helpers ──────────────────────
-
-"""Remove monomials containing any of the given symbols from a POLY."""
-function _zero_symbols_in_poly(p::POLY, sym_set::Set{Symbol})
-    isempty(sym_set) && return p
-    result = POLY()
-    for (mono, coeff) in p
-        has_sym = any(s ∈ sym_set for (s, _) in mono)
-        has_sym || (result[mono] = coeff)
-    end
-    result
-end
 
 """Set of every Symbol appearing in any monomial of a POLY (params + metabolites)."""
 _poly_param_syms(p::POLY) = Set{Symbol}(s for mono in keys(p) for (s, _) in mono)

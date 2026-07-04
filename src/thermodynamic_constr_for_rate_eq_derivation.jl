@@ -295,16 +295,22 @@ Pass-1-only rename to discover which single-symbol ties to absorb; the
 display path in `rate_equation_string` likewise calls it with the
 Pass-1-only rename to keep absorbed ties visible under the
 `# Wegscheider constraints:` section.
+
+`step_params` and `all_params` default to the mechanism's own `:None`-state
+symbols. The allosteric per-state derivation passes state-tagged versions so
+`name(p, mech)` renders `K_A_…`/`K_I_…`/bare-`:EqualAI` symbols and `all_params`
+carries the matching tagged column set (they must agree symbol-for-symbol).
 """
 function _dependent_param_exprs_kernel(
     mech::Mechanism,
-    rename::AbstractDict{Symbol, Symbol},
+    rename::AbstractDict{Symbol, Symbol};
+    step_params = _step_parameters(mech),
+    all_params = _raw_param_symbols(mech),
 )
     flat = _flat_steps(mech)
     free_enz_set = _free_enz_set(mech)
 
     C, rhs_coeffs = _thermodynamic_constraints(mech)
-    all_params = _raw_param_symbols(mech)
     nc = size(C, 1)
     nsteps = size(C, 2)
     nc == 0 && return (Dict{Symbol, Union{Symbol, Expr}}(),
@@ -313,11 +319,10 @@ function _dependent_param_exprs_kernel(
     sym_col = Dict(p => i for (i, p) in enumerate(all_params))
     n_vars = length(all_params)
 
-    # For each step (in flat-iteration order), the Parameter(s) governing it.
-    # `name(p, mech)` renders to the rep-renamed Symbol (Pass-1
-    # kinetic-group rename is folded into the chokepoint); `rename` then
+    # For each step (in flat-iteration order), the Parameter(s) governing it
+    # come from `step_params`. `name(p, mech)` renders to the rep-renamed Symbol
+    # (Pass-1 kinetic-group rename is folded into the chokepoint); `rename` then
     # applies any Pass-2 single-symbol Wegscheider ties on top.
-    step_params = _step_parameters(mech)
     step_name(p::Parameter) = get(rename, name(p, mech), name(p, mech))
 
     # Translate cycle-incidence columns into the merged-parameter A matrix.
