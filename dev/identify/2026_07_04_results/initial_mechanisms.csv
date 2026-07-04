@@ -1,5 +1,5 @@
 n_params,loss,mechanism_type,rate_equation,retcode,error,eq_hash,fit_inherited,K_P_E,K_S_E,k_ES_to_EP
-3,3.1700639775535318,"EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}","(; K_P_E, K_S_E, k_ES_to_EP, Keq, E_total) = params
+3,3.170063977553532,"EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}","(; K_P_E, K_S_E, k_ES_to_EP, Keq, E_total) = params
 (; S, P) = concs
 # Haldane constraints:
 k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
