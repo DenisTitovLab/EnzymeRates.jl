@@ -1,0 +1,6 @@
+n_params,loss,mechanism_type,rate_equation,retcode,error,eq_hash,fit_inherited,K_A_Areg,K_A_S_E,K_P_E,K_S_E,L,k_A_ES_to_EP,k_EP_to_ES,k_ES_to_EP,k_I_ES_to_EP,koff_P_E,koff_S_E,kon_P_E,kon_S_E,cv_score,mean_log_loss_diff,se_paired,permutation_p,cv_fold_G1,cv_fold_G2
+5,8.536006561234267e-14,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:EqualAI, :EqualAI, :OnlyA)), (((:A,), 2, (:OnlyA,)),)}","(; K_P_E, K_S_E, k_A_ES_to_EP, K_A_Areg, L, Keq, E_total) = params
+(; S, P, A) = concs
+# Haldane constraints:
+k_A_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_A_ES_to_EP
+v = E_total * ((k_A_ES_to_EP * S / K_S_E - k_A_EP_to_ES * P / K_P_E) * (1 + P / K_P_E + S / K_S_E) * (1 + A / K_A_Areg) ^ 2) / ((1 + P / K_P_E + S / K_S_E) ^ 2 * (1 + A / K_A_Areg) ^ 2 + L * (1 + P / K_P_E + S / K_S_E) ^ 2 * 1 ^ 2)",Success,,618e7e386041c038,false,1.0000001671862304,,1.0000020052280953,1.0000025906237264,100.00002961495572,101.00002961495571,,,,,,,,-28.75229962688962,0.0,0.0,0.0,8.92691073099861e-13,1.1895115632403973e-13

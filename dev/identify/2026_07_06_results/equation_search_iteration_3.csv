@@ -1,0 +1,7 @@
+n_params,loss,mechanism_type,rate_equation,retcode,error,eq_hash,fit_inherited,K_A_S_E,K_I_S_E,K_P_E,L,k_ES_to_EP
+5,3.1700639775535038,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:EqualAI, :NonequalAI, :EqualAI)), ()}","(; K_P_E, K_A_S_E, k_ES_to_EP, K_I_S_E, L, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * (1 / K_A_S_E) * K_P_E * k_ES_to_EP
+k_I_EP_to_ES = (1 / Keq) * (1 / K_I_S_E) * K_P_E * k_ES_to_EP
+v = E_total * ((k_ES_to_EP * S / K_A_S_E - k_EP_to_ES * P / K_P_E) * (1 + S / K_A_S_E + P / K_P_E) + L * (k_ES_to_EP * S / K_I_S_E - P * k_I_EP_to_ES / K_P_E) * (1 + S / K_I_S_E + P / K_P_E)) / ((1 + S / K_A_S_E + P / K_P_E) ^ 2 + L * (1 + S / K_I_S_E + P / K_P_E) ^ 2)",Success,,349a95e6e5b8ae3c,true,0.9948599714555048,1.0005035606195327,0.999998623021034,10.260209869914615,0.9999999999999998

@@ -7,8 +7,10 @@ Iteration 1 (child n_params 4-5): 1 parents → 6 children
   best loss by n_params: 3:3.17 4:3.17* 5:3.17*   (* improved)
 Iteration 2 (child n_params 5): 4 parents → 20 children
   14 new fits + 0 inherited + 6 skipped (>5 params) + 0 errored | Success 100.0% | non-Success retcode 0.0%
-  best loss by n_params: 3:3.17 4:3.17 5:2.405e-13*   (* improved)
-Expanded 10 parents → 39 children | all 39 skipped (>5 params)
+  best loss by n_params: 3:3.17 4:3.17 5:8.536e-14*   (* improved)
+Iteration 3 (child n_params 5): 10 parents → 42 children
+  0 new fits + 1 inherited + 41 skipped (>5 params) + 0 errored | Success 100.0% | non-Success retcode 0.0%
+  best loss by n_params: 3:3.17 4:3.17 5:8.536e-14   (no improvement)
 Cross-validating 10 candidate equations (LOOCV)…
 Selected: AllostericEnzymeMechanism (eq_hash=618e7e386041c038), n_params=5
-Done. Results saved to 2026_07_04_results
+Done. Results saved to 2026_07_06_results
