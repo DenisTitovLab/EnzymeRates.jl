@@ -12,6 +12,12 @@ function uni(states)
     steps=Vector{St}[[St(E,ES,S,true)],[St(ES,EP,nothing,false)],[St(EP,E,P,true)]]
     ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
 end
+function uni_ss(states)   # all-steady-state uni-uni (bindings carry kon/koff)
+    E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
+    rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
+    steps=Vector{St}[[St(E,ES,S,false)],[St(ES,EP,nothing,false)],[St(EP,E,P,false)]]
+    ER.AllostericMechanism(rxn, steps, collect(Symbol,states), 2, ER.RegulatorySite[])
+end
 function evalrate(am; seed=1, split=nothing)
     cem=ER.compile_mechanism(am); fp=ER.fitted_params(am); rng=MersenneTwister(seed)
     mets=collect(ER.metabolites(cem))
@@ -83,6 +89,33 @@ end
         mets=collect(ER.metabolites(cem))
         ec=NamedTuple{Tuple(mets)}(ntuple(i->(mets[i] in (:A,:B) ? 1.0 : sqrt(3.0)),length(mets)))
         @test abs(real(ER.rate_equation(cem,ec,prm))) < 1e-8   # thermo-consistent
+    end
+
+    # ── Steady-state binding: affinity/speed decomposition (Option 3) ──
+    # A steady-state :NonequalAI binding carries two rate constants: its affinity
+    # (kon/koff) can be forbidden and collapse (deriving the reverse), while its
+    # speed (the forward kon) stays free. Only the affinity collapses — never the
+    # whole binding. (The steady-state Wegscheider-box case is covered by `m_ro`
+    # in test_rate_eq_derivation.jl.)
+    @testset "SS binding + EqualAI catalysis -> affinity collapses, speed free" begin
+        am = uni_ss([:NonequalAI,:EqualAI,:EqualAI])
+        fp,v,veq = evalrate(am)
+        @test isfinite(v); @test abs(veq) < 1e-8
+        @test !(:koff_I_S_E in fp)              # affinity collapsed: reverse derived
+        @test :kon_I_S_E in fp                  # speed (forward) stays free
+        s = replace(ER.rate_equation_string(am), " "=>"")
+        @test occursin("koff_I_S_E=", s)        # explicit reverse-rate mirror
+        # the surviving speed split moves the rate (identifiable)
+        v1 = evalrate(am; split=(:kon_I_S_E,1.3))[2]
+        v2 = evalrate(am; split=(:kon_I_S_E,5.0))[2]
+        @test !isapprox(v1, v2)
+    end
+
+    @testset "SS binding + NonequalAI catalysis -> not forbidden, stays free" begin
+        am = uni_ss([:NonequalAI,:NonequalAI,:EqualAI])
+        fp,v,veq = evalrate(am)
+        @test isfinite(v); @test abs(veq) < 1e-8
+        @test (:kon_I_S_E in fp) && (:koff_I_S_E in fp)   # both free (affinity honorable)
     end
 end
 end # module

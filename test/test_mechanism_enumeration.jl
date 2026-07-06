@@ -3555,9 +3555,14 @@ end
         # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation.
         @test length(result) == 4
 
-        # 2. ground-truth Δ multiset via `fitted_params`: every tag
-        # relaxation contributes exactly one new independent parameter.
-        # Truth: `[1, 1, 1, 1]`.
+        # 2. ground-truth Δ multiset via `fitted_params`. Under strict
+        # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
+        # partners stay :EqualAI is degenerate: a thermodynamic cycle forbids
+        # that affinity split, so it collapses (K_I = K_A) and adds NO fitted
+        # parameter. Only the catalytic relaxation (its derived reverse absorbs
+        # the cycle) and the reg-ligand relaxation each add one. So the two
+        # binding relaxations contribute 0: `[0, 0, 1, 1]`. (The enumerator
+        # will skip such degenerate configs in a follow-up PR.)
         seed_truth = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         truth_deltas = sort([
@@ -3565,7 +3570,7 @@ end
                 EnzymeRates.compile_mechanism(r))) - seed_truth
             for r in result
         ])
-        @test truth_deltas == [1, 1, 1, 1]
+        @test truth_deltas == [0, 0, 1, 1]
 
         # 3. compilability + invariants.
         for r in result
@@ -3608,9 +3613,13 @@ end
         # 1. count: 3 cat-group relaxations + 2 reg-ligand relaxations = 5.
         @test length(result) == 5
 
-        # 2. ground-truth Δ multiset via `fitted_params`: every tag
-        # relaxation contributes exactly one new independent parameter.
-        # Truth: `[1, 1, 1, 1, 1]`.
+        # 2. ground-truth Δ multiset via `fitted_params`. Under strict
+        # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
+        # partners stay :EqualAI collapses that affinity (K_I = K_A) and adds NO
+        # fitted parameter (a thermodynamic cycle forbids the split). The two
+        # binding relaxations contribute 0; the catalytic relaxation and the two
+        # reg-ligand relaxations each add one: `[0, 0, 1, 1, 1]`. (The enumerator
+        # will skip such degenerate configs in a follow-up PR.)
         seed_truth = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         truth_deltas = sort([
@@ -3618,7 +3627,7 @@ end
                 EnzymeRates.compile_mechanism(r))) - seed_truth
             for r in result
         ])
-        @test truth_deltas == [1, 1, 1, 1, 1]
+        @test truth_deltas == [0, 0, 1, 1, 1]
 
         # 3. compilability + invariants.
         for r in result
