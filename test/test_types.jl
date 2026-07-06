@@ -1090,6 +1090,27 @@
         @test EnzymeRates._flat_steps(m) == EnzymeRates._flat_steps(m_perm)
     end
 
+    @testset "provisional Mechanism ctor" begin
+        e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+        e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+        e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+        rxn = @enzyme_reaction(begin
+            substrates: S[C]
+            products:   P[C]
+        end)
+        groups = [
+            [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
+            [EnzymeRates.Step(e_s, e_p, nothing, false)],
+            [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+        ]
+        raw  = EnzymeRates.Mechanism(rxn, deepcopy(groups), Val(:_raw))
+        full = EnzymeRates.Mechanism(rxn, deepcopy(groups))
+        # With no tied binding-K split, provisional and public agree.
+        @test EnzymeRates.steps(raw) == EnzymeRates.steps(full)
+        # Provisional is a real, usable Mechanism.
+        @test length(EnzymeRates.steps(raw)) == 3
+    end
+
     @testset "AllostericMechanism (non-parametric)" begin
         r = EnzymeReaction(
             [EnzymeRates.ReactantAtoms(

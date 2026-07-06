@@ -1710,3 +1710,6 @@ function rate_equation_string(
     push!(lines, v_line)
     join(lines, "\n")
 end
+
+# Replaced with the real merge in the partition-canonicalization work.
+_merge_tied_kinetic_groups(mech::Mechanism) = mech.steps
