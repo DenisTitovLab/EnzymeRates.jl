@@ -1725,16 +1725,12 @@ function _merge_tied_kinetic_groups(mech::Mechanism)
     isempty(rename) && return mech.steps
     groups = mech.steps
     step_params = _step_parameters(mech)
-    grp_of_flat = Int[]
-    for (gi, g) in enumerate(groups), _ in g
-        push!(grp_of_flat, gi)
-    end
     # Canonical representative binding-K name per group (nothing if no binding step).
     rep = Vector{Union{Symbol, Nothing}}(nothing, length(groups))
-    for (idx, (s, _)) in enumerate(_flat_steps(mech))
+    for (idx, (s, g)) in enumerate(_flat_steps(mech))
         is_equilibrium(s) && is_binding(s) || continue
         k = name(step_params[idx][1], mech)
-        rep[grp_of_flat[idx]] = get(rename, k, k)
+        rep[g] = get(rename, k, k)
     end
     byrep = Dict{Symbol, Vector{Int}}()
     for (gi, r) in enumerate(rep)
