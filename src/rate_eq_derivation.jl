@@ -1289,19 +1289,25 @@ function _split_resolution(am::AllostericMechanism)
     _, indep_A = _state_dependent_exprs(am, :A)
     indep = Set(indep_A)
     fes = _free_enz_set(am)
-    nfree(g) = count(p -> name(p, am) in indep,
-                     _emit_cat_params_for_rep(_group_rep(steps(am)[g], fes), :A))
-    # A group's affinity is collapsible iff it is independent: an RE Kd, or a
-    # 2-free SS binding. A 1-free SS group's derived reverse already absorbs its
-    # affinity, so its split is always free.
-    collapsible = Dict(g => (is_equilibrium(first(steps(am)[g])) || nfree(g) == 2)
-                       for g in N)
+    params(g) = _emit_cat_params_for_rep(_group_rep(steps(am)[g], fes), :A)
+    nfree(g) = count(p -> name(p, am) in indep, params(g))
+    # A group's affinity is collapsible iff ALL its rate constants are independent
+    # — a rapid-equilibrium `Kd`, or a 2-free steady-state binding. If any constant
+    # is a derived cycle pivot (a catalytic reverse, OR an RE/SS binding chosen as
+    # a Wegscheider pivot), that derived constant already absorbs the affinity, so
+    # the split is always free. Keying on `indep_A` (not step type) is load-bearing:
+    # a `:NonequalAI` binding that is a box pivot is structurally identical to a
+    # catalytic step and must be absorbed, else its collapse mirror and its native
+    # Wegscheider dependent reference each other (circular ⇒ UndefVarError).
+    collapsible = Dict(g => nfree(g) == length(params(g)) for g in N)
     Ncol = Dict(g => k for (k, g) in enumerate(N))
 
-    # Per-group affinity-constraint matrix over the `:NonequalAI` columns. A step
-    # contributes its cycle incidence with a `−1` flip for a binding K (a Kd
-    # entering as 1/Kd); an SS step contributes `+C` to its group's ratio split
-    # `δ_kon − δ_koff` — the same affinity coordinate with the opposite sign.
+    # Per-group affinity-constraint matrix over the `:NonequalAI` columns: each
+    # group's column is its thermodynamic cycle incidence, used directly.
+    # `_thermodynamic_constraints` already renders every step's equilibrium
+    # constant in one consistent convention, so no per-type sign flip is applied
+    # — flipping RE columns but not SS desynchronizes the two and inverts the
+    # coupling coefficient of a mixed RE/SS coupled collapse (nonzero eq flux).
     cm = _state_mechanism(am, :A)
     @assert steps(cm) == steps(am) "state-:A mechanism must preserve group order"
     C, _ = _thermodynamic_constraints(cm)
@@ -1311,9 +1317,7 @@ function _split_resolution(am::AllostericMechanism)
         haskey(Ncol, g) || continue
         k = Ncol[g]
         for i in 1:nc
-            C[i, j] == 0 && continue
-            sign_factor = (is_equilibrium(s) && is_binding(s)) ? -1 : 1
-            M[i, k] += sign_factor * C[i, j]
+            M[i, k] += C[i, j]
         end
     end
 
@@ -1475,18 +1479,57 @@ end
 
 # ─── Dependent parameter expressions ─────────────────────────────
 
+"""Collect every Symbol leaf of a dependent-assignment RHS into `S`."""
+function _expr_leaf_syms!(S::Set{Symbol}, x)
+    if x isa Symbol
+        push!(S, x)
+    elseif x isa Expr
+        for a in x.args
+            _expr_leaf_syms!(S, a)
+        end
+    end
+    S
+end
+
 """
-I-state parameter Symbols actually referenced by the retained rate-equation
-polynomials, sourced from the NATIVE per-state I-polynomials: `den_i` always
-(`Q_I` is kept as enzyme mass), plus `num_i` when the I-state cycle is live (a
-dead cycle's native `num_i` is `poly_zero()`, contributing no symbols). This is
-the single source of truth for which I-state names get defined; the `isempty`
-gate is the `_i_state_num_zero` native check.
+I-state parameter Symbols the rate-equation body actually references. Seeded from
+the retained NATIVE I-polynomials (`den_i` always — `Q_I` is enzyme mass; plus
+`num_i` when the I-cycle is live, a dead cycle's native `num_i` being
+`poly_zero()`), then closed transitively through the I-state dependent chain: a
+dependent — a native I-dep, a forbidden-split collapse mirror, or an `:EqualAI`
+reg mirror — whose LHS the body already references pulls its RHS symbols into the
+body. The closure is load-bearing: a free `:NonequalAI` split reachable only
+through a collapse mirror (`K_I_B_E = …·K_I_A_EB`) must be retained as a
+parameter, not left undefined in the generated body. This is the single source of
+truth for which I-state names get defined.
 """
 function _i_state_referenced_syms(am::AllostericMechanism)
     num_i, den_i = _state_rate_polys(am, :I)
     S = _poly_param_syms(den_i)
     isempty(num_i) || union!(S, _poly_param_syms(num_i))
+    dep_I, _ = _state_dependent_exprs(am, :I)
+    leaves = Dict{Symbol, Set{Symbol}}()
+    for (k, v) in dep_I
+        leaves[k] = _expr_leaf_syms!(Set{Symbol}(), v)
+    end
+    for (k, v) in _collapse_mirror_exprs(am)
+        leaves[k] = _expr_leaf_syms!(Set{Symbol}(), v)
+    end
+    for site in regulatory_sites(am), (lig, tag) in zip(ligands(site), allo_states(site))
+        tag === :EqualAI &&
+            (leaves[name(Kreg(site, lig, :I), am)] =
+                 Set{Symbol}([name(Kreg(site, lig, :A), am)]))
+    end
+    changed = true
+    while changed
+        changed = false
+        for (lhs, ls) in leaves
+            lhs in S || continue
+            for s in ls
+                s in S || (push!(S, s); changed = true)
+            end
+        end
+    end
     S
 end
 

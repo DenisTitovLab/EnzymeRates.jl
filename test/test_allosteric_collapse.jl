@@ -117,5 +117,47 @@ end
         @test isfinite(v); @test abs(veq) < 1e-8
         @test (:kon_I_S_E in fp) && (:koff_I_S_E in fp)   # both free (affinity honorable)
     end
+
+    # ── Mixed-type + Wegscheider-pivot coupling (regressions for the two review
+    #    Criticals: uniform affinity sign, and indep_A-keyed collapsibility + the
+    #    transitive S_I closure). Both were passing the suite while silently broken.
+    @testset "mixed RE/SS coupled :NonequalAI bindings -> consistent (uniform sign)" begin
+        # S-binding RE, P-release SS, both :NonequalAI, catalysis :EqualAI: the two
+        # coupled affinities are *different* step types, so the constraint matrix must
+        # use one uniform sign — a per-type flip inverts the coupling → nonzero flux.
+        E=Sp(Met[],:E); ES=Sp(Met[S],:E); EP=Sp(Met[P],:E)
+        rxn=ER.EnzymeReaction(RA[RA(S,[:C=>1]),RA(P,[:C=>1])], ER.RegulatorMults[], Int[2])
+        steps=Vector{St}[[St(E,ES,S,true)],[St(ES,EP,nothing,false)],[St(EP,E,P,false)]]
+        am=ER.AllostericMechanism(rxn, steps, [:NonequalAI,:EqualAI,:NonequalAI], 2,
+                                  ER.RegulatorySite[])
+        fp,v,veq = evalrate(am)
+        @test isfinite(v); @test abs(veq) < 1e-8
+    end
+
+    @testset ":NonequalAI RE Wegscheider-pivot binding -> absorbed, no undefined symbol" begin
+        # random-order bi-bi, all-RE bindings, SS :EqualAI catalysis; tag two box
+        # edges :NonequalAI so one is the Wegscheider pivot (its Kd is derived). The
+        # pivot must be absorbed (not collapsed, else a circular mirror ⇒ UndefVarError),
+        # and the free split's I-symbol — reachable only through the other edge's
+        # collapse mirror — must be retained (transitive S_I closure), not left undefined.
+        A2=Sub(:A); B2=Sub(:B); Q2=Prd(:Q)
+        E=Sp(Met[],:E); EA=Sp(Met[A2],:E); EB=Sp(Met[B2],:E); EAB=Sp(Met[A2,B2],:E)
+        EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
+        rxn=ER.EnzymeReaction(RA[RA(A2,[:C=>1]),RA(B2,[:N=>1]),RA(P,[:C=>1]),RA(Q2,[:N=>1])],
+                              ER.RegulatorMults[], Int[2])
+        sd=[St(E,EA,A2,true),St(E,EB,B2,true),St(EB,EAB,A2,true),St(EA,EAB,B2,true),
+            St(EAB,EPQ,nothing,false),St(EP,EPQ,Q2,true),St(EQ,EPQ,P,true),
+            St(E,EP,P,true),St(E,EQ,Q2,true)]
+        st=fill(:EqualAI,9); st[2]=:NonequalAI; st[3]=:NonequalAI
+        am=ER.AllostericMechanism(rxn, Vector{St}[[s] for s in sd], st, 2, ER.RegulatorySite[])
+        cem=ER.compile_mechanism(am)
+        fp=collect(ER.fitted_params(am)); rng=MersenneTwister(3)
+        prm=NamedTuple{(fp...,:Keq,:E_total)}(
+            (ntuple(i->(fp[i]===:L ? 0.6 : 0.4+2rand(rng)),length(fp))...,4.0,1.0))
+        mets=collect(ER.metabolites(cem))
+        ec=NamedTuple{Tuple(mets)}(ntuple(i->(mets[i] in (:A,:B) ? 1.0 : 2.0),length(mets)))
+        v=real(ER.rate_equation(cem,ec,prm))         # must not throw UndefVarError
+        @test isfinite(v); @test abs(v) < 1e-8
+    end
 end
 end # module
