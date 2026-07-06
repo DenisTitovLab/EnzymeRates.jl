@@ -516,7 +516,8 @@ function _process_batch(
             fkeys = fitted_params(em)
             length(fkeys) > max_param_count && return nothing
             eq_text = rate_equation_string(em)
-            (mech = m, n_params = length(fkeys), mechanism_type = string(typeof(em)),
+            (mech = m, orig = m0, n_params = length(fkeys),
+             mechanism_type = string(typeof(em)),
              eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text),
              fitted_param_names = fkeys)
         catch e
@@ -557,7 +558,7 @@ function _process_batch(
         c === nothing && continue                    # cap skip
         c isa FitFailure && (push!(failures, c); continue)
         if haskey(fit_error, c.eq_hash)              # representative fit threw
-            push!(failures, FitFailure(c.mech, fit_error[c.eq_hash]))
+            push!(failures, FitFailure(c.orig, fit_error[c.eq_hash]))
             continue
         end
         fit = memo[c.eq_hash]

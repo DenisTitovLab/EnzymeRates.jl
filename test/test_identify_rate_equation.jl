@@ -1553,6 +1553,54 @@ const _ALLO_SIG_MERGED =
               EnzymeRates.cat_allo_states(c1))
 end
 
+
+@testset "_process_batch failures report the ORIGINAL mechanism" begin
+    # PASS-1 catch: _canonical_mechanism throws for a mechanism with an unbound
+    # declared substrate. `m` is never bound, so the FitFailure must carry the
+    # ORIGINAL `m0` (using `m` there would be an UndefVarError masking the error).
+    rxn_bad = @enzyme_reaction begin
+        substrates: S[C], T[N]
+        products:   P[CN]
+    end
+    e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+    e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+    e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+    m_bad = EnzymeRates.Mechanism(rxn_bad, [
+        [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
+        [EnzymeRates.Step(e_s, e_p, nothing, false)],
+        [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+    ])
+    @test_throws ErrorException EnzymeRates._canonical_mechanism(m_bad)
+    data_bad = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+                S = [1.0, 2.0, 1.0, 2.0], T = [0.5, 0.5, 1.0, 1.0],
+                P = [0.1, 0.2, 0.1, 0.2])
+    prob_bad = IdentifyRateEquationProblem(rxn_bad, data_bad; Keq=2.0)
+    e1, f1 = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
+        prob_bad; optimizer=_CountingStubOpt(), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
+    @test isempty(e1)
+    @test length(f1) == 1 && f1[1] isa EnzymeRates.FitFailure
+    @test f1[1].mech == m_bad                     # ORIGINAL, not a canonical form
+
+    # PASS-2 catch: a split form whose canonical merge differs; when its fit
+    # throws, the FitFailure must carry the original split, not the merged form.
+    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
+    split = recon(_CANON_SIG_SPLIT)
+    @test split != EnzymeRates._canonical_mechanism(split)   # merge changes it
+    data2 = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+             NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [0.5, 0.5, 1.0, 1.0],
+             Lactate = [0.1, 0.2, 0.1, 0.2], NAD = [0.3, 0.3, 0.4, 0.4])
+    prob2 = IdentifyRateEquationProblem(EnzymeRates.reaction(split), data2; Keq=2.0)
+    e2, f2 = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[split],
+        prob2; optimizer=_CountingStubOpt(; throwit=true), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
+    @test isempty(e2)
+    @test length(f2) == 1 && f2[1] isa EnzymeRates.FitFailure
+    @test f2[1].mech == split                     # original split, not merged canonical
+end
+
 @testset "LOOCV eq_hash-uniqueness guard (§4)" begin
     # _cv_model_selection dedups candidates by eq_hash per n_params bucket before
     # LOOCV: same-equation twins collapse to ONE candidate (lowest loss kept), so
