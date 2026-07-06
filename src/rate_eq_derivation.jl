@@ -1250,6 +1250,93 @@ function _state_raw_dependent_exprs(am::AllostericMechanism, state::Symbol)
 end
 
 """
+Honorable-split partition of an `AllostericMechanism`'s `:NonequalAI` catalytic
+groups. `free` holds the group indices (into `steps(am)`) whose `K_A`/`K_I`
+split stays a genuine degree of freedom; `derived` holds `g => [f => a, …]`,
+meaning group `g`'s split is fixed by the free splits as
+`δ_g = Σ aᵢ·δ_{fᵢ}` (i.e. `K_I_g = K_A_g·∏(K_I_{fᵢ}/K_A_{fᵢ})^{aᵢ}`); an empty
+term list means `K_I_g = K_A_g` (full collapse).
+"""
+struct SplitResolution
+    free::Vector{Int}
+    derived::Vector{Pair{Int, Vector{Pair{Int, Int}}}}
+end
+
+"""
+Resolve which `:NonequalAI` catalytic splits are honorable and which collapse.
+
+Every thermodynamic cycle imposes `Σ_g c_g·δ_g = 0` on the per-group splits
+`δ_g = log K_A_g − log K_I_g` (the equilibrium-constant contribution cancels
+between the two conformations, leaving a homogeneous constraint). Pinning the
+`:EqualAI` groups to `δ = 0` restricts the honorable splits to
+`nullspace(C[:, :NonequalAI])`, where `C` is the catalytic cycle-incidence
+matrix.
+
+A steady-state group's split is native: its forward and reverse rate constants
+differ between conformations independently, so only their ratio enters a cycle
+and that ratio is always free. An SS `:NonequalAI` group therefore always keeps
+a free split and never derives; ordering the SS columns first eliminates those
+free ratios before partitioning the rapid-equilibrium columns, so a derived
+relation references only free rapid-equilibrium splits.
+"""
+function _split_resolution(am::AllostericMechanism)
+    N = [g for g in 1:length(steps(am)) if cat_allo_state(am, g) === :NonequalAI]
+    isempty(N) && return SplitResolution(Int[], Pair{Int, Vector{Pair{Int, Int}}}[])
+
+    is_ss = Dict(g => !is_equilibrium(first(steps(am)[g])) for g in N)
+    Ncol = Dict(g => k for (k, g) in enumerate(N))
+
+    # Per-group split-constraint matrix over the `:NonequalAI` columns. A step
+    # contributes its cycle incidence with a `−1` flip for a binding K (a Kd
+    # entering as 1/Kd); an SS step contributes `+C` to its group's ratio split
+    # `δ_kf − δ_kr`.
+    cm = _state_mechanism(am, :A)
+    @assert steps(cm) == steps(am) "state-:A mechanism must preserve group order"
+    C, _ = _thermodynamic_constraints(cm)
+    nc = size(C, 1)
+    M = zeros(Int, nc, length(N))
+    for (j, (s, g)) in enumerate(_flat_steps(cm))
+        haskey(Ncol, g) || continue
+        k = Ncol[g]
+        for i in 1:nc
+            C[i, j] == 0 && continue
+            sign_factor = (is_equilibrium(s) && is_binding(s)) ? -1 : 1
+            M[i, k] += sign_factor * C[i, j]
+        end
+    end
+
+    # Eliminate the free SS ratio splits first, then partition the RE columns.
+    ss_locals = [k for k in 1:length(N) if is_ss[N[k]]]
+    re_locals = [k for k in 1:length(N) if !is_ss[N[k]]]
+    perm = vcat(ss_locals, re_locals)
+    pivot_cols, free_cols, R = _rref_partition(M[:, perm])
+
+    # SS groups are always free; RE free-columns keep their split.
+    free = sort(vcat(N[ss_locals], [N[perm[fc]] for fc in free_cols
+                                    if !is_ss[N[perm[fc]]]]))
+
+    derived = Pair{Int, Vector{Pair{Int, Int}}}[]
+    for (r, pc) in enumerate(pivot_cols)
+        g = N[perm[pc]]
+        is_ss[g] && continue
+        terms = Pair{Int, Int}[]
+        for fc in free_cols
+            coeff = -R[r, fc]
+            coeff == 0 && continue
+            fg = N[perm[fc]]
+            @assert !is_ss[fg] "derived split must not reference an SS group"
+            denominator(coeff) == 1 || error(
+                "_split_resolution: non-integer split coefficient $coeff for " *
+                "group $g (multiply-traversed cycle) can't be represented")
+            push!(terms, fg => Int(numerator(coeff)))
+        end
+        push!(derived, g => terms)
+    end
+    sort!(derived; by = first)
+    return SplitResolution(free, derived)
+end
+
+"""
 I-state catalytic parameter Symbols of `:NonequalAI` groups — the names that
 genuinely differ between conformations (`K_I_…`/`k_I_…`), emitted through the
 `name(p, am)` chokepoint. Marks which symbols a Case-B dependent's RHS must

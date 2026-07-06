@@ -108,7 +108,12 @@ _group_rep(group::Vector{Step}, free_enz_set::Set{Symbol}) =
 
 # ─── Thermodynamic Constraint Infrastructure ─────────────────────
 
-function _integer_nullspace(A::Matrix{Int})
+# Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
+# free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
+# pivot at reduced-matrix row i) plus the reduced matrix R. Shared by
+# `_integer_nullspace` (nullspace basis) and `_split_resolution` (which needs
+# the pivot/free partition and the reduced coefficients directly).
+function _rref_partition(A::Matrix{Int})
     m, n = size(A)
     R = Matrix{Rational{BigInt}}(A)
     pivot_cols = Int[]
@@ -125,6 +130,12 @@ function _integer_nullspace(A::Matrix{Int})
         push!(pivot_cols, col); row += 1
     end
     free_cols = setdiff(1:n, pivot_cols)
+    return pivot_cols, free_cols, R
+end
+
+function _integer_nullspace(A::Matrix{Int})
+    n = size(A, 2)
+    pivot_cols, free_cols, R = _rref_partition(A)
     isempty(free_cols) && return zeros(Int, n, 0)
     NS = zeros(Rational{BigInt}, n, length(free_cols))
     for (k, fc) in enumerate(free_cols)
