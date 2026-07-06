@@ -509,8 +509,9 @@ function _process_batch(
 )
     # PASS 1 (workers): compile + cap-check + render. `nothing` = cap skip;
     # `FitFailure` = threw; else a record with everything the row needs + `eq_hash`.
-    compiled = pmap(mechs) do m
+    compiled = pmap(mechs) do m0
         try
+            m = _canonical_mechanism(m0)
             em = compile_mechanism(m)
             fkeys = fitted_params(em)
             length(fkeys) > max_param_count && return nothing
@@ -519,7 +520,7 @@ function _process_batch(
              eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text),
              fitted_param_names = fkeys)
         catch e
-            FitFailure(m, _exc_string(e))
+            FitFailure(m0, _exc_string(e))
         end
     end
 

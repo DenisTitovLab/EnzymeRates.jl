@@ -1760,3 +1760,16 @@ function _merge_tied_kinetic_groups(mech::Mechanism)
     end
     merged
 end
+
+"""
+Canonical form of a mechanism for deduplication: the same graph with its
+kinetic-group partition merged over Wegscheider-tied binding-K's. Two
+graph-distinct mechanisms that reduce to the same rate function collapse to the
+same canonical mechanism, so their rendered equation and `eq_hash` agree.
+Applied at the fit boundary (`_process_batch`), not at construction.
+"""
+_canonical_mechanism(m::Mechanism) =
+    Mechanism(reaction(m), _merge_tied_kinetic_groups(m))
+# Allosteric partition merge is added separately; until then allosteric
+# mechanisms pass through uncanonicalized.
+_canonical_mechanism(am::AllostericMechanism) = am
