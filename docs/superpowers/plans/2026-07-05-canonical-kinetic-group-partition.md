@@ -556,3 +556,93 @@ git commit -m "Re-baseline goldens and partition counts for canonical kinetic-gr
 **Placeholder scan:** no TBD/TODO; every code step shows code. The one genuine unknown — the exact `MECHANISM_TEST_SPECS` field name — is flagged inline in Task 6 Step 1 ("adapt to the actual field name").
 
 **Type consistency:** `_merge_tied_kinetic_groups(mech)::Vector{Vector{Step}}` returns `mech.steps` (identity) on no-op; the public constructor checks `merged === prov.steps` — consistent. `Val(:_raw)` used identically in Tasks 1, 3, 4, 5.
+
+---
+
+# PIVOT (2026-07-06): pre-fit dedup key, not constructor merge
+
+**Why:** Merging in the `Mechanism` constructor ran the thermodynamic kernel at
+every construction → ~15× enumeration slowdown (ter-ter init 15s→216s, measured),
+plus construction-time throws for atom-less mechanisms and semantic changes to
+DSL/enumeration. Enumeration is the search hot path; that cost is prohibitive.
+Decision: canonicalize at the **fit boundary**, where full derivation already
+runs per mechanism, so the merge is a marginal add — not a 15× multiplier on a
+cheap op.
+
+**Kept from Tasks 1–3:** Task 2 (`_build_wegscheider_rename_map(mech::Mechanism)`)
+and Task 3 (`_merge_tied_kinetic_groups(mech::Mechanism)`). Task 1's constructor
+merge and `Val(:_raw)` are **reverted** (constructor is back to original). Done by
+the controller in the "pivot foundation" commit; the tests for Tasks 2/3 remain
+(the merge test now builds split forms via the plain, non-merging constructor).
+
+**Original Tasks 4–8 are SUPERSEDED** by the pivot tasks below.
+
+### Pivot Task A: `_merge_tied_kinetic_groups(am::AllostericMechanism)`
+
+**Files:** Modify `src/rate_eq_derivation.jl` (add the allosteric method near the
+`Mechanism` one); Test: `test/test_types.jl`.
+
+The pipeline (Pivot Task B) canonicalizes both `Mechanism` and `AllostericMechanism`
+candidates, so the merge needs an allosteric method. Mirror the `Mechanism` version
+but: (1) get the per-state binding-K tie relation from `_state_wegscheider_rename_map(am, :A)`
+and `(:I)` (rate_eq_derivation.jl:1201) using `_state_step_params(am, state)`; (2)
+union catalytic groups tied in the state(s) that govern them; (3) return the merged
+`(cat_steps, cat_allo_states)` — merging the parallel `cat_allo_states` tags, and
+**erroring loudly** if two tied groups carry different tags (surface it, don't guess).
+
+TDD: this needs an allosteric mechanism source (bi_bi `init_mechanisms` yields none —
+controller-verified). Use an allosteric reaction (with a regulator) or an allosteric
+`MECHANISM_TEST_SPEC`; the controller will supply/validate a source before dispatch.
+Test: split a catalytic group of an allosteric mechanism, assert `_merge_tied_kinetic_groups`
+collapses tied splits (`length < split`), with a `merged_something` guard.
+
+### Pivot Task B: canonicalize in `_process_batch` PASS 1
+
+**Files:** Modify `src/identify_rate_equation.jl:512` (the `pmap` block); Test:
+`test/test_identify_rate_equation.jl`.
+
+Add a helper:
+
+```julia
+_canonical_mechanism(m::Mechanism) =
+    Mechanism(reaction(m), _merge_tied_kinetic_groups(m))
+_canonical_mechanism(am::AllostericMechanism) = begin
+    cat, states = _merge_tied_kinetic_groups(am)   # (cat_steps, cat_allo_states)
+    AllostericMechanism(reaction(am), cat, states,
+                        catalytic_multiplicity(am), copy(regulatory_sites(am)))
+end
+```
+
+In `_process_batch` PASS 1, canonicalize each candidate before compile/render/hash,
+inside the existing `try` (so a merge throw becomes a `FitFailure`, not a crash):
+
+```julia
+    compiled = pmap(mechs) do m0
+        try
+            m = _canonical_mechanism(m0)
+            em = compile_mechanism(m)
+            ...
+            (mech = m, ...)          # store the CANONICAL m
+```
+
+Everything downstream is unchanged: same-graph variants → same canonical `m` → same
+`eq_hash` → deduped and fit once; rows report the canonical merged form. Line 573's
+`fit.params[k] for k in c.fitted_param_names` stays consistent because all variants
+now share the canonical form's names.
+
+### Pivot Task C: end-to-end dedup test
+
+**Files:** Test `test/test_identify_rate_equation.jl`.
+
+Feed a batch containing two known same-graph variants (a merged form and a
+plain-constructor split of it) through `_process_batch` (stub optimizer) and assert:
+(1) exactly one representative is fit (one `rep_idx` entry / one memo key); (2) both
+rows carry the same `eq_hash`; (3) both rows report the canonical (merged) mechanism.
+
+### Pivot Task D: full-suite re-baseline
+
+Run `Pkg.test()`. Expected: mostly green (the pivot is localized to `_process_batch`;
+the 55-class direct-dedup-key test and goldens do NOT route through it and should be
+unchanged). Fix only genuine pipeline-count assertions that shift, recording the
+merge as the cause. Confirm `test_compile_budget` and enumeration timing are back to
+baseline (no per-construction cost).
