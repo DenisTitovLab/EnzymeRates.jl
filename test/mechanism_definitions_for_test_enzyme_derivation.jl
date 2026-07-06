@@ -2213,12 +2213,11 @@ function build_mechanism_test_specs()
         #   K6       : Pyruvate release (group 4, EqualAI)
         #   K8       : ATP release (group 5, EqualAI)
         #
-        # k5r derives via R-state Haldane: k5r = k5f·K6·K8/(Keq·K1·K3).
-        # The framework auto-synthesizes k5r_T because k5r's RHS
-        # references K1 (a :NonequalAI symbol with T-rename K1_T):
-        #   k5r_T = k5f·K6·K8/(Keq·K1_T·K3).
-        # Both Haldanes share the forward k5f — at saturation, forward
-        # kcat = k5f (shared between R and T).
+        # k5r derives via the shared :EqualAI Haldane: k5r = k5f·K6·K8/(Keq·K1·K3).
+        # The :NonequalAI PEP split is forbidden (its lone cycle is shared with
+        # :EqualAI catalysis) and collapses to K1_T = K1, so the T-state
+        # catalytic part equals the R-state part (k5r_T = k5r, N_T = N_R).
+        # Both states share the forward k5f — at saturation, forward kcat = k5f.
         function pk_rate_analytical(params, concs)
             (; K1, K1_T, K3, k5f, K6, K8,
                K_ATP_T_reg1, K_F16BP_reg2,
@@ -2258,11 +2257,14 @@ function build_mechanism_test_specs()
             expected_n_states=7,           # E, E_PEP, E_ADP, E_PEP_ADP, E_Pyr_ATP, E_Pyr, E_ATP
             expected_n_steps=9,
             expected_n_metabolites=5,
-            expected_n_haldane_constraints=2,
-            # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror
-            expected_n_mirror_constraints=0,
+            expected_n_haldane_constraints=1,
+            # :EqualAI catalysis shares one k5r (one Haldane, not two); the
+            # :NonequalAI PEP split is thermodynamically forbidden (its lone
+            # cycle is shared with :EqualAI catalysis) so it collapses to the
+            # mirror K1_T = K1.
+            expected_n_mirror_constraints=1,
             expected_n_wegscheider_constraints=0,
-            expected_n_independent_params=9,
+            expected_n_independent_params=8,
             run_ode_test=false,
             analytical_rate_fn=pk_rate_analytical,
             analytical_kcat_fn = p -> p.k5f,

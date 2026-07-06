@@ -1628,10 +1628,9 @@ end
     @test occursin("P / K_I_P_E", rate_equation_string(m_mix))
 
     # Regression: :NonequalAI substrate + :EqualAI catalysis must produce
-    # zero rate at chemical equilibrium. The framework derives a T-state
-    # Haldane (k2r_T) from the :EqualAI k2f because the dep expression
-    # for k2r references :NonequalAI K1, so the dep-assignment builder
-    # synthesizes a T-name for k2r and substitutes it into N_T.
+    # zero rate at chemical equilibrium. The :NonequalAI S-binding split is
+    # forbidden (its lone cycle is shared with :EqualAI catalysis), so it
+    # collapses to K_I_S_E = K_A_S_E and K_I_S_E leaves the fitted set.
     cm_mixed, src_mixed = @enzyme_mechanism_src begin
         substrates: S
         products:   P
@@ -1648,7 +1647,6 @@ end
         (((:I,), 2, (:NonequalAI,)),))
     Keq_val = 5.0
     p_eq = (K_A_S_E=0.3, k_ES_to_EP=8.0, K_P_E=0.7,
-            K_I_S_E=2.5,
             K_A_Ireg=1.0, K_I_Ireg=4.0,
             L=2.0, Keq=Keq_val, E_total=1.0)
     # At chemical equilibrium: P = Keq · S
@@ -1656,14 +1654,6 @@ end
     P_eq = Keq_val * S_eq
     rate_eq = rate_equation(m_mixed, (S=S_eq, P=P_eq, I=0.5), p_eq)
     @test isapprox(rate_eq, 0.0; atol=1e-10)
-
-    # The native I-run's Case-B rename must promote k_EP_to_ES to the distinct
-    # I-name k_I_EP_to_ES, matching the rate body, not the self-mapped A-name
-    # that _flip_to_inactive yields for an :EqualAI dep.
-    let am_mm = EnzymeRates.AllostericMechanism(m_mixed)
-        renames = EnzymeRates._state_i_case_b_renames(am_mm)
-        @test get(renames, :k_EP_to_ES, nothing) == :k_I_EP_to_ES
-    end
 
     # Wegscheider-cycle EqualAI×NonequalAI: the Random-order Bi-Bi mechanism has a
     # genuine independent Wegscheider cycle. With the B-binding group :NonequalAI
@@ -1725,43 +1715,6 @@ end
         (2, (:NonequalAI, :EqualAI, :EqualAI)),
         (((), 2, ()),),  # empty ligand tuple
     )
-end
-
-@testset "_dep_inactive_name distinct for promoted EqualAI dep" begin
-    # :NonequalAI S-binding + :EqualAI catalysis: the :EqualAI catalysis
-    # reverse is the dep whose Haldane RHS references the :NonequalAI
-    # S-binding K. _flip_to_inactive is a no-op on the :EqualAI dep, so
-    # _dep_inactive_name must fall back to the forced :I name (distinct).
-    cm_mixed, src_mixed = @enzyme_mechanism_src begin
-        substrates: S
-        products:   P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
-        end
-    end
-    # S binding :NonequalAI, catalysis + P binding :EqualAI — bound to the
-    # steps AS WRITTEN.
-    m_mixed = allo_from_source(
-        (cm_mixed, src_mixed), (2, (:NonequalAI, :EqualAI, :EqualAI)),
-        (((:I,), 2, (:NonequalAI,)),))
-    am = EnzymeRates.AllostericMechanism(m_mixed)
-    dep_A, _ = EnzymeRates._state_raw_dependent_exprs(am, :A)
-    nonequalai = Set{Symbol}()
-    fes = EnzymeRates._free_enz_set(am)
-    for (g, group) in enumerate(EnzymeRates.steps(am))
-        EnzymeRates.cat_allo_state(am, g) === :NonequalAI || continue
-        rep = EnzymeRates._group_rep(group, fes)
-        for p in EnzymeRates._emit_cat_params_for_rep(rep, :A)
-            push!(nonequalai, EnzymeRates.name(p, am))
-        end
-    end
-    # find an EqualAI dep whose RHS references a NonequalAI symbol
-    k = first(k for (k, v) in dep_A
-              if EnzymeRates._expr_references_any(v, nonequalai)
-                 && !(k in nonequalai))
-    @test EnzymeRates._dep_inactive_name(am, k) != k
 end
 
 @testset "rate_equation_string allosteric byte-identical fixture" begin

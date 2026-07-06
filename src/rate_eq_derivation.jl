@@ -1153,10 +1153,10 @@ end
 Derive `(num_poly, den_poly)` for `am`'s catalytic mechanism in conformational
 `state`, natively in that state's parameter names. Runs the shared King–Altman
 engine on the state-tagged `step_params` and state graph, so no post-hoc rename
-is needed (`:EqualAI` groups render the shared bare Symbol automatically). For
-`:I`, applies the one-rule Case-B naming (a shared `:EqualAI` dependent whose
-Haldane RHS references a `:NonequalAI` symbol takes its distinct I-name) so the
-polynomials reference the same I-symbols the dep-assignment preamble defines.
+is needed (`:EqualAI` groups render the shared bare Symbol automatically). The
+`:I` polynomials reference each `:NonequalAI` group's native `K_I_…`/`k_I_…`
+symbol; a forbidden split's `K_I_…` is defined by the collapse mirror the
+dep-assignment preamble emits (`_collapse_mirror_exprs`).
 """
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     cm = _state_mechanism(am, state)
@@ -1164,13 +1164,10 @@ function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
     subs_syms = Symbol[name(s) for s in substrates(reaction(am))]
     prods_syms = Symbol[name(p) for p in products(reaction(am))]
-    num, den = _raw_symbolic_rate_polys(cm, sp,
-                                        _state_wegscheider_rename_map(am, state),
-                                        subs_syms, prods_syms;
-                                        allow_dead = state === :I)
-    state === :I || return num, den
-    renames = _state_i_case_b_renames(am)
-    _rename_symbols(num, renames), _rename_symbols(den, renames)
+    _raw_symbolic_rate_polys(cm, sp,
+                             _state_wegscheider_rename_map(am, state),
+                             subs_syms, prods_syms;
+                             allow_dead = state === :I)
 end
 
 """
@@ -1337,64 +1334,39 @@ function _split_resolution(am::AllostericMechanism)
 end
 
 """
-I-state catalytic parameter Symbols of `:NonequalAI` groups — the names that
-genuinely differ between conformations (`K_I_…`/`k_I_…`), emitted through the
-`name(p, am)` chokepoint. Marks which symbols a Case-B dependent's RHS must
-reference to earn its own I-name.
+Collapse mirrors for `am`'s forbidden `:NonequalAI` splits (`Symbol => RHS`).
+Each `_split_resolution` `derived` entry `g => [f => a, …]` fixes group `g`'s
+I-binding constant to `K_I_g = K_A_g·∏(K_I_f/K_A_f)^a`, so the split carries no
+independent degree of freedom; an empty term list is the full collapse
+`K_I_g = K_A_g`. Only rapid-equilibrium binding/iso groups derive (an SS
+`:NonequalAI` group always keeps a free split), so each group emits a single
+I-symbol. All names route through the `name(p, am)` chokepoint.
 """
-function _i_nonequalai_syms(am::AllostericMechanism)
-    out = Set{Symbol}()
+function _collapse_mirror_exprs(am::AllostericMechanism)
     fes = _free_enz_set(am)
-    for (g, group) in enumerate(steps(am))
-        cat_allo_state(am, g) === :NonequalAI || continue
-        for p in _emit_cat_params_for_rep(_group_rep(group, fes), :I)
-            push!(out, name(p, am))
+    Ksym(g, state) = name(
+        only(_emit_cat_params_for_rep(_group_rep(steps(am)[g], fes), state)), am)
+    mirrors = Pair{Symbol, Union{Symbol, Expr}}[]
+    for (g, combo) in _split_resolution(am).derived
+        factors = Tuple{Symbol, Int}[(Ksym(g, :A), 1)]
+        for (f, a) in combo
+            push!(factors, (Ksym(f, :I), a))
+            push!(factors, (Ksym(f, :A), -a))
         end
+        push!(mirrors, Ksym(g, :I) => build_power_expr(0//1, factors))
     end
-    out
+    mirrors
 end
-
-"""
-Case-B rename map for the native I-run (Symbol → Symbol). A dependent whose key
-is a bare/`:EqualAI` symbol but whose derived RHS references an I-tagged
-`:NonequalAI` symbol has a genuinely different I-value and needs a distinct
-I-name (e.g. PK `k_EATPPyruvate_to_EADPPEP → k_I_EATPPyruvate_to_EADPPEP`). Deps
-already carrying the I-tag (a `:NonequalAI` dep) are left alone; since Gaussian
-elimination expresses each dependent purely in terms of independents, this is
-one non-transitive pass.
-"""
-function _case_b_rename_map(dep, am::AllostericMechanism)
-    i_nonequalai = _i_nonequalai_syms(am)
-    renames = Dict{Symbol, Symbol}()
-    isempty(i_nonequalai) && return renames
-    for (k, v) in dep
-        k in i_nonequalai && continue
-        _expr_references_any(v, i_nonequalai) || continue
-        renames[k] = _dep_inactive_name(am, k)
-    end
-    renames
-end
-
-"""Case-B I-rename map for `am`, derived from the native I-run deps."""
-_state_i_case_b_renames(am::AllostericMechanism) =
-    _case_b_rename_map(first(_state_raw_dependent_exprs(am, :I)), am)
 
 """
 Native per-state dependent-parameter assignments `(dep_exprs, indep)` in that
-state's parameter names, via the shared kernel on the state graph. For `:I`,
-applies the one-rule Case-B naming so a shared `:EqualAI` dependent whose value
-differs between states gets its distinct I-name (Spec §4/§4a).
+state's parameter names, via the shared kernel on the state graph. `:EqualAI`
+groups share their bare Symbol across states; `:NonequalAI` groups keep their
+distinct `:I` names. A forbidden `:NonequalAI` split is not renamed here — it is
+collapsed to a mirror by `_dependent_param_exprs`/`_build_dep_assignments`.
 """
 function _state_dependent_exprs(am::AllostericMechanism, state::Symbol)
-    dep, indep = _state_raw_dependent_exprs(am, state)
-    state === :I || return dep, indep
-    renames = _case_b_rename_map(dep, am)
-    isempty(renames) && return dep, indep
-    renamed = Dict{Symbol, Union{Symbol, Expr}}()
-    for (k, v) in dep
-        renamed[get(renames, k, k)] = v
-    end
-    renamed, indep
+    _state_raw_dependent_exprs(am, state)
 end
 
 """
@@ -1467,17 +1439,6 @@ end
 
 # ─── Dependent parameter expressions ─────────────────────────────
 
-# Distinct inactive-state name for a *dependent* parameter being promoted to
-# per-state (Case B: an `:EqualAI` dep whose Haldane/Wegscheider RHS references
-# a `:NonequalAI` symbol). For a `:NonequalAI`/`:A` dep, `_flip_to_inactive`
-# already yields a distinct `:I` name; for an `:EqualAI` dep it is a no-op, so
-# fall back to the forced `:I` variant to avoid a self-map.
-function _dep_inactive_name(am, k::Symbol)
-    p = _param_for_symbol(am, k)
-    nm = name(_flip_to_inactive(p), am)
-    nm == k ? name(_force_inactive(p), am) : nm
-end
-
 """
 I-state parameter Symbols actually referenced by the retained rate-equation
 polynomials, sourced from the NATIVE per-state I-polynomials: `den_i` always
@@ -1500,7 +1461,11 @@ Return `(dep_exprs, indep_params)` for an AllostericEnzymeMechanism from the
 NATIVE per-state derivations. A-state entries come from
 `_state_dependent_exprs(am, :A)`; I-state entries from
 `_state_dependent_exprs(am, :I)`, kept only for names a retained I-polynomial
-references (`_i_state_referenced_syms`, `S_I`). `:EqualAI` reg mirrors
+references (`_i_state_referenced_syms`, `S_I`). A shared `:EqualAI` dependent
+carries one bare symbol in both states, so its A-value is taken once (the
+merge does not overwrite it with the I-value). A forbidden `:NonequalAI` split
+is replaced by its collapse mirror (`_collapse_mirror_exprs`), which drops the
+group's `K_I_…` from the independent set. `:EqualAI` reg mirrors
 (`K_I_reg = K_A_reg`) are the only reg entries added to the dep map. Reg-site
 `Kreg` names and `L` complete the independent set.
 
@@ -1516,20 +1481,29 @@ function _dependent_param_exprs(
     dep_A, indep_A = _state_dependent_exprs(am, :A)
     dep_I, indep_I = _state_dependent_exprs(am, :I)
     S_I = _i_state_referenced_syms(am)
+    mirrors = _collapse_mirror_exprs(am)
+    collapse_targets = Set(first(p) for p in mirrors)
 
     dep = Dict{Symbol, Union{Symbol, Expr}}(dep_A)
     # I-state deps whose LHS a retained polynomial references (`Q_I` always,
-    # plus `N_I` when the I-cycle is live). Covers `:NonequalAI` Case-A deps
-    # and `:EqualAI` Case-B synthesized I-deps (the native I-run named them).
+    # plus `N_I` when the I-cycle is live), for `:NonequalAI` I-names. A shared
+    # `:EqualAI` dependent already appears in `dep` under its bare name from the
+    # A-run; keep that A-value (`!haskey`) — after collapse the I-value equals it.
     for (k, v) in dep_I
-        k in S_I && (dep[k] = v)
+        (k in S_I && !haskey(dep, k)) && (dep[k] = v)
+    end
+    # Collapse mirrors override any native I-dep/indep for a forbidden split.
+    for (k, rhs) in mirrors
+        dep[k] = rhs
     end
 
     # I-state independents that are (a) genuinely distinct from the A-state
     # symbol — an `:EqualAI` group shares its bare symbol with A and is already
-    # in `indep_A` — and (b) referenced by a retained I-polynomial.
+    # in `indep_A` — (b) referenced by a retained I-polynomial, and (c) not a
+    # collapsed split (now a dependent mirror).
     a_set = Set(indep_A)
-    indep_I_list = Symbol[p for p in indep_I if p ∉ a_set && p in S_I]
+    indep_I_list = Symbol[p for p in indep_I
+                          if p ∉ a_set && p in S_I && p ∉ collapse_targets]
 
     # Reg-site Parameters via `Kreg` structs + the `name(::Kreg, am)`
     # chokepoint. `:EqualAI` reg ligands share their value across states, so the
@@ -1605,10 +1579,13 @@ i_assignments::Vector{Expr})`. Shared by `_build_allosteric_rate_body` and
 `rate_equation_string`.
 
 A-assignments are the native A-state deps; I-assignments are the `:EqualAI` reg
-mirrors (`K_I_reg = K_A_reg`) plus the native I-state catalytic deps FILTERED to
-`_i_state_referenced_syms` (so no assignment is emitted for a symbol the retained
-I-polynomials never reference). `:EqualAI` catalytic params share their bare
-symbol across states and so need no I-mirror. All Symbols route through the
+mirrors (`K_I_reg = K_A_reg`), then the forbidden-split collapse mirrors
+(`K_I_g = K_A_g·∏(K_I_f/K_A_f)^a`), then the native I-state catalytic deps
+FILTERED to `_i_state_referenced_syms` (so no assignment is emitted for a symbol
+the retained I-polynomials never reference). Mirrors precede the native I-deps
+that read their `K_I_g`. A shared `:EqualAI` dependent is emitted once, as its
+A-assignment; its I-copy (same bare name) is skipped, and a collapsed split's
+`K_I_g` is emitted only as its mirror. All Symbols route through the
 `name(p, am)` chokepoint (native derivation + `Kreg`).
 """
 function _build_dep_assignments(
@@ -1621,6 +1598,10 @@ function _build_dep_assignments(
     # An I-state catalytic dep is emitted iff its LHS is referenced by a retained
     # I-polynomial (`Q_I` always, plus `N_I` when the I-cycle is live).
     i_names_set = _i_state_referenced_syms(am)
+    mirrors = _collapse_mirror_exprs(am)
+    collapse_targets = Set(first(p) for p in mirrors)
+    # Shared `:EqualAI` dependents are already emitted as A-assignments.
+    a_lhs = Set(sym for (sym, _) in dep_A)
 
     a_assignments = Expr[Expr(:(=), sym, rhs)
                          for (sym, rhs) in sort(collect(dep_A); by=first)]
@@ -1638,10 +1619,18 @@ function _build_dep_assignments(
         end
     end
 
-    # Native I-state catalytic deps, S_I-filtered. Covers `:NonequalAI` Case-A
-    # deps and `:EqualAI` Case-B synthesized I-deps the native I-run named.
+    # Forbidden-split collapse mirrors, before any native I-dep that reads them.
+    for (sym, rhs) in sort(mirrors; by=first)
+        push!(i_assignments, Expr(:(=), sym, rhs))
+    end
+
+    # Native I-state catalytic deps, S_I-filtered. `:NonequalAI` I-deps only;
+    # a shared `:EqualAI` dep (same bare name) is already an A-assignment, and a
+    # collapsed split's `K_I_g` is defined by its mirror above.
     for (sym, rhs) in sort(collect(dep_I); by=first)
-        sym in i_names_set && push!(i_assignments, Expr(:(=), sym, rhs))
+        sym in i_names_set || continue
+        (sym in a_lhs || sym in collapse_targets) && continue
+        push!(i_assignments, Expr(:(=), sym, rhs))
     end
 
     return a_assignments, i_assignments
