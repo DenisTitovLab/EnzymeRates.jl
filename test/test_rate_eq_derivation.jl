@@ -1087,13 +1087,11 @@ end
     @test count(isnothing, onlyA_bms) == 1
 end
 
-# `parameters(m, Full)` is injective. For Case-B allosteric shapes an
-# `:EqualAI` group whose Haldane-dependent reverse rate references a
-# `:NonequalAI` symbol emits the same I-state name from two paths — the base
-# I-state mirror and the synthesized dep — so `parameters(Full)` takes their
-# union rather than listing the name twice (PK is the only such mechanism in
-# the fixtures).
-@testset "parameters(Full) injective for Case-B allosteric shapes" begin
+# `parameters(m, Full)` is injective. A forbidden-split collapse emits the same
+# I-state name from two paths — the base I-state mirror and the collapse mirror —
+# so `parameters(Full)` takes their union rather than listing the name twice
+# (PK, whose PEP split collapses, is the only such mechanism in the fixtures).
+@testset "parameters(Full) injective for collapsed allosteric shapes" begin
     pk = only(s for s in MECHANISM_TEST_SPECS if s.name == "PK")
     @test allunique(EnzymeRates.parameters(pk.mechanism, EnzymeRates.Full))
 end
@@ -1657,12 +1655,11 @@ end
     @test isapprox(rate_eq, 0.0; atol=1e-10)
 
     # Wegscheider-cycle EqualAI×NonequalAI: the Random-order Bi-Bi mechanism has a
-    # genuine independent Wegscheider cycle. With the B-binding group :NonequalAI
-    # (group 2 — chosen because it pivots the Wegscheider-dependent EqualAI K
-    # koff_A_E onto a Case-B promotion: its RHS references the :NonequalAI symbol
-    # kon_A_B_E and has no Keq), the contained synth-dep fix must reach Wegscheider
-    # deps. Asserts the mechanism-agnostic invariant: zero net rate at chemical
-    # equilibrium. (Over-parametrized; rejection is a follow-up PR — see
+    # genuine independent Wegscheider cycle. Group 2 (the steady-state B-binding)
+    # is :NonequalAI while its box partners are :EqualAI, so its affinity is
+    # forbidden and collapses (koff_I_B_E = koff_A_B_E·kon_I_B_E/kon_A_B_E) while
+    # its speed stays free. Asserts the mechanism-agnostic invariant: zero net rate
+    # at chemical equilibrium. (Over-parametrized; rejection is a follow-up PR — see
     # docs/superpowers/specs/2026-05-29-nonequalai-rank-validity.md.)
     cm_ro, src_ro = @enzyme_mechanism_src begin
         substrates: A, B

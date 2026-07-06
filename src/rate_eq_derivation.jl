@@ -61,12 +61,11 @@ end
     aem = M()
     am = AllostericMechanism(aem)
     # The full symbol set over-emits an I-state mirror for every non-`:OnlyA`
-    # catalytic group (`_all_i_state_parameters`). A Case-B synthesized
-    # dependent — an `:EqualAI` dep whose Haldane RHS references a
-    # `:NonequalAI` symbol, e.g. PK's `k_I_EATPPyruvate_to_EADPPEP` — is the
-    # I-form of an `:EqualAI` catalytic reverse rate, so it always coincides
-    # with that group's over-emitted `Kfor`/`Krev`(:I) mirror already in
-    # `names`. No separate synthesized-name splice is needed.
+    # catalytic group (`_all_i_state_parameters`). A forbidden-split collapse
+    # mirror — a `:NonequalAI` group's derived I-symbol, e.g. PK's `K_I_PEP_E` —
+    # is the I-form of that group's binding/reverse constant, so it always
+    # coincides with the group's over-emitted `(:I)` mirror already in `names`.
+    # No separate collapse-name splice is needed.
     params = _enumerate_parameters_full_allosteric(am)
     names = Symbol[name(p, am) for p in params]
     Tuple((names..., :E_total))
@@ -858,8 +857,8 @@ so this carries no `catalytic_multiplicity` factor.
     cat_mets = Set{Symbol}(metabolites(CM()))
     # Catalytic param-name sets for the metabolite/k split. The A-set is the
     # A-state tagged column set; the I-set adds the I-polynomials' own params
-    # (`:I` mirrors plus any Case-B name the native I-run introduced), which are
-    # exactly the non-metabolite symbols the I-polys reference.
+    # (`:I` mirrors plus the native `:NonequalAI` I-names), which are exactly the
+    # non-metabolite symbols the I-polys reference.
     a_param_names = Set(_state_all_params(_state_mechanism(am, :A),
                                           _state_step_params(am, :A)))
     i_param_names = union(a_param_names,
@@ -1225,7 +1224,7 @@ end
 
 """
 Native per-state Haldane/Wegscheider dependent-parameter expressions from the
-shared kernel, in that state's parameter names (NO Case-B rename yet). Runs the
+shared kernel, in that state's parameter names. Runs the
 kernel under the state-tagged `step_params`/`all_params` with
 `_state_wegscheider_rename_map` so a fully-RE catalytic binding-K Wegscheider tie
 is collapsed natively (the same absorption the non-allosteric

@@ -1,5 +1,5 @@
-# ABOUTME: Strict :EqualAI collapse regression — no Case-B promotion; forbidden splits
-# ABOUTME: collapse to K_A=K_I, honorable splits stay free, all equations thermo-consistent.
+# ABOUTME: Strict :EqualAI collapse regression — no silent I-name promotion; forbidden
+# ABOUTME: splits collapse to K_A=K_I, honorable splits stay free, all equations thermo-consistent.
 module AllostericCollapseTests
 using Test, EnzymeRates, Random
 const ER = EnzymeRates
@@ -40,7 +40,7 @@ end
         @test !(:K_I_S_E in fp)                 # I-twin dropped (collapsed to a mirror)
         s = ER.rate_equation_string(uni([:NonequalAI,:EqualAI,:EqualAI]))
         @test occursin("K_I_S_E=K_A_S_E", replace(s," "=>""))  # explicit mirror
-        @test !occursin("k_I_", s)              # NO Case-B catalytic promotion
+        @test !occursin("k_I_", s)              # catalysis not silently un-shared
     end
 
     @testset "two NonequalAI bindings + EqualAI catalysis -> 1 honorable DOF" begin
