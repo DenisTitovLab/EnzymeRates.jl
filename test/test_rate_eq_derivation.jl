@@ -1659,8 +1659,8 @@ end
     # is :NonequalAI while its box partners are :EqualAI, so its affinity is
     # forbidden and collapses (koff_I_B_E = koff_A_B_E·kon_I_B_E/kon_A_B_E) while
     # its speed stays free. Asserts the mechanism-agnostic invariant: zero net rate
-    # at chemical equilibrium. (Over-parametrized; rejection is a follow-up PR — see
-    # docs/superpowers/specs/2026-05-29-nonequalai-rank-validity.md.)
+    # at chemical equilibrium. (Over-parametrized; the enumerator will skip such
+    # degenerate configs in a follow-up PR.)
     cm_ro, src_ro = @enzyme_mechanism_src begin
         substrates: A, B
         products:   P, Q
