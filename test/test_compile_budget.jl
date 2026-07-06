@@ -113,7 +113,7 @@ end
     # in-process measurement here would always be ~0.01s and the gate
     # would never trip on a regression. The per-call runtime gate is
     # separately enforced by test_rate_eq_derivation.jl's
-    # test_rate_equation_performance (0 allocs, <100ns per call) for every
+    # test_rate_equation_performance (0 allocs, <120ns per call) for every
     # mechanism in MECHANISM_TEST_SPECS.
     @testset "wall-clock: rate_equation body-build (first call)" begin
         script = """

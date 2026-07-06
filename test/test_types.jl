@@ -1090,6 +1090,49 @@
         @test EnzymeRates._flat_steps(m) == EnzymeRates._flat_steps(m_perm)
     end
 
+    @testset "wegscheider rename map on Mechanism" begin
+        m = first(EnzymeRates.init_mechanisms(@enzyme_reaction(begin
+            substrates: A[C], B[N]
+            products:   P[C], Q[N]
+        end)))
+        from_type = EnzymeRates._build_wegscheider_rename_map(
+            EnzymeRates.compile_mechanism(m))
+        from_mech = EnzymeRates._build_wegscheider_rename_map(m)
+        @test from_type == from_mech
+    end
+
+    @testset "_merge_tied_kinetic_groups re-merges tied splits" begin
+        rxn = @enzyme_reaction(begin
+            substrates: A[C], B[N]
+            products:   P[C], Q[N]
+        end)
+        merged_something = false
+        for m in EnzymeRates.init_mechanisms(rxn)
+            gs = EnzymeRates.steps(m)
+            for gi in eachindex(gs)
+                length(gs[gi]) >= 2 || continue
+                # Split group gi into singletons. The constructor does not merge,
+                # so this yields the split form directly.
+                split_groups = Vector{Vector{EnzymeRates.Step}}()
+                for (j, g) in enumerate(gs)
+                    j == gi ? append!(split_groups, [[s] for s in g]) :
+                              push!(split_groups, copy(g))
+                end
+                raw = EnzymeRates.Mechanism(EnzymeRates.reaction(m), split_groups)
+                # A tied split has the same rate function as the merged original.
+                same_rate = EnzymeRates._rate_eq_dedup_key(
+                                rate_equation_string(EnzymeRates.compile_mechanism(raw))) ==
+                            EnzymeRates._rate_eq_dedup_key(
+                                rate_equation_string(EnzymeRates.compile_mechanism(m)))
+                same_rate || continue
+                merged_something = true
+                re = EnzymeRates._merge_tied_kinetic_groups(raw)
+                @test length(re) < length(split_groups)   # tied groups collapsed
+            end
+        end
+        @test merged_something   # the test actually exercised a merge
+    end
+
     @testset "AllostericMechanism (non-parametric)" begin
         r = EnzymeReaction(
             [EnzymeRates.ReactantAtoms(

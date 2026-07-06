@@ -1373,6 +1373,234 @@ const _DEDUP_SIG2 =
     @test all(f -> f isa EnzymeRates.FitFailure, bad_failures)
 end
 
+
+# Confirmed LDH renaming-dup pair (same graph, tied kinetic-group split): merged
+# form (8 groups) vs split form (9 groups). Currently different eq_hash; the
+# pre-fit canonical-partition merge must collapse them.
+const _CANON_SIG_MERGED =
+    "EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, " *
+    "3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (" *
+    ":P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O," *
+    " 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O," *
+    " 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),)" *
+    ", :E, ((), ())), (:Product, :Lactate), true), ((((:Product, :NAD)," *
+    "), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, (" *
+    "(), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :" *
+    "E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((" *
+    "), ())), (:Product, :Lactate), true)), ((((), :E, ((), ())), (((:P" *
+    "roduct, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Prod" *
+    "uct, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product" *
+    ", :NAD)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, (()," *
+    " ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH)" *
+    ", true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :L" *
+    "actate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH)," *
+    " true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((" *
+    "), ())), (:Substrate, :Pyruvate), true),), (((((:Product, :NAD),)," *
+    " :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, " *
+    "((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH)," *
+    "), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate))," *
+    " :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Substrate, " *
+    ":NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lac" *
+    "tate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((((:" *
+    "Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:S" *
+    "ubstrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true),)" *
+    ", (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD)" *
+    ", (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true)" *
+    ",)))}"
+const _CANON_SIG_SPLIT =
+    "EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, " *
+    "3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (" *
+    ":P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O," *
+    " 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O," *
+    " 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),)" *
+    ", :E, ((), ())), (:Product, :Lactate), true), ((((:Product, :NAD)," *
+    "), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, (" *
+    "(), ())), (:Product, :Lactate), true)), ((((), :E, ((), ())), (((:" *
+    "Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Pro" *
+    "duct, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Produc" *
+    "t, :NAD)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, (()" *
+    ", ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH" *
+    "), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :" *
+    "Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH)" *
+    ", true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, (" *
+    "(), ())), (:Substrate, :Pyruvate), true),), (((((:Product, :NAD),)" *
+    ", :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E," *
+    " ((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH)" *
+    ",), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate))" *
+    ", :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Substrate," *
+    " :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NA" *
+    "DH)), :E, ((), ())), (:Product, :Lactate), true),), (((((:Substrat" *
+    "e, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :" *
+    "Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((" *
+    "((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), " *
+    "(:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true" *
+    "),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :N" *
+    "AD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), tr" *
+    "ue),)))}"
+
+@testset "canonical-partition dedup collapses renaming-dups in _process_batch" begin
+    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
+    m1 = recon(_CANON_SIG_MERGED)   # merged, 8 kinetic groups
+    m2 = recon(_CANON_SIG_SPLIT)    # split, 9 groups — same graph, Wegscheider-tied
+    em1 = EnzymeRates.compile_mechanism(m1)
+    em2 = EnzymeRates.compile_mechanism(m2)
+    # Precondition: same rate function, but the RAW dedup key currently DIFFERS —
+    # the renaming-dup the pre-fit canonicalization must collapse.
+    @test m1 != m2
+    @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)) !=
+          EnzymeRates._rate_eq_dedup_key(rate_equation_string(em2))
+
+    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+            NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [0.5, 0.5, 1.0, 1.0],
+            Lactate = [0.1, 0.2, 0.1, 0.2], NAD = [0.3, 0.3, 0.4, 0.4])
+    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
+    pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
+
+    memo = Dict{UInt64, NamedTuple}()
+    opt = _CountingStubOpt(; uval = log(5.0))
+    entries, failures = EnzymeRates._process_batch(pair, prob;
+        optimizer=opt, max_param_count=20, n_restarts=1, maxtime=1.0, memo)
+
+    # Canonicalized to one form → fit exactly ONCE; both rows share it.
+    @test opt.count == 1
+    @test length(entries) == 2
+    @test isempty(failures)
+    @test entries[1].row.eq_hash == entries[2].row.eq_hash
+    @test [e.row.fit_inherited for e in entries] == [false, true]
+end
+
+
+# Confirmed LDH ALLOSTERIC renaming-dup pair: split form (8 cat groups) vs
+# merged (7). Different eq_hash; the per-state allosteric merge collapses them.
+const _ALLO_SIG_SPLIT =
+    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate)" *
+    ", ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H," *
+    " 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21" *
+    "), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate" *
+    "), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ()))" *
+    ", (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), t" *
+    "rue), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate)" *
+    ", (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true)), " *
+    "((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Produ" *
+    "ct, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Pr" *
+    "oduct, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NA" *
+    "D), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Produc" *
+    "t, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD" *
+    "), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, (()," *
+    " ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E," *
+    " ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, (()," *
+    " ())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), " *
+    ":E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E" *
+    ", ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), (" *
+    "((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate)" *
+    ", true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NA" *
+    "D), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvat" *
+    "e), true),), (((((:Substrate, :NADH),), :E, ((), ())), (((:Product" *
+    ", :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lact" *
+    "ate), true),), (((((:Substrate, :NADH),), :E, ((), ())), (((:Subst" *
+    "rate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate" *
+    ", :Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyru" *
+    "vate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), " *
+    ":E, ((), ())), nothing, false),)))}, (4, (:EqualAI, :EqualAI, :Onl" *
+    "yA, :NonequalAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI)), ()}"
+const _ALLO_SIG_MERGED =
+    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate)" *
+    ", ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H," *
+    " 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21" *
+    "), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate" *
+    "), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ()))" *
+    ", (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), t" *
+    "rue), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate)" *
+    ", (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), (" *
+    "(((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:" *
+    "Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), (" *
+    "(((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Produc" *
+    "t, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Pro" *
+    "duct, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD" *
+    "), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product" *
+    ", :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD)" *
+    ", true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), " *
+    "())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, " *
+    "((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), " *
+    "())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), :" *
+    "E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E," *
+    " ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), ((" *
+    "(:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate)," *
+    " true),), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD" *
+    "), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate" *
+    "), true),), (((((:Substrate, :NADH),), :E, ((), ())), (((:Substrat" *
+    "e, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :" *
+    "Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvat" *
+    "e)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E," *
+    " ((), ())), nothing, false),)))}, (4, (:EqualAI, :EqualAI, :OnlyA," *
+    " :NonequalAI, :EqualAI, :EqualAI, :EqualAI)), ()}"
+
+@testset "allosteric canonical-partition dedup" begin
+    recon_am(sig) =
+        EnzymeRates.AllostericMechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
+    am1 = recon_am(_ALLO_SIG_SPLIT)     # 8 catalytic groups
+    am2 = recon_am(_ALLO_SIG_MERGED)    # 7 groups — same rate function
+    key(m) = EnzymeRates._rate_eq_dedup_key(
+        rate_equation_string(EnzymeRates.compile_mechanism(m)))
+    @test am1 != am2
+    @test key(am1) != key(am2)                  # renaming-dup: raw keys differ
+    c1 = EnzymeRates._canonical_mechanism(am1)
+    c2 = EnzymeRates._canonical_mechanism(am2)
+    @test key(c1) == key(c2)                    # canonicalize → same eq_hash
+    @test length(EnzymeRates.steps(c1)) == length(EnzymeRates.steps(c2))
+    # Merged tags stay valid catalytic states.
+    @test all(t -> t in (:OnlyA, :EqualAI, :NonequalAI),
+              EnzymeRates.cat_allo_states(c1))
+end
+
+
+@testset "_process_batch failures report the ORIGINAL mechanism" begin
+    # PASS-1 catch: _canonical_mechanism throws for a mechanism with an unbound
+    # declared substrate. `m` is never bound, so the FitFailure must carry the
+    # ORIGINAL `m0` (using `m` there would be an UndefVarError masking the error).
+    rxn_bad = @enzyme_reaction begin
+        substrates: S[C], T[N]
+        products:   P[CN]
+    end
+    e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+    e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+    e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+    m_bad = EnzymeRates.Mechanism(rxn_bad, [
+        [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
+        [EnzymeRates.Step(e_s, e_p, nothing, false)],
+        [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+    ])
+    @test_throws ErrorException EnzymeRates._canonical_mechanism(m_bad)
+    data_bad = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+                S = [1.0, 2.0, 1.0, 2.0], T = [0.5, 0.5, 1.0, 1.0],
+                P = [0.1, 0.2, 0.1, 0.2])
+    prob_bad = IdentifyRateEquationProblem(rxn_bad, data_bad; Keq=2.0)
+    e1, f1 = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
+        prob_bad; optimizer=_CountingStubOpt(), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
+    @test isempty(e1)
+    @test length(f1) == 1 && f1[1] isa EnzymeRates.FitFailure
+    @test f1[1].mech == m_bad                     # ORIGINAL, not a canonical form
+
+    # PASS-2 catch: a split form whose canonical merge differs; when its fit
+    # throws, the FitFailure must carry the original split, not the merged form.
+    recon(sig) = EnzymeRates.Mechanism(Core.eval(EnzymeRates, Meta.parse(sig))())
+    split = recon(_CANON_SIG_SPLIT)
+    @test split != EnzymeRates._canonical_mechanism(split)   # merge changes it
+    data2 = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+             NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [0.5, 0.5, 1.0, 1.0],
+             Lactate = [0.1, 0.2, 0.1, 0.2], NAD = [0.3, 0.3, 0.4, 0.4])
+    prob2 = IdentifyRateEquationProblem(EnzymeRates.reaction(split), data2; Keq=2.0)
+    e2, f2 = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[split],
+        prob2; optimizer=_CountingStubOpt(; throwit=true), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
+    @test isempty(e2)
+    @test length(f2) == 1 && f2[1] isa EnzymeRates.FitFailure
+    @test f2[1].mech == split                     # original split, not merged canonical
+end
+
 @testset "LOOCV eq_hash-uniqueness guard (§4)" begin
     # _cv_model_selection dedups candidates by eq_hash per n_params bucket before
     # LOOCV: same-equation twins collapse to ONE candidate (lowest loss kept), so

@@ -114,8 +114,7 @@ The rename means the polynomial in `v` uses the representative symbol
 directly, so Source-C duplicates (split kinetic groups that
 Wegscheider ties back together) collapse at hash time.
 """
-function _build_wegscheider_rename_map(M::Type{<:EnzymeMechanism})
-    mech = Mechanism(M())
+function _build_wegscheider_rename_map(mech::Mechanism)
     rename = Dict{Symbol, Symbol}()
     step_params = _step_parameters(mech)
     # binding-K set: value-context rep name of each RE binding step. Walk
@@ -127,7 +126,7 @@ function _build_wegscheider_rename_map(M::Type{<:EnzymeMechanism})
         push!(binding_set, name(step_params[idx][1], mech))
     end
     # Pass 2: single-symbol Wegscheider RE ties between two binding K's.
-    dep_raw, _ = _dependent_param_exprs_kernel(M, rename)
+    dep_raw, _ = _dependent_param_exprs_kernel(mech, rename)
     for (lhs, rhs) in dep_raw
         rhs isa Symbol || continue
         lhs in binding_set && rhs in binding_set || continue
@@ -140,7 +139,10 @@ function _build_wegscheider_rename_map(M::Type{<:EnzymeMechanism})
     rename
 end
 
-_build_wegscheider_rename_map(m::EnzymeMechanism) = _build_wegscheider_rename_map(typeof(m))
+_build_wegscheider_rename_map(M::Type{<:EnzymeMechanism}) =
+    _build_wegscheider_rename_map(Mechanism(M()))
+_build_wegscheider_rename_map(m::EnzymeMechanism) =
+    _build_wegscheider_rename_map(typeof(m))
 
 # ─── RE Group Helpers ───────────────────────────────────────
 
@@ -1709,4 +1711,125 @@ function rate_equation_string(
     _append_constraint_sections!(lines, weg_lines, hal_lines)
     push!(lines, v_line)
     join(lines, "\n")
+end
+
+"""
+Canonical kinetic-group partition: merge kinetic groups whose binding-K
+representatives are single-symbol Wegscheider-tied (the relation
+`_build_wegscheider_rename_map` finds), so split and merged encodings of the
+same rate-equivalent graph collapse to one partition. Returns `mech.steps`
+unchanged when nothing is tied.
+"""
+function _merge_tied_kinetic_groups(mech::Mechanism)
+    rename = _build_wegscheider_rename_map(mech)
+    isempty(rename) && return mech.steps
+    groups = mech.steps
+    step_params = _step_parameters(mech)
+    # Canonical representative binding-K name per group (nothing if no binding step).
+    rep = Vector{Union{Symbol, Nothing}}(nothing, length(groups))
+    for (idx, (s, g)) in enumerate(_flat_steps(mech))
+        is_equilibrium(s) && is_binding(s) || continue
+        k = name(step_params[idx][1], mech)
+        rep[g] = get(rename, k, k)
+    end
+    byrep = Dict{Symbol, Vector{Int}}()
+    for (gi, r) in enumerate(rep)
+        r === nothing && continue
+        push!(get!(byrep, r, Int[]), gi)
+    end
+    any(length(v) > 1 for v in values(byrep)) || return mech.steps
+    merged = Vector{Vector{Step}}()
+    done = falses(length(groups))
+    for gi in eachindex(groups)
+        done[gi] && continue
+        r = rep[gi]
+        if r !== nothing && length(byrep[r]) > 1
+            gis = byrep[r]
+            push!(merged, Step[s for j in gis for s in groups[j]])
+            for j in gis
+                done[j] = true
+            end
+        else
+            push!(merged, copy(groups[gi]))
+            done[gi] = true
+        end
+    end
+    merged
+end
+
+"""
+Allosteric partition merge: the AllostericMechanism analog of
+`_merge_tied_kinetic_groups(::Mechanism)`. Ties come from the per-state binding-K
+Wegscheider relations (`_state_wegscheider_rename_map` for `:A` and `:I`). Each
+catalytic group is keyed by `(tag, folded-binding-K-name(s))`; the tag is part of
+the key so groups that differ in allosteric state (and therefore are not
+rate-equivalent) never merge. Returns the merged
+`(cat_steps, cat_allo_states)` parallel vectors, unchanged when nothing is tied.
+"""
+function _merge_tied_kinetic_groups(am::AllostericMechanism)
+    rename_A = _state_wegscheider_rename_map(am, :A)
+    rename_I = _state_wegscheider_rename_map(am, :I)
+    groups = steps(am)
+    tags = cat_allo_states(am)
+    (isempty(rename_A) && isempty(rename_I)) && return groups, tags
+    fold(d, nm) = get(d, nm, nm)
+    keyof = Vector{Any}(nothing, length(groups))
+    for (g, grp) in enumerate(groups)
+        tag = tags[g]
+        bstep = nothing
+        for s in grp
+            if is_equilibrium(s) && is_binding(s)
+                bstep = s
+                break
+            end
+        end
+        bstep === nothing && continue
+        astate = tag === :EqualAI ? :EqualAI : :A
+        aK = fold(rename_A, name(Kd(bstep, astate), am))
+        keyof[g] = tag === :NonequalAI ?
+            (:NonequalAI, aK, fold(rename_I, name(Kd(bstep, :I), am))) :
+            (tag, aK)
+    end
+    bykey = Dict{Any, Vector{Int}}()
+    for (g, k) in enumerate(keyof)
+        k === nothing && continue
+        push!(get!(bykey, k, Int[]), g)
+    end
+    any(length(v) > 1 for v in values(bykey)) || return groups, tags
+    merged_steps = Vector{Vector{Step}}()
+    merged_tags = Symbol[]
+    done = falses(length(groups))
+    for g in eachindex(groups)
+        done[g] && continue
+        k = keyof[g]
+        if k !== nothing && length(bykey[k]) > 1
+            gis = bykey[k]
+            push!(merged_steps, Step[s for j in gis for s in groups[j]])
+            push!(merged_tags, tags[g])
+            for j in gis
+                done[j] = true
+            end
+        else
+            push!(merged_steps, copy(groups[g]))
+            push!(merged_tags, tags[g])
+            done[g] = true
+        end
+    end
+    merged_steps, merged_tags
+end
+
+"""
+Canonical form of a mechanism for deduplication: the same graph with its
+kinetic-group partition merged over Wegscheider-tied binding-K's. Two
+graph-distinct mechanisms that reduce to the same rate function collapse to the
+same canonical mechanism, so their rendered equation and `eq_hash` agree.
+Applied at the fit boundary (`_process_batch`), not at construction.
+"""
+_canonical_mechanism(m::Mechanism) =
+    Mechanism(reaction(m), _merge_tied_kinetic_groups(m))
+function _canonical_mechanism(am::AllostericMechanism)
+    cat_steps, cat_states = _merge_tied_kinetic_groups(am)
+    AllostericMechanism(reaction(am), cat_steps, cat_states,
+                        catalytic_multiplicity(am),
+                        copy(regulatory_sites(am)))
 end
