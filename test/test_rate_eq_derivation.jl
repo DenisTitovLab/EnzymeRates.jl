@@ -1543,8 +1543,9 @@ end
     end))
 
 
-    # Single-ligand :EqualAI reg site cancels identically → constructor error
-    @test_throws Exception eval(:(@allosteric_mechanism begin
+    # Single-ligand :EqualAI reg site is degenerate but valid — the derivation
+    # produces an equation (the regulator is inert); users may write it.
+    @test eval(:(@allosteric_mechanism begin
         substrates: S
         products:   P
         allosteric_regulators: I::EqualAI
@@ -1554,7 +1555,7 @@ end
             E(S) <--> E(P)   :: EqualAI
             E(P) ⇌ E + P     :: EqualAI
         end
-    end))
+    end)) isa EnzymeRates.AllostericEnzymeMechanism
 
     # Stoichiometric infeasibility: Q listed as product but never appears
     # in any reaction step → invariant check rejects. (S carries both atoms

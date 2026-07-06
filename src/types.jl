@@ -962,11 +962,6 @@ function AllostericEnzymeMechanism(
             st in _VALID_REG_ALLO_STATES ||
                 error("Reg site $i, ligand $(ligands[k]): unknown allo state $st")
         end
-        # All-:EqualAI site cancels identically — error
-        all(st === :EqualAI for st in reg_allo_states) &&
-            error("Reg site $i: all ligands are :EqualAI, which produces " *
-                  "Q_reg_A == Q_reg_I — no allosteric effect. At least one " *
-                  "ligand must be :OnlyA, :OnlyI, or :NonequalAI.")
     end
 
     AllostericEnzymeMechanism{typeof(cm), cat_sites, reg_sites}()
