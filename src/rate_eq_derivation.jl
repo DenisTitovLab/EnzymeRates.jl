@@ -1260,33 +1260,48 @@ struct SplitResolution
 end
 
 """
-Resolve which `:NonequalAI` catalytic splits are honorable and which collapse.
+Resolve which `:NonequalAI` binding affinities are honorable and which collapse.
 
-Every thermodynamic cycle imposes `Σ_g c_g·δ_g = 0` on the per-group splits
-`δ_g = log K_A_g − log K_I_g` (the equilibrium-constant contribution cancels
-between the two conformations, leaving a homogeneous constraint). Pinning the
-`:EqualAI` groups to `δ = 0` restricts the honorable splits to
-`nullspace(C[:, :NonequalAI])`, where `C` is the catalytic cycle-incidence
-matrix.
+Every reversible step carries two independent quantities: an *affinity*
+(`Kd`, or `kon/koff` for a steady-state binding) that thermodynamic cycles
+constrain, and — for a steady-state step — a *speed* (`kon·koff`) that no cycle
+constrains and is therefore always free. Each cycle imposes `Σ_g c_g·δα_g = 0`
+on the per-group affinity splits `δα_g` (the equilibrium-constant contribution
+cancels between the two conformations). Pinning `:EqualAI` groups to `δα = 0`
+restricts the honorable affinity splits to `nullspace(C[:, collapsible])`.
 
-A steady-state group's split is native: its forward and reverse rate constants
-differ between conformations independently, so only their ratio enters a cycle
-and that ratio is always free. An SS `:NonequalAI` group therefore always keeps
-a free split and never derives; ordering the SS columns first eliminates those
-free ratios before partitioning the rapid-equilibrium columns, so a derived
-relation references only free rapid-equilibrium splits.
+The collapsible affinities are keyed on the *base thermodynamic free/derived
+partition* (`indep_A`), NOT on step type: a group contributes a collapsible
+affinity column iff it has an independent affinity — a rapid-equilibrium `Kd`,
+or a steady-state binding whose forward AND reverse rate constants are both
+independent (a non-pivot binding). A steady-state group with only one
+independent rate constant (its reverse is a derived cycle pivot — every
+catalytic step, and any binding chosen as a Wegscheider pivot) has its affinity
+already absorbed; its split is always free. Those absorbed columns are ordered
+first so they eliminate before the collapsible columns partition, so a derived
+relation references only free collapsible affinities. A steady-state binding's
+speed split is always free regardless — only its affinity can collapse.
 """
 function _split_resolution(am::AllostericMechanism)
     N = [g for g in 1:length(steps(am)) if cat_allo_state(am, g) === :NonequalAI]
     isempty(N) && return SplitResolution(Int[], Pair{Int, Vector{Pair{Int, Int}}}[])
 
-    is_ss = Dict(g => !is_equilibrium(first(steps(am)[g])) for g in N)
+    _, indep_A = _state_dependent_exprs(am, :A)
+    indep = Set(indep_A)
+    fes = _free_enz_set(am)
+    nfree(g) = count(p -> name(p, am) in indep,
+                     _emit_cat_params_for_rep(_group_rep(steps(am)[g], fes), :A))
+    # A group's affinity is collapsible iff it is independent: an RE Kd, or a
+    # 2-free SS binding. A 1-free SS group's derived reverse already absorbs its
+    # affinity, so its split is always free.
+    collapsible = Dict(g => (is_equilibrium(first(steps(am)[g])) || nfree(g) == 2)
+                       for g in N)
     Ncol = Dict(g => k for (k, g) in enumerate(N))
 
-    # Per-group split-constraint matrix over the `:NonequalAI` columns. A step
+    # Per-group affinity-constraint matrix over the `:NonequalAI` columns. A step
     # contributes its cycle incidence with a `−1` flip for a binding K (a Kd
     # entering as 1/Kd); an SS step contributes `+C` to its group's ratio split
-    # `δ_kf − δ_kr`.
+    # `δ_kon − δ_koff` — the same affinity coordinate with the opposite sign.
     cm = _state_mechanism(am, :A)
     @assert steps(cm) == steps(am) "state-:A mechanism must preserve group order"
     C, _ = _thermodynamic_constraints(cm)
@@ -1302,26 +1317,27 @@ function _split_resolution(am::AllostericMechanism)
         end
     end
 
-    # Eliminate the free SS ratio splits first, then partition the RE columns.
-    ss_locals = [k for k in 1:length(N) if is_ss[N[k]]]
-    re_locals = [k for k in 1:length(N) if !is_ss[N[k]]]
-    perm = vcat(ss_locals, re_locals)
+    # Eliminate the absorbed (always-free) affinities first, then partition the
+    # collapsible columns.
+    absorb_locals = [k for k in 1:length(N) if !collapsible[N[k]]]
+    coll_locals = [k for k in 1:length(N) if collapsible[N[k]]]
+    perm = vcat(absorb_locals, coll_locals)
     pivot_cols, free_cols, R = _rref_partition(M[:, perm])
 
-    # SS groups are always free; RE free-columns keep their split.
-    free = sort(vcat(N[ss_locals], [N[perm[fc]] for fc in free_cols
-                                    if !is_ss[N[perm[fc]]]]))
+    # Absorbed groups are always free; collapsible free-columns keep their split.
+    free = sort(vcat(N[absorb_locals],
+                     [N[perm[fc]] for fc in free_cols if collapsible[N[perm[fc]]]]))
 
     derived = Pair{Int, Vector{Pair{Int, Int}}}[]
     for (r, pc) in enumerate(pivot_cols)
         g = N[perm[pc]]
-        is_ss[g] && continue
+        collapsible[g] || continue
         terms = Pair{Int, Int}[]
         for fc in free_cols
             coeff = -R[r, fc]
             coeff == 0 && continue
             fg = N[perm[fc]]
-            @assert !is_ss[fg] "derived split must not reference an SS group"
+            @assert collapsible[fg] "derived affinity must reference a collapsible group"
             denominator(coeff) == 1 || error(
                 "_split_resolution: non-integer split coefficient $coeff for " *
                 "group $g (multiply-traversed cycle) can't be represented")
@@ -1334,26 +1350,46 @@ function _split_resolution(am::AllostericMechanism)
 end
 
 """
-Collapse mirrors for `am`'s forbidden `:NonequalAI` splits (`Symbol => RHS`).
-Each `_split_resolution` `derived` entry `g => [f => a, …]` fixes group `g`'s
-I-binding constant to `K_I_g = K_A_g·∏(K_I_f/K_A_f)^a`, so the split carries no
-independent degree of freedom; an empty term list is the full collapse
-`K_I_g = K_A_g`. Only rapid-equilibrium binding/iso groups derive (an SS
-`:NonequalAI` group always keeps a free split), so each group emits a single
-I-symbol. All names route through the `name(p, am)` chokepoint.
+Collapse mirrors for `am`'s forbidden `:NonequalAI` affinity splits
+(`Symbol => RHS`). Each `_split_resolution` `derived` entry `g => [f => a, …]`
+fixes group `g`'s I-affinity so it carries no independent degree of freedom,
+tying it to the free collapsible affinities `f`. In terms of each group's
+effective dissociation constant `effK` (an RE `Kd`, or `koff/kon` for a 2-free
+SS binding), the relation is `effK_I_g / effK_A_g = ∏(effK_I_f/effK_A_f)^a`:
+
+  * RE group — derive the I `Kd`:  `K_I_g = K_A_g·∏(effK_I_f/effK_A_f)^a`.
+  * SS group — derive the I reverse rate, keep the forward (speed) free:
+    `koff_I_g = koff_A_g·(kon_I_g/kon_A_g)·∏(effK_I_f/effK_A_f)^a`.
+
+An empty term list is the full collapse (`K_I_g = K_A_g`, or
+`koff_I_g = koff_A_g·kon_I_g/kon_A_g`). All names route through `name(p, am)`.
 """
 function _collapse_mirror_exprs(am::AllostericMechanism)
     fes = _free_enz_set(am)
-    Ksym(g, state) = name(
-        only(_emit_cat_params_for_rep(_group_rep(steps(am)[g], fes), state)), am)
+    psyms(g, state) = [name(p, am) for p in
+                       _emit_cat_params_for_rep(_group_rep(steps(am)[g], fes), state)]
+    # `effK_g(state)^s` as (sym => exp) factors: an RE Kd is `K`; a 2-free SS
+    # binding is `koff/kon` (params are emitted forward-then-reverse).
+    effK(g, state, s) = (ps = psyms(g, state);
+        length(ps) == 1 ? [ps[1] => s] : [ps[2] => s, ps[1] => -s])
     mirrors = Pair{Symbol, Union{Symbol, Expr}}[]
     for (g, combo) in _split_resolution(am).derived
-        factors = Tuple{Symbol, Int}[(Ksym(g, :A), 1)]
-        for (f, a) in combo
-            push!(factors, (Ksym(f, :I), a))
-            push!(factors, (Ksym(f, :A), -a))
+        gA = psyms(g, :A); gI = psyms(g, :I)
+        if length(gA) == 1                     # RE: derive K_I_g
+            lhs = gI[1]
+            factors = Pair{Symbol, Int}[gA[1] => 1]
+        else                                   # SS: derive koff_I_g, keep kon_I_g free
+            lhs = gI[2]
+            factors = Pair{Symbol, Int}[gA[2] => 1, gI[1] => 1, gA[1] => -1]
         end
-        push!(mirrors, Ksym(g, :I) => build_power_expr(0//1, factors))
+        for (f, a) in combo
+            append!(factors, effK(f, :I, a))
+            append!(factors, effK(f, :A, -a))
+        end
+        combined = Dict{Symbol, Int}()
+        for (s, e) in factors; combined[s] = get(combined, s, 0) + e; end
+        filter!(p -> p.second != 0, combined)
+        push!(mirrors, lhs => build_power_expr(0//1, collect(combined)))
     end
     mirrors
 end
