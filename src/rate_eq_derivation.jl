@@ -114,8 +114,7 @@ The rename means the polynomial in `v` uses the representative symbol
 directly, so Source-C duplicates (split kinetic groups that
 Wegscheider ties back together) collapse at hash time.
 """
-function _build_wegscheider_rename_map(M::Type{<:EnzymeMechanism})
-    mech = Mechanism(M())
+function _build_wegscheider_rename_map(mech::Mechanism)
     rename = Dict{Symbol, Symbol}()
     step_params = _step_parameters(mech)
     # binding-K set: value-context rep name of each RE binding step. Walk
@@ -127,7 +126,7 @@ function _build_wegscheider_rename_map(M::Type{<:EnzymeMechanism})
         push!(binding_set, name(step_params[idx][1], mech))
     end
     # Pass 2: single-symbol Wegscheider RE ties between two binding K's.
-    dep_raw, _ = _dependent_param_exprs_kernel(M, rename)
+    dep_raw, _ = _dependent_param_exprs_kernel(mech, rename)
     for (lhs, rhs) in dep_raw
         rhs isa Symbol || continue
         lhs in binding_set && rhs in binding_set || continue
@@ -140,7 +139,10 @@ function _build_wegscheider_rename_map(M::Type{<:EnzymeMechanism})
     rename
 end
 
-_build_wegscheider_rename_map(m::EnzymeMechanism) = _build_wegscheider_rename_map(typeof(m))
+_build_wegscheider_rename_map(M::Type{<:EnzymeMechanism}) =
+    _build_wegscheider_rename_map(Mechanism(M()))
+_build_wegscheider_rename_map(m::EnzymeMechanism) =
+    _build_wegscheider_rename_map(typeof(m))
 
 # ─── RE Group Helpers ───────────────────────────────────────
 

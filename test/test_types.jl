@@ -1111,6 +1111,17 @@
         @test length(EnzymeRates.steps(raw)) == 3
     end
 
+    @testset "wegscheider rename map on Mechanism" begin
+        m = first(EnzymeRates.init_mechanisms(@enzyme_reaction(begin
+            substrates: A[C], B[N]
+            products:   P[C], Q[N]
+        end)))
+        from_type = EnzymeRates._build_wegscheider_rename_map(
+            EnzymeRates.compile_mechanism(m))
+        from_mech = EnzymeRates._build_wegscheider_rename_map(m)
+        @test from_type == from_mech
+    end
+
     @testset "AllostericMechanism (non-parametric)" begin
         r = EnzymeReaction(
             [EnzymeRates.ReactantAtoms(
