@@ -1,5 +1,7 @@
 # Strict `:EqualAI` Allosteric Derivation (No Case-B, Nullspace Collapse) — Implementation Plan
 
+> **As-built note ("Option 3").** Tasks 1–2's mechanic was refined during implementation: the collapse operates on per-step **affinities** (with steady-state **speeds** always free), keyed on the base **free/derived (`indep_A`) partition** rather than the per-`:NonequalAI`-group `δ_g` / binding-vs-catalytic scheme this plan sketches. This fixed a steady-state Wegscheider-box case (`m_ro`) the original mechanic left thermodynamically inconsistent, and dropped the D2 work. See the spec's "Design update (Option 3)" banner and §2 for the mechanic as built; `_split_resolution` / `_collapse_mirror_exprs` in `src/rate_eq_derivation.jl` are the implementation. The task **structure** below (removal set, PK retag, reg-guard removal, test/gate strategy) is as executed.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `:EqualAI` mean genuinely shared between conformations, always: remove the "Case-B" silent promotion of `:EqualAI` dependents, and instead collapse the thermodynamically-forbidden part of a `:NonequalAI` split to `K_A=K_I` (keeping the honorable, nullspace part free), producing a valid degenerate equation and never an error.

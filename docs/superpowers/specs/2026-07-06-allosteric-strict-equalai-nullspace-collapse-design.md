@@ -1,9 +1,11 @@
-# Strict `:EqualAI` Allosteric Derivation — Nullspace Collapse (No Case-B) — Design
+# Strict `:EqualAI` Allosteric Derivation — Affinity/Speed Collapse (No Case-B) — Design
 
 **Date:** 2026-07-06
-**Status:** Approved design; implementation pending.
-**Supersedes:** `2026-07-05-allosteric-nonequalai-itwin-orphan-fix-design.md`. That fix repaired a crash that is a *symptom* of the mechanism this spec removes (Case-B); under the strict rule the offending configs collapse instead of deriving, so the orphan closure is deleted, not shipped. Only the all-`:EqualAI` regulator-guard removal from that branch carries forward.
+**Status:** Implemented (branch `strict-equalai-allosteric`); full suite green (21864/21864).
+**Supersedes:** `2026-07-05-allosteric-nonequalai-itwin-orphan-fix-design.md`. That fix repaired a crash that is a *symptom* of the mechanism this spec removes (Case-B); under the strict rule the offending configs collapse instead of deriving. Only the all-`:EqualAI` regulator-guard removal from that branch carries forward.
 **Reuses (not the filter):** the split-constraint linear algebra sketched in the deprecated `2026-05-29-nonequalai-rank-validity.md`. That document's *filter* (reject degenerate configs) was dropped; its *math* (cross-state split constraints over the cycle space) is the basis of the collapse here — but the resolution is **collapse to a consistent degenerate equation**, never rejection.
+
+> **Design update (as built — "Option 3").** The mechanic below was refined during implementation. The original framing collapsed one `δ_g` per `:NonequalAI` *group* and treated every steady-state group as always-free. That is wrong for a steady-state **binding** whose affinity is forbidden by a Wegscheider box (`m_ro`): the box does not close and equilibrium flux is nonzero. The mechanic now decomposes each reversible step into an **affinity** (`Kd` / `kon·koff⁻¹`, cycle-constrained) and — for steady-state steps — a **speed** (`kon·koff`, always free); it collapses only *forbidden affinities*, keyed on the base **free/derived (`indep_A`) partition** rather than on binding-vs-catalytic step type. §2 describes the mechanic as built. Two consequences: the deferred **direction-symmetry (D2)** work is **dropped** — its "shared speed, different affinity" resolution is not physically motivated and strict + affinity-collapse supersedes it; and the collapse is **rational (no `√`)**, because it collapses ratios rather than sharing speeds.
 
 ## 1. Context and root cause
 
@@ -17,31 +19,35 @@ This is not transparent. A user tags a step `:EqualAI` expecting it shared, and 
 
 ## 2. The rule and the collapse mechanic
 
-**Rule.** Across the two states, every `:EqualAI` parameter — independent or derived — is shared. The `:NonequalAI` splits are constrained to the subspace in which all `:EqualAI` parameters remain shared; the orthogonal complement collapses.
+**Rule.** Across the two states, every `:EqualAI` parameter — independent or derived — is shared. Each reversible step carries two independent quantities: an **affinity** (`Kd`, or `kon/koff` for a steady-state binding) that thermodynamic cycles constrain, and — for a steady-state step — a **speed** (`kon·koff`) that no cycle constrains and is therefore always free. The `:NonequalAI` *affinity* splits are constrained to the subspace in which all `:EqualAI` parameters stay shared; the orthogonal complement collapses. A steady-state binding's **speed split is always free** — only its affinity can be forbidden.
 
-**The constraints are already in hand.** An `:EqualAI` dependent's expression *is* the solved thermodynamic-cycle relation for its cycle. Requiring that dependent to be shared (`A-value = I-value`) reads off, in log space, as a linear equation on the `:NonequalAI` splits `δ_g = log K_A_g − log K_I_g`, with coefficients equal to the symbol exponents. Example: `k_r = k_f·K_P/(Keq·K_S)` shared ⟹ `δ_P − δ_S = 0`.
+**Collapsibility is keyed on the free/derived partition, not the step type.** A group contributes a collapsible affinity iff it has an *independent* affinity in the base thermodynamic derivation (`indep_A`): a rapid-equilibrium `Kd`, or a steady-state binding whose forward AND reverse rate constants are both independent (a non-pivot binding). A steady-state group with only one independent rate constant — its reverse is a derived cycle pivot (every catalytic step, and any binding chosen as a Wegscheider pivot) — has its affinity already absorbed by that derived reverse; its split is always free. Keying on `indep_A` rather than "binding vs catalytic" is load-bearing: a `:NonequalAI` binding that happens to be a box pivot is structurally identical to a catalytic step (one free rate constant, one derived), and the free/derived test classifies it correctly with no special case and no edge.
 
-**Mechanic (nullspace collapse).**
+**Mechanic (`_split_resolution` + `_collapse_mirror_exprs`).**
 
-1. Derive each state (as today), yielding the `:EqualAI` dependents' expressions.
-2. For every `:EqualAI` dependent whose expression references `:NonequalAI` I-symbols, extract the split-constraint row (the referenced symbols' rational exponents).
-3. Solve the resulting rational linear system over the `:NonequalAI` split variables (reuse the kernel's `Rational{BigInt}` Gaussian elimination). Its **nullspace is the honorable split space**.
-4. Emit. The honorable split space has dimension `|N| − rank(M)`. Choose a canonical basis of it; the basis groups keep free `K_A_g`/`K_I_g` pairs (genuine DOF). Every other `:NonequalAI` group's I-symbol is **derived** from the basis — emit a dependent line `K_I_g = <power-product of the free splits and A-symbols>` (e.g. `K_I_P = K_A_P · K_I_S / K_A_S`, built by the existing `build_power_expr`), and drop `K_I_g` from `fitted_params`. When the nullspace is trivial (rank = `|N|`), every split derives to `K_I_g = K_A_g` — full collapse. `:EqualAI` dependents stay a single shared symbol (no promotion).
+1. Compute the base per-state derivation, yielding `indep_A` (the free rate constants) and each `:EqualAI` dependent's expression. Classify each `:NonequalAI` group by `nfree(g)` = its rate constants in `indep_A`: RE `Kd` or 2-free SS binding ⟹ collapsible affinity; 1-free SS ⟹ absorbed (always free).
+2. Build the affinity-constraint matrix `M` over the collapsible-affinity columns from the thermodynamic cycle incidence `C` (an RE `Kd` enters as `−C`; a steady-state affinity `kon/koff` as `+C` — the same affinity coordinate `−C·δ_Kd`, opposite raw sign). Order the absorbed columns first so they eliminate before the collapsible columns partition — a derived relation then references only free collapsible affinities.
+3. The RREF partition of `M` gives the honorable affinity-split space: free columns keep genuine DOF; each pivot column's affinity is **derived** from the free ones.
+4. Emit, in terms of each group's effective dissociation constant `effK` (an RE `Kd`; `koff/kon` for a 2-free SS binding), tying `effK_I_g/effK_A_g = ∏(effK_I_f/effK_A_f)^a`:
+   - **RE group** — derive the I `Kd`: `K_I_g = K_A_g·∏(effK_I_f/effK_A_f)^a`.
+   - **SS group** — derive the I *reverse rate*, keep the forward (speed) free: `koff_I_g = koff_A_g·(kon_I_g/kon_A_g)·∏(effK_I_f/effK_A_f)^a`.
+   A trivial nullspace is full collapse (`K_I=K_A`, or `koff_I=koff_A·kon_I/kon_A`); all rational (no `√`), built by the existing `build_power_expr`. Derived I-symbols drop from `fitted_params`; `:EqualAI` dependents stay a single shared symbol (no promotion).
 
 This single **split resolution** feeds both the polynomials and the dependent-assignment builder, replacing Case-B's two separate rename sites and their coupling.
 
 **Behavior by case.**
-- Single `:NonequalAI` binding + `:EqualAI` catalysis → one equation, one variable → full collapse, `K_I = K_A` (degenerate; use `:OnlyA` or tag catalysis for a real model).
-- Two coupled bindings + `:EqualAI` catalysis → one equation, two variables → **one honorable DOF survives** (`K_I_P = K_A_P·K_I_S/K_A_S`), catalysis genuinely shared. A valid K-system, preserved.
-- Catalysis (or any coupled step) tagged `:NonequalAI` → its parameters differ natively; no `:EqualAI` dependent is forced, no collapse.
+- Single `:NonequalAI` binding + `:EqualAI` catalysis → full collapse: RE `K_I = K_A`; SS affinity shared (`koff_I = koff_A·kon_I/kon_A`). Degenerate — use `:OnlyA` or tag catalysis for a real model.
+- Two coupled bindings + `:EqualAI` catalysis → **one honorable DOF survives** (`K_I_P = K_A_P·K_I_S/K_A_S`), catalysis genuinely shared. A valid K-system, preserved. The coupled bindings may be `:OnlyA` **or** several `:NonequalAI` steps moving together so `K_A_P/K_A_S = K_I_P/K_I_S`.
+- Steady-state binding whose affinity is forbidden (`m_ro`: a `:NonequalAI` SS binding in a Wegscheider box) → its affinity collapses but its **speed stays free**: the two conformations bind with the same `Kd` but different kinetics — an identifiable steady-state allosteric DOF, preserved (where full collapse would flatten it away).
+- Catalysis (or any step) tagged `:NonequalAI` → its reverse differs natively; no `:EqualAI` dependent forced, no collapse.
 
-**Verified consistent.** For the collapse targets the equation is thermodynamically valid: at chemical equilibrium the net flux is machine-zero, and the fully-collapsed single-split case reproduces the all-`:EqualAI` equation exactly (bit-for-bit numeric agreement over random points). The 0-flux-at-equilibrium invariant is a hard test on every collapsed mechanism.
+**Verified consistent.** Equilibrium net flux is machine-zero on every collapsed mechanism (the hard invariant — `m_ro` moved from `−0.016` to `4e-18`), and the fully-collapsed single-split case reproduces the all-`:EqualAI` equation. The 0-flux-at-equilibrium invariant is a hard test on every collapsed mechanism.
 
 ## 3. What gets removed
 
 **Delete (Case-B cluster, all `src/rate_eq_derivation.jl`, all Case-B-exclusive):** `_case_b_rename_map` (1277), `_i_nonequalai_syms` (1256), `_state_i_case_b_renames` (1290), `_dep_inactive_name` (1386). Remove both application sites (`_state_dependent_exprs(am,:I)` ~1301-1308 and `_state_rate_polys(am,:I)` ~1169-1171) together — removing one desyncs the polynomials from the dependent names.
 
-**Delete (orphan-fix closure):** `_expr_leaf_syms!` (`src/sym_poly_for_rate_eq_derivation.jl:274`) and the transitive-closure loop in `_i_state_referenced_syms` (`src/rate_eq_derivation.jl` ~1404-1419), reverting that function to its poly-only form. The orphan it fixed no longer arises: the inner-edge I-twin it kept alive is now either a genuine free split (coupled tagging) or a collapsed derived symbol.
+**Orphan-fix closure — N/A (built clean off main).** The superseded orphan-fix branch added a transitive-closure loop to `_i_state_referenced_syms` to keep an inner-edge I-twin alive. This work was built fresh off `main`, where that closure never landed — `_i_state_referenced_syms` is already the poly-only form. Nothing to delete; the orphan it guarded no longer arises, because an inner-edge I-twin is now either a genuine free split (coupled tagging / free SS speed) or a collapsed derived symbol.
 
 **Simplifies:** `_state_rate_polys` and `_state_dependent_exprs` lose their `:I` special-case branches and become single-path. The base `S_I` poly-referenced-symbol filter **stays** (still needed for genuine `:NonequalAI` distinct I-names).
 
@@ -71,11 +77,11 @@ Deriving all nine allosteric `MECHANISM_TEST_SPECS` shows **only PK relies on Ca
 - **No enumerator change.** Pre-empting collapsing configs in `_expand_change_allo_state` is a separate PR.
 - **No rejection.** Collapsing configs derive a valid degenerate equation for teaching; they never error.
 - **No D3 validity filter.** The split-constraint solve is used to *resolve* the derivation, not to reject mechanisms.
-- **No direction-symmetry (D2) rewrite.** Pivot choice for the free-split basis is structural, as today.
+- **Direction-symmetry (D2) is dropped, not deferred.** D2's model-changing part resolves a forced state-difference by sharing the *speed* and letting the *affinity* differ (`k_for_I·k_rev_I = k_for_A·k_rev_A`, which needs `√`). That resolution is not physically motivated (there is no reason to conserve `kon·koff` while `Kd` differs), and strict `:EqualAI` + affinity-collapse is the opposite, physically-grounded policy (collapse the forbidden affinity, keep the free speed) — so it supersedes D2 rather than composing with it. D2's cosmetic part (single-state direction-invariant base parametrization) does not change any model and is not pursued.
 
 ## 7. Sequencing and open verification points
 
 - **Build fresh; do not stack on the orphan closure** — it is being deleted. This work supersedes the orphan-fix branch; carry only the all-`:EqualAI` regulator-guard removal.
-- **Free-split basis choice.** The nullspace basis (which coupled split is free vs derived) is a structural pivot choice; confirm it is deterministic and canonical (order-stable) so `fitted_params` and the golden are reproducible.
+- **Free-split basis choice.** The RREF partition (which coupled affinity is free vs derived) is a structural pivot choice; it is deterministic and order-stable (absorbed columns first, then collapsible by group index), so `fitted_params` and the golden are reproducible.
 - **Coverage of transitive references.** Verify the split resolution mirrors *every* `:NonequalAI` I-symbol a shared dependent's RHS can reach (including a Wegscheider dependent that chains through an inner binding constant), so no undefined symbol survives into the generated body — the failure mode the deleted orphan closure was guarding.
 - **`parameters(m, Full)` unaffected.** Full mode over-emits raw names without Haldane reduction; the collapse is a Reduced-mode concept. Confirm the Full accessor still lists the expected names.
