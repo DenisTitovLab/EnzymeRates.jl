@@ -164,11 +164,12 @@
             end
         end
 
-        # Single-ligand :EqualAI reg site → error
-        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+        # Single-ligand :EqualAI reg site is allowed (degenerate but valid —
+        # the enumerator won't emit it, but users may write it for teaching).
+        @test EnzymeRates.AllostericEnzymeMechanism(
             cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
             (((:I,), 2, (:EqualAI,)),),
-        )
+        ) isa EnzymeRates.AllostericEnzymeMechanism
 
         # Catalytic group :OnlyI → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
@@ -410,10 +411,11 @@
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
             cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)), (((), 2, ()),))
 
-        # Reg site with all-:EqualAI ligands → error (cancels identically)
-        @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(
+        # Reg site with all-:EqualAI ligands is allowed (degenerate but valid).
+        @test EnzymeRates.AllostericEnzymeMechanism(
             cm, (2, (:NonequalAI, :NonequalAI, :NonequalAI)),
-            (((:I, :J), 2, (:EqualAI, :EqualAI)),))
+            (((:I, :J), 2, (:EqualAI, :EqualAI)),)) isa
+              EnzymeRates.AllostericEnzymeMechanism
 
         # Invalid reg-site ligand allo state → error
         @test_throws ErrorException EnzymeRates.AllostericEnzymeMechanism(

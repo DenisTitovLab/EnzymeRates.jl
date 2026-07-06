@@ -77,11 +77,9 @@ site the oligomer carries, raising the site's binding factor to the power `m`. I
 the example both are `2` — a homodimer with two copies of each regulatory site.
 
 !!! note
-    The present derivation multiplies the rate by `catalytic_multiplicity`,
-    giving the rate of the whole oligomer — the leading `2 *` in the numerator
-    above. A future version will report the rate **per monomer**, which is
-    `1 / catalytic_multiplicity` of the oligomer's (half, for this dimer). It is
-    that leading multiplier that goes away, not the partition-function exponents.
+    The derivation reports the rate **per catalytic site**: `catalytic_multiplicity`
+    enters only through the partition-function exponents, never as an overall
+    multiplier on the numerator.
 
 ## Derivation of the MWC rate equation
 
@@ -101,16 +99,17 @@ For a mechanism with catalytic multiplicity `cat_n`, the package builds
 
 ```
 v = E_total * num / den
-num = cat_n * (N_A * Q_A^(cat_n-1) * W_A + L * N_I * Q_I^(cat_n-1) * W_I)
-den =          Q_A^cat_n * W_A           + L * Q_I^cat_n           * W_I
+num = N_A * Q_A^(cat_n-1) * W_A + L * N_I * Q_I^(cat_n-1) * W_I
+den = Q_A^cat_n * W_A           + L * Q_I^cat_n           * W_I
 ```
 
 where `N_A`, `Q_A` are the active-state catalytic numerator and partition function
 (the King–Altman/Cha polynomials for the catalytic cycle); `N_I`, `Q_I` are the
-inactive-state counterparts, obtained by zeroing `:OnlyA` symbols and renaming
-`:NonequalAI` symbols to their I-state names; `W_A`, `W_I` are products of the
-regulatory-site factors `(1 + lig/K)^m`; and `L` weights the inactive branch
-throughout. When a catalytic group is `:OnlyA`, the inactive cycle cannot close,
+inactive-state counterparts, derived the same way from the inactive-state graph —
+`:OnlyA` groups pruned, `:EqualAI` groups keeping the shared active-state
+constants, and `:NonequalAI` groups carrying their own I-state names; `W_A`, `W_I`
+are products of the regulatory-site factors `(1 + lig/K)^m`; and `L` weights the
+inactive branch throughout. When a catalytic group is `:OnlyA`, the inactive cycle cannot close,
 so the package sets `N_I = 0`: the inactive branch still contributes to the
 denominator as enzyme mass but carries no forward flux.
 
@@ -118,6 +117,100 @@ In the printed equation above `cat_n = 2`, so each partition function is squared
 the active branch carries `(1 + A / K_A_Areg) ^ 2` and a trivial `1 ^ 2` from the
 inhibitor site (absent in the active state), and the inactive branch mirrors it
 with `(1 + I / K_I_Ireg) ^ 2`.
+
+## Thermodynamic constraints of MWC equations
+
+A single conformation already carries thermodynamic constraints: every cycle of
+steps must agree with the overall equilibrium constant `Keq` (a **Haldane**
+relation), and every cycle of binding steps must be path-independent (a
+**Wegscheider** relation). The derivation reports both and expresses the
+dependent rate constants through the independent ones. An MWC equation stacks two
+such equations, one per conformation, adding constraints neither has alone. Here
+we review several examples of such additional constraints.
+
+Tag a lone substrate binding `:NonequalAI` while catalysis and product release
+stay `:EqualAI`, and the split collapses:
+
+```@example mwc
+collapse = @allosteric_mechanism begin
+    substrates: S
+    products:   P
+    catalytic_multiplicity: 2
+    allosteric_regulators: R::OnlyI
+    catalytic_steps: begin
+        E + S ⇌ E(S)      :: NonequalAI
+        E(S) <--> E(P)    :: EqualAI
+        E(P) ⇌ E + P      :: EqualAI
+    end
+    regulatory_site(multiplicity = 2): begin
+        ligands: R
+    end
+end
+print(rate_equation_string(collapse))
+```
+
+The equation reports `K_I_S_E = K_A_S_E`. The Haldane relation fixes `Keq` from
+the catalytic rate constants and the two affinities in each conformation; with
+catalysis, product release, and `Keq` all shared, the substrate affinity is
+pinned as well. The tag asked for a difference thermodynamics forbids, so the
+substrate stops distinguishing the states.
+
+Tag **both** the substrate and product bindings `:NonequalAI`, and one degree of
+freedom survives:
+
+```@example mwc
+coupled = @allosteric_mechanism begin
+    substrates: S
+    products:   P
+    catalytic_multiplicity: 2
+    allosteric_regulators: R::OnlyI
+    catalytic_steps: begin
+        E + S ⇌ E(S)      :: NonequalAI
+        E(S) <--> E(P)    :: EqualAI
+        E(P) ⇌ E + P      :: NonequalAI
+    end
+    regulatory_site(multiplicity = 2): begin
+        ligands: R
+    end
+end
+print(rate_equation_string(coupled))
+```
+
+Now `K_I_P_E = K_A_P_E · K_I_S_E / K_A_S_E`, i.e. `K_P^I / K_S^I = K_P^A / K_S^A`:
+the affinities differ freely as long as they differ *together*, holding their
+ratio fixed. This is the thermodynamically consistent form of a **K-system**, and
+it needs two coupled `:NonequalAI` bindings, not one.
+
+Often a K-system uses exclusive `:OnlyA` binding: the substrate binds the active
+state alone, the inactive cycle is pruned (`N_I = 0`), and nothing collapses — its
+catalytic step should be `:OnlyA` too, since a state that cannot bind the
+substrate cannot catalyze.
+
+A steady-state binding splits the constraint further, carrying an affinity
+(`kon/koff`) the cycles constrain and a speed (`kon·koff`) they do not: a
+forbidden affinity collapses while the speed stays free, so the two conformations
+bind with the same `Kd` but different kinetics. Tagging the substrate binding
+steady-state and `:NonequalAI` derives its reverse rate
+(`koff_I_S_E = koff_A_S_E · kon_I_S_E / kon_A_S_E`) and leaves the forward rate a
+free parameter:
+
+```@example mwc
+ss = @allosteric_mechanism begin
+    substrates: S
+    products:   P
+    catalytic_multiplicity: 2
+    allosteric_regulators: R::OnlyI
+    catalytic_steps: begin
+        E + S <--> E(S)    :: NonequalAI
+        E(S) <--> E(P)     :: EqualAI
+        E(P) ⇌ E + P       :: EqualAI
+    end
+    regulatory_site(multiplicity = 2): begin
+        ligands: R
+    end
+end
+parameters(ss)
+```
 
 ## See also
 

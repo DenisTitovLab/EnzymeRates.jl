@@ -2188,10 +2188,10 @@ function build_mechanism_test_specs()
             catalytic_multiplicity: 4
             catalytic_steps: begin
                 (E + PEP ⇌ E(PEP),
-                 E(ADP) + PEP ⇌ E(PEP, ADP))                          :: NonequalAI
+                 E(ADP) + PEP ⇌ E(PEP, ADP))                          :: OnlyA
                 (E + ADP ⇌ E(ADP),
                  E(PEP) + ADP ⇌ E(PEP, ADP))                          :: EqualAI
-                E(PEP, ADP) <--> E(Pyruvate, ATP)                     :: EqualAI
+                E(PEP, ADP) <--> E(Pyruvate, ATP)                     :: OnlyA
                 (E(Pyruvate, ATP) ⇌ E(ATP) + Pyruvate,
                  E(Pyruvate) ⇌ E + Pyruvate)                          :: EqualAI
                 (E(Pyruvate, ATP) ⇌ E(Pyruvate) + ATP,
@@ -2207,46 +2207,42 @@ function build_mechanism_test_specs()
         end
 
         # Param mapping:
-        #   K1, K1_T : PEP binding (group 1, NonequalAI)
-        #   K3       : ADP binding (group 2, EqualAI)
-        #   k5f      : catalysis SS forward rate (group 3, EqualAI)
-        #   K6       : Pyruvate release (group 4, EqualAI)
-        #   K8       : ATP release (group 5, EqualAI)
+        #   K1  : PEP binding (group 1, :OnlyA — R-state only)
+        #   K3  : ADP binding (group 2, :EqualAI)
+        #   k5f : catalysis SS forward rate (group 3, :OnlyA)
+        #   K6  : Pyruvate release (group 4, :EqualAI)
+        #   K8  : ATP release (group 5, :EqualAI)
         #
-        # k5r derives via R-state Haldane: k5r = k5f·K6·K8/(Keq·K1·K3).
-        # The framework auto-synthesizes k5r_T because k5r's RHS
-        # references K1 (a :NonequalAI symbol with T-rename K1_T):
-        #   k5r_T = k5f·K6·K8/(Keq·K1_T·K3).
-        # Both Haldanes share the forward k5f — at saturation, forward
-        # kcat = k5f (shared between R and T).
+        # PEP binding AND catalysis are :OnlyA (the exclusive-binding K-system):
+        # the T-state cannot bind PEP, so it cannot catalyze — the T-catalytic
+        # cycle is dead (N_T = 0) and the T-state is a clean binding partition with
+        # no PEP term. k5r derives via the R-state Haldane k5r = k5f·K6·K8/(Keq·K1·K3).
+        # At saturation the R-state dominates, so forward kcat = k5f.
         function pk_rate_analytical(params, concs)
-            (; K1, K1_T, K3, k5f, K6, K8,
+            (; K1, K3, k5f, K6, K8,
                K_ATP_T_reg1, K_F16BP_reg2,
                L, Keq, Et) = params
             (; PEP, ADP, Pyruvate, ATP, F16BP) = concs
 
-            k5r   = k5f * K6 * K8 / (Keq * K1   * K3)
-            k5r_T = k5f * K6 * K8 / (Keq * K1_T * K3)
+            k5r = k5f * K6 * K8 / (Keq * K1 * K3)
 
-            Q_cat_R = 1 + PEP/K1   + ADP/K3 + PEP*ADP/(K1   * K3) +
-                      Pyruvate/K6  + ATP/K8 + Pyruvate*ATP/(K6 * K8)
-            Q_cat_T = 1 + PEP/K1_T + ADP/K3 + PEP*ADP/(K1_T * K3) +
-                      Pyruvate/K6  + ATP/K8 + Pyruvate*ATP/(K6 * K8)
+            Q_cat_R = 1 + PEP/K1 + ADP/K3 + PEP*ADP/(K1 * K3) +
+                      Pyruvate/K6 + ATP/K8 + Pyruvate*ATP/(K6 * K8)
+            Q_cat_T = 1 + ADP/K3 + Pyruvate/K6 + ATP/K8 +
+                      Pyruvate*ATP/(K6 * K8)                    # no PEP (:OnlyA)
 
-            N_R = k5f * PEP * ADP / (K1   * K3) - k5r   * Pyruvate * ATP / (K6 * K8)
-            N_T = k5f * PEP * ADP / (K1_T * K3) - k5r_T * Pyruvate * ATP / (K6 * K8)
+            N_R = k5f * PEP * ADP / (K1 * K3) - k5r * Pyruvate * ATP / (K6 * K8)
+            # N_T = 0: catalysis :OnlyA — the dead T-state contributes no flux.
 
             Q_reg1_R = 1                                     # ATP::OnlyI, no R term
             Q_reg1_T = 1 + ATP / K_ATP_T_reg1
             Q_reg2_R = 1 + F16BP / K_F16BP_reg2               # F16BP::OnlyA, no T term
             Q_reg2_T = 1
 
-            num_R = N_R * Q_cat_R^3 * Q_reg1_R^2 * Q_reg2_R^4
-            num_T = N_T * Q_cat_T^3 * Q_reg1_T^2 * Q_reg2_T^4
-            den_R = Q_cat_R^4 * Q_reg1_R^2 * Q_reg2_R^4
-            den_T = Q_cat_T^4 * Q_reg1_T^2 * Q_reg2_T^4
-
-            return Et * (num_R + L * num_T) / (den_R + L * den_T)
+            num = N_R * Q_cat_R^3 * Q_reg1_R^2 * Q_reg2_R^4
+            den = Q_cat_R^4 * Q_reg1_R^2 * Q_reg2_R^4 +
+                  L * Q_cat_T^4 * Q_reg1_T^2 * Q_reg2_T^4
+            return Et * num / den
         end
 
         push!(specs, MechanismTestSpec(
@@ -2258,11 +2254,13 @@ function build_mechanism_test_specs()
             expected_n_states=7,           # E, E_PEP, E_ADP, E_PEP_ADP, E_Pyr_ATP, E_Pyr, E_ATP
             expected_n_steps=9,
             expected_n_metabolites=5,
-            expected_n_haldane_constraints=2,
-            # structural naming: :EqualAI catalytic groups share one symbol (no rename); only :EqualAI reg ligands emit a mirror
+            expected_n_haldane_constraints=1,
+            # PEP binding and catalysis are :OnlyA (the T-state is pruned), so
+            # there is no mirror/collapse — the T-catalytic cycle is simply dead
+            # (N_T = 0). One R-state Haldane derives k5r; no Wegscheider tie.
             expected_n_mirror_constraints=0,
             expected_n_wegscheider_constraints=0,
-            expected_n_independent_params=9,
+            expected_n_independent_params=8,
             run_ode_test=false,
             analytical_rate_fn=pk_rate_analytical,
             analytical_kcat_fn = p -> p.k5f,
