@@ -1713,5 +1713,50 @@ function rate_equation_string(
     join(lines, "\n")
 end
 
-# Replaced with the real merge in the partition-canonicalization work.
-_merge_tied_kinetic_groups(mech::Mechanism) = mech.steps
+"""
+Canonical kinetic-group partition: merge kinetic groups whose binding-K
+representatives are single-symbol Wegscheider-tied (the relation
+`_build_wegscheider_rename_map` finds), so split and merged encodings of the
+same rate-equivalent graph collapse to one partition. Returns `mech.steps`
+unchanged when nothing is tied.
+"""
+function _merge_tied_kinetic_groups(mech::Mechanism)
+    rename = _build_wegscheider_rename_map(mech)
+    isempty(rename) && return mech.steps
+    groups = mech.steps
+    step_params = _step_parameters(mech)
+    grp_of_flat = Int[]
+    for (gi, g) in enumerate(groups), _ in g
+        push!(grp_of_flat, gi)
+    end
+    # Canonical representative binding-K name per group (nothing if no binding step).
+    rep = Vector{Union{Symbol, Nothing}}(nothing, length(groups))
+    for (idx, (s, _)) in enumerate(_flat_steps(mech))
+        is_equilibrium(s) && is_binding(s) || continue
+        k = name(step_params[idx][1], mech)
+        rep[grp_of_flat[idx]] = get(rename, k, k)
+    end
+    byrep = Dict{Symbol, Vector{Int}}()
+    for (gi, r) in enumerate(rep)
+        r === nothing && continue
+        push!(get!(byrep, r, Int[]), gi)
+    end
+    any(length(v) > 1 for v in values(byrep)) || return mech.steps
+    merged = Vector{Vector{Step}}()
+    done = falses(length(groups))
+    for gi in eachindex(groups)
+        done[gi] && continue
+        r = rep[gi]
+        if r !== nothing && length(byrep[r]) > 1
+            gis = byrep[r]
+            push!(merged, Step[s for j in gis for s in groups[j]])
+            for j in gis
+                done[j] = true
+            end
+        else
+            push!(merged, copy(groups[gi]))
+            done[gi] = true
+        end
+    end
+    merged
+end

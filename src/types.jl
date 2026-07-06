@@ -516,17 +516,6 @@ function _canonical_group_order!(groups::Vector{Vector{Step}})
     sortperm(groups; by = group -> _step_canonical_key(first(group)))
 end
 
-# Direction + order canonicalization shared by both Mechanism inner
-# constructors: canonicalize iso-step direction, sort steps within groups,
-# order groups. Returns fresh vectors.
-function _canon_step_groups(reaction::EnzymeReaction,
-                            steps::Vector{Vector{Step}})
-    groups = _canonicalize_iso_groups(reaction, steps)
-    permute!(groups, _canonical_group_order!(groups))
-    _assert_no_re_ss_duplicate(groups)
-    groups
-end
-
 """
 Reject a mechanism that contains the same physical reaction as both a
 rapid-equilibrium and a steady-state step (e.g. `E + S <--> E(S)` AND
@@ -564,18 +553,12 @@ the same struct. Lift to the singleton derivation type with
 struct Mechanism
     reaction::EnzymeReaction
     steps::Vector{Vector{Step}}
-    # Direction- and order-canonical, no partition merge. Used to compute
-    # ties before merging, and by tests that build split forms.
-    function Mechanism(reaction::EnzymeReaction,
-                       steps::Vector{Vector{Step}}, ::Val{:_raw})
-        new(reaction, _canon_step_groups(reaction, steps))
-    end
     function Mechanism(reaction::EnzymeReaction,
                        steps::Vector{Vector{Step}})
-        prov = Mechanism(reaction, steps, Val(:_raw))
-        merged = _merge_tied_kinetic_groups(prov)
-        merged === prov.steps ?
-            prov : Mechanism(reaction, merged, Val(:_raw))
+        steps = _canonicalize_iso_groups(reaction, steps)
+        permute!(steps, _canonical_group_order!(steps))
+        _assert_no_re_ss_duplicate(steps)
+        new(reaction, steps)
     end
 end
 
