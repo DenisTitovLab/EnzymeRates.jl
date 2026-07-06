@@ -1762,6 +1762,67 @@ function _merge_tied_kinetic_groups(mech::Mechanism)
 end
 
 """
+Allosteric partition merge: the AllostericMechanism analog of
+`_merge_tied_kinetic_groups(::Mechanism)`. Ties come from the per-state binding-K
+Wegscheider relations (`_state_wegscheider_rename_map` for `:A` and `:I`). Each
+catalytic group is keyed by `(tag, folded-binding-K-name(s))`; the tag is part of
+the key so groups that differ in allosteric state (and therefore are not
+rate-equivalent) never merge. Returns the merged
+`(cat_steps, cat_allo_states)` parallel vectors, unchanged when nothing is tied.
+"""
+function _merge_tied_kinetic_groups(am::AllostericMechanism)
+    rename_A = _state_wegscheider_rename_map(am, :A)
+    rename_I = _state_wegscheider_rename_map(am, :I)
+    groups = steps(am)
+    tags = cat_allo_states(am)
+    (isempty(rename_A) && isempty(rename_I)) && return groups, tags
+    fold(d, nm) = get(d, nm, nm)
+    keyof = Vector{Any}(nothing, length(groups))
+    for (g, grp) in enumerate(groups)
+        tag = tags[g]
+        bstep = nothing
+        for s in grp
+            if is_equilibrium(s) && is_binding(s)
+                bstep = s
+                break
+            end
+        end
+        bstep === nothing && continue
+        astate = tag === :EqualAI ? :EqualAI : :A
+        aK = fold(rename_A, name(Kd(bstep, astate), am))
+        keyof[g] = tag === :NonequalAI ?
+            (:NonequalAI, aK, fold(rename_I, name(Kd(bstep, :I), am))) :
+            (tag, aK)
+    end
+    bykey = Dict{Any, Vector{Int}}()
+    for (g, k) in enumerate(keyof)
+        k === nothing && continue
+        push!(get!(bykey, k, Int[]), g)
+    end
+    any(length(v) > 1 for v in values(bykey)) || return groups, tags
+    merged_steps = Vector{Vector{Step}}()
+    merged_tags = Symbol[]
+    done = falses(length(groups))
+    for g in eachindex(groups)
+        done[g] && continue
+        k = keyof[g]
+        if k !== nothing && length(bykey[k]) > 1
+            gis = bykey[k]
+            push!(merged_steps, Step[s for j in gis for s in groups[j]])
+            push!(merged_tags, tags[g])
+            for j in gis
+                done[j] = true
+            end
+        else
+            push!(merged_steps, copy(groups[g]))
+            push!(merged_tags, tags[g])
+            done[g] = true
+        end
+    end
+    merged_steps, merged_tags
+end
+
+"""
 Canonical form of a mechanism for deduplication: the same graph with its
 kinetic-group partition merged over Wegscheider-tied binding-K's. Two
 graph-distinct mechanisms that reduce to the same rate function collapse to the
@@ -1770,6 +1831,9 @@ Applied at the fit boundary (`_process_batch`), not at construction.
 """
 _canonical_mechanism(m::Mechanism) =
     Mechanism(reaction(m), _merge_tied_kinetic_groups(m))
-# Allosteric partition merge is added separately; until then allosteric
-# mechanisms pass through uncanonicalized.
-_canonical_mechanism(am::AllostericMechanism) = am
+function _canonical_mechanism(am::AllostericMechanism)
+    cat_steps, cat_states = _merge_tied_kinetic_groups(am)
+    AllostericMechanism(reaction(am), cat_steps, cat_states,
+                        catalytic_multiplicity(am),
+                        copy(regulatory_sites(am)))
+end
