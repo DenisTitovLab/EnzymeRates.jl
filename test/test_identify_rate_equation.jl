@@ -1445,28 +1445,19 @@ const _CANON_SIG_SPLIT =
     em1 = EnzymeRates.compile_mechanism(m1)
     em2 = EnzymeRates.compile_mechanism(m2)
     # Precondition: same rate function, but the RAW dedup key currently DIFFERS —
-    # the renaming-dup the pre-fit canonicalization must collapse.
+    # the renaming-dup that canonicalization must collapse.
     @test m1 != m2
     @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)) !=
           EnzymeRates._rate_eq_dedup_key(rate_equation_string(em2))
 
-    data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
-            NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [0.5, 0.5, 1.0, 1.0],
-            Lactate = [0.1, 0.2, 0.1, 0.2], NAD = [0.3, 0.3, 0.4, 0.4])
-    prob = IdentifyRateEquationProblem(EnzymeRates.reaction(m1), data; Keq=2.0)
-    pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
-
-    memo = Dict{UInt64, NamedTuple}()
-    opt = _CountingStubOpt(; uval = log(5.0))
-    entries, failures = EnzymeRates._process_batch(pair, prob;
-        optimizer=opt, max_param_count=20, n_restarts=1, maxtime=1.0, memo)
-
-    # Canonicalized to one form → fit exactly ONCE; both rows share it.
-    @test opt.count == 1
-    @test length(entries) == 2
-    @test isempty(failures)
-    @test entries[1].row.eq_hash == entries[2].row.eq_hash
-    @test [e.row.fit_inherited for e in entries] == [false, true]
+    # _process_batch itself no longer canonicalizes — every mechanism it sees is
+    # already canonical, produced upstream by _expand_split_kinetic_group (see
+    # "expand_mechanisms output is canonical" in test_mechanism_enumeration.jl) —
+    # so the renaming-dup collapse is asserted at the mechanism level instead.
+    @test EnzymeRates._canonical_mechanism(m1) == EnzymeRates._canonical_mechanism(m2)
+    key(m) = EnzymeRates._rate_eq_dedup_key(rate_equation_string(
+        EnzymeRates.compile_mechanism(EnzymeRates._canonical_mechanism(m))))
+    @test key(m1) == key(m2)
 end
 
 
@@ -1555,9 +1546,9 @@ end
 
 
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
-    # PASS-1 catch: _canonical_mechanism throws for a mechanism with an unbound
-    # declared substrate. `m` is never bound, so the FitFailure must carry the
-    # ORIGINAL `m0` (using `m` there would be an UndefVarError masking the error).
+    # PASS-1 catch: the failure now surfaces at compile_mechanism/fitted_params,
+    # not canonicalization — _process_batch no longer calls _canonical_mechanism.
+    # The FitFailure must still carry the ORIGINAL `m0`.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]

@@ -511,12 +511,11 @@ function _process_batch(
     # `FitFailure` = threw; else a record with everything the row needs + `eq_hash`.
     compiled = pmap(mechs) do m0
         try
-            m = _canonical_mechanism(m0)
-            em = compile_mechanism(m)
+            em = compile_mechanism(m0)
             fkeys = fitted_params(em)
             length(fkeys) > max_param_count && return nothing
             eq_text = rate_equation_string(em)
-            (mech = m, orig = m0, n_params = length(fkeys),
+            (mech = m0, orig = m0, n_params = length(fkeys),
              mechanism_type = string(typeof(em)),
              eq_text = eq_text, eq_hash = _rate_eq_dedup_key(eq_text),
              fitted_param_names = fkeys)
