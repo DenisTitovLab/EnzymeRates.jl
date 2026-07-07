@@ -100,68 +100,6 @@ end
 
 # ── Mechanism test specifications ───────────────────────────────────────────
 
-# The three LDH i-state mechanisms that exposed the Bug-2 fitted_params leak (a
-# Haldane-dependent reverse rate that landed in the independent set). Written as
-# @allosteric_mechanism for readability; used as MechanismTestSpec fixtures below
-# and in test_rate_eq_derivation.jl. Metabolite atoms do not affect these
-# mechanisms' rate equations, so the @allosteric_mechanism placeholder atoms are
-# fine here.
-const LDH_ISTATE_FAILURE_MECHS = [
-    (@allosteric_mechanism begin
-        substrates: NADH, Pyruvate
-        products: Lactate, NAD
-        catalytic_multiplicity: 4
-        catalytic_steps: begin
-            (E + Lactate <--> E(Lactate),
-             E(NADH) + Lactate <--> E(Lactate, NADH)) :: NonequalAI
-            (E + NAD ⇌ E(NAD),
-             E(Lactate) + NAD ⇌ E(Lactate, NAD),
-             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)) :: EqualAI
-            (E + NADH <--> E(NADH),
-             E(Lactate) + NADH <--> E(Lactate, NADH),
-             E(Pyruvate) + NADH <--> E(NADH, Pyruvate)) :: OnlyA
-            (E + Pyruvate ⇌ E(Pyruvate),
-             E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
-             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)) :: EqualAI
-            E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
-            E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
-        end
-    end),
-    (@allosteric_mechanism begin
-        substrates: NADH, Pyruvate
-        products: Lactate, NAD
-        catalytic_multiplicity: 4
-        catalytic_steps: begin
-            (E + Lactate ⇌ E(Lactate),
-             E(NAD) + Lactate ⇌ E(Lactate, NAD),
-             E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: NonequalAI
-            (E + NAD ⇌ E(NAD),
-             E(Lactate) + NAD ⇌ E(Lactate, NAD)) :: EqualAI
-            (E + NADH <--> E(NADH),
-             E(Lactate) + NADH <--> E(Lactate, NADH)) :: OnlyA
-            E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate) :: EqualAI
-            E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
-        end
-    end),
-    (@allosteric_mechanism begin
-        substrates: NADH, Pyruvate
-        products: Lactate, NAD
-        catalytic_multiplicity: 4
-        catalytic_steps: begin
-            E + NAD ⇌ E(NAD) :: EqualAI
-            (E + NADH ⇌ E(NADH),
-             E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: EqualAI
-            (E + Pyruvate ⇌ E(Pyruvate),
-             E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
-             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)) :: EqualAI
-            (E(NAD) + Lactate ⇌ E(Lactate, NAD),
-             E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: EqualAI
-            E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
-            E(Pyruvate) + NAD <--> E(NAD, Pyruvate) :: NonequalAI
-        end
-    end),
-]
-
 function build_mechanism_test_specs()
     specs = MechanismTestSpec[]
 
@@ -2483,29 +2421,87 @@ function build_mechanism_test_specs()
         ))
     end
 
-    # LDH i-state mechanisms that exposed the Bug-2 fitted_params leak (a
-    # Haldane-dependent reverse rate that landed in the independent set).
-    # Reconstructed from their compiled Sig strings; these are RE-containing
-    # mechanisms with a products=0 boundary, so the ODE cross-check is skipped.
-    let ldh_specs = [
-            ("LDH i-state NonequalAI 6-group", 9, 13, 1, 0, 2, 9),
-            ("LDH i-state NonequalAI 5-group", 7,  9, 1, 1, 0, 7),
-            ("LDH i-state EqualAI-NonequalAI 6-group", 8, 10, 1, 0, 1, 7),
-        ]
-        for (i, (nm, ns, nst, nh, nmi, nw, ni)) in enumerate(ldh_specs)
-            em = LDH_ISTATE_FAILURE_MECHS[i]
-            push!(specs, MechanismTestSpec(
-                name=nm, mechanism=em,
-                metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
-                expected_n_states=ns, expected_n_steps=nst,
-                expected_n_metabolites=4,
-                expected_n_haldane_constraints=nh,
-                expected_n_mirror_constraints=nmi,
-                expected_n_wegscheider_constraints=nw,
-                expected_n_independent_params=ni,
-                run_ode_test=false))
-        end
-    end
+    # The three LDH i-state mechanisms that exposed the Bug-2 fitted_params
+    # leak (a Haldane-dependent reverse rate that landed in the independent
+    # set). Written as @allosteric_mechanism for readability; RE-containing
+    # with a products=0 boundary, so the ODE cross-check is skipped. Their
+    # golden PARAMS_REDUCED confirm the dependent reverse rate is excluded.
+    push!(specs, MechanismTestSpec(
+        name="LDH i-state NonequalAI 6-group",
+        mechanism=(@allosteric_mechanism begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                (E + Lactate <--> E(Lactate),
+                 E(NADH) + Lactate <--> E(Lactate, NADH)) :: NonequalAI
+                (E + NAD ⇌ E(NAD),
+                 E(Lactate) + NAD ⇌ E(Lactate, NAD),
+                 E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)) :: EqualAI
+                (E + NADH <--> E(NADH),
+                 E(Lactate) + NADH <--> E(Lactate, NADH),
+                 E(Pyruvate) + NADH <--> E(NADH, Pyruvate)) :: OnlyA
+                (E + Pyruvate ⇌ E(Pyruvate),
+                 E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
+                 E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)) :: EqualAI
+                E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
+                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
+            end
+        end),
+        metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
+        expected_n_states=9, expected_n_steps=13, expected_n_metabolites=4,
+        expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
+        expected_n_wegscheider_constraints=2, expected_n_independent_params=9,
+        run_ode_test=false))
+
+    push!(specs, MechanismTestSpec(
+        name="LDH i-state NonequalAI 5-group",
+        mechanism=(@allosteric_mechanism begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                (E + Lactate ⇌ E(Lactate),
+                 E(NAD) + Lactate ⇌ E(Lactate, NAD),
+                 E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: NonequalAI
+                (E + NAD ⇌ E(NAD),
+                 E(Lactate) + NAD ⇌ E(Lactate, NAD)) :: EqualAI
+                (E + NADH <--> E(NADH),
+                 E(Lactate) + NADH <--> E(Lactate, NADH)) :: OnlyA
+                E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate) :: EqualAI
+                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
+            end
+        end),
+        metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
+        expected_n_states=7, expected_n_steps=9, expected_n_metabolites=4,
+        expected_n_haldane_constraints=1, expected_n_mirror_constraints=1,
+        expected_n_wegscheider_constraints=0, expected_n_independent_params=7,
+        run_ode_test=false))
+
+    push!(specs, MechanismTestSpec(
+        name="LDH i-state EqualAI-NonequalAI 6-group",
+        mechanism=(@allosteric_mechanism begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            catalytic_multiplicity: 4
+            catalytic_steps: begin
+                E + NAD ⇌ E(NAD) :: EqualAI
+                (E + NADH ⇌ E(NADH),
+                 E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: EqualAI
+                (E + Pyruvate ⇌ E(Pyruvate),
+                 E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
+                 E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)) :: EqualAI
+                (E(NAD) + Lactate ⇌ E(Lactate, NAD),
+                 E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: EqualAI
+                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
+                E(Pyruvate) + NAD <--> E(NAD, Pyruvate) :: NonequalAI
+            end
+        end),
+        metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
+        expected_n_states=8, expected_n_steps=10, expected_n_metabolites=4,
+        expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
+        expected_n_wegscheider_constraints=1, expected_n_independent_params=7,
+        run_ode_test=false))
 
     return specs
 end

@@ -137,6 +137,17 @@ const uni_uni_allo_2reg = @enzyme_reaction begin
     oligomeric_state: 2
 end
 
+# One allosteric regulator (R2) and one competitive inhibitor (R1): the two
+# regulator kinds must stay in their own expansion moves — R2 goes to a
+# regulatory site (and a V-type), R1 to a dead-end binding.
+const uni_uni_reg_and_inhibitor = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    allosteric_regulators: R2
+    competitive_inhibitors: R1
+    oligomeric_state: 2
+end
+
 const ter_ter_rxn = @enzyme_reaction begin
     substrates: A[C], B[N], D[X]
     products: P[C], Q[N], R[X]
@@ -3035,7 +3046,19 @@ end
         #     regulator at a site) at +2 params each — L plus the regulator's K
         #     — one per (regulator, tag), regulator ∈ {R1, R2}, tag ∈
         #     {:OnlyA, :OnlyI}.
-        seed = first(EnzymeRates.init_mechanisms(uni_uni_allo_2reg))
+        # The uni-uni seed (RE binding, SS catalysis) carrying
+        # uni_uni_allo_2reg's two declared regulators, built explicitly —
+        # first(init_mechanisms(...)) is not guaranteed to stay this mechanism.
+        seed = EnzymeRates.Mechanism(uni_uni_allo_2reg, EnzymeRates.steps(
+            EnzymeRates.Mechanism(@enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E + P ⇌ E(P)
+                end
+            end)))
         base = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(seed)))
         Δ(am) = length(EnzymeRates.fitted_params(
@@ -3062,17 +3085,11 @@ end
 
         # A regulator already bound as a competitive inhibitor in the seed is
         # NOT re-used for a V-type — only the other (free) allosteric regulator
-        # is. R1 is the competitive inhibitor here, R2 the free regulator.
-        rxn_ci = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R2
-            competitive_inhibitors: R1
-            oligomeric_state: 2
-        end
+        # is. In uni_uni_reg_and_inhibitor, R1 is the competitive inhibitor and
+        # R2 the free allosteric regulator.
         pool = unique!(EnzymeRates.expand_mechanisms(
-            EnzymeRates.Mechanism[EnzymeRates.init_mechanisms(rxn_ci)...],
-            rxn_ci))
+            EnzymeRates.Mechanism[EnzymeRates.init_mechanisms(
+                uni_uni_reg_and_inhibitor)...], uni_uni_reg_and_inhibitor))
         seed_ci = first(filter(pool) do m
             m isa EnzymeRates.Mechanism && any(
                 (bm = EnzymeRates.bound_metabolite(s);
@@ -3080,7 +3097,8 @@ end
                 for g in EnzymeRates.steps(m) for s in g)
         end)
         vt_ci = filter(am -> !isempty(EnzymeRates.regulatory_sites(am)),
-                       EnzymeRates._expand_to_allosteric(seed_ci, rxn_ci))
+                       EnzymeRates._expand_to_allosteric(
+                           seed_ci, uni_uni_reg_and_inhibitor))
         site_regs = Set(EnzymeRates.name(l) for am in vt_ci
                         for s in EnzymeRates.regulatory_sites(am)
                         for l in EnzymeRates.ligands(s))
@@ -3594,6 +3612,38 @@ end
         @test isempty(EnzymeRates._expand_add_allosteric_regulator(m, rxn))
     end
 
+end
+
+# ─── regulator-kind routing ────────────────────────────────────────────
+@testset "regulator kinds route to their own moves" begin
+    # uni_uni_reg_and_inhibitor declares R2 as an allosteric regulator and R1
+    # as a competitive inhibitor. The two kinds must not cross moves: the
+    # allosteric-regulator move places only R2 (at a regulatory site), and the
+    # dead-end move binds only R1.
+    seed = first(EnzymeRates.init_mechanisms(uni_uni_reg_and_inhibitor))
+
+    @testset "allosteric-regulator addition places only R2" begin
+        am = first(EnzymeRates._expand_to_allosteric(
+            seed, uni_uni_reg_and_inhibitor))
+        added = EnzymeRates._expand_add_allosteric_regulator(
+            am, uni_uni_reg_and_inhibitor)
+        site_regs = Set(EnzymeRates.name(l) for m in added
+                        for s in EnzymeRates.regulatory_sites(m)
+                        for l in EnzymeRates.ligands(s))
+        @test !isempty(added)
+        @test site_regs == Set([:R2])
+    end
+
+    @testset "dead-end expansion binds only R1" begin
+        added = EnzymeRates._expand_add_dead_end_regulator(
+            seed, uni_uni_reg_and_inhibitor)
+        de_regs = Set(EnzymeRates.name(bm) for m in added
+                      for g in EnzymeRates.steps(m) for s in g
+                      for bm in (EnzymeRates.bound_metabolite(s),)
+                      if bm isa EnzymeRates.Regulator)
+        @test !isempty(added)
+        @test de_regs == Set([:R1])
+    end
 end
 
 # ─── _expand_change_allo_state ─────────────────────────────────────────

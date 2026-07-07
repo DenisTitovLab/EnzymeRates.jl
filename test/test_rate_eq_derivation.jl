@@ -1111,7 +1111,11 @@ end
 # embedded fixture; the two i_state_dead fixtures above exercise the dead
 # I-state branch generally, and S_I's reference-polynomial construction
 # handles phantom binding params structurally rather than case-by-case.
-# LDH_ISTATE_FAILURE_MECHS is defined in mechanism_definitions_for_test_enzyme_derivation.jl
+# The LDH i-state mechanisms that exposed the Bug-2 fitted_params leak are
+# defined as MechanismTestSpec fixtures in
+# mechanism_definitions_for_test_enzyme_derivation.jl; pull them back out here.
+const _LDH_ISTATE_MECHS = [spec.mechanism for spec in MECHANISM_TEST_SPECS
+                           if startswith(spec.name, "LDH i-state")]
 
 # Parameter Symbols referenced on an assignment/`v` RHS but never defined
 # (destructured from `params`/`concs` or assigned as an LHS). Empty ⟺ the
@@ -1140,7 +1144,7 @@ function _undefined_rhs_symbols(s::AbstractString)
 end
 
 @testset "§5a I-state parameters are all defined (regression)" begin
-    for em in LDH_ISTATE_FAILURE_MECHS
+    for em in _LDH_ISTATE_MECHS
         pnames = EnzymeRates.fitted_params(em)
         mets = EnzymeRates.metabolites(em)
         prods = Set(EnzymeRates.products(em))
@@ -1170,7 +1174,7 @@ end
     # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
     # A-state while the dead I-state references it unpinned — the exact leak the
     # uniform dep-filter closes.
-    for m in LDH_ISTATE_FAILURE_MECHS
+    for m in _LDH_ISTATE_MECHS
         M = typeof(m)
         dep, indep = EnzymeRates._dependent_param_exprs(M)
         @test isempty(intersect(Set(keys(dep)), Set(indep)))
