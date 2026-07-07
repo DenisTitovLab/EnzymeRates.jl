@@ -100,12 +100,66 @@ end
 
 # ── Mechanism test specifications ───────────────────────────────────────────
 
-# Compiled Sig strings of the LDH i-state mechanisms that exposed the Bug-2
-# fitted_params leak; reconstructed into MechanismTestSpec fixtures below.
+# The three LDH i-state mechanisms that exposed the Bug-2 fitted_params leak (a
+# Haldane-dependent reverse rate that landed in the independent set). Written as
+# @allosteric_mechanism for readability; used as MechanismTestSpec fixtures below
+# and in test_rate_eq_derivation.jl. Metabolite atoms do not affect these
+# mechanisms' rate equations, so the @allosteric_mechanism placeholder atoms are
+# fine here.
 const LDH_ISTATE_FAILURE_MECHS = [
-    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), false), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), false)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),)))}, (4, (:NonequalAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI)), ()}",
-    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false)), (((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),)))}, (4, (:NonequalAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI)), ()}",
-    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true),), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), false),)))}, (4, (:EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :NonequalAI)), ()}",
+    (@allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products: Lactate, NAD
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            (E + Lactate <--> E(Lactate),
+             E(NADH) + Lactate <--> E(Lactate, NADH)) :: NonequalAI
+            (E + NAD ⇌ E(NAD),
+             E(Lactate) + NAD ⇌ E(Lactate, NAD),
+             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)) :: EqualAI
+            (E + NADH <--> E(NADH),
+             E(Lactate) + NADH <--> E(Lactate, NADH),
+             E(Pyruvate) + NADH <--> E(NADH, Pyruvate)) :: OnlyA
+            (E + Pyruvate ⇌ E(Pyruvate),
+             E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
+             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)) :: EqualAI
+            E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
+        end
+    end),
+    (@allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products: Lactate, NAD
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            (E + Lactate ⇌ E(Lactate),
+             E(NAD) + Lactate ⇌ E(Lactate, NAD),
+             E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: NonequalAI
+            (E + NAD ⇌ E(NAD),
+             E(Lactate) + NAD ⇌ E(Lactate, NAD)) :: EqualAI
+            (E + NADH <--> E(NADH),
+             E(Lactate) + NADH <--> E(Lactate, NADH)) :: OnlyA
+            E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate) :: EqualAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
+        end
+    end),
+    (@allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products: Lactate, NAD
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            E + NAD ⇌ E(NAD) :: EqualAI
+            (E + NADH ⇌ E(NADH),
+             E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: EqualAI
+            (E + Pyruvate ⇌ E(Pyruvate),
+             E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
+             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)) :: EqualAI
+            (E(NAD) + Lactate ⇌ E(Lactate, NAD),
+             E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: EqualAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
+            E(Pyruvate) + NAD <--> E(NAD, Pyruvate) :: NonequalAI
+        end
+    end),
 ]
 
 function build_mechanism_test_specs()
@@ -2439,8 +2493,7 @@ function build_mechanism_test_specs()
             ("LDH i-state EqualAI-NonequalAI 6-group", 8, 10, 1, 0, 1, 7),
         ]
         for (i, (nm, ns, nst, nh, nmi, nw, ni)) in enumerate(ldh_specs)
-            em = Core.eval(EnzymeRates,
-                           Meta.parse(LDH_ISTATE_FAILURE_MECHS[i]))()
+            em = LDH_ISTATE_FAILURE_MECHS[i]
             push!(specs, MechanismTestSpec(
                 name=nm, mechanism=em,
                 metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],

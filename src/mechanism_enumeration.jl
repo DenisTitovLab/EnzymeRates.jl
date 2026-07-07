@@ -1244,9 +1244,16 @@ that member is carved out into a fresh trailing group. The reaction
 (and, for allosteric, multiplicity / regulatory sites) is preserved.
 Catalytic allo-state tags are extended with the parent group's tag
 appended (splitting is a parameter-relaxation move that MUST NOT
-change A/I semantics). Each candidate is canonicalized via
-`_canonical_mechanism`, and dropped when it canonicalizes back to the
-parent (a Wegscheider-tied split is a model-space no-op).
+change A/I semantics).
+
+Splitting a group adds a parameter, but a Wegscheider cycle often forces
+that new parameter straight back to dependent, making the split a
+model-space no-op that fits the parent's equation. `_canonical_mechanism`
+merges such splits back, so each candidate is canonicalized and dropped
+when it returns to the parent. These no-op splits dominate — up to ~2/3 of
+the mechanisms in bi-bi enumeration — and, because every enumerated
+mechanism is canonical, an un-dropped one would re-enter the beam as a
+self-loop.
 """
 function _expand_split_kinetic_group(m::Mechanism)
     results = Mechanism[]

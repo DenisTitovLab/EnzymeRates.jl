@@ -1140,8 +1140,7 @@ function _undefined_rhs_symbols(s::AbstractString)
 end
 
 @testset "§5a I-state parameters are all defined (regression)" begin
-    for s in LDH_ISTATE_FAILURE_MECHS
-        em = Core.eval(EnzymeRates, Meta.parse(s))()
+    for em in LDH_ISTATE_FAILURE_MECHS
         pnames = EnzymeRates.fitted_params(em)
         mets = EnzymeRates.metabolites(em)
         prods = Set(EnzymeRates.products(em))
@@ -1171,8 +1170,8 @@ end
     # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
     # A-state while the dead I-state references it unpinned — the exact leak the
     # uniform dep-filter closes.
-    for s in LDH_ISTATE_FAILURE_MECHS
-        M = typeof(Core.eval(EnzymeRates, Meta.parse(s))())
+    for m in LDH_ISTATE_FAILURE_MECHS
+        M = typeof(m)
         dep, indep = EnzymeRates._dependent_param_exprs(M)
         @test isempty(intersect(Set(keys(dep)), Set(indep)))
     end
