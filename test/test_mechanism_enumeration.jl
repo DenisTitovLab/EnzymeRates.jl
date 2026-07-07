@@ -4502,16 +4502,42 @@ end
 end
 
 @testset "expand_mechanisms output is canonical" begin
-    rxn = @enzyme_reaction begin
+    # The split move is the only expansion move that canonicalizes its output,
+    # so this invariant is the load-bearing guard that lets _process_batch drop
+    # its PASS-1 canonicalization: EVERY move, at every depth, must emit only
+    # canonical mechanisms. A regression here is a dedup/perf loss (redundant
+    # fits of a mechanism and its canonical twin), not a wrong result. Exercise
+    # all moves on both non-allosteric and allosteric parents, across several
+    # reactions and expansion depths, plus a regulator-declaring reaction so the
+    # add-regulator / V-type moves fire.
+    MECH = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
+    canonical(c) = EnzymeRates._canonical_mechanism(c) == c
+    rxns = [
+        (@enzyme_reaction begin substrates: S[C]; products: P[C] end),
+        (@enzyme_reaction begin substrates: A[C], B[N]; products: P[C], Q[N] end),
+        (@enzyme_reaction begin
+            substrates: A[C], B[N]
+            products: P[C], Q[N]
+            allosteric_regulators: R
+        end),
+    ]
+    for rxn in rxns
+        pool = MECH[collect(EnzymeRates.init_mechanisms(rxn))...]
+        @test all(canonical, pool)                 # init mechanisms canonical
+        for _ in 1:2
+            pool = unique!(EnzymeRates.expand_mechanisms(pool, rxn))
+            @test all(canonical, pool)
+            length(pool) > 250 && (pool = pool[1:250])   # bound depth blow-up
+        end
+    end
+    # A single expansion of the bi-bi tetramer covers the richest per-parent set.
+    rxn4 = @enzyme_reaction begin
         substrates: NADH[C21H29N7O14P2], Pyruvate[C3H4O3]
         products: Lactate[C3H6O3], NAD[C21H27N7O14P2]
         oligomeric_state: 4
     end
-    MECH = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
-    base = collect(EnzymeRates.init_mechanisms(rxn))
-    children = EnzymeRates.expand_mechanisms(MECH[base...], rxn)
-    noncanon = [c for c in children if EnzymeRates._canonical_mechanism(c) != c]
-    @test isempty(noncanon)
+    base4 = MECH[collect(EnzymeRates.init_mechanisms(rxn4))...]
+    @test all(canonical, EnzymeRates.expand_mechanisms(base4, rxn4))
 end
 
 @testset "init division-freeness (bi_bi_pp)" begin
