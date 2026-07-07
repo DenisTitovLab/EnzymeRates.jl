@@ -100,6 +100,14 @@ end
 
 # ── Mechanism test specifications ───────────────────────────────────────────
 
+# Compiled Sig strings of the LDH i-state mechanisms that exposed the Bug-2
+# fitted_params leak; reconstructed into MechanismTestSpec fixtures below.
+const LDH_ISTATE_FAILURE_MECHS = [
+    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), false), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), false)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), false)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),)))}, (4, (:NonequalAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI)), ()}",
+    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((), ())), (:Product, :Lactate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), ((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), false), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), false)), (((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),)))}, (4, (:NonequalAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI)), ()}",
+    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O, 3)))), (), (4,)), (((((), :E, ((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), true),), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Product, :NAD),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruvate), true)), (((((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Product, :Lactate), true)), (((((:Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())), nothing, false),), (((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :NAD), false),)))}, (4, (:EqualAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI, :NonequalAI)), ()}",
+]
+
 function build_mechanism_test_specs()
     specs = MechanismTestSpec[]
 
@@ -2419,6 +2427,31 @@ function build_mechanism_test_specs()
             expected_factored_num=nothing,
             expected_factored_denom=nothing,
         ))
+    end
+
+    # LDH i-state mechanisms that exposed the Bug-2 fitted_params leak (a
+    # Haldane-dependent reverse rate that landed in the independent set).
+    # Reconstructed from their compiled Sig strings; these are RE-containing
+    # mechanisms with a products=0 boundary, so the ODE cross-check is skipped.
+    let ldh_specs = [
+            ("LDH i-state NonequalAI 6-group", 9, 13, 1, 0, 2, 9),
+            ("LDH i-state NonequalAI 5-group", 7,  9, 1, 1, 0, 7),
+            ("LDH i-state EqualAI-NonequalAI 6-group", 8, 10, 1, 0, 1, 7),
+        ]
+        for (i, (nm, ns, nst, nh, nmi, nw, ni)) in enumerate(ldh_specs)
+            em = Core.eval(EnzymeRates,
+                           Meta.parse(LDH_ISTATE_FAILURE_MECHS[i]))()
+            push!(specs, MechanismTestSpec(
+                name=nm, mechanism=em,
+                metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
+                expected_n_states=ns, expected_n_steps=nst,
+                expected_n_metabolites=4,
+                expected_n_haldane_constraints=nh,
+                expected_n_mirror_constraints=nmi,
+                expected_n_wegscheider_constraints=nw,
+                expected_n_independent_params=ni,
+                run_ode_test=false))
+        end
     end
 
     return specs
