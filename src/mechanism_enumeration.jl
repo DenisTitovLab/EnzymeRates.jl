@@ -1245,13 +1245,25 @@ that member is carved out into a fresh trailing group. The reaction
 Catalytic allo-state tags are extended with the parent group's tag
 appended (splitting is a parameter-relaxation move that MUST NOT
 change A/I semantics).
+
+Splitting a group adds a parameter, but a Wegscheider cycle often forces
+that new parameter straight back to dependent, making the split a
+model-space no-op that fits the parent's equation. `_canonical_mechanism`
+merges such splits back, so each candidate is canonicalized and dropped
+when it returns to the parent. These no-op splits dominate — up to ~2/3 of
+the mechanisms in bi-bi enumeration — and, because every enumerated
+mechanism is canonical, an un-dropped one would re-enter the beam as a
+self-loop.
 """
 function _expand_split_kinetic_group(m::Mechanism)
     results = Mechanism[]
+    mc = _canonical_mechanism(m)
     for g in kinetic_groups(m)
         length(steps(m)[g]) >= 2 || continue
         for split_idx in 1:length(steps(m)[g])
-            push!(results, _with_steps(m, _split_one_step(steps(m), g, split_idx)))
+            child = _canonical_mechanism(
+                _with_steps(m, _split_one_step(steps(m), g, split_idx)))
+            child == mc || push!(results, child)
         end
     end
     results
@@ -1259,15 +1271,140 @@ end
 
 function _expand_split_kinetic_group(am::AllostericMechanism)
     results = AllostericMechanism[]
+    mc = _canonical_mechanism(am)
     for g in kinetic_groups(am)
         length(steps(am)[g]) >= 2 || continue
         for split_idx in 1:length(steps(am)[g])
             new_groups = _split_one_step(steps(am), g, split_idx)
             new_states = vcat(cat_allo_states(am), [cat_allo_states(am)[g]])
-            push!(results, _with_steps_and_cat_states(am, new_groups, new_states))
+            child = _canonical_mechanism(
+                _with_steps_and_cat_states(am, new_groups, new_states))
+            child == mc || push!(results, child)
         end
     end
     results
+end
+
+"""
+Canonical kinetic-group partition: merge kinetic groups whose binding-K
+representatives are single-symbol Wegscheider-tied (the relation
+`_build_wegscheider_rename_map` finds), so split and merged encodings of the
+same rate-equivalent graph collapse to one partition. Returns `mech.steps`
+unchanged when nothing is tied.
+"""
+function _merge_tied_kinetic_groups(mech::Mechanism)
+    rename = _build_wegscheider_rename_map(mech)
+    isempty(rename) && return mech.steps
+    groups = mech.steps
+    step_params = _step_parameters(mech)
+    # Canonical representative binding-K name per group (nothing if no binding step).
+    rep = Vector{Union{Symbol, Nothing}}(nothing, length(groups))
+    for (idx, (s, g)) in enumerate(_flat_steps(mech))
+        is_equilibrium(s) && is_binding(s) || continue
+        k = name(step_params[idx][1], mech)
+        rep[g] = get(rename, k, k)
+    end
+    byrep = Dict{Symbol, Vector{Int}}()
+    for (gi, r) in enumerate(rep)
+        r === nothing && continue
+        push!(get!(byrep, r, Int[]), gi)
+    end
+    any(length(v) > 1 for v in values(byrep)) || return mech.steps
+    merged = Vector{Vector{Step}}()
+    done = falses(length(groups))
+    for gi in eachindex(groups)
+        done[gi] && continue
+        r = rep[gi]
+        if r !== nothing && length(byrep[r]) > 1
+            gis = byrep[r]
+            push!(merged, Step[s for j in gis for s in groups[j]])
+            for j in gis
+                done[j] = true
+            end
+        else
+            push!(merged, copy(groups[gi]))
+            done[gi] = true
+        end
+    end
+    merged
+end
+
+"""
+Allosteric partition merge: the AllostericMechanism analog of
+`_merge_tied_kinetic_groups(::Mechanism)`. Ties come from the per-state binding-K
+Wegscheider relations (`_state_wegscheider_rename_map` for `:A` and `:I`). Each
+catalytic group is keyed by `(tag, folded-binding-K-name(s))`; the tag is part of
+the key so groups that differ in allosteric state (and therefore are not
+rate-equivalent) never merge. Returns the merged
+`(cat_steps, cat_allo_states)` parallel vectors, unchanged when nothing is tied.
+"""
+function _merge_tied_kinetic_groups(am::AllostericMechanism)
+    rename_A = _state_wegscheider_rename_map(am, :A)
+    rename_I = _state_wegscheider_rename_map(am, :I)
+    groups = steps(am)
+    tags = cat_allo_states(am)
+    (isempty(rename_A) && isempty(rename_I)) && return groups, tags
+    fold(d, nm) = get(d, nm, nm)
+    keyof = Vector{Any}(nothing, length(groups))
+    for (g, grp) in enumerate(groups)
+        tag = tags[g]
+        bstep = nothing
+        for s in grp
+            if is_equilibrium(s) && is_binding(s)
+                bstep = s
+                break
+            end
+        end
+        bstep === nothing && continue
+        astate = tag === :EqualAI ? :EqualAI : :A
+        aK = fold(rename_A, name(Kd(bstep, astate), am))
+        keyof[g] = tag === :NonequalAI ?
+            (:NonequalAI, aK, fold(rename_I, name(Kd(bstep, :I), am))) :
+            (tag, aK)
+    end
+    bykey = Dict{Any, Vector{Int}}()
+    for (g, k) in enumerate(keyof)
+        k === nothing && continue
+        push!(get!(bykey, k, Int[]), g)
+    end
+    any(length(v) > 1 for v in values(bykey)) || return groups, tags
+    merged_steps = Vector{Vector{Step}}()
+    merged_tags = Symbol[]
+    done = falses(length(groups))
+    for g in eachindex(groups)
+        done[g] && continue
+        k = keyof[g]
+        if k !== nothing && length(bykey[k]) > 1
+            gis = bykey[k]
+            push!(merged_steps, Step[s for j in gis for s in groups[j]])
+            push!(merged_tags, tags[g])
+            for j in gis
+                done[j] = true
+            end
+        else
+            push!(merged_steps, copy(groups[g]))
+            push!(merged_tags, tags[g])
+            done[g] = true
+        end
+    end
+    merged_steps, merged_tags
+end
+
+"""
+Canonical form of a mechanism for deduplication: the same graph with its
+kinetic-group partition merged over Wegscheider-tied binding-K's. Two
+graph-distinct mechanisms that reduce to the same rate function collapse to the
+same canonical mechanism, so their rendered equation and `eq_hash` agree.
+Applied by the split-move expansion (`_expand_split_kinetic_group`), so every
+enumerated mechanism is canonical.
+"""
+_canonical_mechanism(m::Mechanism) =
+    Mechanism(reaction(m), _merge_tied_kinetic_groups(m))
+function _canonical_mechanism(am::AllostericMechanism)
+    cat_steps, cat_states = _merge_tied_kinetic_groups(am)
+    AllostericMechanism(reaction(am), cat_steps, cat_states,
+                        catalytic_multiplicity(am),
+                        copy(regulatory_sites(am)))
 end
 
 """
@@ -1543,29 +1680,54 @@ end
         → Vector{AllostericMechanism}
 
 Mechanism-native overload: convert a non-allosteric `Mechanism` into
-allosteric variants. For each value in `rxn`'s
-`allowed_catalytic_multiplicities`, emits the variant set: the
-all-`:EqualAI` baseline plus one variant per kinetic group with that
-group set to `:OnlyA` (`n_groups + 1` variants per multiplicity). The
-multiplicity becomes the variant's `catalytic_multiplicity`;
-regulatory_sites is empty (allosteric regulators are added later via
-`_expand_add_allosteric_regulator`). Steps are reused by reference.
+allosteric variants, keeping only variants that are empirically
+distinguishable from a simpler mechanism (an MWC conformational
+constant `L` that has no observable effect is not enumerated):
+
+  * The all-`:EqualAI` baseline is never emitted — the two conformations
+    are identical, `L` cancels, and the mechanism is indistinguishable
+    from `m`.
+  * A binding group (its representative step binds a metabolite) set to
+    `:OnlyA` is emitted bare: the bound metabolite's concentration
+    reveals `L` (a K-type mechanism).
+  * A catalytic group (its representative step is an isomerization, no
+    bound metabolite) set to `:OnlyA` is emitted ONLY paired with a
+    declared allosteric regulator at a new site, one variant per
+    `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}` (a V-type
+    mechanism). With no regulator bound, the inactive state binds
+    substrate/product identically to the active state but cannot
+    catalyze, so `L` folds entirely into `kcat`
+    (`v = kcat/(1+L)·shape`) and is not observable; a reaction with no
+    declared allosteric regulators emits nothing for that group.
+
+For each value in `rxn`'s `allowed_catalytic_multiplicities`, the
+multiplicity becomes the variant's `catalytic_multiplicity`. Catalytic
+steps are reused by reference.
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     n_g = length(steps(m))
     base_tags = Symbol[:EqualAI for _ in 1:n_g]
-    empty_sites = RegulatorySite[]
+    regs = Symbol[]
+    for rm in regulators(rxn)
+        reg = regulator(rm)
+        reg isa AllostericRegulator && push!(regs, name(reg))
+    end
+    sort!(regs)
     results = AllostericMechanism[]
     for cn in allowed_catalytic_multiplicities(rxn)
-        push!(results, AllostericMechanism(
-            reaction(m), copy(steps(m)), copy(base_tags),
-            cn, copy(empty_sites)))
         for g in 1:n_g
             new_tags = copy(base_tags)
             new_tags[g] = :OnlyA
-            push!(results, AllostericMechanism(
-                reaction(m), copy(steps(m)), new_tags,
-                cn, copy(empty_sites)))
+            if is_iso(rep_step(m, g))
+                am_cat = AllostericMechanism(
+                    reaction(m), copy(steps(m)), new_tags, cn, RegulatorySite[])
+                for reg in regs, tag in (:OnlyA, :OnlyI)
+                    push!(results, _make_am_with_added_reg(am_cat, reg, tag, 0))
+                end
+            else
+                push!(results, AllostericMechanism(
+                    reaction(m), copy(steps(m)), new_tags, cn, RegulatorySite[]))
+            end
         end
     end
     results
