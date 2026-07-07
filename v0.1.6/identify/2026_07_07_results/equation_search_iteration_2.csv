@@ -1,0 +1,74 @@
+n_params,loss,mechanism_type,rate_equation,retcode,error,eq_hash,fit_inherited,K_A_Areg,K_A_P_E,K_A_S_E,K_I_Areg,K_P_E,K_S_E,L,k_ES_to_EP,koff_A_P_E,koff_A_S_E,koff_P_E,koff_S_E,kon_A_P_E,kon_A_S_E,kon_P_E,kon_S_E
+5,3.1700639775534905,"EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), false),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), false),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}","(; k_ES_to_EP, koff_P_E, koff_S_E, kon_P_E, kon_S_E, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * k_ES_to_EP * koff_P_E * (1 / koff_S_E) * (1 / kon_P_E) * kon_S_E
+v = E_total * (k_ES_to_EP * koff_P_E * kon_S_E * S - k_EP_to_ES * koff_S_E * kon_P_E * P) / (k_EP_to_ES * koff_S_E + k_ES_to_EP * koff_P_E + koff_P_E * koff_S_E + k_EP_to_ES * kon_P_E * P + k_ES_to_EP * kon_P_E * P + koff_S_E * kon_P_E * P + k_EP_to_ES * kon_S_E * S + k_ES_to_EP * kon_S_E * S + koff_P_E * kon_S_E * S)",Success,,0c0780e20e8c2b7b,false,,,,,,,,9.697769213192863,,,3.0056966866101322,0.1599430992127825,,,1.2264711680690226,1.1067308746259181
+5,3.1700639775535824,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), false),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:OnlyA, :EqualAI, :EqualAI)), ()}","(; kon_A_P_E, koff_A_P_E, K_S_E, k_ES_to_EP, L, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * (1 / K_S_E) * k_ES_to_EP * koff_A_P_E * (1 / kon_A_P_E)
+v = E_total * ((k_ES_to_EP * koff_A_P_E * S / K_S_E - k_EP_to_ES * kon_A_P_E * P) * (k_EP_to_ES + koff_A_P_E + k_EP_to_ES * S / K_S_E + k_ES_to_EP * S / K_S_E + koff_A_P_E * S / K_S_E + kon_A_P_E * P)) / ((k_EP_to_ES + koff_A_P_E + k_EP_to_ES * S / K_S_E + k_ES_to_EP * S / K_S_E + koff_A_P_E * S / K_S_E + kon_A_P_E * P) ^ 2 + L * (k_EP_to_ES + k_EP_to_ES * S / K_S_E + k_ES_to_EP * S / K_S_E) ^ 2)",Success,,7dc923ba4d0770ae,false,,,,,,1.0000056695755848,1.9480183763888304,1.0000097031963888,113367.87022093353,,,,113368.08496015515,,,
+5,3.1700639775556,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), false),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:EqualAI, :OnlyA, :EqualAI)), ()}","(; kon_P_E, koff_P_E, K_A_S_E, k_ES_to_EP, L, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * (1 / K_A_S_E) * k_ES_to_EP * koff_P_E * (1 / kon_P_E)
+v = E_total * ((k_ES_to_EP * koff_P_E * S / K_A_S_E - k_EP_to_ES * kon_P_E * P) * (k_EP_to_ES + koff_P_E + k_EP_to_ES * S / K_A_S_E + k_ES_to_EP * S / K_A_S_E + koff_P_E * S / K_A_S_E + kon_P_E * P)) / ((k_EP_to_ES + koff_P_E + k_EP_to_ES * S / K_A_S_E + k_ES_to_EP * S / K_A_S_E + koff_P_E * S / K_A_S_E + kon_P_E * P) ^ 2 + L * (k_ES_to_EP * koff_P_E + k_EP_to_ES * kon_P_E * P + k_ES_to_EP * kon_P_E * P) ^ 2)",Success,,e964560cda41dfd6,false,,,1.0667371797582494,,,,8.002935158511185,1.073437361877676,,,15.978784999763304,,,,16.078753181131667,
+5,3.170063977553482,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), false),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:OnlyA, :EqualAI, :EqualAI)), ()}","(; K_A_P_E, kon_S_E, koff_S_E, k_ES_to_EP, L, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * K_A_P_E * k_ES_to_EP * (1 / koff_S_E) * kon_S_E
+v = E_total * ((k_ES_to_EP * kon_S_E * S - k_EP_to_ES * koff_S_E * P / K_A_P_E) * (k_ES_to_EP + koff_S_E + k_EP_to_ES * P / K_A_P_E + k_ES_to_EP * P / K_A_P_E + koff_S_E * P / K_A_P_E + kon_S_E * S)) / ((k_ES_to_EP + koff_S_E + k_EP_to_ES * P / K_A_P_E + k_ES_to_EP * P / K_A_P_E + koff_S_E * P / K_A_P_E + kon_S_E * S) ^ 2 + L * (k_EP_to_ES * koff_S_E + k_EP_to_ES * kon_S_E * S + k_ES_to_EP * kon_S_E * S) ^ 2)",Success,,e52a80d379180c55,false,,1.0000003885575874,,,,,0.47262051435040514,1.0000000000005183,,,,65149.540902871224,,,,65150.56600538617
+5,3.1700639775535304,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), false),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:EqualAI, :OnlyA, :EqualAI)), ()}","(; K_P_E, kon_A_S_E, koff_A_S_E, k_ES_to_EP, L, Keq, E_total) = params
+(; S, P) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * K_P_E * k_ES_to_EP * (1 / koff_A_S_E) * kon_A_S_E
+v = E_total * ((k_ES_to_EP * kon_A_S_E * S - k_EP_to_ES * koff_A_S_E * P / K_P_E) * (k_ES_to_EP + koff_A_S_E + k_EP_to_ES * P / K_P_E + k_ES_to_EP * P / K_P_E + koff_A_S_E * P / K_P_E + kon_A_S_E * S)) / ((k_ES_to_EP + koff_A_S_E + k_EP_to_ES * P / K_P_E + k_ES_to_EP * P / K_P_E + koff_A_S_E * P / K_P_E + kon_A_S_E * S) ^ 2 + L * (k_ES_to_EP + k_EP_to_ES * P / K_P_E + k_ES_to_EP * P / K_P_E) ^ 2)",Success,,62feb443521c4de2,false,,,,,2.939152463375851,,4.430566440787372e-6,0.9999999999999998,,0.1515699465644961,,,,1.1515746921313674,,
+5,0.0064676951553049615,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:OnlyA, :EqualAI, :EqualAI)), (((:A,), 2, (:OnlyA,)),)}","(; K_A_P_E, K_S_E, k_ES_to_EP, K_A_Areg, L, Keq, E_total) = params
+(; S, P, A) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * K_A_P_E * (1 / K_S_E) * k_ES_to_EP
+v = E_total * ((k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_S_E) * (1 + A / K_A_Areg) ^ 2) / ((1 + P / K_A_P_E + S / K_S_E) ^ 2 * (1 + A / K_A_Areg) ^ 2 + L * (k_EP_to_ES + k_EP_to_ES * S / K_S_E + k_ES_to_EP * S / K_S_E) ^ 2 * 1 ^ 2)",Success,,cb431ad4e89ee19f,false,0.9999986546432399,1.5324579657206177e6,,,,1.2840976456319586,0.009465174001629703,101.00026869804739,,,,,,,,
+5,3.1700639775540638,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:OnlyA, :EqualAI, :EqualAI)), (((:A,), 2, (:OnlyI,)),)}","(; K_A_P_E, K_S_E, k_ES_to_EP, K_I_Areg, L, Keq, E_total) = params
+(; S, P, A) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * K_A_P_E * (1 / K_S_E) * k_ES_to_EP
+v = E_total * ((k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_S_E) * 1 ^ 2) / ((1 + P / K_A_P_E + S / K_S_E) ^ 2 * 1 ^ 2 + L * (k_EP_to_ES + k_EP_to_ES * S / K_S_E + k_ES_to_EP * S / K_S_E) ^ 2 * (1 + A / K_I_Areg) ^ 2)",Success,,93417f09e67d8312,false,,1.0000006601286549,,30.029152524728204,,0.9999998636567746,1.7877395217424092,1.0000000000000004,,,,,,,,
+4,3.170063977553481,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:NonequalAI, :EqualAI, :EqualAI)), ()}","(; K_A_P_E, K_S_E, k_ES_to_EP, L, Keq, E_total) = params
+(; S, P) = concs
+# Wegscheider constraints:
+K_I_P_E = K_A_P_E
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * K_A_P_E * (1 / K_S_E) * k_ES_to_EP
+v = E_total * ((k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_S_E) + L * (k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_I_P_E) * (1 + P / K_I_P_E + S / K_S_E)) / ((1 + P / K_A_P_E + S / K_S_E) ^ 2 + L * (1 + P / K_I_P_E + S / K_S_E) ^ 2)",Success,,ceeb8eff200c8995,false,,1.0000007986176525,,,,1.0000000456302616,0.37090683861819257,1.0,,,,,,,,
+4,3.1700639775545274,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:OnlyA, :NonequalAI, :EqualAI)), ()}","(; K_A_P_E, K_A_S_E, k_ES_to_EP, L, Keq, E_total) = params
+(; S, P) = concs
+# Wegscheider constraints:
+K_I_S_E = K_A_S_E
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * K_A_P_E * (1 / K_A_S_E) * k_ES_to_EP
+v = E_total * ((k_ES_to_EP * S / K_A_S_E - k_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E)) / ((1 + P / K_A_P_E + S / K_A_S_E) ^ 2 + L * (k_EP_to_ES * S / K_I_S_E + k_ES_to_EP * S / K_I_S_E + k_EP_to_ES) ^ 2)",Success,,188d74ebd1cc6682,false,,0.9999879911823502,1.000013355706338,,,,0.3477010162244819,1.0000158556371375,,,,,,,,
+5,0.13541758419408348,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:EqualAI, :OnlyA, :EqualAI)), (((:A,), 2, (:OnlyA,)),)}","(; K_P_E, K_A_S_E, k_ES_to_EP, K_A_Areg, L, Keq, E_total) = params
+(; S, P, A) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * (1 / K_A_S_E) * K_P_E * k_ES_to_EP
+v = E_total * ((k_ES_to_EP * S / K_A_S_E - k_EP_to_ES * P / K_P_E) * (1 + S / K_A_S_E + P / K_P_E) * (1 + A / K_A_Areg) ^ 2) / ((1 + S / K_A_S_E + P / K_P_E) ^ 2 * (1 + A / K_A_Areg) ^ 2 + L * (k_ES_to_EP + k_EP_to_ES * P / K_P_E + k_ES_to_EP * P / K_P_E) ^ 2 * 1 ^ 2)",Success,,5ea9b314d4930d2d,false,0.9999999393923519,,3.2690142431533276e6,,2.5918683126771946,,3.5150980663244624e-7,1.0,,,,,,,,
+5,3.1700639775535504,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:EqualAI, :OnlyA, :EqualAI)), (((:A,), 2, (:OnlyI,)),)}","(; K_P_E, K_A_S_E, k_ES_to_EP, K_I_Areg, L, Keq, E_total) = params
+(; S, P, A) = concs
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * (1 / K_A_S_E) * K_P_E * k_ES_to_EP
+v = E_total * ((k_ES_to_EP * S / K_A_S_E - k_EP_to_ES * P / K_P_E) * (1 + S / K_A_S_E + P / K_P_E) * 1 ^ 2) / ((1 + S / K_A_S_E + P / K_P_E) ^ 2 * 1 ^ 2 + L * (k_ES_to_EP + k_EP_to_ES * P / K_P_E + k_ES_to_EP * P / K_P_E) ^ 2 * (1 + A / K_I_Areg) ^ 2)",Success,,ab95d902ada3c3a0,false,,,1.0000019994136657,301.7230461785208,1.0000010902273606,,0.00022996105570277623,1.0,,,,,,,,
+4,3.1700639775541575,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:NonequalAI, :OnlyA, :EqualAI)), ()}","(; K_A_P_E, K_A_S_E, k_ES_to_EP, L, Keq, E_total) = params
+(; S, P) = concs
+# Wegscheider constraints:
+K_I_P_E = K_A_P_E
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * K_A_P_E * (1 / K_A_S_E) * k_ES_to_EP
+v = E_total * ((k_ES_to_EP * S / K_A_S_E - k_EP_to_ES * P / K_A_P_E) * (1 + P / K_A_P_E + S / K_A_S_E)) / ((1 + P / K_A_P_E + S / K_A_S_E) ^ 2 + L * (k_EP_to_ES * P / K_I_P_E + k_ES_to_EP * P / K_I_P_E + k_ES_to_EP) ^ 2)",Success,,580bb605d04be2bd,false,,1.0000050832721725,0.9999842441606309,,,,1.2530256305826553,0.9999999999999999,,,,,,,,
+4,3.1700639775534776,"AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}, (2, (:EqualAI, :NonequalAI, :EqualAI)), ()}","(; K_P_E, K_A_S_E, k_ES_to_EP, L, Keq, E_total) = params
+(; S, P) = concs
+# Wegscheider constraints:
+K_I_S_E = K_A_S_E
+# Haldane constraints:
+k_EP_to_ES = (1 / Keq) * (1 / K_A_S_E) * K_P_E * k_ES_to_EP
+v = E_total * ((k_ES_to_EP * S / K_A_S_E - k_EP_to_ES * P / K_P_E) * (1 + S / K_A_S_E + P / K_P_E) + L * (k_ES_to_EP * S / K_I_S_E - k_EP_to_ES * P / K_P_E) * (1 + S / K_I_S_E + P / K_P_E)) / ((1 + S / K_A_S_E + P / K_P_E) ^ 2 + L * (1 + S / K_I_S_E + P / K_P_E) ^ 2)",Success,,acbbb4fdaf0e8a73,false,,,0.9999998267089317,,1.000000249145891,,1.4495475961757676,1.0000000000000002,,,,,,,,
