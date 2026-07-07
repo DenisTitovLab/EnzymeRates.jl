@@ -2767,22 +2767,21 @@ end
         # 1. count: 5 kinetic groups → 1 + 5 = 6 variants.
         @test length(result) == 6
 
-        # 2. Δ params: +1 per variant for the allosteric L, plus +1 more when
-        # making a group :OnlyA leaves its bound form REVERSE-catalysis-populated
-        # in the inactive state. Connected-component pruning derives Q_I from
-        # free E over ALL surviving steps, so with :EqualAI catalysis a form
-        # whose direct binding is now forbidden is still reached through the
-        # catalysis step and carries an SS-dependent weight (+1 identifiable
-        # param). Of the 6 variants (baseline + 5 per-group :OnlyA), two are Δ=1
-        # (the all-:EqualAI baseline and the one :OnlyA form left genuinely
-        # disconnected from free E) and four are reverse-catalysis-populated
-        # (Δ=2). Equilibrium flux is 0 for all six (verified at the Keq
-        # mass-action ratio, |v_eq|/|v| ~ 1e-16).
+        # 2. Δ params: +1 per variant for the allosteric L, and nothing more.
+        # Making a group :OnlyA can leave its bound form reverse-catalysis-
+        # populated in the inactive state (connected-component pruning derives
+        # Q_I from free E over ALL surviving steps, so with :EqualAI catalysis a
+        # form whose direct binding is now forbidden is still reached through
+        # catalysis), but the weight on that form is the reverse catalytic rate —
+        # Haldane-DEPENDENT, derived from the forward rate and Keq, not fit. So it
+        # is NOT in fitted_params. All 6 variants (baseline + 5 per-group :OnlyA)
+        # are therefore Δ=1 (just L). Equilibrium flux is 0 for all six (verified
+        # at the Keq mass-action ratio, |v_eq|/|v| ~ 1e-16).
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 2, 2, 2, 2]
+        @test deltas == [1, 1, 1, 1, 1, 1]
 
         # 3. compilability — must produce AllostericEnzymeMechanism.
         for r in result
@@ -2822,22 +2821,20 @@ end
         n_groups = length(m.steps)
         @test length(result) == n_groups + 1
 
-        # 2. Δ params: +1 per variant for the allosteric L, plus +1 more when a
-        # group's :OnlyA bound form stays REVERSE-catalysis-populated in the
-        # inactive state. Connected-component pruning derives Q_I from free E
-        # over ALL surviving steps, so in this ping-pong topology (:EqualAI
-        # catalysis) making a binding group :OnlyA forbids its direct binding but
-        # reverse catalysis still populates the bound form, so Q_I carries its
-        # SS-dependent weight (+1 identifiable param). Two variants are Δ=1 (the
-        # all-:EqualAI baseline and the one :OnlyA form left genuinely
-        # disconnected from free E); five are reverse-catalysis-populated (Δ=2).
-        # Equilibrium flux is 0 for all seven (verified at the Keq mass-action
+        # 2. Δ params: +1 per variant for the allosteric L, and nothing more.
+        # In this ping-pong topology (:EqualAI catalysis) making a binding group
+        # :OnlyA forbids its direct binding, but reverse catalysis still populates
+        # the bound form in the inactive state, so Q_I keeps it. The weight on
+        # that form is the reverse catalytic rate — Haldane-DEPENDENT (derived
+        # from the forward rate and Keq), not fit — so it is NOT in fitted_params.
+        # All 7 variants (baseline + 6 per-group :OnlyA) are therefore Δ=1 (just
+        # L). Equilibrium flux is 0 for all seven (verified at the Keq mass-action
         # ratio, |v_eq|/|v| ~ 1e-16).
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 2, 2, 2, 2, 2]
+        @test deltas == [1, 1, 1, 1, 1, 1, 1]
 
         # 3. compilability
         for r in result

@@ -1602,7 +1602,12 @@ function _dependent_param_exprs(
 
     merged_indep = (indep_A..., indep_I_list...,
                     reg_params_a..., reg_params_i_indep..., :L)
-    return dep, merged_indep
+    # A parameter that is dependent in EITHER conformation must never appear in
+    # the independent (fitted) set. The per-segment lists above can re-admit a
+    # symbol that is dependent in the A-state but unpinned in the dead I-state
+    # (a Haldane-derived reverse rate), so filter the assembled tuple against
+    # `dep` uniformly, preserving order.
+    return dep, Tuple(p for p in merged_indep if p ∉ keys(dep))
 end
 
 # `parameters` and `fitted_params` for `AllostericEnzymeMechanism`

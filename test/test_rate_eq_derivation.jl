@@ -1169,6 +1169,26 @@ end
     end
 end
 
+@testset "indep ∩ keys(dep) == ∅ (allosteric i-state mechanisms)" begin
+    # A dependent (Haldane/Wegscheider-derived) parameter must never appear in
+    # the independent set returned as fitted_params. These LDH mechanisms have a
+    # shared :EqualAI catalytic reverse rate that is Haldane-dependent in the
+    # A-state while the dead I-state references it unpinned — the exact leak the
+    # uniform dep-filter closes.
+    for s in LDH_ISTATE_FAILURE_MECHS
+        M = typeof(Core.eval(EnzymeRates, Meta.parse(s))())
+        dep, indep = EnzymeRates._dependent_param_exprs(M)
+        @test isempty(intersect(Set(keys(dep)), Set(indep)))
+    end
+end
+
+@testset "indep ∩ keys(dep) == ∅ (all MECHANISM_TEST_SPECS)" begin
+    for spec in MECHANISM_TEST_SPECS
+        dep, indep = EnzymeRates._dependent_param_exprs(typeof(spec.mechanism))
+        @test isempty(intersect(Set(keys(dep)), Set(indep)))
+    end
+end
+
 # ── Standalone kcat tests ──────────────────────────────────────────────────────
 
 @testset "rate_equation polynomial body uses 2-arg +/* calls" begin
