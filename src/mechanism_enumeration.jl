@@ -1244,14 +1244,19 @@ that member is carved out into a fresh trailing group. The reaction
 (and, for allosteric, multiplicity / regulatory sites) is preserved.
 Catalytic allo-state tags are extended with the parent group's tag
 appended (splitting is a parameter-relaxation move that MUST NOT
-change A/I semantics).
+change A/I semantics). Each candidate is canonicalized via
+`_canonical_mechanism`, and dropped when it canonicalizes back to the
+parent (a Wegscheider-tied split is a model-space no-op).
 """
 function _expand_split_kinetic_group(m::Mechanism)
     results = Mechanism[]
+    mc = _canonical_mechanism(m)
     for g in kinetic_groups(m)
         length(steps(m)[g]) >= 2 || continue
         for split_idx in 1:length(steps(m)[g])
-            push!(results, _with_steps(m, _split_one_step(steps(m), g, split_idx)))
+            child = _canonical_mechanism(
+                _with_steps(m, _split_one_step(steps(m), g, split_idx)))
+            child == mc || push!(results, child)
         end
     end
     results
@@ -1259,12 +1264,15 @@ end
 
 function _expand_split_kinetic_group(am::AllostericMechanism)
     results = AllostericMechanism[]
+    mc = _canonical_mechanism(am)
     for g in kinetic_groups(am)
         length(steps(am)[g]) >= 2 || continue
         for split_idx in 1:length(steps(am)[g])
             new_groups = _split_one_step(steps(am), g, split_idx)
             new_states = vcat(cat_allo_states(am), [cat_allo_states(am)[g]])
-            push!(results, _with_steps_and_cat_states(am, new_groups, new_states))
+            child = _canonical_mechanism(
+                _with_steps_and_cat_states(am, new_groups, new_states))
+            child == mc || push!(results, child)
         end
     end
     results

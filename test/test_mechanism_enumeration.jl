@@ -1919,20 +1919,21 @@ end
 
         result = EnzymeRates._expand_split_kinetic_group(m)
 
-        # 1. count: 4 multi-step groups (A SS×2, B RE×2, P RE×2, Q RE×2).
-        # Each can split per member → 4 × 2 = 8 variants.
-        @test length(result) == 8
+        # 1. count: 4 multi-step groups (A SS×2, B RE×2, P RE×2, Q RE×2),
+        # 4 × 2 = 8 candidates. Each candidate is canonicalized and dropped
+        # if it collapses back to the parent (a Wegscheider-tied binding-K
+        # rename — a model-space no-op). The A and B splits survive; the P
+        # and Q splits are self-loops and are dropped, leaving 4 variants.
+        @test length(result) == 4
 
         # 2. Δ params measured against the actual compiled fitted count.
-        # Four splits leave the count unchanged (Δ=0) — a Wegscheider cycle
-        # constraint absorbs the peeled-off parameter — and four add one
-        # parameter (Δ=1). The old structural estimate predicted
-        # [1,1,1,1,1,1,2,2]; the real fitted-param effect is [0,0,0,0,1,1,1,1].
+        # All 4 surviving splits add one parameter (Δ=1); the dropped P/Q
+        # splits were the Δ=0 self-loops that canonicalization removes.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [0, 0, 0, 0, 1, 1, 1, 1]
+        @test deltas == [1, 1, 1, 1]
 
         # 3. compilability
         for r in result
@@ -1983,20 +1984,23 @@ end
 
         # 1. count: 4 multi-step groups (A-binding SS×2 :NonequalAI,
         # B-binding RE×2 :EqualAI, P-binding RE×2 :EqualAI,
-        # Q-binding RE×2 :EqualAI). 4 × 2 members = 8 variants.
-        @test length(result) == 8
+        # Q-binding RE×2 :EqualAI), 4 × 2 members = 8 candidates. Each
+        # candidate is canonicalized and dropped if it collapses back to
+        # the parent (a Wegscheider-tied self-loop). 4 of the 6 RE splits
+        # are such self-loops; the 2 SS splits never tie (no equilibrium
+        # constant to absorb them), so 4 variants survive.
+        @test length(result) == 4
 
-        # 2. Δ params: 8 variants, deltas measured against the actual
-        # compiled fitted-param count (ground truth — true count after
-        # thermo-cycle bookkeeping; the upper-bound estimators give
-        # looser numbers). 6 splits add 0 (:EqualAI RE, absorbed by
-        # thermo cycles), 2 add 1 (the other RE splits), 2 add 2 (the
-        # :NonequalAI SS splits, doubled by the R/T-state pair).
+        # 2. Δ params: 4 surviving variants, deltas measured against the
+        # actual compiled fitted-param count (ground truth — true count
+        # after thermo-cycle bookkeeping). 2 add 1 (the surviving RE
+        # splits), 2 add 2 (the :NonequalAI SS splits, doubled by the
+        # R/T-state pair).
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [0, 0, 0, 0, 1, 1, 2, 2]
+        @test deltas == [1, 1, 2, 2]
 
         # 3. compilability
         for r in result
@@ -2028,11 +2032,13 @@ end
         end
     end
 
-    @testset "Mechanism — bi-bi: 4 multi-step groups → 8 splits" begin
-        # SEED: bi-bi random with 4 multi-step kinetic groups (A, B, P, Q).
-        # Construct via the @enzyme_mechanism literal, then convert to
-        # Mechanism via EnzymeMechanism (mirrors how init_mechanisms builds
-        # Mechanisms).
+    @testset "Mechanism — bi-bi random: all splits Wegscheider-tied (negative)" begin
+        # SEED: bi-bi random with 4 multi-step kinetic groups (A, B, P, Q)
+        # forming a single closed thermodynamic cycle. Splitting off any one
+        # member of any group produces a binding-K that is a single-symbol
+        # Wegscheider rename of an existing parameter, so every one of the
+        # 4 × 2 = 8 candidates canonicalizes back to the parent and is
+        # dropped as a self-loop.
         m_seed = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -2045,37 +2051,7 @@ end
             end
         end
         m = EnzymeRates.Mechanism(m_seed)
-
-        result = EnzymeRates._expand_split_kinetic_group(m)
-
-        # 1. count: 4 multi-step groups × 2 members each → 8 splits.
-        @test length(result) == 8
-
-        # 2. each variant is a Mechanism with reaction preserved.
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
-        end
-
-        # 3. property-style: each result has exactly one MORE kinetic
-        # group than the seed and exactly one Step in the new trailing
-        # group. The parent group has size n_old - 1.
-        for r in result
-            @test length(r.steps) == length(m.steps) + 1
-            @test length(last(r.steps)) == 1
-        end
-
-        # 4. total step count preserved across the split.
-        for r in result
-            @test EnzymeRates.n_steps(r) == EnzymeRates.n_steps(m)
-        end
-
-        # 5. the carved-out split step is one of the seed's steps.
-        for r in result
-            split_step = first(last(r.steps))
-            orig_steps = Set(s for g in m.steps for s in g)
-            @test split_step in orig_steps
-        end
+        @test isempty(EnzymeRates._expand_split_kinetic_group(m))
     end
 
     @testset "Mechanism — all singleton groups: empty (negative)" begin
@@ -2093,10 +2069,14 @@ end
         @test isempty(EnzymeRates._expand_split_kinetic_group(m))
     end
 
-    @testset "AllostericMechanism — split inherits parent tag" begin
-        # SEED: bi-bi allosteric with mixed tags. Splitting must
-        # preserve cat_allo_states for existing groups and append the
-        # parent group's tag for the new trailing group.
+    @testset "AllostericMechanism — bi-bi RE groups all Wegscheider-tied (negative)" begin
+        # SEED: bi-bi allosteric with mixed tags (:NonequalAI, :EqualAI),
+        # but both multi-step groups (A, B) are RE bindings, each closing
+        # its own per-conformer thermodynamic cycle. Every one of the
+        # 2 × 2 = 4 candidates renames to an existing parameter and
+        # canonicalizes back to the parent. Tag inheritance on a surviving
+        # (non-self-loop) split is covered by "AllostericMechanism — SS
+        # multi-step :NonequalAI split" above.
         m_seed = @allosteric_mechanism begin
             substrates: A, B
             products: P, Q
@@ -2111,40 +2091,8 @@ end
                 E(A, B) <--> E(P, Q)     :: EqualAI
             end
         end
-        bi_bi_allo_rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            oligomeric_state: 2
-        end
         am = EnzymeRates.AllostericMechanism(m_seed)
-
-        result = EnzymeRates._expand_split_kinetic_group(am)
-
-        # 1. count: 2 multi-step groups × 2 members = 4 variants.
-        @test length(result) == 4
-
-        # 2. each result is an AllostericMechanism with reaction,
-        # multiplicity, and regulatory sites preserved.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.regulatory_sites == am.regulatory_sites
-        end
-
-        # 3. tag inheritance: splitting a group preserves every step's tag,
-        # so the split-off step inherits its parent group's tag. Verified
-        # per-step because both mechanisms store groups in canonical order.
-        am_tag_of = Dict{EnzymeRates.Step, Symbol}()
-        for (g, grp) in enumerate(am.cat_steps), s in grp
-            am_tag_of[s] = am.cat_allo_states[g]
-        end
-        for r in result
-            @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
-            for (g, grp) in enumerate(r.cat_steps), s in grp
-                @test r.cat_allo_states[g] == am_tag_of[s]
-            end
-        end
+        @test isempty(EnzymeRates._expand_split_kinetic_group(am))
     end
 end
 
@@ -4450,6 +4398,19 @@ end
     @test length(out) <= length(dup)
     @test unique!(Union{EnzymeRates.Mechanism,
         EnzymeRates.AllostericMechanism}[]) == []
+end
+
+@testset "expand_mechanisms output is canonical" begin
+    rxn = @enzyme_reaction begin
+        substrates: NADH[C21H29N7O14P2], Pyruvate[C3H4O3]
+        products: Lactate[C3H6O3], NAD[C21H27N7O14P2]
+        oligomeric_state: 4
+    end
+    MECH = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
+    base = collect(EnzymeRates.init_mechanisms(rxn))
+    children = EnzymeRates.expand_mechanisms(MECH[base...], rxn)
+    noncanon = [c for c in children if EnzymeRates._canonical_mechanism(c) != c]
+    @test isempty(noncanon)
 end
 
 @testset "init division-freeness (bi_bi_pp)" begin
