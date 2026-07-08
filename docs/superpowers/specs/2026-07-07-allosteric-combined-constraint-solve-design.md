@@ -18,6 +18,19 @@ the existing priority-pivoting Gaussian elimination once. A single solve cannot 
 a circular or undefined dependent set, and the cross-state ties the current code builds
 by hand fall out of the solve for free.
 
+## Goal and success criterion
+
+The goal is **simplicity and robustness**, and the measure of success is **net code
+removed**. This reconciliation code has now produced two separate classes of bugs; each
+past fix added another guard to the seam and made the next bug easier to write. The
+correct move is not another guard — it is deleting the seams. This change must remove far
+more patchwork than it adds: the whole `_split_resolution` nullspace pass, the collapse
+mirrors, the `S_I` referenced-symbol gate, the per-state merge, and `#61`'s filter all
+collapse into "assemble the constraints, solve once." If the diff is not strongly
+net-negative in lines, the rewrite has drifted back toward patching and should be
+reconsidered. Correctness comes from the single solve being unable to express the failure
+(no circular or undefined dependent is representable), not from new checks layered on top.
+
 ## Background: the bug
 
 The v0.1.6 LDH HPC run errored on ~6.6% of children (10,180 rows across 17 iterations),
