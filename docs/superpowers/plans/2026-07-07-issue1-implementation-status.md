@@ -157,6 +157,34 @@ three merge/S_I defects surgically (the original targeted-guard option from the 
 verified fixes 20/23), rather than the full combined-solve rewrite. The rewrite is elegant but the
 affinity-split reconciliation is the hard 20%.
 
+## Update 3 — surgical fix SHIPPED (combined-solve rewrite abandoned)
+
+Reverted the combined-solve rewrite (kept only the behaviour-preserving Phase-1 kernel factoring)
+and applied the targeted merge/`S_I` guards to the ORIGINAL `_dependent_param_exprs` +
+`_build_dep_assignments`, keeping `_split_resolution`/`_collapse_mirror_exprs` verbatim:
+
+- **Guard (D1/D2):** the dep_I merge loop no longer admits `k` when `k ∈ indep_A` (an
+  `:EqualAI`-shared symbol the A-run chose independent) or `k ∈ mirror_reads` (a free split/speed a
+  mirror references) — the circular-dependency defects.
+- **Re-admit (D2/D3):** any symbol a collapse mirror reads that is not itself dependent is an
+  independent (fitted) parameter — added back to the independent set (`mirror_free`), covering the
+  free steady-state speed the `S_I` closure missed. The same `mirror_reads` guard is applied in
+  `_build_dep_assignments` so the body never re-emits a fitted symbol as a dependent.
+
+**Result — FULL `Pkg.test` suite GREEN (0 failures, 0 errors):** all specs correct (no count/golden
+re-baseline, no regression anywhere), every UndefVar crash gone, reproducer 1 (D1) fully correct
+(detailed balance holds).
+
+**Honest limitation, documented with `@test_broken`:** reproducers 2 and 3 (D2/D3) are now callable
+and graph-sound but **detailed-balance-imperfect** — `_split_resolution` mis-classifies a forbidden
+split as free for those two enumerated mechanisms, so a pinned split is fit freely (|v| ≈ 0.04, 0.16
+at equilibrium). This is a *deeper `_split_resolution` split-classification defect*, the same class the
+combined-solve rewrite kept hitting — beyond the merge/`S_I` surgical fix. The
+`allosteric reproducers: detailed balance` testset marks these `@test_broken` so a future fix trips it.
+
+**Net:** the surgical fix is the shippable Issue-1 increment (specs correct, crashes removed, D1 fixed,
+suite green). The residual D2/D3 detailed-balance defect is a scoped follow-up in `_split_resolution`.
+
 ## Remaining tasks after the gap is resolved
 
 - Task 2.3: delete the now-dead chain — `_i_state_referenced_syms`, `_collapse_mirror_exprs`,

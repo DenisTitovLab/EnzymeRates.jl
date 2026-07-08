@@ -1268,6 +1268,44 @@ end
     end
 end
 
+@testset "allosteric reproducers: detailed balance" begin
+    # Being callable is necessary but not sufficient: the equation must also
+    # satisfy `v = 0` at `Q = Keq` for arbitrary parameter values. Reproducer 1
+    # (D1, an `:EqualAI`-shared `koff` circular merge) is fully fixed. Reproducers
+    # 2 and 3 (D2, a `:NonequalAI` split; D3, a steady-state speed) are callable
+    # but NOT detailed-balance-correct: `_split_resolution` mis-classifies a
+    # forbidden split as free for these enumerated mechanisms, so a pinned split
+    # is fit freely. That is a deeper split-resolution defect beyond the merge/S_I
+    # surgical fix — marked `@test_broken` so a future fix trips this test.
+    for (i, T) in enumerate(ALLOSTERIC_UNDEFVAR_REPRODUCERS)
+        m = T()
+        pn = collect(EnzymeRates.fitted_params(m))
+        subs = collect(EnzymeRates.substrates(m))
+        prods = collect(EnzymeRates.products(m))
+        mets = collect(EnzymeRates.metabolites(m))
+        Keq = 20000.0
+        p_each = Keq^(1 / length(prods))
+        rng = Random.MersenneTwister(1)
+        maxv = 0.0
+        for _ in 1:100
+            pv = Dict(p => exp(2 * randn(rng)) for p in pn)
+            params = NamedTuple{(pn..., :Keq, :E_total)}(
+                (Tuple(pv[p] for p in pn)..., Keq, 1.0))
+            cv = Dict{Symbol,Float64}()
+            for s in subs; cv[s] = 1.0; end
+            for p in prods; cv[p] = p_each; end
+            for s in mets; haskey(cv, s) || (cv[s] = 2.5); end
+            concs = NamedTuple{Tuple(mets)}(Tuple(cv[s] for s in mets))
+            maxv = max(maxv, abs(rate_equation(m, concs, params)))
+        end
+        if i == 1
+            @test maxv < 1e-8
+        else
+            @test_broken maxv < 1e-8
+        end
+    end
+end
+
 # ── Standalone kcat tests ──────────────────────────────────────────────────────
 
 @testset "rate_equation polynomial body uses 2-arg +/* calls" begin

@@ -1532,6 +1532,15 @@ function _i_state_referenced_syms(am::AllostericMechanism)
     S
 end
 
+"""All parameter Symbols a dependent-expression RHS reads (the operand slots of
+a `:call`, all slots otherwise), skipping the operator/function name."""
+_flat_expr_syms(x) =
+    x isa Symbol ? Symbol[x] :
+    x isa Expr ? reduce(vcat,
+        map(_flat_expr_syms, x.head === :call ? x.args[2:end] : x.args);
+        init = Symbol[]) :
+    Symbol[]
+
 """
     _dependent_param_exprs(M::Type{<:AllostericEnzymeMechanism})
 
@@ -1561,14 +1570,26 @@ function _dependent_param_exprs(
     S_I = _i_state_referenced_syms(am)
     mirrors = _collapse_mirror_exprs(am)
     collapse_targets = Set(first(p) for p in mirrors)
+    a_set = Set(indep_A)
+    # Every symbol a collapse mirror reads is an independent (fitted) parameter —
+    # a free `:NonequalAI` split affinity or a free steady-state speed, plus the
+    # A-state affinity it collapses onto (`_split_resolution` builds each mirror to
+    # reference only free collapsible affinities). Such a symbol must therefore
+    # never be admitted as an I-state dependent, and it must appear in the
+    # independent set even when the `S_I` reference closure misses it.
+    mirror_reads = Set{Symbol}(s for (_, rhs) in mirrors for s in _flat_expr_syms(rhs))
 
     dep = Dict{Symbol, Union{Symbol, Expr}}(dep_A)
     # I-state deps whose LHS a retained polynomial references (`Q_I` always,
     # plus `N_I` when the I-cycle is live), for `:NonequalAI` I-names. A shared
     # `:EqualAI` dependent already appears in `dep` under its bare name from the
     # A-run; keep that A-value (`!haskey`) — after collapse the I-value equals it.
+    # An `:EqualAI`-shared symbol the A-run chose independent (`k ∈ a_set`), or a
+    # free split/speed a mirror reads (`k ∈ mirror_reads`), must stay independent —
+    # admitting it here is the circular-dependency defect.
     for (k, v) in dep_I
-        (k in S_I && !haskey(dep, k)) && (dep[k] = v)
+        (k in S_I && !haskey(dep, k) && k ∉ a_set && k ∉ mirror_reads) &&
+            (dep[k] = v)
     end
     # Collapse mirrors override any native I-dep/indep for a forbidden split.
     for (k, rhs) in mirrors
@@ -1579,9 +1600,13 @@ function _dependent_param_exprs(
     # symbol — an `:EqualAI` group shares its bare symbol with A and is already
     # in `indep_A` — (b) referenced by a retained I-polynomial, and (c) not a
     # collapsed split (now a dependent mirror).
-    a_set = Set(indep_A)
     indep_I_list = Symbol[p for p in indep_I
                           if p ∉ a_set && p in S_I && p ∉ collapse_targets]
+    # Re-admit the free symbols the mirrors read that the `S_I` closure missed
+    # (a fully-collapsed steady-state binding's free speed reaches the body only
+    # through its mirror, whose LHS is not itself in `S_I`).
+    mirror_free = Symbol[s for s in indep_I
+                         if s ∉ a_set && s in mirror_reads && s ∉ collapse_targets]
 
     # Reg-site Parameters via `Kreg` structs + the `name(::Kreg, am)`
     # chokepoint. `:EqualAI` reg ligands share their value across states, so the
@@ -1600,14 +1625,19 @@ function _dependent_param_exprs(
         end
     end
 
-    merged_indep = (indep_A..., indep_I_list...,
+    merged_indep = (indep_A..., indep_I_list..., mirror_free...,
                     reg_params_a..., reg_params_i_indep..., :L)
     # A parameter that is dependent in EITHER conformation must never appear in
     # the independent (fitted) set. The per-segment lists above can re-admit a
     # symbol that is dependent in the A-state but unpinned in the dead I-state
     # (a Haldane-derived reverse rate), so filter the assembled tuple against
-    # `dep` uniformly, preserving order.
-    return dep, Tuple(p for p in merged_indep if p ∉ keys(dep))
+    # `dep` uniformly, preserving order and dropping duplicates.
+    seen = Set{Symbol}()
+    indep = Symbol[]
+    for p in merged_indep
+        (p ∉ keys(dep) && p ∉ seen) && (push!(seen, p); push!(indep, p))
+    end
+    return dep, Tuple(indep)
 end
 
 # `parameters` and `fitted_params` for `AllostericEnzymeMechanism`
@@ -1683,6 +1713,10 @@ function _build_dep_assignments(
     i_names_set = _i_state_referenced_syms(am)
     mirrors = _collapse_mirror_exprs(am)
     collapse_targets = Set(first(p) for p in mirrors)
+    # A free split/speed a mirror reads is an independent (fitted) parameter, so it
+    # is destructured — never re-emitted here as a native I-dep (that would shadow
+    # and overwrite the fitted value with an inconsistent expression).
+    mirror_reads = Set{Symbol}(s for (_, rhs) in mirrors for s in _flat_expr_syms(rhs))
     # Shared `:EqualAI` dependents are already emitted as A-assignments.
     a_lhs = Set(sym for (sym, _) in dep_A)
 
@@ -1712,7 +1746,7 @@ function _build_dep_assignments(
     # collapsed split's `K_I_g` is defined by its mirror above.
     for (sym, rhs) in sort(collect(dep_I); by=first)
         sym in i_names_set || continue
-        (sym in a_lhs || sym in collapse_targets) && continue
+        (sym in a_lhs || sym in collapse_targets || sym in mirror_reads) && continue
         push!(i_assignments, Expr(:(=), sym, rhs))
     end
 
