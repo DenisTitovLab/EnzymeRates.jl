@@ -3,6 +3,8 @@
 
 using OrdinaryDiffEqFIRK
 
+include("reference/allosteric_undefvar_reproducers.jl")
+
 # ── Helper functions ────────────────────────────────────────────────────────
 
 # ── Reference QSSA implementation ───────────────────────────────────────────
@@ -1185,6 +1187,84 @@ end
     for spec in MECHANISM_TEST_SPECS
         dep, indep = EnzymeRates._dependent_param_exprs(typeof(spec.mechanism))
         @test isempty(intersect(Set(keys(dep)), Set(indep)))
+    end
+end
+
+# Parameter-name symbols referenced on the RHS of a dependent-param expression
+# `x`, skipping the operator/function-name slot of a `:call` Expr (so `:+`,
+# `:*`, `:/`, `:^`, `:sqrt`, ... never appear as candidate parameter names).
+rhs_syms(x) = x isa Symbol ? [x] :
+    x isa Expr ? reduce(vcat, map(rhs_syms, x.head === :call ? x.args[2:end] : x.args);
+                         init=Symbol[]) :
+    Symbol[]
+
+"""
+The dependent-parameter graph for mechanism type `T` is sound iff (a) no
+symbol is both independent (fitted) and dependent, (b) the dep→dep
+dependency graph is acyclic, and (c) every dependent expression's RHS symbol
+is a fitted param, another dependent param, or `Keq`.
+"""
+function _dep_graph_is_sound(T)
+    dep, indep = EnzymeRates._dependent_param_exprs(T)
+    indepset = Set(indep)
+    isempty(intersect(indepset, keys(dep))) || return false
+
+    depset = Set(keys(dep))
+    edges = Dict(k => Symbol[s for s in rhs_syms(v) if s in depset] for (k, v) in dep)
+    state = Dict{Symbol, Int}()  # 0 = unseen, 1 = on-stack, 2 = done
+    ok = true
+    function dfs(n)
+        get(state, n, 0) == 2 && return
+        if get(state, n, 0) == 1
+            ok = false
+            return
+        end
+        state[n] = 1
+        for m in get(edges, n, Symbol[])
+            dfs(m)
+            ok || return
+        end
+        state[n] = 2
+    end
+    for k in keys(dep)
+        dfs(k)
+        ok || break
+    end
+    ok || return false
+
+    known = union(indepset, depset, Set([:Keq]))
+    for (_, v) in dep, s in rhs_syms(v)
+        s in known || return false
+    end
+    true
+end
+
+@testset "allosteric dependent-param graph is sound" begin
+    for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
+        @test _dep_graph_is_sound(T)
+    end
+    for spec in MECHANISM_TEST_SPECS
+        spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism || continue
+        @test _dep_graph_is_sound(typeof(spec.mechanism))
+    end
+end
+
+@testset "allosteric reproducers: rate_equation is callable" begin
+    # The dep/indep graph is not always sufficient: a dep expression can be
+    # structurally sound (acyclic, every RHS symbol defined) while the
+    # code-generated assignment order still leaves a forward reference
+    # unresolved, producing a runtime UndefVarError. This is the
+    # user-visible symptom for every reproducer, independent of which
+    # structural check above flags it.
+    for T in ALLOSTERIC_UNDEFVAR_REPRODUCERS
+        m = T()
+        pnames = EnzymeRates.fitted_params(m)
+        keys_out = (pnames..., :Keq, :E_total)
+        vals_out = (ntuple(_ -> 1.01, length(pnames))..., 20000.0, 1.0)
+        params = NamedTuple{keys_out}(vals_out)
+        mets = EnzymeRates.metabolites(m)
+        concs = NamedTuple{mets}(ntuple(_ -> 1.0, length(mets)))
+        @test_nowarn EnzymeRates.rate_equation(m, concs, params)
     end
 end
 
