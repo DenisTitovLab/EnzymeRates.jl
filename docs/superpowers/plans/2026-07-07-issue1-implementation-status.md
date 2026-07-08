@@ -83,6 +83,41 @@ mechanical; if you actually want all `:NonequalAI` splits free, then the current
 Phase 2 is already correct and only the re-baselines (edge-case params + `test_allosteric_collapse`
 assertions + golden) need updating.
 
+## Update — box/split constraints attempted (uncommitted, promising but not exact)
+
+Per Denis's decision, I implemented the box/split constraint rows in the combined solve
+(all uncommitted in `src/rate_eq_derivation.jl` and `src/thermodynamic_constr…jl`):
+
+- `_split_constraint_rows(am, col_index, n, indep_A)`: for each A-cycle and each *collapsible*
+  `:NonequalAI` group (all its A-state rate constants independent), a row `C_A·δα = 0`,
+  `δα = log(effK_I/effK_A)` (Kd for RE, koff/kon for SS), RHS 0. Stacked into the combined
+  matrix; I-column pivot priority bumped (+1) so a pinned split collapses `K_I` onto `K_A`.
+- `_solve_dependent_set`: `best_pri` init changed from `-1` to `typemin(Int)` so a
+  binding-only constraint (which a box row is) can pivot a binding column — catalytic columns
+  still dominate when present, so non-allosteric output is unchanged (verified indirectly).
+
+**Verified working:** all three reproducers fixed (callable, graph-sound); the forbidden-split
+edge case now collapses `K_I_S_E = K_A_S_E` with detailed balance restored (`|v| ≈ 2e-15` at
+equilibrium, was 3.7); the LDH i-state specs match HEAD (5-group → 7). **Zero oracle,
+equilibrium, or callable failures across the whole derivation file.**
+
+**Not exact:** 12 `test_constraint_counting` assertions fail — ~6 allosteric specs (e.g. `m_all`:
+indep 12→11) get a *different partition* than the tested `_split_resolution`. The equations stay
+thermodynamically consistent, but the box construction does not reproduce `_split_resolution`'s
+collapsible/SS-affinity-decomposition/multi-split-nullspace logic exactly, and the `best_pri`
+change reaches beyond the box rows. Making it exact is essentially re-implementing
+`_split_resolution`.
+
+**Two ways to finish (Denis's call):**
+1. **Refine the box rows** to match `_split_resolution` precisely — port its `collapsible`
+   affinity/speed decomposition (`_split_resolution` :1264-1301) and confine the `best_pri`
+   relaxation to the box rows only. Highest-fidelity to the "one solve" goal; most fiddly.
+2. **Hybrid (recommended for correctness/risk):** keep the combined A/I solve for the catalytic
+   partition, then reuse the *tested* `_collapse_mirror_exprs(am)` to move each forbidden split's
+   `K_I` from `indep` to `dep`. Exact by construction (matches HEAD), low-risk; keeps
+   `_split_resolution`/`_collapse_mirror_exprs` (less net deletion, but they compute a genuine
+   thing — the box collapse — not merge patchwork). Revert the `best_pri` change and box rows.
+
 ## Remaining tasks after the gap is resolved
 
 - Task 2.3: delete the now-dead chain — `_i_state_referenced_syms`, `_collapse_mirror_exprs`,
