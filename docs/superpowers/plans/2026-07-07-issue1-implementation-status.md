@@ -118,6 +118,45 @@ change reaches beyond the box rows. Making it exact is essentially re-implementi
    `_split_resolution`/`_collapse_mirror_exprs` (less net deletion, but they compute a genuine
    thing — the box collapse — not merge patchwork). Revert the `best_pri` change and box rows.
 
+## Update 2 — box refuted, hybrid attempted, both blocked on split reconciliation
+
+**Empirical double-check (Denis's ask): is box more correct than `_split_resolution`? No.**
+For the six specs where box's partition deviates, BOTH box and `_split_resolution` (HEAD) hold
+detailed balance, but the identifiability rank shows HEAD is closer to the true dimension on all
+six: on four specs HEAD is `count = rank` (fully identifiable) while box is one lower — box collapses
+a *genuinely identifiable* differential-affinity/cooperativity DOF. So `_split_resolution` is more
+correct; box over-collapses honorable splits (it pins any split with a cycle incidence, missing the
+multiplicity/nullspace structure `_split_resolution` computes). Evidence: `scratchpad/rank6.jl`,
+`thoro_eq.jl`.
+
+**Hybrid attempted (combined solve + `_collapse_mirror_exprs`), UNCOMMITTED in the tree — INCOMPLETE,
+DO NOT COMMIT AS-IS.** It fixes the MWC honorable splits (match HEAD) and gets the derivation file to
+1800/1802, but it is **thermodynamically wrong for reproducers [2] and [3]**: they are callable yet
+violate detailed balance (|v| ≈ 0.14, 0.08 at `Q = Keq`; `scratchpad/repro_eq.jl`). Root cause: for a
+forbidden `:NonequalAI` split whose **I-cycle is live**, the combined solve's I-row already pins one
+side of the split (e.g. `koff_A = f(koff_I)`), while `_collapse_mirror_exprs` pins the other
+(`koff_I = f(koff_A)`) — the two disagree. Applying the mirror is circular ([3]) or mis-ordered ([2]);
+skipping it (the `_expr_references_any` decoupling filter now in the tree) leaves the forbidden split
+free → detailed balance broken. Neither is correct.
+
+**The real blocker:** correctly partitioning allosteric affinity splits (honorable-free vs
+forbidden-collapsed, over multiplicity-weighted nullspaces) is exactly `_split_resolution`'s job, and it
+is entangled with the old per-state merge. Re-deriving it (box) over-collapses; bolting it onto the
+combined solve (hybrid) conflicts with the I-row pinning.
+
+**Most promising next direction (untried):** make the combined solve pin the *I-side* of a live-cycle
+split (bump I-column pivot priority in `_combined_state_dependent_exprs` — NOT the box rows, NOT the
+`best_pri` change), so its choice agrees with the mirror direction (`K_I`/`koff_I` dependent); then
+`_collapse_mirror_exprs` only needs to handle *dead*-I-cycle forbidden splits, and a topological sort
+in `_build_dep_assignments` covers the remaining mirror→dep ordering. If that reconciles [2]/[3]'s
+detailed balance while keeping MWC honorable splits free, the hybrid is complete.
+
+**Recommendation:** given how entangled the split logic is, the lowest-risk path to a *correct* Issue-1
+fix may be to keep the tested `_split_resolution`/`_collapse_mirror_exprs` verbatim and fix ONLY the
+three merge/S_I defects surgically (the original targeted-guard option from the spec, which a subagent
+verified fixes 20/23), rather than the full combined-solve rewrite. The rewrite is elegant but the
+affinity-split reconciliation is the hard 20%.
+
 ## Remaining tasks after the gap is resolved
 
 - Task 2.3: delete the now-dead chain — `_i_state_referenced_syms`, `_collapse_mirror_exprs`,
