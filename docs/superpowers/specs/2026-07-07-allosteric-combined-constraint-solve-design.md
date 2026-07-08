@@ -31,6 +31,14 @@ net-negative in lines, the rewrite has drifted back toward patching and should b
 reconsidered. Correctness comes from the single solve being unable to express the failure
 (no circular or undefined dependent is representable), not from new checks layered on top.
 
+"Net code removed" counts **logic**, not documentation. The measure is executable code —
+the branching, the guards, the reconciliation passes — not comments or docstrings. The
+combined solve must stay very well documented: the assembly and priority scheme, and above
+all *why* stacking the A-state and I-state cycle rows makes the cross-state ties emerge
+(the `I-row − A-row` cancellation), deserve thorough docstrings and comments. Deleting
+patchwork logic while keeping — and where useful, improving — the surrounding
+documentation is the target; stripping comments to shrink the diff is not.
+
 ## Background: the bug
 
 The v0.1.6 LDH HPC run errored on ~6.6% of children (10,180 rows across 17 iterations),
