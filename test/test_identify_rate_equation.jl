@@ -1063,7 +1063,7 @@ end
         @test !isdir(ghost)
     end
 
-    # _batch_summary reports the four reconciling buckets with the right
+    # _batch_summary reports the five reconciling buckets with the right
     # success/non-Success denominator.
     mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
         substrates: S[C]; products: P[C] end))
@@ -1073,8 +1073,11 @@ end
     e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
-    s = EnzymeRates._batch_summary([e_succ, e_mt], [f]; n_skipped=4, max_param_count=8)
-    @test occursin("2 new fits + 0 inherited + 4 skipped (>8 params) + 1 errored", s)
+    s = EnzymeRates._batch_summary([e_succ, e_mt], [f];
+        n_param_skipped=4, n_complexity_skipped=2,
+        max_param_count=8, eq_complexity_filter=336)
+    @test occursin("2 new fits + 0 inherited + 4 skipped (>8 params) + " *
+                   "2 skipped (>336 complexity) + 1 errored", s)
     @test occursin("Success 50.0%", s)                 # 1 of 2 fitted
     @test occursin("non-Success retcode 50.0%", s)     # e_mt is :MaxTime
     @test !occursin("best loss", s)                    # best loss moved to its own line
@@ -1134,6 +1137,64 @@ end
     @test !isempty(fail_failures)
     @test all(f -> f isa EnzymeRates.FitFailure, fail_failures)
     @test all(f -> !isempty(f.error), fail_failures)
+end
+
+@testset "eq_complexity_filter skips complex mechanisms + counts them" begin
+    rxn = @enzyme_reaction begin
+        substrates: S1[C2H4], S2[C2H2]
+        products:   P1[C2H2], P2[C2H4]
+    end
+    data = DataFrame(
+        S1 = [1.0, 2.0, 1.0, 2.0], S2 = [1.0, 1.0, 2.0, 2.0],
+        P1 = [0.1, 0.2, 0.1, 0.2], P2 = [0.1, 0.1, 0.2, 0.2],
+        Rate = [0.5, 0.8, 0.9, 1.1], group = [1, 1, 2, 2])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+    ordered = @enzyme_mechanism begin            # V×τ = 25
+        substrates: S1, S2
+        products:   P1, P2
+        steps: begin
+            E + S1 <--> E(S1)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S1, S2) <--> E(P1, P2)
+            E(P1, P2) <--> E(P1) + P2
+            E(P1) <--> E + P1
+        end
+    end
+    random = @enzyme_mechanism begin             # V×τ = 336
+        substrates: S1, S2
+        products:   P1, P2
+        steps: begin
+            E + S1 <--> E(S1)
+            E + S2 <--> E(S2)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S2) + S1 <--> E(S1, S2)
+            E(S1, S2) <--> E(P1, P2)
+            E(P1, P2) <--> E(P1) + P2
+            E(P1, P2) <--> E(P2) + P1
+            E(P1) <--> E + P1
+            E(P2) <--> E + P2
+        end
+    end
+    batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+        EnzymeRates.Mechanism(ordered), EnzymeRates.Mechanism(random)]
+
+    # Filter between the two: the random-order bi-bi (336) is skipped BEFORE
+    # fitting and counted as a complexity skip; the ordered bi-bi (25) reaches
+    # fitting. Skip counts are reported separately from param-count skips.
+    entries, failures, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
+        batch, prob; optimizer=CMAEvolutionStrategyOpt(),
+        max_param_count=20, eq_complexity_filter=100, n_restarts=1, maxtime=1.0)
+    @test n_cx_skip == 1
+    @test n_param_skip == 0
+    @test length(entries) + length(failures) == 1   # random skipped; ordered reached fitting
+    @test all(e -> EnzymeRates._eq_complexity(e.mech) <= 100, entries)
+
+    # Default (no cap) fits both; nothing is a complexity skip.
+    e2, f2, _, cx2 = EnzymeRates._process_batch(
+        batch, prob; optimizer=CMAEvolutionStrategyOpt(),
+        max_param_count=20, n_restarts=1, maxtime=1.0)
+    @test cx2 == 0
+    @test length(e2) + length(f2) == 2
 end
 
 @testset "_ingest! and cv pool" begin
@@ -1204,7 +1265,7 @@ end
         max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
         save_dir=tmp)
     log_text = read(joinpath(tmp, "progress.log"), String)
-    @test occursin(r"all \d+ skipped \(>3 params\)", log_text)
+    @test occursin(r"all skipped \(\d+ >3 params, \d+ >336 complexity\)", log_text)
     # The all-skip batch produced no rows, so no iteration CSV was written.
     @test !any(startswith(f, "equation_search_iteration_") for f in readdir(tmp))
 end
