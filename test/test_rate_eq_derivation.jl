@@ -1585,8 +1585,9 @@ end
 end
 
 @testset "Rate equation too large error" begin
-    # Manually defined mechanism (11 forms, 16 steps, ~29k terms)
-    # triggers the post-hoc check in _raw_symbolic_rate_polys.
+    # Manually defined mechanism (11 forms, 16 steps; V×τ ≈ 29k denominator
+    # terms) exceeds MAX_RATE_EQUATION_TERMS, so the upfront V×τ check
+    # (_assert_derivable) aborts the derivation before it builds the polynomial.
     m_manual = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1615,9 +1616,9 @@ end
     # A directly-constructed random Bi-Bi with an R1 dead-end that binds
     # the free enzyme AND every catalytic form, so each `E(X, R1)` form is
     # reachable two ways (`E(R1)+X` and `E(X)+R1`). Those cycles multiply
-    # the King-Altman spanning-tree count past MAX_RATE_EQUATION_TERMS, so
-    # the all-SS derivation aborts inside `sym_det`. Built directly rather
-    # than enumerated so the guard is exercised deterministically.
+    # the King-Altman spanning-tree count (V×τ) past MAX_RATE_EQUATION_TERMS,
+    # so `_assert_derivable` aborts the derivation before `sym_det` runs. Built
+    # directly rather than enumerated so the guard is exercised deterministically.
     m_cyclic = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q

@@ -1197,6 +1197,51 @@ end
     @test length(e2) + length(f2) == 2
 end
 
+@testset "derivation guard (filter > MAX_RATE_EQUATION_TERMS) → FitFailure, not crash" begin
+    # A random-order ter-ter is far above MAX_RATE_EQUATION_TERMS (V×τ ≈ 5.9M).
+    # With eq_complexity_filter raised above it, it is NOT complexity-skipped, so
+    # it reaches derivation — where the MAX_RATE_EQUATION_TERMS guard aborts it.
+    # That error must be caught and recorded as a FitFailure (→ CSV), never fatal.
+    rxn = @enzyme_reaction begin
+        substrates: S1[C2H4], S2[C2H2], S3[C2]
+        products:   P1[C2H2], P2[C2H4], P3[C2]
+    end
+    data = DataFrame(
+        S1 = [1.0, 2.0], S2 = [1.0, 2.0], S3 = [1.0, 2.0],
+        P1 = [0.1, 0.2], P2 = [0.1, 0.2], P3 = [0.1, 0.2],
+        Rate = [0.5, 0.8], group = [1, 2])
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0)
+    random_terter = @enzyme_mechanism begin
+        substrates: S1, S2, S3
+        products:   P1, P2, P3
+        steps: begin
+            E + S1 <--> E(S1); E + S2 <--> E(S2); E + S3 <--> E(S3)
+            E(S1) + S2 <--> E(S1, S2); E(S1) + S3 <--> E(S1, S3); E(S2) + S1 <--> E(S1, S2)
+            E(S2) + S3 <--> E(S2, S3); E(S3) + S1 <--> E(S1, S3); E(S3) + S2 <--> E(S2, S3)
+            E(S1, S2) + S3 <--> E(S1, S2, S3); E(S1, S3) + S2 <--> E(S1, S2, S3)
+            E(S2, S3) + S1 <--> E(S1, S2, S3); E(S1, S2, S3) <--> E(P1, P2, P3)
+            E(P1, P2, P3) <--> E(P1, P2) + P3; E(P1, P2, P3) <--> E(P1, P3) + P2
+            E(P1, P2, P3) <--> E(P2, P3) + P1; E(P1, P2) <--> E(P1) + P2
+            E(P1, P2) <--> E(P2) + P1; E(P1, P3) <--> E(P1) + P3
+            E(P1, P3) <--> E(P3) + P1; E(P2, P3) <--> E(P2) + P3
+            E(P2, P3) <--> E(P3) + P2; E(P1) <--> E + P1
+            E(P2) <--> E + P2; E(P3) <--> E + P3
+        end
+    end
+    @test EnzymeRates._eq_complexity(EnzymeRates.Mechanism(random_terter)) >
+          EnzymeRates.MAX_RATE_EQUATION_TERMS
+    batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+        EnzymeRates.Mechanism(random_terter)]
+    entries, failures, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
+        batch, prob; optimizer=CMAEvolutionStrategyOpt(),
+        max_param_count=100, eq_complexity_filter=typemax(Int),
+        n_restarts=1, maxtime=1.0)
+    @test n_cx_skip == 0                     # NOT complexity-skipped (filter above V×τ)
+    @test isempty(entries)                   # never fit
+    @test length(failures) == 1              # recorded, not a crash
+    @test occursin("polynomial terms", failures[1].error)
+end
+
 @testset "_ingest! and cv pool" begin
     mk(n, loss, h) = EnzymeRates.BatchEntry(
         first(EnzymeRates.init_mechanisms(@enzyme_reaction begin

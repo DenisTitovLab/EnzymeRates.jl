@@ -388,6 +388,7 @@ end
 
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
     mech = Mechanism(M())
+    _assert_derivable(mech)
     step_params = _step_parameters(mech)
     rename_map = _build_wegscheider_rename_map(M)
     # substrates(::EnzymeReaction) returns Vector{Substrate} (concrete metabolite
@@ -407,9 +408,11 @@ catalytic segment graph WITHOUT deriving the rate equation.
 spanning-tree count of the segment graph, whose edges are the SS steps, via an
 exact integer Matrix–Tree determinant. `V×τ` equals the number of spanning-tree
 products in the denominator — the products the compiled equation evaluates on
-every call — so it bounds fit cost. This is a pre-derivation, allocation-cheap
-counterpart to the post-hoc `MAX_RATE_EQUATION_TERMS` check in `sym_det`; see the
-`eq_complexity_filter` keyword of [`identify_rate_equation`](@ref).
+every call — so it bounds fit cost. It guards the derivation itself
+(`_assert_derivable` aborts when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before the
+O(G!) symbolic cofactor expansion) and backs the `eq_complexity_filter` keyword
+of [`identify_rate_equation`](@ref), which skips over-complex mechanisms before
+fitting.
 """
 _eq_complexity(m::Mechanism) = _segment_graph_terms(m)
 _eq_complexity(m::AllostericMechanism) = _segment_graph_terms(_state_mechanism(m, :A))
@@ -466,6 +469,21 @@ function _bareiss_det(M::Matrix{BigInt})
         prev = M[k, k]
     end
     sgn * M[n, n]
+end
+
+"""
+Abort the rate-equation derivation for a mechanism whose denominator term count
+(V×τ) exceeds `MAX_RATE_EQUATION_TERMS`. Called at each num/den derivation entry
+point, before the O(G!) symbolic cofactor expansion in `sym_det` — a numeric
+O(G³) check that errors quickly instead of hanging on the factorial expansion.
+"""
+function _assert_derivable(mech::Mechanism)
+    _eq_complexity(mech) > MAX_RATE_EQUATION_TERMS && error(
+        "Rate equation for this mechanism has more than $MAX_RATE_EQUATION_TERMS " *
+        "polynomial terms (limit: $MAX_RATE_EQUATION_TERMS). Equations this large " *
+        "take a very long time to compile and are unlikely to be practically " *
+        "useful for parameter fitting.")
+    return nothing
 end
 
 """
@@ -1229,6 +1247,7 @@ solve's dependent assignment (`_build_dep_assignments`).
 """
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     cm = _state_mechanism(am, state)
+    _assert_derivable(cm)
     sp = _state_step_params(am, state)
     @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
     subs_syms = Symbol[name(s) for s in substrates(reaction(am))]
