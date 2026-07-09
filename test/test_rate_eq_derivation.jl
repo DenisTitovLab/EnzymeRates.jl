@@ -1519,6 +1519,71 @@ end
     @test occursin("ambiguous central-complex cut", err.msg)
 end
 
+@testset "_eq_complexity (V×τ term-count estimate)" begin
+    raw(m) = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
+    # V×τ = the King–Altman denominator term count, computed pre-derivation from
+    # the catalytic segment graph. Values are the exact denominator product counts.
+    ordered_bibi = @enzyme_mechanism begin
+        substrates: S1, S2
+        products: P1, P2
+        steps: begin
+            E + S1 <--> E(S1)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S1, S2) <--> E(P1, P2)
+            E(P1, P2) <--> E(P1) + P2
+            E(P1) <--> E + P1
+        end
+    end
+    @test EnzymeRates._eq_complexity(raw(ordered_bibi)) == 25
+
+    random_bibi = @enzyme_mechanism begin
+        substrates: S1, S2
+        products: P1, P2
+        steps: begin
+            E + S1 <--> E(S1)
+            E + S2 <--> E(S2)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S2) + S1 <--> E(S1, S2)
+            E(S1, S2) <--> E(P1, P2)
+            E(P1, P2) <--> E(P1) + P2
+            E(P1, P2) <--> E(P2) + P1
+            E(P1) <--> E + P1
+            E(P2) <--> E + P2
+        end
+    end
+    @test EnzymeRates._eq_complexity(raw(random_bibi)) == 336
+
+    ordered_terter = @enzyme_mechanism begin
+        substrates: S1, S2, S3
+        products: P1, P2, P3
+        steps: begin
+            E + S1 <--> E(S1)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S1, S2) + S3 <--> E(S1, S2, S3)
+            E(S1, S2, S3) <--> E(P1, P2, P3)
+            E(P1, P2, P3) <--> E(P1, P2) + P3
+            E(P1, P2) <--> E(P1) + P2
+            E(P1) <--> E + P1
+        end
+    end
+    @test EnzymeRates._eq_complexity(raw(ordered_terter)) == 49
+
+    # Allosteric: computed on the catalytic core, so it equals the catalytic V×τ
+    # (an all-SS uni-uni: G = 3 segments, τ = 3 spanning trees ⇒ 9).
+    allo = @allosteric_mechanism begin
+        substrates: F6P
+        products: F16BP
+        catalytic_multiplicity: 2
+        allosteric_regulators: I::OnlyI
+        catalytic_steps: begin
+            E + F6P <--> E(F6P)      :: EqualAI
+            E(F6P) <--> E(F16BP)     :: EqualAI
+            E(F16BP) <--> E + F16BP  :: EqualAI
+        end
+    end
+    @test EnzymeRates._eq_complexity(EnzymeRates.AllostericMechanism(allo)) == 9
+end
+
 @testset "Rate equation too large error" begin
     # Manually defined mechanism (11 forms, 16 steps, ~29k terms)
     # triggers the post-hoc check in _raw_symbolic_rate_polys.

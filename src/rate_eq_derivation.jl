@@ -400,6 +400,75 @@ function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
 end
 
 """
+Estimate a mechanism's King–Altman denominator term count, V×τ, from its
+catalytic segment graph WITHOUT deriving the rate equation.
+
+`V` is the number of RE-connected segments (`_compute_re_groups`); `τ` is the
+spanning-tree count of the segment graph, whose edges are the SS steps, via an
+exact integer Matrix–Tree determinant. `V×τ` equals the number of spanning-tree
+products in the denominator — the products the compiled equation evaluates on
+every call — so it bounds fit cost. This is a pre-derivation, allocation-cheap
+counterpart to the post-hoc `MAX_RATE_EQUATION_TERMS` check in `sym_det`; see the
+`eq_complexity_filter` keyword of [`identify_rate_equation`](@ref).
+"""
+_eq_complexity(m::Mechanism) = _segment_graph_terms(m)
+_eq_complexity(m::AllostericMechanism) = _segment_graph_terms(_state_mechanism(m, :A))
+
+function _segment_graph_terms(mech::Mechanism)
+    enz_species, groups, form_to_group = _compute_re_groups(mech)
+    G = length(groups)
+    G <= 1 && return big(G)                          # single RE segment ⇒ τ = 1
+    enz_name_to_form = Dict{Symbol, Int}(
+        name(es) => i for (i, es) in enumerate(enz_species))
+    A = zeros(Int, G, G)
+    for (s, _) in _flat_steps(mech)
+        is_equilibrium(s) && continue                # SS steps are the segment-graph edges
+        e_lhs, e_rhs, _, _ = _step_sides(s)
+        g1 = form_to_group[enz_name_to_form[e_lhs]]
+        g2 = form_to_group[enz_name_to_form[e_rhs]]
+        g1 == g2 && continue
+        A[g1, g2] += 1; A[g2, g1] += 1
+    end
+    G * _spanning_tree_count(A)
+end
+
+"""
+Spanning-tree count of an undirected multigraph given its integer adjacency
+matrix (Matrix–Tree theorem: the exact integer cofactor determinant of the graph
+Laplacian, dropping the first row and column).
+"""
+function _spanning_tree_count(A::Matrix{Int})
+    G = size(A, 1)
+    G <= 1 && return big(1)
+    L = Matrix{BigInt}(undef, G - 1, G - 1)          # Laplacian minor (drop node 1)
+    for i in 2:G, j in 2:G
+        L[i - 1, j - 1] = i == j ? big(sum(@view A[i, :])) : big(-A[i, j])
+    end
+    _bareiss_det(L)
+end
+
+"""Exact integer determinant via the fraction-free Bareiss algorithm."""
+function _bareiss_det(M::Matrix{BigInt})
+    n = size(M, 1)
+    n == 0 && return big(1)
+    M = copy(M); prev = big(1); sgn = 1
+    for k in 1:(n - 1)
+        if iszero(M[k, k])
+            p = findfirst(i -> !iszero(M[i, k]), (k + 1):n)
+            p === nothing && return big(0)
+            r = k + p
+            for c in 1:n; M[k, c], M[r, c] = M[r, c], M[k, c]; end
+            sgn = -sgn
+        end
+        for i in (k + 1):n, j in (k + 1):n
+            M[i, j] = (M[i, j] * M[k, k] - M[i, k] * M[k, j]) ÷ prev
+        end
+        prev = M[k, k]
+    end
+    sgn * M[n, n]
+end
+
+"""
 Numerator = net flux across one complete steady-state reaction-cut. Each
 per-turnover-conserved "event" is a candidate cut whose SS-step fluxes sum to v:
 metabolite cuts (bind a substrate / release a product / iso-convert a substrate /
