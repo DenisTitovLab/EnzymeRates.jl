@@ -300,10 +300,13 @@ Assemble the rational thermodynamic-constraint system for `mech`. Returns
 `(A, rhs, columns, priority)`: `A` is the constraint matrix (rows = independent
 Wegscheider/Haldane cycles, columns = parameters in `all_params` order), `rhs`
 the per-row `log(Keq)` exponent, `columns` the ordered parameter symbols, and
-`priority` the per-column pivot preference (internal isomerizations > metabolite
-steps > free-enzyme binding — higher scores are eliminated first, i.e. become
-dependent). `_solve_dependent_set` consumes this. Split out from the kernel so
-the allosteric derivation can stack per-state systems and reuse one solver.
+`priority` the per-column pivot preference as an `(is_i_state, type)` tuple —
+lexicographic, so an I-state column (`is_i_state = true`, set via the
+`is_i_state` kwarg) always outranks an A-state/non-allosteric one, and within a
+state `type` orders internal isomerizations > metabolite steps > free-enzyme
+binding (higher scores are eliminated first, i.e. become dependent).
+`_solve_dependent_set` consumes this. Split out from the kernel so the
+allosteric derivation can stack per-state systems and reuse one solver.
 
 Binding K's are Kd in the polynomial while cycle products use 1/Kd, so binding-K
 column entries carry a sign flip on top of the cycle incidence. Non-representative
