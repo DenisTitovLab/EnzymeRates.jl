@@ -128,7 +128,7 @@ and data using beam search.
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
 - `n_restarts::Int = 20`: multi-start restarts per fit
-- `maxtime::Real = 60.0`: max time per fit (seconds; common solver
+- `maxtime::Real = 600.0`: max time per fit (seconds; common solver
   option, forwarded to `Optimization.solve`)
 - `maxiters::Integer = 10_000_000`: max iterations per optimizer run
   (common solver option, forwarded to `Optimization.solve`)
@@ -206,7 +206,7 @@ function identify_rate_equation(
     # Fitting
     optimizer,
     n_restarts::Int = 20,
-    maxtime::Real = 60.0,
+    maxtime::Real = 600.0,
     maxiters::Integer = 10_000_000,
     abstol::Union{Real,Nothing} = nothing,
     reltol::Union{Real,Nothing} = nothing,
