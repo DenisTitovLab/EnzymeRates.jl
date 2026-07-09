@@ -316,6 +316,7 @@ function _assemble_constraints(
     rename::AbstractDict{Symbol, Symbol};
     step_params = _step_parameters(mech),
     all_params = _raw_param_symbols(mech),
+    is_i_state::Bool = false,
 )
     flat = _flat_steps(mech)
     free_enz_set = _free_enz_set(mech)
@@ -352,18 +353,22 @@ function _assemble_constraints(
         end
     end
 
-    priority = zeros(Int, n_vars)
+    # Pivot priority: (is_I_state, type_priority). Lexicographic — an I-state column
+    # outranks any A-state / non-allosteric column, so a cross-state affinity split
+    # collapses onto the free A-side; within a state the `_step_priority` order holds.
+    # No value is a never-pivot sentinel (that lives only in `_solve_dependent_set`).
+    priority = fill((is_i_state, 0), n_vars)
     for j in 1:nsteps
         step = step_params[j][1].step
         base = _step_priority(step, free_enz_set)
         if is_equilibrium(flat[j][1])
             s = step_name(step_params[j][1])
-            haskey(sym_col, s) && (priority[sym_col[s]] = base)
+            haskey(sym_col, s) && (priority[sym_col[s]] = (is_i_state, base))
         else
             for (offset, p) in enumerate(step_params[j])
                 s = step_name(p)
                 haskey(sym_col, s) &&
-                    (priority[sym_col[s]] = base + offset - 1)
+                    (priority[sym_col[s]] = (is_i_state, base + offset - 1))
             end
         end
     end
@@ -384,7 +389,7 @@ function _solve_dependent_set(
     A::AbstractMatrix{Rational{BigInt}},
     rhs::AbstractVector{Rational{BigInt}},
     columns::AbstractVector{Symbol},
-    priority::AbstractVector{<:Integer},
+    priority::AbstractVector{Tuple{Bool, Int}},
 )
     nc = size(A, 1)
     n_vars = length(columns)
@@ -393,7 +398,7 @@ function _solve_dependent_set(
     pivot_col_set = Set{Int}()
     wA, wrhs = copy(A), copy(rhs)
     for i in 1:nc
-        best_col, best_pri = 0, -1
+        best_col, best_pri = 0, (false, typemin(Int))
         for c in 1:n_vars
             c in pivot_col_set && continue
             wA[i, c] == 0 && continue
