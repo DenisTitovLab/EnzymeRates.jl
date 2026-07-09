@@ -159,5 +159,20 @@ end
         v=real(ER.rate_equation(cem,ec,prm))         # must not throw UndefVarError
         @test isfinite(v); @test abs(v) < 1e-8
     end
+
+    @testset "dead-I NonequalAI binding -> K_I identifiable, NOT collapsed" begin
+        # I state cannot turn over (OnlyA catalysis) but binds S with its own
+        # affinity: K_A_S_E and K_I_S_E are BOTH identifiable (a dead-end E_I·S is
+        # in no cycle, so nothing pins K_I to K_A). HEAD over-collapses this.
+        am = uni([:NonequalAI, :OnlyA, :EqualAI])
+        fp, v, veq = evalrate(am)
+        @test isfinite(v); @test abs(veq) < 1e-8
+        @test :K_I_S_E in fp                          # NOT collapsed
+        v1 = evalrate(am; split=(:K_I_S_E, 1.3))[2]
+        v2 = evalrate(am; split=(:K_I_S_E, 5.0))[2]
+        @test !isapprox(v1, v2)                       # identifiable (moves the rate)
+        s = replace(ER.rate_equation_string(am), " " => "")
+        @test !occursin("K_I_S_E=K_A_S_E", s)         # no collapse mirror
+    end
 end
 end # module
