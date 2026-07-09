@@ -2474,8 +2474,8 @@ function build_mechanism_test_specs()
         end),
         metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
         expected_n_states=7, expected_n_steps=9, expected_n_metabolites=4,
-        expected_n_haldane_constraints=1, expected_n_mirror_constraints=1,
-        expected_n_wegscheider_constraints=0, expected_n_independent_params=7,
+        expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
+        expected_n_wegscheider_constraints=0, expected_n_independent_params=8,
         run_ode_test=false))
 
     push!(specs, MechanismTestSpec(
@@ -2500,7 +2500,7 @@ function build_mechanism_test_specs()
         metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
         expected_n_states=8, expected_n_steps=10, expected_n_metabolites=4,
         expected_n_haldane_constraints=1, expected_n_mirror_constraints=0,
-        expected_n_wegscheider_constraints=1, expected_n_independent_params=7,
+        expected_n_wegscheider_constraints=2, expected_n_independent_params=8,
         run_ode_test=false))
 
     return specs

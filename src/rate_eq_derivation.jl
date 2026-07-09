@@ -882,7 +882,9 @@ so this carries no `catalytic_multiplicity` factor.
 
     a_assignments, i_assignments_ = _build_dep_assignments(M_type)
     # Keep inactive-state assignments unconditionally: B_I references them, and
-    # deps touching an :OnlyA symbol are already zeroed in _build_dep_assignments.
+    # every I-state dependent the combined solve emits is expressed purely in
+    # already-solved columns (independent params or other dependents), so
+    # nothing is left undefined.
     i_assignments = i_assignments_
     _, indep = _dependent_param_exprs(M_type)
     hw_params = (indep..., :Keq)
@@ -1027,11 +1029,10 @@ end
 The native I-state catalytic numerator polynomial is empty (zero): the
 reachable-form-pruned I-graph of a broken cycle has no steady-state cut, so
 `_compute_numerator(allow_dead=true)` returns `poly_zero()` natively — no forced
-zero. It decides, at all three consumer sites (`_allosteric_num_den_exprs`,
-`_i_state_referenced_syms`, `_kcat_forward`), whether the `L·num_I` term is
-emitted, whether `num_I`'s symbols are defined, and whether `kcat` carries the
-I-state term. A live redundant-path `:OnlyA` mechanism (num_I ≠ 0) is thereby
-handled consistently.
+zero. It decides, at both consumer sites (`_allosteric_num_den_exprs` and
+`_kcat_forward`), whether the `L·num_I` term is emitted and whether `kcat`
+carries the I-state term. A live redundant-path `:OnlyA` mechanism (num_I ≠ 0)
+is thereby handled consistently.
 """
 _i_state_num_zero(am::AllostericMechanism) =
     isempty(first(_state_rate_polys(am, :I)))
@@ -1154,8 +1155,8 @@ Derive `(num_poly, den_poly)` for `am`'s catalytic mechanism in conformational
 engine on the state-tagged `step_params` and state graph, so no post-hoc rename
 is needed (`:EqualAI` groups render the shared bare Symbol automatically). The
 `:I` polynomials reference each `:NonequalAI` group's native `K_I_…`/`k_I_…`
-symbol; a forbidden split's `K_I_…` is defined by the collapse mirror the
-dep-assignment preamble emits (`_collapse_mirror_exprs`).
+symbol; a forbidden split's `K_I_…` is defined by the combined constraint
+solve's dependent assignment (`_build_dep_assignments`).
 """
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     cm = _state_mechanism(am, state)
@@ -1220,192 +1221,6 @@ function _state_wegscheider_rename_map(am::AllostericMechanism, state::Symbol)
         end
     end
     rename
-end
-
-"""
-Native per-state Haldane/Wegscheider dependent-parameter expressions from the
-shared kernel, in that state's parameter names. Runs the
-kernel under the state-tagged `step_params`/`all_params` with
-`_state_wegscheider_rename_map` so a fully-RE catalytic binding-K Wegscheider tie
-is collapsed natively (the same absorption the non-allosteric
-`_dependent_param_exprs(CM)` wrapper applies). Absorbed symbols are filtered from
-`indep` (they no longer appear in `v` and must not be fittable dummies). Empty
-rename for all current specs (catalysis is steady-state), so byte-identical
-there.
-"""
-function _state_raw_dependent_exprs(am::AllostericMechanism, state::Symbol)
-    cm = _state_mechanism(am, state)
-    sp = _state_step_params(am, state)
-    @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
-    rename = _state_wegscheider_rename_map(am, state)
-    dep, indep = _dependent_param_exprs_kernel(cm, rename;
-                                               step_params = sp,
-                                               all_params = _state_all_params(cm, sp))
-    indep = Tuple(p for p in indep if get(rename, p, p) == p)
-    dep, indep
-end
-
-"""
-Honorable-split partition of an `AllostericMechanism`'s `:NonequalAI` catalytic
-groups. `free` holds the group indices (into `steps(am)`) whose `K_A`/`K_I`
-split stays a genuine degree of freedom; `derived` holds `g => [f => a, …]`,
-meaning group `g`'s split is fixed by the free splits as
-`δ_g = Σ aᵢ·δ_{fᵢ}` (i.e. `K_I_g = K_A_g·∏(K_I_{fᵢ}/K_A_{fᵢ})^{aᵢ}`); an empty
-term list means `K_I_g = K_A_g` (full collapse).
-"""
-struct SplitResolution
-    free::Vector{Int}
-    derived::Vector{Pair{Int, Vector{Pair{Int, Int}}}}
-end
-
-"""
-Resolve which `:NonequalAI` binding affinities are honorable and which collapse.
-
-Every reversible step carries two independent quantities: an *affinity*
-(`Kd`, or `kon/koff` for a steady-state binding) that thermodynamic cycles
-constrain, and — for a steady-state step — a *speed* (`kon·koff`) that no cycle
-constrains and is therefore always free. Each cycle imposes `Σ_g c_g·δα_g = 0`
-on the per-group affinity splits `δα_g` (the equilibrium-constant contribution
-cancels between the two conformations). Pinning `:EqualAI` groups to `δα = 0`
-restricts the honorable affinity splits to `nullspace(C[:, collapsible])`.
-
-The collapsible affinities are keyed on the *base thermodynamic free/derived
-partition* (`indep_A`), NOT on step type: a group contributes a collapsible
-affinity column iff it has an independent affinity — a rapid-equilibrium `Kd`,
-or a steady-state binding whose forward AND reverse rate constants are both
-independent (a non-pivot binding). A steady-state group with only one
-independent rate constant (its reverse is a derived cycle pivot — every
-catalytic step, and any binding chosen as a Wegscheider pivot) has its affinity
-already absorbed; its split is always free. Those absorbed columns are ordered
-first so they eliminate before the collapsible columns partition, so a derived
-relation references only free collapsible affinities. A steady-state binding's
-speed split is always free regardless — only its affinity can collapse.
-"""
-function _split_resolution(am::AllostericMechanism)
-    N = [g for g in 1:length(steps(am)) if cat_allo_state(am, g) === :NonequalAI]
-    isempty(N) && return SplitResolution(Int[], Pair{Int, Vector{Pair{Int, Int}}}[])
-
-    _, indep_A = _state_dependent_exprs(am, :A)
-    indep = Set(indep_A)
-    fes = _free_enz_set(am)
-    params(g) = _emit_cat_params_for_rep(_group_rep(steps(am)[g], fes), :A)
-    nfree(g) = count(p -> name(p, am) in indep, params(g))
-    # A group's affinity is collapsible iff ALL its rate constants are independent
-    # — a rapid-equilibrium `Kd`, or a 2-free steady-state binding. If any constant
-    # is a derived cycle pivot (a catalytic reverse, OR an RE/SS binding chosen as
-    # a Wegscheider pivot), that derived constant already absorbs the affinity, so
-    # the split is always free. Keying on `indep_A` (not step type) is load-bearing:
-    # a `:NonequalAI` binding that is a box pivot is structurally identical to a
-    # catalytic step and must be absorbed, else its collapse mirror and its native
-    # Wegscheider dependent reference each other (circular ⇒ UndefVarError).
-    collapsible = Dict(g => nfree(g) == length(params(g)) for g in N)
-    Ncol = Dict(g => k for (k, g) in enumerate(N))
-
-    # Per-group affinity-constraint matrix over the `:NonequalAI` columns: each
-    # group's column is its thermodynamic cycle incidence, used directly.
-    # `_thermodynamic_constraints` already renders every step's equilibrium
-    # constant in one consistent convention, so no per-type sign flip is applied
-    # — flipping RE columns but not SS desynchronizes the two and inverts the
-    # coupling coefficient of a mixed RE/SS coupled collapse (nonzero eq flux).
-    cm = _state_mechanism(am, :A)
-    @assert steps(cm) == steps(am) "state-:A mechanism must preserve group order"
-    C, _ = _thermodynamic_constraints(cm)
-    nc = size(C, 1)
-    M = zeros(Int, nc, length(N))
-    for (j, (s, g)) in enumerate(_flat_steps(cm))
-        haskey(Ncol, g) || continue
-        k = Ncol[g]
-        for i in 1:nc
-            M[i, k] += C[i, j]
-        end
-    end
-
-    # Eliminate the absorbed (always-free) affinities first, then partition the
-    # collapsible columns.
-    absorb_locals = [k for k in 1:length(N) if !collapsible[N[k]]]
-    coll_locals = [k for k in 1:length(N) if collapsible[N[k]]]
-    perm = vcat(absorb_locals, coll_locals)
-    pivot_cols, free_cols, R = _rref_partition(M[:, perm])
-
-    # Absorbed groups are always free; collapsible free-columns keep their split.
-    free = sort(vcat(N[absorb_locals],
-                     [N[perm[fc]] for fc in free_cols if collapsible[N[perm[fc]]]]))
-
-    derived = Pair{Int, Vector{Pair{Int, Int}}}[]
-    for (r, pc) in enumerate(pivot_cols)
-        g = N[perm[pc]]
-        collapsible[g] || continue
-        terms = Pair{Int, Int}[]
-        for fc in free_cols
-            coeff = -R[r, fc]
-            coeff == 0 && continue
-            fg = N[perm[fc]]
-            @assert collapsible[fg] "derived affinity must reference a collapsible group"
-            denominator(coeff) == 1 || error(
-                "_split_resolution: non-integer split coefficient $coeff for " *
-                "group $g (multiply-traversed cycle) can't be represented")
-            push!(terms, fg => Int(numerator(coeff)))
-        end
-        push!(derived, g => terms)
-    end
-    sort!(derived; by = first)
-    return SplitResolution(free, derived)
-end
-
-"""
-Collapse mirrors for `am`'s forbidden `:NonequalAI` affinity splits
-(`Symbol => RHS`). Each `_split_resolution` `derived` entry `g => [f => a, …]`
-fixes group `g`'s I-affinity so it carries no independent degree of freedom,
-tying it to the free collapsible affinities `f`. In terms of each group's
-effective dissociation constant `effK` (an RE `Kd`, or `koff/kon` for a 2-free
-SS binding), the relation is `effK_I_g / effK_A_g = ∏(effK_I_f/effK_A_f)^a`:
-
-  * RE group — derive the I `Kd`:  `K_I_g = K_A_g·∏(effK_I_f/effK_A_f)^a`.
-  * SS group — derive the I reverse rate, keep the forward (speed) free:
-    `koff_I_g = koff_A_g·(kon_I_g/kon_A_g)·∏(effK_I_f/effK_A_f)^a`.
-
-An empty term list is the full collapse (`K_I_g = K_A_g`, or
-`koff_I_g = koff_A_g·kon_I_g/kon_A_g`). All names route through `name(p, am)`.
-"""
-function _collapse_mirror_exprs(am::AllostericMechanism)
-    fes = _free_enz_set(am)
-    psyms(g, state) = [name(p, am) for p in
-                       _emit_cat_params_for_rep(_group_rep(steps(am)[g], fes), state)]
-    # `effK_g(state)^s` as (sym => exp) factors: an RE Kd is `K`; a 2-free SS
-    # binding is `koff/kon` (params are emitted forward-then-reverse).
-    effK(g, state, s) = (ps = psyms(g, state);
-        length(ps) == 1 ? [ps[1] => s] : [ps[2] => s, ps[1] => -s])
-    mirrors = Pair{Symbol, Union{Symbol, Expr}}[]
-    for (g, combo) in _split_resolution(am).derived
-        gA = psyms(g, :A); gI = psyms(g, :I)
-        if length(gA) == 1                     # RE: derive K_I_g
-            lhs = gI[1]
-            factors = Pair{Symbol, Int}[gA[1] => 1]
-        else                                   # SS: derive koff_I_g, keep kon_I_g free
-            lhs = gI[2]
-            factors = Pair{Symbol, Int}[gA[2] => 1, gI[1] => 1, gA[1] => -1]
-        end
-        for (f, a) in combo
-            append!(factors, effK(f, :I, a))
-            append!(factors, effK(f, :A, -a))
-        end
-        combined = Dict{Symbol, Int}()
-        for (s, e) in factors; combined[s] = get(combined, s, 0) + e; end
-        filter!(p -> p.second != 0, combined)
-        push!(mirrors, lhs => build_power_expr(0//1, collect(combined)))
-    end
-    mirrors
-end
-
-"""
-Native per-state dependent-parameter assignments `(dep_exprs, indep)` in that
-state's parameter names, via the shared kernel on the state graph. `:EqualAI`
-groups share their bare Symbol across states; `:NonequalAI` groups keep their
-distinct `:I` names. A forbidden `:NonequalAI` split is not renamed here — it is
-collapsed to a mirror by `_dependent_param_exprs`/`_build_dep_assignments`.
-"""
-function _state_dependent_exprs(am::AllostericMechanism, state::Symbol)
-    _state_raw_dependent_exprs(am, state)
 end
 
 """
@@ -1478,136 +1293,113 @@ end
 
 # ─── Dependent parameter expressions ─────────────────────────────
 
-"""Collect every Symbol leaf of a dependent-assignment RHS into `S`."""
-function _expr_leaf_syms!(S::Set{Symbol}, x)
-    if x isa Symbol
-        push!(S, x)
-    elseif x isa Expr
-        for a in x.args
-            _expr_leaf_syms!(S, a)
-        end
-    end
-    S
-end
+"""
+    _combined_state_dependent_exprs(am::AllostericMechanism)
 
+Stack the A-state and I-state thermodynamic constraint systems
+(`_assemble_constraints`, tagged `is_i_state`) over their combined column
+space and solve once with the shared solver (`_solve_dependent_set`). The
+`(is_i_state, type)` pivot priority alone gives the I-above-A collapse
+direction — an I-state column always outranks its A-state counterpart, so a
+cross-state affinity tie (e.g. a live-forbidden `:NonequalAI` split) is
+expressed onto the free A-side directly, with no post-hoc merge step; within
+a state the catalytic pivot order (`_step_priority`) is unchanged. Returns
+`(dep_exprs, indep_params)` over the union of both states' catalytic columns.
 """
-I-state parameter Symbols the rate-equation body actually references. Seeded from
-the retained NATIVE I-polynomials (`den_i` always — `Q_I` is enzyme mass; plus
-`num_i` when the I-cycle is live, a dead cycle's native `num_i` being
-`poly_zero()`), then closed transitively through the I-state dependent chain: a
-dependent — a native I-dep, a forbidden-split collapse mirror, or an `:EqualAI`
-reg mirror — whose LHS the body already references pulls its RHS symbols into the
-body. The closure is load-bearing: a free `:NonequalAI` split reachable only
-through a collapse mirror (`K_I_B_E = …·K_I_A_EB`) must be retained as a
-parameter, not left undefined in the generated body. This is the single source of
-truth for which I-state names get defined.
-"""
-function _i_state_referenced_syms(am::AllostericMechanism)
-    num_i, den_i = _state_rate_polys(am, :I)
-    S = _poly_param_syms(den_i)
-    isempty(num_i) || union!(S, _poly_param_syms(num_i))
-    dep_I, _ = _state_dependent_exprs(am, :I)
-    leaves = Dict{Symbol, Set{Symbol}}()
-    for (k, v) in dep_I
-        leaves[k] = _expr_leaf_syms!(Set{Symbol}(), v)
+function _combined_state_dependent_exprs(am::AllostericMechanism)
+    function state_system(state)
+        cm = _state_mechanism(am, state)
+        sp = _state_step_params(am, state)
+        _assemble_constraints(cm, _state_wegscheider_rename_map(am, state);
+                              step_params = sp, all_params = _state_all_params(cm, sp),
+                              is_i_state = (state === :I))
     end
-    for (k, v) in _collapse_mirror_exprs(am)
-        leaves[k] = _expr_leaf_syms!(Set{Symbol}(), v)
+    A_A, rhs_A, cols_A, pri_A = state_system(:A)
+    A_I, rhs_I, cols_I, pri_I = state_system(:I)
+
+    # Union columns: A-state first, then any I-only column (a shared `:EqualAI` group
+    # carries the same bare Symbol in both states and coincides — it keeps its A tag).
+    columns = copy(cols_A)
+    col_index = Dict(c => i for (i, c) in enumerate(columns))
+    priority = copy(pri_A)
+    for (j, c) in enumerate(cols_I)
+        haskey(col_index, c) && continue
+        push!(columns, c)
+        col_index[c] = length(columns)
+        push!(priority, pri_I[j])
     end
-    for site in regulatory_sites(am), (lig, tag) in zip(ligands(site), allo_states(site))
-        tag === :EqualAI &&
-            (leaves[name(Kreg(site, lig, :I), am)] =
-                 Set{Symbol}([name(Kreg(site, lig, :A), am)]))
+
+    # Stack the two per-state constraint blocks over the combined column space and
+    # solve once. Cross-state ties emerge as `I-row − A-row` (the `log Keq` cancels).
+    A = zeros(Rational{BigInt}, size(A_A, 1) + size(A_I, 1), length(columns))
+    for i in axes(A_A, 1), (j, c) in enumerate(cols_A)
+        A_A[i, j] == 0 || (A[i, col_index[c]] = A_A[i, j])
     end
-    changed = true
-    while changed
-        changed = false
-        for (lhs, ls) in leaves
-            lhs in S || continue
-            for s in ls
-                s in S || (push!(S, s); changed = true)
-            end
-        end
+    off = size(A_A, 1)
+    for i in axes(A_I, 1), (j, c) in enumerate(cols_I)
+        A_I[i, j] == 0 || (A[off + i, col_index[c]] = A_I[i, j])
     end
-    S
+    rhs = vcat(rhs_A, rhs_I)
+    return _solve_dependent_set(A, rhs, columns, priority)
 end
 
 """
     _dependent_param_exprs(M::Type{<:AllostericEnzymeMechanism})
 
 Return `(dep_exprs, indep_params)` for an AllostericEnzymeMechanism from the
-NATIVE per-state derivations. A-state entries come from
-`_state_dependent_exprs(am, :A)`; I-state entries from
-`_state_dependent_exprs(am, :I)`, kept only for names a retained I-polynomial
-references (`_i_state_referenced_syms`, `S_I`). A shared `:EqualAI` dependent
-carries one bare symbol in both states, so its A-value is taken once (the
-merge does not overwrite it with the I-value). A forbidden `:NonequalAI` split
-is replaced by its collapse mirror (`_collapse_mirror_exprs`), which drops the
-group's `K_I_…` from the independent set. `:EqualAI` reg mirrors
-(`K_I_reg = K_A_reg`) are the only reg entries added to the dep map. Reg-site
-`Kreg` names and `L` complete the independent set.
+single combined constraint solve (`_combined_state_dependent_exprs`), which
+stacks the A-state and I-state constraint rows and solves them once — a
+cross-state tie (e.g. a live-forbidden `:NonequalAI` split) falls out of the
+stacked system directly, with no post-hoc merge step.
 
-`indep` order is content-canonical by concatenated component: native A-indep
-(order matches the non-allosteric catalytic derivation), then the genuinely-I
-independents referenced by the polynomials, then A-state reg Kregs (canonical
-`regulatory_sites` order), then I-state reg Kregs, then `L`.
+Regulator-site affinities complete no catalytic thermodynamic cycle, so they
+are independent on top of the combined solve — except an `:EqualAI`
+regulator, whose I-name mirrors its shared A-name (`K_I_reg = K_A_reg`, added
+to `dep`). `L` (the conformational constant) is always independent. Any
+symbol the combined solve already made dependent is dropped from `indep`.
 """
 function _dependent_param_exprs(
     ::Type{AllostericEnzymeMechanism{CM,CS,RS}},
 ) where {CM,CS,RS}
     am = AllostericMechanism(AllostericEnzymeMechanism{CM,CS,RS}())
-    dep_A, indep_A = _state_dependent_exprs(am, :A)
-    dep_I, indep_I = _state_dependent_exprs(am, :I)
-    S_I = _i_state_referenced_syms(am)
-    mirrors = _collapse_mirror_exprs(am)
-    collapse_targets = Set(first(p) for p in mirrors)
+    dep, indep = _combined_state_dependent_exprs(am)
 
-    dep = Dict{Symbol, Union{Symbol, Expr}}(dep_A)
-    # I-state deps whose LHS a retained polynomial references (`Q_I` always,
-    # plus `N_I` when the I-cycle is live), for `:NonequalAI` I-names. A shared
-    # `:EqualAI` dependent already appears in `dep` under its bare name from the
-    # A-run; keep that A-value (`!haskey`) — after collapse the I-value equals it.
-    for (k, v) in dep_I
-        (k in S_I && !haskey(dep, k)) && (dep[k] = v)
+    # A per-state Wegscheider rename folds a single-symbol binding-K tie onto one
+    # representative; the folded symbol enters the combined solve as a zero-column and
+    # lands in `indep` as a fittable dummy. Drop it — unless a retained polynomial
+    # still references it (a shared `:EqualAI` symbol can be folded in one state yet
+    # used by the other state's polynomial, which keeps its own rename). The
+    # non-allosteric analog needs no reference guard because it has a single,
+    # consistent rename. No-op when both state renames are empty (all current specs).
+    rename = merge(_state_wegscheider_rename_map(am, :A),
+                   _state_wegscheider_rename_map(am, :I))
+    if !isempty(rename)
+        refs = Set{Symbol}()
+        for st in (:A, :I)
+            num, den = _state_rate_polys(am, st)
+            union!(refs, _poly_param_syms(den))
+            isempty(num) || union!(refs, _poly_param_syms(num))
+        end
+        indep = Tuple(p for p in indep if get(rename, p, p) == p || p in refs)
     end
-    # Collapse mirrors override any native I-dep/indep for a forbidden split.
-    for (k, rhs) in mirrors
-        dep[k] = rhs
-    end
 
-    # I-state independents that are (a) genuinely distinct from the A-state
-    # symbol — an `:EqualAI` group shares its bare symbol with A and is already
-    # in `indep_A` — (b) referenced by a retained I-polynomial, and (c) not a
-    # collapsed split (now a dependent mirror).
-    a_set = Set(indep_A)
-    indep_I_list = Symbol[p for p in indep_I
-                          if p ∉ a_set && p in S_I && p ∉ collapse_targets]
-
-    # Reg-site Parameters via `Kreg` structs + the `name(::Kreg, am)`
-    # chokepoint. `:EqualAI` reg ligands share their value across states, so the
-    # I-name is a dependent mirror of the A-name; `:NonequalAI`/`:OnlyI` carry a
-    # distinct independent I-name.
+    # Regulator-site affinities complete no catalytic thermodynamic cycle, so they
+    # are independent — except an `:EqualAI` regulator, whose I-name mirrors its
+    # shared A-name. `L` (the conformational constant) is always independent.
     reg_params_a = Symbol[]
-    reg_params_i_indep = Symbol[]
+    reg_params_i = Symbol[]
     for site in regulatory_sites(am)
         for (lig, tag) in zip(ligands(site), allo_states(site))
             tag === :OnlyI || push!(reg_params_a, name(Kreg(site, lig, :A), am))
             if tag === :EqualAI
                 dep[name(Kreg(site, lig, :I), am)] = name(Kreg(site, lig, :A), am)
             elseif tag === :NonequalAI || tag === :OnlyI
-                push!(reg_params_i_indep, name(Kreg(site, lig, :I), am))
+                push!(reg_params_i, name(Kreg(site, lig, :I), am))
             end
         end
     end
-
-    merged_indep = (indep_A..., indep_I_list...,
-                    reg_params_a..., reg_params_i_indep..., :L)
-    # A parameter that is dependent in EITHER conformation must never appear in
-    # the independent (fitted) set. The per-segment lists above can re-admit a
-    # symbol that is dependent in the A-state but unpinned in the dead I-state
-    # (a Haldane-derived reverse rate), so filter the assembled tuple against
-    # `dep` uniformly, preserving order.
-    return dep, Tuple(p for p in merged_indep if p ∉ keys(dep))
+    return dep, Tuple(p for p in (indep..., reg_params_a..., reg_params_i..., :L)
+                      if p ∉ keys(dep))
 end
 
 # `parameters` and `fitted_params` for `AllostericEnzymeMechanism`
@@ -1656,66 +1448,53 @@ _mwc_power_pair(x, y, n) =
     (n == 1 ? x : :($x * $y^$(n - 1)), :($y^$n))
 
 """
-Build active-state and inactive-state dep-param assignment Exprs from the NATIVE
-per-state derivations. Returns `(a_assignments::Vector{Expr},
-i_assignments::Vector{Expr})`. Shared by `_build_allosteric_rate_body` and
-`rate_equation_string`.
+The set of Symbols that belong to the I-block when `_build_dep_assignments`
+splits the combined solve's dependents for emission: catalytic columns that
+appear only in the I-state's parameter set (`cols_I \\ cols_A` — a shared
+`:EqualAI` catalytic Symbol coincides with its A-state column, so it stays in
+the A-block), plus every non-`:OnlyA` regulator's I-name.
+"""
+function _i_state_symbol_set(am::AllostericMechanism)
+    cols_A = _state_all_params(_state_mechanism(am, :A), _state_step_params(am, :A))
+    cols_I = _state_all_params(_state_mechanism(am, :I), _state_step_params(am, :I))
+    syms = Set{Symbol}(setdiff(cols_I, cols_A))
+    for site in regulatory_sites(am)
+        for (lig, tag) in zip(ligands(site), allo_states(site))
+            tag === :OnlyA && continue
+            push!(syms, name(Kreg(site, lig, :I), am))
+        end
+    end
+    syms
+end
 
-A-assignments are the native A-state deps; I-assignments are the `:EqualAI` reg
-mirrors (`K_I_reg = K_A_reg`), then the forbidden-split collapse mirrors
-(`K_I_g = K_A_g·∏(K_I_f/K_A_f)^a`), then the native I-state catalytic deps
-FILTERED to `_i_state_referenced_syms` (so no assignment is emitted for a symbol
-the retained I-polynomials never reference). Mirrors precede the native I-deps
-that read their `K_I_g`. A shared `:EqualAI` dependent is emitted once, as its
-A-assignment; its I-copy (same bare name) is skipped, and a collapsed split's
-`K_I_g` is emitted only as its mirror. All Symbols route through the
-`name(p, am)` chokepoint (native derivation + `Kreg`).
+"""
+Build active-state and inactive-state dep-param assignment Exprs from the
+single combined solve (`_dependent_param_exprs`). Returns `(a_assignments::
+Vector{Expr}, i_assignments::Vector{Expr})`. Shared by
+`_build_allosteric_rate_body` and `rate_equation_string`.
+
+Splits `dep` by `_i_state_symbol_set`: a dependent whose LHS is an I-only
+catalytic column or a non-`:OnlyA` regulator I-name (including an `:EqualAI`
+reg mirror, `K_I_reg = K_A_reg`) is emitted in the I-block; everything else
+(including a shared `:EqualAI` catalytic dependent, whose bare Symbol
+coincides with its A-state column) is emitted in the A-block. All Symbols
+route through the `name(p, am)` chokepoint (native derivation + `Kreg`).
 """
 function _build_dep_assignments(
     M_type::Type{<:AllostericEnzymeMechanism},
 )
     am = AllostericMechanism(M_type())
-
-    dep_A, _ = _state_dependent_exprs(am, :A)
-    dep_I, _ = _state_dependent_exprs(am, :I)
-    # An I-state catalytic dep is emitted iff its LHS is referenced by a retained
-    # I-polynomial (`Q_I` always, plus `N_I` when the I-cycle is live).
-    i_names_set = _i_state_referenced_syms(am)
-    mirrors = _collapse_mirror_exprs(am)
-    collapse_targets = Set(first(p) for p in mirrors)
-    # Shared `:EqualAI` dependents are already emitted as A-assignments.
-    a_lhs = Set(sym for (sym, _) in dep_A)
-
-    a_assignments = Expr[Expr(:(=), sym, rhs)
-                         for (sym, rhs) in sort(collect(dep_A); by=first)]
-
+    dep, _ = _dependent_param_exprs(M_type)
+    # A-block first so an I-block `:EqualAI` regulator mirror (`K_I_reg = K_A_reg`)
+    # finds its A-name defined. The combined solve expresses every dependent purely
+    # in independent columns, so no dependent reads another — order within a block
+    # is free.
+    i_syms = _i_state_symbol_set(am)
+    a_assignments = Expr[]
     i_assignments = Expr[]
-
-    # `:EqualAI` reg params: K_I_reg = K_A_reg (before any dep that reads them).
-    # Routes through the `Kreg` chokepoint.
-    for site in regulatory_sites(am)
-        for (lig, tag) in zip(ligands(site), allo_states(site))
-            tag === :EqualAI || continue
-            push!(i_assignments,
-                  Expr(:(=), name(Kreg(site, lig, :I), am),
-                             name(Kreg(site, lig, :A), am)))
-        end
+    for (sym, rhs) in sort(collect(dep); by = first)
+        push!(sym in i_syms ? i_assignments : a_assignments, Expr(:(=), sym, rhs))
     end
-
-    # Forbidden-split collapse mirrors, before any native I-dep that reads them.
-    for (sym, rhs) in sort(mirrors; by=first)
-        push!(i_assignments, Expr(:(=), sym, rhs))
-    end
-
-    # Native I-state catalytic deps, S_I-filtered. `:NonequalAI` I-deps only;
-    # a shared `:EqualAI` dep (same bare name) is already an A-assignment, and a
-    # collapsed split's `K_I_g` is defined by its mirror above.
-    for (sym, rhs) in sort(collect(dep_I); by=first)
-        sym in i_names_set || continue
-        (sym in a_lhs || sym in collapse_targets) && continue
-        push!(i_assignments, Expr(:(=), sym, rhs))
-    end
-
     return a_assignments, i_assignments
 end
 
@@ -1797,8 +1576,9 @@ function _build_allosteric_rate_body(M_type::Type{<:AllostericEnzymeMechanism})
 
     a_assignments, i_assignments_ = _build_dep_assignments(M_type)
     # Keep inactive-state assignments unconditionally: the retained Q_I
-    # (`L * den_I`) references them. Deps whose RHS touches an :OnlyA symbol
-    # are already zeroed in `_build_dep_assignments`, so nothing is undefined.
+    # (`L * den_I`) references them, and every I-state dependent the combined
+    # solve emits is expressed purely in already-solved columns (independent
+    # params or other dependents), so nothing is left undefined.
     i_assignments = i_assignments_
 
     _, indep = _dependent_param_exprs(M_type)
@@ -1829,25 +1609,16 @@ function rate_equation_string(
 ) where {CM,CS,RS}
     M = AllostericEnzymeMechanism{CM,CS,RS}
     m = M()
-    am = AllostericMechanism(m)
     _, indep = _dependent_param_exprs(M)
     hw_params = (indep..., :Keq, :E_total)
     mets = metabolites(m)
 
-    # Active-state Wegscheider/Haldane from the native A-state derivation, in
-    # `:A`-state names directly (no post-hoc rename).
-    dep_A, _ = _state_dependent_exprs(am, :A)
-    weg_lines, hal_lines = String[], String[]
-    _partition_constraint_lines!(weg_lines, hal_lines, dep_A)
-
-    # Inactive-state assignments — partitioned by Keq-reference predicate so
-    # they fold into the same two sections as active-state lines. Allosteric
-    # mechanisms thus use the same three-section structure as
-    # non-allosteric.
+    # Every dependent assignment comes from the single combined solve — the same set
+    # the compiled body assigns — split into Wegscheider/Haldane by Keq-reference.
     keq_set = Set([:Keq])
-    _, i_assignments_ = _build_dep_assignments(M)
-    i_assignments = i_assignments_
-    for a in i_assignments
+    a_assignments, i_assignments = _build_dep_assignments(M)
+    weg_lines, hal_lines = String[], String[]
+    for a in (a_assignments..., i_assignments...)
         sym = a.args[1]
         expr = a.args[2]
         is_haldane = _expr_references_any(expr, keq_set)

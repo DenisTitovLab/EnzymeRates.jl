@@ -1,5 +1,5 @@
-# ABOUTME: Strict :EqualAI collapse regression — no silent I-name promotion; forbidden
-# ABOUTME: splits collapse to K_A=K_I, honorable splits stay free, all equations thermo-consistent.
+# ABOUTME: Allosteric :NonequalAI split regression — a split with no thermodynamic freedom
+# ABOUTME: collapses to K_I=K_A; an identifiable split stays free; all equations thermo-consistent.
 module AllostericCollapseTests
 using Test, EnzymeRates, Random
 const ER = EnzymeRates
@@ -118,9 +118,10 @@ end
         @test (:kon_I_S_E in fp) && (:koff_I_S_E in fp)   # both free (affinity honorable)
     end
 
-    # ── Mixed-type + Wegscheider-pivot coupling (regressions for the two review
-    #    Criticals: uniform affinity sign, and indep_A-keyed collapsibility + the
-    #    transitive S_I closure). Both were passing the suite while silently broken.
+    # ── Mixed-type + Wegscheider-coupled :NonequalAI bindings. Two mechanisms that
+    #    were silently mis-derived before the combined solve: the constraint matrix
+    #    must use one uniform binding-K sign, and an all-RE Wegscheider box with
+    #    :NonequalAI edges must derive its tied binding-K with no undefined symbol.
     @testset "mixed RE/SS coupled :NonequalAI bindings -> consistent (uniform sign)" begin
         # S-binding RE, P-release SS, both :NonequalAI, catalysis :EqualAI: the two
         # coupled affinities are *different* step types, so the constraint matrix must
@@ -134,12 +135,11 @@ end
         @test isfinite(v); @test abs(veq) < 1e-8
     end
 
-    @testset ":NonequalAI RE Wegscheider-pivot binding -> absorbed, no undefined symbol" begin
+    @testset ":NonequalAI RE Wegscheider box binding -> consistent, no undefined symbol" begin
         # random-order bi-bi, all-RE bindings, SS :EqualAI catalysis; tag two box
-        # edges :NonequalAI so one is the Wegscheider pivot (its Kd is derived). The
-        # pivot must be absorbed (not collapsed, else a circular mirror ⇒ UndefVarError),
-        # and the free split's I-symbol — reachable only through the other edge's
-        # collapse mirror — must be retained (transitive S_I closure), not left undefined.
+        # edges :NonequalAI so one binding-K is Wegscheider-derived from the other.
+        # The combined solve must express every derived symbol purely in free columns
+        # (no circular reference ⇒ no UndefVarError) and hold detailed balance.
         A2=Sub(:A); B2=Sub(:B); Q2=Prd(:Q)
         E=Sp(Met[],:E); EA=Sp(Met[A2],:E); EB=Sp(Met[B2],:E); EAB=Sp(Met[A2,B2],:E)
         EPQ=Sp(Met[P,Q2],:E); EP=Sp(Met[P],:E); EQ=Sp(Met[Q2],:E)
@@ -158,6 +158,21 @@ end
         ec=NamedTuple{Tuple(mets)}(ntuple(i->(mets[i] in (:A,:B) ? 1.0 : 2.0),length(mets)))
         v=real(ER.rate_equation(cem,ec,prm))         # must not throw UndefVarError
         @test isfinite(v); @test abs(v) < 1e-8
+    end
+
+    @testset "dead-I NonequalAI binding -> K_I identifiable, NOT collapsed" begin
+        # I state cannot turn over (OnlyA catalysis) but binds S with its own
+        # affinity: K_A_S_E and K_I_S_E are BOTH identifiable (a dead-end E_I·S is
+        # in no cycle, so nothing pins K_I to K_A). HEAD over-collapses this.
+        am = uni([:NonequalAI, :OnlyA, :EqualAI])
+        fp, v, veq = evalrate(am)
+        @test isfinite(v); @test abs(veq) < 1e-8
+        @test :K_I_S_E in fp                          # NOT collapsed
+        v1 = evalrate(am; split=(:K_I_S_E, 1.3))[2]
+        v2 = evalrate(am; split=(:K_I_S_E, 5.0))[2]
+        @test !isapprox(v1, v2)                       # identifiable (moves the rate)
+        s = replace(ER.rate_equation_string(am), " " => "")
+        @test !occursin("K_I_S_E=K_A_S_E", s)         # no collapse mirror
     end
 end
 end # module

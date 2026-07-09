@@ -1946,18 +1946,20 @@ end
         # 1. count: 4 multi-step groups (A SS×2, B RE×2, P RE×2, Q RE×2),
         # 4 × 2 = 8 candidates. Each candidate is canonicalized and dropped
         # if it collapses back to the parent (a Wegscheider-tied binding-K
-        # rename — a model-space no-op). The A and B splits survive; the P
-        # and Q splits are self-loops and are dropped, leaving 4 variants.
-        @test length(result) == 4
+        # rename — a model-space no-op). An RE binding group's two K's are
+        # Wegscheider-tied, so the B/P/Q RE splits are self-loops and drop;
+        # only the SS A-binding splits survive (an SS step has no equilibrium
+        # K to tie), leaving 2 variants.
+        @test length(result) == 2
 
         # 2. Δ params measured against the actual compiled fitted count.
-        # All 4 surviving splits add one parameter (Δ=1); the dropped P/Q
-        # splits were the Δ=0 self-loops that canonicalization removes.
+        # Both surviving SS splits add one parameter (Δ=1); the dropped RE
+        # B/P/Q splits were the Δ=0 self-loops that canonicalization removes.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 1, 1]
+        @test deltas == [1, 1]
 
         # 3. compilability
         for r in result
@@ -2010,21 +2012,22 @@ end
         # B-binding RE×2 :EqualAI, P-binding RE×2 :EqualAI,
         # Q-binding RE×2 :EqualAI), 4 × 2 members = 8 candidates. Each
         # candidate is canonicalized and dropped if it collapses back to
-        # the parent (a Wegscheider-tied self-loop). 4 of the 6 RE splits
-        # are such self-loops; the 2 SS splits never tie (no equilibrium
-        # constant to absorb them), so 4 variants survive.
-        @test length(result) == 4
+        # the parent (a Wegscheider-tied self-loop). All 6 RE splits are
+        # such self-loops (an RE binding group's two K's are Wegscheider-
+        # tied); only the 2 :NonequalAI SS splits never tie (no equilibrium
+        # constant to absorb them), so 2 variants survive.
+        @test length(result) == 2
 
-        # 2. Δ params: 4 surviving variants, deltas measured against the
+        # 2. Δ params: 2 surviving variants, deltas measured against the
         # actual compiled fitted-param count (ground truth — true count
-        # after thermo-cycle bookkeeping). 2 add 1 (the surviving RE
-        # splits), 2 add 2 (the :NonequalAI SS splits, doubled by the
-        # R/T-state pair).
+        # after thermo-cycle bookkeeping). Both add 2 (the :NonequalAI SS
+        # splits, doubled by the R/T-state pair); the dropped RE splits
+        # were the Δ=0 self-loops.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 2, 2]
+        @test deltas == [2, 2]
 
         # 3. compilability
         for r in result
