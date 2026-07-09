@@ -166,12 +166,29 @@ end
 
 - New keyword `eq_complexity_filter::Int = 336` on `identify_rate_equation`, threaded to
   `_beam_search` and `_process_batch` exactly as `max_param_count` is.
-- Checked as the **first** line of the PASS-1 closure, before `compile_mechanism`:
-  `_eq_complexity(m) > eq_complexity_filter && return nothing`. A cap skip (returns
-  `nothing`), identical in shape to the `max_param_count` cap, but earlier because it must
-  precede the derivation-heavy calls.
-- Report the count in `_batch_summary` alongside the param-count skips (e.g.
-  "N skipped (>eq_complexity_filter complexity)").
+- Checked as the **first** line of the PASS-1 closure, before `compile_mechanism`. A cap
+  skip identical in shape to the `max_param_count` cap, but earlier because it must precede
+  the derivation-heavy calls.
+
+### Skip tracking and reporting
+
+The complexity skips are counted and printed in the progress log the same way
+`max_param_count` skips already are. Today both a param-count skip and (with this change) a
+complexity skip would return `nothing` from PASS-1, and `n_skipped` is derived as
+`length(batch) − length(entries) − length(failures)` — so the reason is lost and everything
+is mislabeled ">max_param_count params". The fix distinguishes them:
+
+- PASS-1 returns a **distinct sentinel** for a complexity skip (e.g. `:complexity_skip`)
+  versus `nothing` for a param-count skip. Downstream, both are treated as skips (dropped
+  from the row loop), but they are counted separately.
+- `_process_batch` returns the breakdown — `(entries, failures, n_param_skipped,
+  n_complexity_skipped)` — instead of the callers re-deriving a single `n_skipped` from
+  lengths.
+- `_batch_summary` takes both counts and both thresholds, and prints both buckets, e.g.
+  `… + N skipped (>20 params) + M skipped (>336 complexity) + …`. The four-plus-one buckets
+  still sum to the child count.
+- The "whole batch skipped" branch (`identify_rate_equation.jl:~735`) likewise reports the
+  two skip reasons separately.
 
 ### Documentation
 
@@ -188,6 +205,9 @@ derivation-blow-up crash).
   `@enzyme_mechanism`).
 - **Filter** — `_process_batch` with a low `eq_complexity_filter` skips a mechanism above it
   (absent from `entries`, not fit) and keeps one below it.
+- **Skip counts** — `_process_batch` reports the complexity skip in its own bucket
+  (`n_complexity_skipped`), separate from `n_param_skipped`, and `_batch_summary` renders
+  both; a mechanism dropped for complexity is not miscounted as a param-count skip.
 - **Default** — `identify_rate_equation`'s default `eq_complexity_filter` is 336.
 
 ## Testing strategy
