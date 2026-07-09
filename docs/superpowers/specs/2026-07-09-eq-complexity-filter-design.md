@@ -62,7 +62,8 @@ and folded into V, so V×τ alone is the guard metric.
 
 ## The threshold
 
-Default `eq_complexity_filter = 336`, the V×τ of a random-order bi-bi. Rule of thumb: an
+Default `eq_complexity_filter = 337`, one above the V×τ of a random-order bi-bi (336), so a
+random-order bi-bi passes and anything more complex is skipped. Rule of thumb: an
 equation more complex than a random-order bi-bi is not worth the fitting effort. The next
 tier up (random-order ter-ter, ~5.9 M) is a 17 000× gap, so the exact value is not delicate;
 the cut lands in a wide empty band between "worth fitting" and "blows up."
@@ -95,7 +96,7 @@ end
 
 ## Placement and plumbing
 
-- New keyword `eq_complexity_filter::Int = 336` on `identify_rate_equation`, threaded to
+- New keyword `eq_complexity_filter::Int = 337` on `identify_rate_equation`, threaded to
   `_beam_search` and `_process_batch` exactly as `max_param_count` is.
 - Checked as the **first** line of the PASS-1 closure, before `compile_mechanism`. A cap
   skip identical in shape to the `max_param_count` cap, but earlier because it must precede
@@ -116,7 +117,7 @@ is mislabeled ">max_param_count params". The fix distinguishes them:
   n_complexity_skipped)` — instead of the callers re-deriving a single `n_skipped` from
   lengths.
 - `_batch_summary` takes both counts and both thresholds, and prints both buckets, e.g.
-  `… + N skipped (>20 params) + M skipped (>336 complexity) + …`. The buckets still sum to
+  `… + N skipped (>20 params) + M skipped (>337 complexity) + …`. The buckets still sum to
   the child count.
 - The "whole batch skipped" branch (`identify_rate_equation.jl:~735`) likewise reports the
   two skip reasons separately.
@@ -125,7 +126,8 @@ is mislabeled ">max_param_count params". The fix distinguishes them:
 
 Add an `eq_complexity_filter` entry to the `identify_rate_equation` docstring, next to
 `max_param_count`: what V×τ measures (spanning-tree product count of the catalytic segment
-graph = number of products evaluated per call), the default (336 = random-order bi-bi), and
+graph = number of products evaluated per call), the default (337, just above a random-order
+bi-bi's 336, so bi-bi passes), and
 why it exists (skip equations too complex to fit in practical time; expected to prevent the
 derivation-blow-up crash).
 
@@ -139,7 +141,7 @@ derivation-blow-up crash).
 - **Skip counts** — `_process_batch` reports the complexity skip in its own bucket
   (`n_complexity_skipped`), separate from `n_param_skipped`, and `_batch_summary` renders
   both; a mechanism dropped for complexity is not miscounted as a param-count skip.
-- **Default** — `identify_rate_equation`'s default `eq_complexity_filter` is 336.
+- **Default** — `identify_rate_equation`'s default `eq_complexity_filter` is 337.
 
 TDD per change (failing test → implement → green). Full `Pkg.test()` green gate before
 finishing, including the `rate_equation` performance regression tests (unaffected — the

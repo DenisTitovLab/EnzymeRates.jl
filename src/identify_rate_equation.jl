@@ -118,12 +118,13 @@ and data using beam search.
   thresholds via `min`; `min_beam_width` is a cumulative
   per-count budget (see "Beam selection" below). `Inf` disables it.
 - `max_param_count::Int = 20`: stop expanding beyond
-- `eq_complexity_filter::Int = 336`: skip (before fitting, before any
+- `eq_complexity_filter::Int = 337`: skip (before fitting, before any
   derivation) any mechanism whose rate equation would have more than this many
   King–Altman denominator terms — V×τ, the number of RE-segments times the
   spanning-tree count of the catalytic segment graph, i.e. the products the
-  compiled equation evaluates on every call. The default 336 is the complexity
-  of a random-order bi-bi; equations denser than that are impractical to fit and
+  compiled equation evaluates on every call. The default 337 is one above a
+  random-order bi-bi (V×τ = 336), so a random-order bi-bi passes and anything
+  more complex is skipped — equations denser than that are impractical to fit and
   can blow up derivation/codegen. Computed from the mechanism graph alone.
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
@@ -202,7 +203,7 @@ function identify_rate_equation(
     loss_abs_threshold::Float64 = 0.01,
     loss_parsimony_threshold::Float64 = 1.01,
     max_param_count::Int = 20,
-    eq_complexity_filter::Int = 336,
+    eq_complexity_filter::Int = 337,
     # Fitting
     optimizer,
     n_restarts::Int = 20,
