@@ -1364,6 +1364,25 @@ function _dependent_param_exprs(
     am = AllostericMechanism(AllostericEnzymeMechanism{CM,CS,RS}())
     dep, indep = _combined_state_dependent_exprs(am)
 
+    # A per-state Wegscheider rename folds a single-symbol binding-K tie onto one
+    # representative; the folded symbol enters the combined solve as a zero-column and
+    # lands in `indep` as a fittable dummy. Drop it — unless a retained polynomial
+    # still references it (a shared `:EqualAI` symbol can be folded in one state yet
+    # used by the other state's polynomial, which keeps its own rename). The
+    # non-allosteric analog needs no reference guard because it has a single,
+    # consistent rename. No-op when both state renames are empty (all current specs).
+    rename = merge(_state_wegscheider_rename_map(am, :A),
+                   _state_wegscheider_rename_map(am, :I))
+    if !isempty(rename)
+        refs = Set{Symbol}()
+        for st in (:A, :I)
+            num, den = _state_rate_polys(am, st)
+            union!(refs, _poly_param_syms(den))
+            isempty(num) || union!(refs, _poly_param_syms(num))
+        end
+        indep = Tuple(p for p in indep if get(rename, p, p) == p || p in refs)
+    end
+
     # Regulator-site affinities complete no catalytic thermodynamic cycle, so they
     # are independent — except an `:EqualAI` regulator, whose I-name mirrors its
     # shared A-name. `L` (the conformational constant) is always independent.
