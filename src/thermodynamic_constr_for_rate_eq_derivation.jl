@@ -110,9 +110,8 @@ _group_rep(group::Vector{Step}, free_enz_set::Set{Symbol}) =
 
 # Reduced row echelon form over `Rational{BigInt}`. Returns the pivot and
 # free column indices (pivot_cols in row-pivot order, so pivot_cols[i] is the
-# pivot at reduced-matrix row i) plus the reduced matrix R. Shared by
-# `_integer_nullspace` (nullspace basis) and `_split_resolution` (which needs
-# the pivot/free partition and the reduced coefficients directly).
+# pivot at reduced-matrix row i) plus the reduced matrix R. Used by
+# `_integer_nullspace` (nullspace basis).
 function _rref_partition(A::Matrix{Int})
     m, n = size(A)
     R = Matrix{Rational{BigInt}}(A)
