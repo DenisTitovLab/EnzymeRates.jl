@@ -2128,6 +2128,43 @@ end
     end
 end
 
+@testset "to_allosteric shares :EqualAI downstream constants across conformations" begin
+    # An inactive-conformation graph (`_state_mechanism(am, :I)`) drops each
+    # `:OnlyA` binding step, so that ligand's downstream complex loses its
+    # binding-in edge and is reached only by conformational flip / reverse
+    # catalysis. It is still a bound form, never free enzyme, so `_free_enz_set`
+    # excludes it — keeping a lumped `:EqualAI` group's naming rep identical in
+    # both conformations. Without that exclusion the inactive-state rep flips
+    # (e.g. `K_Lactate_ENADH` vs the active-state `K_Lactate_ENAD`), un-lumping a
+    # shared constant so the combined solve fails to merge it and over-counts.
+    # A variant with exactly one `:OnlyA` binding group (all others `:EqualAI`)
+    # adds only `L`, so the child has parent + 1 fitted params.
+    rxn = @enzyme_reaction begin
+        substrates: NADH[C21H29N7O14P2], Pyruvate[C3H4O3]
+        products:   Lactate[C3H6O3], NAD[C21H27N7O14P2]
+        oligomeric_state: 4
+    end
+    # A mechanism exercises the path only when a downstream kinetic group lumps
+    # binding to ≥2 bound complexes (no free-E member) — the split the `:OnlyA`
+    # orphaning would otherwise break.
+    has_lumped_bound_group(m) = any(EnzymeRates.steps(m)) do g
+        length(g) ≥ 2 &&
+            all(s -> !isempty(EnzymeRates.bound(EnzymeRates.from_species(s))), g)
+    end
+    n_reproducers = 0
+    for m in EnzymeRates.init_mechanisms(rxn)
+        has_lumped_bound_group(m) || continue
+        pn = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(m)))
+        for child in EnzymeRates._expand_to_allosteric(m, rxn)
+            @test length(EnzymeRates.fitted_params(
+                EnzymeRates.compile_mechanism(child))) == pn + 1
+        end
+        n_reproducers += 1
+        n_reproducers ≥ 3 && break
+    end
+    @test n_reproducers ≥ 1
+end
+
 @testset "Fix A: dead-inactive-state allosteric body defines all I-state symbols" begin
     # Random-order allosteric bi-bi with an :OnlyA catalytic step → dead inactive
     # state. Verified pre-fix to crash with `UndefVarError: koff_I_A_E`.
