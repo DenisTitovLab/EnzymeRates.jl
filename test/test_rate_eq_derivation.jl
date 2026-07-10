@@ -1584,6 +1584,17 @@ end
     @test EnzymeRates._eq_complexity(EnzymeRates.AllostericMechanism(allo)) == 9
 end
 
+@testset "_bareiss_det exact integer determinant" begin
+    # Segment-graph Laplacian minors are positive-definite, so `_eq_complexity`
+    # never drives `_bareiss_det` into a zero pivot. Exercise that path directly:
+    # a zero leading pivot needs a row swap, and an all-zero pivot column is a
+    # singular matrix (0 spanning trees).
+    @test EnzymeRates._bareiss_det(BigInt[2 1; 1 2]) == 3        # no swap
+    @test EnzymeRates._bareiss_det(BigInt[0 1; 1 0]) == -1       # zero pivot → row swap
+    @test EnzymeRates._bareiss_det(BigInt[0 0; 0 1]) == 0        # singular → 0
+    @test EnzymeRates._bareiss_det(BigInt[0 2 1; 2 0 1; 1 1 0]) == 4  # zero pivot, 3×3
+end
+
 @testset "Rate equation too large error" begin
     # Manually defined mechanism (11 forms, 16 steps; V×τ ≈ 29k denominator
     # terms) exceeds MAX_RATE_EQUATION_TERMS, so the upfront V×τ check
