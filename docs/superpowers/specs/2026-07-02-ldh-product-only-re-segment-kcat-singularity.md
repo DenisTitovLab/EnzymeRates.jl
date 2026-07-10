@@ -2,7 +2,10 @@
 
 **Date:** 2026-07-02
 **Status:** Analysis + ODE-validated diagnosis. **No fix implemented** — the fix
-direction is a design decision (see Recommendation).
+direction is a design decision (see Recommendation). **Re-confirmed live 2026-07-09**
+(post-PR #62): the pivot/combined-solve work is unrelated to the division-free segment
+reduction, and `rate_equation` still returns `NaN` at products = 0 for mechanism 1 (both
+the catalytic core and the allosteric form; finite elsewhere).
 **Scope:** 28 of 100,787 fits in the 2026-06-27 LDH `identify_rate_equation` run
 (`docs/ldh_hpc_results/2026_06_27_results`). Rare, and reached only on the allosteric path.
 

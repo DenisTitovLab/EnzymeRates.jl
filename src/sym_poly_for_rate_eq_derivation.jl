@@ -81,9 +81,9 @@ function _reduce_conc_lowest_terms(num::POLY, den::POLY, conc_set::Set{Symbol})
 end
 
 """
-Cofactor determinant expansion for symbolic matrices. Checks
-intermediate term count against `MAX_RATE_EQUATION_TERMS` to abort
-early for mechanisms whose rate equations would be too large.
+Cofactor determinant expansion for symbolic matrices. The size guard against
+oversized rate equations runs upfront in `_raw_symbolic_rate_polys` (a numeric
+V×τ check on the segment graph), before this O(n!) expansion is ever entered.
 """
 function sym_det(M::Matrix{POLY}, n::Int)
     n == 0 && return poly_one()
@@ -99,16 +99,6 @@ function sym_det(M::Matrix{POLY}, n::Int)
         cofactor = sym_det(minor, n-1)
         term = poly_mul(M[1,j], cofactor)
         result = iseven(j-1) ? poly_add(result, term) : poly_sub(result, term)
-        if length(result) > MAX_RATE_EQUATION_TERMS
-            error(
-                "Rate equation for this mechanism has more than " *
-                "$MAX_RATE_EQUATION_TERMS polynomial terms " *
-                "(limit: $MAX_RATE_EQUATION_TERMS). Equations " *
-                "this large take a very long time to compile " *
-                "and are unlikely to be practically useful " *
-                "for parameter fitting.",
-            )
-        end
     end
     result
 end

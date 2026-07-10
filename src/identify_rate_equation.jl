@@ -118,10 +118,18 @@ and data using beam search.
   thresholds via `min`; `min_beam_width` is a cumulative
   per-count budget (see "Beam selection" below). `Inf` disables it.
 - `max_param_count::Int = 20`: stop expanding beyond
+- `eq_complexity_filter::Int = 337`: skip (before fitting, before any
+  derivation) any mechanism whose rate equation would have more than this many
+  King–Altman denominator terms — V×τ, the number of RE-segments times the
+  spanning-tree count of the catalytic segment graph, i.e. the products the
+  compiled equation evaluates on every call. The default 337 is one above a
+  random-order bi-bi (V×τ = 336), so a random-order bi-bi passes and anything
+  more complex is skipped — equations denser than that are impractical to fit and
+  can blow up derivation/codegen. Computed from the mechanism graph alone.
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
 - `n_restarts::Int = 20`: multi-start restarts per fit
-- `maxtime::Real = 60.0`: max time per fit (seconds; common solver
+- `maxtime::Real = 600.0`: max time per fit (seconds; common solver
   option, forwarded to `Optimization.solve`)
 - `maxiters::Integer = 10_000_000`: max iterations per optimizer run
   (common solver option, forwarded to `Optimization.solve`)
@@ -195,10 +203,11 @@ function identify_rate_equation(
     loss_abs_threshold::Float64 = 0.01,
     loss_parsimony_threshold::Float64 = 1.01,
     max_param_count::Int = 20,
+    eq_complexity_filter::Int = 337,
     # Fitting
     optimizer,
     n_restarts::Int = 20,
-    maxtime::Real = 60.0,
+    maxtime::Real = 600.0,
     maxiters::Integer = 10_000_000,
     abstol::Union{Real,Nothing} = nothing,
     reltol::Union{Real,Nothing} = nothing,
@@ -229,7 +238,7 @@ function identify_rate_equation(
     mechanisms, df = _beam_search(prob;
         min_beam_width, loss_rel_threshold,
         loss_abs_threshold, loss_parsimony_threshold,
-        max_param_count, save_dir, show_progress,
+        max_param_count, eq_complexity_filter, save_dir, show_progress,
         optimizer, n_cv_candidates,
         fitting_kwargs...)
 
@@ -445,16 +454,18 @@ function _progress(save_dir::AbstractString, show_progress::Bool, msg::AbstractS
 end
 
 """
-One-line batch summary reconciling every child mechanism into four buckets that
+One-line batch summary reconciling every child mechanism into five buckets that
 sum to the child count: `new fits` (a genuine optimizer run, `fit_inherited ==
-false`), `inherited` (a memoized fit reused, `fit_inherited == true`), `skipped`
-(dropped before fitting for exceeding `max_param_count`), and `errored`
-(compile/render/fit threw). Trailing `Success` / `non-Success retcode`
-percentages are over the fitted set (`new + inherited`).
+false`), `inherited` (a memoized fit reused, `fit_inherited == true`), two
+`skipped` buckets dropped before fitting — one for exceeding `max_param_count`,
+one for exceeding `eq_complexity_filter` — and `errored` (compile/render/fit
+threw). Trailing `Success` / `non-Success retcode` percentages are over the
+fitted set (`new + inherited`).
 """
 function _batch_summary(
     entries::Vector{BatchEntry}, failures::Vector{FitFailure};
-    n_skipped::Int, max_param_count::Int)
+    n_param_skipped::Int, n_complexity_skipped::Int,
+    max_param_count::Int, eq_complexity_filter::Int)
     n_fit   = length(entries)
     n_err   = length(failures)
     n_new   = count(e -> !e.row.fit_inherited, entries)
@@ -463,8 +474,9 @@ function _batch_summary(
     n_other = n_fit - n_succ
     pct(x)  = n_fit == 0 ? 0.0 : round(100 * x / n_fit; digits=1)
     string(n_new, " new fits + ", n_inh, " inherited + ",
-           n_skipped, " skipped (>", max_param_count, " params) + ",
-           n_err, " errored | Success ", pct(n_succ),
+           n_param_skipped, " skipped (>", max_param_count, " params) + ",
+           n_complexity_skipped, " skipped (>", eq_complexity_filter,
+           " complexity) + ", n_err, " errored | Success ", pct(n_succ),
            "% | non-Success retcode ", pct(n_other), "%")
 end
 
@@ -504,13 +516,16 @@ caller (`unique!`).
 """
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
-    optimizer, max_param_count,
+    optimizer, max_param_count, eq_complexity_filter::Int = typemax(Int),
     memo::Dict{UInt64,NamedTuple}=Dict{UInt64,NamedTuple}(), kwargs...
 )
-    # PASS 1 (workers): compile + cap-check + render. `nothing` = cap skip;
-    # `FitFailure` = threw; else a record with everything the row needs + `eq_hash`.
+    # PASS 1 (workers): complexity-cap + compile + param-cap + render.
+    # `:complexity_skip` = over eq_complexity_filter (checked first, before any
+    # derivation); `nothing` = over max_param_count; `FitFailure` = threw; else a
+    # record with everything the row needs + `eq_hash`.
     compiled = pmap(mechs) do m
         try
+            _eq_complexity(m) > eq_complexity_filter && return :complexity_skip
             em = compile_mechanism(m)
             fkeys = fitted_params(em)
             length(fkeys) > max_param_count && return nothing
@@ -554,7 +569,7 @@ function _process_batch(
     failures = FitFailure[]
     seen = Set{UInt64}()
     for c in compiled
-        c === nothing && continue                    # cap skip
+        (c === nothing || c === :complexity_skip) && continue    # cap skip
         c isa FitFailure && (push!(failures, c); continue)
         if haskey(fit_error, c.eq_hash)              # representative fit threw
             push!(failures, FitFailure(c.orig, fit_error[c.eq_hash]))
@@ -578,7 +593,9 @@ function _process_batch(
         push!(entries, BatchEntry(c.mech, c.n_params, fit.loss, fit.retcode,
                                   c.eq_hash, row))
     end
-    return entries, failures
+    return entries, failures,
+           count(x -> x === nothing, compiled),          # param-count skips
+           count(x -> x === :complexity_skip, compiled)  # complexity skips
 end
 
 """
@@ -627,7 +644,7 @@ function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,
     loss_parsimony_threshold,
-    max_param_count, save_dir, show_progress,
+    max_param_count, eq_complexity_filter, save_dir, show_progress,
     optimizer, n_cv_candidates, kwargs...
 )
     frontier = Dict{Int, Vector{BatchEntry}}()
@@ -645,8 +662,9 @@ function _beam_search(
     base = unique!(collect(init_mechanisms(prob.reaction)))
     _progress(save_dir, show_progress,
         "Fitting $(length(base)) initial mechanisms…")
-    base_entries, base_failures = _process_batch(base, prob;
-        optimizer, max_param_count, memo, kwargs...)
+    base_entries, base_failures, n_base_param_skip, n_base_cx_skip =
+        _process_batch(base, prob;
+            optimizer, max_param_count, eq_complexity_filter, memo, kwargs...)
     if isempty(base_entries)
         isempty(base_failures) && return (
             Union{Mechanism, AllostericMechanism}[],
@@ -666,10 +684,12 @@ function _beam_search(
              base_entries; n_cv_candidates)
     improved = Set(c for c in keys(best_loss_by_count)
                    if !haskey(pre_best, c) || best_loss_by_count[c] < pre_best[c])
-    n_skipped = length(base) - length(base_entries) - length(base_failures)
     _progress(save_dir, show_progress, string(
         "Base tier: ",
-        _batch_summary(base_entries, base_failures; n_skipped, max_param_count),
+        _batch_summary(base_entries, base_failures;
+                       n_param_skipped=n_base_param_skip,
+                       n_complexity_skipped=n_base_cx_skip,
+                       max_param_count, eq_complexity_filter),
         "\n  ", _best_loss_line(best_loss_by_count, improved)))
 
     # ── Advancing-target sweep over actual param counts ──
@@ -701,8 +721,9 @@ function _beam_search(
                 e.mech for e in to_expand]
             children = unique!(
                 expand_mechanisms(parents, prob.reaction))
-            child_entries, child_failures = _process_batch(children, prob;
-                optimizer, max_param_count, memo, kwargs...)
+            child_entries, child_failures, n_child_param_skip, n_child_cx_skip =
+                _process_batch(children, prob;
+                    optimizer, max_param_count, eq_complexity_filter, memo, kwargs...)
             if !isempty(child_entries) || !isempty(child_failures)
                 # Count only iterations that produced rows, so the
                 # equation_search_iteration_N CSVs are gap-free.
@@ -722,23 +743,24 @@ function _beam_search(
                         hi = maximum(e -> e.n_params, child_entries)
                         lo == hi ? string(lo) : "$lo-$hi"
                     end
-                n_skipped = length(children) - length(child_entries) -
-                    length(child_failures)
                 _progress(save_dir, show_progress, string(
                     "Iteration $iteration (child n_params $np_range): ",
                     length(parents), " parents → ", length(children),
                     " children\n  ",
                     _batch_summary(child_entries, child_failures;
-                                   n_skipped, max_param_count),
+                                   n_param_skipped=n_child_param_skip,
+                                   n_complexity_skipped=n_child_cx_skip,
+                                   max_param_count, eq_complexity_filter),
                     "\n  ", _best_loss_line(best_loss_by_count, improved)))
             elseif !isempty(children)
-                # Whole batch exceeded max_param_count — all cap-skipped, so it
+                # Whole batch cap-skipped (param count and/or complexity), so it
                 # produced no rows and no CSV. Report it anyway; don't bump the
                 # iteration counter, since there are no rows to save.
                 _progress(save_dir, show_progress, string(
                     "Expanded ", length(parents), " parents → ",
-                    length(children), " children | all ", length(children),
-                    " skipped (>", max_param_count, " params)"))
+                    length(children), " children | all skipped (",
+                    n_child_param_skip, " >", max_param_count, " params, ",
+                    n_child_cx_skip, " >", eq_complexity_filter, " complexity)"))
             end
         end
 

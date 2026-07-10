@@ -1519,9 +1519,86 @@ end
     @test occursin("ambiguous central-complex cut", err.msg)
 end
 
+@testset "_eq_complexity (V×τ term-count estimate)" begin
+    raw(m) = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
+    # V×τ = the King–Altman denominator term count, computed pre-derivation from
+    # the catalytic segment graph. Values are the exact denominator product counts.
+    ordered_bibi = @enzyme_mechanism begin
+        substrates: S1, S2
+        products: P1, P2
+        steps: begin
+            E + S1 <--> E(S1)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S1, S2) <--> E(P1, P2)
+            E(P1, P2) <--> E(P1) + P2
+            E(P1) <--> E + P1
+        end
+    end
+    @test EnzymeRates._eq_complexity(raw(ordered_bibi)) == 25
+
+    random_bibi = @enzyme_mechanism begin
+        substrates: S1, S2
+        products: P1, P2
+        steps: begin
+            E + S1 <--> E(S1)
+            E + S2 <--> E(S2)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S2) + S1 <--> E(S1, S2)
+            E(S1, S2) <--> E(P1, P2)
+            E(P1, P2) <--> E(P1) + P2
+            E(P1, P2) <--> E(P2) + P1
+            E(P1) <--> E + P1
+            E(P2) <--> E + P2
+        end
+    end
+    @test EnzymeRates._eq_complexity(raw(random_bibi)) == 336
+
+    ordered_terter = @enzyme_mechanism begin
+        substrates: S1, S2, S3
+        products: P1, P2, P3
+        steps: begin
+            E + S1 <--> E(S1)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S1, S2) + S3 <--> E(S1, S2, S3)
+            E(S1, S2, S3) <--> E(P1, P2, P3)
+            E(P1, P2, P3) <--> E(P1, P2) + P3
+            E(P1, P2) <--> E(P1) + P2
+            E(P1) <--> E + P1
+        end
+    end
+    @test EnzymeRates._eq_complexity(raw(ordered_terter)) == 49
+
+    # Allosteric: computed on the catalytic core, so it equals the catalytic V×τ
+    # (an all-SS uni-uni: G = 3 segments, τ = 3 spanning trees ⇒ 9).
+    allo = @allosteric_mechanism begin
+        substrates: F6P
+        products: F16BP
+        catalytic_multiplicity: 2
+        allosteric_regulators: I::OnlyI
+        catalytic_steps: begin
+            E + F6P <--> E(F6P)      :: EqualAI
+            E(F6P) <--> E(F16BP)     :: EqualAI
+            E(F16BP) <--> E + F16BP  :: EqualAI
+        end
+    end
+    @test EnzymeRates._eq_complexity(EnzymeRates.AllostericMechanism(allo)) == 9
+end
+
+@testset "_bareiss_det exact integer determinant" begin
+    # Segment-graph Laplacian minors are positive-definite, so `_eq_complexity`
+    # never drives `_bareiss_det` into a zero pivot. Exercise that path directly:
+    # a zero leading pivot needs a row swap, and an all-zero pivot column is a
+    # singular matrix (0 spanning trees).
+    @test EnzymeRates._bareiss_det(BigInt[2 1; 1 2]) == 3        # no swap
+    @test EnzymeRates._bareiss_det(BigInt[0 1; 1 0]) == -1       # zero pivot → row swap
+    @test EnzymeRates._bareiss_det(BigInt[0 0; 0 1]) == 0        # singular → 0
+    @test EnzymeRates._bareiss_det(BigInt[0 2 1; 2 0 1; 1 1 0]) == 4  # zero pivot, 3×3
+end
+
 @testset "Rate equation too large error" begin
-    # Manually defined mechanism (11 forms, 16 steps, ~29k terms)
-    # triggers the post-hoc check in _raw_symbolic_rate_polys.
+    # Manually defined mechanism (11 forms, 16 steps; V×τ ≈ 29k denominator
+    # terms) exceeds MAX_RATE_EQUATION_TERMS, so the upfront V×τ check
+    # (_assert_derivable) aborts the derivation before it builds the polynomial.
     m_manual = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1550,9 +1627,9 @@ end
     # A directly-constructed random Bi-Bi with an R1 dead-end that binds
     # the free enzyme AND every catalytic form, so each `E(X, R1)` form is
     # reachable two ways (`E(R1)+X` and `E(X)+R1`). Those cycles multiply
-    # the King-Altman spanning-tree count past MAX_RATE_EQUATION_TERMS, so
-    # the all-SS derivation aborts inside `sym_det`. Built directly rather
-    # than enumerated so the guard is exercised deterministically.
+    # the King-Altman spanning-tree count (V×τ) past MAX_RATE_EQUATION_TERMS,
+    # so `_assert_derivable` aborts the derivation before `sym_det` runs. Built
+    # directly rather than enumerated so the guard is exercised deterministically.
     m_cyclic = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
