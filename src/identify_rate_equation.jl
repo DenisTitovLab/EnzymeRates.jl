@@ -119,13 +119,14 @@ and data using beam search.
   per-count budget (see "Beam selection" below). `Inf` disables it.
 - `max_param_count::Int = 20`: stop expanding beyond
 - `eq_complexity_filter::Int = 337`: skip (before fitting, before any
-  derivation) any mechanism whose rate equation would have more than this many
-  King–Altman denominator terms — V×τ, the number of RE-segments times the
-  spanning-tree count of the catalytic segment graph, i.e. the products the
-  compiled equation evaluates on every call. The default 337 is one above a
-  random-order bi-bi (V×τ = 336), so a random-order bi-bi passes and anything
-  more complex is skipped — equations denser than that are impractical to fit and
-  can blow up derivation/codegen. Computed from the mechanism graph alone.
+  derivation) any mechanism whose rate equation is more complex than this —
+  roughly the number of terms in the rate equation's denominator: V×τ, the
+  number of RE-segments times the spanning-tree count of the catalytic segment
+  graph, i.e. the products the compiled equation evaluates on every call. The
+  default 337 is one above a fully steady-state random-order bi-bi (V×τ = 336),
+  so such a mechanism passes and anything more complex is skipped — equations
+  denser than that are impractical to fit and can blow up derivation/codegen.
+  Computed from the mechanism graph alone.
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
 - `n_restarts::Int = 20`: multi-start restarts per fit
@@ -287,8 +288,12 @@ function _rows_to_dataframe(rows)
 
     df = DataFrame(
         n_params = [r.n_params for r in rows],
+        parent_n_params =
+            Union{Missing,Int}[get(r, :parent_n_params, missing) for r in rows],
         loss = [r.loss for r in rows],
         mechanism_type = [r.mechanism_type for r in rows],
+        parent_mechanism_type = Union{Missing,String}[
+            get(r, :parent_mechanism_type, missing) for r in rows],
         rate_equation = [r.rate_equation for r in rows],
         retcode = Union{Missing,String}[r.retcode for r in rows],
         error = Union{Missing,String}[r.error for r in rows],
@@ -421,12 +426,14 @@ _exc_string(e) = first(sprint(showerror, e), 200)
 # itself fails, so the row still identifies the mechanism family.
 function _failure_row(f::FitFailure)
     (n_params = missing,
+     parent_n_params = missing,
      loss = missing,
      mechanism_type = try
          string(typeof(compile_mechanism(f.mech)))
      catch
          string(typeof(f.mech))
      end,
+     parent_mechanism_type = missing,
      rate_equation = missing,
      retcode = missing,
      error = f.error,
@@ -517,7 +524,8 @@ caller (`unique!`).
 function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
     optimizer, max_param_count, eq_complexity_filter::Int = typemax(Int),
-    memo::Dict{UInt64,NamedTuple}=Dict{UInt64,NamedTuple}(), kwargs...
+    memo::Dict{UInt64,NamedTuple}=Dict{UInt64,NamedTuple}(),
+    parent_of::AbstractDict = Dict(), kwargs...
 )
     # PASS 1 (workers): complexity-cap + compile + param-cap + render.
     # `:complexity_skip` = over eq_complexity_filter (checked first, before any
@@ -578,10 +586,14 @@ function _process_batch(
         fit = memo[c.eq_hash]
         inherited = !haskey(rep_idx, c.eq_hash) || (c.eq_hash in seen)
         push!(seen, c.eq_hash)
+        parent = get(parent_of, c.orig, nothing)
         row = (
             n_params = c.n_params,
+            parent_n_params = parent === nothing ? missing : parent.n_params,
             loss = fit.loss,
             mechanism_type = c.mechanism_type,
+            parent_mechanism_type =
+                parent === nothing ? missing : parent.mechanism_type,
             rate_equation = c.eq_text,
             retcode = string(fit.retcode),
             error = missing,
@@ -715,15 +727,30 @@ function _beam_search(
         end
 
         if !isempty(to_expand)
-            # Typed for dispatch: expand_mechanisms needs a concrete
+            # Expand each parent and record which parent produced each child
+            # (first parent wins on structural dedup, matching `unique!`), so the
+            # saved CSV can carry the parent's round-trippable mechanism type and
+            # parameter count for diagnosing per-move parameter changes. The
+            # parent's `mechanism_type` is already on its `BatchEntry.row`, so no
+            # recompile. Typed for dispatch: expand_mechanisms needs a concrete
             # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
-            parents = Union{Mechanism, AllostericMechanism}[
-                e.mech for e in to_expand]
-            children = unique!(
-                expand_mechanisms(parents, prob.reaction))
+            parent_of = Dict{Union{Mechanism, AllostericMechanism},
+                             @NamedTuple{mechanism_type::String, n_params::Int}}()
+            children = Union{Mechanism, AllostericMechanism}[]
+            for pe in to_expand
+                for child in expand_mechanisms(
+                        Union{Mechanism, AllostericMechanism}[pe.mech],
+                        prob.reaction)
+                    haskey(parent_of, child) && continue
+                    parent_of[child] = (mechanism_type = pe.row.mechanism_type,
+                                        n_params = pe.n_params)
+                    push!(children, child)
+                end
+            end
             child_entries, child_failures, n_child_param_skip, n_child_cx_skip =
                 _process_batch(children, prob;
-                    optimizer, max_param_count, eq_complexity_filter, memo, kwargs...)
+                    optimizer, max_param_count, eq_complexity_filter, memo,
+                    parent_of, kwargs...)
             if !isempty(child_entries) || !isempty(child_failures)
                 # Count only iterations that produced rows, so the
                 # equation_search_iteration_N CSVs are gap-free.
@@ -745,7 +772,7 @@ function _beam_search(
                     end
                 _progress(save_dir, show_progress, string(
                     "Iteration $iteration (child n_params $np_range): ",
-                    length(parents), " parents → ", length(children),
+                    length(to_expand), " parents → ", length(children),
                     " children\n  ",
                     _batch_summary(child_entries, child_failures;
                                    n_param_skipped=n_child_param_skip,
@@ -757,7 +784,7 @@ function _beam_search(
                 # produced no rows and no CSV. Report it anyway; don't bump the
                 # iteration counter, since there are no rows to save.
                 _progress(save_dir, show_progress, string(
-                    "Expanded ", length(parents), " parents → ",
+                    "Expanded ", length(to_expand), " parents → ",
                     length(children), " children | all skipped (",
                     n_child_param_skip, " >", max_param_count, " params, ",
                     n_child_cx_skip, " >", eq_complexity_filter, " complexity)"))

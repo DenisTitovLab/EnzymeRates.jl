@@ -364,7 +364,30 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
             @test "eq_hash" in names(df_file)
             @test all(length.(string.(skipmissing(df_file.eq_hash))) .== 16)
             @test all(<=(8), skipmissing(df_file.n_params))     # max_param_count=8
+            # Diagnostic parent columns: every saved CSV carries them.
+            @test "parent_n_params" in names(df_file)
+            @test "parent_mechanism_type" in names(df_file)
         end
+        # Base tier is parentless.
+        @test all(ismissing, init_df.parent_n_params)
+        @test all(ismissing, init_df.parent_mechanism_type)
+        # Iteration 1's parents are exactly the base-tier mechanisms; each child
+        # records the round-trippable type of the parent it expanded from, with
+        # the parent's own param count.
+        iter1 = CSV.read(joinpath(save_dir,
+                                  "equation_search_iteration_1.csv"), DataFrame)
+        parent_np = Dict(string(t) => n
+                         for (t, n) in zip(init_df.mechanism_type, init_df.n_params))
+        @test any(!ismissing, iter1.parent_mechanism_type)   # children have parents
+        for r in eachrow(iter1)
+            ismissing(r.parent_mechanism_type) && continue
+            @test string(r.parent_mechanism_type) in keys(parent_np)
+            @test r.parent_n_params == parent_np[string(r.parent_mechanism_type)]
+        end
+        # The stored parent type round-trips back to a mechanism.
+        pt = String(first(skipmissing(iter1.parent_mechanism_type)))
+        @test EnzymeRates.Mechanism(
+            Core.eval(EnzymeRates, Meta.parse(pt))()) isa EnzymeRates.Mechanism
     end
 
     @testset "loocv_results.csv and best_equation.csv saved" begin
