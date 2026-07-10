@@ -16,7 +16,15 @@ next count. **After** the search, leave-one-group-out cross-validation and a
 two-test rule pick the single best among the fitted candidates, guarding against
 an over-simple model whose better CV score is within noise.
 
-## Advancing the search: the beam
+## Running the search
+
+[The enumeration engine](@ref) generates every candidate the beam fits.
+`init_mechanisms` builds the minimum-parameter starting mechanisms, and
+`expand_mechanisms` grows each survivor through single moves —
+splitting a shared rate constant, flipping a rapid-equilibrium step to steady
+state, adding a regulator, or making the enzyme allosteric. Every move yields
+slightly more complex children, so the beam meets candidates in order of
+increasing complexity.
 
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those
@@ -49,8 +57,15 @@ The four knobs, all tunable kwargs of `identify_rate_equation`:
 | `loss_parsimony_threshold` | `1.01` | An added parameter must earn its keep: keep expanding only if the loss is within this factor of `best(<n)`, the best model of any smaller parameter count. Set to `Inf` to disable it. |
 | `min_beam_width` | `50` | Cumulative floor: expand at least this many mechanisms per parameter count over the whole search. Spent once, then only the loss cutoff admits at that count. |
 
-The beam produces the pool of fitted candidates; the cross-validation rule below
-then picks the single best among them.
+The search ends when the frontier empties — when no surviving mechanism yields a
+new candidate to fit. Three limits drain it: `max_param_count` drops any child
+with more fitted parameters than the cap, `eq_complexity_filter` drops any child
+whose rate equation exceeds the complexity bound (both before fitting), and the
+enumeration itself runs dry — every move on every survivor reaches only
+mechanisms already fit or already dropped. The complexity bound roughly counts
+the terms in a rate equation's denominator; its default (`337`) passes a fully
+steady-state random-order bi-bi and skips anything denser. The beam then hands
+its pool of fitted candidates to the cross-validation rule below.
 
 ## Leave-one-group-out cross-validation
 

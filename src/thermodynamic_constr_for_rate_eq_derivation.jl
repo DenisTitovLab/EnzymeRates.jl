@@ -55,6 +55,16 @@ on `to_species`, so `to_species`'s name is excluded from the free set.
 Iso steps don't determine binding state. SS steps' direction is not
 canonicalized so they don't participate.
 
+A form that carries bound metabolites but has no binding-in step in this
+graph is also excluded: an inactive-conformation graph
+(`_state_mechanism(am, :I)`) drops each `:OnlyA` binding step, so the ligand's
+downstream complex is reached only by conformational flip or reverse catalysis
+and loses its incoming binding edge — yet it is still a bound form, never free
+enzyme. Excluding it keeps a kinetic group's naming representative invariant
+across the active/inactive split (an `:EqualAI` group renders one shared
+Symbol), which is a no-op on canonical mechanisms where every bound form has a
+binding-in step.
+
 Shared by the kinetic-group name representative and the Haldane
 elimination pivot.
 """
@@ -71,6 +81,14 @@ function _free_enz_set(m::Union{Mechanism, AllostericMechanism})
         # Canonical: bound metabolite resides on to_species. The from-side
         # is the "free + met" reactant; the to-side is the bound form.
         delete!(free_enz_set, name(to_species(s)))
+    end
+    bound_in = Set{Symbol}(name(to_species(s))
+                           for group in steps(m) for s in group if is_binding(s))
+    for group in steps(m), s in group
+        for sp in (from_species(s), to_species(s))
+            isempty(bound(sp)) || name(sp) in bound_in ||
+                delete!(free_enz_set, name(sp))
+        end
     end
     free_enz_set
 end
