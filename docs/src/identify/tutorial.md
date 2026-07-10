@@ -9,8 +9,8 @@ cross-validation.
 This page walks through a fully runnable example: an MWC allosteric enzyme,
 recovered from noiseless data in about a minute. The full production search
 widens the beam to the defaults (`min_beam_width=50`, `loss_rel_threshold=2.0`,
-`loss_abs_threshold=0.01`, `loss_parsimony_threshold=1.01`, `max_param_count=20`)
-and would often run for many
+`loss_abs_threshold=0.01`, `loss_parsimony_threshold=1.01`, `max_param_count=20`,
+`eq_complexity_filter=337`) and would often run for many
 hours and require a High Performance Compute cluster (see
 [Running in parallel](@ref)).
 
@@ -135,8 +135,11 @@ keeps the most promising (the beam — here `min_beam_width = 10`), and expands
 the survivors into the next count. Which mechanisms stay in the beam is set by
 `min_beam_width` and the `loss_rel_threshold` / `loss_abs_threshold` /
 `loss_parsimony_threshold` cutoff — see [Best mechanism selection](@ref).
-`max_param_count = 5` stops at the generating mechanism's size to keep the
-example quick. [Best mechanism selection](@ref) also covers the cross-validation
+Two filters bound the search: `max_param_count` (here `5`, the generating
+mechanism's size, to keep the example quick) caps it by fitted-parameter count,
+and `eq_complexity_filter` caps it by rate-equation complexity — roughly the
+number of terms in the equation's denominator, its default passing a fully
+steady-state random-order bi-bi. Each drops a candidate before fitting it. [Best mechanism selection](@ref) also covers the cross-validation
 rule that picks the winner. The
 production search widens the beam to 50 and the cap to 20, and distributes the
 fits across workers (see
