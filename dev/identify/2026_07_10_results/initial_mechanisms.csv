@@ -1,6 +1,6 @@
-n_params,loss,mechanism_type,rate_equation,retcode,error,eq_hash,fit_inherited,K_P_E,K_S_E,k_ES_to_EP
-3,3.170063977553532,"EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}","(; K_P_E, K_S_E, k_ES_to_EP, Keq, E_total) = params
+n_params,parent_n_params,loss,mechanism_type,parent_mechanism_type,rate_equation,retcode,error,eq_hash,fit_inherited,K_P_E,K_S_E,k_ES_to_EP
+3,,3.170063977553493,"EnzymeMechanism{(((((:Product, :P), ((:C, 1),)), ((:Substrate, :S), ((:C, 1),))), (), (2,)), (((((), :E, ((), ())), (((:Product, :P),), :E, ((), ())), (:Product, :P), true),), ((((), :E, ((), ())), (((:Substrate, :S),), :E, ((), ())), (:Substrate, :S), true),), (((((:Substrate, :S),), :E, ((), ())), (((:Product, :P),), :E, ((), ())), nothing, false),)))}",,"(; K_P_E, K_S_E, k_ES_to_EP, Keq, E_total) = params
 (; S, P) = concs
 # Haldane constraints:
 k_EP_to_ES = (1 / Keq) * K_P_E * (1 / K_S_E) * k_ES_to_EP
-v = E_total * (k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E) / (1 + P / K_P_E + S / K_S_E)",Success,,fa90c6ed8d638310,false,1.0000000726602818,0.9999979481169539,1.0
+v = E_total * (k_ES_to_EP * S / K_S_E - k_EP_to_ES * P / K_P_E) / (1 + P / K_P_E + S / K_S_E)",Success,,fa90c6ed8d638310,false,0.9999998127518593,0.999998855285112,0.9999999999999999
