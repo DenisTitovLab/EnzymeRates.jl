@@ -1719,8 +1719,9 @@ end
     @testset "Mechanism — Substrate-as-dead-end-inhibitor overlap" begin
         # SEED: uni-uni where S is BOTH substrate AND dead-end inhibitor.
         # Build via init + dead-end expansion to get the S/__reg overlap.
-        # _expand_re_to_ss should treat the substrate-S and inhibitor-S
-        # kinetic groups as independent.
+        # _expand_re_to_ss keeps inhibitor bindings RE-only, so the
+        # dead-end-inhibitor-S kinetic group never flips, even though the
+        # substrate-S and inhibitor-S groups are otherwise independent.
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -1737,9 +1738,9 @@ end
         result = EnzymeRates._expand_re_to_ss(m)
 
         # 1. count: after dead-end expansion, groups are substrate-binding (RE),
-        # product-binding (RE), iso (SS), dead-end-S__reg-binding (RE).
-        # → 3 RE groups → 3 variants.
-        @test length(result) == 3
+        # product-binding (RE), iso (SS), dead-end-S__reg-binding (RE, but
+        # binds a Regulator so it is skipped). → 2 RE groups → 2 variants.
+        @test length(result) == 2
         for r in result
             @test r isa EnzymeRates.Mechanism
             EnzymeRates._assert_mechanism_invariants(r)
@@ -1747,10 +1748,9 @@ end
         end
 
         # 2. property-style: each variant flips exactly one initial RE
-        # group to all-SS, and the flipped group covers 3 distinct values
-        # across the 3 variants. This proves the move treats the substrate
-        # and inhibitor kinetic groups as independent even when they share
-        # the metabolite name :S.
+        # group to all-SS, and the flipped group covers 2 distinct values
+        # (substrate-binding, product-binding) across the 2 variants; the
+        # dead-end-inhibitor-S group never appears among them.
         flipped_groups = Int[]
         for r in result
             for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
@@ -1760,7 +1760,7 @@ end
                 end
             end
         end
-        @test length(unique(flipped_groups)) == 3
+        @test length(unique(flipped_groups)) == 2
 
         # 3. preservation: reaction unchanged.
         for r in result
@@ -1770,8 +1770,9 @@ end
 
     @testset "Mechanism — Allosteric substrate-as-dead-end-I overlap" begin
         # AllostericMechanism counterpart of the substrate-as-I overlap.
-        # Same count derivation: 3 RE groups → 3 variants. Each flip should
-        # preserve cat_allo_states tags exactly.
+        # Same count derivation: the dead-end-inhibitor-S group binds a
+        # Regulator and stays RE, leaving 2 RE groups → 2 variants. Each
+        # flip should preserve cat_allo_states tags exactly.
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -1791,8 +1792,8 @@ end
 
         result = EnzymeRates._expand_re_to_ss(am)
 
-        # 1. count: 3 RE groups → 3 variants.
-        @test length(result) == 3
+        # 1. count: 2 RE groups (dead-end-inhibitor-S excluded). → 2 variants.
+        @test length(result) == 2
         for r in result
             @test r isa EnzymeRates.AllostericMechanism
             EnzymeRates._assert_mechanism_invariants(r)
@@ -1805,6 +1806,61 @@ end
             @test r.catalytic_multiplicity == am.catalytic_multiplicity
             @test r.regulatory_sites == am.regulatory_sites
             @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        end
+    end
+
+    @testset "_expand_re_to_ss keeps inhibitor bindings RE" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            dead_end_inhibitors: S
+        end
+        m = first(EnzymeRates._expand_add_dead_end_regulator(
+                  first(EnzymeRates.init_mechanisms(rxn)), rxn))
+        for r in EnzymeRates._expand_re_to_ss(m)
+            for grp in EnzymeRates.steps(r), s in grp
+                if EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator
+                    @test EnzymeRates.is_equilibrium(s)   # inhibitor binding stays RE
+                end
+            end
+        end
+    end
+
+    @testset "_expand_re_to_ss flips inhibitor-bound mirrors together" begin
+        # A catalytic binding and its inhibitor-bound mirror (same inhibitor-free
+        # _step_core) sit in separate all-RE kinetic groups: A binding to E, and
+        # A binding to the inhibitor-bound form E(I). They must flip to SS
+        # together, never one without the other. Built via the macro; a separate
+        # catalytic inhibitor I keeps the substrate/inhibitor roles unambiguous.
+        m = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
+            substrates: A, B
+            products: P
+            catalytic_inhibitors: I
+            catalytic_steps: begin
+                E + A ⇌ E(A)          :: EqualAI
+                E + B ⇌ E(B)          :: EqualAI
+                E(A) + B ⇌ E(A, B)    :: EqualAI
+                E(B) + A ⇌ E(A, B)    :: EqualAI
+                E(A, B) <--> E(P)      :: EqualAI
+                E + P ⇌ E(P)          :: EqualAI
+                E + I ⇌ E(I)          :: EqualAI
+                E(I) + A ⇌ E(A, I)    :: EqualAI
+            end
+        end)
+        # Non-vacuity: the A-binding group and its inhibitor-bound mirror form a
+        # genuine multi-group flip unit.
+        @test any(u -> length(u) > 1, EnzymeRates._re_to_ss_flip_units(m))
+        # Mirror-lock: no re_to_ss variant leaves a mirror RE while its base is SS.
+        for r in EnzymeRates._expand_re_to_ss(m)
+            status = Dict{Any, Bool}()
+            for grp in EnzymeRates.steps(r)
+                allss = !any(EnzymeRates.is_equilibrium, grp)
+                for s in grp
+                    c = EnzymeRates._step_core(s)
+                    haskey(status, c) ? (@test status[c] == allss) :
+                                        (status[c] = allss)
+                end
+            end
         end
     end
 
