@@ -1207,7 +1207,11 @@ multiplicity, and regulatory sites are preserved verbatim.
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     results = typeof(m)[]
     for g in kinetic_groups(m)
-        all(is_equilibrium, steps(m)[g]) || continue
+        grp = steps(m)[g]
+        all(is_equilibrium, grp) || continue
+        # Inhibitor (dead-end) bindings are rapid-equilibrium only — their speed
+        # is never identifiable; never flip them to steady state.
+        any(s -> bound_metabolite(s) isa Regulator, grp) && continue
         push!(results, _with_steps(m, _flip_group_to_ss(steps(m), g)))
     end
     results
