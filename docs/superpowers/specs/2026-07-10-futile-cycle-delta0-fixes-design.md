@@ -12,13 +12,13 @@ The cycle is sustained by **delta-0 expansion edges** — expansion moves that p
 the same fitted-parameter count as its parent, so the beam circulates at fixed counts 10–13 instead
 of climbing past the cap and draining. A systematic sweep of every delta-0 edge across the 26
 low-parameter reproducer parents (33 distinct edges) shows they are **not one phenomenon**. They
-fall into three classes with three distinct root causes:
+fall into three classes, and each fix below owns exactly one class:
 
-| Class | # edges | Move | What the child is | Root cause |
-|-------|---------|------|-------------------|------------|
-| **A**  | 5  | `split` | same eq_hash as parent | non-idempotent canonicalization |
-| **B2** | 8  | `split` | **same rate function**, different eq_hash | parent is over-parameterized |
-| **C**  | 20 | `change_allo_state` | genuinely different function, no new fitted param | pointless (Wegscheider-reverted) relaxation |
+| Class | # edges | Move | What the child is | Root cause | Fix |
+|-------|---------|------|-------------------|------------|-----|
+| **A**  | 5  | `split` | same eq_hash as parent | non-idempotent canonicalization | Fix 1 |
+| **B2** | 8  | `split` | **same rate function**, different eq_hash | parent is over-parameterized | Fix 2 |
+| **C**  | 20 | `change_allo_state` | genuinely different function, no new fitted param | pointless (Wegscheider-reverted) relaxation | Fix 3 |
 
 Only **6 of the 26 parents** are over-parameterized (all `np=10`, identifiable rank 7); the other 20
 are fully identifiable. So the fixes must be targeted, not uniform.
@@ -36,14 +36,13 @@ are fully identifiable. So the fixes must be targeted, not uniform.
   names) yet carry different eq_hashes — `_rate_eq_dedup_key` hashes rendered *text*, so it cannot
   see the equivalence. This is only possible because the parent is over-parameterized: its 10 fitted
   params have identifiable rank **7** (a clean 7-order singular-value cliff, robust to sampling). The
-  three redundant directions (from the Jacobian null space, always the same six parents) are:
+  three redundant directions (from the Jacobian null space, identical across all six parents) are:
   1. `kon_A_Pyruvateinh_E` + `koff_A_Pyruvateinh_E` move together with `v` unchanged → only the ratio
      `K` is identifiable — the SS binding's *speed* is redundant;
   2. `kon_A_Pyruvate_EPyruvateinh` + `koff_A_Pyruvate_EPyruvateinh` → same;
-  3. **`L`** — the allosteric constant is non-identifiable because the mechanism's `:NonequalAI`
-     Pyruvate affinities are all pinned equal to their active-state values, so the allostery is
-     **degenerate**: relaxing those groups added no identifiable freedom. This is the same "pointless
-     relaxation" as class C, baked into the mechanism (see the trace note below).
+  3. **`L`** — the allosteric constant, but *entangled with* the two dead-end-SS speeds above, not a
+     separate cause. Converting the dead-end bindings to rapid-equilibrium (Fix 2) resolves all three
+     directions at once (verified: `np 10→8`, `rank 7→8`, fully identifiable).
 - **C**: the `change_allo_state` delta-0 child is a **genuinely different** function, not a
   parent-duplicate — cross-fitting confirms the child cannot reproduce the parent's data
   (residual 1.3, not 0). The relaxation changed the mechanism but added no identifiable parameter
@@ -59,8 +58,9 @@ enumerated in both states (A raw `cycle3`, I raw `cycle2`), and the inactive sta
 — `_state_wegscheider_rename_map(am, :I)` returns `Dict(:K_I_Pyruvate_E => :K_I_Pyruvate_ENAD)`,
 folding the two inactive Pyruvate affinities onto one representative (the box row is then a satisfied
 `0 = 0`), and the phantom filter in `_dependent_param_exprs` drops the folded `K_I_Pyruvate_E` from
-`fitted_params` (the parent's fitted set contains `L`, not `K_I_Pyruvate_E`). So the box is enforced.
-The residual `L` non-identifiability is degenerate allostery, addressed by Fix 3, not a missed box.
+`fitted_params` (the parent's fitted set contains `L`, not `K_I_Pyruvate_E`). So the box is enforced,
+and the residual `L` non-identifiability is entangled with the dead-end-SS speeds (resolved by Fix 2),
+not a missed box.
 
 ## Goals
 
@@ -94,13 +94,16 @@ same non-idempotency inflates the structural-multiplicity count across the whole
 **Test**: `_canonical_mechanism(_canonical_mechanism(m)) == _canonical_mechanism(m)` for all
 `MECHANISM_TEST_SPECS`; the reproducer A split no-op is dropped by `_expand_split_kinetic_group`.
 
-## Fix 2 — A dead-end steady-state binding carries only its equilibrium constant `K`
+## Fix 2 — A dead-end steady-state binding carries only its equilibrium constant `K` (class B2)
 
 A binding to a complex with no onward catalytic edge (a competitive-inhibitor / dead-end leaf) has,
 at steady state, `[EI] = [E][I]/K` — only `K = koff/kon` is identifiable, not `kon` and `koff`
-separately. The derivation currently fits both, which is exactly the two SS-speed redundant
-directions in every over-parameterized parent. Such a binding must contribute one parameter (`K`,
-the rapid-equilibrium form), not two.
+separately. The derivation currently fits both. That is exactly the over-parameterization behind
+every B2 duplicate: converting the two dead-end SS bindings of a B2 reproducer to rapid-equilibrium
+takes it from `np=10, rank=7` to `np=8, rank=8` — **fully identifiable, Fix 2 alone** (the `L`
+direction is confounded with the dead-end speeds and resolves with them). A canonically-parameterized
+parent has no label degeneracy for a split to exploit, so the function-duplicate splits vanish and
+parameter counts stop being inflated.
 
 **Design decision (resolve in planning): where to enforce it.**
 - *Enumeration filter* (recommended) — do not generate the steady-state form for a dead-end binding;
@@ -110,24 +113,24 @@ the rapid-equilibrium form), not two.
 - *Derivation reduction* — recognize in the constraint solve that a dead-end binding's `kon`/`koff`
   appear only as their ratio and collapse them. More general but harder.
 
-To confirm before implementing: that both redundant SS bindings are structural dead-ends (a form
-whose only edges are the binding and its reverse).
+To confirm before implementing: that a "dead-end" binding is exactly a form whose only edges are the
+binding and its reverse (its `to_species` has no other outgoing step) — the structural predicate the
+filter/reduction keys on.
 
-**Test**: identifiable rank rises by 2 for the six reproducer parents; equilibrium-flux oracle
+**Test**: the six reproducer parents become fully identifiable (`np 10→8`, `rank=8`); the B2
+reproducer split no longer produces a delta-0 function-duplicate child; equilibrium-flux oracle
 (`v = 0` at `Q = Keq`) still holds.
 
-## Fix 3 — change_allo_state delta-0 filter (class C, and the `L`-degenerate part of B2)
+## Fix 3 — change_allo_state delta-0 filter (class C)
 
 Analogous to the split self-loop guard: `_expand_change_allo_state` drops a relaxation that does not
 increase the fitted-parameter count — i.e., the freed inactive-state parameter is reverted (made
 dependent) by Wegscheider. A relaxation that frees no identifiable parameter is not a meaningful
 refinement; it produces a same-complexity variant that can never win parsimony.
 
-This removes class C (20 edges) directly. It also removes the **third** over-parameterization
-direction in B2: a mechanism only acquires a degenerate `:NonequalAI` tag (which makes `L`
-non-identifiable) through a delta-0 relaxation, so filtering those relaxations prevents the
-over-parameterized B2 parents from being generated at all. Fix 2 handles the remaining two
-(dead-end-SS) directions.
+This is independent of B2: the class-C parents are fully identifiable, and their change_allo delta-0
+children are genuinely-different functions (not over-parameterization). Fix 3 removes those 20 edges;
+Fix 2 owns B2; there is no cross-dependency.
 
 **Design decision (resolve in planning): the delta check.**
 - *Compile + `fitted_params`* per candidate child, compare count to the parent. Simple and exactly
@@ -142,7 +145,9 @@ if expansion throughput requires it.
 **Policy note**: these delta-0 relaxations are genuinely-different, often fully-identifiable models,
 so dropping them forgoes some same-count allosteric variants. This is intended: they add no
 identifiable degree of freedom over the parent and cannot be selected over it — the same rationale as
-the existing split no-op guard.
+the existing split no-op guard. (Note the relaxation must genuinely free no parameter: flipping a
+legitimate `:OnlyA` group all the way to `:EqualAI` *removes* an identifiable direction, so the
+filter keys on "no fitted-param increase from this specific relaxation", not on de-allostering.)
 
 **Test**: the reproducer change_allo_state delta-0 child is dropped; a relaxation that *does* free an
 identifiable parameter (delta ≥ 1) is kept; no legitimate delta≥1 allosteric mechanism disappears
@@ -150,9 +155,9 @@ from `MECHANISM_TEST_SPECS`.
 
 ## Verification (whole change)
 
-- **Confirm the B2 attribution**: after Fix 2 + Fix 3, the six reproducer parents are fully
-  identifiable (rank == fitted count) — i.e., `L`'s non-identifiability really was the degenerate
-  allostery that Fix 3 prevents, not a third independent cause. Run before locking the plan.
+- **B2 attribution — confirmed.** Converting the two dead-end SS bindings of the B2 reproducer to
+  rapid-equilibrium: `np=10, rank=7` → `np=8, rank=8` (fully identifiable). Fix 2 alone resolves all
+  three redundant directions; Fix 3 alone leaves `rank=7`. So Fix 2 owns B2 entirely.
 - The 33 reproducer delta-0 edges are all removed: re-run the systematic sweep (`sweep.jl`) and
   confirm 0 delta-0 edges remain across the 26 parents.
 - Full `Pkg.test()` green, including the allosteric golden re-baseline, the `rate_equation`
@@ -164,13 +169,12 @@ from `MECHANISM_TEST_SPECS`.
 ## Sequencing
 
 Fix 1, Fix 2, Fix 3 are independent and can land as separate commits. Recommended order: Fix 1
-(smallest, also improves dedup broadly), then Fix 3 (removes the largest edge class and the
-`L`-degenerate B2 direction), then Fix 2 (the dead-end-SS reduction with its golden re-baseline).
-Re-run the sweep after each to measure the residual edge count.
+(smallest, also improves dedup broadly), then Fix 3 (removes the largest edge class), then Fix 2 (the
+dead-end-SS reduction with its golden re-baseline). Re-run the sweep after each to measure the
+residual edge count.
 
 ## Open questions carried into planning
 
-1. **B2 attribution check** — verify Fix 2 + Fix 3 make the six parents fully identifiable (above).
-2. **Fix 2 placement** — confirm the two redundant SS bindings are structural dead-ends and choose
-   enumeration-filter vs derivation-reduction.
-3. **Fix 3 check** — param-count (compile) vs structural-Wegscheider implementation.
+1. **Fix 2 placement** — confirm the two redundant SS bindings match the "dead-end leaf" predicate,
+   and choose enumeration-filter vs derivation-reduction.
+2. **Fix 3 check** — param-count (compile) vs structural-Wegscheider implementation.
