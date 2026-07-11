@@ -1196,19 +1196,66 @@ end
 # ─── Expansion Moves ─────────────────────────────────────────
 
 """
+Inhibitor-free core of a step: the same catalytic binding with every
+`Regulator` stripped from both its species. Two steps with equal cores are
+the same binding in different inhibitor contexts (mirrors) — e.g.
+`E→E·Pyruvate` and `E·Pyruvateinh→E·Pyruvate·Pyruvateinh`.
+"""
+function _step_core(s::Step)
+    strip(sp) = Species(
+        Metabolite[b for b in bound(sp) if !(b isa Regulator)],
+        conformation(sp), residual(sp))
+    (strip(from_species(s)), strip(to_species(s)), bound_metabolite(s))
+end
+
+"""
+Partition the RE→SS-eligible kinetic groups into mirror classes: connected
+components of the graph where two groups are linked if they share a step core.
+Eligible = all-RE and not an inhibitor binding (invariant 1). A catalytic
+binding and its inhibitor-bound mirror, once a split has separated them into
+different groups, land in one class and flip together (invariant 2). Same-group
+mirrors and non-mirror groups each form their own singleton class, so behavior
+is unchanged except where a split has separated a mirror. Classes are returned
+sorted by lowest group index for deterministic move order.
+"""
+function _re_to_ss_flip_units(m::Union{Mechanism, AllostericMechanism})
+    elig = [g for g in kinetic_groups(m)
+            if all(is_equilibrium, steps(m)[g]) &&
+               !any(s -> bound_metabolite(s) isa Regulator, steps(m)[g])]
+    core_groups = Dict{Any, Vector{Int}}()
+    for g in elig, s in steps(m)[g]
+        push!(get!(core_groups, _step_core(s), Int[]), g)
+    end
+    parent = Dict(g => g for g in elig)
+    root(x) = parent[x] == x ? x : root(parent[x])
+    for gs in values(core_groups), i in 2:length(gs)
+        parent[root(gs[i])] = root(gs[1])
+    end
+    comps = Dict{Int, Vector{Int}}()
+    for g in elig
+        push!(get!(comps, root(g), Int[]), g)
+    end
+    sort([sort(unique(c)) for c in values(comps)]; by = first)
+end
+
+"""
     _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
 
-Mechanism-native overload of the RE→SS expansion move. For each
-catalytic kinetic group whose members are all RE, produce a variant
-with that entire group flipped to SS (atomic per group). All other
-groups, the reaction, and (for allosteric) the catalytic-allo tags,
-multiplicity, and regulatory sites are preserved verbatim.
+Mechanism-native overload of the RE→SS expansion move. For each mirror class of
+all-RE catalytic kinetic groups (`_re_to_ss_flip_units`), produce a variant with
+every group in that class flipped to SS at once. Competitive-inhibitor bindings
+are never flipped (RE-only), and a catalytic step flips together with its
+inhibitor-bound mirror. All other groups, the reaction, and (for allosteric) the
+catalytic-allo tags, multiplicity, and regulatory sites are preserved verbatim.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
     results = typeof(m)[]
-    for g in kinetic_groups(m)
-        all(is_equilibrium, steps(m)[g]) || continue
-        push!(results, _with_steps(m, _flip_group_to_ss(steps(m), g)))
+    for unit in _re_to_ss_flip_units(m)
+        new_groups = steps(m)
+        for g in unit
+            new_groups = _flip_group_to_ss(new_groups, g)
+        end
+        push!(results, _with_steps(m, new_groups))
     end
     results
 end
@@ -1398,13 +1445,31 @@ same canonical mechanism, so their rendered equation and `eq_hash` agree.
 Applied by the split-move expansion (`_expand_split_kinetic_group`), so every
 enumerated mechanism is canonical.
 """
-_canonical_mechanism(m::Mechanism) =
-    Mechanism(reaction(m), _merge_tied_kinetic_groups(m))
-function _canonical_mechanism(am::AllostericMechanism)
-    cat_steps, cat_states = _merge_tied_kinetic_groups(am)
-    AllostericMechanism(reaction(am), cat_steps, cat_states,
-                        catalytic_multiplicity(am),
-                        copy(regulatory_sites(am)))
+function _canonical_mechanism(m::Mechanism; max_passes::Int = 8)
+    prev = m
+    for _ in 1:max_passes   # convergence is ≤2 passes in practice
+        merged = Mechanism(reaction(prev), _merge_tied_kinetic_groups(prev))
+        merged == prev && return merged
+        prev = merged
+    end
+    error("_canonical_mechanism did not reach a fixed point in $max_passes " *
+          "merge passes — the kinetic-group merge is not converging, a " *
+          "canonicalization bug for the mechanism producing this")
+end
+
+function _canonical_mechanism(am::AllostericMechanism; max_passes::Int = 8)
+    prev = am
+    for _ in 1:max_passes
+        cat_steps, cat_states = _merge_tied_kinetic_groups(prev)
+        merged = AllostericMechanism(reaction(prev), cat_steps, cat_states,
+                                     catalytic_multiplicity(prev),
+                                     copy(regulatory_sites(prev)))
+        merged == prev && return merged
+        prev = merged
+    end
+    error("_canonical_mechanism did not reach a fixed point in $max_passes " *
+          "merge passes — the kinetic-group merge is not converging, a " *
+          "canonicalization bug for the mechanism producing this")
 end
 
 """

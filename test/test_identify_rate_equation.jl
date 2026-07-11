@@ -1086,7 +1086,7 @@ end
         @test !isdir(ghost)
     end
 
-    # _batch_summary reports the five reconciling buckets with the right
+    # _batch_summary reports the six reconciling buckets with the right
     # success/non-Success denominator.
     mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
         substrates: S[C]; products: P[C] end))
@@ -1097,10 +1097,11 @@ end
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
     s = EnzymeRates._batch_summary([e_succ, e_mt], [f];
-        n_param_skipped=4, n_complexity_skipped=2,
+        n_param_skipped=4, n_complexity_skipped=2, n_fitted_skipped=3,
         max_param_count=8, eq_complexity_filter=337)
-    @test occursin("2 new fits + 0 inherited + 4 skipped (>8 params) + " *
-                   "2 skipped (>337 complexity) + 1 errored", s)
+    @test occursin("2 new fits + 0 inherited + 3 skipped (already fit) + " *
+                   "4 skipped (>8 params) + 2 skipped (>337 complexity) + " *
+                   "1 errored", s)
     @test occursin("Success 50.0%", s)                 # 1 of 2 fitted
     @test occursin("non-Success retcode 50.0%", s)     # e_mt is :MaxTime
     @test !occursin("best loss", s)                    # best loss moved to its own line
@@ -1160,6 +1161,33 @@ end
     @test !isempty(fail_failures)
     @test all(f -> f isa EnzymeRates.FitFailure, fail_failures)
     @test all(f -> !isempty(f.error), fail_failures)
+end
+
+@testset "fitted-set: repeat structures are skipped, not reprocessed" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    data = DataFrame(
+        S = [1.0, 2.0, 3.0, 4.0],
+        P = [0.1, 0.2, 0.3, 0.4],
+        Rate = [0.5, 0.8, 1.0, 1.1],
+        group = [1, 1, 2, 2],
+    )
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    m = first(unique!(collect(EnzymeRates.init_mechanisms(rxn))))
+
+    fitted = Set{UInt64}()
+    e1, f1, ps1, cs1, ss1 = EnzymeRates._process_batch([m], prob;
+        optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), fitted)
+    @test ss1 == 0 && length(e1) == 1
+
+    # Same structure again in a later batch → fitted-skipped, no new entry.
+    e2, f2, ps2, cs2, ss2 = EnzymeRates._process_batch([m], prob;
+        optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), fitted)
+    @test ss2 == 1 && isempty(e2) && isempty(f2)
 end
 
 # A random-order ter-ter (all binding/release orders, all SS): V×τ ≈ 5.9M, far
@@ -1323,7 +1351,9 @@ end
         max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
         save_dir=tmp)
     log_text = read(joinpath(tmp, "progress.log"), String)
-    @test occursin(r"all skipped \(\d+ >3 params, \d+ >337 complexity\)", log_text)
+    @test occursin(
+        r"all skipped \(\d+ already fit, \d+ >3 params, \d+ >337 complexity\)",
+        log_text)
     # The all-skip batch produced no rows, so no iteration CSV was written.
     @test !any(startswith(f, "equation_search_iteration_") for f in readdir(tmp))
 end
@@ -1664,6 +1694,69 @@ const _ALLO_SIG_MERGED =
 end
 
 
+# The confirmed futile-cycle class-A parent (LDH allosteric), reconstructed via
+# the macro (verified step/tag/multiplicity-identical to the original run's
+# mechanism). One of its single-step-split children canonicalizes 9->9 kinetic
+# groups on the first merge pass (a no-op the single pass misses, since a merge
+# can expose a second tie) and 9->8 on the second — the non-idempotency the
+# fixed-point iteration and its error guard exist for.
+_canon_a_parent() = EnzymeRates.AllostericMechanism(
+    EnzymeRates.@allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products: Lactate, NAD
+        catalytic_inhibitors: Lactate, NAD, NADH, Pyruvate
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            (E + Lactate ⇌ E(Lactate), E(Lactate::Inh) + Lactate ⇌ E(Lactate, Lactate::Inh), E(NAD) + Lactate ⇌ E(Lactate, NAD), E(NADH) + Lactate ⇌ E(Lactate, NADH), E(Pyruvate::Inh) + Lactate ⇌ E(Lactate, Pyruvate::Inh))    :: EqualAI
+            (E + Lactate::Inh ⇌ E(Lactate::Inh), E(NADH::Inh) + Lactate::Inh ⇌ E(Lactate::Inh, NADH::Inh))    :: NonequalAI
+            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD), E(NADH::Inh) + NAD ⇌ E(NAD, NADH::Inh), E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))    :: EqualAI
+            (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH), E(Lactate::Inh) + NADH ⇌ E(Lactate::Inh, NADH), E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate), E(Pyruvate::Inh) + NADH ⇌ E(NADH, Pyruvate::Inh))    :: OnlyA
+            (E + NADH::Inh ⇌ E(NADH::Inh), E(Lactate::Inh) + NADH::Inh ⇌ E(Lactate::Inh, NADH::Inh), E(NAD) + NADH::Inh ⇌ E(NAD, NADH::Inh), E(Pyruvate) + NADH::Inh ⇌ E(NADH::Inh, Pyruvate), E(Pyruvate::Inh) + NADH::Inh ⇌ E(NADH::Inh, Pyruvate::Inh))    :: EqualAI
+            (E + Pyruvate <--> E(Pyruvate), E(NAD) + Pyruvate <--> E(NAD, Pyruvate), E(NADH) + Pyruvate <--> E(NADH, Pyruvate), E(NADH::Inh) + Pyruvate <--> E(NADH::Inh, Pyruvate))    :: EqualAI
+            (E + Pyruvate::Inh ⇌ E(Pyruvate::Inh), E(Lactate) + Pyruvate::Inh ⇌ E(Lactate, Pyruvate::Inh), E(NADH) + Pyruvate::Inh ⇌ E(NADH, Pyruvate::Inh), E(NADH::Inh) + Pyruvate::Inh ⇌ E(NADH::Inh, Pyruvate::Inh))    :: EqualAI
+            (E(Lactate) + Lactate::Inh ⇌ E(Lactate, Lactate::Inh), E(NADH) + Lactate::Inh ⇌ E(Lactate::Inh, NADH))    :: NonequalAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD)    :: EqualAI
+        end
+    end)
+
+@testset "_canonical_mechanism is idempotent" begin
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism ?
+            EnzymeRates.AllostericMechanism(spec.mechanism) :
+            EnzymeRates.Mechanism(spec.mechanism)
+        c = EnzymeRates._canonical_mechanism(m)
+        @test EnzymeRates._canonical_mechanism(c) == c
+    end
+    # Reproducer A parent: a single-step-split child (as `_expand_split_kinetic_
+    # group` produces it, already run through one canonicalization pass) is not
+    # a fixed point on its own — a second pass merges a tie the first pass missed.
+    amA = _canon_a_parent()
+    for child in EnzymeRates._expand_split_kinetic_group(amA)
+        @test EnzymeRates._canonical_mechanism(child) == child
+    end
+end
+
+@testset "_canonical_mechanism errors when it does not converge" begin
+    # A raw single-step split of the class-A parent needs a 2nd merge pass
+    # (9 groups → 8). One pass must NOT silently return the non-canonical form —
+    # it must fail loud, so a canonicalization bug is caught rather than
+    # reintroducing a non-canonical frontier member.
+    amA = _canon_a_parent()
+    raws = [EnzymeRates._with_steps_and_cat_states(amA,
+                EnzymeRates._split_one_step(EnzymeRates.steps(amA), g, idx),
+                vcat(EnzymeRates.cat_allo_states(amA),
+                     [EnzymeRates.cat_allo_states(amA)[g]]))
+            for g in EnzymeRates.kinetic_groups(amA)
+            for idx in eachindex(EnzymeRates.steps(amA)[g])
+            if length(EnzymeRates.steps(amA)[g]) >= 2]
+    errs1(r) = try; EnzymeRates._canonical_mechanism(r; max_passes=1); false
+               catch; true end
+    ok8(r)   = try; EnzymeRates._canonical_mechanism(r; max_passes=8); true
+               catch; false end
+    @test any(errs1, raws)   # ≥1 raw split needs a 2nd pass → max_passes=1 errors
+    @test all(ok8, raws)     # the production default (8) converges for all
+end
+
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
     # PASS-1 catch: the failure now surfaces at compile_mechanism/fitted_params,
     # not canonicalization — _process_batch no longer calls _canonical_mechanism.
@@ -1709,6 +1802,37 @@ end
     @test isempty(e2)
     @test length(f2) == 1 && f2[1] isa EnzymeRates.FitFailure
     @test f2[1].mech == split                     # original split, not merged canonical
+end
+
+@testset "_expand_parent records an expansion error instead of aborting" begin
+    # A mechanism whose canonicalization throws makes expand_mechanisms raise;
+    # _expand_parent must catch it and return the parent as a FitFailure (so the
+    # beam records it in CSV and continues), not propagate and abort the search.
+    rxn_bad = @enzyme_reaction begin
+        substrates: S[C], T[N]
+        products:   P[CN]
+    end
+    e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+    e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+    e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+    m_bad = EnzymeRates.Mechanism(rxn_bad, [
+        [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
+        [EnzymeRates.Step(e_s, e_p, nothing, false)],
+        [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+    ])
+    # Sanity: expansion of this mechanism genuinely raises.
+    @test_throws ErrorException EnzymeRates.expand_mechanisms(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
+        rxn_bad)
+    kids, failure = EnzymeRates._expand_parent(m_bad, rxn_bad)
+    @test isempty(kids)
+    @test failure isa EnzymeRates.FitFailure
+    @test failure.mech == m_bad                    # the ORIGINAL parent
+    @test !isempty(failure.error)
+    # A well-formed parent expands with no failure.
+    good = first(EnzymeRates.init_mechanisms(rxn_bad))
+    gkids, gfail = EnzymeRates._expand_parent(good, rxn_bad)
+    @test gfail === nothing && !isempty(gkids)
 end
 
 @testset "LOOCV eq_hash-uniqueness guard (§4)" begin
