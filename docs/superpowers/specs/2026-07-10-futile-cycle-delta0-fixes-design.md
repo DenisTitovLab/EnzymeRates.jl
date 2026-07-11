@@ -43,6 +43,18 @@ are fully identifiable. So the fixes must be targeted, not uniform.
   3. **`L`** — the allosteric constant, but *entangled with* the two dead-end-SS speeds above, not a
      separate cause. Converting the dead-end bindings to rapid-equilibrium (Fix 2) resolves all three
      directions at once (verified: `np 10→8`, `rank 7→8`, fully identifiable).
+
+  The two SS-speed directions trace to an **enumeration-intent bug**. `_expand_add_dead_end_regulator`
+  creates competitive-inhibitor bindings as RE and creates each catalytic mirror step (the same step in
+  an inhibitor-bound species) preserving its type, in the same kinetic group. But `_expand_re_to_ss`
+  flips *any* all-RE kinetic group to SS with no guard, so it (i) makes an inhibitor binding
+  steady-state — `g5` (`E→E·Pyruvateinh`, `INHIBITOR`, SS), while the sibling `g3` inhibitor binding
+  stays RE, showing it's `re_to_ss`, not systematic — and (ii) once `split` has separated a catalytic
+  step's inhibitor-bound mirror into its own group, flips that mirror independently of its
+  inhibitor-free base: Pyruvate binds RE in the inhibitor-free branch (`g4`/`g7`) but SS in the
+  inhibitor-bound branch (`g9`, `E·Pyruvateinh→E·Pyruvate·Pyruvateinh`). Both are dead-end SS bindings
+  whose speed is never identifiable — the two null directions. So the over-parameterization is a
+  *symptom* of the enumeration emitting mechanisms it never intended.
 - **C**: the `change_allo_state` delta-0 child is a **genuinely different** function, not a
   parent-duplicate — cross-fitting confirms the child cannot reproduce the parent's data
   (residual 1.3, not 0). The relaxation changed the mechanism but added no identifiable parameter
@@ -94,31 +106,38 @@ same non-idempotency inflates the structural-multiplicity count across the whole
 **Test**: `_canonical_mechanism(_canonical_mechanism(m)) == _canonical_mechanism(m)` for all
 `MECHANISM_TEST_SPECS`; the reproducer A split no-op is dropped by `_expand_split_kinetic_group`.
 
-## Fix 2 — A dead-end steady-state binding carries only its equilibrium constant `K` (class B2)
+## Fix 2 — Enumeration: inhibitor bindings are RE-only, and catalytic-step mirrors don't diverge (class B2)
 
-A binding to a complex with no onward catalytic edge (a competitive-inhibitor / dead-end leaf) has,
-at steady state, `[EI] = [E][I]/K` — only `K = koff/kon` is identifiable, not `kon` and `koff`
-separately. The derivation currently fits both. That is exactly the over-parameterization behind
-every B2 duplicate: converting the two dead-end SS bindings of a B2 reproducer to rapid-equilibrium
-takes it from `np=10, rank=7` to `np=8, rank=8` — **fully identifiable, Fix 2 alone** (the `L`
-direction is confounded with the dead-end speeds and resolves with them). A canonically-parameterized
-parent has no label degeneracy for a split to exploit, so the function-duplicate splits vanish and
-parameter counts stop being inflated.
+The fix is at the enumeration move that broke the intent, `_expand_re_to_ss`, not in the derivation.
+Two invariants:
 
-**Design decision (resolve in planning): where to enforce it.**
-- *Enumeration filter* (recommended) — do not generate the steady-state form for a dead-end binding;
-  it is always identifiability-equivalent to, and parameter-dominated by, the rapid-equilibrium form.
-  Likely a guard in `_expand_re_to_ss` (skip dead-end bindings) and wherever dead-end regulator
-  bindings are emitted steady-state. Simpler, and it also cuts the wasted enumeration.
-- *Derivation reduction* — recognize in the constraint solve that a dead-end binding's `kon`/`koff`
-  appear only as their ratio and collapse them. More general but harder.
+1. **Competitive-inhibitor bindings are RE-only.** A binding onto a dead-end inhibitor complex has
+   only its dissociation constant identifiable, and it is always a dead-end, so `_expand_re_to_ss`
+   must never flip an inhibitor binding to steady-state. (This alone fixes `g5`.)
+2. **A catalytic step and its inhibitor-bound mirror share RE/SS type — they never flip
+   independently.** The same-group case is already clean (`re_to_ss` flips the whole group at once).
+   When a `split` has separated the mirror into a different kinetic group, and the mirror's
+   inhibitor-free counterpart is a genuine catalytic-cycle step (**not** a dead-end species carrying
+   both a substrate and a product), the two flip **together**. The mirror lookup borrows
+   `_expand_add_dead_end_regulator`'s machinery: map a species to its inhibitor-added / inhibitor-removed
+   counterpart and find the step between them (the inverse of the `de_species_map` / mirror-step
+   construction that move already does).
 
-To confirm before implementing: that a "dead-end" binding is exactly a form whose only edges are the
-binding and its reverse (its `to_species` has no other outgoing step) — the structural predicate the
-filter/reduction keys on.
+The type-lock is on the **step type**, not identifiability. Biochemically the binding mechanism is the
+same whether or not an inhibitor is bound elsewhere, so a productive base legitimately flipped to SS
+carries its dead-end mirror to SS too. Forcing the mirror to stay RE would fuse inhibitor-bound and
+inhibitor-free forms into one RE group — biochemically wrong. The resulting "both-SS" mechanism may
+not be fully identifiable, but it is parameter-dominated (cannot win parsimony) and is **not** a
+delta-0 cycle edge, so it is accepted.
 
-**Test**: the six reproducer parents become fully identifiable (`np 10→8`, `rank=8`); the B2
-reproducer split no longer produces a delta-0 function-duplicate child; equilibrium-flux oracle
+This closes the B2 delta-0 edges: for the reproducers the base binding is RE, so the mirror follows to
+RE, giving the both-RE mechanism — verified fully identifiable (`np 10→8`, `rank=8`), with no label
+degeneracy left for a split to duplicate. It is also a **correctness fix**: the enumeration was
+emitting type-inconsistent, never-identifiable mechanisms regardless of the futile cycle.
+
+**Test**: `_expand_re_to_ss` never yields a steady-state inhibitor binding; a catalytic step and its
+inhibitor-bound mirror always share type after any `re_to_ss` (no divergence); the six reproducer
+parents flip to the fully-identifiable both-RE form (`np 10→8`, `rank=8`); equilibrium-flux oracle
 (`v = 0` at `Q = Keq`) still holds.
 
 ## Fix 3 — change_allo_state delta-0 filter (class C)
@@ -170,11 +189,12 @@ from `MECHANISM_TEST_SPECS`.
 
 Fix 1, Fix 2, Fix 3 are independent and can land as separate commits. Recommended order: Fix 1
 (smallest, also improves dedup broadly), then Fix 3 (removes the largest edge class), then Fix 2 (the
-dead-end-SS reduction with its golden re-baseline). Re-run the sweep after each to measure the
-residual edge count.
+`_expand_re_to_ss` invariants, with a golden re-baseline since it changes which mechanisms the move
+emits). Re-run the sweep after each to measure the residual edge count.
 
 ## Open questions carried into planning
 
-1. **Fix 2 placement** — confirm the two redundant SS bindings match the "dead-end leaf" predicate,
-   and choose enumeration-filter vs derivation-reduction.
+1. **Fix 2 mirror predicate** — pin down "inhibitor-free counterpart is a catalytic-cycle step, not a
+   dead-end species with both a substrate and a product bound" as a concrete structural test, and how
+   `_expand_re_to_ss` walks the mirror class to flip linked groups together.
 2. **Fix 3 check** — param-count (compile) vs structural-Wegscheider implementation.
