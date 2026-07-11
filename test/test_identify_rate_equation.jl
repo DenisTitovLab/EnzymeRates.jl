@@ -1797,6 +1797,27 @@ const _CANON_A_SIG =
     end
 end
 
+@testset "_canonical_mechanism errors when it does not converge" begin
+    # A raw single-step split of the class-A parent needs a 2nd merge pass
+    # (9 groups → 8). One pass must NOT silently return the non-canonical form —
+    # it must fail loud, so a canonicalization bug is caught rather than
+    # reintroducing a non-canonical frontier member.
+    amA = EnzymeRates.AllostericMechanism(
+        Core.eval(EnzymeRates, Meta.parse(_CANON_A_SIG))())
+    raws = [EnzymeRates._with_steps_and_cat_states(amA,
+                EnzymeRates._split_one_step(EnzymeRates.steps(amA), g, idx),
+                vcat(EnzymeRates.cat_allo_states(amA),
+                     [EnzymeRates.cat_allo_states(amA)[g]]))
+            for g in EnzymeRates.kinetic_groups(amA)
+            for idx in eachindex(EnzymeRates.steps(amA)[g])
+            if length(EnzymeRates.steps(amA)[g]) >= 2]
+    errs1(r) = try; EnzymeRates._canonical_mechanism(r; max_passes=1); false
+               catch; true end
+    ok8(r)   = try; EnzymeRates._canonical_mechanism(r; max_passes=8); true
+               catch; false end
+    @test any(errs1, raws)   # ≥1 raw split needs a 2nd pass → max_passes=1 errors
+    @test all(ok8, raws)     # the production default (8) converges for all
+end
 
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
     # PASS-1 catch: the failure now surfaces at compile_mechanism/fitted_params,
@@ -1843,6 +1864,37 @@ end
     @test isempty(e2)
     @test length(f2) == 1 && f2[1] isa EnzymeRates.FitFailure
     @test f2[1].mech == split                     # original split, not merged canonical
+end
+
+@testset "_expand_parent records an expansion error instead of aborting" begin
+    # A mechanism whose canonicalization throws makes expand_mechanisms raise;
+    # _expand_parent must catch it and return the parent as a FitFailure (so the
+    # beam records it in CSV and continues), not propagate and abort the search.
+    rxn_bad = @enzyme_reaction begin
+        substrates: S[C], T[N]
+        products:   P[CN]
+    end
+    e   = EnzymeRates.Species(EnzymeRates.Metabolite[], :E)
+    e_s = EnzymeRates.Species([EnzymeRates.Substrate(:S)], :E)
+    e_p = EnzymeRates.Species([EnzymeRates.Product(:P)], :E)
+    m_bad = EnzymeRates.Mechanism(rxn_bad, [
+        [EnzymeRates.Step(e, e_s, EnzymeRates.Substrate(:S), true)],
+        [EnzymeRates.Step(e_s, e_p, nothing, false)],
+        [EnzymeRates.Step(e, e_p, EnzymeRates.Product(:P), true)],
+    ])
+    # Sanity: expansion of this mechanism genuinely raises.
+    @test_throws ErrorException EnzymeRates.expand_mechanisms(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
+        rxn_bad)
+    kids, failure = EnzymeRates._expand_parent(m_bad, rxn_bad)
+    @test isempty(kids)
+    @test failure isa EnzymeRates.FitFailure
+    @test failure.mech == m_bad                    # the ORIGINAL parent
+    @test !isempty(failure.error)
+    # A well-formed parent expands with no failure.
+    good = first(EnzymeRates.init_mechanisms(rxn_bad))
+    gkids, gfail = EnzymeRates._expand_parent(good, rxn_bad)
+    @test gfail === nothing && !isempty(gkids)
 end
 
 @testset "LOOCV eq_hash-uniqueness guard (§4)" begin

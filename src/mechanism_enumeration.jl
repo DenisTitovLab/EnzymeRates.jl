@@ -1445,19 +1445,21 @@ same canonical mechanism, so their rendered equation and `eq_hash` agree.
 Applied by the split-move expansion (`_expand_split_kinetic_group`), so every
 enumerated mechanism is canonical.
 """
-function _canonical_mechanism(m::Mechanism)
+function _canonical_mechanism(m::Mechanism; max_passes::Int = 8)
     prev = m
-    for _ in 1:8   # convergence is ≤2 passes; the bound guards a pathological loop
+    for _ in 1:max_passes   # convergence is ≤2 passes in practice
         merged = Mechanism(reaction(prev), _merge_tied_kinetic_groups(prev))
         merged == prev && return merged
         prev = merged
     end
-    prev
+    error("_canonical_mechanism did not reach a fixed point in $max_passes " *
+          "merge passes — the kinetic-group merge is not converging, a " *
+          "canonicalization bug for the mechanism producing this")
 end
 
-function _canonical_mechanism(am::AllostericMechanism)
+function _canonical_mechanism(am::AllostericMechanism; max_passes::Int = 8)
     prev = am
-    for _ in 1:8
+    for _ in 1:max_passes
         cat_steps, cat_states = _merge_tied_kinetic_groups(prev)
         merged = AllostericMechanism(reaction(prev), cat_steps, cat_states,
                                      catalytic_multiplicity(prev),
@@ -1465,7 +1467,9 @@ function _canonical_mechanism(am::AllostericMechanism)
         merged == prev && return merged
         prev = merged
     end
-    prev
+    error("_canonical_mechanism did not reach a fixed point in $max_passes " *
+          "merge passes — the kinetic-group merge is not converging, a " *
+          "canonicalization bug for the mechanism producing this")
 end
 
 """

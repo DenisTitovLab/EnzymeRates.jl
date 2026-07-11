@@ -673,6 +673,21 @@ function _offer_cv!(pool::Vector{BatchEntry}, e::BatchEntry, n::Int)
     pool
 end
 
+"""
+Expand one parent into its children, catching a per-mechanism expansion error
+(e.g. a canonicalization that fails to reach a fixed point) so it is recorded as
+a failure rather than aborting the whole search. Returns `(children, failure)`
+with `failure === nothing` on success, else a `FitFailure` carrying the parent.
+"""
+function _expand_parent(m::Union{Mechanism, AllostericMechanism},
+                        rxn::EnzymeReaction)
+    try
+        (expand_mechanisms(Union{Mechanism, AllostericMechanism}[m], rxn), nothing)
+    catch e
+        (Union{Mechanism, AllostericMechanism}[], FitFailure(m, _exc_string(e)))
+    end
+end
+
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,
@@ -690,6 +705,14 @@ function _beam_search(
     # distinct equation is fit exactly once over the whole search.
     memo = Dict{UInt64,NamedTuple}()
     # Structures already produced — each is expanded at most once (termination).
+    # This preserves the selected model: expansion is deterministic, so a
+    # re-produced structure yields identical children (no new reachable
+    # mechanism), and its FIRST production is its best beam-selection chance —
+    # the width-floor budget (`expanded_by_count`) only shrinks and the loss
+    # cutoff (`best_loss_by_count` running min) only tightens, so anything the
+    # old code selected on a later re-production it would already have selected
+    # on the first. If `_select_count!` ever gains a non-monotone budget, this
+    # invariant breaks.
     seen = Set{UInt64}()
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
@@ -761,10 +784,11 @@ function _beam_search(
             parent_of = Dict{Union{Mechanism, AllostericMechanism},
                              @NamedTuple{mechanism_type::String, n_params::Int}}()
             children = Union{Mechanism, AllostericMechanism}[]
+            expand_failures = FitFailure[]
             for pe in to_expand
-                for child in expand_mechanisms(
-                        Union{Mechanism, AllostericMechanism}[pe.mech],
-                        prob.reaction)
+                kids, failure = _expand_parent(pe.mech, prob.reaction)
+                failure === nothing || push!(expand_failures, failure)
+                for child in kids
                     haskey(parent_of, child) && continue
                     parent_of[child] = (mechanism_type = pe.row.mechanism_type,
                                         n_params = pe.n_params)
@@ -776,6 +800,10 @@ function _beam_search(
                 _process_batch(children, prob;
                     optimizer, max_param_count, eq_complexity_filter, memo,
                     seen, parent_of, kwargs...)
+            # A per-parent expansion error is recorded like a fit failure (CSV row
+            # + the errored bucket), so a canonicalization bug flags itself in the
+            # search output instead of aborting the whole run.
+            append!(child_failures, expand_failures)
             if !isempty(child_entries) || !isempty(child_failures)
                 # Count only iterations that produced rows, so the
                 # equation_search_iteration_N CSVs are gap-free.
