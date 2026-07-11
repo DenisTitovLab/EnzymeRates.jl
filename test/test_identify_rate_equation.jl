@@ -1086,7 +1086,7 @@ end
         @test !isdir(ghost)
     end
 
-    # _batch_summary reports the five reconciling buckets with the right
+    # _batch_summary reports the six reconciling buckets with the right
     # success/non-Success denominator.
     mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
         substrates: S[C]; products: P[C] end))
@@ -1097,10 +1097,11 @@ end
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
     s = EnzymeRates._batch_summary([e_succ, e_mt], [f];
-        n_param_skipped=4, n_complexity_skipped=2,
+        n_param_skipped=4, n_complexity_skipped=2, n_seen_skipped=3,
         max_param_count=8, eq_complexity_filter=337)
-    @test occursin("2 new fits + 0 inherited + 4 skipped (>8 params) + " *
-                   "2 skipped (>337 complexity) + 1 errored", s)
+    @test occursin("2 new fits + 0 inherited + 3 skipped (already seen) + " *
+                   "4 skipped (>8 params) + 2 skipped (>337 complexity) + " *
+                   "1 errored", s)
     @test occursin("Success 50.0%", s)                 # 1 of 2 fitted
     @test occursin("non-Success retcode 50.0%", s)     # e_mt is :MaxTime
     @test !occursin("best loss", s)                    # best loss moved to its own line
@@ -1160,6 +1161,33 @@ end
     @test !isempty(fail_failures)
     @test all(f -> f isa EnzymeRates.FitFailure, fail_failures)
     @test all(f -> !isempty(f.error), fail_failures)
+end
+
+@testset "seen-set: repeat structures are skipped, not reprocessed" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    data = DataFrame(
+        S = [1.0, 2.0, 3.0, 4.0],
+        P = [0.1, 0.2, 0.3, 0.4],
+        Rate = [0.5, 0.8, 1.0, 1.1],
+        group = [1, 1, 2, 2],
+    )
+    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    m = first(unique!(collect(EnzymeRates.init_mechanisms(rxn))))
+
+    seen = Set{UInt64}()
+    e1, f1, ps1, cs1, ss1 = EnzymeRates._process_batch([m], prob;
+        optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen)
+    @test ss1 == 0 && length(e1) == 1
+
+    # Same structure again in a later batch → seen-skipped, no new entry.
+    e2, f2, ps2, cs2, ss2 = EnzymeRates._process_batch([m], prob;
+        optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen)
+    @test ss2 == 1 && isempty(e2) && isempty(f2)
 end
 
 # A random-order ter-ter (all binding/release orders, all SS): V×τ ≈ 5.9M, far
@@ -1323,7 +1351,9 @@ end
         max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
         save_dir=tmp)
     log_text = read(joinpath(tmp, "progress.log"), String)
-    @test occursin(r"all skipped \(\d+ >3 params, \d+ >337 complexity\)", log_text)
+    @test occursin(
+        r"all skipped \(\d+ already seen, \d+ >3 params, \d+ >337 complexity\)",
+        log_text)
     # The all-skip batch produced no rows, so no iteration CSV was written.
     @test !any(startswith(f, "equation_search_iteration_") for f in readdir(tmp))
 end
