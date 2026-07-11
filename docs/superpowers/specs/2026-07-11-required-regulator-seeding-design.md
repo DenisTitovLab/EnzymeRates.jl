@@ -42,8 +42,9 @@ added here.
 
 ## Goals
 
-1. Let the user require a set of regulators, so the search starts from mechanisms that bind
-   all of them and never fits a partially-regulated mechanism.
+1. Default the search to requiring every declared regulator, so it starts from fully-regulated
+   mechanisms and never fits a partially-regulated one. Let the user move specific regulators to
+   optional, per role, when a regulator should be explored rather than assumed.
 2. Let the user declare each allosteric regulator's sign (activator or inhibitor), collapsing
    the state combinatorics and expressing real prior knowledge.
 3. Explore competitive site-sharing and the activator/antagonist ambiguity, which a
@@ -51,10 +52,10 @@ added here.
 
 ## Non-goals
 
-- Changing default behavior. With no required regulators declared, the search runs exactly as
-  it does today.
-- Estimating `Keq` from data (always user-supplied) or any change to fitting or model
-  selection.
+- Changing fitting or model selection. This design changes only which mechanisms seed the beam.
+  It does deliberately change the *default* seed for a reaction that declares regulators (see
+  "User surface"), but the previous behavior remains reachable.
+- Estimating `Keq` from data (always user-supplied).
 - Site-sharing among *required* regulators inside the seed-build. The seed-build keeps one
   site per required regulator; the beam merge move (Part B) reaches shared sites.
 
@@ -62,11 +63,13 @@ added here.
 
 The work splits into two composable parts.
 
-**Part A — required-regulator seeding and sign designation.** A new `required_regulators`
-keyword and a new `seed_mechanisms` function replace `init_mechanisms` as the beam's seed when
-the user requires regulators. Seeds bind every required regulator, one site each, in cheap
-allosteric states. Optional DSL sign annotations pin each regulator's state. Part A ships the
-efficiency win on its own.
+**Part A — required-regulator seeding and sign designation.** By default every declared
+regulator is required: a new `seed_mechanisms` function replaces `init_mechanisms` as the beam's
+seed, binding all of them, one site each, in cheap allosteric states. Two keywords —
+`optional_allosteric_regulators` and `optional_competitive_inhibitors` — move named regulators
+back to optional, so the beam adds them as refinements rather than forcing them into every seed.
+Optional DSL sign annotations pin each regulator's state. Part A ships the efficiency win on its
+own.
 
 **Part B — competitive-site enumeration.** A new Δ0 beam move, `_expand_merge_regulatory_sites`,
 merges two regulatory sites and enumerates the sign-respecting state assignments of the merged
@@ -81,9 +84,25 @@ Part B builds on Part A but lands independently.
 
 ### User surface
 
-**Keyword.** `identify_rate_equation(prob; required_regulators::Vector{Symbol} = Symbol[], …)`.
-The default empty vector preserves today's behavior byte-for-byte. A non-empty vector names the
-regulators that every seed must bind.
+**Default: every declared regulator is required.** A reaction that declares
+`allosteric_regulators` or `competitive_inhibitors` seeds, by default, only mechanisms that bind
+all of them — the common case, where the experimenter already knows the effectors matter. This
+deliberately changes the default seed for a regulated reaction; the previous behavior (seeding
+from non-regulated `init_mechanisms`) is recovered by marking every regulator optional. Existing
+selection tests on regulated reactions therefore change and need review.
+
+**Opt-out keywords, one per role.**
+`identify_rate_equation(prob; optional_allosteric_regulators::Vector{Symbol} = Symbol[],
+optional_competitive_inhibitors::Vector{Symbol} = Symbol[], …)`. A name in a list moves that
+regulator to optional: the beam may add it as a refinement, but no seed is forced to bind it.
+
+The keywords are split by role because a single metabolite may be declared as *both* an
+allosteric regulator and a competitive inhibitor — two distinct bindings, for example a
+substrate that occupies a regulatory site and also competitively blocks the catalytic site. One
+flat list could not say "explore its competitive binding but require its allosteric binding," so
+the opt-out is separate per role. The required sets are the declared regulators of each role
+minus that role's optional list. When both required sets are empty — every regulator optional,
+or none declared — the seed-build is skipped and the base tier is today's `init_mechanisms`.
 
 **DSL sign designation.** Each `allosteric_regulators` entry accepts an optional
 `::Activator` or `::Inhibitor` annotation:
@@ -111,10 +130,11 @@ PFK's five allosteric regulators: `5 + 5 + 1 = 11`. A seed from a 6-parameter in
 lands at 12. The seed-build asserts this relationship as an invariant — a "regulated" seed that
 misses the expected count signals a bug, such as an accidental `:NonequalAI` doubling.
 
-### `seed_mechanisms(rxn, required_regulators)`
+### `seed_mechanisms(rxn, required_allosteric, required_competitive)`
 
-A new function in `mechanism_enumeration.jl`. It grows `init_mechanisms` into the fully-required
-seed set by a breadth-first closure under the structure moves alone:
+A new function in `mechanism_enumeration.jl`, taking the two required-regulator sets. It grows
+`init_mechanisms` into the fully-required seed set by a breadth-first closure under the structure
+moves alone:
 
 - `_expand_to_allosteric` — the only lift from `Mechanism` to `AllostericMechanism`.
 - `_expand_add_allosteric_regulator` — restricted to **new sites only**.
@@ -145,15 +165,17 @@ all-required-bound child) are kept, so no reachable seed is lost.
 
 ### Beam integration
 
-One line changes in `_beam_search`:
+The seed line in `_beam_search` computes the required sets and branches:
 
 ```julia
-base = isempty(required_regulators) ?
+required_allo = setdiff(declared_allosteric(prob.reaction), optional_allosteric_regulators)
+required_comp = setdiff(declared_competitive(prob.reaction), optional_competitive_inhibitors)
+base = (isempty(required_allo) && isempty(required_comp)) ?
     unique!(collect(init_mechanisms(prob.reaction))) :
-    unique!(collect(seed_mechanisms(prob.reaction, required_regulators)))
+    unique!(collect(seed_mechanisms(prob.reaction, required_allo, required_comp)))
 ```
 
-`identify_rate_equation` threads `required_regulators` into `_beam_search`. Everything
+`identify_rate_equation` threads the two optional keywords into `_beam_search`. Everything
 downstream — the seen-set, `_process_batch`, the advancing sweep, the `pmap` fitting — is
 untouched. The beam expands seeds with the full move set: it adds optional regulators, applies
 the detail moves, and relaxes states to `:NonequalAI`, all as refinements above the floor.
@@ -294,8 +316,10 @@ sub-floor space is traversed once, in the seed-build, and never fit.
 - A designated sign collapses that regulator to one state; undesignated seeds carry both.
 - No seed carries a `:NonequalAI` tag or a detail-move artifact (steady-state group, split).
 - The per-lineage floor invariant holds (`base + n_required + L`).
-- With `required_regulators = Symbol[]`, `seed_mechanisms` is not called and the base tier
-  equals today's `init_mechanisms` output.
+- A dual-role metabolite (declared as both an allosteric regulator and a competitive inhibitor):
+  moving one role to its optional list keeps the other role required and bound in every seed.
+- With every declared regulator marked optional (or none declared), `seed_mechanisms` is not
+  called and the base tier equals today's `init_mechanisms` output.
 
 **DSL.**
 - `::Activator` / `::Inhibitor` parse and attach the sign; bare names stay undesignated.
@@ -311,9 +335,9 @@ sub-floor space is traversed once, in the seed-build, and never fit.
 - A `Mechanism` and a single-site `AllostericMechanism` yield no children.
 
 **End-to-end.**
-- `identify_rate_equation` with `required_regulators` on a small reaction fits only
+- `identify_rate_equation` on a small regulated reaction (default, no optional lists) fits only
   fully-regulated mechanisms and terminates.
-- An existing selection test with no required regulators selects the same model as today.
+- The same reaction with every regulator marked optional selects the same model as today.
 
 ## Follow-ups
 
@@ -330,7 +354,8 @@ Recorded, not built here:
 
 ## Sequencing
 
-Land Part A first: `required_regulators`, the DSL sign annotation, and `seed_mechanisms`, each
+Land Part A first: the two optional-regulator keywords, the DSL sign annotation, and
+`seed_mechanisms`, each
 with its tests. Part A ships the efficiency win and is behavior-preserving when no regulators
 are required. Then land Part B: the merge move, its canonicalization, and the floor-volume
 measurement. Bump the package version after Part A and again after Part B.
