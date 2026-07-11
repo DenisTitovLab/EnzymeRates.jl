@@ -1097,9 +1097,9 @@ end
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
     s = EnzymeRates._batch_summary([e_succ, e_mt], [f];
-        n_param_skipped=4, n_complexity_skipped=2, n_seen_skipped=3,
+        n_param_skipped=4, n_complexity_skipped=2, n_fitted_skipped=3,
         max_param_count=8, eq_complexity_filter=337)
-    @test occursin("2 new fits + 0 inherited + 3 skipped (already seen) + " *
+    @test occursin("2 new fits + 0 inherited + 3 skipped (already fit) + " *
                    "4 skipped (>8 params) + 2 skipped (>337 complexity) + " *
                    "1 errored", s)
     @test occursin("Success 50.0%", s)                 # 1 of 2 fitted
@@ -1163,7 +1163,7 @@ end
     @test all(f -> !isempty(f.error), fail_failures)
 end
 
-@testset "seen-set: repeat structures are skipped, not reprocessed" begin
+@testset "fitted-set: repeat structures are skipped, not reprocessed" begin
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -1177,16 +1177,16 @@ end
     prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
     m = first(unique!(collect(EnzymeRates.init_mechanisms(rxn))))
 
-    seen = Set{UInt64}()
+    fitted = Set{UInt64}()
     e1, f1, ps1, cs1, ss1 = EnzymeRates._process_batch([m], prob;
         optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen)
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), fitted)
     @test ss1 == 0 && length(e1) == 1
 
-    # Same structure again in a later batch → seen-skipped, no new entry.
+    # Same structure again in a later batch → fitted-skipped, no new entry.
     e2, f2, ps2, cs2, ss2 = EnzymeRates._process_batch([m], prob;
         optimizer=CMAEvolutionStrategyOpt(), max_param_count=20,
-        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), seen)
+        n_restarts=1, maxtime=1.0, memo=Dict{UInt64,NamedTuple}(), fitted)
     @test ss2 == 1 && isempty(e2) && isempty(f2)
 end
 
@@ -1352,7 +1352,7 @@ end
         save_dir=tmp)
     log_text = read(joinpath(tmp, "progress.log"), String)
     @test occursin(
-        r"all skipped \(\d+ already seen, \d+ >3 params, \d+ >337 complexity\)",
+        r"all skipped \(\d+ already fit, \d+ >3 params, \d+ >337 complexity\)",
         log_text)
     # The all-skip batch produced no rows, so no iteration CSV was written.
     @test !any(startswith(f, "equation_search_iteration_") for f in readdir(tmp))
@@ -1694,90 +1694,30 @@ const _ALLO_SIG_MERGED =
 end
 
 
-# Confirmed futile-cycle class-A parent (LDH allosteric, eq_hash 5b270db6065fc543;
-# see docs/superpowers/specs/2026-07-10-futile-cycle-reproducers.jl A_SIG): one of
-# its single-step-split children canonicalizes 9->9 kinetic groups on the first
-# merge pass (a no-op the pass misses, since a merge can expose a second tie) and
-# 9->8 on the second.
-const _CANON_A_SIG =
-    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate)" *
-    ", ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H," *
-    " 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21" *
-    "), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate" *
-    "), ((:C, 3), (:H, 4), (:O, 3)))), (((:CompetitiveInhibitor, :Lacta" *
-    "te), (4,)), ((:CompetitiveInhibitor, :NAD), (4,)), ((:CompetitiveI" *
-    "nhibitor, :NADH), (4,)), ((:CompetitiveInhibitor, :Pyruvate), (4,)" *
-    ")), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((" *
-    "), ())), (:Product, :Lactate), true), ((((:CompetitiveInhibitor, :" *
-    "Lactate),), :E, ((), ())), (((:Product, :Lactate), (:CompetitiveIn" *
-    "hibitor, :Lactate)), :E, ((), ())), (:Product, :Lactate), true), (" *
-    "(((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Pro" *
-    "duct, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Sub" *
-    "strate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substra" *
-    "te, :NADH)), :E, ((), ())), (:Product, :Lactate), true), ((((:Comp" *
-    "etitiveInhibitor, :Pyruvate),), :E, ((), ())), (((:Product, :Lacta" *
-    "te), (:CompetitiveInhibitor, :Pyruvate)), :E, ((), ())), (:Product" *
-    ", :Lactate), true)), ((((), :E, ((), ())), (((:CompetitiveInhibito" *
-    "r, :Lactate),), :E, ((), ())), (:CompetitiveInhibitor, :Lactate), " *
-    "true), ((((:CompetitiveInhibitor, :NADH),), :E, ((), ())), (((:Com" *
-    "petitiveInhibitor, :Lactate), (:CompetitiveInhibitor, :NADH)), :E," *
-    " ((), ())), (:CompetitiveInhibitor, :Lactate), true)), ((((), :E, " *
-    "((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), " *
-    "true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lac" *
-    "tate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true), " *
-    "((((:CompetitiveInhibitor, :NADH),), :E, ((), ())), (((:Product, :" *
-    "NAD), (:CompetitiveInhibitor, :NADH)), :E, ((), ())), (:Product, :" *
-    "NAD), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Prod" *
-    "uct, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :N" *
-    "AD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((" *
-    "), ())), (:Substrate, :NADH), true), ((((:Product, :Lactate),), :E" *
-    ", ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, (()" *
-    ", ())), (:Substrate, :NADH), true), ((((:CompetitiveInhibitor, :La" *
-    "ctate),), :E, ((), ())), (((:CompetitiveInhibitor, :Lactate), (:Su" *
-    "bstrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), true), ((((:" *
-    "Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:S" *
-    "ubstrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true), " *
-    "((((:CompetitiveInhibitor, :Pyruvate),), :E, ((), ())), (((:Substr" *
-    "ate, :NADH), (:CompetitiveInhibitor, :Pyruvate)), :E, ((), ())), (" *
-    ":Substrate, :NADH), true)), ((((), :E, ((), ())), (((:CompetitiveI" *
-    "nhibitor, :NADH),), :E, ((), ())), (:CompetitiveInhibitor, :NADH)," *
-    " true), ((((:CompetitiveInhibitor, :Lactate),), :E, ((), ())), (((" *
-    ":CompetitiveInhibitor, :Lactate), (:CompetitiveInhibitor, :NADH))," *
-    " :E, ((), ())), (:CompetitiveInhibitor, :NADH), true), ((((:Produc" *
-    "t, :NAD),), :E, ((), ())), (((:Product, :NAD), (:CompetitiveInhibi" *
-    "tor, :NADH)), :E, ((), ())), (:CompetitiveInhibitor, :NADH), true)" *
-    ", ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:CompetitiveInhi" *
-    "bitor, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Competit" *
-    "iveInhibitor, :NADH), true), ((((:CompetitiveInhibitor, :Pyruvate)" *
-    ",), :E, ((), ())), (((:CompetitiveInhibitor, :NADH), (:Competitive" *
-    "Inhibitor, :Pyruvate)), :E, ((), ())), (:CompetitiveInhibitor, :NA" *
-    "DH), true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E" *
-    ", ((), ())), (:Substrate, :Pyruvate), false), ((((:Product, :NAD)," *
-    "), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E" *
-    ", ((), ())), (:Substrate, :Pyruvate), false), ((((:Substrate, :NAD" *
-    "H),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate" *
-    ")), :E, ((), ())), (:Substrate, :Pyruvate), false), ((((:Competiti" *
-    "veInhibitor, :NADH),), :E, ((), ())), (((:CompetitiveInhibitor, :N" *
-    "ADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruv" *
-    "ate), false)), ((((), :E, ((), ())), (((:CompetitiveInhibitor, :Py" *
-    "ruvate),), :E, ((), ())), (:CompetitiveInhibitor, :Pyruvate), true" *
-    "), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate" *
-    "), (:CompetitiveInhibitor, :Pyruvate)), :E, ((), ())), (:Competiti" *
-    "veInhibitor, :Pyruvate), true), ((((:Substrate, :NADH),), :E, (()," *
-    " ())), (((:Substrate, :NADH), (:CompetitiveInhibitor, :Pyruvate))," *
-    " :E, ((), ())), (:CompetitiveInhibitor, :Pyruvate), true), ((((:Co" *
-    "mpetitiveInhibitor, :NADH),), :E, ((), ())), (((:CompetitiveInhibi" *
-    "tor, :NADH), (:CompetitiveInhibitor, :Pyruvate)), :E, ((), ())), (" *
-    ":CompetitiveInhibitor, :Pyruvate), true)), (((((:Product, :Lactate" *
-    "),), :E, ((), ())), (((:Product, :Lactate), (:CompetitiveInhibitor" *
-    ", :Lactate)), :E, ((), ())), (:CompetitiveInhibitor, :Lactate), tr" *
-    "ue), ((((:Substrate, :NADH),), :E, ((), ())), (((:CompetitiveInhib" *
-    "itor, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Competitiv" *
-    "eInhibitor, :Lactate), true)), (((((:Substrate, :NADH), (:Substrat" *
-    "e, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, " *
-    ":NAD)), :E, ((), ())), nothing, false),)))}, (4, (:EqualAI, :Noneq" *
-    "ualAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI, :NonequalAI" *
-    ", :EqualAI)), ()}"
+# The confirmed futile-cycle class-A parent (LDH allosteric), reconstructed via
+# the macro (verified step/tag/multiplicity-identical to the original run's
+# mechanism). One of its single-step-split children canonicalizes 9->9 kinetic
+# groups on the first merge pass (a no-op the single pass misses, since a merge
+# can expose a second tie) and 9->8 on the second — the non-idempotency the
+# fixed-point iteration and its error guard exist for.
+_canon_a_parent() = EnzymeRates.AllostericMechanism(
+    EnzymeRates.@allosteric_mechanism begin
+        substrates: NADH, Pyruvate
+        products: Lactate, NAD
+        catalytic_inhibitors: Lactate, NAD, NADH, Pyruvate
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            (E + Lactate ⇌ E(Lactate), E(Lactate::Inh) + Lactate ⇌ E(Lactate, Lactate::Inh), E(NAD) + Lactate ⇌ E(Lactate, NAD), E(NADH) + Lactate ⇌ E(Lactate, NADH), E(Pyruvate::Inh) + Lactate ⇌ E(Lactate, Pyruvate::Inh))    :: EqualAI
+            (E + Lactate::Inh ⇌ E(Lactate::Inh), E(NADH::Inh) + Lactate::Inh ⇌ E(Lactate::Inh, NADH::Inh))    :: NonequalAI
+            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD), E(NADH::Inh) + NAD ⇌ E(NAD, NADH::Inh), E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))    :: EqualAI
+            (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH), E(Lactate::Inh) + NADH ⇌ E(Lactate::Inh, NADH), E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate), E(Pyruvate::Inh) + NADH ⇌ E(NADH, Pyruvate::Inh))    :: OnlyA
+            (E + NADH::Inh ⇌ E(NADH::Inh), E(Lactate::Inh) + NADH::Inh ⇌ E(Lactate::Inh, NADH::Inh), E(NAD) + NADH::Inh ⇌ E(NAD, NADH::Inh), E(Pyruvate) + NADH::Inh ⇌ E(NADH::Inh, Pyruvate), E(Pyruvate::Inh) + NADH::Inh ⇌ E(NADH::Inh, Pyruvate::Inh))    :: EqualAI
+            (E + Pyruvate <--> E(Pyruvate), E(NAD) + Pyruvate <--> E(NAD, Pyruvate), E(NADH) + Pyruvate <--> E(NADH, Pyruvate), E(NADH::Inh) + Pyruvate <--> E(NADH::Inh, Pyruvate))    :: EqualAI
+            (E + Pyruvate::Inh ⇌ E(Pyruvate::Inh), E(Lactate) + Pyruvate::Inh ⇌ E(Lactate, Pyruvate::Inh), E(NADH) + Pyruvate::Inh ⇌ E(NADH, Pyruvate::Inh), E(NADH::Inh) + Pyruvate::Inh ⇌ E(NADH::Inh, Pyruvate::Inh))    :: EqualAI
+            (E(Lactate) + Lactate::Inh ⇌ E(Lactate, Lactate::Inh), E(NADH) + Lactate::Inh ⇌ E(Lactate::Inh, NADH))    :: NonequalAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD)    :: EqualAI
+        end
+    end)
 
 @testset "_canonical_mechanism is idempotent" begin
     for spec in MECHANISM_TEST_SPECS
@@ -1790,8 +1730,7 @@ const _CANON_A_SIG =
     # Reproducer A parent: a single-step-split child (as `_expand_split_kinetic_
     # group` produces it, already run through one canonicalization pass) is not
     # a fixed point on its own — a second pass merges a tie the first pass missed.
-    amA = EnzymeRates.AllostericMechanism(
-        Core.eval(EnzymeRates, Meta.parse(_CANON_A_SIG))())
+    amA = _canon_a_parent()
     for child in EnzymeRates._expand_split_kinetic_group(amA)
         @test EnzymeRates._canonical_mechanism(child) == child
     end
@@ -1802,8 +1741,7 @@ end
     # (9 groups → 8). One pass must NOT silently return the non-canonical form —
     # it must fail loud, so a canonicalization bug is caught rather than
     # reintroducing a non-canonical frontier member.
-    amA = EnzymeRates.AllostericMechanism(
-        Core.eval(EnzymeRates, Meta.parse(_CANON_A_SIG))())
+    amA = _canon_a_parent()
     raws = [EnzymeRates._with_steps_and_cat_states(amA,
                 EnzymeRates._split_one_step(EnzymeRates.steps(amA), g, idx),
                 vcat(EnzymeRates.cat_allo_states(amA),

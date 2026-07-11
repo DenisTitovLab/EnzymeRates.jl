@@ -464,7 +464,7 @@ end
 One-line batch summary reconciling every child mechanism into six buckets that
 sum to the child count: `new fits` (a genuine optimizer run, `fit_inherited ==
 false`), `inherited` (a memoized fit reused, `fit_inherited == true`), three
-`skipped` buckets dropped before fitting — one for a structure already seen in
+`skipped` buckets dropped before fitting — one for a structure already fit in
 an earlier batch, one for exceeding `max_param_count`, one for exceeding
 `eq_complexity_filter` — and `errored` (compile/render/fit threw). Trailing
 `Success` / `non-Success retcode` percentages are over the fitted set (`new +
@@ -472,7 +472,7 @@ inherited`).
 """
 function _batch_summary(
     entries::Vector{BatchEntry}, failures::Vector{FitFailure};
-    n_param_skipped::Int, n_complexity_skipped::Int, n_seen_skipped::Int,
+    n_param_skipped::Int, n_complexity_skipped::Int, n_fitted_skipped::Int,
     max_param_count::Int, eq_complexity_filter::Int)
     n_fit   = length(entries)
     n_err   = length(failures)
@@ -482,7 +482,7 @@ function _batch_summary(
     n_other = n_fit - n_succ
     pct(x)  = n_fit == 0 ? 0.0 : round(100 * x / n_fit; digits=1)
     string(n_new, " new fits + ", n_inh, " inherited + ",
-           n_seen_skipped, " skipped (already seen) + ",
+           n_fitted_skipped, " skipped (already fit) + ",
            n_param_skipped, " skipped (>", max_param_count, " params) + ",
            n_complexity_skipped, " skipped (>", eq_complexity_filter,
            " complexity) + ", n_err, " errored | Success ", pct(n_succ),
@@ -511,9 +511,10 @@ its own row, `retcode`, and `eq_hash`); `failures::Vector{FitFailure}` are
 mechanisms that threw at compile/render/fit — captured WITH the exception text,
 never silently swallowed. A mechanism whose fitted-param count exceeds
 `max_param_count` is dropped before fitting (a cap skip, not a failure). A
-mechanism whose structural `hash` is already in `seen` (produced in an earlier
-batch) is dropped before PASS-1 (a seen skip, not a failure); it is added to
-`seen` on first sight regardless of outcome.
+mechanism whose structural `hash` is already in `fitted` (produced in an earlier
+batch) is dropped before PASS-1 (an already-fit skip, not a failure); `fitted`
+gets every structure on first production regardless of outcome (so a capped or
+errored repeat also counts as already-fit — the common case is a genuine refit).
 
 Two passes. PASS-1 (`pmap`) compiles, caps, and renders every mechanism to get its
 `eq_hash`. PASS-2 (`pmap`) fits ONE representative per `eq_hash` not already in
@@ -530,19 +531,19 @@ function _process_batch(
     mechs, prob::IdentifyRateEquationProblem;
     optimizer, max_param_count, eq_complexity_filter::Int = typemax(Int),
     memo::Dict{UInt64,NamedTuple}=Dict{UInt64,NamedTuple}(),
-    seen::Set{UInt64}=Set{UInt64}(),
+    fitted::Set{UInt64}=Set{UInt64}(),
     parent_of::AbstractDict = Dict(), kwargs...
 )
     # Skip structures already produced in an earlier batch — expand each once.
-    # Added to `seen` on first sight regardless of outcome (fit / cap / error).
+    # Added to `fitted` on first sight regardless of outcome (fit / cap / error).
     fresh = empty(mechs)
-    n_seen_skip = 0
+    n_fitted_skip = 0
     for m in mechs
         h = hash(m)
-        if h in seen
-            n_seen_skip += 1
+        if h in fitted
+            n_fitted_skip += 1
         else
-            push!(seen, h)
+            push!(fitted, h)
             push!(fresh, m)
         end
     end
@@ -628,7 +629,7 @@ function _process_batch(
     return entries, failures,
            count(x -> x === nothing, compiled),          # param-count skips
            count(x -> x === :complexity_skip, compiled), # complexity skips
-           n_seen_skip
+           n_fitted_skip
 end
 
 """
@@ -713,16 +714,16 @@ function _beam_search(
     # old code selected on a later re-production it would already have selected
     # on the first. If `_select_count!` ever gains a non-monotone budget, this
     # invariant breaks.
-    seen = Set{UInt64}()
+    fitted = Set{UInt64}()
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
     _progress(save_dir, show_progress, "Enumerating initial mechanisms…")
     base = unique!(collect(init_mechanisms(prob.reaction)))
     _progress(save_dir, show_progress,
         "Fitting $(length(base)) initial mechanisms…")
-    base_entries, base_failures, n_base_param_skip, n_base_cx_skip, n_base_seen_skip =
+    base_entries, base_failures, n_base_param_skip, n_base_cx_skip, n_base_fitted_skip =
         _process_batch(base, prob;
-            optimizer, max_param_count, eq_complexity_filter, memo, seen, kwargs...)
+            optimizer, max_param_count, eq_complexity_filter, memo, fitted, kwargs...)
     if isempty(base_entries)
         isempty(base_failures) && return (
             Union{Mechanism, AllostericMechanism}[],
@@ -747,7 +748,7 @@ function _beam_search(
         _batch_summary(base_entries, base_failures;
                        n_param_skipped=n_base_param_skip,
                        n_complexity_skipped=n_base_cx_skip,
-                       n_seen_skipped=n_base_seen_skip,
+                       n_fitted_skipped=n_base_fitted_skip,
                        max_param_count, eq_complexity_filter),
         "\n  ", _best_loss_line(best_loss_by_count, improved)))
 
@@ -796,10 +797,10 @@ function _beam_search(
                 end
             end
             child_entries, child_failures, n_child_param_skip, n_child_cx_skip,
-                n_child_seen_skip =
+                n_child_fitted_skip =
                 _process_batch(children, prob;
                     optimizer, max_param_count, eq_complexity_filter, memo,
-                    seen, parent_of, kwargs...)
+                    fitted, parent_of, kwargs...)
             # A per-parent expansion error is recorded like a fit failure (CSV row
             # + the errored bucket), so a canonicalization bug flags itself in the
             # search output instead of aborting the whole run.
@@ -830,18 +831,18 @@ function _beam_search(
                     _batch_summary(child_entries, child_failures;
                                    n_param_skipped=n_child_param_skip,
                                    n_complexity_skipped=n_child_cx_skip,
-                                   n_seen_skipped=n_child_seen_skip,
+                                   n_fitted_skipped=n_child_fitted_skip,
                                    max_param_count, eq_complexity_filter),
                     "\n  ", _best_loss_line(best_loss_by_count, improved)))
             elseif !isempty(children)
                 # Whole batch cap-skipped (param count and/or complexity) or
-                # already seen, so it produced no rows and no CSV. Report it
+                # already fit, so it produced no rows and no CSV. Report it
                 # anyway; don't bump the iteration counter, since there are no
                 # rows to save.
                 _progress(save_dir, show_progress, string(
                     "Expanded ", length(to_expand), " parents → ",
                     length(children), " children | all skipped (",
-                    n_child_seen_skip, " already seen, ",
+                    n_child_fitted_skip, " already fit, ",
                     n_child_param_skip, " >", max_param_count, " params, ",
                     n_child_cx_skip, " >", eq_complexity_filter, " complexity)"))
             end

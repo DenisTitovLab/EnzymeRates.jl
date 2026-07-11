@@ -1827,77 +1827,31 @@ end
     end
 
     @testset "_expand_re_to_ss flips inhibitor-bound mirrors together" begin
-        # A catalytic binding and its inhibitor-bound mirror (same inhibitor-
-        # free _step_core), once separated into different all-RE groups, must
-        # flip to SS together. This split-separated-mirror state is reaction-
-        # dependent: it does not arise in simple bi-/bi-bi enumeration, so the
-        # test reconstructs the LDH B2 parent (eq_hash 7f09e180b56580aa), whose
-        # Pyruvate binding g4 (E→E·Pyruvate) and inhibitor-bound mirror g9
-        # (E·Pyruvateinh→E·Pyruvate·Pyruvateinh) sit in separate groups.
-        sig =
-            "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :" *
-            "Lactate), ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD)," *
-            " ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (:P, 2))), ((:Sub" *
-            "strate, :NADH), ((:C, 21), (:H, 29), (:N, 7), (:O, 14), (:" *
-            "P, 2))), ((:Substrate, :Pyruvate), ((:C, 3), (:H, 4), (:O," *
-            " 3)))), (((:CompetitiveInhibitor, :Lactate), (4,)), ((:Com" *
-            "petitiveInhibitor, :NAD), (4,)), ((:CompetitiveInhibitor, " *
-            ":NADH), (4,)), ((:CompetitiveInhibitor, :Pyruvate), (4,)))" *
-            ", (4,)), (((((), :E, ((), ())), (((:Product, :NAD),), :E, " *
-            "((), ())), (:Product, :NAD), true), ((((:Substrate, :Pyruv" *
-            "ate),), :E, ((), ())), (((:Product, :NAD), (:Substrate, :P" *
-            "yruvate)), :E, ((), ())), (:Product, :NAD), true), ((((:Co" *
-            "mpetitiveInhibitor, :Pyruvate),), :E, ((), ())), (((:Produ" *
-            "ct, :NAD), (:CompetitiveInhibitor, :Pyruvate)), :E, ((), (" *
-            "))), (:Product, :NAD), true)), ((((), :E, ((), ())), (((:S" *
-            "ubstrate, :NADH),), :E, ((), ())), (:Substrate, :NADH), tr" *
-            "ue), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Subs" *
-            "trate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:" *
-            "Substrate, :NADH), true)), ((((), :E, ((), ())), (((:Compe" *
-            "titiveInhibitor, :NADH),), :E, ((), ())), (:CompetitiveInh" *
-            "ibitor, :NADH), true),), ((((), :E, ((), ())), (((:Substra" *
-            "te, :Pyruvate),), :E, ((), ())), (:Substrate, :Pyruvate), " *
-            "true), ((((:Substrate, :NADH),), :E, ((), ())), (((:Substr" *
-            "ate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Su" *
-            "bstrate, :Pyruvate), true)), ((((), :E, ((), ())), (((:Com" *
-            "petitiveInhibitor, :Pyruvate),), :E, ((), ())), (:Competit" *
-            "iveInhibitor, :Pyruvate), false), ((((:Product, :NAD),), :" *
-            "E, ((), ())), (((:Product, :NAD), (:CompetitiveInhibitor, " *
-            ":Pyruvate)), :E, ((), ())), (:CompetitiveInhibitor, :Pyruv" *
-            "ate), false), ((((:Substrate, :Pyruvate),), :E, ((), ()))," *
-            " (((:Substrate, :Pyruvate), (:CompetitiveInhibitor, :Pyruv" *
-            "ate)), :E, ((), ())), (:CompetitiveInhibitor, :Pyruvate), " *
-            "false)), (((((:Product, :NAD),), :E, ((), ())), (((:Produc" *
-            "t, :Lactate), (:Product, :NAD)), :E, ((), ())), (:Product," *
-            " :Lactate), true), ((((:Substrate, :NADH),), :E, ((), ()))" *
-            ", (((:Product, :Lactate), (:Substrate, :NADH)), :E, ((), (" *
-            "))), (:Product, :Lactate), true)), (((((:Product, :NAD),)," *
-            " :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate" *
-            ")), :E, ((), ())), (:Substrate, :Pyruvate), true),), (((((" *
-            ":Substrate, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())" *
-            "), (((:Product, :Lactate), (:Product, :NAD)), :E, ((), ())" *
-            "), nothing, false),), (((((:CompetitiveInhibitor, :Pyruvat" *
-            "e),), :E, ((), ())), (((:Substrate, :Pyruvate), (:Competit" *
-            "iveInhibitor, :Pyruvate)), :E, ((), ())), (:Substrate, :Py" *
-            "ruvate), false),)))}, (4, (:EqualAI, :EqualAI, :EqualAI, :" *
-            "NonequalAI, :OnlyA, :EqualAI, :NonequalAI, :EqualAI, :None" *
-            "qualAI)), ()}"
-        amB = EnzymeRates.AllostericMechanism(
-            Core.eval(EnzymeRates, Meta.parse(sig))())
-        # Flip the dead-end SS substrate/product bindings to RE → the both-RE
-        # precursor: base binding and inhibitor-bound mirror as two all-RE groups.
-        newg = [EnzymeRates.Step[
-            (EnzymeRates.is_binding(s) && !EnzymeRates.is_equilibrium(s) &&
-             !(EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator)) ?
-                EnzymeRates.Step(EnzymeRates.from_species(s),
-                                 EnzymeRates.to_species(s),
-                                 EnzymeRates.bound_metabolite(s), true) : s
-            for s in grp] for grp in EnzymeRates.steps(amB)]
-        both_re = EnzymeRates._with_steps(amB, newg)
-        # Non-vacuity: a genuine split-separated mirror class (flip unit > 1 group).
-        @test any(u -> length(u) > 1, EnzymeRates._re_to_ss_flip_units(both_re))
-        # Mirror-lock: no variant leaves a mirror RE while its base is SS.
-        for r in EnzymeRates._expand_re_to_ss(both_re)
+        # A catalytic binding and its inhibitor-bound mirror (same inhibitor-free
+        # _step_core) sit in separate all-RE kinetic groups: A binding to E, and
+        # A binding to the inhibitor-bound form E(I). They must flip to SS
+        # together, never one without the other. Built via the macro; a separate
+        # catalytic inhibitor I keeps the substrate/inhibitor roles unambiguous.
+        m = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
+            substrates: A, B
+            products: P
+            catalytic_inhibitors: I
+            catalytic_steps: begin
+                E + A ⇌ E(A)          :: EqualAI
+                E + B ⇌ E(B)          :: EqualAI
+                E(A) + B ⇌ E(A, B)    :: EqualAI
+                E(B) + A ⇌ E(A, B)    :: EqualAI
+                E(A, B) <--> E(P)      :: EqualAI
+                E + P ⇌ E(P)          :: EqualAI
+                E + I ⇌ E(I)          :: EqualAI
+                E(I) + A ⇌ E(A, I)    :: EqualAI
+            end
+        end)
+        # Non-vacuity: the A-binding group and its inhibitor-bound mirror form a
+        # genuine multi-group flip unit.
+        @test any(u -> length(u) > 1, EnzymeRates._re_to_ss_flip_units(m))
+        # Mirror-lock: no re_to_ss variant leaves a mirror RE while its base is SS.
+        for r in EnzymeRates._expand_re_to_ss(m)
             status = Dict{Any, Bool}()
             for grp in EnzymeRates.steps(r)
                 allss = !any(EnzymeRates.is_equilibrium, grp)

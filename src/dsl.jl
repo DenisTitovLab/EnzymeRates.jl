@@ -1163,10 +1163,13 @@ function _parse_allosteric_mechanism_body(block)
                     Set{Symbol}(cat_inhibitors) ∪
                     Set{Symbol}(name for (name, _) in allo_regs)
 
+    # Order matters: a metabolite that is both a substrate/product and its own
+    # competitive inhibitor (self-inhibition) takes the substrate/product role
+    # for a bare `E(X)` binding; its inhibitor form is written `E(X::Inh)`.
     role_of = Dict{Symbol,Symbol}()
+    for i in cat_inhibitors;  role_of[i] = :CompetitiveInhibitor; end
     for s in subs_list;       role_of[s] = :Substrate;            end
     for p in prods_list;      role_of[p] = :Product;              end
-    for i in cat_inhibitors;  role_of[i] = :CompetitiveInhibitor; end
     for (r, _) in allo_regs;  role_of[r] = :AllostericRegulator;  end
 
     group_tags, side_terms_per_step = _parse_steps_block_with_groups(
