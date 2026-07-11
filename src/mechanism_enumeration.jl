@@ -1398,13 +1398,27 @@ same canonical mechanism, so their rendered equation and `eq_hash` agree.
 Applied by the split-move expansion (`_expand_split_kinetic_group`), so every
 enumerated mechanism is canonical.
 """
-_canonical_mechanism(m::Mechanism) =
-    Mechanism(reaction(m), _merge_tied_kinetic_groups(m))
+function _canonical_mechanism(m::Mechanism)
+    prev = m
+    for _ in 1:8   # convergence is ≤2 passes; the bound guards a pathological loop
+        merged = Mechanism(reaction(prev), _merge_tied_kinetic_groups(prev))
+        merged == prev && return merged
+        prev = merged
+    end
+    prev
+end
+
 function _canonical_mechanism(am::AllostericMechanism)
-    cat_steps, cat_states = _merge_tied_kinetic_groups(am)
-    AllostericMechanism(reaction(am), cat_steps, cat_states,
-                        catalytic_multiplicity(am),
-                        copy(regulatory_sites(am)))
+    prev = am
+    for _ in 1:8
+        cat_steps, cat_states = _merge_tied_kinetic_groups(prev)
+        merged = AllostericMechanism(reaction(prev), cat_steps, cat_states,
+                                     catalytic_multiplicity(prev),
+                                     copy(regulatory_sites(prev)))
+        merged == prev && return merged
+        prev = merged
+    end
+    prev
 end
 
 """

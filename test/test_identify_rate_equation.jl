@@ -1694,6 +1694,110 @@ const _ALLO_SIG_MERGED =
 end
 
 
+# Confirmed futile-cycle class-A parent (LDH allosteric, eq_hash 5b270db6065fc543;
+# see docs/superpowers/specs/2026-07-10-futile-cycle-reproducers.jl A_SIG): one of
+# its single-step-split children canonicalizes 9->9 kinetic groups on the first
+# merge pass (a no-op the pass misses, since a merge can expose a second tie) and
+# 9->8 on the second.
+const _CANON_A_SIG =
+    "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate)" *
+    ", ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H," *
+    " 27), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :NADH), ((:C, 21" *
+    "), (:H, 29), (:N, 7), (:O, 14), (:P, 2))), ((:Substrate, :Pyruvate" *
+    "), ((:C, 3), (:H, 4), (:O, 3)))), (((:CompetitiveInhibitor, :Lacta" *
+    "te), (4,)), ((:CompetitiveInhibitor, :NAD), (4,)), ((:CompetitiveI" *
+    "nhibitor, :NADH), (4,)), ((:CompetitiveInhibitor, :Pyruvate), (4,)" *
+    ")), (4,)), (((((), :E, ((), ())), (((:Product, :Lactate),), :E, ((" *
+    "), ())), (:Product, :Lactate), true), ((((:CompetitiveInhibitor, :" *
+    "Lactate),), :E, ((), ())), (((:Product, :Lactate), (:CompetitiveIn" *
+    "hibitor, :Lactate)), :E, ((), ())), (:Product, :Lactate), true), (" *
+    "(((:Product, :NAD),), :E, ((), ())), (((:Product, :Lactate), (:Pro" *
+    "duct, :NAD)), :E, ((), ())), (:Product, :Lactate), true), ((((:Sub" *
+    "strate, :NADH),), :E, ((), ())), (((:Product, :Lactate), (:Substra" *
+    "te, :NADH)), :E, ((), ())), (:Product, :Lactate), true), ((((:Comp" *
+    "etitiveInhibitor, :Pyruvate),), :E, ((), ())), (((:Product, :Lacta" *
+    "te), (:CompetitiveInhibitor, :Pyruvate)), :E, ((), ())), (:Product" *
+    ", :Lactate), true)), ((((), :E, ((), ())), (((:CompetitiveInhibito" *
+    "r, :Lactate),), :E, ((), ())), (:CompetitiveInhibitor, :Lactate), " *
+    "true), ((((:CompetitiveInhibitor, :NADH),), :E, ((), ())), (((:Com" *
+    "petitiveInhibitor, :Lactate), (:CompetitiveInhibitor, :NADH)), :E," *
+    " ((), ())), (:CompetitiveInhibitor, :Lactate), true)), ((((), :E, " *
+    "((), ())), (((:Product, :NAD),), :E, ((), ())), (:Product, :NAD), " *
+    "true), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lac" *
+    "tate), (:Product, :NAD)), :E, ((), ())), (:Product, :NAD), true), " *
+    "((((:CompetitiveInhibitor, :NADH),), :E, ((), ())), (((:Product, :" *
+    "NAD), (:CompetitiveInhibitor, :NADH)), :E, ((), ())), (:Product, :" *
+    "NAD), true), ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:Prod" *
+    "uct, :NAD), (:Substrate, :Pyruvate)), :E, ((), ())), (:Product, :N" *
+    "AD), true)), ((((), :E, ((), ())), (((:Substrate, :NADH),), :E, ((" *
+    "), ())), (:Substrate, :NADH), true), ((((:Product, :Lactate),), :E" *
+    ", ((), ())), (((:Product, :Lactate), (:Substrate, :NADH)), :E, (()" *
+    ", ())), (:Substrate, :NADH), true), ((((:CompetitiveInhibitor, :La" *
+    "ctate),), :E, ((), ())), (((:CompetitiveInhibitor, :Lactate), (:Su" *
+    "bstrate, :NADH)), :E, ((), ())), (:Substrate, :NADH), true), ((((:" *
+    "Substrate, :Pyruvate),), :E, ((), ())), (((:Substrate, :NADH), (:S" *
+    "ubstrate, :Pyruvate)), :E, ((), ())), (:Substrate, :NADH), true), " *
+    "((((:CompetitiveInhibitor, :Pyruvate),), :E, ((), ())), (((:Substr" *
+    "ate, :NADH), (:CompetitiveInhibitor, :Pyruvate)), :E, ((), ())), (" *
+    ":Substrate, :NADH), true)), ((((), :E, ((), ())), (((:CompetitiveI" *
+    "nhibitor, :NADH),), :E, ((), ())), (:CompetitiveInhibitor, :NADH)," *
+    " true), ((((:CompetitiveInhibitor, :Lactate),), :E, ((), ())), (((" *
+    ":CompetitiveInhibitor, :Lactate), (:CompetitiveInhibitor, :NADH))," *
+    " :E, ((), ())), (:CompetitiveInhibitor, :NADH), true), ((((:Produc" *
+    "t, :NAD),), :E, ((), ())), (((:Product, :NAD), (:CompetitiveInhibi" *
+    "tor, :NADH)), :E, ((), ())), (:CompetitiveInhibitor, :NADH), true)" *
+    ", ((((:Substrate, :Pyruvate),), :E, ((), ())), (((:CompetitiveInhi" *
+    "bitor, :NADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Competit" *
+    "iveInhibitor, :NADH), true), ((((:CompetitiveInhibitor, :Pyruvate)" *
+    ",), :E, ((), ())), (((:CompetitiveInhibitor, :NADH), (:Competitive" *
+    "Inhibitor, :Pyruvate)), :E, ((), ())), (:CompetitiveInhibitor, :NA" *
+    "DH), true)), ((((), :E, ((), ())), (((:Substrate, :Pyruvate),), :E" *
+    ", ((), ())), (:Substrate, :Pyruvate), false), ((((:Product, :NAD)," *
+    "), :E, ((), ())), (((:Product, :NAD), (:Substrate, :Pyruvate)), :E" *
+    ", ((), ())), (:Substrate, :Pyruvate), false), ((((:Substrate, :NAD" *
+    "H),), :E, ((), ())), (((:Substrate, :NADH), (:Substrate, :Pyruvate" *
+    ")), :E, ((), ())), (:Substrate, :Pyruvate), false), ((((:Competiti" *
+    "veInhibitor, :NADH),), :E, ((), ())), (((:CompetitiveInhibitor, :N" *
+    "ADH), (:Substrate, :Pyruvate)), :E, ((), ())), (:Substrate, :Pyruv" *
+    "ate), false)), ((((), :E, ((), ())), (((:CompetitiveInhibitor, :Py" *
+    "ruvate),), :E, ((), ())), (:CompetitiveInhibitor, :Pyruvate), true" *
+    "), ((((:Product, :Lactate),), :E, ((), ())), (((:Product, :Lactate" *
+    "), (:CompetitiveInhibitor, :Pyruvate)), :E, ((), ())), (:Competiti" *
+    "veInhibitor, :Pyruvate), true), ((((:Substrate, :NADH),), :E, (()," *
+    " ())), (((:Substrate, :NADH), (:CompetitiveInhibitor, :Pyruvate))," *
+    " :E, ((), ())), (:CompetitiveInhibitor, :Pyruvate), true), ((((:Co" *
+    "mpetitiveInhibitor, :NADH),), :E, ((), ())), (((:CompetitiveInhibi" *
+    "tor, :NADH), (:CompetitiveInhibitor, :Pyruvate)), :E, ((), ())), (" *
+    ":CompetitiveInhibitor, :Pyruvate), true)), (((((:Product, :Lactate" *
+    "),), :E, ((), ())), (((:Product, :Lactate), (:CompetitiveInhibitor" *
+    ", :Lactate)), :E, ((), ())), (:CompetitiveInhibitor, :Lactate), tr" *
+    "ue), ((((:Substrate, :NADH),), :E, ((), ())), (((:CompetitiveInhib" *
+    "itor, :Lactate), (:Substrate, :NADH)), :E, ((), ())), (:Competitiv" *
+    "eInhibitor, :Lactate), true)), (((((:Substrate, :NADH), (:Substrat" *
+    "e, :Pyruvate)), :E, ((), ())), (((:Product, :Lactate), (:Product, " *
+    ":NAD)), :E, ((), ())), nothing, false),)))}, (4, (:EqualAI, :Noneq" *
+    "ualAI, :EqualAI, :OnlyA, :EqualAI, :EqualAI, :EqualAI, :NonequalAI" *
+    ", :EqualAI)), ()}"
+
+@testset "_canonical_mechanism is idempotent" begin
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism isa EnzymeRates.AllostericEnzymeMechanism ?
+            EnzymeRates.AllostericMechanism(spec.mechanism) :
+            EnzymeRates.Mechanism(spec.mechanism)
+        c = EnzymeRates._canonical_mechanism(m)
+        @test EnzymeRates._canonical_mechanism(c) == c
+    end
+    # Reproducer A parent: a single-step-split child (as `_expand_split_kinetic_
+    # group` produces it, already run through one canonicalization pass) is not
+    # a fixed point on its own — a second pass merges a tie the first pass missed.
+    amA = EnzymeRates.AllostericMechanism(
+        Core.eval(EnzymeRates, Meta.parse(_CANON_A_SIG))())
+    for child in EnzymeRates._expand_split_kinetic_group(amA)
+        @test EnzymeRates._canonical_mechanism(child) == child
+    end
+end
+
+
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
     # PASS-1 catch: the failure now surfaces at compile_mechanism/fitted_params,
     # not canonicalization — _process_batch no longer calls _canonical_mechanism.
