@@ -34,7 +34,17 @@ are fully identifiable. So the fixes must be targeted, not uniform.
 - **B2**: the split child and its parent compute the **identical** rate function
   (`max |v_parent − v_child| / |v| = 8.4e-16` over 5000 wide-range points, identical fitted-param
   names) yet carry different eq_hashes — `_rate_eq_dedup_key` hashes rendered *text*, so it cannot
-  see the equivalence. This is only possible because the parent is over-parameterized: its 10 fitted
+  see the equivalence. **The structural difference is a Wegscheider tie enforced in the child but not
+  the parent.** The parent keeps two Pyruvate-RE groups — `K_A_Pyruvate_E` (`g4`) and `K_A_Pyruvate_ENAD`
+  (`g7`) — *separate* even though a Wegscheider box (closed by the `:EqualAI` NAD group) forces them
+  equal. The constraint solve resolves that tie as two *multi-symbol* dependencies (both equal to the
+  dead-end-SS ratio `koff_A_Pyruvate_EPyruvateinh / kon_A_Pyruvate_EPyruvateinh`), and the single-symbol
+  rename map that drives kinetic-group merging (`_state_wegscheider_rename_map` /
+  `_merge_tied_kinetic_groups`) only folds *single-symbol* ties — so it misses it and leaves `g4`/`g7`
+  unmerged. The `split` perturbs the graph enough that the tie becomes single-symbol there, so
+  canonicalization *does* fuse `g4`+`g7` in the child: same function, different partition, different
+  text — the delta-0 duplicate. (Fix 2 removes the ratio that made the tie multi-symbol, so the parent
+  fuses too.) This is only possible because the parent is over-parameterized: its 10 fitted
   params have identifiable rank **7** (a clean 7-order singular-value cliff, robust to sampling). The
   three redundant directions (from the Jacobian null space, identical across all six parents) are:
   1. `kon_A_Pyruvateinh_E` + `koff_A_Pyruvateinh_E` move together with `v` unchanged → only the ratio
@@ -73,6 +83,24 @@ folding the two inactive Pyruvate affinities onto one representative (the box ro
 `fitted_params` (the parent's fitted set contains `L`, not `K_I_Pyruvate_E`). So the box is enforced,
 and the residual `L` non-identifiability is entangled with the dead-end-SS speeds (resolved by Fix 2),
 not a missed box.
+
+## Reproducers
+
+`docs/superpowers/specs/2026-07-10-futile-cycle-reproducers.jl` (`julia --project=. <path>`, ~2 min)
+is self-contained — it embeds the two parent mechanisms as compiled-type Sig strings (the
+`mechanism_type` column from the pre-#64 `docs/ldh_hpc_results/2026_07_09_results_2` run; reconstruct
+with `AllostericMechanism(Core.eval(EnzymeRates, Meta.parse(sig))())`) and prints both bugs:
+
+- **A** — parent eq_hash `5b270db6065fc543` (11 params). `split(group 1, member 2)` carves
+  `E·Lactateinh→E·Lactate·Lactateinh` out of the Lactate group: `_canonical_mechanism(raw)` = **9**
+  groups, so `_expand_split_kinetic_group`'s guard `child == _canonical_mechanism(parent)` keeps it —
+  but `_canonical_mechanism(_canonical_mechanism(raw))` = **8** groups = the parent. A no-op split the
+  guard misses because `_merge_tied_kinetic_groups` is not idempotent (Fix 1).
+- **B2** — parent eq_hash `7f09e180b56580aa` (10 params, identifiable rank 7). A split yields a child
+  with a *different* eq_hash but `max |v_parent − v_child| / |v| ≈ 7e-16` — the identical rate function
+  (the Wegscheider tie fused in the child, left separate in the parent, above). Its dead-end SS
+  bindings are `g5` (`Pyruvateinh`, `INHIBITOR`, SS) and `g9` (`Pyruvate→E·Pyruvateinh`, SS) — what
+  Fix 2 targets.
 
 ## Goals
 
