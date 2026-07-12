@@ -359,3 +359,13 @@ Land Part A first: the two optional-regulator keywords, the DSL sign annotation,
 with its tests. Part A ships the efficiency win and is behavior-preserving when no regulators
 are required. Then land Part B: the merge move, its canonicalization, and the floor-volume
 measurement. Bump the package version after Part A and again after Part B.
+
+## Post-implementation notes (from the final whole-branch review, 2026-07-11)
+
+Three findings surfaced during implementation; none changed the shipped behavior, but they refine the design record:
+
+- **The two-keyword opt-out's "dual-role metabolite" rationale does not hold in the current DSL.** The `EnzymeReaction` constructor rejects a regulator name appearing in more than one role (`types.jl`), so a single metabolite cannot be declared as both an allosteric regulator and a competitive inhibitor. The role-scoped keywords (`optional_allosteric_regulators` / `optional_competitive_inhibitors`) are still shipped — they read explicitly and are forward-compatible if dual-role is ever allowed — but with names unique across roles, a single flat `optional_regulators` would be functionally equivalent today. Keep-or-collapse is a deliberate open choice. The spec's "dual-role metabolite" test item is correspondingly unimplementable and was (correctly) not added.
+
+- **"Signless / all-optional reactions are unchanged" holds for the SEED tier, not the full reachable set.** The Δ0 `_expand_merge_regulatory_sites` move is the unconditional seventh beam move, so a signless reaction with ≥2 allosteric regulatory sites now also reaches co-binding Δ0 hypotheses it couldn't before. This is intended (Part B is a general move) and the seen-set bounds it; only the *seed* is byte-for-byte unchanged.
+
+- **Within-site ligand order is not canonicalized in `_expand_add_allosteric_regulator` (pre-existing).** The merge move name-sorts its merged ligands, but adding a regulator to an existing site appends in insertion order, so the same co-binding site reached by two insertion orders is a distinct structure the seen-set won't dedup (fit-dedup by `eq_hash` still fits each equation once). Not introduced here; a candidate for a future within-site canonicalization.
