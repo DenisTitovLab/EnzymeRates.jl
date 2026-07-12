@@ -2103,9 +2103,12 @@ end
         -> Vector{Union{Mechanism, AllostericMechanism}}
 
 Fully-required seed set for the beam. Grows `init_mechanisms(rxn)` by a
-breadth-first closure under the three structure moves — `_expand_to_allosteric`,
-`_expand_add_allosteric_regulator`, `_expand_add_dead_end_regulator` — and
-retains the nodes that bind every required regulator.
+breadth-first closure under the seed-build structure moves and retains the nodes
+that bind every required regulator. The two allosteric-lifting moves
+(`_expand_to_allosteric`, `_expand_add_allosteric_regulator`) run only when an
+allosteric regulator is required; `_expand_add_dead_end_regulator` always runs.
+A competitive-only required set therefore stays non-allosteric — the seeds are
+`Mechanism`s at `base + n_required_comp`, with no `L`.
 
 A child is enqueued (and marked visited by `hash`) only when it is a valid seed
 node:
@@ -2141,21 +2144,25 @@ function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
     end
     while !isempty(queue)
         m = popfirst!(queue)
-        for c in _seed_children(m, rxn)
+        for c in _seed_children(m, rxn, required_allo)
             _is_seed_node(c, rxn, required_allo, required_comp) && enqueue!(c)
         end
     end
     seeds
 end
 
-# Children of `m` under the three seed-build structure moves. Each move is a
-# no-op on the mechanism kind it does not apply to, so all three run on every
-# node without a type check.
+# Children of `m` under the seed-build structure moves. The two
+# allosteric-lifting moves run only when an allosteric regulator is required, so
+# a competitive-only required set (`required_allo` empty) stays non-allosteric —
+# no `L` — and seeds at `base + n_required_comp`. The dead-end move always runs.
+# Each move is a no-op on the mechanism kind it does not apply to.
 function _seed_children(m::Union{Mechanism, AllostericMechanism},
-                        rxn::EnzymeReaction)
+                        rxn::EnzymeReaction, required_allo::Set{Symbol})
     children = Union{Mechanism, AllostericMechanism}[]
-    append!(children, _expand_to_allosteric(m, rxn))
-    append!(children, _expand_add_allosteric_regulator(m, rxn))
+    if !isempty(required_allo)
+        append!(children, _expand_to_allosteric(m, rxn))
+        append!(children, _expand_add_allosteric_regulator(m, rxn))
+    end
     append!(children, _expand_add_dead_end_regulator(m, rxn))
     children
 end

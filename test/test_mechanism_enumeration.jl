@@ -5050,9 +5050,36 @@ end
                 EnzymeRates.reaction(s), copy(EnzymeRates.steps(s)))
             base_count = length(
                 EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(base)))
-            seed_count = length(
+    seed_count = length(
                 EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(s)))
             @test seed_count == base_count + n_required + 1
+        end
+    end
+
+    @testset "competitive-only: non-allosteric seeds, no L" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products:   B[C6H12O6]
+            competitive_inhibitors: I
+        end
+        seeds = EnzymeRates.seed_mechanisms(rxn, Set{Symbol}(), Set([:I]))
+        @test !isempty(seeds)
+        # No allosteric-lifting move fires: every seed is a plain Mechanism that
+        # binds I as a dead-end competitive binding, and carries no L.
+        for s in seeds
+            @test s isa EnzymeRates.Mechanism
+            @test :I in EnzymeRates._bound_comp_inhibitors(s)
+        end
+        # Floor is base + n_required_comp (no L). Uni-uni has one catalytic
+        # backbone, so every seed shares one base lineage.
+        inits = EnzymeRates.init_mechanisms(rxn)
+        @test length(inits) == 1
+        base_count = length(
+            EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(inits[1])))
+        for s in seeds[1:min(2, length(seeds))]
+            fp = EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(s))
+            @test length(fp) == base_count + 1
+            @test !(:L in fp)
         end
     end
 end
