@@ -116,31 +116,25 @@ dissociation constant `K_R`).
 
 ### 4. Promote a non-allosteric to allosteric mechanism
 
-Converts a `Mechanism` to an `AllostericMechanism` variant set. The baseline
-variant uses the all-`:EqualAI` state (all groups have the same binding
-constants in the active A-state and inactive I-state); one additional variant
-per group uses `:OnlyA` for that group (the group is zeroed in the I-state).
-Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already
-allosteric input.
+Converts a `Mechanism` to an `AllostericMechanism` variant set. For each kinetic
+group, one variant sets that group to `:OnlyA` (the rest stay `:EqualAI`); the
+all-`:EqualAI` baseline is never emitted, since the two conformations would then
+be identical and `L` would cancel. A **binding** group set to `:OnlyA` is emitted
+bare — the bound metabolite's concentration reveals `L` (a K-type mechanism). A
+**catalytic** (isomerization) group set to `:OnlyA` is emitted paired with a
+declared allosteric regulator, one variant per `(regulator, tag)` with
+`tag ∈ {:OnlyA, :OnlyI}` — the regulator makes `L` identifiable (a V-type
+mechanism). Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an
+already allosteric input.
 
 In MWC terminology the A-state corresponds to the R-state and the I-state
 to the T-state of the original Monod–Wyman–Changeux nomenclature; this
 package uses A/I throughout.
 
-**Parameter delta:** +1 — the conformational equilibrium constant `L` is the
-sole new parameter. `:OnlyA` variants zero out the I-state, not adding
-parameters.
-
-!!! note "Known gap: V-type allostery"
-    A purely V-type allosteric mechanism — only the catalytic step is `:OnlyA`,
-    so the inactive conformation still binds substrate but cannot turn it over —
-    is currently unreachable. This move can set the catalytic group to `:OnlyA`,
-    but with no regulator present the conformational equilibrium `L` only
-    rescales the rate and cannot be identified from data, so that intermediate
-    fits no better than the non-allosteric mechanism and the search may discard
-    it before move 5 can add a regulator. Reaching a useful V-type mechanism needs a
-    single move that adds an `:OnlyA` catalytic step together with a regulator —
-    a planned **+2** move (see the [Roadmap](@ref)).
+**Parameter delta:** +1 for a K-type variant — the conformational equilibrium
+constant `L` is the sole new parameter. +2 for a V-type variant — `L` plus the
+paired regulator's binding constant. `:OnlyA` zeroes out the I-state and adds no
+parameter of its own.
 
 ### 5. Add an allosteric ligand
 

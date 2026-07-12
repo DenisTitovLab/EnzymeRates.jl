@@ -15,14 +15,6 @@ switching conformation in concert. A Koshland–Némethy–Filmer (sequential) m
 would let subunits change conformation individually, capturing a complementary
 class of cooperative behavior.
 
-**V-type allosteric mechanisms.** A purely V-type allosteric mechanism — one
-where only the catalytic step differs between conformations, so the inactive
-state binds substrate but cannot turn it over — is not currently reachable by
-the search: the intermediate that introduces the conformational equilibrium `L`
-is non-identifiable without a regulator (see [The enumeration engine](@ref)). A
-planned `+2` move would add the `:OnlyA` catalytic step and a regulator together,
-so `L` becomes identifiable and the V-type mechanism becomes reachable.
-
 **Iso mechanisms.** In an iso mechanism the enzyme takes on a different
 conformation as it converts from the substrate-bound to the product-bound
 species, and that conformation relaxes back to the original only through a
