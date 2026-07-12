@@ -127,6 +127,14 @@ and data using beam search.
   so such a mechanism passes and anything more complex is skipped — equations
   denser than that are impractical to fit and can blow up derivation/codegen.
   Computed from the mechanism graph alone.
+- `optional_allosteric_regulators::Vector{Symbol} = Symbol[]`: declared
+  allosteric regulators the seed may omit. A reaction that declares regulators
+  seeds the beam fully regulated by default; naming a regulator here lets the
+  beam also start from seeds that do not bind it (added back later by
+  expansion). Listing every declared allosteric regulator restores the
+  unregulated `init_mechanisms` seed.
+- `optional_competitive_inhibitors::Vector{Symbol} = Symbol[]`: declared
+  competitive inhibitors the seed may omit, as above.
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
 - `n_restarts::Int = 20`: multi-start restarts per fit
@@ -205,6 +213,8 @@ function identify_rate_equation(
     loss_parsimony_threshold::Float64 = 1.01,
     max_param_count::Int = 20,
     eq_complexity_filter::Int = 337,
+    optional_allosteric_regulators::Vector{Symbol} = Symbol[],
+    optional_competitive_inhibitors::Vector{Symbol} = Symbol[],
     # Fitting
     optimizer,
     n_restarts::Int = 20,
@@ -241,6 +251,7 @@ function identify_rate_equation(
         loss_abs_threshold, loss_parsimony_threshold,
         max_param_count, eq_complexity_filter, save_dir, show_progress,
         optimizer, n_cv_candidates,
+        optional_allosteric_regulators, optional_competitive_inhibitors,
         fitting_kwargs...)
 
     result = _cv_model_selection(
@@ -689,12 +700,38 @@ function _expand_parent(m::Union{Mechanism, AllostericMechanism},
     end
 end
 
+"""
+    _required_regulators(rxn, optional_allosteric_regulators,
+                         optional_competitive_inhibitors)
+        -> (required_allo::Set{Symbol}, required_comp::Set{Symbol})
+
+The regulators the beam seed must bind: every `AllostericRegulator` and every
+`CompetitiveInhibitor` declared in `rxn`, minus the names the caller marked
+optional. Both sets empty means the beam keeps its unregulated `init_mechanisms`
+seed; a non-empty set means it seeds from `seed_mechanisms`.
+"""
+function _required_regulators(rxn::EnzymeReaction,
+                              optional_allosteric_regulators::Vector{Symbol},
+                              optional_competitive_inhibitors::Vector{Symbol})
+    required_allo = setdiff(
+        Set{Symbol}(name(regulator(rm)) for rm in regulators(rxn)
+                    if regulator(rm) isa AllostericRegulator),
+        Set{Symbol}(optional_allosteric_regulators))
+    required_comp = setdiff(
+        Set{Symbol}(name(regulator(rm)) for rm in regulators(rxn)
+                    if regulator(rm) isa CompetitiveInhibitor),
+        Set{Symbol}(optional_competitive_inhibitors))
+    (required_allo, required_comp)
+end
+
 function _beam_search(
     prob::IdentifyRateEquationProblem;
     min_beam_width, loss_rel_threshold, loss_abs_threshold,
     loss_parsimony_threshold,
     max_param_count, eq_complexity_filter, save_dir, show_progress,
-    optimizer, n_cv_candidates, kwargs...
+    optimizer, n_cv_candidates,
+    optional_allosteric_regulators, optional_competitive_inhibitors,
+    kwargs...
 )
     frontier = Dict{Int, Vector{BatchEntry}}()
     cv_pool  = Dict{Int, Vector{BatchEntry}}()
@@ -718,7 +755,13 @@ function _beam_search(
 
     # ── Base tier: fit ALL init mechanisms (no bucketing — siblings) ──
     _progress(save_dir, show_progress, "Enumerating initial mechanisms…")
-    base = unique!(collect(init_mechanisms(prob.reaction)))
+    required_allo, required_comp = _required_regulators(
+        prob.reaction, optional_allosteric_regulators,
+        optional_competitive_inhibitors)
+    base = (isempty(required_allo) && isempty(required_comp)) ?
+        unique!(collect(init_mechanisms(prob.reaction))) :
+        unique!(collect(seed_mechanisms(
+            prob.reaction, required_allo, required_comp)))
     _progress(save_dir, show_progress,
         "Fitting $(length(base)) initial mechanisms…")
     base_entries, base_failures, n_base_param_skip, n_base_cx_skip, n_base_fitted_skip =

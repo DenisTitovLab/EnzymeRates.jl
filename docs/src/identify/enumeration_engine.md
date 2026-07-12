@@ -34,16 +34,42 @@ residual mid-cycle is rejected, since it would split the reaction into two
 disconnected half-cycles. See [Ping-pong mechanisms](@ref) for detail on these
 mechanisms.
 
-## The six expansion moves
+## `EnzymeRates.seed_mechanisms`
 
-`EnzymeRates.expand_mechanisms(mechs, rxn)` applies all six moves to every input
+For a reaction that declares regulators, `init_mechanisms` starts far below the
+useful region: every seed binds zero regulators, so the search must climb through
+every partially-regulated mechanism before it reaches one that binds them all. When
+the effectors are already known — phosphofructokinase and its five regulators, say —
+that lower shelf is pure waste.
+
+`EnzymeRates.seed_mechanisms(reaction, required_allosteric, required_competitive)`
+starts the search where it belongs. It grows `init_mechanisms` through the
+regulator-binding moves alone — go allosteric, add an allosteric regulator, add a
+competitive inhibitor — under three constraints that keep the set small: each
+required regulator binds at its own single-ligand site, every allosteric state stays
+cheap (`:OnlyA`/`:OnlyI`, never `:NonequalAI`), and no partially-regulated mechanism
+survives. The result is every fully-regulated mechanism at its minimum parameter
+count, and nothing beneath it. The beam then refines these seeds with the detail
+moves — steady-state flips, splits, and `:NonequalAI` relaxations — as usual.
+
+By default every declared regulator is required. `identify_rate_equation`'s
+`optional_allosteric_regulators` and `optional_competitive_inhibitors` keywords move
+named regulators back to optional, so the beam adds them as refinements rather than
+forcing them into every seed; listing every regulator as optional recovers the
+`init_mechanisms` starting set. Declaring a regulator's type in the reaction —
+`::Activator` or `::Inhibitor` — pins it to one allosteric state and shrinks the set
+further. The [Identify tutorial](@ref) works a concrete example.
+
+## The seven expansion moves
+
+`EnzymeRates.expand_mechanisms(mechs, rxn)` applies all seven moves to every input
 mechanism and returns the resulting child mechanisms pooled into one list. Each
 move is applied in every applicable way, so one input mechanism yields many
 children — every rapid-equilibrium group that can flip to steady state, every
 step that can be split into its own group, every way an inhibitor can bind, and
 so on. Every child is checked to conserve atoms before it is returned.
 
-The six moves:
+The seven moves:
 
 ### 1. Flip a rapid-equilibrium group to steady state
 
@@ -90,31 +116,25 @@ dissociation constant `K_R`).
 
 ### 4. Promote a non-allosteric to allosteric mechanism
 
-Converts a `Mechanism` to an `AllostericMechanism` variant set. The baseline
-variant uses the all-`:EqualAI` state (all groups have the same binding
-constants in the active A-state and inactive I-state); one additional variant
-per group uses `:OnlyA` for that group (the group is zeroed in the I-state).
-Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already
-allosteric input.
+Converts a `Mechanism` to an `AllostericMechanism` variant set. For each kinetic
+group, one variant sets that group to `:OnlyA` (the rest stay `:EqualAI`); the
+all-`:EqualAI` baseline is never emitted, since the two conformations would then
+be identical and `L` would cancel. A **binding** group set to `:OnlyA` is emitted
+bare — the bound metabolite's concentration reveals `L` (a K-type mechanism). A
+**catalytic** (isomerization) group set to `:OnlyA` is emitted paired with a
+declared allosteric regulator, one variant per `(regulator, tag)` with
+`tag ∈ {:OnlyA, :OnlyI}` — the regulator makes `L` identifiable (a V-type
+mechanism). Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an
+already allosteric input.
 
 In MWC terminology the A-state corresponds to the R-state and the I-state
 to the T-state of the original Monod–Wyman–Changeux nomenclature; this
 package uses A/I throughout.
 
-**Parameter delta:** +1 — the conformational equilibrium constant `L` is the
-sole new parameter. `:OnlyA` variants zero out the I-state, not adding
-parameters.
-
-!!! note "Known gap: V-type allostery"
-    A purely V-type allosteric mechanism — only the catalytic step is `:OnlyA`,
-    so the inactive conformation still binds substrate but cannot turn it over —
-    is currently unreachable. This move can set the catalytic group to `:OnlyA`,
-    but with no regulator present the conformational equilibrium `L` only
-    rescales the rate and cannot be identified from data, so that intermediate
-    fits no better than the non-allosteric mechanism and the search may discard
-    it before move 5 can add a regulator. Reaching a useful V-type mechanism needs a
-    single move that adds an `:OnlyA` catalytic step together with a regulator —
-    a planned **+2** move (see the [Roadmap](@ref)).
+**Parameter delta:** +1 for a K-type variant — the conformational equilibrium
+constant `L` is the sole new parameter. +2 for a V-type variant — `L` plus the
+paired regulator's binding constant. `:OnlyA` zeroes out the I-state and adds no
+parameter of its own.
 
 ### 5. Add an allosteric ligand
 
@@ -136,3 +156,19 @@ group independent parameters. No-op on a non-allosteric input.
 - RE binding group: **+1** (one shared K splits into `K_A` and `K_I`).
 - SS rate group: **+2** (each SS rate `kf` and `kr` splits into A/I pairs,
   adding two new independent constants).
+
+### 7. Merge two regulatory sites
+
+Combines two regulatory sites into one shared site, so their ligands compete for it
+rather than binding independently. For each merged pair the move also enumerates the
+antagonist forms: one ligand may switch to `:EqualAI` — binding both conformations
+equally, with no allosteric effect of its own — so that it acts purely by displacing
+the other ligand from the shared site. An activator that displaces an inhibitor still
+reads as activation, and an inhibitor that displaces an activator still reads as
+inhibition, so the observable effect is preserved. No-op on a non-allosteric input or a
+single-site mechanism.
+
+**Parameter delta:** **+0**. Each ligand keeps its one binding constant; only the
+binding topology changes. The merged mechanism is a distinct rate equation, which the
+beam fits alongside the independent-site form so that cross-validation can choose
+between them.

@@ -1,6 +1,6 @@
 name = "EnzymeRates"
 uuid = "e7a1c2d3-4b5f-6a7e-8c9d-0e1f2a3b4c5d"
-version = "0.1.10"
+version = "0.2.0"
 authors = ["Denis Titov <titov@berkeley.edu>  and contributors"]
 
 [deps]

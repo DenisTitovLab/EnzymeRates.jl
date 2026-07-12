@@ -19,8 +19,9 @@ an over-simple model whose better CV score is within noise.
 ## Running the search
 
 [The enumeration engine](@ref) generates every candidate the beam fits.
-`init_mechanisms` builds the minimum-parameter starting mechanisms, and
-`expand_mechanisms` grows each survivor through single moves —
+`init_mechanisms` builds the minimum-parameter starting mechanisms (or
+`seed_mechanisms` starts from fully-regulated ones when a reaction's regulators
+are required), and `expand_mechanisms` grows each survivor through single moves —
 splitting a shared rate constant, flipping a rapid-equilibrium step to steady
 state, adding a regulator, or making the enzyme allosteric. Every move yields
 slightly more complex children, so the beam meets candidates in order of
