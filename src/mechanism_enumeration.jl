@@ -1972,6 +1972,72 @@ Non-allosteric input: no-op; this move only relaxes allosteric state tags.
 _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
+# ─── Regulator-Sign Filter ────────────────────────────────────
+
+"""
+    _regulator_sign(reg_name::Symbol, rxn::EnzymeReaction) -> Symbol
+
+The declared sign (`:activator`, `:inhibitor`, or `:unspecified`) of the
+`AllostericRegulator` named `reg_name` in `rxn`'s `regulators`. Returns
+`:unspecified` when `reg_name` names no `AllostericRegulator` entry (either
+absent entirely, or present only as some other `Regulator` subtype).
+"""
+function _regulator_sign(reg_name::Symbol, rxn::EnzymeReaction)
+    for rm in regulators(rxn)
+        reg = regulator(rm)
+        reg isa AllostericRegulator && name(reg) == reg_name && return sign(rm)
+    end
+    :unspecified
+end
+
+"""
+    _state_respects_sign(reg_name, state::Symbol, sibling_names::Vector{Symbol},
+                          rxn::EnzymeReaction) -> Bool
+
+Whether ligand `reg_name`'s allosteric `state` is consistent with its
+declared regulator sign, given `sibling_names` — the OTHER ligands at its
+regulatory site. `:unspecified` sign always passes. A designated activator
+is never `:OnlyI` and a designated inhibitor is never `:OnlyA`; the
+sign-matching pure state and `:NonequalAI` are always allowed. `:EqualAI`
+is an antagonist state and is rejected only when a sibling is a
+same-sign designated effector, since that would counteract the sibling's
+declared direction.
+"""
+function _state_respects_sign(reg_name, state::Symbol,
+                              sibling_names::Vector{Symbol}, rxn::EnzymeReaction)
+    sgn = _regulator_sign(reg_name, rxn)
+    sgn === :unspecified && return true
+    sgn === :activator && state === :OnlyI && return false
+    sgn === :inhibitor && state === :OnlyA && return false
+    if state === :EqualAI
+        any(s -> _regulator_sign(s, rxn) === sgn, sibling_names) && return false
+    end
+    true
+end
+
+"""
+    _filter_by_sign(mechs::Vector, rxn::EnzymeReaction) -> Vector
+
+Keep only mechanisms whose every regulatory ligand respects its declared
+sign (`_state_respects_sign`) given its site's other ligands. A `Mechanism`
+has no regulatory sites and passes trivially.
+"""
+_filter_by_sign(mechs::Vector, rxn::EnzymeReaction) =
+    filter(m -> _respects_sign(m, rxn), mechs)
+
+_respects_sign(::Mechanism, ::EnzymeReaction) = true
+function _respects_sign(am::AllostericMechanism, rxn::EnzymeReaction)
+    for site in regulatory_sites(am)
+        lig_names = Symbol[name(lig) for lig in ligands(site)]
+        for (i, lig_name) in enumerate(lig_names)
+            siblings = Symbol[lig_names[j] for j in eachindex(lig_names) if j != i]
+            _state_respects_sign(lig_name, allo_states(site)[i], siblings, rxn) ||
+                return false
+        end
+    end
+    true
+end
+
 """
     expand_mechanisms(mechs, reaction) -> Vector{Union{Mechanism, AllostericMechanism}}
 

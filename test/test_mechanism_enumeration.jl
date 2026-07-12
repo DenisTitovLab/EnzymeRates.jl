@@ -3988,6 +3988,121 @@ end
 
 end
 
+# ─── _regulator_sign / _state_respects_sign / _filter_by_sign ──────────
+@testset "_regulator_sign / _state_respects_sign / _filter_by_sign" begin
+
+    @testset "_regulator_sign" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: A::Activator, I::Inhibitor, U
+            oligomeric_state: 2
+        end
+        @test EnzymeRates._regulator_sign(:A, rxn) == :activator
+        @test EnzymeRates._regulator_sign(:I, rxn) == :inhibitor
+        @test EnzymeRates._regulator_sign(:U, rxn) == :unspecified
+        # No matching regulator at all → :unspecified.
+        @test EnzymeRates._regulator_sign(:Nope, rxn) == :unspecified
+
+        # A CompetitiveInhibitor carrying a sign (only reachable by direct
+        # construction; the DSL restricts sign tags to allosteric_regulators:)
+        # is not an AllostericRegulator, so its sign is ignored.
+        rxn_ci = EnzymeRates.EnzymeReaction(
+            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
+             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
+            [EnzymeRates.RegulatorMults(
+                EnzymeRates.CompetitiveInhibitor(:X), [1], :activator)],
+            [1])
+        @test EnzymeRates._regulator_sign(:X, rxn_ci) == :unspecified
+    end
+
+    @testset "_state_respects_sign — :unspecified always passes" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: U
+            oligomeric_state: 2
+        end
+        for state in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
+            @test EnzymeRates._state_respects_sign(:U, state, Symbol[], rxn)
+            @test EnzymeRates._state_respects_sign(:U, state, [:Other], rxn)
+        end
+    end
+
+    @testset "_state_respects_sign — activator" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: A::Activator, A2::Activator, I::Inhibitor
+            oligomeric_state: 2
+        end
+        # never the opposite pure state
+        @test !EnzymeRates._state_respects_sign(:A, :OnlyI, Symbol[], rxn)
+        # matching pure state / NonequalAI always allowed
+        @test EnzymeRates._state_respects_sign(:A, :OnlyA, Symbol[], rxn)
+        @test EnzymeRates._state_respects_sign(:A, :NonequalAI, Symbol[], rxn)
+        # EqualAI: no siblings → allowed
+        @test EnzymeRates._state_respects_sign(:A, :EqualAI, Symbol[], rxn)
+        # EqualAI: opposite-sign sibling → allowed
+        @test EnzymeRates._state_respects_sign(:A, :EqualAI, [:I], rxn)
+        # EqualAI: unspecified sibling → allowed
+        rxn_u = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: A::Activator, U
+            oligomeric_state: 2
+        end
+        @test EnzymeRates._state_respects_sign(:A, :EqualAI, [:U], rxn_u)
+        # EqualAI: same-sign sibling → rejected
+        @test !EnzymeRates._state_respects_sign(:A, :EqualAI, [:A2], rxn)
+    end
+
+    @testset "_state_respects_sign — inhibitor (symmetric)" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: I::Inhibitor, I2::Inhibitor, A::Activator
+            oligomeric_state: 2
+        end
+        @test !EnzymeRates._state_respects_sign(:I, :OnlyA, Symbol[], rxn)
+        @test EnzymeRates._state_respects_sign(:I, :OnlyI, Symbol[], rxn)
+        @test EnzymeRates._state_respects_sign(:I, :NonequalAI, Symbol[], rxn)
+        @test EnzymeRates._state_respects_sign(:I, :EqualAI, Symbol[], rxn)
+        @test EnzymeRates._state_respects_sign(:I, :EqualAI, [:A], rxn)
+        @test !EnzymeRates._state_respects_sign(:I, :EqualAI, [:I2], rxn)
+    end
+
+    @testset "_filter_by_sign" begin
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R::Activator
+            oligomeric_state: 2
+        end
+        m_seed = first(EnzymeRates.init_mechanisms(rxn))
+        n_groups = length(EnzymeRates.steps(m_seed))
+        cat_states = Symbol[:EqualAI for _ in 1:n_groups]
+
+        site_bad = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyI])
+        am_bad = EnzymeRates.AllostericMechanism(
+            rxn, copy(EnzymeRates.steps(m_seed)), cat_states, 2, [site_bad])
+
+        site_good = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyA])
+        am_good = EnzymeRates.AllostericMechanism(
+            rxn, copy(EnzymeRates.steps(m_seed)), cat_states, 2, [site_good])
+
+        kept = EnzymeRates._filter_by_sign(
+            Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+                m_seed, am_bad, am_good], rxn)
+        @test m_seed in kept   # Mechanism (no sites) passes trivially
+        @test am_good in kept
+        @test !(am_bad in kept)
+        @test length(kept) == 2
+    end
+end
+
 # ═══════════════════════════════════════════════════════════════════════
 # 5. Composition (dedup, expand_mechanisms)
 # ═══════════════════════════════════════════════════════════════════════
