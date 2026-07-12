@@ -350,18 +350,20 @@ struct EnzymeReaction
 
         sub_names  = Symbol[name(m) for m in subs]
         prod_names = Symbol[name(m) for m in prods]
-        reg_names  = Symbol[name(regulator(rm)) for rm in sorted_regulators]
+        reg_keys   = [(name(regulator(rm)), typeof(regulator(rm)))
+                      for rm in sorted_regulators]
         length(sub_names)  == length(Set(sub_names))  ||
             error("EnzymeReaction: duplicate substrate names")
         length(prod_names) == length(Set(prod_names)) ||
             error("EnzymeReaction: duplicate product names")
-        length(reg_names)  == length(Set(reg_names))  ||
-            error("EnzymeReaction: duplicate regulator names")
+        length(reg_keys)   == length(Set(reg_keys))   ||
+            error("EnzymeReaction: duplicate regulator of the same kind")
 
-        # A regulator MAY share a substrate/product name: the `::Inh` role tag
-        # lets one metabolite bind as a CompetitiveInhibitor under its real
-        # name (so `concs.X` drives every role). Cross-category names are not
-        # required to be unique.
+        # A name may be declared once per regulator kind — the same metabolite
+        # may bind BOTH as an AllostericRegulator and as a CompetitiveInhibitor
+        # (the two roles render to distinct parameter names). A regulator may
+        # also share a substrate/product name (so `concs.X` drives every role);
+        # cross-category names need not be unique.
 
         # Atom mass-balance: per-element sum over substrate vs product
         # reactants. Dispatch by metabolite TYPE (not name) so a substrate and

@@ -337,6 +337,31 @@
             EnzymeRates.CompetitiveInhibitor(:R)
     end
 
+    @testset "@enzyme_reaction dual-role regulator (allosteric + competitive)" begin
+        # One metabolite MAY be declared as BOTH an allosteric regulator and a
+        # competitive inhibitor; the two roles render to distinct parameter
+        # names, so both RegulatorMults are carried.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            competitive_inhibitors: ATP
+            allosteric_regulators: ATP(1)
+        end
+        @test rxn isa EnzymeReaction
+        atp_regs = [rm for rm in EnzymeRates.regulators(rxn)
+                    if EnzymeRates.name(EnzymeRates.regulator(rm)) == :ATP]
+        @test length(atp_regs) == 2
+        @test Set(typeof(EnzymeRates.regulator(rm)) for rm in atp_regs) ==
+              Set([EnzymeRates.AllostericRegulator,
+                   EnzymeRates.CompetitiveInhibitor])
+        # Two allosteric ATPs still rejected.
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: ATP(1), ATP(2)
+        end))
+    end
+
     @testset "@enzyme_reaction regulator types" begin
         rxn = @enzyme_reaction begin
             substrates: A[C6H12O6]

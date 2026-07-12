@@ -1401,6 +1401,21 @@ end
     ra_mix, rc_mix = EnzymeRates._required_regulators(rxn, [:A], [:J])
     @test ra_mix == Set([:B])
     @test rc_mix == Set([:I])
+
+    # A dual-role name (ATP declared as BOTH allosteric regulator and
+    # competitive inhibitor) is required/optional per role, independently:
+    # marking ATP optional as a competitive inhibitor leaves it required as an
+    # allosteric regulator.
+    dual_rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: ATP(1)
+        competitive_inhibitors: ATP
+        oligomeric_state: 2
+    end
+    ra_dual, rc_dual = EnzymeRates._required_regulators(dual_rxn, Symbol[], [:ATP])
+    @test :ATP in ra_dual        # still required as an allosteric regulator
+    @test !(:ATP in rc_dual)     # optional as a competitive inhibitor
 end
 
 @testset "removed kwargs error at the identify boundary" begin

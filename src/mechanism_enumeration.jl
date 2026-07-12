@@ -1813,10 +1813,11 @@ _expand_to_allosteric(::AllostericMechanism, ::EnzymeReaction) =
                                      rxn::EnzymeReaction)
         → Vector{AllostericMechanism}
 
-Add one `AllostericRegulator` declared in `rxn` but not yet bound by
-`am` (neither at a regulatory site nor as a catalytic-step dead-end
-inhibitor). For each (new ligand, target site, tag) combination, emit
-a variant:
+Add one `AllostericRegulator` declared in `rxn` not yet bound by `am`
+at a regulatory site. A name already bound as a catalytic-step dead-end
+competitive inhibitor is still eligible: a metabolite may play both
+roles, and the two render to distinct parameters. For each (new ligand,
+target site, tag) combination, emit a variant:
 
   * target site ∈ {new site} ∪ {existing sites}
   * tag ∈ {:OnlyA, :OnlyI, :NonequalAI} for any target site
@@ -1840,18 +1841,11 @@ function _expand_add_allosteric_regulator(
         push!(existing_allo, name(lig))
     end
 
-    existing_de = Set{Symbol}()
-    for group in steps(am), s in group
-        bm = bound_metabolite(s)
-        bm isa Regulator && push!(existing_de, name(bm))
-    end
-
     new_regs = Symbol[]
     for rm in regulators(rxn)
         reg = regulator(rm)
         reg isa AllostericRegulator || continue
         name(reg) in existing_allo && continue
-        name(reg) in existing_de && continue
         push!(new_regs, name(reg))
     end
     sort!(new_regs)

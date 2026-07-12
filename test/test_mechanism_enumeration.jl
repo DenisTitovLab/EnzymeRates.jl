@@ -3264,12 +3264,12 @@ end
         end
     end
 
-    @testset "AllostericMechanism — existing_de exclusion prevents adding bound dead-end" begin
+    @testset "AllostericMechanism — competitive-only name: no allo variant" begin
         # Build a uni-uni AllostericMechanism that already has :I bound as a
         # dead-end (added via init→dead-end→allosteric on the Mechanism path).
-        # Then `_expand_add_allosteric_regulator(am, rxn)` must exclude :I
-        # (it's in existing_de). With :I the only declared regulator in
-        # rxn, result is empty.
+        # `rxn` declares :I only as a competitive inhibitor, not an allosteric
+        # regulator, so `_expand_add_allosteric_regulator(am, rxn)` has no
+        # allosteric regulator to add and returns empty.
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -3669,6 +3669,70 @@ end
         end
         m = first(EnzymeRates.init_mechanisms(rxn))
         @test isempty(EnzymeRates._expand_add_allosteric_regulator(m, rxn))
+    end
+
+    @testset "AllostericMechanism — dual-role name gains an allosteric site" begin
+        # A reaction may declare one name (ATP) in BOTH roles. Starting from an
+        # allosteric mechanism that already binds ATP as a competitive dead-end
+        # inhibitor, `_expand_add_allosteric_regulator` now also adds ATP at a
+        # regulatory site — the two roles carry distinct parameter names.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            competitive_inhibitors: ATP
+            allosteric_regulators: ATP(1)
+        end
+        base = first(EnzymeRates.init_mechanisms(rxn))
+        with_de = EnzymeRates._expand_add_dead_end_regulator(base, rxn)
+        @test !isempty(with_de)
+        allo_mechs = EnzymeRates._expand_to_allosteric(first(with_de), rxn)
+        @test !isempty(allo_mechs)
+        am = first(allo_mechs)
+        # am already binds ATP as a competitive dead-end inhibitor step.
+        @test any(EnzymeRates.steps(am)) do g
+            any(g) do s
+                bm = EnzymeRates.bound_metabolite(s)
+                bm isa EnzymeRates.CompetitiveInhibitor &&
+                    EnzymeRates.name(bm) == :ATP
+            end
+        end
+
+        result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
+        # ATP is now reachable at a regulatory site despite its dead-end role.
+        @test !isempty(result)
+        for r in result
+            @test any(r.regulatory_sites) do site
+                any(l -> EnzymeRates.name(l) === :ATP,
+                    EnzymeRates.ligands(site))
+            end
+            @test r isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(r)
+        end
+    end
+
+    @testset "AllostericMechanism — dual-role name derives distinct params" begin
+        # ATP bound BOTH at a regulatory site AND as a competitive dead-end step
+        # must yield two distinct constants (…ATPreg vs …ATPinh…), never a name
+        # collision, and the mechanism must compile.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            competitive_inhibitors: ATP
+            allosteric_regulators: ATP(1)
+        end
+        base = first(EnzymeRates.init_mechanisms(rxn))
+        with_de = first(EnzymeRates._expand_add_dead_end_regulator(base, rxn))
+        am0 = first(EnzymeRates._expand_to_allosteric(with_de, rxn))
+        # Force an ATP regulatory site on top of the ATP dead-end step.
+        am = EnzymeRates._make_am_with_added_reg(am0, :ATP, :NonequalAI, 0)
+        EnzymeRates._assert_mechanism_invariants(am)
+
+        fp = collect(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am)))
+        @test length(fp) == length(unique(fp))          # no duplicate symbol
+        atp_params = filter(s -> occursin("ATP", String(s)), fp)
+        @test any(s -> occursin("ATPreg", String(s)), atp_params)
+        @test any(s -> occursin("ATPinh", String(s)), atp_params)
+        @test EnzymeRates.compile_mechanism(am) isa AllostericEnzymeMechanism
     end
 
 end
