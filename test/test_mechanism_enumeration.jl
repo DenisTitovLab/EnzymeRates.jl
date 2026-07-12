@@ -5317,7 +5317,7 @@ end
                 EnzymeRates.reaction(s), copy(EnzymeRates.steps(s)))
             base_count = length(
                 EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(base)))
-    seed_count = length(
+            seed_count = length(
                 EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(s)))
             @test seed_count == base_count + n_required + 1
         end

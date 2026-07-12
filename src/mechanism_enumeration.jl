@@ -2266,7 +2266,7 @@ function _is_seed_node(m::Union{Mechanism, AllostericMechanism},
         return false
     issubset(_bound_allo_regs(m), required_allo) || return false
     issubset(_bound_comp_inhibitors(m), required_comp) || return false
-    isempty(_filter_by_sign([m], rxn)) && return false
+    _respects_sign(m, rxn) || return false
     true
 end
 
