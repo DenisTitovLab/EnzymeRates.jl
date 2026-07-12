@@ -2099,6 +2099,106 @@ function init_mechanisms(r::EnzymeReaction)
 end
 
 """
+    seed_mechanisms(rxn, required_allo::Set{Symbol}, required_comp::Set{Symbol})
+        -> Vector{Union{Mechanism, AllostericMechanism}}
+
+Fully-required seed set for the beam. Grows `init_mechanisms(rxn)` by a
+breadth-first closure under the three structure moves — `_expand_to_allosteric`,
+`_expand_add_allosteric_regulator`, `_expand_add_dead_end_regulator` — and
+retains the nodes that bind every required regulator.
+
+A child is enqueued (and marked visited by `hash`) only when it is a valid seed
+node:
+
+1. no `:NonequalAI` tag anywhere (cheap states only; the beam reaches
+   `:NonequalAI` later via `change_allo_state`);
+2. every regulatory site binds a single ligand — one site per required
+   allosteric regulator. This bounds the closure: multi-ligand children (from
+   adding a regulator to an existing site) fail it and are dropped before
+   expansion;
+3. no optional regulator is bound — every bound allosteric ligand ∈
+   `required_allo` and every bound competitive inhibitor ∈ `required_comp`;
+4. every ligand respects its declared sign (`_filter_by_sign`).
+
+The seeds are the valid nodes that additionally bind ALL of `required_allo` at
+regulatory sites and ALL of `required_comp` as competitive-inhibitor dead ends.
+Returned deduped (each node is visited once).
+"""
+function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
+                         required_comp::Set{Symbol})
+    visited = Set{UInt64}()
+    queue = Union{Mechanism, AllostericMechanism}[]
+    seeds = Union{Mechanism, AllostericMechanism}[]
+    enqueue!(m) = begin
+        h = hash(m)
+        h in visited && return
+        push!(visited, h)
+        push!(queue, m)
+        _binds_all_required(m, required_allo, required_comp) && push!(seeds, m)
+    end
+    for m in init_mechanisms(rxn)
+        enqueue!(m)
+    end
+    while !isempty(queue)
+        m = popfirst!(queue)
+        for c in _seed_children(m, rxn)
+            _is_seed_node(c, rxn, required_allo, required_comp) && enqueue!(c)
+        end
+    end
+    seeds
+end
+
+# Children of `m` under the three seed-build structure moves. Each move is a
+# no-op on the mechanism kind it does not apply to, so all three run on every
+# node without a type check.
+function _seed_children(m::Union{Mechanism, AllostericMechanism},
+                        rxn::EnzymeReaction)
+    children = Union{Mechanism, AllostericMechanism}[]
+    append!(children, _expand_to_allosteric(m, rxn))
+    append!(children, _expand_add_allosteric_regulator(m, rxn))
+    append!(children, _expand_add_dead_end_regulator(m, rxn))
+    children
+end
+
+_has_nonequalai(::Mechanism) = false
+_has_nonequalai(am::AllostericMechanism) =
+    any(==(:NonequalAI), cat_allo_states(am)) ||
+    any(site -> any(==(:NonequalAI), allo_states(site)), regulatory_sites(am))
+
+_bound_allo_regs(::Mechanism) = Set{Symbol}()
+_bound_allo_regs(am::AllostericMechanism) =
+    Set{Symbol}(name(lig) for site in regulatory_sites(am) for lig in ligands(site))
+
+function _bound_comp_inhibitors(m::Union{Mechanism, AllostericMechanism})
+    bound = Set{Symbol}()
+    for group in steps(m), s in group
+        bm = bound_metabolite(s)
+        bm isa CompetitiveInhibitor && push!(bound, name(bm))
+    end
+    bound
+end
+
+# A child worth expanding: cheap states, one ligand per regulatory site, no
+# optional regulator bound, and sign-respecting.
+function _is_seed_node(m::Union{Mechanism, AllostericMechanism},
+                       rxn::EnzymeReaction, required_allo::Set{Symbol},
+                       required_comp::Set{Symbol})
+    _has_nonequalai(m) && return false
+    m isa AllostericMechanism &&
+        !all(site -> length(ligands(site)) == 1, regulatory_sites(m)) &&
+        return false
+    issubset(_bound_allo_regs(m), required_allo) || return false
+    issubset(_bound_comp_inhibitors(m), required_comp) || return false
+    isempty(_filter_by_sign([m], rxn)) && return false
+    true
+end
+
+_binds_all_required(m::Union{Mechanism, AllostericMechanism},
+                    required_allo::Set{Symbol}, required_comp::Set{Symbol}) =
+    issubset(required_allo, _bound_allo_regs(m)) &&
+    issubset(required_comp, _bound_comp_inhibitors(m))
+
+"""
     _assert_mechanism_invariants(m::Mechanism) -> Nothing
 
 Structural invariants every valid Mechanism should satisfy:

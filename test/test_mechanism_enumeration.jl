@@ -4936,3 +4936,123 @@ end
     end
     @test n_reproducers ≥ 1
 end
+
+@testset "seed_mechanisms" begin
+    # Tag-stripped skeleton: normalize every regulator state to :OnlyA so the
+    # 2^n one-ligand-site state assignments of a lineage collapse to one key.
+    # The catalytic backbone and cat_allo_states are preserved.
+    skeleton_key(m) = hash(EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(m), EnzymeRates.steps(m),
+        EnzymeRates.cat_allo_states(m), EnzymeRates.catalytic_multiplicity(m),
+        [EnzymeRates.RegulatorySite(EnzymeRates.ligands(s),
+             EnzymeRates.multiplicity(s),
+             fill(:OnlyA, length(EnzymeRates.allo_states(s))))
+         for s in EnzymeRates.regulatory_sites(m)]))
+
+    # The allosteric state of ligand `reg` wherever it sits, or :none.
+    function state_of(m, reg)
+        for site in EnzymeRates.regulatory_sites(m)
+            for (lig, st) in zip(EnzymeRates.ligands(site),
+                                 EnzymeRates.allo_states(site))
+                EnzymeRates.name(lig) == reg && return st
+            end
+        end
+        :none
+    end
+
+    @testset "undesignated: skeletons × 2²" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products:   B[C6H12O6]
+            allosteric_regulators: X, Y
+            oligomeric_state: 2
+        end
+        seeds = EnzymeRates.seed_mechanisms(rxn, Set([:X, :Y]), Set{Symbol}())
+        @test !isempty(seeds)
+        # Every seed is a fully-regulated, cheap-state AllostericMechanism with X
+        # and Y each at their own single-ligand site.
+        for s in seeds
+            @test s isa EnzymeRates.AllostericMechanism
+            @test EnzymeRates._bound_allo_regs(s) == Set([:X, :Y])
+            sites = EnzymeRates.regulatory_sites(s)
+            @test length(sites) == 2
+            @test all(length(EnzymeRates.ligands(si)) == 1 for si in sites)
+            @test !EnzymeRates._has_nonequalai(s)
+        end
+        # Each lineage contributes exactly 2² = 4 state assignments.
+        skels = Dict{UInt64, Int}()
+        for s in seeds
+            k = skeleton_key(s)
+            skels[k] = get(skels, k, 0) + 1
+        end
+        @test all(==(4), values(skels))
+        @test length(seeds) == 4 * length(skels)
+    end
+
+    @testset "designated signs collapse to ×1" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products:   B[C6H12O6]
+            allosteric_regulators: X, Y
+            oligomeric_state: 2
+        end
+        rxn_d = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products:   B[C6H12O6]
+            allosteric_regulators: X::Activator, Y::Inhibitor
+            oligomeric_state: 2
+        end
+        seeds = EnzymeRates.seed_mechanisms(rxn, Set([:X, :Y]), Set{Symbol}())
+        seeds_d = EnzymeRates.seed_mechanisms(rxn_d, Set([:X, :Y]), Set{Symbol}())
+        @test !isempty(seeds_d)
+        # One state assignment per lineage: seed count equals the skeleton count.
+        skels_d = Set(skeleton_key(s) for s in seeds_d)
+        @test length(seeds_d) == length(skels_d)
+        # The same catalytic-allostery skeletons as the undesignated build.
+        @test length(seeds) == 4 * length(seeds_d)
+        # An activator seeds as :OnlyA, an inhibitor as :OnlyI.
+        for s in seeds_d
+            @test state_of(s, :X) == :OnlyA
+            @test state_of(s, :Y) == :OnlyI
+        end
+    end
+
+    @testset "required vs optional" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products:   B[C6H12O6]
+            allosteric_regulators: X, Y, Z
+            oligomeric_state: 2
+        end
+        seeds = EnzymeRates.seed_mechanisms(rxn, Set([:X, :Y]), Set{Symbol}())
+        @test !isempty(seeds)
+        for s in seeds
+            @test issubset(Set([:X, :Y]), EnzymeRates._bound_allo_regs(s))
+            @test !(:Z in EnzymeRates._bound_allo_regs(s))
+        end
+    end
+
+    @testset "per-lineage floor invariant" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products:   B[C6H12O6]
+            allosteric_regulators: X, Y
+            oligomeric_state: 2
+        end
+        seeds = EnzymeRates.seed_mechanisms(rxn, Set([:X, :Y]), Set{Symbol}())
+        n_required = 2
+        # A required allosteric regulator adds one dissociation constant; the two
+        # required regulators additionally lift the mechanism to two
+        # conformations, so a seed carries its base catalytic count + n_required
+        # + 1 (L). Compile is slow; sample a few seeds.
+        for s in seeds[1:min(3, length(seeds))]
+            base = EnzymeRates.Mechanism(
+                EnzymeRates.reaction(s), copy(EnzymeRates.steps(s)))
+            base_count = length(
+                EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(base)))
+            seed_count = length(
+                EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(s)))
+            @test seed_count == base_count + n_required + 1
+        end
+    end
+end
