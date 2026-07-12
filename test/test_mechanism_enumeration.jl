@@ -4678,6 +4678,54 @@ end
         @test any(m -> has_reg_state(m, :R, :OnlyI), children_plain)
         @test children_plain == raw_plain
     end
+
+    @testset "Merge move wired for two-site allosteric; no-op for Mechanism" begin
+        # A two-regulatory-site AllostericMechanism: A::Activator on one site,
+        # I::Inhibitor on the other. expand_mechanisms must now yield the Δ0
+        # one-site merged children (both ligands sharing a single site).
+        merge_rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: A::Activator, I::Inhibitor
+            oligomeric_state: 4
+        end
+        base = first(EnzymeRates.init_mechanisms(merge_rxn))
+        cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
+        site_a = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])
+        site_i = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:I)], 4, [:OnlyI])
+        parent = EnzymeRates.AllostericMechanism(
+            merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a, site_i])
+
+        children = EnzymeRates.expand_mechanisms([parent], merge_rxn)
+        is_merged(c) =
+            c isa EnzymeRates.AllostericMechanism &&
+            length(EnzymeRates.regulatory_sites(c)) == 1 &&
+            Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
+                only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
+        # The three Δ0 merge children (co-binding + two antagonist forms)
+        # survive the sign filter and appear in the output.
+        @test count(is_merged, children) == 3
+        @test issubset(
+            Set(EnzymeRates._expand_merge_regulatory_sites(parent)),
+            Set(children))
+
+        # A plain Mechanism has no regulatory sites, so the merge move
+        # contributes nothing: expand_mechanisms equals the six non-merge
+        # moves' sign-filtered output, unchanged by the wiring.
+        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+        raw6 = Union{EnzymeRates.Mechanism,
+                     EnzymeRates.AllostericMechanism}[]
+        append!(raw6, EnzymeRates._expand_re_to_ss(m))
+        append!(raw6, EnzymeRates._expand_split_kinetic_group(m))
+        append!(raw6, EnzymeRates._expand_add_dead_end_regulator(m, uni_uni_rxn))
+        append!(raw6, EnzymeRates._expand_to_allosteric(m, uni_uni_rxn))
+        append!(raw6, EnzymeRates._expand_add_allosteric_regulator(m, uni_uni_rxn))
+        append!(raw6, EnzymeRates._expand_change_allo_state(m))
+        baseline = EnzymeRates._filter_by_sign(raw6, uni_uni_rxn)
+        @test EnzymeRates.expand_mechanisms([m], uni_uni_rxn) == baseline
+    end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
