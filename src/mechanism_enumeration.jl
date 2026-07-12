@@ -1972,6 +1972,73 @@ Non-allosteric input: no-op; this move only relaxes allosteric state tags.
 _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
+"""
+    _expand_merge_regulatory_sites(am::AllostericMechanism)
+        → Vector{AllostericMechanism}
+
+Merge each unordered pair of regulatory sites into one shared site holding
+both sites' ligands, at no parameter cost (Δ0 — every ligand keeps its own
+dissociation constant). This lets two regulators compete at one site,
+including the activator↔antagonist ambiguity. For the merged ligands,
+enumerate the Δ0-valid allo-state assignments:
+
+  * the all-keep assignment — every ligand retains its current state
+    (co-binding);
+  * each assignment retagging exactly one ligand to `:EqualAI` — the
+    antagonist forms (a ligand that binds both conformations equally,
+    competing for the shared site).
+
+The all-`:EqualAI` assignment is dropped (degenerate; the `RegulatorySite`
+constructor rejects it anyway). The merged site reuses one site's
+`multiplicity` (equal to `catalytic_multiplicity`) and its ligands are sorted
+by name, so two merge routes reaching the same ligand partition produce `==`
+mechanisms and dedup by `hash`. Sign is not enforced here; `expand_mechanisms`
+runs every child through `_filter_by_sign`.
+"""
+function _expand_merge_regulatory_sites(am::AllostericMechanism)
+    sites = regulatory_sites(am)
+    n = length(sites)
+    results = AllostericMechanism[]
+    for i in 1:(n - 1), j in (i + 1):n
+        ligs = vcat(ligands(sites[i]), ligands(sites[j]))
+        base_states = vcat(allo_states(sites[i]), allo_states(sites[j]))
+        perm = sortperm(ligs; by = lig -> String(name(lig)))
+        ligs = ligs[perm]
+        base_states = base_states[perm]
+        mult = multiplicity(sites[i])
+        others = RegulatorySite[sites[k] for k in 1:n if k != i && k != j]
+        for states in _merged_site_state_assignments(base_states)
+            merged = RegulatorySite(copy(ligs), mult, states)
+            push!(results, _with_reg_sites(am, vcat(others, [merged])))
+        end
+    end
+    results
+end
+
+"""
+    _expand_merge_regulatory_sites(::Mechanism) → Vector{AllostericMechanism}
+
+Non-allosteric input: no-op; this move only merges regulatory sites, which a
+`Mechanism` has none of. Keeps callers type-uniform.
+"""
+_expand_merge_regulatory_sites(::Mechanism) =
+    AllostericMechanism[]
+
+# Δ0-valid allo-state assignments for a merged site's ligands: the all-keep
+# assignment, plus each assignment retagging exactly one non-`:EqualAI` ligand
+# to `:EqualAI`. The all-`:EqualAI` result is dropped.
+function _merged_site_state_assignments(base_states::Vector{Symbol})
+    assignments = Vector{Symbol}[copy(base_states)]
+    for i in eachindex(base_states)
+        base_states[i] == :EqualAI && continue
+        retagged = copy(base_states)
+        retagged[i] = :EqualAI
+        all(==(:EqualAI), retagged) && continue
+        push!(assignments, retagged)
+    end
+    assignments
+end
+
 # ─── Regulator-Sign Filter ────────────────────────────────────
 
 """
