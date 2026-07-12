@@ -171,7 +171,7 @@ antagonist forms: one ligand may switch to `:EqualAI` — binding both conformat
 equally, with no allosteric effect of its own — so that it acts purely by displacing
 the other ligand from the shared site. An activator that displaces an inhibitor still
 reads as activation, and an inhibitor that displaces an activator still reads as
-inhibition, so the observable sign is preserved. No-op on a non-allosteric input or a
+inhibition, so the observable effect is preserved. No-op on a non-allosteric input or a
 single-site mechanism.
 
 **Parameter delta:** **+0**. Each ligand keeps its one binding constant; only the

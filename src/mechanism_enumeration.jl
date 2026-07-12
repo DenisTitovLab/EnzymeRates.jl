@@ -2019,9 +2019,13 @@ Non-allosteric input: no-op; this move only merges regulatory sites, which a
 _expand_merge_regulatory_sites(::Mechanism) =
     AllostericMechanism[]
 
-# Δ0-valid allo-state assignments for a merged site's ligands: the all-keep
-# assignment, plus each assignment retagging exactly one non-`:EqualAI` ligand
-# to `:EqualAI`. The all-`:EqualAI` result is dropped.
+"""
+    _merged_site_state_assignments(base_states::Vector{Symbol}) -> Vector{Vector{Symbol}}
+
+Δ0-valid allo-state assignments for a merged site's ligands: the all-keep
+assignment, plus each assignment retagging exactly one non-`:EqualAI` ligand
+to `:EqualAI`. The all-`:EqualAI` result is dropped.
+"""
 function _merged_site_state_assignments(base_states::Vector{Symbol})
     assignments = Vector{Symbol}[copy(base_states)]
     for i in eachindex(base_states)
@@ -2087,6 +2091,8 @@ has no regulatory sites and passes trivially.
 _filter_by_reg_type(mechs::Vector, rxn::EnzymeReaction) =
     filter(m -> _respects_reg_type(m, rxn), mechs)
 
+"""Whether every regulatory ligand in `m` respects its declared type (see
+`_filter_by_reg_type`)."""
 _respects_reg_type(::Mechanism, ::EnzymeReaction) = true
 function _respects_reg_type(am::AllostericMechanism, rxn::EnzymeReaction)
     for site in regulatory_sites(am)
@@ -2215,11 +2221,16 @@ function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
     seeds
 end
 
-# Children of `m` under the seed-build structure moves. The two
-# allosteric-lifting moves run only when an allosteric regulator is required, so
-# a competitive-only required set (`required_allo` empty) stays non-allosteric —
-# no `L` — and seeds at `base + n_required_comp`. The dead-end move always runs.
-# Each move is a no-op on the mechanism kind it does not apply to.
+"""
+    _seed_children(m, rxn::EnzymeReaction, required_allo::Set{Symbol})
+        -> Vector{Union{Mechanism, AllostericMechanism}}
+
+Children of `m` under the seed-build structure moves. The two
+allosteric-lifting moves run only when an allosteric regulator is required, so
+a competitive-only required set (`required_allo` empty) stays non-allosteric —
+no `L` — and seeds at `base + n_required_comp`. The dead-end move always runs.
+Each move is a no-op on the mechanism kind it does not apply to.
+"""
 function _seed_children(m::Union{Mechanism, AllostericMechanism},
                         rxn::EnzymeReaction, required_allo::Set{Symbol})
     children = Union{Mechanism, AllostericMechanism}[]
@@ -2231,15 +2242,20 @@ function _seed_children(m::Union{Mechanism, AllostericMechanism},
     children
 end
 
+"""Whether `m` carries a `:NonequalAI` tag, on the catalytic step or a regulatory
+site."""
 _has_nonequalai(::Mechanism) = false
 _has_nonequalai(am::AllostericMechanism) =
     any(==(:NonequalAI), cat_allo_states(am)) ||
     any(site -> any(==(:NonequalAI), allo_states(site)), regulatory_sites(am))
 
+"""Names of the allosteric regulators bound at `m`'s regulatory sites (empty for
+a `Mechanism`)."""
 _bound_allo_regs(::Mechanism) = Set{Symbol}()
 _bound_allo_regs(am::AllostericMechanism) =
     Set{Symbol}(name(lig) for site in regulatory_sites(am) for lig in ligands(site))
 
+"""Names of the competitive inhibitors bound at a dead-end step in `m`."""
 function _bound_comp_inhibitors(m::Union{Mechanism, AllostericMechanism})
     bound = Set{Symbol}()
     for group in steps(m), s in group
@@ -2249,8 +2265,13 @@ function _bound_comp_inhibitors(m::Union{Mechanism, AllostericMechanism})
     bound
 end
 
-# A child worth expanding: cheap states, one ligand per regulatory site, no
-# optional regulator bound, and reg-type-respecting.
+"""
+    _is_seed_node(m, rxn::EnzymeReaction, required_allo::Set{Symbol},
+                 required_comp::Set{Symbol}) -> Bool
+
+A child worth expanding: cheap states, one ligand per regulatory site, no
+optional regulator bound, and reg-type-respecting.
+"""
 function _is_seed_node(m::Union{Mechanism, AllostericMechanism},
                        rxn::EnzymeReaction, required_allo::Set{Symbol},
                        required_comp::Set{Symbol})
