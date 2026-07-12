@@ -4101,6 +4101,50 @@ end
         @test !(am_bad in kept)
         @test length(kept) == 2
     end
+
+    @testset "_filter_by_sign — real two-ligand site (sibling extraction)" begin
+        # A single site holding two ligands exercises the sibling-extraction
+        # path (`j != i`) that single-ligand fixtures never run: each ligand's
+        # sibling_names come from the site itself, not a hand-fed vector.
+
+        # DROP: two same-sign activators, both :EqualAI. Each is the other's
+        # same-sign EqualAI sibling, so both are rejected.
+        rxn_aa = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: A1::Activator, A2::Activator
+            oligomeric_state: 2
+        end
+        m_aa = first(EnzymeRates.init_mechanisms(rxn_aa))
+        cat_aa = Symbol[:EqualAI for _ in 1:length(EnzymeRates.steps(m_aa))]
+        site_aa = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:A1),
+             EnzymeRates.AllostericRegulator(:A2)], 2, [:EqualAI, :EqualAI])
+        am_aa = EnzymeRates.AllostericMechanism(
+            rxn_aa, copy(EnzymeRates.steps(m_aa)), cat_aa, 2, [site_aa])
+        @test isempty(EnzymeRates._filter_by_sign(
+            EnzymeRates.AllostericMechanism[am_aa], rxn_aa))
+
+        # KEEP: an :EqualAI activator beside an :OnlyI inhibitor. The
+        # activator's only sibling is opposite-sign, so EqualAI passes; the
+        # inhibitor's :OnlyI matches its sign.
+        rxn_ai = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: A::Activator, I::Inhibitor
+            oligomeric_state: 2
+        end
+        m_ai = first(EnzymeRates.init_mechanisms(rxn_ai))
+        cat_ai = Symbol[:EqualAI for _ in 1:length(EnzymeRates.steps(m_ai))]
+        site_ai = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:A),
+             EnzymeRates.AllostericRegulator(:I)], 2, [:EqualAI, :OnlyI])
+        am_ai = EnzymeRates.AllostericMechanism(
+            rxn_ai, copy(EnzymeRates.steps(m_ai)), cat_ai, 2, [site_ai])
+        kept_ai = EnzymeRates._filter_by_sign(
+            EnzymeRates.AllostericMechanism[am_ai], rxn_ai)
+        @test kept_ai == [am_ai]
+    end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
