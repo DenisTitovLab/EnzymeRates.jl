@@ -1380,6 +1380,29 @@ end
     @test results isa IdentifyRateEquationResults
 end
 
+@testset "_required_regulators" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A, B
+        competitive_inhibitors: I, J
+        oligomeric_state: 2
+    end
+    # Empty optional lists: every declared regulator is required, split by kind.
+    ra, rc = EnzymeRates._required_regulators(rxn, Symbol[], Symbol[])
+    @test ra == Set([:A, :B])
+    @test rc == Set([:I, :J])
+    # All regulators optional: both required sets empty (so the beam keeps its
+    # unregulated init seed).
+    ra_opt, rc_opt = EnzymeRates._required_regulators(rxn, [:A, :B], [:I, :J])
+    @test isempty(ra_opt)
+    @test isempty(rc_opt)
+    # Mixed: one of each kind optional, the other required.
+    ra_mix, rc_mix = EnzymeRates._required_regulators(rxn, [:A], [:J])
+    @test ra_mix == Set([:B])
+    @test rc_mix == Set([:I])
+end
+
 @testset "removed kwargs error at the identify boundary" begin
     # popsize/verbose are no longer named kwargs and there is no catch-all,
     # so they are rejected immediately at the call boundary (before any

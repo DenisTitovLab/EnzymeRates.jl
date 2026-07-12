@@ -2053,6 +2053,7 @@ function expand_mechanisms(
     for m in mechs
         _add_expansions_mech!(result, m, rxn)
     end
+    result = _filter_by_sign(result, rxn)
     for child in result
         _assert_atom_conserving(child)
     end

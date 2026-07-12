@@ -4459,6 +4459,58 @@ end
             end
         end
     end
+
+    @testset "Sign filter drops violating children; no-op when signless" begin
+        # True iff `m` places ligand `reg` in allo state `st` at any site.
+        function has_reg_state(m, reg, st)
+            m isa EnzymeRates.AllostericMechanism || return false
+            for site in EnzymeRates.regulatory_sites(m)
+                for (lig, s) in zip(EnzymeRates.ligands(site),
+                                    EnzymeRates.allo_states(site))
+                    EnzymeRates.name(lig) == reg && s == st && return true
+                end
+            end
+            false
+        end
+
+        rxn_act = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R::Activator
+            oligomeric_state: 2
+        end
+        rxn_plain = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+        m_act = first(EnzymeRates.init_mechanisms(rxn_act))
+        m_plain = first(EnzymeRates.init_mechanisms(rxn_plain))
+
+        # Raw children reproduce expand_mechanisms' moves without the filter.
+        raw_act = Union{EnzymeRates.Mechanism,
+                        EnzymeRates.AllostericMechanism}[]
+        EnzymeRates._add_expansions_mech!(raw_act, m_act, rxn_act)
+        raw_plain = Union{EnzymeRates.Mechanism,
+                          EnzymeRates.AllostericMechanism}[]
+        EnzymeRates._add_expansions_mech!(raw_plain, m_plain, rxn_plain)
+
+        children_act = EnzymeRates.expand_mechanisms([m_act], rxn_act)
+        children_plain = EnzymeRates.expand_mechanisms([m_plain], rxn_plain)
+
+        # A designated activator's raw expansion carries an :OnlyI R child (a
+        # V-type variant); the sign filter drops it, leaving strictly fewer.
+        @test any(m -> has_reg_state(m, :R, :OnlyI), raw_act)
+        @test !any(m -> has_reg_state(m, :R, :OnlyI), children_act)
+        @test children_act == EnzymeRates._filter_by_sign(raw_act, rxn_act)
+        @test length(children_act) < length(raw_act)
+
+        # A signless reaction declares no sign, so the filter is a no-op:
+        # expand_mechanisms returns exactly the raw children, :OnlyI included.
+        @test any(m -> has_reg_state(m, :R, :OnlyI), children_plain)
+        @test children_plain == raw_plain
+    end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
