@@ -930,6 +930,20 @@
               EnzymeRates.CompetitiveInhibitor(:I)
     end
 
+    @testset "RegulatorMults sign" begin
+        rm0 = EnzymeRates.RegulatorMults(EnzymeRates.AllostericRegulator(:X), [2])
+        @test EnzymeRates.sign(rm0) == :unspecified          # default
+        rmA = EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:X), [2], :activator)
+        @test EnzymeRates.sign(rmA) == :activator
+        @test rm0 != rmA                                      # sign participates in ==
+        @test rm0 ==
+              EnzymeRates.RegulatorMults(EnzymeRates.AllostericRegulator(:X), [2])
+        @test hash(rmA) != hash(rm0)
+        @test_throws ErrorException EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:X), [2], :bogus)
+    end
+
     @testset "EnzymeReaction struct + accessors" begin
         r = EnzymeReaction(
             [EnzymeRates.ReactantAtoms(

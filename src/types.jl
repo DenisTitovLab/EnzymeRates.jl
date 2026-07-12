@@ -261,23 +261,31 @@ Base.hash(r::ReactantAtoms, h::UInt) =
 struct RegulatorMults
     regulator::Regulator
     allowed_multiplicities::Vector{Int}
+    sign::Symbol
     function RegulatorMults(regulator::Regulator,
-                            allowed_multiplicities::Vector{Int})
+                            allowed_multiplicities::Vector{Int},
+                            sign::Symbol = :unspecified)
         all(m -> m ≥ 1, allowed_multiplicities) ||
             error("RegulatorMults: allowed_multiplicities must all be ≥ 1, " *
                   "got $allowed_multiplicities")
-        new(regulator, sort(allowed_multiplicities))
+        sign in (:activator, :inhibitor, :unspecified) ||
+            error("RegulatorMults: sign must be :activator, :inhibitor, or " *
+                  ":unspecified, got $sign")
+        new(regulator, sort(allowed_multiplicities), sign)
     end
 end
 
 regulator(r::RegulatorMults)              = r.regulator
 allowed_multiplicities(r::RegulatorMults) = r.allowed_multiplicities
+Base.sign(r::RegulatorMults)              = r.sign
 Base.:(==)(a::RegulatorMults, b::RegulatorMults) =
     a.regulator == b.regulator &&
-    a.allowed_multiplicities == b.allowed_multiplicities
+    a.allowed_multiplicities == b.allowed_multiplicities &&
+    a.sign == b.sign
 Base.hash(r::RegulatorMults, h::UInt) =
-    hash(r.allowed_multiplicities,
-         hash(r.regulator, hash(:RegulatorMults, h)))
+    hash(r.sign,
+         hash(r.allowed_multiplicities,
+              hash(r.regulator, hash(:RegulatorMults, h))))
 
 """
     EnzymeReaction
