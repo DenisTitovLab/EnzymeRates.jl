@@ -337,6 +337,76 @@
             EnzymeRates.CompetitiveInhibitor(:R)
     end
 
+    @testset "@enzyme_reaction dual-role regulator (allosteric + competitive)" begin
+        # One metabolite MAY be declared as BOTH an allosteric regulator and a
+        # competitive inhibitor; the two roles render to distinct parameter
+        # names, so both RegulatorMults are carried.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            competitive_inhibitors: ATP
+            allosteric_regulators: ATP(1)
+        end
+        @test rxn isa EnzymeReaction
+        atp_regs = [rm for rm in EnzymeRates.regulators(rxn)
+                    if EnzymeRates.name(EnzymeRates.regulator(rm)) == :ATP]
+        @test length(atp_regs) == 2
+        @test Set(typeof(EnzymeRates.regulator(rm)) for rm in atp_regs) ==
+              Set([EnzymeRates.AllostericRegulator,
+                   EnzymeRates.CompetitiveInhibitor])
+        # Two allosteric ATPs still rejected.
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: ATP(1), ATP(2)
+        end))
+    end
+
+    @testset "@enzyme_reaction regulator types" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            allosteric_regulators: X::Activator, Y::Inhibitor, Z
+            oligomeric_state: 2
+        end
+        reg_types = Dict(EnzymeRates.name(EnzymeRates.regulator(rm)) =>
+                             EnzymeRates.reg_type(rm)
+                         for rm in EnzymeRates.regulators(rxn))
+        @test reg_types[:X] == :activator
+        @test reg_types[:Y] == :inhibitor
+        @test reg_types[:Z] == :unspecified
+
+        # Call-form entry with explicit multiplicities plus a type tag:
+        # `X(1,2)::Inhibitor` — the type peels, then the inner `X(1,2)`
+        # parses through the call-form branch for its multiplicities.
+        rxn_call = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            allosteric_regulators: X(1, 2)::Inhibitor
+            oligomeric_state: 2
+        end
+        rm_call = only(EnzymeRates.regulators(rxn_call))
+        @test EnzymeRates.allowed_multiplicities(rm_call) == [1, 2]
+        @test EnzymeRates.reg_type(rm_call) == :inhibitor
+
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            allosteric_regulators: X::Bogus
+            oligomeric_state: 2
+        end))
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            competitive_inhibitors: X::Activator
+        end))
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            dead_end_inhibitors: X::Inhibitor
+        end))
+    end
+
     @testset "@enzyme_reaction rejects bare `regulators:` label" begin
         # The @enzyme_reaction grammar requires `competitive_inhibitors:`,
         # `dead_end_inhibitors:`, or `allosteric_regulators:`. A bare

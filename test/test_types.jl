@@ -887,7 +887,7 @@
         @test_throws ErrorException EnzymeRates.EnzymeReaction([S, P, P2], noregs, Int[1])
         # Atom imbalance rejected (S has 1 C, Punbal has 2 C).
         @test_throws ErrorException EnzymeRates.EnzymeReaction([S, Punbal], noregs, Int[1])
-        # Duplicate regulator names rejected.
+        # Two regulators of the same kind with the same name rejected.
         @test_throws ErrorException EnzymeRates.EnzymeReaction(
             [S, P], [regA, regA2], Int[1])
         # A regulator MAY share a substrate/product name (`::Inh` role tag:
@@ -904,6 +904,24 @@
         Xp = EnzymeRates.ReactantAtoms(EnzymeRates.Product(:X), [:C => 2])
         @test EnzymeRates.EnzymeReaction([Xs, Xp], noregs, Int[1]) isa
               EnzymeRates.EnzymeReaction
+        # A single name MAY be declared in BOTH regulator roles: one
+        # AllostericRegulator and one CompetitiveInhibitor. The two roles
+        # render to distinct parameter names, so both are kept.
+        regAllo = EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:A), [1])
+        rxn_dual = EnzymeRates.EnzymeReaction([S, P], [regA, regAllo], Int[1])
+        dual_regs = EnzymeRates.regulators(rxn_dual)
+        @test length(dual_regs) == 2
+        @test Set(typeof(EnzymeRates.regulator(rm)) for rm in dual_regs) ==
+              Set([EnzymeRates.AllostericRegulator,
+                   EnzymeRates.CompetitiveInhibitor])
+        @test all(EnzymeRates.name(EnzymeRates.regulator(rm)) == :A
+                  for rm in dual_regs)
+        # Two allosteric regulators of the same name still rejected.
+        regAllo2 = EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:A), [1])
+        @test_throws ErrorException EnzymeRates.EnzymeReaction(
+            [S, P], [regAllo, regAllo2], Int[1])
     end
 
     @testset "RegulatorMults canonicalizes ordering + validates" begin
@@ -928,6 +946,20 @@
             EnzymeRates.CompetitiveInhibitor(:I), [1])
         @test EnzymeRates.regulator(rm_ci) ==
               EnzymeRates.CompetitiveInhibitor(:I)
+    end
+
+    @testset "RegulatorMults reg_type" begin
+        rm0 = EnzymeRates.RegulatorMults(EnzymeRates.AllostericRegulator(:X), [2])
+        @test EnzymeRates.reg_type(rm0) == :unspecified      # default
+        rmA = EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:X), [2], :activator)
+        @test EnzymeRates.reg_type(rmA) == :activator
+        @test rm0 != rmA                                      # reg_type participates in ==
+        @test rm0 ==
+              EnzymeRates.RegulatorMults(EnzymeRates.AllostericRegulator(:X), [2])
+        @test hash(rmA) != hash(rm0)
+        @test_throws ErrorException EnzymeRates.RegulatorMults(
+            EnzymeRates.AllostericRegulator(:X), [2], :bogus)
     end
 
     @testset "EnzymeReaction struct + accessors" begin

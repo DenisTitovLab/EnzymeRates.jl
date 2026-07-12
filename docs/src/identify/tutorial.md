@@ -129,6 +129,15 @@ results = identify_rate_equation(prob;
 nothing # hide
 ```
 
+The search does not start from scratch. Its *seed* mechanisms are the simplest
+catalytic mechanisms for the reaction — one per binding order, with optional
+dead-end substrate and product inhibition, each at its lowest parameter count.
+Because this reaction declares `A`, the seeds are lifted a level: the search
+starts from mechanisms that already bind `A` — every fully-regulated mechanism at
+its minimum parameter count — and never fits the non-allosteric mechanisms
+beneath. This is the default: every declared regulator is required, which is what
+lets the search reach the generating MWC mechanism so quickly here.
+
 The progress lines above trace the search, which is a *beam search*: it walks
 parameter counts in ascending order, and at each count it fits the candidates,
 keeps the most promising (the beam — here `min_beam_width = 10`), and expands
@@ -144,6 +153,25 @@ rule that picks the winner. The
 production search widens the beam to 50 and the cap to 20, and distributes the
 fits across workers (see
 [Running in parallel](@ref)).
+
+Two controls tune the regulator seeding. To let the search decide whether `A`
+matters, and fit the non-regulated mechanisms too, mark it optional:
+
+```julia
+identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt(),
+                       optional_allosteric_regulators = [:A])
+```
+
+To go the other way and shrink the seed set, declare `A`'s type. An activator binds
+the active conformation, so `A::Activator` pins it to `:OnlyA` and halves the seeds an
+undesignated regulator would otherwise produce:
+
+```julia
+allosteric_regulators: A::Activator
+```
+
+[The enumeration engine](@ref) explains how the seed set is built, and the
+[Roadmap](@ref) tracks the moves that refine it.
 
 ## Read the result
 

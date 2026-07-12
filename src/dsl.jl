@@ -22,7 +22,9 @@ Emit an `EnzymeReaction`.
   `I(m1, m2, ...)` to override.
 - `allosteric_regulators:` — `AllostericRegulator` entries. Each entry
   must declare per-regulator multiplicities as `A(m1, m2, ...)` or
-  a single value `A(m)`.
+  a single value `A(m)`. An entry may carry a type tag, `A::Activator` or
+  `A::Inhibitor`; untagged entries default to `:unspecified`. Type tags
+  are only valid on `allosteric_regulators:` entries.
 - `allowed_catalytic_multiplicities:` — tuple of positive Ints (default `(1,)`).
 - `oligomeric_state: N` — shorthand for `allowed_catalytic_multiplicities: (N,)`.
 """
@@ -47,9 +49,10 @@ const _VALID_REACTION_LABELS = Set([
 Parse the `@enzyme_reaction` body. Returns a `NamedTuple`:
 - `subs  ::Vector{Tuple{Symbol, Expr}}` — `(name, atoms-tuple-Expr)`
 - `prods ::Vector{Tuple{Symbol, Expr}}`
-- `regs  ::Vector{Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}}}` —
-  `(name, kind, mults)` where `kind ∈ (:competitive, :allosteric)` and
-  `mults` is `nothing` if omitted.
+- `regs  ::Vector{Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}, Symbol}}` —
+  `(name, kind, mults, reg_type)` where `kind ∈ (:competitive, :allosteric)`,
+  `mults` is `nothing` if omitted, and `reg_type ∈ (:activator, :inhibitor,
+  :unspecified)`.
 - `mults ::Union{Nothing, Vector{Int}}` — allowed catalytic multiplicities;
   `nothing` → default `(1,)`.
 """
@@ -58,7 +61,7 @@ function _parse_reaction_block(block)
         error("@enzyme_reaction: expected a `begin ... end` block, got $block")
     subs  = Tuple{Symbol, Expr}[]
     prods = Tuple{Symbol, Expr}[]
-    regs  = Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}}[]
+    regs  = Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}, Symbol}[]
     mults::Union{Nothing, Vector{Int}} = nothing
 
     for arg in block.args
@@ -141,26 +144,42 @@ function _parse_chemical_formula(s::String)
 end
 
 """
-Parse `R`, `R(1, 2)`, or `R(4)` entries. Bare `R` produces `nothing` mults
-(filled by the macro from `allowed_catalytic_multiplicities` for competitive
-entries; rejected at emit time for allosteric entries).
+Parse `R`, `R(1, 2)`, or `R(4)` entries, optionally tagged with a regulator
+type: `R::Activator`, `R::Inhibitor`, or `R(1, 2)::Inhibitor`. Bare `R`
+produces `nothing` mults (filled by the macro from
+`allowed_catalytic_multiplicities` for competitive entries; rejected at
+emit time for allosteric entries) and reg_type `:unspecified`. A type tag is
+only valid on `kind === :allosteric` entries.
 """
 function _parse_regulator_entries(values, kind::Symbol)
-    out = Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}}[]
+    out = Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}, Symbol}[]
     for v in values
-        if v isa Symbol
-            push!(out, (v, kind, nothing))
-        elseif v isa Expr && v.head === :call && length(v.args) >= 2 &&
-               v.args[1] isa Symbol
-            name = v.args[1]::Symbol
+        reg_type = :unspecified
+        inner = v
+        if v isa Expr && v.head === :(::)
+            tag = v.args[2]
+            reg_type = tag === :Activator ? :activator :
+                   tag === :Inhibitor ? :inhibitor :
+                   error("@enzyme_reaction: unknown regulator type tag ::$tag " *
+                         "on $v; use ::Activator or ::Inhibitor.")
+            kind === :allosteric ||
+                error("@enzyme_reaction: regulator type ::$tag on $v is only " *
+                      "valid on allosteric_regulators: entries.")
+            inner = v.args[1]
+        end
+        if inner isa Symbol
+            push!(out, (inner, kind, nothing, reg_type))
+        elseif inner isa Expr && inner.head === :call && length(inner.args) >= 2 &&
+               inner.args[1] isa Symbol
+            name = inner.args[1]::Symbol
             ms = Int[]
-            for a in v.args[2:end]
+            for a in inner.args[2:end]
                 a isa Integer && a >= 1 ||
                     error("@enzyme_reaction: regulator $name multiplicity " *
                           "must be a positive Int, got $a.")
                 push!(ms, Int(a))
             end
-            push!(out, (name, kind, ms))
+            push!(out, (name, kind, ms, reg_type))
         else
             error("@enzyme_reaction: cannot parse regulator entry $v. " *
                   "Use `R` or `R(1, 2)`.")
@@ -226,14 +245,14 @@ end
 
 """
 Build the regulators vector `Expr`: each entry is
-`RegulatorMults(<CompetitiveInhibitor|AllostericRegulator>(:Name), [m1, m2, ...])`.
+`RegulatorMults(<CompetitiveInhibitor|AllostericRegulator>(:Name), [m1, ...], reg_type)`.
 Bare entries (`mults === nothing`) inherit `default_mults` (the parsed
 `allowed_catalytic_multiplicities` or its default of `[1]`).
 """
 function _build_regulators_expr(regs, default_mults)
     entries = Expr[]
     default_mults_resolved = default_mults === nothing ? Int[1] : default_mults
-    for (name, kind, ms) in regs
+    for (name, kind, ms, reg_type) in regs
         subtype_expr = if kind === :allosteric
             :(EnzymeRates.AllostericRegulator($(QuoteNode(name))))
         elseif kind === :competitive
@@ -244,7 +263,7 @@ function _build_regulators_expr(regs, default_mults)
         ms_resolved = ms === nothing ? default_mults_resolved : ms
         ms_expr = :(Int[$(ms_resolved...)])
         push!(entries, :(EnzymeRates.RegulatorMults(
-            $(subtype_expr), $(ms_expr),
+            $(subtype_expr), $(ms_expr), $(QuoteNode(reg_type)),
         )))
     end
     :(EnzymeRates.RegulatorMults[$(entries...)])
