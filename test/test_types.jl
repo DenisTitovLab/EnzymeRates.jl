@@ -930,13 +930,13 @@
               EnzymeRates.CompetitiveInhibitor(:I)
     end
 
-    @testset "RegulatorMults sign" begin
+    @testset "RegulatorMults reg_type" begin
         rm0 = EnzymeRates.RegulatorMults(EnzymeRates.AllostericRegulator(:X), [2])
-        @test EnzymeRates.sign(rm0) == :unspecified          # default
+        @test EnzymeRates.reg_type(rm0) == :unspecified      # default
         rmA = EnzymeRates.RegulatorMults(
             EnzymeRates.AllostericRegulator(:X), [2], :activator)
-        @test EnzymeRates.sign(rmA) == :activator
-        @test rm0 != rmA                                      # sign participates in ==
+        @test EnzymeRates.reg_type(rmA) == :activator
+        @test rm0 != rmA                                      # reg_type participates in ==
         @test rm0 ==
               EnzymeRates.RegulatorMults(EnzymeRates.AllostericRegulator(:X), [2])
         @test hash(rmA) != hash(rm0)

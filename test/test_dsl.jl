@@ -337,21 +337,22 @@
             EnzymeRates.CompetitiveInhibitor(:R)
     end
 
-    @testset "@enzyme_reaction regulator signs" begin
+    @testset "@enzyme_reaction regulator types" begin
         rxn = @enzyme_reaction begin
             substrates: A[C6H12O6]
             products: B[C6H12O6]
             allosteric_regulators: X::Activator, Y::Inhibitor, Z
             oligomeric_state: 2
         end
-        signs = Dict(EnzymeRates.name(EnzymeRates.regulator(rm)) => EnzymeRates.sign(rm)
-                     for rm in EnzymeRates.regulators(rxn))
-        @test signs[:X] == :activator
-        @test signs[:Y] == :inhibitor
-        @test signs[:Z] == :unspecified
+        reg_types = Dict(EnzymeRates.name(EnzymeRates.regulator(rm)) =>
+                             EnzymeRates.reg_type(rm)
+                         for rm in EnzymeRates.regulators(rxn))
+        @test reg_types[:X] == :activator
+        @test reg_types[:Y] == :inhibitor
+        @test reg_types[:Z] == :unspecified
 
-        # Call-form entry with explicit multiplicities plus a sign tag:
-        # `X(1,2)::Inhibitor` — the sign peels, then the inner `X(1,2)`
+        # Call-form entry with explicit multiplicities plus a type tag:
+        # `X(1,2)::Inhibitor` — the type peels, then the inner `X(1,2)`
         # parses through the call-form branch for its multiplicities.
         rxn_call = @enzyme_reaction begin
             substrates: A[C6H12O6]
@@ -361,7 +362,7 @@
         end
         rm_call = only(EnzymeRates.regulators(rxn_call))
         @test EnzymeRates.allowed_multiplicities(rm_call) == [1, 2]
-        @test EnzymeRates.sign(rm_call) == :inhibitor
+        @test EnzymeRates.reg_type(rm_call) == :inhibitor
 
         @test_throws Exception eval(:(@enzyme_reaction begin
             substrates: A[C6H12O6]

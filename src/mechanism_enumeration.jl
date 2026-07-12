@@ -1993,8 +1993,8 @@ guard; the `RegulatorySite` constructor does not reject it, so that guard is
 load-bearing. The merged site reuses one site's
 `multiplicity` (equal to `catalytic_multiplicity`) and its ligands are sorted
 by name, so two merge routes reaching the same ligand partition produce `==`
-mechanisms and dedup by `hash`. Sign is not enforced here; `expand_mechanisms`
-runs every child through `_filter_by_sign`.
+mechanisms and dedup by `hash`. Regulator type is not enforced here;
+`expand_mechanisms` runs every child through `_filter_by_reg_type`.
 """
 function _expand_merge_regulatory_sites(am::AllostericMechanism)
     sites = regulatory_sites(am)
@@ -2040,66 +2040,66 @@ function _merged_site_state_assignments(base_states::Vector{Symbol})
     assignments
 end
 
-# ─── Regulator-Sign Filter ────────────────────────────────────
+# ─── Regulator-Type Filter ────────────────────────────────────
 
 """
-    _regulator_sign(reg_name::Symbol, rxn::EnzymeReaction) -> Symbol
+    _declared_reg_type(reg_name::Symbol, rxn::EnzymeReaction) -> Symbol
 
-The declared sign (`:activator`, `:inhibitor`, or `:unspecified`) of the
+The declared type (`:activator`, `:inhibitor`, or `:unspecified`) of the
 `AllostericRegulator` named `reg_name` in `rxn`'s `regulators`. Returns
 `:unspecified` when `reg_name` names no `AllostericRegulator` entry (either
 absent entirely, or present only as some other `Regulator` subtype).
 """
-function _regulator_sign(reg_name::Symbol, rxn::EnzymeReaction)
+function _declared_reg_type(reg_name::Symbol, rxn::EnzymeReaction)
     for rm in regulators(rxn)
         reg = regulator(rm)
-        reg isa AllostericRegulator && name(reg) == reg_name && return sign(rm)
+        reg isa AllostericRegulator && name(reg) == reg_name && return reg_type(rm)
     end
     :unspecified
 end
 
 """
-    _state_respects_sign(reg_name, state::Symbol, sibling_names::Vector{Symbol},
+    _state_respects_reg_type(reg_name, state::Symbol, sibling_names::Vector{Symbol},
                           rxn::EnzymeReaction) -> Bool
 
 Whether ligand `reg_name`'s allosteric `state` is consistent with its
-declared regulator sign, given `sibling_names` — the OTHER ligands at its
-regulatory site. `:unspecified` sign always passes. A designated activator
+declared regulator type, given `sibling_names` — the OTHER ligands at its
+regulatory site. `:unspecified` type always passes. A designated activator
 is never `:OnlyI` and a designated inhibitor is never `:OnlyA`; the
-sign-matching pure state and `:NonequalAI` are always allowed. `:EqualAI`
+type-matching pure state and `:NonequalAI` are always allowed. `:EqualAI`
 is an antagonist state and is rejected only when a sibling is a
-same-sign designated effector, since that would counteract the sibling's
+same-type designated effector, since that would counteract the sibling's
 declared direction.
 """
-function _state_respects_sign(reg_name, state::Symbol,
+function _state_respects_reg_type(reg_name, state::Symbol,
                               sibling_names::Vector{Symbol}, rxn::EnzymeReaction)
-    sgn = _regulator_sign(reg_name, rxn)
-    sgn === :unspecified && return true
-    sgn === :activator && state === :OnlyI && return false
-    sgn === :inhibitor && state === :OnlyA && return false
+    rt = _declared_reg_type(reg_name, rxn)
+    rt === :unspecified && return true
+    rt === :activator && state === :OnlyI && return false
+    rt === :inhibitor && state === :OnlyA && return false
     if state === :EqualAI
-        any(s -> _regulator_sign(s, rxn) === sgn, sibling_names) && return false
+        any(s -> _declared_reg_type(s, rxn) === rt, sibling_names) && return false
     end
     true
 end
 
 """
-    _filter_by_sign(mechs::Vector, rxn::EnzymeReaction) -> Vector
+    _filter_by_reg_type(mechs::Vector, rxn::EnzymeReaction) -> Vector
 
 Keep only mechanisms whose every regulatory ligand respects its declared
-sign (`_state_respects_sign`) given its site's other ligands. A `Mechanism`
+type (`_state_respects_reg_type`) given its site's other ligands. A `Mechanism`
 has no regulatory sites and passes trivially.
 """
-_filter_by_sign(mechs::Vector, rxn::EnzymeReaction) =
-    filter(m -> _respects_sign(m, rxn), mechs)
+_filter_by_reg_type(mechs::Vector, rxn::EnzymeReaction) =
+    filter(m -> _respects_reg_type(m, rxn), mechs)
 
-_respects_sign(::Mechanism, ::EnzymeReaction) = true
-function _respects_sign(am::AllostericMechanism, rxn::EnzymeReaction)
+_respects_reg_type(::Mechanism, ::EnzymeReaction) = true
+function _respects_reg_type(am::AllostericMechanism, rxn::EnzymeReaction)
     for site in regulatory_sites(am)
         lig_names = Symbol[name(lig) for lig in ligands(site)]
         for (i, lig_name) in enumerate(lig_names)
             siblings = Symbol[lig_names[j] for j in eachindex(lig_names) if j != i]
-            _state_respects_sign(lig_name, allo_states(site)[i], siblings, rxn) ||
+            _state_respects_reg_type(lig_name, allo_states(site)[i], siblings, rxn) ||
                 return false
         end
     end
@@ -2121,7 +2121,7 @@ function expand_mechanisms(
     for m in mechs
         _add_expansions_mech!(result, m, rxn)
     end
-    result = _filter_by_sign(result, rxn)
+    result = _filter_by_reg_type(result, rxn)
     for child in result
         _assert_atom_conserving(child)
     end
@@ -2191,7 +2191,7 @@ node:
    expansion;
 3. no optional regulator is bound — every bound allosteric ligand ∈
    `required_allo` and every bound competitive inhibitor ∈ `required_comp`;
-4. every ligand respects its declared sign (`_filter_by_sign`).
+4. every ligand respects its declared type (`_filter_by_reg_type`).
 
 The seeds are the valid nodes that additionally bind ALL of `required_allo` at
 regulatory sites and ALL of `required_comp` as competitive-inhibitor dead ends.
@@ -2256,7 +2256,7 @@ function _bound_comp_inhibitors(m::Union{Mechanism, AllostericMechanism})
 end
 
 # A child worth expanding: cheap states, one ligand per regulatory site, no
-# optional regulator bound, and sign-respecting.
+# optional regulator bound, and reg-type-respecting.
 function _is_seed_node(m::Union{Mechanism, AllostericMechanism},
                        rxn::EnzymeReaction, required_allo::Set{Symbol},
                        required_comp::Set{Symbol})
@@ -2266,7 +2266,7 @@ function _is_seed_node(m::Union{Mechanism, AllostericMechanism},
         return false
     issubset(_bound_allo_regs(m), required_allo) || return false
     issubset(_bound_comp_inhibitors(m), required_comp) || return false
-    _respects_sign(m, rxn) || return false
+    _respects_reg_type(m, rxn) || return false
     true
 end
 
