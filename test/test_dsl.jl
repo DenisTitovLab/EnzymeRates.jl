@@ -337,7 +337,7 @@
             EnzymeRates.CompetitiveInhibitor(:R)
     end
 
-    @testset "DSL regulator sign" begin
+    @testset "@enzyme_reaction regulator signs" begin
         rxn = @enzyme_reaction begin
             substrates: A[C6H12O6]
             products: B[C6H12O6]
@@ -349,6 +349,20 @@
         @test signs[:X] == :activator
         @test signs[:Y] == :inhibitor
         @test signs[:Z] == :unspecified
+
+        # Call-form entry with explicit multiplicities plus a sign tag:
+        # `X(1,2)::Inhibitor` — the sign peels, then the inner `X(1,2)`
+        # parses through the call-form branch for its multiplicities.
+        rxn_call = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            allosteric_regulators: X(1, 2)::Inhibitor
+            oligomeric_state: 2
+        end
+        rm_call = only(EnzymeRates.regulators(rxn_call))
+        @test EnzymeRates.allowed_multiplicities(rm_call) == [1, 2]
+        @test EnzymeRates.sign(rm_call) == :inhibitor
+
         @test_throws Exception eval(:(@enzyme_reaction begin
             substrates: A[C6H12O6]
             products: B[C6H12O6]
@@ -359,6 +373,11 @@
             substrates: A[C6H12O6]
             products: B[C6H12O6]
             competitive_inhibitors: X::Activator
+        end))
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            dead_end_inhibitors: X::Inhibitor
         end))
     end
 
