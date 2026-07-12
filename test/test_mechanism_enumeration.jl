@@ -4047,11 +4047,10 @@ end
 
     @testset "sign filter keeps all when activator/inhibitor differ in sign" begin
         # A::Activator + I::Inhibitor share a site with opposite signs: no
-        # ligand violates its sign, so co-binding and both antagonist forms
-        # survive. The surviving set must match the sign rules exactly.
+        # ligand violates its sign, so nothing is dropped — every merge child
+        # survives.
         kept = EnzymeRates._filter_by_sign(children, merge_rxn)
-        expected = filter(c -> EnzymeRates._respects_sign(c, merge_rxn), children)
-        @test Set(kept) == Set(expected)
+        @test Set(kept) == Set(children)
         @test length(kept) == 3
     end
 
@@ -4112,6 +4111,38 @@ end
         c2 = threeway(EnzymeRates._expand_merge_regulatory_sites(p_ac_b))
         @test c1 == c2
         @test hash(c1) == hash(c2)
+    end
+
+    @testset "ligand↔state pairing survives the name-sort (non-identity perm)" begin
+        # Merge a 2-ligand site {A::OnlyA, C::OnlyI} with a 1-ligand site
+        # {B::OnlyA}. The merged vcat order is ligands [A, C, B] / states
+        # [OnlyA, OnlyI, OnlyA]; the name-sort reorders ligands to [A, B, C]
+        # (perm [1, 3, 2]). C's :OnlyI must ride along to the new C slot — this
+        # only holds if base_states is permuted in lockstep with the ligands.
+        rxn3 = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: A, B, C
+            oligomeric_state: 4
+        end
+        b3 = first(EnzymeRates.init_mechanisms(rxn3))
+        cat3 = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b3))]
+        site_ac = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:A),
+             EnzymeRates.AllostericRegulator(:C)], 4, [:OnlyA, :OnlyI])
+        site_b = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:B)], 4, [:OnlyA])
+        p = EnzymeRates.AllostericMechanism(
+            rxn3, copy(EnzymeRates.steps(b3)), cat3, 4, [site_ac, site_b])
+        kids = EnzymeRates._expand_merge_regulatory_sites(p)
+        # The co-binding child keeps every state (no :EqualAI).
+        cobind = only(filter(kids) do c
+            !(:EqualAI in EnzymeRates.allo_states(
+                only(EnzymeRates.regulatory_sites(c))))
+        end)
+        @test merged_state(cobind, :A) == :OnlyA
+        @test merged_state(cobind, :B) == :OnlyA
+        @test merged_state(cobind, :C) == :OnlyI
     end
 
     @testset "no-op: Mechanism and single-site AllostericMechanism" begin

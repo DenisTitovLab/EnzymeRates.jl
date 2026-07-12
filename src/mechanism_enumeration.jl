@@ -1988,8 +1988,9 @@ enumerate the Δ0-valid allo-state assignments:
     antagonist forms (a ligand that binds both conformations equally,
     competing for the shared site).
 
-The all-`:EqualAI` assignment is dropped (degenerate; the `RegulatorySite`
-constructor rejects it anyway). The merged site reuses one site's
+The all-`:EqualAI` assignment (degenerate) is dropped by this move's own
+guard; the `RegulatorySite` constructor does not reject it, so that guard is
+load-bearing. The merged site reuses one site's
 `multiplicity` (equal to `catalytic_multiplicity`) and its ligands are sorted
 by name, so two merge routes reaching the same ligand partition produce `==`
 mechanisms and dedup by `hash`. Sign is not enforced here; `expand_mechanisms`
