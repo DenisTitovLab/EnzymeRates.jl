@@ -337,6 +337,31 @@
             EnzymeRates.CompetitiveInhibitor(:R)
     end
 
+    @testset "DSL regulator sign" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            allosteric_regulators: X::Activator, Y::Inhibitor, Z
+            oligomeric_state: 2
+        end
+        signs = Dict(EnzymeRates.name(EnzymeRates.regulator(rm)) => EnzymeRates.sign(rm)
+                     for rm in EnzymeRates.regulators(rxn))
+        @test signs[:X] == :activator
+        @test signs[:Y] == :inhibitor
+        @test signs[:Z] == :unspecified
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            allosteric_regulators: X::Bogus
+            oligomeric_state: 2
+        end))
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: A[C6H12O6]
+            products: B[C6H12O6]
+            competitive_inhibitors: X::Activator
+        end))
+    end
+
     @testset "@enzyme_reaction rejects bare `regulators:` label" begin
         # The @enzyme_reaction grammar requires `competitive_inhibitors:`,
         # `dead_end_inhibitors:`, or `allosteric_regulators:`. A bare
