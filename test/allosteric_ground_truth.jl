@@ -222,3 +222,125 @@ end
         @test isapprox(v_code, v_gt; rtol=1e-4)
     end
 end
+
+# ── Metabolite-bearing-D ordered bi-uni :OnlyA network (the LDH i-state case) ──
+# S + B ⇌ P. S binds :OnlyA via a STEADY-STATE step (E + S <--> E(S)); B binds
+# :EqualAI at rapid equilibrium on E(S); catalysis E(S,B) <--> E(P) is
+# steady-state :EqualAI; P binds :EqualAI at rapid equilibrium. Because B binds
+# rapidly on the steady-state catalytic path, the free-enzyme spanning-tree weight
+# D[g_free] CARRIES the metabolite B: D_A = koff_S + k·B/K_B and D_I = k·B/K_B (the
+# active-only koff_S term is absent from the inactive graph, so D_A ≠ D_I and both
+# are metabolite-bearing). This is the LDH i-state regime the cross-weight fix
+# re-baselines and which has no other ground truth: a single free-enzyme form and
+# a dead inactive state (S :OnlyA → E(S)_I is a B-releasing dead-end carrying no
+# productive flux). Flip ratio [X_I]/[X_A] = L·∏(K_A/K_I): free enzyme and E(P)
+# flip (ratio L); an S-bearing state has ratio 0 (S :OnlyA), so E(S) and E(S,B)
+# never flip. Reverse catalysis kr from the Haldane relation.
+function metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, P, FAST=1e7)
+    kr = k * kon * KP / (koff * KB * Keq)
+    species = [:E_A, :ES_A, :ESB_A, :EP_A, :E_I, :EP_I, :ESB_I, :ES_I]
+    edges = [
+        (:E_A, :ES_A, kon * S), (:ES_A, :E_A, koff),          # S binding (SS, active only)
+        (:ES_A, :ESB_A, FAST * B / KB), (:ESB_A, :ES_A, FAST),# B binding (RE, active)
+        (:ES_I, :ESB_I, FAST * B / KB), (:ESB_I, :ES_I, FAST),# B binding (RE, inactive)
+        (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),    # P binding (RE, active)
+        (:E_I, :EP_I, FAST * P / KP), (:EP_I, :E_I, FAST),    # P binding (RE, inactive)
+        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),           # free-enzyme flip, ratio L
+        (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),       # EP flip, ratio L
+        (:ESB_A, :EP_A, k), (:EP_A, :ESB_A, kr),            # active catalysis (SS)
+        (:ESB_I, :EP_I, k), (:EP_I, :ESB_I, kr),            # inactive catalysis (SS, dead-end)
+    ]
+    cat_edges = [(:ESB_A, :EP_A, k, kr), (:ESB_I, :EP_I, k, kr)]
+    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+end
+
+# ── Metabolite-bearing-D all-:EqualAI network (both conformations identical) ───
+# Same topology, but S also binds the inactive conformation (SS, K_I = K_A) and
+# every form flips (ratio L). With K_I = K_A everywhere the two conformations are
+# indistinguishable, so the flux is the non-allosteric ordered bi-uni rate,
+# independent of L.
+function metab_dfree_equalAI_flux(kon, koff, KB, KP, k, L, Keq, S, B, P; FAST=1e7)
+    kr = k * kon * KP / (koff * KB * Keq)
+    species = [:E_A, :ES_A, :ESB_A, :EP_A, :E_I, :ES_I, :ESB_I, :EP_I]
+    edges = [
+        (:E_A, :ES_A, kon * S), (:ES_A, :E_A, koff),
+        (:E_I, :ES_I, kon * S), (:ES_I, :E_I, koff),          # inactive S binding (K_I = K_A)
+        (:ES_A, :ESB_A, FAST * B / KB), (:ESB_A, :ES_A, FAST),
+        (:ES_I, :ESB_I, FAST * B / KB), (:ESB_I, :ES_I, FAST),
+        (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),
+        (:E_I, :EP_I, FAST * P / KP), (:EP_I, :E_I, FAST),
+        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),
+        (:ES_A, :ES_I, FAST * L), (:ES_I, :ES_A, FAST),       # ES flip, ratio L
+        (:ESB_A, :ESB_I, FAST * L), (:ESB_I, :ESB_A, FAST),   # ESB flip, ratio L
+        (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),
+        (:ESB_A, :EP_A, k), (:EP_A, :ESB_A, kr),
+        (:ESB_I, :EP_I, k), (:EP_I, :ESB_I, kr),
+    ]
+    cat_edges = [(:ESB_A, :EP_A, k, kr), (:ESB_I, :EP_I, k, kr)]
+    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+end
+
+# ── Single-conformation (non-allosteric) reference for the ordered bi-uni ─────
+# The active mechanism alone (E, E(S), E(S,B), E(P)); no inactive conformation,
+# no flips. The L → 0 limit and the all-:EqualAI flux must both equal this rate.
+function metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P; FAST=1e7)
+    kr = k * kon * KP / (koff * KB * Keq)
+    species = [:E, :ES, :ESB, :EP]
+    edges = [
+        (:E, :ES, kon * S), (:ES, :E, koff),
+        (:ES, :ESB, FAST * B / KB), (:ESB, :ES, FAST),
+        (:E, :EP, FAST * P / KP), (:EP, :E, FAST),
+        (:ESB, :EP, k), (:EP, :ESB, kr),
+    ]
+    mwc_ground_truth_flux(species, edges, [(:ESB, :EP, k, kr)], 1.0)
+end
+
+# ── Metabolite-bearing-D harness self-validation ─────────────────────────────
+@testset "metabolite-bearing-D ground-truth harness self-validation" begin
+    kon, koff, KB, KP, k, Keq, S, B, P = 1.7, 1.1, 0.8, 0.9, 2.1, 3.0, 1.1, 0.5, 0.6
+    base = metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P)
+
+    # (a) L = 0 : the inactive conformation is unpopulated, so the :OnlyA flux
+    #     reduces to the single-conformation (non-allosteric) ordered bi-uni rate.
+    f0 = metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=0.0, Keq=Keq, S=S, B=B, P=P)
+    @test isapprox(f0, base; rtol=1e-4)
+
+    # (b) all-:EqualAI : both conformations are identical, so the flux is the base
+    #     rate and is independent of L.
+    fa = metab_dfree_equalAI_flux(kon, koff, KB, KP, k, 0.7, Keq, S, B, P)
+    @test isapprox(fa, base; rtol=1e-4)
+    @test isapprox(fa, metab_dfree_equalAI_flux(kon, koff, KB, KP, k, 5.0, Keq, S, B, P); rtol=1e-4)
+end
+
+# ── The gate: metabolite-bearing-D :OnlyA derivation matches mass-action GT ────
+# The LDH i-state re-baseline. S binds :OnlyA on the steady-state catalytic path
+# and B binds rapidly there too, so the free-enzyme spanning-tree weight D[g_free]
+# carries the metabolite B and D_A ≠ D_I. The cross-weighting `den = D_I·Q_A +
+# L·D_A·Q_I` supplies the common free-enzyme basis this regime needs; the naive
+# Q_A + L·Q_I combination gets it wrong. Regression guard.
+@testset "metabolite-bearing-D MWC derivation matches mass-action ground truth" begin
+    metabD = @allosteric_mechanism begin
+        substrates: S, B ; products: P ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + S <--> E(S)      :: OnlyA
+            E(S) + B ⇌ E(S, B)   :: EqualAI
+            E(S, B) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)         :: EqualAI
+        end
+    end
+    fp = ER.fitted_params(metabD)  # (:K_P_E,:kon_A_S_E,:koff_A_S_E,:k_EBS_to_EP,:K_B_ES,:L)
+    @test fp == (:K_P_E, :kon_A_S_E, :koff_A_S_E, :k_EBS_to_EP, :K_B_ES, :L)
+
+    rng = MersenneTwister(20260713)
+    for _ in 1:5
+        kon = 0.5 + 2rand(rng); koff = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng)
+        KB = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng); L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
+        S = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
+        # Map fitted_params -> ground-truth params:
+        #   kon_A_S_E=kon, koff_A_S_E=koff, K_B_ES=KB, K_P_E=KP, k_EBS_to_EP=k.
+        prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
+        v_code = real(ER.rate_equation(metabD, (S=S, B=B, P=P), prm))
+        v_gt = metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
+        @test isapprox(v_code, v_gt; rtol=1e-4)
+    end
+end
