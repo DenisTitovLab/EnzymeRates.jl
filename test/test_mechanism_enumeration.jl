@@ -4052,6 +4052,97 @@ end
 
 end
 
+# ─── _expand_promote_catalytic_to_onlya ────────────────────────────────
+@testset "_expand_promote_catalytic_to_onlya" begin
+
+    # SEED: bi-uni ordered, one substrate group :OnlyA, the other catalytic
+    # groups :EqualAI (one binding B, one iso catalytic, one binding P).
+    biuni_seed() = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)              :: OnlyA
+            E(A) + B ⇌ E(A, B)       :: EqualAI
+            E(A, B) <--> E(P)        :: EqualAI
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end)
+
+    @testset "one variant per :EqualAI catalytic group, each Δ0-shaped" begin
+        am = biuni_seed()
+        EnzymeRates._assert_mechanism_invariants(am)
+        n_eq = count(==(:EqualAI), am.cat_allo_states)
+        result = EnzymeRates._expand_promote_catalytic_to_onlya(am)
+
+        @test length(result) == n_eq          # 3 here
+        for child in result
+            @test child isa EnzymeRates.AllostericMechanism
+            EnzymeRates._assert_mechanism_invariants(child)
+            # exactly one :EqualAI became :OnlyA; nothing else changed shape
+            @test count(==(:OnlyA), child.cat_allo_states) ==
+                  count(==(:OnlyA), am.cat_allo_states) + 1
+            @test count(==(:EqualAI), child.cat_allo_states) == n_eq - 1
+            @test child.regulatory_sites == am.regulatory_sites
+            @test EnzymeRates.catalytic_multiplicity(child) ==
+                  EnzymeRates.catalytic_multiplicity(am)
+        end
+    end
+
+    @testset "covers the iso/catalytic group, not just binding groups" begin
+        am = biuni_seed()
+        iso_g = only(g for g in EnzymeRates.kinetic_groups(am)
+                     if EnzymeRates.is_iso(EnzymeRates.rep_step(am, g)) &&
+                        am.cat_allo_states[g] == :EqualAI)
+        result = EnzymeRates._expand_promote_catalytic_to_onlya(am)
+        # some child has the iso group promoted to :OnlyA
+        @test any(c -> c.cat_allo_states[iso_g] == :OnlyA, result)
+    end
+
+    @testset "no-op when no catalytic group is :EqualAI" begin
+        am = biuni_seed()
+        all_onlya = EnzymeRates._with_cat_allo_states(
+            am, fill(:OnlyA, length(am.cat_allo_states)))
+        @test isempty(EnzymeRates._expand_promote_catalytic_to_onlya(all_onlya))
+    end
+
+    @testset "no-op on a non-allosteric Mechanism" begin
+        m = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
+            substrates: S[C]; products: P[C]; oligomeric_state: 2
+        end))
+        @test isempty(EnzymeRates._expand_promote_catalytic_to_onlya(m))
+    end
+
+    @testset "order-independent: promote i then j == j then i" begin
+        am = biuni_seed()
+        # promote any child again; two distinct first-promotions that then
+        # reach the same 3-:OnlyA structure must be ==.
+        kids = EnzymeRates._expand_promote_catalytic_to_onlya(am)
+        grandkids = reduce(vcat,
+            (EnzymeRates._expand_promote_catalytic_to_onlya(k) for k in kids))
+        # dedup by structural hash; two orders to the same OnlyA-set collapse
+        @test length(unique(grandkids)) < length(grandkids)
+    end
+
+    @testset "Δ0: promoted children keep the parent's fitted-param count" begin
+        am = biuni_seed()
+        base = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(am)))
+        for child in EnzymeRates._expand_promote_catalytic_to_onlya(am)
+            @test length(EnzymeRates.fitted_params(
+                EnzymeRates.compile_mechanism(child))) == base
+        end
+    end
+
+    @testset "distinct: every promotion changes the rate equation" begin
+        am = biuni_seed()
+        parent_eq = EnzymeRates.rate_equation_string(am)
+        for child in EnzymeRates._expand_promote_catalytic_to_onlya(am)
+            @test EnzymeRates.rate_equation_string(child) != parent_eq
+        end
+    end
+end
+
 # ─── _expand_merge_regulatory_sites ─────────────────────────────────────
 @testset "_expand_merge_regulatory_sites" begin
     # A four-subunit reaction with a designated activator and inhibitor.

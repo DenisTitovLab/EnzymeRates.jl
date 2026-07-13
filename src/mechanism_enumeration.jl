@@ -1967,6 +1967,37 @@ _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
 """
+    _expand_promote_catalytic_to_onlya(am::AllostericMechanism)
+        → Vector{AllostericMechanism}
+
+Δ0 catalytic-state move. For each catalytic kinetic group tagged `:EqualAI`,
+emit one variant with that group set to `:OnlyA` — binding (K-type) and
+iso/catalytic (V-type) groups alike. On an already-allosteric mechanism `L`
+is already observable, so promoting any group is distinguishable and never
+degenerate. The catalytic steps, multiplicity, regulatory sites, and every
+other tag pass through unchanged.
+"""
+function _expand_promote_catalytic_to_onlya(am::AllostericMechanism)
+    results = AllostericMechanism[]
+    for g in 1:length(cat_allo_states(am))
+        cat_allo_states(am)[g] == :EqualAI || continue
+        new_states = copy(cat_allo_states(am))
+        new_states[g] = :OnlyA
+        push!(results, _with_cat_allo_states(am, new_states))
+    end
+    results
+end
+
+"""
+    _expand_promote_catalytic_to_onlya(m::Mechanism)
+        → Vector{AllostericMechanism}
+
+Non-allosteric input: no-op; this move only elaborates allosteric states.
+"""
+_expand_promote_catalytic_to_onlya(::Mechanism) =
+    AllostericMechanism[]
+
+"""
     _expand_merge_regulatory_sites(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 
