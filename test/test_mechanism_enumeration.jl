@@ -4881,6 +4881,41 @@ end
         baseline = EnzymeRates._filter_by_reg_type(raw6, uni_uni_rxn)
         @test EnzymeRates.expand_mechanisms([m], uni_uni_rxn) == baseline
     end
+
+    @testset "expand_mechanisms reaches ≥2 distinct-metabolite catalytic :OnlyA" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C], B[N]
+            products:   P[C1N1]
+            allosteric_regulators: R
+            oligomeric_state: 2
+        end
+
+        # #distinct metabolites bound by an :OnlyA catalytic group (iso → skip)
+        onlya_mets(am) = Set(EnzymeRates.name(EnzymeRates.bound_metabolite(
+                                EnzymeRates.rep_step(am, g)))
+            for g in EnzymeRates.kinetic_groups(am)
+            if EnzymeRates.cat_allo_states(am)[g] === :OnlyA &&
+               !EnzymeRates.is_iso(EnzymeRates.rep_step(am, g)))
+
+        seen = Set{UInt64}()
+        frontier = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+        for m in EnzymeRates.init_mechanisms(rxn)
+            h = hash(m); h in seen || (push!(seen, h); push!(frontier, m))
+        end
+        maxdistinct = 0
+        gen = 0
+        while !isempty(frontier) && gen < 14
+            nextf = eltype(frontier)[]
+            for c in EnzymeRates.expand_mechanisms(frontier, rxn)
+                h = hash(c); h in seen || (push!(seen, h); push!(nextf, c))
+                c isa EnzymeRates.AllostericMechanism &&
+                    (maxdistinct = max(maxdistinct, length(onlya_mets(c))))
+            end
+            frontier = nextf; gen += 1
+        end
+
+        @test maxdistinct >= 2
+    end
 end
 
 # ═══════════════════════════════════════════════════════════════════════

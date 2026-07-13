@@ -2141,9 +2141,10 @@ end
     expand_mechanisms(mechs, reaction) -> Vector{Union{Mechanism, AllostericMechanism}}
 
 Apply all expansion moves (RE→SS, split kinetic group, add dead-end
-regulator, to-allosteric, add allosteric regulator, change allo state, merge
-regulatory sites) to each input mechanism and return the children as a flat
-vector. Bucketing by parameter count is the caller's job, not enumeration's.
+regulator, to-allosteric, add allosteric regulator, change allo state,
+promote catalytic to OnlyA, merge regulatory sites) to each input mechanism
+and return the children as a flat vector. Bucketing by parameter count is
+the caller's job, not enumeration's.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
@@ -2169,6 +2170,7 @@ function _add_expansions_mech!(
     append!(result, _expand_to_allosteric(m, rxn))
     append!(result, _expand_add_allosteric_regulator(m, rxn))
     append!(result, _expand_change_allo_state(m))
+    append!(result, _expand_promote_catalytic_to_onlya(m))
     append!(result, _expand_merge_regulatory_sites(m))
 end
 
