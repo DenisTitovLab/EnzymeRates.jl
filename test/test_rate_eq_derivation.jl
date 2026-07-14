@@ -1923,6 +1923,7 @@ end
     )
 end
 
+
 @testset "rate_equation_string allosteric byte-identical fixture" begin
     m_allo = @allosteric_mechanism begin
         substrates: S

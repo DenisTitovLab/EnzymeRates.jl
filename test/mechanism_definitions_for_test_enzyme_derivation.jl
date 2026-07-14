@@ -2503,6 +2503,15 @@ function build_mechanism_test_specs()
         expected_n_wegscheider_constraints=2, expected_n_independent_params=8,
         run_ode_test=false))
 
+    # NOTE: a multi-:OnlyA derivation/perf spec was intentionally NOT added here.
+    # The representative multi-:OnlyA mechanism triggers the pre-existing allosteric
+    # MWC L-term leak (its inactive graph fragments), so its derivation is
+    # known-incorrect until that bug is fixed — see
+    # docs/superpowers/specs/2026-07-13-allosteric-mwc-derivation-known-issues.md.
+    # The enumeration move that makes multi-:OnlyA reachable is validated by its own
+    # tests in test_mechanism_enumeration.jl; the n=1 mass-action ground truth for the
+    # multi-:OnlyA derivation lives (as an @test_broken gate) in allosteric_ground_truth.jl.
+
     return specs
 end
 
