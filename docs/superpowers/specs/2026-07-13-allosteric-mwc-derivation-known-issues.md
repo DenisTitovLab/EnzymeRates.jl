@@ -4,9 +4,8 @@
 **Status:** KNOWN ISSUES, tracked. The cross-weighting fix attempt was **reverted** (it
 introduced regressions worse than the original bug). The `n=1` mass-action ground-truth
 harness built during the investigation is **kept** as the acceptance gate for the eventual
-correct fix. This document supersedes the fix design in
-`2026-07-13-allosteric-mwc-free-enzyme-normalization-design.md` (whose proposed
-cross-weighting is now known to be wrong).
+correct fix. This document supersedes the earlier cross-weighting fix design (removed), whose
+proposed cross-weighting is now known to be wrong.
 
 ## The core bug (pre-existing, unfixed)
 
