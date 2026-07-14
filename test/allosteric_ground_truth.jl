@@ -344,3 +344,136 @@ end
         @test isapprox(v_code, v_gt; rtol=1e-4)
     end
 end
+
+# ── Ordered bi-uni :NonequalAI-catalysis network (the guard's counter-example) ─
+# A + B ⇌ P. A binds :EqualAI via a STEADY-STATE step (E + A <--> E(A), kon·A /
+# koff); B binds :EqualAI at rapid equilibrium on E(A); catalysis E(A,B) <--> E(P)
+# is STEADY-STATE :NonequalAI (rate k_A in the active conformation, k_I in the
+# inactive); P binds :EqualAI at rapid equilibrium. Every ligand is :EqualAI
+# (K_I = K_A), so every form flips with ratio [X_I]/[X_A] = L.
+#
+# This is the case the `_free_enz_fragments` guard must REFUSE to cross-weight.
+# The two conformations share ONE graph topology — only the catalytic rate
+# constant differs (k_A vs k_I) — so the free-enzyme spanning-tree weights have
+# identical rate-const skeletons: D_A = koff + k_A·B/K_B and D_I = koff + k_I·B/K_B.
+# Both are metabolite-bearing and D_A ≠ D_I as polynomials, but their skeletons
+# match, so the un-weighted Q_A + L·Q_I combination already produces the correct
+# k_A + L·k_I coupling. Cross-weighting here would double-count the free-enzyme
+# weight and corrupt the rate. Reverse catalysis kr from the Haldane relation.
+function biuni_nonequalAI_flux(kon, koff, KB, KP; k_A, k_I, L, Keq, A, B, P, FAST=1e7)
+    krA = k_A * kon * KP / (koff * KB * Keq)
+    krI = k_I * kon * KP / (koff * KB * Keq)
+    species = [:E_A, :EA_A, :EAB_A, :EP_A, :E_I, :EA_I, :EAB_I, :EP_I]
+    edges = [
+        (:E_A, :EA_A, kon * A), (:EA_A, :E_A, koff),          # active A binding (SS)
+        (:E_I, :EA_I, kon * A), (:EA_I, :E_I, koff),          # inactive A binding (SS, K_I = K_A)
+        (:EA_A, :EAB_A, FAST * B / KB), (:EAB_A, :EA_A, FAST),# active B binding (RE)
+        (:EA_I, :EAB_I, FAST * B / KB), (:EAB_I, :EA_I, FAST),# inactive B binding (RE)
+        (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),    # active P binding (RE)
+        (:E_I, :EP_I, FAST * P / KP), (:EP_I, :E_I, FAST),    # inactive P binding (RE)
+        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),           # free-enzyme flip, ratio L
+        (:EA_A, :EA_I, FAST * L), (:EA_I, :EA_A, FAST),       # EA flip, ratio L
+        (:EAB_A, :EAB_I, FAST * L), (:EAB_I, :EAB_A, FAST),   # EAB flip, ratio L
+        (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),       # EP flip, ratio L
+        (:EAB_A, :EP_A, k_A), (:EP_A, :EAB_A, krA),         # active catalysis (SS, k_A)
+        (:EAB_I, :EP_I, k_I), (:EP_I, :EAB_I, krI),         # inactive catalysis (SS, k_I)
+    ]
+    cat_edges = [(:EAB_A, :EP_A, k_A, krA), (:EAB_I, :EP_I, k_I, krI)]
+    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+end
+
+# ── :NonequalAI-catalysis harness self-validation ────────────────────────────
+# First ground the hand-written mass-action reference `metab_dfree_base_flux`
+# (the single-conformation ordered bi-uni, reused as the non-allosteric rate at
+# k = k_A) against the ODE-validated non-allosteric `rate_equation` — an
+# independent, separately ODE-cross-checked code path. This closes the trust loop
+# for the whole `mwc_ground_truth_flux` harness. Then confirm the two-conformation
+# `biuni_nonequalAI_flux` degenerates correctly: (a) L = 0 (inactive unpopulated)
+# → the base rate at k = k_A; (b) k_I = k_A (conformations identical) → the base
+# rate, independent of L.
+@testset ":NonequalAI-catalysis ground-truth harness self-validation" begin
+    base = @enzyme_mechanism begin
+        substrates: A, B
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end
+    bfp = ER.fitted_params(base)
+
+    rng = MersenneTwister(20260713)
+    for _ in 1:5
+        kon = 0.5 + 2rand(rng); koff = 0.5 + 2rand(rng)
+        KB = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng)
+        kA = 0.5 + 2rand(rng); kI = 0.5 + 2rand(rng); Keq = 2.0 + 2rand(rng)
+        A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
+        L = 0.5 + rand(rng)
+
+        base_rate = metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
+
+        # `metab_dfree_base_flux` vs the ODE-validated non-allosteric rate_equation.
+        bd = Dict(:kon_A_E=>kon, :koff_A_E=>koff, :K_B_EA=>KB, :K_P_E=>KP,
+                  :k_EAB_to_EP=>kA)
+        bprm = NamedTuple{(bfp..., :Keq, :E_total)}(((bd[s] for s in bfp)..., Keq, 1.0))
+        @test isapprox(base_rate,
+            real(ER.rate_equation(base, (A=A, B=B, P=P), bprm)); rtol=1e-4)
+
+        # (a) L = 0 : inactive conformation unpopulated → base rate at k_A.
+        f0 = biuni_nonequalAI_flux(kon, koff, KB, KP;
+            k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P)
+        @test isapprox(f0, base_rate; rtol=1e-4)
+
+        # (b) k_I = k_A : conformations identical → base rate, independent of L.
+        fe = biuni_nonequalAI_flux(kon, koff, KB, KP;
+            k_A=kA, k_I=kA, L=L, Keq=Keq, A=A, B=B, P=P)
+        fe5 = biuni_nonequalAI_flux(kon, koff, KB, KP;
+            k_A=kA, k_I=kA, L=5.0, Keq=Keq, A=A, B=B, P=P)
+        @test isapprox(fe, base_rate; rtol=1e-4)
+        @test isapprox(fe, fe5; rtol=1e-4)
+    end
+end
+
+# ── The gate: :NonequalAI-catalysis derivation matches mass-action GT ─────────
+# The counter-example that keeps the `_free_enz_fragments` guard honest. Catalysis
+# is :NonequalAI (k_A ≠ k_I) but the graph topology is shared, so D_A and D_I have
+# identical rate-const skeletons and must NOT be cross-weighted. The un-weighted
+# Q_A + L·Q_I combination already gives the correct k_A + L·k_I coupling; if the
+# guard were removed and cross-weighting fired here, the free-enzyme weight would
+# be double-counted and this gate would go red. This is the regression guard for
+# the guard: it FAILS if someone removes `_free_enz_fragments`.
+@testset ":NonequalAI-catalysis MWC derivation matches mass-action ground truth" begin
+    allo = @allosteric_mechanism begin
+        substrates: A, B ; products: P ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A <--> E(A)        :: EqualAI
+            E(A) + B ⇌ E(A, B)     :: EqualAI
+            E(A, B) <--> E(P)      :: NonequalAI
+            E + P ⇌ E(P)           :: EqualAI
+        end
+    end
+    fp = ER.fitted_params(allo)
+    @test fp == (:kon_A_E, :koff_A_E, :K_P_E, :K_B_EA,
+                 :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
+
+    rng = MersenneTwister(20260713)
+    for _ in 1:6
+        kon = 0.5 + 2rand(rng); koff = 0.5 + 2rand(rng)
+        KP = 0.5 + 2rand(rng); KB = 0.5 + 2rand(rng)
+        kA = 0.5 + 2rand(rng); kI = 0.5 + 2rand(rng)
+        L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
+        A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
+        # Map fitted_params -> ground-truth params:
+        #   kon_A_E=kon, koff_A_E=koff, K_B_EA=KB, K_P_E=KP,
+        #   k_A_EAB_to_EP=k_A, k_I_EAB_to_EP=k_I.
+        d = Dict(:kon_A_E=>kon, :koff_A_E=>koff, :K_P_E=>KP, :K_B_EA=>KB,
+                 :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
+        prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
+        v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
+        v_gt = biuni_nonequalAI_flux(kon, koff, KB, KP;
+            k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=P)
+        @test isapprox(v_code, v_gt; rtol=1e-4)
+    end
+end
