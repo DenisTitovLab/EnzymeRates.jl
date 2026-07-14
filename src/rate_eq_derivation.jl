@@ -327,10 +327,6 @@ walking the lifted `Mechanism`. Parameter Symbols on the leaves of
 `num`/`den` are produced via the `name(p, mech)` chokepoint (which
 collapses kinetic-group members to their rep's name). `rename_map` then
 applies any single-symbol Wegscheider ties as a post-pass.
-
-Also returns `d_free`, the spanning-tree weight `D[g_free]` of the segment
-holding the free resting enzyme (the form with empty `bound` and empty
-`residual`) — `1` when that segment is the mechanism's only segment.
 """
 function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
                                   subs_species, prods_species;
@@ -371,10 +367,6 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
         isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
-    i_free = findfirst(f -> isempty(bound(f)) && isempty(residual(f)), enz_species)
-    @assert i_free !== nothing "no free-enzyme form (empty bound, empty residual)"
-    d_free = _rename_symbols(D[form_to_group[i_free]], rename_map)
-
     den = poly_zero()
     for g in 1:G
         sigma = reduce(poly_add, (alpha[i] for i in groups[g]); init=poly_zero())
@@ -391,7 +383,7 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
     den = _rename_symbols(den, rename_map)
     conc_set = _concentration_symbols(mech)
     num, den = _reduce_conc_lowest_terms(num, den, conc_set)
-    num, den, d_free
+    num, den
 end
 
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
@@ -626,7 +618,7 @@ Compute the raw rate expression (bare symbols) and sorted parameter/concentratio
 Returns `(expr, all_params, sorted_concs)`.
 """
 function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
-    num, den, _ = _raw_symbolic_rate_polys(M)
+    num, den = _raw_symbolic_rate_polys(M)
     m = M()
     param_syms = Set{Symbol}(_raw_param_symbols(m))
     conc_syms = Set{Symbol}(metabolites(m))
@@ -742,7 +734,7 @@ rate_equation_string(m::Union{Mechanism, AllostericMechanism}) =
 
 """Build the `v = E_total * (num) / (den)` line from the raw symbolic rate polys."""
 function _rate_v_line(M::Type{<:EnzymeMechanism})
-    num, den, _ = _raw_symbolic_rate_polys(M)
+    num, den = _raw_symbolic_rate_polys(M)
     m = M()
     ps = Set{Symbol}(_raw_param_symbols(m))
     cs = Set{Symbol}(metabolites(m))
@@ -889,7 +881,7 @@ Multiple candidates arise for mechanisms with alternative catalytic pathways
 @generated function _kcat_forward(
     ::M, params::NamedTuple,
 ) where {M <: EnzymeMechanism}
-    num, den, _ = _raw_symbolic_rate_polys(M)
+    num, den = _raw_symbolic_rate_polys(M)
     k_param_names = Set{Symbol}(_raw_param_symbols(M()))
     num_groups, den_groups = _kcat_groups_from_polys(num, den, k_param_names)
 
@@ -947,34 +939,15 @@ so this carries no `catalytic_multiplicity` factor.
     # a pattern that only exists via an `:OnlyA` step drops out of I-state, and a
     # dead I-cycle yields `num_I = poly_zero()` (empty groups), so its saturating
     # contribution vanishes.
-    num_A_poly, den_A_poly, d_free_A = _state_rate_polys(am, :A)
-    num_I_poly, den_I_poly, d_free_I = _state_rate_polys(am, :I)
+    num_A_poly, den_A_poly = _state_rate_polys(am, :A)
+    num_I_poly, den_I_poly = _state_rate_polys(am, :I)
     cat_mets = Set{Symbol}(metabolites(CM()))
-    # Cross-weight each conformation by the OTHER's free-enzyme weight `D[g_free]`
-    # (folded at degree 1 into both num and den, so `_mwc_power_pair` raises it to
-    # `D^n`), matching `_allosteric_num_den_exprs` so kcat stays consistent with
-    # `rate_equation`. Folding into the polys (not the Exprs) lets the saturating
-    # metabolite grouping split a metabolite-bearing `D` correctly. No-op when a
-    # state does not fragment (`D = 1`). Cross-weight ONLY when the inactive graph
-    # fragments (`_free_enz_fragments`) — not for a same-topology `:NonequalAI`
-    # `k_A ↔ k_I` difference, which is already on a common basis (mirrors
-    # `_allosteric_num_den_exprs`, so kcat stays consistent with `rate_equation`).
-    if !_free_enz_fragments(d_free_A, d_free_I)
-        d_free_A = poly_one()
-        d_free_I = poly_one()
-    end
-    num_A_poly = poly_mul(num_A_poly, d_free_I)
-    den_A_poly = poly_mul(den_A_poly, d_free_I)
-    num_I_poly = poly_mul(num_I_poly, d_free_A)
-    den_I_poly = poly_mul(den_I_poly, d_free_A)
-    # Catalytic param-name sets for the metabolite/k split, derived from each
-    # conformation's (folded) polynomials: the A-state tagged column set plus any
-    # non-metabolite symbol the polys reference (the folded `D` params and the
-    # `:I` mirrors / native `:NonequalAI` I-names).
-    a_param_names = union(
-        Set(_state_all_params(_state_mechanism(am, :A), _state_step_params(am, :A))),
-        setdiff(union(_poly_param_syms(num_A_poly), _poly_param_syms(den_A_poly)),
-                cat_mets))
+    # Catalytic param-name sets for the metabolite/k split. The A-set is the
+    # A-state tagged column set; the I-set adds the I-polynomials' own params
+    # (`:I` mirrors plus the native `:NonequalAI` I-names), which are exactly the
+    # non-metabolite symbols the I-polys reference.
+    a_param_names = Set(_state_all_params(_state_mechanism(am, :A),
+                                          _state_step_params(am, :A)))
     i_param_names = union(a_param_names,
         setdiff(union(_poly_param_syms(num_I_poly), _poly_param_syms(den_I_poly)),
                 cat_mets))
@@ -1264,27 +1237,16 @@ function _state_mechanism(am::AllostericMechanism, state::Symbol)
 end
 
 """
-Derive `(num_poly, den_poly, d_free_poly)` for `am`'s catalytic mechanism in
-conformational `state`, natively in that state's parameter names. Runs the
-shared King–Altman engine on the state-tagged `step_params` and state graph, so
-no post-hoc rename is needed (`:EqualAI` groups render the shared bare Symbol
-automatically). The `:I` polynomials reference each `:NonequalAI` group's
-native `K_I_…`/`k_I_…` symbol; a forbidden split's `K_I_…` is defined by the
-combined constraint solve's dependent assignment (`_build_dep_assignments`).
-`d_free_poly` is that state's free-enzyme segment weight (see
-`_raw_symbolic_rate_polys`).
+Derive `(num_poly, den_poly)` for `am`'s catalytic mechanism in conformational
+`state`, natively in that state's parameter names. Runs the shared King–Altman
+engine on the state-tagged `step_params` and state graph, so no post-hoc rename
+is needed (`:EqualAI` groups render the shared bare Symbol automatically). The
+`:I` polynomials reference each `:NonequalAI` group's native `K_I_…`/`k_I_…`
+symbol; a forbidden split's `K_I_…` is defined by the combined constraint
+solve's dependent assignment (`_build_dep_assignments`).
 """
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     cm = _state_mechanism(am, state)
-    # Cross-weighting normalizes each conformation against its unique free-enzyme
-    # segment weight `D[g_free]`. A ping-pong mechanism has more than one free
-    # form (E and the covalent intermediate F), so `D[g_free]` is not unique and
-    # the cross-weighting basis is an unresolved design question — fail loudly
-    # rather than silently derive a wrong equation.
-    enz_species, _, _ = _compute_re_groups(cm)
-    count(f -> isempty(bound(f)) && isempty(residual(f)), enz_species) == 1 ||
-        error("allosteric ping-pong not supported: multiple free-enzyme forms " *
-              "in $state state — cross-weighting design question, flag to Denis")
     _assert_derivable(cm)
     sp = _state_step_params(am, state)
     @assert length(sp) == length(_flat_steps(cm)) "state step_params/steps misaligned"
@@ -1502,7 +1464,7 @@ function _dependent_param_exprs(
     if !isempty(rename)
         refs = Set{Symbol}()
         for st in (:A, :I)
-            num, den, _ = _state_rate_polys(am, st)
+            num, den = _state_rate_polys(am, st)
             union!(refs, _poly_param_syms(den))
             isempty(num) || union!(refs, _poly_param_syms(num))
         end
@@ -1573,49 +1535,6 @@ the numerator carries one fewer denominator power than the denominator, where
 _mwc_power_pair(x, y, n) =
     (n == 1 ? x : :($x * $y^$(n - 1)), :($y^$n))
 
-"""Cross-weight an MWC state term by the OTHER conformation's free-enzyme
-spanning-tree weight `D_other^n` (`n = catalytic_multiplicity`). Each state's
-King–Altman denominator is homogeneous of degree `[1/time]^(G-1)` in its own
-free-enzyme segment weight `D[g_free]`; when the two conformations fragment into
-different segment counts, combining `Q_A + L·Q_I` adds terms on inconsistent
-bases and leaks a bare rate constant into the L-term. Weighting the active term
-by `D_I^n` and the inactive term by `D_A^n` restores a common basis; the shared
-`D_A^n·D_I^n` factor cancels in `num/den`. A no-op when `D_other` is the
-identity (`1`) — the state's free enzyme spans its whole segment, as for any
-mechanism that does not fragment."""
-_mwc_cross_weight(term, d_other_expr, n) =
-    d_other_expr == 1 ? term : :($(_power_expr(d_other_expr, n)) * $term)
-
-"""Collapse every rate constant (a lowercase-`k` symbol: `kon`/`koff`/`k_…`; a
-dissociation constant is uppercase `K_…`) in a polynomial to one placeholder, so
-only the metabolite / dissociation-`K` skeleton and the rate-constant degree of each
-monomial survive. Two free-enzyme weights that differ only by a conformational
-`k_A ↔ k_I` substitution collapse to the SAME skeleton."""
-function _rate_const_skeleton(p::POLY)
-    skel = POLY()
-    for (mono, c) in p
-        d = Dict{Symbol,Int}()
-        for (s, e) in mono
-            sym = startswith(String(s), "k") ? :__rc__ : s
-            d[sym] = get(d, sym, 0) + e
-        end
-        m = sort!(Pair{Symbol,Int}[k => v for (k, v) in d if v != 0]; by = first)
-        skel[m] = get(skel, m, 0) + c
-    end
-    filter!(pr -> pr.second != 0, skel)
-    skel
-end
-
-"""Whether the two conformations' free-enzyme spanning-tree weights differ
-*structurally* — a graph edge dropped (topological fragmentation via `:OnlyA`/`:OnlyI`)
-rather than only a conformational rate constant (`:NonequalAI`, `k_A ↔ k_I`, identical
-graph). Cross-weighting corrects the former (inconsistent free-enzyme bases) but
-corrupts the latter (`Q_A + L·Q_I` already produces the correct `k_A + L·k_I`
-coupling). Compared via `_rate_const_skeleton`, so a same-skeleton rate-constant
-difference reads as identical."""
-_free_enz_fragments(d_free_A::POLY, d_free_I::POLY) =
-    _rate_const_skeleton(d_free_A) != _rate_const_skeleton(d_free_I)
-
 """
 The set of Symbols that belong to the I-block when `_build_dep_assignments`
 splits the combined solve's dependents for emission: catalytic columns that
@@ -1680,7 +1599,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     CatN = catalytic_multiplicity(m)
     RS = regulatory_sites(am)
 
-    num_A_poly, den_A_poly, d_free_A = _state_rate_polys(am, :A)
+    num_A_poly, den_A_poly = _state_rate_polys(am, :A)
     # A-state catalytic param symbols (the tagged column set) drive `_poly_to_expr`'s
     # param/metabolite ordering split; the I-poly's `:I` symbols sort as non-params.
     cat_params = Set(_state_all_params(_state_mechanism(am, :A),
@@ -1696,21 +1615,9 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     # same binding partition monomial-zeroing produced, and for a dead cycle the
     # pruned graph has no SS cut so `_compute_numerator(allow_dead=true)` returns
     # 0 natively — no forced zero needed.
-    num_i_poly, den_i_poly, d_free_I = _state_rate_polys(am, :I)
+    num_i_poly, den_i_poly = _state_rate_polys(am, :I)
     N_I = _poly_to_expr(num_i_poly, cat_params, cat_mets)
     Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)
-
-    # Cross-weight ONLY when the inactive graph fragments (`_free_enz_fragments`):
-    # `D_A`/`D_I` differ in monomial support, not merely by a `:NonequalAI`
-    # `k_A ↔ k_I` substitution. For a same-topology rate-constant difference the
-    # two partitions are already on a common basis, and `Q_A + L·Q_I` gives the
-    # correct `k_A + L·k_I` coupling — so zero the weights (cross-weight no-ops).
-    if !_free_enz_fragments(d_free_A, d_free_I)
-        d_free_A = poly_one()
-        d_free_I = poly_one()
-    end
-    D_A = _poly_to_expr(d_free_A, cat_params, cat_mets)
-    D_I = _poly_to_expr(d_free_I, cat_params, cat_mets)
 
     reg_Q_A = Any[_reg_site_expr(am, i, false) for i in eachindex(RS)]
     reg_Q_I = Any[_reg_site_expr(am, i, true) for i in eachindex(RS)]
@@ -1734,12 +1641,9 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         _nest_binary(:*, factors)
     end
 
-    # Cross-weight each conformation by the OTHER's free-enzyme weight so the two
-    # King–Altman partitions combine on a common `[1/time]` basis (see
-    # `_mwc_cross_weight`). No-op unless a state's graph fragments (`D ≠ 1`).
-    num_A = _mwc_cross_weight(make_num_term(N_A, Q_A, reg_Q_A), D_I, CatN)
-    den_A = _mwc_cross_weight(make_den_term(Q_A, reg_Q_A), D_I, CatN)
-    den_I = _mwc_cross_weight(make_den_term(Q_I, reg_Q_I), D_A, CatN)
+    num_A = make_num_term(N_A, Q_A, reg_Q_A)
+    den_A = make_den_term(Q_A, reg_Q_A)
+    den_I = make_den_term(Q_I, reg_Q_I)
     full_den = _mwc_combine(den_A, den_I)
 
     if isempty(num_i_poly)
@@ -1748,7 +1652,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         # branch). Q_I still contributes to denominator as enzyme mass.
         num_A, full_den
     else
-        num_I = _mwc_cross_weight(make_num_term(N_I, Q_I, reg_Q_I), D_A, CatN)
+        num_I = make_num_term(N_I, Q_I, reg_Q_I)
         _mwc_combine(num_A, num_I), full_den
     end
 end

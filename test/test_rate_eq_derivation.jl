@@ -1923,30 +1923,6 @@ end
     )
 end
 
-@testset "_state_rate_polys surfaces D[g_free] free-enzyme weight" begin
-    # Uni-uni OnlyA-substrate exemplar (same topology as `onlyR_sub` above): S
-    # binds only in the A-state; catalysis and product release are :EqualAI.
-    # A-state: E, E(S), E(P) are all RE-connected through E ⇒ one segment ⇒
-    # D[g_free] is the trivial single-segment weight, 1. I-state: the OnlyA
-    # binding step is dropped, so E(S) is its own segment reached only through
-    # the SS catalytic edge; the segment holding free E (E, E(P)) is spanned
-    # through that edge, so D[g_free] = k_ES_to_EP.
-    onlyA_sub = @allosteric_mechanism begin
-        substrates: S
-        products:   P
-        catalytic_multiplicity: 1
-        catalytic_steps: begin
-            E + S ⇌ E(S)     :: OnlyA
-            E(S) <--> E(P)   :: EqualAI
-            E(P) ⇌ E + P     :: EqualAI
-        end
-    end
-    am = EnzymeRates.AllostericMechanism(onlyA_sub)
-    _, _, d_free_A = EnzymeRates._state_rate_polys(am, :A)
-    _, _, d_free_I = EnzymeRates._state_rate_polys(am, :I)
-    @test d_free_A == EnzymeRates.poly_one()
-    @test d_free_I == EnzymeRates.poly_sym(:k_ES_to_EP)
-end
 
 @testset "rate_equation_string allosteric byte-identical fixture" begin
     m_allo = @allosteric_mechanism begin
