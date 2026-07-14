@@ -46,6 +46,140 @@ Dimension alone is NOT the discriminator: fragmenting an *SS* binding (real LDH)
 same `[1/time]` degree yet still needs re-basing; only fragmenting an *RE* binding changes
 the degree.
 
+## Reproducer mechanisms (copy-paste)
+
+Every mechanism below is a real, parseable `@allosteric_mechanism`. The first four
+already live in `test/allosteric_ground_truth.jl` as gated testsets — run them with
+
+```bash
+julia --project -e 'using EnzymeRates; include("test/allosteric_ground_truth.jl")'
+```
+
+or as part of `Pkg.test()`. Each testset builds the mechanism, evaluates
+`rate_equation`, and compares against the n=1 mass-action ground truth for that
+network. `@test_broken` marks a gate the bug currently fails (flip to `@test` when
+the derivation is fixed); `@test` marks one the current derivation already passes.
+
+### 1. Minimal bug — uni-uni, one `:OnlyA` binding
+
+```julia
+@allosteric_mechanism begin
+    substrates: S ; products: P ; catalytic_multiplicity: 1
+    catalytic_steps: begin
+        E + S ⇌ E(S)     :: OnlyA
+        E(S) <--> E(P)   :: EqualAI
+        E + P ⇌ E(P)     :: EqualAI
+    end
+end
+```
+
+The simplest mechanism that exhibits the L-term leak. `S` binds only the active
+conformation, so the inactive graph fragments: `G_A = 1` (`D_A = 1`), `G_I = 2`
+(`D_I = k_ES_to_EP`). The naive `Q_A + L·Q_I` combine leaves the bare rate constant
+`k_ES_to_EP` in the L-term. Ground truth: `uni_onlyA_flux`. Gate: `"OnlyA MWC
+derivation matches mass-action ground truth"` (`@test_broken`, ~line 169). Quick
+sniff test with no ground truth needed: scale every rate constant by τ — a correct
+rate scales by τ (kcat contract), the buggy one does not.
+
+### 2. The enumeration case — multi-`:OnlyA` bi-uni
+
+```julia
+@allosteric_mechanism begin
+    substrates: A, B ; products: P ; catalytic_multiplicity: 1
+    catalytic_steps: begin
+        E + A ⇌ E(A)          :: OnlyA
+        E(A) + B ⇌ E(A, B)    :: OnlyA
+        E(A, B) <--> E(P)     :: EqualAI
+        E + P ⇌ E(P)          :: EqualAI
+    end
+end
+```
+
+Two `:OnlyA` bindings — the shape the new `_expand_promote_catalytic_to_onlya` move
+makes reachable, and the one that first surfaced the bug. Same leak as case 1, with
+`D_I = k_EAB_to_EP`. Ground truth: `multi_onlyA_flux`. Gate: `"multi-OnlyA MWC
+derivation matches mass-action ground truth"` (`@test_broken`, ~line 203).
+
+### 3. The LDH regime — metabolite-bearing `D` from a steady-state `:OnlyA` binding
+
+```julia
+@allosteric_mechanism begin
+    substrates: S, B ; products: P ; catalytic_multiplicity: 1
+    catalytic_steps: begin
+        E + S <--> E(S)      :: OnlyA
+        E(S) + B ⇌ E(S, B)   :: EqualAI
+        E(S, B) <--> E(P)    :: EqualAI
+        E + P ⇌ E(P)         :: EqualAI
+    end
+end
+```
+
+Here the `:OnlyA` binding is a *steady-state* step (`<-->`, not `⇌`), so `D_I`
+carries a metabolite factor rather than a bare constant. This is the structural
+shape of the real LDH i-state mechanisms. It is the case that shows dimension is
+NOT the discriminator: `D_A` and `D_I` keep the same `[1/time]` degree, yet the
+combination still needs re-basing. It is also where the reverted cross-weighting
+regressed — the numerator clearing (`D_I^n` instead of `D_A·D_I^n`) injected a
+spurious metabolite factor. Ground truth: `metab_dfree_onlyA_flux`. Gate:
+`"metabolite-bearing-D MWC derivation matches mass-action ground truth"`
+(`@test_broken`, ~line 326).
+
+### 4. The counter-example — `:NonequalAI` catalysis (a fix must NOT re-base this)
+
+```julia
+@allosteric_mechanism begin
+    substrates: A, B ; products: P ; catalytic_multiplicity: 1
+    catalytic_steps: begin
+        E + A <--> E(A)        :: EqualAI
+        E(A) + B ⇌ E(A, B)     :: EqualAI
+        E(A, B) <--> E(P)      :: NonequalAI
+        E + P ⇌ E(P)           :: EqualAI
+    end
+end
+```
+
+Both conformations are productive with the same graph topology; `D_A ≠ D_I` only
+because the catalytic rate constant differs (`k_A` vs `k_I`). The current
+`Q_A + L·Q_I` derivation is CORRECT here (it produces the physical `k_A + L·k_I`
+coupling), and any cross-weighting re-base breaks it — this is exactly the mode that
+took the reverted fix from 6/6 to 1/6. A correct fix must leave this untouched.
+Ground truth: `biuni_nonequalAI_flux`. Gate: `":NonequalAI-catalysis MWC derivation
+matches mass-action ground truth"` (`@test`, currently passing, ~line 453). The
+discriminator: collapse every rate constant in `D_A`/`D_I` to one placeholder —
+case 3's supports differ (re-base), case 4's are identical (do not).
+
+### 5. Real LDH — the zero-substrate regression (add to the harness for the fix)
+
+The `MECHANISM_TEST_SPEC`s named `"LDH i-state NonequalAI 5-group"` and
+`"LDH i-state NonequalAI 6-group"` (in
+`test/mechanism_definitions_for_test_enzyme_derivation.jl`, ~lines 2430/2458) are the
+real-mechanism form of case 3. Under the reverted cross-weighting fix,
+`rate_equation` evaluated with `Pyruvate = 0` (other metabolites nonzero) returned
+`-0.0` — but the reverse reaction (Lactate + NAD → NADH + Pyruvate) does not consume
+Pyruvate, so the flux must stay nonzero. This is not yet a standalone gate; the fix
+implementer must add a "reverse flux finite at zero forward-substrate" check on one
+of these specs (the acceptance gate lists it).
+
+### 6. Ping-pong — multiple free-enzyme forms (add to the harness for the fix)
+
+Ping-pong mechanisms have two distinct free-enzyme forms (both empty-bound,
+empty-residual, in different rapid-equilibrium segments). The non-allosteric shape
+already in the suite (`"Segel Ping Pong Bi Bi"`) is:
+
+```julia
+E + A <--> E(A)
+E(A) <--> F + P
+F + B <--> F(B)
+F(B) <--> E + Q
+```
+
+Its allosteric analogue (the catalytic steps tagged `:EqualAI`/`:OnlyA`) is reached
+dynamically during enumeration once the promote move tags such a mechanism. The
+reverted cross-weighting added a fail-loud guard that **threw uncaught** on this
+shape, breaking `expand_mechanisms`/`identify_rate_equation`. A correct fix must
+produce a valid equation for two-free-form mechanisms (or the pipeline must handle
+them without throwing); the acceptance gate lists a ping-pong case for this reason.
+
 ## Why the cross-weighting fix failed (3 confirmed failure modes)
 
 The attempted fix multiplied the active terms by `D_I^n` and inactive by `D_A^n`
@@ -114,7 +248,7 @@ solver with self-validated ground truths. Any correct fix MUST match it for:
    hard error.
 
 Each ground truth self-validates first (`L=0` → non-allosteric active rate; all-`:EqualAI` →
-base rate, `L`-independent) before it may gate the fix. Dimensional homogiety and
+base rate, `L`-independent) before it may gate the fix. Dimensional homogeneity and
 kcat-rescaling are necessary but NOT sufficient — they missed failure modes 2 and 3.
 
 ## What was reverted / kept
