@@ -955,7 +955,14 @@ so this carries no `catalytic_multiplicity` factor.
     # `D^n`), matching `_allosteric_num_den_exprs` so kcat stays consistent with
     # `rate_equation`. Folding into the polys (not the Exprs) lets the saturating
     # metabolite grouping split a metabolite-bearing `D` correctly. No-op when a
-    # state does not fragment (`D = 1`).
+    # state does not fragment (`D = 1`). Cross-weight ONLY when the inactive graph
+    # fragments (`_free_enz_fragments`) — not for a same-topology `:NonequalAI`
+    # `k_A ↔ k_I` difference, which is already on a common basis (mirrors
+    # `_allosteric_num_den_exprs`, so kcat stays consistent with `rate_equation`).
+    if !_free_enz_fragments(d_free_A, d_free_I)
+        d_free_A = poly_one()
+        d_free_I = poly_one()
+    end
     num_A_poly = poly_mul(num_A_poly, d_free_I)
     den_A_poly = poly_mul(den_A_poly, d_free_I)
     num_I_poly = poly_mul(num_I_poly, d_free_A)
@@ -1579,6 +1586,36 @@ mechanism that does not fragment."""
 _mwc_cross_weight(term, d_other_expr, n) =
     d_other_expr == 1 ? term : :($(_power_expr(d_other_expr, n)) * $term)
 
+"""Collapse every rate constant (a lowercase-`k` symbol: `kon`/`koff`/`k_…`; a
+dissociation constant is uppercase `K_…`) in a polynomial to one placeholder, so
+only the metabolite / dissociation-`K` skeleton and the rate-constant degree of each
+monomial survive. Two free-enzyme weights that differ only by a conformational
+`k_A ↔ k_I` substitution collapse to the SAME skeleton."""
+function _rate_const_skeleton(p::POLY)
+    skel = POLY()
+    for (mono, c) in p
+        d = Dict{Symbol,Int}()
+        for (s, e) in mono
+            sym = startswith(String(s), "k") ? :__rc__ : s
+            d[sym] = get(d, sym, 0) + e
+        end
+        m = sort!(Pair{Symbol,Int}[k => v for (k, v) in d if v != 0]; by = first)
+        skel[m] = get(skel, m, 0) + c
+    end
+    filter!(pr -> pr.second != 0, skel)
+    skel
+end
+
+"""Whether the two conformations' free-enzyme spanning-tree weights differ
+*structurally* — a graph edge dropped (topological fragmentation via `:OnlyA`/`:OnlyI`)
+rather than only a conformational rate constant (`:NonequalAI`, `k_A ↔ k_I`, identical
+graph). Cross-weighting corrects the former (inconsistent free-enzyme bases) but
+corrupts the latter (`Q_A + L·Q_I` already produces the correct `k_A + L·k_I`
+coupling). Compared via `_rate_const_skeleton`, so a same-skeleton rate-constant
+difference reads as identical."""
+_free_enz_fragments(d_free_A::POLY, d_free_I::POLY) =
+    _rate_const_skeleton(d_free_A) != _rate_const_skeleton(d_free_I)
+
 """
 The set of Symbols that belong to the I-block when `_build_dep_assignments`
 splits the combined solve's dependents for emission: catalytic columns that
@@ -1652,7 +1689,6 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
 
     N_A = _poly_to_expr(num_A_poly, cat_params, cat_mets)
     Q_A = _poly_to_expr(den_A_poly, cat_params, cat_mets)
-    D_A = _poly_to_expr(d_free_A, cat_params, cat_mets)
 
     # I-state catalytic Exprs, always re-derived natively on the reachable-form
     # subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA` groups and every
@@ -1663,6 +1699,17 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     num_i_poly, den_i_poly, d_free_I = _state_rate_polys(am, :I)
     N_I = _poly_to_expr(num_i_poly, cat_params, cat_mets)
     Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)
+
+    # Cross-weight ONLY when the inactive graph fragments (`_free_enz_fragments`):
+    # `D_A`/`D_I` differ in monomial support, not merely by a `:NonequalAI`
+    # `k_A ↔ k_I` substitution. For a same-topology rate-constant difference the
+    # two partitions are already on a common basis, and `Q_A + L·Q_I` gives the
+    # correct `k_A + L·k_I` coupling — so zero the weights (cross-weight no-ops).
+    if !_free_enz_fragments(d_free_A, d_free_I)
+        d_free_A = poly_one()
+        d_free_I = poly_one()
+    end
+    D_A = _poly_to_expr(d_free_A, cat_params, cat_mets)
     D_I = _poly_to_expr(d_free_I, cat_params, cat_mets)
 
     reg_Q_A = Any[_reg_site_expr(am, i, false) for i in eachindex(RS)]
