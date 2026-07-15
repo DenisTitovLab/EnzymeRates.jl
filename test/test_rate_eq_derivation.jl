@@ -1016,11 +1016,19 @@ end
 
 """
 Assert `rate_equation` stays finite when any single metabolite concentration
-is zero (real kinetic data routinely has zeros). For a substrate or product,
-zeroing one of them must still leave a nonzero net rate — the opposite-
-direction metabolites keep driving flux — so a `0.0` there signals a `1/conc`
-term that blew the denominator to `Inf`. A regulator zero may legitimately
-zero the rate (essential activator), so only finiteness is required there.
+is zero (real kinetic data routinely has zeros). Zeroing a substrate or product
+must still leave a nonzero net rate — the opposite-direction metabolites keep
+driving flux — so a `0.0` there normally signals a `1/conc` term that blew the
+denominator to `Inf`. Two cases legitimately zero the rate, so only finiteness
+is required: a regulator zero (essential activator), and — for an MWC mechanism
+whose inactive conformation carries no flux (a dead end) — a metabolite that
+sits in the inactive free-enzyme weight `D[g_free]`. Zeroing the latter sends
+the inactive partition `Q_I/D_I` to infinity: all enzyme drains into the dead-end
+inactive form and the rate goes to zero. This is the correct formulation-1
+physics (validated against the free-flip mass-action ground truth), not a
+`1/conc` blow-up. The `metabolite in D[g_free] at zero concentration` gate in
+`allosteric_ground_truth.jl` checks both the trap (→ 0) and the surviving
+reverse flux (≠ 0) against the ground truth directly.
 """
 function test_zero_metabolite_finite(spec::MechanismTestSpec)
     m = spec.mechanism
@@ -1029,13 +1037,30 @@ function test_zero_metabolite_finite(spec::MechanismTestSpec)
         mets = collect(metabolites(m))
         sub_prod = Set{Symbol}(EnzymeRates.substrates(m))
         union!(sub_prod, EnzymeRates.products(m))
+        # Metabolites whose absence traps all enzyme in a dead inactive
+        # conformation: for an MWC mechanism with no inactive-state flux, a
+        # metabolite that divides the inactive free-enzyme weight D[g_free] (it
+        # appears in every monomial, so D_I → 0 when it is zeroed) sends the
+        # inactive partition to infinity. Zeroing one legitimately zeroes the
+        # rate, so it is exempt from the nonzero assertion below.
+        trap_mets = Set{Symbol}()
+        if m isa EnzymeRates.AllostericEnzymeMechanism
+            am = EnzymeRates.AllostericMechanism(m)
+            if EnzymeRates._i_state_num_zero(am)
+                _, _, d_free_I = EnzymeRates._state_rate_polys(am, :I)
+                for s in Set(mets)
+                    all(any(sym === s for (sym, _) in mono) for mono in keys(d_free_I)) &&
+                        push!(trap_mets, s)
+                end
+            end
+        end
         params = random_reduced_params(m; rng)
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 0.5 + rand(rng) for n in mets)
             concs = NamedTuple{Tuple(mets)}(cvals)
             v = rate_equation(m, concs, params)
             @test isfinite(v)
-            zeroed in sub_prod && @test v != 0.0
+            zeroed in sub_prod && !(zeroed in trap_mets) && @test v != 0.0
         end
     end
 end
