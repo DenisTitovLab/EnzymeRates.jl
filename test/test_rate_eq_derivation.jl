@@ -2216,3 +2216,19 @@ end
         @test kc ≈ vmax rtol = 1e-3
     end
 end
+
+@testset "D[g_free] surfaced per allosteric state" begin
+    onlyA = @allosteric_mechanism begin
+        substrates: S ; products: P ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + S ⇌ E(S)     :: OnlyA
+            E(S) <--> E(P)   :: EqualAI
+            E + P ⇌ E(P)     :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(onlyA)
+    _, _, dA = EnzymeRates._state_rate_polys(am, :A)
+    _, _, dI = EnzymeRates._state_rate_polys(am, :I)
+    @test dA == EnzymeRates.poly_one()                       # single active segment
+    @test dI == EnzymeRates.POLY(EnzymeRates._mono(:k_ES_to_EP => 1) => 1)
+end

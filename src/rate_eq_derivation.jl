@@ -327,6 +327,10 @@ walking the lifted `Mechanism`. Parameter Symbols on the leaves of
 `num`/`den` are produced via the `name(p, mech)` chokepoint (which
 collapses kinetic-group members to their rep's name). `rename_map` then
 applies any single-symbol Wegscheider ties as a post-pass.
+
+Also returns `d_free`, the spanning-tree weight `D[g_free]` of the segment
+holding the free resting enzyme (the form with empty `bound` and empty
+`residual`) — `1` when that segment is the mechanism's only segment.
 """
 function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
                                   subs_species, prods_species;
@@ -367,6 +371,10 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
         isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
+    i_free = findfirst(f -> isempty(bound(f)) && isempty(residual(f)), enz_species)
+    @assert i_free !== nothing "no free-enzyme form (empty bound, empty residual)"
+    d_free = _rename_symbols(D[form_to_group[i_free]], rename_map)
+
     den = poly_zero()
     for g in 1:G
         sigma = reduce(poly_add, (alpha[i] for i in groups[g]); init=poly_zero())
@@ -383,7 +391,7 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
     den = _rename_symbols(den, rename_map)
     conc_set = _concentration_symbols(mech)
     num, den = _reduce_conc_lowest_terms(num, den, conc_set)
-    num, den
+    num, den, d_free
 end
 
 function _raw_symbolic_rate_polys(M::Type{<:EnzymeMechanism})
@@ -618,7 +626,7 @@ Compute the raw rate expression (bare symbols) and sorted parameter/concentratio
 Returns `(expr, all_params, sorted_concs)`.
 """
 function _raw_rate_expr_and_symbols(M::Type{<:EnzymeMechanism})
-    num, den = _raw_symbolic_rate_polys(M)
+    num, den, _ = _raw_symbolic_rate_polys(M)
     m = M()
     param_syms = Set{Symbol}(_raw_param_symbols(m))
     conc_syms = Set{Symbol}(metabolites(m))
@@ -734,7 +742,7 @@ rate_equation_string(m::Union{Mechanism, AllostericMechanism}) =
 
 """Build the `v = E_total * (num) / (den)` line from the raw symbolic rate polys."""
 function _rate_v_line(M::Type{<:EnzymeMechanism})
-    num, den = _raw_symbolic_rate_polys(M)
+    num, den, _ = _raw_symbolic_rate_polys(M)
     m = M()
     ps = Set{Symbol}(_raw_param_symbols(m))
     cs = Set{Symbol}(metabolites(m))
@@ -881,7 +889,7 @@ Multiple candidates arise for mechanisms with alternative catalytic pathways
 @generated function _kcat_forward(
     ::M, params::NamedTuple,
 ) where {M <: EnzymeMechanism}
-    num, den = _raw_symbolic_rate_polys(M)
+    num, den, _ = _raw_symbolic_rate_polys(M)
     k_param_names = Set{Symbol}(_raw_param_symbols(M()))
     num_groups, den_groups = _kcat_groups_from_polys(num, den, k_param_names)
 
@@ -939,8 +947,8 @@ so this carries no `catalytic_multiplicity` factor.
     # a pattern that only exists via an `:OnlyA` step drops out of I-state, and a
     # dead I-cycle yields `num_I = poly_zero()` (empty groups), so its saturating
     # contribution vanishes.
-    num_A_poly, den_A_poly = _state_rate_polys(am, :A)
-    num_I_poly, den_I_poly = _state_rate_polys(am, :I)
+    num_A_poly, den_A_poly, _ = _state_rate_polys(am, :A)
+    num_I_poly, den_I_poly, _ = _state_rate_polys(am, :I)
     cat_mets = Set{Symbol}(metabolites(CM()))
     # Catalytic param-name sets for the metabolite/k split. The A-set is the
     # A-state tagged column set; the I-set adds the I-polynomials' own params
@@ -1237,13 +1245,15 @@ function _state_mechanism(am::AllostericMechanism, state::Symbol)
 end
 
 """
-Derive `(num_poly, den_poly)` for `am`'s catalytic mechanism in conformational
-`state`, natively in that state's parameter names. Runs the shared King–Altman
-engine on the state-tagged `step_params` and state graph, so no post-hoc rename
-is needed (`:EqualAI` groups render the shared bare Symbol automatically). The
-`:I` polynomials reference each `:NonequalAI` group's native `K_I_…`/`k_I_…`
-symbol; a forbidden split's `K_I_…` is defined by the combined constraint
-solve's dependent assignment (`_build_dep_assignments`).
+Derive `(num_poly, den_poly, d_free_poly)` for `am`'s catalytic mechanism in
+conformational `state`, natively in that state's parameter names. Runs the
+shared King–Altman engine on the state-tagged `step_params` and state graph, so
+no post-hoc rename is needed (`:EqualAI` groups render the shared bare Symbol
+automatically). The `:I` polynomials reference each `:NonequalAI` group's
+native `K_I_…`/`k_I_…` symbol; a forbidden split's `K_I_…` is defined by the
+combined constraint solve's dependent assignment (`_build_dep_assignments`).
+`d_free_poly` is that state's free-enzyme segment weight (see
+`_raw_symbolic_rate_polys`).
 """
 function _state_rate_polys(am::AllostericMechanism, state::Symbol)
     cm = _state_mechanism(am, state)
@@ -1464,7 +1474,7 @@ function _dependent_param_exprs(
     if !isempty(rename)
         refs = Set{Symbol}()
         for st in (:A, :I)
-            num, den = _state_rate_polys(am, st)
+            num, den, _ = _state_rate_polys(am, st)
             union!(refs, _poly_param_syms(den))
             isempty(num) || union!(refs, _poly_param_syms(num))
         end
@@ -1599,7 +1609,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     CatN = catalytic_multiplicity(m)
     RS = regulatory_sites(am)
 
-    num_A_poly, den_A_poly = _state_rate_polys(am, :A)
+    num_A_poly, den_A_poly, _ = _state_rate_polys(am, :A)
     # A-state catalytic param symbols (the tagged column set) drive `_poly_to_expr`'s
     # param/metabolite ordering split; the I-poly's `:I` symbols sort as non-params.
     cat_params = Set(_state_all_params(_state_mechanism(am, :A),
@@ -1615,7 +1625,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     # same binding partition monomial-zeroing produced, and for a dead cycle the
     # pruned graph has no SS cut so `_compute_numerator(allow_dead=true)` returns
     # 0 natively — no forced zero needed.
-    num_i_poly, den_i_poly = _state_rate_polys(am, :I)
+    num_i_poly, den_i_poly, _ = _state_rate_polys(am, :I)
     N_I = _poly_to_expr(num_i_poly, cat_params, cat_mets)
     Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)
 
