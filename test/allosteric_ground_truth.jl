@@ -187,11 +187,7 @@ end
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, KA, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm))
         v_gt = uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
-        # KNOWN BUG (pre-existing :OnlyA L-term leak). The cross-weighting fix was
-        # reverted — it regressed LDH + broke enumeration; see
-        # docs/superpowers/specs/2026-07-13-allosteric-mwc-derivation-known-issues.md.
-        # This is the gate the eventual correct fix must flip back to @test.
-        @test_broken isapprox(v_code, v_gt; rtol=1e-4)
+        @test isapprox(v_code, v_gt; rtol=1e-4)
     end
 end
 
@@ -223,8 +219,7 @@ end
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KA, KP, KB, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm))
         v_gt = multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
-        # KNOWN BUG (see known-issues spec) — cross-weighting fix reverted.
-        @test_broken isapprox(v_code, v_gt; rtol=1e-4)
+        @test isapprox(v_code, v_gt; rtol=1e-4)
     end
 end
 
@@ -346,26 +341,24 @@ end
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
         v_code = real(ER.rate_equation(metabD, (S=S, B=B, P=P), prm))
         v_gt = metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
-        # KNOWN BUG (LDH regime; see known-issues spec) — cross-weighting fix reverted.
-        @test_broken isapprox(v_code, v_gt; rtol=1e-4)
+        @test isapprox(v_code, v_gt; rtol=1e-4)
     end
 end
 
-# ── Ordered bi-uni :NonequalAI-catalysis network (the guard's counter-example) ─
+# ── Ordered bi-uni :NonequalAI-catalysis network (the per-form-flip reference) ─
 # A + B ⇌ P. A binds :EqualAI via a STEADY-STATE step (E + A <--> E(A), kon·A /
 # koff); B binds :EqualAI at rapid equilibrium on E(A); catalysis E(A,B) <--> E(P)
 # is STEADY-STATE :NonequalAI (rate k_A in the active conformation, k_I in the
 # inactive); P binds :EqualAI at rapid equilibrium. Every ligand is :EqualAI
-# (K_I = K_A), so every form flips with ratio [X_I]/[X_A] = L.
+# (K_I = K_A), so every form — including the catalytic intermediates — flips with
+# ratio [X_I]/[X_A] = L.
 #
-# This is the case the `_free_enz_fragments` guard must REFUSE to cross-weight.
-# The two conformations share ONE graph topology — only the catalytic rate
-# constant differs (k_A vs k_I) — so the free-enzyme spanning-tree weights have
-# identical rate-const skeletons: D_A = koff + k_A·B/K_B and D_I = koff + k_I·B/K_B.
-# Both are metabolite-bearing and D_A ≠ D_I as polynomials, but their skeletons
-# match, so the un-weighted Q_A + L·Q_I combination already produces the correct
-# k_A + L·k_I coupling. Cross-weighting here would double-count the free-enzyme
-# weight and corrupt the rate. Reverse catalysis kr from the Haldane relation.
+# This is the PER-FORM-FLIP model (the enzyme may change conformation mid-cycle),
+# retained here only to self-validate the harness. It is NOT the model the package
+# derives: `biuni_nonequalAI_freeflip_flux` (only the free enzyme flips) is the
+# formulation-1 reference the derivation gate checks. The two differ by ~0.1–3%
+# whenever k_A ≠ k_I, because per-form flipping routes turnover through the faster
+# conformation. Reverse catalysis kr from the Haldane relation.
 function biuni_nonequalAI_flux(kon, koff, KB, KP; k_A, k_I, L, Keq, A, B, P, FAST=1e7)
     krA = k_A * kon * KP / (koff * KB * Keq)
     krI = k_I * kon * KP / (koff * KB * Keq)
@@ -442,14 +435,67 @@ end
     end
 end
 
+# ── Free-flip-only ordered bi-uni :NonequalAI-catalysis reference ────────────
+# Formulation-1 reference: only the free enzyme flips conformation. Each
+# conformation runs its own catalytic cycle, coupled only through the shared
+# free-enzyme pool. Same forms/edges as `biuni_nonequalAI_flux` but with only
+# the E_A<->E_I flip — the model this package derives (commit-when-free).
+function biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP; k_A, k_I, L, Keq, A, B, P, FAST=1e7)
+    krA = k_A * kon * KP / (koff * KB * Keq); krI = k_I * kon * KP / (koff * KB * Keq)
+    species = [:E_A, :EA_A, :EAB_A, :EP_A, :E_I, :EA_I, :EAB_I, :EP_I]
+    edges = [
+        (:E_A, :EA_A, kon*A), (:EA_A, :E_A, koff), (:E_I, :EA_I, kon*A), (:EA_I, :E_I, koff),
+        (:EA_A, :EAB_A, FAST*B/KB), (:EAB_A, :EA_A, FAST),
+        (:EA_I, :EAB_I, FAST*B/KB), (:EAB_I, :EA_I, FAST),
+        (:E_A, :EP_A, FAST*P/KP), (:EP_A, :E_A, FAST),
+        (:E_I, :EP_I, FAST*P/KP), (:EP_I, :E_I, FAST),
+        (:E_A, :E_I, FAST*L), (:E_I, :E_A, FAST),                  # only free enzyme flips
+        (:EAB_A, :EP_A, k_A), (:EP_A, :EAB_A, krA),
+        (:EAB_I, :EP_I, k_I), (:EP_I, :EAB_I, krI),
+    ]
+    cat_edges = [(:EAB_A, :EP_A, k_A, krA), (:EAB_I, :EP_I, k_I, krI)]
+    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+end
+
+# ── Free-flip-only :NonequalAI-catalysis harness self-validation ────────────
+# Same physics checks as the topology-sharing harness above, applied to the
+# free-flip-only reference: (a) L = 0 (inactive unpopulated) → the base rate at
+# k = k_A; (b) k_I = k_A (conformations identical) → the base rate, independent
+# of L.
+@testset ":NonequalAI-catalysis free-flip-only ground-truth harness self-validation" begin
+    rng = MersenneTwister(20260713)
+    for _ in 1:5
+        kon = 0.5 + 2rand(rng); koff = 0.5 + 2rand(rng)
+        KB = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng)
+        kA = 0.5 + 2rand(rng); kI = 0.5 + 2rand(rng); Keq = 2.0 + 2rand(rng)
+        A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
+        L = 0.5 + rand(rng)
+
+        base_rate = metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
+
+        # (a) L = 0 : inactive conformation unpopulated → base rate at k_A.
+        f0 = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
+            k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P)
+        @test isapprox(f0, base_rate; rtol=1e-4)
+
+        # (b) k_I = k_A : conformations identical → base rate, independent of L.
+        fe = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
+            k_A=kA, k_I=kA, L=L, Keq=Keq, A=A, B=B, P=P)
+        fe5 = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
+            k_A=kA, k_I=kA, L=5.0, Keq=Keq, A=A, B=B, P=P)
+        @test isapprox(fe, base_rate; rtol=1e-4)
+        @test isapprox(fe, fe5; rtol=1e-4)
+    end
+end
+
 # ── The gate: :NonequalAI-catalysis derivation matches mass-action GT ─────────
-# The counter-example that keeps the `_free_enz_fragments` guard honest. Catalysis
-# is :NonequalAI (k_A ≠ k_I) but the graph topology is shared, so D_A and D_I have
-# identical rate-const skeletons and must NOT be cross-weighted. The un-weighted
-# Q_A + L·Q_I combination already gives the correct k_A + L·k_I coupling; if the
-# guard were removed and cross-weighting fired here, the free-enzyme weight would
-# be double-counted and this gate would go red. This is the regression guard for
-# the guard: it FAILS if someone removes `_free_enz_fragments`.
+# The productive-inactive case. Catalysis is :NonequalAI (k_A ≠ k_I) with shared
+# graph topology, so D_A and D_I differ only by the catalytic rate constant. Under
+# formulation 1 (the enzyme commits to one conformation per catalytic cycle) the
+# two conformations normalize per-state, so the derivation cross-weights them and
+# this gate checks against the free-flip-only reference `biuni_nonequalAI_freeflip_flux`.
+# The gate goes red if the derivation reverts to the raw Q_A + L·Q_I combine (which
+# matches a per-form-flip model, not formulation 1) or mis-renders the normalization.
 @testset ":NonequalAI-catalysis MWC derivation matches mass-action ground truth" begin
     allo = @allosteric_mechanism begin
         substrates: A, B ; products: P ; catalytic_multiplicity: 1
@@ -478,7 +524,7 @@ end
                  :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
         prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
         v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
-        v_gt = biuni_nonequalAI_flux(kon, koff, KB, KP;
+        v_gt = biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
             k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
     end

@@ -1634,23 +1634,43 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
     CatN = catalytic_multiplicity(m)
     RS = regulatory_sites(am)
 
-    num_A_poly, den_A_poly, _ = _state_rate_polys(am, :A)
+    num_A_poly, den_A_poly, d_free_A = _state_rate_polys(am, :A)
     # A-state catalytic param symbols (the tagged column set) drive `_poly_to_expr`'s
     # param/metabolite ordering split; the I-poly's `:I` symbols sort as non-params.
     cat_params = Set(_state_all_params(_state_mechanism(am, :A),
                                        _state_step_params(am, :A)))
     cat_mets = Set{Symbol}(metabolites(CM()))
 
-    N_A = _poly_to_expr(num_A_poly, cat_params, cat_mets)
-    Q_A = _poly_to_expr(den_A_poly, cat_params, cat_mets)
-
-    # I-state catalytic Exprs, always re-derived natively on the reachable-form
+    # I-state catalytic polys, always re-derived natively on the reachable-form
     # subgraph (`_state_allo_mechanism(am, :I)` drops `:OnlyA` groups and every
     # form they disconnect from free E). Reachable-subgraph King–Altman gives the
     # same binding partition monomial-zeroing produced, and for a dead cycle the
     # pruned graph has no SS cut so `_compute_numerator(allow_dead=true)` returns
     # 0 natively — no forced zero needed.
-    num_i_poly, den_i_poly, _ = _state_rate_polys(am, :I)
+    num_i_poly, den_i_poly, d_free_I = _state_rate_polys(am, :I)
+
+    # Formulation-1 per-state free-enzyme normalization. Render the same value
+    # three ways by how D[g_free] combines:
+    #   D_A == D_I               → raw (identical conformations; the factor cancels)
+    #   both metabolite-free monomials → divide Q/D (clean standard-MWC form)
+    #   otherwise                → cross-weight by the other state's D^n (polynomial)
+    D_A_expr = 1
+    D_I_expr = 1
+    if d_free_A == d_free_I
+        # raw combine — leave the polynomials and D exprs as identities
+    elseif _is_metabolite_free_monomial(d_free_A, cat_mets) &&
+           _is_metabolite_free_monomial(d_free_I, cat_mets)
+        inv_A = _invert_monomial(d_free_A)
+        inv_I = _invert_monomial(d_free_I)
+        num_A_poly = poly_mul(num_A_poly, inv_A); den_A_poly = poly_mul(den_A_poly, inv_A)
+        num_i_poly = poly_mul(num_i_poly, inv_I); den_i_poly = poly_mul(den_i_poly, inv_I)
+    else
+        D_A_expr = _poly_to_expr(d_free_A, cat_params, cat_mets)
+        D_I_expr = _poly_to_expr(d_free_I, cat_params, cat_mets)
+    end
+
+    N_A = _poly_to_expr(num_A_poly, cat_params, cat_mets)
+    Q_A = _poly_to_expr(den_A_poly, cat_params, cat_mets)
     N_I = _poly_to_expr(num_i_poly, cat_params, cat_mets)
     Q_I = _poly_to_expr(den_i_poly, cat_params, cat_mets)
 
@@ -1676,9 +1696,9 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         _nest_binary(:*, factors)
     end
 
-    num_A = make_num_term(N_A, Q_A, reg_Q_A)
-    den_A = make_den_term(Q_A, reg_Q_A)
-    den_I = make_den_term(Q_I, reg_Q_I)
+    num_A = _mwc_cross_weight(make_num_term(N_A, Q_A, reg_Q_A), D_I_expr, CatN)
+    den_A = _mwc_cross_weight(make_den_term(Q_A, reg_Q_A), D_I_expr, CatN)
+    den_I = _mwc_cross_weight(make_den_term(Q_I, reg_Q_I), D_A_expr, CatN)
     full_den = _mwc_combine(den_A, den_I)
 
     if isempty(num_i_poly)
@@ -1687,7 +1707,7 @@ function _allosteric_num_den_exprs(M_type::Type{<:AllostericEnzymeMechanism})
         # branch). Q_I still contributes to denominator as enzyme mass.
         num_A, full_den
     else
-        num_I = make_num_term(N_I, Q_I, reg_Q_I)
+        num_I = _mwc_cross_weight(make_num_term(N_I, Q_I, reg_Q_I), D_A_expr, CatN)
         _mwc_combine(num_A, num_I), full_den
     end
 end
