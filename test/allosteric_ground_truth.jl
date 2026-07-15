@@ -631,3 +631,53 @@ end
         end
     end
 end
+
+# ── Fully-inert inactive network (both substrate and product bind :OnlyA) ─────
+# S and P both bind :OnlyA, so the inactive conformation binds nothing — it is a
+# free-enzyme reservoir of mass L, coupled to the active cycle only by the E flip.
+# Its partition is 1, so the denominator must carry L·1 (not 0). Fast RE bindings
+# and the flip use FAST; catalysis is O(1). Reverse catalysis from the Haldane
+# relation. At L = 0 the reservoir is unpopulated → the non-allosteric rate.
+function inert_inactive_flux(; KS, KP, k, L, Keq, S, P, FAST=1e7)
+    kr = k * KP / (Keq * KS)
+    species = [:E_A, :ES_A, :EP_A, :E_I]
+    edges = [
+        (:E_A, :ES_A, FAST * S / KS), (:ES_A, :E_A, FAST),   # active S binding (RE)
+        (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),   # active P binding (RE)
+        (:ES_A, :EP_A, k), (:EP_A, :ES_A, kr),              # active catalysis (SS)
+        (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),          # free-enzyme flip, ratio L
+    ]                                                         # E_I inert: no other edges
+    mwc_ground_truth_flux(species, edges, [(:ES_A, :EP_A, k, kr)], 1.0)
+end
+
+# ── The gate: a fully-inert inactive contributes L to the denominator ─────────
+# `den = Q_A^cat_n + L·1^cat_n`, not `Q_A^cat_n + L·0`. The inactive-state graph
+# is step-less (every binding pruned), and the derivation returns `Q_I = 1` for it.
+@testset "fully-inert inactive contributes L to the denominator" begin
+    inert = @allosteric_mechanism begin
+        substrates: S ; products: P ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + S ⇌ E(S)   :: OnlyA
+            E(S) <--> E(P) :: EqualAI
+            E + P ⇌ E(P)   :: OnlyA
+        end
+    end
+    fp = ER.fitted_params(inert)      # (:K_A_P_E, :K_A_S_E, :k_ES_to_EP, :L)
+    @test fp == (:K_A_P_E, :K_A_S_E, :k_ES_to_EP, :L)
+
+    rng = MersenneTwister(20260714)
+    for _ in 1:5
+        KS = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng)
+        L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
+        S = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
+        # Map fitted_params -> ground-truth params: K_A_S_E=KS, K_A_P_E=KP, k_ES_to_EP=k.
+        prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, KS, k, L, Keq, 1.0))
+        v_code = real(ER.rate_equation(inert, (S=S, P=P), prm))
+        @test isapprox(v_code,
+            inert_inactive_flux(; KS=KS, KP=KP, k=k, L=L, Keq=Keq, S=S, P=P); rtol=1e-4)
+        # self-validation: L = 0 → reservoir unpopulated → non-allosteric active rate.
+        nonallo = (k * S / KS - (k * KP / (Keq * KS)) * P / KP) / (1 + S / KS + P / KP)
+        @test isapprox(inert_inactive_flux(; KS=KS, KP=KP, k=k, L=0.0, Keq=Keq, S=S, P=P),
+                       nonallo; rtol=1e-4)
+    end
+end
