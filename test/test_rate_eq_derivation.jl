@@ -2232,3 +2232,18 @@ end
     @test dA == EnzymeRates.poly_one()                       # single active segment
     @test dI == EnzymeRates.POLY(EnzymeRates._mono(:k_ES_to_EP => 1) => 1)
 end
+
+@testset "rendering helpers" begin
+    ER = EnzymeRates
+    k = ER.POLY(ER._mono(:k_ES_to_EP => 1) => 1)
+    @test ER._invert_monomial(k) == ER.POLY(ER._mono(:k_ES_to_EP => -1) => 1)
+    @test ER._invert_monomial(ER.poly_one()) == ER.poly_one()
+    @test ER._is_metabolite_free_monomial(k, Set([:S, :P]))
+    kb = ER.poly_mul(k, ER.POLY(ER._mono(:B => 1) => 1))          # k * B (has metabolite)
+    @test !ER._is_metabolite_free_monomial(kb, Set([:B]))
+    twoterm = ER.poly_add(k, ER.poly_one())                       # k + 1 (not a monomial)
+    @test !ER._is_metabolite_free_monomial(twoterm, Set([:S]))
+    @test_throws ErrorException ER._invert_monomial(twoterm)      # non-monomial errors
+    @test ER._mwc_cross_weight(:foo, 1, 2) == :foo               # no-op when D==1
+    @test ER._mwc_cross_weight(:foo, :D, 1) == :(D * foo)
+end

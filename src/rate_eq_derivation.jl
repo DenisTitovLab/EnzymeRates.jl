@@ -1545,6 +1545,31 @@ the numerator carries one fewer denominator power than the denominator, where
 _mwc_power_pair(x, y, n) =
     (n == 1 ? x : :($x * $y^$(n - 1)), :($y^$n))
 
+"""Cross-weight an MWC state term by the OTHER conformation's free-enzyme weight
+`D_other^n` (`n = catalytic_multiplicity`). Restores a common free-enzyme basis
+when the two conformations' `D[g_free]` differ and cannot be divided out (a
+metabolite-bearing or multi-term `D`). A no-op when `d_other_expr == 1`."""
+_mwc_cross_weight(term, d_other_expr, n) =
+    d_other_expr == 1 ? term : :($(_power_expr(d_other_expr, n)) * $term)
+
+"""Inverse of a single-term (monomial) `POLY`: negate every exponent and invert
+the coefficient. Errors unless `p` is exactly one term."""
+function _invert_monomial(p::POLY)
+    length(p) == 1 || error("_invert_monomial: not a monomial: $p")
+    mono, coef = first(p)
+    POLY(_mono((s => -e for (s, e) in mono)...) => inv(coef))
+end
+
+"""True when `p` is a single term whose monomial names no symbol in `mets`.
+A metabolite-free monomial `D[g_free]` can be divided out of a `POLY` as a
+Laurent factor; a metabolite-bearing or multi-term `D` cannot (division would
+put a concentration or a rational in a denominator), so it is cross-weighted."""
+function _is_metabolite_free_monomial(p::POLY, mets::Set{Symbol})
+    length(p) == 1 || return false
+    mono, _ = first(p)
+    !any(s in mets for (s, _) in mono)
+end
+
 """
 The set of Symbols that belong to the I-block when `_build_dep_assignments`
 splits the combined solve's dependents for emission: catalytic columns that
