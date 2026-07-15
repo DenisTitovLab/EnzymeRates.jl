@@ -336,6 +336,9 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
                                   subs_species, prods_species;
                                   allow_dead::Bool=false)
     enz_species, groups, form_to_group = _compute_re_groups(mech)
+    # A fully-inert conformation (every binding pruned) has no enumerated form; it
+    # exists only as free enzyme — no flux, partition 1, D[g_free] 1.
+    isempty(enz_species) && return poly_zero(), poly_one(), poly_one()
     enz_name_to_form = Dict{Symbol, Int}(
         name(es) => i for (i, es) in enumerate(enz_species))
     flat = _flat_steps(mech)
