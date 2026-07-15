@@ -486,6 +486,17 @@ end
         @test isapprox(fe, base_rate; rtol=1e-4)
         @test isapprox(fe, fe5; rtol=1e-4)
     end
+
+    # (c) k_I ≠ k_A, L > 0 : the free-flip (formulation-1) reference must DIFFER
+    #     from the per-form-flip one. That ~0.1–3% gap is the whole point of the
+    #     fix, and it guards the :NonequalAI derivation gate against being pointed
+    #     back at the per-form-flip reference (which the raw Q_A + L·Q_I combine
+    #     matches). Fixed, clearly-unequal rate constants keep the gap unambiguous.
+    v_free = biuni_nonequalAI_freeflip_flux(1.7, 1.1, 0.8, 0.9;
+        k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
+    v_perform = biuni_nonequalAI_flux(1.7, 1.1, 0.8, 0.9;
+        k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
+    @test !isapprox(v_free, v_perform; rtol=1e-4)
 end
 
 # ── The gate: :NonequalAI-catalysis derivation matches mass-action GT ─────────

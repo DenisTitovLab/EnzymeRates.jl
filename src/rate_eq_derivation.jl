@@ -956,10 +956,10 @@ so this carries no `catalytic_multiplicity` factor.
 
     # Same per-state free-enzyme normalization as `_allosteric_num_den_exprs`,
     # applied at the POLY level (this function groups saturating metabolite
-    # patterns directly off `num`/`den` polys, not Exprs). kcat is a
-    # saturating-limit ratio, so raw/divide/cross-weight give the same numeric
-    # value; matching the same branch keeps the saturating-pattern grouping
-    # below consistent with `rate_equation`'s choice.
+    # patterns directly off `num`/`den` polys, not Exprs). The normalization is
+    # a common factor of the saturating-limit ratio, so it leaves kcat's value
+    # unchanged; matching the same branch as `rate_equation` keeps the
+    # saturating-pattern grouping below consistent with it.
     if d_free_A == d_free_I
         # raw — D[g_free] is common to both states and cancels; leave the polys
         # as captured
