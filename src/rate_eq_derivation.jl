@@ -371,9 +371,12 @@ function _raw_symbolic_rate_polys(mech::Mechanism, step_params, rename_map,
         isempty(idx) ? poly_one() : sym_det(L[idx, idx], G - 1)
     end for root in 1:G]
 
+    # A fully-inert conformation (every binding pruned, e.g. all-`:OnlyA` in the
+    # inactive state) has no reactions and so no enumerated form; its free enzyme
+    # spans the whole (empty) graph, so `D[g_free] = 1`.
     i_free = findfirst(f -> isempty(bound(f)) && isempty(residual(f)), enz_species)
-    @assert i_free !== nothing "no free-enzyme form (empty bound, empty residual)"
-    d_free = _rename_symbols(D[form_to_group[i_free]], rename_map)
+    d_free = i_free === nothing ? poly_one() :
+             _rename_symbols(D[form_to_group[i_free]], rename_map)
 
     den = poly_zero()
     for g in 1:G
