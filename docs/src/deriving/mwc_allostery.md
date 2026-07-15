@@ -85,33 +85,56 @@ the example both are `2` — a homodimer with two copies of each regulatory site
 
 The MWC rate equation is assembled from two ordinary single-conformation rate
 equations — one for the active state, one for the inactive state — combined by a
-partition function. The derivation rests on the MWC assumption that **both the
-binding of allosteric regulators and the transitions between the A and I states
-are rapid-equilibrium**: each conformation equilibrates quickly relative to
-catalysis, so the overall rate is a population-weighted average of the two
-conformations' catalytic rates. Treating regulator binding as steady state
-instead would not help — a regulator is not consumed, so a non-RE binding step
-contributes only the ratio of its on- and off-rate constants, which is exactly
-the equilibrium constant the RE treatment already uses, and the two rates would
-not be separately identifiable from rate data.
+partition function. The derivation rests on two rapid-equilibrium assumptions.
+Allosteric regulators bind fast relative to catalysis. And **the enzyme changes
+conformation only while free**: it settles into the active or inactive state
+before it binds anything — the free-enzyme inactive-to-active ratio is `L` — and
+keeps that conformation for a full catalytic cycle. The overall rate is then each
+conformation's catalytic cycle weighted by its free-enzyme population.
 
-For a mechanism with catalytic multiplicity `cat_n`, the package builds
+An equivalent statement lets every form interconvert between the A and I states,
+but with a thermodynamically fixed ratio: `L` for the free enzyme, and `L` scaled
+by the form's active-to-inactive binding-constant ratio for a bound form (so `L`
+itself for an `:EqualAI` ligand). The two statements agree except when catalysis
+differs between the conformations (`:NonequalAI`); there, committing to one
+conformation per cycle — the model here — routes each molecule's turnover through
+a single conformation rather than blending the two, a difference of a few percent.
+
+Treating regulator binding as steady state instead would not help — a regulator
+is not consumed, so a non-RE binding step contributes only the ratio of its on-
+and off-rate constants, which is exactly the equilibrium constant the RE
+treatment already uses, and the two rates would not be separately identifiable
+from rate data.
+
+For a mechanism with catalytic multiplicity `cat_n`, the package normalizes each
+conformation to its own free-enzyme population and combines the two:
 
 ```
 v = E_total * num / den
-num = N_A * Q_A^(cat_n-1) * W_A + L * N_I * Q_I^(cat_n-1) * W_I
-den = Q_A^cat_n * W_A           + L * Q_I^cat_n           * W_I
+num = (N_A/D_A) * (Q_A/D_A)^(cat_n-1) * W_A + L * (N_I/D_I) * (Q_I/D_I)^(cat_n-1) * W_I
+den = (Q_A/D_A)^cat_n * W_A                 + L * (Q_I/D_I)^cat_n                 * W_I
 ```
 
-where `N_A`, `Q_A` are the active-state catalytic numerator and partition function
-(the King–Altman/Cha polynomials for the catalytic cycle); `N_I`, `Q_I` are the
+`N_A`, `Q_A` are the active state's catalytic numerator and partition function
+(the King–Altman/Cha polynomials for the catalytic cycle), and `D_A` is the
+spanning-tree weight of its free-enzyme segment. `N_I`, `Q_I`, `D_I` are the
 inactive-state counterparts, derived the same way from the inactive-state graph —
 `:OnlyA` groups pruned, `:EqualAI` groups keeping the shared active-state
-constants, and `:NonequalAI` groups carrying their own I-state names; `W_A`, `W_I`
-are products of the regulatory-site factors `(1 + lig/K)^m`; and `L` weights the
-inactive branch throughout. When a catalytic group is `:OnlyA`, the inactive cycle cannot close,
-so the package sets `N_I = 0`: the inactive branch still contributes to the
-denominator as enzyme mass but carries no forward flux.
+constants, and `:NonequalAI` groups carrying their own I-state names. `W_A`,
+`W_I` are products of the regulatory-site factors `(1 + lig/K)^m`, and `L`
+weights the inactive branch throughout.
+
+The free-enzyme weight `D` is `1` whenever the catalytic graph is a single
+rapid-equilibrium segment — the common case, where `Q/D = Q` and the equation is
+the textbook MWC form. `D` differs from `1` only when an `:OnlyA`/`:OnlyI`
+binding fragments the graph or a steady-state binding splits it into segments;
+the normalization then keeps the two conformations on a common free-enzyme basis,
+which is what stops a bare rate constant from leaking into the `L`-term. The
+package divides `Q/D` directly when `D` is a single rate constant — giving the
+readable `1 + [S]/K + …` form — and clears the fraction to a polynomial when `D`
+carries a metabolite. When a catalytic group is `:OnlyA`, the inactive cycle
+cannot close, so the package sets `N_I = 0`: the inactive branch still
+contributes to the denominator as enzyme mass but carries no forward flux.
 
 In the printed equation above `cat_n = 2`, so each partition function is squared:
 the active branch carries `(1 + A / K_A_Areg) ^ 2` and a trivial `1 ^ 2` from the
