@@ -947,15 +947,41 @@ so this carries no `catalytic_multiplicity` factor.
     # a pattern that only exists via an `:OnlyA` step drops out of I-state, and a
     # dead I-cycle yields `num_I = poly_zero()` (empty groups), so its saturating
     # contribution vanishes.
-    num_A_poly, den_A_poly, _ = _state_rate_polys(am, :A)
-    num_I_poly, den_I_poly, _ = _state_rate_polys(am, :I)
+    num_A_poly, den_A_poly, d_free_A = _state_rate_polys(am, :A)
+    num_I_poly, den_I_poly, d_free_I = _state_rate_polys(am, :I)
     cat_mets = Set{Symbol}(metabolites(CM()))
+
+    # Same per-state free-enzyme normalization as `_allosteric_num_den_exprs`,
+    # applied at the POLY level (this function groups saturating metabolite
+    # patterns directly off `num`/`den` polys, not Exprs). kcat is a
+    # saturating-limit ratio, so raw/divide/cross-weight give the same numeric
+    # value; matching the same branch keeps the saturating-pattern grouping
+    # below consistent with `rate_equation`'s choice.
+    if d_free_A == d_free_I
+        # raw — D[g_free] is common to both states and cancels; leave the polys
+        # as captured
+    elseif _is_metabolite_free_monomial(d_free_A, cat_mets) &&
+           _is_metabolite_free_monomial(d_free_I, cat_mets)
+        inv_A = _invert_monomial(d_free_A); inv_I = _invert_monomial(d_free_I)
+        num_A_poly = poly_mul(num_A_poly, inv_A); den_A_poly = poly_mul(den_A_poly, inv_A)
+        num_I_poly = poly_mul(num_I_poly, inv_I); den_I_poly = poly_mul(den_I_poly, inv_I)
+    else
+        num_A_poly = poly_mul(num_A_poly, d_free_I)
+        den_A_poly = poly_mul(den_A_poly, d_free_I)
+        num_I_poly = poly_mul(num_I_poly, d_free_A)
+        den_I_poly = poly_mul(den_I_poly, d_free_A)
+    end
+
     # Catalytic param-name sets for the metabolite/k split. The A-set is the
-    # A-state tagged column set; the I-set adds the I-polynomials' own params
+    # A-state tagged column set plus any non-metabolite symbol the fold above
+    # introduced into the A-polys (e.g. an I-state param pulled in by
+    # cross-weighting); the I-set adds the I-polynomials' own params
     # (`:I` mirrors plus the native `:NonequalAI` I-names), which are exactly the
     # non-metabolite symbols the I-polys reference.
-    a_param_names = Set(_state_all_params(_state_mechanism(am, :A),
-                                          _state_step_params(am, :A)))
+    a_param_names = union(
+        Set(_state_all_params(_state_mechanism(am, :A), _state_step_params(am, :A))),
+        setdiff(union(_poly_param_syms(num_A_poly), _poly_param_syms(den_A_poly)),
+                cat_mets))
     i_param_names = union(a_param_names,
         setdiff(union(_poly_param_syms(num_I_poly), _poly_param_syms(den_I_poly)),
                 cat_mets))

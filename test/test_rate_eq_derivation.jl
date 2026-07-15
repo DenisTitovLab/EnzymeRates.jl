@@ -2247,3 +2247,17 @@ end
     @test ER._mwc_cross_weight(:foo, 1, 2) == :foo               # no-op when D==1
     @test ER._mwc_cross_weight(:foo, :D, 1) == :(D * foo)
 end
+
+@testset "kcat consistent with rate_equation under normalization (uni-OnlyA)" begin
+    ER = EnzymeRates
+    m = @allosteric_mechanism begin
+        substrates: S ; products: P ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + S ⇌ E(S) :: OnlyA ; E(S) <--> E(P) :: EqualAI ; E + P ⇌ E(P) :: EqualAI
+        end
+    end
+    fp = ER.fitted_params(m)                        # K_P_E, K_A_S_E, k, L
+    prm = NamedTuple{(fp..., :Keq, :E_total)}((0.9, 1.3, 2.1, 0.7, 3.0, 1.0))
+    rescaled = ER.rescale_parameter_values(m, prm; scale_k_to_kcat=5.0)  # ask kcat = 5.0
+    @test isapprox(ER._kcat_forward(m, rescaled), 5.0; rtol=1e-6)
+end
