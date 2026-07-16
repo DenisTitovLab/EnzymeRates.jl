@@ -118,25 +118,47 @@ through `AllostericMechanism` so catalytic steps and their allosteric-state tags
 canonicalize together."
 
 This departs from the `:NonequalAI` precedent, which collapses the forbidden
-degree of freedom instead of rejecting it. The departure is deliberate: a
-collapse rewrites a structural tag rather than a parameter value, and the user
-asked for a mechanism that cannot exist.
+degree of freedom instead of rejecting it. The departure is deliberate, and the
+precedent is itself slated to change: a silent correction leaves the user holding
+a mechanism they did not write and cannot see. The follow-up below brings
+`:NonequalAI` onto the same footing.
 
-### Move closure — `_expand_promote_catalytic_to_onlya`
+### Move closure — `_expand_to_allosteric` and `_expand_promote_catalytic_to_onlya`
 
-The move currently emits one child per `:EqualAI` group and leaves the Haldane
-relation unsatisfied. It must instead emit every minimal valid completion of the
-promotion:
+Both moves write `:OnlyA`, and both must close over the promotions the Haldane
+relation forces. Each emits every minimal valid completion:
 
 - promote the chemical step the Haldane forces, or
 - promote a balancing binding on the opposite side.
 
-Both completions are enumerated. In the balanced region the move emits both the
-`:OnlyA`- and `:EqualAI`-catalysis children.
+Both completions are enumerated. In the balanced region each move emits both the
+`:OnlyA`- and `:EqualAI`-catalysis children. The two tags render the same equation
+today, but a `split` can repopulate the inactive forms and distinguish them, so
+the search keeps both branches.
 
-The moves and the validator must land together. The enumerator generates the
-invalid class on essentially every allosteric mechanism it builds, so a validator
-alone would throw uncaught mid-search.
+**`_expand_to_allosteric` is the primary generator and matters more.** It builds
+`base_tags = [:EqualAI …]`, sets one group to `:OnlyA`, and — when that group is
+a binding — emits the mechanism with the chemical step still `:EqualAI`:
+
+```julia
+for g in 1:n_g
+    new_tags = copy(base_tags)
+    new_tags[g] = :OnlyA
+    if is_iso(rep_step(m, g))
+        ...                                    # chemical step: pairs with a regulator
+    else
+        push!(results, AllostericMechanism(    # binding: catalysis stays :EqualAI
+            reaction(m), copy(steps(m)), new_tags, cn, RegulatorySite[]))
+    end
+end
+```
+
+Every binding group yields one invalid mechanism at the root of the search. The
+class is not drifted into, it is born: LDH is invalid 200 of 200 at generation 1,
+and PFKP's seed tier fails 118 of 359 before any expansion runs.
+
+The moves and the validator must land together. A validator alone would throw
+uncaught during seeding.
 
 ### The derivation does not change
 
@@ -147,13 +169,12 @@ unnecessary and is dropped.
 
 ## Reachability
 
-`_expand_promote_catalytic_to_onlya` is the only move that writes `:OnlyA`.
-`to_allosteric` emits `:OnlyA` only alongside a regulator, and LDH declares none;
-`change_allo_state` writes only `:NonequalAI`; `add_dead_end` appends
-`:EqualAI`; `split` copies a tag. Today exactly one of 2170 generation-1 LDH
-mechanisms reaches a docs-compliant sibling, and that one mechanism is itself
-invalid — so rejecting without fixing the moves would make the valid mechanism
-unreachable.
+`_expand_to_allosteric` and `_expand_promote_catalytic_to_onlya` are the only
+moves that write `:OnlyA`. `change_allo_state` writes only `:NonequalAI`;
+`add_dead_end` appends `:EqualAI`; `split` copies a tag. Today exactly one of
+2170 generation-1 LDH mechanisms reaches a docs-compliant sibling, and that one
+mechanism is itself invalid — so rejecting without fixing the moves would make
+the valid mechanism unreachable.
 
 Closing the move at the point of promotion produces the valid mechanism directly:
 
@@ -169,9 +190,28 @@ conformation still binds product and family B's binds nothing. The second step i
 
 ## Scope
 
-**Out of scope.** Fourteen PFKP errors carry `:OnlyA` on a chemical step with no
-`:OnlyA` binding anywhere. The validator calls them valid and they still fail.
-They are a separate defect. This change addresses 1340 of 1354 errors (99.0%).
+**Out of scope: the fourteen chemical-step errors.** Fourteen PFKP errors carry
+`:OnlyA` on a chemical step with no `:OnlyA` binding anywhere — the V-system that
+`_expand_to_allosteric`'s `is_iso` branch builds. A V-system is thermodynamically
+sound, so the validator calls them valid and they still fail. They are a separate
+defect. This change addresses 1340 of 1354 errors (99.0%). Whether the
+cycle-based validator catches them anyway is worth checking during
+implementation; do not assume it will.
+
+**Planned follow-up: reject a collapsed `:NonequalAI`.** The same principle
+applies one rung in: a `:NonequalAI` tag whose degree of freedom thermodynamics
+annihilates is also a lie, and it is also silently corrected today. Measured on
+60 real LDH types, 33 (55%) collapse fully; the rest survive because a
+steady-state binding or a chemical step keeps the speed (`kon·koff`) while only
+the affinity ratio collapses. About 11% of allosteric rows carry `:NonequalAI`,
+so roughly 6% would newly error.
+
+It ships separately because its surface is disjoint. `change_allo_state` writes a
+single `:NonequalAI`, and a K-system "needs two coupled `:NonequalAI` bindings,
+not one" — so that move's arity changes rather than merely closing over a forced
+promotion. And `mwc_allostery.md:157-172` is a live `@example` that exists to
+demonstrate the collapse; under the new rule it throws and the doc build fails,
+so the teaching example must be rewritten.
 
 **Known and unaddressed.** In the balanced region every catalytic tag yields the
 same equation — `:EqualAI`, `:OnlyA`, and `:NonequalAI` agree modulo the
@@ -207,15 +247,19 @@ analytical rate function. PFK-1, HK, PK, and `m_OnlyA_prod` already comply.
 **Goldens.** `test/reference/allosteric_golden_reference.txt` regenerates for
 those two specs. The rest stays byte-identical.
 
-**Enumeration tests.** `biuni_seed()`
-(`test_mechanism_enumeration.jl:4058-4070`) is itself an instance of the invalid
-combination and seeds four promote-move testsets. It will not construct. The move
-now emits more children per parent, so the counts change.
+**Enumeration tests.** The largest surface —
+`test_mechanism_enumeration.jl` mentions `OnlyA` 125 times. `biuni_seed()`
+(`:4058-4070`) is itself an instance of the invalid combination and seeds four
+promote-move testsets; it will not construct. Both moves now emit more children
+per parent, so every child-count assertion for `to_allosteric` and
+`promote_catalytic_to_onlya` changes.
 
 **Docstrings.** `_expand_promote_catalytic_to_onlya` claims Δ0 and claims every
 promotion is distinguishable. Both claims are false today: the real LDH type
 promotes 6 parameters to 6, 7, 7, and 8, and 37 HPC rows show +1. The Δ0 test
-passes only because `biuni_seed()` happens to satisfy it.
+passes only because `biuni_seed()` happens to satisfy it. Rewrite the docstring
+to state that the parameter count varies, and drop the Δ0 test or rescope it to
+the seed it actually describes.
 
 **Coverage.** `_kcat_forward` is tested only through `analytical_kcat_fn`, set on
 the four already-compliant specs. The invalid class has no kcat coverage at all.
@@ -229,26 +273,51 @@ constructor gains a bounded cycle walk on the enumeration path.
 **Data.** Every prior allosteric LDH and PFKP result is invalid, not only the
 1354 errored fits.
 
+## Accepted risks
+
+**`n > 1` has no ground truth, and we ship without one.**
+`test/allosteric_ground_truth.jl` solves a single protomer. Every number here and
+in #69 comes from `n = 1`; the real LDH mechanisms use `n = 4`. The `^n` structure
+has no mass-action reference. The Haldane argument is `n`-independent and the fix
+was confirmed structurally on the real `n = 4` type, but no `n = 4` value check
+exists and building one is not tractable. Accepted.
+
 ## Open questions
 
-1. **`n > 1` has no ground truth.** `test/allosteric_ground_truth.jl` solves a
-   single protomer. Every number here and in #69 comes from `n = 1`; the real LDH
-   mechanisms use `n = 4`. The `^n` structure has no mass-action reference. The
-   Haldane argument is `n`-independent, and the fix was confirmed on the real
-   `n = 4` type, but no `n = 4` value check exists.
-2. **Refitted loss and model selection are unmeasured.** Every distortion figure
+1. **Refitted loss and model selection are unmeasured.** Every distortion figure
    comes from random parameter values. Equations change for 200 of 200 LDH types
    and 27 of 71 gain parameters, so the selected mechanism will move. By how much
-   is unknown.
-3. **The fourteen chemical-step errors** need their own diagnosis.
-4. **Ping-pong fails silently.** Its `d_free_I` carries a substrate, and the
+   is unknown, and only an HPC rerun answers it.
+2. **The fourteen chemical-step errors** need their own diagnosis.
+3. **Ping-pong fails silently.** Its `d_free_I` carries a substrate, and the
    products-are-zero filter fires only on products. The mechanism derives, cross-
    weights, and returns a wrong number.
 
 ## Evidence
 
-Confirmed three independent ways: the Haldane algebra above; a mass-action ODE
-sweep (`scratchpad/denis_limit.jl`) in which the consistent `K_I → ∞` limit
-converges to 4.455053, the promoted mechanism's answer, against 0.0 for the
-mechanism as tagged; and the detailed-balance reading, under which the inactive
-conformation drains the entire enzyme pool into a complex it cannot release.
+The Haldane algebra above carries the argument. A mass-action ODE sweep confirms
+it numerically and independently of the derivation code: with `K_I_F16BP` taken
+to infinity along a Haldane-consistent path (`k_I_f = k_f·K_F16BP/K_I_F16BP`),
+the steady-state flux at zero product converges to the promoted mechanism's
+answer.
+
+```
+K_I_F16BP     k_I_f     flux at ADP=0     F16BP-bearing I island
+1             10        8.910             5.3e-3
+1e2           0.1       4.500             5.0e-6
+1e6           1e-5      4.45506           4.5e-10
+1e9           1e-8      4.455053          4.5e-13
+
+mechanism as tagged (:OnlyA binding, :EqualAI catalysis)  =  0.0
+promoted mechanism (:OnlyA catalysis)                     =  4.45505
+```
+
+The mechanism as tagged gives flux exactly proportional to ADP — 0 at zero
+product, with the entire enzyme pool in the F16BP-bearing inactive island. That
+is a faithful simulation of what the tags currently mean, not a second proof:
+it reproduces the defect rather than the physics.
+
+A third line of argument — that a zero-population inactive complex cannot absorb
+the flux of reverse inactive catalysis — is **unsound and was dropped**. It
+assumes the complex is unpopulated, which is a consequence of the Haldane limit
+rather than an independent premise. Do not reintroduce it.
