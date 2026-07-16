@@ -1996,6 +1996,19 @@ tag (`:EqualAI`, `:OnlyA`, `:OnlyI`) to `:NonequalAI`. Variants are
 emitted for each catalytic kinetic group tag and each regulatory
 ligand tag that is not already `:NonequalAI`. The base catalytic
 steps, multiplicity, and untouched tags are preserved.
+
+Relaxing an `:OnlyA` chemical step restores a finite `k_I`, which can
+strand a one-sided `:OnlyA` binding that only `k_I = 0` made legal. Such
+a variant is dropped (`_onlya_haldane_violation`) rather than repaired:
+the move relaxes the one named tag, and promoting some other group to
+close the Haldane would be a different move. No hypothesis is lost — a
+`:NonequalAI` chemical step under balanced `:OnlyA` bindings is still
+reached by relaxing the balanced variant, where the affinities diverge
+together and nothing is stranded.
+
+A regulatory ligand's tag is not an argument to the Haldane check — a
+regulator site completes no catalytic cycle — so that branch needs no
+filter.
 """
 function _expand_change_allo_state(am::AllostericMechanism)
     results = AllostericMechanism[]
@@ -2004,6 +2017,8 @@ function _expand_change_allo_state(am::AllostericMechanism)
         cat_allo_states(am)[g] == :NonequalAI && continue
         new_states = copy(cat_allo_states(am))
         new_states[g] = :NonequalAI
+        _onlya_haldane_violation(reaction(am), steps(am), new_states) ===
+            nothing || continue
         push!(results, _with_cat_allo_states(am, new_states))
     end
 
@@ -2034,12 +2049,25 @@ _expand_change_allo_state(::Mechanism) =
     _expand_promote_catalytic_to_onlya(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 
-Δ0 catalytic-state move. For each catalytic kinetic group tagged `:EqualAI`,
-emit one variant with that group set to `:OnlyA` — binding (K-type) and
-iso/catalytic (V-type) groups alike. On an already-allosteric mechanism `L`
-is already observable, so promoting any group is distinguishable and never
-degenerate. The catalytic steps, multiplicity, regulatory sites, and every
-other tag pass through unchanged.
+Catalytic-state move. For each catalytic kinetic group tagged `:EqualAI`, emit
+the variants with that group set to `:OnlyA` — binding (K-type) and
+iso/catalytic (V-type) groups alike — closed over whatever further promotions
+the Haldane relation forces (`_valid_onlya_completions`). Promoting a binding on
+one side of the reaction drives `∏ε_p/∏ε_s` to `0` or `∞`, so the inactive cycle
+must either lose its chemical step or gain an opposing `:OnlyA` binding; both
+completions are emitted. Duplicates are dropped: two seed promotions can close
+to the same tag vector.
+
+The parameter count is not preserved, and one parent's children can differ from
+each other. An `:OnlyA` group drops the inactive conformation's copy of its
+constants, while breaking the inactive cycle removes Wegscheider constraints and
+turns parameters the solver derived into parameters the fit must find; the two
+pull opposite ways. On an LDH-type ordered bi-bi the count moves by anything
+from `-3` to `+1`, and a 6-parameter parent yields both 6- and 7-parameter
+children.
+
+The catalytic steps, multiplicity, regulatory sites, and every other tag pass
+through unchanged.
 """
 function _expand_promote_catalytic_to_onlya(am::AllostericMechanism)
     results = AllostericMechanism[]
@@ -2047,9 +2075,11 @@ function _expand_promote_catalytic_to_onlya(am::AllostericMechanism)
         cat_allo_states(am)[g] == :EqualAI || continue
         new_states = copy(cat_allo_states(am))
         new_states[g] = :OnlyA
-        push!(results, _with_cat_allo_states(am, new_states))
+        for t in _valid_onlya_completions(reaction(am), steps(am), new_states)
+            push!(results, _with_cat_allo_states(am, t))
+        end
     end
-    results
+    unique!(results)
 end
 
 """

@@ -5598,3 +5598,186 @@ end
     @test (:OnlyA, :EqualAI, :OnlyA) in shapes    # balanced pair
     @test length(shapes) == 3
 end
+
+# Tag of each catalytic kinetic group, keyed by the metabolite it binds
+# (`:chem` for the chemical step). Group index is never a stable key: the
+# AllostericMechanism constructor canonicalizes group order.
+tags_by_ligand(x) = Dict(
+    (bm = EnzymeRates.bound_metabolite(grp[1]);
+     bm === nothing ? :chem : EnzymeRates.name(bm)) =>
+        EnzymeRates.cat_allo_states(x)[g]
+    for (g, grp) in enumerate(EnzymeRates.steps(x)))
+
+haldane_ok(x) = EnzymeRates._onlya_haldane_violation(
+    EnzymeRates.reaction(x), EnzymeRates.steps(x),
+    EnzymeRates.cat_allo_states(x)) === nothing
+
+# ─── _expand_promote_catalytic_to_onlya Haldane closure ────────────────
+@testset "_expand_promote_catalytic_to_onlya emits only Haldane-valid mechs" begin
+    ER = EnzymeRates
+
+    # Bi-uni ordered A + B ⇌ P with the chemical step already :NonequalAI.
+    # Promoting any one binding leaves that :OnlyA one-sided, and the
+    # chemical step cannot absorb it (`k_I = 0` needs an :OnlyA chemical
+    # tag, and a :NonequalAI group is never promoted). Every child must
+    # therefore carry an opposing :OnlyA binding.
+    am = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)          :: EqualAI
+            E(A) + B ⇌ E(A, B)    :: EqualAI
+            E(A, B) <--> E(P)     :: NonequalAI
+            E + P ⇌ E(P)          :: EqualAI
+        end
+    end)
+    @test haldane_ok(am)
+
+    result = ER._expand_promote_catalytic_to_onlya(am)
+    @test !isempty(result)
+    for r in result
+        @test haldane_ok(r)
+        @test :OnlyA in ER.cat_allo_states(r)   # the move's purpose
+        ER._assert_mechanism_invariants(r)
+        @test ER.catalytic_multiplicity(r) == ER.catalytic_multiplicity(am)
+        @test r.regulatory_sites == am.regulatory_sites
+    end
+    @test length(unique(result)) == length(result)
+
+    # A lone :OnlyA is never emitted here: every bare promotion is one-sided.
+    @test !any(r -> count(==(:OnlyA), ER.cat_allo_states(r)) == 1, result)
+
+    # Only two balanced pairs exist — A with P, and B with P. Each is
+    # reachable from either of its two seed promotions, so four completions
+    # collapse to two children; without `unique!` this count would be four.
+    shapes = Set(tags_by_ligand(r) for r in result)
+    @test Dict(:A => :OnlyA, :B => :EqualAI, :chem => :NonequalAI,
+               :P => :OnlyA) in shapes
+    @test Dict(:A => :EqualAI, :B => :OnlyA, :chem => :NonequalAI,
+               :P => :OnlyA) in shapes
+    @test length(shapes) == 2
+
+    # The move is not Δ0, and one parent's children can differ from each
+    # other: an :OnlyA group drops the inactive conformation's copy of its
+    # constants, while breaking the inactive cycle turns derived parameters
+    # into fitted ones. This LDH-type parent shows both at once — the
+    # docstring's 6 → {6, 7} claim.
+    ldh = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: NAD, PYR
+        products: LAC, NADH
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            E + NAD ⇌ E(NAD)                :: EqualAI
+            E(NAD) + PYR ⇌ E(NAD, PYR)      :: NonequalAI
+            E(NAD, PYR) <--> E(LAC, NADH)   :: EqualAI
+            E(LAC, NADH) ⇌ E(NADH) + LAC    :: EqualAI
+            E(NADH) ⇌ E + NADH              :: EqualAI
+        end
+    end)
+    @test haldane_ok(ldh)
+    ldh_kids = ER._expand_promote_catalytic_to_onlya(ldh)
+    for k in ldh_kids
+        @test haldane_ok(k)
+    end
+    @test length(ER.fitted_params(ER.compile_mechanism(ldh))) == 6
+    @test Set(length(ER.fitted_params(ER.compile_mechanism(k)))
+              for k in ldh_kids) == Set([6, 7])
+
+    # The contract holds over every mechanism the to_allosteric move seeds.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    for seed in ER._expand_to_allosteric(m, rxn)
+        for kid in ER._expand_promote_catalytic_to_onlya(seed)
+            @test haldane_ok(kid)
+        end
+    end
+end
+
+# ─── _expand_change_allo_state Haldane filter ──────────────────────────
+@testset "_expand_change_allo_state emits only Haldane-valid mechanisms" begin
+    ER = EnzymeRates
+
+    # Uni-uni S ⇌ P. The S binding's :OnlyA is one-sided; only the :OnlyA
+    # chemical step (`k_I = 0`) makes the parent legal. Relaxing that
+    # chemical step to :NonequalAI restores a finite `k_I` and strands the
+    # binding, so that child has no thermodynamic reading and is dropped.
+    parent = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end)
+    @test haldane_ok(parent)
+
+    result = ER._expand_change_allo_state(parent)
+    for r in result
+        @test haldane_ok(r)
+        ER._assert_mechanism_invariants(r)
+    end
+    # Three tags are relaxable; the chemical step's relaxation is dropped.
+    @test length(result) == 2
+    @test !any(r -> tags_by_ligand(r)[:chem] == :NonequalAI, result)
+    @test Set(tags_by_ligand(r) for r in result) == Set([
+        Dict(:S => :OnlyA, :chem => :OnlyA, :P => :NonequalAI),
+        Dict(:S => :NonequalAI, :chem => :OnlyA, :P => :EqualAI)])
+
+    # The filter loses no hypothesis. :NonequalAI catalysis under :OnlyA
+    # bindings stays reachable from the balanced parent, where the two
+    # bindings' affinities diverge together and no `k_I` is stranded.
+    balanced = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: OnlyA
+        end
+    end)
+    @test haldane_ok(balanced)
+    kids = ER._expand_change_allo_state(balanced)
+    @test length(kids) == 3           # nothing filtered
+    @test Dict(:S => :OnlyA, :chem => :NonequalAI, :P => :OnlyA) in
+          Set(tags_by_ligand(k) for k in kids)
+
+    # A regulatory ligand's tag is not an argument to the Haldane check —
+    # a regulator site completes no catalytic cycle — so relaxing one can
+    # never strand an :OnlyA binding, and that branch needs no filter.
+    reg_parent = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end)
+    @test haldane_ok(reg_parent)
+    reg_kids = ER._expand_change_allo_state(reg_parent)
+    # 2 surviving cat relaxations + the R-ligand relaxation, which survives.
+    @test length(reg_kids) == 3
+    @test count(k -> ER.allo_states(only(ER.regulatory_sites(k))) ==
+                     [:NonequalAI], reg_kids) == 1
+    for k in reg_kids
+        @test haldane_ok(k)
+    end
+end
