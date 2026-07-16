@@ -2445,7 +2445,7 @@ function build_mechanism_test_specs()
                  E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
                  E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)) :: EqualAI
                 E(NAD) + Lactate ⇌ E(Lactate, NAD) :: EqualAI
-                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
+                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
             end
         end),
         metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
@@ -2469,7 +2469,7 @@ function build_mechanism_test_specs()
                 (E + NADH <--> E(NADH),
                  E(Lactate) + NADH <--> E(Lactate, NADH)) :: OnlyA
                 E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate) :: EqualAI
-                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: EqualAI
+                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
             end
         end),
         metabolite_names=[:NADH, :Pyruvate, :Lactate, :NAD],
