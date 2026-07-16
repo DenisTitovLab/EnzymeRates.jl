@@ -411,7 +411,19 @@ an `:OnlyA` catalytic tag — absorbs that.
 The check graph drops `:OnlyA` chemical groups, so a cycle running through one
 never appears and never reports a violation: that is the `k_I = 0` escape.
 Bindings completing no cycle (competitive inhibitors, dead ends, regulator
-sites) never enter a row and take no part.
+sites) never enter a row and take no part. Both catalytic (Haldane) and
+binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
+`:OnlyA` binding on a pure random-order binding square is caught.
+
+The per-row sign test is a sufficient rejection condition, not a complete one:
+it flags a cycle only when that single row's `:OnlyA` exponents are all one
+sign. A genuinely-complete test asks whether the coupled `ε`-exponent system has
+a strictly-positive nullspace vector (Stiemke feasibility). The two agree for
+every random-order mechanism up to bi-bi; from ter-substrate up, a multi-cycle
+coupled inconsistency can pass this per-row check. Such a mechanism is still
+derived correctly — `:OnlyA` deletes the offending edges, so the rate law is
+that of a consistent subgraph — so the gap is a checker-completeness contract
+issue, not a wrong-equation one.
 
 An RE binding carries the cycle exponent on its `Kd` column, already sign-flipped
 against the cycle's `1/Kd` product, while an SS binding carries it on `Kon`
@@ -462,10 +474,10 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
         offenders = sort!([string(columns[c]) for c in keys(onlyA_cols)
                            if A[i, c] != 0])
         return "an :OnlyA binding ($(join(offenders, ", "))) leaves a " *
-               "catalytic cycle's Haldane relation unsatisfiable: the inactive " *
-               "conformation cannot run that cycle at a finite nonzero rate. " *
-               "Tag the cycle's chemical step :OnlyA, or tag an opposing " *
-               "binding :OnlyA so the affinities diverge together."
+               "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the " *
+               "inactive conformation cannot close that cycle at finite nonzero " *
+               "affinity. Tag the cycle's chemical step :OnlyA, or tag an " *
+               "opposing binding :OnlyA so the affinities diverge together."
     end
     nothing
 end

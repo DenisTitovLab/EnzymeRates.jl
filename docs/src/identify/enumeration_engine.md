@@ -119,13 +119,19 @@ dissociation constant `K_R`).
 Converts a `Mechanism` to an `AllostericMechanism` variant set. For each kinetic
 group, one variant sets that group to `:OnlyA` (the rest stay `:EqualAI`); the
 all-`:EqualAI` baseline is never emitted, since the two conformations would then
-be identical and `L` would cancel. A **binding** group set to `:OnlyA` is emitted
-bare — the bound metabolite's concentration reveals `L` (a K-type mechanism). A
-**catalytic** (isomerization) group set to `:OnlyA` is emitted paired with a
-declared allosteric regulator, one variant per `(regulator, tag)` with
-`tag ∈ {:OnlyA, :OnlyI}` — the regulator makes `L` identifiable (a V-type
-mechanism). Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an
-already allosteric input.
+be identical and `L` would cancel. The engine emits only thermodynamically
+feasible variants: `:OnlyA` asserts `K_A/K_I → ∞` on a binding or
+`kcat_A/kcat_I → ∞` on catalysis, and a one-sided `:OnlyA` binding would leave
+the inactive conformation unable to close its catalytic cycle (see
+[Thermodynamic constraints of MWC equations](@ref)). So a **binding** group set
+to `:OnlyA` is emitted only with the further promotion the constraint forces —
+the chemical step `:OnlyA`, or an opposing binding `:OnlyA` — one variant per
+minimal feasible completion; the bound metabolite's concentration reveals `L` (a
+K-type mechanism). A **catalytic** (isomerization) group set to `:OnlyA` is
+emitted paired with a declared allosteric regulator, one variant per
+`(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}` — the regulator makes `L`
+identifiable (a V-type mechanism). Enumeration runs over
+`allowed_catalytic_multiplicities`. No-op on an already allosteric input.
 
 In MWC terminology the A-state corresponds to the R-state and the I-state
 to the T-state of the original Monod–Wyman–Changeux nomenclature; this
