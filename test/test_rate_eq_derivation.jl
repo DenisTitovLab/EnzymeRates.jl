@@ -1686,27 +1686,22 @@ end
 
 # ── Single-feature edge cases ─────────────────────────────────────────────
 @testset "Allosteric edge cases" begin
-    # OnlyA substrate: S binds only in R-state (R-state-active convention).
-    # The T-state cycle carries no net flux (S cannot bind to close the loop, so
-    # N_T = 0 and all forward catalysis happens through R), but with :EqualAI
-    # catalysis connected-component pruning still populates E(S) in the T-state
-    # via REVERSE catalysis, so Q_I carries its SS-dependent weight and the
-    # Haldane-derived reverse rate `k_EP_to_ES` is a listed reduced param (its
-    # input value is inert — the equation recomputes it from the Haldane).
-    # As K1 → ∞ (weaker R-state binding), rate vanishes.
+    # OnlyA substrate + OnlyA catalysis: S binds only in the R-state and only
+    # the R-state catalyzes (k_T = 0). The T-state therefore carries no flux
+    # (N_T = 0) and never populates E(S), so no reverse-catalysis weight leaks
+    # into Q_I. As K_A_S_E → ∞ (weaker R-state binding), rate vanishes.
     onlyR_sub = @allosteric_mechanism begin
         substrates: S
         products:   P
         catalytic_multiplicity: 2
         catalytic_steps: begin
             E + S ⇌ E(S)     :: OnlyA
-            E(S) <--> E(P)   :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
             E(P) ⇌ E + P     :: EqualAI
         end
     end
     concs = (S=1.0, P=0.001)
-    base_params = (k_ES_to_EP=10.0, k_EP_to_ES=1.0, K_P_E=0.5, L=10.0,
-                   Keq=1000.0, E_total=1.0)
+    base_params = (k_A_ES_to_EP=10.0, K_P_E=0.5, L=10.0, Keq=1000.0, E_total=1.0)
     rate_strong = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_S_E=0.01,)))
     rate_weak   = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_S_E=1e6,)))
     @test rate_strong > 1.0
@@ -2001,9 +1996,12 @@ end
         # Regulator side: :R is :NonequalAI → K_I_Rreg appears.
         @test :K_I_Rreg in rendered
 
-        # :OnlyA cat group + :OnlyA reg ligand are skipped.
+        # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
+        # Haldane-valid — a one-sided :OnlyA binding under a non-:OnlyA iso is
+        # rejected at construction. Both :OnlyA cat groups and the :OnlyA reg
+        # ligand are skipped; the :NonequalAI iso still emits both k params.
         aem_skip = allo_from_source(
-            cm_src, (2, (:OnlyA, :NonequalAI, :EqualAI)),
+            cm_src, (2, (:OnlyA, :NonequalAI, :OnlyA)),
             (((:R,), 1, (:OnlyA,)),),
         )
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
@@ -2243,11 +2241,17 @@ end
 end
 
 @testset "D[g_free] surfaced per allosteric state" begin
+    # Uni-uni with :OnlyA substrate + :OnlyA catalysis: the inactive state
+    # neither binds S nor catalyzes, so its free-enzyme graph is a single
+    # segment and both states surface D = 1. The genuinely fragmenting
+    # cross-weight regime (D_A ≠ D_I, a metabolite-bearing inactive weight)
+    # needs a steady-state :OnlyA binding and is covered by the
+    # metabolite-bearing-D :OnlyA gate in allosteric_ground_truth.jl.
     onlyA = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
         catalytic_steps: begin
             E + S ⇌ E(S)     :: OnlyA
-            E(S) <--> E(P)   :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
             E + P ⇌ E(P)     :: EqualAI
         end
     end
@@ -2255,7 +2259,7 @@ end
     _, _, dA = EnzymeRates._state_rate_polys(am, :A)
     _, _, dI = EnzymeRates._state_rate_polys(am, :I)
     @test dA == EnzymeRates.poly_one()                       # single active segment
-    @test dI == EnzymeRates.POLY(EnzymeRates._mono(:k_ES_to_EP => 1) => 1)
+    @test dI == EnzymeRates.poly_one()                       # single inactive segment
 end
 
 @testset "rendering helpers" begin
@@ -2278,10 +2282,10 @@ end
     m = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
         catalytic_steps: begin
-            E + S ⇌ E(S) :: OnlyA ; E(S) <--> E(P) :: EqualAI ; E + P ⇌ E(P) :: EqualAI
+            E + S ⇌ E(S) :: OnlyA ; E(S) <--> E(P) :: OnlyA ; E + P ⇌ E(P) :: EqualAI
         end
     end
-    fp = ER.fitted_params(m)                        # K_P_E, K_A_S_E, k, L
+    fp = ER.fitted_params(m)                        # K_P_E, K_A_S_E, k_A_ES_to_EP, L
     prm = NamedTuple{(fp..., :Keq, :E_total)}((0.9, 1.3, 2.1, 0.7, 3.0, 1.0))
     rescaled = ER.rescale_parameter_values(m, prm; scale_k_to_kcat=5.0)  # ask kcat = 5.0
     @test isapprox(ER._kcat_forward(m, rescaled), 5.0; rtol=1e-6)
