@@ -1187,7 +1187,7 @@
             [EnzymeRates.AllostericRegulator(:I)], 1, [:OnlyI])
         m = EnzymeRates.AllostericMechanism(
             r, [[s_bind], [s_iso], [s_rel]],
-            [:EqualAI, :NonequalAI, :OnlyA], 2,
+            [:EqualAI, :OnlyA, :NonequalAI], 2,
             [site])
 
         @test EnzymeRates.reaction(m) == r
@@ -1198,8 +1198,8 @@
             only(g for g in EnzymeRates.kinetic_groups(m)
                  if EnzymeRates.rep_step(m, g) == step))
         @test state_of(s_bind) == :EqualAI
-        @test state_of(s_iso)  == :NonequalAI
-        @test state_of(s_rel)  == :OnlyA
+        @test state_of(s_iso)  == :OnlyA
+        @test state_of(s_rel)  == :NonequalAI
         @test EnzymeRates.catalytic_multiplicity(m) == 2
         @test EnzymeRates.regulatory_sites(m) == [site]
         @test EnzymeRates.kinetic_groups(m) == 1:3
@@ -1211,7 +1211,7 @@
 
         m2 = EnzymeRates.AllostericMechanism(
             r, [[s_bind], [s_iso], [s_rel]],
-            [:EqualAI, :NonequalAI, :OnlyA], 2,
+            [:EqualAI, :OnlyA, :NonequalAI], 2,
             [site])
         @test m == m2
         @test hash(m) == hash(m2)
@@ -1862,5 +1862,18 @@ end
         # only the is_iso ones would drop the square edge as well and wrongly
         # report valid.
         @test verdict(tags((:EAB, nothing), (:E, :A))) isa String
+    end
+end
+
+@testset "AllostericMechanism rejects an unsatisfiable Haldane" begin
+    @test_throws ErrorException @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E(P) ⇌ E + P      :: EqualAI
+        end
     end
 end
