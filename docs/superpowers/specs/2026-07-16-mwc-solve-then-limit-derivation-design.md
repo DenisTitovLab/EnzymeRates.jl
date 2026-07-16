@@ -92,29 +92,61 @@ and PR #70's constructor guard (`_onlya_haldane_violation`) are reused unchanged
 
 The prototype proved the *target* (plain combine of per-state-normalized `N`/`D`
 reproduces the ground truth) but produced `N`/`D` by numerically solving each
-conformation and dividing by `[E_free]`. The design must do this **symbolically**:
-derive each conformation's King–Altman and divide by its free-enzyme spanning-tree
-weight `D[g_free]` before combining. The current code already surfaces
-`D[g_free]` (that is what `d_free` was); the change is to **normalize each state
-by it up front** rather than cross-weight the two states in coupled form
-afterward. Working out the exact symbolic operation — and confirming it leaves
-`rate_equation` allocation-free — is the primary implementation task and is
-deferred to the plan.
+conformation and dividing by `[E_free]`. The design must do this **symbolically**,
+and the symbolic operation splits by whether the free-enzyme spanning-tree weight
+`D[g_free]` carries a metabolite:
 
-## The guard
+- **`D[g_free]` metabolite-free** (a constant or pure rate-constant expression —
+  every rapid-equilibrium-binding mechanism). Trivial: divide `N`/`D` by it, a
+  common factor that `L` and the rate constants absorb. Deferring it changes only
+  `L`'s numerical value, not `v`.
+- **`D[g_free]` metabolite-bearing** (a steady-state substrate binding, as in the
+  LDH i-state; ping-pong bi-bi). Dividing would put a concentration in the
+  denominator (forbidden). Instead **factor** the denominator into a dimensionless
+  polynomial — terms like `1`, `S/Km`, with non-negative exponents and `Km` a
+  function of the `K`s and `k`s — an operation in the spirit of `_kcat_forward`
+  (which already infers a saturating-limit `kcat`). This is the delicate part.
+  **Open question (being prototyped): whether skipping this factoring keeps `v`
+  correct.** For a metabolite-bearing weight the A and I states normalize by
+  different concentration-dependent factors, so `L` (a constant) may not absorb
+  the difference — meaning `v`, not just `L`, could be wrong. The prototype
+  validated the *normalized* combine, never the un-normalized one, so this is
+  unresolved. If `v` does stay correct, the factoring is a pure second-PR
+  refinement (clean `L`); if not, it is required in the first PR for LDH-class
+  mechanisms.
 
-**Depends on PR #70.** The correctness boundary of this derivation is PR #70's
-`_onlya_haldane_violation`, so implementation must land on top of it — branch off
-`main` once #70 merges (or off `onlya-haldane-validator` meanwhile). The design is
-written against a `main` that contains #70.
+**Sequencing (pending the ping-pong result).** If deferral preserves `v`: PR 1
+delivers the correct rate equation with the metabolite-free normalization only,
+and PR 2 makes every denominator dimensionless (the clean-`L` refinement, package
+-wide). If deferral does not preserve `v` for metabolite-bearing weights, the
+factoring lands in PR 1 for those mechanisms. `ping-pong bi-bi` is the decisive
+test case either way.
 
-No new guard. `_onlya_haldane_violation`, in the `AllostericMechanism`
-constructor, is the correctness boundary and runs upstream of every derivation.
-The collapse-detection floated during brainstorming is **narrower** (it misses
-the pendant-node trap) and is not built. The one requirement: the new derivation
-must remain downstream of the constructor check, so no invalid mechanism reaches
-it. If any future path constructs a derivation input without going through the
-constructor, it must carry this gate.
+## The guard: limit the solved constraints
+
+The consistency check falls out of solve-then-limit for free. After step 2 we
+hold the full two-conformation thermodynamic relations — each an equality among
+log-parameters (a Haldane or Wegscheider row). **Apply the `:OnlyA` limits to
+those solved relations and require each to stay a consistent equality.** A valid
+mechanism's `K_I → ∞` / `k_I → 0` exponents cancel and the relation reduces to a
+finite equality (often `0 = 0`); an impossible one produces a contradiction — a
+lone `∞`, or `K = ∞` forced onto an `:EqualAI`/shared step. Reject on any
+contradiction.
+
+This is **complete**, unlike PR #70's per-row sign test: it operates on the
+actual solved constraints (all cycles at once), so it catches the ter-and-up
+multi-cycle inconsistencies the sign heuristic admits. It is the Stiemke
+feasibility condition expressed as "the infinite exponents balance." The same
+rule catches a `:NonequalAI` that thermodynamics forces to `K_I = K_A`.
+
+**Relationship to PR #70.** #70's `_onlya_haldane_violation` (the sign heuristic,
+in the `AllostericMechanism` constructor) stays as a cheap early reject during
+enumeration — it never wrongly rejects a valid mechanism, only admits some benign
+ter+ cases. This design's limit-the-constraints check is the *complete*
+correctness guarantee, run at derivation time. Whether the constructor keeps the
+cheap heuristic or adopts the full check is a design sub-decision; the derivation
+must carry the complete check regardless. Implementation lands on top of #70
+(branch off `main` once #70 merges, or off `onlya-haldane-validator` meanwhile).
 
 ## `n > 1` and the `N_I ≠ 0` cross term
 
@@ -135,12 +167,36 @@ deletion did); any change is a finding to explain, not to accept.
 ## Testing
 
 `test/allosteric_ground_truth.jl` — the n = 1 two-conformation mass-action solver
-that caught every prior bug — is the acceptance gate. Each derived equation must
-match it (rtol 1e-4) and give `v = 0` at the equilibrium metabolite ratio, across:
-the existing gates (uni/multi-`:OnlyA`, metabolite-bearing-`D`, `:NonequalAI`),
-the TR mechanism, and a **new** `N_I ≠ 0` multi-protomer gate for the `^n` cross
-term. The `rate_equation` performance contract (0 allocations, < 120 ns) must
-hold — verified by the existing perf gate.
+that caught every prior bug — is the acceptance gate, with **one change to its
+methodology**: it currently encodes `:OnlyA` by *deleting* the inactive edge, the
+same move this derivation abandons. Validating a limit-derivation against a
+graph-deletion oracle is circular on exactly the cases that matter (the trap).
+Rebuild the oracle to encode `:OnlyA` as the **limit** — the full two-conformation
+network with `K_I` large / `k_I` small — so it is a genuinely independent check.
+(The prototype's adversary already did this to surface the trap.)
+
+Each derived equation must match the oracle (rtol 1e-4) and give `v = 0` at the
+equilibrium metabolite ratio, across: the existing gates (uni/multi-`:OnlyA`,
+metabolite-bearing-`D`, `:NonequalAI`), the TR mechanism, ping-pong bi-bi (the
+normalization test case), and a **new** `N_I ≠ 0` multi-protomer gate for the
+`^n` cross term. The `rate_equation` performance contract (0 allocations,
+< 120 ns) must hold — verified by the existing perf gate.
+
+## Code deletion is a primary goal
+
+Simpler here means less code. Solve-then-limit exists to *remove* machinery, and
+the diff should be net-negative in `src/rate_eq_derivation.jl`. Targeted for
+deletion:
+
+- `_state_allo_mechanism`'s graph pruning (`:1214`).
+- the `d_free` cross-weighting in `_allosteric_num_den_exprs` (`:966-978`,
+  `:1691+`) and in `_kcat_forward`.
+- its helpers `_is_metabolite_free_monomial`, `_invert_monomial`, and the
+  three-way rendering branch.
+- `d_free` surfacing from `_state_rate_polys` (`:331`, `:381`, `:400`).
+
+A refactor that adds more than it removes has missed the point; the LOC delta is
+a review metric.
 
 ## Risks and open items
 
