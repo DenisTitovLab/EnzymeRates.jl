@@ -1737,3 +1737,130 @@ end
         @test isempty(violations)
     end
 end
+
+@testset "OnlyA Haldane validator" begin
+    ER = EnzymeRates
+    # Uni-uni S -> P. Tags: (S binding, chemical step, P binding).
+    function uni(s_tag, cat_tag, p_tag)
+        m = @allosteric_mechanism begin
+            substrates: S
+            products:   P
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> E(P)    :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+        end
+        am = ER.AllostericMechanism(m)
+        tags = copy(ER.cat_allo_states(am))
+        # find each group by its representative step
+        for (g, grp) in enumerate(ER.steps(am))
+            bm = ER.bound_metabolite(grp[1])
+            tags[g] = bm === nothing ? cat_tag :
+                      ER.name(bm) === :S ? s_tag : p_tag
+        end
+        (ER.reaction(am), ER.steps(am), tags)
+    end
+
+    # no :OnlyA anywhere -> valid
+    @test ER._onlya_haldane_violation(uni(:EqualAI, :EqualAI, :EqualAI)...) === nothing
+    # :OnlyA on the substrate only, catalysis :EqualAI -> VIOLATION
+    @test ER._onlya_haldane_violation(uni(:OnlyA, :EqualAI, :EqualAI)...) isa String
+    # :OnlyA on the product only, catalysis :EqualAI -> VIOLATION
+    @test ER._onlya_haldane_violation(uni(:EqualAI, :EqualAI, :OnlyA)...) isa String
+    # :OnlyA on the substrate, catalysis :OnlyA -> the k_I = 0 escape -> valid
+    @test ER._onlya_haldane_violation(uni(:OnlyA, :OnlyA, :EqualAI)...) === nothing
+    # balanced: :OnlyA on both sides, catalysis :EqualAI -> valid
+    @test ER._onlya_haldane_violation(uni(:OnlyA, :EqualAI, :OnlyA)...) === nothing
+    # V-system: :OnlyA chemical step only -> valid
+    @test ER._onlya_haldane_violation(uni(:EqualAI, :OnlyA, :EqualAI)...) === nothing
+    # :NonequalAI catalysis is also a finite-nonzero assertion -> same verdict
+    @test ER._onlya_haldane_violation(uni(:OnlyA, :NonequalAI, :EqualAI)...) isa String
+
+    # Whether a binding is rapid-equilibrium or steady-state does not change
+    # which affinities diverge, so the balanced both-:OnlyA verdict must not
+    # depend on it. The two step kinds carry the cycle exponent on opposite
+    # columns (Kd vs Kon), so a mixed pair only agrees once the validator
+    # normalizes both to the epsilon exponent. Both orientations of the mix
+    # are equally valid mechanisms and must both pass.
+    mixed_uni_re_ss = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
+            E(P) <--> E + P   :: EqualAI
+        end
+    end
+    mixed_uni_ss_re = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S <--> E(S)   :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
+            E(P) ⇌ E + P      :: EqualAI
+        end
+    end
+    # every binding :OnlyA, catalysis :EqualAI -> balanced -> valid
+    function both_bindings_onlya(m)
+        am = ER.AllostericMechanism(m)
+        tags = [ER.bound_metabolite(g[1]) === nothing ? :EqualAI : :OnlyA
+                for g in ER.steps(am)]
+        ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am), tags)
+    end
+    @test both_bindings_onlya(mixed_uni_re_ss) === nothing
+    @test both_bindings_onlya(mixed_uni_ss_re) === nothing
+
+    # A random-order binding square contributes a Wegscheider row: rhs = 0 and
+    # no k columns. There is no k to zero out, so balance is the only escape and
+    # the :OnlyA-chemical-step escape deliberately does not reach it.
+    @testset "random-order binding square" begin
+        biuni = @allosteric_mechanism begin
+            substrates: A, B
+            products:   P
+            catalytic_multiplicity: 2
+            catalytic_steps: begin
+                E + A ⇌ E(A)          :: EqualAI
+                E + B ⇌ E(B)          :: EqualAI
+                E(A) + B ⇌ E(A, B)    :: EqualAI
+                E(B) + A ⇌ E(A, B)    :: EqualAI
+                E(A, B) <--> E(P)     :: EqualAI
+                E(P) ⇌ E + P          :: EqualAI
+            end
+        end
+        bu_am = ER.AllostericMechanism(biuni)
+        # Tag :OnlyA the groups named by (free form, bound metabolite); every
+        # other group is :EqualAI. The chemical step's key is (:EAB, nothing).
+        function tags(onlya_keys...)
+            want = Set{Tuple{Symbol, Union{Symbol, Nothing}}}(onlya_keys)
+            map(ER.steps(bu_am)) do grp
+                bm = ER.bound_metabolite(grp[1])
+                key = (ER.name(ER.from_species(grp[1])),
+                       bm === nothing ? nothing : ER.name(bm))
+                key in want ? :OnlyA : :EqualAI
+            end
+        end
+        verdict(t) = ER._onlya_haldane_violation(ER.reaction(bu_am),
+                                                 ER.steps(bu_am), t)
+
+        # the square alone trips nothing: no :OnlyA anywhere -> valid
+        @test verdict(tags()) === nothing
+        # one square edge :OnlyA -> VIOLATION (unbalanced in the square and
+        # in the Haldane row)
+        @test verdict(tags((:E, :A))) isa String
+        # both A-side bindings :OnlyA balances the square, but the Haldane row
+        # is still unbalanced against P -> VIOLATION
+        @test verdict(tags((:E, :A), (:EB, :A))) isa String
+        # ...and :OnlyA on P balances the Haldane row too -> valid
+        @test verdict(tags((:E, :A), (:EB, :A), (:E, :P))) === nothing
+        # :OnlyA on the chemical step drops that group, killing the Haldane row
+        # and leaving only the square, whose lone :OnlyA edge is unbalanced ->
+        # VIOLATION. A keep filter that dropped *every* :OnlyA group rather than
+        # only the is_iso ones would drop the square edge as well and wrongly
+        # report valid.
+        @test verdict(tags((:EAB, nothing), (:E, :A))) isa String
+    end
+end
