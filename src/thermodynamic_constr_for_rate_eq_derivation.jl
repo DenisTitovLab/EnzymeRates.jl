@@ -405,11 +405,14 @@ asserts; otherwise return a message naming the offending `:OnlyA` bindings.
 
 A cycle's Haldane carries `∏ε_p/∏ε_s` on the inactive side. The `ε` are
 independent, so that monomial can be held finite exactly when its exponents
-carry both signs. All-same-sign drives it to `0` or `∞`, and only `k_I = 0` —
-an `:OnlyA` catalytic tag — absorbs that.
+carry both signs. All-same-sign drives it to `0` or `∞`; the only thing that
+absorbs the imbalance is a free inactive catalytic ratio `k_I_f/k_I_r`. An
+`:OnlyA` catalytic tag supplies exactly that — its rate constants vanish from
+the rate equation, so their ratio is free to satisfy the cycle's Haldane at any
+affinity — which is why the inactive Haldane is present but never binding here.
 
 The check graph drops `:OnlyA` chemical groups, so a cycle running through one
-never appears and never reports a violation: that is the `k_I = 0` escape.
+never appears and never reports a violation: that free `k_I` ratio is the escape.
 Bindings completing no cycle (competitive inhibitors, dead ends, regulator
 sites) never enter a row and take no part. Both catalytic (Haldane) and
 binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
