@@ -1740,6 +1740,58 @@ function _expand_add_dead_end_regulator_native(
     results
 end
 
+"""Call `f` on every size-`k` subset of `xs`, in lexicographic index order."""
+function _each_subset(f, xs::Vector{Int}, k::Int)
+    n = length(xs)
+    k > n && return
+    idx = collect(1:k)
+    while true
+        f([xs[i] for i in idx])
+        i = k
+        while i ≥ 1 && idx[i] == n - k + i
+            i -= 1
+        end
+        i == 0 && return
+        idx[i] += 1
+        for j in (i + 1):k
+            idx[j] = idx[j - 1] + 1
+        end
+    end
+end
+
+"""
+    _valid_onlya_completions(rxn, cat_steps, tags) → Vector{Vector{Symbol}}
+
+Every minimal completion of `tags` that satisfies the Haldane relation
+(`_onlya_haldane_violation`), found by promoting additional `:EqualAI` groups to
+`:OnlyA`. Returns `[tags]` unchanged when `tags` already holds, and an empty
+vector when no completion exists.
+
+Promotion subsets are searched by increasing size, and every valid vector at the
+first size that yields one is returned. A one-sided `:OnlyA` binding therefore
+yields both of its minimal repairs — promote the chemical step (`k_I = 0`), or
+promote an opposing binding (the affinities diverge together) — because they are
+distinct hypotheses, not variants of one.
+"""
+function _valid_onlya_completions(rxn::EnzymeReaction,
+                                  cat_steps::Vector{Vector{Step}},
+                                  tags::Vector{Symbol})
+    _onlya_haldane_violation(rxn, cat_steps, tags) === nothing && return [copy(tags)]
+    cand = [g for g in eachindex(tags) if tags[g] === :EqualAI]
+    for k in 1:length(cand)
+        found = Vector{Symbol}[]
+        _each_subset(cand, k) do combo
+            t = copy(tags)
+            for g in combo
+                t[g] = :OnlyA
+            end
+            _onlya_haldane_violation(rxn, cat_steps, t) === nothing && push!(found, t)
+        end
+        isempty(found) || return found
+    end
+    Vector{Symbol}[]
+end
+
 """
     _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
         → Vector{AllostericMechanism}
@@ -1764,6 +1816,16 @@ constant `L` that has no observable effect is not enumerated):
     catalyze, so `L` folds entirely into `kcat`
     (`v = kcat/(1+L)·shape`) and is not observable; a reaction with no
     declared allosteric regulators emits nothing for that group.
+  * A binding group's `:OnlyA` on its own can leave a catalytic cycle's
+    Haldane relation unsatisfiable. Such a variant is emitted only once
+    `_valid_onlya_completions` has promoted further groups to `:OnlyA`,
+    and every minimal completion is emitted; a promotion admitting no
+    completion is dropped. A catalytic group promoted this way needs no
+    regulator to be distinguishable — the `:OnlyA` binding already
+    reveals `L` through its metabolite's concentration.
+
+Duplicate variants are removed: the balanced repair of a one-sided
+`:OnlyA` binding is reachable from either side's promotion.
 
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the
 multiplicity becomes the variant's `catalytic_multiplicity`. Catalytic
@@ -1790,12 +1852,14 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
                     push!(results, _make_am_with_added_reg(am_cat, reg, tag, 0))
                 end
             else
-                push!(results, AllostericMechanism(
-                    reaction(m), copy(steps(m)), new_tags, cn, RegulatorySite[]))
+                for t in _valid_onlya_completions(rxn, steps(m), new_tags)
+                    push!(results, AllostericMechanism(
+                        reaction(m), copy(steps(m)), t, cn, RegulatorySite[]))
+                end
             end
         end
     end
-    results
+    unique!(results)
 end
 
 """

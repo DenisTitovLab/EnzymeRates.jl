@@ -5540,3 +5540,61 @@ end
         end
     end
 end
+
+# ─── _expand_to_allosteric Haldane closure ─────────────────────────────
+@testset "_expand_to_allosteric emits only Haldane-valid mechanisms" begin
+    ER = EnzymeRates
+    # Uni-uni S ⇌ P: 3 kinetic groups (S binding, chemical step, P binding).
+    # No allosteric regulator is declared, so the chemical group's own bare
+    # :OnlyA variant is not emitted; every child therefore starts from a
+    # binding promotion, which alone leaves the Haldane unsatisfiable.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    result = ER._expand_to_allosteric(m, rxn)
+
+    @test !isempty(result)
+    for r in result
+        @test ER._onlya_haldane_violation(
+            ER.reaction(r), ER.steps(r), ER.cat_allo_states(r)) === nothing
+        # the move's purpose: every child still carries an :OnlyA
+        @test :OnlyA in ER.cat_allo_states(r)
+        ER._assert_mechanism_invariants(r)
+        @test ER.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+    @test length(unique(result)) == length(result)
+
+    # Read tags by what each group binds, never by group index: the
+    # AllostericMechanism constructor canonicalizes group order.
+    function shape(x)
+        tags = ER.cat_allo_states(x)
+        by_ligand = Dict{Symbol, Symbol}()
+        for (g, grp) in enumerate(ER.steps(x))
+            bm = ER.bound_metabolite(grp[1])
+            by_ligand[bm === nothing ? :chem : ER.name(bm)] = tags[g]
+        end
+        (by_ligand[:S], by_ligand[:chem], by_ligand[:P])
+    end
+    shapes = Set(shape(r) for r in result)
+
+    # A one-sided binding :OnlyA has exactly two minimal repairs, and both are
+    # distinct hypotheses that must be emitted: promote the chemical step
+    # (k_I = 0), or promote the opposing binding (the affinities diverge
+    # together). The balanced repair is reachable from either side, so the S
+    # and P promotions share it — three shapes, not four.
+    @test (:OnlyA, :OnlyA, :EqualAI) in shapes    # S :OnlyA, repaired by k_I = 0
+    @test (:EqualAI, :OnlyA, :OnlyA) in shapes    # P :OnlyA, repaired by k_I = 0
+    @test (:OnlyA, :EqualAI, :OnlyA) in shapes    # balanced pair
+    @test length(shapes) == 3
+end
