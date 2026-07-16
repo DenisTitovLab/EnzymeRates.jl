@@ -2059,12 +2059,14 @@ completions are emitted. Duplicates are dropped: two seed promotions can close
 to the same tag vector.
 
 The parameter count is not preserved, and one parent's children can differ from
-each other. An `:OnlyA` group drops the inactive conformation's copy of its
-constants, while breaking the inactive cycle removes Wegscheider constraints and
-turns parameters the solver derived into parameters the fit must find; the two
-pull opposite ways. On an LDH-type ordered bi-bi the count moves by anything
-from `-3` to `+1`, and a 6-parameter parent yields both 6- and 7-parameter
-children.
+each other. An `:OnlyA` binding makes the inactive conformation's downstream
+complexes unreachable, so any other group's `:NonequalAI` inactive constants
+drop out of the equation, while breaking the inactive cycle removes Wegscheider
+constraints and turns parameters the solver derived into parameters the fit must
+find; the two pull opposite ways. An all-`:EqualAI` parent has no inactive
+constants to drop, so its promotions are `Δ0`; a parent with a `:NonequalAI`
+group can move by anything from `-3` to `+1`. A 6-parameter parent yields both
+6- and 7-parameter children.
 
 The catalytic steps, multiplicity, regulatory sites, and every other tag pass
 through unchanged.
