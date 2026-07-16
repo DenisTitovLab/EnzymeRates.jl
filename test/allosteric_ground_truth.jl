@@ -27,15 +27,16 @@ function mwc_ground_truth_flux(species, edges, cat_edges, Etot)
 end
 
 # ── Uni-uni :OnlyA network (the exemplar the fix must get right) ─────────────
-# S binds :OnlyA (only the active conformation), catalysis :EqualAI, P :EqualAI.
-# Forms: E_A, ES_A, EP_A (active) and E_I, EP_I (inactive) plus the dead-end
-# ES_I, reached only by inactive catalysis (no inactive S binding, no ES flip).
+# S binds :OnlyA (only the active conformation) and catalysis is :OnlyA (inactive
+# rate k_I = 0), P :EqualAI. Forms: E_A, ES_A, EP_A (active) and E_I, EP_I
+# (inactive). The inactive conformation has no catalytic edge — that is what
+# :OnlyA catalysis means, and with no inactive S binding it never reaches ES.
 # Fast RE bindings and flips use FAST; catalysis is O(1). Detailed-balance flip
 # ratio [X_I]/[X_A] = L·∏(K_A_i/K_I_i); every present flip here carries an
 # :EqualAI ligand (or none), so the ratio is L.
 function uni_onlyA_flux(KA, KP, k; L, Keq, S, P, FAST=1e7)
     kr = k * KP / (Keq * KA)
-    species = [:E_A, :ES_A, :EP_A, :E_I, :EP_I, :ES_I]
+    species = [:E_A, :ES_A, :EP_A, :E_I, :EP_I]
     edges = [
         (:E_A, :ES_A, FAST * S / KA), (:ES_A, :E_A, FAST),   # active S binding (RE)
         (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),   # active P binding (RE)
@@ -43,9 +44,8 @@ function uni_onlyA_flux(KA, KP, k; L, Keq, S, P, FAST=1e7)
         (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),          # free-enzyme flip, ratio L
         (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),      # EP flip, ratio L
         (:ES_A, :EP_A, k), (:EP_A, :ES_A, kr),              # active catalysis (SS)
-        (:ES_I, :EP_I, k), (:EP_I, :ES_I, kr),              # inactive catalysis (SS, dead-end)
     ]
-    cat_edges = [(:ES_A, :EP_A, k, kr), (:ES_I, :EP_I, k, kr)]
+    cat_edges = [(:ES_A, :EP_A, k, kr)]
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
@@ -72,20 +72,18 @@ function uni_equalAI_flux(KA, KP, k, L, Keq, S, P; FAST=1e7)
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
-# ── Multi-:OnlyA bi-uni network (the fragmenting case the fix must get right) ──
-# A + B ⇌ P. Both A and B bind :OnlyA (active conformation only); catalysis
-# :EqualAI, P :EqualAI. Active forms E_A, EA_A, EAB_A, EP_A. Inactive forms
-# E_I, EP_I (RE-connected via P binding) and the dead-end EAB_I, reached only by
-# reverse catalysis from EP_I (A,B :OnlyA → no inactive A/B binding, no EAB flip).
-# The inactive graph fragments: {E_I, EP_I} is one rapid-equilibrium segment and
-# {EAB_I} its own segment behind the steady-state catalytic edge, so the inactive
-# free-enzyme spanning-tree weight D_I = k while D_A = 1 — the cross-weighting the
-# fix supplies. Flip ratio [X_I]/[X_A] = L·∏(K_A_i/K_I_i): free enzyme and EP
-# (:EqualAI or bare) flip with ratio L; an :OnlyA-ligand-bearing state has ratio 0
-# (no flip), so EA and EAB never flip.
+# ── Multi-:OnlyA bi-uni network (both substrates bind the active state only) ──
+# A + B ⇌ P. Both A and B bind :OnlyA (active conformation only) and catalysis is
+# :OnlyA (inactive rate k_I = 0), P :EqualAI. Active forms E_A, EA_A, EAB_A, EP_A.
+# Inactive forms E_I, EP_I, RE-connected via P binding — a single segment with no
+# catalytic edge (that is what :OnlyA catalysis means; with A,B :OnlyA the inactive
+# state never reaches EA or EAB), so the inactive free-enzyme weight is D_I = 1.
+# Flip ratio [X_I]/[X_A] = L·∏(K_A_i/K_I_i): free enzyme and EP (:EqualAI or bare)
+# flip with ratio L; an :OnlyA-ligand-bearing state has ratio 0 (no flip), so EA
+# and EAB never flip.
 function multi_onlyA_flux(KA, KB, KP, k; L, Keq, A, B, P, FAST=1e7)
     kr = k * KP / (Keq * KA * KB)
-    species = [:E_A, :EA_A, :EAB_A, :EP_A, :E_I, :EP_I, :EAB_I]
+    species = [:E_A, :EA_A, :EAB_A, :EP_A, :E_I, :EP_I]
     edges = [
         (:E_A, :EA_A, FAST * A / KA), (:EA_A, :E_A, FAST),    # active A binding (RE)
         (:EA_A, :EAB_A, FAST * B / KB), (:EAB_A, :EA_A, FAST),# active B binding (RE)
@@ -94,9 +92,8 @@ function multi_onlyA_flux(KA, KB, KP, k; L, Keq, A, B, P, FAST=1e7)
         (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),           # free-enzyme flip, ratio L
         (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),       # EP flip, ratio L
         (:EAB_A, :EP_A, k), (:EP_A, :EAB_A, kr),             # active catalysis (SS)
-        (:EAB_I, :EP_I, k), (:EP_I, :EAB_I, kr),             # inactive catalysis (SS, dead-end)
     ]
-    cat_edges = [(:EAB_A, :EP_A, k, kr), (:EAB_I, :EP_I, k, kr)]
+    cat_edges = [(:EAB_A, :EP_A, k, kr)]
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
@@ -163,51 +160,53 @@ end
 end
 
 # ── The gate: :OnlyA MWC derivation matches mass-action ground truth ─────────
-# The naive combination Q_A + L·Q_I leaks a bare catalytic rate constant into
-# the L-term when the inactive graph fragments; the free-enzyme cross-weighting
-# in `_allosteric_num_den_exprs` removes the leak. This is the regression guard.
+# S binds :OnlyA and catalysis is :OnlyA (k_I = 0), so the inactive conformation
+# runs no catalysis: its free-enzyme graph is a single RE segment (d_free_I = 1)
+# and the derivation takes the raw Q_A + L·Q_I normalization. The gate checks the
+# derived rate against the independent mass-action ground truth.
 @testset "OnlyA MWC derivation matches mass-action ground truth" begin
     onlyA = @allosteric_mechanism begin
         substrates: S ; products: P ; catalytic_multiplicity: 1
         catalytic_steps: begin
             E + S ⇌ E(S)     :: OnlyA
-            E(S) <--> E(P)   :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
             E + P ⇌ E(P)     :: EqualAI
         end
     end
-    fp = ER.fitted_params(onlyA)          # (:K_P_E, :K_A_S_E, :k_ES_to_EP, :L)
-    @test fp == (:K_P_E, :K_A_S_E, :k_ES_to_EP, :L)
+    fp = ER.fitted_params(onlyA)          # (:K_P_E, :K_A_S_E, :k_A_ES_to_EP, :L)
+    @test fp == (:K_P_E, :K_A_S_E, :k_A_ES_to_EP, :L)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
         KA = 0.5 + 2rand(rng); KP = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng)
         L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         S = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
-        # Map fitted_params -> ground-truth params: K_A_S_E=KA, K_P_E=KP, k_ES_to_EP=k.
+        # Map fitted_params -> ground-truth params: K_A_S_E=KA, K_P_E=KP, k_A_ES_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, KA, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm))
         v_gt = uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
+        @test isfinite(ER._kcat_forward(onlyA, prm))
     end
 end
 
 # ── The gate: multi-:OnlyA bi-uni derivation matches mass-action ground truth ─
-# Both A and B bind :OnlyA, so the inactive graph fragments (D_I = k, D_A = 1)
-# and the naive Q_A + L·Q_I combination would leak the bare k_EAB_to_EP constant
-# into the L-term. The free-enzyme cross-weighting removes the leak; regression
-# guard.
+# Both A and B bind :OnlyA and catalysis is :OnlyA (k_I = 0), so the inactive
+# conformation runs no catalysis: its free-enzyme graph is a single RE segment
+# (D_I = 1) and the derivation takes the raw Q_A + L·Q_I normalization. The gate
+# checks the derived rate against the independent mass-action ground truth.
 @testset "multi-OnlyA MWC derivation matches mass-action ground truth" begin
     multiA = @allosteric_mechanism begin
         substrates: A, B ; products: P ; catalytic_multiplicity: 1
         catalytic_steps: begin
             E + A ⇌ E(A)          :: OnlyA
             E(A) + B ⇌ E(A, B)    :: OnlyA
-            E(A, B) <--> E(P)     :: EqualAI
+            E(A, B) <--> E(P)     :: OnlyA
             E + P ⇌ E(P)          :: EqualAI
         end
     end
-    fp = ER.fitted_params(multiA)   # (:K_A_A_E, :K_P_E, :K_A_B_EA, :k_EAB_to_EP, :L)
-    @test fp == (:K_A_A_E, :K_P_E, :K_A_B_EA, :k_EAB_to_EP, :L)
+    fp = ER.fitted_params(multiA)   # (:K_A_A_E, :K_P_E, :K_A_B_EA, :k_A_EAB_to_EP, :L)
+    @test fp == (:K_A_A_E, :K_P_E, :K_A_B_EA, :k_A_EAB_to_EP, :L)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
@@ -215,42 +214,41 @@ end
         k = 0.5 + 2rand(rng); L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         A = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
         # Map fitted_params -> ground-truth params:
-        #   K_A_A_E=KA, K_P_E=KP, K_A_B_EA=KB, k_EAB_to_EP=k.
+        #   K_A_A_E=KA, K_P_E=KP, K_A_B_EA=KB, k_A_EAB_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KA, KP, KB, k, L, Keq, 1.0))
         v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm))
         v_gt = multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
+        @test isfinite(ER._kcat_forward(multiA, prm))
     end
 end
 
 # ── Metabolite-bearing-D ordered bi-uni :OnlyA network (the LDH i-state case) ──
 # S + B ⇌ P. S binds :OnlyA via a STEADY-STATE step (E + S <--> E(S)); B binds
 # :EqualAI at rapid equilibrium on E(S); catalysis E(S,B) <--> E(P) is
-# steady-state :EqualAI; P binds :EqualAI at rapid equilibrium. Because B binds
-# rapidly on the steady-state catalytic path, the free-enzyme spanning-tree weight
-# D[g_free] CARRIES the metabolite B: D_A = koff_S + k·B/K_B and D_I = k·B/K_B (the
-# active-only koff_S term is absent from the inactive graph, so D_A ≠ D_I and both
-# are metabolite-bearing). This is the LDH i-state regime the cross-weight fix
-# re-baselines and which has no other ground truth: a single free-enzyme form and
-# a dead inactive state (S :OnlyA → E(S)_I is a B-releasing dead-end carrying no
-# productive flux). Flip ratio [X_I]/[X_A] = L·∏(K_A/K_I): free enzyme and E(P)
-# flip (ratio L); an S-bearing state has ratio 0 (S :OnlyA), so E(S) and E(S,B)
-# never flip. Reverse catalysis kr from the Haldane relation.
+# steady-state :OnlyA (inactive rate k_I = 0); P binds :EqualAI at rapid
+# equilibrium. Because B binds rapidly on the steady-state catalytic path, the
+# active free-enzyme spanning-tree weight D[g_free] CARRIES the metabolite B:
+# D_A = koff_S + k·B/K_B. The inactive conformation runs no catalysis and never
+# binds S or B (both :OnlyA), so its graph is a single rapid-equilibrium segment
+# {E_I, E(P)_I} and D_I = 1. D_A ≠ D_I — a metabolite-bearing active weight against
+# a bare inactive one — the cross-weight regime the fix re-baselines and which has
+# no other ground truth. Flip ratio [X_I]/[X_A] = L·∏(K_A/K_I): free enzyme and
+# E(P) flip (ratio L); an S-bearing state has ratio 0 (S :OnlyA), so E(S) and
+# E(S,B) never flip. Reverse catalysis kr from the Haldane relation.
 function metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, P, FAST=1e7)
     kr = k * kon * KP / (koff * KB * Keq)
-    species = [:E_A, :ES_A, :ESB_A, :EP_A, :E_I, :EP_I, :ESB_I, :ES_I]
+    species = [:E_A, :ES_A, :ESB_A, :EP_A, :E_I, :EP_I]
     edges = [
         (:E_A, :ES_A, kon * S), (:ES_A, :E_A, koff),          # S binding (SS, active only)
         (:ES_A, :ESB_A, FAST * B / KB), (:ESB_A, :ES_A, FAST),# B binding (RE, active)
-        (:ES_I, :ESB_I, FAST * B / KB), (:ESB_I, :ES_I, FAST),# B binding (RE, inactive)
         (:E_A, :EP_A, FAST * P / KP), (:EP_A, :E_A, FAST),    # P binding (RE, active)
         (:E_I, :EP_I, FAST * P / KP), (:EP_I, :E_I, FAST),    # P binding (RE, inactive)
         (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST),           # free-enzyme flip, ratio L
         (:EP_A, :EP_I, FAST * L), (:EP_I, :EP_A, FAST),       # EP flip, ratio L
         (:ESB_A, :EP_A, k), (:EP_A, :ESB_A, kr),            # active catalysis (SS)
-        (:ESB_I, :EP_I, k), (:EP_I, :ESB_I, kr),            # inactive catalysis (SS, dead-end)
     ]
-    cat_edges = [(:ESB_A, :EP_A, k, kr), (:ESB_I, :EP_I, k, kr)]
+    cat_edges = [(:ESB_A, :EP_A, k, kr)]
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
@@ -324,12 +322,12 @@ end
         catalytic_steps: begin
             E + S <--> E(S)      :: OnlyA
             E(S) + B ⇌ E(S, B)   :: EqualAI
-            E(S, B) <--> E(P)    :: EqualAI
+            E(S, B) <--> E(P)    :: OnlyA
             E + P ⇌ E(P)         :: EqualAI
         end
     end
-    fp = ER.fitted_params(metabD)  # (:K_P_E,:kon_A_S_E,:koff_A_S_E,:k_EBS_to_EP,:K_B_ES,:L)
-    @test fp == (:K_P_E, :kon_A_S_E, :koff_A_S_E, :k_EBS_to_EP, :K_B_ES, :L)
+    fp = ER.fitted_params(metabD)  # (:K_P_E,:kon_A_S_E,:koff_A_S_E,:k_A_EBS_to_EP,:K_B_ES,:L)
+    @test fp == (:K_P_E, :kon_A_S_E, :koff_A_S_E, :k_A_EBS_to_EP, :K_B_ES, :L)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
@@ -337,11 +335,12 @@ end
         KB = 0.5 + 2rand(rng); k = 0.5 + 2rand(rng); L = 0.5 + rand(rng); Keq = 2.0 + 2rand(rng)
         S = 0.5 + 2rand(rng); B = 0.5 + 2rand(rng); P = 0.5 + 2rand(rng)
         # Map fitted_params -> ground-truth params:
-        #   kon_A_S_E=kon, koff_A_S_E=koff, K_B_ES=KB, K_P_E=KP, k_EBS_to_EP=k.
+        #   kon_A_S_E=kon, koff_A_S_E=koff, K_B_ES=KB, K_P_E=KP, k_A_EBS_to_EP=k.
         prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
         v_code = real(ER.rate_equation(metabD, (S=S, B=B, P=P), prm))
         v_gt = metab_dfree_onlyA_flux(kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
+        @test isfinite(ER._kcat_forward(metabD, prm))
     end
 end
 
@@ -543,26 +542,28 @@ end
 
 # ── The gate: a metabolite inside D[g_free] at zero concentration ─────────────
 # When D[g_free] carries a metabolite, the derivation must handle that metabolite
-# going to zero correctly, and the two cases behave differently. A dead-inactive
-# :OnlyA mechanism (D_I ∝ B) traps the enzyme when B = 0 — the inactive S-bound
-# form is a dead-end with no escape, so all enzyme drains there and v → 0. A
-# productive :NonequalAI mechanism keeps D finite (a bare koff term survives), so
-# the reverse flux stays nonzero. Both are checked against the ground truth.
+# going to zero correctly. Both mechanisms here keep a finite free-enzyme weight
+# at B = 0: the active steady-state S/A-binding leaves a bare koff term in
+# D[g_free], so a reverse path from product back to free enzyme stays open and the
+# reverse flux is nonzero. The :OnlyA metabolite-D mechanism and the productive
+# :NonequalAI mechanism both retain surviving reverse flux at B = 0. Both are
+# checked against the ground truth.
 @testset "metabolite in D[g_free] at zero concentration" begin
     metabD = @allosteric_mechanism begin
         substrates: S, B ; products: P ; catalytic_multiplicity: 1
         catalytic_steps: begin
             E + S <--> E(S) :: OnlyA ; E(S) + B ⇌ E(S, B) :: EqualAI
-            E(S, B) <--> E(P) :: EqualAI ; E + P ⇌ E(P) :: EqualAI
+            E(S, B) <--> E(P) :: OnlyA ; E + P ⇌ E(P) :: EqualAI
         end
     end
-    fp = ER.fitted_params(metabD)   # (:K_P_E,:kon_A_S_E,:koff_A_S_E,:k_EBS_to_EP,:K_B_ES,:L)
+    fp = ER.fitted_params(metabD)   # (:K_P_E,:kon_A_S_E,:koff_A_S_E,:k_A_EBS_to_EP,:K_B_ES,:L)
     kon, koff, KP, KB, k, L, Keq, S, P = 1.7, 1.1, 0.9, 0.8, 2.1, 0.7, 3.0, 1.1, 0.6
     prm = NamedTuple{(fp..., :Keq, :E_total)}((KP, kon, koff, k, KB, L, Keq, 1.0))
     v0 = real(ER.rate_equation(metabD, (S=S, B=0.0, P=P), prm))
     @test isapprox(v0,
-        metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P); atol=1e-9)
-    @test isapprox(v0, 0.0; atol=1e-9)                       # dead inactive traps at B = 0
+        metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P); rtol=1e-4)
+    @test v0 < 0    # reverse flux survives at B=0 (invalid :EqualAI-cat trap→0 was fake)
+    @test isfinite(ER._kcat_forward(metabD, prm))
 
     allo = @allosteric_mechanism begin
         substrates: A, B ; products: P ; catalytic_multiplicity: 1
