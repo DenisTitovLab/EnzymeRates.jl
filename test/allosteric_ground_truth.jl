@@ -592,12 +592,6 @@ end
 # four-segment residual-bearing King–Altman and that the normalization collapses
 # correctly for identical conformations: an all-:EqualAI ping-pong must equal the
 # non-allosteric ping-pong and be independent of L.
-#
-# DEFERRED: a full L-dependent free-flip ground truth for a :NonequalAI ping-pong
-# (which would exercise the cross-weight with D_A ≠ D_I) is not built here. The
-# blocker is the ping-pong parameter-name mapping to a hand-built eight-form
-# network, not the physics; the formulation-1 combine is topology-agnostic and is
-# validated on the four networks above (including the productive :NonequalAI one).
 @testset "allosteric ping-pong self-consistency" begin
     nonallo = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q
@@ -630,6 +624,203 @@ end
                 ((s === :L ? L : vals[s] for s in fpa)..., Keq, 1.0))
             @test isapprox(real(ER.rate_equation(alloEq, concs, pa)), vn; rtol=1e-6)
         end
+    end
+end
+
+# ── Two-conformation ping-pong bi-bi network (formulation 1) ─────────────────
+# Ping-pong has TWO empty-bound forms — free E and the covalent intermediate F
+# (`E(; residual = A - P)`). Only free E flips; F does not. The E_A<->E_I edge is
+# therefore the ONLY cut between the two conformation subnetworks, so at steady
+# state it carries zero net flux and E_I/E_A sits at exactly L for ANY FAST — the
+# fast-flip limit is exact for this topology rather than a large-FAST limit. Each
+# conformation turns its own four-form cycle (E, EA, F, FB), coupled only through
+# the shared free-enzyme pool.
+#
+# Thermodynamics pins ONE combination per conformation, not one per half-reaction.
+# Detailed balance around the closed cycle E → EA → F → FB → E requires
+#   (kon_A·A/koff_A)·(k_P/(koff_P·P))·(kon_B·B/koff_B)·(k_Q/(koff_Q·Q)) = 1
+# at the equilibrium ratio P·Q/(A·B) = Keq, i.e. the overall Haldane relation
+#   kon_A·k_P·kon_B·k_Q = Keq · koff_A·koff_P·koff_B·koff_Q,
+# matching the numerator of Segel Eq. IX-140 (k1f·k2f·k3f·k4f·A·B −
+# k1r·k2r·k3r·k4r·P·Q). The two half-reactions' equilibrium constants are NOT
+# separately fixed — only their product is — so exactly one reverse constant per
+# conformation is dependent. `koff_A` (shared, :EqualAI) closes the active cycle;
+# `koff_P_I` then closes the inactive one against that same `koff_A`.
+function pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B;
+        k_P_A, koff_P_A, k_Q_A, koff_Q_A, k_P_I, k_Q_I, koff_Q_I,
+        L, Keq, A, B, P, Q, FAST=1e7)
+    koff_A   = kon_A * k_P_A * kon_B * k_Q_A / (Keq * koff_P_A * koff_B * koff_Q_A)
+    koff_P_I = kon_A * k_P_I * kon_B * k_Q_I / (Keq * koff_A * koff_B * koff_Q_I)
+    species = [:E_A, :EA_A, :F_A, :FB_A, :E_I, :EA_I, :F_I, :FB_I]
+    edges = Tuple{Symbol,Symbol,Float64}[]
+    cat_edges = Tuple{Symbol,Symbol,Float64,Float64}[]
+    for (c, k_P, koff_P, k_Q, koff_Q) in ((:A, k_P_A, koff_P_A, k_Q_A, koff_Q_A),
+                                          (:I, k_P_I, koff_P_I, k_Q_I, koff_Q_I))
+        e, ea = Symbol(:E_, c), Symbol(:EA_, c)
+        f, fb = Symbol(:F_, c), Symbol(:FB_, c)
+        append!(edges, [
+            (e, ea, kon_A * A), (ea, e, koff_A),          # E + A ⇌ EA
+            (ea, f, k_P), (f, ea, koff_P * P),            # EA ⇌ F + P
+            (f, fb, kon_B * B), (fb, f, koff_B),          # F + B ⇌ FB
+            (fb, e, k_Q), (e, fb, koff_Q * Q),            # FB ⇌ E + Q
+        ])
+        push!(cat_edges, (ea, f, k_P, koff_P * P))        # net flux across the P cut
+    end
+    push!(edges, (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST))   # only free enzyme flips
+    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+end
+
+# `test/mechanism_definitions_for_test_enzyme_derivation.jl:328` transcribes this
+# same Segel formula, and both transcriptions are live. Keep them independent
+# rather than sharing one: a shared transcription error would green this gate and
+# that one at once, whereas two independent transcriptions cross-check each other.
+# Sharing would also couple this gate to the MECHANISM_TEST_SPECS fixture, whose
+# copy takes `(params::NamedTuple, concs::NamedTuple)` with an `Etotal` rather
+# than the 12 positional scalars this one takes.
+"Segel Eq. IX-140 ping-pong bi-bi rate: E + A ⇌ EA ⇌ F + P; F + B ⇌ FB ⇌ E + Q."
+function segel_pingpong_flux(k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, A, B, P, Q)
+    num = k1f*k2f*k3f*k4f*A*B - k1r*k2r*k3r*k4r*P*Q
+    den = k1f*k2f*(k3r+k4f)*A + k3f*k4f*(k1r+k2f)*B +
+          k1r*k2r*(k3r+k4f)*P + k3r*k4r*(k1r+k2f)*Q +
+          k1f*k3f*(k2f+k4f)*A*B + k1f*k2r*(k3r+k4f)*A*P +
+          k3f*k4r*(k1r+k2f)*B*Q + k2r*k4r*(k1r+k3r)*P*Q
+    num / den
+end
+
+# ── Ping-pong ground-truth harness self-validation ───────────────────────────
+# (d) is the load-bearing one: FAST-invariance is exact physics for this topology
+# (the free-enzyme flip is the only cut, so it carries zero net flux), and it is
+# what licenses the tight gate below. (a) anchors the network against an
+# independent closed form rather than another network solve.
+@testset "ping-pong free-flip ground-truth harness self-validation" begin
+    rng = MersenneTwister(20260716)
+    for _ in 1:4
+        kon_A = 0.5+2rand(rng); kon_B = 0.5+2rand(rng); koff_B = 0.5+2rand(rng)
+        k_P_A = 0.5+2rand(rng); koff_P_A = 0.5+2rand(rng)
+        k_Q_A = 0.5+2rand(rng); koff_Q_A = 0.5+2rand(rng)
+        k_P_I = 0.5+2rand(rng); k_Q_I = 0.5+2rand(rng); koff_Q_I = 0.5+2rand(rng)
+        L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
+        A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
+        act = (k_P_A=k_P_A, koff_P_A=koff_P_A, k_Q_A=k_Q_A, koff_Q_A=koff_Q_A)
+        ina = (k_P_I=k_P_I, k_Q_I=k_Q_I, koff_Q_I=koff_Q_I)
+
+        # (a) L = 0 : inactive unpopulated → the active-only ping-pong, checked
+        #     against the Segel closed form. `koff_A` is the dependent reverse
+        #     constant the Haldane fixes; Segel's k1r is that same constant.
+        koff_A = kon_A*k_P_A*kon_B*k_Q_A / (Keq*koff_P_A*koff_B*koff_Q_A)
+        f0 = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., ina...,
+            L=0.0, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        @test isapprox(f0, segel_pingpong_flux(kon_A, koff_A, k_P_A, koff_P_A,
+            kon_B, koff_B, k_Q_A, koff_Q_A, A, B, P, Q); rtol=1e-9)
+
+        # (b) identical conformations → the active-only rate, independent of L.
+        same = (k_P_I=k_P_A, k_Q_I=k_Q_A, koff_Q_I=koff_Q_A)
+        fe = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., same...,
+            L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        fe5 = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., same...,
+            L=5.0, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        @test isapprox(fe, f0; rtol=1e-9)
+        @test isapprox(fe, fe5; rtol=1e-9)
+
+        # (c) v = 0 at the equilibrium metabolite ratio P·Q/(A·B) = Keq. Both
+        #     conformations are live and unequal, so this pins both Haldanes.
+        Qeq = Keq * A * B / P
+        @test abs(pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act...,
+            ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Qeq)) < 1e-9
+
+        # (d) FAST-invariance: the free-enzyme flip is the only cut between the
+        #     conformation subnetworks, so it carries zero net flux and E_I/E_A is
+        #     exactly L for any FAST. The fast-flip limit is therefore exact here.
+        v_live = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., ina...,
+            L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        for fast in (1e2, 1e12)
+            @test isapprox(v_live, pingpong_nonequalAI_freeflip_flux(kon_A, kon_B,
+                koff_B; act..., ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Q, FAST=fast);
+                rtol=1e-9)
+        end
+
+        # (e) a live inactive conformation must move the flux, or the gate below
+        #     would pass without ever exercising the cross term.
+        @test !isapprox(v_live, f0; rtol=1e-3)
+    end
+end
+
+# ── The gate: :NonequalAI ping-pong matches mass-action ground truth ──────────
+# The two empty-bound forms (free E and the covalent F) are what a cross-weighted
+# combine must get right: only E flips, so the derivation must normalize the two
+# conformations on the free-enzyme segment alone and leave F out of the flip. Both
+# catalytic steps are :NonequalAI, so both conformations turn a productive cycle
+# with different rate constants (D_A ≠ D_I) and the cross term is live. The gate
+# goes red if the derivation flips F, reverts to the raw Q_A + L·Q_I combine, or
+# mis-renders the normalization. Only the raw-combine mode has a measured margin:
+# against a per-form-flip (formulation-2) oracle it deviates 0.95%-93% from the
+# derivation, orders of magnitude above the 1e-10 tolerance below.
+#
+# Because the free-enzyme flip is the only cut, the combine is algebraically exact
+# here rather than a large-FAST limit, so this gate runs far tighter than the 1e-4
+# gates above. Measured: the derivation tracks the oracle to 2.7e-13 worst case
+# over 300 random draws, and to 2.2e-15 against the same oracle solved in
+# BigFloat — the derivation is exact to a few ulp, and the Float64 residual is the
+# oracle's own linear solve, whose FAST-invariance (exact physics) itself only
+# holds to 1.3e-13. rtol 1e-10 clears that noise floor with three orders to spare
+# and is still seven orders tighter than any real error mode.
+@testset ":NonequalAI ping-pong MWC derivation matches mass-action ground truth" begin
+    allo = @allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A <--> E(A)                                       :: EqualAI
+            E(A) <--> E(; residual = A - P) + P                   :: NonequalAI
+            E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
+            E(B; residual = A - P) <--> E + Q                     :: NonequalAI
+        end
+    end
+    fp = ER.fitted_params(allo)
+    @test fp == (:kon_A_E, :kon_A_P_EA, :koff_A_P_EA,
+                 Symbol("kon_A_Q_EB_res_+A_-P"), Symbol("koff_A_Q_EB_res_+A_-P"),
+                 Symbol("kon_B_E_res_+A_-P"), Symbol("koff_B_E_res_+A_-P"),
+                 :kon_I_P_EA, Symbol("kon_I_Q_EB_res_+A_-P"),
+                 Symbol("koff_I_Q_EB_res_+A_-P"), :L)
+
+    rng = MersenneTwister(20260716)
+    for _ in 1:6
+        kon_A = 0.5+2rand(rng); kon_B = 0.5+2rand(rng); koff_B = 0.5+2rand(rng)
+        k_P_A = 0.5+2rand(rng); koff_P_A = 0.5+2rand(rng)
+        k_Q_A = 0.5+2rand(rng); koff_Q_A = 0.5+2rand(rng)
+        k_P_I = 0.5+2rand(rng); k_Q_I = 0.5+2rand(rng); koff_Q_I = 0.5+2rand(rng)
+        L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
+        A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
+        # Map fitted_params -> ground-truth params. On a release step the
+        # canonical direction runs E(A) → F + P, so `kon_…` is the forward
+        # (product-releasing) rate and `koff_…` the reverse (product-rebinding)
+        # one — the binding steps read the usual way round.
+        #   kon_A_E=kon_A                                (E + A ⇌ EA, shared)
+        #   kon_B_E_res_+A_-P=kon_B, koff_B_E_res_+A_-P=koff_B  (F + B ⇌ FB, shared)
+        #   kon_A_P_EA=k_P_A, koff_A_P_EA=koff_P_A       (EA ⇌ F + P, active)
+        #   kon_I_P_EA=k_P_I                             (EA ⇌ F + P, inactive)
+        #   kon_A_Q_EB_res_+A_-P=k_Q_A,
+        #   koff_A_Q_EB_res_+A_-P=koff_Q_A               (FB ⇌ E + Q, active)
+        #   kon_I_Q_EB_res_+A_-P=k_Q_I,
+        #   koff_I_Q_EB_res_+A_-P=koff_Q_I               (FB ⇌ E + Q, inactive)
+        # `koff_A_E` and `koff_I_P_EA` are absent from fitted_params: each
+        # conformation's Haldane makes one reverse constant dependent, and the
+        # oracle derives exactly those two.
+        d = Dict(:kon_A_E => kon_A,
+                 Symbol("kon_B_E_res_+A_-P") => kon_B,
+                 Symbol("koff_B_E_res_+A_-P") => koff_B,
+                 :kon_A_P_EA => k_P_A, :koff_A_P_EA => koff_P_A,
+                 Symbol("kon_A_Q_EB_res_+A_-P") => k_Q_A,
+                 Symbol("koff_A_Q_EB_res_+A_-P") => koff_Q_A,
+                 :kon_I_P_EA => k_P_I,
+                 Symbol("kon_I_Q_EB_res_+A_-P") => k_Q_I,
+                 Symbol("koff_I_Q_EB_res_+A_-P") => koff_Q_I,
+                 :L => L)
+        prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
+        v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P, Q=Q), prm))
+        v_gt = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B;
+            k_P_A=k_P_A, koff_P_A=koff_P_A, k_Q_A=k_Q_A, koff_Q_A=koff_Q_A,
+            k_P_I=k_P_I, k_Q_I=k_Q_I, koff_Q_I=koff_Q_I,
+            L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        @test isapprox(v_code, v_gt; rtol=1e-10)
     end
 end
 
@@ -680,5 +871,292 @@ end
         nonallo = (k * S / KS - (k * KP / (Keq * KS)) * P / KP) / (1 + S / KS + P / KP)
         @test isapprox(inert_inactive_flux(; KS=KS, KP=KP, k=k, L=0.0, Keq=Keq, S=S, P=P),
                        nonallo; rtol=1e-4)
+    end
+end
+
+# ── The gate: a ping-pong :OnlyA I-state must keep a reachable free-enzyme root ──
+# A covalent intermediate carries no bound metabolite but does carry a residual.
+# Seeding I-state reachability from it makes the pruned inactive graph retain a
+# covalent island that free E cannot reach, so no spanning tree rooted at free E
+# exists and D[g_free] = 0 — the normalization then divides by zero and
+# `rate_equation` is NaN at every concentration. Under formulation 1 only free
+# enzyme flips, so a component free E cannot reach holds no inactive mass and
+# must be stranded. The mechanism below is accepted by the `:OnlyA`
+# thermodynamic guard — it is valid, and the derivation must handle it.
+@testset "ping-pong :OnlyA I-state keeps a reachable free-enzyme root" begin
+    err1 = @allosteric_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + ATP ⇌ E(ATP)                                                      :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: EqualAI
+            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+        end
+    end
+    am = ER.AllostericMechanism(err1)
+    @test ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am),
+                                      ER.cat_allo_states(am)) === nothing
+
+    _, _, d_free_I = ER._state_rate_polys(am, :I)
+    @test !isempty(d_free_I)
+
+    fp = ER.fitted_params(err1)
+    prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
+    concs = (ATP = 1.1, F6P = 0.7, ADP = 0.6, F16BP = 0.9)
+    @test isfinite(real(ER.rate_equation(err1, concs, prm)))
+    @test isfinite(ER._kcat_forward(err1, prm))
+end
+
+# ── n-protomer concerted-MWC oracle (formulation 1) ─────────────────────────
+# Concerted: all protomers share one conformation. Within a conformation the
+# protomers are independent, so the joint occupancy state is a tuple. Only the
+# FULLY-unliganded oligomer flips (`freeflip=true`) — the n-protomer extension
+# of the free-flip-only model this package derives. `freeflip=false` flips every
+# joint state (the classic per-form-flip MWC, formulation 2) and is kept ONLY as
+# a discriminator: it must NOT match the derivation.
+const OCC = (:E, :EA, :EAB, :EP)
+
+function biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP; k_A, k_I, L, Keq,
+                                 A, B, P, FAST=1e7, freeflip=true)
+    krA = k_A * kon * KP / (koff * KB * Keq)
+    krI = k_I * kon * KP / (koff * KB * Keq)
+    prot_edges(kX, krX) = [
+        (:E, :EA, kon * A), (:EA, :E, koff),
+        (:EA, :EAB, FAST * B / KB), (:EAB, :EA, FAST),
+        (:E, :EP, FAST * P / KP), (:EP, :E, FAST),
+        (:EAB, :EP, kX), (:EP, :EAB, krX),
+    ]
+    tbl = Dict(:A => prot_edges(k_A, krA), :I => prot_edges(k_I, krI))
+    catrate = Dict(:A => (k_A, krA), :I => (k_I, krI))
+
+    occs = collect(Iterators.product(ntuple(_ -> OCC, nprot)...))
+    sp(conf, o) = Symbol(conf, "_", join(o, "_"))
+    species = Symbol[sp(conf, o) for conf in (:A, :I) for o in occs]
+    setidx(o, i, v) = ntuple(j -> j == i ? v : o[j], length(o))
+
+    edges = Tuple{Symbol,Symbol,Float64}[]
+    cat_edges = Tuple{Symbol,Symbol,Float64,Float64}[]
+    for conf in (:A, :I), o in occs, i in 1:nprot
+        for (f, t, r) in tbl[conf]
+            o[i] == f || continue
+            push!(edges, (sp(conf, o), sp(conf, setidx(o, i, t)), r))
+        end
+        if o[i] == :EAB
+            kf, kr = catrate[conf]
+            push!(cat_edges, (sp(conf, o), sp(conf, setidx(o, i, :EP)), kf, kr))
+        end
+    end
+    empty_o = ntuple(_ -> :E, nprot)
+    if freeflip
+        push!(edges, (sp(:A, empty_o), sp(:I, empty_o), FAST * L))
+        push!(edges, (sp(:I, empty_o), sp(:A, empty_o), FAST))
+    else
+        for o in occs
+            push!(edges, (sp(:A, o), sp(:I, o), FAST * L))
+            push!(edges, (sp(:I, o), sp(:A, o), FAST))
+        end
+    end
+    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+end
+
+# Self-validation. Check (c) is the load-bearing one: it pins the oracle to
+# formulation 1. Checks (a)/(b) pass for BOTH formulations and so cannot
+# distinguish them on their own.
+@testset "concerted-MWC oligomer oracle self-validation" begin
+    rng = MersenneTwister(11)
+    for nprot in (1, 2, 3), _ in 1:3
+        kon = 0.5+2rand(rng); koff = 0.5+2rand(rng)
+        KB = 0.5+2rand(rng); KP = 0.5+2rand(rng)
+        kA = 0.5+2rand(rng); kI = 0.5+2rand(rng); Keq = 2.0+2rand(rng)
+        A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng)
+        L = 0.5+rand(rng)
+        base = metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
+
+        # (a) L = 0 : inactive unpopulated -> nprot x the single-protomer rate.
+        @test isapprox(biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P),
+            nprot * base; rtol=1e-4)
+
+        # (b) k_I = k_A : conformations identical -> L-independent.
+        f1 = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kA, L=L, Keq=Keq, A=A, B=B, P=P)
+        f5 = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kA, L=5.0, Keq=Keq, A=A, B=B, P=P)
+        @test isapprox(f1, nprot * base; rtol=1e-4)
+        @test isapprox(f1, f5; rtol=1e-4)
+
+        # (d) v = 0 at the equilibrium metabolite ratio.
+        Peq = Keq * A * B
+        @test abs(biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=Peq)) < 1e-6
+    end
+
+    # (e) a live inactive conformation must move the flux, or the gate below
+    #     would pass without ever exercising the cross term.
+    v_live = biuni_mwc_oligomer_flux(2, 1.7, 1.1, 0.8, 0.9;
+            k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
+    v_dead = biuni_mwc_oligomer_flux(2, 1.7, 1.1, 0.8, 0.9;
+            k_A=2.5, k_I=0.0, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
+    @test !isapprox(v_live, v_dead; rtol=1e-3)
+
+    # (c) THE formulation-1 pin: at nprot = 1 the oracle must reproduce the
+    #     established free-flip reference, and must NOT equal the per-form-flip
+    #     model. Without this, a formulation-2 oracle would pass (a), (b) and (d)
+    #     and then disagree with the derivation by 0.1-3% for live :NonequalAI —
+    #     a real number that is not a bug.
+    args = (1.7, 1.1, 0.8, 0.9)
+    kw = (k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
+    @test isapprox(biuni_mwc_oligomer_flux(1, args...; kw...),
+                   biuni_nonequalAI_freeflip_flux(args...; kw...); rtol=1e-4)
+    @test !isapprox(biuni_mwc_oligomer_flux(1, args...; freeflip=false, kw...),
+                    biuni_nonequalAI_freeflip_flux(args...; kw...); rtol=1e-4)
+end
+
+# ── The gate: the ^n combine with a LIVE inactive numerator ─────────────────
+# `:OnlyA` always yields a dead inactive cycle (the guard forces an `:OnlyA`
+# catalytic tag alongside an `:OnlyA` binding), so the numerator cross term
+# `L*N_I*D_I^(n-1)` is live only for `:NonequalAI`. This is the only gate that
+# exercises it, and the only mass-action gate at n >= 2 for any family.
+@testset ":NonequalAI ^n cross term matches multi-protomer ground truth" begin
+    rng = MersenneTwister(20260716)
+    for nprot in (2, 3)
+        allo = nprot == 2 ?
+            @allosteric_mechanism(begin
+                substrates: A, B ; products: P ; catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + A <--> E(A)        :: EqualAI
+                    E(A) + B ⇌ E(A, B)     :: EqualAI
+                    E(A, B) <--> E(P)      :: NonequalAI
+                    E + P ⇌ E(P)           :: EqualAI
+                end
+            end) :
+            @allosteric_mechanism(begin
+                substrates: A, B ; products: P ; catalytic_multiplicity: 3
+                catalytic_steps: begin
+                    E + A <--> E(A)        :: EqualAI
+                    E(A) + B ⇌ E(A, B)     :: EqualAI
+                    E(A, B) <--> E(P)      :: NonequalAI
+                    E + P ⇌ E(P)           :: EqualAI
+                end
+            end)
+        fp = ER.fitted_params(allo)
+        @test fp == (:kon_A_E, :koff_A_E, :K_P_E, :K_B_EA,
+                     :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
+        for _ in 1:6
+            kon = 0.5+2rand(rng); koff = 0.5+2rand(rng)
+            KP = 0.5+2rand(rng); KB = 0.5+2rand(rng)
+            kA = 0.5+2rand(rng); kI = 0.5+2rand(rng)
+            L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
+            A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng)
+            d = Dict(:kon_A_E=>kon, :koff_A_E=>koff, :K_P_E=>KP, :K_B_EA=>KB,
+                     :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
+            prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
+            # `rate_equation` is per active site; the oracle is per oligomer.
+            v_code = nprot * real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
+            v_gt = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=P)
+            @test isapprox(v_code, v_gt; rtol=1e-4)
+        end
+    end
+end
+
+# ── The gate: dead-inactive ping-pong :OnlyA (all chemical steps :OnlyA) ──────
+# A ping-pong bi-bi where the F6P substrate binding is :OnlyA and BOTH chemical
+# (isomerisation) steps are :OnlyA. That combination makes the inactive
+# conformation catalytically dead: dropping the :OnlyA iso groups strands the
+# covalent-intermediate branch, so the inactive graph collapses to the free
+# enzyme plus its rapid-equilibrium ATP and ADP bindings. Its free-enzyme weight
+# is therefore the bare constant d_free_I = 1 and it contributes only L·Q_I (no
+# flux) to the denominator. The multi-chemical-step :OnlyA form the enumeration
+# must feed: the derivation admits it, keeps a finite rate as a product goes to
+# zero (no covalent sink), and yields a finite positive kcat.
+@testset "dead-inactive ping-pong :OnlyA derivation" begin
+    dead = @allosteric_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + ATP ⇌ E(ATP)                                                      :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
+            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+        end
+    end
+    afp = ER.fitted_params(dead)
+    @test afp == (:K_ADP_E, :K_ATP_E, Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP"),
+                  Symbol("Kiso_A_EF6P_res_+ATP_-F16BP_to_EADP"),
+                  Symbol("K_F16BP_E_res_+ATP_-F16BP"),
+                  Symbol("K_A_F6P_E_res_+ATP_-F16BP"), :L)
+
+    am = ER.AllostericMechanism(dead)
+    @test ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am),
+                                      ER.cat_allo_states(am)) === nothing
+    _, _, d_free_I = ER._state_rate_polys(am, :I)
+    @test ER._poly_to_expr(d_free_I, Set{Symbol}(), Set{Symbol}()) == 1
+
+    # Non-allosteric twin: the SAME six steps with no allosteric tags. At L = 0 the
+    # inactive conformation is unpopulated, so the allosteric rate must reduce to
+    # this twin's rate — an independent re-derivation through the non-allosteric
+    # King–Altman path. Map allo params -> twin params: the three :EqualAI bindings
+    # (K_ADP_E, K_ATP_E, K_F16BP_E_res_…) share names; the three :OnlyA A-tagged
+    # params drop the "A_" tag (k_A_EATP…→k_EATP…, Kiso_A_EF6P…→Kiso_EF6P…,
+    # K_A_F6P…→K_F6P…).
+    nonallo = @enzyme_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        steps: begin
+            E + ATP ⇌ E(ATP)
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)
+            E + ADP ⇌ E(ADP)
+        end
+    end
+    nfp = ER.fitted_params(nonallo)
+    allo_to_twin = Dict(
+        Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP") =>
+            Symbol("k_EATP_to_EF16BP_res_+ATP_-F16BP"),
+        Symbol("Kiso_A_EF6P_res_+ATP_-F16BP_to_EADP") =>
+            Symbol("Kiso_EF6P_res_+ATP_-F16BP_to_EADP"),
+        Symbol("K_A_F6P_E_res_+ATP_-F16BP") =>
+            Symbol("K_F6P_E_res_+ATP_-F16BP"))
+    twin_of(s) = get(allo_to_twin, s, s)
+
+    rng = MersenneTwister(20260717)
+    for _ in 1:6
+        vals = Dict(s => 0.5 + 2rand(rng) for s in nfp)
+        Keq = 2.0 + 2rand(rng)
+        ATP = 0.5+2rand(rng); F6P = 0.5+2rand(rng)
+        ADP = 0.5+2rand(rng); F16BP = 0.5+2rand(rng)
+        concs = (ATP=ATP, F6P=F6P, ADP=ADP, F16BP=F16BP)
+        prm = NamedTuple{(afp..., :Keq, :E_total)}(
+            ((s === :L ? 0.7 : vals[twin_of(s)] for s in afp)..., Keq, 1.0))
+
+        # rate finite at a normal point AND as F16BP -> 0 (the no-sink check: a
+        # dead inactive conformation must not strand enzyme in a covalent form).
+        @test isfinite(real(ER.rate_equation(dead, concs, prm)))
+        @test isfinite(real(ER.rate_equation(dead,
+            (ATP=ATP, F6P=F6P, ADP=ADP, F16BP=1e-8), prm)))
+        kcat = ER._kcat_forward(dead, prm)
+        @test isfinite(kcat) && kcat > 0
+
+        # v = 0 at the equilibrium metabolite ratio ADP·F16BP = Keq·ATP·F6P.
+        @test isapprox(real(ER.rate_equation(dead,
+            (ATP=ATP, F6P=F6P, ADP=Keq*ATP*F6P/F16BP, F16BP=F16BP), prm)),
+            0.0; atol=1e-8)
+
+        # L = 0 cross-check: the allosteric rate reduces to the non-allosteric twin.
+        pn = NamedTuple{(nfp..., :Keq, :E_total)}(((vals[s] for s in nfp)..., Keq, 1.0))
+        p0 = NamedTuple{(afp..., :Keq, :E_total)}(
+            ((s === :L ? 0.0 : vals[twin_of(s)] for s in afp)..., Keq, 1.0))
+        @test isapprox(real(ER.rate_equation(dead, concs, p0)),
+                       real(ER.rate_equation(nonallo, concs, pn)); rtol=1e-4)
     end
 end

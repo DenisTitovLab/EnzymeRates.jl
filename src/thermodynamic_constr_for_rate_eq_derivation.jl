@@ -396,6 +396,75 @@ function _assemble_constraints(
 end
 
 """
+Basis of `{x : M·x = 0}` as the COLUMNS of the returned matrix. Exact
+Gauss-Jordan over the rationals; each non-pivot (free) column yields one basis
+vector.
+"""
+function _rational_nullspace(M::AbstractMatrix{Rational{BigInt}})
+    A = copy(M)
+    m, n = size(A)
+    pivots = Int[]
+    r = 1
+    for c in 1:n
+        r > m && break
+        p = findfirst(i -> A[i, c] != 0, r:m)
+        p === nothing && continue
+        p += r - 1
+        A[[r, p], :] = A[[p, r], :]
+        A[r, :] = A[r, :] ./ A[r, c]
+        for i in 1:m
+            (i == r || A[i, c] == 0) && continue
+            A[i, :] = A[i, :] .- A[i, c] .* A[r, :]
+        end
+        push!(pivots, c)
+        r += 1
+    end
+    free = setdiff(1:n, pivots)
+    N = zeros(Rational{BigInt}, n, length(free))
+    for (k, f) in enumerate(free)
+        N[f, k] = 1
+        for (i, c) in enumerate(pivots)
+            N[c, k] = -A[i, f]
+        end
+    end
+    N
+end
+
+"""
+True when some `y` makes every row of `N·y` strictly positive — i.e. the open
+cone `{y : N·y > 0}` is nonempty. Exact Fourier-Motzkin elimination: to drop
+variable `v`, every (positive, negative) row pair is combined with positive
+coefficients, which preserves strictness; a row that reduces to all-zero
+encodes `0 > 0` and refutes the system. Returns `nothing` if elimination blows
+up, so the caller can fall back to the sound per-row test rather than error on
+the enumeration hot path.
+"""
+function _has_strict_positive_combination(N::AbstractMatrix{Rational{BigInt}})
+    d = size(N, 2)
+    d == 0 && return false
+    rows = [collect(N[i, :]) for i in axes(N, 1)]
+    for v in d:-1:1
+        pos = [r for r in rows if r[v] > 0]
+        neg = [r for r in rows if r[v] < 0]
+        nxt = [r for r in rows if r[v] == 0]
+        length(nxt) + length(pos) * length(neg) > 4000 && return nothing
+        for p in pos, q in neg
+            push!(nxt, p .* (-q[v]) .+ q .* p[v])
+        end
+        any(r -> all(iszero, r), nxt) && return false
+        rows = nxt
+    end
+    true
+end
+
+_onlya_violation_message(offenders) =
+    "an :OnlyA binding ($(join(offenders, ", "))) leaves a " *
+    "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the " *
+    "inactive conformation cannot close that cycle at finite nonzero " *
+    "affinity. Tag the cycle's chemical step :OnlyA, or tag an " *
+    "opposing binding :OnlyA so the affinities diverge together."
+
+"""
     _onlya_haldane_violation(rxn, cat_steps, cat_allo_states)
         → Union{Nothing, String}
 
@@ -404,7 +473,7 @@ stays satisfiable under the `K_I = K_A/ε`, `ε → 0⁺` limit an `:OnlyA` bind
 asserts; otherwise return a message naming the offending `:OnlyA` bindings.
 
 A cycle's Haldane carries `∏ε_p/∏ε_s` on the inactive side. The `ε` are
-independent, so that monomial can be held finite exactly when its exponents
+independent, so that monomial can be held finite only when its exponents
 carry both signs. All-same-sign drives it to `0` or `∞`; the only thing that
 absorbs the imbalance is a free inactive catalytic ratio `k_I_f/k_I_r`. An
 `:OnlyA` catalytic tag supplies exactly that — its rate constants vanish from
@@ -418,15 +487,16 @@ sites) never enter a row and take no part. Both catalytic (Haldane) and
 binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
 `:OnlyA` binding on a pure random-order binding square is caught.
 
-The per-row sign test is a sufficient rejection condition, not a complete one:
-it flags a cycle only when that single row's `:OnlyA` exponents are all one
-sign. A genuinely-complete test asks whether the coupled `ε`-exponent system has
-a strictly-positive nullspace vector (Stiemke feasibility). The two agree for
-every random-order mechanism up to bi-bi; from ter-substrate up, a multi-cycle
-coupled inconsistency can pass this per-row check. Such a mechanism is still
-derived correctly — `:OnlyA` deletes the offending edges, so the rate law is
-that of a consistent subgraph — so the gap is a checker-completeness contract
-issue, not a wrong-equation one.
+The verdict comes from two stages. The per-row sign test runs first: it flags a
+cycle whose single row's `:OnlyA` exponents are all one sign, which forces a sum
+of same-signed positive terms to vanish and so is a sound rejection. It is cheap
+and keeps the common rejections on the fast path, but it reads one row at a time
+and a multi-cycle coupled inconsistency passes it. The complete condition
+follows: writing `ε_p = δ^{w_p}`, every cycle's monomial is finite nonzero for
+some `δ → 0⁺` exactly when the coupled `ε`-exponent system admits a
+strictly-positive nullspace vector, `M·w = 0` with `w > 0` (Stiemke
+feasibility). The two stages agree for every random-order mechanism up to bi-bi;
+they part from ter-substrate up.
 
 An RE binding carries the cycle exponent on its `Kd` column, already sign-flipped
 against the cycle's `1/Kd` product, while an SS binding carries it on `Kon`
@@ -467,6 +537,9 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
             (onlyA_cols[sym_col[sym]] = is_equilibrium(s) ? -1 : 1)
     end
     isempty(onlyA_cols) && return nothing
+    # Per-row sign test first: sound (an all-one-sign row forces a sum of
+    # same-signed positive terms to vanish) and cheap, so it keeps the common
+    # rejections on the fast path.
     for i in axes(A, 1)
         signs = Set{Int}()
         for (c, mult) in onlyA_cols
@@ -476,13 +549,22 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
         length(signs) == 1 || continue
         offenders = sort!([string(columns[c]) for c in keys(onlyA_cols)
                            if A[i, c] != 0])
-        return "an :OnlyA binding ($(join(offenders, ", "))) leaves a " *
-               "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the " *
-               "inactive conformation cannot close that cycle at finite nonzero " *
-               "affinity. Tag the cycle's chemical step :OnlyA, or tag an " *
-               "opposing binding :OnlyA so the affinities diverge together."
+        return _onlya_violation_message(offenders)
     end
-    nothing
+
+    # The complete condition: the `ε` exponents must admit a strictly-positive
+    # solution of `M·w = 0` (Stiemke feasibility). The per-row test above only
+    # inspects one row at a time, so from ter-substrate up a multi-cycle coupled
+    # inconsistency passes it. `nothing` from the cone test means elimination
+    # blew up; fall back to the per-row verdict (sound, just incomplete) rather
+    # than reject a mechanism we could not decide.
+    cols = sort!(collect(keys(onlyA_cols)))
+    M = Rational{BigInt}[onlyA_cols[c] * A[i, c] for i in axes(A, 1), c in cols]
+    N = _rational_nullspace(M)
+    feasible = _has_strict_positive_combination(N)
+    feasible === nothing && return nothing
+    feasible && return nothing
+    return _onlya_violation_message(sort!([string(columns[c]) for c in cols]))
 end
 
 """

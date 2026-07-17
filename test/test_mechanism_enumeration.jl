@@ -2851,26 +2851,24 @@ end
 
         result = EnzymeRates._expand_to_allosteric(m, bi_bi_allo_rxn)
 
-        # 1. count: each of the 4 bindings is promoted :OnlyA and closed over
-        # its minimal Haldane completions — promote the chemical step
-        # (k_I = 0, the inactive cycle drops) OR promote an opposing-side
-        # binding (a balanced pair). That is 4 chemical-step-paired + 4
-        # balanced pairs (2 substrate × 2 product), deduplicated → 8.
+        # 1. count: every non-empty subset of the 4 binding groups is set
+        # :OnlyA, each with the chemical step also :OnlyA (a catalytically-dead
+        # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
         n_groups = length(m.steps)
         n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
         @test n_cat == 1
-        @test length(result) == 8
+        @test length(result) == 15
 
         # 2. Δ params: every variant is +1 — the conformational constant L.
-        # Both :OnlyA tags are K-type: the inactive conformation cannot bind
-        # those ligands, so neither adds an inactive binding constant, and the
-        # completion (a dropped inactive cycle or a balanced opposing binding)
-        # carries no free constant of its own. All 8 variants are Δ=1.
+        # Each :OnlyA binding is K-type (the inactive conformation cannot bind
+        # that ligand, adding no inactive binding constant), and the dead
+        # inactive conformation runs no chemistry, so it carries no free
+        # catalytic constant. All 15 variants are Δ=1.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == fill(1, 8)
+        @test deltas == fill(1, 15)
 
         # 3. compilability — must produce AllostericEnzymeMechanism, and no
         # result is the all-:EqualAI baseline.
@@ -2911,26 +2909,23 @@ end
 
         result = EnzymeRates._expand_to_allosteric(m, bi_bi_pp_allo_rxn)
 
-        # 1. count: each of the 4 bindings is promoted :OnlyA and closed over
-        # its minimal Haldane completions (promote a chemical step to k_I = 0,
-        # or an opposing binding). The ping-pong topology's two coupled
-        # half-cycles admit more completions than the sequential case;
-        # deduplicated → 12.
+        # 1. count: every non-empty subset of the 4 binding groups is set
+        # :OnlyA, each with BOTH chemical steps also :OnlyA (a catalytically-dead
+        # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
         n_groups = length(m.steps)
         n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
         @test n_cat == 2
-        @test length(result) == 12
+        @test length(result) == 15
 
         # 2. Δ params: every variant is +1 — the conformational constant L.
-        # Both :OnlyA tags are K-type: the inactive conformation cannot bind
-        # those ligands, so neither adds an inactive binding constant, and the
-        # completion carries no free constant of its own. All 12 variants are
-        # Δ=1.
+        # Each :OnlyA binding is K-type (no inactive binding constant), and the
+        # dead inactive conformation runs no chemistry, so it carries no free
+        # catalytic constant. All 15 variants are Δ=1.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(m)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == fill(1, 12)
+        @test deltas == fill(1, 15)
 
         # 3. compilability, and no result is the all-:EqualAI baseline.
         for r in result
@@ -2956,9 +2951,9 @@ end
 
         result = EnzymeRates._expand_to_allosteric(m, rxn)
 
-        # 1. count: S binding + P binding, each promoted :OnlyA and closed
-        # over its Haldane completions — the balanced S/P pair, plus each
-        # binding paired with the (dropped) chemical step. Deduplicated → 3.
+        # 1. count: every non-empty subset of the 2 binding groups (S, P) is
+        # set :OnlyA, each with the chemical step also :OnlyA (dead inactive):
+        # {S}, {P}, {S, P} → 3 variants.
         n_groups = length(m.steps)
         n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
         @test n_cat == 1
@@ -2977,11 +2972,15 @@ end
         # 3. no result is the all-:EqualAI baseline.
         @test all(r -> !all(==(:EqualAI), r.cat_allo_states), result)
 
-        # 4. every variant carries exactly two :OnlyA tags — a binding
-        # promotion plus its Haldane completion — and at least one is a
-        # binding group (never a bare catalytic-only :OnlyA).
+        # 4. every variant is dead-inactive: the chemical (iso) group is
+        # :OnlyA, plus a non-empty subset of the binding groups — so the
+        # :OnlyA count is 2 ({one binding} + chem) or 3 ({S, P} + chem), and
+        # at least one binding group is :OnlyA.
         for r in result
-            @test count(==(:OnlyA), r.cat_allo_states) == 2
+            iso_gs = [g for g in 1:length(r.cat_allo_states)
+                      if _is_catalytic_group(m, g)]
+            @test all(r.cat_allo_states[g] == :OnlyA for g in iso_gs)
+            @test count(==(:OnlyA), r.cat_allo_states) in (2, 3)
             onlya_gs = [g for g in 1:length(r.cat_allo_states)
                         if r.cat_allo_states[g] == :OnlyA]
             @test any(g -> !_is_catalytic_group(m, g), onlya_gs)
@@ -3015,9 +3014,9 @@ end
         @test n_cat == 1
         @test length(allo) == 2 * 3
 
-        # Each multiplicity carries the same allo-state set: no all-:EqualAI
-        # baseline, and 3 variants, each with exactly two :OnlyA tags (a
-        # binding promotion plus its Haldane completion).
+        # Each multiplicity carries the same dead-inactive allo-state set: no
+        # all-:EqualAI baseline, and 3 variants ({S}, {P}, {S, P} bindings
+        # :OnlyA, each with the chemical step :OnlyA) — :OnlyA counts 2, 2, 3.
         for cn in (2, 4)
             cn_variants = filter(
                 am -> EnzymeRates.catalytic_multiplicity(am) == cn, allo)
@@ -3026,7 +3025,10 @@ end
                 cn_variants) == 0
             @test count(
                 am -> count(==(:OnlyA), EnzymeRates.cat_allo_states(am)) == 2,
-                cn_variants) == 3
+                cn_variants) == 2
+            @test count(
+                am -> count(==(:OnlyA), EnzymeRates.cat_allo_states(am)) == 3,
+                cn_variants) == 1
         end
 
         # Single-valued case unchanged (regression guard).
@@ -4058,109 +4060,6 @@ end
         @test isempty(EnzymeRates._expand_change_allo_state(m))
     end
 
-end
-
-# ─── _expand_promote_catalytic_to_onlya ────────────────────────────────
-@testset "_expand_promote_catalytic_to_onlya" begin
-
-    # SEED: bi-uni ordered, every catalytic group :EqualAI — the natural
-    # starting point for a move that promotes groups to :OnlyA, and
-    # Haldane-valid (no :OnlyA binding to leave one-sided).
-    biuni_seed() = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
-        substrates: A, B
-        products: P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + A ⇌ E(A)              :: EqualAI
-            E(A) + B ⇌ E(A, B)       :: EqualAI
-            E(A, B) <--> E(P)        :: EqualAI
-            E + P ⇌ E(P)             :: EqualAI
-        end
-    end)
-
-    @testset "promotes each :EqualAI group, closed over Haldane completions" begin
-        am = biuni_seed()
-        EnzymeRates._assert_mechanism_invariants(am)
-        result = EnzymeRates._expand_promote_catalytic_to_onlya(am)
-
-        # 4 :EqualAI groups (3 bindings + 1 chemical). Promoting a binding
-        # leaves its :OnlyA one-sided, so the Haldane forces a completion
-        # (the chemical step to k_I = 0, or an opposing binding); promoting
-        # the chemical step alone is already balanced. Deduplicated → 6.
-        @test length(result) == 6
-        for child in result
-            @test child isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(child)
-            # Task-7-safe: every emitted child satisfies the Haldane relation.
-            @test EnzymeRates._onlya_haldane_violation(
-                EnzymeRates.reaction(child), EnzymeRates.steps(child),
-                EnzymeRates.cat_allo_states(child)) === nothing
-            # at least one :EqualAI became :OnlyA; nothing was un-promoted.
-            @test count(==(:OnlyA), child.cat_allo_states) >
-                  count(==(:OnlyA), am.cat_allo_states)
-            @test !all(==(:EqualAI), child.cat_allo_states)
-            @test child.regulatory_sites == am.regulatory_sites
-            @test EnzymeRates.catalytic_multiplicity(child) ==
-                  EnzymeRates.catalytic_multiplicity(am)
-        end
-    end
-
-    @testset "covers the iso/catalytic group, not just binding groups" begin
-        am = biuni_seed()
-        iso_g = only(g for g in EnzymeRates.kinetic_groups(am)
-                     if EnzymeRates.is_iso(EnzymeRates.rep_step(am, g)) &&
-                        am.cat_allo_states[g] == :EqualAI)
-        result = EnzymeRates._expand_promote_catalytic_to_onlya(am)
-        # some child has the iso group promoted to :OnlyA
-        @test any(c -> c.cat_allo_states[iso_g] == :OnlyA, result)
-    end
-
-    @testset "no-op when no catalytic group is :EqualAI" begin
-        am = biuni_seed()
-        all_onlya = EnzymeRates._with_cat_allo_states(
-            am, fill(:OnlyA, length(am.cat_allo_states)))
-        @test isempty(EnzymeRates._expand_promote_catalytic_to_onlya(all_onlya))
-    end
-
-    @testset "no-op on a non-allosteric Mechanism" begin
-        m = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
-            substrates: S[C]; products: P[C]; oligomeric_state: 2
-        end))
-        @test isempty(EnzymeRates._expand_promote_catalytic_to_onlya(m))
-    end
-
-    @testset "order-independent: promote i then j == j then i" begin
-        am = biuni_seed()
-        # promote each child again; two distinct promotion orders that reach
-        # the same :OnlyA-set collapse under structural dedup.
-        kids = EnzymeRates._expand_promote_catalytic_to_onlya(am)
-        grandkids = reduce(vcat,
-            (EnzymeRates._expand_promote_catalytic_to_onlya(k) for k in kids))
-        # dedup by structural hash; two orders to the same OnlyA-set collapse
-        @test length(unique(grandkids)) < length(grandkids)
-    end
-
-    @testset "Δ0: promoted children keep the parent's fitted-param count" begin
-        # An all-:EqualAI parent has no inactive-state constants to drop, so
-        # every promotion (and its Haldane completion) is Δ0 — the docstring's
-        # all-:EqualAI-parent invariant. A parent with a :NonequalAI group can
-        # move by anything from -3 to +1; that is not exercised here.
-        am = biuni_seed()
-        base = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        for child in EnzymeRates._expand_promote_catalytic_to_onlya(am)
-            @test length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(child))) == base
-        end
-    end
-
-    @testset "distinct: every promotion changes the rate equation" begin
-        am = biuni_seed()
-        parent_eq = EnzymeRates.rate_equation_string(am)
-        for child in EnzymeRates._expand_promote_catalytic_to_onlya(am)
-            @test EnzymeRates.rate_equation_string(child) != parent_eq
-        end
-    end
 end
 
 # ─── _expand_merge_regulatory_sites ─────────────────────────────────────
@@ -5389,14 +5288,14 @@ end
     # (e.g. `K_Lactate_ENADH` vs the active-state `K_Lactate_ENAD`), un-lumping a
     # shared constant so the combined solve fails to merge it and over-counts.
     #
-    # `_expand_to_allosteric` closes each `:OnlyA` binding over its Haldane
-    # completion, so the case this guards is the child that promotes exactly the
-    # free-enzyme bindings (a balanced substrate/product pair on free E) to
-    # `:OnlyA`, leaving the lumped downstream `:EqualAI` group reached in the
+    # `_expand_to_allosteric` emits dead-inactive `:OnlyA`-binding combos (all
+    # chemical steps `:OnlyA`), so the case this guards is the child that sets
+    # the free-enzyme bindings (a substrate/product pair on free E) `:OnlyA`,
+    # leaving the lumped downstream group's binding `:EqualAI` — reached in the
     # inactive conformation only by flip. That group's shared constant stays
     # merged, so the child adds only `L` — parent + 1 fitted params. A child
-    # that instead promotes a downstream binding orphans a bound form of the
-    # lumped group; its multi-`:OnlyA` derivation is a separate, documented
+    # that instead sets a downstream binding `:OnlyA` orphans a bound form of
+    # the lumped group; its multi-`:OnlyA` derivation is a separate, documented
     # concern and is not asserted here.
     rxn = @enzyme_reaction begin
         substrates: NADH[C21H29N7O14P2], Pyruvate[C3H4O3]
@@ -5421,6 +5320,8 @@ end
         pn = length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(m)))
         free_e = Set(g for g in EnzymeRates.kinetic_groups(m)
                      if is_free_e_binding(m, g))
+        iso = Set(g for g in 1:length(EnzymeRates.steps(m))
+                  if EnzymeRates.is_iso(EnzymeRates.steps(m)[g][1]))
         children = EnzymeRates._expand_to_allosteric(m, rxn)
         # Every emitted child is Haldane-valid (Task-7-safe) and compiles.
         for c in children
@@ -5429,11 +5330,13 @@ end
                 EnzymeRates.cat_allo_states(c)) === nothing
             @test EnzymeRates.compile_mechanism(c) isa AllostericEnzymeMechanism
         end
-        # The free-enzyme-normalization child (only the free-E bindings :OnlyA)
-        # keeps the lumped group's shared constant merged → Δ = 1.
+        # The free-enzyme-normalization child (the free-E bindings :OnlyA, plus
+        # all chemical steps :OnlyA — a dead inactive conformation) leaves the
+        # lumped downstream group's binding :EqualAI, so its shared constant
+        # stays merged → Δ = 1.
         clean = filter(children) do c
             Set(g for g in 1:length(EnzymeRates.cat_allo_states(c))
-                if EnzymeRates.cat_allo_states(c)[g] == :OnlyA) == free_e
+                if EnzymeRates.cat_allo_states(c)[g] == :OnlyA) == union(free_e, iso)
         end
         @test length(clean) == 1
         @test length(EnzymeRates.fitted_params(
@@ -5638,14 +5541,12 @@ end
     end
     shapes = Set(shape(r) for r in result)
 
-    # A one-sided binding :OnlyA has exactly two minimal repairs, and both are
-    # distinct hypotheses that must be emitted: promote the chemical step
-    # (k_I = 0), or promote the opposing binding (the affinities diverge
-    # together). The balanced repair is reachable from either side, so the S
-    # and P promotions share it — three shapes, not four.
-    @test (:OnlyA, :OnlyA, :EqualAI) in shapes    # S :OnlyA, repaired by k_I = 0
-    @test (:EqualAI, :OnlyA, :OnlyA) in shapes    # P :OnlyA, repaired by k_I = 0
-    @test (:OnlyA, :EqualAI, :OnlyA) in shapes    # balanced pair
+    # Every non-empty binding subset is emitted dead-inactive (the chemical
+    # step :OnlyA): {S}, {P}, {S, P}. Three shapes, all with the chemical step
+    # :OnlyA.
+    @test (:OnlyA, :OnlyA, :EqualAI) in shapes    # {S} binding :OnlyA
+    @test (:EqualAI, :OnlyA, :OnlyA) in shapes    # {P} binding :OnlyA
+    @test (:OnlyA, :OnlyA, :OnlyA) in shapes      # {S, P} bindings :OnlyA
     @test length(shapes) == 3
 end
 
@@ -5661,100 +5562,6 @@ tags_by_ligand(x) = Dict(
 haldane_ok(x) = EnzymeRates._onlya_haldane_violation(
     EnzymeRates.reaction(x), EnzymeRates.steps(x),
     EnzymeRates.cat_allo_states(x)) === nothing
-
-# ─── _expand_promote_catalytic_to_onlya Haldane closure ────────────────
-@testset "_expand_promote_catalytic_to_onlya emits only Haldane-valid mechs" begin
-    ER = EnzymeRates
-
-    # Bi-uni ordered A + B ⇌ P with the chemical step already :NonequalAI.
-    # Promoting any one binding leaves that :OnlyA one-sided, and the
-    # chemical step cannot absorb it (`k_I = 0` needs an :OnlyA chemical
-    # tag, and a :NonequalAI group is never promoted). Every child must
-    # therefore carry an opposing :OnlyA binding.
-    am = ER.AllostericMechanism(@allosteric_mechanism begin
-        substrates: A, B
-        products: P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + A ⇌ E(A)          :: EqualAI
-            E(A) + B ⇌ E(A, B)    :: EqualAI
-            E(A, B) <--> E(P)     :: NonequalAI
-            E + P ⇌ E(P)          :: EqualAI
-        end
-    end)
-    @test haldane_ok(am)
-
-    result = ER._expand_promote_catalytic_to_onlya(am)
-    @test !isempty(result)
-    for r in result
-        @test haldane_ok(r)
-        @test :OnlyA in ER.cat_allo_states(r)   # the move's purpose
-        ER._assert_mechanism_invariants(r)
-        @test ER.catalytic_multiplicity(r) == ER.catalytic_multiplicity(am)
-        @test r.regulatory_sites == am.regulatory_sites
-    end
-    @test length(unique(result)) == length(result)
-
-    # A lone :OnlyA is never emitted here: every bare promotion is one-sided.
-    @test !any(r -> count(==(:OnlyA), ER.cat_allo_states(r)) == 1, result)
-
-    # Only two balanced pairs exist — A with P, and B with P. Each is
-    # reachable from either of its two seed promotions, so four completions
-    # collapse to two children; without `unique!` this count would be four.
-    shapes = Set(tags_by_ligand(r) for r in result)
-    @test Dict(:A => :OnlyA, :B => :EqualAI, :chem => :NonequalAI,
-               :P => :OnlyA) in shapes
-    @test Dict(:A => :EqualAI, :B => :OnlyA, :chem => :NonequalAI,
-               :P => :OnlyA) in shapes
-    @test length(shapes) == 2
-
-    # The move is not Δ0, and one parent's children can differ from each
-    # other: an :OnlyA group drops the inactive conformation's copy of its
-    # constants, while breaking the inactive cycle turns derived parameters
-    # into fitted ones. This LDH-type parent shows both at once — the
-    # docstring's 6 → {6, 7} claim.
-    ldh = ER.AllostericMechanism(@allosteric_mechanism begin
-        substrates: NAD, PYR
-        products: LAC, NADH
-        catalytic_multiplicity: 4
-        catalytic_steps: begin
-            E + NAD ⇌ E(NAD)                :: EqualAI
-            E(NAD) + PYR ⇌ E(NAD, PYR)      :: NonequalAI
-            E(NAD, PYR) <--> E(LAC, NADH)   :: EqualAI
-            E(LAC, NADH) ⇌ E(NADH) + LAC    :: EqualAI
-            E(NADH) ⇌ E + NADH              :: EqualAI
-        end
-    end)
-    @test haldane_ok(ldh)
-    ldh_kids = ER._expand_promote_catalytic_to_onlya(ldh)
-    for k in ldh_kids
-        @test haldane_ok(k)
-    end
-    @test length(ER.fitted_params(ER.compile_mechanism(ldh))) == 6
-    @test Set(length(ER.fitted_params(ER.compile_mechanism(k)))
-              for k in ldh_kids) == Set([6, 7])
-
-    # The contract holds over every mechanism the to_allosteric move seeds.
-    rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        oligomeric_state: 2
-    end
-    m = ER.Mechanism(@enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
-        end
-    end)
-    for seed in ER._expand_to_allosteric(m, rxn)
-        for kid in ER._expand_promote_catalytic_to_onlya(seed)
-            @test haldane_ok(kid)
-        end
-    end
-end
 
 # ─── _expand_change_allo_state Haldane filter ──────────────────────────
 @testset "_expand_change_allo_state emits only Haldane-valid mechanisms" begin
@@ -5788,9 +5595,14 @@ end
         Dict(:S => :OnlyA, :chem => :OnlyA, :P => :NonequalAI),
         Dict(:S => :NonequalAI, :chem => :OnlyA, :P => :EqualAI)])
 
-    # The filter loses no hypothesis. :NonequalAI catalysis under :OnlyA
-    # bindings stays reachable from the balanced parent, where the two
-    # bindings' affinities diverge together and no `k_I` is stranded.
+    # Balanced parent: both bindings and the chemical step :OnlyA — the inactive
+    # conformation binds nothing (a fully-inert T-state). Relaxing either binding
+    # is retained (it leaves all chemical steps :OnlyA); relaxing the chemical
+    # step is dropped (`_partial_onlya_catalysis`), because an :OnlyA binding
+    # requires a catalytically-dead inactive conformation. That dropped
+    # :NonequalAI-chemistry variant is anyway rate-equivalent to this fully-dead
+    # form (the inactive binds nothing, so k_I is unobservable), so no hypothesis
+    # is lost.
     balanced = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
@@ -5803,9 +5615,11 @@ end
     end)
     @test haldane_ok(balanced)
     kids = ER._expand_change_allo_state(balanced)
-    @test length(kids) == 3           # nothing filtered
-    @test Dict(:S => :OnlyA, :chem => :NonequalAI, :P => :OnlyA) in
-          Set(tags_by_ligand(k) for k in kids)
+    @test length(kids) == 2           # the chemical-step relaxation is dropped
+    @test !any(tags_by_ligand(k)[:chem] == :NonequalAI for k in kids)
+    @test Set(tags_by_ligand(k) for k in kids) == Set([
+        Dict(:S => :NonequalAI, :chem => :OnlyA, :P => :OnlyA),
+        Dict(:S => :OnlyA, :chem => :OnlyA, :P => :NonequalAI)])
 
     # A regulatory ligand's tag is not an argument to the Haldane check —
     # a regulator site completes no catalytic cycle — so relaxing one can
@@ -5830,4 +5644,103 @@ end
     for k in reg_kids
         @test haldane_ok(k)
     end
+end
+
+@testset ":OnlyA to_allosteric emits dead-inactive combos only" begin
+    # 6-step iso-bearing ping-pong: 4 binding groups (ATP, F16BP, F6P, ADP) + 2
+    # iso steps. Allostericise it and require every :OnlyA-tagged child to have
+    # BOTH iso steps :OnlyA (no partial), and the bare (regulator-free) :OnlyA
+    # child count to equal the valid binding subsets (2^4 - 1 = 15, all valid).
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        steps: begin
+            E + ATP ⇌ E(ATP)
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)
+            E + ADP ⇌ E(ADP)
+        end
+    end)
+    rxn = EnzymeRates.reaction(m)
+    kids = EnzymeRates._expand_to_allosteric(m, rxn)
+    onlya = [k for k in kids if any(==(:OnlyA), EnzymeRates.cat_allo_states(k))]
+    isochem(k) = [g for g in eachindex(EnzymeRates.steps(k))
+                  if EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])]
+    # every :OnlyA child is dead-inactive: all iso steps :OnlyA
+    for k in onlya
+        @test all(EnzymeRates.cat_allo_states(k)[g] === :OnlyA for g in isochem(k))
+    end
+    bare = [k for k in onlya if isempty(EnzymeRates.regulatory_sites(k))]
+    @test length(bare) == 15
+end
+
+@testset "change_allo_state drops partial-catalysis relaxations" begin
+    # Dead-inactive 6-step ping-pong: F6P binding + both iso steps :OnlyA. Relaxing
+    # an iso step back would leave an :OnlyA binding beside a live chemical step (the
+    # sink); the move must drop those while keeping the :OnlyA-binding relaxation.
+    dead = @allosteric_mechanism begin
+        substrates: ATP, F6P ; products: ADP, F16BP ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + ATP ⇌ E(ATP)                                                       :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                           :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP) :: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)     :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                                :: OnlyA
+            E + ADP ⇌ E(ADP)                                                       :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(dead)
+    kids = EnzymeRates._expand_change_allo_state(am)
+    isochem(k) = [g for g in eachindex(EnzymeRates.steps(k))
+                  if EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])]
+    hasonlyabind(k) = any(EnzymeRates.cat_allo_states(k)[g] === :OnlyA &&
+                          EnzymeRates.is_binding(EnzymeRates.steps(k)[g][1])
+                          for g in eachindex(EnzymeRates.steps(k)))
+    for k in kids
+        @test !(hasonlyabind(k) &&
+                !all(EnzymeRates.cat_allo_states(k)[g] === :OnlyA for g in isochem(k)))
+    end
+    @test !isempty(kids)   # the :OnlyA-binding relaxation is retained (non-vacuous)
+end
+
+@testset "change_allo_state drops mixed-iso V-type relaxations (no :OnlyA binding)" begin
+    # A dead-inactive V-type shape: both chemical (iso) steps :OnlyA, all
+    # bindings :EqualAI, no :OnlyA binding. Relaxing ONE iso step to
+    # :NonequalAI leaves a partial-catalysis inactive conformation (one iso
+    # live, one dead) with NO :OnlyA binding — the mixed-iso kinetic sink. The
+    # filter must drop it even though there is no :OnlyA binding to key on.
+    vtype = @allosteric_mechanism begin
+        substrates: ATP, F6P ; products: ADP, F16BP ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + ATP ⇌ E(ATP)                                                       :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                           :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP) :: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)     :: EqualAI
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                                :: OnlyA
+            E + ADP ⇌ E(ADP)                                                       :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(vtype)
+    isochem(k) = [g for g in eachindex(EnzymeRates.steps(k))
+                  if EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])]
+    kids = EnzymeRates._expand_change_allo_state(am)
+    for k in kids
+        tags = EnzymeRates.cat_allo_states(k)
+        onlya_iso = any(tags[g] === :OnlyA for g in isochem(k))
+        live_iso = any(tags[g] !== :OnlyA for g in isochem(k))
+        @test !(onlya_iso && live_iso)   # never a mixed-iso partial
+        # end-to-end: every surviving child's saturating turnover is finite —
+        # no relaxation reintroduces the covalent sink that crashes kcat.
+        cm = EnzymeRates.compile_mechanism(k)
+        fp = EnzymeRates.fitted_params(cm)
+        prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
+        @test isfinite(EnzymeRates._kcat_forward(cm, prm))
+    end
+    # The chemical steps relax together, so the fully-productive inactive form
+    # (every chemical step :NonequalAI) is reachable in one move — even though
+    # the one-iso-at-a-time intermediate is a filtered partial.
+    @test any(all(EnzymeRates.cat_allo_states(k)[g] === :NonequalAI
+                  for g in isochem(k)) for k in kids)
 end
