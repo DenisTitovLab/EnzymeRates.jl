@@ -1680,7 +1680,7 @@ const _ALLO_SIG_SPLIT =
     ", :Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyru" *
     "vate)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), " *
     ":E, ((), ())), nothing, false),)))}, (4, (:EqualAI, :EqualAI, :Onl" *
-    "yA, :NonequalAI, :EqualAI, :EqualAI, :EqualAI, :EqualAI)), ()}"
+    "yA, :NonequalAI, :EqualAI, :EqualAI, :EqualAI, :OnlyA)), ()}"
 const _ALLO_SIG_MERGED =
     "AllostericEnzymeMechanism{EnzymeMechanism{(((((:Product, :Lactate)" *
     ", ((:C, 3), (:H, 6), (:O, 3))), ((:Product, :NAD), ((:C, 21), (:H," *
@@ -1711,7 +1711,7 @@ const _ALLO_SIG_MERGED =
     "Pyruvate), true),), (((((:Substrate, :NADH), (:Substrate, :Pyruvat" *
     "e)), :E, ((), ())), (((:Product, :Lactate), (:Product, :NAD)), :E," *
     " ((), ())), nothing, false),)))}, (4, (:EqualAI, :EqualAI, :OnlyA," *
-    " :NonequalAI, :EqualAI, :EqualAI, :EqualAI)), ()}"
+    " :NonequalAI, :EqualAI, :EqualAI, :OnlyA)), ()}"
 
 @testset "allosteric canonical-partition dedup" begin
     recon_am(sig) =
@@ -1733,11 +1733,12 @@ end
 
 
 # The confirmed futile-cycle class-A parent (LDH allosteric), reconstructed via
-# the macro (verified step/tag/multiplicity-identical to the original run's
-# mechanism). One of its single-step-split children canonicalizes 9->9 kinetic
-# groups on the first merge pass (a no-op the single pass misses, since a merge
-# can expose a second tie) and 9->8 on the second — the non-idempotency the
-# fixed-point iteration and its error guard exist for.
+# the macro (step topology and multiplicity match the run's mechanism; the
+# chemical step carries :OnlyA so the one-sided :OnlyA NADH binding stays
+# Haldane-valid). One of its single-step-split children canonicalizes 9->9
+# kinetic groups on the first merge pass (a no-op the single pass misses, since
+# a merge can expose a second tie) and 9->8 on the second — the non-idempotency
+# the fixed-point iteration and its error guard exist for.
 _canon_a_parent() = EnzymeRates.AllostericMechanism(
     EnzymeRates.@allosteric_mechanism begin
         substrates: NADH, Pyruvate
@@ -1753,7 +1754,7 @@ _canon_a_parent() = EnzymeRates.AllostericMechanism(
             (E + Pyruvate <--> E(Pyruvate), E(NAD) + Pyruvate <--> E(NAD, Pyruvate), E(NADH) + Pyruvate <--> E(NADH, Pyruvate), E(NADH::Inh) + Pyruvate <--> E(NADH::Inh, Pyruvate))    :: EqualAI
             (E + Pyruvate::Inh ⇌ E(Pyruvate::Inh), E(Lactate) + Pyruvate::Inh ⇌ E(Lactate, Pyruvate::Inh), E(NADH) + Pyruvate::Inh ⇌ E(NADH, Pyruvate::Inh), E(NADH::Inh) + Pyruvate::Inh ⇌ E(NADH::Inh, Pyruvate::Inh))    :: EqualAI
             (E(Lactate) + Lactate::Inh ⇌ E(Lactate, Lactate::Inh), E(NADH) + Lactate::Inh ⇌ E(Lactate::Inh, NADH))    :: NonequalAI
-            E(NADH, Pyruvate) <--> E(Lactate, NAD)    :: EqualAI
+            E(NADH, Pyruvate) <--> E(Lactate, NAD)    :: OnlyA
         end
     end)
 
