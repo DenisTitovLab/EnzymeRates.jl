@@ -1,0 +1,11 @@
+Enumerating initial mechanisms…
+Fitting 8 initial mechanisms…
+Base tier: 8 new fits + 0 inherited + 0 skipped (already fit) + 0 skipped (>5 params) + 0 skipped (>337 complexity) + 0 errored | Success 100.0% | non-Success retcode 0.0%
+  best loss by n_params: 5:5.626e-14*   (* improved)
+Iteration 1 (child n_params 5): 8 parents → 38 children
+  2 new fits + 2 inherited + 4 skipped (already fit) + 30 skipped (>5 params) + 0 skipped (>337 complexity) + 0 errored | Success 100.0% | non-Success retcode 0.0%
+  best loss by n_params: 5:5.626e-14   (no improvement)
+Expanded 2 parents → 9 children | all skipped (3 already fit, 6 >5 params, 0 >337 complexity)
+Cross-validating 5 candidate equations (LOOCV)…
+Selected: AllostericEnzymeMechanism (eq_hash=618e7e386041c038), n_params=5
+Done. Results saved to 2026_07_17_results
