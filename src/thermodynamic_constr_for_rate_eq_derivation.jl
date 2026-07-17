@@ -447,11 +447,11 @@ function _has_strict_positive_combination(N::AbstractMatrix{Rational{BigInt}})
         pos = [r for r in rows if r[v] > 0]
         neg = [r for r in rows if r[v] < 0]
         nxt = [r for r in rows if r[v] == 0]
+        length(nxt) + length(pos) * length(neg) > 4000 && return nothing
         for p in pos, q in neg
             push!(nxt, p .* (-q[v]) .+ q .* p[v])
         end
         any(r -> all(iszero, r), nxt) && return false
-        length(nxt) > 4000 && return nothing
         rows = nxt
     end
     true
@@ -473,7 +473,7 @@ stays satisfiable under the `K_I = K_A/ε`, `ε → 0⁺` limit an `:OnlyA` bind
 asserts; otherwise return a message naming the offending `:OnlyA` bindings.
 
 A cycle's Haldane carries `∏ε_p/∏ε_s` on the inactive side. The `ε` are
-independent, so that monomial can be held finite exactly when its exponents
+independent, so that monomial can be held finite only when its exponents
 carry both signs. All-same-sign drives it to `0` or `∞`; the only thing that
 absorbs the imbalance is a free inactive catalytic ratio `k_I_f/k_I_r`. An
 `:OnlyA` catalytic tag supplies exactly that — its rate constants vanish from
@@ -561,7 +561,7 @@ function _onlya_haldane_violation(rxn::EnzymeReaction,
     cols = sort!(collect(keys(onlyA_cols)))
     M = Rational{BigInt}[onlyA_cols[c] * A[i, c] for i in axes(A, 1), c in cols]
     N = _rational_nullspace(M)
-    feasible = size(N, 2) == 0 ? false : _has_strict_positive_combination(N)
+    feasible = _has_strict_positive_combination(N)
     feasible === nothing && return nothing
     feasible && return nothing
     return _onlya_violation_message(sort!([string(columns[c]) for c in cols]))

@@ -1908,3 +1908,60 @@ end
         end
     end
 end
+
+@testset "rational nullspace + Stiemke feasibility helpers" begin
+    ER = EnzymeRates
+    R = Rational{BigInt}
+
+    @testset "_rational_nullspace" begin
+        # Zero map: every x solves M * x = 0, so the nullspace is the whole
+        # 3-dimensional space.
+        M = zeros(R, 2, 3)
+        N = ER._rational_nullspace(M)
+        @test size(N, 2) == 3
+
+        # Full-rank square matrix: only x = 0 solves M * x = 0.
+        M = R[1 2; 3 4]
+        N = ER._rational_nullspace(M)
+        @test size(N, 2) == 0
+
+        # Rank-1 2x2 (row 2 is twice row 1): both rows reduce to x + y = 0,
+        # spanned by (1, -1). n = 2, rank = 1.
+        M = R[1 1; 2 2]
+        N = ER._rational_nullspace(M)
+        @test M * N == zeros(R, 2, size(N, 2))
+        @test size(N, 2) == 2 - 1
+
+        # More rows than columns, rank-deficient: every row is a multiple of
+        # (1, 2), i.e. x + 2y = 0, spanned by (2, -1).
+        M = R[1 2; 2 4; 3 6]
+        N = ER._rational_nullspace(M)
+        @test M * N == zeros(R, 3, size(N, 2))
+        @test size(N, 2) == 2 - 1
+
+        # More columns than rows: x + z = 0 and y + z = 0, spanned by
+        # (-1, -1, 1).
+        M = R[1 0 1; 0 1 1]
+        N = ER._rational_nullspace(M)
+        @test M * N == zeros(R, 2, size(N, 2))
+        @test size(N, 2) == 3 - 2
+    end
+
+    @testset "_has_strict_positive_combination" begin
+        # Single row [1]: y = 1 gives N * y = 1 > 0.
+        @test ER._has_strict_positive_combination(reshape(R[1], 1, 1))
+        # Rows [1] and [-1] demand y > 0 and -y > 0 at once -> infeasible.
+        @test !ER._has_strict_positive_combination(reshape(R[1, -1], 2, 1))
+        # An all-zero row encodes 0 > 0 and refutes the system outright,
+        # regardless of the other row.
+        @test !ER._has_strict_positive_combination(R[0 0; 1 1])
+        # No columns: y has no entries, so every row's dot product with y is
+        # 0, and each row still demands 0 > 0 -> infeasible.
+        @test !ER._has_strict_positive_combination(zeros(R, 3, 0))
+        # 2-D feasible cone: y1 + y2 > 0 and y1 - y2 > 0, e.g. y = (1, 0).
+        @test ER._has_strict_positive_combination(R[1 1; 1 -1])
+        # 2-D infeasible cone: y1 > 0 and y2 > 0 force y1 + y2 > 0, which
+        # contradicts the third row's -y1 - y2 > 0.
+        @test !ER._has_strict_positive_combination(R[1 0; 0 1; -1 -1])
+    end
+end
