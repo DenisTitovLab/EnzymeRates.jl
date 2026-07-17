@@ -1063,3 +1063,100 @@ end
         end
     end
 end
+
+# ── The gate: dead-inactive ping-pong :OnlyA (all chemical steps :OnlyA) ──────
+# A ping-pong bi-bi where the F6P substrate binding is :OnlyA and BOTH chemical
+# (isomerisation) steps are :OnlyA. That combination makes the inactive
+# conformation catalytically dead: dropping the :OnlyA iso groups strands the
+# covalent-intermediate branch, so the inactive graph collapses to the free
+# enzyme plus its rapid-equilibrium ATP and ADP bindings. Its free-enzyme weight
+# is therefore the bare constant d_free_I = 1 and it contributes only L·Q_I (no
+# flux) to the denominator. The multi-chemical-step :OnlyA form the enumeration
+# must feed: the derivation admits it, keeps a finite rate as a product goes to
+# zero (no covalent sink), and yields a finite positive kcat.
+@testset "dead-inactive ping-pong :OnlyA derivation" begin
+    dead = @allosteric_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + ATP ⇌ E(ATP)                                                      :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
+            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+        end
+    end
+    afp = ER.fitted_params(dead)
+    @test afp == (:K_ADP_E, :K_ATP_E, Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP"),
+                  Symbol("Kiso_A_EF6P_res_+ATP_-F16BP_to_EADP"),
+                  Symbol("K_F16BP_E_res_+ATP_-F16BP"),
+                  Symbol("K_A_F6P_E_res_+ATP_-F16BP"), :L)
+
+    am = ER.AllostericMechanism(dead)
+    @test ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am),
+                                      ER.cat_allo_states(am)) === nothing
+    _, _, d_free_I = ER._state_rate_polys(am, :I)
+    @test ER._poly_to_expr(d_free_I, Set{Symbol}(), Set{Symbol}()) == 1
+
+    # Non-allosteric twin: the SAME six steps with no allosteric tags. At L = 0 the
+    # inactive conformation is unpopulated, so the allosteric rate must reduce to
+    # this twin's rate — an independent re-derivation through the non-allosteric
+    # King–Altman path. Map allo params -> twin params: the three :EqualAI bindings
+    # (K_ADP_E, K_ATP_E, K_F16BP_E_res_…) share names; the three :OnlyA A-tagged
+    # params drop the "A_" tag (k_A_EATP…→k_EATP…, Kiso_A_EF6P…→Kiso_EF6P…,
+    # K_A_F6P…→K_F6P…).
+    nonallo = @enzyme_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        steps: begin
+            E + ATP ⇌ E(ATP)
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)
+            E + ADP ⇌ E(ADP)
+        end
+    end
+    nfp = ER.fitted_params(nonallo)
+    allo_to_twin = Dict(
+        Symbol("k_A_EATP_to_EF16BP_res_+ATP_-F16BP") =>
+            Symbol("k_EATP_to_EF16BP_res_+ATP_-F16BP"),
+        Symbol("Kiso_A_EF6P_res_+ATP_-F16BP_to_EADP") =>
+            Symbol("Kiso_EF6P_res_+ATP_-F16BP_to_EADP"),
+        Symbol("K_A_F6P_E_res_+ATP_-F16BP") =>
+            Symbol("K_F6P_E_res_+ATP_-F16BP"))
+    twin_of(s) = get(allo_to_twin, s, s)
+
+    rng = MersenneTwister(20260717)
+    for _ in 1:6
+        vals = Dict(s => 0.5 + 2rand(rng) for s in nfp)
+        Keq = 2.0 + 2rand(rng)
+        ATP = 0.5+2rand(rng); F6P = 0.5+2rand(rng)
+        ADP = 0.5+2rand(rng); F16BP = 0.5+2rand(rng)
+        concs = (ATP=ATP, F6P=F6P, ADP=ADP, F16BP=F16BP)
+        prm = NamedTuple{(afp..., :Keq, :E_total)}(
+            ((s === :L ? 0.7 : vals[twin_of(s)] for s in afp)..., Keq, 1.0))
+
+        # rate finite at a normal point AND as F16BP -> 0 (the no-sink check: a
+        # dead inactive conformation must not strand enzyme in a covalent form).
+        @test isfinite(real(ER.rate_equation(dead, concs, prm)))
+        @test isfinite(real(ER.rate_equation(dead,
+            (ATP=ATP, F6P=F6P, ADP=ADP, F16BP=1e-8), prm)))
+        kcat = ER._kcat_forward(dead, prm)
+        @test isfinite(kcat) && kcat > 0
+
+        # v = 0 at the equilibrium metabolite ratio ADP·F16BP = Keq·ATP·F6P.
+        @test isapprox(real(ER.rate_equation(dead,
+            (ATP=ATP, F6P=F6P, ADP=Keq*ATP*F6P/F16BP, F16BP=F16BP), prm)),
+            0.0; atol=1e-8)
+
+        # L = 0 cross-check: the allosteric rate reduces to the non-allosteric twin.
+        pn = NamedTuple{(nfp..., :Keq, :E_total)}(((vals[s] for s in nfp)..., Keq, 1.0))
+        p0 = NamedTuple{(afp..., :Keq, :E_total)}(
+            ((s === :L ? 0.0 : vals[twin_of(s)] for s in afp)..., Keq, 1.0))
+        @test isapprox(real(ER.rate_equation(dead, concs, p0)),
+                       real(ER.rate_equation(nonallo, concs, pn)); rtol=1e-4)
+    end
+end
