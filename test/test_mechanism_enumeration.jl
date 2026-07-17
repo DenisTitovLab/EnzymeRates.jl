@@ -5831,3 +5831,33 @@ end
         @test haldane_ok(k)
     end
 end
+
+@testset ":OnlyA to_allosteric emits dead-inactive combos only" begin
+    # 6-step iso-bearing ping-pong: 4 binding groups (ATP, F16BP, F6P, ADP) + 2
+    # iso steps. Allostericise it and require every :OnlyA-tagged child to have
+    # BOTH iso steps :OnlyA (no partial), and the bare (regulator-free) :OnlyA
+    # child count to equal the valid binding subsets (2^4 - 1 = 15, all valid).
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        steps: begin
+            E + ATP ⇌ E(ATP)
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)
+            E + ADP ⇌ E(ADP)
+        end
+    end)
+    rxn = EnzymeRates.reaction(m)
+    kids = EnzymeRates._expand_to_allosteric(m, rxn)
+    onlya = [k for k in kids if any(==(:OnlyA), EnzymeRates.cat_allo_states(k))]
+    isochem(k) = [g for g in eachindex(EnzymeRates.steps(k))
+                  if EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])]
+    # every :OnlyA child is dead-inactive: all iso steps :OnlyA
+    for k in onlya
+        @test all(EnzymeRates.cat_allo_states(k)[g] === :OnlyA for g in isochem(k))
+    end
+    bare = [k for k in onlya if isempty(EnzymeRates.regulatory_sites(k))]
+    @test length(bare) == 15
+end

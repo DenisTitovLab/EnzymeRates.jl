@@ -1799,41 +1799,36 @@ end
 Mechanism-native overload: convert a non-allosteric `Mechanism` into
 allosteric variants, keeping only variants that are empirically
 distinguishable from a simpler mechanism (an MWC conformational
-constant `L` that has no observable effect is not enumerated):
+constant `L` with no observable effect is not enumerated). An `:OnlyA`
+catalytic binding means the inactive conformation cannot bind that
+metabolite, so it cannot complete the catalytic cycle: every emitted
+`:OnlyA` variant is **dead-inactive** — all isomerization (chemical)
+steps are `:OnlyA`, and the inactive conformation only binds ligands.
 
   * The all-`:EqualAI` baseline is never emitted — the two conformations
     are identical, `L` cancels, and the mechanism is indistinguishable
     from `m`.
-  * A binding group (its representative step binds a metabolite) set to
-    `:OnlyA` is emitted bare: the bound metabolite's concentration
-    reveals `L` (a K-type mechanism).
-  * A catalytic group (its representative step is an isomerization, no
-    bound metabolite) set to `:OnlyA` is emitted ONLY paired with a
-    declared allosteric regulator at a new site, one variant per
-    `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}` (a V-type
-    mechanism). With no regulator bound, the inactive state binds
-    substrate/product identically to the active state but cannot
-    catalyze, so `L` folds entirely into `kcat`
-    (`v = kcat/(1+L)·shape`) and is not observable; a reaction with no
-    declared allosteric regulators emits nothing for that group.
-  * A binding group's `:OnlyA` on its own can leave a catalytic cycle's
-    Haldane relation unsatisfiable. Such a variant is emitted only once
-    `_valid_onlya_completions` has promoted further groups to `:OnlyA`,
-    and every minimal completion is emitted; a promotion admitting no
-    completion is dropped. A catalytic group promoted this way needs no
-    regulator to be distinguishable — the `:OnlyA` binding already
-    reveals `L` through its metabolite's concentration.
-
-Duplicate variants are removed: the balanced repair of a one-sided
-`:OnlyA` binding is reachable from either side's promotion.
+  * K-type: every non-empty subset of binding groups is set `:OnlyA`,
+    with all isomerization steps `:OnlyA`. Each `:OnlyA` binding's
+    metabolite concentration reveals `L`, so each is emitted bare. A
+    subset that leaves a binding-only Wegscheider cycle unsatisfiable
+    (`_onlya_haldane_violation`) is dropped.
+  * V-type: no `:OnlyA` binding, all isomerization steps `:OnlyA`. The
+    inactive state binds substrate/product identically to the active
+    state but cannot catalyze, so `L` folds entirely into `kcat`
+    (`v = kcat/(1+L)·shape`) and is not observable; it is emitted ONLY
+    paired with a declared allosteric regulator at a new site, one
+    variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. A
+    reaction with no declared allosteric regulators emits no V-type.
 
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the
 multiplicity becomes the variant's `catalytic_multiplicity`. Catalytic
-steps are reused by reference.
+steps are reused by reference; duplicate variants are removed.
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     n_g = length(steps(m))
-    base_tags = Symbol[:EqualAI for _ in 1:n_g]
+    iso = [g for g in 1:n_g if is_iso(rep_step(m, g))]
+    bind = [g for g in 1:n_g if !is_iso(rep_step(m, g))]
     regs = Symbol[]
     for rm in regulators(rxn)
         reg = regulator(rm)
@@ -1842,20 +1837,36 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     sort!(regs)
     results = AllostericMechanism[]
     for cn in allowed_catalytic_multiplicities(rxn)
-        for g in 1:n_g
-            new_tags = copy(base_tags)
-            new_tags[g] = :OnlyA
-            if is_iso(rep_step(m, g))
-                am_cat = AllostericMechanism(
-                    reaction(m), copy(steps(m)), new_tags, cn, RegulatorySite[])
-                for reg in regs, tag in (:OnlyA, :OnlyI)
-                    push!(results, _make_am_with_added_reg(am_cat, reg, tag, 0))
-                end
-            else
-                for t in _valid_onlya_completions(rxn, steps(m), new_tags)
-                    push!(results, AllostericMechanism(
-                        reaction(m), copy(steps(m)), t, cn, RegulatorySite[]))
-                end
+        # K-type: every non-empty subset of binding groups :OnlyA, with all
+        # chemical (iso) steps :OnlyA — a catalytically-dead inactive conformation.
+        # A state that cannot bind a catalytic metabolite cannot complete the
+        # cycle, so it runs no chemistry. The :OnlyA binding's metabolite reveals
+        # L, so each is emitted bare. `_onlya_haldane_violation` drops a subset
+        # that leaves a binding-only Wegscheider cycle unsatisfiable.
+        for mask in 1:(2^length(bind) - 1)
+            tags = Symbol[:EqualAI for _ in 1:n_g]
+            for g in iso
+                tags[g] = :OnlyA
+            end
+            for (i, g) in enumerate(bind)
+                (mask >> (i - 1)) & 1 == 1 && (tags[g] = :OnlyA)
+            end
+            _onlya_haldane_violation(rxn, steps(m), tags) === nothing || continue
+            push!(results, AllostericMechanism(
+                reaction(m), copy(steps(m)), tags, cn, RegulatorySite[]))
+        end
+        # V-type: no :OnlyA binding, all chemical steps :OnlyA. The inactive state
+        # binds identically but cannot catalyze, so L folds into kcat and is
+        # unobservable — emit only paired with a declared regulator.
+        if !isempty(iso) && !isempty(regs)
+            vtags = Symbol[:EqualAI for _ in 1:n_g]
+            for g in iso
+                vtags[g] = :OnlyA
+            end
+            am_cat = AllostericMechanism(
+                reaction(m), copy(steps(m)), vtags, cn, RegulatorySite[])
+            for reg in regs, tag in (:OnlyA, :OnlyI)
+                push!(results, _make_am_with_added_reg(am_cat, reg, tag, 0))
             end
         end
     end
