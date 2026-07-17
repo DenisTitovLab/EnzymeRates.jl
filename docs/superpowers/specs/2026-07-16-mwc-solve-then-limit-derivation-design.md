@@ -2,20 +2,26 @@
 
 ## Motivation
 
-The allosteric MWC derivation builds each conformation's rate polynomial by
-**deleting** graph elements for `:OnlyA` tags before the thermodynamic
-constraints are solved. Deleting before solving discards the constraints that
-tie the deleted step to the rest of the cycle, and every allosteric derivation
-bug this year traces to it: the L-term leak, the `_kcat_forward` "no components"
-crash, the trap where a deleted inactive form is re-populated by reverse
-catalysis (giving a metabolite-bearing free-enzyme weight and a wrong equation),
-and the thermodynamic inconsistency that PR #70 now rejects. Each fix has patched
-a symptom; the `d_free` cross-weighting machinery exists *only* to paper over the
-graph fragmentation the deletion causes.
+**This is a simplicity and robustness rewrite, not a bug fix.** The shipped
+allosteric derivation — post PR #70 (which rejects the thermodynamically
+impossible mechanisms) — is *correct* for every valid mechanism tested, including
+the `:NonequalAI` ping-pong case the ground-truth harness had left deferred
+(shipped `rate_equation` matches an independent limit oracle to 3e-16). The goal
+here is not to fix a wrong equation.
 
-The single-conformation King–Altman derivation is mature and unaffected. This
-design reuses it for both conformations and combines them, so consistency holds
-by construction.
+The goal is to remove a *structural* fragility. The derivation builds each
+conformation's rate polynomial by **deleting** graph elements for `:OnlyA` tags
+*before* the thermodynamic constraints are solved. Deleting before solving can
+silently drop a constraint tying the deleted step to the rest of the cycle — and
+that is the mechanism behind every allosteric derivation bug this year (the L-term
+leak, the `_kcat_forward` "no components" crash, the trap, the thermodynamic
+inconsistency). Each was patched after it appeared. Solving the constraints on the
+full system *before* taking the `:OnlyA` limit makes the whole class
+unreachable: consistency holds by construction, so a novel tag mix or topology is
+far less likely to produce a new derivation bug. That structural guarantee — not
+a smaller diff — is the return.
+
+The single-conformation King–Altman derivation is mature and reused unchanged.
 
 ## The approach (validated by prototype)
 
@@ -39,20 +45,33 @@ Replace graph-deletion with **solve then limit**:
    limit is taken *after* the constraint solve, so the constraint has already
    fixed the surviving relationships.
 
-### Prototype evidence (n = 1 uni-uni, adversarially attacked)
+### Prototype evidence (n = 1 uni-uni + ping-pong + LDH, adversarially attacked)
 
 - **Correctness:** matches the mass-action ground truth on all 6 constructable
   tag combos (≤ 4.8e-7); `v = 0` exact at equilibrium. n = 2 Family A matches an
   explicit 2-protomer network (3.1e-7).
-- **Simplicity:** in the metabolite-bearing-`D` regime the cross-weighting was
-  built for (LDH i-state, `D_A ≠ D_I`), the **plain** combine matches to 9.6e-9
-  while a **cross-weighted** denominator is 8–37% off. Cross-weighting is not
-  merely unnecessary — it is *wrong* there. The `d_free` machinery goes away.
+- **Normalization is required, not optional, and is the same operation the shipped
+  code already does correctly.** The `:OnlyA` limit is clean only on a
+  *dimensionless* denominator, so each conformation must be normalized to its
+  free-enzyme weight *before* the limit. For a metabolite-bearing weight (LDH
+  steady-state substrate binding; ping-pong), skipping normalization makes `v`
+  concentration-dependently wrong by 12–43% — not a relabeling of `L`. Per-state
+  normalization is algebraically **identical** to the shipped `d_free`
+  cross-weighting (multiply each state by the other's weight vs divide each by its
+  own); the rewrite re-expresses the same correct operation in decoupled form, it
+  does not delete it. (An earlier prototype's "cross-weight 8–37% off" compared the
+  normalized combine to a *bogus* formula, not the shipped cross-weight — corrected.)
 - **Guard boundary:** the one break the attack found (an `:OnlyA` product binding
   with active inactive-catalysis, where a pendant `EP_I` node holds mass the
   limit drops) is **structurally unreachable** — PR #70's `_onlya_haldane_violation`
   rejects exactly those mechanisms at construction. The correctness boundary of
   solve-then-limit is *precisely* the merged guard.
+- **`:OnlyA` SS limit convention:** for a valid `S:OnlyA` mechanism only
+  `k_I → 0` (inactive cycle dead, `N_I = 0`) is thermodynamically legal — the
+  other conventions violate `v = 0` at equilibrium. In that regime the limit
+  *coincides* with graph deletion, which is why the shipped LDH equation is
+  already correct. The design's payoff is ping-pong / `:NonequalAI` (no deletion
+  involved), trap rejection, and structural robustness — not fixing LDH.
 
 ## Architecture
 
@@ -64,10 +83,17 @@ and PR #70's constructor guard (`_onlya_haldane_violation`) are reused unchanged
 
 - `_state_allo_mechanism`'s graph deletion (`rate_eq_derivation.jl:1214`) — the
   I-state is no longer a mutilated subgraph.
-- The `d_free` cross-weighting in `_allosteric_num_den_exprs` (`:966-978`,
-  `:1691+`) and `_kcat_forward`, and its helpers `_is_metabolite_free_monomial`,
-  `_invert_monomial`, and the three-way rendering branch.
-- `_state_rate_polys`'s third return value `d_free` (`:381`, `:400`).
+- the graph-fragmentation branch selection in `_allosteric_num_den_exprs`
+  (`:966-978`, `:1691+`) — the `d_free_A == d_free_I` special case and the
+  three-way rendering branch — since the undeleted I-state no longer fragments
+  from `:OnlyA`.
+
+**Kept (re-expressed), not removed:**
+
+- the free-enzyme normalization itself. It is correct (identical to the shipped
+  cross-weighting) and becomes decoupled per-state normalization. `d_free` is
+  still computed per state; `_is_metabolite_free_monomial` / `_invert_monomial`
+  may remain as the metabolite-free fast path.
 
 **Added / changed:**
 
@@ -102,25 +128,22 @@ and the symbolic operation splits by whether the free-enzyme spanning-tree weigh
   `L`'s numerical value, not `v`.
 - **`D[g_free]` metabolite-bearing** (a steady-state substrate binding, as in the
   LDH i-state; ping-pong bi-bi). Dividing would put a concentration in the
-  denominator (forbidden). Instead **factor** the denominator into a dimensionless
-  polynomial — terms like `1`, `S/Km`, with non-negative exponents and `Km` a
-  function of the `K`s and `k`s — an operation in the spirit of `_kcat_forward`
-  (which already infers a saturating-limit `kcat`). This is the delicate part.
-  **Open question (being prototyped): whether skipping this factoring keeps `v`
-  correct.** For a metabolite-bearing weight the A and I states normalize by
-  different concentration-dependent factors, so `L` (a constant) may not absorb
-  the difference — meaning `v`, not just `L`, could be wrong. The prototype
-  validated the *normalized* combine, never the un-normalized one, so this is
-  unresolved. If `v` does stay correct, the factoring is a pure second-PR
-  refinement (clean `L`); if not, it is required in the first PR for LDH-class
-  mechanisms.
+  denominator (forbidden), so normalization is done in polynomial form — either
+  the shipped cross-weighting (`den = d_free_I·Q_A + L·d_free_A·Q_I`, algebraically
+  the per-state-normalized combine) or an equivalent `_kcat_forward`-style
+  factoring of the denominator into a dimensionless polynomial (terms like `1`,
+  `S/Km`, `Km` a function of the `K`s and `k`s). **Settled by prototype: this
+  normalization is required — it cannot be deferred.** Skipping it makes `v`
+  concentration-dependently wrong by 12–43% for these mechanisms (the required
+  per-state factor is concentration-dependent, so no constant `L` absorbs it). The
+  metabolite-bearing set includes LDH, the primary target, and ping-pong.
 
-**Sequencing (pending the ping-pong result).** If deferral preserves `v`: PR 1
-delivers the correct rate equation with the metabolite-free normalization only,
-and PR 2 makes every denominator dimensionless (the clean-`L` refinement, package
--wide). If deferral does not preserve `v` for metabolite-bearing weights, the
-factoring lands in PR 1 for those mechanisms. `ping-pong bi-bi` is the decisive
-test case either way.
+**Sequencing.** PR 1 ships the normalization for every mechanism (it is correct
+today in cross-weight form; the rewrite carries it forward in decoupled per-state
+form). Only the cosmetic "make every denominator dimensionless with a clean `L`"
+refinement — which changes `L`'s numeric value but not `v`, and only for
+metabolite-free mechanisms — is a legitimate PR 2. There is no correctness content
+to defer.
 
 ## The guard: limit the solved constraints
 
@@ -167,13 +190,14 @@ deletion did); any change is a finding to explain, not to accept.
 ## Testing
 
 `test/allosteric_ground_truth.jl` — the n = 1 two-conformation mass-action solver
-that caught every prior bug — is the acceptance gate, with **one change to its
-methodology**: it currently encodes `:OnlyA` by *deleting* the inactive edge, the
-same move this derivation abandons. Validating a limit-derivation against a
-graph-deletion oracle is circular on exactly the cases that matter (the trap).
-Rebuild the oracle to encode `:OnlyA` as the **limit** — the full two-conformation
-network with `K_I` large / `k_I` small — so it is a genuinely independent check.
-(The prototype's adversary already did this to surface the trap.)
+that caught every prior bug — is the acceptance gate, strengthened by encoding
+`:OnlyA` as the **limit** (the full two-conformation network with `K_I` large /
+`k_I` small) rather than by deleting the inactive edge. For a *valid* `S:OnlyA`
+mechanism the two coincide (the legal SS limit `k_I → 0` equals deletion), so this
+is not a correctness fix to the existing gates; it matters because (a) it lets the
+oracle exercise the trap and `:NonequalAI` cases where deletion and the limit
+diverge, and (b) it keeps the oracle methodologically aligned with the derivation
+it checks. (The prototype's adversary used exactly this form to surface the trap.)
 
 Each derived equation must match the oracle (rtol 1e-4) and give `v = 0` at the
 equilibrium metabolite ratio, across: the existing gates (uni/multi-`:OnlyA`,
@@ -182,30 +206,48 @@ normalization test case), and a **new** `N_I ≠ 0` multi-protomer gate for the
 `^n` cross term. The `rate_equation` performance contract (0 allocations,
 < 120 ns) must hold — verified by the existing perf gate.
 
-## Code deletion is a primary goal
+## What is removed, and what is kept
 
-Simpler here means less code. Solve-then-limit exists to *remove* machinery, and
-the diff should be net-negative in `src/rate_eq_derivation.jl`. Targeted for
-deletion:
+Simpler here means less code, but expect a *moderate* net reduction, not a
+dramatic one — the normalization is correct machinery that stays (re-expressed),
+not buggy machinery deleted.
 
-- `_state_allo_mechanism`'s graph pruning (`:1214`).
-- the `d_free` cross-weighting in `_allosteric_num_den_exprs` (`:966-978`,
-  `:1691+`) and in `_kcat_forward`.
-- its helpers `_is_metabolite_free_monomial`, `_invert_monomial`, and the
-  three-way rendering branch.
-- `d_free` surfacing from `_state_rate_polys` (`:331`, `:381`, `:400`).
+**Removed** (the structural-fragility surface):
 
-A refactor that adds more than it removes has missed the point; the LOC delta is
-a review metric.
+- `_state_allo_mechanism`'s graph pruning (`:1214`) and the delete-then-solve
+  ordering it serves.
+- the graph-fragmentation handling the deletion forced — the `else`/cross-weight
+  *branch selection* in `_allosteric_num_den_exprs` (`:966-978`, `:1691+`), the
+  `d_free_A == d_free_I` special-casing, and the three-way rendering branch.
+- PR #70's per-row sign guard, superseded by the complete limit-the-constraints
+  check (or demoted to a cheap enumeration pre-filter).
+
+**Kept, re-expressed** (correct, not deletable):
+
+- the free-enzyme normalization. Today it is coupled cross-weighting
+  (`d_free_I·Q_A + L·d_free_A·Q_I`); the rewrite makes it decoupled per-state
+  normalization. Same math, clearer form. `_is_metabolite_free_monomial` /
+  `_invert_monomial` may survive as the metabolite-free fast path.
+
+The LOC delta is a review signal, but the primary metric is that the removed code
+is exactly the constraint-losing surface — the diff should read as "delete
+delete-then-solve, keep the correct normalization."
 
 ## Risks and open items
 
-- **Symbolic normalization** is proven correct as a target but not yet built; it
-  is the crux and could surface complications (deferred to the plan).
-- **`N_I ≠ 0` at `n ≥ 2`** is unvalidated.
-- **Scope:** this rewrites a perf-critical `@generated` subsystem that has been
-  iterated on repeatedly. The mitigation is the ground-truth harness as a
-  hard gate and PR #70's guard as a fixed correctness boundary.
+- **Rewriting a currently-correct subsystem.** This is the central risk and it is
+  honest to name it: the shipped derivation is correct for every tested valid
+  mechanism, so the rewrite trades a real (if bounded) regression risk for
+  structural robustness and clarity. The mitigation is the ground-truth harness as
+  a hard gate — every mechanism must match it — plus a byte-identical
+  non-allosteric path and the unchanged perf gate. If the rewrite cannot beat the
+  shipped equations on the harness, it is not worth landing.
+- **Symbolic normalization** — the recipe is settled (per-state normalization,
+  algebraically the shipped cross-weight), but carrying it into decoupled symbolic
+  form while keeping `rate_equation` allocation-free is the main implementation
+  task and may surface complications (the plan's first target).
+- **`N_I ≠ 0` at `n ≥ 2`** (active inactive-catalysis, multiple protomers) is
+  unvalidated; needs a multi-protomer gate.
 - **What this does not change:** the enumeration moves, the DSL, the
   single-conformation derivation, and the constructor guard all stay.
 
