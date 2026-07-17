@@ -745,7 +745,9 @@ end
 # catalytic steps are :NonequalAI, so both conformations turn a productive cycle
 # with different rate constants (D_A ≠ D_I) and the cross term is live. The gate
 # goes red if the derivation flips F, reverts to the raw Q_A + L·Q_I combine, or
-# mis-renders the normalization — each moves the flux by ~0.1-3%.
+# mis-renders the normalization. Only the raw-combine mode has a measured margin:
+# against a per-form-flip (formulation-2) oracle it deviates 0.95%-93% from the
+# derivation, orders of magnitude above the 1e-10 tolerance below.
 #
 # Because the free-enzyme flip is the only cut, the combine is algebraically exact
 # here rather than a large-FAST limit, so this gate runs far tighter than the 1e-4
