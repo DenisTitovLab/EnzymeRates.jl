@@ -1740,58 +1740,6 @@ function _expand_add_dead_end_regulator_native(
     results
 end
 
-"""Call `f` on every size-`k` subset of `xs`, in lexicographic index order."""
-function _each_subset(f, xs::Vector{Int}, k::Int)
-    n = length(xs)
-    k > n && return
-    idx = collect(1:k)
-    while true
-        f([xs[i] for i in idx])
-        i = k
-        while i ≥ 1 && idx[i] == n - k + i
-            i -= 1
-        end
-        i == 0 && return
-        idx[i] += 1
-        for j in (i + 1):k
-            idx[j] = idx[j - 1] + 1
-        end
-    end
-end
-
-"""
-    _valid_onlya_completions(rxn, cat_steps, tags) → Vector{Vector{Symbol}}
-
-Every minimal completion of `tags` that satisfies the Haldane relation
-(`_onlya_haldane_violation`), found by promoting additional `:EqualAI` groups to
-`:OnlyA`. Returns `[tags]` unchanged when `tags` already holds, and an empty
-vector when no completion exists.
-
-Promotion subsets are searched by increasing size, and every valid vector at the
-first size that yields one is returned. A one-sided `:OnlyA` binding therefore
-yields both of its minimal repairs — promote the chemical step (`k_I = 0`), or
-promote an opposing binding (the affinities diverge together) — because they are
-distinct hypotheses, not variants of one.
-"""
-function _valid_onlya_completions(rxn::EnzymeReaction,
-                                  cat_steps::Vector{Vector{Step}},
-                                  tags::Vector{Symbol})
-    _onlya_haldane_violation(rxn, cat_steps, tags) === nothing && return [copy(tags)]
-    cand = [g for g in eachindex(tags) if tags[g] === :EqualAI]
-    for k in 1:length(cand)
-        found = Vector{Symbol}[]
-        _each_subset(cand, k) do combo
-            t = copy(tags)
-            for g in combo
-                t[g] = :OnlyA
-            end
-            _onlya_haldane_violation(rxn, cat_steps, t) === nothing && push!(found, t)
-        end
-        isempty(found) || return found
-    end
-    Vector{Symbol}[]
-end
-
 """
     _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
         → Vector{AllostericMechanism}
@@ -2082,54 +2030,6 @@ _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
 """
-    _expand_promote_catalytic_to_onlya(am::AllostericMechanism)
-        → Vector{AllostericMechanism}
-
-Catalytic-state move. For each catalytic kinetic group tagged `:EqualAI`, emit
-the variants with that group set to `:OnlyA` — binding (K-type) and
-iso/catalytic (V-type) groups alike — closed over whatever further promotions
-the Haldane relation forces (`_valid_onlya_completions`). Promoting a binding on
-one side of the reaction drives `∏ε_p/∏ε_s` to `0` or `∞`, so the inactive cycle
-must either lose its chemical step or gain an opposing `:OnlyA` binding; both
-completions are emitted. Duplicates are dropped: two seed promotions can close
-to the same tag vector.
-
-The parameter count is not preserved, and one parent's children can differ from
-each other. An `:OnlyA` binding makes the inactive conformation's downstream
-complexes unreachable, so any other group's `:NonequalAI` inactive constants
-drop out of the equation, while breaking the inactive cycle removes Wegscheider
-constraints and turns parameters the solver derived into parameters the fit must
-find; the two pull opposite ways. An all-`:EqualAI` parent has no inactive
-constants to drop, so its promotions are `Δ0`; a parent with a `:NonequalAI`
-group can move by anything from `-3` to `+1`. A 6-parameter parent yields both
-6- and 7-parameter children.
-
-The catalytic steps, multiplicity, regulatory sites, and every other tag pass
-through unchanged.
-"""
-function _expand_promote_catalytic_to_onlya(am::AllostericMechanism)
-    results = AllostericMechanism[]
-    for g in 1:length(cat_allo_states(am))
-        cat_allo_states(am)[g] == :EqualAI || continue
-        new_states = copy(cat_allo_states(am))
-        new_states[g] = :OnlyA
-        for t in _valid_onlya_completions(reaction(am), steps(am), new_states)
-            push!(results, _with_cat_allo_states(am, t))
-        end
-    end
-    unique!(results)
-end
-
-"""
-    _expand_promote_catalytic_to_onlya(m::Mechanism)
-        → Vector{AllostericMechanism}
-
-Non-allosteric input: no-op; this move only elaborates allosteric states.
-"""
-_expand_promote_catalytic_to_onlya(::Mechanism) =
-    AllostericMechanism[]
-
-"""
     _expand_merge_regulatory_sites(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 
@@ -2274,9 +2174,9 @@ end
 
 Apply all expansion moves (RE→SS, split kinetic group, add dead-end
 regulator, to-allosteric, add allosteric regulator, change allo state,
-promote catalytic to OnlyA, merge regulatory sites) to each input mechanism
-and return the children as a flat vector. Bucketing by parameter count is
-the caller's job, not enumeration's.
+merge regulatory sites) to each input mechanism and return the children as
+a flat vector. Bucketing by parameter count is the caller's job, not
+enumeration's.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
@@ -2302,7 +2202,6 @@ function _add_expansions_mech!(
     append!(result, _expand_to_allosteric(m, rxn))
     append!(result, _expand_add_allosteric_regulator(m, rxn))
     append!(result, _expand_change_allo_state(m))
-    append!(result, _expand_promote_catalytic_to_onlya(m))
     append!(result, _expand_merge_regulatory_sites(m))
 end
 
