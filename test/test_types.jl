@@ -1877,3 +1877,34 @@ end
         end
     end
 end
+
+@testset ":OnlyA guard rejects a multi-cycle ter-substrate inconsistency" begin
+    # A full random-order ter binding cube with seven :OnlyA edges. Every single
+    # constraint row carries BOTH signs on its :OnlyA eps-exponents, so the
+    # per-row sign test sees no violation — but the coupled system has no
+    # strictly-positive solution: rows 2, 4 and 5 combine to force the
+    # eps-exponent of K_B_EA to zero, i.e. K_I = K_A, contradicting its :OnlyA
+    # tag. The inactive cube circulates flux around the E(A)->E(A,B)<-E(B)->
+    # E(B,C)<-E(C)->E(A,C)<-E(A) hexagon at equilibrium — perpetual motion.
+    @test_throws ErrorException @allosteric_mechanism begin
+        substrates: A, B, C
+        products:   P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)             :: OnlyA
+            E + B ⇌ E(B)             :: OnlyA
+            E + C ⇌ E(C)             :: OnlyA
+            E(A) + B ⇌ E(A, B)       :: OnlyA
+            E(A) + C ⇌ E(A, C)       :: EqualAI
+            E(B) + A ⇌ E(A, B)       :: EqualAI
+            E(B) + C ⇌ E(B, C)       :: EqualAI
+            E(C) + A ⇌ E(A, C)       :: EqualAI
+            E(C) + B ⇌ E(B, C)       :: EqualAI
+            E(A, B) + C ⇌ E(A, B, C) :: OnlyA
+            E(A, C) + B ⇌ E(A, B, C) :: OnlyA
+            E(B, C) + A ⇌ E(A, B, C) :: OnlyA
+            E(A, B, C) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end
+end
