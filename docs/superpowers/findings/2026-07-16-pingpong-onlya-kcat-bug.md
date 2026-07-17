@@ -69,15 +69,27 @@ derivation then mishandles them.
 
 ## Relationship to the guard and the redesign
 
-`_onlya_haldane_violation` is a *consistency* check; these mechanisms are
-consistent, so it passes them — correctly. Fixing this in the guard would be wrong
-(it would reject valid mechanisms). The fix belongs in the derivation's
-normalization, which is exactly what the solve-then-limit redesign rebuilds:
-per-state free-enzyme normalization done symbolically, with the ping-pong
-two-free-form case handled (the redesign's plan already names ping-pong bi-bi as
-the normalization test case). Spec/plan:
-`docs/superpowers/specs/2026-07-16-mwc-solve-then-limit-derivation-design.md`,
+`_onlya_haldane_violation` is a Haldane-*satisfiability* check, and it is **complete
+for that contract** here — not leaking. In both mechanisms the sole catalytic cycle
+carries the F6P `:OnlyA` binding *and* the `:OnlyA` chemical step, so the cycle is
+genuinely satisfiable (the inactive chemical step's rate-constant ratio
+`k_I_f/k_I_r` vanishes from the rate law and is free to absorb F6P's affinity
+divergence). Dropping the `:OnlyA` chemical edge leaves a spanning tree — zero
+constraint rows — so the guard's sign test has nothing to inspect and returns
+`nothing`, which is the *correct* verdict. These are valid mechanisms; tightening
+the guard cannot and should not catch them.
+
+The failure is entirely downstream, in the free-enzyme normalization — which is
+exactly what the solve-then-limit redesign rebuilds (per-state normalization done
+symbolically, ping-pong bi-bi already named as the plan's normalization test case).
+Spec/plan: `docs/superpowers/specs/2026-07-16-mwc-solve-then-limit-derivation-design.md`,
 `docs/superpowers/plans/2026-07-16-mwc-solve-then-limit-derivation.md`.
+
+Note err1 and err2 fail *differently* from the one root cause: err1's `d_free_I = 0`
+annihilates the A-numerator (`×0^n`) → `rate_equation` is `NaN` structurally (all
+draws, not just at equilibrium); err2's product-bearing `d_free_I` keeps
+`rate_equation` finite (the injected factor cancels between numerator and
+denominator) but still empties the kcat `a_keys`. Same defect, two symptoms.
 
 ## Options
 
@@ -86,12 +98,22 @@ the normalization test case). Spec/plan:
    mechanisms rescale approximately (only the reported parameter scale is off, not
    the fitted loss or model selection); the `NaN`-`rate_equation` cases fail to fit
    gracefully and lose in the beam. The run completes. Does not fix correctness.
-2. **Redesign (the real fix):** the solve-then-limit derivation removes the
+2. **Derivation-time degeneracy check (provably-complete crash-stopper):** the
+   exact defect condition is `d_free_I` not being a metabolite-free monomial (`0`
+   or metabolite-bearing). Detecting that where `d_free_I` is computed and
+   rejecting/skipping the mechanism is provably complete — unlike an
+   enumeration-time structural pre-filter keyed on `:OnlyA` *bindings*, which is
+   strictly narrower (a mechanism with an `:OnlyA` chemical step closing the sole
+   cycle and all-`:EqualAI` bindings hits the same degenerate `d_free_I` with no
+   `:OnlyA` binding to key on). Still *discards* valid mechanisms rather than
+   deriving them, but it stops the crash without mislabeling the cause.
+3. **Redesign (the real fix):** the solve-then-limit derivation removes the
    fragmenting single-free-form normalization; ping-pong normalizes correctly by
-   construction.
+   construction, so these mechanisms *derive* instead of being skipped.
 
-Not recommended: patching `_kcat_forward` and/or the guard piecemeal for ping-pong
-— that is another patch to machinery the redesign deletes.
+Not recommended: a guard extension or an enumeration-time `:OnlyA`-binding
+pre-filter — both are narrower than the actual `d_free_I` degeneracy condition and
+would reject valid mechanisms.
 
 ## Evidence
 
