@@ -163,6 +163,25 @@ git commit -m "Strand unreachable residual islands from the inactive MWC state"
 
 ### Task 2: err2 — `_kcat_forward` must not group on the normalization factor
 
+> **Status: NOT SHIPPED (2026-07-16).** The task's checkbox stays open because the
+> task was attempted and abandoned, not because it is still queued. Grouping on
+> un-normalized polynomials was implemented and measured: it breaks
+> `test/test_rate_eq_derivation.jl:2209` ("Fix B", live I-state) with a 7.7% kcat
+> error (0.2457 vs. grid-peak 0.2661) — the normalization is a common factor
+> *within* a conformation but not across the `L`-weighted A/I combine. The task's
+> premise is also wrong: **err2 is not a bug**. At `F16BP = 0` the inactive form
+> `E_res_I` is an absorbing trap (it cannot flip — formulation 1 flips only free
+> enzyme and `E_res` carries a residual — and it cannot react, the F6P binding and
+> the `E(F6P)→E(ADP)` iso step being `:OnlyA` and deleted), so all enzyme drains
+> into it and `v = 0` genuinely. kcat is evaluated at products = 0, so
+> `_kcat_forward`'s "no kcat components" error is a **true report** and there is
+> nothing to fix. Per the plan's own rule this was reported rather than worked
+> around. Whether err2-class mechanisms should be accepted with a non-fatal kcat
+> sentinel, rejected at construction as degenerate, or left as-is is an open
+> modelling question for the repo owner; see
+> `docs/superpowers/findings/2026-07-16-pingpong-onlya-kcat-bug.md`. The steps
+> below are kept as a record of what was planned.
+
 `d_free_I` can carry a product. The cross-weight multiplies the A-numerator by `d_free_I^n`, so every saturating-substrate group key acquires a product factor; `_kcat_forward` evaluates at products = 0 and filters product-bearing keys, so `a_keys` empties and it throws. `rate_equation` is unaffected — the factor cancels between numerator and denominator (measured: err2's `rate_equation` = 0.0498, finite).
 
 `_kcat_forward`'s own comment (`:960-965`) already states the normalization "is a common factor of the saturating-limit ratio, so it leaves kcat's value unchanged" — it is applied there only to match `rate_equation`'s branch.

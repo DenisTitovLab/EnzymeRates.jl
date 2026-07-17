@@ -83,7 +83,9 @@ via free `E`; a component free `E` cannot reach holds no inactive mass and must 
 stranded. `_reachable_from_free` is used only by `_state_allo_mechanism`'s I-state
 pruning, so tightening the seed cannot affect the active state.
 
-**Root cause (err2).** `d_free_I` carries a product. The cross-weight multiplies the
+**Root cause (err2).** *This diagnosis did not survive measurement — err2 is not a
+bug and the crash is a true report; see deliverable 2's status note below.*
+`d_free_I` carries a product. The cross-weight multiplies the
 A-numerator by `d_free_I^n`, so every saturating-substrate group key acquires a product
 factor; `_kcat_forward` evaluates at products = 0 and filters product-bearing keys, so
 `a_keys` empties and it throws. `rate_equation` is unaffected — the factor cancels
@@ -107,6 +109,24 @@ and all 12 ground-truth gates pass**, golden reference byte-identical, perf gate
 The docstring must be rewritten: it currently states the opposite rationale.
 
 ### 2. err2 — make `_kcat_forward` group on un-normalized polynomials
+
+> **Status: NOT SHIPPED (2026-07-16).** Implemented, measured, abandoned. The fix
+> below breaks an existing gate: `test/test_rate_eq_derivation.jl:2209` ("Fix B",
+> live I-state) goes to 7.7% kcat error (0.2457 vs. grid-peak 0.2661), because the
+> free-enzyme normalization is a common factor *within* a conformation but not
+> across the `L`-weighted A/I combine, so stripping it from the group key changes
+> which polynomial terms match. The deeper finding is that **err2 is not a bug**.
+> In the inactive conformation at `F16BP = 0` the form `E_res_I` is an absorbing
+> trap: it cannot flip (formulation 1 flips only free enzyme, and `E_res` carries
+> a residual) and it cannot react (the F6P binding and the `E(F6P)→E(ADP)` iso step
+> are `:OnlyA` and deleted). All enzyme drains into it, so `v = 0` genuinely; since
+> kcat is evaluated at products = 0, `_kcat_forward`'s "no kcat components" error
+> is a **true report**. There is nothing to fix in `_kcat_forward`. The text below
+> is kept as a record of what was proposed, not of what shipped. The open modelling
+> question — whether err2-class mechanisms should be accepted with a non-fatal kcat
+> sentinel, rejected at construction as degenerate, or left as-is — is unresolved
+> and belongs to the repo owner; see
+> `docs/superpowers/findings/2026-07-16-pingpong-onlya-kcat-bug.md`.
 
 The `d_free` factor is a common factor of each conformation's saturating-limit ratio,
 so it cannot change kcat's value — but it pollutes the group key. Compute the kcat
