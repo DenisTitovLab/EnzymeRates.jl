@@ -96,20 +96,23 @@ git commit -m "Gate the dead-inactive ping-pong :OnlyA derivation"
 - Produces: `_expand_to_allosteric(m::Mechanism, rxn)` returns, per multiplicity, every non-empty binding-subset dead-inactive form (bare) plus the all-chem-`:OnlyA` V-type (regulator-paired). No partial-catalysis form.
 
 - [ ] **Step 1: Write the failing test.** Append to `test/test_mechanism_enumeration.jl`:
+Use the **6-step iso-bearing** shape (the 4-step lumped ping-pong has no iso steps, so it hosts no dead-inactive form — see Task 1). `@enzyme_mechanism` parses the residual syntax (confirmed in Task 1).
 ```julia
 @testset ":OnlyA to_allosteric emits dead-inactive combos only" begin
-    # A ping-pong bi-bi (2 chemical steps). Build the non-allosteric mechanism,
-    # allostericise it, and require every :OnlyA-tagged child to have BOTH
-    # chemical steps :OnlyA (no partial-catalysis form), and the count of bare
-    # (regulator-free) :OnlyA children to equal the 15 valid binding subsets.
+    # 6-step iso-bearing ping-pong: 4 binding groups (ATP, F16BP, F6P, ADP) + 2
+    # iso steps. Allostericise it and require every :OnlyA-tagged child to have
+    # BOTH iso steps :OnlyA (no partial), and the bare (regulator-free) :OnlyA
+    # child count to equal the valid binding subsets (2^4 - 1 = 15, all valid).
     m = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
+        substrates: ATP, F6P
+        products: ADP, F16BP
         steps: begin
-            E + A <--> E(A)
-            E(A) <--> F + P
-            F + B <--> F(B)
-            F(B) <--> E + Q
+            E + ATP ⇌ E(ATP)
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP)
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)
+            E + ADP ⇌ E(ADP)
         end
     end
     rxn = EnzymeRates.reaction(m)
@@ -117,7 +120,7 @@ git commit -m "Gate the dead-inactive ping-pong :OnlyA derivation"
     onlya = [k for k in kids if any(==(:OnlyA), EnzymeRates.cat_allo_states(k))]
     isochem(k) = [g for g in eachindex(EnzymeRates.steps(k))
                   if EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])]
-    # every :OnlyA child is dead-inactive: all chemical steps :OnlyA
+    # every :OnlyA child is dead-inactive: all iso steps :OnlyA
     for k in onlya
         @test all(EnzymeRates.cat_allo_states(k)[g] === :OnlyA for g in isochem(k))
     end
@@ -125,7 +128,7 @@ git commit -m "Gate the dead-inactive ping-pong :OnlyA derivation"
     @test length(bare) == 15
 end
 ```
-(If this reaction's `allowed_catalytic_multiplicities` yields more than one multiplicity, scope the `== 15` assertion to `catalytic_multiplicity(k) == 1`, or assert `length(bare) == 15 * n_multiplicities`; measure and use the exact number.)
+Measure the bare count first with a scratch script (it should be 15 for default multiplicity `(1,)`); if the reaction's `allowed_catalytic_multiplicities` yields more than one, the count is `15 × n_multiplicities` — assert the measured value.
 
 - [ ] **Step 2: Run it; see it fail** (current emits partial forms and a different count). Enumeration driver.
 
@@ -198,16 +201,19 @@ Without a constructor guard (decision 4), `_expand_change_allo_state` is the onl
 - Produces: `_partial_onlya_catalysis(cat_steps, cat_allo_states) → Bool` — true when an `:OnlyA` binding group coexists with a non-`:OnlyA` iso group.
 
 - [ ] **Step 1: Write the failing test.**
+Use the **6-step iso-bearing** dead-inactive mechanism (the same one Task 1 uses — the 4-step lumped shape has no iso steps and cannot be a dead-inactive form).
 ```julia
 @testset "change_allo_state drops partial-catalysis relaxations" begin
-    # Dead-inactive ping-pong: a substrate binding + both chemical steps :OnlyA.
+    # Dead-inactive 6-step ping-pong: F6P binding + both iso steps :OnlyA.
     dead = @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: ATP, F6P ; products: ADP, F16BP ; catalytic_multiplicity: 1
         catalytic_steps: begin
-            E + A <--> E(A)   :: OnlyA
-            E(A) <--> F + P   :: OnlyA
-            F + B <--> F(B)   :: EqualAI
-            F(B) <--> E + Q   :: OnlyA
+            E + ATP ⇌ E(ATP)                                                       :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                           :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP) :: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)     :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                                :: OnlyA
+            E + ADP ⇌ E(ADP)                                                       :: EqualAI
         end
     end
     am = EnzymeRates.AllostericMechanism(dead)
@@ -215,16 +221,19 @@ Without a constructor guard (decision 4), `_expand_change_allo_state` is the onl
     isochem(k) = [g for g in eachindex(EnzymeRates.steps(k))
                   if EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])]
     hasonlyabind(k) = any(EnzymeRates.cat_allo_states(k)[g] === :OnlyA &&
-                          !EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])
+                          EnzymeRates.is_binding(EnzymeRates.steps(k)[g][1])
                           for g in eachindex(EnzymeRates.steps(k)))
-    # no child may be a partial: :OnlyA binding present but some chem not :OnlyA
+    # no child may be a partial: :OnlyA binding present but some iso not :OnlyA
     for k in kids
         @test !(hasonlyabind(k) &&
                 !all(EnzymeRates.cat_allo_states(k)[g] === :OnlyA for g in isochem(k)))
     end
+    # and the relaxation that drops an iso step (would sink) must be filtered out,
+    # while relaxing the :OnlyA binding to :NonequalAI is retained — assert at
+    # least one child exists (the binding relaxation) so the test is non-vacuous.
+    @test !isempty(kids)
 end
 ```
-(Adjust the mechanism if that exact tag set is not constructable on the current tree — pick a constructable dead-inactive ping-pong; the invariant asserted is what matters.)
 
 - [ ] **Step 2: Run it; see it fail** (a chem-step relaxation currently produces a partial).
 
