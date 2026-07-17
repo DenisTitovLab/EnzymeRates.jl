@@ -719,3 +719,148 @@ end
     @test isfinite(real(ER.rate_equation(err1, concs, prm)))
     @test isfinite(ER._kcat_forward(err1, prm))
 end
+
+# ── n-protomer concerted-MWC oracle (formulation 1) ─────────────────────────
+# Concerted: all protomers share one conformation. Within a conformation the
+# protomers are independent, so the joint occupancy state is a tuple. Only the
+# FULLY-unliganded oligomer flips (`freeflip=true`) — the n-protomer extension
+# of the free-flip-only model this package derives. `freeflip=false` flips every
+# joint state (the classic per-form-flip MWC, formulation 2) and is kept ONLY as
+# a discriminator: it must NOT match the derivation.
+const OCC = (:E, :EA, :EAB, :EP)
+
+function biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP; k_A, k_I, L, Keq,
+                                 A, B, P, FAST=1e7, freeflip=true)
+    krA = k_A * kon * KP / (koff * KB * Keq)
+    krI = k_I * kon * KP / (koff * KB * Keq)
+    prot_edges(kX, krX) = [
+        (:E, :EA, kon * A), (:EA, :E, koff),
+        (:EA, :EAB, FAST * B / KB), (:EAB, :EA, FAST),
+        (:E, :EP, FAST * P / KP), (:EP, :E, FAST),
+        (:EAB, :EP, kX), (:EP, :EAB, krX),
+    ]
+    tbl = Dict(:A => prot_edges(k_A, krA), :I => prot_edges(k_I, krI))
+    catrate = Dict(:A => (k_A, krA), :I => (k_I, krI))
+
+    occs = collect(Iterators.product(ntuple(_ -> OCC, nprot)...))
+    sp(conf, o) = Symbol(conf, "_", join(o, "_"))
+    species = Symbol[sp(conf, o) for conf in (:A, :I) for o in occs]
+    setidx(o, i, v) = ntuple(j -> j == i ? v : o[j], length(o))
+
+    edges = Tuple{Symbol,Symbol,Float64}[]
+    cat_edges = Tuple{Symbol,Symbol,Float64,Float64}[]
+    for conf in (:A, :I), o in occs, i in 1:nprot
+        for (f, t, r) in tbl[conf]
+            o[i] == f || continue
+            push!(edges, (sp(conf, o), sp(conf, setidx(o, i, t)), r))
+        end
+        if o[i] == :EAB
+            kf, kr = catrate[conf]
+            push!(cat_edges, (sp(conf, o), sp(conf, setidx(o, i, :EP)), kf, kr))
+        end
+    end
+    empty_o = ntuple(_ -> :E, nprot)
+    if freeflip
+        push!(edges, (sp(:A, empty_o), sp(:I, empty_o), FAST * L))
+        push!(edges, (sp(:I, empty_o), sp(:A, empty_o), FAST))
+    else
+        for o in occs
+            push!(edges, (sp(:A, o), sp(:I, o), FAST * L))
+            push!(edges, (sp(:I, o), sp(:A, o), FAST))
+        end
+    end
+    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+end
+
+# Self-validation. Check (c) is the load-bearing one: it pins the oracle to
+# formulation 1. Checks (a)/(b) pass for BOTH formulations and so cannot
+# distinguish them on their own.
+@testset "concerted-MWC oligomer oracle self-validation" begin
+    rng = MersenneTwister(11)
+    for nprot in (1, 2, 3), _ in 1:3
+        kon = 0.5+2rand(rng); koff = 0.5+2rand(rng)
+        KB = 0.5+2rand(rng); KP = 0.5+2rand(rng)
+        kA = 0.5+2rand(rng); kI = 0.5+2rand(rng); Keq = 2.0+2rand(rng)
+        A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng)
+        L = 0.5+rand(rng)
+        base = metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
+
+        # (a) L = 0 : inactive unpopulated -> nprot x the single-protomer rate.
+        @test isapprox(biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kI, L=0.0, Keq=Keq, A=A, B=B, P=P),
+            nprot * base; rtol=1e-4)
+
+        # (b) k_I = k_A : conformations identical -> L-independent.
+        f1 = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kA, L=L, Keq=Keq, A=A, B=B, P=P)
+        f5 = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kA, L=5.0, Keq=Keq, A=A, B=B, P=P)
+        @test isapprox(f1, nprot * base; rtol=1e-4)
+        @test isapprox(f1, f5; rtol=1e-4)
+
+        # (d) v = 0 at the equilibrium metabolite ratio.
+        Peq = Keq * A * B
+        @test abs(biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=Peq)) < 1e-6
+    end
+
+    # (c) THE formulation-1 pin: at nprot = 1 the oracle must reproduce the
+    #     established free-flip reference, and must NOT equal the per-form-flip
+    #     model. Without this, a formulation-2 oracle would pass (a), (b) and (d)
+    #     and then disagree with the derivation by 0.1-3% for live :NonequalAI —
+    #     a real number that is not a bug.
+    args = (1.7, 1.1, 0.8, 0.9)
+    kw = (k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
+    @test isapprox(biuni_mwc_oligomer_flux(1, args...; kw...),
+                   biuni_nonequalAI_freeflip_flux(args...; kw...); rtol=1e-4)
+    @test !isapprox(biuni_mwc_oligomer_flux(1, args...; freeflip=false, kw...),
+                    biuni_nonequalAI_freeflip_flux(args...; kw...); rtol=1e-4)
+end
+
+# ── The gate: the ^n combine with a LIVE inactive numerator ─────────────────
+# `:OnlyA` always yields a dead inactive cycle (the guard forces an `:OnlyA`
+# catalytic tag alongside an `:OnlyA` binding), so the numerator cross term
+# `L*N_I*D_I^(n-1)` is live only for `:NonequalAI`. This is the only gate that
+# exercises it, and the only mass-action gate at n >= 2 for any family.
+@testset ":NonequalAI ^n cross term matches multi-protomer ground truth" begin
+    rng = MersenneTwister(20260716)
+    for nprot in (2, 3)
+        allo = nprot == 2 ?
+            @allosteric_mechanism(begin
+                substrates: A, B ; products: P ; catalytic_multiplicity: 2
+                catalytic_steps: begin
+                    E + A <--> E(A)        :: EqualAI
+                    E(A) + B ⇌ E(A, B)     :: EqualAI
+                    E(A, B) <--> E(P)      :: NonequalAI
+                    E + P ⇌ E(P)           :: EqualAI
+                end
+            end) :
+            @allosteric_mechanism(begin
+                substrates: A, B ; products: P ; catalytic_multiplicity: 3
+                catalytic_steps: begin
+                    E + A <--> E(A)        :: EqualAI
+                    E(A) + B ⇌ E(A, B)     :: EqualAI
+                    E(A, B) <--> E(P)      :: NonequalAI
+                    E + P ⇌ E(P)           :: EqualAI
+                end
+            end)
+        fp = ER.fitted_params(allo)
+        @test fp == (:kon_A_E, :koff_A_E, :K_P_E, :K_B_EA,
+                     :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
+        for _ in 1:6
+            kon = 0.5+2rand(rng); koff = 0.5+2rand(rng)
+            KP = 0.5+2rand(rng); KB = 0.5+2rand(rng)
+            kA = 0.5+2rand(rng); kI = 0.5+2rand(rng)
+            L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
+            A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng)
+            d = Dict(:kon_A_E=>kon, :koff_A_E=>koff, :K_P_E=>KP, :K_B_EA=>KB,
+                     :k_A_EAB_to_EP=>kA, :k_I_EAB_to_EP=>kI, :L=>L)
+            prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
+            # `rate_equation` is per active site; the oracle is per oligomer.
+            v_code = nprot * real(ER.rate_equation(allo, (A=A, B=B, P=P), prm))
+            v_gt = biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
+                k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=P)
+            @test isapprox(v_code, v_gt; rtol=1e-4)
+        end
+    end
+end
