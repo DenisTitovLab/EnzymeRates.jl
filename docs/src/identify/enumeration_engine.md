@@ -117,14 +117,14 @@ dissociation constant `K_R`).
 ### 4. Promote a non-allosteric to allosteric mechanism
 
 Converts a `Mechanism` to an `AllostericMechanism` variant set. An `:OnlyA`
-catalytic binding asserts `K_A/K_I → ∞`: the inactive conformation cannot bind
+catalytic binding asserts `K_I → ∞`: the inactive conformation cannot bind
 that metabolite, so it cannot complete the catalytic cycle. The MWC reading is a
 **catalytically-dead** inactive conformation — every isomerization (chemical)
 step `:OnlyA` — that binds ligands but runs no chemistry. The engine emits, per
 multiplicity: every non-empty subset of binding groups `:OnlyA`, each with all
 chemical steps `:OnlyA` (a K-type mechanism, emitted bare — the bound
 metabolite's concentration reveals `L`); plus the empty subset (all chemical
-steps `:OnlyA`, no `:OnlyA` binding) paired with a declared allosteric regulator,
+steps `:OnlyA`, all `:EqualAI` binding) paired with a declared allosteric regulator,
 one variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}` (a V-type
 mechanism, where the regulator makes `L` identifiable). The all-`:EqualAI`
 baseline is never emitted (the conformations would be identical and `L` would
