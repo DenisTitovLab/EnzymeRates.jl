@@ -690,8 +690,8 @@ end
 # exists and D[g_free] = 0 — the normalization then divides by zero and
 # `rate_equation` is NaN at every concentration. Under formulation 1 only free
 # enzyme flips, so a component free E cannot reach holds no inactive mass and
-# must be stranded. Both mechanisms below are accepted by the `:OnlyA`
-# thermodynamic guard — they are valid, and the derivation must handle them.
+# must be stranded. The mechanism below is accepted by the `:OnlyA`
+# thermodynamic guard — it is valid, and the derivation must handle it.
 @testset "ping-pong :OnlyA I-state keeps a reachable free-enzyme root" begin
     err1 = @allosteric_mechanism begin
         substrates: ATP, F6P

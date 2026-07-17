@@ -1202,14 +1202,17 @@ The `AllostericMechanism` for `am` in conformational `state`: `am` itself for
 `:A`; for `:I`, a fresh `AllostericMechanism` with `:OnlyA` catalytic groups
 dropped AND every enzyme form disconnected from free E by that drop pruned at
 the step level. After removing the `:OnlyA` groups, a form is kept iff it lies
-in the connected component of a free (empty-bound) enzyme form over ALL
-remaining steps (rapid-equilibrium and steady-state alike); a step is kept iff
-both its endpoints are kept, so a kinetic group with all its steps dropped
-disappears. Forms whose only route back to free E ran through an `:OnlyA` group
-become disconnected and drop out; forms still reachable through the surviving
-steps — including a substrate complex repopulated by reverse catalysis — are
-retained. A mechanism with no `:OnlyA` catalytic group keeps its whole graph
-and re-derives its full native I-state.
+in the connected component of the free-enzyme root — the form carrying neither
+a bound metabolite nor a residual, the only form that interconverts between
+conformations under formulation 1 — over ALL remaining steps (rapid-equilibrium
+and steady-state alike); a step is kept iff both its endpoints are kept, so a
+kinetic group with all its steps dropped disappears. Forms whose only route
+back to free E ran through an `:OnlyA` group become disconnected and drop out;
+forms still reachable through the surviving steps — including a substrate
+complex repopulated by reverse catalysis — are retained. A ping-pong covalent
+intermediate carries a residual and so is never itself a root. A mechanism
+with no `:OnlyA` catalytic group keeps its whole graph and re-derives its full
+native I-state.
 
 Routing both the derivation mechanism and the step_params through this one
 struct keeps steps and allo-state tags aligned: the `AllostericMechanism`
