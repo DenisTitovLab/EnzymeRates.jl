@@ -592,12 +592,6 @@ end
 # four-segment residual-bearing King–Altman and that the normalization collapses
 # correctly for identical conformations: an all-:EqualAI ping-pong must equal the
 # non-allosteric ping-pong and be independent of L.
-#
-# DEFERRED: a full L-dependent free-flip ground truth for a :NonequalAI ping-pong
-# (which would exercise the cross-weight with D_A ≠ D_I) is not built here. The
-# blocker is the ping-pong parameter-name mapping to a hand-built eight-form
-# network, not the physics; the formulation-1 combine is topology-agnostic and is
-# validated on the four networks above (including the productive :NonequalAI one).
 @testset "allosteric ping-pong self-consistency" begin
     nonallo = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q
@@ -630,6 +624,194 @@ end
                 ((s === :L ? L : vals[s] for s in fpa)..., Keq, 1.0))
             @test isapprox(real(ER.rate_equation(alloEq, concs, pa)), vn; rtol=1e-6)
         end
+    end
+end
+
+# ── Two-conformation ping-pong bi-bi network (formulation 1) ─────────────────
+# Ping-pong has TWO empty-bound forms — free E and the covalent intermediate F
+# (`E(; residual = A - P)`). Only free E flips; F does not. The E_A<->E_I edge is
+# therefore the ONLY cut between the two conformation subnetworks, so at steady
+# state it carries zero net flux and E_I/E_A sits at exactly L for ANY FAST — the
+# fast-flip limit is exact for this topology rather than a large-FAST limit. Each
+# conformation turns its own four-form cycle (E, EA, F, FB), coupled only through
+# the shared free-enzyme pool.
+#
+# Thermodynamics pins ONE combination per conformation, not one per half-reaction.
+# Detailed balance around the closed cycle E → EA → F → FB → E requires
+#   (kon_A·A/koff_A)·(k_P/(koff_P·P))·(kon_B·B/koff_B)·(k_Q/(koff_Q·Q)) = 1
+# at the equilibrium ratio P·Q/(A·B) = Keq, i.e. the overall Haldane relation
+#   kon_A·k_P·kon_B·k_Q = Keq · koff_A·koff_P·koff_B·koff_Q,
+# matching the numerator of Segel Eq. IX-140 (k1f·k2f·k3f·k4f·A·B −
+# k1r·k2r·k3r·k4r·P·Q). The two half-reactions' equilibrium constants are NOT
+# separately fixed — only their product is — so exactly one reverse constant per
+# conformation is dependent. `koff_A` (shared, :EqualAI) closes the active cycle;
+# `koff_P_I` then closes the inactive one against that same `koff_A`.
+function pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B;
+        k_P_A, koff_P_A, k_Q_A, koff_Q_A, k_P_I, k_Q_I, koff_Q_I,
+        L, Keq, A, B, P, Q, FAST=1e7)
+    koff_A   = kon_A * k_P_A * kon_B * k_Q_A / (Keq * koff_P_A * koff_B * koff_Q_A)
+    koff_P_I = kon_A * k_P_I * kon_B * k_Q_I / (Keq * koff_A * koff_B * koff_Q_I)
+    species = [:E_A, :EA_A, :F_A, :FB_A, :E_I, :EA_I, :F_I, :FB_I]
+    edges = Tuple{Symbol,Symbol,Float64}[]
+    cat_edges = Tuple{Symbol,Symbol,Float64,Float64}[]
+    for (c, k_P, koff_P, k_Q, koff_Q) in ((:A, k_P_A, koff_P_A, k_Q_A, koff_Q_A),
+                                          (:I, k_P_I, koff_P_I, k_Q_I, koff_Q_I))
+        e, ea = Symbol(:E_, c), Symbol(:EA_, c)
+        f, fb = Symbol(:F_, c), Symbol(:FB_, c)
+        append!(edges, [
+            (e, ea, kon_A * A), (ea, e, koff_A),          # E + A ⇌ EA
+            (ea, f, k_P), (f, ea, koff_P * P),            # EA ⇌ F + P
+            (f, fb, kon_B * B), (fb, f, koff_B),          # F + B ⇌ FB
+            (fb, e, k_Q), (e, fb, koff_Q * Q),            # FB ⇌ E + Q
+        ])
+        push!(cat_edges, (ea, f, k_P, koff_P * P))        # net flux across the P cut
+    end
+    push!(edges, (:E_A, :E_I, FAST * L), (:E_I, :E_A, FAST))   # only free enzyme flips
+    mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
+end
+
+"Segel Eq. IX-140 ping-pong bi-bi rate: E + A ⇌ EA ⇌ F + P; F + B ⇌ FB ⇌ E + Q."
+function segel_pingpong_flux(k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, A, B, P, Q)
+    num = k1f*k2f*k3f*k4f*A*B - k1r*k2r*k3r*k4r*P*Q
+    den = k1f*k2f*(k3r+k4f)*A + k3f*k4f*(k1r+k2f)*B +
+          k1r*k2r*(k3r+k4f)*P + k3r*k4r*(k1r+k2f)*Q +
+          k1f*k3f*(k2f+k4f)*A*B + k1f*k2r*(k3r+k4f)*A*P +
+          k3f*k4r*(k1r+k2f)*B*Q + k2r*k4r*(k1r+k3r)*P*Q
+    num / den
+end
+
+# ── Ping-pong ground-truth harness self-validation ───────────────────────────
+# (d) is the load-bearing one: FAST-invariance is exact physics for this topology
+# (the free-enzyme flip is the only cut, so it carries zero net flux), and it is
+# what licenses the tight gate below. (a) anchors the network against an
+# independent closed form rather than another network solve.
+@testset "ping-pong free-flip ground-truth harness self-validation" begin
+    rng = MersenneTwister(20260716)
+    for _ in 1:4
+        kon_A = 0.5+2rand(rng); kon_B = 0.5+2rand(rng); koff_B = 0.5+2rand(rng)
+        k_P_A = 0.5+2rand(rng); koff_P_A = 0.5+2rand(rng)
+        k_Q_A = 0.5+2rand(rng); koff_Q_A = 0.5+2rand(rng)
+        k_P_I = 0.5+2rand(rng); k_Q_I = 0.5+2rand(rng); koff_Q_I = 0.5+2rand(rng)
+        L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
+        A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
+        act = (k_P_A=k_P_A, koff_P_A=koff_P_A, k_Q_A=k_Q_A, koff_Q_A=koff_Q_A)
+        ina = (k_P_I=k_P_I, k_Q_I=k_Q_I, koff_Q_I=koff_Q_I)
+
+        # (a) L = 0 : inactive unpopulated → the active-only ping-pong, checked
+        #     against the Segel closed form. `koff_A` is the dependent reverse
+        #     constant the Haldane fixes; Segel's k1r is that same constant.
+        koff_A = kon_A*k_P_A*kon_B*k_Q_A / (Keq*koff_P_A*koff_B*koff_Q_A)
+        f0 = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., ina...,
+            L=0.0, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        @test isapprox(f0, segel_pingpong_flux(kon_A, koff_A, k_P_A, koff_P_A,
+            kon_B, koff_B, k_Q_A, koff_Q_A, A, B, P, Q); rtol=1e-9)
+
+        # (b) identical conformations → the active-only rate, independent of L.
+        same = (k_P_I=k_P_A, k_Q_I=k_Q_A, koff_Q_I=koff_Q_A)
+        fe = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., same...,
+            L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        fe5 = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., same...,
+            L=5.0, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        @test isapprox(fe, f0; rtol=1e-9)
+        @test isapprox(fe, fe5; rtol=1e-9)
+
+        # (c) v = 0 at the equilibrium metabolite ratio P·Q/(A·B) = Keq. Both
+        #     conformations are live and unequal, so this pins both Haldanes.
+        Qeq = Keq * A * B / P
+        @test abs(pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act...,
+            ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Qeq)) < 1e-9
+
+        # (d) FAST-invariance: the free-enzyme flip is the only cut between the
+        #     conformation subnetworks, so it carries zero net flux and E_I/E_A is
+        #     exactly L for any FAST. The fast-flip limit is therefore exact here.
+        v_live = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B; act..., ina...,
+            L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        for fast in (1e2, 1e12)
+            @test isapprox(v_live, pingpong_nonequalAI_freeflip_flux(kon_A, kon_B,
+                koff_B; act..., ina..., L=L, Keq=Keq, A=A, B=B, P=P, Q=Q, FAST=fast);
+                rtol=1e-9)
+        end
+
+        # (e) a live inactive conformation must move the flux, or the gate below
+        #     would pass without ever exercising the cross term.
+        @test !isapprox(v_live, f0; rtol=1e-3)
+    end
+end
+
+# ── The gate: :NonequalAI ping-pong matches mass-action ground truth ──────────
+# The two empty-bound forms (free E and the covalent F) are what a cross-weighted
+# combine must get right: only E flips, so the derivation must normalize the two
+# conformations on the free-enzyme segment alone and leave F out of the flip. Both
+# catalytic steps are :NonequalAI, so both conformations turn a productive cycle
+# with different rate constants (D_A ≠ D_I) and the cross term is live. The gate
+# goes red if the derivation flips F, reverts to the raw Q_A + L·Q_I combine, or
+# mis-renders the normalization — each moves the flux by ~0.1-3%.
+#
+# Because the free-enzyme flip is the only cut, the combine is algebraically exact
+# here rather than a large-FAST limit, so this gate runs far tighter than the 1e-4
+# gates above. Measured: the derivation tracks the oracle to 2.7e-13 worst case
+# over 300 random draws, and to 2.2e-15 against the same oracle solved in
+# BigFloat — the derivation is exact to a few ulp, and the Float64 residual is the
+# oracle's own linear solve, whose FAST-invariance (exact physics) itself only
+# holds to 1.3e-13. rtol 1e-10 clears that noise floor with three orders to spare
+# and is still seven orders tighter than any real error mode.
+@testset ":NonequalAI ping-pong MWC derivation matches mass-action ground truth" begin
+    allo = @allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + A <--> E(A)                                       :: EqualAI
+            E(A) <--> E(; residual = A - P) + P                   :: NonequalAI
+            E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
+            E(B; residual = A - P) <--> E + Q                     :: NonequalAI
+        end
+    end
+    fp = ER.fitted_params(allo)
+    @test fp == (:kon_A_E, :kon_A_P_EA, :koff_A_P_EA,
+                 Symbol("kon_A_Q_EB_res_+A_-P"), Symbol("koff_A_Q_EB_res_+A_-P"),
+                 Symbol("kon_B_E_res_+A_-P"), Symbol("koff_B_E_res_+A_-P"),
+                 :kon_I_P_EA, Symbol("kon_I_Q_EB_res_+A_-P"),
+                 Symbol("koff_I_Q_EB_res_+A_-P"), :L)
+
+    rng = MersenneTwister(20260716)
+    for _ in 1:6
+        kon_A = 0.5+2rand(rng); kon_B = 0.5+2rand(rng); koff_B = 0.5+2rand(rng)
+        k_P_A = 0.5+2rand(rng); koff_P_A = 0.5+2rand(rng)
+        k_Q_A = 0.5+2rand(rng); koff_Q_A = 0.5+2rand(rng)
+        k_P_I = 0.5+2rand(rng); k_Q_I = 0.5+2rand(rng); koff_Q_I = 0.5+2rand(rng)
+        L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
+        A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
+        # Map fitted_params -> ground-truth params. On a release step the
+        # canonical direction runs E(A) → F + P, so `kon_…` is the forward
+        # (product-releasing) rate and `koff_…` the reverse (product-rebinding)
+        # one — the binding steps read the usual way round.
+        #   kon_A_E=kon_A                                (E + A ⇌ EA, shared)
+        #   kon_B_E_res_+A_-P=kon_B, koff_B_E_res_+A_-P=koff_B  (F + B ⇌ FB, shared)
+        #   kon_A_P_EA=k_P_A, koff_A_P_EA=koff_P_A       (EA ⇌ F + P, active)
+        #   kon_I_P_EA=k_P_I                             (EA ⇌ F + P, inactive)
+        #   kon_A_Q_EB_res_+A_-P=k_Q_A,
+        #   koff_A_Q_EB_res_+A_-P=koff_Q_A               (FB ⇌ E + Q, active)
+        #   kon_I_Q_EB_res_+A_-P=k_Q_I,
+        #   koff_I_Q_EB_res_+A_-P=koff_Q_I               (FB ⇌ E + Q, inactive)
+        # `koff_A_E` and `koff_I_P_EA` are absent from fitted_params: each
+        # conformation's Haldane makes one reverse constant dependent, and the
+        # oracle derives exactly those two.
+        d = Dict(:kon_A_E => kon_A,
+                 Symbol("kon_B_E_res_+A_-P") => kon_B,
+                 Symbol("koff_B_E_res_+A_-P") => koff_B,
+                 :kon_A_P_EA => k_P_A, :koff_A_P_EA => koff_P_A,
+                 Symbol("kon_A_Q_EB_res_+A_-P") => k_Q_A,
+                 Symbol("koff_A_Q_EB_res_+A_-P") => koff_Q_A,
+                 :kon_I_P_EA => k_P_I,
+                 Symbol("kon_I_Q_EB_res_+A_-P") => k_Q_I,
+                 Symbol("koff_I_Q_EB_res_+A_-P") => koff_Q_I,
+                 :L => L)
+        prm = NamedTuple{(fp..., :Keq, :E_total)}(((d[s] for s in fp)..., Keq, 1.0))
+        v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P, Q=Q), prm))
+        v_gt = pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B;
+            k_P_A=k_P_A, koff_P_A=koff_P_A, k_Q_A=k_Q_A, koff_Q_A=koff_Q_A,
+            k_P_I=k_P_I, k_Q_I=k_Q_I, koff_Q_I=koff_Q_I,
+            L=L, Keq=Keq, A=A, B=B, P=P, Q=Q)
+        @test isapprox(v_code, v_gt; rtol=1e-10)
     end
 end
 
