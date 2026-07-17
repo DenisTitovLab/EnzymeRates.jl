@@ -670,6 +670,13 @@ function pingpong_nonequalAI_freeflip_flux(kon_A, kon_B, koff_B;
     mwc_ground_truth_flux(species, edges, cat_edges, 1.0)
 end
 
+# `test/mechanism_definitions_for_test_enzyme_derivation.jl:328` transcribes this
+# same Segel formula, and both transcriptions are live. Keep them independent
+# rather than sharing one: a shared transcription error would green this gate and
+# that one at once, whereas two independent transcriptions cross-check each other.
+# Sharing would also couple this gate to the MECHANISM_TEST_SPECS fixture, whose
+# copy takes `(params::NamedTuple, concs::NamedTuple)` with an `Etotal` rather
+# than the 12 positional scalars this one takes.
 "Segel Eq. IX-140 ping-pong bi-bi rate: E + A ⇌ EA ⇌ F + P; F + B ⇌ FB ⇌ E + Q."
 function segel_pingpong_flux(k1f, k1r, k2f, k2r, k3f, k3r, k4f, k4r, A, B, P, Q)
     num = k1f*k2f*k3f*k4f*A*B - k1r*k2r*k3r*k4r*P*Q
@@ -882,12 +889,12 @@ end
         products: ADP, F16BP
         catalytic_multiplicity: 1
         catalytic_steps: begin
-            E + ATP ⇌ E(ATP)                                                       :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                           :: OnlyA
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP) :: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)     :: OnlyA
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                                :: EqualAI
-            E + ADP ⇌ E(ADP)                                                       :: EqualAI
+            E + ATP ⇌ E(ATP)                                                      :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: EqualAI
+            E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
     am = ER.AllostericMechanism(err1)
@@ -987,6 +994,14 @@ end
         @test abs(biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
                 k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=Peq)) < 1e-6
     end
+
+    # (e) a live inactive conformation must move the flux, or the gate below
+    #     would pass without ever exercising the cross term.
+    v_live = biuni_mwc_oligomer_flux(2, 1.7, 1.1, 0.8, 0.9;
+            k_A=2.5, k_I=0.4, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
+    v_dead = biuni_mwc_oligomer_flux(2, 1.7, 1.1, 0.8, 0.9;
+            k_A=2.5, k_I=0.0, L=0.7, Keq=3.0, A=1.1, B=0.5, P=0.6)
+    @test !isapprox(v_live, v_dead; rtol=1e-3)
 
     # (c) THE formulation-1 pin: at nprot = 1 the oracle must reproduce the
     #     established free-flip reference, and must NOT equal the per-form-flip

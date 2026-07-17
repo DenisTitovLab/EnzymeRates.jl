@@ -1909,6 +1909,67 @@ end
     end
 end
 
+# The rejection testset above pins the guard's reject direction; this one pins its
+# ACCEPT direction, which nothing else covers. The guard runs a cheap per-row sign
+# test (sound but incomplete) and then an exact Stiemke eps-feasibility test. The
+# two agree on every mechanism up to bi-bi and diverge only from ter-substrate up,
+# so ter is the only place a regression in the exact test can show. Over-rejection
+# was measured at 0 across 17,814 tag assignments — every feasible assignment is
+# admitted. That is what makes this direction worth a test: an over-rejection does
+# not fail loudly, it silently shrinks the enumeration search space by dropping
+# valid mechanisms before they are ever fitted. The cube below is the load-bearing
+# witness — its sign test finds nothing to flag, so the verdict genuinely comes
+# from the Stiemke stage (M is 5x12, nullity 7, feasible = true).
+@testset ":OnlyA guard admits feasible ter-substrate mechanisms" begin
+    ER = EnzymeRates
+
+    # A full random-order A/B/C binding lattice, every substrate binding :OnlyA.
+    # The :OnlyA chemical step drops the catalytic Haldane row from the check
+    # graph, leaving the lattice's five Wegscheider squares; each carries both
+    # signs on its eps-exponents, so the coupled system is feasible (w = 1 solves
+    # it) and the cube is admitted.
+    cube = @allosteric_mechanism begin
+        substrates: A, B, C
+        products:   P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)             :: OnlyA
+            E + B ⇌ E(B)             :: OnlyA
+            E + C ⇌ E(C)             :: OnlyA
+            E(A) + B ⇌ E(A, B)       :: OnlyA
+            E(A) + C ⇌ E(A, C)       :: OnlyA
+            E(B) + A ⇌ E(A, B)       :: OnlyA
+            E(B) + C ⇌ E(B, C)       :: OnlyA
+            E(C) + A ⇌ E(A, C)       :: OnlyA
+            E(C) + B ⇌ E(B, C)       :: OnlyA
+            E(A, B) + C ⇌ E(A, B, C) :: OnlyA
+            E(A, C) + B ⇌ E(A, B, C) :: OnlyA
+            E(B, C) + A ⇌ E(A, B, C) :: OnlyA
+            E(A, B, C) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end
+    @test cube isa ER.AllostericEnzymeMechanism
+    @test ER.AllostericMechanism(cube) isa ER.AllostericMechanism
+
+    # Ordered ter with an :OnlyA binding and an :OnlyA chemical step: the free
+    # inactive k_I ratio absorbs the B affinity's divergence, so this is valid.
+    ordered = @allosteric_mechanism begin
+        substrates: A, B, C
+        products:   P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)             :: EqualAI
+            E(A) + B ⇌ E(A, B)       :: OnlyA
+            E(A, B) + C ⇌ E(A, B, C) :: EqualAI
+            E(A, B, C) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end
+    @test ordered isa ER.AllostericEnzymeMechanism
+    @test ER.AllostericMechanism(ordered) isa ER.AllostericMechanism
+end
+
 @testset "rational nullspace + Stiemke feasibility helpers" begin
     ER = EnzymeRates
     R = Rational{BigInt}

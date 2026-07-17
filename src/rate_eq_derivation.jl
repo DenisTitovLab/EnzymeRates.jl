@@ -1166,13 +1166,15 @@ _i_state_num_zero(am::AllostericMechanism) =
 
 """
 Names of enzyme forms in the connected component of the free enzyme over ALL
-steps of `groups` (rapid-equilibrium and steady-state alike). The free enzyme
-is the form carrying neither a bound metabolite nor a residual — the only form
-that interconverts between conformations under formulation 1, and so the only
-root the inactive conformation can be entered through. A ping-pong covalent
-intermediate carries a residual and is therefore not a root: a component the
-free enzyme cannot reach holds no inactive mass, and leaving it in place would
-strand the free-enzyme spanning tree (`D[g_free] = 0`).
+steps of `groups` (rapid-equilibrium and steady-state alike). Every form
+carrying neither a bound metabolite nor a residual seeds the search: such a form
+interconverts between conformations under formulation 1, and so is a root the
+inactive conformation can be entered through. Enumeration yields exactly one
+such form; the hand-written DSL admits a second conformation name, and every
+match then seeds. A ping-pong covalent intermediate carries a residual and is
+therefore not a root: a component the free enzyme cannot reach holds no inactive
+mass, and leaving it in place would strand the free-enzyme spanning tree
+(`D[g_free] = 0`).
 """
 function _reachable_from_free(groups)
     forms = Species[]
@@ -1202,11 +1204,12 @@ The `AllostericMechanism` for `am` in conformational `state`: `am` itself for
 `:A`; for `:I`, a fresh `AllostericMechanism` with `:OnlyA` catalytic groups
 dropped AND every enzyme form disconnected from free E by that drop pruned at
 the step level. After removing the `:OnlyA` groups, a form is kept iff it lies
-in the connected component of the free-enzyme root — the form carrying neither
-a bound metabolite nor a residual, the only form that interconverts between
-conformations under formulation 1 — over ALL remaining steps (rapid-equilibrium
-and steady-state alike); a step is kept iff both its endpoints are kept, so a
-kinetic group with all its steps dropped disappears. Forms whose only route
+in the connected component of the free-enzyme root — a form carrying neither a
+bound metabolite nor a residual, which under formulation 1 is what interconverts
+between conformations; enumeration yields exactly one such form, while the
+hand-written DSL admits a second conformation name — over ALL remaining steps
+(rapid-equilibrium and steady-state alike); a step is kept iff both its endpoints
+are kept, so a kinetic group with all its steps dropped disappears. Forms whose only route
 back to free E ran through an `:OnlyA` group become disconnected and drop out;
 forms still reachable through the surviving steps — including a substrate
 complex repopulated by reverse catalysis — are retained. A ping-pong covalent
