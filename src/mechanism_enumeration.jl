@@ -1740,58 +1740,6 @@ function _expand_add_dead_end_regulator_native(
     results
 end
 
-"""Call `f` on every size-`k` subset of `xs`, in lexicographic index order."""
-function _each_subset(f, xs::Vector{Int}, k::Int)
-    n = length(xs)
-    k > n && return
-    idx = collect(1:k)
-    while true
-        f([xs[i] for i in idx])
-        i = k
-        while i ≥ 1 && idx[i] == n - k + i
-            i -= 1
-        end
-        i == 0 && return
-        idx[i] += 1
-        for j in (i + 1):k
-            idx[j] = idx[j - 1] + 1
-        end
-    end
-end
-
-"""
-    _valid_onlya_completions(rxn, cat_steps, tags) → Vector{Vector{Symbol}}
-
-Every minimal completion of `tags` that satisfies the Haldane relation
-(`_onlya_haldane_violation`), found by promoting additional `:EqualAI` groups to
-`:OnlyA`. Returns `[tags]` unchanged when `tags` already holds, and an empty
-vector when no completion exists.
-
-Promotion subsets are searched by increasing size, and every valid vector at the
-first size that yields one is returned. A one-sided `:OnlyA` binding therefore
-yields both of its minimal repairs — promote the chemical step (`k_I = 0`), or
-promote an opposing binding (the affinities diverge together) — because they are
-distinct hypotheses, not variants of one.
-"""
-function _valid_onlya_completions(rxn::EnzymeReaction,
-                                  cat_steps::Vector{Vector{Step}},
-                                  tags::Vector{Symbol})
-    _onlya_haldane_violation(rxn, cat_steps, tags) === nothing && return [copy(tags)]
-    cand = [g for g in eachindex(tags) if tags[g] === :EqualAI]
-    for k in 1:length(cand)
-        found = Vector{Symbol}[]
-        _each_subset(cand, k) do combo
-            t = copy(tags)
-            for g in combo
-                t[g] = :OnlyA
-            end
-            _onlya_haldane_violation(rxn, cat_steps, t) === nothing && push!(found, t)
-        end
-        isempty(found) || return found
-    end
-    Vector{Symbol}[]
-end
-
 """
     _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
         → Vector{AllostericMechanism}
@@ -1799,41 +1747,36 @@ end
 Mechanism-native overload: convert a non-allosteric `Mechanism` into
 allosteric variants, keeping only variants that are empirically
 distinguishable from a simpler mechanism (an MWC conformational
-constant `L` that has no observable effect is not enumerated):
+constant `L` with no observable effect is not enumerated). An `:OnlyA`
+catalytic binding means the inactive conformation cannot bind that
+metabolite, so it cannot complete the catalytic cycle: every emitted
+`:OnlyA` variant is **dead-inactive** — all isomerization (chemical)
+steps are `:OnlyA`, and the inactive conformation only binds ligands.
 
   * The all-`:EqualAI` baseline is never emitted — the two conformations
     are identical, `L` cancels, and the mechanism is indistinguishable
     from `m`.
-  * A binding group (its representative step binds a metabolite) set to
-    `:OnlyA` is emitted bare: the bound metabolite's concentration
-    reveals `L` (a K-type mechanism).
-  * A catalytic group (its representative step is an isomerization, no
-    bound metabolite) set to `:OnlyA` is emitted ONLY paired with a
-    declared allosteric regulator at a new site, one variant per
-    `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}` (a V-type
-    mechanism). With no regulator bound, the inactive state binds
-    substrate/product identically to the active state but cannot
-    catalyze, so `L` folds entirely into `kcat`
-    (`v = kcat/(1+L)·shape`) and is not observable; a reaction with no
-    declared allosteric regulators emits nothing for that group.
-  * A binding group's `:OnlyA` on its own can leave a catalytic cycle's
-    Haldane relation unsatisfiable. Such a variant is emitted only once
-    `_valid_onlya_completions` has promoted further groups to `:OnlyA`,
-    and every minimal completion is emitted; a promotion admitting no
-    completion is dropped. A catalytic group promoted this way needs no
-    regulator to be distinguishable — the `:OnlyA` binding already
-    reveals `L` through its metabolite's concentration.
-
-Duplicate variants are removed: the balanced repair of a one-sided
-`:OnlyA` binding is reachable from either side's promotion.
+  * K-type: every non-empty subset of binding groups is set `:OnlyA`,
+    with all isomerization steps `:OnlyA`. Each `:OnlyA` binding's
+    metabolite concentration reveals `L`, so each is emitted bare. A
+    subset that leaves a binding-only Wegscheider cycle unsatisfiable
+    (`_onlya_haldane_violation`) is dropped.
+  * V-type: no `:OnlyA` binding, all isomerization steps `:OnlyA`. The
+    inactive state binds substrate/product identically to the active
+    state but cannot catalyze, so `L` folds entirely into `kcat`
+    (`v = kcat/(1+L)·shape`) and is not observable; it is emitted ONLY
+    paired with a declared allosteric regulator at a new site, one
+    variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. A
+    reaction with no declared allosteric regulators emits no V-type.
 
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the
 multiplicity becomes the variant's `catalytic_multiplicity`. Catalytic
-steps are reused by reference.
+steps are reused by reference; duplicate variants are removed.
 """
 function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     n_g = length(steps(m))
-    base_tags = Symbol[:EqualAI for _ in 1:n_g]
+    iso = [g for g in 1:n_g if is_iso(rep_step(m, g))]
+    bind = [g for g in 1:n_g if !is_iso(rep_step(m, g))]
     regs = Symbol[]
     for rm in regulators(rxn)
         reg = regulator(rm)
@@ -1842,20 +1785,36 @@ function _expand_to_allosteric(m::Mechanism, rxn::EnzymeReaction)
     sort!(regs)
     results = AllostericMechanism[]
     for cn in allowed_catalytic_multiplicities(rxn)
-        for g in 1:n_g
-            new_tags = copy(base_tags)
-            new_tags[g] = :OnlyA
-            if is_iso(rep_step(m, g))
-                am_cat = AllostericMechanism(
-                    reaction(m), copy(steps(m)), new_tags, cn, RegulatorySite[])
-                for reg in regs, tag in (:OnlyA, :OnlyI)
-                    push!(results, _make_am_with_added_reg(am_cat, reg, tag, 0))
-                end
-            else
-                for t in _valid_onlya_completions(rxn, steps(m), new_tags)
-                    push!(results, AllostericMechanism(
-                        reaction(m), copy(steps(m)), t, cn, RegulatorySite[]))
-                end
+        # K-type: every non-empty subset of binding groups :OnlyA, with all
+        # chemical (iso) steps :OnlyA — a catalytically-dead inactive conformation.
+        # A state that cannot bind a catalytic metabolite cannot complete the
+        # cycle, so it runs no chemistry. The :OnlyA binding's metabolite reveals
+        # L, so each is emitted bare. `_onlya_haldane_violation` drops a subset
+        # that leaves a binding-only Wegscheider cycle unsatisfiable.
+        for mask in 1:(2^length(bind) - 1)
+            tags = Symbol[:EqualAI for _ in 1:n_g]
+            for g in iso
+                tags[g] = :OnlyA
+            end
+            for (i, g) in enumerate(bind)
+                (mask >> (i - 1)) & 1 == 1 && (tags[g] = :OnlyA)
+            end
+            _onlya_haldane_violation(rxn, steps(m), tags) === nothing || continue
+            push!(results, AllostericMechanism(
+                reaction(m), copy(steps(m)), tags, cn, RegulatorySite[]))
+        end
+        # V-type: no :OnlyA binding, all chemical steps :OnlyA. The inactive state
+        # binds identically but cannot catalyze, so L folds into kcat and is
+        # unobservable — emit only paired with a declared regulator.
+        if !isempty(iso) && !isempty(regs)
+            vtags = Symbol[:EqualAI for _ in 1:n_g]
+            for g in iso
+                vtags[g] = :OnlyA
+            end
+            am_cat = AllostericMechanism(
+                reaction(m), copy(steps(m)), vtags, cn, RegulatorySite[])
+            for reg in regs, tag in (:OnlyA, :OnlyI)
+                push!(results, _make_am_with_added_reg(am_cat, reg, tag, 0))
             end
         end
     end
@@ -1988,23 +1947,52 @@ _expand_add_allosteric_regulator(::Mechanism, ::EnzymeReaction) =
     AllostericMechanism[]
 
 """
+    _partial_onlya_catalysis(cat_steps, cat_allo_states) → Bool
+
+True when the inactive conformation catalyzes only partially: some catalytic
+group is `:OnlyA` (a dead binding or chemical step) while some isomerization
+(chemical) step is still live (not `:OnlyA`). The inactive conformation's
+catalysis must be all-or-nothing — fully dead (every chemical step `:OnlyA`,
+whether because an `:OnlyA` binding blocks the cycle or by a dead-inactive
+V-type) or fully live. A partial conformation strands enzyme in a covalent
+form (a kinetic sink) and crashes the saturating-turnover extraction. The
+enumeration moves use this to avoid generating such a form.
+"""
+function _partial_onlya_catalysis(cat_steps::Vector{Vector{Step}},
+                                  cat_allo_states::Vector{Symbol})
+    live_iso = any(is_iso(cat_steps[g][1]) && cat_allo_states[g] !== :OnlyA
+                   for g in eachindex(cat_steps))
+    live_iso && any(==(:OnlyA), cat_allo_states)
+end
+
+"""
     _expand_change_allo_state(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 
-Mechanism-native overload. Relax one allo state from a "constrained"
-tag (`:EqualAI`, `:OnlyA`, `:OnlyI`) to `:NonequalAI`. Variants are
-emitted for each catalytic kinetic group tag and each regulatory
-ligand tag that is not already `:NonequalAI`. The base catalytic
-steps, multiplicity, and untouched tags are preserved.
+Mechanism-native overload. Relax a "constrained" tag (`:EqualAI`,
+`:OnlyA`, `:OnlyI`) to `:NonequalAI`. A binding catalytic group and a
+regulatory ligand each relax individually — one variant per group not
+already `:NonequalAI`. The chemical (isomerization) groups relax
+**together**, one variant setting every non-`:NonequalAI` chemical step
+to `:NonequalAI` at once: inactive catalysis is all-or-nothing, so a
+fully-`:NonequalAI` catalytic inactive conformation cannot be reached by
+relaxing chemical steps one at a time (each mixed intermediate is a
+partial and is dropped). The base catalytic steps, multiplicity, and
+untouched tags are preserved.
 
-Relaxing an `:OnlyA` chemical step restores a finite `k_I`, which can
-strand a one-sided `:OnlyA` binding that only `k_I = 0` made legal. Such
-a variant is dropped (`_onlya_haldane_violation`) rather than repaired:
-the move relaxes the one named tag, and promoting some other group to
-close the Haldane would be a different move. No hypothesis is lost — a
-`:NonequalAI` chemical step under balanced `:OnlyA` bindings is still
-reached by relaxing the balanced variant, where the affinities diverge
-together and nothing is stranded.
+Relaxing an `:OnlyA` chemical step is dropped in two cases. A one-sided
+`:OnlyA` binding is only legal because `k_I = 0`; restoring a finite
+`k_I` strands it, leaving no thermodynamic reading
+(`_onlya_haldane_violation`). More broadly, inactive catalysis must be
+all-or-nothing: a relaxation that leaves the inactive conformation
+catalyzing only partially — some catalytic group `:OnlyA` while a
+chemical step stays live — is dropped (`_partial_onlya_catalysis`),
+because such a conformation strands enzyme in a covalent form. Relaxing
+an `:OnlyA` binding, or a chemical step of a fully-live inactive
+conformation, is retained. Where the inactive conformation binds nothing
+(all bindings `:OnlyA`), the dropped partial variant is rate-equivalent
+to the fully-dead form emitted directly, so no observable hypothesis is
+lost.
 
 A regulatory ligand's tag is not an argument to the Haldane check — a
 regulator site completes no catalytic cycle — so that branch needs no
@@ -2012,14 +2000,35 @@ filter.
 """
 function _expand_change_allo_state(am::AllostericMechanism)
     results = AllostericMechanism[]
+    cs = steps(am)
+    iso_gs = [g for g in eachindex(cs) if is_iso(cs[g][1])]
 
-    for g in 1:length(cat_allo_states(am))
+    # Binding catalytic groups relax individually.
+    for g in eachindex(cat_allo_states(am))
+        is_iso(cs[g][1]) && continue
         cat_allo_states(am)[g] == :NonequalAI && continue
         new_states = copy(cat_allo_states(am))
         new_states[g] = :NonequalAI
-        _onlya_haldane_violation(reaction(am), steps(am), new_states) ===
+        _onlya_haldane_violation(reaction(am), cs, new_states) ===
             nothing || continue
+        _partial_onlya_catalysis(cs, new_states) && continue
         push!(results, _with_cat_allo_states(am, new_states))
+    end
+
+    # Chemical (isomerization) groups relax together. Inactive catalysis is
+    # all-or-nothing, so a fully-`:NonequalAI` catalytic inactive conformation is
+    # unreachable by relaxing chemical steps one at a time — each mixed
+    # intermediate is a partial and is dropped. One variant sets every
+    # non-`:NonequalAI` chemical step to `:NonequalAI` at once.
+    if any(cat_allo_states(am)[g] != :NonequalAI for g in iso_gs)
+        new_states = copy(cat_allo_states(am))
+        for g in iso_gs
+            new_states[g] = :NonequalAI
+        end
+        if _onlya_haldane_violation(reaction(am), cs, new_states) === nothing &&
+           !_partial_onlya_catalysis(cs, new_states)
+            push!(results, _with_cat_allo_states(am, new_states))
+        end
     end
 
     for (si, site) in enumerate(regulatory_sites(am))
@@ -2043,54 +2052,6 @@ end
 Non-allosteric input: no-op; this move only relaxes allosteric state tags.
 """
 _expand_change_allo_state(::Mechanism) =
-    AllostericMechanism[]
-
-"""
-    _expand_promote_catalytic_to_onlya(am::AllostericMechanism)
-        → Vector{AllostericMechanism}
-
-Catalytic-state move. For each catalytic kinetic group tagged `:EqualAI`, emit
-the variants with that group set to `:OnlyA` — binding (K-type) and
-iso/catalytic (V-type) groups alike — closed over whatever further promotions
-the Haldane relation forces (`_valid_onlya_completions`). Promoting a binding on
-one side of the reaction drives `∏ε_p/∏ε_s` to `0` or `∞`, so the inactive cycle
-must either lose its chemical step or gain an opposing `:OnlyA` binding; both
-completions are emitted. Duplicates are dropped: two seed promotions can close
-to the same tag vector.
-
-The parameter count is not preserved, and one parent's children can differ from
-each other. An `:OnlyA` binding makes the inactive conformation's downstream
-complexes unreachable, so any other group's `:NonequalAI` inactive constants
-drop out of the equation, while breaking the inactive cycle removes Wegscheider
-constraints and turns parameters the solver derived into parameters the fit must
-find; the two pull opposite ways. An all-`:EqualAI` parent has no inactive
-constants to drop, so its promotions are `Δ0`; a parent with a `:NonequalAI`
-group can move by anything from `-3` to `+1`. A 6-parameter parent yields both
-6- and 7-parameter children.
-
-The catalytic steps, multiplicity, regulatory sites, and every other tag pass
-through unchanged.
-"""
-function _expand_promote_catalytic_to_onlya(am::AllostericMechanism)
-    results = AllostericMechanism[]
-    for g in 1:length(cat_allo_states(am))
-        cat_allo_states(am)[g] == :EqualAI || continue
-        new_states = copy(cat_allo_states(am))
-        new_states[g] = :OnlyA
-        for t in _valid_onlya_completions(reaction(am), steps(am), new_states)
-            push!(results, _with_cat_allo_states(am, t))
-        end
-    end
-    unique!(results)
-end
-
-"""
-    _expand_promote_catalytic_to_onlya(m::Mechanism)
-        → Vector{AllostericMechanism}
-
-Non-allosteric input: no-op; this move only elaborates allosteric states.
-"""
-_expand_promote_catalytic_to_onlya(::Mechanism) =
     AllostericMechanism[]
 
 """
@@ -2238,9 +2199,9 @@ end
 
 Apply all expansion moves (RE→SS, split kinetic group, add dead-end
 regulator, to-allosteric, add allosteric regulator, change allo state,
-promote catalytic to OnlyA, merge regulatory sites) to each input mechanism
-and return the children as a flat vector. Bucketing by parameter count is
-the caller's job, not enumeration's.
+merge regulatory sites) to each input mechanism and return the children as
+a flat vector. Bucketing by parameter count is the caller's job, not
+enumeration's.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanism, AllostericMechanism}},
@@ -2266,7 +2227,6 @@ function _add_expansions_mech!(
     append!(result, _expand_to_allosteric(m, rxn))
     append!(result, _expand_add_allosteric_regulator(m, rxn))
     append!(result, _expand_change_allo_state(m))
-    append!(result, _expand_promote_catalytic_to_onlya(m))
     append!(result, _expand_merge_regulatory_sites(m))
 end
 

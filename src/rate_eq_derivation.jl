@@ -1165,10 +1165,16 @@ _i_state_num_zero(am::AllostericMechanism) =
     isempty(first(_state_rate_polys(am, :I)))
 
 """
-Names of enzyme forms in the connected component of a free (empty-bound) form
-over ALL steps of `groups` (rapid-equilibrium and steady-state alike). Seeding
-from every empty-bound form covers a ping-pong covalent intermediate, which
-carries no bound metabolite and so is its own free root.
+Names of enzyme forms in the connected component of the free enzyme over ALL
+steps of `groups` (rapid-equilibrium and steady-state alike). Every form
+carrying neither a bound metabolite nor a residual seeds the search: such a form
+interconverts between conformations under formulation 1, and so is a root the
+inactive conformation can be entered through. Enumeration yields exactly one
+such form; the hand-written DSL admits a second conformation name, and every
+match then seeds. A ping-pong covalent intermediate carries a residual and is
+therefore not a root: a component the free enzyme cannot reach holds no inactive
+mass, and leaving it in place would strand the free-enzyme spanning tree
+(`D[g_free] = 0`).
 """
 function _reachable_from_free(groups)
     forms = Species[]
@@ -1176,7 +1182,8 @@ function _reachable_from_free(groups)
         from_species(s) in forms || push!(forms, from_species(s))
         to_species(s)   in forms || push!(forms, to_species(s))
     end
-    reach = Set{Symbol}(name(f) for f in forms if isempty(bound(f)))
+    reach = Set{Symbol}(name(f) for f in forms
+                        if isempty(bound(f)) && isempty(residual(f)))
     changed = true
     while changed
         changed = false
@@ -1197,14 +1204,18 @@ The `AllostericMechanism` for `am` in conformational `state`: `am` itself for
 `:A`; for `:I`, a fresh `AllostericMechanism` with `:OnlyA` catalytic groups
 dropped AND every enzyme form disconnected from free E by that drop pruned at
 the step level. After removing the `:OnlyA` groups, a form is kept iff it lies
-in the connected component of a free (empty-bound) enzyme form over ALL
-remaining steps (rapid-equilibrium and steady-state alike); a step is kept iff
-both its endpoints are kept, so a kinetic group with all its steps dropped
-disappears. Forms whose only route back to free E ran through an `:OnlyA` group
-become disconnected and drop out; forms still reachable through the surviving
-steps — including a substrate complex repopulated by reverse catalysis — are
-retained. A mechanism with no `:OnlyA` catalytic group keeps its whole graph
-and re-derives its full native I-state.
+in the connected component of the free-enzyme root — a form carrying neither a
+bound metabolite nor a residual, which under formulation 1 is what interconverts
+between conformations; enumeration yields exactly one such form, while the
+hand-written DSL admits a second conformation name — over ALL remaining steps
+(rapid-equilibrium and steady-state alike); a step is kept iff both its endpoints
+are kept, so a kinetic group with all its steps dropped disappears. Forms whose only route
+back to free E ran through an `:OnlyA` group become disconnected and drop out;
+forms still reachable through the surviving steps — including a substrate
+complex repopulated by reverse catalysis — are retained. A ping-pong covalent
+intermediate carries a residual and so is never itself a root. A mechanism
+with no `:OnlyA` catalytic group keeps its whole graph and re-derives its full
+native I-state.
 
 Routing both the derivation mechanism and the step_params through this one
 struct keeps steps and allo-state tags aligned: the `AllostericMechanism`

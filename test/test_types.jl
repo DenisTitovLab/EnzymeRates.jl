@@ -1877,3 +1877,152 @@ end
         end
     end
 end
+
+@testset ":OnlyA guard rejects a multi-cycle ter-substrate inconsistency" begin
+    # A full random-order ter binding cube with seven :OnlyA edges. Every single
+    # constraint row carries BOTH signs on its :OnlyA eps-exponents, so the
+    # per-row sign test sees no violation — but the coupled system has no
+    # strictly-positive solution: rows 2, 4 and 5 combine to force the
+    # eps-exponent of K_B_EA to zero, i.e. K_I = K_A, contradicting its :OnlyA
+    # tag. The inactive cube circulates flux around the E(A)->E(A,B)<-E(B)->
+    # E(B,C)<-E(C)->E(A,C)<-E(A) hexagon at equilibrium — perpetual motion.
+    @test_throws ErrorException @allosteric_mechanism begin
+        substrates: A, B, C
+        products:   P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)             :: OnlyA
+            E + B ⇌ E(B)             :: OnlyA
+            E + C ⇌ E(C)             :: OnlyA
+            E(A) + B ⇌ E(A, B)       :: OnlyA
+            E(A) + C ⇌ E(A, C)       :: EqualAI
+            E(B) + A ⇌ E(A, B)       :: EqualAI
+            E(B) + C ⇌ E(B, C)       :: EqualAI
+            E(C) + A ⇌ E(A, C)       :: EqualAI
+            E(C) + B ⇌ E(B, C)       :: EqualAI
+            E(A, B) + C ⇌ E(A, B, C) :: OnlyA
+            E(A, C) + B ⇌ E(A, B, C) :: OnlyA
+            E(B, C) + A ⇌ E(A, B, C) :: OnlyA
+            E(A, B, C) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end
+end
+
+# The rejection testset above pins the guard's reject direction; this one pins its
+# ACCEPT direction, which nothing else covers. The guard runs a cheap per-row sign
+# test (sound but incomplete) and then an exact Stiemke eps-feasibility test. The
+# two agree on every mechanism up to bi-bi and diverge only from ter-substrate up,
+# so ter is the only place a regression in the exact test can show. Over-rejection
+# was measured at 0 across 17,814 tag assignments — every feasible assignment is
+# admitted. That is what makes this direction worth a test: an over-rejection does
+# not fail loudly, it silently shrinks the enumeration search space by dropping
+# valid mechanisms before they are ever fitted. The cube below is the load-bearing
+# witness — its sign test finds nothing to flag, so the verdict genuinely comes
+# from the Stiemke stage (M is 5x12, nullity 7, feasible = true).
+@testset ":OnlyA guard admits feasible ter-substrate mechanisms" begin
+    ER = EnzymeRates
+
+    # A full random-order A/B/C binding lattice, every substrate binding :OnlyA.
+    # The :OnlyA chemical step drops the catalytic Haldane row from the check
+    # graph, leaving the lattice's five Wegscheider squares; each carries both
+    # signs on its eps-exponents, so the coupled system is feasible (w = 1 solves
+    # it) and the cube is admitted.
+    cube = @allosteric_mechanism begin
+        substrates: A, B, C
+        products:   P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)             :: OnlyA
+            E + B ⇌ E(B)             :: OnlyA
+            E + C ⇌ E(C)             :: OnlyA
+            E(A) + B ⇌ E(A, B)       :: OnlyA
+            E(A) + C ⇌ E(A, C)       :: OnlyA
+            E(B) + A ⇌ E(A, B)       :: OnlyA
+            E(B) + C ⇌ E(B, C)       :: OnlyA
+            E(C) + A ⇌ E(A, C)       :: OnlyA
+            E(C) + B ⇌ E(B, C)       :: OnlyA
+            E(A, B) + C ⇌ E(A, B, C) :: OnlyA
+            E(A, C) + B ⇌ E(A, B, C) :: OnlyA
+            E(B, C) + A ⇌ E(A, B, C) :: OnlyA
+            E(A, B, C) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end
+    @test cube isa ER.AllostericEnzymeMechanism
+    @test ER.AllostericMechanism(cube) isa ER.AllostericMechanism
+
+    # Ordered ter with an :OnlyA binding and an :OnlyA chemical step: the free
+    # inactive k_I ratio absorbs the B affinity's divergence, so this is valid.
+    ordered = @allosteric_mechanism begin
+        substrates: A, B, C
+        products:   P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + A ⇌ E(A)             :: EqualAI
+            E(A) + B ⇌ E(A, B)       :: OnlyA
+            E(A, B) + C ⇌ E(A, B, C) :: EqualAI
+            E(A, B, C) <--> E(P)     :: OnlyA
+            E + P ⇌ E(P)             :: EqualAI
+        end
+    end
+    @test ordered isa ER.AllostericEnzymeMechanism
+    @test ER.AllostericMechanism(ordered) isa ER.AllostericMechanism
+end
+
+@testset "rational nullspace + Stiemke feasibility helpers" begin
+    ER = EnzymeRates
+    R = Rational{BigInt}
+
+    @testset "_rational_nullspace" begin
+        # Zero map: every x solves M * x = 0, so the nullspace is the whole
+        # 3-dimensional space.
+        M = zeros(R, 2, 3)
+        N = ER._rational_nullspace(M)
+        @test size(N, 2) == 3
+
+        # Full-rank square matrix: only x = 0 solves M * x = 0.
+        M = R[1 2; 3 4]
+        N = ER._rational_nullspace(M)
+        @test size(N, 2) == 0
+
+        # Rank-1 2x2 (row 2 is twice row 1): both rows reduce to x + y = 0,
+        # spanned by (1, -1). n = 2, rank = 1.
+        M = R[1 1; 2 2]
+        N = ER._rational_nullspace(M)
+        @test M * N == zeros(R, 2, size(N, 2))
+        @test size(N, 2) == 2 - 1
+
+        # More rows than columns, rank-deficient: every row is a multiple of
+        # (1, 2), i.e. x + 2y = 0, spanned by (2, -1).
+        M = R[1 2; 2 4; 3 6]
+        N = ER._rational_nullspace(M)
+        @test M * N == zeros(R, 3, size(N, 2))
+        @test size(N, 2) == 2 - 1
+
+        # More columns than rows: x + z = 0 and y + z = 0, spanned by
+        # (-1, -1, 1).
+        M = R[1 0 1; 0 1 1]
+        N = ER._rational_nullspace(M)
+        @test M * N == zeros(R, 2, size(N, 2))
+        @test size(N, 2) == 3 - 2
+    end
+
+    @testset "_has_strict_positive_combination" begin
+        # Single row [1]: y = 1 gives N * y = 1 > 0.
+        @test ER._has_strict_positive_combination(reshape(R[1], 1, 1))
+        # Rows [1] and [-1] demand y > 0 and -y > 0 at once -> infeasible.
+        @test !ER._has_strict_positive_combination(reshape(R[1, -1], 2, 1))
+        # An all-zero row encodes 0 > 0 and refutes the system outright,
+        # regardless of the other row.
+        @test !ER._has_strict_positive_combination(R[0 0; 1 1])
+        # No columns: y has no entries, so every row's dot product with y is
+        # 0, and each row still demands 0 > 0 -> infeasible.
+        @test !ER._has_strict_positive_combination(zeros(R, 3, 0))
+        # 2-D feasible cone: y1 + y2 > 0 and y1 - y2 > 0, e.g. y = (1, 0).
+        @test ER._has_strict_positive_combination(R[1 1; 1 -1])
+        # 2-D infeasible cone: y1 > 0 and y2 > 0 force y1 + y2 > 0, which
+        # contradicts the third row's -y1 - y2 > 0.
+        @test !ER._has_strict_positive_combination(R[1 0; 0 1; -1 -1])
+    end
+end
