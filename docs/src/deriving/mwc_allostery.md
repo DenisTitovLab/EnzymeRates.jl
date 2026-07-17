@@ -205,9 +205,16 @@ ratio fixed. This is the thermodynamically consistent form of a **K-system**, an
 it needs two coupled `:NonequalAI` bindings, not one.
 
 Often a K-system uses exclusive `:OnlyA` binding: the substrate binds the active
-state alone, the inactive cycle is pruned (`N_I = 0`), and nothing collapses — its
-catalytic step should be `:OnlyA` too, since a state that cannot bind the
-substrate cannot catalyze.
+state alone, and the inactive cycle is pruned (`N_I = 0`). Its catalytic step
+**must** be `:OnlyA` too. This is a thermodynamic requirement, not a convention:
+the two conformations share `Keq`, so a ligand that binds only the active state
+(`K_I → ∞`) forces the inactive catalytic rate to zero, and an `:EqualAI` or
+`:NonequalAI` catalytic tag would assert a rate the Haldane relation forbids. The
+constructor rejects the inconsistent combination.
+
+The exception is a balanced K-system. When `:OnlyA` binds both a substrate and a
+product, the two `K_I → ∞` limits cancel in the Haldane relation: the affinities
+diverge together and their ratio stays free, so `:EqualAI` catalysis is legal.
 
 A steady-state binding splits the constraint further, carrying an affinity
 (`kon/koff`) the cycles constrain and a speed (`kon·koff`) they do not: a

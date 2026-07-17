@@ -648,6 +648,9 @@ struct AllostericMechanism
                 push!(seen_ligands, ligname)
             end
         end
+        violation = _onlya_haldane_violation(reaction, cat_steps, cat_allo_states)
+        violation === nothing ||
+            error("AllostericMechanism: $violation")
         new(reaction, cat_steps, cat_allo_states,
             catalytic_multiplicity, regulatory_sites)
     end

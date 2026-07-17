@@ -396,6 +396,96 @@ function _assemble_constraints(
 end
 
 """
+    _onlya_haldane_violation(rxn, cat_steps, cat_allo_states)
+        → Union{Nothing, String}
+
+Return `nothing` when every catalytic thermodynamic cycle's Haldane relation
+stays satisfiable under the `K_I = K_A/ε`, `ε → 0⁺` limit an `:OnlyA` binding
+asserts; otherwise return a message naming the offending `:OnlyA` bindings.
+
+A cycle's Haldane carries `∏ε_p/∏ε_s` on the inactive side. The `ε` are
+independent, so that monomial can be held finite exactly when its exponents
+carry both signs. All-same-sign drives it to `0` or `∞`; the only thing that
+absorbs the imbalance is a free inactive catalytic ratio `k_I_f/k_I_r`. An
+`:OnlyA` catalytic tag supplies exactly that — its rate constants vanish from
+the rate equation, so their ratio is free to satisfy the cycle's Haldane at any
+affinity — which is why the inactive Haldane is present but never binding here.
+
+The check graph drops `:OnlyA` chemical groups, so a cycle running through one
+never appears and never reports a violation: that free `k_I` ratio is the escape.
+Bindings completing no cycle (competitive inhibitors, dead ends, regulator
+sites) never enter a row and take no part. Both catalytic (Haldane) and
+binding-only (Wegscheider, `rhs = 0`) cycle rows are inspected, so a one-sided
+`:OnlyA` binding on a pure random-order binding square is caught.
+
+The per-row sign test is a sufficient rejection condition, not a complete one:
+it flags a cycle only when that single row's `:OnlyA` exponents are all one
+sign. A genuinely-complete test asks whether the coupled `ε`-exponent system has
+a strictly-positive nullspace vector (Stiemke feasibility). The two agree for
+every random-order mechanism up to bi-bi; from ter-substrate up, a multi-cycle
+coupled inconsistency can pass this per-row check. Such a mechanism is still
+derived correctly — `:OnlyA` deletes the offending edges, so the rate law is
+that of a consistent subgraph — so the gap is a checker-completeness contract
+issue, not a wrong-equation one.
+
+An RE binding carries the cycle exponent on its `Kd` column, already sign-flipped
+against the cycle's `1/Kd` product, while an SS binding carries it on `Kon`
+unflipped. Both encode the same `-C·log(Kd)`, so each column is normalized back
+to the `ε` exponent before its sign is read; otherwise a cycle mixing the two
+step kinds reads as same-sign and a balanced pair is rejected.
+
+Builds a plain `Mechanism`; it must not call `_state_allo_mechanism`, which
+would construct an `AllostericMechanism` and recurse.
+"""
+function _onlya_haldane_violation(rxn::EnzymeReaction,
+                                  cat_steps::Vector{Vector{Step}},
+                                  cat_allo_states::Vector{Symbol})
+    keep = [g for g in eachindex(cat_steps)
+            if !(cat_allo_states[g] === :OnlyA && is_iso(cat_steps[g][1]))]
+    isempty(keep) && return nothing
+    onlyA_steps = Set{Step}()
+    for g in eachindex(cat_steps)
+        cat_allo_states[g] === :OnlyA && is_binding(cat_steps[g][1]) &&
+            union!(onlyA_steps, cat_steps[g])
+    end
+    isempty(onlyA_steps) && return nothing
+    cm = Mechanism(rxn, [copy(cat_steps[g]) for g in keep])
+    sp = _step_parameters(cm)
+    A, _, columns, _ = _assemble_constraints(cm, Dict{Symbol, Symbol}();
+                                             step_params = sp)
+    sym_col = Dict(c => i for (i, c) in enumerate(columns))
+    # Column → multiplier normalizing its entry to the ε exponent. Mirrors the
+    # `sym in binding_K_set` sign rule of `_assemble_constraints` (line 366):
+    # only an RE binding lands in that set, so only it is sign-flipped. The
+    # multiplier is well defined per column because RE and SS bindings render to
+    # different symbols (`K_S_E` vs `kon_S_E`) and so never share a column.
+    onlyA_cols = Dict{Int, Int}()
+    for (j, (s, _)) in enumerate(_flat_steps(cm))
+        s in onlyA_steps || continue
+        sym = name(sp[j][1], cm)
+        haskey(sym_col, sym) &&
+            (onlyA_cols[sym_col[sym]] = is_equilibrium(s) ? -1 : 1)
+    end
+    isempty(onlyA_cols) && return nothing
+    for i in axes(A, 1)
+        signs = Set{Int}()
+        for (c, mult) in onlyA_cols
+            A[i, c] == 0 || push!(signs, mult * A[i, c] > 0 ? 1 : -1)
+        end
+        isempty(signs) && continue
+        length(signs) == 1 || continue
+        offenders = sort!([string(columns[c]) for c in keys(onlyA_cols)
+                           if A[i, c] != 0])
+        return "an :OnlyA binding ($(join(offenders, ", "))) leaves a " *
+               "thermodynamic (Haldane/Wegscheider) cycle unsatisfiable: the " *
+               "inactive conformation cannot close that cycle at finite nonzero " *
+               "affinity. Tag the cycle's chemical step :OnlyA, or tag an " *
+               "opposing binding :OnlyA so the affinities diverge together."
+    end
+    nothing
+end
+
+"""
 Solve an assembled constraint system `(A, rhs, columns, priority)` for a
 dependent/independent parameter partition. Gaussian elimination with priority
 pivoting picks, per constraint row, the highest-priority still-unused column as
