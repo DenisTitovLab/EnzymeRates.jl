@@ -5730,5 +5730,11 @@ end
         onlya_iso = any(tags[g] === :OnlyA for g in isochem(k))
         live_iso = any(tags[g] !== :OnlyA for g in isochem(k))
         @test !(onlya_iso && live_iso)   # never a mixed-iso partial
+        # end-to-end: every surviving child's saturating turnover is finite —
+        # no relaxation reintroduces the covalent sink that crashes kcat.
+        cm = EnzymeRates.compile_mechanism(k)
+        fp = EnzymeRates.fitted_params(cm)
+        prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
+        @test isfinite(EnzymeRates._kcat_forward(cm, prm))
     end
 end
