@@ -1949,21 +1949,20 @@ _expand_add_allosteric_regulator(::Mechanism, ::EnzymeReaction) =
 """
     _partial_onlya_catalysis(cat_steps, cat_allo_states) → Bool
 
-True when an `:OnlyA` catalytic **binding** group coexists with an
-isomerization (chemical) group not tagged `:OnlyA` — the structural signature
-of a live-catalysis inactive conformation under an `:OnlyA` binding. Such a
-conformation cannot bind a catalytic metabolite yet still runs some chemistry,
-which strands enzyme in a covalent form (a kinetic sink) and crashes the
-saturating-turnover extraction. The enumeration moves use this to avoid
-generating such a form.
+True when the inactive conformation catalyzes only partially: some catalytic
+group is `:OnlyA` (a dead binding or chemical step) while some isomerization
+(chemical) step is still live (not `:OnlyA`). The inactive conformation's
+catalysis must be all-or-nothing — fully dead (every chemical step `:OnlyA`,
+whether because an `:OnlyA` binding blocks the cycle or by a dead-inactive
+V-type) or fully live. A partial conformation strands enzyme in a covalent
+form (a kinetic sink) and crashes the saturating-turnover extraction. The
+enumeration moves use this to avoid generating such a form.
 """
 function _partial_onlya_catalysis(cat_steps::Vector{Vector{Step}},
                                   cat_allo_states::Vector{Symbol})
-    has_onlya_binding = any(cat_allo_states[g] === :OnlyA &&
-                            is_binding(cat_steps[g][1]) for g in eachindex(cat_steps))
-    has_onlya_binding || return false
-    any(is_iso(cat_steps[g][1]) && cat_allo_states[g] !== :OnlyA
-        for g in eachindex(cat_steps))
+    live_iso = any(is_iso(cat_steps[g][1]) && cat_allo_states[g] !== :OnlyA
+                   for g in eachindex(cat_steps))
+    live_iso && any(==(:OnlyA), cat_allo_states)
 end
 
 """
@@ -1979,15 +1978,16 @@ steps, multiplicity, and untouched tags are preserved.
 Relaxing an `:OnlyA` chemical step is dropped in two cases. A one-sided
 `:OnlyA` binding is only legal because `k_I = 0`; restoring a finite
 `k_I` strands it, leaving no thermodynamic reading
-(`_onlya_haldane_violation`). More broadly, an `:OnlyA` catalytic
-binding means the inactive conformation cannot bind that metabolite and
-so cannot complete the cycle; a relaxation that leaves such a binding
-beside a non-`:OnlyA` chemical step is dropped
-(`_partial_onlya_catalysis`). Relaxing the `:OnlyA` binding itself is
-retained (it leaves all chemical steps `:OnlyA`). Where the inactive
-conformation binds nothing (all bindings `:OnlyA`), the dropped
-`:NonequalAI`-chemistry variant is rate-equivalent to the fully-dead
-form emitted directly, so no observable hypothesis is lost.
+(`_onlya_haldane_violation`). More broadly, inactive catalysis must be
+all-or-nothing: a relaxation that leaves the inactive conformation
+catalyzing only partially — some catalytic group `:OnlyA` while a
+chemical step stays live — is dropped (`_partial_onlya_catalysis`),
+because such a conformation strands enzyme in a covalent form. Relaxing
+an `:OnlyA` binding, or a chemical step of a fully-live inactive
+conformation, is retained. Where the inactive conformation binds nothing
+(all bindings `:OnlyA`), the dropped partial variant is rate-equivalent
+to the fully-dead form emitted directly, so no observable hypothesis is
+lost.
 
 A regulatory ligand's tag is not an argument to the Haldane check — a
 regulator site completes no catalytic cycle — so that branch needs no

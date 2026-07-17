@@ -5704,3 +5704,31 @@ end
     end
     @test !isempty(kids)   # the :OnlyA-binding relaxation is retained (non-vacuous)
 end
+
+@testset "change_allo_state drops mixed-iso V-type relaxations (no :OnlyA binding)" begin
+    # A dead-inactive V-type shape: both chemical (iso) steps :OnlyA, all
+    # bindings :EqualAI, no :OnlyA binding. Relaxing ONE iso step to
+    # :NonequalAI leaves a partial-catalysis inactive conformation (one iso
+    # live, one dead) with NO :OnlyA binding — the mixed-iso kinetic sink. The
+    # filter must drop it even though there is no :OnlyA binding to key on.
+    vtype = @allosteric_mechanism begin
+        substrates: ATP, F6P ; products: ADP, F16BP ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + ATP ⇌ E(ATP)                                                       :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                           :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP) :: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)     :: EqualAI
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                                :: OnlyA
+            E + ADP ⇌ E(ADP)                                                       :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(vtype)
+    isochem(k) = [g for g in eachindex(EnzymeRates.steps(k))
+                  if EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])]
+    for k in EnzymeRates._expand_change_allo_state(am)
+        tags = EnzymeRates.cat_allo_states(k)
+        onlya_iso = any(tags[g] === :OnlyA for g in isochem(k))
+        live_iso = any(tags[g] !== :OnlyA for g in isochem(k))
+        @test !(onlya_iso && live_iso)   # never a mixed-iso partial
+    end
+end
