@@ -5788,9 +5788,14 @@ end
         Dict(:S => :OnlyA, :chem => :OnlyA, :P => :NonequalAI),
         Dict(:S => :NonequalAI, :chem => :OnlyA, :P => :EqualAI)])
 
-    # The filter loses no hypothesis. :NonequalAI catalysis under :OnlyA
-    # bindings stays reachable from the balanced parent, where the two
-    # bindings' affinities diverge together and no `k_I` is stranded.
+    # Balanced parent: both bindings and the chemical step :OnlyA — the inactive
+    # conformation binds nothing (a fully-inert T-state). Relaxing either binding
+    # is retained (it leaves all chemical steps :OnlyA); relaxing the chemical
+    # step is dropped (`_partial_onlya_catalysis`), because an :OnlyA binding
+    # requires a catalytically-dead inactive conformation. That dropped
+    # :NonequalAI-chemistry variant is anyway rate-equivalent to this fully-dead
+    # form (the inactive binds nothing, so k_I is unobservable), so no hypothesis
+    # is lost.
     balanced = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
@@ -5803,9 +5808,11 @@ end
     end)
     @test haldane_ok(balanced)
     kids = ER._expand_change_allo_state(balanced)
-    @test length(kids) == 3           # nothing filtered
-    @test Dict(:S => :OnlyA, :chem => :NonequalAI, :P => :OnlyA) in
-          Set(tags_by_ligand(k) for k in kids)
+    @test length(kids) == 2           # the chemical-step relaxation is dropped
+    @test !any(tags_by_ligand(k)[:chem] == :NonequalAI for k in kids)
+    @test Set(tags_by_ligand(k) for k in kids) == Set([
+        Dict(:S => :NonequalAI, :chem => :OnlyA, :P => :OnlyA),
+        Dict(:S => :OnlyA, :chem => :OnlyA, :P => :NonequalAI)])
 
     # A regulatory ligand's tag is not an argument to the Haldane check —
     # a regulator site completes no catalytic cycle — so relaxing one can
@@ -5860,4 +5867,33 @@ end
     end
     bare = [k for k in onlya if isempty(EnzymeRates.regulatory_sites(k))]
     @test length(bare) == 15
+end
+
+@testset "change_allo_state drops partial-catalysis relaxations" begin
+    # Dead-inactive 6-step ping-pong: F6P binding + both iso steps :OnlyA. Relaxing
+    # an iso step back would leave an :OnlyA binding beside a live chemical step (the
+    # sink); the move must drop those while keeping the :OnlyA-binding relaxation.
+    dead = @allosteric_mechanism begin
+        substrates: ATP, F6P ; products: ADP, F16BP ; catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + ATP ⇌ E(ATP)                                                       :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                           :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP) :: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)     :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                                :: OnlyA
+            E + ADP ⇌ E(ADP)                                                       :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(dead)
+    kids = EnzymeRates._expand_change_allo_state(am)
+    isochem(k) = [g for g in eachindex(EnzymeRates.steps(k))
+                  if EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])]
+    hasonlyabind(k) = any(EnzymeRates.cat_allo_states(k)[g] === :OnlyA &&
+                          EnzymeRates.is_binding(EnzymeRates.steps(k)[g][1])
+                          for g in eachindex(EnzymeRates.steps(k)))
+    for k in kids
+        @test !(hasonlyabind(k) &&
+                !all(EnzymeRates.cat_allo_states(k)[g] === :OnlyA for g in isochem(k)))
+    end
+    @test !isempty(kids)   # the :OnlyA-binding relaxation is retained (non-vacuous)
 end

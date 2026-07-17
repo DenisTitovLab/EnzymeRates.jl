@@ -1999,6 +1999,26 @@ _expand_add_allosteric_regulator(::Mechanism, ::EnzymeReaction) =
     AllostericMechanism[]
 
 """
+    _partial_onlya_catalysis(cat_steps, cat_allo_states) → Bool
+
+True when an `:OnlyA` catalytic **binding** group coexists with an
+isomerization (chemical) group not tagged `:OnlyA` — the structural signature
+of a live-catalysis inactive conformation under an `:OnlyA` binding. Such a
+conformation cannot bind a catalytic metabolite yet still runs some chemistry,
+which strands enzyme in a covalent form (a kinetic sink) and crashes the
+saturating-turnover extraction. The enumeration moves use this to avoid
+generating such a form.
+"""
+function _partial_onlya_catalysis(cat_steps::Vector{Vector{Step}},
+                                  cat_allo_states::Vector{Symbol})
+    has_onlya_binding = any(cat_allo_states[g] === :OnlyA &&
+                            is_binding(cat_steps[g][1]) for g in eachindex(cat_steps))
+    has_onlya_binding || return false
+    any(is_iso(cat_steps[g][1]) && cat_allo_states[g] !== :OnlyA
+        for g in eachindex(cat_steps))
+end
+
+"""
     _expand_change_allo_state(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 
@@ -2008,14 +2028,18 @@ emitted for each catalytic kinetic group tag and each regulatory
 ligand tag that is not already `:NonequalAI`. The base catalytic
 steps, multiplicity, and untouched tags are preserved.
 
-Relaxing an `:OnlyA` chemical step restores a finite `k_I`, which can
-strand a one-sided `:OnlyA` binding that only `k_I = 0` made legal. Such
-a variant is dropped (`_onlya_haldane_violation`) rather than repaired:
-the move relaxes the one named tag, and promoting some other group to
-close the Haldane would be a different move. No hypothesis is lost — a
-`:NonequalAI` chemical step under balanced `:OnlyA` bindings is still
-reached by relaxing the balanced variant, where the affinities diverge
-together and nothing is stranded.
+Relaxing an `:OnlyA` chemical step is dropped in two cases. A one-sided
+`:OnlyA` binding is only legal because `k_I = 0`; restoring a finite
+`k_I` strands it, leaving no thermodynamic reading
+(`_onlya_haldane_violation`). More broadly, an `:OnlyA` catalytic
+binding means the inactive conformation cannot bind that metabolite and
+so cannot complete the cycle; a relaxation that leaves such a binding
+beside a non-`:OnlyA` chemical step is dropped
+(`_partial_onlya_catalysis`). Relaxing the `:OnlyA` binding itself is
+retained (it leaves all chemical steps `:OnlyA`). Where the inactive
+conformation binds nothing (all bindings `:OnlyA`), the dropped
+`:NonequalAI`-chemistry variant is rate-equivalent to the fully-dead
+form emitted directly, so no observable hypothesis is lost.
 
 A regulatory ligand's tag is not an argument to the Haldane check — a
 regulator site completes no catalytic cycle — so that branch needs no
@@ -2030,6 +2054,7 @@ function _expand_change_allo_state(am::AllostericMechanism)
         new_states[g] = :NonequalAI
         _onlya_haldane_violation(reaction(am), steps(am), new_states) ===
             nothing || continue
+        _partial_onlya_catalysis(steps(am), new_states) && continue
         push!(results, _with_cat_allo_states(am, new_states))
     end
 
