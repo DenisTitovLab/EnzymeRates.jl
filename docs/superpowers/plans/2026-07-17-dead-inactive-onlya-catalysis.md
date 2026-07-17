@@ -52,25 +52,31 @@ julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, 
 
 The enumeration will produce dead-inactive ping-pong `:OnlyA` mechanisms; this gate pins that the derivation handles one correctly. It **passes on current code** (the derivation is already correct via the merged stranding fix) — it is the acceptance target the enumeration must feed.
 
+**CORRECTED shape (a dead-inactive form needs pure ISO steps).** The 4-step lumped ping-pong (`E+A↔E(A)↔F+P; F+B↔F(B)↔E+Q`) has **no iso steps** — its chemical conversions release a product, so all four groups are binding/release — and the guard rejects every non-empty `:OnlyA` subset there. A dead-inactive form only exists on a shape with **separate pure isomerisation steps**: the 6-step PFK topology
+```
+E + ATP ⇌ E(ATP)                                                       :: <t>
+E(ATP) <--> E(F16BP; residual = ATP - F16BP)                           :: <t>   iso (chem1)
+E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP) :: <t>
+E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)     :: <t>
+E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                                :: <t>   iso (chem2)
+E + ADP ⇌ E(ADP)                                                       :: <t>
+```
+Dead-inactive = a **substrate** binding (F6P) `:OnlyA` + **both** iso steps (chem1, chem2) `:OnlyA`, other bindings `:EqualAI`. Measured on current code: guard admits it, `d_free_I = 1`, `rate = 0.1045`, `kcat = 1.3`, no sink.
+
 **Files:**
 - Modify: `test/allosteric_ground_truth.jl` (append).
 
-**Interfaces:**
-- Consumes: `mwc_ground_truth_flux` (`:16`) and the ping-pong oracle `pingpong_nonequalAI_freeflip_flux` added on `mwc-targeted-fixes` (search the file for it) as the shape/Haldane model.
-- Produces: `pingpong_dead_inactive_flux(...)` — a two-conformation ping-pong where the inactive conformation is catalytically dead (binds only the non-`:OnlyA` metabolites, no chemical steps).
-
-- [ ] **Step 1: Build the oracle.** Adapt `pingpong_nonequalAI_freeflip_flux`: keep the **active** conformation's full ping-pong cycle unchanged; for the **inactive** conformation keep only the free enzyme and the bindings of metabolites that are NOT `:OnlyA`, and **remove all inactive catalytic (chemical) edges and the inactive covalent-intermediate forms** (the dead inactive conformation has no catalysis and — for a substrate `:OnlyA` binding — cannot reach the covalent branch). Keep the free-enzyme flip `E_A ⇌ E_I` at ratio `L`. Reuse the Haldane wiring the ping-pong gate already established (the product of the two half-reaction constants is pinned: `kon_A·k_P·kon_B·k_Q = Keq·koff_A·koff_P·koff_B·koff_Q`; equilibrium at `Q·P/(A·B) = Keq`, i.e. `Qeq = Keq·A·B/P`) — do NOT re-derive from scratch; read that gate first.
-
-- [ ] **Step 2: Self-validate the oracle** before it may gate anything: `L = 0` → the active-only ping-pong rate; `v = 0` at the equilibrium metabolite ratio. Run the ground-truth driver; confirm the self-validation testset passes.
-
-- [ ] **Step 3: Add the derivation gate.** Write the matching dead-inactive `@allosteric_mechanism` — the ping-pong shape used by the existing ping-pong gate, with a **substrate** binding `:OnlyA` and **both** chemical steps `:OnlyA` (all other bindings `:EqualAI`). Assert:
+- [ ] **Step 1: Add the derivation gate** for the 6-step dead-inactive mechanism above. Assert:
   - `EnzymeRates._onlya_haldane_violation(...) === nothing` (valid),
-  - `EnzymeRates._state_rate_polys(am, :I)`'s `d_free_I` is the constant `1` (not empty, not metabolite-bearing),
-  - `isfinite(real(rate_equation(...)))` at a normal point **and** as the product → 0 (no sink),
-  - `isfinite(_kcat_forward(...))` and `> 0` (no crash),
-  - `rate_equation` matches `pingpong_dead_inactive_flux` to rtol 1e-4 over ~6 random points, with the param mapping documented in a comment.
+  - `_state_rate_polys(am, :I)`'s `d_free_I` is the constant `1`,
+  - `rate_equation` finite at a normal point **and** as a product → 0 (no sink),
+  - `_kcat_forward` finite and `> 0`,
+  - `v = 0` at the equilibrium metabolite ratio (`ADP·F16BP = Keq·ATP·F6P`),
+  - **L = 0 cross-check:** `rate_equation(L=0)` equals the active-cycle rate. Build the same 6 steps as a non-allosteric `@enzyme_mechanism` and compare its `rate_equation` to the allosteric one at `L = 0` over ~6 random points (rtol 1e-4). If `@enzyme_mechanism` cannot parse the residual syntax, fall back to comparing `rate_equation(L=0)` against `E_total · N_A / D_A` built from `_state_rate_polys(am, :A)` (a within-derivation consistency check). Document the param mapping in a comment.
 
-- [ ] **Step 4: Run; confirm green on current code.** Ground-truth driver: all gates pass (this one and the existing 12+). If the derivation gate fails, the derivation does not handle the dead-inactive form — STOP and report (that would contradict the measured `d_free_I = 1`).
+  A bespoke two-conformation mass-action oracle for this 6-step shape is **optional** — add one only if it self-validates cleanly (`L=0` reduction + `v=0` at equilibrium); do not block on the from-scratch ping-pong Haldane, which has burned prior attempts twice.
+
+- [ ] **Step 2: Run; confirm green on current code.** Ground-truth driver: all gates pass (this one and the existing 12+). If the derivation gate fails, STOP and report (that would contradict the measured `d_free_I = 1`).
 
 - [ ] **Step 5: Commit.**
 ```
