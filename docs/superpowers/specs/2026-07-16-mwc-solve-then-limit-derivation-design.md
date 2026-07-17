@@ -1,5 +1,20 @@
 # Solve-then-limit MWC allosteric derivation
 
+> **Status: DECLINED (2026-07-16).** Superseded by
+> `docs/superpowers/specs/2026-07-16-mwc-derivation-targeted-fixes-design.md`,
+> which reproduces every claim below and records what measured true. Kept as a
+> record. In particular: the normalization rewrite (Task 5) is an algebraic
+> no-op; the `:OnlyA` limit equals graph deletion on every constructable
+> mechanism; the guard gap is real but already documented in
+> `_onlya_haldane_violation`'s docstring, and graph deletion is what makes it
+> benign; the three-way `d_free` branch is required by `:NonequalAI` and does
+> not go away; and the `^n` cross term is already correct at n=2 and n=3. The
+> "12-43%" figure measured 0.08-86% (median 28%, n=400), and the dividing line
+> is metabolite-in-`D`, not the cross-weight branch. Task 4's named witness
+> (a lone `:OnlyA` edge) is provably impossible — the minimum is 7 of 12 cube
+> edges — and the guard rule it proposes admits the witness class anyway,
+> because the solve pins `K_I` finite rather than infinite.
+
 ## Motivation
 
 **This is a simplicity and robustness rewrite, not a bug fix.** The shipped

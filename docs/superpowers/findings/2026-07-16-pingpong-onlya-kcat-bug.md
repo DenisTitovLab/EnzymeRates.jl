@@ -60,12 +60,16 @@ ping-pong has **two** empty-bound forms, and `_reachable_from_free` seeds both a
   numerator by that product concentration, so every saturating-substrate group key
   acquires a product factor. `_kcat_forward` evaluates kcat at products = 0 and
   filters out any product-bearing key, so `a_keys` empties and it throws
-  "no kcat components." (The remaining cases, and the kcat crash generally.)
+  "no kcat components." (The remaining cases, and the kcat crash generally.) This
+  is how the throw arises mechanically, but it does not mean `_kcat_forward` is
+  wrong — see "Options" below.
 
-Both are the same defect — the free-enzyme normalization has no well-defined
-single reference form in a ping-pong. It is *not* a thermodynamic-validity problem
-and *not* a guard gap; the guard correctly accepts these valid mechanisms, and the
-derivation then mishandles them.
+These are not the same defect. `d_free_I = 0` (err1) is a genuine normalization
+bug: dividing by a zero-mass reference form that should never have been treated as
+free. A product-bearing `d_free_I` (err2) is not a bug — it correctly reflects a
+real absorbing trap in the mechanism, detailed under "Options" below. Neither is a
+thermodynamic-validity problem or a guard gap; the guard correctly accepts all of
+these valid mechanisms.
 
 ## Relationship to the guard and the redesign
 
@@ -79,41 +83,75 @@ constraint rows — so the guard's sign test has nothing to inspect and returns
 `nothing`, which is the *correct* verdict. These are valid mechanisms; tightening
 the guard cannot and should not catch them.
 
-The failure is entirely downstream, in the free-enzyme normalization — which is
-exactly what the solve-then-limit redesign rebuilds (per-state normalization done
-symbolically, ping-pong bi-bi already named as the plan's normalization test case).
-Spec/plan: `docs/superpowers/specs/2026-07-16-mwc-solve-then-limit-derivation-design.md`,
-`docs/superpowers/plans/2026-07-16-mwc-solve-then-limit-derivation.md`.
+This diagnosis originally motivated proposing the solve-then-limit redesign as
+the fix — see
+`docs/superpowers/specs/2026-07-16-mwc-solve-then-limit-derivation-design.md` /
+`docs/superpowers/plans/2026-07-16-mwc-solve-then-limit-derivation.md`. That
+redesign was **declined**; both failure modes were instead resolved (or found
+not to need resolving) locally. See "Options" below for the measured outcome
+and `docs/superpowers/specs/2026-07-16-mwc-derivation-targeted-fixes-design.md`
+for the full measurements behind declining the redesign.
 
-Note err1 and err2 fail *differently* from the one root cause: err1's `d_free_I = 0`
-annihilates the A-numerator (`×0^n`) → `rate_equation` is `NaN` structurally (all
-draws, not just at equilibrium); err2's product-bearing `d_free_I` keeps
-`rate_equation` finite (the injected factor cancels between numerator and
-denominator) but still empties the kcat `a_keys`. Same defect, two symptoms.
+err1's `d_free_I = 0` annihilates the A-numerator (`×0^n`) → `rate_equation` is
+`NaN` structurally (all draws, not just at equilibrium); err2's product-bearing
+`d_free_I` keeps `rate_equation` finite (the injected factor cancels between
+numerator and denominator) but still empties the kcat `a_keys`. Two different
+causes, two different symptoms — see "Options" below.
 
-## Options
+## Options — measured outcome
 
-1. **Immediate HPC unblock (band-aid):** make `_kcat_forward` return a sentinel
-   ("no forward kcat") instead of throwing. The 112 stop crashing — valid
-   mechanisms rescale approximately (only the reported parameter scale is off, not
-   the fitted loss or model selection); the `NaN`-`rate_equation` cases fail to fit
-   gracefully and lose in the beam. The run completes. Does not fix correctness.
-2. **Derivation-time degeneracy check (provably-complete crash-stopper):** the
-   exact defect condition is `d_free_I` not being a metabolite-free monomial (`0`
-   or metabolite-bearing). Detecting that where `d_free_I` is computed and
-   rejecting/skipping the mechanism is provably complete — unlike an
-   enumeration-time structural pre-filter keyed on `:OnlyA` *bindings*, which is
-   strictly narrower (a mechanism with an `:OnlyA` chemical step closing the sole
-   cycle and all-`:EqualAI` bindings hits the same degenerate `d_free_I` with no
-   `:OnlyA` binding to key on). Still *discards* valid mechanisms rather than
-   deriving them, but it stops the crash without mislabeling the cause.
-3. **Redesign (the real fix):** the solve-then-limit derivation removes the
-   fragmenting single-free-form normalization; ping-pong normalizes correctly by
-   construction, so these mechanisms *derive* instead of being skipped.
+The three options above (band-aid sentinel / derivation-time degeneracy check /
+solve-then-limit redesign) were superseded once err1 and err2 were actually
+measured on `mwc-targeted-fixes`. Neither needed a new degeneracy check or a
+sentinel; one was a real bug and got fixed, the other was not a bug.
 
-Not recommended: a guard extension or an enumeration-time `:OnlyA`-binding
-pre-filter — both are narrower than the actual `d_free_I` degeneracy condition and
-would reject valid mechanisms.
+**Option 3 (redesign) — declined.** The solve-then-limit rewrite proposed in
+`docs/superpowers/specs/2026-07-16-mwc-solve-then-limit-derivation-design.md`
+was independently reproduced claim-by-claim and declined; the full measurement
+lives in
+`docs/superpowers/specs/2026-07-16-mwc-derivation-targeted-fixes-design.md`.
+The `:OnlyA` limit equals graph deletion on every constructable mechanism, so
+the rewrite could not have changed either failure mode here — both were
+resolved (or found not to need resolving) with local fixes instead.
+
+**err1 (`d_free_I = 0` / NaN) — fixed.** `_reachable_from_free`'s seed treated
+every empty-`bound` form as free, so a ping-pong's covalent intermediate (empty
+`bound`, non-empty `residual`) seeded itself as a second free root. Under
+formulation 1 only free enzyme flips, so a component free `E` cannot reach
+holds no inactive mass and must be stranded — the seed must also require an
+empty `residual`. Tightening it (commit `29eee7e`) fixes it: `d_free_I` 0→1,
+`rate_equation` NaN→0.0966, `_kcat_forward` crash→ok. No regression: 1803/1803
+derivation tests pass, golden reference byte-identical.
+
+**err2 (`_kcat_forward` crash) — not a bug; this doc's root cause for it was
+wrong.** In the inactive conformation the F6P binding and the
+`E(F6P)→E(ADP)` iso step are `:OnlyA` and therefore deleted, so at `F16BP = 0`
+the form `E_res_I` has no route out: it cannot flip (formulation 1 flips only
+free `E`; `E_res` carries a residual) and it cannot react. It is an
+**absorbing trap** — all enzyme drains into it and `v = 0` genuinely, not a
+normalization artifact. `_kcat_forward` evaluates forward turnover at
+products = 0, and the true forward turnover there really is zero, so
+"no kcat components" is a **true report**. There is nothing to fix in
+`_kcat_forward`.
+
+Supporting measurement: `v → 0` as `F16BP → 0` for any fixed `L > 0` (2.33e-7
+at `F16BP = 1e-6`; 2.33e-10 at `F16BP = 1e-9`), while `v = 0.331` at `L = 0`.
+`v` is smooth in `L` at fixed `F16BP` — this is *not* a discontinuity in `L`;
+the `F16BP → 0` and `L → 0` limits do not commute.
+
+Option 2's obvious local fix — making `_kcat_forward` group on un-normalized
+polynomials — was tried and **breaks an existing gate**:
+`test/test_rate_eq_derivation.jl:2209` ("Fix B", live I-state) goes to 7.7%
+kcat error (0.2457 vs. grid-peak 0.2661). The free-enzyme normalization is a
+common factor *within* a conformation but not across the `L`-weighted A/I
+combine, so stripping it from the group key changes which polynomial terms
+match, and the fix is not clean.
+
+**Open question for the repo owner** (not resolved here): whether err2-class
+mechanisms should be (a) accepted with a non-fatal kcat sentinel, (b) rejected
+at construction as degenerate, or (c) left as-is, since the behavior is
+correct and the HPC crash is enumeration meeting a genuinely degenerate
+mechanism.
 
 ## Evidence
 

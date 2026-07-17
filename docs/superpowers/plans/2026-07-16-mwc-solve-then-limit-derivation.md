@@ -1,5 +1,21 @@
 # Solve-then-limit MWC derivation — Implementation Plan
 
+> **Status: DECLINED (2026-07-16).** Superseded by
+> `docs/superpowers/plans/2026-07-16-mwc-derivation-targeted-fixes.md`, which
+> ships targeted local fixes instead of this rewrite. Every load-bearing claim
+> behind this plan's tasks was independently reproduced and measured; see
+> `docs/superpowers/specs/2026-07-16-mwc-derivation-targeted-fixes-design.md`
+> for the full measurements. In particular: Task 5's per-state normalization
+> is an algebraic no-op against the shipped cross-weight; Task 7's deletion
+> target (the `:OnlyA` limit) equals graph deletion on every constructable
+> mechanism, so there is nothing behavioral to delete; Task 4's ter-uni
+> witness (a lone `:OnlyA` edge) is provably impossible — the minimum is 7 of
+> 12 cube edges — and its proposed guard rule admits the witness class anyway,
+> because the solve pins `K_I` finite rather than infinite; and Task 1's
+> `N_I≠0` n=2 gate is already satisfied by the shipped derivation (exact to
+> 3.1e-7 against an independent oracle, converging as 1/FAST). Kept as a
+> record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the graph-deletion allosteric MWC derivation with solve-then-limit — derive both conformations in full, solve the thermodynamic constraints on the coupled system, normalize each per state, combine, then apply `:OnlyA` as a limit — so consistency holds by construction.
