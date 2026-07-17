@@ -1969,11 +1969,16 @@ end
     _expand_change_allo_state(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 
-Mechanism-native overload. Relax one allo state from a "constrained"
-tag (`:EqualAI`, `:OnlyA`, `:OnlyI`) to `:NonequalAI`. Variants are
-emitted for each catalytic kinetic group tag and each regulatory
-ligand tag that is not already `:NonequalAI`. The base catalytic
-steps, multiplicity, and untouched tags are preserved.
+Mechanism-native overload. Relax a "constrained" tag (`:EqualAI`,
+`:OnlyA`, `:OnlyI`) to `:NonequalAI`. A binding catalytic group and a
+regulatory ligand each relax individually — one variant per group not
+already `:NonequalAI`. The chemical (isomerization) groups relax
+**together**, one variant setting every non-`:NonequalAI` chemical step
+to `:NonequalAI` at once: inactive catalysis is all-or-nothing, so a
+fully-`:NonequalAI` catalytic inactive conformation cannot be reached by
+relaxing chemical steps one at a time (each mixed intermediate is a
+partial and is dropped). The base catalytic steps, multiplicity, and
+untouched tags are preserved.
 
 Relaxing an `:OnlyA` chemical step is dropped in two cases. A one-sided
 `:OnlyA` binding is only legal because `k_I = 0`; restoring a finite
@@ -1995,15 +2000,35 @@ filter.
 """
 function _expand_change_allo_state(am::AllostericMechanism)
     results = AllostericMechanism[]
+    cs = steps(am)
+    iso_gs = [g for g in eachindex(cs) if is_iso(cs[g][1])]
 
-    for g in 1:length(cat_allo_states(am))
+    # Binding catalytic groups relax individually.
+    for g in eachindex(cat_allo_states(am))
+        is_iso(cs[g][1]) && continue
         cat_allo_states(am)[g] == :NonequalAI && continue
         new_states = copy(cat_allo_states(am))
         new_states[g] = :NonequalAI
-        _onlya_haldane_violation(reaction(am), steps(am), new_states) ===
+        _onlya_haldane_violation(reaction(am), cs, new_states) ===
             nothing || continue
-        _partial_onlya_catalysis(steps(am), new_states) && continue
+        _partial_onlya_catalysis(cs, new_states) && continue
         push!(results, _with_cat_allo_states(am, new_states))
+    end
+
+    # Chemical (isomerization) groups relax together. Inactive catalysis is
+    # all-or-nothing, so a fully-`:NonequalAI` catalytic inactive conformation is
+    # unreachable by relaxing chemical steps one at a time — each mixed
+    # intermediate is a partial and is dropped. One variant sets every
+    # non-`:NonequalAI` chemical step to `:NonequalAI` at once.
+    if any(cat_allo_states(am)[g] != :NonequalAI for g in iso_gs)
+        new_states = copy(cat_allo_states(am))
+        for g in iso_gs
+            new_states[g] = :NonequalAI
+        end
+        if _onlya_haldane_violation(reaction(am), cs, new_states) === nothing &&
+           !_partial_onlya_catalysis(cs, new_states)
+            push!(results, _with_cat_allo_states(am, new_states))
+        end
     end
 
     for (si, site) in enumerate(regulatory_sites(am))

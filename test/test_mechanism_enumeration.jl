@@ -5725,7 +5725,8 @@ end
     am = EnzymeRates.AllostericMechanism(vtype)
     isochem(k) = [g for g in eachindex(EnzymeRates.steps(k))
                   if EnzymeRates.is_iso(EnzymeRates.steps(k)[g][1])]
-    for k in EnzymeRates._expand_change_allo_state(am)
+    kids = EnzymeRates._expand_change_allo_state(am)
+    for k in kids
         tags = EnzymeRates.cat_allo_states(k)
         onlya_iso = any(tags[g] === :OnlyA for g in isochem(k))
         live_iso = any(tags[g] !== :OnlyA for g in isochem(k))
@@ -5737,4 +5738,9 @@ end
         prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
         @test isfinite(EnzymeRates._kcat_forward(cm, prm))
     end
+    # The chemical steps relax together, so the fully-productive inactive form
+    # (every chemical step :NonequalAI) is reachable in one move — even though
+    # the one-iso-at-a-time intermediate is a filtered partial.
+    @test any(all(EnzymeRates.cat_allo_states(k)[g] === :NonequalAI
+                  for g in isochem(k)) for k in kids)
 end
