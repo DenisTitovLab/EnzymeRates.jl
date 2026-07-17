@@ -1165,10 +1165,14 @@ _i_state_num_zero(am::AllostericMechanism) =
     isempty(first(_state_rate_polys(am, :I)))
 
 """
-Names of enzyme forms in the connected component of a free (empty-bound) form
-over ALL steps of `groups` (rapid-equilibrium and steady-state alike). Seeding
-from every empty-bound form covers a ping-pong covalent intermediate, which
-carries no bound metabolite and so is its own free root.
+Names of enzyme forms in the connected component of the free enzyme over ALL
+steps of `groups` (rapid-equilibrium and steady-state alike). The free enzyme
+is the form carrying neither a bound metabolite nor a residual — the only form
+that interconverts between conformations under formulation 1, and so the only
+root the inactive conformation can be entered through. A ping-pong covalent
+intermediate carries a residual and is therefore not a root: a component the
+free enzyme cannot reach holds no inactive mass, and leaving it in place would
+strand the free-enzyme spanning tree (`D[g_free] = 0`).
 """
 function _reachable_from_free(groups)
     forms = Species[]
@@ -1176,7 +1180,8 @@ function _reachable_from_free(groups)
         from_species(s) in forms || push!(forms, from_species(s))
         to_species(s)   in forms || push!(forms, to_species(s))
     end
-    reach = Set{Symbol}(name(f) for f in forms if isempty(bound(f)))
+    reach = Set{Symbol}(name(f) for f in forms
+                        if isempty(bound(f)) && isempty(residual(f)))
     changed = true
     while changed
         changed = false

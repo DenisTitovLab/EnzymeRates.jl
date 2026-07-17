@@ -682,3 +682,40 @@ end
                        nonallo; rtol=1e-4)
     end
 end
+
+# ── The gate: a ping-pong :OnlyA I-state must keep a reachable free-enzyme root ──
+# A covalent intermediate carries no bound metabolite but does carry a residual.
+# Seeding I-state reachability from it makes the pruned inactive graph retain a
+# covalent island that free E cannot reach, so no spanning tree rooted at free E
+# exists and D[g_free] = 0 — the normalization then divides by zero and
+# `rate_equation` is NaN at every concentration. Under formulation 1 only free
+# enzyme flips, so a component free E cannot reach holds no inactive mass and
+# must be stranded. Both mechanisms below are accepted by the `:OnlyA`
+# thermodynamic guard — they are valid, and the derivation must handle them.
+@testset "ping-pong :OnlyA I-state keeps a reachable free-enzyme root" begin
+    err1 = @allosteric_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        catalytic_multiplicity: 1
+        catalytic_steps: begin
+            E + ATP ⇌ E(ATP)                                                       :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                           :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP) :: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)     :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                                :: EqualAI
+            E + ADP ⇌ E(ADP)                                                       :: EqualAI
+        end
+    end
+    am = ER.AllostericMechanism(err1)
+    @test ER._onlya_haldane_violation(ER.reaction(am), ER.steps(am),
+                                      ER.cat_allo_states(am)) === nothing
+
+    _, _, d_free_I = ER._state_rate_polys(am, :I)
+    @test !isempty(d_free_I)
+
+    fp = ER.fitted_params(err1)
+    prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
+    concs = (ATP = 1.1, F6P = 0.7, ADP = 0.6, F16BP = 0.9)
+    @test isfinite(real(ER.rate_equation(err1, concs, prm)))
+    @test isfinite(ER._kcat_forward(err1, prm))
+end
