@@ -514,28 +514,15 @@ function _best_loss_line(best_loss_by_count::Dict{Int,Float64}, improved::Set{In
 end
 
 """
-Compile + cap-check + fit every mechanism in `mechs`, deduplicating by `eq_hash`
-so each distinct rate equation is fit once. Returns `(entries, failures)`:
-`entries::Vector{BatchEntry}` are the mechanisms with a usable fit (each keeping
-its own row, `retcode`, and `eq_hash`); `failures::Vector{FitFailure}` are
-mechanisms that threw at compile/render/fit — captured WITH the exception text,
-never silently swallowed. A mechanism whose fitted-param count exceeds
-`max_param_count` is dropped before fitting (a cap skip, not a failure). A
-mechanism whose structural `hash` is already in `fitted` (produced in an earlier
-batch) is dropped before PASS-1 (an already-fit skip, not a failure); `fitted`
-gets every structure on first production regardless of outcome (so a capped or
-errored repeat also counts as already-fit — the common case is a genuine refit).
-
-Two passes. PASS-1 (`pmap`) compiles, caps, and renders every mechanism to get its
-`eq_hash`. PASS-2 (`pmap`) fits ONE representative per `eq_hash` not already in
-`memo`, in parallel across all workers; the fit is stored in `memo` and copied to
-every mechanism sharing that `eq_hash` — same equation ⟹ same fitted params and
-same rescaling, so no refit is needed. `memo` persists across iterations (threaded
-from `_beam_search`), so an equation fit in an earlier iteration is never refit. A
-representative whose fit throws fails ALL of its duplicates (all-or-nothing per
-equation). `fit_inherited` is `false` for the representative actually fit this
-batch, `true` for every reused row. `mechs` is already structurally deduped by the
-caller (`unique!`).
+PASS-1: skip mechanisms already produced in an earlier batch (a mechanism whose
+structural `hash` is already in `fitted` is dropped before compiling; `fitted`
+gets every structure on first sight regardless of outcome). Compile, cap-check
+(`max_param_count`), and render every fresh mechanism in parallel (`pmap`) to
+get its `eq_hash`; a mechanism over `eq_complexity_filter` or `max_param_count`
+is recorded as a skip in `compiled`, not fit. Then pick one fit representative
+per `eq_hash` not already in `memo`. `mechs` is already structurally deduped by
+the caller (`unique!`). Returns `(compiled, reps, rep_idx, n_fitted_skip,
+n_param_skip, n_cx_skip)`.
 """
 function _compile_batch(
     mechs, prob::IdentifyRateEquationProblem;
@@ -543,6 +530,8 @@ function _compile_batch(
     memo::Dict{UInt64,NamedTuple}=Dict{UInt64,NamedTuple}(),
     fitted::Set{UInt64}=Set{UInt64}(),
 )
+    # Skip structures already produced in an earlier batch — expand each once.
+    # Added to `fitted` on first sight regardless of outcome (fit / cap / error).
     fresh = empty(mechs)
     n_fitted_skip = 0
     for m in mechs
@@ -554,6 +543,11 @@ function _compile_batch(
             push!(fresh, m)
         end
     end
+
+    # PASS 1 (workers): complexity-cap + compile + param-cap + render.
+    # `:complexity_skip` = over eq_complexity_filter (checked first, before any
+    # derivation); `nothing` = over max_param_count; `FitFailure` = threw; else a
+    # record with everything the row needs + `eq_hash`.
     compiled = pmap(fresh) do m
         try
             _eq_complexity(m) > eq_complexity_filter && return :complexity_skip
@@ -569,6 +563,8 @@ function _compile_batch(
             FitFailure(m, _exc_string(e))
         end
     end
+
+    # Pick one representative per `eq_hash` not already fit.
     rep_idx = Dict{UInt64,Int}()
     for (i, c) in enumerate(compiled)
         c isa NamedTuple || continue
@@ -577,12 +573,30 @@ function _compile_batch(
     end
     reps = [(mech = compiled[i].mech, eq_hash = compiled[i].eq_hash)
             for i in values(rep_idx)]
-    (compiled, reps, rep_idx, n_fitted_skip)
+    (compiled, reps, rep_idx, n_fitted_skip,
+     count(x -> x === nothing, compiled),          # param-count skips
+     count(x -> x === :complexity_skip, compiled)) # complexity skips
 end
 
+"""
+PASS-2: fit ONE representative per `eq_hash` not already in `memo`, in parallel
+across all workers (`pmap`); the fit is stored in `memo` and copied to every
+mechanism sharing that `eq_hash` — same equation ⟹ same fitted params and same
+rescaling, so no refit is needed. `memo` persists across iterations (threaded
+from `_beam_search`), so an equation fit in an earlier iteration is never
+refit. A representative whose fit throws fails ALL of its duplicates
+(all-or-nothing per equation). `fit_inherited` is `false` for the
+representative actually fit this batch, `true` for every reused row. Returns
+`(entries, failures)`: `entries::Vector{BatchEntry}` are the mechanisms with a
+usable fit (each keeping its own row, `retcode`, and `eq_hash`);
+`failures::Vector{FitFailure}` are mechanisms that threw at compile/render/fit
+— captured WITH the exception text, never silently swallowed.
+"""
 function _fit_batch(compiled, reps, rep_idx::Dict{UInt64,Int},
     prob::IdentifyRateEquationProblem, memo::Dict{UInt64,NamedTuple};
     optimizer, parent_of::AbstractDict = Dict(), kwargs...)
+    # Fit them in PARALLEL (`pmap`) — fitting dominates cost, so it must run
+    # across all workers.
     rep_fits = pmap(reps) do r
         try
             fp = FittingProblem(compile_mechanism(r.mech), prob.data;
@@ -593,17 +607,19 @@ function _fit_batch(compiled, reps, rep_idx::Dict{UInt64,Int},
             (eq_hash = r.eq_hash, fit = nothing, error = _exc_string(e))
         end
     end
-    fit_error = Dict{UInt64,String}()
+    fit_error = Dict{UInt64,String}()   # eq_hash → representative fit threw
     for r in rep_fits
         r.error === nothing ? (memo[r.eq_hash] = r.fit) : (fit_error[r.eq_hash] = r.error)
     end
+
+    # Build a row per compiled mechanism by copying its equation's fit.
     entries  = BatchEntry[]
     failures = FitFailure[]
     emitted_eq_hashes = Set{UInt64}()
     for c in compiled
-        (c === nothing || c === :complexity_skip) && continue
+        (c === nothing || c === :complexity_skip) && continue    # cap skip
         c isa FitFailure && (push!(failures, c); continue)
-        if haskey(fit_error, c.eq_hash)
+        if haskey(fit_error, c.eq_hash)              # representative fit threw
             push!(failures, FitFailure(c.orig, fit_error[c.eq_hash]))
             continue
         end
@@ -639,14 +655,11 @@ function _process_batch(
     fitted::Set{UInt64}=Set{UInt64}(),
     parent_of::AbstractDict = Dict(), kwargs...
 )
-    compiled, reps, rep_idx, n_fitted_skip = _compile_batch(mechs, prob;
-        max_param_count, eq_complexity_filter, memo, fitted)
+    compiled, reps, rep_idx, n_fitted_skip, n_param_skip, n_cx_skip =
+        _compile_batch(mechs, prob; max_param_count, eq_complexity_filter, memo, fitted)
     entries, failures = _fit_batch(compiled, reps, rep_idx, prob, memo;
         optimizer, parent_of, kwargs...)
-    (entries, failures,
-     count(x -> x === nothing, compiled),
-     count(x -> x === :complexity_skip, compiled),
-     n_fitted_skip)
+    (entries, failures, n_param_skip, n_cx_skip, n_fitted_skip)
 end
 
 """
@@ -794,10 +807,8 @@ function _beam_search(
         unique!(collect(init_mechanisms(prob.reaction))) :
         unique!(collect(seed_mechanisms(
             prob.reaction, required_allo, required_comp)))
-    compiled, reps, rep_idx, n_base_fitted_skip = _compile_batch(base, prob;
-        max_param_count, eq_complexity_filter, memo, fitted)
-    n_base_param_skip = count(x -> x === nothing, compiled)
-    n_base_cx_skip    = count(x -> x === :complexity_skip, compiled)
+    compiled, reps, rep_idx, n_base_fitted_skip, n_base_param_skip, n_base_cx_skip =
+        _compile_batch(base, prob; max_param_count, eq_complexity_filter, memo, fitted)
     n_base_nt = count(c -> c isa NamedTuple, compiled)
     _progress(save_dir, show_progress, string(
         "Fitting $(length(base)) initial mechanisms…\n  ",
@@ -861,10 +872,9 @@ function _beam_search(
             # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
             children, parent_of, expand_failures =
                 _expand_parents(to_expand, prob.reaction)
-            compiled, reps, rep_idx, n_child_fitted_skip = _compile_batch(
-                children, prob; max_param_count, eq_complexity_filter, memo, fitted)
-            n_child_param_skip = count(x -> x === nothing, compiled)
-            n_child_cx_skip    = count(x -> x === :complexity_skip, compiled)
+            compiled, reps, rep_idx, n_child_fitted_skip, n_child_param_skip,
+                n_child_cx_skip = _compile_batch(
+                    children, prob; max_param_count, eq_complexity_filter, memo, fitted)
             n_child_nt   = count(c -> c isa NamedTuple, compiled)
             n_child_fail = count(c -> c isa FitFailure, compiled)
             if n_child_nt > 0 || n_child_fail > 0 || !isempty(expand_failures)
