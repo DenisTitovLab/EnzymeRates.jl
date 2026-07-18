@@ -34,6 +34,14 @@ faster.
 Three workers give 2.64×; the closure explored is exponential in the number of
 required regulators, so the same wave-parallel structure across an HPC node's
 hundreds of cores turns the observed ~30-minute five-regulator stall into
-seconds. `_expand_parents` parallelizes the per-iteration expansion with the
-identical `pmap`-over-mechanisms pattern, so the same serialization guarantee
-this benchmark confirms covers it.
+seconds.
+
+## Expansion path (`_expand_parents`)
+
+`_expand_parents` uses the identical `pmap`-over-mechanisms pattern, verified
+across real workers the same way: expanding the 69 PFKP `init_mechanisms`
+parents produced 1718 children, and the `children` vector, the `parent_of` map,
+and the failures were all identical between `pmap`-on-the-main-process (the
+already-verified reference) and `pmap` across three worker processes. So both
+parallelized functions are confirmed byte-identical in production, not only in
+the worker-free test suite.
