@@ -1874,6 +1874,46 @@ end
     @test gfail === nothing && !isempty(gkids)
 end
 
+@testset "_expand_parents parallel equivalence" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: I
+    end
+    mechs = collect(EnzymeRates.init_mechanisms(rxn))
+    to_expand = EnzymeRates.BatchEntry[
+        EnzymeRates.BatchEntry(
+            m, 2, 0.0, :Success, hash(m),
+            (mechanism_type = string(typeof(EnzymeRates.compile_mechanism(m))),))
+        for m in mechs]
+
+    # Inline serial reference = the loop being replaced.
+    function serial_expand_reference(to_expand, reaction)
+        parent_of = Dict{Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism},
+                         @NamedTuple{mechanism_type::String, n_params::Int}}()
+        children = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+        fails = EnzymeRates.FitFailure[]
+        for pe in to_expand
+            kids, failure = EnzymeRates._expand_parent(pe.mech, reaction)
+            failure === nothing || push!(fails, failure)
+            for child in kids
+                haskey(parent_of, child) && continue
+                parent_of[child] = (mechanism_type = pe.row.mechanism_type,
+                                    n_params = pe.n_params)
+                push!(children, child)
+            end
+        end
+        (children, parent_of, fails)
+    end
+
+    gc, gp, gf = EnzymeRates._expand_parents(to_expand, rxn)
+    rc, rp, rf = serial_expand_reference(to_expand, rxn)
+
+    @test gc == rc            # same children, same order, same first-parent dedup
+    @test gp == rp            # same parent_of map
+    @test length(gf) == length(rf)
+end
+
 @testset "LOOCV eq_hash-uniqueness guard (§4)" begin
     # _cv_model_selection dedups candidates by eq_hash per n_params bucket before
     # LOOCV: same-equation twins collapse to ONE candidate (lowest loss kept), so

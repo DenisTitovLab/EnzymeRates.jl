@@ -701,6 +701,32 @@ function _expand_parent(m::Union{Mechanism, AllostericMechanism},
 end
 
 """
+Expand every selected parent into its children across the workers, then merge
+serially. `pmap` preserves input order, so iterating `zip(to_expand, results)`
+reproduces the serial loop's first-parent-wins dedup, child order, and failure
+order exactly. Returns `(children, parent_of, expand_failures)`.
+"""
+function _expand_parents(to_expand::Vector{BatchEntry},
+                         reaction::EnzymeReaction)
+    results = pmap(m -> _expand_parent(m, reaction),
+                   [pe.mech for pe in to_expand])
+    parent_of = Dict{Union{Mechanism, AllostericMechanism},
+                     @NamedTuple{mechanism_type::String, n_params::Int}}()
+    children = Union{Mechanism, AllostericMechanism}[]
+    expand_failures = FitFailure[]
+    for (pe, (kids, failure)) in zip(to_expand, results)
+        failure === nothing || push!(expand_failures, failure)
+        for child in kids
+            haskey(parent_of, child) && continue
+            parent_of[child] = (mechanism_type = pe.row.mechanism_type,
+                                n_params = pe.n_params)
+            push!(children, child)
+        end
+    end
+    (children, parent_of, expand_failures)
+end
+
+"""
     _required_regulators(rxn, optional_allosteric_regulators,
                          optional_competitive_inhibitors)
         -> (required_allo::Set{Symbol}, required_comp::Set{Symbol})
@@ -825,20 +851,8 @@ function _beam_search(
             # parent's `mechanism_type` is already on its `BatchEntry.row`, so no
             # recompile. Typed for dispatch: expand_mechanisms needs a concrete
             # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
-            parent_of = Dict{Union{Mechanism, AllostericMechanism},
-                             @NamedTuple{mechanism_type::String, n_params::Int}}()
-            children = Union{Mechanism, AllostericMechanism}[]
-            expand_failures = FitFailure[]
-            for pe in to_expand
-                kids, failure = _expand_parent(pe.mech, prob.reaction)
-                failure === nothing || push!(expand_failures, failure)
-                for child in kids
-                    haskey(parent_of, child) && continue
-                    parent_of[child] = (mechanism_type = pe.row.mechanism_type,
-                                        n_params = pe.n_params)
-                    push!(children, child)
-                end
-            end
+            children, parent_of, expand_failures =
+                _expand_parents(to_expand, prob.reaction)
             child_entries, child_failures, n_child_param_skip, n_child_cx_skip,
                 n_child_fitted_skip =
                 _process_batch(children, prob;
