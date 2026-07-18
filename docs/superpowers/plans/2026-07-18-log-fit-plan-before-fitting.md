@@ -237,8 +237,8 @@ function _process_batch(
     entries, failures = _fit_batch(compiled, reps, rep_idx, prob, memo;
         optimizer, parent_of, kwargs...)
     (entries, failures,
-     count(===(nothing), compiled),
-     count(===(:complexity_skip), compiled),
+     count(x -> x === nothing, compiled),
+     count(x -> x === :complexity_skip, compiled),
      n_fitted_skip)
 end
 ```
@@ -278,8 +278,8 @@ becomes:
 ```julia
     compiled, reps, rep_idx, n_base_fitted_skip = _compile_batch(base, prob;
         max_param_count, eq_complexity_filter, memo, fitted)
-    n_base_param_skip = count(===(nothing), compiled)
-    n_base_cx_skip    = count(===(:complexity_skip), compiled)
+    n_base_param_skip = count(x -> x === nothing, compiled)
+    n_base_cx_skip    = count(x -> x === :complexity_skip, compiled)
     n_base_nt = count(c -> c isa NamedTuple, compiled)
     _progress(save_dir, show_progress, string(
         "Fitting $(length(base)) initial mechanisms…\n  ",
@@ -309,8 +309,8 @@ Replace the iteration block (`identify_rate_equation.jl:842-891`) — from the
 ```julia
             compiled, reps, rep_idx, n_child_fitted_skip = _compile_batch(
                 children, prob; max_param_count, eq_complexity_filter, memo, fitted)
-            n_child_param_skip = count(===(nothing), compiled)
-            n_child_cx_skip    = count(===(:complexity_skip), compiled)
+            n_child_param_skip = count(x -> x === nothing, compiled)
+            n_child_cx_skip    = count(x -> x === :complexity_skip, compiled)
             n_child_nt   = count(c -> c isa NamedTuple, compiled)
             n_child_fail = count(c -> c isa FitFailure, compiled)
             if n_child_nt > 0 || n_child_fail > 0 || !isempty(expand_failures)
