@@ -63,10 +63,10 @@ that seam.
   `_fit_batch`, and return the current 5-tuple `(entries, failures,
   n_param_skip, n_cx_skip, n_fitted_skip)`. Its existing tests
   (`test/test_identify_rate_equation.jl:1123-1243`) pass unchanged.
-- **`_prefit_summary(child_count, n_new, n_inherited, n_param_skip, n_cx_skip,
-  n_fitted_skip; max_param_count, eq_complexity_filter)` → String** — the first
-  five buckets: `"N new fits + M inherited + a skipped (already fit) + b skipped
-  (>P params) + c skipped (>X complexity)"`.
+- **`_prefit_summary(n_new, n_inherited, n_param_skip, n_cx_skip, n_fitted_skip;
+  max_param_count, eq_complexity_filter)` → String** — the five buckets:
+  `"N new fits + M inherited + a skipped (already fit) + b skipped (>P params) +
+  c skipped (>X complexity)"`.
 - **`_postfit_summary(entries, failures)` → String** — `"d errored | Success
   X% | non-Success retcode Y%"`, where `d = length(failures)` and the
   percentages are over the fitted set (`entries`), matching today's
