@@ -1086,8 +1086,15 @@ end
         @test !isdir(ghost)
     end
 
-    # _batch_summary reports the six reconciling buckets with the right
-    # success/non-Success denominator.
+    # _prefit_summary: the five pre-fit buckets, no errored, no percentages.
+    pre = EnzymeRates._prefit_summary(2, 0, 4, 2, 3;
+        max_param_count=8, eq_complexity_filter=337)
+    @test occursin("2 new fits + 0 inherited + 3 skipped (already fit) + " *
+                   "4 skipped (>8 params) + 2 skipped (>337 complexity)", pre)
+    @test !occursin("errored", pre)
+    @test !occursin("Success", pre)
+
+    # _postfit_summary: errored + success/non-Success over the fitted set.
     mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
         substrates: S[C]; products: P[C] end))
     row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
@@ -1096,15 +1103,11 @@ end
     e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
-    s = EnzymeRates._batch_summary([e_succ, e_mt], [f];
-        n_param_skipped=4, n_complexity_skipped=2, n_fitted_skipped=3,
-        max_param_count=8, eq_complexity_filter=337)
-    @test occursin("2 new fits + 0 inherited + 3 skipped (already fit) + " *
-                   "4 skipped (>8 params) + 2 skipped (>337 complexity) + " *
-                   "1 errored", s)
-    @test occursin("Success 50.0%", s)                 # 1 of 2 fitted
-    @test occursin("non-Success retcode 50.0%", s)     # e_mt is :MaxTime
-    @test !occursin("best loss", s)                    # best loss moved to its own line
+    post = EnzymeRates._postfit_summary([e_succ, e_mt], [f])
+    @test occursin("1 errored", post)
+    @test occursin("Success 50.0%", post)              # 1 of 2 fitted
+    @test occursin("non-Success retcode 50.0%", post)  # e_mt is :MaxTime
+    @test !occursin("best loss", post)
 end
 
 @testset "_best_loss_line" begin
