@@ -794,11 +794,18 @@ function _beam_search(
         unique!(collect(init_mechanisms(prob.reaction))) :
         unique!(collect(seed_mechanisms(
             prob.reaction, required_allo, required_comp)))
-    _progress(save_dir, show_progress,
-        "Fitting $(length(base)) initial mechanisms…")
-    base_entries, base_failures, n_base_param_skip, n_base_cx_skip, n_base_fitted_skip =
-        _process_batch(base, prob;
-            optimizer, max_param_count, eq_complexity_filter, memo, fitted, kwargs...)
+    compiled, reps, rep_idx, n_base_fitted_skip = _compile_batch(base, prob;
+        max_param_count, eq_complexity_filter, memo, fitted)
+    n_base_param_skip = count(x -> x === nothing, compiled)
+    n_base_cx_skip    = count(x -> x === :complexity_skip, compiled)
+    n_base_nt = count(c -> c isa NamedTuple, compiled)
+    _progress(save_dir, show_progress, string(
+        "Fitting $(length(base)) initial mechanisms…\n  ",
+        _prefit_summary(length(reps), n_base_nt - length(reps),
+            n_base_param_skip, n_base_cx_skip, n_base_fitted_skip;
+            max_param_count, eq_complexity_filter)))
+    base_entries, base_failures = _fit_batch(compiled, reps, rep_idx, prob, memo;
+        optimizer, kwargs...)
     if isempty(base_entries)
         isempty(base_failures) && return (
             Union{Mechanism, AllostericMechanism}[],
@@ -819,12 +826,7 @@ function _beam_search(
     improved = Set(c for c in keys(best_loss_by_count)
                    if !haskey(pre_best, c) || best_loss_by_count[c] < pre_best[c])
     _progress(save_dir, show_progress, string(
-        "Base tier: ",
-        _batch_summary(base_entries, base_failures;
-                       n_param_skipped=n_base_param_skip,
-                       n_complexity_skipped=n_base_cx_skip,
-                       n_fitted_skipped=n_base_fitted_skip,
-                       max_param_count, eq_complexity_filter),
+        "Base tier: ", _postfit_summary(base_entries, base_failures),
         "\n  ", _best_loss_line(best_loss_by_count, improved)))
 
     # ── Advancing-target sweep over actual param counts ──
@@ -859,19 +861,35 @@ function _beam_search(
             # Vector{<:Union{Mechanism, AllostericMechanism}} eltype.
             children, parent_of, expand_failures =
                 _expand_parents(to_expand, prob.reaction)
-            child_entries, child_failures, n_child_param_skip, n_child_cx_skip,
-                n_child_fitted_skip =
-                _process_batch(children, prob;
-                    optimizer, max_param_count, eq_complexity_filter, memo,
-                    fitted, parent_of, kwargs...)
-            # A per-parent expansion error is recorded like a fit failure (CSV row
-            # + the errored bucket), so a canonicalization bug flags itself in the
-            # search output instead of aborting the whole run.
-            append!(child_failures, expand_failures)
-            if !isempty(child_entries) || !isempty(child_failures)
+            compiled, reps, rep_idx, n_child_fitted_skip = _compile_batch(
+                children, prob; max_param_count, eq_complexity_filter, memo, fitted)
+            n_child_param_skip = count(x -> x === nothing, compiled)
+            n_child_cx_skip    = count(x -> x === :complexity_skip, compiled)
+            n_child_nt   = count(c -> c isa NamedTuple, compiled)
+            n_child_fail = count(c -> c isa FitFailure, compiled)
+            if n_child_nt > 0 || n_child_fail > 0 || !isempty(expand_failures)
                 # Count only iterations that produced rows, so the
                 # equation_search_iteration_N CSVs are gap-free.
                 iteration += 1
+                np_range = n_child_nt == 0 ? "n/a" :
+                    let ns = [c.n_params for c in compiled if c isa NamedTuple],
+                        lo = minimum(ns), hi = maximum(ns)
+                        lo == hi ? string(lo) : "$lo-$hi"
+                    end
+                _progress(save_dir, show_progress, string(
+                    "Iteration $iteration (child n_params $np_range): ",
+                    length(to_expand), " parents → ", length(children),
+                    " children\n  ",
+                    _prefit_summary(length(reps),
+                        n_child_nt - length(reps), n_child_param_skip,
+                        n_child_cx_skip, n_child_fitted_skip;
+                        max_param_count, eq_complexity_filter)))
+                child_entries, child_failures = _fit_batch(compiled, reps, rep_idx,
+                    prob, memo; optimizer, parent_of, kwargs...)
+                # A per-parent expansion error is recorded like a fit failure (CSV row
+                # + the errored bucket), so a canonicalization bug flags itself in the
+                # search output instead of aborting the whole run.
+                append!(child_failures, expand_failures)
                 _save_iteration_csv(save_dir,
                     vcat([e.row for e in child_entries],
                          [_failure_row(f) for f in child_failures]),
@@ -882,20 +900,8 @@ function _beam_search(
                     child_entries; n_cv_candidates)
                 improved = Set(c for c in keys(best_loss_by_count)
                     if !haskey(pre_best, c) || best_loss_by_count[c] < pre_best[c])
-                np_range = isempty(child_entries) ? "n/a" :
-                    let lo = minimum(e -> e.n_params, child_entries),
-                        hi = maximum(e -> e.n_params, child_entries)
-                        lo == hi ? string(lo) : "$lo-$hi"
-                    end
-                _progress(save_dir, show_progress, string(
-                    "Iteration $iteration (child n_params $np_range): ",
-                    length(to_expand), " parents → ", length(children),
-                    " children\n  ",
-                    _batch_summary(child_entries, child_failures;
-                                   n_param_skipped=n_child_param_skip,
-                                   n_complexity_skipped=n_child_cx_skip,
-                                   n_fitted_skipped=n_child_fitted_skip,
-                                   max_param_count, eq_complexity_filter),
+                _progress(save_dir, show_progress, string("  ",
+                    _postfit_summary(child_entries, child_failures),
                     "\n  ", _best_loss_line(best_loss_by_count, improved)))
             elseif !isempty(children)
                 # Whole batch cap-skipped (param count and/or complexity) or
