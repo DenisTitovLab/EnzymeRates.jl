@@ -2084,7 +2084,10 @@ including the activator↔antagonist ambiguity. For the merged ligands,
 enumerate the Δ0-valid allo-state assignments:
 
   * the all-keep assignment — every ligand retains its current state
-    (co-binding);
+    (co-binding), skipped when the two sites act on disjoint conformations
+    (an all-`:OnlyA` site merged with an all-`:OnlyI` site), since that merge
+    derives to the same rate equation as keeping the sites separate (see
+    `_site_active_states`);
   * each assignment retagging exactly one ligand to `:EqualAI` — the
     antagonist forms (a ligand that binds both conformations equally,
     competing for the shared site).
