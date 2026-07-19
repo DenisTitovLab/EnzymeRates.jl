@@ -4121,14 +4121,19 @@ end
         Set(EnzymeRates.name(l)
             for l in EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(child))))
 
-    @testset "co-binding + both antagonist forms appear" begin
+    @testset "disjoint OnlyA/OnlyI co-binding skipped; antagonists kept" begin
+        # A (:OnlyA) acts only on the active state, I (:OnlyI) only on the
+        # inactive one, so co-binding them on one site derives to the same
+        # equation as separate sites — that all-keep merge is redundant and
+        # skipped. The two antagonist retags stay (each :EqualAI ligand now
+        # acts on both states, a genuinely distinct mechanism).
         @test all(c -> single_site_names(c) == Set([:A, :I]), children)
         states = Set((merged_state(c, :A), merged_state(c, :I)) for c in children)
-        @test (:OnlyA, :OnlyI) in states     # co-binding
+        @test !((:OnlyA, :OnlyI) in states)  # redundant co-binding skipped
         @test (:EqualAI, :OnlyI) in states   # activator → antagonist
         @test (:OnlyA, :EqualAI) in states   # inhibitor → antagonist
         @test !((:EqualAI, :EqualAI) in states)  # all-EqualAI dropped
-        @test length(children) == 3
+        @test length(children) == 2
     end
 
     @testset "every child is Δ0 (same fitted-param count as parent)" begin
@@ -4153,7 +4158,7 @@ end
         # survives.
         kept = EnzymeRates._filter_by_reg_type(children, merge_rxn)
         @test Set(kept) == Set(children)
-        @test length(kept) == 3
+        @test length(kept) == 2
     end
 
     @testset "reg_type filter drops same-type antagonist retags" begin
@@ -4808,9 +4813,9 @@ end
             length(EnzymeRates.regulatory_sites(c)) == 1 &&
             Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
                 only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
-        # The three Δ0 merge children (co-binding + two antagonist forms)
-        # survive the reg_type filter and appear in the output.
-        @test count(is_merged, children) == 3
+        # The two Δ0 antagonist merge children survive the reg_type filter and
+        # appear in the output; the redundant OnlyA/OnlyI co-binding is skipped.
+        @test count(is_merged, children) == 2
         @test issubset(
             Set(EnzymeRates._expand_merge_regulatory_sites(parent)),
             Set(children))

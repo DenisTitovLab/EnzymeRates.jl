@@ -2109,7 +2109,10 @@ function _expand_merge_regulatory_sites(am::AllostericMechanism)
         base_states = base_states[perm]
         mult = multiplicity(sites[i])
         others = RegulatorySite[sites[k] for k in 1:n if k != i && k != j]
-        for states in _merged_site_state_assignments(base_states)
+        redundant = isempty(intersect(_site_active_states(sites[i]),
+                                       _site_active_states(sites[j])))
+        for states in _merged_site_state_assignments(base_states;
+                                                     drop_all_keep=redundant)
             merged = RegulatorySite(copy(ligs), mult, states)
             push!(results, _with_reg_sites(am, vcat(others, [merged])))
         end
