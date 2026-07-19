@@ -2055,6 +2055,25 @@ _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
 """
+    _site_active_states(site::RegulatorySite) -> Set{Symbol}
+
+The conformations a regulatory site's ligands act on: `:active` for any ligand
+binding the active state (`:OnlyA`/`:EqualAI`/`:NonequalAI`), `:inactive` for
+any binding the inactive state (`:OnlyI`/`:EqualAI`/`:NonequalAI`). Two sites
+with disjoint active states — an all-`:OnlyA` site and an all-`:OnlyI` site —
+merge to a rate equation identical to keeping them separate, so that all-keep
+merge is redundant.
+"""
+function _site_active_states(site::RegulatorySite)
+    active = Set{Symbol}()
+    for st in allo_states(site)
+        st in (:OnlyA, :EqualAI, :NonequalAI) && push!(active, :active)
+        st in (:OnlyI, :EqualAI, :NonequalAI) && push!(active, :inactive)
+    end
+    active
+end
+
+"""
     _expand_merge_regulatory_sites(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 

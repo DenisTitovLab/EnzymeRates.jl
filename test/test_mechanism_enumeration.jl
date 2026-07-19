@@ -4062,6 +4062,20 @@ end
 
 end
 
+# ─── _site_active_states ─────────────────────────────────────────────────
+@testset "_site_active_states" begin
+    mk(states) = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(Symbol("R", i)) for i in eachindex(states)],
+        4, collect(Symbol, states))
+    @test EnzymeRates._site_active_states(mk([:OnlyA])) == Set([:active])
+    @test EnzymeRates._site_active_states(mk([:OnlyI])) == Set([:inactive])
+    @test EnzymeRates._site_active_states(mk([:EqualAI])) == Set([:active, :inactive])
+    @test EnzymeRates._site_active_states(mk([:NonequalAI])) == Set([:active, :inactive])
+    @test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyA])) == Set([:active])
+    @test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyI])) ==
+          Set([:active, :inactive])
+end
+
 # ─── _expand_merge_regulatory_sites ─────────────────────────────────────
 @testset "_expand_merge_regulatory_sites" begin
     # A four-subunit reaction with a designated activator and inhibitor.
