@@ -2127,14 +2127,19 @@ _expand_merge_regulatory_sites(::Mechanism) =
     AllostericMechanism[]
 
 """
-    _merged_site_state_assignments(base_states::Vector{Symbol}) -> Vector{Vector{Symbol}}
+    _merged_site_state_assignments(base_states::Vector{Symbol};
+                                   drop_all_keep=false) -> Vector{Vector{Symbol}}
 
 Δ0-valid allo-state assignments for a merged site's ligands: the all-keep
-assignment, plus each assignment retagging exactly one non-`:EqualAI` ligand
-to `:EqualAI`. The all-`:EqualAI` result is dropped.
+assignment (omitted when `drop_all_keep`), plus each assignment retagging
+exactly one non-`:EqualAI` ligand to `:EqualAI`. The all-`:EqualAI` result is
+dropped. `drop_all_keep` omits the all-keep entry for a redundant merge (see
+`_site_active_states`) while keeping the antagonist retags.
 """
-function _merged_site_state_assignments(base_states::Vector{Symbol})
-    assignments = Vector{Symbol}[copy(base_states)]
+function _merged_site_state_assignments(base_states::Vector{Symbol};
+                                        drop_all_keep::Bool=false)
+    assignments = Vector{Symbol}[]
+    drop_all_keep || push!(assignments, copy(base_states))
     for i in eachindex(base_states)
         base_states[i] == :EqualAI && continue
         retagged = copy(base_states)

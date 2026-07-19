@@ -4076,6 +4076,20 @@ end
           Set([:active, :inactive])
 end
 
+@testset "_merged_site_state_assignments drop_all_keep" begin
+    base = [:OnlyA, :OnlyI]
+    keep = EnzymeRates._merged_site_state_assignments(base)
+    @test [:OnlyA, :OnlyI] in keep          # all-keep present by default
+    @test [:EqualAI, :OnlyI] in keep
+    @test [:OnlyA, :EqualAI] in keep
+    @test length(keep) == 3
+    dropped = EnzymeRates._merged_site_state_assignments(base; drop_all_keep=true)
+    @test !([:OnlyA, :OnlyI] in dropped)    # all-keep omitted
+    @test [:EqualAI, :OnlyI] in dropped     # antagonist retags retained
+    @test [:OnlyA, :EqualAI] in dropped
+    @test length(dropped) == 2
+end
+
 # ─── _expand_merge_regulatory_sites ─────────────────────────────────────
 @testset "_expand_merge_regulatory_sites" begin
     # A four-subunit reaction with a designated activator and inhibitor.
