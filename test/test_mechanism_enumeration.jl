@@ -4262,6 +4262,40 @@ end
     end
 end
 
+@testset "OnlyA+OnlyI merge is derivation-redundant (premise guard)" begin
+    # The reason the all-keep OnlyA/OnlyI merge is skipped: merged onto one
+    # site it evaluates to the same rate as on separate sites. Confirm
+    # numerically over random parameters and concentrations.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A::Activator, I::Inhibitor
+        oligomeric_state: 4
+    end
+    base = first(EnzymeRates.init_mechanisms(rxn))
+    cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
+    mkm(sites) = EnzymeRates.AllostericMechanism(
+        rxn, copy(EnzymeRates.steps(base)), cat, 4, sites)
+    A = EnzymeRates.AllostericRegulator(:A)
+    I = EnzymeRates.AllostericRegulator(:I)
+    separate = mkm([EnzymeRates.RegulatorySite([A], 4, [:OnlyA]),
+                    EnzymeRates.RegulatorySite([I], 4, [:OnlyI])])
+    merged = mkm([EnzymeRates.RegulatorySite([A, I], 4, [:OnlyA, :OnlyI])])
+    fps = EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(separate))
+    fpm = EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(merged))
+    @test Set(fps) == Set(fpm)
+    Random.seed!(42)
+    for _ in 1:25
+        vals = Dict(p => exp(randn()) for p in union(fps, fpm))
+        ps = (; (p => vals[p] for p in fps)..., Keq=100.0, E_total=1.0)
+        pm = (; (p => vals[p] for p in fpm)..., Keq=100.0, E_total=1.0)
+        c = (; S=exp(randn()), P=exp(randn()), A=exp(randn()), I=exp(randn()))
+        vs = real(EnzymeRates.rate_equation(separate, c, ps))
+        vm = real(EnzymeRates.rate_equation(merged, c, pm))
+        @test isapprox(vs, vm; rtol=1e-9)
+    end
+end
+
 # ─── _declared_reg_type / _state_respects_reg_type / _filter_by_reg_type ──────────
 @testset "_declared_reg_type / _state_respects_reg_type / _filter_by_reg_type" begin
 
