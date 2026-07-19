@@ -5494,6 +5494,40 @@ end
     end
 end
 
+@testset "seed_mechanisms wave-parallel equivalence" begin
+    # Inline serial FIFO BFS = the reference the parallel version must match.
+    function serial_seed_reference(rxn, req_allo, req_comp)
+        visited = Set{UInt64}()
+        queue = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+        seeds = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+        enq(m) = begin
+            h = hash(m)
+            h in visited && return
+            push!(visited, h); push!(queue, m)
+            EnzymeRates._binds_all_required(m, req_allo, req_comp) && push!(seeds, m)
+        end
+        for m in EnzymeRates.init_mechanisms(rxn); enq(m); end
+        while !isempty(queue)
+            m = popfirst!(queue)
+            for c in EnzymeRates._seed_children(m, rxn, req_allo)
+                EnzymeRates._is_seed_node(c, rxn, req_allo, req_comp) && enq(c)
+            end
+        end
+        seeds
+    end
+
+    req = Set([:R])
+    empty = Set{Symbol}()
+    got = EnzymeRates.seed_mechanisms(uni_uni_allo_reg, req, empty)
+    ref = serial_seed_reference(uni_uni_allo_reg, req, empty)
+
+    @test got == ref                                   # same seeds, same order
+    @test !isempty(got)                                # the case is non-trivial
+    @test allunique(hash.(got))                        # no duplicate structures
+    @test all(m -> EnzymeRates._binds_all_required(m, req, empty), got)
+    @test EnzymeRates.seed_mechanisms(uni_uni_allo_reg, req, empty) == got  # deterministic
+end
+
 # ─── _expand_to_allosteric Haldane closure ─────────────────────────────
 @testset "_expand_to_allosteric emits only Haldane-valid mechanisms" begin
     ER = EnzymeRates
