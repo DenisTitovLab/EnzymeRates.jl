@@ -2284,28 +2284,40 @@ node:
 
 The seeds are the valid nodes that additionally bind ALL of `required_allo` at
 regulatory sites and ALL of `required_comp` as competitive-inhibitor dead ends.
-Returned deduped (each node is visited once).
+Returned deduped (each node is visited once). Explored as a wave-parallel BFS:
+each level's child generation is distributed via `pmap`, then deduped and
+folded back into the next frontier in frontier order — the same order the
+serial FIFO BFS would enqueue in — so the result is byte-identical to a serial
+traversal.
 """
 function seed_mechanisms(rxn::EnzymeReaction, required_allo::Set{Symbol},
                          required_comp::Set{Symbol})
     visited = Set{UInt64}()
-    queue = Union{Mechanism, AllostericMechanism}[]
     seeds = Union{Mechanism, AllostericMechanism}[]
-    enqueue!(m) = begin
+    # Dedup + collect on the main node. Returns true when `m` is new, so the
+    # caller advances only genuinely-new nodes to the next wave. Called in
+    # frontier order, which equals the serial BFS enqueue order, so `visited`
+    # and `seeds` end byte-identical to the FIFO version.
+    consider!(m) = begin
         h = hash(m)
-        h in visited && return
+        h in visited && return false
         push!(visited, h)
-        push!(queue, m)
         _binds_all_required(m, required_allo, required_comp) && push!(seeds, m)
+        true
     end
-    for m in init_mechanisms(rxn)
-        enqueue!(m)
-    end
-    while !isempty(queue)
-        m = popfirst!(queue)
-        for c in _seed_children(m, rxn, required_allo)
-            _is_seed_node(c, rxn, required_allo, required_comp) && enqueue!(c)
+    frontier = Union{Mechanism, AllostericMechanism}[
+        m for m in init_mechanisms(rxn) if consider!(m)]
+    while !isempty(frontier)
+        # Per-node child generation is pure and independent — distribute it.
+        childsets = pmap(frontier) do m
+            filter(c -> _is_seed_node(c, rxn, required_allo, required_comp),
+                   _seed_children(m, rxn, required_allo))
         end
+        next = Union{Mechanism, AllostericMechanism}[]
+        for cs in childsets, c in cs
+            consider!(c) && push!(next, c)
+        end
+        frontier = next
     end
     seeds
 end

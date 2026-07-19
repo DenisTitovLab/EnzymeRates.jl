@@ -1086,8 +1086,15 @@ end
         @test !isdir(ghost)
     end
 
-    # _batch_summary reports the six reconciling buckets with the right
-    # success/non-Success denominator.
+    # _prefit_summary: the five pre-fit buckets, no errored, no percentages.
+    pre = EnzymeRates._prefit_summary(2, 0, 4, 2, 3;
+        max_param_count=8, eq_complexity_filter=337)
+    @test occursin("2 new fits + 0 inherited + 3 skipped (already fit) + " *
+                   "4 skipped (>8 params) + 2 skipped (>337 complexity)", pre)
+    @test !occursin("errored", pre)
+    @test !occursin("Success", pre)
+
+    # _postfit_summary: errored + success/non-Success over the fitted set.
     mech = first(EnzymeRates.init_mechanisms(@enzyme_reaction begin
         substrates: S[C]; products: P[C] end))
     row = (n_params=3, loss=0.5, mechanism_type="M", rate_equation="v",
@@ -1096,15 +1103,11 @@ end
     e_succ = EnzymeRates.BatchEntry(mech, 3, 0.5, :Success, hash(:a), row)
     e_mt   = EnzymeRates.BatchEntry(mech, 3, 0.9, :MaxTime, hash(:b), row)
     f      = EnzymeRates.FitFailure(mech, "StackOverflowError: ")
-    s = EnzymeRates._batch_summary([e_succ, e_mt], [f];
-        n_param_skipped=4, n_complexity_skipped=2, n_fitted_skipped=3,
-        max_param_count=8, eq_complexity_filter=337)
-    @test occursin("2 new fits + 0 inherited + 3 skipped (already fit) + " *
-                   "4 skipped (>8 params) + 2 skipped (>337 complexity) + " *
-                   "1 errored", s)
-    @test occursin("Success 50.0%", s)                 # 1 of 2 fitted
-    @test occursin("non-Success retcode 50.0%", s)     # e_mt is :MaxTime
-    @test !occursin("best loss", s)                    # best loss moved to its own line
+    post = EnzymeRates._postfit_summary([e_succ, e_mt], [f])
+    @test occursin("1 errored", post)
+    @test occursin("Success 50.0%", post)              # 1 of 2 fitted
+    @test occursin("non-Success retcode 50.0%", post)  # e_mt is :MaxTime
+    @test !occursin("best loss", post)
 end
 
 @testset "_best_loss_line" begin
@@ -1872,6 +1875,46 @@ end
     good = first(EnzymeRates.init_mechanisms(rxn_bad))
     gkids, gfail = EnzymeRates._expand_parent(good, rxn_bad)
     @test gfail === nothing && !isempty(gkids)
+end
+
+@testset "_expand_parents parallel equivalence" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: I
+    end
+    mechs = collect(EnzymeRates.init_mechanisms(rxn))
+    to_expand = EnzymeRates.BatchEntry[
+        EnzymeRates.BatchEntry(
+            m, 2, 0.0, :Success, hash(m),
+            (mechanism_type = string(typeof(EnzymeRates.compile_mechanism(m))),))
+        for m in mechs]
+
+    # Inline serial reference = the loop being replaced.
+    function serial_expand_reference(to_expand, reaction)
+        parent_of = Dict{Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism},
+                         @NamedTuple{mechanism_type::String, n_params::Int}}()
+        children = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+        fails = EnzymeRates.FitFailure[]
+        for pe in to_expand
+            kids, failure = EnzymeRates._expand_parent(pe.mech, reaction)
+            failure === nothing || push!(fails, failure)
+            for child in kids
+                haskey(parent_of, child) && continue
+                parent_of[child] = (mechanism_type = pe.row.mechanism_type,
+                                    n_params = pe.n_params)
+                push!(children, child)
+            end
+        end
+        (children, parent_of, fails)
+    end
+
+    gc, gp, gf = EnzymeRates._expand_parents(to_expand, rxn)
+    rc, rp, rf = serial_expand_reference(to_expand, rxn)
+
+    @test gc == rc            # same children, same order, same first-parent dedup
+    @test gp == rp            # same parent_of map
+    @test length(gf) == length(rf)
 end
 
 @testset "LOOCV eq_hash-uniqueness guard (§4)" begin
