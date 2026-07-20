@@ -94,8 +94,8 @@ end
 
 """
     identify_rate_equation(prob; optimizer,
-        min_beam_width=50, loss_rel_threshold=2.0, loss_abs_threshold=0.01,
-        loss_parsimony_threshold=1.01,
+        min_beam_width=50, loss_rel_threshold=1.3, loss_abs_threshold=0.001,
+        loss_parsimony_threshold=0.99,
         max_param_count=20, n_restarts=20, maxtime=60.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing, solver_kwargs=(;),
         n_cv_candidates=5, se_threshold=1.0, perm_p_threshold=0.16,
@@ -107,11 +107,11 @@ and data using beam search.
 # Keyword Arguments
 - `min_beam_width::Int = 50`: minimum mechanisms
   to keep per param-count tier
-- `loss_rel_threshold::Float64 = 2.0`: relative tolerance
+- `loss_rel_threshold::Float64 = 1.3`: relative tolerance
   for beam selection (see "Beam selection" below)
-- `loss_abs_threshold::Float64 = 0.01`: absolute tolerance
+- `loss_abs_threshold::Float64 = 0.001`: absolute tolerance
   for beam selection
-- `loss_parsimony_threshold::Float64 = 1.01`: a mechanism
+- `loss_parsimony_threshold::Float64 = 0.99`: a mechanism
   keeps expanding only if its loss is within this factor of
   the best model of any smaller parameter count — an added
   parameter must earn its keep. Combined with the other loss
@@ -208,9 +208,9 @@ function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
     # Beam search
     min_beam_width::Int = 50,
-    loss_rel_threshold::Float64 = 2.0,
-    loss_abs_threshold::Float64 = 0.01,
-    loss_parsimony_threshold::Float64 = 1.01,
+    loss_rel_threshold::Float64 = 1.3,
+    loss_abs_threshold::Float64 = 0.001,
+    loss_parsimony_threshold::Float64 = 0.99,
     max_param_count::Int = 20,
     eq_complexity_filter::Int = 337,
     optional_allosteric_regulators::Vector{Symbol} = Symbol[],
