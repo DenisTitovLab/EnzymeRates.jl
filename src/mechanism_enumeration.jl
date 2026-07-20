@@ -1880,6 +1880,12 @@ function _expand_add_allosteric_regulator(
         # Non-:EqualAI tags at any (new or existing) site.
         for tag in (:OnlyA, :OnlyI, :NonequalAI)
             for site_idx in 0:n_sites
+                # Appending to an existing site whose conformations are disjoint
+                # from the new ligand's (an all-:OnlyA site gaining an :OnlyI
+                # ligand, or the reverse) reproduces the add-at-a-new-site
+                # equation — redundant, so skip it.
+                site_idx >= 1 && isempty(intersect(_state_conformations(tag),
+                    _site_active_states(regulatory_sites(am)[site_idx]))) && continue
                 push!(results,
                     _make_am_with_added_reg(am, reg, tag, site_idx))
             end
@@ -2055,20 +2061,30 @@ _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
 """
+    _state_conformations(state::Symbol) -> Set{Symbol}
+
+The conformations a single ligand's allosteric `state` acts on: `:active` for
+`:OnlyA`/`:EqualAI`/`:NonequalAI`, `:inactive` for `:OnlyI`/`:EqualAI`/`:NonequalAI`.
+"""
+function _state_conformations(state::Symbol)
+    conf = Set{Symbol}()
+    state in (:OnlyA, :EqualAI, :NonequalAI) && push!(conf, :active)
+    state in (:OnlyI, :EqualAI, :NonequalAI) && push!(conf, :inactive)
+    conf
+end
+
+"""
     _site_active_states(site::RegulatorySite) -> Set{Symbol}
 
-The conformations a regulatory site's ligands act on: `:active` for any ligand
-binding the active state (`:OnlyA`/`:EqualAI`/`:NonequalAI`), `:inactive` for
-any binding the inactive state (`:OnlyI`/`:EqualAI`/`:NonequalAI`). Two sites
-with disjoint active states — an all-`:OnlyA` site and an all-`:OnlyI` site —
-merge to a rate equation identical to keeping them separate, so that all-keep
-merge is redundant.
+The conformations a regulatory site's ligands act on — the union of
+`_state_conformations` over its states. Two sites with disjoint active states —
+an all-`:OnlyA` site and an all-`:OnlyI` site — merge to a rate equation
+identical to keeping them separate, so that all-keep merge is redundant.
 """
 function _site_active_states(site::RegulatorySite)
     active = Set{Symbol}()
     for st in allo_states(site)
-        st in (:OnlyA, :EqualAI, :NonequalAI) && push!(active, :active)
-        st in (:OnlyI, :EqualAI, :NonequalAI) && push!(active, :inactive)
+        union!(active, _state_conformations(st))
     end
     active
 end
