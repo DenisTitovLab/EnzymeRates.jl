@@ -1880,6 +1880,12 @@ function _expand_add_allosteric_regulator(
         # Non-:EqualAI tags at any (new or existing) site.
         for tag in (:OnlyA, :OnlyI, :NonequalAI)
             for site_idx in 0:n_sites
+                # Appending to an existing site whose conformations are disjoint
+                # from the new ligand's (an all-:OnlyA site gaining an :OnlyI
+                # ligand, or the reverse) reproduces the add-at-a-new-site
+                # equation — redundant, so skip it.
+                site_idx >= 1 && isempty(intersect(_state_conformations(tag),
+                    _site_active_states(regulatory_sites(am)[site_idx]))) && continue
                 push!(results,
                     _make_am_with_added_reg(am, reg, tag, site_idx))
             end
@@ -2055,6 +2061,35 @@ _expand_change_allo_state(::Mechanism) =
     AllostericMechanism[]
 
 """
+    _state_conformations(state::Symbol) -> Set{Symbol}
+
+The conformations a single ligand's allosteric `state` acts on: `:active` for
+`:OnlyA`/`:EqualAI`/`:NonequalAI`, `:inactive` for `:OnlyI`/`:EqualAI`/`:NonequalAI`.
+"""
+function _state_conformations(state::Symbol)
+    conf = Set{Symbol}()
+    state in (:OnlyA, :EqualAI, :NonequalAI) && push!(conf, :active)
+    state in (:OnlyI, :EqualAI, :NonequalAI) && push!(conf, :inactive)
+    conf
+end
+
+"""
+    _site_active_states(site::RegulatorySite) -> Set{Symbol}
+
+The conformations a regulatory site's ligands act on — the union of
+`_state_conformations` over its states. Two sites with disjoint active states —
+an all-`:OnlyA` site and an all-`:OnlyI` site — merge to a rate equation
+identical to keeping them separate, so that all-keep merge is redundant.
+"""
+function _site_active_states(site::RegulatorySite)
+    active = Set{Symbol}()
+    for st in allo_states(site)
+        union!(active, _state_conformations(st))
+    end
+    active
+end
+
+"""
     _expand_merge_regulatory_sites(am::AllostericMechanism)
         → Vector{AllostericMechanism}
 
@@ -2065,7 +2100,10 @@ including the activator↔antagonist ambiguity. For the merged ligands,
 enumerate the Δ0-valid allo-state assignments:
 
   * the all-keep assignment — every ligand retains its current state
-    (co-binding);
+    (co-binding), skipped when the two sites act on disjoint conformations
+    (an all-`:OnlyA` site merged with an all-`:OnlyI` site), since that merge
+    derives to the same rate equation as keeping the sites separate (see
+    `_site_active_states`);
   * each assignment retagging exactly one ligand to `:EqualAI` — the
     antagonist forms (a ligand that binds both conformations equally,
     competing for the shared site).
@@ -2090,7 +2128,10 @@ function _expand_merge_regulatory_sites(am::AllostericMechanism)
         base_states = base_states[perm]
         mult = multiplicity(sites[i])
         others = RegulatorySite[sites[k] for k in 1:n if k != i && k != j]
-        for states in _merged_site_state_assignments(base_states)
+        redundant = isempty(intersect(_site_active_states(sites[i]),
+                                       _site_active_states(sites[j])))
+        for states in _merged_site_state_assignments(base_states;
+                                                     drop_all_keep=redundant)
             merged = RegulatorySite(copy(ligs), mult, states)
             push!(results, _with_reg_sites(am, vcat(others, [merged])))
         end
@@ -2108,14 +2149,19 @@ _expand_merge_regulatory_sites(::Mechanism) =
     AllostericMechanism[]
 
 """
-    _merged_site_state_assignments(base_states::Vector{Symbol}) -> Vector{Vector{Symbol}}
+    _merged_site_state_assignments(base_states::Vector{Symbol};
+                                   drop_all_keep=false) -> Vector{Vector{Symbol}}
 
 Δ0-valid allo-state assignments for a merged site's ligands: the all-keep
-assignment, plus each assignment retagging exactly one non-`:EqualAI` ligand
-to `:EqualAI`. The all-`:EqualAI` result is dropped.
+assignment (omitted when `drop_all_keep`), plus each assignment retagging
+exactly one non-`:EqualAI` ligand to `:EqualAI`. The all-`:EqualAI` result is
+dropped. `drop_all_keep` omits the all-keep entry for a redundant merge (see
+`_site_active_states`) while keeping the antagonist retags.
 """
-function _merged_site_state_assignments(base_states::Vector{Symbol})
-    assignments = Vector{Symbol}[copy(base_states)]
+function _merged_site_state_assignments(base_states::Vector{Symbol};
+                                        drop_all_keep::Bool=false)
+    assignments = Vector{Symbol}[]
+    drop_all_keep || push!(assignments, copy(base_states))
     for i in eachindex(base_states)
         base_states[i] == :EqualAI && continue
         retagged = copy(base_states)

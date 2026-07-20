@@ -8,8 +8,8 @@ cross-validation.
 
 This page walks through a fully runnable example: an MWC allosteric enzyme,
 recovered from noiseless data in about a minute. The full production search
-widens the beam to the defaults (`min_beam_width=50`, `loss_rel_threshold=2.0`,
-`loss_abs_threshold=0.01`, `loss_parsimony_threshold=1.01`, `max_param_count=20`,
+widens the beam to the defaults (`min_beam_width=50`, `loss_rel_threshold=1.3`,
+`loss_abs_threshold=0.001`, `loss_parsimony_threshold=0.99`, `max_param_count=20`,
 `eq_complexity_filter=337`) and would often run for many
 hours and require a High Performance Compute cluster (see
 [Running in parallel](@ref)).

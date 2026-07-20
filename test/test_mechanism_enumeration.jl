@@ -3297,7 +3297,7 @@ end
         @test isempty(EnzymeRates._expand_add_allosteric_regulator(am, rxn))
     end
 
-    @testset "AllostericMechanism — Two regulators with site options: count = 7" begin
+    @testset "AllostericMechanism — Two regulators with site options: count = 6" begin
         # SEED: allosteric uni-uni with R1 already added as :OnlyA
         # (existing site has one
         # non-:EqualAI ligand). R2 is un-added; the :EqualAI-at-existing
@@ -3318,20 +3318,21 @@ end
         result = EnzymeRates._expand_add_allosteric_regulator(
             am, uni_uni_allo_2reg)
 
-        # 1. count: 3 non-:EqualAI tag flavors × 2 site options
-        # (new + R1's existing) = 6. Plus 1 :EqualAI-at-existing variant
-        # (gated on R1 being non-:EqualAI). → 7.
-        @test length(result) == 7
+        # 1. count: 3 non-:EqualAI tag flavors × 2 site options (new + R1's
+        # existing) = 6, minus the redundant :OnlyI-onto-R1's-:OnlyA-site
+        # append (disjoint conformations) = 5. Plus 1 :EqualAI-at-existing
+        # variant (gated on R1 being non-:EqualAI). → 6.
+        @test length(result) == 6
 
-        # 2. Δ params: five variants add one parameter (:OnlyA/:OnlyI plus
-        # the :EqualAI-at-existing one), two :NonequalAI variants add two
-        # (K_R2 + K_R2_T). Sorted [1, 1, 1, 1, 1, 2, 2]. Measured against
-        # the actual compiled fitted count.
+        # 2. Δ params: four variants add one parameter (:OnlyA new/existing,
+        # :OnlyI new, and the :EqualAI-at-existing one), two :NonequalAI
+        # variants add two (K_R2 + K_R2_T). Sorted [1, 1, 1, 1, 2, 2].
+        # Measured against the actual compiled fitted count.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 1, 1, 1, 2, 2]
+        @test deltas == [1, 1, 1, 1, 2, 2]
 
         # 3. structural: every result has :R2 in some regulatory site.
         for r in result
@@ -3377,8 +3378,9 @@ end
         result = EnzymeRates._expand_add_allosteric_regulator(
             am, uni_uni_allo_2reg)
 
-        # 1. count: 7 (same derivation as the 7-variant case).
-        @test length(result) == 7
+        # 1. count: 6 (same derivation as the 6-variant case — the redundant
+        # :OnlyI-onto-R1's-:OnlyA-site append is skipped).
+        @test length(result) == 6
 
         # 4. structural: at least one result has :R2 :EqualAI at site 1
         # (the same site as R1). This is the :EqualAI-at-existing branch,
@@ -3423,17 +3425,19 @@ end
         result = EnzymeRates._expand_add_allosteric_regulator(
             am, uni_uni_allo_2reg)
 
-        # 1. count: 3 non-:EqualAI × 2 sites + 1 :EqualAI-at-existing = 7.
-        @test length(result) == 7
+        # 1. count: 3 non-:EqualAI × 2 sites + 1 :EqualAI-at-existing = 7,
+        # minus the redundant :OnlyA-onto-R1's-:OnlyI-site append (disjoint
+        # conformations) = 6.
+        @test length(result) == 6
 
-        # 2. Δ params: same multiset as the :OnlyA seed — five +1 variants
-        # and two :NonequalAI +2 variants. Sorted [1, 1, 1, 1, 1, 2, 2].
+        # 2. Δ params: same multiset as the :OnlyA seed — four +1 variants
+        # and two :NonequalAI +2 variants. Sorted [1, 1, 1, 1, 2, 2].
         # Measured against the actual compiled fitted count.
         base_fitted = length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(am)))
         deltas = sort([length(EnzymeRates.fitted_params(
             EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 1, 1, 1, 2, 2]
+        @test deltas == [1, 1, 1, 1, 2, 2]
 
         # 3. compilability
         for r in result
@@ -3544,8 +3548,9 @@ end
 
         result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
 
-        # 1. count: 3 non-:EqualAI × 2 sites + 1 :EqualAI-at-existing = 7.
-        @test length(result) == 7
+        # 1. count: 3 non-:EqualAI × 2 sites + 1 :EqualAI-at-existing = 7,
+        # minus the redundant :OnlyI-onto-R1's-:OnlyA-site append = 6.
+        @test length(result) == 6
 
         # 4. property-style: separate new-site (#sites grows to 2) and
         # existing-site (#sites stays at 1) placements.
@@ -3553,7 +3558,9 @@ end
         existing_site_variants =
             filter(r -> length(r.regulatory_sites) == 1, result)
         @test length(new_site_variants) == 3   # 3 non-:EqualAI × new site
-        @test length(existing_site_variants) == 4  # 3 non-:EqualAI + 1 :EqualAI
+        # :OnlyA + :NonequalAI appends onto R1's :OnlyA site + 1 :EqualAI;
+        # the :OnlyI append is skipped as redundant (disjoint conformations).
+        @test length(existing_site_variants) == 3
     end
 
     @testset "AllostericMechanism — Product-as-allosteric-regulator overlap" begin
@@ -3743,6 +3750,45 @@ end
         @test any(s -> occursin("ATPreg", String(s)), atp_params)
         @test any(s -> occursin("ATPinh", String(s)), atp_params)
         @test EnzymeRates.compile_mechanism(am) isa AllostericEnzymeMechanism
+    end
+
+    @testset "skips redundant OnlyI-onto-OnlyA-site append (disjoint states)" begin
+        # Appending an :OnlyI regulator onto a site holding only an :OnlyA
+        # regulator makes an [OnlyA, OnlyI] single site — disjoint conformations,
+        # so it derives to the same rate as adding it at a new site. Skip that
+        # append; keep the new-site form and the non-disjoint appends.
+        rxn = @enzyme_reaction begin
+            substrates: S[C]
+            products: P[C]
+            allosteric_regulators: A::Activator, I::Inhibitor
+            oligomeric_state: 4
+        end
+        base = first(EnzymeRates.init_mechanisms(rxn))
+        cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
+        site_a = EnzymeRates.RegulatorySite(
+            [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])
+        am = EnzymeRates.AllostericMechanism(
+            rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a])
+        kids = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
+        st(child, sidx, lig) = begin
+            s = EnzymeRates.regulatory_sites(child)[sidx]
+            i = findfirst(l -> EnzymeRates.name(l) == lig, EnzymeRates.ligands(s))
+            i === nothing ? nothing : EnzymeRates.allo_states(s)[i]
+        end
+        one_AI_site(c) = length(EnzymeRates.regulatory_sites(c)) == 1 &&
+            Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
+                only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
+        # redundant: one site with A:OnlyA + I:OnlyI — must be skipped
+        @test !any(c -> one_AI_site(c) && st(c,1,:A)==:OnlyA && st(c,1,:I)==:OnlyI, kids)
+        # kept: two-site new-site form carrying I:OnlyI on its own site
+        @test any(kids) do c
+            length(EnzymeRates.regulatory_sites(c)) == 2 &&
+                any(s -> [EnzymeRates.name(l) for l in EnzymeRates.ligands(s)] == [:I] &&
+                         EnzymeRates.allo_states(s) == [:OnlyI],
+                    EnzymeRates.regulatory_sites(c))
+        end
+        # kept: both-OnlyA append (A:OnlyA + I:OnlyA on one site — not disjoint)
+        @test any(c -> one_AI_site(c) && st(c,1,:A)==:OnlyA && st(c,1,:I)==:OnlyA, kids)
     end
 
 end
@@ -4062,6 +4108,34 @@ end
 
 end
 
+# ─── _site_active_states ─────────────────────────────────────────────────
+@testset "_site_active_states" begin
+    mk(states) = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(Symbol("R", i)) for i in eachindex(states)],
+        4, collect(Symbol, states))
+    @test EnzymeRates._site_active_states(mk([:OnlyA])) == Set([:active])
+    @test EnzymeRates._site_active_states(mk([:OnlyI])) == Set([:inactive])
+    @test EnzymeRates._site_active_states(mk([:EqualAI])) == Set([:active, :inactive])
+    @test EnzymeRates._site_active_states(mk([:NonequalAI])) == Set([:active, :inactive])
+    @test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyA])) == Set([:active])
+    @test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyI])) ==
+          Set([:active, :inactive])
+end
+
+@testset "_merged_site_state_assignments drop_all_keep" begin
+    base = [:OnlyA, :OnlyI]
+    keep = EnzymeRates._merged_site_state_assignments(base)
+    @test [:OnlyA, :OnlyI] in keep          # all-keep present by default
+    @test [:EqualAI, :OnlyI] in keep
+    @test [:OnlyA, :EqualAI] in keep
+    @test length(keep) == 3
+    dropped = EnzymeRates._merged_site_state_assignments(base; drop_all_keep=true)
+    @test !([:OnlyA, :OnlyI] in dropped)    # all-keep omitted
+    @test [:EqualAI, :OnlyI] in dropped     # antagonist retags retained
+    @test [:OnlyA, :EqualAI] in dropped
+    @test length(dropped) == 2
+end
+
 # ─── _expand_merge_regulatory_sites ─────────────────────────────────────
 @testset "_expand_merge_regulatory_sites" begin
     # A four-subunit reaction with a designated activator and inhibitor.
@@ -4093,14 +4167,19 @@ end
         Set(EnzymeRates.name(l)
             for l in EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(child))))
 
-    @testset "co-binding + both antagonist forms appear" begin
+    @testset "disjoint OnlyA/OnlyI co-binding skipped; antagonists kept" begin
+        # A (:OnlyA) acts only on the active state, I (:OnlyI) only on the
+        # inactive one, so co-binding them on one site derives to the same
+        # equation as separate sites — that all-keep merge is redundant and
+        # skipped. The two antagonist retags stay (each :EqualAI ligand now
+        # acts on both states, a genuinely distinct mechanism).
         @test all(c -> single_site_names(c) == Set([:A, :I]), children)
         states = Set((merged_state(c, :A), merged_state(c, :I)) for c in children)
-        @test (:OnlyA, :OnlyI) in states     # co-binding
+        @test !((:OnlyA, :OnlyI) in states)  # redundant co-binding skipped
         @test (:EqualAI, :OnlyI) in states   # activator → antagonist
         @test (:OnlyA, :EqualAI) in states   # inhibitor → antagonist
         @test !((:EqualAI, :EqualAI) in states)  # all-EqualAI dropped
-        @test length(children) == 3
+        @test length(children) == 2
     end
 
     @testset "every child is Δ0 (same fitted-param count as parent)" begin
@@ -4125,7 +4204,7 @@ end
         # survives.
         kept = EnzymeRates._filter_by_reg_type(children, merge_rxn)
         @test Set(kept) == Set(children)
-        @test length(kept) == 3
+        @test length(kept) == 2
     end
 
     @testset "reg_type filter drops same-type antagonist retags" begin
@@ -4226,6 +4305,40 @@ end
         single = EnzymeRates.AllostericMechanism(
             merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a])
         @test isempty(EnzymeRates._expand_merge_regulatory_sites(single))
+    end
+end
+
+@testset "OnlyA+OnlyI merge is derivation-redundant (premise guard)" begin
+    # The reason the all-keep OnlyA/OnlyI merge is skipped: merged onto one
+    # site it evaluates to the same rate as on separate sites. Confirm
+    # numerically over random parameters and concentrations.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A::Activator, I::Inhibitor
+        oligomeric_state: 4
+    end
+    base = first(EnzymeRates.init_mechanisms(rxn))
+    cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
+    mkm(sites) = EnzymeRates.AllostericMechanism(
+        rxn, copy(EnzymeRates.steps(base)), cat, 4, sites)
+    A = EnzymeRates.AllostericRegulator(:A)
+    I = EnzymeRates.AllostericRegulator(:I)
+    separate = mkm([EnzymeRates.RegulatorySite([A], 4, [:OnlyA]),
+                    EnzymeRates.RegulatorySite([I], 4, [:OnlyI])])
+    merged = mkm([EnzymeRates.RegulatorySite([A, I], 4, [:OnlyA, :OnlyI])])
+    fps = EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(separate))
+    fpm = EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(merged))
+    @test Set(fps) == Set(fpm)
+    Random.seed!(42)
+    for _ in 1:25
+        vals = Dict(p => exp(randn()) for p in union(fps, fpm))
+        ps = (; (p => vals[p] for p in fps)..., Keq=100.0, E_total=1.0)
+        pm = (; (p => vals[p] for p in fpm)..., Keq=100.0, E_total=1.0)
+        c = (; S=exp(randn()), P=exp(randn()), A=exp(randn()), I=exp(randn()))
+        vs = real(EnzymeRates.rate_equation(separate, c, ps))
+        vm = real(EnzymeRates.rate_equation(merged, c, pm))
+        @test isapprox(vs, vm; rtol=1e-9)
     end
 end
 
@@ -4780,9 +4893,9 @@ end
             length(EnzymeRates.regulatory_sites(c)) == 1 &&
             Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
                 only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
-        # The three Δ0 merge children (co-binding + two antagonist forms)
-        # survive the reg_type filter and appear in the output.
-        @test count(is_merged, children) == 3
+        # The two Δ0 antagonist merge children survive the reg_type filter and
+        # appear in the output; the redundant OnlyA/OnlyI co-binding is skipped.
+        @test count(is_merged, children) == 2
         @test issubset(
             Set(EnzymeRates._expand_merge_regulatory_sites(parent)),
             Set(children))
