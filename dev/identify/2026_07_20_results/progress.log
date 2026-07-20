@@ -6,4 +6,4 @@ Base tier: 0 errored | Success 100.0% | non-Success retcode 0.0%
 Expanded 8 parents → 30 children | all skipped (0 already fit, 30 >5 params, 0 >337 complexity)
 Cross-validating 5 candidate equations (LOOCV)…
 Selected: AllostericEnzymeMechanism (eq_hash=618e7e386041c038), n_params=5
-Done. Results saved to 2026_07_19_results
+Done. Results saved to 2026_07_20_results
