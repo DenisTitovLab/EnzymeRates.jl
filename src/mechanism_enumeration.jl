@@ -974,6 +974,17 @@ function _expand_substrate_product_dead_ends(
     patterns = _competition_patterns(
         sub_names, prod_names)
 
+    # A declared shared catalytic site forbids its (substrate, product) pair
+    # from co-occupying the catalytic site, so keep only competition patterns
+    # whose forbidden-edge set contains every declared pair. The complete
+    # bipartite pattern contains all edges and always survives, so the list is
+    # never empty.
+    shared = shared_catalytic_site(reaction)
+    if !isempty(shared)
+        patterns = filter(
+            pat -> all(edge -> edge in pat, shared), patterns)
+    end
+
     _role(m::Symbol) = m in sub_names ? Substrate(m) : Product(m)
     _add(sp::Species, m::Symbol) = Species(
         Metabolite[bound(sp)..., _role(m)],
@@ -1533,15 +1544,16 @@ end
 """
 Extend `rxn`'s regulators with a new `CompetitiveInhibitor(name)`,
 preserving every other field (reactants, allowed catalytic
-multiplicities). `EnzymeReaction`'s inner constructor canonicalizes the
-regulator order.
+multiplicities, shared_catalytic_site). `EnzymeReaction`'s inner
+constructor canonicalizes the regulator order.
 """
 function _add_competitive_inhibitor(rxn::EnzymeReaction, reg_name::Symbol)
     any(rm -> name(regulator(rm)) == reg_name, regulators(rxn)) && return rxn
     new_regs = copy(regulators(rxn))
     push!(new_regs, RegulatorMults(CompetitiveInhibitor(reg_name), Int[1]))
     EnzymeReaction(copy(reactants(rxn)), new_regs,
-                   copy(allowed_catalytic_multiplicities(rxn)))
+                   copy(allowed_catalytic_multiplicities(rxn));
+                   shared_catalytic_site = copy(shared_catalytic_site(rxn)))
 end
 
 """
