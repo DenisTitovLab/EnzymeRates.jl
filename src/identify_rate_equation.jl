@@ -151,7 +151,7 @@ and data using beam search.
   **unique-rate-equation** candidates per param count
 - `se_threshold::Float64 = 1.0`: paired 1-SE multiplier for
   model selection. Simpler-model bucket accepted iff its mean
-  paired log-loss difference vs the best bucket is `≤
+  paired loss difference vs the best bucket is `≤
   se_threshold * std(diffs)/sqrt(n_folds)`. Default 1.0 is the
   textbook "1-SE rule".
 - `perm_p_threshold::Float64 = 0.16`: minimum one-sided
@@ -185,7 +185,7 @@ threshold would collapse the beam to the single best mechanism.
 # Model selection (LOOCV)
 
 For each `n_params` bucket below `n_min` (lowest mean
-log-fold-loss) the rule computes paired log-loss differences
+fold-loss) the rule computes paired fold-loss differences
 between the bucket's representative and `n_min`'s, then
 accepts the simpler bucket iff BOTH:
 
@@ -200,7 +200,7 @@ Returns the smallest passing `n_params`; falls through to
 `n_min` if none pass. Within the chosen bucket the mechanism
 with lowest training loss wins. Per-bucket representative =
 the row with the lowest `cv_score` in that bucket. Diagnostic
-columns `mean_log_loss_diff`, `se_paired`, `permutation_p`
+columns `mean_loss_diff`, `se_paired`, `permutation_p`
 are surfaced in `cv_results`; the `n_min` bucket has 0.0 in
 all three.
 """
@@ -1038,17 +1038,17 @@ end
                           perm_p_threshold=0.16) → NamedTuple
 
 Paired 1-SE rule AND-combined with a one-sided sign-flip permutation test
-on log-transformed per-fold LOOCV scores. Returns:
+on per-fold LOOCV scores. Returns:
 
   best_n::Int                — selected `n_params`
-  n_min::Int                 — bucket with lowest mean log-fold-loss
-  diagnostics::Dict{Int, NamedTuple{(:mean_log_loss_diff, :se_paired,
+  n_min::Int                 — bucket with lowest mean fold-loss
+  diagnostics::Dict{Int, NamedTuple{(:mean_loss_diff, :se_paired,
                                      :permutation_p)}}
                               — `n_min` bucket has all three = 0.0
 
 Per-bucket representative = the row with the lowest `cv_score` in that
 `n_params` bucket. For each non-`n_min` bucket, computes paired diffs vs
-the rep of `n_min`'s log-folds. The simpler bucket is accepted iff BOTH:
+the rep of `n_min`'s folds. The simpler bucket is accepted iff BOTH:
 
   mean(diffs) ≤ se_threshold * std(diffs)/sqrt(n_folds)   (paired 1-SE)
   permutation_p > perm_p_threshold                         (perm test)
@@ -1057,7 +1057,7 @@ Iterates smaller buckets in ascending `n_params`; returns the first that
 passes. Falls through to `n_min` if none pass. Larger-than-`n_min` buckets
 have diagnostics computed but are never selected.
 
-Tiebreak: when two buckets tie on `mean(log_scores)`, `n_min` resolves to
+Tiebreak: when two buckets tie on `mean(fold_scores)`, `n_min` resolves to
 the smallest `n_params` (parsimony).
 
 Errors if any bucket's fold-score length differs from `n_min`'s. (Every
@@ -1077,41 +1077,41 @@ function _select_best_n_params(
     sorted = sort(cv_df, [:n_params, :cv_score])
     reps = combine(groupby(sorted, :n_params), first)
 
-    log_scores = Dict(
-        row.n_params => log.(row.cv_fold_scores)
+    fold_scores = Dict(
+        row.n_params => row.cv_fold_scores
         for row in eachrow(reps))
-    log_means = Dict(n => mean(ls) for (n, ls) in log_scores)
-    # Tie-break on log-mean by smallest n_params (parsimony). Without
+    means = Dict(n => mean(fs) for (n, fs) in fold_scores)
+    # Tie-break on mean by smallest n_params (parsimony). Without
     # this, argmin over Dict keys is iteration-order-dependent.
-    n_min = argmin(n -> (log_means[n], n), keys(log_means))
-    n_folds_min = length(log_scores[n_min])
+    n_min = argmin(n -> (means[n], n), keys(means))
+    n_folds_min = length(fold_scores[n_min])
 
     diagnostics = Dict{Int, @NamedTuple{
-        mean_log_loss_diff::Float64,
+        mean_loss_diff::Float64,
         se_paired::Float64,
         permutation_p::Float64}}()
     diagnostics[n_min] = (
-        mean_log_loss_diff = 0.0,
+        mean_loss_diff = 0.0,
         se_paired = 0.0,
         permutation_p = 0.0,
     )
 
-    smaller_ns = sort([n for n in keys(log_means) if n < n_min])
+    smaller_ns = sort([n for n in keys(means) if n < n_min])
 
-    for n in keys(log_means)
+    for n in keys(means)
         n == n_min && continue
-        ls = log_scores[n]
-        length(ls) == n_folds_min || error(
+        fs = fold_scores[n]
+        length(fs) == n_folds_min || error(
             "fold-count mismatch for n_params=$n: " *
-            "got $(length(ls)), expected $n_folds_min " *
+            "got $(length(fs)), expected $n_folds_min " *
             "(n_min=$n_min)")
-        diffs = ls .- log_scores[n_min]
+        diffs = fs .- fold_scores[n_min]
         md  = mean(diffs)
         sep = n_folds_min == 1 ? 0.0 :
               std(diffs) / sqrt(n_folds_min)
         p   = _onesided_permutation_p(diffs)
         diagnostics[n] = (
-            mean_log_loss_diff = md,
+            mean_loss_diff = md,
             se_paired = sep,
             permutation_p = p,
         )
@@ -1121,7 +1121,7 @@ function _select_best_n_params(
     if n_folds_min > 1
         for n in smaller_ns
             d = diagnostics[n]
-            if d.mean_log_loss_diff <= se_threshold * d.se_paired &&
+            if d.mean_loss_diff <= se_threshold * d.se_paired &&
                d.permutation_p > perm_p_threshold
                 best_n = n
                 break
@@ -1186,7 +1186,7 @@ function _cv_model_selection(
 
     cv_df = copy(candidate_rows)
     cv_df.cv_fold_scores = collect(fold_scores_per_candidate)
-    cv_df.cv_score = [mean(log.(v)) for v in cv_df.cv_fold_scores]
+    cv_df.cv_score = [mean(v) for v in cv_df.cv_fold_scores]
 
     sel = _select_best_n_params(
         cv_df;
@@ -1205,7 +1205,7 @@ function _cv_model_selection(
 
     # Populate diagnostic columns. A bucket may be absent from
     # diagnostics only if every row in it had empty fold scores.
-    for fld in (:mean_log_loss_diff, :se_paired, :permutation_p)
+    for fld in (:mean_loss_diff, :se_paired, :permutation_p)
         cv_df[!, fld] = [
             haskey(sel.diagnostics, n) ?
                 sel.diagnostics[n][fld] : missing
@@ -1237,7 +1237,7 @@ end
 
 """
 One LOOCV fold: fit `mechanism` on every group except `held_out`, score it on
-`held_out`, and return the test loss floored at `eps(Float64)`. A non-finite
+`held_out`, and return the finite test loss. A non-finite
 test loss raises (naming the held-out group) — a corrupted fold must abort model
 selection rather than propagate a bad score.
 """
@@ -1258,13 +1258,11 @@ function _cv_fold_loss(
         fit.params, prob.Keq, prob.scale_k_to_kcat)
     # A non-finite fold loss means the fit is unusable; aborting model
     # selection is correct (re-run CV from the saved CSVs after fixing
-    # the fit). max(NaN, eps) === NaN, so the floor below would not catch it.
+    # the fit).
     isfinite(test_loss) || error(
         "LOOCV produced a non-finite test loss for held-out group " *
         "$held_out — the fit is unusable; aborting model selection.")
-    # Floor at eps so log(score) is finite. The centered-residuals loss
-    # can be exactly 0 (e.g. a single-row held-out group).
-    max(test_loss, eps(Float64))
+    test_loss
 end
 
 """

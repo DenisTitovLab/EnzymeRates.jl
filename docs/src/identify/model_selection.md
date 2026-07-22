@@ -73,31 +73,29 @@ its pool of fitted candidates to the cross-validation rule below.
 Each unique value in the `:group` column is one fold. A `group` is one
 independent experiment — rates measured at a single enzyme amount across varying
 metabolite concentrations. For each fold the mechanism is fit on all other
-groups and scored on the held-out group, with the fold score floored at
-`eps(Float64)` so the log stays finite even when a single-row group fits
-exactly. Leaving one group out this way estimates how well the mechanism
-predicts a new experiment — a new enzyme batch, a different dilution, or a
-distinct assay plate.
+groups and scored on the held-out group. Leaving one group out this way
+estimates how well the mechanism predicts a new experiment — a new enzyme
+batch, a different dilution, or a distinct assay plate.
 
-The CV score for a mechanism is the **mean of the log per-fold losses**:
+The CV score for a mechanism is the **mean of the per-fold losses**:
 
 ```julia
-cv_score = mean(log.(fold_scores))
+cv_score = mean(fold_scores)
 ```
 
-This is not the mean of raw fold losses. Working in log space puts all fold
-scores on a comparable scale regardless of the absolute rate magnitudes and
-penalises extreme fold misses more gracefully than a linear mean would.
+Each fold loss is already a mean squared log-ratio (see the loss definition),
+so averaging the fold losses directly is the natural aggregate — no further
+transform is applied.
 
 ## The cross-validation selection rule
 
-Let `n_min` be the parameter count with the lowest mean log CV score (with a
+Let `n_min` be the parameter count with the lowest mean CV score (with a
 parsimony tiebreak to the smaller count). The selection rule then checks each
 simpler bucket (ascending `n_params < n_min`). A simpler bucket is accepted
 only if it passes **both**:
 
 1. **Paired 1-SE rule** [Hastie2009](@cite): the mean of the paired
-   log-fold-loss differences (`simpler − n_min`) must not exceed
+   fold-loss differences (`simpler − n_min`) must not exceed
    `se_threshold × std(diffs) / √n_folds`. The default `se_threshold=1.0`
    is the textbook one-standard-error rule.
 
@@ -139,8 +137,8 @@ Both `se_threshold` and `perm_p_threshold` are tunable kwargs of
 | `error` | Exception text if the fit errored; otherwise `missing`. |
 | `eq_hash` | Hex hash of the comment-stripped rate equation. Two mechanisms with the same `eq_hash` compute the same rate function. |
 | one per fitted parameter | Fitted parameter value, or `missing` if the mechanism lacks that parameter. |
-| `cv_score` | Mean of log per-fold losses (lower is better). |
-| `mean_log_loss_diff` | Mean paired log-fold-loss difference vs the `n_min` bucket's representative. `0.0` for `n_min`. |
+| `cv_score` | Mean of per-fold losses (lower is better). |
+| `mean_loss_diff` | Mean paired fold-loss difference vs the `n_min` bucket's representative. `0.0` for `n_min`. |
 | `se_paired` | Paired standard error: `std(diffs) / √n_folds`. `0.0` for `n_min`. |
 | `permutation_p` | One-sided sign-flip p-value. `0.0` for `n_min`. |
 | `cv_fold_<group>` | Per-fold test loss for held-out group `<group>`, one column per group. |
