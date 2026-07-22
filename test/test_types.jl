@@ -924,6 +924,58 @@
             [S, P], [regAllo, regAllo2], Int[1])
     end
 
+    @testset "EnzymeReaction shared_catalytic_site" begin
+        A = EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:A), [:C => 1])
+        B = EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:C => 1])
+        P = EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])
+        Q = EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q), [:C => 1])
+        noregs = EnzymeRates.RegulatorMults[]
+
+        # Accepts a valid (substrate, product) pair; stored normalized + sorted.
+        r = EnzymeRates.EnzymeReaction([A, B, P, Q], noregs, Int[1];
+            shared_catalytic_site = [(:A, :P)])
+        @test EnzymeRates.shared_catalytic_site(r) == [(:A, :P)]
+
+        # Normalizes product-first input to (substrate, product).
+        r2 = EnzymeRates.EnzymeReaction([A, B, P, Q], noregs, Int[1];
+            shared_catalytic_site = [(:P, :A)])
+        @test EnzymeRates.shared_catalytic_site(r2) == [(:A, :P)]
+
+        # Sorts and dedups multiple pairs.
+        r3 = EnzymeRates.EnzymeReaction([A, B, P, Q], noregs, Int[1];
+            shared_catalytic_site = [(:B, :Q), (:A, :P)])
+        @test EnzymeRates.shared_catalytic_site(r3) == [(:A, :P), (:B, :Q)]
+
+        # Default is empty.
+        @test EnzymeRates.shared_catalytic_site(
+            EnzymeRates.EnzymeReaction([A, P], noregs, Int[1])) ==
+            Tuple{Symbol,Symbol}[]
+
+        # Rejections.
+        @test_throws ErrorException EnzymeRates.EnzymeReaction(  # unknown name
+            [A, B, P, Q], noregs, Int[1]; shared_catalytic_site = [(:A, :Z)])
+        @test_throws ErrorException EnzymeRates.EnzymeReaction(  # two substrates
+            [A, B, P, Q], noregs, Int[1]; shared_catalytic_site = [(:A, :B)])
+        @test_throws ErrorException EnzymeRates.EnzymeReaction(  # two products
+            [A, B, P, Q], noregs, Int[1]; shared_catalytic_site = [(:P, :Q)])
+        @test_throws ErrorException EnzymeRates.EnzymeReaction(  # duplicate pair
+            [A, B, P, Q], noregs, Int[1]; shared_catalytic_site = [(:A, :P), (:P, :A)])
+
+        # A metabolite that is BOTH a substrate and a competitive inhibitor may
+        # still be the substrate side of a shared pair (validation keys on the
+        # substrate/product role, not the inhibitor role).
+        regA = EnzymeRates.RegulatorMults(EnzymeRates.CompetitiveInhibitor(:A), [1])
+        r_dual = EnzymeRates.EnzymeReaction([A, B, P, Q], [regA], Int[1];
+            shared_catalytic_site = [(:A, :P)])
+        @test EnzymeRates.shared_catalytic_site(r_dual) == [(:A, :P)]
+
+        # == / hash reflect the field.
+        @test r != EnzymeRates.EnzymeReaction([A, B, P, Q], noregs, Int[1])
+        @test hash(r) != hash(EnzymeRates.EnzymeReaction([A, B, P, Q], noregs, Int[1]))
+        @test r == EnzymeRates.EnzymeReaction([A, B, P, Q], noregs, Int[1];
+            shared_catalytic_site = [(:A, :P)])
+    end
+
     @testset "RegulatorMults canonicalizes ordering + validates" begin
         rm1 = EnzymeRates.RegulatorMults(
             EnzymeRates.AllostericRegulator(:A), [4, 1, 2])

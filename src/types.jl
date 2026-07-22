@@ -304,6 +304,9 @@ it to `EnzymeRates.init_mechanisms` to enumerate candidate mechanisms.
   allosteric regulators, each with its allowed oligomeric multiplicities.
 - `allowed_catalytic_multiplicities::Vector{Int}` — the oligomeric states
   the allosteric enumerator may assign to the catalytic core.
+- `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` — `(substrate,
+  product)` pairs that bind the same catalytic site, and so are never both
+  bound to it at once.
 
 Construct one with the [`@enzyme_reaction`](@ref) DSL. Each reactant takes
 an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
@@ -330,10 +333,12 @@ struct EnzymeReaction
     reactants::Vector{ReactantAtoms}
     regulators::Vector{RegulatorMults}
     allowed_catalytic_multiplicities::Vector{Int}
+    shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}
 
     function EnzymeReaction(reactants::Vector{ReactantAtoms},
                             regulators::Vector{RegulatorMults},
-                            allowed_catalytic_multiplicities::Vector{Int})
+                            allowed_catalytic_multiplicities::Vector{Int};
+                            shared_catalytic_site = Tuple{Symbol,Symbol}[])
         sorted_reactants = sort(reactants; by = ra -> name(metabolite(ra)))
         sorted_regulators = sort(regulators; by = rm -> name(regulator(rm)))
         sorted_mults = sort(unique(allowed_catalytic_multiplicities))
@@ -358,6 +363,27 @@ struct EnzymeReaction
             error("EnzymeReaction: duplicate product names")
         length(reg_keys)   == length(Set(reg_keys))   ||
             error("EnzymeReaction: duplicate regulator of the same kind")
+
+        sub_set  = Set(sub_names)
+        prod_set = Set(prod_names)
+        normalized_shared = Tuple{Symbol,Symbol}[]
+        for pair in shared_catalytic_site
+            length(pair) == 2 || error(
+                "EnzymeReaction: each shared_catalytic_site entry must name " *
+                "exactly two metabolites, got $pair")
+            a, b = pair[1], pair[2]
+            if a in sub_set && b in prod_set
+                push!(normalized_shared, (a, b))
+            elseif b in sub_set && a in prod_set
+                push!(normalized_shared, (b, a))
+            else
+                error("EnzymeReaction: shared_catalytic_site pair $pair must " *
+                      "name one declared substrate and one declared product")
+            end
+        end
+        sorted_shared = sort(unique(normalized_shared))
+        length(sorted_shared) == length(normalized_shared) || error(
+            "EnzymeReaction: duplicate shared_catalytic_site pair")
 
         # A name may be declared once per regulator kind — the same metabolite
         # may bind BOTH as an AllostericRegulator and as a CompetitiveInhibitor
@@ -385,7 +411,7 @@ struct EnzymeReaction
                 "Declared atoms must balance.")
         end
 
-        new(sorted_reactants, sorted_regulators, sorted_mults)
+        new(sorted_reactants, sorted_regulators, sorted_mults, sorted_shared)
     end
 end
 
@@ -393,6 +419,7 @@ reactants(r::EnzymeReaction) = r.reactants
 regulators(r::EnzymeReaction) = r.regulators
 allowed_catalytic_multiplicities(r::EnzymeReaction) =
     r.allowed_catalytic_multiplicities
+shared_catalytic_site(r::EnzymeReaction) = r.shared_catalytic_site
 substrates(r::EnzymeReaction) =
     Substrate[metabolite(ra) for ra in reactants(r) if metabolite(ra) isa Substrate]
 products(r::EnzymeReaction) =
@@ -400,11 +427,13 @@ products(r::EnzymeReaction) =
 
 Base.:(==)(a::EnzymeReaction, b::EnzymeReaction) =
     a.reactants == b.reactants && a.regulators == b.regulators &&
-    a.allowed_catalytic_multiplicities == b.allowed_catalytic_multiplicities
+    a.allowed_catalytic_multiplicities == b.allowed_catalytic_multiplicities &&
+    a.shared_catalytic_site == b.shared_catalytic_site
 Base.hash(r::EnzymeReaction, h::UInt) =
-    hash(r.allowed_catalytic_multiplicities,
-         hash(r.regulators,
-              hash(r.reactants, hash(:EnzymeReaction, h))))
+    hash(r.shared_catalytic_site,
+         hash(r.allowed_catalytic_multiplicities,
+              hash(r.regulators,
+                   hash(r.reactants, hash(:EnzymeReaction, h)))))
 
 function Base.show(io::IO, r::EnzymeReaction)
     subs_str  = join(String.(name.(substrates(r))), " + ")
