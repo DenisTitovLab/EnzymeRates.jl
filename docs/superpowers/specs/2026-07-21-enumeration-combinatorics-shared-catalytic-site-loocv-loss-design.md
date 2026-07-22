@@ -1,4 +1,4 @@
-# Design: enumeration combinatorics doc, competing-reactants constraint, raw-loss LOOCV
+# Design: enumeration combinatorics doc, shared-catalytic-site constraint, raw-loss LOOCV
 
 Date: 2026-07-21
 
@@ -6,7 +6,7 @@ Three independent changes ship on one branch as three commits, one PR:
 
 1. A documentation subsection that quantifies how fast the enumeration engine's
    candidate count grows, so users see why filters are mandatory.
-2. A `competing_reactants` constraint on `EnzymeReaction` that forbids a
+2. A `shared_catalytic_site` constraint on `EnzymeReaction` that forbids a
    substrate/product pair from co-occupying the catalytic site, pruning
    mechanisms known to be wrong (ATP/ADP, NAD/NADH).
 3. Removing the redundant outer `log` from the LOOCV `cv_score`, mean ± SE, and
@@ -53,7 +53,7 @@ The section then plugs in a **random-order bi-bi with two regulators**
 regulator) and multiplies the factors to a concrete total in the tens of
 thousands. It closes by naming the filters that tame this total — the beam,
 `eq_complexity_filter`, required-regulator seeding, and the new
-`competing_reactants` — with a cross-reference to the model-selection page.
+`shared_catalytic_site` — with a cross-reference to the model-selection page.
 
 Format matches the page: prose plus one small factor→count table, no runnable
 block. The page ships zero runnable blocks today, and a live `@example` would
@@ -77,7 +77,7 @@ No `make.jl` change: the subsection lives inside an existing page.
 
 ---
 
-## Change 2 — `competing_reactants` constraint
+## Change 2 — `shared_catalytic_site` constraint
 
 ### Goal
 
@@ -96,7 +96,7 @@ Constructor keyword:
 
 ```julia
 EnzymeReaction(reactants, regulators, mults;
-               competing_reactants = [(:ATP, :ADP), (:NAD, :NADH)])
+               shared_catalytic_site = [(:ATP, :ADP), (:NAD, :NADH)])
 ```
 
 DSL label, each pair parenthesized and unordered (the constructor infers roles):
@@ -105,7 +105,7 @@ DSL label, each pair parenthesized and unordered (the constructor infers roles):
 @enzyme_reaction begin
     substrates: ATP[...], NAD[...]
     products:   ADP[...], NADH[...]
-    competing_reactants: (ATP, ADP), (NAD, NADH)
+    shared_catalytic_site: (ATP, ADP), (NAD, NADH)
 end
 ```
 
@@ -115,7 +115,7 @@ the two surfaces read identically.
 ### Storage and validation
 
 - **Field** (fourth on `EnzymeReaction`, `src/types.jl:329`):
-  `competing_reactants::Vector{Tuple{Symbol,Symbol}}`, normalized to
+  `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}`, normalized to
   `(substrate, product)` order and sorted. Canonical storage matches how
   `reactants`, `regulators`, and `allowed_catalytic_multiplicities` are already
   sorted in the constructor; the `==`/`hash` dedup at `src/types.jl:401` depends
@@ -129,18 +129,18 @@ the two surfaces read identically.
   name that is neither substrate nor product, a name that is only a regulator,
   two substrates, two products, and duplicate pairs.
 - **`==`/`hash`** (`src/types.jl:401-404`) extended to include the new field.
-- **Accessor** `competing_reactants(r::EnzymeReaction)` added beside the other
+- **Accessor** `shared_catalytic_site(r::EnzymeReaction)` added beside the other
   field accessors (`src/types.jl:392-395`).
 - **Struct docstring** updated to document the keyword.
 
 ### DSL parsing
 
-Add `:competing_reactants` to `_VALID_REACTION_LABELS` (`src/dsl.jl:41`) and a
+Add `:shared_catalytic_site` to `_VALID_REACTION_LABELS` (`src/dsl.jl:41`) and a
 branch in `_parse_reaction_block` (`src/dsl.jl:73-95`). Each value arrives from
 `_parse_labeled_line` as `Expr(:tuple, name_a, name_b)`; a new helper reads the
 two symbols per tuple and emits `(:name_a, :name_b)`. Any value that is not a
 two-symbol tuple errors with a message naming the offending entry. The macro
-passes the collected pairs to the constructor as the `competing_reactants`
+passes the collected pairs to the constructor as the `shared_catalytic_site`
 keyword.
 
 ### Enforcement
@@ -160,7 +160,7 @@ retained pattern permits a dead-end form binding both members of a declared
 pair, so no such form is ever built.
 
 The reaction `r` is already in scope at the call site, so the filter reads
-`competing_reactants(r)` with no new plumbing. Competitive-inhibitor binding is
+`shared_catalytic_site(r)` with no new plumbing. Competitive-inhibitor binding is
 added later on a separate path (`_expand_add_dead_end_regulator_native`,
 `src/mechanism_enumeration.jl:1607`) using `CompetitiveInhibitor` structs, which
 this substrate/product-keyed filter never touches.
@@ -173,7 +173,7 @@ parsing), and `test/test_mechanism_enumeration.jl` (enforcement):
 - Constructor rejects: unknown name, regulator-only name, two-substrate pair,
   two-product pair, duplicate pair — each asserting the specific error text.
 - Constructor normalizes `(:ADP, :ATP)` to `(:ATP, :ADP)` and sorts pairs.
-- DSL `competing_reactants: (ATP, ADP), (NAD, NADH)` produces the same field as
+- DSL `shared_catalytic_site: (ATP, ADP), (NAD, NADH)` produces the same field as
   the constructor keyword; a malformed entry (bare symbol, three-tuple) errors.
 - No mechanism from `init_mechanisms` for a bi-bi with a declared pair has both
   members bound to the catalytic site.
@@ -257,6 +257,6 @@ well-behaved; the change is deliberate and requested.
 ## Out of scope
 
 - No change to the inner `loss!` log-ratio (a different, load-bearing log).
-- No generalization of `competing_reactants` beyond substrate/product pairs
+- No generalization of `shared_catalytic_site` beyond substrate/product pairs
   (no substrate/substrate grouping, no site partitions).
 - No change to `optional_allosteric_regulators` / `optional_competitive_inhibitors`.
