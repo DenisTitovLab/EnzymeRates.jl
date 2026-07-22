@@ -203,8 +203,8 @@ competitive inhibitors, `n_a` allosteric regulators.
   independent A/I, and regulatory-site merges.
 
 Even the starting set grows steeply. `EnzymeRates.init_mechanisms` returns 1
-mechanism for uni-uni, 3 for uni-bi, 55 for bi-bi, and 42,220 for ter-ter — one
-extra substrate/product pair multiplies the seed count roughly 770-fold, before a
+mechanism for uni-uni, 3 for uni-bi, 55 for bi-bi, and 42,220 for ter-ter — the
+bi-bi → ter-ter step alone multiplies the seed count roughly 770-fold, before a
 single expansion move runs.
 
 **A worked example — random-order bi-bi with two regulators** (`n_s = n_p = 2`, one

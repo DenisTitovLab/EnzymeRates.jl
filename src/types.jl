@@ -451,6 +451,11 @@ function Base.show(io::IO, r::EnzymeReaction)
         print(io, " | allowed_catalytic_multiplicities: (",
               join(mults, ", "), ")")
     end
+    if !isempty(shared_catalytic_site(r))
+        sites_str = join(
+            ("($(p[1]), $(p[2]))" for p in shared_catalytic_site(r)), ", ")
+        print(io, " | shared_catalytic_site: ", sites_str)
+    end
 end
 
 # Classify how a species participates in BINDING steps (RE or SS) as the

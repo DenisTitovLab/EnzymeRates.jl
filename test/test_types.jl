@@ -941,7 +941,7 @@
             shared_catalytic_site = [(:P, :A)])
         @test EnzymeRates.shared_catalytic_site(r2) == [(:A, :P)]
 
-        # Sorts and dedups multiple pairs.
+        # Sorts multiple pairs.
         r3 = EnzymeRates.EnzymeReaction([A, B, P, Q], noregs, Int[1];
             shared_catalytic_site = [(:B, :Q), (:A, :P)])
         @test EnzymeRates.shared_catalytic_site(r3) == [(:A, :P), (:B, :Q)]

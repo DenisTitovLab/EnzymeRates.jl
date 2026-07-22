@@ -960,6 +960,8 @@ a catalytic form where it doesn't normally bind, subject to:
   at least one product (mixed binding required)
 - The resulting form doesn't have all substrates or
   all products
+- A declared `shared_catalytic_site` pair is never both bound in the
+  resulting form
 """
 function _expand_substrate_product_dead_ends(
     topos::Vector{Vector{Step}},
@@ -2299,7 +2301,8 @@ for a reaction as concrete `Mechanism` structs. For each catalytic
 topology (`_catalytic_topologies`): 1 SS step, all substrate/product
 dead-end subsets (`_expand_substrate_product_dead_ends`), with binding
 steps sharing the same `(metabolite, RE/SS)` class collapsed into one
-kinetic group (`_apply_equivalence_grouping`).
+kinetic group (`_apply_equivalence_grouping`). Dead-end enumeration
+respects `shared_catalytic_site`.
 """
 function init_mechanisms(r::EnzymeReaction)
     topos = _catalytic_topologies(r)
