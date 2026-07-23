@@ -83,10 +83,6 @@ The CV score for a mechanism is the **mean of the per-fold losses**:
 cv_score = mean(fold_scores)
 ```
 
-Each fold loss is already a mean squared log-ratio (see the loss definition),
-so averaging the fold losses directly is the natural aggregate — no further
-transform is applied.
-
 ## The cross-validation selection rule
 
 Let `n_min` be the parameter count with the lowest mean CV score (with a
