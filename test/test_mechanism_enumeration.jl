@@ -1137,6 +1137,46 @@ end
 
 end
 
+@testset "shared_catalytic_site prunes catalytic-site co-occupancy" begin
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[C]
+        products:   P[C], Q[C]
+        shared_catalytic_site: (A, P)
+    end
+    _reactant_names(sp) = Set(EnzymeRates.name(b)
+        for b in EnzymeRates.bound(sp) if b isa EnzymeRates.Reactant)
+    binds_both(sp) = :A in _reactant_names(sp) && :P in _reactant_names(sp)
+    @test !any(binds_both(sp)
+        for m in EnzymeRates.init_mechanisms(rxn)
+        for g in EnzymeRates.steps(m) for s in g
+        for sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s)))
+end
+
+@testset "shared_catalytic_site strictly reduces mechanism count" begin
+    base = @enzyme_reaction begin
+        substrates: A[C], B[C]
+        products:   P[C], Q[C]
+    end
+    constrained = @enzyme_reaction begin
+        substrates: A[C], B[C]
+        products:   P[C], Q[C]
+        shared_catalytic_site: (A, P)
+    end
+    n_base = length(unique!(collect(EnzymeRates.init_mechanisms(base))))
+    n_con  = length(unique!(collect(EnzymeRates.init_mechanisms(constrained))))
+    @test n_con < n_base
+end
+
+@testset "_add_competitive_inhibitor preserves shared_catalytic_site" begin
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[C]
+        products:   P[C], Q[C]
+        shared_catalytic_site: (A, P)
+    end
+    result = EnzymeRates._add_competitive_inhibitor(rxn, :I)
+    @test EnzymeRates.shared_catalytic_site(result) == [(:A, :P)]
+end
+
 # ═══════════════════════════════════════════════════════════════════════
 # Testsets covering non-enumeration features (atom balance from
 # @enzyme_reaction; AllostericEnzymeMechanism accessor identity)

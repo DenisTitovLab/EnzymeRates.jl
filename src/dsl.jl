@@ -27,14 +27,18 @@ Emit an `EnzymeReaction`.
   are only valid on `allosteric_regulators:` entries.
 - `allowed_catalytic_multiplicities:` — tuple of positive Ints (default `(1,)`).
 - `oligomeric_state: N` — shorthand for `allowed_catalytic_multiplicities: (N,)`.
+- `shared_catalytic_site: (sub, prod), ...` — pairs of substrate/product
+  names (in either order) that bind at the same catalytic site.
 """
 macro enzyme_reaction(block)
     parsed = _parse_reaction_block(block)
     reactants_expr  = _build_reactants_expr(parsed.subs, parsed.prods)
     mults_expr      = _build_catalytic_mults_expr(parsed.mults)
     regulators_expr = _build_regulators_expr(parsed.regs, parsed.mults)
+    shared_expr     = _build_shared_site_expr(parsed.shared)
     return esc(:(EnzymeRates.EnzymeReaction(
-        $reactants_expr, $regulators_expr, $mults_expr,
+        $reactants_expr, $regulators_expr, $mults_expr;
+        shared_catalytic_site = $shared_expr,
     )))
 end
 
@@ -43,6 +47,7 @@ const _VALID_REACTION_LABELS = Set([
     :dead_end_inhibitors, :competitive_inhibitors,
     :allosteric_regulators,
     :allowed_catalytic_multiplicities, :oligomeric_state,
+    :shared_catalytic_site,
 ])
 
 """
@@ -55,6 +60,7 @@ Parse the `@enzyme_reaction` body. Returns a `NamedTuple`:
   :unspecified)`.
 - `mults ::Union{Nothing, Vector{Int}}` — allowed catalytic multiplicities;
   `nothing` → default `(1,)`.
+- `shared ::Vector{Tuple{Symbol,Symbol}}` — `shared_catalytic_site:` pairs.
 """
 function _parse_reaction_block(block)
     block isa Expr && block.head === :block ||
@@ -63,6 +69,7 @@ function _parse_reaction_block(block)
     prods = Tuple{Symbol, Expr}[]
     regs  = Tuple{Symbol, Symbol, Union{Nothing, Vector{Int}}, Symbol}[]
     mults::Union{Nothing, Vector{Int}} = nothing
+    shared = Tuple{Symbol,Symbol}[]
 
     for arg in block.args
         arg isa LineNumberNode && continue
@@ -92,12 +99,14 @@ function _parse_reaction_block(block)
                 error("@enzyme_reaction: `oligomeric_state:` must be a positive " *
                       "Int, got $v.")
             mults = Int[v]
+        elseif label === :shared_catalytic_site
+            append!(shared, _parse_shared_site_pairs(values))
         end
     end
 
     isempty(subs)  && error("@enzyme_reaction: `substrates:` not specified.")
     isempty(prods) && error("@enzyme_reaction: `products:` not specified.")
-    (; subs, prods, regs, mults)
+    (; subs, prods, regs, mults, shared)
 end
 
 """
@@ -119,6 +128,29 @@ function _parse_atom_bracket_entries(values, label)
         push!(out, (v.args[1]::Symbol, atoms_expr))
     end
     out
+end
+
+"""
+Parse `shared_catalytic_site:` entries. Each value is a two-name tuple
+`(sub, prod)`; roles are resolved by the `EnzymeReaction` constructor.
+Returns `Vector{Tuple{Symbol,Symbol}}`.
+"""
+function _parse_shared_site_pairs(values)
+    out = Tuple{Symbol,Symbol}[]
+    for v in values
+        v isa Expr && v.head === :tuple && length(v.args) == 2 &&
+            all(a -> a isa Symbol, v.args) || error(
+                "@enzyme_reaction: `shared_catalytic_site:` each entry must be " *
+                "a `(substrate, product)` pair of two names; got $v.")
+        push!(out, (v.args[1]::Symbol, v.args[2]::Symbol))
+    end
+    out
+end
+
+"""Build the `Vector{Tuple{Symbol,Symbol}}` `Expr` for shared-site pairs."""
+function _build_shared_site_expr(shared)
+    entries = [:(($(QuoteNode(a)), $(QuoteNode(b)))) for (a, b) in shared]
+    :(Tuple{Symbol,Symbol}[$(entries...)])
 end
 
 """

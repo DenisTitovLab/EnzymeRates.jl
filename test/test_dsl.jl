@@ -487,6 +487,44 @@
         @test EnzymeRates.allowed_catalytic_multiplicities(rxn3) == [1, 2, 4]
     end
 
+    @testset "@enzyme_reaction shared_catalytic_site" begin
+        rxn = @enzyme_reaction begin
+            substrates: A[C], B[C]
+            products:   P[C], Q[C]
+            shared_catalytic_site: (A, P), (B, Q)
+        end
+        @test EnzymeRates.shared_catalytic_site(rxn) == [(:A, :P), (:B, :Q)]
+
+        # Single pair.
+        rxn1 = @enzyme_reaction begin
+            substrates: A[C], B[C]
+            products:   P[C], Q[C]
+            shared_catalytic_site: (P, A)
+        end
+        @test EnzymeRates.shared_catalytic_site(rxn1) == [(:A, :P)]
+
+        # Malformed: bare (unparenthesized) names error.
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: A[C]
+            products:   P[C]
+            shared_catalytic_site: A, P
+        end))
+
+        # Malformed: three-name tuple errors.
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: A[C], B[C]
+            products:   P[C], Q[C]
+            shared_catalytic_site: (A, P, Q)
+        end))
+
+        # Malformed: non-Symbol element in a pair errors.
+        @test_throws Exception eval(:(@enzyme_reaction begin
+            substrates: A[C]
+            products:   P[C]
+            shared_catalytic_site: (A, 5)
+        end))
+    end
+
     @testset "@enzyme_mechanism" begin
         m = @enzyme_mechanism begin
             substrates: S

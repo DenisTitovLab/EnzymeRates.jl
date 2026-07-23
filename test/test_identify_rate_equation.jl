@@ -296,20 +296,20 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         end
 
         # Diagnostic columns from paired 1-SE + permutation rule.
-        @test "mean_log_loss_diff" in
+        @test "mean_loss_diff" in
             names(results.cv_results)
         @test "se_paired" in names(results.cv_results)
         @test "permutation_p" in names(results.cv_results)
 
         # n_min bucket = the bucket with lowest cv_score after rep
-        # selection (which equals lowest mean log-fold-loss). Its
+        # selection (which equals lowest mean fold-loss). Its
         # rows have all three diagnostics = 0.0.
         n_min_val = results.cv_results.n_params[
             argmin(results.cv_results.cv_score)]
         n_min_rows = filter(row -> row.n_params == n_min_val,
                             results.cv_results)
         @test all(==(0.0),
-                  n_min_rows.mean_log_loss_diff)
+                  n_min_rows.mean_loss_diff)
         @test all(==(0.0), n_min_rows.se_paired)
         @test all(==(0.0), n_min_rows.permutation_p)
 
@@ -327,7 +327,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         seekstart(buf)
         roundtrip = CSV.read(buf, DataFrame)
         for col in (:n_params, :loss, :cv_score,
-                    :mean_log_loss_diff, :se_paired,
+                    :mean_loss_diff, :se_paired,
                     :permutation_p)
             @test col in propertynames(roundtrip)
         end
@@ -425,7 +425,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
                 n_restarts=1, maxtime=1.0))
     end
 
-    @testset "_cv_fold_loss over all groups: per-fold scores, floored at eps" begin
+    @testset "_cv_fold_loss over all groups: per-fold scores, finite" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -451,9 +451,9 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
         # Require the success path: fitting MUST converge on
         # this trivial uni-uni fixture in 2s × 2 restarts. A
         # length-0 (full failure) result would let the per-fold
-        # eps-floor + isfinite assertions below pass vacuously.
+        # non-negativity + isfinite assertions below pass vacuously.
         @test length(scores) == 3
-        @test all(s -> s >= eps(Float64), scores)
+        @test all(s -> s >= 0.0, scores)
         @test all(isfinite, scores)
     end
 
@@ -480,7 +480,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
     end
 
-    @testset "_cv_fold_loss: one fold, floored + finite" begin
+    @testset "_cv_fold_loss: one fold, finite" begin
         rxn = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -498,7 +498,7 @@ using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCac
 
         one = EnzymeRates._cv_fold_loss(m, prob, 2; kw...)
         @test one isa Float64
-        @test one >= eps(Float64) && isfinite(one)
+        @test one >= 0.0 && isfinite(one)
     end
 
 end
@@ -680,8 +680,8 @@ end
         cv_score       = [0.6, 0.1],
         loss           = [0.0, 0.0],
         cv_fold_scores = [
-            exp.([0.6, 0.7, 0.5, 0.6, 0.5, 0.7]),
-            exp.([0.1, 0.2, 0.0, 0.1, 0.0, 0.2]),
+            [0.6, 0.7, 0.5, 0.6, 0.5, 0.7],
+            [0.1, 0.2, 0.0, 0.1, 0.0, 0.2],
         ],
     )
     res = EnzymeRates._select_best_n_params(cv_df)
@@ -690,12 +690,13 @@ end
     # n_min self-comparison: hardcoded literal zeros, so === holds
     # regardless of FP noise in the input fold scores.
     @test res.diagnostics[7] ===
-          (mean_log_loss_diff=0.0, se_paired=0.0,
+          (mean_loss_diff=0.0, se_paired=0.0,
            permutation_p=0.0)
     d5 = res.diagnostics[5]
-    @test d5.mean_log_loss_diff ≈ 0.5
-    # FP roundoff through exp/log makes std(diffs) ≈ 1e-17, not 0.0
-    # exactly. `≈ 0.0` at default tolerance fails — use atol.
+    @test d5.mean_loss_diff ≈ 0.5
+    # Diffs are uniform in exact arithmetic, but subtracting decimal
+    # literals (e.g. 0.7 - 0.2) is not bit-exact, so std(diffs) is ~1e-17
+    # rather than 0.0 exactly. `≈ 0.0` at default tolerance fails — use atol.
     @test isapprox(d5.se_paired, 0.0; atol = 1e-10)
 
     # Mixed-sign small diffs: n=7 best, n=5 paired diffs
@@ -707,41 +708,40 @@ end
         cv_score       = [0.115, 0.110],
         loss           = [0.0, 0.0],
         cv_fold_scores = [
-            exp.([0.10, 0.12, 0.13, 0.11]),
-            exp.([0.10, 0.12, 0.10, 0.12]),
+            [0.10, 0.12, 0.13, 0.11],
+            [0.10, 0.12, 0.10, 0.12],
         ],
     )
     res2 = EnzymeRates._select_best_n_params(cv_df2)
     @test res2.n_min == 7
     @test res2.best_n == 5
-    @test res2.diagnostics[5].mean_log_loss_diff ≈ 0.005
+    @test res2.diagnostics[5].mean_loss_diff ≈ 0.005
     @test res2.diagnostics[5].se_paired ≈
           std([0.0, 0.0, 0.03, -0.01]) / sqrt(4)
 
     # Multi-row bucket: rep is the row with lowest cv_score.
-    # Bucket-3: row-A has fold scores giving mean_log = 0.135;
-    # row-B has fold scores giving mean_log = 0.115 → row-B is rep.
+    # Bucket-3: row-A has fold scores giving mean = 0.135;
+    # row-B has fold scores giving mean = 0.115 → row-B is rep.
     cv_df3 = DataFrame(
         n_params       = [3, 3, 7],
         cv_score       = [0.135, 0.115, 0.110],
         loss           = [0.0, 0.0, 0.0],
         cv_fold_scores = [
-            exp.([0.13, 0.135, 0.14, 0.135]),
-            exp.([0.11, 0.12, 0.115, 0.115]),
-            exp.([0.09, 0.13, 0.10, 0.12]),
+            [0.13, 0.135, 0.14, 0.135],
+            [0.11, 0.12, 0.115, 0.115],
+            [0.09, 0.13, 0.10, 0.12],
         ],
     )
     res3 = EnzymeRates._select_best_n_params(cv_df3)
-    @test res3.diagnostics[3].mean_log_loss_diff ≈
-          mean(log.(exp.([0.11, 0.12, 0.115, 0.115])) .-
-               log.(exp.([0.09, 0.13, 0.10, 0.12])))
+    @test res3.diagnostics[3].mean_loss_diff ≈
+          mean([0.11, 0.12, 0.115, 0.115] .- [0.09, 0.13, 0.10, 0.12])
 
     # Single-fold case: n_folds_min = 1 → return n_min, no comparisons.
     cv_df4 = DataFrame(
         n_params       = [3, 5],
         cv_score       = [0.5, 0.1],
         loss           = [0.0, 0.0],
-        cv_fold_scores = [exp.([0.5]), exp.([0.1])],
+        cv_fold_scores = [[0.5], [0.1]],
     )
     @test EnzymeRates._select_best_n_params(cv_df4).best_n == 5
 
@@ -751,25 +751,25 @@ end
         n_params       = [4],
         cv_score       = [0.15],
         loss           = [0.0],
-        cv_fold_scores = [exp.([0.1, 0.2, 0.15, 0.12])],
+        cv_fold_scores = [[0.1, 0.2, 0.15, 0.12]],
     )
     res_single = EnzymeRates._select_best_n_params(cv_df_single)
     @test res_single.n_min == 4
     @test res_single.best_n == 4
     @test length(res_single.diagnostics) == 1
-    @test res_single.diagnostics[4].mean_log_loss_diff == 0.0
+    @test res_single.diagnostics[4].mean_loss_diff == 0.0
 
-    # Tie in mean log-fold-loss across buckets: n_min resolves to
+    # Tie in mean fold-loss across buckets: n_min resolves to
     # smallest n_params (parsimony tiebreak). Both buckets have
-    # identical fold scores → identical log-means → tie.
+    # identical fold scores → identical means → tie.
     cv_df_tie = DataFrame(
         n_params       = [3, 5, 7],
         cv_score       = [0.115, 0.115, 0.115],
         loss           = [0.0, 0.0, 0.0],
         cv_fold_scores = [
-            exp.([0.10, 0.12, 0.11, 0.13]),
-            exp.([0.10, 0.12, 0.11, 0.13]),
-            exp.([0.10, 0.12, 0.11, 0.13]),
+            [0.10, 0.12, 0.11, 0.13],
+            [0.10, 0.12, 0.11, 0.13],
+            [0.10, 0.12, 0.11, 0.13],
         ],
     )
     @test EnzymeRates._select_best_n_params(cv_df_tie).n_min == 3
@@ -777,7 +777,7 @@ end
     # Larger-than-best bucket: n_min is the middle bucket. Both the
     # smaller (n=3) and larger (n=7) buckets get diagnostics, but only
     # the smaller can be selected (loop is over `smaller_ns`).
-    # Construct: n=5 has lowest log-mean. n=3 has uniform +0.5 offset
+    # Construct: n=5 has lowest mean. n=3 has uniform +0.5 offset
     # (FF — both gates fail). n=7 has uniform +0.3 offset (would also
     # fail every gate, but the loop never visits it).
     cv_df_three = DataFrame(
@@ -785,9 +785,9 @@ end
         cv_score       = [0.6, 0.1, 0.4],
         loss           = [0.0, 0.0, 0.0],
         cv_fold_scores = [
-            exp.([0.6, 0.6, 0.6, 0.6, 0.6, 0.6]),
-            exp.([0.1, 0.1, 0.1, 0.1, 0.1, 0.1]),
-            exp.([0.4, 0.4, 0.4, 0.4, 0.4, 0.4]),
+            [0.6, 0.6, 0.6, 0.6, 0.6, 0.6],
+            [0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+            [0.4, 0.4, 0.4, 0.4, 0.4, 0.4],
         ],
     )
     res_three = EnzymeRates._select_best_n_params(cv_df_three)
@@ -795,15 +795,15 @@ end
     @test res_three.best_n == 5
     # Larger bucket has populated diagnostics with positive mean_diff.
     @test haskey(res_three.diagnostics, 7)
-    @test res_three.diagnostics[7].mean_log_loss_diff ≈ 0.3
+    @test res_three.diagnostics[7].mean_loss_diff ≈ 0.3
     # Smaller bucket also has populated diagnostics (rejected by gates).
     @test haskey(res_three.diagnostics, 3)
-    @test res_three.diagnostics[3].mean_log_loss_diff ≈ 0.5
+    @test res_three.diagnostics[3].mean_loss_diff ≈ 0.5
 end
 
 @testset "_select_best_n_params: AND-combiner truth table" begin
     # Cell 1: pass-pass — mixed-sign small diffs, simpler accepted.
-    # n=7 has strictly lower log-mean (0.11333) than n=3 (0.115) so n=7
+    # n=7 has strictly lower mean (0.11333) than n=3 (0.115) so n=7
     # is n_min; diffs ≈ [0, 0, 0, 0, +0.04, -0.03] → mean ≈ 0.00167,
     # se_paired ≈ 0.00910 (1-SE pass at default). perm_p = 0.5 > 0.16
     # (perm pass at default) → both gates pass → simpler bucket selected.
@@ -812,8 +812,8 @@ end
         cv_score       = [0.115, 0.110],
         loss           = [0.0, 0.0],
         cv_fold_scores = [
-            exp.([0.10, 0.13, 0.11, 0.12, 0.13, 0.10]),
-            exp.([0.10, 0.13, 0.11, 0.12, 0.09, 0.13]),
+            [0.10, 0.13, 0.11, 0.12, 0.13, 0.10],
+            [0.10, 0.13, 0.11, 0.12, 0.09, 0.13],
         ],
     )
     @test EnzymeRates._select_best_n_params(cv_df_pp).best_n == 3
@@ -824,8 +824,8 @@ end
         cv_score       = [1.5, 0.1],
         loss           = [0.0, 0.0],
         cv_fold_scores = [
-            exp.([1.5, 1.5, 1.5, 1.5, 1.5, 1.5]),
-            exp.([0.1, 0.1, 0.1, 0.1, 0.1, 0.1]),
+            [1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
+            [0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
         ],
     )
     @test EnzymeRates._select_best_n_params(cv_df_ff).best_n == 7
@@ -839,8 +839,8 @@ end
     # Cell 3: 1-SE fail + perm pass — needs strictly positive mean
     # with mixed signs and enough variance that perm p stays above
     # threshold. Hand-computed fixture:
-    #   n=3 log-folds = [0.105, 0.098, 0.103, 0.099]
-    #   n=7 log-folds = [0.100, 0.100, 0.100, 0.100]
+    #   n=3 folds = [0.105, 0.098, 0.103, 0.099]
+    #   n=7 folds = [0.100, 0.100, 0.100, 0.100]
     #   diffs = [0.005, -0.002, 0.003, -0.001]
     #   mean = 0.00125; std ≈ 0.003304; se_paired ≈ 0.001652.
     # 1-SE default: 0.00125 ≤ 1.0*0.001652 ✓ pass.
@@ -852,8 +852,8 @@ end
         cv_score       = [0.10125, 0.100],
         loss           = [0.0, 0.0],
         cv_fold_scores = [
-            exp.([0.105, 0.098, 0.103, 0.099]),
-            exp.([0.100, 0.100, 0.100, 0.100]),
+            [0.105, 0.098, 0.103, 0.099],
+            [0.100, 0.100, 0.100, 0.100],
         ],
     )
     @test EnzymeRates._select_best_n_params(
@@ -871,8 +871,8 @@ end
         cv_score       = [0.116, 0.113],
         loss           = [0.0, 0.0],
         cv_fold_scores = [
-            exp.([0.105, 0.108, 0.115, 0.135]),                 # 4
-            exp.([0.10, 0.105, 0.11, 0.115, 0.12, 0.125]),      # 6
+            [0.105, 0.108, 0.115, 0.135],                 # 4
+            [0.10, 0.105, 0.11, 0.115, 0.12, 0.125],      # 6
         ],
     )
     @test_throws ErrorException EnzymeRates._select_best_n_params(
