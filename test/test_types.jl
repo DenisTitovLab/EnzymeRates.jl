@@ -271,6 +271,15 @@
         @test sprint(show, rxn_oligo) ==
             "EnzymeReaction: S ⇌ P | oligomeric_state: 4"
 
+        # EnzymeReaction with shared_catalytic_site: surfaced in show.
+        rxn_shared = @enzyme_reaction begin
+            substrates: A[C], B[C]
+            products:   P[C], Q[C]
+            shared_catalytic_site: (A, P)
+        end
+        @test sprint(show, rxn_shared) ==
+            "EnzymeReaction: A + B ⇌ P + Q | shared_catalytic_site: (A, P)"
+
         # AllostericEnzymeMechanism (smoke).
         m_allo = @allosteric_mechanism begin
             substrates: F6P
