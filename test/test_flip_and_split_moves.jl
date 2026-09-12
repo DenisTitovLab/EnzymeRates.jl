@@ -80,7 +80,45 @@ end
         end
     end)
     @test all(EnzymeRates._flux_carrying_groups(mirror))
+
+    # Two inhibitors binding free E in random order close a square that touches
+    # the catalytic cycle only at E: a binding-only block, so none of its four
+    # groups carries flux.
+    pendant = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_inhibitors: I, J
+        catalytic_steps: begin
+            E + S ⇌ E(S)          :: EqualAI
+            E(S) <--> E(P)        :: EqualAI
+            E + P ⇌ E(P)          :: EqualAI
+            E + I ⇌ E(I)          :: EqualAI
+            E + J ⇌ E(J)          :: EqualAI
+            E(I) + J ⇌ E(I, J)    :: EqualAI
+            E(J) + I ⇌ E(I, J)    :: EqualAI
+        end
+    end)
+    pfc = EnzymeRates._flux_carrying_groups(pendant)
+    inhibits(grp) = (bm = EnzymeRates.bound_metabolite(first(grp));
+                     bm !== nothing && EnzymeRates.name(bm) in (:I, :J))
+    inhibitor_groups = [g for (g, grp) in enumerate(EnzymeRates.steps(pendant))
+                        if inhibits(grp)]
+    @test length(inhibitor_groups) == 4
+    @test !any(pfc[g] for g in inhibitor_groups)
+    @test all(pfc[g] for g in eachindex(pfc) if !(g in inhibitor_groups))
 end
+
+const _allo_uni_uni = EnzymeRates.AllostericMechanism(
+    EnzymeRates.@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)   :: EqualAI
+            E(S) <--> E(P) :: EqualAI
+            E + P ⇌ E(P)   :: EqualAI
+        end
+    end)
 
 @testset "_re_segment_count" begin
     m = first(EnzymeRates.init_mechanisms(_uni_uni_rxn))
@@ -92,16 +130,7 @@ end
     @test EnzymeRates._re_segment_count(flipped) == 2
 
     # Allosteric: measured on the A-state projection.
-    am = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
-        substrates: S
-        products: P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)   :: EqualAI
-            E(S) <--> E(P) :: EqualAI
-            E + P ⇌ E(P)   :: EqualAI
-        end
-    end)
+    am = _allo_uni_uni
     @test EnzymeRates._re_segment_count(am) == 1
     am_groups = EnzymeRates.steps(am)
     am_g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), am_groups)
@@ -113,15 +142,15 @@ end
 @testset "_minimal_gaining_sets" begin
     # Units 1..4. Sets gain iff they contain {1,2} or contain 3.
     gains(set) = (1 in set && 2 in set) || 3 in set
-    sets = EnzymeRates._minimal_gaining_sets(4, gains, _ -> 1:4)
+    sets = EnzymeRates._minimal_gaining_sets(gains, _ -> 1:4)
     @test sets == [[3], [1, 2]]
     # Partner pruning: unit 2 may never join unit 1, so {1,2} is unreachable.
     partners(set) = (1 in set || 2 in set) ? [3, 4] : 1:4
-    @test EnzymeRates._minimal_gaining_sets(4, gains, partners) == [[3]]
+    @test EnzymeRates._minimal_gaining_sets(gains, partners) == [[3]]
     # Nothing gains: empty result, and the search terminates.
-    @test isempty(EnzymeRates._minimal_gaining_sets(3, _ -> false, _ -> 1:3))
+    @test isempty(EnzymeRates._minimal_gaining_sets(_ -> false, _ -> 1:3))
     # No units at all.
-    @test isempty(EnzymeRates._minimal_gaining_sets(0, _ -> true, _ -> 1:0))
+    @test isempty(EnzymeRates._minimal_gaining_sets(_ -> true, _ -> 1:0))
 end
 
 "Whole-group flip of groups `gs` (test helper; production uses _flip_group_to_ss)."
@@ -131,6 +160,26 @@ function _flip_groups(m, gs)
         groups = EnzymeRates._flip_group_to_ss(groups, g)
     end
     EnzymeRates._with_steps(m, groups)
+end
+
+@testset "_re_segment_count_after_flip agrees with the built child" begin
+    function check(m)
+        groups = EnzymeRates.steps(m)
+        eligible = [g for g in eachindex(groups)
+                    if all(EnzymeRates.is_equilibrium, groups[g])]
+        for g in eligible
+            @test EnzymeRates._re_segment_count_after_flip(m, Set([g])) ==
+                  EnzymeRates._re_segment_count(_flip_groups(m, [g]))
+        end
+        for (i, g) in enumerate(eligible), h in eligible[(i + 1):end]
+            @test EnzymeRates._re_segment_count_after_flip(m, Set([g, h])) ==
+                  EnzymeRates._re_segment_count(_flip_groups(m, [g, h]))
+        end
+    end
+    for m in EnzymeRates.init_mechanisms(_bibi_rxn)
+        check(m)
+    end
+    check(_allo_uni_uni)
 end
 
 @testset "_expand_re_to_ss: every child raises the RE segment count" begin
@@ -355,10 +404,10 @@ end
     seeds = EnzymeRates.init_mechanisms(_bibi_rxn)
     checked = 0
     for m in seeds
-        count = EnzymeRates._partition_independent_count(m)
+        counter = EnzymeRates._partition_independent_count(m)
         flat = EnzymeRates._flat_steps(m)
         parent_ids = [g for (_, g) in flat]
-        @test count(parent_ids) == EnzymeRates._independent_param_count(m)
+        @test counter(parent_ids) == EnzymeRates._independent_param_count(m)
         pos = Dict(s => j for (j, (s, _)) in enumerate(flat))
         groups = EnzymeRates.steps(m)
         for g in eachindex(groups), bp in EnzymeRates._context_bipartitions(groups[g])
@@ -367,7 +416,7 @@ end
                 ids[pos[s]] = length(groups) + 1
             end
             child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
-            @test count(ids) == EnzymeRates._independent_param_count(child)
+            @test counter(ids) == EnzymeRates._independent_param_count(child)
             checked += 1
         end
     end
@@ -470,11 +519,11 @@ end
     # Level-1 candidates the count test rejects have the parent's identifiable
     # rank; the rendered equation may differ only in which tied name survives.
     m = _random_bibi
-    count = EnzymeRates._partition_independent_count(m)
+    counter = EnzymeRates._partition_independent_count(m)
     flat = EnzymeRates._flat_steps(m)
     pos = Dict(s => j for (j, (s, _)) in enumerate(flat))
     ids0 = [g for (_, g) in flat]
-    base = count(ids0)
+    base = counter(ids0)
     r0 = _identifiable_rank(m)
     @test r0 == base
     rejected = 0
@@ -482,7 +531,7 @@ end
         bp in EnzymeRates._context_bipartitions(grp)
         ids = copy(ids0)
         for s in bp[2]; ids[pos[s]] = length(EnzymeRates.steps(m)) + 1; end
-        count(ids) > base && continue
+        counter(ids) > base && continue
         rejected += 1
         child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
         @test _identifiable_rank(child) == r0

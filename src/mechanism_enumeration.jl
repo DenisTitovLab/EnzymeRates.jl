@@ -1204,8 +1204,6 @@ function _apply_equivalence_grouping(
 end
 
 
-# ─── Expansion-Move Helpers ──────────────────────────────────
-
 # ─── Expansion Moves ─────────────────────────────────────────
 
 """
@@ -1238,8 +1236,8 @@ function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
         _with_steps(m, groups)
     end
     base = _re_segment_count(m)
-    sets = _minimal_gaining_sets(length(units), sel -> _re_segment_count(child(sel)) > base,
-                                 _ -> 1:length(units))
+    gains(sel) = _re_segment_count_after_flip(m, Set(units[u] for u in sel)) > base
+    sets = _minimal_gaining_sets(gains, _ -> 1:length(units))
     typeof(m)[child(sel) for sel in sets]
 end
 
@@ -1341,18 +1339,48 @@ holds every catalytic group."""
 _re_segment_count(m::Mechanism) = length(_compute_re_groups(m)[2])
 _re_segment_count(am::AllostericMechanism) = _re_segment_count(_state_mechanism(am, :A))
 
-"""
-    _minimal_gaining_sets(n, gains, partners) -> Vector{Vector{Int}}
+"""RE segment count of `m` after flipping the kinetic groups in `flipped` to SS,
+computed on `m`'s own steps without building the child: a union-find over the
+species joined by the RE steps of every other group. `_compute_re_groups`
+gives the same answer on the built child; this form is what the flip move probes
+with, so a candidate the constructors would reject is never constructed."""
+function _re_segment_count_after_flip(
+    m::Union{Mechanism, AllostericMechanism}, flipped,
+)
+    species = Species[]
+    for group in steps(m), s in group
+        from_species(s) in species || push!(species, from_species(s))
+        to_species(s) in species   || push!(species, to_species(s))
+    end
+    parent = collect(1:length(species))
+    function find(x)
+        while parent[x] != x; parent[x] = parent[parent[x]]; x = parent[x]; end
+        x
+    end
+    for (g, group) in enumerate(steps(m))
+        g in flipped && continue
+        for s in group
+            is_equilibrium(s) || continue
+            ra = find(findfirst(==(from_species(s)), species))
+            rb = find(findfirst(==(to_species(s)),   species))
+            ra != rb && (parent[ra] = rb)
+        end
+    end
+    count(i -> find(i) == i, eachindex(species))
+end
 
-Every minimal subset of units `1:n` for which `gains(set)` holds, found
-Apriori-style: level 1 tests each unit; a level-`j` set is tested only if every
-`(j−1)`-subset was tested and failed at the previous level, so no superset of a
-gaining set is ever tested. `partners(set)` lists the units allowed to extend
-`set` (units already in `set` are skipped). The loop ends when a level fails
-nothing. Each returned set is sorted; sets are ordered by level, then
+"""
+    _minimal_gaining_sets(gains, partners) -> Vector{Vector{Int}}
+
+Every minimal set of units for which `gains(set)` holds, found Apriori-style:
+level 1 tests each unit of `partners(Int[])`; a level-`j` set is tested only if
+every `(j−1)`-subset was tested and failed at the previous level, so no superset
+of a gaining set is ever tested. `partners(set)` lists the units allowed to
+extend `set` (units already in `set` are skipped). The loop ends when a level
+fails nothing. Each returned set is sorted; sets are ordered by level, then
 lexicographically.
 """
-function _minimal_gaining_sets(n::Int, gains, partners)
+function _minimal_gaining_sets(gains, partners)
     out = Vector{Int}[]
     failed = Vector{Int}[Int[]]
     while !isempty(failed)
@@ -1387,9 +1415,9 @@ the constant away and the child's equation is the parent's. Such a bipartition
 is kept as a seed for pairs and larger sets, because the cycle that absorbs it
 is broken by also splitting another group on that cycle — random-order binding
 needs one split per substrate before any constant frees up. Partners for a
-rejected set are the all-RE groups sharing a rapid-equilibrium segment with its
-carved steps: a tie needs an RE cycle through the carve, and every group on that
-cycle lies in that segment. The count is evaluated without building the child
+rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
+step of the split groups: a tie needs an RE cycle through the carve, and every
+group on that cycle lies in that segment. The count is evaluated without building the child
 for a `Mechanism` (`_partition_independent_count`, cycle basis once per parent)
 and by the combined state solve on the built child for an `AllostericMechanism`.
 The reaction and (for allosteric) multiplicity and regulatory sites are
@@ -1411,18 +1439,18 @@ function _expand_split_kinetic_group(m::Union{Mechanism, AllostericMechanism})
          if !(units[u][1] in used) &&
             !isempty(intersect(segments[units[u][1]], touched))]
     end
-    sets = _minimal_gaining_sets(length(units), gains, partners)
+    sets = _minimal_gaining_sets(gains, partners)
     typeof(m)[_apply_bipartitions(m, selection(sel)) for sel in sets]
 end
 
 """Gain test for the split move: `sel -> Bool`, true when applying the selected
 units raises the independent-parameter count above the parent's."""
 function _split_gain_test(m::Mechanism, units)
-    count = _partition_independent_count(m)
+    counter = _partition_independent_count(m)
     flat = _flat_steps(m)
     position = Dict(s => j for (j, (s, _)) in enumerate(flat))
     parent_ids = [g for (_, g) in flat]
-    base = count(parent_ids)
+    base = counter(parent_ids)
     function gains(sel)
         ids = copy(parent_ids)
         next_id = length(steps(m))
@@ -1432,7 +1460,7 @@ function _split_gain_test(m::Mechanism, units)
                 ids[position[s]] = next_id
             end
         end
-        count(ids) > base
+        counter(ids) > base
     end
     gains
 end
