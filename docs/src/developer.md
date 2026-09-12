@@ -67,6 +67,19 @@ values instead means enumeration and deduplication cost no compilation at all.
 Only the candidates the search actually fits are lifted to singleton types, one
 at a time, through `compile_mechanism`.
 
+The two refinement moves never emit a child that is provably a reparameterization
+of its parent. The split move divides a group by binding context and accepts a
+set of splits only if the independent-parameter count rises; the count comes from
+the thermodynamic constraint solve, and for a `Mechanism` it is evaluated without
+building the child, from a cycle basis computed once per parent
+(`_partition_independent_count`). The RE→SS move flips whole groups and accepts a
+set only if the rapid-equilibrium segment count rises; groups with no
+flux-carrying step (no cycle through a chemistry step, `_flux_carrying_groups`)
+never flip. Both moves share one minimal-set search (`_minimal_gaining_sets`).
+Duplicate equations that survive these proofs are collapsed at compile time by
+`eq_hash`. A numerical identifiability rank exists only in the test suite, as an
+oracle for the proofs; nothing in `src/` estimates identifiability numerically.
+
 ## Optimization algorithm architecture
 
 Fitting depends only on Optimization.jl; the package ships no solver of its own.

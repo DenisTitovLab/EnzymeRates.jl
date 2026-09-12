@@ -13,7 +13,7 @@ each binding order, with optional dead-end substrate and product inhibition — 
 their lowest parameter count. `EnzymeRates.expand_mechanisms` then grows the set
 through a fixed set of single moves, each taking a mechanism and returning
 slightly more complex children: splitting a shared rate constant, flipping a
-rapid-equilibrium step to steady state, adding a regulator, making the enzyme
+rapid-equilibrium group to steady state, adding a regulator, making the enzyme
 allosteric, and so on. After every step the candidates are deduplicated, since
 different move sequences can sometimes reach the same mechanism. Both functions
 are internal, but understanding them explains exactly which equations the search
@@ -65,34 +65,51 @@ further. The [Identify tutorial](@ref) works a concrete example.
 `EnzymeRates.expand_mechanisms(mechs, rxn)` applies all seven moves to every input
 mechanism and returns the resulting child mechanisms pooled into one list. Each
 move is applied in every applicable way, so one input mechanism yields many
-children — every rapid-equilibrium group that can flip to steady state, every
-step that can be split into its own group, every way an inhibitor can bind, and
-so on. Every child is checked to conserve atoms before it is returned.
+children — every set of rapid-equilibrium groups that can flip to steady state,
+every way a group can be split by binding context, every way an inhibitor can
+bind, and so on. Every child is checked to conserve atoms before it is returned.
 
 The seven moves:
 
-### 1. Flip a rapid-equilibrium group to steady state
+### 1. Flip rapid-equilibrium groups to steady state
 
-Flips one entire kinetic group from rapid equilibrium (RE) to steady state
-(SS), atomically — all steps in the group convert together. The move is a
-no-op for a group already in SS.
+Turns whole kinetic groups from rapid equilibrium (RE) to steady state (SS): every
+step in a group converts together, keeping one pair of rate constants per group.
+The move emits one child per smallest set of groups whose joint flip divides a
+rapid-equilibrium segment in two. On a starting mechanism every group cuts on its
+own, so each RE group gives one child. Once splits have separated a metabolite's
+binding steps, a single group may be bridged by an RE route through the others;
+the move then flips the bridging groups together, because a steady-state step
+whose two ends stay in one equilibrated segment never reaches the rate equation.
 
-**Parameter delta:** +1 for most groups (the SS reverse rate is a new
-independent parameter). A Haldane/Wegscheider constraint can make the reverse
-rate dependent on existing parameters, giving a net **+0** — which is why the
-search counts each mechanism's actual fitted parameters rather than assuming a
-fixed +1 per move.
+Two kinds of group never flip. Competitive-inhibitor binding stays at rapid
+equilibrium by modeling choice. A group whose steps all lie on dead-end branches
+carries no net flux at steady state, so the equation could only ever see its
+equilibrium ratio; flipping it would add a parameter the data cannot determine.
 
-### 2. Give one step its own kinetic group
+**Parameter delta:** +1 per flipped group in most cases. A few flips leave the
+equation unchanged even though they divide a segment; uni-uni is the classic
+case, where the steady-state and rapid-equilibrium laws have the same form.
+Those children are fit once and lose to their parent on parsimony.
 
-For each kinetic group with two or more steps, carves one step into a fresh
-singleton group. The split step then has an independent rate constant rather
-than sharing one with its former group members.
+### 2. Split a kinetic group by binding context
 
-**Parameter delta:** +1 in the simplest case — the split-off constant becomes
-independent. As with the RE→SS move, a Haldane/Wegscheider constraint can make
-that constant dependent instead, giving a net **+0**; the search counts each
-mechanism's actual fitted parameters rather than assuming +1.
+Divides one kinetic group into two, so the two parts have separate rate
+constants. The division is always by context: the steps whose enzyme form already
+carries some other ligand Y, against the rest. It encodes the hypothesis that the
+affinity for a metabolite depends on what is bound next to it; with Y a
+competitive inhibitor it separates a catalytic step from its inhibitor-bound
+mirror.
+
+A single split often frees no parameter. In random-order binding, thermodynamics
+ties the new constant straight back to the old one, and the equation is
+unchanged. The move therefore emits the smallest sets of simultaneous splits, at
+most one per group, whose combined effect raises the number of independent
+parameters; the thermodynamic constraint solver decides. Random-order bi-bi needs
+the A group and the B group split together before either constant is free.
+
+**Parameter delta:** at least +1 by construction. A child that would add nothing
+is never emitted.
 
 ### 3. Add a competitive inhibitor binding site
 
@@ -178,3 +195,36 @@ single-site mechanism.
 binding topology changes. The merged mechanism is a distinct rate equation, which the
 beam fits alongside the independent-site form so that cross-validation can choose
 between them.
+
+## Modeling choices
+
+The moves encode a few decisions about which mechanisms are worth fitting. They
+are choices, not theorems, and this section states them so they can be revisited.
+
+**Steady-state detail enters by whole groups.** Steps that share a rate constant
+flip to steady state together, in the smallest set of groups that separates a
+new equilibrated segment. Sharing structure is refined first, by splits, and
+steady-state detail follows it. A mechanism in which one enzyme form binds a
+metabolite at equilibrium while another binds it at steady state is reachable,
+but only after a split has given the two bindings separate constants.
+
+**Dead-end branches stay at equilibrium.** A group whose every step lies off the
+catalytic cycle carries no net flux at steady state. Its forward and reverse rates
+enter the equation only as their ratio, which the equilibrium form already has,
+so the group never flips.
+
+**Competitive-inhibitor binding stays at equilibrium.** An inhibitor bound to two
+forms that a catalytic step connects does carry flux through its mirror step, so
+this is a modeling choice ("inhibitor binding is fast"), not a consequence of the
+previous one.
+
+**Splits follow binding context.** A group is divided only by whether another
+ligand is already bound. Arbitrary partitions are not tried, a group is never
+split three ways in one move, and groups never merge. A partition that no
+sequence of context splits produces is unreachable.
+
+**A child is never a provable copy of its parent.** Both moves reject a child
+whose equation can be shown to equal the parent's: a split the constraint solver
+ties back, a flip that leaves the segment count unchanged, a flip of a dead-end
+group. A few equation-identical children survive, uni-uni flips among them; they
+cost one fit each and never win selection.
