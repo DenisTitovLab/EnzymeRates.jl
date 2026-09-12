@@ -1588,6 +1588,86 @@ function _split_one_step(
 end
 
 """
+The endpoint of `s` that does not carry the step's bound metabolite: the form the
+metabolite binds to. Iso steps use `from_species`. Canonical RE binding steps
+carry the metabolite on `to_species`; SS release steps may carry it on
+`from_species`, so the test is on the bound list rather than on direction.
+"""
+function _context_form(s::Step)
+    bm = bound_metabolite(s)
+    bm === nothing && return from_species(s)
+    any(b -> name(b) == name(bm), bound(from_species(s))) ? to_species(s) : from_species(s)
+end
+
+"""
+    _context_bipartitions(group) -> Vector{Tuple{Vector{Step}, Vector{Step}}}
+
+Ways to divide one kinetic group in two by binding context: for each other
+ligand Y carried by some step's context form (`_context_form`), the steps whose
+context form carries Y against the rest. Encodes "the affinity for this
+metabolite may depend on which other ligand is already bound" — including a
+competitive inhibitor, which separates a catalytic step from its inhibitor-bound
+mirror. The group's own bound metabolite is never a context. Both parts are
+nonempty, the first part holds the group's first step, ligands that induce the
+same division give one bipartition, and the order follows the ligand's role and
+name for deterministic output.
+"""
+function _context_bipartitions(group::Vector{Step})
+    own = bound_metabolite(first(group))
+    ligands = Set{Metabolite}()
+    for s in group, b in bound(_context_form(s))
+        own !== nothing && b == own && continue
+        push!(ligands, b)
+    end
+    carries(s, y) = y in bound(_context_form(s))
+    seen = Set{Vector{Step}}()
+    out = Tuple{Vector{Step}, Vector{Step}}[]
+    for y in sort!(collect(ligands); by = b -> (string(typeof(b)), string(name(b))))
+        with = Step[s for s in group if carries(s, y)]
+        without = Step[s for s in group if !carries(s, y)]
+        (isempty(with) || isempty(without)) && continue
+        first_part, second_part = first(group) in with ? (with, without) : (without, with)
+        first_part in seen && continue
+        push!(seen, first_part)
+        push!(out, (first_part, second_part))
+    end
+    out
+end
+
+"""
+Replace each selected group by its two bipartition parts. `selection` pairs a
+group index with one of that group's `_context_bipartitions`; each group appears
+at most once. For an allosteric mechanism both parts inherit the group's
+catalytic allo-state tag (splitting is a parameter-relaxation move that must not
+change A/I semantics).
+"""
+function _apply_bipartitions(m::Mechanism, selection)
+    _with_steps(m, _bipartitioned_groups(steps(m), selection)[1])
+end
+
+function _apply_bipartitions(am::AllostericMechanism, selection)
+    groups, origin = _bipartitioned_groups(steps(am), selection)
+    _with_steps_and_cat_states(am, groups, cat_allo_states(am)[origin])
+end
+
+"""Groups of `groups` with each selected group replaced by its two parts, plus
+the index of the original group each new group came from."""
+function _bipartitioned_groups(groups::Vector{Vector{Step}}, selection)
+    parts = Dict(g => bp for (g, bp) in selection)
+    out = Vector{Vector{Step}}()
+    origin = Int[]
+    for (g, group) in enumerate(groups)
+        if haskey(parts, g)
+            push!(out, parts[g][1]); push!(origin, g)
+            push!(out, parts[g][2]); push!(origin, g)
+        else
+            push!(out, group); push!(origin, g)
+        end
+    end
+    out, origin
+end
+
+"""
 Map each form name in `m`'s step graph to the set of bound-metabolite
 names read directly from its `Species`. Returns
 `Dict{form_name => Set{met_name}}`.

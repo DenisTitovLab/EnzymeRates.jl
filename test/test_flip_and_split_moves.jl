@@ -224,3 +224,110 @@ end
         end
     end
 end
+
+@testset "_context_bipartitions" begin
+    # A binds E, E(B), and E(P): contexts B and P give two bipartitions.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    a_group = only(grp for grp in EnzymeRates.steps(m)
+                   if length(grp) == 3 &&
+                      EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A)
+    bps = EnzymeRates._context_bipartitions(a_group)
+    @test length(bps) == 2
+    for (with, without) in bps
+        @test !isempty(with) && !isempty(without)
+        @test length(with) + length(without) == 3
+        @test first(a_group) in with
+        @test isempty(intersect(with, without))
+    end
+    # Contexts are ordered by ligand name: B before P.
+    ctx(part) = Set(EnzymeRates.name(b) for s in part
+                    for b in EnzymeRates.bound(EnzymeRates.from_species(s)))
+    @test :B in ctx(bps[1][2]) || :B in ctx(bps[1][1])
+    # A two-step group with one context has one bipartition; a group whose
+    # source forms carry no other ligand has none.
+    b_group = only(grp for grp in EnzymeRates.steps(m)
+                   if length(grp) == 2 &&
+                      EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :B)
+    @test length(EnzymeRates._context_bipartitions(b_group)) == 1
+    iso_group = only(grp for grp in EnzymeRates.steps(m) if EnzymeRates.is_iso(first(grp)))
+    @test isempty(EnzymeRates._context_bipartitions(iso_group))
+end
+
+@testset "_context_bipartitions separates an inhibitor-bound mirror" begin
+    am = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            (E + S ⇌ E(S), E(I) + S ⇌ E(I, S))   :: EqualAI
+            E(S) <--> E(P)                        :: EqualAI
+            E + P ⇌ E(P)                          :: EqualAI
+            E + I ⇌ E(I)                          :: EqualAI
+        end
+    end)
+    s_group = only(grp for grp in EnzymeRates.steps(am) if length(grp) == 2)
+    bps = EnzymeRates._context_bipartitions(s_group)
+    @test length(bps) == 1
+    @test all(part -> length(part) == 1, bps[1])
+end
+
+@testset "_apply_bipartitions" begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    groups = EnzymeRates.steps(m)
+    g = findfirst(grp -> length(grp) == 2, groups)
+    bp = only(EnzymeRates._context_bipartitions(groups[g]))
+    child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
+    @test length(EnzymeRates.steps(child)) == length(groups) + 1
+    @test EnzymeRates.n_steps(child) == EnzymeRates.n_steps(m)
+    @test Set(s for grp in EnzymeRates.steps(child) for s in grp) ==
+          Set(s for grp in groups for s in grp)
+    @test any(grp -> Set(grp) == Set(bp[1]), EnzymeRates.steps(child))
+    @test any(grp -> Set(grp) == Set(bp[2]), EnzymeRates.steps(child))
+
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))    :: NonequalAI
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))    :: EqualAI
+            E + P ⇌ E(P)             :: EqualAI
+            E(P) + Q ⇌ E(P, Q)       :: EqualAI
+            E + Q ⇌ E(Q)             :: EqualAI
+            E(Q) + P ⇌ E(P, Q)       :: EqualAI
+            E(A, B) <--> E(P, Q)     :: EqualAI
+        end
+    end)
+    ga = findfirst(grp -> length(grp) == 2 &&
+                   EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A,
+                   EnzymeRates.steps(am))
+    bpa = only(EnzymeRates._context_bipartitions(EnzymeRates.steps(am)[ga]))
+    achild = EnzymeRates._apply_bipartitions(am, [(ga, bpa)])
+    @test length(EnzymeRates.cat_allo_states(achild)) == length(EnzymeRates.steps(achild))
+    for (gi, grp) in enumerate(EnzymeRates.steps(achild))
+        Set(grp) ⊆ Set(bpa[1]) || Set(grp) ⊆ Set(bpa[2]) || continue
+        @test EnzymeRates.cat_allo_state(achild, gi) == :NonequalAI
+    end
+    @test EnzymeRates.catalytic_multiplicity(achild) == 2
+    @test EnzymeRates.regulatory_sites(achild) == EnzymeRates.regulatory_sites(am)
+end
