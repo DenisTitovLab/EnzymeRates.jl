@@ -706,9 +706,9 @@ end
 
 """
 Expand one parent into its children, catching a per-mechanism expansion error
-(e.g. a step graph whose form is missing from the RE segment map in
-`_group_re_segments`) so it is recorded as a failure rather than aborting the
-whole search. Returns `(children, failure)`
+(e.g. a child whose step breaks the atom-conservation assertion
+`expand_mechanisms` runs, `_assert_atom_conserving`) so it is recorded as a
+failure rather than aborting the whole search. Returns `(children, failure)`
 with `failure === nothing` on success, else a `FitFailure` carrying the parent.
 """
 function _expand_parent(m::Union{Mechanism, AllostericMechanism},

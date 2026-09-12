@@ -276,7 +276,7 @@ function _enumerate_species_names(mech::Mechanism)
 end
 
 """
-    _dependent_param_exprs(M::Type{<:EnzymeMechanism}) → (dep_exprs, indep_params)
+    _dependent_param_exprs(mech::Mechanism) → (dep_exprs, indep_params)
 
 Select dependent parameters and build substitution expressions for the
 Haldane / Wegscheider thermodynamic constraints. Steps in the same
@@ -284,9 +284,10 @@ kinetic group share parameters: their cycle-incidence columns are merged
 into the representative step's column before Gaussian elimination, so
 `dep_exprs` and `indep_params` are keyed only on representatives.
 
-The wrapper calls `_build_wegscheider_rename_map(M)` to obtain the
-rename map for absorbed single-symbol Wegscheider RE ties and forwards
-to `_dependent_param_exprs_kernel`.
+Calls `_build_wegscheider_rename_map(mech)` to obtain the rename map for
+absorbed single-symbol Wegscheider RE ties and forwards to
+`_dependent_param_exprs_kernel`. The `Type{<:EnzymeMechanism}` method delegates
+here.
 """
 function _dependent_param_exprs(mech::Mechanism)
     rename = _build_wegscheider_rename_map(mech)
@@ -320,9 +321,9 @@ _independent_param_count(m::Union{Mechanism, AllostericMechanism}) =
     length(_dependent_param_exprs(m)[2])
 
 """
-    _partition_independent_count(parent::Mechanism) -> count
+    _partition_independent_count(parent::Mechanism) -> counter
 
-Return `count(group_of_step)`, the independent-parameter count of the mechanism
+Return `counter(group_of_step)`, the independent-parameter count of the mechanism
 obtained by regrouping `parent`'s flat steps (in `_flat_steps` order) into the
 groups labelled by `group_of_step`. Regrouping moves no edges, so the cycle basis
 of the step graph (`_thermodynamic_constraints`) is the same for every
@@ -338,7 +339,7 @@ function _partition_independent_count(parent::Mechanism)
     C, _ = _thermodynamic_constraints(parent)
     kinds = [is_equilibrium(s) ? (is_binding(s) ? :binding_K : :iso_K) : :ss
              for (s, _) in _flat_steps(parent)]
-    function count(group_of_step::AbstractVector{Int})
+    function counter(group_of_step::AbstractVector{Int})
         length(group_of_step) == length(kinds) ||
             error("group_of_step must label every flat step of the parent")
         column = Dict{Tuple{Int, Int}, Int}()
@@ -359,7 +360,7 @@ function _partition_independent_count(parent::Mechanism)
         end
         length(column) - length(_rref_partition(A)[1])
     end
-    count
+    counter
 end
 
 """
