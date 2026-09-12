@@ -350,3 +350,26 @@ end
     @test EnzymeRates.catalytic_multiplicity(achild) == 2
     @test EnzymeRates.regulatory_sites(achild) == EnzymeRates.regulatory_sites(am)
 end
+
+@testset "_partition_independent_count agrees with _independent_param_count" begin
+    seeds = EnzymeRates.init_mechanisms(_bibi_rxn)
+    checked = 0
+    for m in seeds
+        count = EnzymeRates._partition_independent_count(m)
+        flat = EnzymeRates._flat_steps(m)
+        parent_ids = [g for (_, g) in flat]
+        @test count(parent_ids) == EnzymeRates._independent_param_count(m)
+        pos = Dict(s => j for (j, (s, _)) in enumerate(flat))
+        groups = EnzymeRates.steps(m)
+        for g in eachindex(groups), bp in EnzymeRates._context_bipartitions(groups[g])
+            ids = copy(parent_ids)
+            for s in bp[2]
+                ids[pos[s]] = length(groups) + 1
+            end
+            child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
+            @test count(ids) == EnzymeRates._independent_param_count(child)
+            checked += 1
+        end
+    end
+    @test checked > 100
+end
