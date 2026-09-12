@@ -197,8 +197,12 @@ group-merge map changes. The move computes the basis once per parent and tests
 each candidate by the rank of the merged constraint matrix. The plan factors
 the kernel so the existing type-dispatching path and this path share the
 basis computation, and measures the worst ter-ter seed against a time budget.
-The measured search on that seed is 8,878 candidates; at the current solve
-cost that is 26 minutes, and the target is seconds.
+The measured search on that seed is 8,878 candidates: 26 minutes with the
+kernel, 4.7 minutes with the basis reused and everything else unchanged. The
+target is seconds, which requires two more things: evaluate a candidate from
+the parent's per-step columns and the candidate partition without building
+the child `Mechanism`, and take the rank over machine integers or floats,
+since the entries are small integers.
 
 **Minimal sets** are found Apriori-style over `(group, bipartition)` pairs
 from distinct groups, exhaustively.
@@ -260,7 +264,8 @@ Untouched:
 
 ## What is accepted
 
-- **No-op flips survive.** Each costs one fit and one slot in a beam bucket
+- **No-op flips survive, about 7 % of flip children at seeds and 27 % after
+  splits (measured).** Each costs one fit and one slot in a beam bucket
   above its true dimension, where it ties its parent on loss and loses on
   parsimony. Its descendants are structures the parent's descendants also
   reach, and the `fitted` set fits each structure once, so the waste is
@@ -297,20 +302,27 @@ Done before implementation, with throwaway scripts against the real
 | M3 | Split candidates, 47- and 39-step ter-ter | 0 singles gain, 11 and 10 pairs gain, 816 triples 0 gain |
 | M6 | Richest bi-bi seed reaches 13 groups, 9 independent parameters | yes, in a closure of 16 structures |
 
-Remaining, run during the plan. None is a suite test; the suite asserts exact
-properties only.
+Compile-backed measurements, run the same day (`option3.jl`, `m1a2.jl`,
+`allo.jl`). The numerical rank is finite differences of `rate_equation` over
+the fitted parameters at 60 concentration points, maximum over three parameter
+draws.
 
-| # | Question | Population | Pass criterion |
-|---|----------|------------|----------------|
-| M1 | Do the proof-based rejections ever reject a gain? | bi-bi seeds + depth-2 expansion, plus an allosteric bi-bi | every rejected split has the parent's `eq_hash` (exact); every ineligible-group flip applied by hand has the parent's rank (numerical) |
-| M3′ | Fast predicate on the worst ter-ter seed | the 55-step seed, full search | seconds, not minutes; reported |
-| M4 | Residual no-op flips | flip children at depth 1–2, bi-bi and an allosteric reaction | reported: fraction rank-flat |
-| M5 | Phantoms | same children | reported: `length(fitted_params)` minus rank |
+| # | Question | Result |
+|---|----------|--------|
+| M3′ | Once-per-parent cycle basis vs the kernel | agrees on 227/227 bi-bi candidates and on all 12 accepted ter-ter children; the 55-step ter-ter search drops from 1,589 s to 284 s (8,878 candidates, 32 ms each). The cycle basis itself costs nothing; the remaining cost is building each candidate child, naming its parameters, and a `Rational{BigInt}` rank. |
+| M1a | Rejected splits have the parent's equation | 140 rejected level-1 context splits on bi-bi seeds: 76 share the parent's `eq_hash`; 64 differ only in which tied name survives (`K_P_E` vs `K_P_EA`), with equal numerical rank in all 64. The proof holds; `eq_hash` does not see through the renaming, which is the known pivot-priority defect. |
+| M1b | Groups with no flux-carrying step | 32 such groups across the 157 bi-bi seeds and split children; 75 across 311 seeds with a competitive inhibitor; none in 300 random ter-ter seeds. Flipping one by hand: rank 6 → 6, fitted parameters 6 → 7. The rule is justified and not vacuous. |
+| M4 | Rank-flat flip children | seeds: 16 of 220 (7 %); split children as parents: 74 of 272 (27 %); flip children as parents: 10 of 75 (13 %); allosteric seeds: 0 of 60. |
+| M5 | Phantom parameters | seeds: exactly the 16 flat children; split children as parents: 88 of 272 children carry 151 extra dimensions; split children themselves: 0 of 40; allosteric flip children: 6 of 60. |
 
-The numerical rank for M1, M4, and M5 is finite differences of `rate_equation`
-over the fitted parameters at 60 concentration points, maximum over three
-parameter draws, as in July. Numerical wobble there fails a measurement, never
-loses a model.
+Two consequences for the design. The **residual no-op rate after splits is
+about a quarter** of flip children, each a wasted fit that also enters the
+beam one or two counts above its true dimension; Denis accepted this rate
+knowingly (see *What is accepted*). And the **fast predicate needs more than
+basis reuse** to reach seconds: the plan must evaluate a candidate without
+constructing the child `Mechanism`, by merging the parent's per-step columns
+according to the candidate partition, and use an integer or floating rank on
+the small-integer matrix instead of `Rational{BigInt}`.
 
 ## Test surface
 
@@ -344,8 +356,11 @@ loses a model.
   context bipartition.
 - Every emitted split child has a strictly higher kernel count than its
   parent, and no emitted set has an emitted proper subset (minimality).
-- Every rejected split at level 1 compiles to the parent's `eq_hash` (the
-  proof, tested exactly).
+- Every rejected split at level 1 has the parent's equation up to the name of
+  the surviving tied constant: same numerical rank and the same rendered
+  equation after parameter names are replaced by placeholders. Measurement
+  showed 64 of 140 differ from the parent only by that name, so a bare
+  `eq_hash` comparison is the wrong test.
 - The fast predicate agrees with the full kernel count on every candidate of
   the bi-bi seeds and on the split children.
 - Every flip child has more RE segments than its parent; no emitted set has an
@@ -420,9 +435,10 @@ cycle basis, and where the rank oracle lives (tests only).
   must agree with the full kernel count on every candidate. A dedicated test
   compares the two on the bi-bi population. If they disagree, the full kernel
   is the reference and the fast path is wrong.
-- **Fast predicate still too slow.** Unknown until M3′. The tie-guided
-  extension is the fallback and is designed, not built. A level cap is not a
-  fallback.
+- **Fast predicate still too slow.** Basis reuse alone gives 4.7 minutes on
+  the worst ter-ter seed. If child-free evaluation and integer rank do not
+  reach the budget, the tie-guided extension is the fallback and is designed,
+  not built. A level cap is not a fallback.
 - **Allosteric flux-carrying.** The I-state projection drops `:OnlyA` groups,
   so a group flux-carrying in the shared graph may sit in a pendant region of
   the I state. Flipping it then adds a phantom in the I-state polynomial. M4
