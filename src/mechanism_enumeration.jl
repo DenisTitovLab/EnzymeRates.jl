@@ -1295,6 +1295,83 @@ function _flip_group_to_ss(groups::Vector{Vector{Step}}, g::Int)
 end
 
 """
+Biconnected blocks of an undirected multigraph. `edges[e] = (u, v)` with
+vertices `1:nv`. Returns the block id of every edge (Tarjan's edge-stack
+algorithm); a bridge is a block of its own.
+"""
+function _edge_blocks(nv::Int, edges::Vector{Tuple{Int, Int}})
+    adj = [Int[] for _ in 1:nv]
+    for (e, (u, v)) in enumerate(edges)
+        push!(adj[u], e); push!(adj[v], e)
+    end
+    disc = zeros(Int, nv); low = zeros(Int, nv)
+    block = zeros(Int, length(edges))
+    stack = Int[]; clock = Ref(0); nblocks = Ref(0)
+    function visit(u, parent_edge)
+        clock[] += 1; disc[u] = low[u] = clock[]
+        for e in adj[u]
+            e == parent_edge && continue
+            w = edges[e][1] == u ? edges[e][2] : edges[e][1]
+            if disc[w] == 0
+                push!(stack, e)
+                visit(w, e)
+                low[u] = min(low[u], low[w])
+                if low[w] >= disc[u]
+                    nblocks[] += 1
+                    while true
+                        x = pop!(stack); block[x] = nblocks[]
+                        x == e && break
+                    end
+                end
+            elseif disc[w] < disc[u]
+                push!(stack, e)
+                low[u] = min(low[u], disc[w])
+            end
+        end
+    end
+    for v in 1:nv
+        disc[v] == 0 && visit(v, 0)
+    end
+    block
+end
+
+"""
+    _flux_carrying_groups(m) -> BitVector
+
+One flag per kinetic group: the group holds a step that lies on a cycle of the
+step graph containing a chemistry (isomerization) step, i.e. shares a
+biconnected block with one. A binding-only cycle satisfies detailed balance and
+carries no net flux at steady state, so a group whose every step sits in such a
+pendant region exposes only equilibrium ratios however it is flagged; flipping
+it to steady state adds a phantom parameter. RE and SS steps are both edges
+here: flux-carrying-ness depends on the graph, not on the flags.
+"""
+function _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism})
+    forms = Dict{Species, Int}()
+    edges = Tuple{Int, Int}[]
+    edge_group = Int[]
+    edge_is_iso = Bool[]
+    vertex(sp) = get!(forms, sp, length(forms) + 1)
+    for (g, group) in enumerate(steps(m)), s in group
+        push!(edges, (vertex(from_species(s)), vertex(to_species(s))))
+        push!(edge_group, g); push!(edge_is_iso, is_iso(s))
+    end
+    block = _edge_blocks(length(forms), edges)
+    chem_blocks = Set(block[e] for e in eachindex(edges) if edge_is_iso[e])
+    flags = falses(length(steps(m)))
+    for e in eachindex(edges)
+        block[e] in chem_blocks && (flags[edge_group[e]] = true)
+    end
+    flags
+end
+
+"""Number of rapid-equilibrium segments (connected components of the RE
+subgraph). An allosteric mechanism is measured on its A-state projection, which
+holds every catalytic group."""
+_re_segment_count(m::Mechanism) = length(_compute_re_groups(m)[2])
+_re_segment_count(am::AllostericMechanism) = _re_segment_count(_state_mechanism(am, :A))
+
+"""
     _expand_split_kinetic_group(m::Mechanism) → Vector{Mechanism}
     _expand_split_kinetic_group(am::AllostericMechanism) → Vector{AllostericMechanism}
 

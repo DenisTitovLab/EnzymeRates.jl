@@ -23,3 +23,71 @@ end
               length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(m)))
     end
 end
+
+@testset "_flux_carrying_groups" begin
+    # Ordered uni-uni: every step is on the catalytic cycle.
+    m = first(EnzymeRates.init_mechanisms(_uni_uni_rxn))
+    @test all(EnzymeRates._flux_carrying_groups(m))
+
+    # A dead-end leaf hanging off the cycle is a bridge: not flux-carrying.
+    leaf = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+            E(P) + S ⇌ E(P, S)
+        end
+    end)
+    fc = EnzymeRates._flux_carrying_groups(leaf)
+    # The leaf group is the one whose step forms the doubly-bound E(P, S).
+    leaf_group = only(g for (g, grp) in enumerate(EnzymeRates.steps(leaf))
+                      if any(s -> length(EnzymeRates.bound(
+                                       EnzymeRates.to_species(s))) == 2, grp))
+    @test !fc[leaf_group]
+    @test count(!, fc) == 1
+
+    # Ping-pong: the second chemistry step starts at rapid equilibrium and lies
+    # on the catalytic cycle, so every group is flux-carrying.
+    pingpong = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            Estar + B ⇌ Estar(B)
+            E + Q ⇌ E(Q)
+            Estar + P ⇌ Estar(A, P)
+            E(A) <--> Estar(A, P)
+            Estar(B) ⇌ E(Q)
+        end
+    end)
+    @test all(EnzymeRates._flux_carrying_groups(pingpong))
+
+    # A pendant binding-only square (inhibitor with a mirror) shares the E→E(S)
+    # edge with the catalytic cycle, so its block contains chemistry: flux-carrying.
+    mirror = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            E + S ⇌ E(S)          :: EqualAI
+            E(S) <--> E(P)        :: EqualAI
+            E + P ⇌ E(P)          :: EqualAI
+            E + I ⇌ E(I)          :: EqualAI
+            E(I) + S ⇌ E(I, S)    :: EqualAI
+            E(S) + I ⇌ E(I, S)    :: EqualAI
+        end
+    end)
+    @test all(EnzymeRates._flux_carrying_groups(mirror))
+end
+
+@testset "_re_segment_count" begin
+    m = first(EnzymeRates.init_mechanisms(_uni_uni_rxn))
+    @test EnzymeRates._re_segment_count(m) == 1
+    groups = EnzymeRates.steps(m)
+    g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), groups)
+    flipped = EnzymeRates.Mechanism(EnzymeRates.reaction(m),
+                                    EnzymeRates._flip_group_to_ss(groups, g))
+    @test EnzymeRates._re_segment_count(flipped) == 2
+end
