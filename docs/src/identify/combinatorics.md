@@ -22,7 +22,7 @@ more skeletons on top.
 An enzyme can bind a substrate and a product at the same time and get stuck: a
 dead-end complex that sits off the catalytic cycle. Each pairing of a substrate
 with a product may be allowed or forbidden, and every reactant must be
-forbidden at least one partner. For a bi-bi that gives 7 patterns of dead ends.
+forbidden from at least one partner. For a bi-bi that gives 7 patterns of dead ends.
 Together with binding order, that is why `init_mechanisms` returns 55 bi-bi
 starting mechanisms before any refinement, and 35,665 for a ter-ter reaction.
 The 55 falls short of 9 × 7 = 63 because patterns that add the same forms to a
