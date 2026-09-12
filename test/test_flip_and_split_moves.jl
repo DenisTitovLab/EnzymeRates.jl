@@ -249,10 +249,29 @@ end
         @test first(a_group) in with
         @test isempty(intersect(with, without))
     end
-    # Contexts are ordered by ligand name: B before P.
-    ctx(part) = Set(EnzymeRates.name(b) for s in part
-                    for b in EnzymeRates.bound(EnzymeRates.from_species(s)))
-    @test :B in ctx(bps[1][2]) || :B in ctx(bps[1][1])
+    # Contexts are ordered by ligand role (Product before Substrate) then
+    # name: bps[1] is the P-context division, bps[2] the B-context division.
+    p_step = only(s for s in a_group
+                  if any(b -> b isa EnzymeRates.Product,
+                         EnzymeRates.bound(EnzymeRates.from_species(s))))
+    b_step = only(s for s in a_group
+                  if any(b -> b isa EnzymeRates.Substrate,
+                         EnzymeRates.bound(EnzymeRates.from_species(s))))
+    @test bps[1][2] == [p_step]
+    @test bps[2][2] == [b_step]
+    # _context_form: canonical RE binding puts the metabolite on to_species,
+    # so the context form is from_species.
+    @test EnzymeRates._context_form(first(a_group)) ==
+          EnzymeRates.from_species(first(a_group))
+    # _context_form: an SS dissociation step whose bound metabolite is in
+    # neither endpoint's bound list (the Segel ping-pong step shape) puts
+    # the metabolite on to_species.
+    ping_pong_step = EnzymeRates.Step(
+        EnzymeRates.Species([EnzymeRates.Substrate(:A)], :E),
+        EnzymeRates.Species(EnzymeRates.Metabolite[], :F),
+        EnzymeRates.Product(:P), false)
+    @test EnzymeRates._context_form(ping_pong_step) ==
+          EnzymeRates.to_species(ping_pong_step)
     # A two-step group with one context has one bipartition; a group whose
     # source forms carry no other ligand has none.
     b_group = only(grp for grp in EnzymeRates.steps(m)

@@ -1589,14 +1589,18 @@ end
 
 """
 The endpoint of `s` that does not carry the step's bound metabolite: the form the
-metabolite binds to. Iso steps use `from_species`. Canonical RE binding steps
-carry the metabolite on `to_species`; SS release steps may carry it on
-`from_species`, so the test is on the bound list rather than on direction.
+metabolite binds to. Reads the metabolite's side from `_step_sides(s)`, the
+canonical metabolite-on-which-side chokepoint: `from_species(s)` when the
+metabolite is on `m_lhs` (canonical binding, carried by `to_species`),
+`to_species(s)` when it is on `m_rhs` (a reverse-canonical or SS-dissociation
+step, including one where the metabolite is in neither endpoint's bound
+list), and `from_species(s)` for an iso step (both sides empty).
 """
 function _context_form(s::Step)
-    bm = bound_metabolite(s)
-    bm === nothing && return from_species(s)
-    any(b -> name(b) == name(bm), bound(from_species(s))) ? to_species(s) : from_species(s)
+    _, _, m_lhs, m_rhs = _step_sides(s)
+    isempty(m_lhs) || return from_species(s)
+    isempty(m_rhs) || return to_species(s)
+    from_species(s)
 end
 
 """
