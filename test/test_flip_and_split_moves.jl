@@ -373,3 +373,181 @@ end
     end
     @test checked > 100
 end
+
+"Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only)."
+function _identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
+    em = EnzymeRates.compile_mechanism(m)
+    fp = collect(EnzymeRates.fitted_params(em))
+    cm = m isa EnzymeRates.Mechanism ? m : EnzymeRates._state_mechanism(m, :A)
+    mets = sort!(collect(EnzymeRates._concentration_symbols(cm)))
+    rng = MersenneTwister(hash(m) % 2^31)
+    best = 0
+    for _ in 1:ndraws
+        θ = exp.(randn(rng, length(fp)))
+        keq = exp(randn(rng))
+        concs = [NamedTuple{Tuple(mets)}(Tuple(exp.(2 .* randn(rng, length(mets)))))
+                 for _ in 1:npts]
+        J = zeros(npts, length(fp))
+        for j in eachindex(fp), sgn in (1, -1)
+            θp = copy(θ); θp[j] *= exp(sgn * h)
+            p = NamedTuple{(fp..., :Keq, :E_total)}((θp..., keq, 1.0))
+            for (i, c) in enumerate(concs)
+                J[i, j] += sgn * rate_equation(em, c, p) / (2h)
+            end
+        end
+        all(isfinite, J) || continue
+        sv = svdvals(J)
+        best = max(best, count(>(1e-7 * sv[1]), sv))
+    end
+    best
+end
+
+const _random_bibi = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
+        (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+        (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
+        (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
+        E(A, B) <--> E(P, Q)
+    end
+end)
+
+"Closure of `seed` under `gen`, by structural identity."
+function _closure(seed, gen; maxn = 5_000)
+    seen = Dict{UInt64, Any}(hash(seed) => seed); queue = Any[seed]
+    while !isempty(queue)
+        m = popfirst!(queue)
+        for c in gen(m)
+            h = hash(c)
+            haskey(seen, h) && continue
+            seen[h] = c; push!(queue, c)
+            length(seen) > maxn && error("closure exceeded $maxn")
+        end
+    end
+    collect(values(seen))
+end
+
+@testset "_expand_split_kinetic_group: random-order bi-bi frees independent constants" begin
+    # Today's canonicalization drops every split of this seed. The split closure
+    # must reach the form with every step in its own group and 9 independent
+    # parameters (measured: 16 structures).
+    @test EnzymeRates._independent_param_count(_random_bibi) == 5
+    cl = _closure(_random_bibi, EnzymeRates._expand_split_kinetic_group)
+    @test maximum(length(EnzymeRates.steps(m)) for m in cl) == 13
+    @test maximum(EnzymeRates._independent_param_count(m) for m in cl) == 9
+    @test length(cl) == 16
+end
+
+@testset "_expand_split_kinetic_group: every child gains and no set contains another" begin
+    for m in EnzymeRates.init_mechanisms(_bibi_rxn)
+        base = EnzymeRates._independent_param_count(m)
+        kids = EnzymeRates._expand_split_kinetic_group(m)
+        for c in kids
+            @test EnzymeRates._independent_param_count(c) > base
+            @test EnzymeRates.n_steps(c) == EnzymeRates.n_steps(m)
+        end
+        # Minimality: the set of groups a child splits is never a strict superset
+        # of another child's.
+        split_groups(c) = Set(g for (g, grp) in enumerate(EnzymeRates.steps(m))
+                              if !any(cg -> Set(cg) == Set(grp), EnzymeRates.steps(c)))
+        sets = split_groups.(kids)
+        for (i, s) in enumerate(sets), (j, t) in enumerate(sets)
+            i != j && @test !(s ⊊ t)
+        end
+    end
+end
+
+@testset "_expand_split_kinetic_group: bi-bi seeds emit 102 children" begin
+    seeds = EnzymeRates.init_mechanisms(_bibi_rxn)
+    @test sum(length(EnzymeRates._expand_split_kinetic_group(m)) for m in seeds) == 102
+end
+
+@testset "_expand_split_kinetic_group: a rejected split is the parent's model" begin
+    # Level-1 candidates the count test rejects have the parent's identifiable
+    # rank; the rendered equation may differ only in which tied name survives.
+    m = _random_bibi
+    count = EnzymeRates._partition_independent_count(m)
+    flat = EnzymeRates._flat_steps(m)
+    pos = Dict(s => j for (j, (s, _)) in enumerate(flat))
+    ids0 = [g for (_, g) in flat]
+    base = count(ids0)
+    r0 = _identifiable_rank(m)
+    @test r0 == base
+    rejected = 0
+    for (g, grp) in enumerate(EnzymeRates.steps(m)),
+        bp in EnzymeRates._context_bipartitions(grp)
+        ids = copy(ids0)
+        for s in bp[2]; ids[pos[s]] = length(EnzymeRates.steps(m)) + 1; end
+        count(ids) > base && continue
+        rejected += 1
+        child = EnzymeRates._apply_bipartitions(m, [(g, bp)])
+        @test _identifiable_rank(child) == r0
+    end
+    @test rejected > 0
+end
+
+@testset "_expand_split_kinetic_group: a four-step group splits two and two" begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P), E(B, P) + A ⇌ E(A, B, P))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(P) + B ⇌ E(B, P), E(A, P) + B ⇌ E(A, B, P))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P),
+             E(B) + P ⇌ E(B, P), E(A, B) + P ⇌ E(A, B, P))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    binder(grp) = EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp)))
+    a_group = only(grp for grp in EnzymeRates.steps(m)
+                   if length(grp) == 4 && binder(grp) == :A)
+    bps = EnzymeRates._context_bipartitions(a_group)
+    # Context B and context P each divide the four A steps two and two, a
+    # division no carve of a single step can produce.
+    @test count(bp -> length(bp[1]) == 2 && length(bp[2]) == 2, bps) == 2
+    gi = findfirst(==(a_group), EnzymeRates.steps(m))
+    even_bp = first(bp for bp in bps if length(bp[1]) == 2)
+    child = EnzymeRates._apply_bipartitions(m, [(gi, even_bp)])
+    @test count(grp -> length(grp) == 2 && Set(grp) ⊆ Set(a_group),
+                EnzymeRates.steps(child)) == 2
+end
+
+@testset "_expand_split_kinetic_group: allosteric parent" begin
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(A, B))    :: NonequalAI
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))          :: EqualAI
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: EqualAI
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: EqualAI
+            E(A, B) <--> E(P, Q)                        :: EqualAI
+        end
+    end)
+    base = EnzymeRates._independent_param_count(am)
+    kids = EnzymeRates._expand_split_kinetic_group(am)
+    @test !isempty(kids)
+    for c in kids
+        @test c isa EnzymeRates.AllostericMechanism
+        @test EnzymeRates._independent_param_count(c) > base
+        @test length(EnzymeRates.cat_allo_states(c)) == length(EnzymeRates.steps(c))
+    end
+end
+
+@testset "_expand_split_kinetic_group: ter-ter random-order seed finishes in budget" begin
+    terter = @enzyme_reaction begin
+        substrates: A[C], B[N], C[O]
+        products: P[C], Q[N], R[O]
+    end
+    seeds = EnzymeRates.init_mechanisms(terter)
+    nst = [EnzymeRates.n_steps(m) for m in seeds]
+    worst = seeds[argmax(nst)]
+    @test EnzymeRates.n_steps(worst) == 55
+    t = @elapsed kids = EnzymeRates._expand_split_kinetic_group(worst)
+    @test length(kids) == 12
+    @test t < 60
+end
