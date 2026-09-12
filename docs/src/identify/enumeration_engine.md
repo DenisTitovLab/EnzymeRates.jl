@@ -87,10 +87,11 @@ equilibrium by modeling choice. A group whose steps all lie on dead-end branches
 carries no net flux at steady state, so the equation could only ever see its
 equilibrium ratio; flipping it would add a parameter the data cannot determine.
 
-**Parameter delta:** +1 per flipped group in most cases. A few flips leave the
-equation unchanged even though they divide a segment; uni-uni is the classic
-case, where the steady-state and rapid-equilibrium laws have the same form.
-Those children are fit once and lose to their parent on parsimony.
+**Parameter delta:** +1 per flipped group in most cases. A few flips give an
+equation that is the parent's up to renaming the constants, even though they
+divide a segment; uni-uni is the classic case, where the steady-state and
+rapid-equilibrium laws have the same form. Those children are fit once and lose
+to their parent on parsimony.
 
 ### 2. Split a kinetic group by binding context
 
@@ -226,5 +227,6 @@ sequence of context splits produces is unreachable.
 **A child is never a provable copy of its parent.** Both moves reject a child
 whose equation can be shown to equal the parent's: a split the constraint solver
 ties back, a flip that leaves the segment count unchanged, a flip of a dead-end
-group. A few equation-identical children survive, uni-uni flips among them; they
-cost one fit each and never win selection.
+group. A few children whose equation is the parent's up to renaming the
+constants survive, uni-uni flips among them; they cost one fit each and never
+win selection.

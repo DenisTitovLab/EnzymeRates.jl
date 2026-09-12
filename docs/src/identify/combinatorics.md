@@ -21,10 +21,12 @@ more skeletons on top.
 
 An enzyme can bind a substrate and a product at the same time and get stuck: a
 dead-end complex that sits off the catalytic cycle. Each pairing of a substrate
-with a product may or may not be allowed, and every reactant must take part in
-at least one. For a bi-bi that gives 7 patterns of dead ends. Together with
-binding order, that is why `init_mechanisms` returns 55 bi-bi starting
-mechanisms before any refinement, and 35,665 for a ter-ter reaction.
+with a product may be allowed or forbidden, and every reactant must be
+forbidden at least one partner. For a bi-bi that gives 7 patterns of dead ends.
+Together with binding order, that is why `init_mechanisms` returns 55 bi-bi
+starting mechanisms before any refinement, and 35,665 for a ter-ter reaction.
+The 55 falls short of 9 × 7 = 63 because patterns that add the same forms to a
+skeleton give the same mechanism, and equivalent mechanisms are counted once.
 
 The `shared_catalytic_site` keyword removes patterns a chemist already knows are
 impossible, such as ATP and ADP occupying one site together.
