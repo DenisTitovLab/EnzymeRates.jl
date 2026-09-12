@@ -1,5 +1,5 @@
 # ABOUTME: Tests for the RE→SS group-set flip move and the context-bipartition split move:
-# ABOUTME: eligibility, gain proofs, minimal sets, reachability, and the once-per-parent counter.
+# ABOUTME: eligibility, gain proofs, minimal sets, reachability, once-per-parent counter.
 using Test
 using EnzymeRates
 using LinearAlgebra
