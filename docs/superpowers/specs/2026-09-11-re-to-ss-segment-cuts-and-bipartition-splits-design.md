@@ -1,4 +1,4 @@
-# Design: per-metabolite RE→SS flips and bipartition splits
+# Design: RE→SS segment cuts and bipartition splits
 
 Date: 2026-09-11
 Status: approved design, not implemented
@@ -25,9 +25,11 @@ count above their parent with a phantom parameter.
 
 This design replaces both moves and deletes structural canonicalization:
 
-1. A flip is **per metabolite**: every flux-carrying binding step of that
-   metabolite goes to steady state at once. A step that carries no net flux at
-   steady state never flips.
+1. The RE→SS move is a **segment cut**: it divides one rapid-equilibrium
+   segment into two connected halves and turns every rapid-equilibrium edge
+   across the divide into a steady-state edge. Each child has exactly one more
+   segment than its parent. A cut that only detaches a region carrying no net
+   flux at steady state (a dead-end branch) is never made.
 2. A split divides one group into **two parts, any way**, and the move emits the
    **smallest sets of simultaneous splits** whose independent-parameter count
    rises. The thermodynamic constraint solver decides, and its "count unchanged"
@@ -46,11 +48,15 @@ Denis made these choices during the design conversation.
 - **Invariant.** No child of the flip or split move is emitted that is
   *provably* a reparameterization of its parent, and every rejection is a
   proof. Some no-op flips survive (see *What is accepted*); none is lost.
-- **Per-metabolite RE/SS.** A metabolite binds at rapid equilibrium everywhere
-  or at steady state everywhere. Mixed models, in which one enzyme form binds a
-  metabolite at equilibrium and another at steady state, are unreachable by
-  design. The docs state this as a modeling choice, and the plan measures the
-  savings.
+- **Segment cuts, any connected cut.** The RE→SS move is defined by its effect
+  on the segment graph, which is all the equation sees: one more segment per
+  child, never a cut that only detaches a dead-end region. Denis first chose a
+  per-metabolite restriction (a metabolite binds at equilibrium everywhere or at
+  steady state everywhere) and then replaced it with the unrestricted cut,
+  because the per-metabolite rule cannot express models such as "free enzyme
+  binds every substrate slowly, the ternary complex forms at equilibrium." The
+  plan measures the size of the cut space; the per-metabolite rule is the
+  documented fallback if the measurements are ugly.
 - **Bipartition splits.** A split may divide a group of four steps 2 + 2, not
   only 1 + 3. The plan measures the candidate count on ter-ter before the
   search shape is final.
@@ -65,12 +71,16 @@ The proofs available:
 | Move | Rejection | Why it is a proof |
 |------|-----------|-------------------|
 | split | independent-parameter count unchanged | the new constant is tied by a cycle; the derivation substitutes it away, so the rendered equation is the parent's |
-| flip | the flipped steps carry no net flux at steady state | a step in a binding-only pendant block has zero net flux, so only its equilibrium ratio can enter the equation |
-| flip | the RE segment count did not rise | an SS step whose endpoints share a segment lands on the diagonal of the segment matrix and never reaches the equation |
+| cut | one half of the cut holds no form on a chemistry cycle | that half is a union of binding-only pendant blocks; it carries zero net flux at steady state, sits at equilibrium with the other half, and only its equilibrium ratios can enter the equation |
+
+Two further no-ops are excluded by construction rather than by test: an SS
+step whose endpoints share a segment never enters the equation (it lands on the
+diagonal of the segment matrix), and a cut adds only crossing edges, so every
+new SS step joins two different segments.
 
 The reverse claim, that every emitted child gains, is **not** made. Uni-uni is
 the clean counterexample: steady-state and rapid-equilibrium binding give the
-same three-parameter rate law, so every flip of a uni-uni seed is a no-op. The
+same three-parameter rate law, so every cut of a uni-uni seed is a no-op. The
 July measurement found 52 of 195 segment-raising flips rank-flat on split bi-bi
 parents. These children are emitted, fit once, and lose to their parent on
 parsimony.
@@ -95,6 +105,11 @@ their ratio, and flipping it to SS adds a phantom parameter and nothing else.
 A step on a cycle with chemistry carries the reaction's net flux, and its two
 rate constants enter separately.
 
+A **chemistry-cycle form** is an enzyme form incident to a flux-carrying step.
+The cut move uses forms, not steps: a region of a segment with no
+chemistry-cycle form is a union of pendant blocks and sits at equilibrium with
+the rest of the segment however its edges are flagged.
+
 Flux-carrying-ness depends only on the step graph, not on RE/SS flags. No move
 removes a catalytic step, and the moves that add steps add dead-end regulator
 bindings and their mirrors, so it is recomputed per mechanism and never cached.
@@ -105,42 +120,46 @@ inhibitor binding on a cycle with chemistry, so that rule is a modeling choice
 ("inhibitor binding is fast") rather than a consequence of this definition. The
 docs say so.
 
-## The flip move
+## The cut move
 
-`_expand_re_to_ss(m)` emits one child per flip unit. Flip units:
+`_expand_re_to_ss(m)` emits one child per admissible cut of one RE segment.
 
-- **One per substrate or product X.** Every RE, flux-carrying step whose bound
-  metabolite is X, across all of X's kinetic groups, inhibitor mirrors included.
-  A unit is empty, and emits nothing, when X has no RE flux-carrying step.
-- **One per RE isomerization group.** Ping-pong seeds carry a second chemistry
-  step in RE, and its mirrors share its group.
+**A cut** of a segment divides its forms into two nonempty halves, each
+connected by the segment's RE edges. Enumerate the subsets that contain the
+segment's root form (`_segment_root`, the form with the fewest bound
+metabolites), keep those whose complement is nonempty and connected. Order the
+cuts by the sorted names of the non-root half for deterministic output.
+Segments with one form have no cut.
 
-Units are ordered by metabolite name, then by group index, for deterministic
-output.
+**Admissible** means both halves contain at least one chemistry-cycle form. A
+cut failing this detaches a pendant equilibrium region and is a proven no-op.
+The cut that isolates a dead-end leaf is the common case excluded here.
 
-The child rebuilds every step of the unit with `is_equilibrium = false`. When a
-group holds both flux-carrying and non-flux-carrying steps of X, say `E→EA` and
-the dead-end `EP→EAP`, the flipped steps and the unflipped steps must land in
-separate groups, because a group holds one RE/SS kind. The dead-end steps keep
-their group and their dissociation constant; the flipped steps form a new group
-with `kon`/`koff`. That is the intended model: catalytic binding at steady state,
-the abortive complex at equilibrium.
+**The child** rebuilds every RE edge crossing the divide with
+`is_equilibrium = false`. Crossing edges are grouped by their parent group: the
+crossing members of one parent group become one new SS group with `kon`/`koff`,
+and the non-crossing members stay RE in the parent group with its dissociation
+constant. A group therefore splits as a side effect when the cut crosses only
+some of its members. Grouping by parent group rather than by metabolite keeps
+earlier splits intact and keeps the seed's one-constant-per-metabolite grouping
+for a cut that crosses a whole group. Reaction, allo-state tags, multiplicity,
+and regulatory sites pass through unchanged, as today. Splitting a group that
+carries a catalytic allo-state tag gives both parts the tag.
 
-After building the child the move **asserts** that the RE segment count rose.
-Any RE path from a form to the same form with X added must contain an X-binding
-step, and every X-binding step on such a path is flux-carrying (a simple path
-between two vertices of a block stays inside the block), so the flip always cuts.
-The assertion is a loud invariant check, not a filter. If it ever fires, the
-reasoning above is wrong for that mechanism and we want to know.
+Each child has exactly one more RE segment than its parent, by construction.
+A test asserts it anyway.
 
-For `AllostericMechanism` the blocks are computed on the shared step graph, and
-the segment assertion runs on the A-state projection
-(`_state_allo_mechanism(am, :A)`), which holds every group. Catalytic allo-state
-tags, multiplicity, and regulatory sites pass through unchanged, as today.
+Reachability: models with several cuts are reached by chains of single cuts.
+The random-order square reaches "A binding at steady state everywhere" through
+the cut {E, EB} | {EA, EAB}, and "free enzyme slow to bind anything" through
+{E} | {EA, EB, EAB}, which flips one A edge and one B edge together. The
+per-group flip of today reaches neither cleanly: it emits the segment-flat
+single-edge flips as no-ops and needs a second no-op to close the cut.
 
-Consequence: in every reachable mechanism, a metabolite's flux-carrying steps
-are all RE or all SS. Splits preserve RE/SS kind, so nothing breaks the
-property once established. A test asserts it on expansion output at depth two.
+For `AllostericMechanism` the segments and cuts are computed on the A-state
+projection (`_state_allo_mechanism(am, :A)`), which holds every group, and the
+flux-carrying blocks on the shared step graph. See *Risks* for the I-state
+projection.
 
 ## The split move
 
@@ -198,6 +217,9 @@ Deleted, with their tests (listed under *Test surface*):
 - `_canonical_mechanism`, both overloads
 - `_merge_tied_kinetic_groups`, both overloads
 - `_split_one_step` (replaced by the bipartition builder)
+- `_re_to_ss_flip_units`, `_step_core`, and `_flip_group_to_ss` (replaced by
+  the cut enumeration; a cut crosses a step and its mirror together whenever
+  their endpoints fall on the same sides, so no separate mirror lock is needed)
 
 Untouched:
 
@@ -212,15 +234,20 @@ Untouched:
 
 ## What is accepted
 
-- **No-op flips survive.** Each costs one fit and one slot in a beam bucket
+- **No-op cuts survive.** Each costs one fit and one slot in a beam bucket
   above its true dimension, where it ties its parent on loss and loses on
   parsimony. Its descendants are structures the parent's descendants also
   reach, and the `fitted` set fits each structure once, so the waste is
   linear in the number of no-op children, not exponential.
-- **Phantoms from no-op flips.** These are the July `fitted_params`
+- **Phantoms from no-op cuts.** These are the July `fitted_params`
   over-count defect. The no-ops this design removes by proof (segment-flat,
-  non-flux) were 38 of the 90 measured phantoms. Whether the rest shrink under
-  per-metabolite units is measured, not promised.
+  pendant) were 38 of the 90 measured phantoms. Whether the rest shrink is
+  measured, not promised.
+- **The cut space is larger than 2^metabolites.** Random-order bi-bi with
+  products has on the order of 25 single cuts of the seed and a few hundred
+  segmentations in all, against 16 under a per-metabolite rule. Denis accepted
+  this on the grounds that it is no larger than what the per-group flip reaches
+  today once no-ops are removed; M2 checks that.
 - **Kernel over-count on splits.** If a parent already carries a phantom, the
   kernel may accept a split that gains nothing. That is the safe direction.
 - **The renaming-duplicate problem** (~66 % of distinct-hash equations are
@@ -234,10 +261,10 @@ properties only.
 
 | # | Question | Population | Pass criterion |
 |---|----------|------------|----------------|
-| M1 | Do the proof-based rejections ever reject a gain? | bi-bi seeds + depth-2 expansion, plus an allosteric bi-bi | every rejected split has the parent's `eq_hash` (exact); every non-flux step flipped by hand has the parent's rank (numerical) |
-| M2 | Savings from per-metabolite flips | 55 bi-bi seeds closed under flips, old move vs new | reported: reachable structures and distinct equations, before and after |
+| M1 | Do the proof-based rejections ever reject a gain? | bi-bi seeds + depth-2 expansion, plus an allosteric bi-bi | every rejected split has the parent's `eq_hash` (exact); every inadmissible cut applied by hand has the parent's rank (numerical) |
+| M2 | Size of the cut space against today's flips | 55 bi-bi seeds closed under the move, old flip vs new cut | reported: reachable structures and distinct equations, before and after; the new count should not exceed the old |
 | M3 | Split candidate count | ter-ter random-order seeds, all levels | reported per level; decides whether tie-guided pruning is built |
-| M4 | Residual no-op flips | flip children at depth 1–2, bi-bi and an allosteric reaction | reported: fraction rank-flat |
+| M4 | Residual no-op cuts | cut children at depth 1–2, bi-bi and an allosteric reaction | reported: fraction rank-flat |
 | M5 | Phantoms | same children | reported: `length(fitted_params)` minus rank |
 | M6 | Reachability | random-order bi-bi | the 13-group, 9-parameter fully independent form is reached by the split closure; a 2 + 2 partition of a four-step group is reached |
 
@@ -261,7 +288,10 @@ loses a model.
 - Exact split-move child counts in `test_mechanism_enumeration.jl`: children are
   now raw bipartition sets, and random-order seeds emit children.
 - Exact RE→SS child counts and the mirror-lock fixture: one child per
-  metabolite unit, plus a non-vacuity guard on the loop.
+  admissible cut, plus a non-vacuity guard on the loop. A cut crosses a
+  catalytic step and its inhibitor mirror together whenever both endpoints'
+  mirrors sit on the same sides, and the fixture is re-derived rather than
+  assumed.
 - The six-named-moves pin compares `expand_mechanisms` against the same
   functions, so it survives as is.
 - `test/fixtures/phase2_init_golden.txt` and `test_compile_budget.jl` are
@@ -276,12 +306,16 @@ loses a model.
   parent, and no emitted set has an emitted proper subset (minimality).
 - Every rejected split at level 1 compiles to the parent's `eq_hash` (the
   proof, tested exactly).
-- Every flip child has more RE segments than its parent; non-flux-carrying
-  steps are RE in every child; a metabolite's flux-carrying steps share one
-  RE/SS kind in every mechanism at expansion depth two, allosteric included.
+- Every cut child has exactly one more RE segment than its parent; both halves
+  of every emitted cut hold a chemistry-cycle form; a cut that isolates a
+  dead-end leaf is never emitted; every new SS step joins two different
+  segments. Checked at expansion depth two, allosteric included.
+- The random-order square emits both {E, EB} | {EA, EAB} and
+  {E} | {EA, EB, EAB}.
+- A cut that crosses part of a group splits the group and leaves the rest RE.
 - A flux-carrying oracle test on hand-built graphs: a dead-end leaf, a pendant
   inhibitor block, a mirror on the main cycle, a ping-pong second half.
-- The uni-uni flips are emitted (documented no-op, not rejected).
+- The uni-uni cuts are emitted (documented no-op, not rejected).
 - A ter-ter random-order seed's split expansion finishes under a time budget.
 
 ## Documentation
@@ -289,15 +323,17 @@ loses a model.
 Three pages change. Apply the elements-of-style skill.
 
 **`docs/src/identify/enumeration_engine.md`.** Rewrite moves 1 and 2 to
-describe the new behavior: per-metabolite flips, flux-carrying steps, the
-segment guarantee; bipartitions, minimal sets, the count test. Add a
+describe the new behavior: the segment cut, chemistry-cycle forms, one more
+segment per child; bipartitions, minimal sets, the count test. Add a
 **Modeling choices** section that states, in one paragraph each, with the
 reason:
 
-- A metabolite binds at rapid equilibrium everywhere or at steady state
-  everywhere.
-- Steps that carry no net flux at steady state (dead-end branches) stay at
-  rapid equilibrium, because the equation cannot tell the difference.
+- Steady-state detail enters one segment cut at a time. A rapid-equilibrium
+  segment is divided into two connected halves and the binding steps across the
+  divide become steady state; one enzyme form may bind a metabolite at
+  equilibrium while another binds it at steady state.
+- Regions that carry no net flux at steady state (dead-end branches) are never
+  cut off, because the equation cannot tell the difference.
 - Competitive-inhibitor binding stays at rapid equilibrium.
 - A split divides one group into two parts; a group is never split three ways
   in one move, and groups never merge.
@@ -312,8 +348,10 @@ meaning. No summation formulas, no Stirling or Bell numbers, no ordered Bell
 numbers; multiplication of small counts only. Sections: binding order; which
 forms share an affinity (the split factor, now partitions); equilibrium versus
 steady-state binding (now `2^metabolites`, not `2^steps`); dead-end complexes;
-competitive inhibitors; allosteric states. Close with why the search is
-filtered. Delete the "Known limitation" admonition. Use the M2 and M3 numbers.
+competitive inhibitors; allosteric states. The equilibrium-versus-steady-state
+section counts the ways to divide the enzyme forms into equilibrated regions,
+with the bi-bi number from M2. Close with why the search is filtered. Delete
+the "Known limitation" admonition. Use the M2 and M3 numbers.
 
 **`docs/src/developer.md`.** In *Enumeration engine architecture*, replace the
 canonicalization story with the invariant, the two proofs, and where the rank
@@ -323,7 +361,7 @@ oracle lives (tests only).
 
 - The pivot-priority defect in `_assemble_constraints`; own PR, moves golden
   fixtures.
-- Fixing `fitted_params` over-count beyond what the new flip move removes.
+- Fixing `fitted_params` over-count beyond what the new cut move removes.
 - Renaming duplicates that `eq_hash` misses.
 - Beam-budget changes (Direction B′'s `fit_inherited` exclusion). With
   provable no-ops gone, duplicates in the frontier should be rare; revisit
@@ -333,17 +371,20 @@ oracle lives (tests only).
 
 ## Risks
 
-- **The segment assertion fires.** The argument assumes chemistry steps are SS
-  or, if RE, flipped as their own unit; a topology with an RE chemistry step on
-  an RE path around a metabolite's binding would break it. The assertion is
-  loud, and M1 exercises ping-pong.
+- **Cut-space size.** A segment of `n` forms has up to `2^(n−1) − 1` cuts
+  before the connectivity and admissibility filters, and ter-ter random order
+  has segments of a dozen forms. Enumeration is a subset walk with two
+  connectivity checks per subset, cheap at this size, but the number of emitted
+  children per parent is unmeasured until M2. The per-metabolite rule is the
+  documented fallback.
 - **Ter-ter split cost.** Unknown until M3. The tie-guided pruning is the
   fallback and is designed, not built.
 - **Allosteric flux-carrying.** The I-state projection drops `:OnlyA` groups,
-  so a step flux-carrying in the shared graph may be a leaf in the I state.
-  Flipping it then adds a phantom in the I-state polynomial. M4 and M5 run on
-  an allosteric reaction to size this; if it matters, the unit is restricted to
-  steps flux-carrying in both projections.
+  so a form on a chemistry cycle in the shared graph may sit in a pendant
+  region of the I state. A cut admissible in the A state can then detach a
+  pendant I-state region and add a phantom in the I-state polynomial. M4 and M5
+  run on an allosteric reaction to size this; if it matters, admissibility is
+  required in both projections.
 - **Waste from surviving no-ops.** Bounded and measured (M4), not eliminated.
   If it is large on a real LDH or PFKP run, the numerical oracle can be
   reconsidered with exact rational arithmetic, which Denis declined for now.
