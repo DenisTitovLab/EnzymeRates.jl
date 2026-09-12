@@ -90,4 +90,22 @@ end
     flipped = EnzymeRates.Mechanism(EnzymeRates.reaction(m),
                                     EnzymeRates._flip_group_to_ss(groups, g))
     @test EnzymeRates._re_segment_count(flipped) == 2
+
+    # Allosteric: measured on the A-state projection.
+    am = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)   :: EqualAI
+            E(S) <--> E(P) :: EqualAI
+            E + P ⇌ E(P)   :: EqualAI
+        end
+    end)
+    @test EnzymeRates._re_segment_count(am) == 1
+    am_groups = EnzymeRates.steps(am)
+    am_g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), am_groups)
+    am_flipped = EnzymeRates._with_steps(am,
+                                        EnzymeRates._flip_group_to_ss(am_groups, am_g))
+    @test EnzymeRates._re_segment_count(am_flipped) == 2
 end
