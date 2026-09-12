@@ -1499,10 +1499,7 @@ regulator, whose I-name mirrors its shared A-name (`K_I_reg = K_A_reg`, added
 to `dep`). `L` (the conformational constant) is always independent. Any
 symbol the combined solve already made dependent is dropped from `indep`.
 """
-function _dependent_param_exprs(
-    ::Type{AllostericEnzymeMechanism{CM,CS,RS}},
-) where {CM,CS,RS}
-    am = AllostericMechanism(AllostericEnzymeMechanism{CM,CS,RS}())
+function _dependent_param_exprs(am::AllostericMechanism)
     dep, indep = _combined_state_dependent_exprs(am)
 
     # A per-state Wegscheider rename folds a single-symbol binding-K tie onto one
@@ -1542,6 +1539,9 @@ function _dependent_param_exprs(
     return dep, Tuple(p for p in (indep..., reg_params_a..., reg_params_i..., :L)
                       if p ∉ keys(dep))
 end
+
+_dependent_param_exprs(::Type{AllostericEnzymeMechanism{CM,CS,RS}}) where {CM,CS,RS} =
+    _dependent_param_exprs(AllostericMechanism(AllostericEnzymeMechanism{CM,CS,RS}()))
 
 # `parameters` and `fitted_params` for `AllostericEnzymeMechanism`
 # dispatch on explicit per-type methods at the top of this file.

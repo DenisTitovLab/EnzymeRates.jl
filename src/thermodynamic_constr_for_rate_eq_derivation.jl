@@ -288,9 +288,9 @@ The wrapper calls `_build_wegscheider_rename_map(M)` to obtain the
 rename map for absorbed single-symbol Wegscheider RE ties and forwards
 to `_dependent_param_exprs_kernel`.
 """
-function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
-    rename = _build_wegscheider_rename_map(M)
-    dep_exprs, indep = _dependent_param_exprs_kernel(M, rename)
+function _dependent_param_exprs(mech::Mechanism)
+    rename = _build_wegscheider_rename_map(mech)
+    dep_exprs, indep = _dependent_param_exprs_kernel(mech, rename)
     # Filter Pass-2-absorbed symbols out of indep. Pass 2 of
     # `_build_wegscheider_rename_map` adds entries like `K_P_E => K_S_E`
     # when a Wegscheider tie collapses two binding-K group reps to the
@@ -311,6 +311,13 @@ function _dependent_param_exprs(M::Type{<:EnzymeMechanism})
     indep = Tuple(sort(collect(indep); by = string))
     return dep_exprs, indep
 end
+
+_dependent_param_exprs(M::Type{<:EnzymeMechanism}) = _dependent_param_exprs(Mechanism(M()))
+
+"""Number of independent (fitted) rate constants of a concrete mechanism, computed
+from the thermodynamic constraint solve without compiling the mechanism."""
+_independent_param_count(m::Union{Mechanism, AllostericMechanism}) =
+    length(_dependent_param_exprs(m)[2])
 
 """
 Assemble the rational thermodynamic-constraint system for `mech`. Returns
