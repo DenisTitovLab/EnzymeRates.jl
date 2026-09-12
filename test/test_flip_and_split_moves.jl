@@ -380,7 +380,9 @@ function _identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     fp = collect(EnzymeRates.fitted_params(em))
     cm = m isa EnzymeRates.Mechanism ? m : EnzymeRates._state_mechanism(m, :A)
     mets = sort!(collect(EnzymeRates._concentration_symbols(cm)))
-    rng = MersenneTwister(hash(m) % 2^31)
+    # Seeded from the rendered equation: a struct hash mixes in objectid and
+    # would not reproduce a failure in a later session.
+    rng = MersenneTwister(hash(rate_equation_string(em)) % 2^31)
     best = 0
     for _ in 1:ndraws
         θ = exp.(randn(rng, length(fp)))

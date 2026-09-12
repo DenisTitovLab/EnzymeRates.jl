@@ -1564,9 +1564,9 @@ const _DEDUP_SIG2 =
 end
 
 
-# Confirmed LDH renaming-dup pair (same graph, tied kinetic-group split): merged
-# form (8 groups) vs split form (9 groups). Currently different eq_hash; the
-# pre-fit canonical-partition merge must collapse them.
+# LDH renaming-dup pair (same graph, tied kinetic-group split): merged form
+# (8 groups) vs split form (9 groups). Different eq_hash, one model: the split
+# form's extra binding K is tied straight back by a Wegscheider cycle.
 const _CANON_SIG_MERGED =
     "EnzymeMechanism{(((((:Product, :Lactate), ((:C, 3), (:H, 6), (:O, " *
     "3))), ((:Product, :NAD), ((:C, 21), (:H, 27), (:N, 7), (:O, 14), (" *
@@ -1634,8 +1634,8 @@ const _CANON_SIG_SPLIT =
     m2 = recon(_CANON_SIG_SPLIT)    # split, 9 groups — same graph, Wegscheider-tied
     em1 = EnzymeRates.compile_mechanism(m1)
     em2 = EnzymeRates.compile_mechanism(m2)
-    # Precondition: same rate function, but the RAW dedup key currently DIFFERS —
-    # the renaming-dup that canonicalization must collapse.
+    # Precondition: the two forms are distinct mechanisms and render different
+    # dedup keys, so `eq_hash` alone never collapses this pair.
     @test m1 != m2
     @test EnzymeRates._rate_eq_dedup_key(rate_equation_string(em1)) !=
           EnzymeRates._rate_eq_dedup_key(rate_equation_string(em2))
@@ -1726,17 +1726,21 @@ const _ALLO_SIG_MERGED =
     @test am1 != am2
     @test key(am1) != key(am2)                  # the two render different equations
     # The split form is not a reparameterization of the merged one: it carries
-    # K_Lactate_ENADH on top of the merged form's parameters. Independent count,
-    # fitted count and the finite-difference rank of ∂v/∂θ all read 9 against 8.
+    # K_Lactate_ENADH on top of the merged form's parameters, in the independent
+    # count and in the fitted set alike. A finite-difference rank of ∂v/∂θ,
+    # measured outside this file, agrees (9 against 8).
     @test EnzymeRates._independent_param_count(am1) ==
           EnzymeRates._independent_param_count(am2) + 1
+    @test length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am1))) ==
+          length(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am2))) + 1
 end
 
 
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
-    # A mechanism whose derivation throws: the failure surfaces at
-    # compile_mechanism/fitted_params, and the FitFailure must carry the
-    # ORIGINAL `m0`.
+    # A mechanism whose derivation throws — its chemistry step consumes an atom
+    # of the never-binding substrate T, so the thermodynamic-cycle check inside
+    # compile_mechanism raises "Cycle 1 produces metabolite change not
+    # proportional to net reaction". The FitFailure must carry the ORIGINAL `m0`.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
@@ -1759,7 +1763,7 @@ end
         n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
     @test isempty(e1)
     @test length(f1) == 1 && f1[1] isa EnzymeRates.FitFailure
-    @test f1[1].mech == m_bad                     # ORIGINAL, not a canonical form
+    @test f1[1].mech == m_bad                     # the mechanism as handed in
 
     # A mechanism that derives but whose fit throws: the FitFailure must carry
     # the mechanism as it was handed in.
@@ -1775,13 +1779,15 @@ end
         n_restarts=1, maxtime=1.0, memo=Dict{UInt64, NamedTuple}())
     @test isempty(e2)
     @test length(f2) == 1 && f2[1] isa EnzymeRates.FitFailure
-    @test f2[1].mech == split                     # original split, not merged canonical
+    @test f2[1].mech == split                     # the mechanism as handed in
 end
 
 @testset "_expand_parent records an expansion error instead of aborting" begin
-    # A mechanism whose canonicalization throws makes expand_mechanisms raise;
-    # _expand_parent must catch it and return the parent as a FitFailure (so the
-    # beam records it in CSV and continues), not propagate and abort the search.
+    # expand_mechanisms asserts its input conserves atoms; this mechanism's
+    # chemistry step does not (T is a declared substrate that never binds, so the
+    # step loses an N), and the assertion raises. _expand_parent must catch that
+    # and return the parent as a FitFailure (so the beam records it in CSV and
+    # continues), not propagate and abort the search.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]

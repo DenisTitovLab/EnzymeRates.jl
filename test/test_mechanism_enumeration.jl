@@ -4685,11 +4685,11 @@ end
         @test length(v) == 1
     end
 
-    @testset "Mechanism — inter-move overlap: dedup actually fires" begin
+    @testset "Mechanism — expansion-path overlap: dedup actually fires" begin
         # Run two rounds of expand_mechanisms on the uni-uni init seeds
         # (Mechanism path), then unique!. Assert that the flat vector shrinks,
-        # proving that two different expansion paths produced equivalent
-        # Mechanisms.
+        # proving that two different expansion paths — two moves, or one move
+        # reached through two parents — produced equivalent Mechanisms.
         init_mechs = collect(EnzymeRates.init_mechanisms(uni_uni_rxn))
         pool = unique!(EnzymeRates.expand_mechanisms(init_mechs, uni_uni_rxn))
         expanded = EnzymeRates.expand_mechanisms(pool, uni_uni_rxn)
