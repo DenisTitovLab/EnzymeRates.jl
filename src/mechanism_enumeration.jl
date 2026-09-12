@@ -1372,6 +1372,38 @@ _re_segment_count(m::Mechanism) = length(_compute_re_groups(m)[2])
 _re_segment_count(am::AllostericMechanism) = _re_segment_count(_state_mechanism(am, :A))
 
 """
+    _minimal_gaining_sets(n, gains, partners) -> Vector{Vector{Int}}
+
+Every minimal subset of units `1:n` for which `gains(set)` holds, found
+Apriori-style: level 1 tests each unit; a level-`j` set is tested only if every
+`(j−1)`-subset was tested and failed at the previous level, so no superset of a
+gaining set is ever tested. `partners(set)` lists the units allowed to extend
+`set` (units already in `set` are skipped). The loop ends when a level fails
+nothing. Each returned set is sorted; sets are ordered by level, then
+lexicographically.
+"""
+function _minimal_gaining_sets(n::Int, gains, partners)
+    out = Vector{Int}[]
+    failed = Vector{Int}[Int[]]
+    while !isempty(failed)
+        failed_keys = Set(failed)
+        candidates = Set{Vector{Int}}()
+        for set in failed, u in partners(set)
+            u in set && continue
+            c = sort!(vcat(set, u))
+            c in candidates && continue
+            all(setdiff(c, [x]) in failed_keys for x in c) || continue
+            push!(candidates, c)
+        end
+        failed = Vector{Int}[]
+        for c in sort!(collect(candidates))
+            gains(c) ? push!(out, c) : push!(failed, c)
+        end
+    end
+    out
+end
+
+"""
     _expand_split_kinetic_group(m::Mechanism) → Vector{Mechanism}
     _expand_split_kinetic_group(am::AllostericMechanism) → Vector{AllostericMechanism}
 

@@ -109,3 +109,17 @@ end
                                         EnzymeRates._flip_group_to_ss(am_groups, am_g))
     @test EnzymeRates._re_segment_count(am_flipped) == 2
 end
+
+@testset "_minimal_gaining_sets" begin
+    # Units 1..4. Sets gain iff they contain {1,2} or contain 3.
+    gains(set) = (1 in set && 2 in set) || 3 in set
+    sets = EnzymeRates._minimal_gaining_sets(4, gains, _ -> 1:4)
+    @test sets == [[3], [1, 2]]
+    # Partner pruning: unit 2 may never join unit 1, so {1,2} is unreachable.
+    partners(set) = (1 in set || 2 in set) ? [3, 4] : 1:4
+    @test EnzymeRates._minimal_gaining_sets(4, gains, partners) == [[3]]
+    # Nothing gains: empty result, and the search terminates.
+    @test isempty(EnzymeRates._minimal_gaining_sets(3, _ -> false, _ -> 1:3))
+    # No units at all.
+    @test isempty(EnzymeRates._minimal_gaining_sets(0, _ -> true, _ -> 1:0))
+end
