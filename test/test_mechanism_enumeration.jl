@@ -1868,11 +1868,15 @@ end
     end
 
     @testset "_expand_re_to_ss flips inhibitor-bound mirrors together" begin
-        # A catalytic binding and its inhibitor-bound mirror (same inhibitor-free
-        # _step_core) sit in separate all-RE kinetic groups: A binding to E, and
-        # A binding to the inhibitor-bound form E(I). They must flip to SS
-        # together, never one without the other. Built via the macro; a separate
-        # catalytic inhibitor I keeps the substrate/inhibitor roles unambiguous.
+        # A catalytic binding and its inhibitor-bound mirror (the same binding
+        # with every inhibitor stripped) sit in separate all-RE kinetic groups
+        # on a closed inhibitor square: A binding to E, and A binding to the
+        # inhibitor-bound form E(I), with I binding both E and E(A). Neither
+        # cuts a rapid-equilibrium segment alone, because the other supplies an
+        # RE route around the square, so the minimal-set search emits them only
+        # together: they flip to SS as a pair, never one without the other.
+        # Built via the macro; a separate catalytic inhibitor I keeps the
+        # substrate/inhibitor roles unambiguous.
         m = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
             substrates: A, B
             products: P
@@ -1885,19 +1889,43 @@ end
                 E(A, B) <--> E(P)      :: EqualAI
                 E + P ⇌ E(P)          :: EqualAI
                 E + I ⇌ E(I)          :: EqualAI
+                E(A) + I ⇌ E(A, I)    :: EqualAI
                 E(I) + A ⇌ E(A, I)    :: EqualAI
             end
         end)
-        # Non-vacuity: the A-binding group and its inhibitor-bound mirror form a
-        # genuine multi-group flip unit.
-        @test any(u -> length(u) > 1, EnzymeRates._re_to_ss_flip_units(m))
+        # Non-vacuity: the A-binding group and its inhibitor-bound mirror are
+        # separate all-RE groups, each bridged by the other, so they can only
+        # flip as a pair — and some child does flip the pair.
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test !isempty(kids)
+        core(s) = begin
+            strip(sp) = EnzymeRates.Species(
+                EnzymeRates.Metabolite[b for b in EnzymeRates.bound(sp)
+                                       if !(b isa EnzymeRates.Regulator)],
+                EnzymeRates.conformation(sp), EnzymeRates.residual(sp))
+            (strip(EnzymeRates.from_species(s)), strip(EnzymeRates.to_species(s)),
+             EnzymeRates.bound_metabolite(s))
+        end
+        # The base E + A ⇌ E(A) and its mirror E(I) + A ⇌ E(A, I) share a core.
+        base = only(s for grp in EnzymeRates.steps(m) for s in grp
+                    if EnzymeRates.name(EnzymeRates.from_species(s)) == :E &&
+                       EnzymeRates.name(EnzymeRates.to_species(s)) == :EA)
+        pair_ss = [EnzymeRates.Step(EnzymeRates.from_species(s),
+                                    EnzymeRates.to_species(s),
+                                    EnzymeRates.bound_metabolite(s), false)
+                   for grp in EnzymeRates.steps(m) for s in grp
+                   if core(s) == core(base)]
+        @test length(pair_ss) == 2
+        ss_steps(c) = Set(s for grp in EnzymeRates.steps(c) for s in grp
+                          if !EnzymeRates.is_equilibrium(s))
+        @test any(c -> all(in(ss_steps(c)), pair_ss), kids)
         # Mirror-lock: no re_to_ss variant leaves a mirror RE while its base is SS.
-        for r in EnzymeRates._expand_re_to_ss(m)
+        for r in kids
             status = Dict{Any, Bool}()
             for grp in EnzymeRates.steps(r)
                 allss = !any(EnzymeRates.is_equilibrium, grp)
                 for s in grp
-                    c = EnzymeRates._step_core(s)
+                    c = core(s)
                     haskey(status, c) ? (@test status[c] == allss) :
                                         (status[c] = allss)
                 end

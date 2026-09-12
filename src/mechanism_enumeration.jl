@@ -1209,68 +1209,38 @@ end
 # ─── Expansion Moves ─────────────────────────────────────────
 
 """
-Inhibitor-free core of a step: the same catalytic binding with every
-`Regulator` stripped from both its species. Two steps with equal cores are
-the same binding in different inhibitor contexts (mirrors) — e.g.
-`E→E·Pyruvate` and `E·Pyruvateinh→E·Pyruvate·Pyruvateinh`.
-"""
-function _step_core(s::Step)
-    strip(sp) = Species(
-        Metabolite[b for b in bound(sp) if !(b isa Regulator)],
-        conformation(sp), residual(sp))
-    (strip(from_species(s)), strip(to_species(s)), bound_metabolite(s))
-end
-
-"""
-Partition the RE→SS-eligible kinetic groups into mirror classes: connected
-components of the graph where two groups are linked if they share a step core.
-Eligible = all-RE and not an inhibitor binding (invariant 1). A catalytic
-binding and its inhibitor-bound mirror, once a split has separated them into
-different groups, land in one class and flip together (invariant 2). Same-group
-mirrors and non-mirror groups each form their own singleton class, so behavior
-is unchanged except where a split has separated a mirror. Classes are returned
-sorted by lowest group index for deterministic move order.
-"""
-function _re_to_ss_flip_units(m::Union{Mechanism, AllostericMechanism})
-    elig = [g for g in kinetic_groups(m)
-            if all(is_equilibrium, steps(m)[g]) &&
-               !any(s -> bound_metabolite(s) isa Regulator, steps(m)[g])]
-    core_groups = Dict{Any, Vector{Int}}()
-    for g in elig, s in steps(m)[g]
-        push!(get!(core_groups, _step_core(s), Int[]), g)
-    end
-    parent = Dict(g => g for g in elig)
-    root(x) = parent[x] == x ? x : root(parent[x])
-    for gs in values(core_groups), i in 2:length(gs)
-        parent[root(gs[i])] = root(gs[1])
-    end
-    comps = Dict{Int, Vector{Int}}()
-    for g in elig
-        push!(get!(comps, root(g), Int[]), g)
-    end
-    sort([sort(unique(c)) for c in values(comps)]; by = first)
-end
-
-"""
     _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
 
-Mechanism-native overload of the RE→SS expansion move. For each mirror class of
-all-RE catalytic kinetic groups (`_re_to_ss_flip_units`), produce a variant with
-every group in that class flipped to SS at once. Competitive-inhibitor bindings
-are never flipped (RE-only), and a catalytic step flips together with its
-inhibitor-bound mirror. All other groups, the reaction, and (for allosteric) the
-catalytic-allo tags, multiplicity, and regulatory sites are preserved verbatim.
+RE→SS expansion move. A flip unit is a whole kinetic group that is all-RE, binds
+no regulator (competitive-inhibitor binding stays at rapid equilibrium by
+modeling choice), and holds a flux-carrying step (`_flux_carrying_groups`; a
+group with none exposes only equilibrium ratios and would gain a phantom
+parameter). One child is produced per minimal set of units whose joint flip
+raises the RE segment count (`_minimal_gaining_sets`): a single group when it
+cuts a segment on its own, several groups when each alone is bridged by an RE
+route through the others — as happens once a split has separated a
+metabolite's binding steps, or a catalytic step from its inhibitor-bound
+mirror. A flip that leaves the segment count unchanged adds an SS step whose
+endpoints share a segment, which the rate equation never sees. All other
+groups, the reaction, and (for allosteric) the catalytic-allo tags,
+multiplicity, and regulatory sites are preserved verbatim.
 """
 function _expand_re_to_ss(m::Union{Mechanism, AllostericMechanism})
-    results = typeof(m)[]
-    for unit in _re_to_ss_flip_units(m)
-        new_groups = steps(m)
-        for g in unit
-            new_groups = _flip_group_to_ss(new_groups, g)
+    flux = _flux_carrying_groups(m)
+    units = [g for g in kinetic_groups(m)
+             if all(is_equilibrium, steps(m)[g]) && flux[g] &&
+                !any(s -> bound_metabolite(s) isa Regulator, steps(m)[g])]
+    child(sel) = begin
+        groups = steps(m)
+        for u in sel
+            groups = _flip_group_to_ss(groups, units[u])
         end
-        push!(results, _with_steps(m, new_groups))
+        _with_steps(m, groups)
     end
-    results
+    base = _re_segment_count(m)
+    sets = _minimal_gaining_sets(length(units), sel -> _re_segment_count(child(sel)) > base,
+                                 _ -> 1:length(units))
+    typeof(m)[child(sel) for sel in sets]
 end
 
 """
