@@ -1,6 +1,10 @@
 # ABOUTME: Tests for mechanism enumeration pipeline
 # ABOUTME: Unit tests per move + integration tests per reaction
 
+# Fixture rules for this file are in CLAUDE.md, "Enumeration-engine tests":
+# every mechanism inline via the macro, every move test asserts the exact
+# child set.
+
 # Test-local adapters presenting a `Step`'s form-name view: a binding
 # step reads as reactants `[from_form, metabolite]` → products `[to_form]`;
 # an iso step as `[source_form]` → `[dest_form]`, oriented substrate-rich
