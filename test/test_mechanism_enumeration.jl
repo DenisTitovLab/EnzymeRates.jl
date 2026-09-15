@@ -5413,6 +5413,13 @@ end
                          EnzymeRates.bound(EnzymeRates.from_species(s))))
     @test bps[1][2] == [p_step]
     @test bps[2][2] == [b_step]
+    src_forms(part) = Set(EnzymeRates.name(EnzymeRates.from_species(s)) for s in part)
+    # By P: the P-free forms E, E(B) against the P-bound form E(P).
+    @test src_forms(bps[1][1]) == Set([:E, :EB])
+    @test src_forms(bps[1][2]) == Set([:EP])
+    # By B: the B-free forms E, E(P) against the B-bound form E(B).
+    @test src_forms(bps[2][1]) == Set([:E, :EP])
+    @test src_forms(bps[2][2]) == Set([:EB])
     # _context_form: canonical RE binding puts the metabolite on to_species,
     # so the context form is from_species.
     @test EnzymeRates._context_form(first(a_group)) ==
@@ -5434,6 +5441,37 @@ end
     @test length(EnzymeRates._context_bipartitions(b_group)) == 1
     iso_group = only(grp for grp in EnzymeRates.steps(m) if EnzymeRates.is_iso(first(grp)))
     @test isempty(EnzymeRates._context_bipartitions(iso_group))
+
+    # Ter-ter substrate cube: each of the two other substrates divides the A
+    # group's four steps two and two.
+    cube = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B, C
+        products: P, Q, R
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
+             E(B, C) + A ⇌ E(A, B, C))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
+             E(A, C) + B ⇌ E(A, B, C))
+            (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+             E(A, B) + C ⇌ E(A, B, C))
+            E(A, B, C) <--> E(P, Q, R)
+            E(Q, R) + P ⇌ E(P, Q, R)
+            E(R) + Q ⇌ E(Q, R)
+            E + R ⇌ E(R)
+        end
+    end)
+    cube_a = only(grp for grp in EnzymeRates.steps(cube)
+                  if length(grp) == 4 &&
+                     EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A)
+    cube_bps = EnzymeRates._context_bipartitions(cube_a)
+    @test length(cube_bps) == 2
+    # Both contexts are substrates, so they are ordered by name: B then C.
+    # By B: the B-free forms E, E(C) against the B-bound forms E(B), E(B,C).
+    @test src_forms(cube_bps[1][1]) == Set([:E, :EC])
+    @test src_forms(cube_bps[1][2]) == Set([:EB, :EBC])
+    # By C: the C-free forms E, E(B) against the C-bound forms E(C), E(B,C).
+    @test src_forms(cube_bps[2][1]) == Set([:E, :EB])
+    @test src_forms(cube_bps[2][2]) == Set([:EC, :EBC])
 end
 
 @testset "_context_bipartitions separates an inhibitor-bound mirror" begin
@@ -6026,22 +6064,205 @@ end
         @test length(cl) == 16
     end
 
-    @testset "_expand_split_kinetic_group: every child gains, none contains another" begin
-        for m in EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
-            base = EnzymeRates._independent_param_count(m)
-            kids = EnzymeRates._expand_split_kinetic_group(m)
-            for c in kids
-                @test EnzymeRates._independent_param_count(c) > base
-                @test EnzymeRates.n_steps(c) == EnzymeRates.n_steps(m)
+    @testset "_expand_split_kinetic_group: bi-bi without dead ends splits a square" begin
+        # A single context split (A by B alone) is tied straight back by the A/B
+        # square, so no child splits one group by itself. Each child frees one
+        # interaction factor by separating both groups of one square.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
-            # Minimality: the set of groups a child splits is never a strict superset
-            # of another child's.
-            split_groups(c) = Set(g for (g, grp) in enumerate(EnzymeRates.steps(m))
-                                  if !any(cg -> Set(cg) == Set(grp), EnzymeRates.steps(c)))
-            sets = split_groups.(kids)
-            for (i, s) in enumerate(sets), (j, t) in enumerate(sets)
-                i != j && @test !(s ⊊ t)
+        end)
+        splitAB = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(B) + A ⇌ E(A, B)
+                E + B ⇌ E(B)
+                E(A) + B ⇌ E(A, B)
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
+        end)
+        splitPQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                E + P ⇌ E(P)
+                E(Q) + P ⇌ E(P, Q)
+                E + Q ⇌ E(Q)
+                E(P) + Q ⇌ E(P, Q)
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        @test EnzymeRates._independent_param_count(m) == 5
+        kids = EnzymeRates._expand_split_kinetic_group(m)
+        @test length(kids) == 2
+        @test Set(kids) == Set([splitAB, splitPQ])
+        for c in kids
+            @test EnzymeRates._independent_param_count(c) == 6
+        end
+    end
+
+    @testset "_expand_split_kinetic_group: bi-bi with dead ends splits each square" begin
+        # Four four-cycles run through this graph — the A/B and P/Q catalytic
+        # squares and the A/P and B/Q dead-end squares — and each gives one
+        # child that frees the interaction factor of its doubly-bound form.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        splitAP = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                E(P) + A ⇌ E(A, P)
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                E(A) + P ⇌ E(A, P)
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        splitAB = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))
+                E(B) + A ⇌ E(A, B)
+                (E + B ⇌ E(B), E(Q) + B ⇌ E(B, Q))
+                E(A) + B ⇌ E(A, B)
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        splitBQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                E(Q) + B ⇌ E(B, Q)
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(B) + Q ⇌ E(B, Q)
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        splitPQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                (E + P ⇌ E(P), E(A) + P ⇌ E(A, P))
+                E(Q) + P ⇌ E(P, Q)
+                (E + Q ⇌ E(Q), E(B) + Q ⇌ E(B, Q))
+                E(P) + Q ⇌ E(P, Q)
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        kids = EnzymeRates._expand_split_kinetic_group(m)
+        @test length(kids) == 4
+        @test Set(kids) == Set([splitAP, splitAB, splitBQ, splitPQ])
+        for c in kids
+            @test EnzymeRates._independent_param_count(c) == 6
+        end
+    end
+
+    @testset "_expand_split_kinetic_group: ter-ter cube splits a substrate pair" begin
+        # Each child says "the affinity for one substrate depends on whether the
+        # other is bound", a 2 + 2 division of two four-step groups that no carve
+        # of a single step could produce. One child per substrate pair.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
+                 E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
+                 E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+                 E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        splitAB = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(C) + A ⇌ E(A, C))
+                (E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(C) + B ⇌ E(B, C))
+                (E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+                 E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        splitAC = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E(C) + A ⇌ E(A, C), E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
+                 E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(B) + C ⇌ E(B, C))
+                (E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        splitBC = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
+                 E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E(C) + B ⇌ E(B, C), E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C))
+                (E(B) + C ⇌ E(B, C), E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        @test EnzymeRates._independent_param_count(m) == 7
+        kids = EnzymeRates._expand_split_kinetic_group(m)
+        @test length(kids) == 3
+        @test Set(kids) == Set([splitAB, splitAC, splitBC])
+        for c in kids
+            @test EnzymeRates._independent_param_count(c) == 8
         end
     end
 
