@@ -5179,7 +5179,7 @@ end # top-level testset
 # Helpers and building blocks of the RE→SS flip move and the kinetic-group
 # split move. Every fixture is written out with the mechanism macro so the
 # mechanism under test is visible in the testset.
-_testhelper_bibi_rxn = @enzyme_reaction begin
+const _testhelper_bibi_rxn = @enzyme_reaction begin
     substrates: A[C], B[N]
     products: P[C], Q[N]
 end
@@ -5281,7 +5281,7 @@ end
     @test all(pfc[g] for g in eachindex(pfc) if !(g in inhibitor_groups))
 end
 
-_allo_uni_uni = EnzymeRates.AllostericMechanism(
+const _allo_uni_uni = EnzymeRates.AllostericMechanism(
     EnzymeRates.@allosteric_mechanism begin
         substrates: S
         products: P
@@ -5534,7 +5534,7 @@ function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     best
 end
 
-_random_bibi = EnzymeRates.Mechanism(@enzyme_mechanism begin
+const _random_bibi = EnzymeRates.Mechanism(@enzyme_mechanism begin
     substrates: A, B
     products: P, Q
     steps: begin
@@ -5659,7 +5659,7 @@ end
 end
 
 @testset "_expand_split_kinetic_group (context bipartitions)" begin
-    @testset "_expand_split_kinetic_group: random-order bi-bi frees independent constants" begin
+    @testset "_expand_split_kinetic_group: random-order bi-bi frees indep params" begin
         # Today's canonicalization drops every split of this seed. The split closure
         # must reach the form with every step in its own group and 9 independent
         # parameters (measured: 16 structures).
@@ -5670,7 +5670,7 @@ end
         @test length(cl) == 16
     end
 
-    @testset "_expand_split_kinetic_group: every child gains and no set contains another" begin
+    @testset "_expand_split_kinetic_group: every child gains, none contains another" begin
         for m in EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
             base = EnzymeRates._independent_param_count(m)
             kids = EnzymeRates._expand_split_kinetic_group(m)
@@ -5770,7 +5770,7 @@ end
         end
     end
 
-    @testset "_expand_split_kinetic_group: ter-ter random-order seed finishes in budget" begin
+    @testset "_expand_split_kinetic_group: ter-ter random-order seed within budget" begin
         terter = @enzyme_reaction begin
             substrates: A[C], B[N], C[O]
             products: P[C], Q[N], R[O]
