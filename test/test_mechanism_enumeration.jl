@@ -5196,7 +5196,15 @@ end
 
 @testset "_flux_carrying_groups" begin
     # Ordered uni-uni: every step is on the catalytic cycle.
-    m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
     @test all(EnzymeRates._flux_carrying_groups(m))
 
     # A dead-end leaf hanging off the cycle is a bridge: not flux-carrying.
@@ -5281,8 +5289,25 @@ end
     @test all(pfc[g] for g in eachindex(pfc) if !(g in inhibitor_groups))
 end
 
-const _allo_uni_uni = EnzymeRates.AllostericMechanism(
-    EnzymeRates.@allosteric_mechanism begin
+@testset "_re_segment_count" begin
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end)
+    @test EnzymeRates._re_segment_count(m) == 1
+    groups = EnzymeRates.steps(m)
+    g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), groups)
+    flipped = EnzymeRates.Mechanism(EnzymeRates.reaction(m),
+                                    EnzymeRates._flip_group_to_ss(groups, g))
+    @test EnzymeRates._re_segment_count(flipped) == 2
+
+    # Allosteric: measured on the A-state projection.
+    am = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
         substrates: S
         products: P
         catalytic_multiplicity: 2
@@ -5292,18 +5317,6 @@ const _allo_uni_uni = EnzymeRates.AllostericMechanism(
             E + P ⇌ E(P)   :: EqualAI
         end
     end)
-
-@testset "_re_segment_count" begin
-    m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-    @test EnzymeRates._re_segment_count(m) == 1
-    groups = EnzymeRates.steps(m)
-    g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), groups)
-    flipped = EnzymeRates.Mechanism(EnzymeRates.reaction(m),
-                                    EnzymeRates._flip_group_to_ss(groups, g))
-    @test EnzymeRates._re_segment_count(flipped) == 2
-
-    # Allosteric: measured on the A-state projection.
-    am = _allo_uni_uni
     @test EnzymeRates._re_segment_count(am) == 1
     am_groups = EnzymeRates.steps(am)
     am_g = findfirst(grp -> all(EnzymeRates.is_equilibrium, grp), am_groups)
@@ -5349,10 +5362,21 @@ end
                   EnzymeRates._re_segment_count(_testhelper_flip_groups(m, [g, h]))
         end
     end
+    # Aggregate pin over the seed set; the inline fixtures below cover the shapes.
     for m in EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
         check(m)
     end
-    check(_allo_uni_uni)
+    am = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)   :: EqualAI
+            E(S) <--> E(P) :: EqualAI
+            E + P ⇌ E(P)   :: EqualAI
+        end
+    end)
+    check(am)
 end
 
 @testset "_context_bipartitions" begin
@@ -5534,18 +5558,6 @@ function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     best
 end
 
-const _random_bibi = EnzymeRates.Mechanism(@enzyme_mechanism begin
-    substrates: A, B
-    products: P, Q
-    steps: begin
-        (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
-        (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-        (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
-        (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
-        E(A, B) <--> E(P, Q)
-    end
-end)
-
 "Closure of `seed` under `gen`, by structural identity."
 function _testhelper_closure(seed, gen; maxn = 5_000)
     seen = Dict{UInt64, Any}(hash(seed) => seed); queue = Any[seed]
@@ -5639,7 +5651,15 @@ end
     end
 
     @testset "_expand_re_to_ss: uni-uni flips are emitted (documented no-op)" begin
-        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
+            end
+        end)
         @test length(EnzymeRates._expand_re_to_ss(m)) == 2
     end
 
@@ -5663,8 +5683,19 @@ end
         # Today's canonicalization drops every split of this seed. The split closure
         # must reach the form with every step in its own group and 9 independent
         # parameters (measured: 16 structures).
-        @test EnzymeRates._independent_param_count(_random_bibi) == 5
-        cl = _testhelper_closure(_random_bibi, EnzymeRates._expand_split_kinetic_group)
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        @test EnzymeRates._independent_param_count(m) == 5
+        cl = _testhelper_closure(m, EnzymeRates._expand_split_kinetic_group)
         @test maximum(length(EnzymeRates.steps(m)) for m in cl) == 13
         @test maximum(EnzymeRates._independent_param_count(m) for m in cl) == 9
         @test length(cl) == 16
@@ -5697,7 +5728,17 @@ end
     @testset "_expand_split_kinetic_group: a rejected split is the parent's model" begin
         # Level-1 candidates the count test rejects have the parent's identifiable
         # rank; the rendered equation may differ only in which tied name survives.
-        m = _random_bibi
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
         counter = EnzymeRates._partition_independent_count(m)
         flat = EnzymeRates._flat_steps(m)
         pos = Dict(s => j for (j, (s, _)) in enumerate(flat))
