@@ -5574,25 +5574,119 @@ function _testhelper_closure(seed, gen; maxn = 5_000)
 end
 
 @testset "_expand_re_to_ss (group-set flips)" begin
-    @testset "_expand_re_to_ss: every child raises the RE segment count" begin
-        for rxn in (uni_uni_rxn, _testhelper_bibi_rxn),
-            m in EnzymeRates.init_mechanisms(rxn)
-            kids = EnzymeRates._expand_re_to_ss(m)
-            @test !isempty(kids)
-            for c in kids
-                @test EnzymeRates._re_segment_count(c) > EnzymeRates._re_segment_count(m)
-            end
-        end
-    end
-
     @testset "_expand_re_to_ss: seed child count is unchanged (220 over bi-bi seeds)" begin
         seeds = EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)
         @test length(seeds) == 55
         @test sum(length(EnzymeRates._expand_re_to_ss(m)) for m in seeds) == 220
     end
 
-    @testset "_expand_re_to_ss: a group with no flux-carrying step never flips" begin
-        leaf = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    @testset "_expand_re_to_ss: uni-uni emits both single-group flips exactly" begin
+        # Uni-uni steady-state and rapid-equilibrium laws have the same form, so
+        # these two children are documented no-ops; the move still emits them
+        # because their rejection has no structural proof.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> E(P)
+                E + P ⇌ E(P)
+            end
+        end)
+        expected = [
+            EnzymeRates.Mechanism(@enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S <--> E(S)
+                    E(S) <--> E(P)
+                    E + P ⇌ E(P)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E + P <--> E(P)
+                end
+            end),
+        ]
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test length(kids) == 2
+        @test Set(kids) == Set(expected)
+    end
+
+    @testset "_expand_re_to_ss: random-order bi-bi emits one flip per metabolite" begin
+        # Every metabolite's two binding steps share one group, so flipping that
+        # group cuts the binding square at both ends and raises the segment
+        # count on its own. Four groups, four children, no pairs.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        flipA = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A <--> E(A), E(B) + A <--> E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        flipB = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B <--> E(B), E(A) + B <--> E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        flipP = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        flipQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test length(kids) == 4
+        @test Set(kids) == Set([flipA, flipB, flipP, flipQ])
+    end
+
+    @testset "_expand_re_to_ss: a dead-end leaf group never flips" begin
+        # E(P) + S ⇌ E(P, S) is a bridge: no cycle through it contains chemistry,
+        # so at steady state it carries no net flux and flipping it would add a
+        # parameter the data cannot see. Only the two catalytic bindings flip.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -5602,18 +5696,38 @@ end
                 E(P) + S ⇌ E(P, S)
             end
         end)
-        fc = EnzymeRates._flux_carrying_groups(leaf)
-        leaf_group = only(findall(!, fc))
-        for c in EnzymeRates._expand_re_to_ss(leaf)
-            @test all(EnzymeRates.is_equilibrium, EnzymeRates.steps(c)[leaf_group])
-        end
-        @test !isempty(EnzymeRates._expand_re_to_ss(leaf))
+        expected = [
+            EnzymeRates.Mechanism(@enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S <--> E(S)
+                    E(S) <--> E(P)
+                    E + P ⇌ E(P)
+                    E(P) + S ⇌ E(P, S)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin
+                substrates: S
+                products: P
+                steps: begin
+                    E + S ⇌ E(S)
+                    E(S) <--> E(P)
+                    E + P <--> E(P)
+                    E(P) + S ⇌ E(P, S)
+                end
+            end),
+        ]
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test length(kids) == 2
+        @test Set(kids) == Set(expected)
     end
 
-    @testset "_expand_re_to_ss: two segment-flat groups flip together" begin
-        # Random-order square with A's two binding steps in separate groups. Flipping
-        # either A group alone leaves E and E(A) joined through the other A step, so
-        # neither is emitted alone; the pair cuts the square and is emitted.
+    @testset "_expand_re_to_ss: a split metabolite flips as a pair, never singly" begin
+        # A's two binding steps sit in separate groups. Flipping either alone
+        # leaves E and E(A) joined through the other A step (E–E(B)–E(A,B)–E(A)),
+        # so the segment count does not rise and no such child exists. The pair
+        # cuts the square, so it is emitted; B, P, Q flip alone as before.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -5626,56 +5740,267 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end)
-        groups = EnzymeRates.steps(m)
-        binds_a(s) = (bm = EnzymeRates.bound_metabolite(s);
-                      bm !== nothing && EnzymeRates.name(bm) == :A)
-        a_groups = [g for (g, grp) in enumerate(groups)
-                    if length(grp) == 1 && binds_a(only(grp))]
-        @test length(a_groups) == 2
-        base = EnzymeRates._re_segment_count(m)
-        for g in a_groups
-            @test EnzymeRates._re_segment_count(_testhelper_flip_groups(m, [g])) == base
-        end
-        @test EnzymeRates._re_segment_count(_testhelper_flip_groups(m, a_groups)) > base
-        kids = EnzymeRates._expand_re_to_ss(m)
-        # Children re-sort their groups, so match the A steps by content.
-        a_steps_ss = [EnzymeRates.Step(EnzymeRates.from_species(s),
-                                       EnzymeRates.to_species(s),
-                                       EnzymeRates.bound_metabolite(s), false)
-                      for g in a_groups for s in groups[g]]
-        ss_steps(c) = Set(s for grp in EnzymeRates.steps(c) for s in grp
-                          if !EnzymeRates.is_equilibrium(s))
-        n_a_ss(c) = count(s -> s in ss_steps(c), a_steps_ss)
-        @test any(c -> n_a_ss(c) == 2, kids)
-        @test !any(c -> n_a_ss(c) == 1, kids)
-    end
-
-    @testset "_expand_re_to_ss: uni-uni flips are emitted (documented no-op)" begin
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
-            substrates: S
-            products: P
+        flipA = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E + P ⇌ E(P)
+                E + A <--> E(A)
+                E(B) + A <--> E(A, B)
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
         end)
-        @test length(EnzymeRates._expand_re_to_ss(m)) == 2
-    end
-
-    @testset "_expand_re_to_ss: no emitted set is a superset of another" begin
-        for m in EnzymeRates.init_mechanisms(_testhelper_bibi_rxn)[1:10]
-            kids = EnzymeRates._expand_re_to_ss(m)
-            flipped(c) = Set(g for (g, grp) in enumerate(EnzymeRates.steps(m))
-                             if all(EnzymeRates.is_equilibrium, grp) &&
-                                !any(EnzymeRates.is_equilibrium, EnzymeRates.steps(c)[g]))
-            sets = flipped.(kids)
-            for (i, s) in enumerate(sets), (j, t) in enumerate(sets)
-                i != j && @test !(s ⊊ t)
+        flipB = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(B) + A ⇌ E(A, B)
+                (E + B <--> E(B), E(A) + B <--> E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
             end
+        end)
+        flipP = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(B) + A ⇌ E(A, B)
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P <--> E(P), E(Q) + P <--> E(P, Q))
+                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        flipQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(B) + A ⇌ E(A, B)
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+                E(A, B) <--> E(P, Q)
+            end
+        end)
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test length(kids) == 4
+        @test Set(kids) == Set([flipA, flipB, flipP, flipQ])
+        # The two single-A flips are absent: the old per-group move emitted them
+        # as segment-flat no-ops.
+        for single in (
+            EnzymeRates.Mechanism(@enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A <--> E(A)
+                    E(B) + A ⇌ E(A, B)
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                end
+            end),
+            EnzymeRates.Mechanism(@enzyme_mechanism begin
+                substrates: A, B
+                products: P, Q
+                steps: begin
+                    E + A ⇌ E(A)
+                    E(B) + A <--> E(A, B)
+                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                    E(A, B) <--> E(P, Q)
+                end
+            end))
+            @test !(single in kids)
+            @test EnzymeRates._re_segment_count(single) == EnzymeRates._re_segment_count(m)
         end
     end
 
+    @testset "_expand_re_to_ss: ter-ter substrate cube emits one flip per group" begin
+        # Random substrate addition, ordered product release. Each of the three
+        # substrate groups carries all four cube edges for its metabolite, so
+        # flipping one cuts every route between the forms it joins; each product
+        # release is a single step on the ordered path. Six groups, six children.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
+                 E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
+                 E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+                 E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        flipA = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A <--> E(A), E(B) + A <--> E(A, B),
+                 E(C) + A <--> E(A, C), E(B, C) + A <--> E(A, B, C))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
+                 E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+                 E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        flipB = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
+                 E(B, C) + A ⇌ E(A, B, C))
+                (E + B <--> E(B), E(A) + B <--> E(A, B),
+                 E(C) + B <--> E(B, C), E(A, C) + B <--> E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+                 E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        flipC = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
+                 E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
+                 E(A, C) + B ⇌ E(A, B, C))
+                (E + C <--> E(C), E(A) + C <--> E(A, C),
+                 E(B) + C <--> E(B, C), E(A, B) + C <--> E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        flipP = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
+                 E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
+                 E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+                 E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P <--> E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        flipQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
+                 E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
+                 E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+                 E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q <--> E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        flipR = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
+                 E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
+                 E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+                 E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R <--> E(R)
+            end
+        end)
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test length(kids) == 6
+        @test Set(kids) == Set([flipA, flipB, flipC, flipP, flipQ, flipR])
+    end
+
+    @testset "_expand_re_to_ss: split ter-ter pairs the A and B parts" begin
+        # Ter-ter after one context split: A is split by whether B is bound and B
+        # by whether A is bound. Each of the four parts alone leaves E and E(A)
+        # joined through its sibling, so nothing flips one part by itself; the six
+        # pairs that cut a segment are emitted, and C, P, Q, R still flip alone.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B, C
+            products: P, Q, R
+            steps: begin
+                (E + A ⇌ E(A), E(C) + A ⇌ E(A, C))
+                (E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(A, B, C))
+                (E + B ⇌ E(B), E(C) + B ⇌ E(B, C))
+                (E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(A, B, C))
+                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
+                 E(A, B) + C ⇌ E(A, B, C))
+                E(A, B, C) <--> E(P, Q, R)
+                E(Q, R) + P ⇌ E(P, Q, R)
+                E(R) + Q ⇌ E(Q, R)
+                E + R ⇌ E(R)
+            end
+        end)
+        binds(grp) = (bm = EnzymeRates.bound_metabolite(first(grp));
+                      bm === nothing ? :iso : EnzymeRates.name(bm))
+        sources(grp) = Set(EnzymeRates.name(EnzymeRates.from_species(s)) for s in grp)
+        # Each group is pinned by the metabolite it binds and the forms it binds to.
+        A1, A2 = (:A, Set([:E, :EC])), (:A, Set([:EB, :EBC]))
+        B1, B2 = (:B, Set([:E, :EC])), (:B, Set([:EA, :EAC]))
+        C = (:C, Set([:E, :EA, :EB, :EAB]))
+        P, Q, R = (:P, Set([:EQR])), (:Q, Set([:ER])), (:R, Set([:E]))
+        group_of(key) = only(g for (g, grp) in enumerate(EnzymeRates.steps(m))
+                             if (binds(grp), sources(grp)) == key)
+        flip(keys...) = _testhelper_flip_groups(m, [group_of(k) for k in keys])
+        expected = [
+            flip(C),        # {C}
+            flip(P),        # {P}
+            flip(Q),        # {Q}
+            flip(R),        # {R}
+            flip(A1, A2),   # {A1, A2}
+            flip(B1, B2),   # {B1, B2}
+            flip(A1, B1),   # {A1, B1}
+            flip(A1, B2),   # {A1, B2}
+            flip(A2, B1),   # {A2, B1}
+            flip(A2, B2),   # {A2, B2}
+        ]
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test length(kids) == 10
+        @test Set(kids) == Set(expected)
+        for c in kids
+            ss = count((A1, A2, B1, B2)) do key
+                grp = only(grp for grp in EnzymeRates.steps(c)
+                           if (binds(grp), sources(grp)) == key)
+                !any(EnzymeRates.is_equilibrium, grp)
+            end
+            @test ss != 1
+        end
+    end
 end
 
 @testset "_expand_split_kinetic_group (context bipartitions)" begin
