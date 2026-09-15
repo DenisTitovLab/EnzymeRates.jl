@@ -5396,6 +5396,7 @@ end
             E(A, B) <--> E(P, Q)
         end
     end)
+    src_forms(part) = Set(EnzymeRates.name(EnzymeRates.from_species(s)) for s in part)
     a_group = only(grp for grp in EnzymeRates.steps(m)
                    if length(grp) == 3 &&
                       EnzymeRates.name(EnzymeRates.bound_metabolite(first(grp))) == :A)
@@ -5417,7 +5418,6 @@ end
                          EnzymeRates.bound(EnzymeRates.from_species(s))))
     @test bps[1][2] == [p_step]
     @test bps[2][2] == [b_step]
-    src_forms(part) = Set(EnzymeRates.name(EnzymeRates.from_species(s)) for s in part)
     # By P: the P-free forms E, E(B) against the P-bound form E(P).
     @test src_forms(bps[1][1]) == Set([:E, :EB])
     @test src_forms(bps[1][2]) == Set([:EP])
@@ -5661,9 +5661,9 @@ end
     end
 
     @testset "_expand_re_to_ss: random-order bi-bi emits one flip per metabolite" begin
-        # Every metabolite's two binding steps share one group, so flipping that
-        # group cuts the binding square at both ends and raises the segment
-        # count on its own. Four groups, four children, no pairs.
+        # Every metabolite's two binding steps share one group, so its single group cuts a
+        # segment alone, raising the segment count on its own; each metabolite is emitted
+        # alone and no pair is minimal.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -5769,7 +5769,8 @@ end
         # A's two binding steps sit in separate groups. Flipping either alone
         # leaves E and E(A) joined through the other A step (E–E(B)–E(A,B)–E(A)),
         # so the segment count does not rise and no such child exists. The pair
-        # cuts the square, so it is emitted; B, P, Q flip alone as before.
+        # cuts the square, so it is emitted; B, P, and Q each flip alone, since each
+        # cuts a segment on its own.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
@@ -5833,8 +5834,8 @@ end
         kids = EnzymeRates._expand_re_to_ss(m)
         @test length(kids) == 4
         @test Set(kids) == Set([flipA, flipB, flipP, flipQ])
-        # The two single-A flips are absent: the old per-group move emitted them
-        # as segment-flat no-ops.
+        # The two single-A flips are absent: each is segment-flat (E and E(A) stay joined
+        # through the other A step), so the move does not emit it.
         for single in (
             EnzymeRates.Mechanism(@enzyme_mechanism begin
                 substrates: A, B
@@ -6185,6 +6186,7 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end)
+        @test EnzymeRates._independent_param_count(m) == 5
         kids = EnzymeRates._expand_split_kinetic_group(m)
         @test length(kids) == 4
         @test Set(kids) == Set([splitAP, splitAB, splitBQ, splitPQ])
