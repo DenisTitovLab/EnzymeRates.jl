@@ -6475,6 +6475,21 @@ end
     end
 end
 
+@testset "expand_mechanisms: ter-ter random-order seed within budget" begin
+    # Aggregate pin over the seed set: the seed with the most steps (55) is the
+    # enumeration's worst case; measured 13 s for all seven moves.
+    terter = @enzyme_reaction begin
+        substrates: A[C], B[N], C[O]
+        products: P[C], Q[N], R[O]
+    end
+    seeds = EnzymeRates.init_mechanisms(terter)
+    worst = seeds[argmax([EnzymeRates.n_steps(m) for m in seeds])]
+    @test EnzymeRates.n_steps(worst) == 55
+    t = @elapsed kids = EnzymeRates.expand_mechanisms([worst], terter)
+    @test length(kids) == 81
+    @test t < 60
+end
+
 @testset "_expand_add_dead_end_regulator: inhibitor mirrors one half-reaction" begin
     # An inhibitor competes with at least one substrate and one product. In
     # ping-pong the half-reaction whose ligands it does not compete with can still
