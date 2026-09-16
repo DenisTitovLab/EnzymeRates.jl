@@ -1,7 +1,7 @@
 # Enumeration combinatorics measurement
 
 Date: 2026-09-15
-Branch: `refactor-re-to-ss-steps-to-only-keep-mechanisms-with-more-params`, commit `254ecb4`
+Branch: `refactor-re-to-ss-steps-to-only-keep-mechanisms-with-more-params`, commit `254ecb4` (the two commits before `ca05783` touch only docs)
 Script: `docs/superpowers/specs/2026-09-15-combinatorics-measurement.jl`
 (run with `julia --project docs/superpowers/specs/2026-09-15-combinatorics-measurement.jl`)
 
@@ -18,10 +18,9 @@ end
 
 ## Method notes and deviations from the brief
 
-- `allosteric_regulators: R` is rejected by `@enzyme_reaction` — an allosteric
-  entry must declare its multiplicities — so the measurement uses `R(1)`, the
-  single-subunit case, which matches the default
-  `allowed_catalytic_multiplicities: (1,)`.
+- The measurement writes the regulator as `R(1)`, the single-subunit case; a
+  bare `R` inherits the default `allowed_catalytic_multiplicities: (1,)` and
+  gives the same reaction.
 - Per-move counts are **raw move output**. `expand_mechanisms` unions the seven
   moves and then applies `_filter_by_reg_type`, so its child count per parent is
   at most the row sums in the tables below.
@@ -47,8 +46,8 @@ end
   truncated closure is marked `(cap hit)` or `(time hit)` in the table. The split
   closure of a largest seed does not finish inside that budget, so item 5 also
   probes the three seeds with the FEWEST steps, where both closures complete.
-- The whole script runs in 1005 s (16.7 min); items 1-4 are byte-identical
-  across two runs, so the numbers are deterministic.
+- The whole script runs in 1005 s (16.7 min); items 1-4 are identical across
+  two runs apart from the elapsed-time lines, so the numbers are deterministic.
 
 ## Why four of the seven moves emit nothing here
 

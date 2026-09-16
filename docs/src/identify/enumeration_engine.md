@@ -126,11 +126,12 @@ subject to two rules:
 - **Mirror steps.** If the inhibitor binds two enzyme forms that a catalytic
   step already connects, a mirror step is added between the two inhibitor-bound
   forms, so the inhibitor-bound branch stays connected to the cycle. Each mirror
-  inherits its counterpart's kinetic group and adds no parameter. Because the
-  inhibitor competes with at least one substrate, the form that binds that
-  substrate never carries the inhibitor, so the inhibitor-bound branch can
-  never complete the net reaction. In a ping-pong mechanism it can carry out
-  the one half-reaction whose ligands the inhibitor does not compete with.
+  inherits its counterpart's kinetic group and adds no parameter. A form that
+  already carries a competing ligand never receives the inhibitor, so the
+  binding step of a competing substrate is never mirrored and the
+  inhibitor-bound branch can never complete the net reaction. In a ping-pong
+  mechanism it can carry out the one half-reaction whose ligands the inhibitor
+  does not compete with.
 
 The inhibitor's own binding steps form one fresh kinetic group (one new
 dissociation constant `K_R`).
@@ -223,10 +224,11 @@ so the group never flips.
 two forms that a catalytic step connects carries flux through its mirror step,
 so keeping its binding at rapid equilibrium is a modeling choice ("inhibitor
 binding is fast"). What competition does decide is turnover: the inhibitor
-competes with at least one substrate and one product, so the form that binds
-the competing substrate never carries it, and no inhibitor-bound branch
-completes the net reaction. A ping-pong mechanism is the one case with more
-than one chemistry step; there an inhibitor that competes with the first
+competes with at least one substrate and one product, and the binding step of
+a competing ligand is never mirrored onto the inhibitor-bound branch, so that
+branch never completes the net reaction. Ping-pong is the one enumerated family
+whose catalytic cycle has more than one chemistry step; there an inhibitor that
+competes with the first
 half-reaction's ligands can still let the modified enzyme run the second half
 with the inhibitor bound, which is the two-site picture, and the inhibitor
 must leave before the next cycle.

@@ -179,8 +179,7 @@ end
 Parse `R`, `R(1, 2)`, or `R(4)` entries, optionally tagged with a regulator
 type: `R::Activator`, `R::Inhibitor`, or `R(1, 2)::Inhibitor`. Bare `R`
 produces `nothing` mults (filled by the macro from
-`allowed_catalytic_multiplicities` for competitive entries; rejected at
-emit time for allosteric entries) and reg_type `:unspecified`. A type tag is
+`allowed_catalytic_multiplicities`, default `[1]`) and reg_type `:unspecified`. A type tag is
 only valid on `kind === :allosteric` entries.
 """
 function _parse_regulator_entries(values, kind::Symbol)

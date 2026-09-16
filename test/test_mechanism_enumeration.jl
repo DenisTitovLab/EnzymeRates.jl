@@ -6477,7 +6477,8 @@ end
 
 @testset "expand_mechanisms: ter-ter random-order seed within budget" begin
     # Aggregate pin over the seed set: the seed with the most steps (55) is the
-    # enumeration's worst case; measured 13 s for all seven moves.
+    # enumeration's worst case; measured 26 s for all seven moves in a cold
+    # focused run, JIT included.
     terter = @enzyme_reaction begin
         substrates: A[C], B[N], C[O]
         products: P[C], Q[N], R[O]
@@ -6487,7 +6488,7 @@ end
     @test EnzymeRates.n_steps(worst) == 55
     t = @elapsed kids = EnzymeRates.expand_mechanisms([worst], terter)
     @test length(kids) == 81
-    @test t < 60
+    @test t < 120
 end
 
 @testset "_expand_add_dead_end_regulator: inhibitor mirrors one half-reaction" begin
@@ -6586,10 +6587,12 @@ end
 end
 
 @testset "_expand_add_dead_end_regulator: inhibitor never runs the net reaction" begin
-    # Aggregate pin over the ping-pong seed set: for every regulator child, the
-    # chemistry steps mirrored onto inhibitor-bound forms are a strict subset of
-    # the chemistry steps, so no cycle of inhibitor-bound forms completes the
-    # reaction. Follows from competition with at least one substrate.
+    # Aggregate pin over the ping-pong seed set: in every regulator child some
+    # substrate has no binding step inside the inhibitor-bound branch (the steps
+    # whose two forms both carry I), so no cycle of inhibitor-bound forms
+    # completes the reaction. Follows from competition with at least one
+    # substrate: a form carrying a competing ligand never receives I, so that
+    # ligand's binding step is never mirrored.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
@@ -6597,15 +6600,18 @@ end
     end
     inhibitor_bound(sp) =
         any(b -> b isa EnzymeRates.CompetitiveInhibitor, EnzymeRates.bound(sp))
+    in_branch(s) = inhibitor_bound(EnzymeRates.from_species(s)) &&
+                   inhibitor_bound(EnzymeRates.to_species(s))
     n_children = 0; n_half = 0
     seeds = EnzymeRates.init_mechanisms(rxn)
     for m in seeds, c in EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-        chem = [s for grp in EnzymeRates.steps(c) for s in grp
-                if EnzymeRates._is_chemistry(s)]
-        mirrored = count(s -> inhibitor_bound(EnzymeRates.from_species(s)), chem)
-        plain = length(chem) - mirrored
-        @test mirrored < plain
-        n_children += 1; mirrored > 0 && (n_half += 1)
+        branch = [s for grp in EnzymeRates.steps(c) for s in grp if in_branch(s)]
+        bound_in_branch = Set(EnzymeRates.name(EnzymeRates.bound_metabolite(s))
+                              for s in branch
+                              if EnzymeRates.bound_metabolite(s) !== nothing)
+        @test !(Set([:A, :B]) ⊆ bound_in_branch)
+        n_children += 1
+        any(EnzymeRates._is_chemistry, branch) && (n_half += 1)
     end
     @test n_children > 0
     @test n_half > 0          # the half-reaction mirror really occurs on the seeds

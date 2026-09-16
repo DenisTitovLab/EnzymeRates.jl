@@ -204,8 +204,9 @@ EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given
 ## Commands
 
 ```bash
-# Run full test suite (cold — pays precompilation + JIT cost every time)
-julia --project -e 'using Pkg; Pkg.test()'
+# Run full test suite (cold — pays precompilation + JIT cost every time). The heap hint
+# keeps the peak under the memory available next to a resident VS Code language server.
+julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'
 ```
 
 ```bash
