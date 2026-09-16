@@ -5291,6 +5291,20 @@ end
     @test length(inhibitor_groups) == 4
     @test !any(pfc[g] for g in inhibitor_groups)
     @test all(pfc[g] for g in eachindex(pfc) if !(g in inhibitor_groups))
+
+    # Chemistry written as a combined chemistry-release step (no iso step at
+    # all): every group lies on the catalytic cycle and is flux-carrying.
+    pp = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    @test all(EnzymeRates._flux_carrying_groups(pp))
 end
 
 @testset "_re_segment_count" begin
@@ -6043,6 +6057,45 @@ end
             end
             @test ss != 1
         end
+    end
+
+    @testset "_expand_re_to_ss: ping-pong with combined chemistry-release steps" begin
+        # The two chemistry steps are written as combined chemistry-release steps,
+        # so the mechanism has no iso step at all. Each of the two RE binding
+        # groups cuts a segment on its own, and neither pair is minimal.
+        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) <--> E(; residual = A - P) + P
+                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+                E(B; residual = A - P) <--> E + Q
+            end
+        end)
+        flipA = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) <--> E(; residual = A - P) + P
+                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+                E(B; residual = A - P) <--> E + Q
+            end
+        end)
+        flipB = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) <--> E(; residual = A - P) + P
+                E(; residual = A - P) + B <--> E(B; residual = A - P)
+                E(B; residual = A - P) <--> E + Q
+            end
+        end)
+        kids = EnzymeRates._expand_re_to_ss(m)
+        @test length(kids) == 2
+        @test Set(kids) == Set([flipA, flipB])
     end
 end
 

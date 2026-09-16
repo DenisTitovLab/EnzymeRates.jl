@@ -1304,28 +1304,52 @@ function _edge_blocks(nv::Int, edges::Vector{Tuple{Int, Int}})
 end
 
 """
+    _is_chemistry(s::Step) -> Bool
+
+A chemistry step changes the enzyme's covalent residual, or changes its bound
+set by something other than the step's own bound metabolite. A pure binding or
+release step changes neither. Iso steps are chemistry; so is a combined
+chemistry-release step such as `E(A) <--> E(; residual = A - P) + P`.
+"""
+function _is_chemistry(s::Step)
+    is_iso(s) && return true
+    residual(from_species(s)) == residual(to_species(s)) || return true
+    bm = bound_metabolite(s)
+    from_b = copy(bound(from_species(s)))
+    to_b = copy(bound(to_species(s)))
+    # Drop one occurrence of the step's own bound metabolite from whichever
+    # side holds it; `bound` is canonically sorted, so the remainders compare
+    # as multisets.
+    i = findfirst(==(bm), to_b)
+    i === nothing || deleteat!(to_b, i)
+    j = findfirst(==(bm), from_b)
+    (i === nothing && j !== nothing) && deleteat!(from_b, j)
+    from_b != to_b
+end
+
+"""
     _flux_carrying_groups(m) -> BitVector
 
 One flag per kinetic group: the group holds a step that lies on a cycle of the
-step graph containing a chemistry (isomerization) step, i.e. shares a
-biconnected block with one. A binding-only cycle satisfies detailed balance and
-carries no net flux at steady state, so a group whose every step sits in such a
-pendant region exposes only equilibrium ratios however it is flagged; flipping
-it to steady state adds a phantom parameter. RE and SS steps are both edges
-here: flux-carrying-ness depends on the graph, not on the flags.
+step graph containing a chemistry step (one `_is_chemistry` recognizes), i.e.
+shares a biconnected block with one. A binding-only cycle satisfies detailed
+balance and carries no net flux at steady state, so a group whose every step
+sits in such a pendant region exposes only equilibrium ratios however it is
+flagged; flipping it to steady state adds a phantom parameter. RE and SS steps
+are both edges here: flux-carrying-ness depends on the graph, not on the flags.
 """
 function _flux_carrying_groups(m::Union{Mechanism, AllostericMechanism})
     forms = Dict{Species, Int}()
     edges = Tuple{Int, Int}[]
     edge_group = Int[]
-    edge_is_iso = Bool[]
+    edge_is_chemistry = Bool[]
     vertex(sp) = get!(forms, sp, length(forms) + 1)
     for (g, group) in enumerate(steps(m)), s in group
         push!(edges, (vertex(from_species(s)), vertex(to_species(s))))
-        push!(edge_group, g); push!(edge_is_iso, is_iso(s))
+        push!(edge_group, g); push!(edge_is_chemistry, _is_chemistry(s))
     end
     block = _edge_blocks(length(forms), edges)
-    chem_blocks = Set(block[e] for e in eachindex(edges) if edge_is_iso[e])
+    chem_blocks = Set(block[e] for e in eachindex(edges) if edge_is_chemistry[e])
     flags = falses(length(steps(m)))
     for e in eachindex(edges)
         block[e] in chem_blocks && (flags[edge_group[e]] = true)
