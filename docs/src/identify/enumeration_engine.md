@@ -96,11 +96,12 @@ to their parent on parsimony.
 ### 2. Split a kinetic group by binding context
 
 Divides one kinetic group into two, so the two parts have separate rate
-constants. The division is always by context: the steps whose enzyme form already
-carries some other ligand Y, against the rest. It encodes the hypothesis that the
-affinity for a metabolite depends on what is bound next to it; with Y a
-competitive inhibitor it separates a catalytic step from its inhibitor-bound
-mirror.
+constants. The division is always by context: the steps whose enzyme form
+already carries some other ligand Y, sits in a given conformation, or carries
+a given covalent residual, against the rest. It encodes the hypothesis that
+the affinity for a metabolite depends on what is bound next to it, on the
+enzyme's conformation, or on its covalent state; with Y a competitive
+inhibitor it separates a catalytic step from its inhibitor-bound mirror.
 
 A single split often frees no parameter. In random-order binding, thermodynamics
 ties the new constant straight back to the old one, and the equation is
@@ -125,7 +126,11 @@ subject to two rules:
 - **Mirror steps.** If the inhibitor binds two enzyme forms that a catalytic
   step already connects, a mirror step is added between the two inhibitor-bound
   forms, so the inhibitor-bound branch stays connected to the cycle. Each mirror
-  inherits its catalytic counterpart's kinetic group and adds no parameter.
+  inherits its counterpart's kinetic group and adds no parameter. Because the
+  inhibitor competes with at least one substrate, the form that binds that
+  substrate never carries the inhibitor, so the inhibitor-bound branch can
+  never complete the net reaction. In a ping-pong mechanism it can carry out
+  the one half-reaction whose ligands the inhibitor does not compete with.
 
 The inhibitor's own binding steps form one fresh kinetic group (one new
 dissociation constant `K_R`).
@@ -137,8 +142,8 @@ dissociation constant `K_R`).
 Converts a `Mechanism` to an `AllostericMechanism` variant set. An `:OnlyA`
 catalytic binding asserts `K_I → ∞`: the inactive conformation cannot bind
 that metabolite, so it cannot complete the catalytic cycle. The MWC reading is a
-**catalytically-dead** inactive conformation — every isomerization (chemical)
-step `:OnlyA` — that binds ligands but runs no chemistry. The engine emits, per
+**catalytically-dead** inactive conformation — every chemistry step `:OnlyA`
+— that binds ligands but runs no chemistry. The engine emits, per
 multiplicity: every non-empty subset of binding groups `:OnlyA`, each with all
 chemical steps `:OnlyA` (a K-type mechanism, emitted bare — the bound
 metabolite's concentration reveals `L`); plus the empty subset (all chemical
@@ -214,15 +219,23 @@ catalytic cycle carries no net flux at steady state. Its forward and reverse rat
 enter the equation only as their ratio, which the equilibrium form already has,
 so the group never flips.
 
-**Competitive-inhibitor binding stays at equilibrium.** An inhibitor bound to two
-forms that a catalytic step connects does carry flux through its mirror step, so
-this is a modeling choice ("inhibitor binding is fast"), not a consequence of the
-previous one.
+**Competitive-inhibitor binding stays at equilibrium.** An inhibitor bound to
+two forms that a catalytic step connects carries flux through its mirror step,
+so keeping its binding at rapid equilibrium is a modeling choice ("inhibitor
+binding is fast"). What competition does decide is turnover: the inhibitor
+competes with at least one substrate and one product, so the form that binds
+the competing substrate never carries it, and no inhibitor-bound branch
+completes the net reaction. A ping-pong mechanism is the one case with more
+than one chemistry step; there an inhibitor that competes with the first
+half-reaction's ligands can still let the modified enzyme run the second half
+with the inhibitor bound, which is the two-site picture, and the inhibitor
+must leave before the next cycle.
 
 **Splits follow binding context.** A group is divided only by whether another
-ligand is already bound. Arbitrary partitions are not tried, a group is never
-split three ways in one move, and groups never merge. A partition that no
-sequence of context splits produces is unreachable.
+ligand is already bound, by conformation, or by covalent residual. Arbitrary
+partitions are not tried, a group is never split three ways in one move, and
+groups never merge. A partition that no sequence of context splits produces is
+unreachable.
 
 **A child is never a provable copy of its parent.** Both moves reject a child
 whose equation can be shown to equal the parent's: a split the constraint solver
