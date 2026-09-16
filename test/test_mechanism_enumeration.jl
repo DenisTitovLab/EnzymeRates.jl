@@ -6509,6 +6509,86 @@ end
     end
 end
 
+@testset "_expand_split_kinetic_group: by conformation" begin
+    # S binds both conformations in one kinetic group; Estar(S) is a dead end
+    # whose dissociation constant no cycle ties, so dividing the group by
+    # conformation frees one parameter. The other groups are singletons.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            (E + S ⇌ E(S), Estar + S ⇌ Estar(S))
+            E(S) <--> Estar(P)
+            Estar(P) ⇌ Estar + P
+            Estar <--> E
+        end
+    end)
+    by_conformation = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            Estar + S ⇌ Estar(S)
+            E(S) <--> Estar(P)
+            Estar(P) ⇌ Estar + P
+            Estar <--> E
+        end
+    end)
+    kids = EnzymeRates._expand_split_kinetic_group(m)
+    @test length(kids) == 1
+    @test Set(kids) == Set([by_conformation])
+end
+
+@testset "_expand_split_kinetic_group: by residual" begin
+    # Q binds free E on the cycle and the two modified forms as dead ends. The
+    # Q group divides by B ({E, E(; res)} | {E(B; res)}) and by residual
+    # ({E} | {E(; res), E(B; res)}); each division frees a dead-end constant
+    # on its own, so each is a child and the pair is not minimal.
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + Q ⇌ E(Q), E(; residual = A - P) + Q ⇌ E(Q; residual = A - P),
+             E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P))
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+        end
+    end)
+    by_B = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + Q ⇌ E(Q), E(; residual = A - P) + Q ⇌ E(Q; residual = A - P))
+            E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P)
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+        end
+    end)
+    by_residual = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + Q ⇌ E(Q)
+            (E(; residual = A - P) + Q ⇌ E(Q; residual = A - P),
+             E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P))
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+        end
+    end)
+    kids = EnzymeRates._expand_split_kinetic_group(m)
+    @test length(kids) == 2
+    @test Set(kids) == Set([by_B, by_residual])
+end
+
 @testset "expand_mechanisms: ter-ter random-order seed within budget" begin
     # Aggregate pin over the seed set: the seed with the most steps (55) is the
     # enumeration's worst case; measured 26 s for all seven moves in a cold
