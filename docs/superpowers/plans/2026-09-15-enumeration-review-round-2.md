@@ -55,10 +55,10 @@ Its four groups are singletons: A-binding (RE), chemistry 1 (SS, releases P), B-
 
 ---
 
-### Task 1: Chemistry steps by content; inhibitor-bound forms never catalyze
+### Task 1: Chemistry steps by content
 
 **Files:**
-- Modify: `src/mechanism_enumeration.jl` (`_flux_carrying_groups` ~line 1319; the regulator move's mirror loop in `_expand_add_dead_end_regulator_native` ~line 1772–1782)
+- Modify: `src/mechanism_enumeration.jl` (`_flux_carrying_groups` ~line 1319)
 - Test: `test/test_mechanism_enumeration.jl` (after `end # top-level testset`; the `_flux_carrying_groups` testset and the two wrapper testsets)
 
 **Interfaces:**
@@ -115,39 +115,9 @@ Add to `@testset "_expand_re_to_ss (group-set flips)"`:
     end
 ```
 
-Add a new top-level testset after the split wrapper:
-
-```julia
-@testset "_expand_add_dead_end_regulator: inhibitor-bound forms never catalyze" begin
-    # An inhibitor competes at the catalytic site: an inhibitor-bound form may bind
-    # and release other ligands (mirror binding steps) but never performs a
-    # chemistry step. In ping-pong the two half-reactions have eligible endpoints,
-    # so without this rule the second half would be mirrored onto E·I forms.
-    rxn = <the ping-pong reaction with competitive_inhibitors: I, above>
-    m = <the docs ping-pong fixture above>
-    kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-    @test length(kids) == 5
-    inhibitor_bound(sp) = any(b -> b isa EnzymeRates.CompetitiveInhibitor, EnzymeRates.bound(sp))
-    for c in kids, grp in EnzymeRates.steps(c), s in grp
-        EnzymeRates._is_chemistry(s) || continue
-        @test !inhibitor_bound(EnzymeRates.from_species(s))
-        @test !inhibitor_bound(EnzymeRates.to_species(s))
-    end
-    # The five children bind I to these form sets (names as rendered by `name`).
-    ibound(c) = Set(EnzymeRates.name(EnzymeRates.to_species(s))
-                    for grp in EnzymeRates.steps(c) for s in grp
-                    if EnzymeRates.bound_metabolite(s) isa EnzymeRates.CompetitiveInhibitor)
-    EI, EIr, EBIr, EAI = :EIinh, Symbol("EIinh_res_+A_-P"), Symbol("EBIinh_res_+A_-P"), :EAIinh
-    @test Set(ibound.(kids)) == Set([
-        Set([EI]), Set([EI, EBIr]), Set([EAI, EIr]), Set([EIr]), Set([EI, EIr])])
-end
-```
-
-The rendered names carry the residual suffix; the probe printed them as `EIinh_res_+A_-P` and `EBIinh_res_+A_-P`. Use exactly what `EnzymeRates.name` returns (check with one `println` while writing the test and then delete it); if the mechanism DSL can write an inhibitor-bound form directly (see `src/dsl.jl` around lines 19–90 and the `E(Lactate::Inh)` form used in `test/test_identify_rate_equation.jl`), prefer writing the five expected children out as mechanisms and asserting `Set(kids) == Set(expected)`, and keep the chemistry-on-inhibitor loop as well.
-
 - [ ] **Step 2: Run to verify they fail**
 
-Expected: `all(_flux_carrying_groups(pp))` fails (no iso step, so no group is flux-carrying); the ping-pong flip test fails with 0 children; the regulator test fails on the child whose chemistry step is mirrored onto `EAIinh → EIinh_res…`.
+Expected: `all(_flux_carrying_groups(pp))` fails (no iso step, so no group is flux-carrying); the ping-pong flip test fails with 0 children.
 
 - [ ] **Step 3: Implement**
 
@@ -177,14 +147,7 @@ function _is_chemistry(s::Step)
 end
 ```
 
-Replace `is_iso(s)` with `_is_chemistry(s)` in `_flux_carrying_groups` (the `edge_is_iso` collection) and rename that local to `edge_is_chemistry`; update its docstring's "Chemistry steps are the isomerization steps" to say chemistry steps are those `_is_chemistry` recognizes. In the regulator move's mirror loop, skip chemistry steps:
-
-```julia
-                for s in group
-                    _is_chemistry(s) && continue   # inhibitor-bound forms never catalyze
-```
-
-and extend the docstring of `_expand_add_dead_end_regulator` ("Mirror steps inherit their catalytic counterpart's `kinetic_group`") with: "Only binding and release steps are mirrored: an inhibitor competes at the catalytic site, so an inhibitor-bound form binds and releases other ligands but never performs chemistry."
+Replace `is_iso(s)` with `_is_chemistry(s)` in `_flux_carrying_groups` (the `edge_is_iso` collection) and rename that local to `edge_is_chemistry`; update its docstring's "Chemistry steps are the isomerization steps" to say chemistry steps are those `_is_chemistry` recognizes. Do not touch the regulator move: Denis decided (2026-09-15) that an inhibitor-bound form may carry out a half-reaction whose ligands it does not compete with; Task 1b pins that.
 
 - [ ] **Step 4: Run the file**
 
@@ -193,7 +156,133 @@ Expected: the new tests pass; every existing count unchanged (the enumerated see
 - [ ] **Step 5: Commit**
 
 ```bash
-git commit -am "Recognize chemistry steps by content; inhibitor-bound forms never catalyze"
+git commit -am "Recognize chemistry steps by content"
+```
+
+---
+
+### Task 1b: Inhibitor-bound forms catalyze at most one half-reaction, never the net reaction
+
+**Files:**
+- Test: `test/test_mechanism_enumeration.jl` (new top-level testsets after the split wrapper)
+
+Denis's decision: the competition rule (an inhibitor competes with at least one substrate and at least one product) is kept as is. Its consequence is the invariant to pin: an inhibitor-bound form can be mirrored onto a chemistry step whose ligands it does not compete with (a half-reaction in ping-pong), but no cycle of inhibitor-bound forms contains every chemistry step, because the competing substrate must bind somewhere and that form can never carry the inhibitor.
+
+- [ ] **Step 1: Exact children of the docs ping-pong with an inhibitor**
+
+The plain mechanism macro declares regulators with the `regulators:` label and writes an inhibitor-bound form as `E(I::Inh)` (see `_parse_plain_mechanism_body` in `src/dsl.jl` and the `E(Lactate::Inh)` forms in `test/test_identify_rate_equation.jl`). The regulator move returns children whose `reaction` carries the reaction's atoms plus the inhibitor, which a macro mechanism without atoms does not, so compare the canonical group lists: `Set(EnzymeRates.steps.(kids)) == Set(EnzymeRates.steps.(expected))`, and assert every child's reaction equals `EnzymeRates._add_competitive_inhibitor(rxn, :I)`.
+
+```julia
+@testset "_expand_add_dead_end_regulator: ping-pong, inhibitor mirrors one half-reaction" begin
+    # An inhibitor competes with at least one substrate and one product. In
+    # ping-pong the half-reaction whose ligands it does not compete with can still
+    # run on the inhibitor-bound modified enzyme, so its chemistry step is mirrored;
+    # the other half is barred by the competing substrate, so the net reaction never
+    # runs with I bound. The five patterns below are: I on E; I on E and E(B; res),
+    # mirroring the second half; I on E(A) and E(; res), mirroring the first half;
+    # I on E(; res); I on E and E(; res).
+    rxn = <the ping-pong reaction with competitive_inhibitors: I>
+    m = <the docs ping-pong fixture>
+    mech(block) = EnzymeRates.Mechanism(block)
+    only_E = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            E + I ⇌ E(I::Inh)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    E_and_EBres = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            (E + I ⇌ E(I::Inh), E(B; residual = A - P) + I ⇌ E(B, I::Inh; residual = A - P))
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            (E(B; residual = A - P) <--> E + Q,
+             E(B, I::Inh; residual = A - P) <--> E(I::Inh) + Q)
+        end
+    end)
+    EA_and_Eres = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + I ⇌ E(A, I::Inh), E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P))
+            (E(A) <--> E(; residual = A - P) + P,
+             E(A, I::Inh) <--> E(I::Inh; residual = A - P) + P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    only_Eres = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    E_and_Eres = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            (E + I ⇌ E(I::Inh), E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P))
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+    @test length(kids) == 5
+    @test Set(EnzymeRates.steps.(kids)) ==
+          Set(EnzymeRates.steps.([only_E, E_and_EBres, EA_and_Eres, only_Eres, E_and_Eres]))
+    @test all(c -> EnzymeRates.reaction(c) == EnzymeRates._add_competitive_inhibitor(rxn, :I), kids)
+end
+```
+
+If `regulators: I` with `E(I::Inh)` does not produce the same `Species` as the move (e.g. a different regulator type or name rendering), report the two `steps` values that differ and stop; do not weaken the comparison.
+
+- [ ] **Step 2: The invariant over the enumerated ping-pong seeds**
+
+```julia
+@testset "_expand_add_dead_end_regulator: no inhibitor-bound form runs the net reaction" begin
+    # Aggregate pin over the ping-pong seed set: for every regulator child, the
+    # chemistry steps mirrored onto inhibitor-bound forms are a strict subset of
+    # the chemistry steps, so no cycle of inhibitor-bound forms completes the
+    # reaction. Follows from competition with at least one substrate.
+    rxn = <the ping-pong reaction with competitive_inhibitors: I>
+    inhibitor_bound(sp) = any(b -> b isa EnzymeRates.CompetitiveInhibitor, EnzymeRates.bound(sp))
+    n_children = 0; n_half = 0
+    for m in EnzymeRates.init_mechanisms(rxn), c in EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+        chem = [s for grp in EnzymeRates.steps(c) for s in grp if EnzymeRates._is_chemistry(s)]
+        mirrored = count(s -> inhibitor_bound(EnzymeRates.from_species(s)), chem)
+        plain = length(chem) - mirrored
+        @test mirrored < plain
+        n_children += 1; mirrored > 0 && (n_half += 1)
+    end
+    @test n_children > 0
+    @test n_half > 0          # the half-reaction mirror really occurs on the seeds
+end
+```
+
+- [ ] **Step 3: Run the file; commit**
+
+```bash
+git commit -am "Pin the inhibitor invariant: at most one half-reaction with inhibitor bound"
 ```
 
 ---
@@ -339,9 +428,9 @@ git commit -am "Record the TestEnv focused-run recipe in CLAUDE.md"
 
 - [ ] **Step 1: Move 2** — replace the sentence defining context with: "The division is always by context: the steps whose enzyme form already carries some other ligand Y, sits in a given conformation, or carries a given covalent residual, against the rest. It encodes the hypothesis that the affinity for a metabolite depends on what is bound next to it, on the enzyme's conformation, or on its covalent state; with Y a competitive inhibitor it separates a catalytic step from its inhibitor-bound mirror."
 
-- [ ] **Step 2: Move 3** — the "Mirror steps" bullet becomes: "**Mirror steps.** If the inhibitor binds two enzyme forms that a binding or release step already connects, a mirror step is added between the two inhibitor-bound forms, so the inhibitor-bound branch stays connected to the cycle. Chemistry steps are never mirrored: an inhibitor competes at the catalytic site, so an inhibitor-bound form binds and releases other ligands but never performs chemistry. Each mirror inherits its counterpart's kinetic group and adds no parameter."
+- [ ] **Step 2: Move 3** — the "Mirror steps" bullet becomes: "**Mirror steps.** If the inhibitor binds two enzyme forms that a catalytic step already connects, a mirror step is added between the two inhibitor-bound forms, so the inhibitor-bound branch stays connected to the cycle. Each mirror inherits its counterpart's kinetic group and adds no parameter. Because the inhibitor competes with at least one substrate, the form that binds that substrate never carries the inhibitor, so the inhibitor-bound branch can never complete the net reaction. In a ping-pong mechanism it can carry out the one half-reaction whose ligands the inhibitor does not compete with."
 
-- [ ] **Step 3: Modeling choices** — replace the competitive-inhibitor paragraph with: "**Competitive-inhibitor binding stays at equilibrium, and inhibitor-bound forms never catalyze.** An inhibitor bound to two forms that a binding step connects carries flux through its mirror step, so keeping its binding at rapid equilibrium is a modeling choice ("inhibitor binding is fast"). Never mirroring a chemistry step is the meaning of competition: the inhibitor occupies the catalytic site, so an inhibitor-bound form can bind and release other ligands but cannot turn over; in a ping-pong mechanism the modified enzyme with inhibitor bound is therefore a dead end." Also extend the splits paragraph: "A group is divided only by whether another ligand is already bound, by conformation, or by covalent residual."
+- [ ] **Step 3: Modeling choices** — replace the competitive-inhibitor paragraph with: "**Competitive-inhibitor binding stays at equilibrium.** An inhibitor bound to two forms that a catalytic step connects carries flux through its mirror step, so keeping its binding at rapid equilibrium is a modeling choice ("inhibitor binding is fast"). What competition does decide is turnover: the inhibitor competes with at least one substrate and one product, so the form that binds the competing substrate never carries it, and no inhibitor-bound branch completes the net reaction. A ping-pong mechanism is the one case with more than one chemistry step; there an inhibitor that competes with the first half-reaction's ligands can still let the modified enzyme run the second half with the inhibitor bound, which is the two-site picture, and the inhibitor must leave before the next cycle." Also extend the splits paragraph: "A group is divided only by whether another ligand is already bound, by conformation, or by covalent residual."
 
 - [ ] **Step 4: Build the docs** (`julia --project=docs -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate(); include("docs/make.jl")'`, foreground, no other Julia running), expect a clean build; commit.
 
