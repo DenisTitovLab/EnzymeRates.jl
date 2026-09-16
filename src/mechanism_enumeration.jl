@@ -152,6 +152,25 @@ function _assert_step_atom_conserving(reaction::EnzymeReaction, s::Step)
 end
 
 """
+    _assert_chemistry_is_iso(m)
+
+The moves take the isomerization step as the chemistry step, which is how the
+enumerator writes every mechanism: chemistry isomerizes to a product-bound form
+and the release is its own step. A binding step may change the enzyme's
+conformation but never its covalent residual; a mechanism written for the
+derivation with chemistry folded into a release step is not a valid parent.
+"""
+function _assert_chemistry_is_iso(m::Union{Mechanism, AllostericMechanism})
+    for group in steps(m), s in group
+        is_binding(s) && residual(from_species(s)) != residual(to_species(s)) &&
+            error("binding step $(name(from_species(s))) ⇌ " *
+                  "$(name(to_species(s))) changes the covalent residual; the " *
+                  "moves need the chemistry as an isomerization and the " *
+                  "release as its own step")
+    end
+end
+
+"""
     _assert_atom_conserving(m::Mechanism)
     _assert_atom_conserving(am::AllostericMechanism)
 
@@ -2337,6 +2356,7 @@ function expand_mechanisms(
     rxn::EnzymeReaction)
     result = Union{Mechanism, AllostericMechanism}[]
     for m in mechs
+        _assert_chemistry_is_iso(m)
         _add_expansions_mech!(result, m, rxn)
     end
     result = _filter_by_reg_type(result, rxn)

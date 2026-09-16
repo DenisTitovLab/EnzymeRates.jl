@@ -6525,6 +6525,47 @@ end
     @test t < 120
 end
 
+@testset "expand_mechanisms rejects chemistry folded into a release step" begin
+    # The moves take the isomerization step as the chemistry step, which is
+    # how the enumerator writes every mechanism. A mechanism written for the
+    # derivation with chemistry folded into a release (the ping-pong docs
+    # page) is not a valid parent.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    folded = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    err = try
+        EnzymeRates.expand_mechanisms([folded], rxn); nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("changes the covalent residual", sprint(showerror, err))
+    # A binding step may change conformation; only the residual is chemistry.
+    conf = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ Estar(A)
+            Estar(A) + B ⇌ Estar(A, B)
+            Estar(A, B) <--> Estar(P, Q)
+            Estar(P, Q) ⇌ Estar(P) + Q
+            Estar(P) ⇌ E + P
+        end
+    end)
+    @test EnzymeRates.expand_mechanisms([conf], rxn) isa Vector
+end
+
 @testset "_expand_add_dead_end_regulator: inhibitor mirrors one half-reaction" begin
     # The inhibitor binds the forms that bind a competing ligand, never a form
     # already carrying one, so a competing substrate's binding step is never
