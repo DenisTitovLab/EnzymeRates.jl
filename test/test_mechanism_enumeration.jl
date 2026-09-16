@@ -6431,6 +6431,127 @@ end
     end
 end
 
+@testset "_expand_add_dead_end_regulator: ping-pong, inhibitor mirrors one half-reaction" begin
+    # An inhibitor competes with at least one substrate and one product. In
+    # ping-pong the half-reaction whose ligands it does not compete with can still
+    # run on the inhibitor-bound modified enzyme, so its chemistry step is mirrored;
+    # the other half is barred by the competing substrate, so the net reaction never
+    # runs with I bound. The five patterns below are: I on E; I on E and E(B; res),
+    # mirroring the second half; I on E(A) and E(; res), mirroring the first half;
+    # I on E(; res); I on E and E(; res).
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        competitive_inhibitors: I
+    end
+    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    mech(block) = EnzymeRates.Mechanism(block)
+    only_E = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            E + I ⇌ E(I::Inh)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    E_and_EBres = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            (E + I ⇌ E(I::Inh), E(B; residual = A - P) + I ⇌ E(B, I::Inh; residual = A - P))
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            (E(B; residual = A - P) <--> E + Q,
+             E(B, I::Inh; residual = A - P) <--> E(I::Inh) + Q)
+        end
+    end)
+    EA_and_Eres = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            (E(A) + I ⇌ E(A, I::Inh),
+             E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P))
+            (E(A) <--> E(; residual = A - P) + P,
+             E(A, I::Inh) <--> E(I::Inh; residual = A - P) + P)
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    only_Eres = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P)
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    E_and_Eres = mech(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            (E + I ⇌ E(I::Inh), E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P))
+            E(A) <--> E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E + Q
+        end
+    end)
+    kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+    @test length(kids) == 5
+    @test Set(EnzymeRates.steps.(kids)) ==
+          Set(EnzymeRates.steps.([only_E, E_and_EBres, EA_and_Eres, only_Eres, E_and_Eres]))
+    @test all(c -> EnzymeRates.reaction(c) ==
+                   EnzymeRates._add_competitive_inhibitor(rxn, :I), kids)
+end
+
+@testset "_expand_add_dead_end_regulator: no inhibitor-bound form runs the net reaction" begin
+    # Aggregate pin over the ping-pong seed set: for every regulator child, the
+    # chemistry steps mirrored onto inhibitor-bound forms are a strict subset of
+    # the chemistry steps, so no cycle of inhibitor-bound forms completes the
+    # reaction. Follows from competition with at least one substrate.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        competitive_inhibitors: I
+    end
+    inhibitor_bound(sp) =
+        any(b -> b isa EnzymeRates.CompetitiveInhibitor, EnzymeRates.bound(sp))
+    n_children = 0; n_half = 0
+    seeds = EnzymeRates.init_mechanisms(rxn)
+    for m in seeds, c in EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+        chem = [s for grp in EnzymeRates.steps(c) for s in grp
+                if EnzymeRates._is_chemistry(s)]
+        mirrored = count(s -> inhibitor_bound(EnzymeRates.from_species(s)), chem)
+        plain = length(chem) - mirrored
+        @test mirrored < plain
+        n_children += 1; mirrored > 0 && (n_half += 1)
+    end
+    @test n_children > 0
+    @test n_half > 0          # the half-reaction mirror really occurs on the seeds
+end
+
 # ═══════════════════════════════════════════════════════════════════════
 # Rate-equation dedup key
 # ═══════════════════════════════════════════════════════════════════════
