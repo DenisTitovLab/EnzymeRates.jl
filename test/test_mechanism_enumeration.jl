@@ -6690,7 +6690,7 @@ end
                               if EnzymeRates.bound_metabolite(s) !== nothing)
         @test !(Set([:A, :B]) ⊆ bound_in_branch)
         n_children += 1
-        any(EnzymeRates._is_chemistry, branch) && (n_half += 1)
+        any(EnzymeRates.is_iso, branch) && (n_half += 1)
     end
     @test n_children > 0
     @test n_half > 0          # the half-reaction mirror really occurs on the seeds
