@@ -361,7 +361,6 @@ end
     @test EnzymeRates._assert_atom_conserving(good_m) === nothing
 end
 
-@testset "Mechanism Enumeration" begin
 
 # ═══════════════════════════════════════════════════════════════════════
 # 1. Support functions
@@ -370,430 +369,574 @@ end
 # ─── _catalytic_topologies ──────────────────────────────────────────────
 @testset "_catalytic_topologies" begin
 
-    @testset "Uni-Uni" begin
-        topos = EnzymeRates._catalytic_topologies(uni_uni_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) == 1
-        # Every topology has exactly one SS step (the iso).
-        for t in topos
-            @test count(
-                !s.is_equilibrium for s in t) == 1
-        end
+@testset "Uni-Uni" begin
+    topos = EnzymeRates._catalytic_topologies(uni_uni_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    @test length(topos) == 1
+    # Every topology has exactly one SS step (the iso).
+    for t in topos
+        @test count(
+            !s.is_equilibrium for s in t) == 1
     end
+end
 
-    @testset "Uni-Bi" begin
-        topos = EnzymeRates._catalytic_topologies(uni_bi_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) == 3
-        for t in topos
-            @test count(
-                !s.is_equilibrium for s in t) == 1
-            m = EnzymeMechanism(_topo_mech(uni_bi_rxn, t))
-            @test m isa EnzymeMechanism
-        end
+@testset "Uni-Bi" begin
+    topos = EnzymeRates._catalytic_topologies(uni_bi_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    @test length(topos) == 3
+    for t in topos
+        @test count(
+            !s.is_equilibrium for s in t) == 1
+        m = EnzymeMechanism(_topo_mech(uni_bi_rxn, t))
+        @test m isa EnzymeMechanism
     end
+end
 
-    @testset "Bi-Bi" begin
-        topos = EnzymeRates._catalytic_topologies(bi_bi_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-        # 9 sequential topologies. A[C]→P[C] and B[N]→Q[N] each leave no
-        # covalent residue, so the only ping-pong is degenerate
-        # (empty-residue) and is rejected by the admissible-residual rule.
-        @test length(topos) == 9
-        for t in topos
-            @test count(
-                !s.is_equilibrium for s in t) == 1
-        end
+@testset "Bi-Bi" begin
+    topos = EnzymeRates._catalytic_topologies(bi_bi_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    # 9 sequential topologies. A[C]→P[C] and B[N]→Q[N] each leave no
+    # covalent residue, so the only ping-pong is degenerate
+    # (empty-residue) and is rejected by the admissible-residual rule.
+    @test length(topos) == 9
+    for t in topos
+        @test count(
+            !s.is_equilibrium for s in t) == 1
     end
+end
 
-    @testset "Bi-Bi Ping-Pong" begin
-        topos = EnzymeRates._catalytic_topologies(
-            bi_bi_pp_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) == 10
-        for t in topos
-            @test count(
-                !s.is_equilibrium for s in t) == 1
-        end
+@testset "Bi-Bi Ping-Pong" begin
+    topos = EnzymeRates._catalytic_topologies(
+        bi_bi_pp_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    @test length(topos) == 10
+    for t in topos
+        @test count(
+            !s.is_equilibrium for s in t) == 1
     end
+end
 
-    @testset "Ter-Ter" begin
-        topos = EnzymeRates._catalytic_topologies(
-            ter_ter_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) == 223
-        for t in topos
-            @test count(
-                !s.is_equilibrium for s in t) == 1
-        end
+@testset "Ter-Ter" begin
+    topos = EnzymeRates._catalytic_topologies(
+        ter_ter_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    @test length(topos) == 223
+    for t in topos
+        @test count(
+            !s.is_equilibrium for s in t) == 1
     end
+end
 
-    @testset "Ter-Bi" begin
-        topos = EnzymeRates._catalytic_topologies(
-            ter_bi_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-        # 45 = 39 sequential + 6 genuine-residual ping-pong. P[CN] combines
-        # A+B, so ping-pong covalent residuals persist on :E; the degenerate
-        # empty-residue variants are rejected by the admissible-residual rule.
-        @test length(topos) == 45
-        for t in topos
-            @test count(
-                !s.is_equilibrium for s in t) == 1
-        end
+@testset "Ter-Bi" begin
+    topos = EnzymeRates._catalytic_topologies(
+        ter_bi_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    # 45 = 39 sequential + 6 genuine-residual ping-pong. P[CN] combines
+    # A+B, so ping-pong covalent residuals persist on :E; the degenerate
+    # empty-residue variants are rejected by the admissible-residual rule.
+    @test length(topos) == 45
+    for t in topos
+        @test count(
+            !s.is_equilibrium for s in t) == 1
     end
+end
 
-    @testset "admissible-residual ping-pong" begin
-        # The admissible-residual rule rejects degenerate empty-residue
-        # ping-pong (which would return the enzyme to apo E mid-cycle,
-        # splitting the reaction into disconnected half-cycles). A genuine
-        # ping-pong intermediate carries a non-empty covalent residual,
-        # always on conformation :E (never a separate conformation). For
-        # ter-ter, residues form by combining substrates (e.g. bind A+B,
-        # release P[C] leaving an N residue), so ping-pong topologies survive.
-        ter_ter = @enzyme_reaction begin
-            substrates: A[C], B[N], D[X]
-            products: P[C], Q[N], R[X]
-        end
-        topos = EnzymeRates._catalytic_topologies(ter_ter)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-        # Every enzyme form lives on conformation :E.
-        for t in topos, s in t,
-            sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s))
-            @test EnzymeRates.conformation(sp) === :E
-        end
-        # Surviving ping-pong topologies each carry a genuine (non-empty)
-        # covalent intermediate — no empty-residue ping-pong remains.
-        pingpong = filter(t -> count(EnzymeRates.is_iso, t) >= 2, topos)
-        @test !isempty(pingpong)
-        for t in pingpong
-            @test any(
-                EnzymeRates.has_residual(sp)
-                for s in t
-                for sp in (EnzymeRates.from_species(s),
-                           EnzymeRates.to_species(s)))
-        end
+@testset "admissible-residual ping-pong" begin
+    # The admissible-residual rule rejects degenerate empty-residue
+    # ping-pong (which would return the enzyme to apo E mid-cycle,
+    # splitting the reaction into disconnected half-cycles). A genuine
+    # ping-pong intermediate carries a non-empty covalent residual,
+    # always on conformation :E (never a separate conformation). For
+    # ter-ter, residues form by combining substrates (e.g. bind A+B,
+    # release P[C] leaving an N residue), so ping-pong topologies survive.
+    ter_ter = @enzyme_reaction begin
+        substrates: A[C], B[N], D[X]
+        products: P[C], Q[N], R[X]
     end
-
-    @testset "weak-ordering combining" begin
-        # For bi-bi: 9 sequential (the degenerate empty-residue ping-pong
-        # is rejected by the admissible-residual rule).
-        bi_bi_rxn_test = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-        end
-        topos = EnzymeRates._catalytic_topologies(
-            bi_bi_rxn_test)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) == 9
-
-        topos_tt = EnzymeRates._catalytic_topologies(
-            ter_ter_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos_tt)
-        @test length(topos_tt) == 223
+    topos = EnzymeRates._catalytic_topologies(ter_ter)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    # Every enzyme form lives on conformation :E.
+    for t in topos, s in t,
+        sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s))
+        @test EnzymeRates.conformation(sp) === :E
     end
+    # Surviving ping-pong topologies each carry a genuine (non-empty)
+    # covalent intermediate — no empty-residue ping-pong remains.
+    pingpong = filter(t -> count(EnzymeRates.is_iso, t) >= 2, topos)
+    @test !isempty(pingpong)
+    for t in pingpong
+        @test any(
+            EnzymeRates.has_residual(sp)
+            for s in t
+            for sp in (EnzymeRates.from_species(s),
+                       EnzymeRates.to_species(s)))
+    end
+end
 
-    @testset "isomerization constraints" begin
-        topos = EnzymeRates._catalytic_topologies(
-            ter_ter_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
+@testset "weak-ordering combining" begin
+    # For bi-bi: 9 sequential (the degenerate empty-residue ping-pong
+    # is rejected by the admissible-residual rule).
+    bi_bi_rxn_test = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    topos = EnzymeRates._catalytic_topologies(
+        bi_bi_rxn_test)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    @test length(topos) == 9
 
-        sub_names_set = Set([:A, :B, :D])
+    topos_tt = EnzymeRates._catalytic_topologies(
+        ter_ter_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos_tt)
+    @test length(topos_tt) == 223
+end
 
-        # C5: at most max(n_subs, n_prods) = 3 metabolites bound on any form.
-        for spec in topos
-            for s in spec
-                for sp in (EnzymeRates.from_species(s),
-                           EnzymeRates.to_species(s))
-                    @test length(EnzymeRates.bound(sp)) <= 3
-                end
-            end
-        end
+@testset "isomerization constraints" begin
+    topos = EnzymeRates._catalytic_topologies(
+        ter_ter_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
 
-        # C7: every iso source must contain at
-        # least one substrate
-        for spec in topos
-            for s in spec
-                if length(_t_reactants(s)) == 1 &&
-                        length(_t_products(s)) == 1
-                    # Use bound list directly (name-parsing is ambiguous
-                    # with the concat form naming convention).
-                    src_sp, _ = _iso_orient(s)
-                    has_sub = any(
-                        b -> EnzymeRates.name(b) ∈ sub_names_set,
-                        EnzymeRates.bound(src_sp))
-                    @test has_sub
-                end
-            end
-        end
+    sub_names_set = Set([:A, :B, :D])
 
-        # C8: an iso's product-side (destination) form is built with only
-        # products bound, never substrates.
-        for spec in topos
-            for s in spec
-                EnzymeRates.is_iso(s) || continue
-                dst = _iso_orient(s)[2]
-                for b in EnzymeRates.bound(dst)
-                    @test !(EnzymeRates.name(b) ∈ sub_names_set)
-                end
+    # C5: at most max(n_subs, n_prods) = 3 metabolites bound on any form.
+    for spec in topos
+        for s in spec
+            for sp in (EnzymeRates.from_species(s),
+                       EnzymeRates.to_species(s))
+                @test length(EnzymeRates.bound(sp)) <= 3
             end
         end
     end
 
-    @testset "pyruvate carboxylase mechanism" begin
-        topos = EnzymeRates._catalytic_topologies(
-            pyruvate_carboxylase_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-
-        # Known mechanism: ATP+HCO3 → ADP+Pi leaving a CO2 covalent
-        # residual on :E, then Pyr+CO2 → OAA. The carboxylation iso converts
-        # the {ATP,HCO3}-bound form into a residual-bearing form; the
-        # carboxyl-transfer iso converts a residual-bearing Pyr form into the
-        # bare E(OAA).
-        _bset(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
-        found = false
-        for spec in topos
-            has_carboxylation = any(spec) do s
-                EnzymeRates.is_iso(s) || return false
-                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
-                (_bset(f) == Set([:ATP, :HCO3]) &&
-                    !EnzymeRates.has_residual(f) &&
-                    EnzymeRates.has_residual(t)) ||
-                (_bset(t) == Set([:ATP, :HCO3]) &&
-                    !EnzymeRates.has_residual(t) &&
-                    EnzymeRates.has_residual(f))
-            end
-            has_carboxyl_transfer = any(spec) do s
-                EnzymeRates.is_iso(s) || return false
-                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
-                (_bset(f) == Set([:OAA]) && !EnzymeRates.has_residual(f) &&
-                    :Pyr in _bset(t) && EnzymeRates.has_residual(t)) ||
-                (_bset(t) == Set([:OAA]) && !EnzymeRates.has_residual(t) &&
-                    :Pyr in _bset(f) && EnzymeRates.has_residual(f))
-            end
-            if has_carboxylation && has_carboxyl_transfer
-                found = true
-                break
-            end
-        end
-        @test found
-
-        # 312 = 169 seq + 143 pp, classified by iso-step count: sequential
-        # topologies have one iso step, ping-pong ≥2. Every topology (seq or
-        # pp) has exactly one SS step — for ping-pong only one of the iso
-        # steps is steady-state, the rest are rapid-equilibrium.
-        @test length(topos) == 312
-        seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
-        pp_count = length(topos) - seq_count
-        @test seq_count == 169
-        @test pp_count == 143
-    end
-
-    @testset "pyruvate dehydrogenase mechanism" begin
-        topos = EnzymeRates._catalytic_topologies(
-            pyruvate_dehydrogenase_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-
-        # Known mechanism, with covalent residuals on :E:
-        # Pyr→CO2 (leaves an acetyl residual),
-        # CoA+acetyl→AcCoA (leaves a hydride residual),
-        # NAD+hydride→NADH (residual cancels → bare E(NADH)).
-        _bset(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
-        found = false
-        for spec in topos
-            has_pyr = any(spec) do s
-                EnzymeRates.is_iso(s) || return false
-                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
-                (_bset(f) == Set([:Pyr]) && !EnzymeRates.has_residual(f) &&
-                    _bset(t) == Set([:CO2]) && EnzymeRates.has_residual(t)) ||
-                (_bset(t) == Set([:Pyr]) && !EnzymeRates.has_residual(t) &&
-                    _bset(f) == Set([:CO2]) && EnzymeRates.has_residual(f))
-            end
-            has_coa = any(spec) do s
-                EnzymeRates.is_iso(s) || return false
-                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
-                (_bset(f) == Set([:CoA]) && EnzymeRates.has_residual(f) &&
-                    _bset(t) == Set([:AcCoA]) && EnzymeRates.has_residual(t)) ||
-                (_bset(t) == Set([:CoA]) && EnzymeRates.has_residual(t) &&
-                    _bset(f) == Set([:AcCoA]) && EnzymeRates.has_residual(f))
-            end
-            has_nad = any(spec) do s
-                EnzymeRates.is_iso(s) || return false
-                f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
-                (_bset(f) == Set([:NAD]) && EnzymeRates.has_residual(f) &&
-                    _bset(t) == Set([:NADH]) && !EnzymeRates.has_residual(t)) ||
-                (_bset(t) == Set([:NAD]) && EnzymeRates.has_residual(t) &&
-                    _bset(f) == Set([:NADH]) && !EnzymeRates.has_residual(f))
-            end
-            if has_pyr && has_coa && has_nad
-                found = true
-                break
-            end
-        end
-        @test found
-
-        # 334 = 169 seq + 165 pp, classified by iso-step count: sequential
-        # topologies have one iso step, ping-pong ≥2. Every topology (seq or
-        # pp) has exactly one SS step — for ping-pong only one of the iso
-        # steps is steady-state, the rest are rapid-equilibrium.
-        @test length(topos) == 334
-        seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
-        pp_count = length(topos) - seq_count
-        @test seq_count == 169
-        @test pp_count == 165
-    end
-
-    @testset "quad-quad: C6 forces ping-pong" begin
-        # Quad-quad reaction: 4 subs, 4 prods
-        # With C6 (iso ≤ 3×3), 4→4 sequential iso is blocked
-        # All topologies must use ping-pong (at least 2 iso steps)
-        quad_rxn = @enzyme_reaction begin
-            substrates: A[C], B[N], D[X], F[Y]
-            products: P[C], Q[N], R[X], S[Y]
-        end
-        topos = EnzymeRates._catalytic_topologies(quad_rxn)
-        @test all(isempty(_connectivity_violations(t)) for t in topos)
-        @test length(topos) > 0
-        # Every topology must have ≥ 2 iso steps (no 4→4)
-        for spec in topos
-            n_iso = count(spec) do s
-                length(_t_reactants(s)) == 1 &&
+    # C7: every iso source must contain at
+    # least one substrate
+    for spec in topos
+        for s in spec
+            if length(_t_reactants(s)) == 1 &&
                     length(_t_products(s)) == 1
+                # Use bound list directly (name-parsing is ambiguous
+                # with the concat form naming convention).
+                src_sp, _ = _iso_orient(s)
+                has_sub = any(
+                    b -> EnzymeRates.name(b) ∈ sub_names_set,
+                    EnzymeRates.bound(src_sp))
+                @test has_sub
             end
-            @test n_iso >= 2
         end
     end
+
+    # C8: an iso's product-side (destination) form is built with only
+    # products bound, never substrates.
+    for spec in topos
+        for s in spec
+            EnzymeRates.is_iso(s) || continue
+            dst = _iso_orient(s)[2]
+            for b in EnzymeRates.bound(dst)
+                @test !(EnzymeRates.name(b) ∈ sub_names_set)
+            end
+        end
+    end
+end
+
+@testset "pyruvate carboxylase mechanism" begin
+    topos = EnzymeRates._catalytic_topologies(
+        pyruvate_carboxylase_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+
+    # Known mechanism: ATP+HCO3 → ADP+Pi leaving a CO2 covalent
+    # residual on :E, then Pyr+CO2 → OAA. The carboxylation iso converts
+    # the {ATP,HCO3}-bound form into a residual-bearing form; the
+    # carboxyl-transfer iso converts a residual-bearing Pyr form into the
+    # bare E(OAA).
+    _bset(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
+    found = false
+    for spec in topos
+        has_carboxylation = any(spec) do s
+            EnzymeRates.is_iso(s) || return false
+            f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+            (_bset(f) == Set([:ATP, :HCO3]) &&
+                !EnzymeRates.has_residual(f) &&
+                EnzymeRates.has_residual(t)) ||
+            (_bset(t) == Set([:ATP, :HCO3]) &&
+                !EnzymeRates.has_residual(t) &&
+                EnzymeRates.has_residual(f))
+        end
+        has_carboxyl_transfer = any(spec) do s
+            EnzymeRates.is_iso(s) || return false
+            f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+            (_bset(f) == Set([:OAA]) && !EnzymeRates.has_residual(f) &&
+                :Pyr in _bset(t) && EnzymeRates.has_residual(t)) ||
+            (_bset(t) == Set([:OAA]) && !EnzymeRates.has_residual(t) &&
+                :Pyr in _bset(f) && EnzymeRates.has_residual(f))
+        end
+        if has_carboxylation && has_carboxyl_transfer
+            found = true
+            break
+        end
+    end
+    @test found
+
+    # 312 = 169 seq + 143 pp, classified by iso-step count: sequential
+    # topologies have one iso step, ping-pong ≥2. Every topology (seq or
+    # pp) has exactly one SS step — for ping-pong only one of the iso
+    # steps is steady-state, the rest are rapid-equilibrium.
+    @test length(topos) == 312
+    seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
+    pp_count = length(topos) - seq_count
+    @test seq_count == 169
+    @test pp_count == 143
+end
+
+@testset "pyruvate dehydrogenase mechanism" begin
+    topos = EnzymeRates._catalytic_topologies(
+        pyruvate_dehydrogenase_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+
+    # Known mechanism, with covalent residuals on :E:
+    # Pyr→CO2 (leaves an acetyl residual),
+    # CoA+acetyl→AcCoA (leaves a hydride residual),
+    # NAD+hydride→NADH (residual cancels → bare E(NADH)).
+    _bset(sp) = Set(EnzymeRates.name(b) for b in EnzymeRates.bound(sp))
+    found = false
+    for spec in topos
+        has_pyr = any(spec) do s
+            EnzymeRates.is_iso(s) || return false
+            f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+            (_bset(f) == Set([:Pyr]) && !EnzymeRates.has_residual(f) &&
+                _bset(t) == Set([:CO2]) && EnzymeRates.has_residual(t)) ||
+            (_bset(t) == Set([:Pyr]) && !EnzymeRates.has_residual(t) &&
+                _bset(f) == Set([:CO2]) && EnzymeRates.has_residual(f))
+        end
+        has_coa = any(spec) do s
+            EnzymeRates.is_iso(s) || return false
+            f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+            (_bset(f) == Set([:CoA]) && EnzymeRates.has_residual(f) &&
+                _bset(t) == Set([:AcCoA]) && EnzymeRates.has_residual(t)) ||
+            (_bset(t) == Set([:CoA]) && EnzymeRates.has_residual(t) &&
+                _bset(f) == Set([:AcCoA]) && EnzymeRates.has_residual(f))
+        end
+        has_nad = any(spec) do s
+            EnzymeRates.is_iso(s) || return false
+            f, t = EnzymeRates.from_species(s), EnzymeRates.to_species(s)
+            (_bset(f) == Set([:NAD]) && EnzymeRates.has_residual(f) &&
+                _bset(t) == Set([:NADH]) && !EnzymeRates.has_residual(t)) ||
+            (_bset(t) == Set([:NAD]) && EnzymeRates.has_residual(t) &&
+                _bset(f) == Set([:NADH]) && !EnzymeRates.has_residual(f))
+        end
+        if has_pyr && has_coa && has_nad
+            found = true
+            break
+        end
+    end
+    @test found
+
+    # 334 = 169 seq + 165 pp, classified by iso-step count: sequential
+    # topologies have one iso step, ping-pong ≥2. Every topology (seq or
+    # pp) has exactly one SS step — for ping-pong only one of the iso
+    # steps is steady-state, the rest are rapid-equilibrium.
+    @test length(topos) == 334
+    seq_count = count(t -> count(EnzymeRates.is_iso, t) == 1, topos)
+    pp_count = length(topos) - seq_count
+    @test seq_count == 169
+    @test pp_count == 165
+end
+
+@testset "quad-quad: C6 forces ping-pong" begin
+    # Quad-quad reaction: 4 subs, 4 prods
+    # With C6 (iso ≤ 3×3), 4→4 sequential iso is blocked
+    # All topologies must use ping-pong (at least 2 iso steps)
+    quad_rxn = @enzyme_reaction begin
+        substrates: A[C], B[N], D[X], F[Y]
+        products: P[C], Q[N], R[X], S[Y]
+    end
+    topos = EnzymeRates._catalytic_topologies(quad_rxn)
+    @test all(isempty(_connectivity_violations(t)) for t in topos)
+    @test length(topos) > 0
+    # Every topology must have ≥ 2 iso steps (no 4→4)
+    for spec in topos
+        n_iso = count(spec) do s
+            length(_t_reactants(s)) == 1 &&
+                length(_t_products(s)) == 1
+        end
+        @test n_iso >= 2
+    end
+end
 
 end
 
 # ─── _competition_patterns ──────────────────────────────────────────────
 @testset "_competition_patterns" begin
-    # Uni-uni: 1×1, only 1 pattern (single edge)
-    pats_11 = EnzymeRates._competition_patterns(
-        Set([:S]), Set([:P]))
-    @test length(pats_11) == 1
-    @test pats_11[1] == Set([(:S, :P)])
+# Uni-uni: 1×1, only 1 pattern (single edge)
+pats_11 = EnzymeRates._competition_patterns(
+    Set([:S]), Set([:P]))
+@test length(pats_11) == 1
+@test pats_11[1] == Set([(:S, :P)])
 
-    # Uni-bi: 1×2, S competes with both P and Q
-    pats_12 = EnzymeRates._competition_patterns(
-        Set([:S]), Set([:P, :Q]))
-    @test length(pats_12) == 1
-    @test pats_12[1] == Set([(:S, :P), (:S, :Q)])
+# Uni-bi: 1×2, S competes with both P and Q
+pats_12 = EnzymeRates._competition_patterns(
+    Set([:S]), Set([:P, :Q]))
+@test length(pats_12) == 1
+@test pats_12[1] == Set([(:S, :P), (:S, :Q)])
 
-    # Bi-uni: symmetric
-    pats_21 = EnzymeRates._competition_patterns(
-        Set([:A, :B]), Set([:P]))
-    @test length(pats_21) == 1
-    @test pats_21[1] == Set([(:A, :P), (:B, :P)])
+# Bi-uni: symmetric
+pats_21 = EnzymeRates._competition_patterns(
+    Set([:A, :B]), Set([:P]))
+@test length(pats_21) == 1
+@test pats_21[1] == Set([(:A, :P), (:B, :P)])
 
-    # Bi-bi: 7 patterns
-    pats_22 = EnzymeRates._competition_patterns(
-        Set([:A, :B]), Set([:P, :Q]))
-    @test length(pats_22) == 7
-    # Every pattern covers all vertices
-    for pat in pats_22
-        for s in [:A, :B]
-            @test any(
-                p -> (s, p) in pat, [:P, :Q])
-        end
-        for p in [:P, :Q]
-            @test any(
-                s -> (s, p) in pat, [:A, :B])
-        end
+# Bi-bi: 7 patterns
+pats_22 = EnzymeRates._competition_patterns(
+    Set([:A, :B]), Set([:P, :Q]))
+@test length(pats_22) == 7
+# Every pattern covers all vertices
+for pat in pats_22
+    for s in [:A, :B]
+        @test any(
+            p -> (s, p) in pat, [:P, :Q])
     end
-    # Invalid: {A↔P, B↔P} leaves Q uncovered
-    @test Set([(:A, :P), (:B, :P)]) ∉ pats_22
+    for p in [:P, :Q]
+        @test any(
+            s -> (s, p) in pat, [:A, :B])
+    end
+end
+# Invalid: {A↔P, B↔P} leaves Q uncovered
+@test Set([(:A, :P), (:B, :P)]) ∉ pats_22
 
-    # Ter-ter: 265 patterns
-    pats_33 = EnzymeRates._competition_patterns(
-        Set([:A, :B, :C]),
-        Set([:P, :Q, :R]))
-    @test length(pats_33) == 265
-    for pat in pats_33
-        for s in [:A, :B, :C]
-            @test any(
-                p -> (s, p) in pat,
-                [:P, :Q, :R])
+# Ter-ter: 265 patterns
+pats_33 = EnzymeRates._competition_patterns(
+    Set([:A, :B, :C]),
+    Set([:P, :Q, :R]))
+@test length(pats_33) == 265
+for pat in pats_33
+    for s in [:A, :B, :C]
+        @test any(
+            p -> (s, p) in pat,
+            [:P, :Q, :R])
+    end
+    for p in [:P, :Q, :R]
+        @test any(
+            s -> (s, p) in pat,
+            [:A, :B, :C])
+    end
+end
+
+@testset "Asymmetric: 2 × 3" begin
+    # 2 substrates × 3 products. Bipartite-cover count on K(2,3)
+    # by inclusion-exclusion = 25.
+    pats = EnzymeRates._competition_patterns(Set([:A, :B]), Set([:P, :Q, :R]))
+    @test length(pats) == 25
+    for pat in pats
+        for s in [:A, :B]
+            @test any((s, p) in pat for p in [:P, :Q, :R])
         end
         for p in [:P, :Q, :R]
-            @test any(
-                s -> (s, p) in pat,
-                [:A, :B, :C])
+            @test any((s, p) in pat for s in [:A, :B])
         end
     end
+end
 
-    @testset "Asymmetric: 2 × 3" begin
-        # 2 substrates × 3 products. Bipartite-cover count on K(2,3)
-        # by inclusion-exclusion = 25.
-        pats = EnzymeRates._competition_patterns(Set([:A, :B]), Set([:P, :Q, :R]))
-        @test length(pats) == 25
-        for pat in pats
-            for s in [:A, :B]
-                @test any((s, p) in pat for p in [:P, :Q, :R])
-            end
-            for p in [:P, :Q, :R]
-                @test any((s, p) in pat for s in [:A, :B])
-            end
+@testset "Asymmetric: 3 × 2" begin
+    # By symmetry with 2 × 3, count is also 25.
+    pats = EnzymeRates._competition_patterns(Set([:A, :B, :D]), Set([:P, :Q]))
+    @test length(pats) == 25
+    for pat in pats
+        for s in [:A, :B, :D]
+            @test any((s, p) in pat for p in [:P, :Q])
+        end
+        for p in [:P, :Q]
+            @test any((s, p) in pat for s in [:A, :B, :D])
         end
     end
-
-    @testset "Asymmetric: 3 × 2" begin
-        # By symmetry with 2 × 3, count is also 25.
-        pats = EnzymeRates._competition_patterns(Set([:A, :B, :D]), Set([:P, :Q]))
-        @test length(pats) == 25
-        for pat in pats
-            for s in [:A, :B, :D]
-                @test any((s, p) in pat for p in [:P, :Q])
-            end
-            for p in [:P, :Q]
-                @test any((s, p) in pat for s in [:A, :B, :D])
-            end
-        end
-    end
+end
 end
 
 # ─── _inhibitor_competition_patterns ────────────────────────────────────
 @testset "_inhibitor_competition_patterns" begin
-    # Uni-uni, no existing inhibitors
+# Uni-uni, no existing inhibitors
+pats = EnzymeRates._inhibitor_competition_patterns(
+    Set([:S]), Set([:P]), Symbol[])
+@test length(pats) == 1
+@test pats[1] == (Set([:S]), Set([:P]), Set{Symbol}())
+
+# Bi-bi, no existing inhibitors: 3×3 = 9
+pats_bb = EnzymeRates._inhibitor_competition_patterns(
+    Set([:A, :B]), Set([:P, :Q]), Symbol[])
+@test length(pats_bb) == 9
+
+# Ter-ter, no existing inhibitors: 7×7 = 49
+pats_tt = EnzymeRates._inhibitor_competition_patterns(
+    Set([:A, :B, :C]), Set([:P, :Q, :R]), Symbol[])
+@test length(pats_tt) == 49
+
+# Bi-bi, 1 existing inhibitor: 9 × 2 = 18
+pats_1i = EnzymeRates._inhibitor_competition_patterns(
+    Set([:A, :B]), Set([:P, :Q]), [:I1__reg])
+@test length(pats_1i) == 18
+
+# Bi-bi, 2 existing inhibitors: 9 × 4 = 36
+pats_2i = EnzymeRates._inhibitor_competition_patterns(
+    Set([:A, :B]), Set([:P, :Q]),
+    [:I1__reg, :I2__reg])
+@test length(pats_2i) == 36
+
+@testset "Bi-bi with 3 existing inhibitors: 9 × 8 = 72" begin
+    # 3 existing inhibitors → 2^3 = 8 inhibitor-competition combinations.
+    # Combined with 9 base patterns → 9 × 8 = 72 variants.
     pats = EnzymeRates._inhibitor_competition_patterns(
-        Set([:S]), Set([:P]), Symbol[])
-    @test length(pats) == 1
-    @test pats[1] == (Set([:S]), Set([:P]), Set{Symbol}())
-
-    # Bi-bi, no existing inhibitors: 3×3 = 9
-    pats_bb = EnzymeRates._inhibitor_competition_patterns(
-        Set([:A, :B]), Set([:P, :Q]), Symbol[])
-    @test length(pats_bb) == 9
-
-    # Ter-ter, no existing inhibitors: 7×7 = 49
-    pats_tt = EnzymeRates._inhibitor_competition_patterns(
-        Set([:A, :B, :C]), Set([:P, :Q, :R]), Symbol[])
-    @test length(pats_tt) == 49
-
-    # Bi-bi, 1 existing inhibitor: 9 × 2 = 18
-    pats_1i = EnzymeRates._inhibitor_competition_patterns(
-        Set([:A, :B]), Set([:P, :Q]), [:I1__reg])
-    @test length(pats_1i) == 18
-
-    # Bi-bi, 2 existing inhibitors: 9 × 4 = 36
-    pats_2i = EnzymeRates._inhibitor_competition_patterns(
         Set([:A, :B]), Set([:P, :Q]),
-        [:I1__reg, :I2__reg])
-    @test length(pats_2i) == 36
-
-    @testset "Bi-bi with 3 existing inhibitors: 9 × 8 = 72" begin
-        # 3 existing inhibitors → 2^3 = 8 inhibitor-competition combinations.
-        # Combined with 9 base patterns → 9 × 8 = 72 variants.
-        pats = EnzymeRates._inhibitor_competition_patterns(
-            Set([:A, :B]), Set([:P, :Q]),
-            [:I1__reg, :I2__reg, :I3__reg])
-        @test length(pats) == 72
-    end
+        [:I1__reg, :I2__reg, :I3__reg])
+    @test length(pats) == 72
+end
 end
 
 # ─── _forms_with_binding_step ───────────────────────────────────────────
 @testset "_forms_with_binding_step" begin
-    # Uni-uni: S binds to E, P binds to E
-    m_uu = @enzyme_mechanism begin
+@testset "_forms_with_binding_step" begin
+# Uni-uni: S binds to E, P binds to E
+m_uu = @enzyme_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + P ⇌ E(P)
+        E + S ⇌ E(S)
+        E(S) <--> E(P)
+    end
+end
+mech_uu = EnzymeRates.Mechanism(m_uu)
+@test EnzymeRates._forms_with_binding_step_native(
+    mech_uu, :S) == Set([:E])
+@test EnzymeRates._forms_with_binding_step_native(
+    mech_uu, :P) == Set([:E])
+
+# Bi-bi random: B binds to E and E_A
+m_bb = @enzyme_mechanism begin
+    substrates: A, B
+    products: P, Q
+    steps: begin
+        E + A ⇌ E(A)
+        E(B) + A ⇌ E(A, B)
+        E + B ⇌ E(B)
+        E(A) + B ⇌ E(A, B)
+        E + P ⇌ E(P)
+        E(P) + Q ⇌ E(P, Q)
+        E + Q ⇌ E(Q)
+        E(Q) + P ⇌ E(P, Q)
+        E(A, B) <--> E(P, Q)
+    end
+end
+mech_bb = EnzymeRates.Mechanism(m_bb)
+@test EnzymeRates._forms_with_binding_step_native(
+    mech_bb, :B) == Set([:E, :EA])
+@test EnzymeRates._forms_with_binding_step_native(
+    mech_bb, :A) == Set([:E, :EB])
+@test EnzymeRates._forms_with_binding_step_native(
+    mech_bb, :P) == Set([:E, :EQ])
+@test EnzymeRates._forms_with_binding_step_native(
+    mech_bb, :Q) == Set([:E, :EP])
+end
+end
+
+# ─── _substrate_product_dead_end_opportunities ──────────────────────────
+@testset "_substrate_product_dead_end_opportunities" begin
+# Random ter-ter topology has 27 possible
+# dead-end forms. With diagonal competition
+# {A↔P, B↔Q, D↔R}:
+#   1S+1P: 6 allowed, 3 forbidden (the 3
+#     diagonal pairs A-P, B-Q, D-R)
+#   2S+1P: 3 allowed (EABR, EADQ,
+#     EBDP), 6 forbidden
+#   1S+2P: 3 allowed (EAQR, EBPR,
+#     EDPQ), 6 forbidden
+#   Total: 12 allowed out of 27
+topos = EnzymeRates._catalytic_topologies(
+    ter_ter_rxn)
+# Pick a sequential topo with most forms
+_, idx = findmax(
+    length(_form_names(t))
+    for t in topos)
+random_topo = topos[idx]
+bound = _boundmap(random_topo)
+form_sp = _form_species(random_topo)
+sub_names = Set([:A, :B, :D])
+prod_names = Set([:P, :Q, :R])
+cat_forms = _form_names(random_topo)
+_role(m) = m in sub_names ? EnzymeRates.Substrate(m) :
+                            EnzymeRates.Product(m)
+_add(sp, m) = EnzymeRates.Species(
+    EnzymeRates.Metabolite[EnzymeRates.bound(sp)..., _role(m)],
+    EnzymeRates.conformation(sp), EnzymeRates.residual(sp))
+_sp_de_opps =
+    EnzymeRates._substrate_product_dead_end_opportunities
+de_opps = _sp_de_opps(
+    form_sp, bound, cat_forms,
+    sub_names, prod_names, _add)
+# Group dead-end forms
+de_forms = Dict{Symbol,
+    Vector{Tuple{Symbol, Symbol}}}()
+for (f, m) in de_opps
+    de_name = EnzymeRates.name(_add(form_sp[f], m))
+    push!(get!(de_forms, de_name,
+        Tuple{Symbol, Symbol}[]), (f, m))
+end
+de_form_names =
+    sort(collect(keys(de_forms)))
+@test length(de_form_names) == 27
+
+# Build de_bound mapping
+de_bound = Dict{Symbol, Set{Symbol}}()
+for de_name in de_form_names
+    f, m = first(de_forms[de_name])
+    de_bound[de_name] = union(
+        bound[f], Set([m]))
+end
+
+# Apply diagonal competition filter
+diagonal =
+    Set([(:A, :P), (:B, :Q), (:D, :R)])
+allowed = Symbol[]
+for de_name in de_form_names
+    mets = de_bound[de_name]
+    de_subs = intersect(mets, sub_names)
+    de_prods =
+        intersect(mets, prod_names)
+    has_conflict = any(
+        (s, p) in diagonal
+        for s in de_subs
+        for p in de_prods)
+    has_conflict ||
+        push!(allowed, de_name)
+end
+@test length(allowed) == 12
+
+# Verify specific allowed forms
+@test :EAQ in allowed   # 1S+1P
+@test :EAR in allowed
+@test :EBP in allowed
+@test :EBR in allowed
+@test :EDP in allowed
+@test :EDQ in allowed
+@test :EABR in allowed # 2S+1P
+@test :EADQ in allowed
+@test :EBDP in allowed
+@test :EAQR in allowed # 1S+2P
+@test :EBPR in allowed
+@test :EDPQ in allowed
+
+# Verify specific forbidden forms
+@test :EAP ∉ allowed    # A↔P diagonal
+@test :EBQ ∉ allowed    # B↔Q diagonal
+@test :EDR ∉ allowed    # D↔R diagonal
+end
+
+# ─── _expand_substrate_product_dead_ends ────────────────────────────────
+@testset "_expand_substrate_product_dead_ends" begin
+@testset "_expand_substrate_product_dead_ends" begin
+
+@testset "Uni-Uni: no dead-end forms" begin
+    # 3 forms: E, E_S[C], E_P[C]. E_S has all subs,
+    # E_P has all prods. No mixed dead-end possible.
+    # → 0 dead-end forms, 1 variant (bare topology)
+    m = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -802,13 +945,126 @@ end
             E(S) <--> E(P)
         end
     end
-    mech_uu = EnzymeRates.Mechanism(m_uu)
-    @test EnzymeRates._forms_with_binding_step_native(
-        mech_uu, :S) == Set([:E])
-    @test EnzymeRates._forms_with_binding_step_native(
-        mech_uu, :P) == Set([:E])
+    topo = _flat_topo(m)
+    result =
+        EnzymeRates._expand_substrate_product_dead_ends(
+            [topo],uni_uni_rxn)
+    @test all(isempty(_connectivity_violations(steps))
+              for (steps, _groups) in result)
+    @test length(result) == 1
+end
 
-    # Bi-bi random: B binds to E and E_A
+@testset "Bi-Bi random: 4 dead-end forms" begin
+    # 7 forms: E, E_A, E_B, E_A_B, E_P, E_Q, E_P_Q
+    # Eligible dead-end forms (mixed sub+prod binding):
+    #   E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
+    #   E_B: +P→E_B_P(mixed✓), +Q→E_B_Q(mixed✓)
+    #   E_P: +A→E_A_P(same), +B→E_B_P(same)
+    #   E_Q: +A→E_A_Q(same), +B→E_B_Q(same)
+    # 4 unique mixed-substrate-product forms across competition patterns.
+    # Competition patterns for bi-bi (2 subs × 2 prods): 7 patterns
+    # (the count from _competition_patterns(2, 2)). Each pattern produces
+    # a distinct dead-end-form set:
+    #   {A↔P, B↔Q}: forbids E_A_P, E_B_Q → emits {E_A_Q, E_B_P}
+    #   {A↔Q, B↔P}: forbids E_A_Q, E_B_P → emits {E_A_P, E_B_Q}
+    #   ... (one set per pattern, all distinct)
+    #   {A↔P, A↔Q, B↔P, B↔Q}: forbids all → emits {} (bare topology)
+    # All 7 sets are distinct → 7 variants after dedup.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(B) + A ⇌ E(A, B)
+            E + B ⇌ E(B)
+            E(A) + B ⇌ E(A, B)
+            E + P ⇌ E(P)
+            E(P) + Q ⇌ E(P, Q)
+            E + Q ⇌ E(Q)
+            E(Q) + P ⇌ E(P, Q)
+            E(A, B) <--> E(P, Q)
+        end
+    end
+    topo = _flat_topo(m)
+    result =
+        EnzymeRates._expand_substrate_product_dead_ends(
+            [topo],bi_bi_rxn)
+    @test all(isempty(_connectivity_violations(steps))
+              for (steps, _groups) in result)
+    # 4 unique dead-end forms, 7 competition patterns,
+    # all 7 produce distinct dead-end sets → 7 variants
+    @test length(result) == 7
+end
+
+@testset "Uni-Bi ordered: no dead-end forms" begin
+    # 4 forms: E, E_S, E_P_Q, E_Q
+    # E+P→E_P: single-product → rejected (need mixed)
+    # E_Q+S→E_S_Q: has all subs → rejected
+    # → 0 dead-end forms, 1 variant
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + Q ⇌ E(Q)
+            E(Q) + P ⇌ E(P, Q)
+            E + S ⇌ E(S)
+            E(S) <--> E(P, Q)
+        end
+    end
+    topo = _flat_topo(m)
+    result =
+        EnzymeRates._expand_substrate_product_dead_ends(
+            [topo],uni_bi_rxn)
+    @test all(isempty(_connectivity_violations(steps))
+              for (steps, _groups) in result)
+    @test length(result) == 1
+end
+
+@testset "Bi-Bi Ping-Pong: 5 dead-end forms → 7 variants" begin
+    # Forms: E, E_A, Estar, Estar_A_P, Estar_B, E_Q
+    # 5 dead-end forms total (E-side: E_A_P, E_A_Q, E_B_Q; Estar-side:
+    # Estar_B_P, Estar_B_Q). 7 competition patterns; each yields a
+    # distinct dead-end-form set after dedup → 7 variants.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            Estar + B ⇌ Estar(B)
+            E + Q ⇌ E(Q)
+            Estar + P ⇌ Estar(A, P)
+            E(A) <--> Estar(A, P)
+            Estar(B) ⇌ E(Q)
+        end
+    end
+    topo = _flat_topo(m)
+    result =
+        EnzymeRates._expand_substrate_product_dead_ends(
+            [topo],bi_bi_pp_rxn)
+    @test all(isempty(_connectivity_violations(steps))
+              for (steps, _groups) in result)
+    # 5 dead-end forms (E_A_P, E_A_Q, E_B_Q from
+    # E-side + Estar_B_P, Estar_B_Q from
+    # Estar-side), competition-filtered
+    @test length(result) == 7
+
+    # Assert that some result variants contain Estar-prefixed dead-end
+    # forms (proving dead-end forms inherit the base form's Estar
+    # conformation).
+    seed_forms = _form_names(topo)
+    new_estar_forms = Set{Symbol}()
+    for r in result
+        new_forms = setdiff(_form_names(r[1]), seed_forms)
+        for f in new_forms
+            startswith(string(f), "Estar") && string(f) != "Estar" && push!(new_estar_forms, f)
+        end
+    end
+    @test !isempty(new_estar_forms)
+end
+
+@testset "Dead-end filtering by competition" begin
+
+    # Shared bi-bi random mechanism for multiple tests
     m_bb = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -824,361 +1080,108 @@ end
             E(A, B) <--> E(P, Q)
         end
     end
-    mech_bb = EnzymeRates.Mechanism(m_bb)
-    @test EnzymeRates._forms_with_binding_step_native(
-        mech_bb, :B) == Set([:E, :EA])
-    @test EnzymeRates._forms_with_binding_step_native(
-        mech_bb, :A) == Set([:E, :EB])
-    @test EnzymeRates._forms_with_binding_step_native(
-        mech_bb, :P) == Set([:E, :EQ])
-    @test EnzymeRates._forms_with_binding_step_native(
-        mech_bb, :Q) == Set([:E, :EP])
-end
+    topo_bb = _flat_topo(m_bb)
 
-# ─── _substrate_product_dead_end_opportunities ──────────────────────────
-@testset "_substrate_product_dead_end_opportunities" begin
-    # Random ter-ter topology has 27 possible
-    # dead-end forms. With diagonal competition
-    # {A↔P, B↔Q, D↔R}:
-    #   1S+1P: 6 allowed, 3 forbidden (the 3
-    #     diagonal pairs A-P, B-Q, D-R)
-    #   2S+1P: 3 allowed (EABR, EADQ,
-    #     EBDP), 6 forbidden
-    #   1S+2P: 3 allowed (EAQR, EBPR,
-    #     EDPQ), 6 forbidden
-    #   Total: 12 allowed out of 27
-    topos = EnzymeRates._catalytic_topologies(
-        ter_ter_rxn)
-    # Pick a sequential topo with most forms
-    _, idx = findmax(
-        length(_form_names(t))
-        for t in topos)
-    random_topo = topos[idx]
-    bound = _boundmap(random_topo)
-    form_sp = _form_species(random_topo)
-    sub_names = Set([:A, :B, :D])
-    prod_names = Set([:P, :Q, :R])
-    cat_forms = _form_names(random_topo)
-    _role(m) = m in sub_names ? EnzymeRates.Substrate(m) :
-                                EnzymeRates.Product(m)
-    _add(sp, m) = EnzymeRates.Species(
-        EnzymeRates.Metabolite[EnzymeRates.bound(sp)..., _role(m)],
-        EnzymeRates.conformation(sp), EnzymeRates.residual(sp))
-    _sp_de_opps =
-        EnzymeRates._substrate_product_dead_end_opportunities
-    de_opps = _sp_de_opps(
-        form_sp, bound, cat_forms,
-        sub_names, prod_names, _add)
-    # Group dead-end forms
-    de_forms = Dict{Symbol,
-        Vector{Tuple{Symbol, Symbol}}}()
-    for (f, m) in de_opps
-        de_name = EnzymeRates.name(_add(form_sp[f], m))
-        push!(get!(de_forms, de_name,
-            Tuple{Symbol, Symbol}[]), (f, m))
-    end
-    de_form_names =
-        sort(collect(keys(de_forms)))
-    @test length(de_form_names) == 27
+    # Note: the variant count assertion (length == 7) is covered by
+    # the "Bi-Bi random: 4 dead-end forms" sub-testset higher in this
+    # same parent testset. The sub-testsets below probe the SHAPE of
+    # those 7 variants — which forms appear in each, and which
+    # patterns produce empty/full dead-end sets.
 
-    # Build de_bound mapping
-    de_bound = Dict{Symbol, Set{Symbol}}()
-    for de_name in de_form_names
-        f, m = first(de_forms[de_name])
-        de_bound[de_name] = union(
-            bound[f], Set([m]))
-    end
-
-    # Apply diagonal competition filter
-    diagonal =
-        Set([(:A, :P), (:B, :Q), (:D, :R)])
-    allowed = Symbol[]
-    for de_name in de_form_names
-        mets = de_bound[de_name]
-        de_subs = intersect(mets, sub_names)
-        de_prods =
-            intersect(mets, prod_names)
-        has_conflict = any(
-            (s, p) in diagonal
-            for s in de_subs
-            for p in de_prods)
-        has_conflict ||
-            push!(allowed, de_name)
-    end
-    @test length(allowed) == 12
-
-    # Verify specific allowed forms
-    @test :EAQ in allowed   # 1S+1P
-    @test :EAR in allowed
-    @test :EBP in allowed
-    @test :EBR in allowed
-    @test :EDP in allowed
-    @test :EDQ in allowed
-    @test :EABR in allowed # 2S+1P
-    @test :EADQ in allowed
-    @test :EBDP in allowed
-    @test :EAQR in allowed # 1S+2P
-    @test :EBPR in allowed
-    @test :EDPQ in allowed
-
-    # Verify specific forbidden forms
-    @test :EAP ∉ allowed    # A↔P diagonal
-    @test :EBQ ∉ allowed    # B↔Q diagonal
-    @test :EDR ∉ allowed    # D↔R diagonal
-end
-
-# ─── _expand_substrate_product_dead_ends ────────────────────────────────
-@testset "_expand_substrate_product_dead_ends" begin
-
-    @testset "Uni-Uni: no dead-end forms" begin
-        # 3 forms: E, E_S[C], E_P[C]. E_S has all subs,
-        # E_P has all prods. No mixed dead-end possible.
-        # → 0 dead-end forms, 1 variant (bare topology)
-        m = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E(P)
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-            end
-        end
-        topo = _flat_topo(m)
+    @testset "Bi-bi random: complete competition → bare topology" begin
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
-                [topo],uni_uni_rxn)
+                [topo_bb],bi_bi_rxn)
         @test all(isempty(_connectivity_violations(steps))
                   for (steps, _groups) in result)
-        @test length(result) == 1
+        # Complete pattern {A↔P,A↔Q,B↔P,B↔Q} forbids
+        # all dead-end forms → 1 variant has no dead-end
+        # steps (same step count as original)
+        bare = filter(
+            r -> length(r[1]) == length(topo_bb),
+            result)
+        @test length(bare) == 1
     end
 
-    @testset "Bi-Bi random: 4 dead-end forms" begin
-        # 7 forms: E, E_A, E_B, E_A_B, E_P, E_Q, E_P_Q
-        # Eligible dead-end forms (mixed sub+prod binding):
-        #   E_A: +P→E_A_P(mixed✓), +Q→E_A_Q(mixed✓)
-        #   E_B: +P→E_B_P(mixed✓), +Q→E_B_Q(mixed✓)
-        #   E_P: +A→E_A_P(same), +B→E_B_P(same)
-        #   E_Q: +A→E_A_Q(same), +B→E_B_Q(same)
-        # 4 unique mixed-substrate-product forms across competition patterns.
-        # Competition patterns for bi-bi (2 subs × 2 prods): 7 patterns
-        # (the count from _competition_patterns(2, 2)). Each pattern produces
-        # a distinct dead-end-form set:
-        #   {A↔P, B↔Q}: forbids E_A_P, E_B_Q → emits {E_A_Q, E_B_P}
-        #   {A↔Q, B↔P}: forbids E_A_Q, E_B_P → emits {E_A_P, E_B_Q}
-        #   ... (one set per pattern, all distinct)
-        #   {A↔P, A↔Q, B↔P, B↔Q}: forbids all → emits {} (bare topology)
-        # All 7 sets are distinct → 7 variants after dedup.
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(B) + A ⇌ E(A, B)
-                E + B ⇌ E(B)
-                E(A) + B ⇌ E(A, B)
-                E + P ⇌ E(P)
-                E(P) + Q ⇌ E(P, Q)
-                E + Q ⇌ E(Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(A, B) <--> E(P, Q)
-            end
-        end
-        topo = _flat_topo(m)
+    @testset "Bi-bi random: diagonal has exactly 2 dead-end forms" begin
         result =
             EnzymeRates._expand_substrate_product_dead_ends(
-                [topo],bi_bi_rxn)
+                [topo_bb],bi_bi_rxn)
         @test all(isempty(_connectivity_violations(steps))
                   for (steps, _groups) in result)
-        # 4 unique dead-end forms, 7 competition patterns,
-        # all 7 produce distinct dead-end sets → 7 variants
-        @test length(result) == 7
+        # Diagonal patterns {A↔P,B↔Q} and {A↔Q,B↔P}
+        # each allow exactly 2 dead-end forms.
+        two_de = filter(result) do r
+            de_forms = setdiff(
+                _form_names(r[1]),
+                _form_names(topo_bb))
+            length(de_forms) == 2
+        end
+        @test length(two_de) == 2  # diagonal + anti-diagonal
     end
 
-    @testset "Uni-Bi ordered: no dead-end forms" begin
-        # 4 forms: E, E_S, E_P_Q, E_Q
-        # E+P→E_P: single-product → rejected (need mixed)
-        # E_Q+S→E_S_Q: has all subs → rejected
-        # → 0 dead-end forms, 1 variant
-        m = @enzyme_mechanism begin
-            substrates: S
-            products: P, Q
-            steps: begin
-                E + Q ⇌ E(Q)
-                E(Q) + P ⇌ E(P, Q)
-                E + S ⇌ E(S)
-                E(S) <--> E(P, Q)
-            end
-        end
-        topo = _flat_topo(m)
-        result =
-            EnzymeRates._expand_substrate_product_dead_ends(
-                [topo],uni_bi_rxn)
-        @test all(isempty(_connectivity_violations(steps))
-                  for (steps, _groups) in result)
-        @test length(result) == 1
-    end
-
-    @testset "Bi-Bi Ping-Pong: 5 dead-end forms → 7 variants" begin
-        # Forms: E, E_A, Estar, Estar_A_P, Estar_B, E_Q
-        # 5 dead-end forms total (E-side: E_A_P, E_A_Q, E_B_Q; Estar-side:
-        # Estar_B_P, Estar_B_Q). 7 competition patterns; each yields a
-        # distinct dead-end-form set after dedup → 7 variants.
-        m = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                Estar + B ⇌ Estar(B)
-                E + Q ⇌ E(Q)
-                Estar + P ⇌ Estar(A, P)
-                E(A) <--> Estar(A, P)
-                Estar(B) ⇌ E(Q)
-            end
-        end
-        topo = _flat_topo(m)
-        result =
-            EnzymeRates._expand_substrate_product_dead_ends(
-                [topo],bi_bi_pp_rxn)
-        @test all(isempty(_connectivity_violations(steps))
-                  for (steps, _groups) in result)
-        # 5 dead-end forms (E_A_P, E_A_Q, E_B_Q from
-        # E-side + Estar_B_P, Estar_B_Q from
-        # Estar-side), competition-filtered
-        @test length(result) == 7
-
-        # Assert that some result variants contain Estar-prefixed dead-end
-        # forms (proving dead-end forms inherit the base form's Estar
-        # conformation).
-        seed_forms = _form_names(topo)
-        new_estar_forms = Set{Symbol}()
-        for r in result
-            new_forms = setdiff(_form_names(r[1]), seed_forms)
-            for f in new_forms
-                startswith(string(f), "Estar") && string(f) != "Estar" && push!(new_estar_forms, f)
-            end
-        end
-        @test !isempty(new_estar_forms)
-    end
-
-    @testset "Dead-end filtering by competition" begin
-
-        # Shared bi-bi random mechanism for multiple tests
-        m_bb = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(B) + A ⇌ E(A, B)
-                E + B ⇌ E(B)
-                E(A) + B ⇌ E(A, B)
-                E + P ⇌ E(P)
-                E(P) + Q ⇌ E(P, Q)
-                E + Q ⇌ E(Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(A, B) <--> E(P, Q)
-            end
-        end
-        topo_bb = _flat_topo(m_bb)
-
-        # Note: the variant count assertion (length == 7) is covered by
-        # the "Bi-Bi random: 4 dead-end forms" sub-testset higher in this
-        # same parent testset. The sub-testsets below probe the SHAPE of
-        # those 7 variants — which forms appear in each, and which
-        # patterns produce empty/full dead-end sets.
-
-        @testset "Bi-bi random: complete competition → bare topology" begin
+    @testset "Ter-ter per-topology (OOM on full init)" begin
+        # Test that competition filtering works
+        # on representative ter-ter topologies.
+        topos = EnzymeRates._catalytic_topologies(
+            ter_ter_rxn)
+        @test length(topos) == 223
+        # Test first (random, most forms) and last topology
+        for topo in [topos[1], topos[end]]
             result =
                 EnzymeRates._expand_substrate_product_dead_ends(
-                    [topo_bb],bi_bi_rxn)
+                    [topo], ter_ter_rxn)
             @test all(isempty(_connectivity_violations(steps))
                       for (steps, _groups) in result)
-            # Complete pattern {A↔P,A↔Q,B↔P,B↔Q} forbids
-            # all dead-end forms → 1 variant has no dead-end
-            # steps (same step count as original)
-            bare = filter(
-                r -> length(r[1]) == length(topo_bb),
-                result)
-            @test length(bare) == 1
-        end
-
-        @testset "Bi-bi random: diagonal has exactly 2 dead-end forms" begin
-            result =
-                EnzymeRates._expand_substrate_product_dead_ends(
-                    [topo_bb],bi_bi_rxn)
-            @test all(isempty(_connectivity_violations(steps))
-                      for (steps, _groups) in result)
-            # Diagonal patterns {A↔P,B↔Q} and {A↔Q,B↔P}
-            # each allow exactly 2 dead-end forms.
-            two_de = filter(result) do r
-                de_forms = setdiff(
-                    _form_names(r[1]),
-                    _form_names(topo_bb))
-                length(de_forms) == 2
-            end
-            @test length(two_de) == 2  # diagonal + anti-diagonal
-        end
-
-        @testset "Ter-ter per-topology (OOM on full init)" begin
-            # Test that competition filtering works
-            # on representative ter-ter topologies.
-            topos = EnzymeRates._catalytic_topologies(
-                ter_ter_rxn)
-            @test length(topos) == 223
-            # Test first (random, most forms) and last topology
-            for topo in [topos[1], topos[end]]
-                result =
-                    EnzymeRates._expand_substrate_product_dead_ends(
-                        [topo], ter_ter_rxn)
-                @test all(isempty(_connectivity_violations(steps))
-                          for (steps, _groups) in result)
-                # Competition patterns reduce 2^27 to
-                # ≤265 variants per topology
-                @test length(result) > 0
-                @test length(result) <= 265
-            end
+            # Competition patterns reduce 2^27 to
+            # ≤265 variants per topology
+            @test length(result) > 0
+            @test length(result) <= 265
         end
     end
+end
 
 end
 
 @testset "shared_catalytic_site prunes catalytic-site co-occupancy" begin
-    rxn = @enzyme_reaction begin
-        substrates: A[C], B[C]
-        products:   P[C], Q[C]
-        shared_catalytic_site: (A, P)
-    end
-    _reactant_names(sp) = Set(EnzymeRates.name(b)
-        for b in EnzymeRates.bound(sp) if b isa EnzymeRates.Reactant)
-    binds_both(sp) = :A in _reactant_names(sp) && :P in _reactant_names(sp)
-    @test !any(binds_both(sp)
-        for m in EnzymeRates.init_mechanisms(rxn)
-        for g in EnzymeRates.steps(m) for s in g
-        for sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s)))
+rxn = @enzyme_reaction begin
+    substrates: A[C], B[C]
+    products:   P[C], Q[C]
+    shared_catalytic_site: (A, P)
+end
+_reactant_names(sp) = Set(EnzymeRates.name(b)
+    for b in EnzymeRates.bound(sp) if b isa EnzymeRates.Reactant)
+binds_both(sp) = :A in _reactant_names(sp) && :P in _reactant_names(sp)
+@test !any(binds_both(sp)
+    for m in EnzymeRates.init_mechanisms(rxn)
+    for g in EnzymeRates.steps(m) for s in g
+    for sp in (EnzymeRates.from_species(s), EnzymeRates.to_species(s)))
 end
 
 @testset "shared_catalytic_site strictly reduces mechanism count" begin
-    base = @enzyme_reaction begin
-        substrates: A[C], B[C]
-        products:   P[C], Q[C]
-    end
-    constrained = @enzyme_reaction begin
-        substrates: A[C], B[C]
-        products:   P[C], Q[C]
-        shared_catalytic_site: (A, P)
-    end
-    n_base = length(unique!(collect(EnzymeRates.init_mechanisms(base))))
-    n_con  = length(unique!(collect(EnzymeRates.init_mechanisms(constrained))))
-    @test n_con < n_base
+base = @enzyme_reaction begin
+    substrates: A[C], B[C]
+    products:   P[C], Q[C]
+end
+constrained = @enzyme_reaction begin
+    substrates: A[C], B[C]
+    products:   P[C], Q[C]
+    shared_catalytic_site: (A, P)
+end
+n_base = length(unique!(collect(EnzymeRates.init_mechanisms(base))))
+n_con  = length(unique!(collect(EnzymeRates.init_mechanisms(constrained))))
+@test n_con < n_base
 end
 
 @testset "_add_competitive_inhibitor preserves shared_catalytic_site" begin
-    rxn = @enzyme_reaction begin
-        substrates: A[C], B[C]
-        products:   P[C], Q[C]
-        shared_catalytic_site: (A, P)
-    end
-    result = EnzymeRates._add_competitive_inhibitor(rxn, :I)
-    @test EnzymeRates.shared_catalytic_site(result) == [(:A, :P)]
+rxn = @enzyme_reaction begin
+    substrates: A[C], B[C]
+    products:   P[C], Q[C]
+    shared_catalytic_site: (A, P)
+end
+result = EnzymeRates._add_competitive_inhibitor(rxn, :I)
+@test EnzymeRates.shared_catalytic_site(result) == [(:A, :P)]
+end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1187,44 +1190,44 @@ end
 # ═══════════════════════════════════════════════════════════════════════
 
 @testset "test reaction atom balance" begin
-    for rxn in [pyruvate_carboxylase_rxn,
-                pyruvate_dehydrogenase_rxn]
-        sub_atoms = Dict{Symbol,Int}()
-        prod_atoms = Dict{Symbol,Int}()
-        for ra in EnzymeRates.reactants(rxn)
-            target = EnzymeRates.metabolite(ra) isa EnzymeRates.Substrate ?
-                     sub_atoms : prod_atoms
-            for (a, c) in EnzymeRates.atoms(ra)
-                target[a] = get(target, a, 0) + c
-            end
+for rxn in [pyruvate_carboxylase_rxn,
+            pyruvate_dehydrogenase_rxn]
+    sub_atoms = Dict{Symbol,Int}()
+    prod_atoms = Dict{Symbol,Int}()
+    for ra in EnzymeRates.reactants(rxn)
+        target = EnzymeRates.metabolite(ra) isa EnzymeRates.Substrate ?
+                 sub_atoms : prod_atoms
+        for (a, c) in EnzymeRates.atoms(ra)
+            target[a] = get(target, a, 0) + c
         end
-        @test sub_atoms == prod_atoms
     end
+    @test sub_atoms == prod_atoms
+end
 end
 
 @testset "AllostericEnzymeMechanism TR equivalence" begin
-    # Three distinct tags on three groups: S binding (RE, :EqualAI),
-    # P binding (RE, :NonequalAI), iso (SS, :OnlyA). The :OnlyA sits on
-    # the chemical step (dropped from the Haldane graph), so the mechanism
-    # is Haldane-valid with no one-sided :OnlyA binding.
-    m_compiled = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + S ⇌ E(S)             :: EqualAI
-            E + P ⇌ E(P)             :: NonequalAI
-            E(S) <--> E(P)           :: OnlyA
-        end
+# Three distinct tags on three groups: S binding (RE, :EqualAI),
+# P binding (RE, :NonequalAI), iso (SS, :OnlyA). The :OnlyA sits on
+# the chemical step (dropped from the Haldane graph), so the mechanism
+# is Haldane-valid with no one-sided :OnlyA binding.
+m_compiled = @allosteric_mechanism begin
+    substrates: S
+    products: P
+    catalytic_multiplicity: 2
+    catalytic_steps: begin
+        E + S ⇌ E(S)             :: EqualAI
+        E + P ⇌ E(P)             :: NonequalAI
+        E(S) <--> E(P)           :: OnlyA
     end
-    # Group order is canonical; allosteric tags stay bound to their steps.
-    am = EnzymeRates.AllostericMechanism(m_compiled)
-    state_of(pred) = EnzymeRates.cat_allo_state(am,
-        only(g for g in EnzymeRates.kinetic_groups(am)
-             if pred(EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g)))))
-    @test state_of(bm -> bm isa EnzymeRates.Substrate) == :EqualAI
-    @test state_of(bm -> bm isa EnzymeRates.Product) == :NonequalAI
-    @test state_of(bm -> bm === nothing) == :OnlyA
+end
+# Group order is canonical; allosteric tags stay bound to their steps.
+am = EnzymeRates.AllostericMechanism(m_compiled)
+state_of(pred) = EnzymeRates.cat_allo_state(am,
+    only(g for g in EnzymeRates.kinetic_groups(am)
+         if pred(EnzymeRates.bound_metabolite(EnzymeRates.rep_step(am, g)))))
+@test state_of(bm -> bm isa EnzymeRates.Substrate) == :EqualAI
+@test state_of(bm -> bm isa EnzymeRates.Product) == :NonequalAI
+@test state_of(bm -> bm === nothing) == :OnlyA
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1233,173 +1236,175 @@ end
 
 # ─── compile_mechanism dispatch ────────────────────────────────────────
 @testset "compile_mechanism dispatch" begin
-    # `compile_mechanism` dispatches a `Mechanism` to the
-    # `EnzymeMechanism` constructor and an `AllostericMechanism` to the
-    # `AllostericEnzymeMechanism` constructor. Verify both legs.
-    m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-    @test EnzymeRates.compile_mechanism(m) === EnzymeMechanism(m)
+@testset "compile_mechanism dispatch" begin
+# `compile_mechanism` dispatches a `Mechanism` to the
+# `EnzymeMechanism` constructor and an `AllostericMechanism` to the
+# `AllostericEnzymeMechanism` constructor. Verify both legs.
+m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+@test EnzymeRates.compile_mechanism(m) === EnzymeMechanism(m)
 
-    am_seed = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        catalytic_multiplicity: 2
-        catalytic_steps: begin
-            E + P ⇌ E(P)   :: EqualAI
-            E + S ⇌ E(S)   :: EqualAI
-            E(S) <--> E(P) :: EqualAI
-        end
+am_seed = @allosteric_mechanism begin
+    substrates: S
+    products: P
+    catalytic_multiplicity: 2
+    catalytic_steps: begin
+        E + P ⇌ E(P)   :: EqualAI
+        E + S ⇌ E(S)   :: EqualAI
+        E(S) <--> E(P) :: EqualAI
     end
-    am = EnzymeRates.AllostericMechanism(am_seed)
-    @test EnzymeRates.compile_mechanism(am) === AllostericEnzymeMechanism(am)
+end
+am = EnzymeRates.AllostericMechanism(am_seed)
+@test EnzymeRates.compile_mechanism(am) === AllostericEnzymeMechanism(am)
+end
 end
 
 # ─── init_mechanisms ───────────────────────────────────────────────────
 @testset "init_mechanisms" begin
 
-    @testset "init mechanisms are connected" begin
-        for (rxn, n_s, n_p) in [
-            (uni_uni_rxn, 1, 1),
-            (uni_bi_rxn, 1, 2),
-            (bi_bi_rxn, 2, 2),
-            (bi_bi_pp_rxn, 2, 2),
-        ]
-            specs = EnzymeRates.init_mechanisms(rxn)
-            @test all(isempty(_connectivity_violations(
-                EnzymeRates.steps(m))) for m in specs)
-        end
-    end
-
-    @testset "exactly 1 SS step per init mechanism" begin
-        # init_mechanisms produces minimum-parameter mechanisms — exactly
-        # one isomerization step, which is SS by construction. Subsequent
-        # RE→SS expansions add more SS steps; init never does.
-        for rxn in [uni_uni_rxn, uni_bi_rxn,
-                    bi_bi_rxn, bi_bi_pp_rxn]
-            specs = EnzymeRates.init_mechanisms(rxn)
-            @test all(isempty(_connectivity_violations(
-                EnzymeRates.steps(m))) for m in specs)
-            for s in specs
-                @test count(st -> !st.is_equilibrium,
-                            Iterators.flatten(s.steps)) == 1
-            end
-        end
-    end
-
-    @testset "Same-metabolite RE bindings share kinetic_group" begin
-        # _apply_equivalence_grouping collapses all RE binding steps for
-        # the same metabolite into one kinetic group (one shared K).
-        # For bi-bi, metabolites like :B appear in multiple binding steps
-        # (e.g. E+B⇌E_B and E_A+B⇌E_A_B) — these must share one kinetic_group.
-        specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        @test all(isempty(_connectivity_violations(
-            EnzymeRates.steps(m))) for m in specs)
-        @test !isempty(specs)
-        n_assertions_fired = 0
-        for spec in specs
-            # Map each metabolite to the kinetic-group index (inner-vector
-            # position) of every RE binding step that binds it. Same-group
-            # sharing is structural: same inner vector == same kinetic group.
-            by_metabolite = Dict{Symbol, Vector{Int}}()
-            for (gi, group) in enumerate(spec.steps)
-                for step in group
-                    EnzymeRates.is_equilibrium(step) || continue
-                    bm = EnzymeRates.bound_metabolite(step)
-                    bm === nothing && continue
-                    push!(get!(by_metabolite, EnzymeRates.name(bm),
-                               Int[]), gi)
-                end
-            end
-            for (_met, gis) in by_metabolite
-                length(gis) >= 2 || continue
-                @test length(Set(gis)) == 1
-                n_assertions_fired += 1
-            end
-        end
-        @test n_assertions_fired >= 1   # at least one multi-binding case existed
-    end
-
-    @testset "Uni-uni: exactly 1 init mechanism" begin
-        # Uni-uni topology: 1 catalytic topology × 1 dead-end variant
-        # (none possible — see test_expand_substrate_product_dead_ends
-        # uni-uni case). Hence init produces exactly 1 mechanism.
-        specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
-        @test all(isempty(_connectivity_violations(
-            EnzymeRates.steps(m))) for m in specs)
-        @test length(specs) == 1
-    end
-
-    @testset "Init compiles for all small reactions" begin
-        # Every init mechanism must compile to a valid EnzymeMechanism.
-        # Tests first 5 mechanisms per reaction to cap @generated cost.
-        for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
-            specs = EnzymeRates.init_mechanisms(rxn)
-            @test all(isempty(_connectivity_violations(
-                EnzymeRates.steps(m))) for m in specs)
-            for spec in first(specs, 5)
-                m = EnzymeMechanism(spec)
-                @test m isa EnzymeMechanism
-            end
-        end
-    end
-
-    @testset "bi-bi exit gate: init mechanisms derive (subset)" begin
-        mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
-        @test all(isempty(_connectivity_violations(
-            EnzymeRates.steps(m))) for m in mechs)
-        @test length(mechs) == 55
-        # Derive a small subset only — full derivation is slow. Pick the 5
-        # smallest by step count (cheapest to compile).
-        by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
-        for m in by_size[1:5]
-            s = EnzymeRates.rate_equation_string(EnzymeRates.compile_mechanism(m))
-            @test s isa AbstractString && !isempty(s)
-        end
-    end
-
-    @testset "Drops unbound regulators from init Mechanism" begin
-        # init_mechanisms produces Mechanisms without dead-end regulators
-        # bound. When compiled to EnzymeMechanism, the regulator must NOT
-        # appear in the regulators tuple — only the catalytic mechanism is
-        # built. After expand_mechanisms adds the dead-end regulator, it
-        # should appear.
-        init_mechs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
-        @test all(isempty(_connectivity_violations(
-            EnzymeRates.steps(m))) for m in init_mechs)
-        @test !isempty(init_mechs)
-        for m in init_mechs
-            em = EnzymeRates.compile_mechanism(m)
-            @test :I ∉ EnzymeRates.regulators(em)
-        end
-
-        expanded = EnzymeRates.expand_mechanisms(init_mechs, uni_uni_with_reg)
-        found_with_reg = false
-        for mm in expanded
-            em = EnzymeRates.compile_mechanism(mm)
-            if :I in EnzymeRates.regulators(em)
-                found_with_reg = true
-                break
-            end
-        end
-        @test found_with_reg
-    end
-
-    @testset "Substrate-as-product overlap (racemase shape)" begin
-        # A substrate racemase has differently-named substrate/product
-        # (e.g., L-Ala → D-Ala) but the same atomic composition. Init
-        # mechanisms must compile correctly.
-        rxn = @enzyme_reaction begin
-            substrates: L_Ala[CHN]
-            products: D_Ala[CHN]
-        end
+@testset "init mechanisms are connected" begin
+    for (rxn, n_s, n_p) in [
+        (uni_uni_rxn, 1, 1),
+        (uni_bi_rxn, 1, 2),
+        (bi_bi_rxn, 2, 2),
+        (bi_bi_pp_rxn, 2, 2),
+    ]
         specs = EnzymeRates.init_mechanisms(rxn)
         @test all(isempty(_connectivity_violations(
             EnzymeRates.steps(m))) for m in specs)
-        @test !isempty(specs)
-        for spec in first(specs, min(3, length(specs)))
+    end
+end
+
+@testset "exactly 1 SS step per init mechanism" begin
+    # init_mechanisms produces minimum-parameter mechanisms — exactly
+    # one isomerization step, which is SS by construction. Subsequent
+    # RE→SS expansions add more SS steps; init never does.
+    for rxn in [uni_uni_rxn, uni_bi_rxn,
+                bi_bi_rxn, bi_bi_pp_rxn]
+        specs = EnzymeRates.init_mechanisms(rxn)
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in specs)
+        for s in specs
+            @test count(st -> !st.is_equilibrium,
+                        Iterators.flatten(s.steps)) == 1
+        end
+    end
+end
+
+@testset "Same-metabolite RE bindings share kinetic_group" begin
+    # _apply_equivalence_grouping collapses all RE binding steps for
+    # the same metabolite into one kinetic group (one shared K).
+    # For bi-bi, metabolites like :B appear in multiple binding steps
+    # (e.g. E+B⇌E_B and E_A+B⇌E_A_B) — these must share one kinetic_group.
+    specs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+    @test all(isempty(_connectivity_violations(
+        EnzymeRates.steps(m))) for m in specs)
+    @test !isempty(specs)
+    n_assertions_fired = 0
+    for spec in specs
+        # Map each metabolite to the kinetic-group index (inner-vector
+        # position) of every RE binding step that binds it. Same-group
+        # sharing is structural: same inner vector == same kinetic group.
+        by_metabolite = Dict{Symbol, Vector{Int}}()
+        for (gi, group) in enumerate(spec.steps)
+            for step in group
+                EnzymeRates.is_equilibrium(step) || continue
+                bm = EnzymeRates.bound_metabolite(step)
+                bm === nothing && continue
+                push!(get!(by_metabolite, EnzymeRates.name(bm),
+                           Int[]), gi)
+            end
+        end
+        for (_met, gis) in by_metabolite
+            length(gis) >= 2 || continue
+            @test length(Set(gis)) == 1
+            n_assertions_fired += 1
+        end
+    end
+    @test n_assertions_fired >= 1   # at least one multi-binding case existed
+end
+
+@testset "Uni-uni: exactly 1 init mechanism" begin
+    # Uni-uni topology: 1 catalytic topology × 1 dead-end variant
+    # (none possible — see test_expand_substrate_product_dead_ends
+    # uni-uni case). Hence init produces exactly 1 mechanism.
+    specs = EnzymeRates.init_mechanisms(uni_uni_rxn)
+    @test all(isempty(_connectivity_violations(
+        EnzymeRates.steps(m))) for m in specs)
+    @test length(specs) == 1
+end
+
+@testset "Init compiles for all small reactions" begin
+    # Every init mechanism must compile to a valid EnzymeMechanism.
+    # Tests first 5 mechanisms per reaction to cap @generated cost.
+    for rxn in [uni_uni_rxn, bi_bi_rxn, bi_bi_pp_rxn]
+        specs = EnzymeRates.init_mechanisms(rxn)
+        @test all(isempty(_connectivity_violations(
+            EnzymeRates.steps(m))) for m in specs)
+        for spec in first(specs, 5)
             m = EnzymeMechanism(spec)
             @test m isa EnzymeMechanism
         end
     end
+end
+
+@testset "bi-bi exit gate: init mechanisms derive (subset)" begin
+    mechs = EnzymeRates.init_mechanisms(bi_bi_rxn)
+    @test all(isempty(_connectivity_violations(
+        EnzymeRates.steps(m))) for m in mechs)
+    @test length(mechs) == 55
+    # Derive a small subset only — full derivation is slow. Pick the 5
+    # smallest by step count (cheapest to compile).
+    by_size = sort(mechs; by = m -> EnzymeRates.n_steps(m))
+    for m in by_size[1:5]
+        s = EnzymeRates.rate_equation_string(EnzymeRates.compile_mechanism(m))
+        @test s isa AbstractString && !isempty(s)
+    end
+end
+
+@testset "Drops unbound regulators from init Mechanism" begin
+    # init_mechanisms produces Mechanisms without dead-end regulators
+    # bound. When compiled to EnzymeMechanism, the regulator must NOT
+    # appear in the regulators tuple — only the catalytic mechanism is
+    # built. After expand_mechanisms adds the dead-end regulator, it
+    # should appear.
+    init_mechs = EnzymeRates.init_mechanisms(uni_uni_with_reg)
+    @test all(isempty(_connectivity_violations(
+        EnzymeRates.steps(m))) for m in init_mechs)
+    @test !isempty(init_mechs)
+    for m in init_mechs
+        em = EnzymeRates.compile_mechanism(m)
+        @test :I ∉ EnzymeRates.regulators(em)
+    end
+
+    expanded = EnzymeRates.expand_mechanisms(init_mechs, uni_uni_with_reg)
+    found_with_reg = false
+    for mm in expanded
+        em = EnzymeRates.compile_mechanism(mm)
+        if :I in EnzymeRates.regulators(em)
+            found_with_reg = true
+            break
+        end
+    end
+    @test found_with_reg
+end
+
+@testset "Substrate-as-product overlap (racemase shape)" begin
+    # A substrate racemase has differently-named substrate/product
+    # (e.g., L-Ala → D-Ala) but the same atomic composition. Init
+    # mechanisms must compile correctly.
+    rxn = @enzyme_reaction begin
+        substrates: L_Ala[CHN]
+        products: D_Ala[CHN]
+    end
+    specs = EnzymeRates.init_mechanisms(rxn)
+    @test all(isempty(_connectivity_violations(
+        EnzymeRates.steps(m))) for m in specs)
+    @test !isempty(specs)
+    for spec in first(specs, min(3, length(specs)))
+        m = EnzymeMechanism(spec)
+        @test m isa EnzymeMechanism
+    end
+end
 
 end
 
@@ -1410,1434 +1415,1434 @@ end
 # ─── _expand_re_to_ss ──────────────────────────────────────────────────
 @testset "_expand_re_to_ss" begin
 
-    @testset "Mechanism — bi-bi sequential: 4 RE binding groups → 4 variants" begin
-        # SEED: bi-bi sequential ordered, 4 singleton RE binding groups + 1
-        # SS iso. _expand_re_to_ss fires per RE group → 4 variants.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E + Q ⇌ E(Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(A, B) <--> E(P, Q)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-
-        result = EnzymeRates._expand_re_to_ss(m)
-
-        # 1. count: 4 all-RE singleton groups (A, B, Q, P bindings). Iso SS. → 4.
-        @test length(result) == 4
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
-            @test length(r.steps) == length(m.steps)
-        end
-
-        # 2. property-style: each variant flips exactly one initial RE
-        # group to all-SS; all other groups unchanged.
-        for r in result
-            n_groups_newly_ss = count(zip(m.steps, r.steps)) do (old_grp, new_grp)
-                length(old_grp) == length(new_grp) &&
-                    all(EnzymeRates.is_equilibrium, old_grp) &&
-                    !any(EnzymeRates.is_equilibrium, new_grp)
-            end
-            @test n_groups_newly_ss == 1
-        end
-
-        # 3. distinct flipped group across variants (one per RE group).
-        flipped_groups = Int[]
-        for r in result
-            for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
-                if all(EnzymeRates.is_equilibrium, old_grp) &&
-                   !any(EnzymeRates.is_equilibrium, new_grp)
-                    push!(flipped_groups, gi)
-                end
-            end
-        end
-        @test length(unique(flipped_groups)) == 4
-    end
-
-    @testset "Mechanism — bi-bi multi-step kinetic group: atomic conversion" begin
-        # SEED: bi-bi random with 4 multi-step RE groups (A, B, P, Q each
-        # binding at two forms, shared via parens) + 1 SS iso. RE→SS fires
-        # per group atomically — both steps in a multi-step group flip together.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        # Sanity: the seed has 4 multi-step groups + 1 singleton iso.
-        @test count(g -> length(g) >= 2, m.steps) == 4
-        @test count(g -> length(g) == 1, m.steps) == 1
-
-        result = EnzymeRates._expand_re_to_ss(m)
-
-        # 1. count: 4 all-RE multi-step groups → 4 variants. Iso SS excluded.
-        @test length(result) == 4
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-        end
-
-        # 2. property-style: in each variant, exactly one initial RE
-        # multi-step group has ALL its steps now SS (atomic conversion).
-        for r in result
-            n_all_ss_multi = count(zip(m.steps, r.steps)) do (old_grp, new_grp)
-                length(old_grp) >= 2 &&
-                    all(EnzymeRates.is_equilibrium, old_grp) &&
-                    !any(EnzymeRates.is_equilibrium, new_grp)
-            end
-            @test n_all_ss_multi == 1
-        end
-
-        # 3. preservation: reaction unchanged on every variant.
-        for r in result
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+@testset "Mechanism — bi-bi sequential: 4 RE binding groups → 4 variants" begin
+    # SEED: bi-bi sequential ordered, 4 singleton RE binding groups + 1
+    # SS iso. _expand_re_to_ss fires per RE group → 4 variants.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E + Q ⇌ E(Q)
+            E(Q) + P ⇌ E(P, Q)
+            E(A, B) <--> E(P, Q)
         end
     end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
 
-    @testset "Mechanism — bi-bi ping-pong: 5 RE groups → 5 variants" begin
-        # SEED: bi-bi ping-pong with Estar (residual) form. 5 singleton RE
-        # groups + 1 SS iso group. _expand_re_to_ss fires per RE group → 5.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                Estar + B ⇌ Estar(B)
-                E + Q ⇌ E(Q)
-                Estar + P ⇌ Estar(A, P)
-                E(A) <--> Estar(A, P)
-                Estar(B) ⇌ E(Q)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
+    result = EnzymeRates._expand_re_to_ss(m)
 
-        result = EnzymeRates._expand_re_to_ss(m)
-
-        # 1. count: 5 all-RE groups → 5 variants.
-        @test length(result) == 5
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-        end
-
-        # 2. property-style: each variant flips exactly one initial RE
-        # group to all-SS. The flipped group is distinct across variants.
-        flipped_groups = Int[]
-        for r in result
-            for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
-                if all(EnzymeRates.is_equilibrium, old_grp) &&
-                   !any(EnzymeRates.is_equilibrium, new_grp)
-                    push!(flipped_groups, gi)
-                end
-            end
-        end
-        @test length(unique(flipped_groups)) == 5
-
-        # 3. preservation
-        for r in result
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
-        end
+    # 1. count: 4 all-RE singleton groups (A, B, Q, P bindings). Iso SS. → 4.
+    @test length(result) == 4
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+        @test length(r.steps) == length(m.steps)
     end
 
-    @testset "Mechanism — ter-ter sequential" begin
-        # SEED: ter-ter sequential ordered. 6 singleton RE binding groups
-        # + 1 SS iso. _expand_re_to_ss fires per RE group → 6 variants.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B, D
-            products: P, Q, R
-            steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) + D ⇌ E(A, B, D)
-                E + R ⇌ E(R)
-                E(R) + Q ⇌ E(Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(A, B, D) <--> E(P, Q, R)
-            end
+    # 2. property-style: each variant flips exactly one initial RE
+    # group to all-SS; all other groups unchanged.
+    for r in result
+        n_groups_newly_ss = count(zip(m.steps, r.steps)) do (old_grp, new_grp)
+            length(old_grp) == length(new_grp) &&
+                all(EnzymeRates.is_equilibrium, old_grp) &&
+                !any(EnzymeRates.is_equilibrium, new_grp)
         end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-
-        result = EnzymeRates._expand_re_to_ss(m)
-        @test length(result) == 6
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
-        end
+        @test n_groups_newly_ss == 1
     end
 
-    @testset "Mechanism — :EqualAI group: RE→SS preserves tag" begin
-        # SEED: uni-uni allosteric with all catalytic groups :EqualAI.
-        # _expand_re_to_ss fires per all-RE group → 2 variants. Each
-        # converted group stays :EqualAI (RE K → SS (kf, kr), shared R/T).
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_re_to_ss(am)
-
-        # 1. count: 2 all-RE groups; iso SS. → 2.
-        @test length(result) == 2
-
-        # 2. Δ params: cheap-tag RE→SS adds 1 fitted param per variant
-        # (RE K → SS (kf, kr), shared across R/T — no separate T-state pair).
-        # Measured against the actual compiled fitted-param count.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1]
-
-        # 3. compilability — must produce AllostericEnzymeMechanism.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 4. exactly one group newly all-SS; all cat_allo_states preserved.
-        for r in result
-            n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
-                all(EnzymeRates.is_equilibrium, old) &&
-                    !any(EnzymeRates.is_equilibrium, new)
-            end
-            @test n_newly_ss == 1
-            @test r.cat_allo_states == am.cat_allo_states
-        end
-
-        # 5. preservation: multiplicity, reg sites, reaction untouched.
-        for r in result
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.regulatory_sites == am.regulatory_sites
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-        end
-    end
-
-    @testset "Mechanism — :OnlyA group: RE→SS preserves tag" begin
-        # SEED: uni-uni allosteric with both binding groups :OnlyA (a
-        # balanced substrate/product pair, so the mechanism is Haldane-valid)
-        # and :EqualAI catalysis. :OnlyA groups live in the R-state only; the
-        # T-state contributes no kf_T/kr_T after RE→SS.
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: OnlyA
-                E + S ⇌ E(S)      :: OnlyA
-                E(S) <--> E(P)    :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_re_to_ss(am)
-
-        # 1. count: 2 all-RE binding groups (both :OnlyA). Iso SS. → 2 variants.
-        @test length(result) == 2
-
-        # 2. Δ params. Connected-component pruning populates the inactive state
-        # from free E over ALL surviving steps, so because catalysis is :EqualAI
-        # the base mechanism's Q_I ALREADY carries E(S) and E(P) through the
-        # inactive catalytic step — even though both bindings are :OnlyA and
-        # cannot bind directly in the T-state. Those forms are therefore present
-        # in the inactive state of the base AND of every variant, so flipping a
-        # binding group RE→SS adds only that group's own SS rate constant (+1) —
-        # it does not introduce a new inactive-state form. Both variants → Δ=1.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1]
-
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 4. exactly one group flipped to SS; ALL cat_allo_states preserved
-        # (including the converted group's :OnlyA — move MUST NOT change
-        # R/T-state semantics).
-        for r in result
-            n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
-                all(EnzymeRates.is_equilibrium, old) &&
-                    !any(EnzymeRates.is_equilibrium, new)
-            end
-            @test n_newly_ss == 1
-            @test r.cat_allo_states == am.cat_allo_states
-        end
-
-        # 5. preservation
-        for r in result
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.regulatory_sites == am.regulatory_sites
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-        end
-    end
-
-    @testset "Mechanism — :NonequalAI group: RE→SS adds 2 params" begin
-        # SEED: uni-uni allosteric with one :NonequalAI group (S-binding),
-        # others :EqualAI. When RE→SS converts a :NonequalAI group, BOTH
-        # the R-state K and the T-state K_T must split into (kf, kr) and
-        # (kf_T, kr_T). Δ for :NonequalAI = +2; cheap-tag conversion = +1.
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: NonequalAI
-                E(S) <--> E(P)    :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_re_to_ss(am)
-
-        # 1. count: 2 RE groups (P-binding :EqualAI, S-binding :NonequalAI).
-        # → 2 variants.
-        @test length(result) == 2
-
-        # 2. Δ params: P-binding :EqualAI → +1; S-binding :NonequalAI → +2.
-        # Measured against the actual compiled fitted-param count (ground
-        # truth): SS :NonequalAI adds kf_T, kr_T on top of the R-state pair.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 2]
-
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 4. exactly one group flipped to SS; cat_allo_states preserved.
-        for r in result
-            n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
-                all(EnzymeRates.is_equilibrium, old) &&
-                    !any(EnzymeRates.is_equilibrium, new)
-            end
-            @test n_newly_ss == 1
-            @test r.cat_allo_states == am.cat_allo_states
-        end
-
-        # 5. preservation
-        for r in result
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.regulatory_sites == am.regulatory_sites
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-        end
-    end
-
-    @testset "Mechanism — Substrate-as-dead-end-inhibitor overlap" begin
-        # SEED: uni-uni where S is BOTH substrate AND dead-end inhibitor.
-        # Build via init + dead-end expansion to get the S/__reg overlap.
-        # _expand_re_to_ss keeps inhibitor bindings RE-only, so the
-        # dead-end-inhibitor-S kinetic group never flips, even though the
-        # substrate-S and inhibitor-S groups are otherwise independent.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: S
-        end
-        init_ms = EnzymeRates.init_mechanisms(rxn)
-        @test length(init_ms) == 1   # uni-uni: 1 catalytic topology
-        seed = first(init_ms)
-        de_ms = EnzymeRates._expand_add_dead_end_regulator(seed, rxn)
-        @test !isempty(de_ms)
-        m = first(de_ms)
-        EnzymeRates._assert_mechanism_invariants(m)
-
-        result = EnzymeRates._expand_re_to_ss(m)
-
-        # 1. count: after dead-end expansion, groups are substrate-binding (RE),
-        # product-binding (RE), iso (SS), dead-end-S__reg-binding (RE, but
-        # binds a Regulator so it is skipped). → 2 RE groups → 2 variants.
-        @test length(result) == 2
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
-        end
-
-        # 2. property-style: each variant flips exactly one initial RE
-        # group to all-SS, and the flipped group covers 2 distinct values
-        # (substrate-binding, product-binding) across the 2 variants; the
-        # dead-end-inhibitor-S group never appears among them.
-        flipped_groups = Int[]
-        for r in result
-            for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
-                if all(EnzymeRates.is_equilibrium, old_grp) &&
-                   !any(EnzymeRates.is_equilibrium, new_grp)
-                    push!(flipped_groups, gi)
-                end
-            end
-        end
-        @test length(unique(flipped_groups)) == 2
-
-        # 3. preservation: reaction unchanged.
-        for r in result
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
-        end
-    end
-
-    @testset "Mechanism — Allosteric substrate-as-dead-end-I overlap" begin
-        # AllostericMechanism counterpart of the substrate-as-I overlap.
-        # Same count derivation: the dead-end-inhibitor-S group binds a
-        # Regulator and stays RE, leaving 2 RE groups → 2 variants. Each
-        # flip should preserve cat_allo_states tags exactly.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: S
-            oligomeric_state: 2
-        end
-        init_ms = EnzymeRates.init_mechanisms(rxn)
-        seed = first(init_ms)
-        de_ms = EnzymeRates._expand_add_dead_end_regulator(seed, rxn)
-        @test !isempty(de_ms)
-        plain = first(de_ms)
-        # Convert to allosteric
-        allo_ms = EnzymeRates._expand_to_allosteric(plain, rxn)
-        @test !isempty(allo_ms)
-        am = first(allo_ms)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_re_to_ss(am)
-
-        # 1. count: 2 RE groups (dead-end-inhibitor-S excluded). → 2 variants.
-        @test length(result) == 2
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 2. cat_allo_states preserved on every variant.
-        for r in result
-            @test r.cat_allo_states == am.cat_allo_states
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.regulatory_sites == am.regulatory_sites
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-        end
-    end
-
-    @testset "_expand_re_to_ss keeps inhibitor bindings RE" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: S
-        end
-        m = first(EnzymeRates._expand_add_dead_end_regulator(
-                  first(EnzymeRates.init_mechanisms(rxn)), rxn))
-        for r in EnzymeRates._expand_re_to_ss(m)
-            for grp in EnzymeRates.steps(r), s in grp
-                if EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator
-                    @test EnzymeRates.is_equilibrium(s)   # inhibitor binding stays RE
-                end
+    # 3. distinct flipped group across variants (one per RE group).
+    flipped_groups = Int[]
+    for r in result
+        for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
+            if all(EnzymeRates.is_equilibrium, old_grp) &&
+               !any(EnzymeRates.is_equilibrium, new_grp)
+                push!(flipped_groups, gi)
             end
         end
     end
+    @test length(unique(flipped_groups)) == 4
+end
 
-    @testset "_expand_re_to_ss flips inhibitor-bound mirrors together" begin
-        # A catalytic binding and its inhibitor-bound mirror (the same binding
-        # with every inhibitor stripped) sit in separate all-RE kinetic groups
-        # on a closed inhibitor square: A binding to E, and A binding to the
-        # inhibitor-bound form E(I), with I binding both E and E(A). Neither
-        # cuts a rapid-equilibrium segment alone, because the other supplies an
-        # RE route around the square, so the minimal-set search emits them only
-        # together: they flip to SS as a pair, never one without the other.
-        # Built via the macro; a separate catalytic inhibitor I keeps the
-        # substrate/inhibitor roles unambiguous.
-        m = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
-            substrates: A, B
-            products: P
-            catalytic_inhibitors: I
-            catalytic_steps: begin
-                E + A ⇌ E(A)          :: EqualAI
-                E + B ⇌ E(B)          :: EqualAI
-                E(A) + B ⇌ E(A, B)    :: EqualAI
-                E(B) + A ⇌ E(A, B)    :: EqualAI
-                E(A, B) <--> E(P)      :: EqualAI
-                E + P ⇌ E(P)          :: EqualAI
-                E + I ⇌ E(I)          :: EqualAI
-                E(A) + I ⇌ E(A, I)    :: EqualAI
-                E(I) + A ⇌ E(A, I)    :: EqualAI
-            end
-        end)
-        # Non-vacuity: the A-binding group and its inhibitor-bound mirror are
-        # separate all-RE groups, each bridged by the other, so they can only
-        # flip as a pair — and some child does flip the pair.
-        kids = EnzymeRates._expand_re_to_ss(m)
-        @test !isempty(kids)
-        core(s) = begin
-            strip(sp) = EnzymeRates.Species(
-                EnzymeRates.Metabolite[b for b in EnzymeRates.bound(sp)
-                                       if !(b isa EnzymeRates.Regulator)],
-                EnzymeRates.conformation(sp), EnzymeRates.residual(sp))
-            (strip(EnzymeRates.from_species(s)), strip(EnzymeRates.to_species(s)),
-             EnzymeRates.bound_metabolite(s))
+@testset "Mechanism — bi-bi multi-step kinetic group: atomic conversion" begin
+    # SEED: bi-bi random with 4 multi-step RE groups (A, B, P, Q each
+    # binding at two forms, shared via parens) + 1 SS iso. RE→SS fires
+    # per group atomically — both steps in a multi-step group flip together.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
         end
-        # The base E + A ⇌ E(A) and its mirror E(I) + A ⇌ E(A, I) share a core.
-        base = only(s for grp in EnzymeRates.steps(m) for s in grp
-                    if EnzymeRates.name(EnzymeRates.from_species(s)) == :E &&
-                       EnzymeRates.name(EnzymeRates.to_species(s)) == :EA)
-        pair_ss = [EnzymeRates.Step(EnzymeRates.from_species(s),
-                                    EnzymeRates.to_species(s),
-                                    EnzymeRates.bound_metabolite(s), false)
-                   for grp in EnzymeRates.steps(m) for s in grp
-                   if core(s) == core(base)]
-        @test length(pair_ss) == 2
-        ss_steps(c) = Set(s for grp in EnzymeRates.steps(c) for s in grp
-                          if !EnzymeRates.is_equilibrium(s))
-        @test any(c -> all(in(ss_steps(c)), pair_ss), kids)
-        # Mirror-lock: no re_to_ss variant leaves a mirror RE while its base is SS.
-        for r in kids
-            status = Dict{Any, Bool}()
-            for grp in EnzymeRates.steps(r)
-                allss = !any(EnzymeRates.is_equilibrium, grp)
-                for s in grp
-                    c = core(s)
-                    haskey(status, c) ? (@test status[c] == allss) :
-                                        (status[c] = allss)
-                end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    # Sanity: the seed has 4 multi-step groups + 1 singleton iso.
+    @test count(g -> length(g) >= 2, m.steps) == 4
+    @test count(g -> length(g) == 1, m.steps) == 1
+
+    result = EnzymeRates._expand_re_to_ss(m)
+
+    # 1. count: 4 all-RE multi-step groups → 4 variants. Iso SS excluded.
+    @test length(result) == 4
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+    end
+
+    # 2. property-style: in each variant, exactly one initial RE
+    # multi-step group has ALL its steps now SS (atomic conversion).
+    for r in result
+        n_all_ss_multi = count(zip(m.steps, r.steps)) do (old_grp, new_grp)
+            length(old_grp) >= 2 &&
+                all(EnzymeRates.is_equilibrium, old_grp) &&
+                !any(EnzymeRates.is_equilibrium, new_grp)
+        end
+        @test n_all_ss_multi == 1
+    end
+
+    # 3. preservation: reaction unchanged on every variant.
+    for r in result
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+    end
+end
+
+@testset "Mechanism — bi-bi ping-pong: 5 RE groups → 5 variants" begin
+    # SEED: bi-bi ping-pong with Estar (residual) form. 5 singleton RE
+    # groups + 1 SS iso group. _expand_re_to_ss fires per RE group → 5.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            Estar + B ⇌ Estar(B)
+            E + Q ⇌ E(Q)
+            Estar + P ⇌ Estar(A, P)
+            E(A) <--> Estar(A, P)
+            Estar(B) ⇌ E(Q)
+        end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+
+    result = EnzymeRates._expand_re_to_ss(m)
+
+    # 1. count: 5 all-RE groups → 5 variants.
+    @test length(result) == 5
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+    end
+
+    # 2. property-style: each variant flips exactly one initial RE
+    # group to all-SS. The flipped group is distinct across variants.
+    flipped_groups = Int[]
+    for r in result
+        for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
+            if all(EnzymeRates.is_equilibrium, old_grp) &&
+               !any(EnzymeRates.is_equilibrium, new_grp)
+                push!(flipped_groups, gi)
             end
         end
     end
+    @test length(unique(flipped_groups)) == 5
 
-    @testset "Mechanism — uni-uni: 2 RE binding groups → 2 variants" begin
-        # SEED: uni-uni init mechanism. 3 kinetic groups: 2 RE binding
-        # (S-binding, P-binding) and 1 SS iso. _expand_re_to_ss fires per
-        # all-RE group → 2 variants.
-        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-        @test m isa EnzymeRates.Mechanism
+    # 3. preservation
+    for r in result
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+    end
+end
 
-        result = EnzymeRates._expand_re_to_ss(m)
-
-        # 1. count: 2 all-RE groups (P-binding, S-binding). Iso already SS. → 2.
-        @test length(result) == 2
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
-            @test length(r.steps) == length(m.steps)
+@testset "Mechanism — ter-ter sequential" begin
+    # SEED: ter-ter sequential ordered. 6 singleton RE binding groups
+    # + 1 SS iso. _expand_re_to_ss fires per RE group → 6 variants.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) + D ⇌ E(A, B, D)
+            E + R ⇌ E(R)
+            E(R) + Q ⇌ E(Q, R)
+            E(Q, R) + P ⇌ E(P, Q, R)
+            E(A, B, D) <--> E(P, Q, R)
         end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
 
-        # 2. property-style: in each variant, exactly one initial RE
-        # group has all its steps newly SS; all other groups unchanged.
-        for r in result
-            n_groups_newly_ss = count(zip(m.steps, r.steps)) do (old_grp, new_grp)
-                length(old_grp) == length(new_grp) &&
-                    all(EnzymeRates.is_equilibrium, old_grp) &&
-                    !any(EnzymeRates.is_equilibrium, new_grp)
-            end
-            @test n_groups_newly_ss == 1
+    result = EnzymeRates._expand_re_to_ss(m)
+    @test length(result) == 6
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+    end
+end
+
+@testset "Mechanism — :EqualAI group: RE→SS preserves tag" begin
+    # SEED: uni-uni allosteric with all catalytic groups :EqualAI.
+    # _expand_re_to_ss fires per all-RE group → 2 variants. Each
+    # converted group stays :EqualAI (RE K → SS (kf, kr), shared R/T).
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
         end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
 
-        # 3. step structure preserved: each Step's chemistry (from/to
-        # species + bound metabolite) in the result matches the
-        # corresponding Step in the seed, position-for-position.
-        for r in result
-            for (old_grp, new_grp) in zip(m.steps, r.steps)
-                @test [EnzymeRates.from_species(s) for s in old_grp] ==
-                      [EnzymeRates.from_species(s) for s in new_grp]
-                @test [EnzymeRates.to_species(s) for s in old_grp] ==
-                      [EnzymeRates.to_species(s) for s in new_grp]
-                @test [EnzymeRates.bound_metabolite(s) for s in old_grp] ==
-                      [EnzymeRates.bound_metabolite(s) for s in new_grp]
+    result = EnzymeRates._expand_re_to_ss(am)
+
+    # 1. count: 2 all-RE groups; iso SS. → 2.
+    @test length(result) == 2
+
+    # 2. Δ params: cheap-tag RE→SS adds 1 fitted param per variant
+    # (RE K → SS (kf, kr), shared across R/T — no separate T-state pair).
+    # Measured against the actual compiled fitted-param count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == [1, 1]
+
+    # 3. compilability — must produce AllostericEnzymeMechanism.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+
+    # 4. exactly one group newly all-SS; all cat_allo_states preserved.
+    for r in result
+        n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
+            all(EnzymeRates.is_equilibrium, old) &&
+                !any(EnzymeRates.is_equilibrium, new)
+        end
+        @test n_newly_ss == 1
+        @test r.cat_allo_states == am.cat_allo_states
+    end
+
+    # 5. preservation: multiplicity, reg sites, reaction untouched.
+    for r in result
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.regulatory_sites == am.regulatory_sites
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    end
+end
+
+@testset "Mechanism — :OnlyA group: RE→SS preserves tag" begin
+    # SEED: uni-uni allosteric with both binding groups :OnlyA (a
+    # balanced substrate/product pair, so the mechanism is Haldane-valid)
+    # and :EqualAI catalysis. :OnlyA groups live in the R-state only; the
+    # T-state contributes no kf_T/kr_T after RE→SS.
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: OnlyA
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+
+    result = EnzymeRates._expand_re_to_ss(am)
+
+    # 1. count: 2 all-RE binding groups (both :OnlyA). Iso SS. → 2 variants.
+    @test length(result) == 2
+
+    # 2. Δ params. Connected-component pruning populates the inactive state
+    # from free E over ALL surviving steps, so because catalysis is :EqualAI
+    # the base mechanism's Q_I ALREADY carries E(S) and E(P) through the
+    # inactive catalytic step — even though both bindings are :OnlyA and
+    # cannot bind directly in the T-state. Those forms are therefore present
+    # in the inactive state of the base AND of every variant, so flipping a
+    # binding group RE→SS adds only that group's own SS rate constant (+1) —
+    # it does not introduce a new inactive-state form. Both variants → Δ=1.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == [1, 1]
+
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+
+    # 4. exactly one group flipped to SS; ALL cat_allo_states preserved
+    # (including the converted group's :OnlyA — move MUST NOT change
+    # R/T-state semantics).
+    for r in result
+        n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
+            all(EnzymeRates.is_equilibrium, old) &&
+                !any(EnzymeRates.is_equilibrium, new)
+        end
+        @test n_newly_ss == 1
+        @test r.cat_allo_states == am.cat_allo_states
+    end
+
+    # 5. preservation
+    for r in result
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.regulatory_sites == am.regulatory_sites
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    end
+end
+
+@testset "Mechanism — :NonequalAI group: RE→SS adds 2 params" begin
+    # SEED: uni-uni allosteric with one :NonequalAI group (S-binding),
+    # others :EqualAI. When RE→SS converts a :NonequalAI group, BOTH
+    # the R-state K and the T-state K_T must split into (kf, kr) and
+    # (kf_T, kr_T). Δ for :NonequalAI = +2; cheap-tag conversion = +1.
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+
+    result = EnzymeRates._expand_re_to_ss(am)
+
+    # 1. count: 2 RE groups (P-binding :EqualAI, S-binding :NonequalAI).
+    # → 2 variants.
+    @test length(result) == 2
+
+    # 2. Δ params: P-binding :EqualAI → +1; S-binding :NonequalAI → +2.
+    # Measured against the actual compiled fitted-param count (ground
+    # truth): SS :NonequalAI adds kf_T, kr_T on top of the R-state pair.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == [1, 2]
+
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+
+    # 4. exactly one group flipped to SS; cat_allo_states preserved.
+    for r in result
+        n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
+            all(EnzymeRates.is_equilibrium, old) &&
+                !any(EnzymeRates.is_equilibrium, new)
+        end
+        @test n_newly_ss == 1
+        @test r.cat_allo_states == am.cat_allo_states
+    end
+
+    # 5. preservation
+    for r in result
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.regulatory_sites == am.regulatory_sites
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    end
+end
+
+@testset "Mechanism — Substrate-as-dead-end-inhibitor overlap" begin
+    # SEED: uni-uni where S is BOTH substrate AND dead-end inhibitor.
+    # Build via init + dead-end expansion to get the S/__reg overlap.
+    # _expand_re_to_ss keeps inhibitor bindings RE-only, so the
+    # dead-end-inhibitor-S kinetic group never flips, even though the
+    # substrate-S and inhibitor-S groups are otherwise independent.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S
+    end
+    init_ms = EnzymeRates.init_mechanisms(rxn)
+    @test length(init_ms) == 1   # uni-uni: 1 catalytic topology
+    seed = first(init_ms)
+    de_ms = EnzymeRates._expand_add_dead_end_regulator(seed, rxn)
+    @test !isempty(de_ms)
+    m = first(de_ms)
+    EnzymeRates._assert_mechanism_invariants(m)
+
+    result = EnzymeRates._expand_re_to_ss(m)
+
+    # 1. count: after dead-end expansion, groups are substrate-binding (RE),
+    # product-binding (RE), iso (SS), dead-end-S__reg-binding (RE, but
+    # binds a Regulator so it is skipped). → 2 RE groups → 2 variants.
+    @test length(result) == 2
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+    end
+
+    # 2. property-style: each variant flips exactly one initial RE
+    # group to all-SS, and the flipped group covers 2 distinct values
+    # (substrate-binding, product-binding) across the 2 variants; the
+    # dead-end-inhibitor-S group never appears among them.
+    flipped_groups = Int[]
+    for r in result
+        for (gi, (old_grp, new_grp)) in enumerate(zip(m.steps, r.steps))
+            if all(EnzymeRates.is_equilibrium, old_grp) &&
+               !any(EnzymeRates.is_equilibrium, new_grp)
+                push!(flipped_groups, gi)
             end
         end
     end
+    @test length(unique(flipped_groups)) == 2
 
-    @testset "Mechanism — all-SS seed: empty (negative)" begin
-        # If every catalytic group is already SS, the move has no RE
-        # group to fire on → empty.
-        m_seed_with_all_ss = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-        # Convert every group to SS by applying _flip_group_to_ss
-        # repeatedly. (Use the same helper the production code uses.)
-        all_ss_groups = m_seed_with_all_ss.steps
-        for g in 1:length(all_ss_groups)
-            all_ss_groups = EnzymeRates._flip_group_to_ss(all_ss_groups, g)
-        end
-        m_all_ss = EnzymeRates.Mechanism(
-            EnzymeRates.reaction(m_seed_with_all_ss), all_ss_groups)
-        @test isempty(EnzymeRates._expand_re_to_ss(m_all_ss))
+    # 3. preservation: reaction unchanged.
+    for r in result
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+    end
+end
+
+@testset "Mechanism — Allosteric substrate-as-dead-end-I overlap" begin
+    # AllostericMechanism counterpart of the substrate-as-I overlap.
+    # Same count derivation: the dead-end-inhibitor-S group binds a
+    # Regulator and stays RE, leaving 2 RE groups → 2 variants. Each
+    # flip should preserve cat_allo_states tags exactly.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S
+        oligomeric_state: 2
+    end
+    init_ms = EnzymeRates.init_mechanisms(rxn)
+    seed = first(init_ms)
+    de_ms = EnzymeRates._expand_add_dead_end_regulator(seed, rxn)
+    @test !isempty(de_ms)
+    plain = first(de_ms)
+    # Convert to allosteric
+    allo_ms = EnzymeRates._expand_to_allosteric(plain, rxn)
+    @test !isempty(allo_ms)
+    am = first(allo_ms)
+    EnzymeRates._assert_mechanism_invariants(am)
+
+    result = EnzymeRates._expand_re_to_ss(am)
+
+    # 1. count: 2 RE groups (dead-end-inhibitor-S excluded). → 2 variants.
+    @test length(result) == 2
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
     end
 
-    @testset "AllostericMechanism — :NonequalAI: 2 variants, tags preserved" begin
-        # SEED: uni-uni allosteric with every group :NonequalAI — a
-        # distinguishable mechanism (an all-:EqualAI seed is a model-space
-        # no-op that is never enumerated). Built via @allosteric_mechanism,
-        # then lifted to the decomposed form the expansion moves operate on.
-        am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
-            substrates: S
-            products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + S ⇌ E(S)    :: NonequalAI
-                E + P ⇌ E(P)    :: NonequalAI
-                E(S) <--> E(P)  :: NonequalAI
+    # 2. cat_allo_states preserved on every variant.
+    for r in result
+        @test r.cat_allo_states == am.cat_allo_states
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.regulatory_sites == am.regulatory_sites
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    end
+end
+
+@testset "_expand_re_to_ss keeps inhibitor bindings RE" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S
+    end
+    m = first(EnzymeRates._expand_add_dead_end_regulator(
+              first(EnzymeRates.init_mechanisms(rxn)), rxn))
+    for r in EnzymeRates._expand_re_to_ss(m)
+        for grp in EnzymeRates.steps(r), s in grp
+            if EnzymeRates.bound_metabolite(s) isa EnzymeRates.Regulator
+                @test EnzymeRates.is_equilibrium(s)   # inhibitor binding stays RE
             end
-        end)
-
-        result = EnzymeRates._expand_re_to_ss(am)
-
-        # 1. count: 2 all-RE binding groups (P-, S-binding). Iso is SS. → 2.
-        @test length(result) == 2
-
-        # 2. Δ params: :NonequalAI RE→SS adds 2 fitted params per variant (the
-        # A- and I-state binding K each split into (kf, kr)). Measured against
-        # the actual compiled count.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [2, 2]
-
-        # 3. allosteric state preserved on every variant.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            @test r.cat_allo_states == am.cat_allo_states
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.regulatory_sites == am.regulatory_sites
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-        end
-
-        # 4. exactly one group newly all-SS.
-        for r in result
-            n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
-                all(EnzymeRates.is_equilibrium, old) &&
-                    !any(EnzymeRates.is_equilibrium, new)
-            end
-            @test n_newly_ss == 1
         end
     end
+end
+
+@testset "_expand_re_to_ss flips inhibitor-bound mirrors together" begin
+    # A catalytic binding and its inhibitor-bound mirror (the same binding
+    # with every inhibitor stripped) sit in separate all-RE kinetic groups
+    # on a closed inhibitor square: A binding to E, and A binding to the
+    # inhibitor-bound form E(I), with I binding both E and E(A). Neither
+    # cuts a rapid-equilibrium segment alone, because the other supplies an
+    # RE route around the square, so the minimal-set search emits them only
+    # together: they flip to SS as a pair, never one without the other.
+    # Built via the macro; a separate catalytic inhibitor I keeps the
+    # substrate/inhibitor roles unambiguous.
+    m = EnzymeRates.AllostericMechanism(EnzymeRates.@allosteric_mechanism begin
+        substrates: A, B
+        products: P
+        catalytic_inhibitors: I
+        catalytic_steps: begin
+            E + A ⇌ E(A)          :: EqualAI
+            E + B ⇌ E(B)          :: EqualAI
+            E(A) + B ⇌ E(A, B)    :: EqualAI
+            E(B) + A ⇌ E(A, B)    :: EqualAI
+            E(A, B) <--> E(P)      :: EqualAI
+            E + P ⇌ E(P)          :: EqualAI
+            E + I ⇌ E(I)          :: EqualAI
+            E(A) + I ⇌ E(A, I)    :: EqualAI
+            E(I) + A ⇌ E(A, I)    :: EqualAI
+        end
+    end)
+    # Non-vacuity: the A-binding group and its inhibitor-bound mirror are
+    # separate all-RE groups, each bridged by the other, so they can only
+    # flip as a pair — and some child does flip the pair.
+    kids = EnzymeRates._expand_re_to_ss(m)
+    @test !isempty(kids)
+    core(s) = begin
+        strip(sp) = EnzymeRates.Species(
+            EnzymeRates.Metabolite[b for b in EnzymeRates.bound(sp)
+                                   if !(b isa EnzymeRates.Regulator)],
+            EnzymeRates.conformation(sp), EnzymeRates.residual(sp))
+        (strip(EnzymeRates.from_species(s)), strip(EnzymeRates.to_species(s)),
+         EnzymeRates.bound_metabolite(s))
+    end
+    # The base E + A ⇌ E(A) and its mirror E(I) + A ⇌ E(A, I) share a core.
+    base = only(s for grp in EnzymeRates.steps(m) for s in grp
+                if EnzymeRates.name(EnzymeRates.from_species(s)) == :E &&
+                   EnzymeRates.name(EnzymeRates.to_species(s)) == :EA)
+    pair_ss = [EnzymeRates.Step(EnzymeRates.from_species(s),
+                                EnzymeRates.to_species(s),
+                                EnzymeRates.bound_metabolite(s), false)
+               for grp in EnzymeRates.steps(m) for s in grp
+               if core(s) == core(base)]
+    @test length(pair_ss) == 2
+    ss_steps(c) = Set(s for grp in EnzymeRates.steps(c) for s in grp
+                      if !EnzymeRates.is_equilibrium(s))
+    @test any(c -> all(in(ss_steps(c)), pair_ss), kids)
+    # Mirror-lock: no re_to_ss variant leaves a mirror RE while its base is SS.
+    for r in kids
+        status = Dict{Any, Bool}()
+        for grp in EnzymeRates.steps(r)
+            allss = !any(EnzymeRates.is_equilibrium, grp)
+            for s in grp
+                c = core(s)
+                haskey(status, c) ? (@test status[c] == allss) :
+                                    (status[c] = allss)
+            end
+        end
+    end
+end
+
+@testset "Mechanism — uni-uni: 2 RE binding groups → 2 variants" begin
+    # SEED: uni-uni init mechanism. 3 kinetic groups: 2 RE binding
+    # (S-binding, P-binding) and 1 SS iso. _expand_re_to_ss fires per
+    # all-RE group → 2 variants.
+    m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    @test m isa EnzymeRates.Mechanism
+
+    result = EnzymeRates._expand_re_to_ss(m)
+
+    # 1. count: 2 all-RE groups (P-binding, S-binding). Iso already SS. → 2.
+    @test length(result) == 2
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+        @test length(r.steps) == length(m.steps)
+    end
+
+    # 2. property-style: in each variant, exactly one initial RE
+    # group has all its steps newly SS; all other groups unchanged.
+    for r in result
+        n_groups_newly_ss = count(zip(m.steps, r.steps)) do (old_grp, new_grp)
+            length(old_grp) == length(new_grp) &&
+                all(EnzymeRates.is_equilibrium, old_grp) &&
+                !any(EnzymeRates.is_equilibrium, new_grp)
+        end
+        @test n_groups_newly_ss == 1
+    end
+
+    # 3. step structure preserved: each Step's chemistry (from/to
+    # species + bound metabolite) in the result matches the
+    # corresponding Step in the seed, position-for-position.
+    for r in result
+        for (old_grp, new_grp) in zip(m.steps, r.steps)
+            @test [EnzymeRates.from_species(s) for s in old_grp] ==
+                  [EnzymeRates.from_species(s) for s in new_grp]
+            @test [EnzymeRates.to_species(s) for s in old_grp] ==
+                  [EnzymeRates.to_species(s) for s in new_grp]
+            @test [EnzymeRates.bound_metabolite(s) for s in old_grp] ==
+                  [EnzymeRates.bound_metabolite(s) for s in new_grp]
+        end
+    end
+end
+
+@testset "Mechanism — all-SS seed: empty (negative)" begin
+    # If every catalytic group is already SS, the move has no RE
+    # group to fire on → empty.
+    m_seed_with_all_ss = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    # Convert every group to SS by applying _flip_group_to_ss
+    # repeatedly. (Use the same helper the production code uses.)
+    all_ss_groups = m_seed_with_all_ss.steps
+    for g in 1:length(all_ss_groups)
+        all_ss_groups = EnzymeRates._flip_group_to_ss(all_ss_groups, g)
+    end
+    m_all_ss = EnzymeRates.Mechanism(
+        EnzymeRates.reaction(m_seed_with_all_ss), all_ss_groups)
+    @test isempty(EnzymeRates._expand_re_to_ss(m_all_ss))
+end
+
+@testset "AllostericMechanism — :NonequalAI: 2 variants, tags preserved" begin
+    # SEED: uni-uni allosteric with every group :NonequalAI — a
+    # distinguishable mechanism (an all-:EqualAI seed is a model-space
+    # no-op that is never enumerated). Built via @allosteric_mechanism,
+    # then lifted to the decomposed form the expansion moves operate on.
+    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + S ⇌ E(S)    :: NonequalAI
+            E + P ⇌ E(P)    :: NonequalAI
+            E(S) <--> E(P)  :: NonequalAI
+        end
+    end)
+
+    result = EnzymeRates._expand_re_to_ss(am)
+
+    # 1. count: 2 all-RE binding groups (P-, S-binding). Iso is SS. → 2.
+    @test length(result) == 2
+
+    # 2. Δ params: :NonequalAI RE→SS adds 2 fitted params per variant (the
+    # A- and I-state binding K each split into (kf, kr)). Measured against
+    # the actual compiled count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == [2, 2]
+
+    # 3. allosteric state preserved on every variant.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        @test r.cat_allo_states == am.cat_allo_states
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.regulatory_sites == am.regulatory_sites
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    end
+
+    # 4. exactly one group newly all-SS.
+    for r in result
+        n_newly_ss = count(zip(am.cat_steps, r.cat_steps)) do (old, new)
+            all(EnzymeRates.is_equilibrium, old) &&
+                !any(EnzymeRates.is_equilibrium, new)
+        end
+        @test n_newly_ss == 1
+    end
+end
 
 end
 
 # ─── _expand_split_kinetic_group ───────────────────────────────────────
 @testset "_expand_split_kinetic_group" begin
 
-    @testset "Mechanism — mixed RE/SS multi-step groups: every child gains" begin
-        # SEED: bi-bi random where the A-binding kinetic group is SS
-        # (size-2, both SS) and the B-binding kinetic group is RE
-        # (size-2, both RE). The remaining P-binding (size-2 RE),
-        # Q-binding (size-2 RE), and iso (singleton SS) groups are
-        # unchanged. Total: 9 steps, 5 kinetic groups. Each multi-step
-        # group divides by binding context, and a division is emitted only
-        # when it raises the independent-parameter count.
-        m_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                (E + A <--> E(A), E(B) + A <--> E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
-            end
+@testset "Mechanism — mixed RE/SS multi-step groups: every child gains" begin
+    # SEED: bi-bi random where the A-binding kinetic group is SS
+    # (size-2, both SS) and the B-binding kinetic group is RE
+    # (size-2, both RE). The remaining P-binding (size-2 RE),
+    # Q-binding (size-2 RE), and iso (singleton SS) groups are
+    # unchanged. Total: 9 steps, 5 kinetic groups. Each multi-step
+    # group divides by binding context, and a division is emitted only
+    # when it raises the independent-parameter count.
+    m_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
         end
-        m = EnzymeRates.Mechanism(m_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
+    end
+    m = EnzymeRates.Mechanism(m_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
 
-        result = EnzymeRates._expand_split_kinetic_group(m)
-        @test !isempty(result)
-        base = EnzymeRates._independent_param_count(m)
-        for r in result
-            @test EnzymeRates._independent_param_count(r) > base
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
-            @test EnzymeRates.n_steps(r) == EnzymeRates.n_steps(m)
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+    result = EnzymeRates._expand_split_kinetic_group(m)
+    @test !isempty(result)
+    base = EnzymeRates._independent_param_count(m)
+    for r in result
+        @test EnzymeRates._independent_param_count(r) > base
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa EnzymeMechanism
+        @test EnzymeRates.n_steps(r) == EnzymeRates.n_steps(m)
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+    end
+    # The SS A-binding group has no equilibrium constant to tie, so its
+    # context split by B gains alone and is emitted as a single split.
+    a_split = [r for r in result
+               if length(EnzymeRates.steps(r)) == length(m.steps) + 1 &&
+               any(grp -> length(grp) == 1 && !EnzymeRates.is_equilibrium(only(grp)) &&
+                   EnzymeRates.name(EnzymeRates.bound_metabolite(only(grp))) == :A,
+                   EnzymeRates.steps(r))]
+    @test length(a_split) == 1
+end
+
+@testset "AllostericMechanism — SS multi-step :NonequalAI split" begin
+    # SEED: bi-bi allosteric where one multi-step group is BOTH SS AND
+    # :NonequalAI. Splitting this group costs more parameters than
+    # splitting a :EqualAI RE group (factor 2 for SS pair × factor 2
+    # for R/T-state pair).
+    em_seed = @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A <--> E(A), E(B) + A <--> E(A, B))    :: NonequalAI
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))          :: EqualAI
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: EqualAI
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: EqualAI
+            E(A, B) <--> E(P, Q)                        :: EqualAI
         end
-        # The SS A-binding group has no equilibrium constant to tie, so its
-        # context split by B gains alone and is emitted as a single split.
-        a_split = [r for r in result
-                   if length(EnzymeRates.steps(r)) == length(m.steps) + 1 &&
-                   any(grp -> length(grp) == 1 && !EnzymeRates.is_equilibrium(only(grp)) &&
-                       EnzymeRates.name(EnzymeRates.bound_metabolite(only(grp))) == :A,
-                       EnzymeRates.steps(r))]
-        @test length(a_split) == 1
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+
+    result = EnzymeRates._expand_split_kinetic_group(am)
+
+    # 1. every emitted child raises the independent-parameter count.
+    @test !isempty(result)
+    @test all(r -> EnzymeRates._independent_param_count(r) >
+                   EnzymeRates._independent_param_count(am), result)
+
+    # 2. the :NonequalAI A-binding group is SS, so it has no equilibrium
+    # constant to tie and its context split gains on its own: a child
+    # that splits that group and nothing else is emitted.
+    a_group = only(grp for grp in am.cat_steps
+                   if length(grp) == 2 && EnzymeRates.name(
+                       EnzymeRates.bound_metabolite(first(grp))) == :A)
+    @test any(r -> length(EnzymeRates.steps(r)) == length(am.cat_steps) + 1 &&
+                   count(grp -> Set(grp) ⊆ Set(a_group),
+                         EnzymeRates.steps(r)) == 2, result)
+
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
     end
 
-    @testset "AllostericMechanism — SS multi-step :NonequalAI split" begin
-        # SEED: bi-bi allosteric where one multi-step group is BOTH SS AND
-        # :NonequalAI. Splitting this group costs more parameters than
-        # splitting a :EqualAI RE group (factor 2 for SS pair × factor 2
-        # for R/T-state pair).
-        em_seed = @allosteric_mechanism begin
-            substrates: A, B
-            products: P, Q
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                (E + A <--> E(A), E(B) + A <--> E(A, B))    :: NonequalAI
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))          :: EqualAI
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: EqualAI
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: EqualAI
-                E(A, B) <--> E(P, Q)                        :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_split_kinetic_group(am)
-
-        # 1. every emitted child raises the independent-parameter count.
-        @test !isempty(result)
-        @test all(r -> EnzymeRates._independent_param_count(r) >
-                       EnzymeRates._independent_param_count(am), result)
-
-        # 2. the :NonequalAI A-binding group is SS, so it has no equilibrium
-        # constant to tie and its context split gains on its own: a child
-        # that splits that group and nothing else is emitted.
-        a_group = only(grp for grp in am.cat_steps
-                       if length(grp) == 2 && EnzymeRates.name(
-                           EnzymeRates.bound_metabolite(first(grp))) == :A)
-        @test any(r -> length(EnzymeRates.steps(r)) == length(am.cat_steps) + 1 &&
-                       count(grp -> Set(grp) ⊆ Set(a_group),
-                             EnzymeRates.steps(r)) == 2, result)
-
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 4. tag inheritance: each result group inherits the tag of the parent
-        # group whose steps contain it. A child subdivides one or more groups;
-        # both halves of each carry that group's tag, and every other group
-        # keeps its own. Group ORDER is canonical (not source-preserved), so match each
-        # result group to its parent by step content rather than by position.
-        for r in result
-            @test length(r.cat_allo_states) == length(r.cat_steps)
-            for (g, grp) in enumerate(r.cat_steps)
-                sset = Set(grp)
-                parent = only(ag for ag in 1:length(am.cat_steps)
-                              if sset ⊆ Set(am.cat_steps[ag]))
-                @test r.cat_allo_states[g] == am.cat_allo_states[parent]
-            end
-        end
-
-        # 5. preservation
-        for r in result
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.regulatory_sites == am.regulatory_sites
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    # 4. tag inheritance: each result group inherits the tag of the parent
+    # group whose steps contain it. A child subdivides one or more groups;
+    # both halves of each carry that group's tag, and every other group
+    # keeps its own. Group ORDER is canonical (not source-preserved), so match each
+    # result group to its parent by step content rather than by position.
+    for r in result
+        @test length(r.cat_allo_states) == length(r.cat_steps)
+        for (g, grp) in enumerate(r.cat_steps)
+            sset = Set(grp)
+            parent = only(ag for ag in 1:length(am.cat_steps)
+                          if sset ⊆ Set(am.cat_steps[ag]))
+            @test r.cat_allo_states[g] == am.cat_allo_states[parent]
         end
     end
 
-    @testset "Mechanism — bi-bi random: single splits tied, a pair frees a constant" begin
-        # SEED: bi-bi random with 4 multi-step kinetic groups (A, B, P, Q)
-        # forming a single closed thermodynamic cycle. Dividing any one group
-        # produces a binding-K that the cycle ties straight back to an existing
-        # parameter, so no single division gains; the cycle is broken only by
-        # dividing a second group on it as well.
-        m_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
-            end
-        end
-        m = EnzymeRates.Mechanism(m_seed)
-        result = EnzymeRates._expand_split_kinetic_group(m)
-        @test !isempty(result)
-        base = EnzymeRates._independent_param_count(m)
-        for r in result
-            @test EnzymeRates._independent_param_count(r) > base
-            # Every child splits at least two groups: no single split gains here.
-            @test length(EnzymeRates.steps(r)) >= length(m.steps) + 2
-        end
+    # 5. preservation
+    for r in result
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.regulatory_sites == am.regulatory_sites
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
     end
+end
 
-    @testset "Mechanism — all singleton groups: empty (negative)" begin
-        # If every group is a singleton, no split is possible.
-        m_seed = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E(P)
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-            end
+@testset "Mechanism — bi-bi random: single splits tied, a pair frees a constant" begin
+    # SEED: bi-bi random with 4 multi-step kinetic groups (A, B, P, Q)
+    # forming a single closed thermodynamic cycle. Dividing any one group
+    # produces a binding-K that the cycle ties straight back to an existing
+    # parameter, so no single division gains; the cycle is broken only by
+    # dividing a second group on it as well.
+    m_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
         end
-        m = EnzymeRates.Mechanism(m_seed)
-        @test isempty(EnzymeRates._expand_split_kinetic_group(m))
     end
+    m = EnzymeRates.Mechanism(m_seed)
+    result = EnzymeRates._expand_split_kinetic_group(m)
+    @test !isempty(result)
+    base = EnzymeRates._independent_param_count(m)
+    for r in result
+        @test EnzymeRates._independent_param_count(r) > base
+        # Every child splits at least two groups: no single split gains here.
+        @test length(EnzymeRates.steps(r)) >= length(m.steps) + 2
+    end
+end
 
-    @testset "AllostericMechanism — bi-bi RE groups: every emitted split gains" begin
-        # SEED: bi-bi allosteric with mixed tags (:NonequalAI, :EqualAI),
-        # but both multi-step groups (A, B) are RE bindings, each closing
-        # its own per-conformer thermodynamic cycle, so a division of one
-        # group alone may be tied back by that cycle. Tag inheritance is
-        # covered by "AllostericMechanism — SS multi-step :NonequalAI
-        # split" above.
-        m_seed = @allosteric_mechanism begin
-            substrates: A, B
-            products: P, Q
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))    :: NonequalAI
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))    :: EqualAI
-                E + P ⇌ E(P)             :: EqualAI
-                E(P) + Q ⇌ E(P, Q)       :: EqualAI
-                E + Q ⇌ E(Q)             :: EqualAI
-                E(Q) + P ⇌ E(P, Q)       :: EqualAI
-                E(A, B) <--> E(P, Q)     :: EqualAI
-            end
+@testset "Mechanism — all singleton groups: empty (negative)" begin
+    # If every group is a singleton, no split is possible.
+    m_seed = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E(P)
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
         end
-        am = EnzymeRates.AllostericMechanism(m_seed)
-        result = EnzymeRates._expand_split_kinetic_group(am)
-        @test !isempty(result)
-        @test all(r -> EnzymeRates._independent_param_count(r) >
-                       EnzymeRates._independent_param_count(am), result)
     end
+    m = EnzymeRates.Mechanism(m_seed)
+    @test isempty(EnzymeRates._expand_split_kinetic_group(m))
+end
+
+@testset "AllostericMechanism — bi-bi RE groups: every emitted split gains" begin
+    # SEED: bi-bi allosteric with mixed tags (:NonequalAI, :EqualAI),
+    # but both multi-step groups (A, B) are RE bindings, each closing
+    # its own per-conformer thermodynamic cycle, so a division of one
+    # group alone may be tied back by that cycle. Tag inheritance is
+    # covered by "AllostericMechanism — SS multi-step :NonequalAI
+    # split" above.
+    m_seed = @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))    :: NonequalAI
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))    :: EqualAI
+            E + P ⇌ E(P)             :: EqualAI
+            E(P) + Q ⇌ E(P, Q)       :: EqualAI
+            E + Q ⇌ E(Q)             :: EqualAI
+            E(Q) + P ⇌ E(P, Q)       :: EqualAI
+            E(A, B) <--> E(P, Q)     :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(m_seed)
+    result = EnzymeRates._expand_split_kinetic_group(am)
+    @test !isempty(result)
+    @test all(r -> EnzymeRates._independent_param_count(r) >
+                   EnzymeRates._independent_param_count(am), result)
+end
 
 end
 
 # ─── _expand_add_dead_end_regulator ────────────────────────────────────
 @testset "_expand_add_dead_end_regulator" begin
 
-    @testset "Mechanism — Sequential bi-bi + I: 4 variants" begin
-        # SEED: bi-bi sequential. The expansion should produce 4 form sets
-        # after dedup.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E + Q ⇌ E(Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(A, B) <--> E(P, Q)
-            end
+@testset "Mechanism — Sequential bi-bi + I: 4 variants" begin
+    # SEED: bi-bi sequential. The expansion should produce 4 form sets
+    # after dedup.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E + Q ⇌ E(Q)
+            E(Q) + P ⇌ E(P, Q)
+            E(A, B) <--> E(P, Q)
         end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            dead_end_inhibitors: I
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: I
+    end
+
+    result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+
+    # 1. count
+    @test length(result) == 4
+
+    # 2. Δ params: +1 each (one new K_I parameter), measured against
+    # ground-truth `fitted_params(compile_mechanism(...))` — the
+    # canonical source for exact parameter counts.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(m)))
+    for r in result
+        r_fitted = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(r)))
+        @test r_fitted == base_fitted + 1
+    end
+
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
+    end
+
+    # 4. property: each variant has ≥1 I-binding step, and all
+    # I-binding steps in a single variant live in the same kinetic
+    # group (outer-vector index) — one K_I, not multiple.
+    for r in result
+        i_groups = Int[]
+        for (gi, group) in enumerate(r.steps), s in group
+            bm = EnzymeRates.bound_metabolite(s)
+            bm !== nothing && EnzymeRates.name(bm) === :I &&
+                push!(i_groups, gi)
         end
+        @test !isempty(i_groups)
+        @test length(unique(i_groups)) == 1
+    end
+end
 
-        result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-
-        # 1. count
-        @test length(result) == 4
-
-        # 2. Δ params: +1 each (one new K_I parameter), measured against
-        # ground-truth `fitted_params(compile_mechanism(...))` — the
-        # canonical source for exact parameter counts.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(m)))
-        for r in result
-            r_fitted = length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(r)))
-            @test r_fitted == base_fitted + 1
+@testset "Mechanism — Bi-bi random + I: 9 variants" begin
+    # Bi-bi random has 5 eligible forms (E, E_A, E_B, E_P, E_Q);
+    # competition patterns × dedup → 9 variants.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
         end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: I
+    end
 
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
+    result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+
+    # 1. count
+    @test length(result) == 9
+
+    # 2. Δ params: +1 each (one new K_I parameter), measured against
+    # ground-truth `fitted_params(compile_mechanism(...))` — exact
+    # parameter counts come from the compiled mechanism.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(m)))
+    for r in result
+        r_fitted = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(r)))
+        @test r_fitted == base_fitted + 1
+    end
+
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
+    end
+
+    # 4. property: every variant has ≥1 I-binding step; all I-binding
+    # steps in a single variant share the same kinetic group.
+    for r in result
+        i_groups = Int[]
+        for (gi, group) in enumerate(r.steps), s in group
+            bm = EnzymeRates.bound_metabolite(s)
+            bm !== nothing && EnzymeRates.name(bm) === :I &&
+                push!(i_groups, gi)
         end
+        @test !isempty(i_groups)
+        @test length(unique(i_groups)) == 1
+    end
+end
 
-        # 4. property: each variant has ≥1 I-binding step, and all
-        # I-binding steps in a single variant live in the same kinetic
-        # group (outer-vector index) — one K_I, not multiple.
-        for r in result
-            i_groups = Int[]
-            for (gi, group) in enumerate(r.steps), s in group
+@testset "Mechanism — Bi-bi PP + I: 3 variants" begin
+    # Ping-pong with Estar; 4 eligible forms (E, E_A, Estar, E_Q);
+    # competition patterns × dedup → 3 variants.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            Estar + B ⇌ Estar(B)
+            E + Q ⇌ E(Q)
+            Estar + P ⇌ Estar(A, P)
+            E(A) <--> Estar(A, P)
+            Estar(B) ⇌ E(Q)
+        end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        dead_end_inhibitors: I
+    end
+
+    result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+
+    # 1. count
+    @test length(result) == 3
+
+    # 2. Δ params: +1 each, measured against ground-truth
+    # `fitted_params(compile_mechanism(...))`.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(m)))
+    for r in result
+        r_fitted = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(r)))
+        @test r_fitted == base_fitted + 1
+    end
+
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
+    end
+
+    # 4. property: every variant has ≥1 I-binding step; all I-binding
+    # steps in a single variant share the same kinetic group.
+    for r in result
+        i_groups = Int[]
+        for (gi, group) in enumerate(r.steps), s in group
+            bm = EnzymeRates.bound_metabolite(s)
+            bm !== nothing && EnzymeRates.name(bm) === :I &&
+                push!(i_groups, gi)
+        end
+        @test !isempty(i_groups)
+        @test length(unique(i_groups)) == 1
+    end
+end
+
+@testset "Mechanism — Two regulators chain: J added after I preserves I" begin
+    # After step A (add I) and step B (add J), J-binding steps must exist
+    # and I-binding steps must remain.
+    em_seed = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E(P)
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+        end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: I, J
+    end
+
+    # Step A: 2 eligible regs (I, J), 1 form each → 2 variants total.
+    i_or_j_ms = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+    @test length(i_or_j_ms) == 2
+    with_i = first(filter(i_or_j_ms) do r
+        any(r.steps) do group
+            any(group) do s
                 bm = EnzymeRates.bound_metabolite(s)
-                bm !== nothing && EnzymeRates.name(bm) === :I &&
-                    push!(i_groups, gi)
+                bm !== nothing && EnzymeRates.name(bm) === :I
             end
-            @test !isempty(i_groups)
-            @test length(unique(i_groups)) == 1
+        end
+    end)
+
+    # Step B: add J on top of the I-bound variant.
+    j_ms = EnzymeRates._expand_add_dead_end_regulator(with_i, rxn)
+    @test !isempty(j_ms)
+
+    # Property: each result has ≥1 J-binding step AND ≥1 I-binding
+    # step (adding J must not remove I-binding steps).
+    for r in j_ms
+        j_present = false
+        i_present = false
+        for group in r.steps, s in group
+            bm = EnzymeRates.bound_metabolite(s)
+            bm === nothing && continue
+            EnzymeRates.name(bm) === :J && (j_present = true)
+            EnzymeRates.name(bm) === :I && (i_present = true)
+        end
+        @test j_present
+        @test i_present
+    end
+end
+
+@testset "Mechanism — Two regulators competition: 17 variants" begin
+    # Bi-bi random with two dead-end inhibitors. Step A: add both regs
+    # (9 + 9 = 18 variants). Step B: pick variant with I1 at ≥2 forms
+    # and add I2 on top → 17 variants (one less than 18 after dedup
+    # accounts for I2's active-form set intersection with existing I1).
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
         end
     end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: I1, I2
+    end
 
-    @testset "Mechanism — Bi-bi random + I: 9 variants" begin
-        # Bi-bi random has 5 eligible forms (E, E_A, E_B, E_P, E_Q);
-        # competition patterns × dedup → 9 variants.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+    # Step A
+    result1 = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+    @test length(result1) == 18
+
+    # Pick variant where I1 binds at multiple forms.
+    multi = filter(result1) do r
+        i1_forms = Set{Symbol}()
+        for group in r.steps, s in group
+            bm = EnzymeRates.bound_metabolite(s)
+            if bm !== nothing && EnzymeRates.name(bm) === :I1
+                push!(i1_forms, EnzymeRates.name(
+                    EnzymeRates.to_species(s)))
             end
         end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            dead_end_inhibitors: I
+        length(i1_forms) >= 2
+    end
+    @test !isempty(multi)
+    m_i1 = first(multi)
+
+    # Step B
+    result2 = EnzymeRates._expand_add_dead_end_regulator(m_i1, rxn)
+    @test length(result2) == 17
+
+    # Property: ≥1 variant has I1 + I2 coexisting on the same enzyme
+    # form (non-competing); ≥1 variant has I2 forms that never
+    # coexist with I1 (fully-competing). Dead-end species carry the
+    # inhibitor as a `CompetitiveInhibitor` in `bound`, rendered with
+    # an `inh` marker in the form name (e.g., `:E_I1inh_I2inh`). The
+    # substring checks below match the bare inhibitor names within
+    # those rendered form names. Collect ALL form names per variant
+    # from both from_species and to_species across every step.
+    function _all_forms(r)
+        forms = String[]
+        for group in r.steps, s in group
+            push!(forms, string(EnzymeRates.name(
+                EnzymeRates.from_species(s))))
+            push!(forms, string(EnzymeRates.name(
+                EnzymeRates.to_species(s))))
         end
+        forms
+    end
+    has_coexist = any(result2) do r
+        any(f -> contains(f, "I1") && contains(f, "I2"),
+            _all_forms(r))
+    end
+    @test has_coexist
+    has_compete = any(result2) do r
+        forms = _all_forms(r)
+        has_i2 = any(f -> contains(f, "I2"), forms)
+        no_coexist = !any(f ->
+            contains(f, "I1") && contains(f, "I2"), forms)
+        has_i2 && no_coexist
+    end
+    @test has_compete
+end
 
-        result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+@testset "Mechanism — Substrate-as-dead-end-inhibitor overlap" begin
+    # :S declared as BOTH substrate and dead-end inhibitor. The move
+    # must treat the substrate-:S and the inhibitor-:S binding kinetic
+    # groups as independent — Mechanism stores the inhibitor as a
+    # CompetitiveInhibitor Metabolite (separate type from the
+    # Substrate), so there is no name collision in bound_metabolite.
+    rxn_overlap = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: S
+    end
+    init_ms = EnzymeRates.init_mechanisms(rxn_overlap)
+    @test length(init_ms) == 1
+    m = first(init_ms)
+    EnzymeRates._assert_mechanism_invariants(m)
 
-        # 1. count
-        @test length(result) == 9
+    result = EnzymeRates._expand_add_dead_end_regulator(m, rxn_overlap)
 
-        # 2. Δ params: +1 each (one new K_I parameter), measured against
-        # ground-truth `fitted_params(compile_mechanism(...))` — exact
-        # parameter counts come from the compiled mechanism.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(m)))
-        for r in result
-            r_fitted = length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(r)))
-            @test r_fitted == base_fitted + 1
-        end
+    # 1. count: 1 variant (uni-uni; eligible form = E only).
+    @test length(result) == 1
 
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
-        end
+    # 2. Δ params: +1 (one new K_I parameter), measured against
+    # ground-truth `fitted_params(compile_mechanism(...))`. The
+    # dead-end inhibitor binds as a `CompetitiveInhibitor`, so its
+    # form renders `:ESinh` — distinct from the substrate-bound
+    # `:ES` (`Species([Substrate(:S)], :E)`). Compiled `fitted_params`
+    # is the canonical source for exact counts.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(m)))
+    for r in result
+        r_fitted = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(r)))
+        @test r_fitted == base_fitted + 1
+    end
 
-        # 4. property: every variant has ≥1 I-binding step; all I-binding
-        # steps in a single variant share the same kinetic group.
-        for r in result
-            i_groups = Int[]
-            for (gi, group) in enumerate(r.steps), s in group
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
+    end
+
+    # 4. property: a new step has bound_metabolite::CompetitiveInhibitor
+    # named :S (proving the substrate-:S vs inhibitor-:S distinction is
+    # preserved). Exactly one new outer-vector kinetic group was added
+    # for the inhibitor binding.
+    for r in result
+        has_inh_s = any(r.steps) do group
+            any(group) do s
                 bm = EnzymeRates.bound_metabolite(s)
-                bm !== nothing && EnzymeRates.name(bm) === :I &&
-                    push!(i_groups, gi)
+                bm isa EnzymeRates.CompetitiveInhibitor &&
+                    EnzymeRates.name(bm) === :S
             end
-            @test !isempty(i_groups)
-            @test length(unique(i_groups)) == 1
+        end
+        @test has_inh_s
+        @test length(r.steps) == length(m.steps) + 1
+    end
+end
+
+@testset "AllostericMechanism — dead-end binding tagged :EqualAI" begin
+    # Uni-uni allosteric (catalytic_n=2) with mixed regs:
+    # :I dead-end, :R allosteric. The move must (a) exclude :R from
+    # eligible regs (allosteric ligand), (b) append the new dead-end
+    # group's cat_allo_states tag as :EqualAI.
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
         end
     end
-
-    @testset "Mechanism — Bi-bi PP + I: 3 variants" begin
-        # Ping-pong with Estar; 4 eligible forms (E, E_A, Estar, E_Q);
-        # competition patterns × dedup → 3 variants.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                Estar + B ⇌ Estar(B)
-                E + Q ⇌ E(Q)
-                Estar + P ⇌ Estar(A, P)
-                E(A) <--> Estar(A, P)
-                Estar(B) ⇌ E(Q)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        rxn = @enzyme_reaction begin
-            substrates: A[CX], B[N]
-            products: P[C], Q[NX]
-            dead_end_inhibitors: I
-        end
-
-        result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-
-        # 1. count
-        @test length(result) == 3
-
-        # 2. Δ params: +1 each, measured against ground-truth
-        # `fitted_params(compile_mechanism(...))`.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(m)))
-        for r in result
-            r_fitted = length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(r)))
-            @test r_fitted == base_fitted + 1
-        end
-
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
-        end
-
-        # 4. property: every variant has ≥1 I-binding step; all I-binding
-        # steps in a single variant share the same kinetic group.
-        for r in result
-            i_groups = Int[]
-            for (gi, group) in enumerate(r.steps), s in group
-                bm = EnzymeRates.bound_metabolite(s)
-                bm !== nothing && EnzymeRates.name(bm) === :I &&
-                    push!(i_groups, gi)
-            end
-            @test !isempty(i_groups)
-            @test length(unique(i_groups)) == 1
-        end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: I
+        allosteric_regulators: R
+        oligomeric_state: 2
     end
 
-    @testset "Mechanism — Two regulators chain: J added after I preserves I" begin
-        # After step A (add I) and step B (add J), J-binding steps must exist
-        # and I-binding steps must remain.
-        em_seed = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E(P)
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: I, J
-        end
+    result = EnzymeRates._expand_add_dead_end_regulator(am, rxn)
 
-        # Step A: 2 eligible regs (I, J), 1 form each → 2 variants total.
-        i_or_j_ms = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-        @test length(i_or_j_ms) == 2
-        with_i = first(filter(i_or_j_ms) do r
-            any(r.steps) do group
-                any(group) do s
-                    bm = EnzymeRates.bound_metabolite(s)
-                    bm !== nothing && EnzymeRates.name(bm) === :I
-                end
-            end
-        end)
+    # 1. count: 1 (same as plain uni-uni + I; :R is excluded as
+    # allosteric).
+    @test length(result) == 1
 
-        # Step B: add J on top of the I-bound variant.
-        j_ms = EnzymeRates._expand_add_dead_end_regulator(with_i, rxn)
-        @test !isempty(j_ms)
-
-        # Property: each result has ≥1 J-binding step AND ≥1 I-binding
-        # step (adding J must not remove I-binding steps).
-        for r in j_ms
-            j_present = false
-            i_present = false
-            for group in r.steps, s in group
-                bm = EnzymeRates.bound_metabolite(s)
-                bm === nothing && continue
-                EnzymeRates.name(bm) === :J && (j_present = true)
-                EnzymeRates.name(bm) === :I && (i_present = true)
-            end
-            @test j_present
-            @test i_present
-        end
+    # 2. Δ params: +1 (:EqualAI new group → one shared K), measured
+    # against ground-truth `fitted_params(compile_mechanism(...))` —
+    # exact parameter counts come from the compiled mechanism.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    for r in result
+        r_fitted = length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(r)))
+        @test r_fitted == base_fitted + 1
     end
 
-    @testset "Mechanism — Two regulators competition: 17 variants" begin
-        # Bi-bi random with two dead-end inhibitors. Step A: add both regs
-        # (9 + 9 = 18 variants). Step B: pick variant with I1 at ≥2 forms
-        # and add I2 on top → 17 variants (one less than 18 after dedup
-        # accounts for I2's active-form set intersection with existing I1).
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            dead_end_inhibitors: I1, I2
-        end
-
-        # Step A
-        result1 = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-        @test length(result1) == 18
-
-        # Pick variant where I1 binds at multiple forms.
-        multi = filter(result1) do r
-            i1_forms = Set{Symbol}()
-            for group in r.steps, s in group
-                bm = EnzymeRates.bound_metabolite(s)
-                if bm !== nothing && EnzymeRates.name(bm) === :I1
-                    push!(i1_forms, EnzymeRates.name(
-                        EnzymeRates.to_species(s)))
-                end
-            end
-            length(i1_forms) >= 2
-        end
-        @test !isempty(multi)
-        m_i1 = first(multi)
-
-        # Step B
-        result2 = EnzymeRates._expand_add_dead_end_regulator(m_i1, rxn)
-        @test length(result2) == 17
-
-        # Property: ≥1 variant has I1 + I2 coexisting on the same enzyme
-        # form (non-competing); ≥1 variant has I2 forms that never
-        # coexist with I1 (fully-competing). Dead-end species carry the
-        # inhibitor as a `CompetitiveInhibitor` in `bound`, rendered with
-        # an `inh` marker in the form name (e.g., `:E_I1inh_I2inh`). The
-        # substring checks below match the bare inhibitor names within
-        # those rendered form names. Collect ALL form names per variant
-        # from both from_species and to_species across every step.
-        function _all_forms(r)
-            forms = String[]
-            for group in r.steps, s in group
-                push!(forms, string(EnzymeRates.name(
-                    EnzymeRates.from_species(s))))
-                push!(forms, string(EnzymeRates.name(
-                    EnzymeRates.to_species(s))))
-            end
-            forms
-        end
-        has_coexist = any(result2) do r
-            any(f -> contains(f, "I1") && contains(f, "I2"),
-                _all_forms(r))
-        end
-        @test has_coexist
-        has_compete = any(result2) do r
-            forms = _all_forms(r)
-            has_i2 = any(f -> contains(f, "I2"), forms)
-            no_coexist = !any(f ->
-                contains(f, "I1") && contains(f, "I2"), forms)
-            has_i2 && no_coexist
-        end
-        @test has_compete
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.AllostericEnzymeMechanism(r) isa
+            AllostericEnzymeMechanism
     end
 
-    @testset "Mechanism — Substrate-as-dead-end-inhibitor overlap" begin
-        # :S declared as BOTH substrate and dead-end inhibitor. The move
-        # must treat the substrate-:S and the inhibitor-:S binding kinetic
-        # groups as independent — Mechanism stores the inhibitor as a
-        # CompetitiveInhibitor Metabolite (separate type from the
-        # Substrate), so there is no name collision in bound_metabolite.
-        rxn_overlap = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: S
-        end
-        init_ms = EnzymeRates.init_mechanisms(rxn_overlap)
-        @test length(init_ms) == 1
-        m = first(init_ms)
-        EnzymeRates._assert_mechanism_invariants(m)
-
-        result = EnzymeRates._expand_add_dead_end_regulator(m, rxn_overlap)
-
-        # 1. count: 1 variant (uni-uni; eligible form = E only).
-        @test length(result) == 1
-
-        # 2. Δ params: +1 (one new K_I parameter), measured against
-        # ground-truth `fitted_params(compile_mechanism(...))`. The
-        # dead-end inhibitor binds as a `CompetitiveInhibitor`, so its
-        # form renders `:ESinh` — distinct from the substrate-bound
-        # `:ES` (`Species([Substrate(:S)], :E)`). Compiled `fitted_params`
-        # is the canonical source for exact counts.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(m)))
-        for r in result
-            r_fitted = length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(r)))
-            @test r_fitted == base_fitted + 1
-        end
-
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.Mechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.EnzymeMechanism(r) isa EnzymeMechanism
-        end
-
-        # 4. property: a new step has bound_metabolite::CompetitiveInhibitor
-        # named :S (proving the substrate-:S vs inhibitor-:S distinction is
-        # preserved). Exactly one new outer-vector kinetic group was added
-        # for the inhibitor binding.
-        for r in result
-            has_inh_s = any(r.steps) do group
-                any(group) do s
-                    bm = EnzymeRates.bound_metabolite(s)
-                    bm isa EnzymeRates.CompetitiveInhibitor &&
-                        EnzymeRates.name(bm) === :S
-                end
-            end
-            @test has_inh_s
-            @test length(r.steps) == length(m.steps) + 1
-        end
+    # 4. property: exactly one new cat_steps group; its tag is
+    # :EqualAI. Pre-existing tags are unchanged.
+    for r in result
+        @test length(r.cat_steps) == length(am.cat_steps) + 1
+        @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
+        # The new group's tag is :EqualAI (appended at the end by the
+        # AllostericMechanism wrap kernel).
+        @test r.cat_allo_states[end] == :EqualAI
+        # Pre-existing tags preserved positionally.
+        @test r.cat_allo_states[1:length(am.cat_allo_states)] ==
+            am.cat_allo_states
     end
 
-    @testset "AllostericMechanism — dead-end binding tagged :EqualAI" begin
-        # Uni-uni allosteric (catalytic_n=2) with mixed regs:
-        # :I dead-end, :R allosteric. The move must (a) exclude :R from
-        # eligible regs (allosteric ligand), (b) append the new dead-end
-        # group's cat_allo_states tag as :EqualAI.
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: I
-            allosteric_regulators: R
-            oligomeric_state: 2
-        end
+    # 5. preservation: catalytic_multiplicity and regulatory_sites
+    # unchanged (dead-end add does not touch the regulatory-site
+    # vector).
+    for r in result
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.regulatory_sites == am.regulatory_sites
+    end
+end
 
-        result = EnzymeRates._expand_add_dead_end_regulator(am, rxn)
-
-        # 1. count: 1 (same as plain uni-uni + I; :R is excluded as
-        # allosteric).
-        @test length(result) == 1
-
-        # 2. Δ params: +1 (:EqualAI new group → one shared K), measured
-        # against ground-truth `fitted_params(compile_mechanism(...))` —
-        # exact parameter counts come from the compiled mechanism.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        for r in result
-            r_fitted = length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(r)))
-            @test r_fitted == base_fitted + 1
-        end
-
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.AllostericEnzymeMechanism(r) isa
-                AllostericEnzymeMechanism
-        end
-
-        # 4. property: exactly one new cat_steps group; its tag is
-        # :EqualAI. Pre-existing tags are unchanged.
-        for r in result
-            @test length(r.cat_steps) == length(am.cat_steps) + 1
-            @test length(r.cat_allo_states) == length(am.cat_allo_states) + 1
-            # The new group's tag is :EqualAI (appended at the end by the
-            # AllostericMechanism wrap kernel).
-            @test r.cat_allo_states[end] == :EqualAI
-            # Pre-existing tags preserved positionally.
-            @test r.cat_allo_states[1:length(am.cat_allo_states)] ==
-                am.cat_allo_states
-        end
-
-        # 5. preservation: catalytic_multiplicity and regulatory_sites
-        # unchanged (dead-end add does not touch the regulatory-site
-        # vector).
-        for r in result
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.regulatory_sites == am.regulatory_sites
+@testset "AllostericMechanism — allosteric-only regulator → empty" begin
+    # Rxn declares only :R as an allosteric regulator
+    # (no dead-end inhibitors); all declared regulators are
+    # allosteric ligands → eligible_regs is empty → result is empty.
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
         end
     end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    @test isempty(EnzymeRates._expand_add_dead_end_regulator(
+        am, uni_uni_allo_reg))
+end
 
-    @testset "AllostericMechanism — allosteric-only regulator → empty" begin
-        # Rxn declares only :R as an allosteric regulator
-        # (no dead-end inhibitors); all declared regulators are
-        # allosteric ligands → eligible_regs is empty → result is empty.
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        @test isempty(EnzymeRates._expand_add_dead_end_regulator(
-            am, uni_uni_allo_reg))
-    end
-
-    @testset "Mechanism — I-binding steps share one kinetic group" begin
-        # Variants where :I binds at multiple forms MUST keep all
-        # I-binding steps in a single outer-vector kinetic group (one K_I
-        # parameter, not one per form). This is invariant across all
-        # variants that have multi-form I binding.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            dead_end_inhibitors: I
-        end
-        result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-
-        # Pick variants with ≥2 I-binding steps (multi-form inhibitor binding).
-        multi = filter(result) do r
-            n = 0
-            for group in r.steps, s in group
-                bm = EnzymeRates.bound_metabolite(s)
-                bm !== nothing && EnzymeRates.name(bm) === :I && (n += 1)
-            end
-            n >= 2
-        end
-        @test !isempty(multi)
-        for r in multi
-            i_groups = Int[]
-            for (gi, group) in enumerate(r.steps), s in group
-                bm = EnzymeRates.bound_metabolite(s)
-                bm !== nothing && EnzymeRates.name(bm) === :I &&
-                    push!(i_groups, gi)
-            end
-            @test length(unique(i_groups)) == 1
+@testset "Mechanism — I-binding steps share one kinetic group" begin
+    # Variants where :I binds at multiple forms MUST keep all
+    # I-binding steps in a single outer-vector kinetic group (one K_I
+    # parameter, not one per form). This is invariant across all
+    # variants that have multi-form I binding.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
+            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
         end
     end
+    m = EnzymeRates.Mechanism(em_seed)
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        dead_end_inhibitors: I
+    end
+    result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
 
-    @testset "Mechanism — uni-uni + I: 1 variant" begin
-        # SEED: uni-uni init from rxn that declares :I as a dead-end inhibitor.
-        # The Mechanism overload requires the caller to pass the declared
-        # `rxn` separately because the Mechanism's own .reaction only carries
-        # regulators that are already bound by its steps (`I` isn't bound yet).
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: I
+    # Pick variants with ≥2 I-binding steps (multi-form inhibitor binding).
+    multi = filter(result) do r
+        n = 0
+        for group in r.steps, s in group
+            bm = EnzymeRates.bound_metabolite(s)
+            bm !== nothing && EnzymeRates.name(bm) === :I && (n += 1)
         end
-        m = first(EnzymeRates.init_mechanisms(rxn))
-        @test m isa EnzymeRates.Mechanism
-
-        result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-
-        # 1. count: 1 variant.
-        @test length(result) == 1
-        for r in result
-            @test r isa EnzymeRates.Mechanism
+        n >= 2
+    end
+    @test !isempty(multi)
+    for r in multi
+        i_groups = Int[]
+        for (gi, group) in enumerate(r.steps), s in group
+            bm = EnzymeRates.bound_metabolite(s)
+            bm !== nothing && EnzymeRates.name(bm) === :I &&
+                push!(i_groups, gi)
         end
+        @test length(unique(i_groups)) == 1
+    end
+end
 
-        # 2. compilability: the result compiles via EnzymeMechanism.
-        for r in result
-            @test EnzymeRates.EnzymeMechanism(r) isa
-                EnzymeRates.EnzymeMechanism
+@testset "Mechanism — uni-uni + I: 1 variant" begin
+    # SEED: uni-uni init from rxn that declares :I as a dead-end inhibitor.
+    # The Mechanism overload requires the caller to pass the declared
+    # `rxn` separately because the Mechanism's own .reaction only carries
+    # regulators that are already bound by its steps (`I` isn't bound yet).
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: I
+    end
+    m = first(EnzymeRates.init_mechanisms(rxn))
+    @test m isa EnzymeRates.Mechanism
+
+    result = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
+
+    # 1. count: 1 variant.
+    @test length(result) == 1
+    for r in result
+        @test r isa EnzymeRates.Mechanism
+    end
+
+    # 2. compilability: the result compiles via EnzymeMechanism.
+    for r in result
+        @test EnzymeRates.EnzymeMechanism(r) isa
+            EnzymeRates.EnzymeMechanism
+    end
+
+    # 3. structural: a new step exists with :I bound to E.
+    r1 = first(result)
+    has_i_step = any(r1.steps) do group
+        any(group) do s
+            EnzymeRates.bound_metabolite(s) !== nothing &&
+                EnzymeRates.name(
+                    EnzymeRates.bound_metabolite(s)) === :I
         end
+    end
+    @test has_i_step
+end
 
-        # 3. structural: a new step exists with :I bound to E.
-        r1 = first(result)
-        has_i_step = any(r1.steps) do group
+@testset "Mechanism — exclude_regs suppresses regulator addition" begin
+    rxn_ij = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: I, J
+    end
+    m = first(EnzymeRates.init_mechanisms(rxn_ij))
+
+    baseline = EnzymeRates._expand_add_dead_end_regulator(m, rxn_ij)
+    @test length(baseline) == 2
+
+    excluded = EnzymeRates._expand_add_dead_end_regulator(
+        m, rxn_ij; exclude_regs=Set([:I]))
+    @test length(excluded) == 1
+    # The remaining variant must bind :J, not :I.
+    has_i = any(excluded) do r
+        any(r.steps) do group
             any(group) do s
                 EnzymeRates.bound_metabolite(s) !== nothing &&
                     EnzymeRates.name(
                         EnzymeRates.bound_metabolite(s)) === :I
             end
         end
-        @test has_i_step
     end
+    @test !has_i
 
-    @testset "Mechanism — exclude_regs suppresses regulator addition" begin
-        rxn_ij = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: I, J
-        end
-        m = first(EnzymeRates.init_mechanisms(rxn_ij))
+    @test isempty(EnzymeRates._expand_add_dead_end_regulator(
+        m, rxn_ij; exclude_regs=Set([:I, :J])))
+end
 
-        baseline = EnzymeRates._expand_add_dead_end_regulator(m, rxn_ij)
-        @test length(baseline) == 2
-
-        excluded = EnzymeRates._expand_add_dead_end_regulator(
-            m, rxn_ij; exclude_regs=Set([:I]))
-        @test length(excluded) == 1
-        # The remaining variant must bind :J, not :I.
-        has_i = any(excluded) do r
-            any(r.steps) do group
-                any(group) do s
-                    EnzymeRates.bound_metabolite(s) !== nothing &&
-                        EnzymeRates.name(
-                            EnzymeRates.bound_metabolite(s)) === :I
-                end
-            end
-        end
-        @test !has_i
-
-        @test isempty(EnzymeRates._expand_add_dead_end_regulator(
-            m, rxn_ij; exclude_regs=Set([:I, :J])))
+@testset "Mechanism — no regulators: empty (negative)" begin
+    m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
     end
+    @test isempty(EnzymeRates._expand_add_dead_end_regulator(m, rxn))
+end
 
-    @testset "Mechanism — no regulators: empty (negative)" begin
-        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-        end
-        @test isempty(EnzymeRates._expand_add_dead_end_regulator(m, rxn))
+@testset "AllostericMechanism — dead-end on allosteric base" begin
+    # Build an AllostericMechanism with a dead-end-eligible regulator
+    # declared in the reaction (but not yet bound).
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: I
+        oligomeric_state: 2
     end
+    init_mechs = EnzymeRates.init_mechanisms(rxn)
+    allo_mechs = EnzymeRates._expand_to_allosteric(first(init_mechs), rxn)
+    am = first(allo_mechs)
 
-    @testset "AllostericMechanism — dead-end on allosteric base" begin
-        # Build an AllostericMechanism with a dead-end-eligible regulator
-        # declared in the reaction (but not yet bound).
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: I
-            oligomeric_state: 2
-        end
-        init_mechs = EnzymeRates.init_mechanisms(rxn)
-        allo_mechs = EnzymeRates._expand_to_allosteric(first(init_mechs), rxn)
-        am = first(allo_mechs)
-
-        result = EnzymeRates._expand_add_dead_end_regulator(am, rxn)
-        @test !isempty(result)
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-        end
+    result = EnzymeRates._expand_add_dead_end_regulator(am, rxn)
+    @test !isempty(result)
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
     end
+end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2847,1350 +2852,2091 @@ end
 # ─── _expand_to_allosteric ─────────────────────────────────────────────
 @testset "_expand_to_allosteric" begin
 
-    @testset "Mechanism — oligomeric_state from reaction" begin
-        # The catalytic_multiplicity of the resulting AllostericMechanism
-        # is taken from rxn4's oligomeric_state, not hardcoded to 2.
-        rxn4 = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            oligomeric_state: 4
+@testset "Mechanism — oligomeric_state from reaction" begin
+    # The catalytic_multiplicity of the resulting AllostericMechanism
+    # is taken from rxn4's oligomeric_state, not hardcoded to 2.
+    rxn4 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 4
+    end
+    em_seed = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E(P)
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
         end
-        em_seed = @enzyme_mechanism begin
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+
+    result = EnzymeRates._expand_to_allosteric(m, rxn4)
+    @test !isempty(result)
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test r.catalytic_multiplicity == 4
+    end
+end
+
+@testset "Mechanism — Bi-bi sequential: binding-group :OnlyA variants only" begin
+    # 5 kinetic groups: 4 bindings (A, B substrate-side; P, Q
+    # product-side) + 1 chemical step (E(A,B) <--> E(P,Q)). The
+    # catalytic group is never a bare primary :OnlyA (that V-type needs
+    # a regulator, none declared). Each binding's one-sided :OnlyA is
+    # instead closed over its minimal Haldane completions.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E + Q ⇌ E(Q)
+            E(Q) + P ⇌ E(P, Q)
+            E(A, B) <--> E(P, Q)
+        end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    bi_bi_allo_rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        oligomeric_state: 2
+    end
+
+    result = EnzymeRates._expand_to_allosteric(m, bi_bi_allo_rxn)
+
+    # 1. count: every non-empty subset of the 4 binding groups is set
+    # :OnlyA, each with the chemical step also :OnlyA (a catalytically-dead
+    # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
+    n_groups = length(m.steps)
+    n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
+    @test n_cat == 1
+    @test length(result) == 15
+
+    # 2. Δ params: every variant is +1 — the conformational constant L.
+    # Each :OnlyA binding is K-type (the inactive conformation cannot bind
+    # that ligand, adding no inactive binding constant), and the dead
+    # inactive conformation runs no chemistry, so it carries no free
+    # catalytic constant. All 15 variants are Δ=1.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(m)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == fill(1, 15)
+
+    # 3. compilability — must produce AllostericEnzymeMechanism, and no
+    # result is the all-:EqualAI baseline.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        @test !all(==(:EqualAI), EnzymeRates.cat_allo_states(r))
+    end
+end
+
+@testset "Mechanism — Bi-bi ping-pong: binding-group :OnlyA variants only" begin
+    # SEED: bi-bi ping-pong topology, 6 kinetic groups: 4 bindings
+    # (A, B substrate-side; P, Q product-side) + 2 chemical steps (the
+    # two half-reaction interconversions E(A)<-->Estar(A,P) and
+    # Estar(B)⇌E(Q)). Neither catalytic group is a bare primary :OnlyA
+    # (that V-type needs a regulator, none declared); each binding's
+    # one-sided :OnlyA is closed over its minimal Haldane completions.
+    em_seed = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            Estar + B ⇌ Estar(B)
+            E + Q ⇌ E(Q)
+            Estar + P ⇌ Estar(A, P)
+            E(A) <--> Estar(A, P)
+            Estar(B) ⇌ E(Q)
+        end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    bi_bi_pp_allo_rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        oligomeric_state: 2
+    end
+
+    result = EnzymeRates._expand_to_allosteric(m, bi_bi_pp_allo_rxn)
+
+    # 1. count: every non-empty subset of the 4 binding groups is set
+    # :OnlyA, each with BOTH chemical steps also :OnlyA (a catalytically-dead
+    # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
+    n_groups = length(m.steps)
+    n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
+    @test n_cat == 2
+    @test length(result) == 15
+
+    # 2. Δ params: every variant is +1 — the conformational constant L.
+    # Each :OnlyA binding is K-type (no inactive binding constant), and the
+    # dead inactive conformation runs no chemistry, so it carries no free
+    # catalytic constant. All 15 variants are Δ=1.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(m)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == fill(1, 15)
+
+    # 3. compilability, and no result is the all-:EqualAI baseline.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+        @test !all(==(:EqualAI), EnzymeRates.cat_allo_states(r))
+    end
+end
+
+@testset "Mechanism — uni-uni: binding-group :OnlyA variants only" begin
+    # SEED: uni-uni init Mechanism, no declared regulator. 3 kinetic
+    # groups: 2 bindings (S, P) + 1 catalytic. The catalytic group is
+    # never a bare primary :OnlyA (that V-type needs a regulator, none
+    # declared); each binding's one-sided :OnlyA is closed over its
+    # minimal Haldane completions.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    m = first(EnzymeRates.init_mechanisms(rxn))
+
+    result = EnzymeRates._expand_to_allosteric(m, rxn)
+
+    # 1. count: every non-empty subset of the 2 binding groups (S, P) is
+    # set :OnlyA, each with the chemical step also :OnlyA (dead inactive):
+    # {S}, {P}, {S, P} → 3 variants.
+    n_groups = length(m.steps)
+    n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
+    @test n_cat == 1
+    @test length(result) == 3
+
+    # 2. each result is an AllostericMechanism with correct
+    # multiplicity and empty regulatory_sites (K-type: bare).
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        @test r.catalytic_multiplicity == 2
+        @test isempty(r.regulatory_sites)
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
+        @test length(r.cat_allo_states) == n_groups
+    end
+
+    # 3. no result is the all-:EqualAI baseline.
+    @test all(r -> !all(==(:EqualAI), r.cat_allo_states), result)
+
+    # 4. every variant is dead-inactive: the chemical (iso) group is
+    # :OnlyA, plus a non-empty subset of the binding groups — so the
+    # :OnlyA count is 2 ({one binding} + chem) or 3 ({S, P} + chem), and
+    # at least one binding group is :OnlyA.
+    for r in result
+        iso_gs = [g for g in 1:length(r.cat_allo_states)
+                  if _is_catalytic_group(m, g)]
+        @test all(r.cat_allo_states[g] == :OnlyA for g in iso_gs)
+        @test count(==(:OnlyA), r.cat_allo_states) in (2, 3)
+        onlya_gs = [g for g in 1:length(r.cat_allo_states)
+                    if r.cat_allo_states[g] == :OnlyA]
+        @test any(g -> !_is_catalytic_group(m, g), onlya_gs)
+    end
+
+    # 5. compilability: each AllostericMechanism compiles to an
+    # AllostericEnzymeMechanism.
+    for r in result
+        @test EnzymeRates.compile_mechanism(r) isa
+            EnzymeRates.AllostericEnzymeMechanism
+    end
+end
+
+@testset "Mechanism — enumerates all allowed multiplicities" begin
+    # Multi-valued allowed_catalytic_multiplicities → the binding-group
+    # :OnlyA variant set is emitted once per multiplicity.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allowed_catalytic_multiplicities: (2, 4)
+    end
+    m = first(EnzymeRates.init_mechanisms(rxn))
+    allo = EnzymeRates._expand_to_allosteric(m, rxn)
+    mults = Set(EnzymeRates.catalytic_multiplicity(am) for am in allo)
+    @test mults == Set([2, 4])
+
+    # No regulator declared → the binding-completion variant set (see the
+    # uni-uni case: 3 variants) is emitted once per multiplicity.
+    n_groups = length(EnzymeRates.steps(m))
+    n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
+    @test n_cat == 1
+    @test length(allo) == 2 * 3
+
+    # Each multiplicity carries the same dead-inactive allo-state set: no
+    # all-:EqualAI baseline, and 3 variants ({S}, {P}, {S, P} bindings
+    # :OnlyA, each with the chemical step :OnlyA) — :OnlyA counts 2, 2, 3.
+    for cn in (2, 4)
+        cn_variants = filter(
+            am -> EnzymeRates.catalytic_multiplicity(am) == cn, allo)
+        @test count(
+            am -> all(==(:EqualAI), EnzymeRates.cat_allo_states(am)),
+            cn_variants) == 0
+        @test count(
+            am -> count(==(:OnlyA), EnzymeRates.cat_allo_states(am)) == 2,
+            cn_variants) == 2
+        @test count(
+            am -> count(==(:OnlyA), EnzymeRates.cat_allo_states(am)) == 3,
+            cn_variants) == 1
+    end
+
+    # Single-valued case unchanged (regression guard).
+    rxn1 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    allo1 = EnzymeRates._expand_to_allosteric(
+        first(EnzymeRates.init_mechanisms(rxn1)), rxn1)
+    @test all(
+        EnzymeRates.catalytic_multiplicity(am) == 2 for am in allo1)
+end
+
+@testset "AllostericMechanism — no-op (negative)" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    m = first(EnzymeRates.init_mechanisms(rxn))
+    allo_variants = EnzymeRates._expand_to_allosteric(m, rxn)
+    am = first(allo_variants)
+    @test isempty(EnzymeRates._expand_to_allosteric(am, rxn))
+end
+
+@testset "no all-:EqualAI baseline is ever emitted" begin
+    # Structural guard: across a regulator-free and a
+    # regulator-declaring reaction, no emitted mechanism has every
+    # group tagged :EqualAI — the conformational constant L would
+    # cancel and be unobservable.
+    rxn_no_reg = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 4
+    end
+    for rxn in (rxn_no_reg, uni_uni_allo_reg)
+        base = first(EnzymeRates.init_mechanisms(rxn))
+        allo = EnzymeRates._expand_to_allosteric(base, rxn)
+        @test !isempty(allo)
+        @test all(
+            am -> !all(==(:EqualAI), EnzymeRates.cat_allo_states(am)), allo)
+    end
+end
+
+@testset "catalysis-:OnlyA is V-type only (needs a regulator)" begin
+    is_bare_cat_onlyA(base, am) = begin
+        g = findfirst(==(:OnlyA), EnzymeRates.cat_allo_states(am))
+        g !== nothing && _is_catalytic_group(base, g) &&
+            isempty(EnzymeRates.regulatory_sites(am))
+    end
+
+    # Regulator-free reaction: no bare catalysis-:OnlyA is ever emitted.
+    rxn0 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    base0 = first(EnzymeRates.init_mechanisms(rxn0))
+    allo0 = EnzymeRates._expand_to_allosteric(base0, rxn0)
+    @test !any(am -> is_bare_cat_onlyA(base0, am), allo0)
+
+    # Regulator-declaring reaction: a V-type (catalysis-:OnlyA paired
+    # with the declared regulator) IS reachable, and still no bare one
+    # is emitted.
+    base1 = first(EnzymeRates.init_mechanisms(uni_uni_allo_reg))
+    allo1 = EnzymeRates._expand_to_allosteric(base1, uni_uni_allo_reg)
+    @test !any(am -> is_bare_cat_onlyA(base1, am), allo1)
+    @test any(am -> begin
+        g = findfirst(==(:OnlyA), EnzymeRates.cat_allo_states(am))
+        g !== nothing && _is_catalytic_group(base1, g) &&
+            !isempty(EnzymeRates.regulatory_sites(am))
+    end, allo1)
+end
+
+@testset "V-type param counts + competitive-inhibitor exclusion" begin
+    # uni_uni_allo_2reg declares two allosteric regulators (R1, R2). From a
+    # uni-uni seed (RE binding, SS catalytic), _expand_to_allosteric emits:
+    #   * 3 K-type variants (binding-group :OnlyA, no regulatory site) at
+    #     +1 param each — the conformational constant L; each is a binding
+    #     promotion closed with its Haldane completion (a second :OnlyA
+    #     binding, or the dropped chemical step), which adds no free param;
+    #   * 4 V-type variants (the catalytic group :OnlyA paired with one
+    #     regulator at a site) at +2 params each — L plus the regulator's K
+    #     — one per (regulator, tag), regulator ∈ {R1, R2}, tag ∈
+    #     {:OnlyA, :OnlyI}.
+    # The uni-uni seed (RE binding, SS catalysis) carrying
+    # uni_uni_allo_2reg's two declared regulators, built explicitly —
+    # first(init_mechanisms(...)) is not guaranteed to stay this mechanism.
+    seed = EnzymeRates.Mechanism(uni_uni_allo_2reg, EnzymeRates.steps(
+        EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
-                E + P ⇌ E(P)
                 E + S ⇌ E(S)
                 E(S) <--> E(P)
+                E + P ⇌ E(P)
             end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
+        end)))
+    base = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(seed)))
+    Δ(am) = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am))) - base
+    outs = EnzymeRates._expand_to_allosteric(seed, uni_uni_allo_2reg)
+    vtypes = filter(am -> !isempty(EnzymeRates.regulatory_sites(am)), outs)
+    ktypes = filter(am -> isempty(EnzymeRates.regulatory_sites(am)), outs)
 
-        result = EnzymeRates._expand_to_allosteric(m, rxn4)
-        @test !isempty(result)
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test r.catalytic_multiplicity == 4
-        end
-    end
+    @test length(vtypes) == 4
+    @test all(am -> Δ(am) == 2, vtypes)
+    @test length(ktypes) == 3
+    @test all(am -> Δ(am) == 1, ktypes)
 
-    @testset "Mechanism — Bi-bi sequential: binding-group :OnlyA variants only" begin
-        # 5 kinetic groups: 4 bindings (A, B substrate-side; P, Q
-        # product-side) + 1 chemical step (E(A,B) <--> E(P,Q)). The
-        # catalytic group is never a bare primary :OnlyA (that V-type needs
-        # a regulator, none declared). Each binding's one-sided :OnlyA is
-        # instead closed over its minimal Haldane completions.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E + Q ⇌ E(Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(A, B) <--> E(P, Q)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        bi_bi_allo_rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products: P[C], Q[N]
-            oligomeric_state: 2
-        end
-
-        result = EnzymeRates._expand_to_allosteric(m, bi_bi_allo_rxn)
-
-        # 1. count: every non-empty subset of the 4 binding groups is set
-        # :OnlyA, each with the chemical step also :OnlyA (a catalytically-dead
-        # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
-        n_groups = length(m.steps)
-        n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
-        @test n_cat == 1
-        @test length(result) == 15
-
-        # 2. Δ params: every variant is +1 — the conformational constant L.
-        # Each :OnlyA binding is K-type (the inactive conformation cannot bind
-        # that ligand, adding no inactive binding constant), and the dead
-        # inactive conformation runs no chemistry, so it carries no free
-        # catalytic constant. All 15 variants are Δ=1.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(m)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == fill(1, 15)
-
-        # 3. compilability — must produce AllostericEnzymeMechanism, and no
-        # result is the all-:EqualAI baseline.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-            @test !all(==(:EqualAI), EnzymeRates.cat_allo_states(r))
-        end
-    end
-
-    @testset "Mechanism — Bi-bi ping-pong: binding-group :OnlyA variants only" begin
-        # SEED: bi-bi ping-pong topology, 6 kinetic groups: 4 bindings
-        # (A, B substrate-side; P, Q product-side) + 2 chemical steps (the
-        # two half-reaction interconversions E(A)<-->Estar(A,P) and
-        # Estar(B)⇌E(Q)). Neither catalytic group is a bare primary :OnlyA
-        # (that V-type needs a regulator, none declared); each binding's
-        # one-sided :OnlyA is closed over its minimal Haldane completions.
-        em_seed = @enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            steps: begin
-                E + A ⇌ E(A)
-                Estar + B ⇌ Estar(B)
-                E + Q ⇌ E(Q)
-                Estar + P ⇌ Estar(A, P)
-                E(A) <--> Estar(A, P)
-                Estar(B) ⇌ E(Q)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        bi_bi_pp_allo_rxn = @enzyme_reaction begin
-            substrates: A[CX], B[N]
-            products: P[C], Q[NX]
-            oligomeric_state: 2
-        end
-
-        result = EnzymeRates._expand_to_allosteric(m, bi_bi_pp_allo_rxn)
-
-        # 1. count: every non-empty subset of the 4 binding groups is set
-        # :OnlyA, each with BOTH chemical steps also :OnlyA (a catalytically-dead
-        # inactive conformation). 2^4 - 1 = 15 subsets, all Wegscheider-valid.
-        n_groups = length(m.steps)
-        n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
-        @test n_cat == 2
-        @test length(result) == 15
-
-        # 2. Δ params: every variant is +1 — the conformational constant L.
-        # Each :OnlyA binding is K-type (no inactive binding constant), and the
-        # dead inactive conformation runs no chemistry, so it carries no free
-        # catalytic constant. All 15 variants are Δ=1.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(m)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == fill(1, 15)
-
-        # 3. compilability, and no result is the all-:EqualAI baseline.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-            @test !all(==(:EqualAI), EnzymeRates.cat_allo_states(r))
-        end
-    end
-
-    @testset "Mechanism — uni-uni: binding-group :OnlyA variants only" begin
-        # SEED: uni-uni init Mechanism, no declared regulator. 3 kinetic
-        # groups: 2 bindings (S, P) + 1 catalytic. The catalytic group is
-        # never a bare primary :OnlyA (that V-type needs a regulator, none
-        # declared); each binding's one-sided :OnlyA is closed over its
-        # minimal Haldane completions.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            oligomeric_state: 2
-        end
-        m = first(EnzymeRates.init_mechanisms(rxn))
-
-        result = EnzymeRates._expand_to_allosteric(m, rxn)
-
-        # 1. count: every non-empty subset of the 2 binding groups (S, P) is
-        # set :OnlyA, each with the chemical step also :OnlyA (dead inactive):
-        # {S}, {P}, {S, P} → 3 variants.
-        n_groups = length(m.steps)
-        n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
-        @test n_cat == 1
-        @test length(result) == 3
-
-        # 2. each result is an AllostericMechanism with correct
-        # multiplicity and empty regulatory_sites (K-type: bare).
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            @test r.catalytic_multiplicity == 2
-            @test isempty(r.regulatory_sites)
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(m)
-            @test length(r.cat_allo_states) == n_groups
-        end
-
-        # 3. no result is the all-:EqualAI baseline.
-        @test all(r -> !all(==(:EqualAI), r.cat_allo_states), result)
-
-        # 4. every variant is dead-inactive: the chemical (iso) group is
-        # :OnlyA, plus a non-empty subset of the binding groups — so the
-        # :OnlyA count is 2 ({one binding} + chem) or 3 ({S, P} + chem), and
-        # at least one binding group is :OnlyA.
-        for r in result
-            iso_gs = [g for g in 1:length(r.cat_allo_states)
-                      if _is_catalytic_group(m, g)]
-            @test all(r.cat_allo_states[g] == :OnlyA for g in iso_gs)
-            @test count(==(:OnlyA), r.cat_allo_states) in (2, 3)
-            onlya_gs = [g for g in 1:length(r.cat_allo_states)
-                        if r.cat_allo_states[g] == :OnlyA]
-            @test any(g -> !_is_catalytic_group(m, g), onlya_gs)
-        end
-
-        # 5. compilability: each AllostericMechanism compiles to an
-        # AllostericEnzymeMechanism.
-        for r in result
-            @test EnzymeRates.compile_mechanism(r) isa
-                EnzymeRates.AllostericEnzymeMechanism
-        end
-    end
-
-    @testset "Mechanism — enumerates all allowed multiplicities" begin
-        # Multi-valued allowed_catalytic_multiplicities → the binding-group
-        # :OnlyA variant set is emitted once per multiplicity.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allowed_catalytic_multiplicities: (2, 4)
-        end
-        m = first(EnzymeRates.init_mechanisms(rxn))
-        allo = EnzymeRates._expand_to_allosteric(m, rxn)
-        mults = Set(EnzymeRates.catalytic_multiplicity(am) for am in allo)
-        @test mults == Set([2, 4])
-
-        # No regulator declared → the binding-completion variant set (see the
-        # uni-uni case: 3 variants) is emitted once per multiplicity.
-        n_groups = length(EnzymeRates.steps(m))
-        n_cat = count(g -> _is_catalytic_group(m, g), 1:n_groups)
-        @test n_cat == 1
-        @test length(allo) == 2 * 3
-
-        # Each multiplicity carries the same dead-inactive allo-state set: no
-        # all-:EqualAI baseline, and 3 variants ({S}, {P}, {S, P} bindings
-        # :OnlyA, each with the chemical step :OnlyA) — :OnlyA counts 2, 2, 3.
-        for cn in (2, 4)
-            cn_variants = filter(
-                am -> EnzymeRates.catalytic_multiplicity(am) == cn, allo)
-            @test count(
-                am -> all(==(:EqualAI), EnzymeRates.cat_allo_states(am)),
-                cn_variants) == 0
-            @test count(
-                am -> count(==(:OnlyA), EnzymeRates.cat_allo_states(am)) == 2,
-                cn_variants) == 2
-            @test count(
-                am -> count(==(:OnlyA), EnzymeRates.cat_allo_states(am)) == 3,
-                cn_variants) == 1
-        end
-
-        # Single-valued case unchanged (regression guard).
-        rxn1 = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            oligomeric_state: 2
-        end
-        allo1 = EnzymeRates._expand_to_allosteric(
-            first(EnzymeRates.init_mechanisms(rxn1)), rxn1)
-        @test all(
-            EnzymeRates.catalytic_multiplicity(am) == 2 for am in allo1)
-    end
-
-    @testset "AllostericMechanism — no-op (negative)" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            oligomeric_state: 2
-        end
-        m = first(EnzymeRates.init_mechanisms(rxn))
-        allo_variants = EnzymeRates._expand_to_allosteric(m, rxn)
-        am = first(allo_variants)
-        @test isempty(EnzymeRates._expand_to_allosteric(am, rxn))
-    end
-
-    @testset "no all-:EqualAI baseline is ever emitted" begin
-        # Structural guard: across a regulator-free and a
-        # regulator-declaring reaction, no emitted mechanism has every
-        # group tagged :EqualAI — the conformational constant L would
-        # cancel and be unobservable.
-        rxn_no_reg = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            oligomeric_state: 4
-        end
-        for rxn in (rxn_no_reg, uni_uni_allo_reg)
-            base = first(EnzymeRates.init_mechanisms(rxn))
-            allo = EnzymeRates._expand_to_allosteric(base, rxn)
-            @test !isempty(allo)
-            @test all(
-                am -> !all(==(:EqualAI), EnzymeRates.cat_allo_states(am)), allo)
-        end
-    end
-
-    @testset "catalysis-:OnlyA is V-type only (needs a regulator)" begin
-        is_bare_cat_onlyA(base, am) = begin
-            g = findfirst(==(:OnlyA), EnzymeRates.cat_allo_states(am))
-            g !== nothing && _is_catalytic_group(base, g) &&
-                isempty(EnzymeRates.regulatory_sites(am))
-        end
-
-        # Regulator-free reaction: no bare catalysis-:OnlyA is ever emitted.
-        rxn0 = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            oligomeric_state: 2
-        end
-        base0 = first(EnzymeRates.init_mechanisms(rxn0))
-        allo0 = EnzymeRates._expand_to_allosteric(base0, rxn0)
-        @test !any(am -> is_bare_cat_onlyA(base0, am), allo0)
-
-        # Regulator-declaring reaction: a V-type (catalysis-:OnlyA paired
-        # with the declared regulator) IS reachable, and still no bare one
-        # is emitted.
-        base1 = first(EnzymeRates.init_mechanisms(uni_uni_allo_reg))
-        allo1 = EnzymeRates._expand_to_allosteric(base1, uni_uni_allo_reg)
-        @test !any(am -> is_bare_cat_onlyA(base1, am), allo1)
-        @test any(am -> begin
-            g = findfirst(==(:OnlyA), EnzymeRates.cat_allo_states(am))
-            g !== nothing && _is_catalytic_group(base1, g) &&
-                !isempty(EnzymeRates.regulatory_sites(am))
-        end, allo1)
-    end
-
-    @testset "V-type param counts + competitive-inhibitor exclusion" begin
-        # uni_uni_allo_2reg declares two allosteric regulators (R1, R2). From a
-        # uni-uni seed (RE binding, SS catalytic), _expand_to_allosteric emits:
-        #   * 3 K-type variants (binding-group :OnlyA, no regulatory site) at
-        #     +1 param each — the conformational constant L; each is a binding
-        #     promotion closed with its Haldane completion (a second :OnlyA
-        #     binding, or the dropped chemical step), which adds no free param;
-        #   * 4 V-type variants (the catalytic group :OnlyA paired with one
-        #     regulator at a site) at +2 params each — L plus the regulator's K
-        #     — one per (regulator, tag), regulator ∈ {R1, R2}, tag ∈
-        #     {:OnlyA, :OnlyI}.
-        # The uni-uni seed (RE binding, SS catalysis) carrying
-        # uni_uni_allo_2reg's two declared regulators, built explicitly —
-        # first(init_mechanisms(...)) is not guaranteed to stay this mechanism.
-        seed = EnzymeRates.Mechanism(uni_uni_allo_2reg, EnzymeRates.steps(
-            EnzymeRates.Mechanism(@enzyme_mechanism begin
-                substrates: S
-                products: P
-                steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E + P ⇌ E(P)
-                end
-            end)))
-        base = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(seed)))
-        Δ(am) = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am))) - base
-        outs = EnzymeRates._expand_to_allosteric(seed, uni_uni_allo_2reg)
-        vtypes = filter(am -> !isempty(EnzymeRates.regulatory_sites(am)), outs)
-        ktypes = filter(am -> isempty(EnzymeRates.regulatory_sites(am)), outs)
-
-        @test length(vtypes) == 4
-        @test all(am -> Δ(am) == 2, vtypes)
-        @test length(ktypes) == 3
-        @test all(am -> Δ(am) == 1, ktypes)
-
-        # The four V-types cover R1/R2 × :OnlyA/:OnlyI, each a single regulator
-        # at a single site.
-        combos = Set((only([EnzymeRates.name(l)
-                            for s in EnzymeRates.regulatory_sites(am)
-                            for l in EnzymeRates.ligands(s)]),
-                      only([t for s in EnzymeRates.regulatory_sites(am)
-                            for t in EnzymeRates.allo_states(s)]))
-                     for am in vtypes)
-        @test combos == Set([(:R1, :OnlyA), (:R1, :OnlyI),
-                             (:R2, :OnlyA), (:R2, :OnlyI)])
-
-        # A regulator already bound as a competitive inhibitor in the seed is
-        # NOT re-used for a V-type — only the other (free) allosteric regulator
-        # is. In uni_uni_reg_and_inhibitor, R1 is the competitive inhibitor and
-        # R2 the free allosteric regulator.
-        pool = unique!(EnzymeRates.expand_mechanisms(
-            EnzymeRates.Mechanism[EnzymeRates.init_mechanisms(
-                uni_uni_reg_and_inhibitor)...], uni_uni_reg_and_inhibitor))
-        seed_ci = first(filter(pool) do m
-            m isa EnzymeRates.Mechanism && any(
-                (bm = EnzymeRates.bound_metabolite(s);
-                 bm isa EnzymeRates.Regulator && EnzymeRates.name(bm) == :R1)
-                for g in EnzymeRates.steps(m) for s in g)
-        end)
-        vt_ci = filter(am -> !isempty(EnzymeRates.regulatory_sites(am)),
-                       EnzymeRates._expand_to_allosteric(
-                           seed_ci, uni_uni_reg_and_inhibitor))
-        site_regs = Set(EnzymeRates.name(l) for am in vt_ci
+    # The four V-types cover R1/R2 × :OnlyA/:OnlyI, each a single regulator
+    # at a single site.
+    combos = Set((only([EnzymeRates.name(l)
                         for s in EnzymeRates.regulatory_sites(am)
-                        for l in EnzymeRates.ligands(s))
-        @test !isempty(vt_ci)
-        @test site_regs == Set([:R2])
-    end
+                        for l in EnzymeRates.ligands(s)]),
+                  only([t for s in EnzymeRates.regulatory_sites(am)
+                        for t in EnzymeRates.allo_states(s)]))
+                 for am in vtypes)
+    @test combos == Set([(:R1, :OnlyA), (:R1, :OnlyI),
+                         (:R2, :OnlyA), (:R2, :OnlyI)])
 
-    @testset "distinguishability invariant on every emitted mechanism" begin
-        # Every mechanism _expand_to_allosteric returns is distinguishable
-        # from a simpler mechanism: not all-:EqualAI, and either a binding
-        # group carries a non-:EqualAI tag or a regulatory site is present.
-        scenarios = [
-            (first(EnzymeRates.init_mechanisms(uni_uni_allo)), uni_uni_allo),
-            (first(EnzymeRates.init_mechanisms(uni_uni_allo_reg)), uni_uni_allo_reg),
-        ]
-        for (base, rxn) in scenarios
-            for am in EnzymeRates._expand_to_allosteric(base, rxn)
-                states = EnzymeRates.cat_allo_states(am)
-                @test !all(==(:EqualAI), states)
-                binding_gs = [g for g in 1:length(states)
-                              if !_is_catalytic_group(base, g)]
-                binding_non_equal = any(g -> states[g] != :EqualAI, binding_gs)
-                @test binding_non_equal ||
-                    !isempty(EnzymeRates.regulatory_sites(am))
-            end
+    # A regulator already bound as a competitive inhibitor in the seed is
+    # NOT re-used for a V-type — only the other (free) allosteric regulator
+    # is. In uni_uni_reg_and_inhibitor, R1 is the competitive inhibitor and
+    # R2 the free allosteric regulator.
+    pool = unique!(EnzymeRates.expand_mechanisms(
+        EnzymeRates.Mechanism[EnzymeRates.init_mechanisms(
+            uni_uni_reg_and_inhibitor)...], uni_uni_reg_and_inhibitor))
+    seed_ci = first(filter(pool) do m
+        m isa EnzymeRates.Mechanism && any(
+            (bm = EnzymeRates.bound_metabolite(s);
+             bm isa EnzymeRates.Regulator && EnzymeRates.name(bm) == :R1)
+            for g in EnzymeRates.steps(m) for s in g)
+    end)
+    vt_ci = filter(am -> !isempty(EnzymeRates.regulatory_sites(am)),
+                   EnzymeRates._expand_to_allosteric(
+                       seed_ci, uni_uni_reg_and_inhibitor))
+    site_regs = Set(EnzymeRates.name(l) for am in vt_ci
+                    for s in EnzymeRates.regulatory_sites(am)
+                    for l in EnzymeRates.ligands(s))
+    @test !isempty(vt_ci)
+    @test site_regs == Set([:R2])
+end
+
+@testset "distinguishability invariant on every emitted mechanism" begin
+    # Every mechanism _expand_to_allosteric returns is distinguishable
+    # from a simpler mechanism: not all-:EqualAI, and either a binding
+    # group carries a non-:EqualAI tag or a regulatory site is present.
+    scenarios = [
+        (first(EnzymeRates.init_mechanisms(uni_uni_allo)), uni_uni_allo),
+        (first(EnzymeRates.init_mechanisms(uni_uni_allo_reg)), uni_uni_allo_reg),
+    ]
+    for (base, rxn) in scenarios
+        for am in EnzymeRates._expand_to_allosteric(base, rxn)
+            states = EnzymeRates.cat_allo_states(am)
+            @test !all(==(:EqualAI), states)
+            binding_gs = [g for g in 1:length(states)
+                          if !_is_catalytic_group(base, g)]
+            binding_non_equal = any(g -> states[g] != :EqualAI, binding_gs)
+            @test binding_non_equal ||
+                !isempty(EnzymeRates.regulatory_sites(am))
         end
     end
+end
 end
 
 # ─── _expand_add_allosteric_regulator ──────────────────────────────────
 @testset "_expand_add_allosteric_regulator" begin
 
-    @testset "AllostericMechanism — uni-uni + first allo regulator R: 3 variants" begin
-        # SEED: uni-uni allosteric with all groups :EqualAI and no
-        # allosteric regulator added yet; rxn declares :R as the only
-        # allo regulator.
-        em_seed = @allosteric_mechanism begin
-            substrates: S; products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-            end
+@testset "AllostericMechanism — uni-uni + first allo regulator R: 3 variants" begin
+    # SEED: uni-uni allosteric with all groups :EqualAI and no
+    # allosteric regulator added yet; rxn declares :R as the only
+    # allo regulator.
+    em_seed = @allosteric_mechanism begin
+        substrates: S; products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
         end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
 
-        result = EnzymeRates._expand_add_allosteric_regulator(
-            am, uni_uni_allo_reg)
+    result = EnzymeRates._expand_add_allosteric_regulator(
+        am, uni_uni_allo_reg)
 
-        # 1. count: R is the only un-added allosteric regulator. 0 existing
-        # reg sites → 3 non-:EqualAI tags × 1 site option (new site only) = 3.
-        # :EqualAI branch is gated to "existing site with ≥1 non-:EqualAI
-        # ligand" → not applicable here.
-        @test length(result) == 3
+    # 1. count: R is the only un-added allosteric regulator. 0 existing
+    # reg sites → 3 non-:EqualAI tags × 1 site option (new site only) = 3.
+    # :EqualAI branch is gated to "existing site with ≥1 non-:EqualAI
+    # ligand" → not applicable here.
+    @test length(result) == 3
 
-        # 2. Δ params: :OnlyA/:OnlyI add one K_R each (+1); :NonequalAI adds
-        # K_R and K_R_T (+2). Sorted [1, 1, 2]. Measured against the actual
-        # compiled fitted count.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 2]
+    # 2. Δ params: :OnlyA/:OnlyI add one K_R each (+1); :NonequalAI adds
+    # K_R and K_R_T (+2). Sorted [1, 1, 2]. Measured against the actual
+    # compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == [1, 1, 2]
 
-        # 3. equivalence-style structural: each variant has exactly one
-        # regulatory site holding the single ligand :R; tags across the 3
-        # variants are exactly {:OnlyA, :OnlyI, :NonequalAI}. This captures
-        # the same contract without depending on type-parameter encoding;
-        # compiled type identity is stricter than semantic equivalence.
-        triples = Set{Tuple{Vector{Symbol}, Vector{Symbol}, Int}}()
-        for r in result
-            @test length(r.regulatory_sites) == 1
-            site = r.regulatory_sites[1]
-            ligs = Symbol[EnzymeRates.name(l) for l in EnzymeRates.ligands(site)]
-            states = collect(EnzymeRates.allo_states(site))
-            push!(triples,
-                  (ligs, states, EnzymeRates.multiplicity(site)))
+    # 3. equivalence-style structural: each variant has exactly one
+    # regulatory site holding the single ligand :R; tags across the 3
+    # variants are exactly {:OnlyA, :OnlyI, :NonequalAI}. This captures
+    # the same contract without depending on type-parameter encoding;
+    # compiled type identity is stricter than semantic equivalence.
+    triples = Set{Tuple{Vector{Symbol}, Vector{Symbol}, Int}}()
+    for r in result
+        @test length(r.regulatory_sites) == 1
+        site = r.regulatory_sites[1]
+        ligs = Symbol[EnzymeRates.name(l) for l in EnzymeRates.ligands(site)]
+        states = collect(EnzymeRates.allo_states(site))
+        push!(triples,
+              (ligs, states, EnzymeRates.multiplicity(site)))
+    end
+    @test triples == Set([
+        ([:R], [:OnlyA],      am.catalytic_multiplicity),
+        ([:R], [:OnlyI],      am.catalytic_multiplicity),
+        ([:R], [:NonequalAI], am.catalytic_multiplicity),
+    ])
+
+    # 4. compilability + invariants on each variant.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+
+    # 5. preservation: catalytic side and cat_allo_states untouched;
+    # new-site multiplicity inherits am.catalytic_multiplicity.
+    for r in result
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.cat_allo_states == am.cat_allo_states
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        # The added site is appended last; its multiplicity matches
+        # am.catalytic_multiplicity (new-site multiplicity contract).
+        new_site = r.regulatory_sites[end]
+        @test EnzymeRates.multiplicity(new_site) == am.catalytic_multiplicity
+    end
+end
+
+@testset "AllostericMechanism — competitive-only name: no allo variant" begin
+    # Build a uni-uni AllostericMechanism that already has :I bound as a
+    # dead-end (added via init→dead-end→allosteric on the Mechanism path).
+    # `rxn` declares :I only as a competitive inhibitor, not an allosteric
+    # regulator, so `_expand_add_allosteric_regulator(am, rxn)` has no
+    # allosteric regulator to add and returns empty.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: I
+        oligomeric_state: 2
+    end
+    init_mechs = EnzymeRates.init_mechanisms(rxn)
+    de_mechs = EnzymeRates._expand_add_dead_end_regulator(first(init_mechs), rxn)
+    @test !isempty(de_mechs)
+    plain_with_i = first(de_mechs)
+    allo_mechs = EnzymeRates._expand_to_allosteric(plain_with_i, rxn)
+    @test !isempty(allo_mechs)
+    am = first(allo_mechs)
+    EnzymeRates._assert_mechanism_invariants(am)
+    @test isempty(EnzymeRates._expand_add_allosteric_regulator(am, rxn))
+end
+
+@testset "AllostericMechanism — Two regulators with site options: count = 6" begin
+    # SEED: allosteric uni-uni with R1 already added as :OnlyA
+    # (existing site has one
+    # non-:EqualAI ligand). R2 is un-added; the :EqualAI-at-existing
+    # branch fires because R1 qualifies.
+    em_seed = @allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: R1::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
         end
-        @test triples == Set([
-            ([:R], [:OnlyA],      am.catalytic_multiplicity),
-            ([:R], [:OnlyI],      am.catalytic_multiplicity),
-            ([:R], [:NonequalAI], am.catalytic_multiplicity),
-        ])
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
 
-        # 4. compilability + invariants on each variant.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    result = EnzymeRates._expand_add_allosteric_regulator(
+        am, uni_uni_allo_2reg)
+
+    # 1. count: 3 non-:EqualAI tag flavors × 2 site options (new + R1's
+    # existing) = 6, minus the redundant :OnlyI-onto-R1's-:OnlyA-site
+    # append (disjoint conformations) = 5. Plus 1 :EqualAI-at-existing
+    # variant (gated on R1 being non-:EqualAI). → 6.
+    @test length(result) == 6
+
+    # 2. Δ params: four variants add one parameter (:OnlyA new/existing,
+    # :OnlyI new, and the :EqualAI-at-existing one), two :NonequalAI
+    # variants add two (K_R2 + K_R2_T). Sorted [1, 1, 1, 1, 2, 2].
+    # Measured against the actual compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == [1, 1, 1, 1, 2, 2]
+
+    # 3. structural: every result has :R2 in some regulatory site.
+    for r in result
+        has_r2 = any(r.regulatory_sites) do site
+            any(l -> EnzymeRates.name(l) === :R2,
+                EnzymeRates.ligands(site))
         end
+        @test has_r2
+    end
 
-        # 5. preservation: catalytic side and cat_allo_states untouched;
-        # new-site multiplicity inherits am.catalytic_multiplicity.
-        for r in result
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.cat_allo_states == am.cat_allo_states
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-            # The added site is appended last; its multiplicity matches
-            # am.catalytic_multiplicity (new-site multiplicity contract).
-            new_site = r.regulatory_sites[end]
-            @test EnzymeRates.multiplicity(new_site) == am.catalytic_multiplicity
+    # 4. compilability + invariants.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+
+    # 5. preservation: catalytic side and cat_allo_states untouched.
+    for r in result
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.cat_allo_states == am.cat_allo_states
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    end
+end
+
+@testset "AllostericMechanism — EqualAI ligand reachable at existing reg site" begin
+    # Same SEED as the 7-variant case (R1::OnlyA). Adding R2 must
+    # produce at least one variant where R2 is :EqualAI at site 1
+    # (the same site as R1).
+    em_seed = @allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: R1::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+
+    result = EnzymeRates._expand_add_allosteric_regulator(
+        am, uni_uni_allo_2reg)
+
+    # 1. count: 6 (same derivation as the 6-variant case — the redundant
+    # :OnlyI-onto-R1's-:OnlyA-site append is skipped).
+    @test length(result) == 6
+
+    # 4. structural: at least one result has :R2 :EqualAI at site 1
+    # (the same site as R1). This is the :EqualAI-at-existing branch,
+    # gated on R1 (the existing ligand) being non-:EqualAI.
+    target = findfirst(result) do r
+        length(r.regulatory_sites) == 1 || return false
+        site = r.regulatory_sites[1]
+        ligs = EnzymeRates.ligands(site)
+        states = EnzymeRates.allo_states(site)
+        idx = findfirst(l -> EnzymeRates.name(l) === :R2, ligs)
+        idx === nothing && return false
+        states[idx] == :EqualAI
+    end
+    @test target !== nothing
+
+    # 5. preservation
+    for r in result
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.cat_allo_states == am.cat_allo_states
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    end
+end
+
+@testset "AllostericMechanism — Adding :EqualAI R2 at site with :OnlyI R1" begin
+    # SEED: R1::OnlyI at site 1. Adding R2 enumerates non-:EqualAI
+    # tags × 2 site options
+    # plus :EqualAI-at-existing (gated on R1 being non-:EqualAI). 7 total.
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R1::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+
+    result = EnzymeRates._expand_add_allosteric_regulator(
+        am, uni_uni_allo_2reg)
+
+    # 1. count: 3 non-:EqualAI × 2 sites + 1 :EqualAI-at-existing = 7,
+    # minus the redundant :OnlyA-onto-R1's-:OnlyI-site append (disjoint
+    # conformations) = 6.
+    @test length(result) == 6
+
+    # 2. Δ params: same multiset as the :OnlyA seed — four +1 variants
+    # and two :NonequalAI +2 variants. Sorted [1, 1, 1, 1, 2, 2].
+    # Measured against the actual compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == [1, 1, 1, 1, 2, 2]
+
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+
+    # 4. property: at least one variant has :R2 :EqualAI at site 1
+    # (the :EqualAI-at-existing branch, gated on R1 being non-:EqualAI).
+    has_eq_at_site1 = any(result) do r
+        length(r.regulatory_sites) == 1 || return false
+        site = r.regulatory_sites[1]
+        ligs = EnzymeRates.ligands(site)
+        states = EnzymeRates.allo_states(site)
+        idx = findfirst(l -> EnzymeRates.name(l) === :R2, ligs)
+        idx === nothing && return false
+        states[idx] == :EqualAI
+    end
+    @test has_eq_at_site1
+end
+
+@testset "AllostericMechanism — Substrate-as-allosteric-regulator overlap" begin
+    # SEED: allosteric uni-uni; rxn declares :S as both substrate and
+    # allosteric regulator.
+    rxn_allo_overlap = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: S
+        oligomeric_state: 2
+    end
+    em_seed = @allosteric_mechanism begin
+        substrates: S; products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+
+    result = EnzymeRates._expand_add_allosteric_regulator(
+        am, rxn_allo_overlap)
+
+    # 1. count: :S is the only un-added allosteric regulator. 0 existing
+    # reg sites → 3 non-:EqualAI tags × 1 site = 3. → 3.
+    @test length(result) == 3
+
+    # 2. Δ params: :OnlyA/:OnlyI add one K_S each (+1); :NonequalAI adds
+    # K_S and K_S_T (+2). Sorted [1, 1, 2]. Measured against the actual
+    # compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == [1, 1, 2]
+
+    # 3. structural: :S appears in some regulatory site of every result.
+    # :S still plays its catalytic substrate role in the base mechanism.
+    for r in result
+        has_s = any(r.regulatory_sites) do site
+            any(l -> EnzymeRates.name(l) === :S,
+                EnzymeRates.ligands(site))
+        end
+        @test has_s
+    end
+
+    # 4. compilability + invariants (explicit since dual-role is unusual).
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+
+    # 5. preservation
+    for r in result
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.cat_allo_states == am.cat_allo_states
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    end
+end
+
+@testset "AllostericMechanism — Two regulators at different sites" begin
+    # SEED: allosteric uni-uni with R1 already at site 1; add R2 with
+    # rxn declaring both. Verifies the new-site vs existing-site
+    # placement split.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R1, R2
+        oligomeric_state: 2
+    end
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R1::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+
+    result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
+
+    # 1. count: 3 non-:EqualAI × 2 sites + 1 :EqualAI-at-existing = 7,
+    # minus the redundant :OnlyI-onto-R1's-:OnlyA-site append = 6.
+    @test length(result) == 6
+
+    # 4. property-style: separate new-site (#sites grows to 2) and
+    # existing-site (#sites stays at 1) placements.
+    new_site_variants = filter(r -> length(r.regulatory_sites) == 2, result)
+    existing_site_variants =
+        filter(r -> length(r.regulatory_sites) == 1, result)
+    @test length(new_site_variants) == 3   # 3 non-:EqualAI × new site
+    # :OnlyA + :NonequalAI appends onto R1's :OnlyA site + 1 :EqualAI;
+    # the :OnlyI append is skipped as redundant (disjoint conformations).
+    @test length(existing_site_variants) == 3
+end
+
+@testset "AllostericMechanism — Product-as-allosteric-regulator overlap" begin
+    # SEED: uni-uni allosteric where product :P is ALSO declared as an allosteric
+    # regulator. Adding :P as allo regulator → 3 tag variants × 1 site = 3.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: P
+        oligomeric_state: 2
+    end
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+
+    result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
+
+    # 1. count: 3 non-:EqualAI tags × 1 new site = 3 variants.
+    @test length(result) == 3
+
+    # 2. Δ params: :OnlyA/:OnlyI add one K_P each (+1); :NonequalAI adds
+    # K_P and K_P_T (+2). Sorted [1, 1, 2]. Measured against the actual
+    # compiled fitted count.
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    deltas = sort([length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
+    @test deltas == [1, 1, 2]
+
+    # 3. compilability
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+
+    # 4. property: :P appears in some regulatory site of every result.
+    for r in result
+        @test any(r.regulatory_sites) do site
+            any(l -> EnzymeRates.name(l) === :P,
+                EnzymeRates.ligands(site))
+        end
+    end
+end
+
+@testset "AllostericMechanism — all declared regs already present → empty" begin
+    # SEED: allosteric uni-uni with :R already bound; rxn declares only :R → eligible_regs
+    # is empty → result is empty.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+    @test isempty(EnzymeRates._expand_add_allosteric_regulator(am, rxn))
+end
+
+@testset "AllostericMechanism — uni-uni + R: enumerate variants" begin
+    # SEED: allosteric uni-uni with NO allosteric regulator bound yet,
+    # but :R declared in the reaction. The Mechanism overload requires
+    # passing the declared rxn because the AllostericMechanism's own
+    # .reaction strips not-yet-bound regulators.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    # Build a baseline AllostericMechanism from the init → allo move.
+    init_mechs = EnzymeRates.init_mechanisms(rxn)
+    allo_mechs = EnzymeRates._expand_to_allosteric(first(init_mechs), rxn)
+    am = first(allo_mechs)
+
+    result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
+
+    # 1. non-empty: at least one variant adds :R.
+    @test !isempty(result)
+
+    # 2. each result is an AllostericMechanism preserving multiplicity.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+    end
+
+    # 3. :R appears in regulatory_sites for every variant.
+    for r in result
+        has_r = any(r.regulatory_sites) do site
+            any(l -> EnzymeRates.name(l) === :R,
+                EnzymeRates.ligands(site))
+        end
+        @test has_r
+    end
+end
+
+@testset "Mechanism — no-op (negative)" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    m = first(EnzymeRates.init_mechanisms(rxn))
+    @test isempty(EnzymeRates._expand_add_allosteric_regulator(m, rxn))
+end
+
+@testset "AllostericMechanism — dual-role name gains an allosteric site" begin
+    # A reaction may declare one name (ATP) in BOTH roles. Starting from an
+    # allosteric mechanism that already binds ATP as a competitive dead-end
+    # inhibitor, `_expand_add_allosteric_regulator` now also adds ATP at a
+    # regulatory site — the two roles carry distinct parameter names.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: ATP
+        allosteric_regulators: ATP(1)
+    end
+    base = first(EnzymeRates.init_mechanisms(rxn))
+    with_de = EnzymeRates._expand_add_dead_end_regulator(base, rxn)
+    @test !isempty(with_de)
+    allo_mechs = EnzymeRates._expand_to_allosteric(first(with_de), rxn)
+    @test !isempty(allo_mechs)
+    am = first(allo_mechs)
+    # am already binds ATP as a competitive dead-end inhibitor step.
+    @test any(EnzymeRates.steps(am)) do g
+        any(g) do s
+            bm = EnzymeRates.bound_metabolite(s)
+            bm isa EnzymeRates.CompetitiveInhibitor &&
+                EnzymeRates.name(bm) == :ATP
         end
     end
 
-    @testset "AllostericMechanism — competitive-only name: no allo variant" begin
-        # Build a uni-uni AllostericMechanism that already has :I bound as a
-        # dead-end (added via init→dead-end→allosteric on the Mechanism path).
-        # `rxn` declares :I only as a competitive inhibitor, not an allosteric
-        # regulator, so `_expand_add_allosteric_regulator(am, rxn)` has no
-        # allosteric regulator to add and returns empty.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            competitive_inhibitors: I
-            oligomeric_state: 2
+    result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
+    # ATP is now reachable at a regulatory site despite its dead-end role.
+    @test !isempty(result)
+    for r in result
+        @test any(r.regulatory_sites) do site
+            any(l -> EnzymeRates.name(l) === :ATP,
+                EnzymeRates.ligands(site))
         end
-        init_mechs = EnzymeRates.init_mechanisms(rxn)
-        de_mechs = EnzymeRates._expand_add_dead_end_regulator(first(init_mechs), rxn)
-        @test !isempty(de_mechs)
-        plain_with_i = first(de_mechs)
-        allo_mechs = EnzymeRates._expand_to_allosteric(plain_with_i, rxn)
-        @test !isempty(allo_mechs)
-        am = first(allo_mechs)
-        EnzymeRates._assert_mechanism_invariants(am)
-        @test isempty(EnzymeRates._expand_add_allosteric_regulator(am, rxn))
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
     end
+end
 
-    @testset "AllostericMechanism — Two regulators with site options: count = 6" begin
-        # SEED: allosteric uni-uni with R1 already added as :OnlyA
-        # (existing site has one
-        # non-:EqualAI ligand). R2 is un-added; the :EqualAI-at-existing
-        # branch fires because R1 qualifies.
-        em_seed = @allosteric_mechanism begin
-            substrates: S; products: P
-            allosteric_regulators: R1::OnlyA
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_add_allosteric_regulator(
-            am, uni_uni_allo_2reg)
-
-        # 1. count: 3 non-:EqualAI tag flavors × 2 site options (new + R1's
-        # existing) = 6, minus the redundant :OnlyI-onto-R1's-:OnlyA-site
-        # append (disjoint conformations) = 5. Plus 1 :EqualAI-at-existing
-        # variant (gated on R1 being non-:EqualAI). → 6.
-        @test length(result) == 6
-
-        # 2. Δ params: four variants add one parameter (:OnlyA new/existing,
-        # :OnlyI new, and the :EqualAI-at-existing one), two :NonequalAI
-        # variants add two (K_R2 + K_R2_T). Sorted [1, 1, 1, 1, 2, 2].
-        # Measured against the actual compiled fitted count.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 1, 1, 2, 2]
-
-        # 3. structural: every result has :R2 in some regulatory site.
-        for r in result
-            has_r2 = any(r.regulatory_sites) do site
-                any(l -> EnzymeRates.name(l) === :R2,
-                    EnzymeRates.ligands(site))
-            end
-            @test has_r2
-        end
-
-        # 4. compilability + invariants.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 5. preservation: catalytic side and cat_allo_states untouched.
-        for r in result
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.cat_allo_states == am.cat_allo_states
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-        end
+@testset "AllostericMechanism — dual-role name derives distinct params" begin
+    # ATP bound BOTH at a regulatory site AND as a competitive dead-end step
+    # must yield two distinct constants (…ATPreg vs …ATPinh…), never a name
+    # collision, and the mechanism must compile.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: ATP
+        allosteric_regulators: ATP(1)
     end
+    base = first(EnzymeRates.init_mechanisms(rxn))
+    with_de = first(EnzymeRates._expand_add_dead_end_regulator(base, rxn))
+    am0 = first(EnzymeRates._expand_to_allosteric(with_de, rxn))
+    # Force an ATP regulatory site on top of the ATP dead-end step.
+    am = EnzymeRates._make_am_with_added_reg(am0, :ATP, :NonequalAI, 0)
+    EnzymeRates._assert_mechanism_invariants(am)
 
-    @testset "AllostericMechanism — EqualAI ligand reachable at existing reg site" begin
-        # Same SEED as the 7-variant case (R1::OnlyA). Adding R2 must
-        # produce at least one variant where R2 is :EqualAI at site 1
-        # (the same site as R1).
-        em_seed = @allosteric_mechanism begin
-            substrates: S; products: P
-            allosteric_regulators: R1::OnlyA
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
+    fp = collect(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am)))
+    @test length(fp) == length(unique(fp))          # no duplicate symbol
+    atp_params = filter(s -> occursin("ATP", String(s)), fp)
+    @test any(s -> occursin("ATPreg", String(s)), atp_params)
+    @test any(s -> occursin("ATPinh", String(s)), atp_params)
+    @test EnzymeRates.compile_mechanism(am) isa AllostericEnzymeMechanism
+end
 
-        result = EnzymeRates._expand_add_allosteric_regulator(
-            am, uni_uni_allo_2reg)
-
-        # 1. count: 6 (same derivation as the 6-variant case — the redundant
-        # :OnlyI-onto-R1's-:OnlyA-site append is skipped).
-        @test length(result) == 6
-
-        # 4. structural: at least one result has :R2 :EqualAI at site 1
-        # (the same site as R1). This is the :EqualAI-at-existing branch,
-        # gated on R1 (the existing ligand) being non-:EqualAI.
-        target = findfirst(result) do r
-            length(r.regulatory_sites) == 1 || return false
-            site = r.regulatory_sites[1]
-            ligs = EnzymeRates.ligands(site)
-            states = EnzymeRates.allo_states(site)
-            idx = findfirst(l -> EnzymeRates.name(l) === :R2, ligs)
-            idx === nothing && return false
-            states[idx] == :EqualAI
-        end
-        @test target !== nothing
-
-        # 5. preservation
-        for r in result
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.cat_allo_states == am.cat_allo_states
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-        end
+@testset "skips redundant OnlyI-onto-OnlyA-site append (disjoint states)" begin
+    # Appending an :OnlyI regulator onto a site holding only an :OnlyA
+    # regulator makes an [OnlyA, OnlyI] single site — disjoint conformations,
+    # so it derives to the same rate as adding it at a new site. Skip that
+    # append; keep the new-site form and the non-disjoint appends.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A::Activator, I::Inhibitor
+        oligomeric_state: 4
     end
-
-    @testset "AllostericMechanism — Adding :EqualAI R2 at site with :OnlyI R1" begin
-        # SEED: R1::OnlyI at site 1. Adding R2 enumerates non-:EqualAI
-        # tags × 2 site options
-        # plus :EqualAI-at-existing (gated on R1 being non-:EqualAI). 7 total.
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            allosteric_regulators: R1::OnlyI
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_add_allosteric_regulator(
-            am, uni_uni_allo_2reg)
-
-        # 1. count: 3 non-:EqualAI × 2 sites + 1 :EqualAI-at-existing = 7,
-        # minus the redundant :OnlyA-onto-R1's-:OnlyI-site append (disjoint
-        # conformations) = 6.
-        @test length(result) == 6
-
-        # 2. Δ params: same multiset as the :OnlyA seed — four +1 variants
-        # and two :NonequalAI +2 variants. Sorted [1, 1, 1, 1, 2, 2].
-        # Measured against the actual compiled fitted count.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 1, 1, 2, 2]
-
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 4. property: at least one variant has :R2 :EqualAI at site 1
-        # (the :EqualAI-at-existing branch, gated on R1 being non-:EqualAI).
-        has_eq_at_site1 = any(result) do r
-            length(r.regulatory_sites) == 1 || return false
-            site = r.regulatory_sites[1]
-            ligs = EnzymeRates.ligands(site)
-            states = EnzymeRates.allo_states(site)
-            idx = findfirst(l -> EnzymeRates.name(l) === :R2, ligs)
-            idx === nothing && return false
-            states[idx] == :EqualAI
-        end
-        @test has_eq_at_site1
+    base = first(EnzymeRates.init_mechanisms(rxn))
+    cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
+    site_a = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])
+    am = EnzymeRates.AllostericMechanism(
+        rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a])
+    kids = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
+    st(child, sidx, lig) = begin
+        s = EnzymeRates.regulatory_sites(child)[sidx]
+        i = findfirst(l -> EnzymeRates.name(l) == lig, EnzymeRates.ligands(s))
+        i === nothing ? nothing : EnzymeRates.allo_states(s)[i]
     end
-
-    @testset "AllostericMechanism — Substrate-as-allosteric-regulator overlap" begin
-        # SEED: allosteric uni-uni; rxn declares :S as both substrate and
-        # allosteric regulator.
-        rxn_allo_overlap = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: S
-            oligomeric_state: 2
-        end
-        em_seed = @allosteric_mechanism begin
-            substrates: S; products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_add_allosteric_regulator(
-            am, rxn_allo_overlap)
-
-        # 1. count: :S is the only un-added allosteric regulator. 0 existing
-        # reg sites → 3 non-:EqualAI tags × 1 site = 3. → 3.
-        @test length(result) == 3
-
-        # 2. Δ params: :OnlyA/:OnlyI add one K_S each (+1); :NonequalAI adds
-        # K_S and K_S_T (+2). Sorted [1, 1, 2]. Measured against the actual
-        # compiled fitted count.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 2]
-
-        # 3. structural: :S appears in some regulatory site of every result.
-        # :S still plays its catalytic substrate role in the base mechanism.
-        for r in result
-            has_s = any(r.regulatory_sites) do site
-                any(l -> EnzymeRates.name(l) === :S,
-                    EnzymeRates.ligands(site))
-            end
-            @test has_s
-        end
-
-        # 4. compilability + invariants (explicit since dual-role is unusual).
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 5. preservation
-        for r in result
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.cat_allo_states == am.cat_allo_states
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-        end
+    one_AI_site(c) = length(EnzymeRates.regulatory_sites(c)) == 1 &&
+        Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
+            only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
+    # redundant: one site with A:OnlyA + I:OnlyI — must be skipped
+    @test !any(c -> one_AI_site(c) && st(c,1,:A)==:OnlyA && st(c,1,:I)==:OnlyI, kids)
+    # kept: two-site new-site form carrying I:OnlyI on its own site
+    @test any(kids) do c
+        length(EnzymeRates.regulatory_sites(c)) == 2 &&
+            any(s -> [EnzymeRates.name(l) for l in EnzymeRates.ligands(s)] == [:I] &&
+                     EnzymeRates.allo_states(s) == [:OnlyI],
+                EnzymeRates.regulatory_sites(c))
     end
-
-    @testset "AllostericMechanism — Two regulators at different sites" begin
-        # SEED: allosteric uni-uni with R1 already at site 1; add R2 with
-        # rxn declaring both. Verifies the new-site vs existing-site
-        # placement split.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R1, R2
-            oligomeric_state: 2
-        end
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            allosteric_regulators: R1::OnlyA
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
-
-        # 1. count: 3 non-:EqualAI × 2 sites + 1 :EqualAI-at-existing = 7,
-        # minus the redundant :OnlyI-onto-R1's-:OnlyA-site append = 6.
-        @test length(result) == 6
-
-        # 4. property-style: separate new-site (#sites grows to 2) and
-        # existing-site (#sites stays at 1) placements.
-        new_site_variants = filter(r -> length(r.regulatory_sites) == 2, result)
-        existing_site_variants =
-            filter(r -> length(r.regulatory_sites) == 1, result)
-        @test length(new_site_variants) == 3   # 3 non-:EqualAI × new site
-        # :OnlyA + :NonequalAI appends onto R1's :OnlyA site + 1 :EqualAI;
-        # the :OnlyI append is skipped as redundant (disjoint conformations).
-        @test length(existing_site_variants) == 3
-    end
-
-    @testset "AllostericMechanism — Product-as-allosteric-regulator overlap" begin
-        # SEED: uni-uni allosteric where product :P is ALSO declared as an allosteric
-        # regulator. Adding :P as allo regulator → 3 tag variants × 1 site = 3.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: P
-            oligomeric_state: 2
-        end
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
-
-        # 1. count: 3 non-:EqualAI tags × 1 new site = 3 variants.
-        @test length(result) == 3
-
-        # 2. Δ params: :OnlyA/:OnlyI add one K_P each (+1); :NonequalAI adds
-        # K_P and K_P_T (+2). Sorted [1, 1, 2]. Measured against the actual
-        # compiled fitted count.
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        deltas = sort([length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(r))) - base_fitted for r in result])
-        @test deltas == [1, 1, 2]
-
-        # 3. compilability
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 4. property: :P appears in some regulatory site of every result.
-        for r in result
-            @test any(r.regulatory_sites) do site
-                any(l -> EnzymeRates.name(l) === :P,
-                    EnzymeRates.ligands(site))
-            end
-        end
-    end
-
-    @testset "AllostericMechanism — all declared regs already present → empty" begin
-        # SEED: allosteric uni-uni with :R already bound; rxn declares only :R → eligible_regs
-        # is empty → result is empty.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R
-            oligomeric_state: 2
-        end
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            allosteric_regulators: R::OnlyA
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-        @test isempty(EnzymeRates._expand_add_allosteric_regulator(am, rxn))
-    end
-
-    @testset "AllostericMechanism — uni-uni + R: enumerate variants" begin
-        # SEED: allosteric uni-uni with NO allosteric regulator bound yet,
-        # but :R declared in the reaction. The Mechanism overload requires
-        # passing the declared rxn because the AllostericMechanism's own
-        # .reaction strips not-yet-bound regulators.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R
-            oligomeric_state: 2
-        end
-        # Build a baseline AllostericMechanism from the init → allo move.
-        init_mechs = EnzymeRates.init_mechanisms(rxn)
-        allo_mechs = EnzymeRates._expand_to_allosteric(first(init_mechs), rxn)
-        am = first(allo_mechs)
-
-        result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
-
-        # 1. non-empty: at least one variant adds :R.
-        @test !isempty(result)
-
-        # 2. each result is an AllostericMechanism preserving multiplicity.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-        end
-
-        # 3. :R appears in regulatory_sites for every variant.
-        for r in result
-            has_r = any(r.regulatory_sites) do site
-                any(l -> EnzymeRates.name(l) === :R,
-                    EnzymeRates.ligands(site))
-            end
-            @test has_r
-        end
-    end
-
-    @testset "Mechanism — no-op (negative)" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R
-            oligomeric_state: 2
-        end
-        m = first(EnzymeRates.init_mechanisms(rxn))
-        @test isempty(EnzymeRates._expand_add_allosteric_regulator(m, rxn))
-    end
-
-    @testset "AllostericMechanism — dual-role name gains an allosteric site" begin
-        # A reaction may declare one name (ATP) in BOTH roles. Starting from an
-        # allosteric mechanism that already binds ATP as a competitive dead-end
-        # inhibitor, `_expand_add_allosteric_regulator` now also adds ATP at a
-        # regulatory site — the two roles carry distinct parameter names.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            competitive_inhibitors: ATP
-            allosteric_regulators: ATP(1)
-        end
-        base = first(EnzymeRates.init_mechanisms(rxn))
-        with_de = EnzymeRates._expand_add_dead_end_regulator(base, rxn)
-        @test !isempty(with_de)
-        allo_mechs = EnzymeRates._expand_to_allosteric(first(with_de), rxn)
-        @test !isempty(allo_mechs)
-        am = first(allo_mechs)
-        # am already binds ATP as a competitive dead-end inhibitor step.
-        @test any(EnzymeRates.steps(am)) do g
-            any(g) do s
-                bm = EnzymeRates.bound_metabolite(s)
-                bm isa EnzymeRates.CompetitiveInhibitor &&
-                    EnzymeRates.name(bm) == :ATP
-            end
-        end
-
-        result = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
-        # ATP is now reachable at a regulatory site despite its dead-end role.
-        @test !isempty(result)
-        for r in result
-            @test any(r.regulatory_sites) do site
-                any(l -> EnzymeRates.name(l) === :ATP,
-                    EnzymeRates.ligands(site))
-            end
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-        end
-    end
-
-    @testset "AllostericMechanism — dual-role name derives distinct params" begin
-        # ATP bound BOTH at a regulatory site AND as a competitive dead-end step
-        # must yield two distinct constants (…ATPreg vs …ATPinh…), never a name
-        # collision, and the mechanism must compile.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            competitive_inhibitors: ATP
-            allosteric_regulators: ATP(1)
-        end
-        base = first(EnzymeRates.init_mechanisms(rxn))
-        with_de = first(EnzymeRates._expand_add_dead_end_regulator(base, rxn))
-        am0 = first(EnzymeRates._expand_to_allosteric(with_de, rxn))
-        # Force an ATP regulatory site on top of the ATP dead-end step.
-        am = EnzymeRates._make_am_with_added_reg(am0, :ATP, :NonequalAI, 0)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        fp = collect(EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(am)))
-        @test length(fp) == length(unique(fp))          # no duplicate symbol
-        atp_params = filter(s -> occursin("ATP", String(s)), fp)
-        @test any(s -> occursin("ATPreg", String(s)), atp_params)
-        @test any(s -> occursin("ATPinh", String(s)), atp_params)
-        @test EnzymeRates.compile_mechanism(am) isa AllostericEnzymeMechanism
-    end
-
-    @testset "skips redundant OnlyI-onto-OnlyA-site append (disjoint states)" begin
-        # Appending an :OnlyI regulator onto a site holding only an :OnlyA
-        # regulator makes an [OnlyA, OnlyI] single site — disjoint conformations,
-        # so it derives to the same rate as adding it at a new site. Skip that
-        # append; keep the new-site form and the non-disjoint appends.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A::Activator, I::Inhibitor
-            oligomeric_state: 4
-        end
-        base = first(EnzymeRates.init_mechanisms(rxn))
-        cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
-        site_a = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])
-        am = EnzymeRates.AllostericMechanism(
-            rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a])
-        kids = EnzymeRates._expand_add_allosteric_regulator(am, rxn)
-        st(child, sidx, lig) = begin
-            s = EnzymeRates.regulatory_sites(child)[sidx]
-            i = findfirst(l -> EnzymeRates.name(l) == lig, EnzymeRates.ligands(s))
-            i === nothing ? nothing : EnzymeRates.allo_states(s)[i]
-        end
-        one_AI_site(c) = length(EnzymeRates.regulatory_sites(c)) == 1 &&
-            Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
-                only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
-        # redundant: one site with A:OnlyA + I:OnlyI — must be skipped
-        @test !any(c -> one_AI_site(c) && st(c,1,:A)==:OnlyA && st(c,1,:I)==:OnlyI, kids)
-        # kept: two-site new-site form carrying I:OnlyI on its own site
-        @test any(kids) do c
-            length(EnzymeRates.regulatory_sites(c)) == 2 &&
-                any(s -> [EnzymeRates.name(l) for l in EnzymeRates.ligands(s)] == [:I] &&
-                         EnzymeRates.allo_states(s) == [:OnlyI],
-                    EnzymeRates.regulatory_sites(c))
-        end
-        # kept: both-OnlyA append (A:OnlyA + I:OnlyA on one site — not disjoint)
-        @test any(c -> one_AI_site(c) && st(c,1,:A)==:OnlyA && st(c,1,:I)==:OnlyA, kids)
-    end
+    # kept: both-OnlyA append (A:OnlyA + I:OnlyA on one site — not disjoint)
+    @test any(c -> one_AI_site(c) && st(c,1,:A)==:OnlyA && st(c,1,:I)==:OnlyA, kids)
+end
 
 end
 
 # ─── regulator-kind routing ────────────────────────────────────────────
 @testset "regulator kinds route to their own moves" begin
-    # uni_uni_reg_and_inhibitor declares R2 as an allosteric regulator and R1
-    # as a competitive inhibitor. The two kinds must not cross moves: the
-    # allosteric-regulator move places only R2 (at a regulatory site), and the
-    # dead-end move binds only R1.
-    seed = first(EnzymeRates.init_mechanisms(uni_uni_reg_and_inhibitor))
+# uni_uni_reg_and_inhibitor declares R2 as an allosteric regulator and R1
+# as a competitive inhibitor. The two kinds must not cross moves: the
+# allosteric-regulator move places only R2 (at a regulatory site), and the
+# dead-end move binds only R1.
+seed = first(EnzymeRates.init_mechanisms(uni_uni_reg_and_inhibitor))
 
-    @testset "allosteric-regulator addition places only R2" begin
-        am = first(EnzymeRates._expand_to_allosteric(
-            seed, uni_uni_reg_and_inhibitor))
-        added = EnzymeRates._expand_add_allosteric_regulator(
-            am, uni_uni_reg_and_inhibitor)
-        site_regs = Set(EnzymeRates.name(l) for m in added
-                        for s in EnzymeRates.regulatory_sites(m)
-                        for l in EnzymeRates.ligands(s))
-        @test !isempty(added)
-        @test site_regs == Set([:R2])
-    end
+@testset "allosteric-regulator addition places only R2" begin
+    am = first(EnzymeRates._expand_to_allosteric(
+        seed, uni_uni_reg_and_inhibitor))
+    added = EnzymeRates._expand_add_allosteric_regulator(
+        am, uni_uni_reg_and_inhibitor)
+    site_regs = Set(EnzymeRates.name(l) for m in added
+                    for s in EnzymeRates.regulatory_sites(m)
+                    for l in EnzymeRates.ligands(s))
+    @test !isempty(added)
+    @test site_regs == Set([:R2])
+end
 
-    @testset "dead-end expansion binds only R1" begin
-        added = EnzymeRates._expand_add_dead_end_regulator(
-            seed, uni_uni_reg_and_inhibitor)
-        de_regs = Set(EnzymeRates.name(bm) for m in added
-                      for g in EnzymeRates.steps(m) for s in g
-                      for bm in (EnzymeRates.bound_metabolite(s),)
-                      if bm isa EnzymeRates.Regulator)
-        @test !isempty(added)
-        @test de_regs == Set([:R1])
-    end
+@testset "dead-end expansion binds only R1" begin
+    added = EnzymeRates._expand_add_dead_end_regulator(
+        seed, uni_uni_reg_and_inhibitor)
+    de_regs = Set(EnzymeRates.name(bm) for m in added
+                  for g in EnzymeRates.steps(m) for s in g
+                  for bm in (EnzymeRates.bound_metabolite(s),)
+                  if bm isa EnzymeRates.Regulator)
+    @test !isempty(added)
+    @test de_regs == Set([:R1])
+end
 end
 
 # ─── _expand_change_allo_state ─────────────────────────────────────────
 @testset "_expand_change_allo_state" begin
 
-    @testset "AllostericMechanism — regulator tag removal delta" begin
-        # SEED: uni-uni allosteric with one regulator R tagged :OnlyA;
-        # all 3 catalytic groups :EqualAI.
-        em_seed = @allosteric_mechanism begin
-            substrates: S; products: P
-            allosteric_regulators: R::OnlyA
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-            end
+@testset "AllostericMechanism — regulator tag removal delta" begin
+    # SEED: uni-uni allosteric with one regulator R tagged :OnlyA;
+    # all 3 catalytic groups :EqualAI.
+    em_seed = @allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: R::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
         end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
 
-        result = EnzymeRates._expand_change_allo_state(am)
+    result = EnzymeRates._expand_change_allo_state(am)
 
-        # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation = 4.
-        @test length(result) == 4
+    # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation = 4.
+    @test length(result) == 4
 
-        # 2. exactly one variant has the R ligand flipped to :NonequalAI
-        # (cat_allo_states preserved); locate it structurally.
-        r_removal = filter(result) do r
-            r.cat_allo_states == am.cat_allo_states &&
-                any(s -> any(t -> t == :NonequalAI,
-                             EnzymeRates.allo_states(s)),
-                    r.regulatory_sites)
+    # 2. exactly one variant has the R ligand flipped to :NonequalAI
+    # (cat_allo_states preserved); locate it structurally.
+    r_removal = filter(result) do r
+        r.cat_allo_states == am.cat_allo_states &&
+            any(s -> any(t -> t == :NonequalAI,
+                         EnzymeRates.allo_states(s)),
+                r.regulatory_sites)
+    end
+    @test length(r_removal) == 1
+
+    # 3. ground-truth Δ params via compiled `fitted_params`: the
+    # R-ligand :OnlyA → :NonequalAI flip adds exactly one new
+    # independent parameter (Δ=+1).
+    seed_truth = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    @test length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(only(r_removal)))) ==
+        seed_truth + 1
+
+    # 4. compilability + invariants on each variant.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
+    end
+end
+
+@testset "AllostericMechanism — :OnlyI regulator-ligand relaxation" begin
+    # SEED: uni-uni allosteric with R::OnlyI and 3 :EqualAI cat
+    # groups. Each non-:NonequalAI entry contributes one variant:
+    # 3 cat-group + 1 reg-ligand = 4.
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
         end
-        @test length(r_removal) == 1
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
 
-        # 3. ground-truth Δ params via compiled `fitted_params`: the
-        # R-ligand :OnlyA → :NonequalAI flip adds exactly one new
-        # independent parameter (Δ=+1).
-        seed_truth = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        @test length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(only(r_removal)))) ==
-            seed_truth + 1
+    result = EnzymeRates._expand_change_allo_state(am)
 
-        # 4. compilability + invariants on each variant.
+    # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation.
+    @test length(result) == 4
+
+    # 2. ground-truth Δ multiset via `fitted_params`. Under strict
+    # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
+    # partners stay :EqualAI is degenerate: a thermodynamic cycle forbids
+    # that affinity split, so it collapses (K_I = K_A) and adds NO fitted
+    # parameter. Only the catalytic relaxation (its derived reverse absorbs
+    # the cycle) and the reg-ligand relaxation each add one. So the two
+    # binding relaxations contribute 0: `[0, 0, 1, 1]`. (The enumerator
+    # will skip such degenerate configs in a follow-up PR.)
+    seed_truth = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    truth_deltas = sort([
+        length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(r))) - seed_truth
         for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
+    ])
+    @test truth_deltas == [0, 0, 1, 1]
+
+    # 3. compilability + invariants.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
     end
 
-    @testset "AllostericMechanism — :OnlyI regulator-ligand relaxation" begin
-        # SEED: uni-uni allosteric with R::OnlyI and 3 :EqualAI cat
-        # groups. Each non-:NonequalAI entry contributes one variant:
-        # 3 cat-group + 1 reg-ligand = 4.
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            allosteric_regulators: R::OnlyI
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-            end
+    # 4. exactly one ligand-relaxation variant: the R ligand's tag
+    # flipped from :OnlyI to :NonequalAI (located structurally).
+    n_r_relaxed = count(result) do r
+        r.cat_allo_states == am.cat_allo_states &&
+            any(s -> any(t -> t == :NonequalAI,
+                         EnzymeRates.allo_states(s)),
+                r.regulatory_sites)
+    end
+    @test n_r_relaxed == 1
+end
+
+@testset "AllostericMechanism — multiple regulator ligands at independent tags" begin
+    # SEED: allosteric uni-uni with R1::OnlyA + R2::OnlyI at the same
+    # regulatory site, all 3 cat groups :EqualAI. Each non-:NonequalAI
+    # entry contributes one variant: 3 cat + 2 reg-ligand = 5.
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R1::OnlyA, R2::OnlyI
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
         end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
 
-        result = EnzymeRates._expand_change_allo_state(am)
+    result = EnzymeRates._expand_change_allo_state(am)
 
-        # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation.
-        @test length(result) == 4
+    # 1. count: 3 cat-group relaxations + 2 reg-ligand relaxations = 5.
+    @test length(result) == 5
 
-        # 2. ground-truth Δ multiset via `fitted_params`. Under strict
-        # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
-        # partners stay :EqualAI is degenerate: a thermodynamic cycle forbids
-        # that affinity split, so it collapses (K_I = K_A) and adds NO fitted
-        # parameter. Only the catalytic relaxation (its derived reverse absorbs
-        # the cycle) and the reg-ligand relaxation each add one. So the two
-        # binding relaxations contribute 0: `[0, 0, 1, 1]`. (The enumerator
-        # will skip such degenerate configs in a follow-up PR.)
-        seed_truth = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        truth_deltas = sort([
-            length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(r))) - seed_truth
-            for r in result
-        ])
-        @test truth_deltas == [0, 0, 1, 1]
-
-        # 3. compilability + invariants.
+    # 2. ground-truth Δ multiset via `fitted_params`. Under strict
+    # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
+    # partners stay :EqualAI collapses that affinity (K_I = K_A) and adds NO
+    # fitted parameter (a thermodynamic cycle forbids the split). The two
+    # binding relaxations contribute 0; the catalytic relaxation and the two
+    # reg-ligand relaxations each add one: `[0, 0, 1, 1, 1]`. (The enumerator
+    # will skip such degenerate configs in a follow-up PR.)
+    seed_truth = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(am)))
+    truth_deltas = sort([
+        length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(r))) - seed_truth
         for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
+    ])
+    @test truth_deltas == [0, 0, 1, 1, 1]
 
-        # 4. exactly one ligand-relaxation variant: the R ligand's tag
-        # flipped from :OnlyI to :NonequalAI (located structurally).
-        n_r_relaxed = count(result) do r
-            r.cat_allo_states == am.cat_allo_states &&
-                any(s -> any(t -> t == :NonequalAI,
-                             EnzymeRates.allo_states(s)),
-                    r.regulatory_sites)
-        end
-        @test n_r_relaxed == 1
+    # 3. compilability + invariants.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
     end
 
-    @testset "AllostericMechanism — multiple regulator ligands at independent tags" begin
-        # SEED: allosteric uni-uni with R1::OnlyA + R2::OnlyI at the same
-        # regulatory site, all 3 cat groups :EqualAI. Each non-:NonequalAI
-        # entry contributes one variant: 3 cat + 2 reg-ligand = 5.
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            allosteric_regulators: R1::OnlyA, R2::OnlyI
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
+    # 4. property: each ligand has exactly one variant where ONLY it
+    # is relaxed to :NonequalAI (cat states preserved, the other
+    # ligand keeps its seed tag). Locate by per-ligand state.
+    function _site_lig_state(r, lig_name)
+        for site in r.regulatory_sites
+            for (l, st) in zip(EnzymeRates.ligands(site),
+                               EnzymeRates.allo_states(site))
+                EnzymeRates.name(l) === lig_name && return st
             end
         end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-
-        result = EnzymeRates._expand_change_allo_state(am)
-
-        # 1. count: 3 cat-group relaxations + 2 reg-ligand relaxations = 5.
-        @test length(result) == 5
-
-        # 2. ground-truth Δ multiset via `fitted_params`. Under strict
-        # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
-        # partners stay :EqualAI collapses that affinity (K_I = K_A) and adds NO
-        # fitted parameter (a thermodynamic cycle forbids the split). The two
-        # binding relaxations contribute 0; the catalytic relaxation and the two
-        # reg-ligand relaxations each add one: `[0, 0, 1, 1, 1]`. (The enumerator
-        # will skip such degenerate configs in a follow-up PR.)
-        seed_truth = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(am)))
-        truth_deltas = sort([
-            length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(r))) - seed_truth
-            for r in result
-        ])
-        @test truth_deltas == [0, 0, 1, 1, 1]
-
-        # 3. compilability + invariants.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test EnzymeRates.compile_mechanism(r) isa AllostericEnzymeMechanism
-        end
-
-        # 4. property: each ligand has exactly one variant where ONLY it
-        # is relaxed to :NonequalAI (cat states preserved, the other
-        # ligand keeps its seed tag). Locate by per-ligand state.
-        function _site_lig_state(r, lig_name)
-            for site in r.regulatory_sites
-                for (l, st) in zip(EnzymeRates.ligands(site),
-                                   EnzymeRates.allo_states(site))
-                    EnzymeRates.name(l) === lig_name && return st
-                end
-            end
-            error("ligand $lig_name not found")
-        end
-        n_r1_relaxed_only = count(result) do r
-            r.cat_allo_states == am.cat_allo_states &&
-                _site_lig_state(r, :R1) == :NonequalAI &&
-                _site_lig_state(r, :R2) == :OnlyI
-        end
-        n_r2_relaxed_only = count(result) do r
-            r.cat_allo_states == am.cat_allo_states &&
-                _site_lig_state(r, :R1) == :OnlyA &&
-                _site_lig_state(r, :R2) == :NonequalAI
-        end
-        @test n_r1_relaxed_only == 1
-        @test n_r2_relaxed_only == 1
+        error("ligand $lig_name not found")
     end
+    n_r1_relaxed_only = count(result) do r
+        r.cat_allo_states == am.cat_allo_states &&
+            _site_lig_state(r, :R1) == :NonequalAI &&
+            _site_lig_state(r, :R2) == :OnlyI
+    end
+    n_r2_relaxed_only = count(result) do r
+        r.cat_allo_states == am.cat_allo_states &&
+            _site_lig_state(r, :R1) == :OnlyA &&
+            _site_lig_state(r, :R2) == :NonequalAI
+    end
+    @test n_r1_relaxed_only == 1
+    @test n_r2_relaxed_only == 1
+end
 
-    @testset "AllostericMechanism — non-default site multiplicity (cat=4, reg=2)" begin
-        # SEED: catalytic 4-mer with R::OnlyA at a multiplicity-2 reg site
-        # (less than catalytic_multiplicity).
-        em_seed = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            allosteric_regulators: R::OnlyA
-            catalytic_multiplicity: 4
-            catalytic_steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-            end
-            regulatory_site(multiplicity = 2): begin
-                ligands: R
-            end
+@testset "AllostericMechanism — non-default site multiplicity (cat=4, reg=2)" begin
+    # SEED: catalytic 4-mer with R::OnlyA at a multiplicity-2 reg site
+    # (less than catalytic_multiplicity).
+    em_seed = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R::OnlyA
+        catalytic_multiplicity: 4
+        catalytic_steps: begin
+            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
         end
-        am = EnzymeRates.AllostericMechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(am)
-        @test am.catalytic_multiplicity == 4
-        @test [EnzymeRates.multiplicity(s) for s in am.regulatory_sites] == [2]
+        regulatory_site(multiplicity = 2): begin
+            ligands: R
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(am)
+    @test am.catalytic_multiplicity == 4
+    @test [EnzymeRates.multiplicity(s) for s in am.regulatory_sites] == [2]
 
-        # _expand_change_allo_state must preserve both
-        # catalytic_multiplicity and per-site multiplicity independently.
-        result = EnzymeRates._expand_change_allo_state(am)
-        @test !isempty(result)
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            EnzymeRates._assert_mechanism_invariants(r)
-            @test r.catalytic_multiplicity == 4
-            @test [EnzymeRates.multiplicity(s) for s in r.regulatory_sites] == [2]
+    # _expand_change_allo_state must preserve both
+    # catalytic_multiplicity and per-site multiplicity independently.
+    result = EnzymeRates._expand_change_allo_state(am)
+    @test !isempty(result)
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        EnzymeRates._assert_mechanism_invariants(r)
+        @test r.catalytic_multiplicity == 4
+        @test [EnzymeRates.multiplicity(s) for s in r.regulatory_sites] == [2]
+    end
+end
+
+@testset "AllostericMechanism — uni-uni all-:EqualAI: 3 cat relaxations" begin
+    # SEED: uni-uni allosteric with all 3 catalytic groups tagged
+    # :EqualAI and no regulatory sites. Each non-:NonequalAI cat-group
+    # tag contributes one variant (flip to :NonequalAI).
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
+    end
+    init_mechs = EnzymeRates.init_mechanisms(rxn)
+    m_seed = first(init_mechs)
+    n_groups = length(EnzymeRates.steps(m_seed))
+    am = EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(m_seed), copy(EnzymeRates.steps(m_seed)),
+        Symbol[:EqualAI for _ in 1:n_groups], 2, EnzymeRates.RegulatorySite[])
+    @test all(t -> t == :EqualAI, am.cat_allo_states)
+
+    result = EnzymeRates._expand_change_allo_state(am)
+
+    # 1. count: 3 cat-group relaxations + 0 reg-ligand relaxations.
+    @test length(result) == length(am.cat_allo_states)
+
+    # 2. each variant has exactly one :NonequalAI entry in
+    # cat_allo_states; the rest match the seed.
+    for r in result
+        @test r isa EnzymeRates.AllostericMechanism
+        @test count(t -> t == :NonequalAI, r.cat_allo_states) == 1
+        for i in 1:length(am.cat_allo_states)
+            @test r.cat_allo_states[i] == :NonequalAI ||
+                  r.cat_allo_states[i] == am.cat_allo_states[i]
         end
     end
 
-    @testset "AllostericMechanism — uni-uni all-:EqualAI: 3 cat relaxations" begin
-        # SEED: uni-uni allosteric with all 3 catalytic groups tagged
-        # :EqualAI and no regulatory sites. Each non-:NonequalAI cat-group
-        # tag contributes one variant (flip to :NonequalAI).
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            oligomeric_state: 2
-        end
-        init_mechs = EnzymeRates.init_mechanisms(rxn)
-        m_seed = first(init_mechs)
-        n_groups = length(EnzymeRates.steps(m_seed))
-        am = EnzymeRates.AllostericMechanism(
-            EnzymeRates.reaction(m_seed), copy(EnzymeRates.steps(m_seed)),
-            Symbol[:EqualAI for _ in 1:n_groups], 2, EnzymeRates.RegulatorySite[])
-        @test all(t -> t == :EqualAI, am.cat_allo_states)
-
-        result = EnzymeRates._expand_change_allo_state(am)
-
-        # 1. count: 3 cat-group relaxations + 0 reg-ligand relaxations.
-        @test length(result) == length(am.cat_allo_states)
-
-        # 2. each variant has exactly one :NonequalAI entry in
-        # cat_allo_states; the rest match the seed.
-        for r in result
-            @test r isa EnzymeRates.AllostericMechanism
-            @test count(t -> t == :NonequalAI, r.cat_allo_states) == 1
-            for i in 1:length(am.cat_allo_states)
-                @test r.cat_allo_states[i] == :NonequalAI ||
-                      r.cat_allo_states[i] == am.cat_allo_states[i]
-            end
-        end
-
-        # 3. preservation: reaction, multiplicity, sites.
-        for r in result
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test r.regulatory_sites == am.regulatory_sites
-        end
+    # 3. preservation: reaction, multiplicity, sites.
+    for r in result
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test r.regulatory_sites == am.regulatory_sites
     end
+end
 
-    @testset "AllostericMechanism — already-:NonequalAI: empty (negative)" begin
-        # If every tag is :NonequalAI, no relaxation is possible.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            oligomeric_state: 2
-        end
-        init_mechs = EnzymeRates.init_mechanisms(rxn)
-        allo_mechs = EnzymeRates._expand_to_allosteric(first(init_mechs), rxn)
-        am_seed = first(allo_mechs)
-        # Manually build an all-:NonequalAI version.
-        am_all_neq = EnzymeRates.AllostericMechanism(
-            EnzymeRates.reaction(am_seed),
-            copy(am_seed.cat_steps),
-            fill(:NonequalAI, length(am_seed.cat_allo_states)),
-            am_seed.catalytic_multiplicity,
-            copy(am_seed.regulatory_sites))
-        @test isempty(EnzymeRates._expand_change_allo_state(am_all_neq))
+@testset "AllostericMechanism — already-:NonequalAI: empty (negative)" begin
+    # If every tag is :NonequalAI, no relaxation is possible.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        oligomeric_state: 2
     end
+    init_mechs = EnzymeRates.init_mechanisms(rxn)
+    allo_mechs = EnzymeRates._expand_to_allosteric(first(init_mechs), rxn)
+    am_seed = first(allo_mechs)
+    # Manually build an all-:NonequalAI version.
+    am_all_neq = EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(am_seed),
+        copy(am_seed.cat_steps),
+        fill(:NonequalAI, length(am_seed.cat_allo_states)),
+        am_seed.catalytic_multiplicity,
+        copy(am_seed.regulatory_sites))
+    @test isempty(EnzymeRates._expand_change_allo_state(am_all_neq))
+end
 
-    @testset "Mechanism — no-op (negative)" begin
-        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-        @test isempty(EnzymeRates._expand_change_allo_state(m))
-    end
+@testset "Mechanism — no-op (negative)" begin
+    m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    @test isempty(EnzymeRates._expand_change_allo_state(m))
+end
 
 end
 
 # ─── _site_active_states ─────────────────────────────────────────────────
 @testset "_site_active_states" begin
-    mk(states) = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(Symbol("R", i)) for i in eachindex(states)],
-        4, collect(Symbol, states))
-    @test EnzymeRates._site_active_states(mk([:OnlyA])) == Set([:active])
-    @test EnzymeRates._site_active_states(mk([:OnlyI])) == Set([:inactive])
-    @test EnzymeRates._site_active_states(mk([:EqualAI])) == Set([:active, :inactive])
-    @test EnzymeRates._site_active_states(mk([:NonequalAI])) == Set([:active, :inactive])
-    @test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyA])) == Set([:active])
-    @test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyI])) ==
-          Set([:active, :inactive])
+@testset "_site_active_states" begin
+mk(states) = EnzymeRates.RegulatorySite(
+    [EnzymeRates.AllostericRegulator(Symbol("R", i)) for i in eachindex(states)],
+    4, collect(Symbol, states))
+@test EnzymeRates._site_active_states(mk([:OnlyA])) == Set([:active])
+@test EnzymeRates._site_active_states(mk([:OnlyI])) == Set([:inactive])
+@test EnzymeRates._site_active_states(mk([:EqualAI])) == Set([:active, :inactive])
+@test EnzymeRates._site_active_states(mk([:NonequalAI])) == Set([:active, :inactive])
+@test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyA])) == Set([:active])
+@test EnzymeRates._site_active_states(mk([:OnlyA, :OnlyI])) ==
+      Set([:active, :inactive])
 end
 
 @testset "_merged_site_state_assignments drop_all_keep" begin
-    base = [:OnlyA, :OnlyI]
-    keep = EnzymeRates._merged_site_state_assignments(base)
-    @test [:OnlyA, :OnlyI] in keep          # all-keep present by default
-    @test [:EqualAI, :OnlyI] in keep
-    @test [:OnlyA, :EqualAI] in keep
-    @test length(keep) == 3
-    dropped = EnzymeRates._merged_site_state_assignments(base; drop_all_keep=true)
-    @test !([:OnlyA, :OnlyI] in dropped)    # all-keep omitted
-    @test [:EqualAI, :OnlyI] in dropped     # antagonist retags retained
-    @test [:OnlyA, :EqualAI] in dropped
-    @test length(dropped) == 2
+base = [:OnlyA, :OnlyI]
+keep = EnzymeRates._merged_site_state_assignments(base)
+@test [:OnlyA, :OnlyI] in keep          # all-keep present by default
+@test [:EqualAI, :OnlyI] in keep
+@test [:OnlyA, :EqualAI] in keep
+@test length(keep) == 3
+dropped = EnzymeRates._merged_site_state_assignments(base; drop_all_keep=true)
+@test !([:OnlyA, :OnlyI] in dropped)    # all-keep omitted
+@test [:EqualAI, :OnlyI] in dropped     # antagonist retags retained
+@test [:OnlyA, :EqualAI] in dropped
+@test length(dropped) == 2
+end
 end
 
 # ─── _expand_merge_regulatory_sites ─────────────────────────────────────
 @testset "_expand_merge_regulatory_sites" begin
-    # A four-subunit reaction with a designated activator and inhibitor.
+@testset "_expand_merge_regulatory_sites" begin
+# A four-subunit reaction with a designated activator and inhibitor.
+merge_rxn = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    allosteric_regulators: A::Activator, I::Inhibitor
+    oligomeric_state: 4
+end
+base = first(EnzymeRates.init_mechanisms(merge_rxn))
+cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
+site_a = EnzymeRates.RegulatorySite(
+    [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])
+site_i = EnzymeRates.RegulatorySite(
+    [EnzymeRates.AllostericRegulator(:I)], 4, [:OnlyI])
+parent = EnzymeRates.AllostericMechanism(
+    merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a, site_i])
+
+children = EnzymeRates._expand_merge_regulatory_sites(parent)
+
+# The allo state of ligand `lig` in a child's single merged site.
+merged_state(child, lig) = begin
+    site = only(EnzymeRates.regulatory_sites(child))
+    idx = findfirst(l -> EnzymeRates.name(l) == lig,
+                    EnzymeRates.ligands(site))
+    EnzymeRates.allo_states(site)[idx]
+end
+single_site_names(child) =
+    Set(EnzymeRates.name(l)
+        for l in EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(child))))
+
+@testset "disjoint OnlyA/OnlyI co-binding skipped; antagonists kept" begin
+    # A (:OnlyA) acts only on the active state, I (:OnlyI) only on the
+    # inactive one, so co-binding them on one site derives to the same
+    # equation as separate sites — that all-keep merge is redundant and
+    # skipped. The two antagonist retags stay (each :EqualAI ligand now
+    # acts on both states, a genuinely distinct mechanism).
+    @test all(c -> single_site_names(c) == Set([:A, :I]), children)
+    states = Set((merged_state(c, :A), merged_state(c, :I)) for c in children)
+    @test !((:OnlyA, :OnlyI) in states)  # redundant co-binding skipped
+    @test (:EqualAI, :OnlyI) in states   # activator → antagonist
+    @test (:OnlyA, :EqualAI) in states   # inhibitor → antagonist
+    @test !((:EqualAI, :EqualAI) in states)  # all-EqualAI dropped
+    @test length(children) == 2
+end
+
+@testset "every child is Δ0 (same fitted-param count as parent)" begin
+    np_parent = length(
+        EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(parent)))
+    for c in children
+        @test length(
+            EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(c))) ==
+              np_parent
+    end
+end
+
+@testset "parent and children are rate-equation-distinct" begin
+    eqs = [EnzymeRates.rate_equation_string(parent);
+           [EnzymeRates.rate_equation_string(c) for c in children]]
+    @test length(unique(eqs)) == length(eqs)
+end
+
+@testset "reg_type filter keeps all when activator/inhibitor differ in type" begin
+    # A::Activator + I::Inhibitor share a site with opposite types: no
+    # ligand violates its type, so nothing is dropped — every merge child
+    # survives.
+    kept = EnzymeRates._filter_by_reg_type(children, merge_rxn)
+    @test Set(kept) == Set(children)
+    @test length(kept) == 2
+end
+
+@testset "reg_type filter drops same-type antagonist retags" begin
+    # Two designated activators sharing one site: co-binding {OnlyA, OnlyA}
+    # survives, but each antagonist retag places an :EqualAI beside a
+    # same-type activator sibling, so both antagonist forms are dropped.
+    rxn_aa = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A1::Activator, A2::Activator
+        oligomeric_state: 4
+    end
+    b_aa = first(EnzymeRates.init_mechanisms(rxn_aa))
+    cat_aa = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b_aa))]
+    s1 = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:A1)], 4, [:OnlyA])
+    s2 = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:A2)], 4, [:OnlyA])
+    p_aa = EnzymeRates.AllostericMechanism(
+        rxn_aa, copy(EnzymeRates.steps(b_aa)), cat_aa, 4, [s1, s2])
+    kids = EnzymeRates._expand_merge_regulatory_sites(p_aa)
+    @test length(kids) == 3
+    kept = EnzymeRates._filter_by_reg_type(kids, rxn_aa)
+    @test length(kept) == 1
+    surviving = only(kept)
+    @test Set(EnzymeRates.allo_states(
+        only(EnzymeRates.regulatory_sites(surviving)))) == Set([:OnlyA])
+end
+
+@testset "different merge routes to one 3-way site dedup" begin
+    rxn3 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A, B, C
+        oligomeric_state: 4
+    end
+    b3 = first(EnzymeRates.init_mechanisms(rxn3))
+    cat3 = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b3))]
+    mk1(n) = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(n)], 4, [:OnlyA])
+    mk2(n1, n2) = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(n1),
+         EnzymeRates.AllostericRegulator(n2)], 4, [:OnlyA, :OnlyA])
+    # Route 1: {A,B} co-site + {C} single site → merge → {A,B,C}.
+    p_ab_c = EnzymeRates.AllostericMechanism(
+        rxn3, copy(EnzymeRates.steps(b3)), cat3, 4, [mk2(:A, :B), mk1(:C)])
+    # Route 2: {A,C} co-site + {B} single site → merge → {A,C,B}.
+    p_ac_b = EnzymeRates.AllostericMechanism(
+        rxn3, copy(EnzymeRates.steps(b3)), cat3, 4, [mk2(:A, :C), mk1(:B)])
+    threeway(kids) = only(filter(kids) do c
+        sites = EnzymeRates.regulatory_sites(c)
+        length(sites) == 1 &&
+            length(EnzymeRates.ligands(only(sites))) == 3 &&
+            all(==(:OnlyA), EnzymeRates.allo_states(only(sites)))
+    end)
+    c1 = threeway(EnzymeRates._expand_merge_regulatory_sites(p_ab_c))
+    c2 = threeway(EnzymeRates._expand_merge_regulatory_sites(p_ac_b))
+    @test c1 == c2
+    @test hash(c1) == hash(c2)
+end
+
+@testset "ligand↔state pairing survives the name-sort (non-identity perm)" begin
+    # Merge a 2-ligand site {A::OnlyA, C::OnlyI} with a 1-ligand site
+    # {B::OnlyA}. The merged vcat order is ligands [A, C, B] / states
+    # [OnlyA, OnlyI, OnlyA]; the name-sort reorders ligands to [A, B, C]
+    # (perm [1, 3, 2]). C's :OnlyI must ride along to the new C slot — this
+    # only holds if base_states is permuted in lockstep with the ligands.
+    rxn3 = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A, B, C
+        oligomeric_state: 4
+    end
+    b3 = first(EnzymeRates.init_mechanisms(rxn3))
+    cat3 = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b3))]
+    site_ac = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:A),
+         EnzymeRates.AllostericRegulator(:C)], 4, [:OnlyA, :OnlyI])
+    site_b = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:B)], 4, [:OnlyA])
+    p = EnzymeRates.AllostericMechanism(
+        rxn3, copy(EnzymeRates.steps(b3)), cat3, 4, [site_ac, site_b])
+    kids = EnzymeRates._expand_merge_regulatory_sites(p)
+    # The co-binding child keeps every state (no :EqualAI).
+    cobind = only(filter(kids) do c
+        !(:EqualAI in EnzymeRates.allo_states(
+            only(EnzymeRates.regulatory_sites(c))))
+    end)
+    @test merged_state(cobind, :A) == :OnlyA
+    @test merged_state(cobind, :B) == :OnlyA
+    @test merged_state(cobind, :C) == :OnlyI
+end
+
+@testset "no-op: Mechanism and single-site AllostericMechanism" begin
+    m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    @test EnzymeRates._expand_merge_regulatory_sites(m) ==
+          EnzymeRates.AllostericMechanism[]
+    single = EnzymeRates.AllostericMechanism(
+        merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a])
+    @test isempty(EnzymeRates._expand_merge_regulatory_sites(single))
+end
+end
+
+@testset "OnlyA+OnlyI merge is derivation-redundant (premise guard)" begin
+# The reason the all-keep OnlyA/OnlyI merge is skipped: merged onto one
+# site it evaluates to the same rate as on separate sites. Confirm
+# numerically over random parameters and concentrations.
+rxn = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    allosteric_regulators: A::Activator, I::Inhibitor
+    oligomeric_state: 4
+end
+base = first(EnzymeRates.init_mechanisms(rxn))
+cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
+mkm(sites) = EnzymeRates.AllostericMechanism(
+    rxn, copy(EnzymeRates.steps(base)), cat, 4, sites)
+A = EnzymeRates.AllostericRegulator(:A)
+I = EnzymeRates.AllostericRegulator(:I)
+separate = mkm([EnzymeRates.RegulatorySite([A], 4, [:OnlyA]),
+                EnzymeRates.RegulatorySite([I], 4, [:OnlyI])])
+merged = mkm([EnzymeRates.RegulatorySite([A, I], 4, [:OnlyA, :OnlyI])])
+fps = EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(separate))
+fpm = EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(merged))
+@test Set(fps) == Set(fpm)
+Random.seed!(42)
+for _ in 1:25
+    vals = Dict(p => exp(randn()) for p in union(fps, fpm))
+    ps = (; (p => vals[p] for p in fps)..., Keq=100.0, E_total=1.0)
+    pm = (; (p => vals[p] for p in fpm)..., Keq=100.0, E_total=1.0)
+    c = (; S=exp(randn()), P=exp(randn()), A=exp(randn()), I=exp(randn()))
+    vs = real(EnzymeRates.rate_equation(separate, c, ps))
+    vm = real(EnzymeRates.rate_equation(merged, c, pm))
+    @test isapprox(vs, vm; rtol=1e-9)
+end
+end
+end
+
+# ─── _declared_reg_type / _state_respects_reg_type / _filter_by_reg_type ──────────
+@testset "_declared_reg_type / _state_respects_reg_type / _filter_by_reg_type" begin
+
+@testset "_declared_reg_type" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A::Activator, I::Inhibitor, U
+        oligomeric_state: 2
+    end
+    @test EnzymeRates._declared_reg_type(:A, rxn) == :activator
+    @test EnzymeRates._declared_reg_type(:I, rxn) == :inhibitor
+    @test EnzymeRates._declared_reg_type(:U, rxn) == :unspecified
+    # No matching regulator at all → :unspecified.
+    @test EnzymeRates._declared_reg_type(:Nope, rxn) == :unspecified
+
+    # A CompetitiveInhibitor carrying a reg_type (only reachable by direct
+    # construction; the DSL restricts type tags to allosteric_regulators:)
+    # is not an AllostericRegulator, so its reg_type is ignored.
+    rxn_ci = EnzymeRates.EnzymeReaction(
+        [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
+         EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
+        [EnzymeRates.RegulatorMults(
+            EnzymeRates.CompetitiveInhibitor(:X), [1], :activator)],
+        [1])
+    @test EnzymeRates._declared_reg_type(:X, rxn_ci) == :unspecified
+end
+
+@testset "_state_respects_reg_type — :unspecified always passes" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: U
+        oligomeric_state: 2
+    end
+    for state in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
+        @test EnzymeRates._state_respects_reg_type(:U, state, Symbol[], rxn)
+        @test EnzymeRates._state_respects_reg_type(:U, state, [:Other], rxn)
+    end
+end
+
+@testset "_state_respects_reg_type — activator" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A::Activator, A2::Activator, I::Inhibitor
+        oligomeric_state: 2
+    end
+    # never the opposite pure state
+    @test !EnzymeRates._state_respects_reg_type(:A, :OnlyI, Symbol[], rxn)
+    # matching pure state / NonequalAI always allowed
+    @test EnzymeRates._state_respects_reg_type(:A, :OnlyA, Symbol[], rxn)
+    @test EnzymeRates._state_respects_reg_type(:A, :NonequalAI, Symbol[], rxn)
+    # EqualAI: no siblings → allowed
+    @test EnzymeRates._state_respects_reg_type(:A, :EqualAI, Symbol[], rxn)
+    # EqualAI: opposite-type sibling → allowed
+    @test EnzymeRates._state_respects_reg_type(:A, :EqualAI, [:I], rxn)
+    # EqualAI: unspecified sibling → allowed
+    rxn_u = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A::Activator, U
+        oligomeric_state: 2
+    end
+    @test EnzymeRates._state_respects_reg_type(:A, :EqualAI, [:U], rxn_u)
+    # EqualAI: same-type sibling → rejected
+    @test !EnzymeRates._state_respects_reg_type(:A, :EqualAI, [:A2], rxn)
+end
+
+@testset "_state_respects_reg_type — inhibitor (symmetric)" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: I::Inhibitor, I2::Inhibitor, A::Activator
+        oligomeric_state: 2
+    end
+    @test !EnzymeRates._state_respects_reg_type(:I, :OnlyA, Symbol[], rxn)
+    @test EnzymeRates._state_respects_reg_type(:I, :OnlyI, Symbol[], rxn)
+    @test EnzymeRates._state_respects_reg_type(:I, :NonequalAI, Symbol[], rxn)
+    @test EnzymeRates._state_respects_reg_type(:I, :EqualAI, Symbol[], rxn)
+    @test EnzymeRates._state_respects_reg_type(:I, :EqualAI, [:A], rxn)
+    @test !EnzymeRates._state_respects_reg_type(:I, :EqualAI, [:I2], rxn)
+end
+
+@testset "_filter_by_reg_type" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R::Activator
+        oligomeric_state: 2
+    end
+    m_seed = first(EnzymeRates.init_mechanisms(rxn))
+    n_groups = length(EnzymeRates.steps(m_seed))
+    cat_states = Symbol[:EqualAI for _ in 1:n_groups]
+
+    site_bad = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyI])
+    am_bad = EnzymeRates.AllostericMechanism(
+        rxn, copy(EnzymeRates.steps(m_seed)), cat_states, 2, [site_bad])
+
+    site_good = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyA])
+    am_good = EnzymeRates.AllostericMechanism(
+        rxn, copy(EnzymeRates.steps(m_seed)), cat_states, 2, [site_good])
+
+    kept = EnzymeRates._filter_by_reg_type(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+            m_seed, am_bad, am_good], rxn)
+    @test m_seed in kept   # Mechanism (no sites) passes trivially
+    @test am_good in kept
+    @test !(am_bad in kept)
+    @test length(kept) == 2
+end
+
+@testset "_filter_by_reg_type — real two-ligand site (sibling extraction)" begin
+    # A single site holding two ligands exercises the sibling-extraction
+    # path (`j != i`) that single-ligand fixtures never run: each ligand's
+    # sibling_names come from the site itself, not a hand-fed vector.
+
+    # DROP: two same-type activators, both :EqualAI. Each is the other's
+    # same-type EqualAI sibling, so both are rejected.
+    rxn_aa = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A1::Activator, A2::Activator
+        oligomeric_state: 2
+    end
+    m_aa = first(EnzymeRates.init_mechanisms(rxn_aa))
+    cat_aa = Symbol[:EqualAI for _ in 1:length(EnzymeRates.steps(m_aa))]
+    site_aa = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:A1),
+         EnzymeRates.AllostericRegulator(:A2)], 2, [:EqualAI, :EqualAI])
+    am_aa = EnzymeRates.AllostericMechanism(
+        rxn_aa, copy(EnzymeRates.steps(m_aa)), cat_aa, 2, [site_aa])
+    @test isempty(EnzymeRates._filter_by_reg_type(
+        EnzymeRates.AllostericMechanism[am_aa], rxn_aa))
+
+    # KEEP: an :EqualAI activator beside an :OnlyI inhibitor. The
+    # activator's only sibling is opposite-type, so EqualAI passes; the
+    # inhibitor's :OnlyI matches its type.
+    rxn_ai = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: A::Activator, I::Inhibitor
+        oligomeric_state: 2
+    end
+    m_ai = first(EnzymeRates.init_mechanisms(rxn_ai))
+    cat_ai = Symbol[:EqualAI for _ in 1:length(EnzymeRates.steps(m_ai))]
+    site_ai = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:A),
+         EnzymeRates.AllostericRegulator(:I)], 2, [:EqualAI, :OnlyI])
+    am_ai = EnzymeRates.AllostericMechanism(
+        rxn_ai, copy(EnzymeRates.steps(m_ai)), cat_ai, 2, [site_ai])
+    kept_ai = EnzymeRates._filter_by_reg_type(
+        EnzymeRates.AllostericMechanism[am_ai], rxn_ai)
+    @test kept_ai == [am_ai]
+end
+end
+
+# ═══════════════════════════════════════════════════════════════════════
+# 5. Composition (dedup, expand_mechanisms)
+# ═══════════════════════════════════════════════════════════════════════
+
+# ─── canonical by construction ─────────────────────────────────────────
+
+@testset "Mechanism — canonical by construction" begin
+# Test 1: outer kinetic-group order does not matter. Building from the
+# same steps with the outer groups in reversed order yields a
+# struct-equal Mechanism (the basis for dedup via `unique!`).
+m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+EnzymeRates._assert_mechanism_invariants(m_seed)
+m_perm = EnzymeRates.Mechanism(
+    EnzymeRates.reaction(m_seed), reverse(m_seed.steps))
+@test m_seed == m_perm
+
+# Test 2: AllostericMechanism — site permutation with DISTINCT
+# multiplicities. The constructor must permute cat_allo_states alongside
+# cat_steps (catalytic side) and produce the same regulatory_sites
+# ordering (regulatory side) regardless of input site order.
+base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
+cat_states = [:EqualAI for _ in base.steps]
+site_a = EnzymeRates.RegulatorySite(
+    [EnzymeRates.AllostericRegulator(:A)], 2, [:OnlyA])
+site_b = EnzymeRates.RegulatorySite(
+    [EnzymeRates.AllostericRegulator(:B)], 4, [:OnlyI])
+am_ab = EnzymeRates.AllostericMechanism(
+    EnzymeRates.reaction(base),
+    [copy(g) for g in base.steps], cat_states, 2, [site_a, site_b])
+am_ba = EnzymeRates.AllostericMechanism(   # sites swapped
+    EnzymeRates.reaction(base),
+    [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
+EnzymeRates._assert_mechanism_invariants(am_ab)
+EnzymeRates._assert_mechanism_invariants(am_ba)
+@test am_ab == am_ba
+end
+
+# ─── _dedup_key ────────────────────────────────────────────────────────
+@testset "_dedup_key" begin
+
+# Mechanism dedup keys: struct equality. Mechanisms are canonical at
+# construction, so dedup is just `unique!`, which relies on
+# `Base.==` / `Base.hash` on the struct itself. This testset locks in the
+# struct-equality contract that powers that dedup.
+@testset "Mechanism — dedup key via struct equality" begin
+# Same content → equal (and equal hashes).
+m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+EnzymeRates._assert_mechanism_invariants(m_seed)
+m_copy = EnzymeRates.Mechanism(
+    EnzymeRates.reaction(m_seed),
+    Vector{EnzymeRates.Step}[copy(g) for g in m_seed.steps])
+@test m_seed == m_copy
+@test hash(m_seed) == hash(m_copy)
+
+# AllostericMechanism: differing site multiplicities → unequal because
+# multiplicities are part of the structural identity.
+base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
+cat_states = [:EqualAI for _ in base.steps]
+am_m2 = EnzymeRates.AllostericMechanism(
+    EnzymeRates.reaction(base),
+    [copy(g) for g in base.steps], cat_states, 2,
+    [EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:A)], 2, [:OnlyA])])
+am_m4 = EnzymeRates.AllostericMechanism(   # different multiplicity
+    EnzymeRates.reaction(base),
+    [copy(g) for g in base.steps], cat_states, 2,
+    [EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])])
+EnzymeRates._assert_mechanism_invariants(am_m2)
+EnzymeRates._assert_mechanism_invariants(am_m4)
+@test am_m2 != am_m4
+end
+end
+
+# ─── mechanism dedup (unique!) ──────────────────────────────────────────
+@testset "Dedup" begin
+
+@testset "Mechanism — same physics, different group order" begin
+    # Two Mechanisms representing the same physics but with their
+    # outer kinetic-group order swapped should collapse to one.
+    m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    @test m_seed isa EnzymeRates.Mechanism
+    # Build a permuted copy by reversing the group order.
+    permuted_steps = reverse(m_seed.steps)
+    m_perm = EnzymeRates.Mechanism(
+        EnzymeRates.reaction(m_seed), permuted_steps)
+    v = EnzymeRates.Mechanism[m_seed, m_perm]
+    unique!(v)
+    @test length(v) == 1
+end
+
+@testset "Mechanism — different mechanisms preserved" begin
+    # Surviving Mechanisms must be pairwise distinct under
+    # compile-time equality (EnzymeMechanism singleton type).
+    mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
+    unique!(mechs)
+    compiled = Set(EnzymeRates.EnzymeMechanism(m) for m in mechs)
+    @test length(mechs) == length(compiled)
+    @test length(mechs) >= 2
+end
+
+@testset "Mechanism — idempotent" begin
+    mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
+    unique!(mechs)
+    n1 = length(mechs)
+    unique!(mechs)
+    @test length(mechs) == n1
+end
+
+@testset "Mechanism — bi-bi init: dedup leaves canonical seeds intact" begin
+    # init_mechanisms produces mechanisms that are already in canonical
+    # form (no two are presentation-variants of each other). unique!
+    # is therefore a no-op on the count.
+    mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
+    n = length(mechs)
+    unique!(mechs)
+    @test length(mechs) == n
+end
+
+@testset "AllostericMechanism — same physics, site permutation" begin
+    # Build two AllostericMechanisms representing the same physics with
+    # sites in different order.
+    base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
+    cat_states = [:NonequalAI for _ in base.steps]
+    site_a = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:A)], 2, [:NonequalAI])
+    site_b = EnzymeRates.RegulatorySite(
+        [EnzymeRates.AllostericRegulator(:B)], 2, [:NonequalAI])
+    am_ab = EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(base),
+        [copy(g) for g in base.steps], cat_states, 2, [site_a, site_b])
+    am_ba = EnzymeRates.AllostericMechanism(
+        EnzymeRates.reaction(base),
+        [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
+    v = EnzymeRates.AllostericMechanism[am_ab, am_ba]
+    unique!(v)
+    @test length(v) == 1
+end
+
+@testset "Mechanism — expansion-path overlap: dedup actually fires" begin
+    # Run two rounds of expand_mechanisms on the uni-uni init seeds
+    # (Mechanism path), then unique!. Assert that the flat vector shrinks,
+    # proving that two different expansion paths — two moves, or one move
+    # reached through two parents — produced equivalent Mechanisms.
+    init_mechs = collect(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    pool = unique!(EnzymeRates.expand_mechanisms(init_mechs, uni_uni_rxn))
+    expanded = EnzymeRates.expand_mechanisms(pool, uni_uni_rxn)
+    pre = length(expanded)
+    unique!(expanded)
+    # dedup fired: two different expansion paths produced equivalent
+    # Mechanisms, so the flat vector shrank.
+    @test length(expanded) < pre
+end
+
+@testset "Mechanism — permuted groups collapse via canonicalization" begin
+    # Two Mechanisms with the same physics but with their outer
+    # kinetic-group order arbitrarily rearranged should collapse to one
+    # after unique!. This exercises the constructor's outer-group
+    # sort with a non-trivial permutation, confirming that any
+    # permutation of the outer Vector canonicalizes back to the same
+    # struct.
+    m_seed = first(EnzymeRates.init_mechanisms(bi_bi_rxn))
+    EnzymeRates._assert_mechanism_invariants(m_seed)
+    n_groups = length(m_seed.steps)
+    @assert n_groups >= 3 "bi-bi init seed must have ≥3 kinetic groups " *
+        "to exercise a non-trivial permutation"
+    # Cyclic-rotate-by-1 permutation: [g1, g2, …, gN] → [g2, …, gN, g1].
+    perm = vcat(2:n_groups, 1)
+    m_rotated = EnzymeRates.Mechanism(
+        EnzymeRates.reaction(m_seed), m_seed.steps[perm])
+    v = EnzymeRates.Mechanism[m_seed, m_rotated]
+    unique!(v)
+    @test length(v) == 1
+end
+end
+
+# ─── expand_mechanisms ─────────────────────────────────────────────────
+@testset "expand_mechanisms" begin
+
+@testset "Mechanism — Empty input" begin
+    # Mechanism-form expand_mechanisms with empty input returns empty Vector.
+    empty_in = Union{EnzymeRates.Mechanism,
+                     EnzymeRates.AllostericMechanism}[]
+    @test isempty(EnzymeRates.expand_mechanisms(empty_in, uni_uni_rxn))
+end
+
+@testset "Mechanism — Returns flat vector" begin
+    # SEED: uni-uni RE-only, 3 singleton kinetic groups.
+    em_seed = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E(P)
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+        end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    result = EnzymeRates.expand_mechanisms([m], uni_uni_rxn)
+    @test result isa Vector{Union{
+        EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}}
+    @test !isempty(result)
+end
+
+@testset "Mechanism — Allosteric expansion included" begin
+    # SEED: uni-uni RE-only attached to an oligomeric reaction.
+    # expand_mechanisms must include AllostericMechanism variants in
+    # its output.
+    em_seed = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E(P)
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+        end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    result = EnzymeRates.expand_mechanisms([m], uni_uni_allo)
+    allo_count = count(s -> s isa EnzymeRates.AllostericMechanism, result)
+    # _expand_to_allosteric on this uni-uni seed (3 kinetic groups: 2
+    # binding + 1 catalytic, no regulator declared) closes each binding
+    # group's one-sided :OnlyA over its Haldane completion (the dropped
+    # chemical step, or the opposing binding), yielding 3 distinct
+    # AllostericMechanism variants (the catalytic group is never a bare
+    # primary :OnlyA — that needs a regulator). Other moves do not
+    # produce AllostericMechanism output from a plain Mechanism, so
+    # exactly 3 exist.
+    @test allo_count == 3
+end
+
+@testset "Mechanism — expansion never reduces param count" begin
+    # SEED: uni-uni RE-only, base actual fitted count = 3. Expansion
+    # moves never REDUCE the fitted-param count, so every child has
+    # actual >= base. (The old estimate-based test asserted strictly
+    # `> base`; that is FALSE for actual counts in general — some moves,
+    # e.g. splitting a kinetic group whose peeled-off parameter is
+    # already pinned by a Wegscheider cycle, leave the count UNCHANGED
+    # at Δ=0. This particular uni-uni seed happens to add one parameter
+    # per child, but the invariant we pin is the monotone `>=`.)
+    em_seed = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + P ⇌ E(P)
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+        end
+    end
+    m = EnzymeRates.Mechanism(em_seed)
+    EnzymeRates._assert_mechanism_invariants(m)
+    base_fitted = length(EnzymeRates.fitted_params(
+        EnzymeRates.compile_mechanism(m)))
+    result = EnzymeRates.expand_mechanisms([m], uni_uni_rxn)
+    for child in result
+        @test length(EnzymeRates.fitted_params(
+            EnzymeRates.compile_mechanism(child))) >= base_fitted
+    end
+end
+
+@testset "AllostericMechanism — rewrap preserves structure" begin
+    # SEED: all-:EqualAI AllostericMechanism uni-uni. Passing this to
+    # expand_mechanisms must produce AllostericMechanism expansions
+    # (RE→SS rewrapped as allosteric, etc.).
+    aem = @allosteric_mechanism begin
+        substrates: S; products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(aem)
+    result = EnzymeRates.expand_mechanisms([am], uni_uni_allo)
+    allo_results = filter(s -> s isa EnzymeRates.AllostericMechanism,
+                          result)
+    @test !isempty(allo_results)
+    # Every rewrapped allosteric result must preserve the input's
+    # catalytic_multiplicity and reaction — cat_steps may differ (a
+    # base move may have changed them) but the allosteric-side
+    # metadata is preserved.
+    for r in allo_results
+        @test r.catalytic_multiplicity == am.catalytic_multiplicity
+        @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
+    end
+end
+
+@testset "AllostericMechanism — Dead-end excludes allosteric regs" begin
+    # SEED: AllostericMechanism uni-uni with R already added as an
+    # allosteric regulator (:OnlyA). expand_mechanisms must never add R
+    # as a dead-end inhibitor — no Step in any expansion may have
+    # bound_metabolite named :R (allosteric regulators live in
+    # regulatory_sites, not in cat_steps).
+    aem = @allosteric_mechanism begin
+        substrates: S; products: P
+        allosteric_regulators: R::OnlyA
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E + P ⇌ E(P)    :: EqualAI
+            E + S ⇌ E(S)    :: EqualAI
+            E(S) <--> E(P)  :: EqualAI
+        end
+    end
+    am = EnzymeRates.AllostericMechanism(aem)
+    result = EnzymeRates.expand_mechanisms([am], uni_uni_allo_reg)
+    for r in result
+        groups = r isa EnzymeRates.AllostericMechanism ?
+            r.cat_steps : r.steps
+        for group in groups, st in group
+            bm = EnzymeRates.bound_metabolite(st)
+            bm === nothing && continue
+            @test EnzymeRates.name(bm) !== :R
+        end
+    end
+end
+
+@testset "Reg_type filter drops violating children; no-op when typeless" begin
+    # True iff `m` places ligand `reg` in allo state `st` at any site.
+    function has_reg_state(m, reg, st)
+        m isa EnzymeRates.AllostericMechanism || return false
+        for site in EnzymeRates.regulatory_sites(m)
+            for (lig, s) in zip(EnzymeRates.ligands(site),
+                                EnzymeRates.allo_states(site))
+                EnzymeRates.name(lig) == reg && s == st && return true
+            end
+        end
+        false
+    end
+
+    rxn_act = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R::Activator
+        oligomeric_state: 2
+    end
+    rxn_plain = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    m_act = first(EnzymeRates.init_mechanisms(rxn_act))
+    m_plain = first(EnzymeRates.init_mechanisms(rxn_plain))
+
+    # Raw children reproduce expand_mechanisms' moves without the filter.
+    raw_act = Union{EnzymeRates.Mechanism,
+                    EnzymeRates.AllostericMechanism}[]
+    EnzymeRates._add_expansions_mech!(raw_act, m_act, rxn_act)
+    raw_plain = Union{EnzymeRates.Mechanism,
+                      EnzymeRates.AllostericMechanism}[]
+    EnzymeRates._add_expansions_mech!(raw_plain, m_plain, rxn_plain)
+
+    children_act = EnzymeRates.expand_mechanisms([m_act], rxn_act)
+    children_plain = EnzymeRates.expand_mechanisms([m_plain], rxn_plain)
+
+    # A designated activator's raw expansion carries an :OnlyI R child (a
+    # V-type variant); the reg_type filter drops it, leaving strictly fewer.
+    @test any(m -> has_reg_state(m, :R, :OnlyI), raw_act)
+    @test !any(m -> has_reg_state(m, :R, :OnlyI), children_act)
+    @test children_act == EnzymeRates._filter_by_reg_type(raw_act, rxn_act)
+    @test length(children_act) < length(raw_act)
+
+    # A typeless reaction declares no type, so the filter is a no-op:
+    # expand_mechanisms returns exactly the raw children, :OnlyI included.
+    @test any(m -> has_reg_state(m, :R, :OnlyI), children_plain)
+    @test children_plain == raw_plain
+end
+
+@testset "Merge move wired for two-site allosteric; no-op for Mechanism" begin
+    # A two-regulatory-site AllostericMechanism: A::Activator on one site,
+    # I::Inhibitor on the other. expand_mechanisms must now yield the Δ0
+    # one-site merged children (both ligands sharing a single site).
     merge_rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -4206,804 +4952,69 @@ end
     parent = EnzymeRates.AllostericMechanism(
         merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a, site_i])
 
-    children = EnzymeRates._expand_merge_regulatory_sites(parent)
+    children = EnzymeRates.expand_mechanisms([parent], merge_rxn)
+    is_merged(c) =
+        c isa EnzymeRates.AllostericMechanism &&
+        length(EnzymeRates.regulatory_sites(c)) == 1 &&
+        Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
+            only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
+    # The two Δ0 antagonist merge children survive the reg_type filter and
+    # appear in the output; the redundant OnlyA/OnlyI co-binding is skipped.
+    @test count(is_merged, children) == 2
+    @test issubset(
+        Set(EnzymeRates._expand_merge_regulatory_sites(parent)),
+        Set(children))
 
-    # The allo state of ligand `lig` in a child's single merged site.
-    merged_state(child, lig) = begin
-        site = only(EnzymeRates.regulatory_sites(child))
-        idx = findfirst(l -> EnzymeRates.name(l) == lig,
-                        EnzymeRates.ligands(site))
-        EnzymeRates.allo_states(site)[idx]
-    end
-    single_site_names(child) =
-        Set(EnzymeRates.name(l)
-            for l in EnzymeRates.ligands(only(EnzymeRates.regulatory_sites(child))))
-
-    @testset "disjoint OnlyA/OnlyI co-binding skipped; antagonists kept" begin
-        # A (:OnlyA) acts only on the active state, I (:OnlyI) only on the
-        # inactive one, so co-binding them on one site derives to the same
-        # equation as separate sites — that all-keep merge is redundant and
-        # skipped. The two antagonist retags stay (each :EqualAI ligand now
-        # acts on both states, a genuinely distinct mechanism).
-        @test all(c -> single_site_names(c) == Set([:A, :I]), children)
-        states = Set((merged_state(c, :A), merged_state(c, :I)) for c in children)
-        @test !((:OnlyA, :OnlyI) in states)  # redundant co-binding skipped
-        @test (:EqualAI, :OnlyI) in states   # activator → antagonist
-        @test (:OnlyA, :EqualAI) in states   # inhibitor → antagonist
-        @test !((:EqualAI, :EqualAI) in states)  # all-EqualAI dropped
-        @test length(children) == 2
-    end
-
-    @testset "every child is Δ0 (same fitted-param count as parent)" begin
-        np_parent = length(
-            EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(parent)))
-        for c in children
-            @test length(
-                EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(c))) ==
-                  np_parent
-        end
-    end
-
-    @testset "parent and children are rate-equation-distinct" begin
-        eqs = [EnzymeRates.rate_equation_string(parent);
-               [EnzymeRates.rate_equation_string(c) for c in children]]
-        @test length(unique(eqs)) == length(eqs)
-    end
-
-    @testset "reg_type filter keeps all when activator/inhibitor differ in type" begin
-        # A::Activator + I::Inhibitor share a site with opposite types: no
-        # ligand violates its type, so nothing is dropped — every merge child
-        # survives.
-        kept = EnzymeRates._filter_by_reg_type(children, merge_rxn)
-        @test Set(kept) == Set(children)
-        @test length(kept) == 2
-    end
-
-    @testset "reg_type filter drops same-type antagonist retags" begin
-        # Two designated activators sharing one site: co-binding {OnlyA, OnlyA}
-        # survives, but each antagonist retag places an :EqualAI beside a
-        # same-type activator sibling, so both antagonist forms are dropped.
-        rxn_aa = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A1::Activator, A2::Activator
-            oligomeric_state: 4
-        end
-        b_aa = first(EnzymeRates.init_mechanisms(rxn_aa))
-        cat_aa = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b_aa))]
-        s1 = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A1)], 4, [:OnlyA])
-        s2 = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A2)], 4, [:OnlyA])
-        p_aa = EnzymeRates.AllostericMechanism(
-            rxn_aa, copy(EnzymeRates.steps(b_aa)), cat_aa, 4, [s1, s2])
-        kids = EnzymeRates._expand_merge_regulatory_sites(p_aa)
-        @test length(kids) == 3
-        kept = EnzymeRates._filter_by_reg_type(kids, rxn_aa)
-        @test length(kept) == 1
-        surviving = only(kept)
-        @test Set(EnzymeRates.allo_states(
-            only(EnzymeRates.regulatory_sites(surviving)))) == Set([:OnlyA])
-    end
-
-    @testset "different merge routes to one 3-way site dedup" begin
-        rxn3 = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A, B, C
-            oligomeric_state: 4
-        end
-        b3 = first(EnzymeRates.init_mechanisms(rxn3))
-        cat3 = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b3))]
-        mk1(n) = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(n)], 4, [:OnlyA])
-        mk2(n1, n2) = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(n1),
-             EnzymeRates.AllostericRegulator(n2)], 4, [:OnlyA, :OnlyA])
-        # Route 1: {A,B} co-site + {C} single site → merge → {A,B,C}.
-        p_ab_c = EnzymeRates.AllostericMechanism(
-            rxn3, copy(EnzymeRates.steps(b3)), cat3, 4, [mk2(:A, :B), mk1(:C)])
-        # Route 2: {A,C} co-site + {B} single site → merge → {A,C,B}.
-        p_ac_b = EnzymeRates.AllostericMechanism(
-            rxn3, copy(EnzymeRates.steps(b3)), cat3, 4, [mk2(:A, :C), mk1(:B)])
-        threeway(kids) = only(filter(kids) do c
-            sites = EnzymeRates.regulatory_sites(c)
-            length(sites) == 1 &&
-                length(EnzymeRates.ligands(only(sites))) == 3 &&
-                all(==(:OnlyA), EnzymeRates.allo_states(only(sites)))
-        end)
-        c1 = threeway(EnzymeRates._expand_merge_regulatory_sites(p_ab_c))
-        c2 = threeway(EnzymeRates._expand_merge_regulatory_sites(p_ac_b))
-        @test c1 == c2
-        @test hash(c1) == hash(c2)
-    end
-
-    @testset "ligand↔state pairing survives the name-sort (non-identity perm)" begin
-        # Merge a 2-ligand site {A::OnlyA, C::OnlyI} with a 1-ligand site
-        # {B::OnlyA}. The merged vcat order is ligands [A, C, B] / states
-        # [OnlyA, OnlyI, OnlyA]; the name-sort reorders ligands to [A, B, C]
-        # (perm [1, 3, 2]). C's :OnlyI must ride along to the new C slot — this
-        # only holds if base_states is permuted in lockstep with the ligands.
-        rxn3 = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A, B, C
-            oligomeric_state: 4
-        end
-        b3 = first(EnzymeRates.init_mechanisms(rxn3))
-        cat3 = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(b3))]
-        site_ac = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A),
-             EnzymeRates.AllostericRegulator(:C)], 4, [:OnlyA, :OnlyI])
-        site_b = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:B)], 4, [:OnlyA])
-        p = EnzymeRates.AllostericMechanism(
-            rxn3, copy(EnzymeRates.steps(b3)), cat3, 4, [site_ac, site_b])
-        kids = EnzymeRates._expand_merge_regulatory_sites(p)
-        # The co-binding child keeps every state (no :EqualAI).
-        cobind = only(filter(kids) do c
-            !(:EqualAI in EnzymeRates.allo_states(
-                only(EnzymeRates.regulatory_sites(c))))
-        end)
-        @test merged_state(cobind, :A) == :OnlyA
-        @test merged_state(cobind, :B) == :OnlyA
-        @test merged_state(cobind, :C) == :OnlyI
-    end
-
-    @testset "no-op: Mechanism and single-site AllostericMechanism" begin
-        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-        @test EnzymeRates._expand_merge_regulatory_sites(m) ==
-              EnzymeRates.AllostericMechanism[]
-        single = EnzymeRates.AllostericMechanism(
-            merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a])
-        @test isempty(EnzymeRates._expand_merge_regulatory_sites(single))
-    end
+    # A plain Mechanism has no regulatory sites, so the merge move
+    # contributes nothing: expand_mechanisms equals the six non-merge
+    # moves' reg-type-filtered output, unchanged by the wiring.
+    m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
+    raw6 = Union{EnzymeRates.Mechanism,
+                 EnzymeRates.AllostericMechanism}[]
+    append!(raw6, EnzymeRates._expand_re_to_ss(m))
+    append!(raw6, EnzymeRates._expand_split_kinetic_group(m))
+    append!(raw6, EnzymeRates._expand_add_dead_end_regulator(m, uni_uni_rxn))
+    append!(raw6, EnzymeRates._expand_to_allosteric(m, uni_uni_rxn))
+    append!(raw6, EnzymeRates._expand_add_allosteric_regulator(m, uni_uni_rxn))
+    append!(raw6, EnzymeRates._expand_change_allo_state(m))
+    baseline = EnzymeRates._filter_by_reg_type(raw6, uni_uni_rxn)
+    @test EnzymeRates.expand_mechanisms([m], uni_uni_rxn) == baseline
 end
 
-@testset "OnlyA+OnlyI merge is derivation-redundant (premise guard)" begin
-    # The reason the all-keep OnlyA/OnlyI merge is skipped: merged onto one
-    # site it evaluates to the same rate as on separate sites. Confirm
-    # numerically over random parameters and concentrations.
+@testset "expand_mechanisms reaches ≥2 distinct-metabolite catalytic :OnlyA" begin
     rxn = @enzyme_reaction begin
-        substrates: S[C]
-        products: P[C]
-        allosteric_regulators: A::Activator, I::Inhibitor
-        oligomeric_state: 4
-    end
-    base = first(EnzymeRates.init_mechanisms(rxn))
-    cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
-    mkm(sites) = EnzymeRates.AllostericMechanism(
-        rxn, copy(EnzymeRates.steps(base)), cat, 4, sites)
-    A = EnzymeRates.AllostericRegulator(:A)
-    I = EnzymeRates.AllostericRegulator(:I)
-    separate = mkm([EnzymeRates.RegulatorySite([A], 4, [:OnlyA]),
-                    EnzymeRates.RegulatorySite([I], 4, [:OnlyI])])
-    merged = mkm([EnzymeRates.RegulatorySite([A, I], 4, [:OnlyA, :OnlyI])])
-    fps = EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(separate))
-    fpm = EnzymeRates.fitted_params(EnzymeRates.compile_mechanism(merged))
-    @test Set(fps) == Set(fpm)
-    Random.seed!(42)
-    for _ in 1:25
-        vals = Dict(p => exp(randn()) for p in union(fps, fpm))
-        ps = (; (p => vals[p] for p in fps)..., Keq=100.0, E_total=1.0)
-        pm = (; (p => vals[p] for p in fpm)..., Keq=100.0, E_total=1.0)
-        c = (; S=exp(randn()), P=exp(randn()), A=exp(randn()), I=exp(randn()))
-        vs = real(EnzymeRates.rate_equation(separate, c, ps))
-        vm = real(EnzymeRates.rate_equation(merged, c, pm))
-        @test isapprox(vs, vm; rtol=1e-9)
-    end
-end
-
-# ─── _declared_reg_type / _state_respects_reg_type / _filter_by_reg_type ──────────
-@testset "_declared_reg_type / _state_respects_reg_type / _filter_by_reg_type" begin
-
-    @testset "_declared_reg_type" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A::Activator, I::Inhibitor, U
-            oligomeric_state: 2
-        end
-        @test EnzymeRates._declared_reg_type(:A, rxn) == :activator
-        @test EnzymeRates._declared_reg_type(:I, rxn) == :inhibitor
-        @test EnzymeRates._declared_reg_type(:U, rxn) == :unspecified
-        # No matching regulator at all → :unspecified.
-        @test EnzymeRates._declared_reg_type(:Nope, rxn) == :unspecified
-
-        # A CompetitiveInhibitor carrying a reg_type (only reachable by direct
-        # construction; the DSL restricts type tags to allosteric_regulators:)
-        # is not an AllostericRegulator, so its reg_type is ignored.
-        rxn_ci = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P), [:C => 1])],
-            [EnzymeRates.RegulatorMults(
-                EnzymeRates.CompetitiveInhibitor(:X), [1], :activator)],
-            [1])
-        @test EnzymeRates._declared_reg_type(:X, rxn_ci) == :unspecified
+        substrates: A[C], B[N]
+        products:   P[C1N1]
+        allosteric_regulators: R
+        oligomeric_state: 2
     end
 
-    @testset "_state_respects_reg_type — :unspecified always passes" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: U
-            oligomeric_state: 2
-        end
-        for state in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
-            @test EnzymeRates._state_respects_reg_type(:U, state, Symbol[], rxn)
-            @test EnzymeRates._state_respects_reg_type(:U, state, [:Other], rxn)
-        end
+    # #distinct metabolites bound by an :OnlyA catalytic group (iso → skip)
+    onlya_mets(am) = Set(EnzymeRates.name(EnzymeRates.bound_metabolite(
+                            EnzymeRates.rep_step(am, g)))
+        for g in EnzymeRates.kinetic_groups(am)
+        if EnzymeRates.cat_allo_states(am)[g] === :OnlyA &&
+           !EnzymeRates.is_iso(EnzymeRates.rep_step(am, g)))
+
+    seen = Set{UInt64}()
+    frontier = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+    for m in EnzymeRates.init_mechanisms(rxn)
+        h = hash(m); h in seen || (push!(seen, h); push!(frontier, m))
     end
-
-    @testset "_state_respects_reg_type — activator" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A::Activator, A2::Activator, I::Inhibitor
-            oligomeric_state: 2
-        end
-        # never the opposite pure state
-        @test !EnzymeRates._state_respects_reg_type(:A, :OnlyI, Symbol[], rxn)
-        # matching pure state / NonequalAI always allowed
-        @test EnzymeRates._state_respects_reg_type(:A, :OnlyA, Symbol[], rxn)
-        @test EnzymeRates._state_respects_reg_type(:A, :NonequalAI, Symbol[], rxn)
-        # EqualAI: no siblings → allowed
-        @test EnzymeRates._state_respects_reg_type(:A, :EqualAI, Symbol[], rxn)
-        # EqualAI: opposite-type sibling → allowed
-        @test EnzymeRates._state_respects_reg_type(:A, :EqualAI, [:I], rxn)
-        # EqualAI: unspecified sibling → allowed
-        rxn_u = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A::Activator, U
-            oligomeric_state: 2
-        end
-        @test EnzymeRates._state_respects_reg_type(:A, :EqualAI, [:U], rxn_u)
-        # EqualAI: same-type sibling → rejected
-        @test !EnzymeRates._state_respects_reg_type(:A, :EqualAI, [:A2], rxn)
-    end
-
-    @testset "_state_respects_reg_type — inhibitor (symmetric)" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: I::Inhibitor, I2::Inhibitor, A::Activator
-            oligomeric_state: 2
-        end
-        @test !EnzymeRates._state_respects_reg_type(:I, :OnlyA, Symbol[], rxn)
-        @test EnzymeRates._state_respects_reg_type(:I, :OnlyI, Symbol[], rxn)
-        @test EnzymeRates._state_respects_reg_type(:I, :NonequalAI, Symbol[], rxn)
-        @test EnzymeRates._state_respects_reg_type(:I, :EqualAI, Symbol[], rxn)
-        @test EnzymeRates._state_respects_reg_type(:I, :EqualAI, [:A], rxn)
-        @test !EnzymeRates._state_respects_reg_type(:I, :EqualAI, [:I2], rxn)
-    end
-
-    @testset "_filter_by_reg_type" begin
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R::Activator
-            oligomeric_state: 2
-        end
-        m_seed = first(EnzymeRates.init_mechanisms(rxn))
-        n_groups = length(EnzymeRates.steps(m_seed))
-        cat_states = Symbol[:EqualAI for _ in 1:n_groups]
-
-        site_bad = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyI])
-        am_bad = EnzymeRates.AllostericMechanism(
-            rxn, copy(EnzymeRates.steps(m_seed)), cat_states, 2, [site_bad])
-
-        site_good = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:R)], 2, [:OnlyA])
-        am_good = EnzymeRates.AllostericMechanism(
-            rxn, copy(EnzymeRates.steps(m_seed)), cat_states, 2, [site_good])
-
-        kept = EnzymeRates._filter_by_reg_type(
-            Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
-                m_seed, am_bad, am_good], rxn)
-        @test m_seed in kept   # Mechanism (no sites) passes trivially
-        @test am_good in kept
-        @test !(am_bad in kept)
-        @test length(kept) == 2
-    end
-
-    @testset "_filter_by_reg_type — real two-ligand site (sibling extraction)" begin
-        # A single site holding two ligands exercises the sibling-extraction
-        # path (`j != i`) that single-ligand fixtures never run: each ligand's
-        # sibling_names come from the site itself, not a hand-fed vector.
-
-        # DROP: two same-type activators, both :EqualAI. Each is the other's
-        # same-type EqualAI sibling, so both are rejected.
-        rxn_aa = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A1::Activator, A2::Activator
-            oligomeric_state: 2
-        end
-        m_aa = first(EnzymeRates.init_mechanisms(rxn_aa))
-        cat_aa = Symbol[:EqualAI for _ in 1:length(EnzymeRates.steps(m_aa))]
-        site_aa = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A1),
-             EnzymeRates.AllostericRegulator(:A2)], 2, [:EqualAI, :EqualAI])
-        am_aa = EnzymeRates.AllostericMechanism(
-            rxn_aa, copy(EnzymeRates.steps(m_aa)), cat_aa, 2, [site_aa])
-        @test isempty(EnzymeRates._filter_by_reg_type(
-            EnzymeRates.AllostericMechanism[am_aa], rxn_aa))
-
-        # KEEP: an :EqualAI activator beside an :OnlyI inhibitor. The
-        # activator's only sibling is opposite-type, so EqualAI passes; the
-        # inhibitor's :OnlyI matches its type.
-        rxn_ai = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A::Activator, I::Inhibitor
-            oligomeric_state: 2
-        end
-        m_ai = first(EnzymeRates.init_mechanisms(rxn_ai))
-        cat_ai = Symbol[:EqualAI for _ in 1:length(EnzymeRates.steps(m_ai))]
-        site_ai = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A),
-             EnzymeRates.AllostericRegulator(:I)], 2, [:EqualAI, :OnlyI])
-        am_ai = EnzymeRates.AllostericMechanism(
-            rxn_ai, copy(EnzymeRates.steps(m_ai)), cat_ai, 2, [site_ai])
-        kept_ai = EnzymeRates._filter_by_reg_type(
-            EnzymeRates.AllostericMechanism[am_ai], rxn_ai)
-        @test kept_ai == [am_ai]
-    end
-end
-
-# ═══════════════════════════════════════════════════════════════════════
-# 5. Composition (dedup, expand_mechanisms)
-# ═══════════════════════════════════════════════════════════════════════
-
-# ─── canonical by construction ─────────────────────────────────────────
-
-@testset "Mechanism — canonical by construction" begin
-    # Test 1: outer kinetic-group order does not matter. Building from the
-    # same steps with the outer groups in reversed order yields a
-    # struct-equal Mechanism (the basis for dedup via `unique!`).
-    m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-    EnzymeRates._assert_mechanism_invariants(m_seed)
-    m_perm = EnzymeRates.Mechanism(
-        EnzymeRates.reaction(m_seed), reverse(m_seed.steps))
-    @test m_seed == m_perm
-
-    # Test 2: AllostericMechanism — site permutation with DISTINCT
-    # multiplicities. The constructor must permute cat_allo_states alongside
-    # cat_steps (catalytic side) and produce the same regulatory_sites
-    # ordering (regulatory side) regardless of input site order.
-    base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
-    cat_states = [:EqualAI for _ in base.steps]
-    site_a = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:A)], 2, [:OnlyA])
-    site_b = EnzymeRates.RegulatorySite(
-        [EnzymeRates.AllostericRegulator(:B)], 4, [:OnlyI])
-    am_ab = EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(base),
-        [copy(g) for g in base.steps], cat_states, 2, [site_a, site_b])
-    am_ba = EnzymeRates.AllostericMechanism(   # sites swapped
-        EnzymeRates.reaction(base),
-        [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
-    EnzymeRates._assert_mechanism_invariants(am_ab)
-    EnzymeRates._assert_mechanism_invariants(am_ba)
-    @test am_ab == am_ba
-end
-
-# ─── _dedup_key ────────────────────────────────────────────────────────
-
-# Mechanism dedup keys: struct equality. Mechanisms are canonical at
-# construction, so dedup is just `unique!`, which relies on
-# `Base.==` / `Base.hash` on the struct itself. This testset locks in the
-# struct-equality contract that powers that dedup.
-@testset "Mechanism — dedup key via struct equality" begin
-    # Same content → equal (and equal hashes).
-    m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-    EnzymeRates._assert_mechanism_invariants(m_seed)
-    m_copy = EnzymeRates.Mechanism(
-        EnzymeRates.reaction(m_seed),
-        Vector{EnzymeRates.Step}[copy(g) for g in m_seed.steps])
-    @test m_seed == m_copy
-    @test hash(m_seed) == hash(m_copy)
-
-    # AllostericMechanism: differing site multiplicities → unequal because
-    # multiplicities are part of the structural identity.
-    base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
-    cat_states = [:EqualAI for _ in base.steps]
-    am_m2 = EnzymeRates.AllostericMechanism(
-        EnzymeRates.reaction(base),
-        [copy(g) for g in base.steps], cat_states, 2,
-        [EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A)], 2, [:OnlyA])])
-    am_m4 = EnzymeRates.AllostericMechanism(   # different multiplicity
-        EnzymeRates.reaction(base),
-        [copy(g) for g in base.steps], cat_states, 2,
-        [EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])])
-    EnzymeRates._assert_mechanism_invariants(am_m2)
-    EnzymeRates._assert_mechanism_invariants(am_m4)
-    @test am_m2 != am_m4
-end
-
-# ─── mechanism dedup (unique!) ──────────────────────────────────────────
-@testset "Dedup" begin
-
-    @testset "Mechanism — same physics, different group order" begin
-        # Two Mechanisms representing the same physics but with their
-        # outer kinetic-group order swapped should collapse to one.
-        m_seed = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-        @test m_seed isa EnzymeRates.Mechanism
-        # Build a permuted copy by reversing the group order.
-        permuted_steps = reverse(m_seed.steps)
-        m_perm = EnzymeRates.Mechanism(
-            EnzymeRates.reaction(m_seed), permuted_steps)
-        v = EnzymeRates.Mechanism[m_seed, m_perm]
-        unique!(v)
-        @test length(v) == 1
-    end
-
-    @testset "Mechanism — different mechanisms preserved" begin
-        # Surviving Mechanisms must be pairwise distinct under
-        # compile-time equality (EnzymeMechanism singleton type).
-        mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-        unique!(mechs)
-        compiled = Set(EnzymeRates.EnzymeMechanism(m) for m in mechs)
-        @test length(mechs) == length(compiled)
-        @test length(mechs) >= 2
-    end
-
-    @testset "Mechanism — idempotent" begin
-        mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-        unique!(mechs)
-        n1 = length(mechs)
-        unique!(mechs)
-        @test length(mechs) == n1
-    end
-
-    @testset "Mechanism — bi-bi init: dedup leaves canonical seeds intact" begin
-        # init_mechanisms produces mechanisms that are already in canonical
-        # form (no two are presentation-variants of each other). unique!
-        # is therefore a no-op on the count.
-        mechs = collect(EnzymeRates.init_mechanisms(bi_bi_rxn))
-        n = length(mechs)
-        unique!(mechs)
-        @test length(mechs) == n
-    end
-
-    @testset "AllostericMechanism — same physics, site permutation" begin
-        # Build two AllostericMechanisms representing the same physics with
-        # sites in different order.
-        base = first(EnzymeRates.init_mechanisms(uni_uni_allo))
-        cat_states = [:NonequalAI for _ in base.steps]
-        site_a = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A)], 2, [:NonequalAI])
-        site_b = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:B)], 2, [:NonequalAI])
-        am_ab = EnzymeRates.AllostericMechanism(
-            EnzymeRates.reaction(base),
-            [copy(g) for g in base.steps], cat_states, 2, [site_a, site_b])
-        am_ba = EnzymeRates.AllostericMechanism(
-            EnzymeRates.reaction(base),
-            [copy(g) for g in base.steps], cat_states, 2, [site_b, site_a])
-        v = EnzymeRates.AllostericMechanism[am_ab, am_ba]
-        unique!(v)
-        @test length(v) == 1
-    end
-
-    @testset "Mechanism — expansion-path overlap: dedup actually fires" begin
-        # Run two rounds of expand_mechanisms on the uni-uni init seeds
-        # (Mechanism path), then unique!. Assert that the flat vector shrinks,
-        # proving that two different expansion paths — two moves, or one move
-        # reached through two parents — produced equivalent Mechanisms.
-        init_mechs = collect(EnzymeRates.init_mechanisms(uni_uni_rxn))
-        pool = unique!(EnzymeRates.expand_mechanisms(init_mechs, uni_uni_rxn))
-        expanded = EnzymeRates.expand_mechanisms(pool, uni_uni_rxn)
-        pre = length(expanded)
-        unique!(expanded)
-        # dedup fired: two different expansion paths produced equivalent
-        # Mechanisms, so the flat vector shrank.
-        @test length(expanded) < pre
-    end
-
-    @testset "Mechanism — permuted groups collapse via canonicalization" begin
-        # Two Mechanisms with the same physics but with their outer
-        # kinetic-group order arbitrarily rearranged should collapse to one
-        # after unique!. This exercises the constructor's outer-group
-        # sort with a non-trivial permutation, confirming that any
-        # permutation of the outer Vector canonicalizes back to the same
-        # struct.
-        m_seed = first(EnzymeRates.init_mechanisms(bi_bi_rxn))
-        EnzymeRates._assert_mechanism_invariants(m_seed)
-        n_groups = length(m_seed.steps)
-        @assert n_groups >= 3 "bi-bi init seed must have ≥3 kinetic groups " *
-            "to exercise a non-trivial permutation"
-        # Cyclic-rotate-by-1 permutation: [g1, g2, …, gN] → [g2, …, gN, g1].
-        perm = vcat(2:n_groups, 1)
-        m_rotated = EnzymeRates.Mechanism(
-            EnzymeRates.reaction(m_seed), m_seed.steps[perm])
-        v = EnzymeRates.Mechanism[m_seed, m_rotated]
-        unique!(v)
-        @test length(v) == 1
-    end
-end
-
-# ─── expand_mechanisms ─────────────────────────────────────────────────
-@testset "expand_mechanisms" begin
-
-    @testset "Mechanism — Empty input" begin
-        # Mechanism-form expand_mechanisms with empty input returns empty Vector.
-        empty_in = Union{EnzymeRates.Mechanism,
-                         EnzymeRates.AllostericMechanism}[]
-        @test isempty(EnzymeRates.expand_mechanisms(empty_in, uni_uni_rxn))
-    end
-
-    @testset "Mechanism — Returns flat vector" begin
-        # SEED: uni-uni RE-only, 3 singleton kinetic groups.
-        em_seed = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E(P)
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        result = EnzymeRates.expand_mechanisms([m], uni_uni_rxn)
-        @test result isa Vector{Union{
-            EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}}
-        @test !isempty(result)
-    end
-
-    @testset "Mechanism — Allosteric expansion included" begin
-        # SEED: uni-uni RE-only attached to an oligomeric reaction.
-        # expand_mechanisms must include AllostericMechanism variants in
-        # its output.
-        em_seed = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E(P)
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        result = EnzymeRates.expand_mechanisms([m], uni_uni_allo)
-        allo_count = count(s -> s isa EnzymeRates.AllostericMechanism, result)
-        # _expand_to_allosteric on this uni-uni seed (3 kinetic groups: 2
-        # binding + 1 catalytic, no regulator declared) closes each binding
-        # group's one-sided :OnlyA over its Haldane completion (the dropped
-        # chemical step, or the opposing binding), yielding 3 distinct
-        # AllostericMechanism variants (the catalytic group is never a bare
-        # primary :OnlyA — that needs a regulator). Other moves do not
-        # produce AllostericMechanism output from a plain Mechanism, so
-        # exactly 3 exist.
-        @test allo_count == 3
-    end
-
-    @testset "Mechanism — expansion never reduces param count" begin
-        # SEED: uni-uni RE-only, base actual fitted count = 3. Expansion
-        # moves never REDUCE the fitted-param count, so every child has
-        # actual >= base. (The old estimate-based test asserted strictly
-        # `> base`; that is FALSE for actual counts in general — some moves,
-        # e.g. splitting a kinetic group whose peeled-off parameter is
-        # already pinned by a Wegscheider cycle, leave the count UNCHANGED
-        # at Δ=0. This particular uni-uni seed happens to add one parameter
-        # per child, but the invariant we pin is the monotone `>=`.)
-        em_seed = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + P ⇌ E(P)
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-            end
-        end
-        m = EnzymeRates.Mechanism(em_seed)
-        EnzymeRates._assert_mechanism_invariants(m)
-        base_fitted = length(EnzymeRates.fitted_params(
-            EnzymeRates.compile_mechanism(m)))
-        result = EnzymeRates.expand_mechanisms([m], uni_uni_rxn)
-        for child in result
-            @test length(EnzymeRates.fitted_params(
-                EnzymeRates.compile_mechanism(child))) >= base_fitted
-        end
-    end
-
-    @testset "AllostericMechanism — rewrap preserves structure" begin
-        # SEED: all-:EqualAI AllostericMechanism uni-uni. Passing this to
-        # expand_mechanisms must produce AllostericMechanism expansions
-        # (RE→SS rewrapped as allosteric, etc.).
-        aem = @allosteric_mechanism begin
-            substrates: S; products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(aem)
-        result = EnzymeRates.expand_mechanisms([am], uni_uni_allo)
-        allo_results = filter(s -> s isa EnzymeRates.AllostericMechanism,
-                              result)
-        @test !isempty(allo_results)
-        # Every rewrapped allosteric result must preserve the input's
-        # catalytic_multiplicity and reaction — cat_steps may differ (a
-        # base move may have changed them) but the allosteric-side
-        # metadata is preserved.
-        for r in allo_results
-            @test r.catalytic_multiplicity == am.catalytic_multiplicity
-            @test EnzymeRates.reaction(r) == EnzymeRates.reaction(am)
-        end
-    end
-
-    @testset "AllostericMechanism — Dead-end excludes allosteric regs" begin
-        # SEED: AllostericMechanism uni-uni with R already added as an
-        # allosteric regulator (:OnlyA). expand_mechanisms must never add R
-        # as a dead-end inhibitor — no Step in any expansion may have
-        # bound_metabolite named :R (allosteric regulators live in
-        # regulatory_sites, not in cat_steps).
-        aem = @allosteric_mechanism begin
-            substrates: S; products: P
-            allosteric_regulators: R::OnlyA
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-            end
-        end
-        am = EnzymeRates.AllostericMechanism(aem)
-        result = EnzymeRates.expand_mechanisms([am], uni_uni_allo_reg)
-        for r in result
-            groups = r isa EnzymeRates.AllostericMechanism ?
-                r.cat_steps : r.steps
-            for group in groups, st in group
-                bm = EnzymeRates.bound_metabolite(st)
-                bm === nothing && continue
-                @test EnzymeRates.name(bm) !== :R
-            end
-        end
-    end
-
-    @testset "Reg_type filter drops violating children; no-op when typeless" begin
-        # True iff `m` places ligand `reg` in allo state `st` at any site.
-        function has_reg_state(m, reg, st)
-            m isa EnzymeRates.AllostericMechanism || return false
-            for site in EnzymeRates.regulatory_sites(m)
-                for (lig, s) in zip(EnzymeRates.ligands(site),
-                                    EnzymeRates.allo_states(site))
-                    EnzymeRates.name(lig) == reg && s == st && return true
-                end
-            end
-            false
-        end
-
-        rxn_act = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R::Activator
-            oligomeric_state: 2
-        end
-        rxn_plain = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R
-            oligomeric_state: 2
-        end
-        m_act = first(EnzymeRates.init_mechanisms(rxn_act))
-        m_plain = first(EnzymeRates.init_mechanisms(rxn_plain))
-
-        # Raw children reproduce expand_mechanisms' moves without the filter.
-        raw_act = Union{EnzymeRates.Mechanism,
-                        EnzymeRates.AllostericMechanism}[]
-        EnzymeRates._add_expansions_mech!(raw_act, m_act, rxn_act)
-        raw_plain = Union{EnzymeRates.Mechanism,
-                          EnzymeRates.AllostericMechanism}[]
-        EnzymeRates._add_expansions_mech!(raw_plain, m_plain, rxn_plain)
-
-        children_act = EnzymeRates.expand_mechanisms([m_act], rxn_act)
-        children_plain = EnzymeRates.expand_mechanisms([m_plain], rxn_plain)
-
-        # A designated activator's raw expansion carries an :OnlyI R child (a
-        # V-type variant); the reg_type filter drops it, leaving strictly fewer.
-        @test any(m -> has_reg_state(m, :R, :OnlyI), raw_act)
-        @test !any(m -> has_reg_state(m, :R, :OnlyI), children_act)
-        @test children_act == EnzymeRates._filter_by_reg_type(raw_act, rxn_act)
-        @test length(children_act) < length(raw_act)
-
-        # A typeless reaction declares no type, so the filter is a no-op:
-        # expand_mechanisms returns exactly the raw children, :OnlyI included.
-        @test any(m -> has_reg_state(m, :R, :OnlyI), children_plain)
-        @test children_plain == raw_plain
-    end
-
-    @testset "Merge move wired for two-site allosteric; no-op for Mechanism" begin
-        # A two-regulatory-site AllostericMechanism: A::Activator on one site,
-        # I::Inhibitor on the other. expand_mechanisms must now yield the Δ0
-        # one-site merged children (both ligands sharing a single site).
-        merge_rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: A::Activator, I::Inhibitor
-            oligomeric_state: 4
-        end
-        base = first(EnzymeRates.init_mechanisms(merge_rxn))
-        cat = Symbol[:OnlyA for _ in 1:length(EnzymeRates.steps(base))]
-        site_a = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:A)], 4, [:OnlyA])
-        site_i = EnzymeRates.RegulatorySite(
-            [EnzymeRates.AllostericRegulator(:I)], 4, [:OnlyI])
-        parent = EnzymeRates.AllostericMechanism(
-            merge_rxn, copy(EnzymeRates.steps(base)), cat, 4, [site_a, site_i])
-
-        children = EnzymeRates.expand_mechanisms([parent], merge_rxn)
-        is_merged(c) =
+    maxdistinct = 0
+    gen = 0
+    while !isempty(frontier) && gen < 14
+        nextf = eltype(frontier)[]
+        for c in EnzymeRates.expand_mechanisms(frontier, rxn)
+            h = hash(c); h in seen || (push!(seen, h); push!(nextf, c))
             c isa EnzymeRates.AllostericMechanism &&
-            length(EnzymeRates.regulatory_sites(c)) == 1 &&
-            Set(EnzymeRates.name(l) for l in EnzymeRates.ligands(
-                only(EnzymeRates.regulatory_sites(c)))) == Set([:A, :I])
-        # The two Δ0 antagonist merge children survive the reg_type filter and
-        # appear in the output; the redundant OnlyA/OnlyI co-binding is skipped.
-        @test count(is_merged, children) == 2
-        @test issubset(
-            Set(EnzymeRates._expand_merge_regulatory_sites(parent)),
-            Set(children))
-
-        # A plain Mechanism has no regulatory sites, so the merge move
-        # contributes nothing: expand_mechanisms equals the six non-merge
-        # moves' reg-type-filtered output, unchanged by the wiring.
-        m = first(EnzymeRates.init_mechanisms(uni_uni_rxn))
-        raw6 = Union{EnzymeRates.Mechanism,
-                     EnzymeRates.AllostericMechanism}[]
-        append!(raw6, EnzymeRates._expand_re_to_ss(m))
-        append!(raw6, EnzymeRates._expand_split_kinetic_group(m))
-        append!(raw6, EnzymeRates._expand_add_dead_end_regulator(m, uni_uni_rxn))
-        append!(raw6, EnzymeRates._expand_to_allosteric(m, uni_uni_rxn))
-        append!(raw6, EnzymeRates._expand_add_allosteric_regulator(m, uni_uni_rxn))
-        append!(raw6, EnzymeRates._expand_change_allo_state(m))
-        baseline = EnzymeRates._filter_by_reg_type(raw6, uni_uni_rxn)
-        @test EnzymeRates.expand_mechanisms([m], uni_uni_rxn) == baseline
+                (maxdistinct = max(maxdistinct, length(onlya_mets(c))))
+        end
+        frontier = nextf; gen += 1
     end
 
-    @testset "expand_mechanisms reaches ≥2 distinct-metabolite catalytic :OnlyA" begin
-        rxn = @enzyme_reaction begin
-            substrates: A[C], B[N]
-            products:   P[C1N1]
-            allosteric_regulators: R
-            oligomeric_state: 2
-        end
-
-        # #distinct metabolites bound by an :OnlyA catalytic group (iso → skip)
-        onlya_mets(am) = Set(EnzymeRates.name(EnzymeRates.bound_metabolite(
-                                EnzymeRates.rep_step(am, g)))
-            for g in EnzymeRates.kinetic_groups(am)
-            if EnzymeRates.cat_allo_states(am)[g] === :OnlyA &&
-               !EnzymeRates.is_iso(EnzymeRates.rep_step(am, g)))
-
-        seen = Set{UInt64}()
-        frontier = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
-        for m in EnzymeRates.init_mechanisms(rxn)
-            h = hash(m); h in seen || (push!(seen, h); push!(frontier, m))
-        end
-        maxdistinct = 0
-        gen = 0
-        while !isempty(frontier) && gen < 14
-            nextf = eltype(frontier)[]
-            for c in EnzymeRates.expand_mechanisms(frontier, rxn)
-                h = hash(c); h in seen || (push!(seen, h); push!(nextf, c))
-                c isa EnzymeRates.AllostericMechanism &&
-                    (maxdistinct = max(maxdistinct, length(onlya_mets(c))))
-            end
-            frontier = nextf; gen += 1
-        end
-
-        @test maxdistinct >= 2
-    end
+    @test maxdistinct >= 2
+end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -5013,91 +5024,91 @@ end
 # ─── enumerate_all ─────────────────────────────────────────────────────
 @testset "Integration" begin
 
-    @testset "Mechanism — Uni-uni full enumeration" begin
-        # enumerate_all_mechanism buckets by ACTUAL fitted-parameter count,
-        # so each bucket key `pc` must equal every member's fitted count.
-        results = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
-        @test !isempty(results)
-        pcs = sort(collect(keys(results)))
-        @test issorted(pcs)
-        for (pc, mechs) in results
-            for m in mechs
-                @test length(EnzymeRates.fitted_params(
-                    EnzymeRates.compile_mechanism(m))) == pc
-            end
+@testset "Mechanism — Uni-uni full enumeration" begin
+    # enumerate_all_mechanism buckets by ACTUAL fitted-parameter count,
+    # so each bucket key `pc` must equal every member's fitted count.
+    results = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
+    @test !isempty(results)
+    pcs = sort(collect(keys(results)))
+    @test issorted(pcs)
+    for (pc, mechs) in results
+        for m in mechs
+            @test length(EnzymeRates.fitted_params(
+                EnzymeRates.compile_mechanism(m))) == pc
         end
     end
+end
 
-    @testset "Mechanism — Bi-bi init-tier (actual-count buckets)" begin
-        # Full multi-tier bi-bi enumeration would have to compile every
-        # reachable mechanism to bucket it by actual fitted count (hundreds
-        # of @generated derivations) — too slow for the suite. The init tier
-        # suffices to verify bi-bi enumeration produces mechanisms that
-        # compile and that their actual fitted-param counts fall in the
-        # expected {5,6} band. (Multi-tier actual-count enumeration is
-        # exercised by the uni-uni / dead-end / allosteric callers below.)
-        init = unique!(
-            collect(EnzymeRates.init_mechanisms(bi_bi_rxn)))
-        @test !isempty(init)
-        counts = Set{Int}()
-        for m in init
-            em = EnzymeRates.compile_mechanism(m)
-            push!(counts, length(EnzymeRates.fitted_params(em)))
-        end
-        # {5,6}: ordered binding identifies one more thermodynamic
-        # constraint than random binding, so it fits one fewer parameter.
-        @test issubset(counts, Set([5, 6]))
-        @test 5 in counts
+@testset "Mechanism — Bi-bi init-tier (actual-count buckets)" begin
+    # Full multi-tier bi-bi enumeration would have to compile every
+    # reachable mechanism to bucket it by actual fitted count (hundreds
+    # of @generated derivations) — too slow for the suite. The init tier
+    # suffices to verify bi-bi enumeration produces mechanisms that
+    # compile and that their actual fitted-param counts fall in the
+    # expected {5,6} band. (Multi-tier actual-count enumeration is
+    # exercised by the uni-uni / dead-end / allosteric callers below.)
+    init = unique!(
+        collect(EnzymeRates.init_mechanisms(bi_bi_rxn)))
+    @test !isempty(init)
+    counts = Set{Int}()
+    for m in init
+        em = EnzymeRates.compile_mechanism(m)
+        push!(counts, length(EnzymeRates.fitted_params(em)))
     end
+    # {5,6}: ordered binding identifies one more thermodynamic
+    # constraint than random binding, so it fits one fewer parameter.
+    @test issubset(counts, Set([5, 6]))
+    @test 5 in counts
+end
 
-    @testset "Mechanism — With allosteric regulators" begin
-        # Sample-based per bucket on a uni-uni allosteric reaction. The
-        # bucket key `pc` IS the actual fitted-parameter count.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            allosteric_regulators: R
-            oligomeric_state: 2
-        end
-        results = enumerate_all_mechanism(rxn; max_params=8)
-        has_allo = any(
-            any(s isa EnzymeRates.AllostericMechanism for s in mechs)
-            for (_, mechs) in results)
-        @test has_allo
-        for (pc, mechs) in results
-            for m in first(mechs, 5)
-                @test length(EnzymeRates.fitted_params(
-                    EnzymeRates.compile_mechanism(m))) == pc
-            end
+@testset "Mechanism — With allosteric regulators" begin
+    # Sample-based per bucket on a uni-uni allosteric reaction. The
+    # bucket key `pc` IS the actual fitted-parameter count.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+        oligomeric_state: 2
+    end
+    results = enumerate_all_mechanism(rxn; max_params=8)
+    has_allo = any(
+        any(s isa EnzymeRates.AllostericMechanism for s in mechs)
+        for (_, mechs) in results)
+    @test has_allo
+    for (pc, mechs) in results
+        for m in first(mechs, 5)
+            @test length(EnzymeRates.fitted_params(
+                EnzymeRates.compile_mechanism(m))) == pc
         end
     end
+end
 
-    @testset "Mechanism — With dead-end regulator" begin
-        # Mechanism-form parallel. Total population with a dead-end
-        # regulator strictly exceeds the plain uni-uni population at the
-        # same cap, since the regulator opens additional expansion moves.
-        rxn = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            dead_end_inhibitors: I
-        end
-        results = enumerate_all_mechanism(rxn; max_params=8)
-        @test !isempty(results)
-        plain = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
-        total_with_reg = sum(length(v) for v in values(results))
-        total_plain = sum(length(v) for v in values(plain))
-        @test total_with_reg > total_plain
+@testset "Mechanism — With dead-end regulator" begin
+    # Mechanism-form parallel. Total population with a dead-end
+    # regulator strictly exceeds the plain uni-uni population at the
+    # same cap, since the regulator opens additional expansion moves.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        dead_end_inhibitors: I
     end
+    results = enumerate_all_mechanism(rxn; max_params=8)
+    @test !isempty(results)
+    plain = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
+    total_with_reg = sum(length(v) for v in values(results))
+    total_plain = sum(length(v) for v in values(plain))
+    @test total_with_reg > total_plain
+end
 
-    @testset "Mechanism — Multiple levels populated" begin
-        # Mechanism-form parallel. At least 2 param-count buckets, and
-        # consecutive buckets separated by at most 4 (max single-move
-        # delta).
-        results = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
-        @test length(results) >= 2
-        pcs = sort(collect(keys(results)))
-        @test all(pcs[i+1] - pcs[i] <= 4 for i in 1:length(pcs)-1)
-    end
+@testset "Mechanism — Multiple levels populated" begin
+    # Mechanism-form parallel. At least 2 param-count buckets, and
+    # consecutive buckets separated by at most 4 (max single-move
+    # delta).
+    results = enumerate_all_mechanism(uni_uni_rxn; max_params=8)
+    @test length(results) >= 2
+    pcs = sort(collect(keys(results)))
+    @test all(pcs[i+1] - pcs[i] <= 4 for i in 1:length(pcs)-1)
+end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -5107,77 +5118,76 @@ end
 # ═══════════════════════════════════════════════════════════════════════
 
 @testset "Tagged groups exclude T-state params" begin
-    # uni_uni_allo_reg (not uni_uni_allo): the iso group's :OnlyA is only
-    # emitted paired with a regulator (V-type), so a declared regulator is
-    # required to reach the ":OnlyA iso group" case below.
-    init_mechs = EnzymeRates.init_mechanisms(uni_uni_allo_reg)
-    m_seed = first(init_mechs)
-    allo_mechs = EnzymeRates._expand_to_allosteric(m_seed, uni_uni_allo_reg)
+# uni_uni_allo_reg (not uni_uni_allo): the iso group's :OnlyA is only
+# emitted paired with a regulator (V-type), so a declared regulator is
+# required to reach the ":OnlyA iso group" case below.
+init_mechs = EnzymeRates.init_mechanisms(uni_uni_allo_reg)
+m_seed = first(init_mechs)
+allo_mechs = EnzymeRates._expand_to_allosteric(m_seed, uni_uni_allo_reg)
 
-    @testset ":OnlyA binding group: no K_T param" begin
-        only_r = first(filter(allo_mechs) do am
-            any(EnzymeRates.kinetic_groups(am)) do g
-                EnzymeRates.cat_allo_state(am, g) === :OnlyA || return false
-                # Must NOT be an iso-only group (iso `:OnlyA` is just a relabel
-                # — the test wants a binding group whose K param disappears in T).
-                group_steps = am.cat_steps[g]
-                any(s -> EnzymeRates.bound_metabolite(s) !== nothing,
-                    group_steps)
-            end
-        end)
-        m = EnzymeRates.compile_mechanism(only_r)
-        params = parameters(m)
-        t_params = filter(
-            p -> endswith(string(p), "_T"), params)
-        @test isempty(t_params)
-    end
-
-    @testset ":OnlyA iso group: no kf_T/kr_T param" begin
-        only_r_iso = first(filter(allo_mechs) do am
-            any(EnzymeRates.kinetic_groups(am)) do g
-                EnzymeRates.cat_allo_state(am, g) === :OnlyA || return false
-                group_steps = am.cat_steps[g]
-                all(s -> !EnzymeRates.is_equilibrium(s) &&
-                         EnzymeRates.bound_metabolite(s) === nothing,
-                    group_steps)
-            end
-        end)
-        m = EnzymeRates.compile_mechanism(only_r_iso)
-        params = parameters(m)
-        t_k_params = filter(
-            p -> contains(string(p), "f_T") ||
-                 contains(string(p), "r_T"), params)
-        @test isempty(t_k_params)
-    end
-
-    @testset "t_state_dead with :NonequalAI: K_T in body must be in parameters(Full)" begin
-        # K-type allosteric uni-uni: catalytic step is :OnlyA (so
-        # `_i_state_num_zero == true`), but binding steps are :NonequalAI.
-        # When `_i_state_num_zero == true`, the binding partition function
-        # for :NonequalAI groups must still emit K1_T / K2_T in `den_T`
-        # so they appear in the rate-equation body and in parameters(Full).
-        m = @allosteric_mechanism begin
-            substrates: S
-            products: P
-            catalytic_multiplicity: 2
-            catalytic_steps: begin
-                E_c + S ⇌ E_c(S)      :: NonequalAI
-                E_c + P ⇌ E_c(P)      :: NonequalAI
-                E_c(S) <--> E_c(P)    :: OnlyA
-            end
+@testset ":OnlyA binding group: no K_T param" begin
+    only_r = first(filter(allo_mechs) do am
+        any(EnzymeRates.kinetic_groups(am)) do g
+            EnzymeRates.cat_allo_state(am, g) === :OnlyA || return false
+            # Must NOT be an iso-only group (iso `:OnlyA` is just a relabel
+            # — the test wants a binding group whose K param disappears in T).
+            group_steps = am.cat_steps[g]
+            any(s -> EnzymeRates.bound_metabolite(s) !== nothing,
+                group_steps)
         end
-        @test EnzymeRates._i_state_num_zero(EnzymeRates.AllostericMechanism(m))
-        params_full = parameters(m, Full)
-        # K_I_S_E_c and K_I_P_E_c are referenced in `den_T` of the body
-        # (the binding partition function for :NonequalAI groups
-        # is built regardless of `t_state_dead` since `den_T`
-        # always appears in the denominator).
-        @test :K_I_S_E_c in params_full
-        @test :K_I_P_E_c in params_full
-    end
+    end)
+    m = EnzymeRates.compile_mechanism(only_r)
+    params = parameters(m)
+    t_params = filter(
+        p -> endswith(string(p), "_T"), params)
+    @test isempty(t_params)
 end
 
-end # top-level testset
+@testset ":OnlyA iso group: no kf_T/kr_T param" begin
+    only_r_iso = first(filter(allo_mechs) do am
+        any(EnzymeRates.kinetic_groups(am)) do g
+            EnzymeRates.cat_allo_state(am, g) === :OnlyA || return false
+            group_steps = am.cat_steps[g]
+            all(s -> !EnzymeRates.is_equilibrium(s) &&
+                     EnzymeRates.bound_metabolite(s) === nothing,
+                group_steps)
+        end
+    end)
+    m = EnzymeRates.compile_mechanism(only_r_iso)
+    params = parameters(m)
+    t_k_params = filter(
+        p -> contains(string(p), "f_T") ||
+             contains(string(p), "r_T"), params)
+    @test isempty(t_k_params)
+end
+
+@testset "t_state_dead with :NonequalAI: K_T in body must be in parameters(Full)" begin
+    # K-type allosteric uni-uni: catalytic step is :OnlyA (so
+    # `_i_state_num_zero == true`), but binding steps are :NonequalAI.
+    # When `_i_state_num_zero == true`, the binding partition function
+    # for :NonequalAI groups must still emit K1_T / K2_T in `den_T`
+    # so they appear in the rate-equation body and in parameters(Full).
+    m = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        catalytic_steps: begin
+            E_c + S ⇌ E_c(S)      :: NonequalAI
+            E_c + P ⇌ E_c(P)      :: NonequalAI
+            E_c(S) <--> E_c(P)    :: OnlyA
+        end
+    end
+    @test EnzymeRates._i_state_num_zero(EnzymeRates.AllostericMechanism(m))
+    params_full = parameters(m, Full)
+    # K_I_S_E_c and K_I_P_E_c are referenced in `den_T` of the body
+    # (the binding partition function for :NonequalAI groups
+    # is built regardless of `t_state_dead` since `den_T`
+    # always appears in the denominator).
+    @test :K_I_S_E_c in params_full
+    @test :K_I_P_E_c in params_full
+end
+end
+
 
 # ─── Expansion-move helpers ──────────────────────────────────────────────
 # Helpers and building blocks of the RE→SS flip move and the kinetic-group

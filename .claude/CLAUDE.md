@@ -256,8 +256,6 @@ Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`, and the expa
 
 1. **Write the mechanism in the testset.** Define every fixture inline with `@enzyme_mechanism` or `@allosteric_mechanism`, even when that repeats a mechanism used elsewhere. A fixture pulled from `init_mechanisms`, a shared constant, or a helper cannot be reviewed without leaving the testset. The only exception is an aggregate regression pin over a whole seed set (a count over all `init_mechanisms(rxn)`), which must say so in a comment.
 2. **Assert the exact children.** A move test asserts `length(children) == n` and `Set(children) == Set(expected)` with every expected child written out as a mechanism. Property assertions (every child gains, no superset) are welcome in addition, never instead: a property test passes on wrong output that happens to satisfy the property.
-3. **Keep new testsets outside the giant `@testset "Mechanism Enumeration"` block.** That block is compiled as one expression; add new testsets after its closing `end # top-level testset`, where the flip and split move tests already are.
-
-4. **Write chemistry the enumerator's way.** A move fixture writes each chemistry step as an isomerization to a product-bound form followed by a release step (`E(A) <--> E(P; residual = A - P)` then `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`), never folded into the release; `expand_mechanisms` rejects the folded form and the moves misread it.
+3. **Write chemistry the enumerator's way.** A move fixture writes each chemistry step as an isomerization to a product-bound form followed by a release step (`E(A) <--> E(P; residual = A - P)` then `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`), never folded into the release; `expand_mechanisms` rejects the folded form and the moves misread it.
 
 File-level test helpers are prefixed `_testhelper_` so they cannot be mistaken for package functions; a one-line closure local to a testset needs no prefix.
