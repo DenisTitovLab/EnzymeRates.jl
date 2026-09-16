@@ -208,6 +208,20 @@ EnzymeRates.jl identifies the best enzyme rate equation from kinetic data. Given
 julia --project -e 'using Pkg; Pkg.test()'
 ```
 
+```bash
+# Focused run of one test file (warm: skips the full suite's precompile and JIT; ~4 min for
+# the enumeration file). TestEnv activates the test environment in place.
+julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<file>.jl")'
+```
+
+Use the focused run while iterating and the full suite once before committing. Four things to
+know: the focused run skips Aqua and JET; a helper defined in another test file (e.g.
+`random_reduced_params` in `test_rate_eq_derivation.jl`) is undefined under it, so an
+`UndefVarError` for such a helper is an artifact of the focused run; run one Julia process at a
+time (the machine has 7.7 GB and no swap, and the full suite needs about 4 GB free); and never
+park on a background monitor — poll a log in a bounded shell loop. `TestEnv` must be installed
+in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
+
 ## Workflow
 
 - Always run tests before committing
