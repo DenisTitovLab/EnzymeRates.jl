@@ -163,11 +163,12 @@ derivation with chemistry folded into a release step is not a valid parent.
 function _assert_chemistry_is_iso(m::Union{Mechanism, AllostericMechanism})
     for group in steps(m), s in group
         is_binding(s) && residual(from_species(s)) != residual(to_species(s)) &&
-            error("binding step $(name(from_species(s))) ⇌ " *
+            error("binding step $(name(from_species(s))) → " *
                   "$(name(to_species(s))) changes the covalent residual; the " *
                   "moves need the chemistry as an isomerization and the " *
                   "release as its own step")
     end
+    nothing
 end
 
 """
@@ -1326,10 +1327,10 @@ end
     _flux_carrying_groups(m) -> BitVector
 
 One flag per kinetic group: the group holds a step that lies on a cycle of the
-step graph containing a chemistry step (an isomerization), i.e.
-shares a biconnected block with one. A binding-only cycle satisfies detailed
-balance and carries no net flux at steady state, so a group whose every step
-sits in such a pendant region exposes only equilibrium ratios however it is
+step graph containing a chemistry step (an isomerization), i.e. shares a
+biconnected block with one. A binding-only cycle satisfies detailed balance and
+carries no net flux at steady state, so a group whose every step sits in such a
+pendant region exposes only equilibrium ratios however it is
 flagged; flipping it to steady state adds a phantom parameter. RE and SS steps
 are both edges here: flux-carrying-ness depends on the graph, not on the flags.
 """

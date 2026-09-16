@@ -6543,7 +6543,7 @@ end
     # Q binds free E on the cycle and the two modified forms as dead ends. The
     # Q group divides by B ({E, E(; res)} | {E(B; res)}) and by residual
     # ({E} | {E(; res), E(B; res)}); each division frees a dead-end constant
-    # on its own, so each is a child and the pair is not minimal.
+    # on its own, and only one bipartition per group is ever applied.
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -6629,8 +6629,12 @@ end
     catch e
         e
     end
-    @test err isa ErrorException
-    @test occursin("changes the covalent residual", sprint(showerror, err))
+    @test err isa ErrorException &&
+          occursin("changes the covalent residual", sprint(showerror, err))
+    # Aggregate pin over the ping-pong seed set: the enumerator itself never
+    # writes a binding step that changes the residual.
+    @test all(EnzymeRates._assert_chemistry_is_iso(m) === nothing
+              for m in EnzymeRates.init_mechanisms(rxn))
     # A binding step may change conformation; only the residual is chemistry.
     conf = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
