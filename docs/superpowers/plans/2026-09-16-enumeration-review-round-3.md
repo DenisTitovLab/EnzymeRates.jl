@@ -610,7 +610,7 @@ git commit -m "Pin split children from conformation and residual contexts"
 
 - [ ] **Step 2: Modeling choices.** Add a paragraph before "**Competitive-inhibitor binding stays at equilibrium.**": "**Chemistry is the isomerization step.** The moves recognize a chemistry step by its having no ligand on it. The enumerator writes every mechanism that way, and `expand_mechanisms` rejects a parent that folds chemistry into a release; the derivation still accepts that form for hand-written textbook mechanisms."
 
-- [ ] **Step 3: Test rules.** In `.claude/CLAUDE.md` under "### Enumeration-engine tests" add rule 4 after rule 3: "4. **Write chemistry the enumerator's way.** A move fixture writes each chemistry step as an isomerization to a product-bound form followed by a release step (`E(A) <--> E(P; residual = A - P)` then `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`), never folded into the release; `expand_mechanisms` rejects the folded form and the moves misread it."
+- [ ] **Step 3: Test rules.** In `.claude/CLAUDE.md` under "### Enumeration-engine tests" change the closing sentence to "File-level test helpers are prefixed `_testhelper_` so they cannot be mistaken for package functions; a one-line closure local to a testset needs no prefix." and add rule 4 after rule 3: "4. **Write chemistry the enumerator's way.** A move fixture writes each chemistry step as an isomerization to a product-bound form followed by a release step (`E(A) <--> E(P; residual = A - P)` then `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`), never folded into the release; `expand_mechanisms` rejects the folded form and the moves misread it."
 
 - [ ] **Step 4: Build the docs** (foreground, no other Julia running, 20-minute timeout): `julia --project=docs -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate(); include("docs/make.jl")'`. Expected: clean build. Commit only the two edited files.
 
@@ -622,6 +622,8 @@ git commit -m "Docs and test rules: chemistry is the isomerization step"
 ---
 
 ### Task 6: Full suite
+
+Denis's ruling after this plan: the giant `@testset "Mechanism Enumeration"` block is broken up as the last step after round 3 (and a round 4 if one is needed), in its own commit, so that the move diffs stay uncontaminated. Not part of this plan.
 
 - [ ] **Step 1: Run the full suite detached** (command under "Running tests") and poll in bounded loops. Expected: all pass; the count is the round-2 count (24048) minus the assertions removed by Task 1 plus those added by Tasks 1, 3 and 4. Report the exact summary line. A `signal: KILL` means the OOM killer; rerun after checking `free -m` shows about 4 GB available, never by killing the VS Code language server.
 
