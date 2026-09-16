@@ -1526,29 +1526,39 @@ end
 """
     _context_bipartitions(group) -> Vector{Tuple{Vector{Step}, Vector{Step}}}
 
-Ways to divide one kinetic group in two by binding context: for each other
-ligand Y carried by some step's context form (`_context_form`), the steps whose
-context form carries Y against the rest. Encodes "the affinity for this
-metabolite may depend on which other ligand is already bound" — including a
+Ways to divide one kinetic group in two by binding context: another ligand
+already bound, the enzyme's conformation, or its covalent residual. Encodes
+"the affinity for this metabolite may depend on what else is bound, on the
+conformation, or on the covalent state" — the ligand family includes a
 competitive inhibitor, which separates a catalytic step from its inhibitor-bound
-mirror. The group's own bound metabolite is never a context. Both parts are
-nonempty, the first part holds the group's first step, ligands that induce the
-same division give one bipartition, and the order follows the ligand's role and
-name for deterministic output.
+mirror. Each context value divides the steps whose context form
+(`_context_form`) carries it from the rest; the group's own bound metabolite is
+never a context, and a group whose forms share one conformation and one residual
+gets no bipartition from those two families. Both parts are nonempty, the first
+part holds the group's first step, context values that induce the same division
+give one bipartition, and the order is ligands (by role then name), then
+conformations (by name), then residuals, for deterministic output.
 """
 function _context_bipartitions(group::Vector{Step})
     own = bound_metabolite(first(group))
+    forms = [_context_form(s) for s in group]
     ligands = Set{Metabolite}()
-    for s in group, b in bound(_context_form(s))
+    for f in forms, b in bound(f)
         own !== nothing && b == own && continue
         push!(ligands, b)
     end
-    carries(s, y) = y in bound(_context_form(s))
+    division(carries) = Step[s for (s, f) in zip(group, forms) if carries(f)]
+    divisions = [division(f -> y in bound(f))
+                 for y in sort!(collect(ligands);
+                                by = b -> (string(typeof(b)), string(name(b))))]
+    append!(divisions, division(f -> conformation(f) == c)
+            for c in sort!(unique(conformation(f) for f in forms); by = string))
+    append!(divisions, division(f -> residual(f) == r)
+            for r in sort!(unique(residual(f) for f in forms); by = string))
     seen = Set{Vector{Step}}()
     out = Tuple{Vector{Step}, Vector{Step}}[]
-    for y in sort!(collect(ligands); by = b -> (string(typeof(b)), string(name(b))))
-        with = Step[s for s in group if carries(s, y)]
-        without = Step[s for s in group if !carries(s, y)]
+    for with in divisions
+        without = Step[s for s in group if !(s in with)]
         (isempty(with) || isempty(without)) && continue
         first_part, second_part = first(group) in with ? (with, without) : (without, with)
         first_part in seen && continue
