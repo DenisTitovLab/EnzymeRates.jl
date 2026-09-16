@@ -6431,7 +6431,7 @@ end
     end
 end
 
-@testset "_expand_add_dead_end_regulator: ping-pong, inhibitor mirrors one half-reaction" begin
+@testset "_expand_add_dead_end_regulator: inhibitor mirrors one half-reaction" begin
     # An inhibitor competes with at least one substrate and one product. In
     # ping-pong the half-reaction whose ligands it does not compete with can still
     # run on the inhibitor-bound modified enzyme, so its chemistry step is mirrored;
@@ -6526,7 +6526,7 @@ end
                    EnzymeRates._add_competitive_inhibitor(rxn, :I), kids)
 end
 
-@testset "_expand_add_dead_end_regulator: no inhibitor-bound form runs the net reaction" begin
+@testset "_expand_add_dead_end_regulator: inhibitor never runs the net reaction" begin
     # Aggregate pin over the ping-pong seed set: for every regulator child, the
     # chemistry steps mirrored onto inhibitor-bound forms are a strict subset of
     # the chemistry steps, so no cycle of inhibitor-bound forms completes the
