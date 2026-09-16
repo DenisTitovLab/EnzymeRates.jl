@@ -5292,16 +5292,18 @@ end
     @test !any(pfc[g] for g in inhibitor_groups)
     @test all(pfc[g] for g in eachindex(pfc) if !(g in inhibitor_groups))
 
-    # Chemistry written as a combined chemistry-release step (no iso step at
-    # all): every group lies on the catalytic cycle and is flux-carrying.
+    # Ping-pong: every group lies on the single catalytic cycle, so every
+    # group is flux-carrying.
     pp = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
             E + A ⇌ E(A)
-            E(A) <--> E(; residual = A - P) + P
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
             E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E + Q
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
         end
     end)
     @test all(EnzymeRates._flux_carrying_groups(pp))
@@ -5501,9 +5503,10 @@ end
             (E + Q ⇌ E(Q), E(; residual = A - P) + Q ⇌ E(Q; residual = A - P),
              E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P))
             E + A ⇌ E(A)
-            E(A) <--> E(; residual = A - P) + P
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
             E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E + Q
+            E(B; residual = A - P) <--> E(Q)
         end
     end)
     q_group = only(grp for grp in EnzymeRates.steps(res) if length(grp) == 3)
@@ -6103,18 +6106,21 @@ end
         end
     end
 
-    @testset "_expand_re_to_ss: ping-pong with combined chemistry-release steps" begin
-        # The two chemistry steps are written as combined chemistry-release steps,
-        # so the mechanism has no iso step at all. Each of the two RE binding
-        # groups cuts a segment on its own, and neither pair is minimal.
+    @testset "_expand_re_to_ss: ping-pong" begin
+        # The rapid-equilibrium subgraph is two trees, {E, E(A), E(Q)} and
+        # {E(P; res), E(; res), E(B; res)}, so every RE group is a bridge and
+        # flipping any one of them alone raises the segment count; no pair is
+        # minimal.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
                 E + A ⇌ E(A)
-                E(A) <--> E(; residual = A - P) + P
+                E(A) <--> E(P; residual = A - P)
+                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
                 E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-                E(B; residual = A - P) <--> E + Q
+                E(B; residual = A - P) <--> E(Q)
+                E(Q) ⇌ E + Q
             end
         end)
         flipA = EnzymeRates.Mechanism(@enzyme_mechanism begin
@@ -6122,9 +6128,23 @@ end
             products: P, Q
             steps: begin
                 E + A <--> E(A)
-                E(A) <--> E(; residual = A - P) + P
+                E(A) <--> E(P; residual = A - P)
+                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
                 E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-                E(B; residual = A - P) <--> E + Q
+                E(B; residual = A - P) <--> E(Q)
+                E(Q) ⇌ E + Q
+            end
+        end)
+        flipP = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) <--> E(P; residual = A - P)
+                E(P; residual = A - P) <--> E(; residual = A - P) + P
+                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+                E(B; residual = A - P) <--> E(Q)
+                E(Q) ⇌ E + Q
             end
         end)
         flipB = EnzymeRates.Mechanism(@enzyme_mechanism begin
@@ -6132,14 +6152,28 @@ end
             products: P, Q
             steps: begin
                 E + A ⇌ E(A)
-                E(A) <--> E(; residual = A - P) + P
+                E(A) <--> E(P; residual = A - P)
+                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
                 E(; residual = A - P) + B <--> E(B; residual = A - P)
-                E(B; residual = A - P) <--> E + Q
+                E(B; residual = A - P) <--> E(Q)
+                E(Q) ⇌ E + Q
+            end
+        end)
+        flipQ = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) <--> E(P; residual = A - P)
+                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+                E(B; residual = A - P) <--> E(Q)
+                E(Q) <--> E + Q
             end
         end)
         kids = EnzymeRates._expand_re_to_ss(m)
-        @test length(kids) == 2
-        @test Set(kids) == Set([flipA, flipB])
+        @test length(kids) == 4
+        @test Set(kids) == Set([flipA, flipP, flipB, flipQ])
     end
 end
 
@@ -6492,13 +6526,13 @@ end
 end
 
 @testset "_expand_add_dead_end_regulator: inhibitor mirrors one half-reaction" begin
-    # An inhibitor competes with at least one substrate and one product. In
-    # ping-pong the half-reaction whose ligands it does not compete with can still
-    # run on the inhibitor-bound modified enzyme, so its chemistry step is mirrored;
-    # the other half is barred by the competing substrate, so the net reaction never
-    # runs with I bound. The five patterns below are: I on E; I on E and E(B; res),
-    # mirroring the second half; I on E(A) and E(; res), mirroring the first half;
-    # I on E(; res); I on E and E(; res).
+    # The inhibitor binds the forms that bind a competing ligand, never a form
+    # already carrying one, so a competing substrate's binding step is never
+    # mirrored and no inhibitor-bound branch completes the net reaction. With A
+    # binding E(Q) and P binding E(B; res) as dead ends, the pattern "compete
+    # with A and P" puts I on E, E(Q), E(; res) and E(B; res): the second
+    # half-reaction (B binds, chemistry, Q leaves) runs with I bound, and A
+    # cannot bind E(I). Six patterns give distinct targets.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
@@ -6509,79 +6543,124 @@ end
         products: P, Q
         steps: begin
             E + A ⇌ E(A)
-            E(A) <--> E(; residual = A - P) + P
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
             E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E + Q
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
+            E(Q) + A ⇌ E(A, Q)
+            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
         end
     end)
     mech(block) = EnzymeRates.Mechanism(block)
-    only_E = mech(@enzyme_mechanism begin
+    second_half = mech(@enzyme_mechanism begin      # I competes with A and P
         substrates: A, B
         products: P, Q
         regulators: I
         steps: begin
             E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            (E(; residual = A - P) + B ⇌ E(B; residual = A - P),
+             E(I::Inh; residual = A - P) + B ⇌ E(B, I::Inh; residual = A - P))
+            (E(B; residual = A - P) <--> E(Q),
+             E(B, I::Inh; residual = A - P) <--> E(I::Inh, Q))
+            (E(Q) ⇌ E + Q, E(I::Inh, Q) ⇌ E(I::Inh) + Q)
+            E(Q) + A ⇌ E(A, Q)
+            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
+            (E + I ⇌ E(I::Inh), E(Q) + I ⇌ E(I::Inh, Q),
+             E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P),
+             E(B; residual = A - P) + I ⇌ E(B, I::Inh; residual = A - P))
+        end
+    end)
+    only_E = mech(@enzyme_mechanism begin           # I competes with A and Q
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
+            E(Q) + A ⇌ E(A, Q)
+            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
             E + I ⇌ E(I::Inh)
-            E(A) <--> E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E + Q
         end
     end)
-    E_and_EBres = mech(@enzyme_mechanism begin
+    B_binding = mech(@enzyme_mechanism begin        # I competes with A, P and Q
         substrates: A, B
         products: P, Q
         regulators: I
         steps: begin
             E + A ⇌ E(A)
-            (E + I ⇌ E(I::Inh), E(B; residual = A - P) + I ⇌ E(B, I::Inh; residual = A - P))
-            E(A) <--> E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            (E(B; residual = A - P) <--> E + Q,
-             E(B, I::Inh; residual = A - P) <--> E(I::Inh) + Q)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            (E(; residual = A - P) + B ⇌ E(B; residual = A - P),
+             E(I::Inh; residual = A - P) + B ⇌ E(B, I::Inh; residual = A - P))
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
+            E(Q) + A ⇌ E(A, Q)
+            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
+            (E + I ⇌ E(I::Inh),
+             E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P),
+             E(B; residual = A - P) + I ⇌ E(B, I::Inh; residual = A - P))
         end
     end)
-    EA_and_Eres = mech(@enzyme_mechanism begin
+    only_Eres = mech(@enzyme_mechanism begin        # I competes with B and P
         substrates: A, B
         products: P, Q
         regulators: I
         steps: begin
             E + A ⇌ E(A)
-            (E(A) + I ⇌ E(A, I::Inh),
-             E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P))
-            (E(A) <--> E(; residual = A - P) + P,
-             E(A, I::Inh) <--> E(I::Inh; residual = A - P) + P)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
             E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E + Q
-        end
-    end)
-    only_Eres = mech(@enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        regulators: I
-        steps: begin
-            E + A ⇌ E(A)
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
+            E(Q) + A ⇌ E(A, Q)
+            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
             E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P)
-            E(A) <--> E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E + Q
         end
     end)
-    E_and_Eres = mech(@enzyme_mechanism begin
+    E_and_Eres = mech(@enzyme_mechanism begin       # I competes with B and Q
         substrates: A, B
         products: P, Q
         regulators: I
         steps: begin
             E + A ⇌ E(A)
-            (E + I ⇌ E(I::Inh), E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P))
-            E(A) <--> E(; residual = A - P) + P
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
             E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E + Q
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
+            E(Q) + A ⇌ E(A, Q)
+            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
+            (E + I ⇌ E(I::Inh), E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P))
         end
     end)
+    Q_release = mech(@enzyme_mechanism begin        # I competes with A, B and P
+        substrates: A, B
+        products: P, Q
+        regulators: I
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            (E(Q) ⇌ E + Q, E(I::Inh, Q) ⇌ E(I::Inh) + Q)
+            E(Q) + A ⇌ E(A, Q)
+            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
+            (E + I ⇌ E(I::Inh), E(Q) + I ⇌ E(I::Inh, Q),
+             E(; residual = A - P) + I ⇌ E(I::Inh; residual = A - P))
+        end
+    end)
+    expected = [second_half, only_E, B_binding, only_Eres, E_and_Eres, Q_release]
     kids = EnzymeRates._expand_add_dead_end_regulator(m, rxn)
-    @test length(kids) == 5
-    @test Set(EnzymeRates.steps.(kids)) ==
-          Set(EnzymeRates.steps.([only_E, E_and_EBres, EA_and_Eres, only_Eres, E_and_Eres]))
+    @test length(kids) == 6
+    @test Set(EnzymeRates.steps.(kids)) == Set(EnzymeRates.steps.(expected))
     @test all(c -> EnzymeRates.reaction(c) ==
                    EnzymeRates._add_competitive_inhibitor(rxn, :I), kids)
 end
