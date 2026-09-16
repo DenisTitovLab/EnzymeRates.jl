@@ -258,4 +258,6 @@ Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`, and the expa
 2. **Assert the exact children.** A move test asserts `length(children) == n` and `Set(children) == Set(expected)` with every expected child written out as a mechanism. Property assertions (every child gains, no superset) are welcome in addition, never instead: a property test passes on wrong output that happens to satisfy the property.
 3. **Keep new testsets outside the giant `@testset "Mechanism Enumeration"` block.** That block is compiled as one expression; add new testsets after its closing `end # top-level testset`, where the flip and split move tests already are.
 
-Test helpers defined in test files are prefixed `_testhelper_` so they cannot be mistaken for package functions.
+4. **Write chemistry the enumerator's way.** A move fixture writes each chemistry step as an isomerization to a product-bound form followed by a release step (`E(A) <--> E(P; residual = A - P)` then `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`), never folded into the release; `expand_mechanisms` rejects the folded form and the moves misread it.
+
+File-level test helpers are prefixed `_testhelper_` so they cannot be mistaken for package functions; a one-line closure local to a testset needs no prefix.

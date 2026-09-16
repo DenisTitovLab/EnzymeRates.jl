@@ -32,7 +32,14 @@ on conformation `:E` carrying a residual rather than a separate conformation
 label, and a step that would return the enzyme to free `:E` with an empty
 residual mid-cycle is rejected, since it would split the reaction into two
 disconnected half-cycles. See [Ping-pong mechanisms](@ref) for detail on these
-mechanisms.
+mechanisms. Chemistry is always written as an isomerization: the enzyme
+isomerizes to a product-bound form, and the release is its own step. Every move
+takes the isomerization steps as the chemistry steps, so a mechanism written for
+the derivation with chemistry folded into a release step, as on the
+[Ping-pong mechanisms](@ref) page, derives correctly but is not a valid parent
+for `expand_mechanisms`, which rejects a binding step that changes the covalent
+residual. A binding step may change the enzyme's conformation; a conformation
+change is not a chemical reaction.
 
 ## `EnzymeRates.seed_mechanisms`
 
@@ -219,6 +226,11 @@ but only after a split has given the two bindings separate constants.
 catalytic cycle carries no net flux at steady state. Its forward and reverse rates
 enter the equation only as their ratio, which the equilibrium form already has,
 so the group never flips.
+
+**Chemistry is the isomerization step.** The moves recognize a chemistry step
+by its having no ligand on it. The enumerator writes every mechanism that way,
+and `expand_mechanisms` rejects a parent that folds chemistry into a release;
+the derivation still accepts that form for hand-written textbook mechanisms.
 
 **Competitive-inhibitor binding stays at equilibrium.** An inhibitor bound to
 two forms that a catalytic step connects carries flux through its mirror step,
